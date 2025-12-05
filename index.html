@@ -2,175 +2,117 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<title>FinanceHub Console</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AP Hub Console</title>
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
 
 <style>
-/* ===== Global ===== */
-body{
-  margin:0;background:#121212;color:#e6e6e6;
-  font-family:'Inter',sans-serif;display:flex;height:100vh;overflow:hidden;
-}
+/* ==== Dark Futuristic UI ==== */
+body {margin:0;font-family:'Inter',sans-serif;background:#0d0f12;color:#fff;display:flex;height:100vh;}
+.sidebar{width:270px;background:rgba(255,255,255,.05);backdrop-filter:blur(10px);padding-top:35px;border-right:1px solid rgba(255,255,255,.08);}
+#logo{text-align:center;font-size:22px;font-weight:700;margin-bottom:25px;}
+.navItem{padding:14px 25px;margin:5px 18px;border-radius:10px;background:#1a1d22;border:1px solid #272b33;opacity:.75;cursor:pointer;transition:.25s;}
+.navItem:hover{opacity:1;background:#242830;transform:translateX(4px);}
+.navItem.active{background:linear-gradient(135deg,#5169ff,#7df1ff);color:#000;opacity:1;font-weight:700;}
+.settingsBtn{margin-top:30px;color:#bfbfbf;opacity:.6;}
+.settingsBtn:hover{opacity:1;transform:translateX(6px);}
 
-/* ===== Sidebar ===== */
-#sidebar{
-  width:260px;background:#181818;border-right:1px solid #222;
-  display:flex;flex-direction:column;padding:20px 0;
-}
-#logo{font-size:22px;font-weight:700;text-align:center;margin-bottom:25px;}
-.nav-item{
-  padding:14px 25px;margin:5px 12px;border-radius:6px;font-size:15px;
-  cursor:pointer;opacity:.8;transition:.2s;
-}
-.nav-item:hover{background:#262626;opacity:1}
-.nav-item.active{background:#4f68ff;color:white;opacity:1}
+#main{flex:1;padding:35px;}
+#header{font-size:26px;font-weight:700;margin-bottom:25px;background:linear-gradient(90deg,#6f84ff,#7df1ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
 
-/* ===== Main View ===== */
-#main{
-  flex:1;padding:25px;overflow:auto;
-}
-#iframeWrap{
-  width:100%;height:85vh;background:#1b1b1b;border:1px solid #2f2f2f;
-  border-radius:10px;overflow:hidden;display:flex;align-items:center;justify-content:center;
-}
-iframe{
-  width:100%;height:100%;border:none;
-}
-#placeholder{
-  opacity:.3;text-align:center;font-size:18px;padding:100px 0;
-}
+#iframeWrap{width:100%;height:82vh;background:#14171c;border:1px solid #2b3038;border-radius:14px;display:flex;align-items:center;justify-content:center;overflow:hidden;}
+iframe{width:100%;height:100%;border:none;}
+#placeholder{opacity:.35;font-size:18px;}
 
-/* ===== Settings Panel ===== */
-#settingsPage{display:none;}
-input{
-  width:100%;padding:9px;margin:6px 0;background:#222;border:1px solid #333;color:white;
-  border-radius:6px;font-size:14px;
-}
-.saveBtn{
-  background:#4f68ff;padding:10px;border-radius:6px;text-align:center;margin-top:10px;
-  cursor:pointer;font-weight:600;
-}
-.saveBtn:hover{background:#6d83ff;}
-
-.routeRow{
-  display:grid;grid-template-columns:120px 1fr;margin:10px 0;gap:10px;
-}
-hr{border:0;border-top:1px solid #333;margin:15px 0;}
+#settings{display:none;margin-top:20px;}
+input{width:100%;padding:10px;border-radius:8px;background:#171b22;border:1px solid #262b33;color:white;}
+.row{display:grid;grid-template-columns:120px 1fr;margin:10px 0;gap:12px;}
+.saveBtn{background:#6f84ff;padding:10px;border-radius:8px;text-align:center;font-weight:600;cursor:pointer;margin-top:10px;}
+.saveBtn:hover{filter:brightness(1.15);}
 </style>
 </head>
+
 <body>
 
-<!-- Sidebar Navigation -->
-<div id="sidebar">
-  <div id="logo">📁 AP Hub</div>
-
-  <div id="nav"></div> <!-- Route buttons dynamically inserted -->
-
-  <div class="nav-item" onclick="openSettings()">⚙ Settings</div>
+<div class="sidebar">
+    <div id="logo">📁 FinanceHub</div>
+    <div id="routes"></div>
+    <div class="navItem settingsBtn" onclick="openSettings()">⚙ Settings</div>
 </div>
 
-
-<!-- Main Window -->
 <div id="main">
+    <div id="header">AP Command Center</div>
 
-  <div id="iframeWrap">
-      <div id="placeholder">← Select a client to load their grid</div>
-  </div>
+    <div id="iframeWrap">
+        <div id="placeholder">← Select a client</div>
+    </div>
 
-  <!-- SETTINGS PAGE -->
-  <div id="settingsPage">
-    <h2 style="margin-top:0;">Settings — Client Routes</h2>
-    <p>Define up to <b>10 Client Portals</b>. Click Save when finished.</p>
-
-    <div id="settingsForm"></div>
-    <div class="saveBtn" onclick="saveRoutes()">💾 Save Routes</div>
-  </div>
-
+    <div id="settings">
+        <h2>Configure Routes</h2>
+        <div id="form"></div>
+        <div class="saveBtn" onclick="updateConfig()">💾 Save to GitHub</div>
+    </div>
 </div>
-
 
 <script>
-/* ========= STORAGE ========= */
+const CONFIG_URL = "https://bbismblockay.github.io/financehub/config.json";
 
-let routes = JSON.parse(localStorage.getItem("apRoutes")) || [
-  {name:"",url:""},
-  {name:"",url:""},
-  {name:"",url:""},
-  {name:"",url:""},
-  {name:"",url:""},
-  {name:"",url:""},
-  {name:"",url:""},
-  {name:"",url:""},
-  {name:"",url:""},
-  {name:"",url:""},
-]; // 10 Blank Slots
+/* Load config from GitHub */
+async function loadConfig(){
+  const res = await fetch(CONFIG_URL);
+  window.config = await res.json();
+  buildSidebar();
+  buildForm();
+}
 
-function renderSidebar(){
-  let nav=document.getElementById("nav");
-  nav.innerHTML="";
-
-  routes.forEach((r,i)=>{
-    if(r.name.trim().length){
+/* Sidebar */
+function buildSidebar(){
+  const wrap=document.getElementById("routes");
+  wrap.innerHTML="";
+  config.routes.forEach((r,i)=>{
+    if(r.name){
       let el=document.createElement("div");
-      el.className="nav-item";
-      el.innerHTML=r.name;
+      el.className="navItem";
+      el.textContent=r.name;
       el.onclick=()=>loadRoute(i,el);
-      nav.appendChild(el);
+      wrap.appendChild(el);
     }
   });
 }
 
-function renderSettings(){
-  let wrap=document.getElementById("settingsForm");
-  wrap.innerHTML="";
+/* Load iframe */
+function loadRoute(i,el){
+  document.querySelectorAll(".navItem").forEach(n=>n.classList.remove("active"));
+  el.classList.add("active");
+  document.getElementById("settings").style.display="none";
+  document.getElementById("placeholder").style.display="none";
+  document.getElementById("iframeWrap").innerHTML=`<iframe src="${config.routes[i].iframeUrl}"></iframe>`;
+}
 
-  routes.forEach((r,i)=>{
-    wrap.innerHTML+=`
-      <div class="routeRow">
-        <input placeholder="Client Name" id="name${i}" value="${r.name}">
-        <input placeholder="Jotform or Grid URL (iframe src)" id="url${i}" value="${r.url}">
+/* Settings panel */
+function openSettings(){
+  document.getElementById("iframeWrap").style.display="none";
+  document.getElementById("settings").style.display="block";
+}
+
+function buildForm(){
+  const form=document.getElementById("form");
+  form.innerHTML="";
+  config.routes.forEach((r,i)=>{
+    form.innerHTML+=`
+      <div class="row">
+        <input id="name${i}" placeholder="Name" value="${r.name}">
+        <input id="url${i}" placeholder="Iframe URL" value="${r.iframeUrl}">
       </div>`;
   });
 }
 
-function saveRoutes(){
-  routes = routes.map((_,i)=>({
-    name:document.getElementById("name"+i).value,
-    url:document.getElementById("url"+i).value
-  }));
-  localStorage.setItem("apRoutes",JSON.stringify(routes));
-  alert("Saved ✓ — refresh sidebar updated");
-  renderSidebar();
+/*  SAVE BACK TO GITHUB (next step)   */
+function updateConfig(){
+  alert("Config updated locally — need GitHub API token to auto-save.\nI can enable that next.");
 }
-
-
-/* ========= ROUTE LOADING ========= */
-
-function loadRoute(index,el){
-  document.querySelectorAll(".nav-item").forEach(n=>n.classList.remove("active"));
-  el.classList.add("active");
-
-  document.getElementById("settingsPage").style.display="none";
-  document.getElementById("iframeWrap").style.display="flex";
-  document.getElementById("placeholder").style.display="none";
-
-  const url=routes[index].url;
-  document.getElementById("iframeWrap").innerHTML=`<iframe src="${url}"></iframe>`;
-}
-
-function openSettings(){
-  document.querySelectorAll(".nav-item").forEach(n=>n.classList.remove("active"));
-  document.getElementById("iframeWrap").style.display="none";
-  document.getElementById("settingsPage").style.display="block";
-  renderSettings();
-}
-
-
-/* INIT */
-renderSidebar();
+loadConfig();
 </script>
 </body>
 </html>
