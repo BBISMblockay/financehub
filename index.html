@@ -5,120 +5,147 @@
 <title>FinanceHub</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 
 <style>
-/* ===== GLOBAL ===== */
+/* ====== GLOBAL ====== */
+* {margin:0;padding:0;box-sizing:border-box;}
 body {
-  margin:0; font-family:'Inter',sans-serif;
-  background:#0c0e12; color:#e6e9ef;
-  height:100vh; overflow:hidden; display:flex;
+    background:#0c0e12;
+    color:#e7ebf2;
+    font-family:"Inter",sans-serif;
+    height:100vh; display:flex; overflow:hidden;
 }
 
-/* ===== SIDEBAR ===== */
-.sidebar{
-  width:240px; background:rgba(255,255,255,0.03);
-  backdrop-filter:blur(14px);
-  border-right:1px solid rgba(255,255,255,0.07);
-  display:flex; flex-direction:column; padding:25px 0;
+/* ====== SIDEBAR ====== */
+.sidebar {
+    width:260px;
+    background:rgba(255,255,255,.05);
+    backdrop-filter:blur(24px) saturate(180%);
+    border-right:1px solid rgba(255,255,255,.08);
+    padding:28px 0;
+    display:flex; flex-direction:column;
+    transition:.35s ease;
 }
-.logo{
-  text-align:center; font-size:26px; font-weight:800; letter-spacing:.4px;
-  background:linear-gradient(90deg,#7ed7ff,#5e70ff);
-  -webkit-background-clip:text; -webkit-text-fill-color:transparent;
-  margin-bottom:22px;
+.sidebar.hidden{width:0;padding:0;overflow:hidden;}
+
+.logo {
+    font-size:26px;font-weight:800;margin-bottom:26px;text-align:center;
+    background:linear-gradient(90deg,#79d1ff,#6d6bff);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
 }
-.routes-title{
-  font-size:11px; opacity:.55; padding:0 20px 6px;
-  letter-spacing:.15em; text-transform:uppercase;
+
+.section-title {
+    font-size:10px;text-transform:uppercase;letter-spacing:.14em;
+    padding:0 22px;margin-bottom:6px;opacity:.55;
 }
-.route{
-  margin:5px 14px; padding:10px 14px;
-  border-radius:12px; font-size:14px; cursor:pointer;
-  background:rgba(255,255,255,0.03);
-  border:1px solid rgba(255,255,255,0.06);
-  display:flex; justify-content:space-between; align-items:center;
-  transition:.25s;
+
+/* ROUTE BUTTONS */
+.route {
+    margin:6px 14px; padding:12px 18px;
+    background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.07);
+    border-radius:12px; cursor:pointer;
+    font-size:14px; transition:.25s ease;
+    display:flex;justify-content:space-between;align-items:center;
 }
-.route:hover{ background:rgba(255,255,255,0.10);}
-.route.active{
-  background:linear-gradient(135deg,#6b85ff,#6ff6ff);
-  color:#000; font-weight:600; box-shadow:0 0 26px rgba(110,160,255,.5);
+.route:hover {background:rgba(255,255,255,.13);transform:translateX(4px);}
+.route.active {
+    background:linear-gradient(135deg,#6b83ff,#72f9ff);
+    color:#000;font-weight:700;
+    box-shadow:0 0 28px rgba(110,160,255,.55);
 }
 .dot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.35);}
 .route.active .dot{background:#000;}
 
-/* ===== MAIN VIEW ===== */
-.main{flex:1;display:flex;flex-direction:column;padding:24px;}
-.header{
-  display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;
+/* COLLAPSE BUTTON */
+.toggle {
+    margin-top:auto;text-align:center;padding:16px;
+    font-size:13px;cursor:pointer;opacity:.7;transition:.2s;
 }
-.head-title{font-size:24px;font-weight:700;}
-.head-sub{font-size:13px;opacity:.55;margin-top:3px;}
+.toggle:hover{opacity:1;color:#8ef6ff}
 
-/* ===== EXPORT BUTTON ===== */
-.export{
-  background:linear-gradient(135deg,#6b85ff,#6ff6ff);
-  border:none;color:#000;font-weight:700;
-  padding:10px 22px;border-radius:999px;cursor:pointer;
-  box-shadow:0 0 20px rgba(120,170,255,.45);
-  transition:.18s;
+/* ====== MAIN ====== */
+.main {
+    flex:1;display:flex;flex-direction:column;
+    padding:28px;overflow:hidden;
+}
+
+.header {
+    display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;
+}
+.title {font-size:24px;font-weight:700;}
+.sub {font-size:13px;opacity:.55;margin-top:3px;}
+
+.export {
+    background:linear-gradient(135deg,#6b83ff,#75f6ff);
+    color:#000;font-weight:700;border:none;
+    padding:10px 22px;border-radius:999px;cursor:pointer;
+    box-shadow:0 0 22px rgba(125,175,255,.45);
+    transition:.22s;
 }
 .export:hover{transform:translateY(-2px) scale(1.03);}
+.export.disabled{opacity:.3;cursor:not-allowed;box-shadow:none}
 
-/* ===== FRAME WINDOW ===== */
-.frame-holder{
-  flex:1;border-radius:12px;overflow:hidden;
-  background:#131722; border:1px solid rgba(255,255,255,.08);
-  box-shadow:0 8px 40px rgba(0,0,0,.55);
+/* ====== iframe panel ====== */
+.frame-wrap {
+    flex:1;position:relative;border-radius:14px;overflow:hidden;
+    background:radial-gradient(circle at top left,#1c202d,#0b0d12 55%);
+    border:1px solid rgba(255,255,255,.08);
+    box-shadow:0 10px 50px rgba(0,0,0,.55);
 }
-iframe{width:100%;height:100%;border:none;display:none;}
-iframe.show{display:block;}
+iframe {
+    width:100%;height:100%;border:none;opacity:0;
+    transition:opacity .45s ease;
+}
+iframe.show{opacity:1;}
 
-.placeholder{
-  text-align:center;font-size:15px;opacity:.35;
-  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+.placeholder {
+    position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+    opacity:.35;font-size:16px;text-align:center;
 }
 </style>
 </head>
 
 <body>
 
-<div class="sidebar">
-  <div class="logo">FinanceHub</div>
-  <div class="routes-title">Routes</div>
+<!-- ===================== SIDEBAR ===================== -->
+<div id="sidebar" class="sidebar">
+    <div class="logo">FinanceHub</div>
+    <div class="section-title">AP Routes</div>
 
-  <div class="route" data-id="1">Route 1 <div class="dot"></div></div>
-  <div class="route" data-id="2">Route 2 <div class="dot"></div></div>
-  <div class="route" data-id="3">Route 3 <div class="dot"></div></div>
-  <div class="route" data-id="4">Route 4 <div class="dot"></div></div>
-  <div class="route" data-id="5">Route 5 <div class="dot"></div></div>
-  <div class="route" data-id="6">Route 6 <div class="dot"></div></div>
-  <div class="route" data-id="7">Route 7 <div class="dot"></div></div>
-  <div class="route" data-id="8">Route 8 <div class="dot"></div></div>
-  <div class="route" data-id="9">Route 9 <div class="dot"></div></div>
-  <div class="route" data-id="10">Route 10 <div class="dot"></div></div>
+    <div class="route" data-id="1">Route 1<div class="dot"></div></div>
+    <div class="route" data-id="2">Route 2<div class="dot"></div></div>
+    <div class="route" data-id="3">Route 3<div class="dot"></div></div>
+    <div class="route" data-id="4">Route 4<div class="dot"></div></div>
+    <div class="route" data-id="5">Route 5<div class="dot"></div></div>
+    <div class="route" data-id="6">Route 6<div class="dot"></div></div>
+    <div class="route" data-id="7">Route 7<div class="dot"></div></div>
+    <div class="route" data-id="8">Route 8<div class="dot"></div></div>
+    <div class="route" data-id="9">Route 9<div class="dot"></div></div>
+    <div class="route" data-id="10">Route 10<div class="dot"></div></div>
+
+    <div class="toggle" onclick="toggleSidebar()">☰ Collapse</div>
 </div>
 
+<!-- ===================== MAIN ===================== -->
 <div class="main">
-
-  <div class="header">
-    <div>
-      <div id="routeName" class="head-title">No route selected</div>
-      <div id="routeURL" class="head-sub">Choose a route to load its queue</div>
+    <div class="header">
+        <div>
+            <div id="routeName" class="title">Select a route</div>
+            <div id="routeURL" class="sub">Pick queue from left panel</div>
+        </div>
+        <button id="exportBtn" class="export disabled">Export ↓</button>
     </div>
-    <button id="export" class="export" disabled>⬇ Export</button>
-  </div>
 
-  <div class="frame-holder">
-    <iframe id="frame"></iframe>
-    <div id="placeholder" class="placeholder">Select a route to load grid</div>
-  </div>
+    <div class="frame-wrap">
+        <div id="placeholder" class="placeholder">No queue loaded</div>
+        <iframe id="frame"></iframe>
+    </div>
 </div>
 
 <script>
-/* your jotform links already working — re-centering layout only */
-
+/* 🔗 Hard-coded Jotform Routes */
 const ROUTES={
   1:{url:"https://www.jotform.com/grid/201606337973054",excel:"https://www.jotform.com/excel/201606337973054"},
   2:{url:"https://www.jotform.com/grid/200496754119055",excel:"https://www.jotform.com/excel/200496754119055"},
@@ -128,30 +155,52 @@ const ROUTES={
   6:{url:"https://www.jotform.com/grid/201496499131056",excel:"https://www.jotform.com/excel/201496499131056"},
   7:{url:"https://www.jotform.com/grid/240031492980049",excel:"https://www.jotform.com/excel/240031492980049"},
   8:{url:"",excel:""},9:{url:"",excel:""},10:{url:"",excel:""},
-}
+};
 
-const btns=document.querySelectorAll('.route')
-const frame=document.getElementById('frame')
-const nameEl=document.getElementById('routeName')
-const urlEl=document.getElementById('routeURL')
-const exportBtn=document.getElementById('export')
-const placeholder=document.getElementById('placeholder')
+const frame=document.getElementById("frame"),
+      nameEl=document.getElementById("routeName"),
+      urlEl=document.getElementById("routeURL"),
+      exportBtn=document.getElementById("exportBtn"),
+      placeholder=document.getElementById("placeholder"),
+      btns=document.querySelectorAll(".route");
 
+/* Route loading with fade transition */
 btns.forEach(b=>b.onclick=()=>{
-  btns.forEach(x=>x.classList.remove('active'));b.classList.add('active')
-  let id=b.dataset.id,data=ROUTES[id]
+    btns.forEach(x=>x.classList.remove("active"));
+    b.classList.add("active");
 
-  if(!data.url){ frame.src="";frame.classList.remove('show')
-    placeholder.innerHTML="Route not configured";placeholder.style.display="block"
-    exportBtn.disabled=true;return }
+    let id=b.dataset.id,r=ROUTES[id];
+    nameEl.textContent="Route "+id;
+    urlEl.textContent=r.url || "No URL assigned";
 
-  frame.src=data.url;frame.classList.add('show')
-  placeholder.style.display="none"
-  exportBtn.disabled=!data.excel?true:false
-  exportBtn.onclick=()=>window.open(data.excel,'_blank')
-  nameEl.textContent="Route "+id
-  urlEl.textContent=data.url
-})
+    if(!r.url){
+        frame.classList.remove("show");
+        frame.src="";
+        placeholder.style.display="block";
+        exportBtn.classList.add("disabled");
+        return;
+    }
+
+    placeholder.style.display="none";
+    frame.style.opacity=0;
+    setTimeout(()=> {
+        frame.src=r.url;
+        frame.classList.add("show");
+    },150);
+
+    if(r.excel){
+        exportBtn.classList.remove("disabled");
+        exportBtn.onclick=()=>window.open(r.excel,"_blank");
+    }else{
+        exportBtn.classList.add("disabled");
+    }
+});
+
+/* Sidebar collapse toggle */
+function toggleSidebar(){
+    document.getElementById("sidebar").classList.toggle("hidden");
+}
 </script>
+
 </body>
 </html>
