@@ -2,205 +2,190 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>FinanceHub</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FinanceHub AP Console</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
 
 <style>
-/* ====== GLOBAL ====== */
-* {margin:0;padding:0;box-sizing:border-box;}
+
+/* === GLOBAL === */
 body {
-    background:#0c0e12;
-    color:#e7ebf2;
-    font-family:"Inter",sans-serif;
-    height:100vh; display:flex; overflow:hidden;
+    margin:0;
+    font-family: Inter, sans-serif;
+    background:#0b0f17;
+    color:#e8ecf3;
+    overflow:hidden;
 }
 
-/* ====== SIDEBAR ====== */
-.sidebar {
-    width:260px;
-    background:rgba(255,255,255,.05);
-    backdrop-filter:blur(24px) saturate(180%);
-    border-right:1px solid rgba(255,255,255,.08);
-    padding:28px 0;
-    display:flex; flex-direction:column;
-    transition:.35s ease;
-}
-.sidebar.hidden{width:0;padding:0;overflow:hidden;}
-
-.logo {
-    font-size:26px;font-weight:800;margin-bottom:26px;text-align:center;
-    background:linear-gradient(90deg,#79d1ff,#6d6bff);
-    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+/* === SIDEBAR === */
+#sidebar {
+    position:fixed;
+    top:0; left:0;
+    width:260px; height:100vh;
+    background:rgba(17,24,39,.68);
+    backdrop-filter:blur(18px) saturate(180%);
+    border-right:1px solid rgba(255,255,255,.07);
+    box-shadow:4px 0 20px rgba(0,0,0,.45);
+    padding:28px;
 }
 
-.section-title {
-    font-size:10px;text-transform:uppercase;letter-spacing:.14em;
-    padding:0 22px;margin-bottom:6px;opacity:.55;
+#title {
+    font-size:23px;
+    font-weight:800;
+    margin-bottom:30px;
+    letter-spacing:.6px;
+    color:#4cb4ff;
+    text-shadow:0 0 15px #007dff55;
 }
 
-/* ROUTE BUTTONS */
+/* === ROUTE BUTTONS === */
 .route {
-    margin:6px 14px; padding:12px 18px;
-    background:rgba(255,255,255,.04);
-    border:1px solid rgba(255,255,255,.07);
-    border-radius:12px; cursor:pointer;
-    font-size:14px; transition:.25s ease;
-    display:flex;justify-content:space-between;align-items:center;
-}
-.route:hover {background:rgba(255,255,255,.13);transform:translateX(4px);}
-.route.active {
-    background:linear-gradient(135deg,#6b83ff,#72f9ff);
-    color:#000;font-weight:700;
-    box-shadow:0 0 28px rgba(110,160,255,.55);
-}
-.dot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.35);}
-.route.active .dot{background:#000;}
-
-/* COLLAPSE BUTTON */
-.toggle {
-    margin-top:auto;text-align:center;padding:16px;
-    font-size:13px;cursor:pointer;opacity:.7;transition:.2s;
-}
-.toggle:hover{opacity:1;color:#8ef6ff}
-
-/* ====== MAIN ====== */
-.main {
-    flex:1;display:flex;flex-direction:column;
-    padding:28px;overflow:hidden;
-}
-
-.header {
-    display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;
-}
-.title {font-size:24px;font-weight:700;}
-.sub {font-size:13px;opacity:.55;margin-top:3px;}
-
-.export {
-    background:linear-gradient(135deg,#6b83ff,#75f6ff);
-    color:#000;font-weight:700;border:none;
-    padding:10px 22px;border-radius:999px;cursor:pointer;
-    box-shadow:0 0 22px rgba(125,175,255,.45);
+    padding:12px 14px;
+    border-radius:8px;
+    margin-bottom:8px;
+    cursor:pointer;
+    font-weight:500;
+    font-size:15px;
+    color:#aeb6c2;
     transition:.22s;
+    background:rgba(255,255,255,.03);
 }
-.export:hover{transform:translateY(-2px) scale(1.03);}
-.export.disabled{opacity:.3;cursor:not-allowed;box-shadow:none}
+.route:hover {background:rgba(255,255,255,.08);}
+.route.active {background:#008cff; color:#fff; font-weight:700;}
 
-/* ====== iframe panel ====== */
-.frame-wrap {
-    flex:1;position:relative;border-radius:14px;overflow:hidden;
-    background:radial-gradient(circle at top left,#1c202d,#0b0d12 55%);
-    border:1px solid rgba(255,255,255,.08);
-    box-shadow:0 10px 50px rgba(0,0,0,.55);
+/* === TOP NAV BAR === */
+#topbar {
+    position:fixed;
+    left:260px; top:0; right:0;
+    height:70px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:0 26px;
+    background:#0f141f;
+    border-bottom:1px solid rgba(255,255,255,.07);
+    box-shadow:0 2px 10px rgba(0,0,0,.4);
+    z-index:90;
 }
+
+#routeName {
+    font-size:21px;
+    font-weight:700;
+    letter-spacing:.3px;
+    color:#4cc3ff;
+}
+
+/* === EXPORT BUTTON === */
+#export {
+    background:#0090ff;
+    color:white;
+    font-weight:700;
+    border:none;
+    padding:10px 22px;
+    border-radius:8px;
+    cursor:pointer;
+    transition:.25s;
+    font-size:14px;
+}
+#export:hover {transform:scale(1.04); background:#33a8ff;}
+
+/* === VIEW PORT === */
+#viewer {
+    position:fixed;
+    top:70px; left:260px; right:0; bottom:0;
+    background:#0d121b;
+}
+
 iframe {
-    width:100%;height:100%;border:none;opacity:0;
-    transition:opacity .45s ease;
+    width:100%; height:100%;
+    border:none;
+    opacity:0;
+    transition:opacity .5s ease-in-out;
 }
-iframe.show{opacity:1;}
+iframe.loaded {opacity:1;}
 
-.placeholder {
-    position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
-    opacity:.35;font-size:16px;text-align:center;
-}
 </style>
 </head>
 
+
 <body>
 
-<!-- ===================== SIDEBAR ===================== -->
-<div id="sidebar" class="sidebar">
-    <div class="logo">FinanceHub</div>
-    <div class="section-title">AP Routes</div>
+<!-- SIDEBAR -->
+<div id="sidebar">
+    <div id="title">FINANCEHUB ⚡</div>
 
-    <div class="route" data-id="1">Route 1<div class="dot"></div></div>
-    <div class="route" data-id="2">Route 2<div class="dot"></div></div>
-    <div class="route" data-id="3">Route 3<div class="dot"></div></div>
-    <div class="route" data-id="4">Route 4<div class="dot"></div></div>
-    <div class="route" data-id="5">Route 5<div class="dot"></div></div>
-    <div class="route" data-id="6">Route 6<div class="dot"></div></div>
-    <div class="route" data-id="7">Route 7<div class="dot"></div></div>
-    <div class="route" data-id="8">Route 8<div class="dot"></div></div>
-    <div class="route" data-id="9">Route 9<div class="dot"></div></div>
-    <div class="route" data-id="10">Route 10<div class="dot"></div></div>
-
-    <div class="toggle" onclick="toggleSidebar()">☰ Collapse</div>
+    <div class="route active" onclick="switchRoute(1,this)">Accounts Payable</div>
+    <div class="route" onclick="switchRoute(2,this)">Route 2</div>
+    <div class="route" onclick="switchRoute(3,this)">Route 3</div>
+    <div class="route" onclick="switchRoute(4,this)">Route 4</div>
+    <div class="route" onclick="switchRoute(5,this)">Route 5</div>
+    <div class="route" onclick="switchRoute(6,this)">Route 6</div>
+    <div class="route" onclick="switchRoute(7,this)">Route 7</div>
+    <div class="route" onclick="switchRoute(8,this)">Route 8</div>
+    <div class="route" onclick="switchRoute(9,this)">Route 9</div>
+    <div class="route" onclick="switchRoute(10,this)">Route 10</div>
 </div>
 
-<!-- ===================== MAIN ===================== -->
-<div class="main">
-    <div class="header">
-        <div>
-            <div id="routeName" class="title">Select a route</div>
-            <div id="routeURL" class="sub">Pick queue from left panel</div>
-        </div>
-        <button id="exportBtn" class="export disabled">Export ↓</button>
-    </div>
 
-    <div class="frame-wrap">
-        <div id="placeholder" class="placeholder">No queue loaded</div>
-        <iframe id="frame"></iframe>
-    </div>
+<!-- TOP NAV -->
+<div id="topbar">
+    <div id="routeName">Accounts Payable</div>
+    <button id="export" onclick="window.open(currentRoute)">EXPORT CSV</button>
 </div>
+
+
+<!-- DISPLAY AREA -->
+<div id="viewer">
+    <iframe id="display"></iframe>
+</div>
+
 
 <script>
-/* 🔗 Hard-coded Jotform Routes */
-const ROUTES={
-  1:{url:"https://www.jotform.com/grid/201606337973054",excel:"https://www.jotform.com/excel/201606337973054"},
-  2:{url:"https://www.jotform.com/grid/200496754119055",excel:"https://www.jotform.com/excel/200496754119055"},
-  3:{url:"https://www.jotform.com/grid/222686658265065",excel:"https://www.jotform.com/excel/222686658265065"},
-  4:{url:"https://www.jotform.com/grid/253166616161051",excel:"https://www.jotform.com/excel/253166616161051"},
-  5:{url:"https://www.jotform.com/grid/241086664226054",excel:"https://www.jotform.com/excel/241086664226054"},
-  6:{url:"https://www.jotform.com/grid/201496499131056",excel:"https://www.jotform.com/excel/201496499131056"},
-  7:{url:"https://www.jotform.com/grid/240031492980049",excel:"https://www.jotform.com/excel/240031492980049"},
-  8:{url:"",excel:""},9:{url:"",excel:""},10:{url:"",excel:""},
+
+/* 🔥 Your LIVE Jotform Grids */
+const ROUTE = {
+    1:"https://www.jotform.com/grid/201606337973054",
+    2:"https://www.jotform.com/grid/200496754119055",
+    3:"https://www.jotform.com/grid/222686658265065",
+    4:"https://www.jotform.com/grid/253166616161051",
+    5:"https://www.jotform.com/grid/241086664226054",
+    6:"https://www.jotform.com/grid/201496499131056",
+    7:"https://www.jotform.com/grid/240031492980049",
+    8:"",
+    9:"",
+    10:""
 };
 
-const frame=document.getElementById("frame"),
-      nameEl=document.getElementById("routeName"),
-      urlEl=document.getElementById("routeURL"),
-      exportBtn=document.getElementById("exportBtn"),
-      placeholder=document.getElementById("placeholder"),
-      btns=document.querySelectorAll(".route");
+let currentRoute = ROUTE[1];
+load(1);
 
-/* Route loading with fade transition */
-btns.forEach(b=>b.onclick=()=>{
-    btns.forEach(x=>x.classList.remove("active"));
-    b.classList.add("active");
+/* === LOAD ROUTES === */
+function switchRoute(n,el){
+    currentRoute = ROUTE[n];
+    load(n);
+    document.querySelectorAll(".route").forEach(x => x.classList.remove("active"));
+    el.classList.add("active");
+}
 
-    let id=b.dataset.id,r=ROUTES[id];
-    nameEl.textContent="Route "+id;
-    urlEl.textContent=r.url || "No URL assigned";
+/* === DISPLAY GRID === */
+function load(r){
+    const frame = document.getElementById("display");
+    frame.classList.remove("loaded");
+    frame.src = ROUTE[r];
 
-    if(!r.url){
-        frame.classList.remove("show");
-        frame.src="";
-        placeholder.style.display="block";
-        exportBtn.classList.add("disabled");
-        return;
-    }
+    document.getElementById("routeName").innerText = 
+        document.querySelectorAll(".route")[r-1].innerText;
 
-    placeholder.style.display="none";
-    frame.style.opacity=0;
-    setTimeout(()=> {
-        frame.src=r.url;
-        frame.classList.add("show");
-    },150);
+    frame.onload = ()=>frame.classList.add("loaded");
+}
 
-    if(r.excel){
-        exportBtn.classList.remove("disabled");
-        exportBtn.onclick=()=>window.open(r.excel,"_blank");
-    }else{
-        exportBtn.classList.add("disabled");
-    }
+/* === Keyboard Switching === */
+document.addEventListener("keydown",e=>{
+    if(e.key>=1 && e.key<=9){ switchRoute(Number(e.key),document.querySelectorAll(".route")[e.key-1]); }
 });
 
-/* Sidebar collapse toggle */
-function toggleSidebar(){
-    document.getElementById("sidebar").classList.toggle("hidden");
-}
 </script>
-
 </body>
 </html>
