@@ -2,179 +2,106 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>FinanceHub</title>
+<title>FinanceHub AP Portal</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
-/* ========== GLOBAL ========== */
 body{
-  margin:0;
-  background:#0C0D10;
-  color:#E6E6E6;
-  font-family:"Inter",system-ui,sans-serif;
-  overflow:hidden;
+  margin:0;background:#0B0C0F;color:#E6E6E6;font-family:'Inter',sans-serif;overflow:hidden;
 }
-*{ box-sizing:border-box; }
-
-/* ========== SIDEBAR ========== */
 #sidebar{
-  position:fixed; left:0; top:0; bottom:0; width:230px;
-  background:#0E0F11;
-  border-right:1px solid rgba(255,255,255,.05);
-  display:flex; flex-direction:column;
-  padding:32px 22px;
+  position:fixed;left:0;top:0;bottom:0;width:230px;background:#0E0F12;
+  border-right:1px solid rgba(255,255,255,.08);padding:30px 18px;overflow-y:auto;
 }
-#title{
-  font-size:23px;
-  font-weight:700;
-  opacity:.95;
-  margin-bottom:26px;
-}
+#sidebar h1{font-size:22px;font-weight:700;margin-bottom:22px;color:#fff;}
+
 button.route{
-  width:100%;
-  padding:13px 15px;
-  margin-bottom:8px;
-  text-align:left;
-  color:#CCC;
-  background:#141618;
-  border-radius:10px;
-  font-size:14px;
-  cursor:pointer;
-  border:1px solid rgba(255,255,255,.05);
-  transition:.25s;
+  display:block;width:100%;padding:12px 14px;margin-bottom:8px;text-align:left;
+  font-size:14px;color:#CFCFCF;background:#15171B;border:1px solid rgba(255,255,255,.06);
+  border-radius:10px;cursor:pointer;transition:.25s;
 }
-button.route:hover{ background:#1A1C1F; }
-button.route.active{
-  background:#2C2E32;
-  border:1px solid #3F4248;
-  color:#fff;
-  font-weight:600;
-}
+button.route:hover{background:#1C1F24;}
+button.route.active{background:#2B2E34;border-color:#3F4248;color:#fff;font-weight:600;}
 
-/* ========== TOP BAR ========== */
 #topBar{
-  position:fixed; left:230px; right:0; top:0; height:58px;
-  background:#0F1013;
-  border-bottom:1px solid rgba(255,255,255,.06);
-  display:flex; align-items:center; justify-content:space-between;
-  padding:0 32px;
+  position:fixed;left:230px;right:0;top:0;height:56px;background:#0F1014;
+  border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;
+  justify-content:space-between;padding:0 30px;
 }
-#routeTitle{
-  font-size:17px;
-  font-weight:600;
-  opacity:.92;
-}
+#routeTitle{font-size:16px;font-weight:600;}
 #exportBtn{
-  padding:9px 18px;
-  border:none;
-  border-radius:8px;
-  background:#e5e5e5;
-  font-weight:600;
-  color:#111;
-  cursor:pointer;
+  padding:8px 16px;border-radius:8px;border:none;background:#F1F1F1;color:#111;
+  font-weight:600;cursor:pointer;
 }
-#exportBtn:hover{ background:#fff; transform:translateY(-1px); }
+#exportBtn:hover{background:white;}
 
-/* ========== VIEW PANEL ========== */
-#viewer{
-  position:fixed; left:230px; top:58px; right:0; bottom:0;
-  padding:40px 48px;
-}
-.frameWrap{
-  width:100%;
-  height:100%;
-  display:none;
-  background:#121214;
-  border-radius:14px;
-  box-shadow:0 0 30px rgba(0,0,0,.50);
-  overflow:hidden;
-}
-.frameWrap.active{ display:block; }
+#viewer{position:fixed;left:230px;top:56px;right:0;bottom:0;padding:22px;}
 
-/* ========== IFRAME ========== */
-iframe.jf{
-  width:100%;
-  height:100%;
-  border:none;
-  background:transparent;
-  opacity:0;
-  transform:translateY(6px);
-  transition:opacity .35s ease, transform .35s ease;
+iframe{
+  width:100%;height:100%;border:none;border-radius:14px;background:#111;
+  display:none;opacity:0;transform:scale(.985);
+  transition:opacity .25s,transform .25s;
 }
-iframe.jf.loaded{
-  opacity:1;
-  transform:translateY(0);
-}
+iframe.active.show{display:block;opacity:1;transform:scale(1);}
 </style>
 </head>
 <body>
 
-<!-- ░░ SIDEBAR ░░ -->
+<!-- SIDEBAR -->
 <div id="sidebar">
-  <div id="title">FinanceHub</div>
+  <h1>FinanceHub</h1>
 
-  <button class="route active" onclick="switchRoute(1)">Accounts Payable</button>
-  <button class="route" onclick="switchRoute(2)">Flex AP</button>
-  <button class="route" onclick="switchRoute(3)">Travel Reimburse</button>
-  <button class="route" onclick="switchRoute(4)">Wildchild AP</button>
-  <button class="route" onclick="switchRoute(5)">MiSe AP</button>
-  <button class="route" onclick="switchRoute(6)">State48 AP</button>
-  <button class="route" onclick="switchRoute(7)">Portland AP</button>
+  <button class="route active" onclick="switchRoute(1)">Baseballism</button>
+  <button class="route" onclick="switchRoute(2)">Travel Requests</button>
+  <button class="route" onclick="switchRoute(3)">Bars Requests</button>
+  <button class="route" onclick="switchRoute(4)">Wild Child</button>
+  <button class="route" onclick="switchRoute(5)">MISE</button>
+  <button class="route" onclick="switchRoute(6)">STLHD</button>
+  <button class="route" onclick="switchRoute(7)">Portland Gear</button>
   <button class="route" onclick="switchRoute(8)">Queue 8</button>
   <button class="route" onclick="switchRoute(9)">Queue 9</button>
   <button class="route" onclick="switchRoute(10)">Queue 10</button>
 </div>
 
-<!-- ░░ TOP NAV ░░ -->
+<!-- TOP BAR -->
 <div id="topBar">
-  <div id="routeTitle">Accounts Payable</div>
+  <div id="routeTitle">Baseballism</div>
   <button id="exportBtn" onclick="window.open(currentSrc,'_blank')">Export ↓</button>
 </div>
 
-<!-- ░░ VIEWER GRID ░░ -->
+<!-- VIEWER -->
 <div id="viewer">
 
-  <div class="frameWrap active"><iframe class="jf" id="r1" src="https://www.jotform.com/grid/201606337973054"></iframe></div>
-  <div class="frameWrap"><iframe class="jf" id="r2" src="https://www.jotform.com/tables/200496754119055"></iframe></div>
-  <div class="frameWrap"><iframe class="jf" id="r3" src="https://www.jotform.com/tables/222686658265065"></iframe></div>
-  <div class="frameWrap"><iframe class="jf" id="r4" src="https://www.jotform.com/tables/253166616161051"></iframe></div>
-  <div class="frameWrap"><iframe class="jf" id="r5" src="https://www.jotform.com/tables/241086664226054"></iframe></div>
-  <div class="frameWrap"><iframe class="jf" id="r6" src="https://www.jotform.com/tables/201496499131056"></iframe></div>
-  <div class="frameWrap"><iframe class="jf" id="r7" src="https://www.jotform.com/tables/240031492980049"></iframe></div>
-
-  <div class="frameWrap"><iframe class="jf" id="r8"></iframe></div>
-  <div class="frameWrap"><iframe class="jf" id="r9"></iframe></div>
-  <div class="frameWrap"><iframe class="jf" id="r10"></iframe></div>
+  <iframe id="r1" class="active" src="https://www.jotform.com/grid/201606337973054"></iframe>
+  <iframe id="r2" src="https://www.jotform.com/grid/200496754119055"></iframe>
+  <iframe id="r3" src="https://www.jotform.com/grid/222686658265065"></iframe>
+  <iframe id="r4" src="https://www.jotform.com/grid/240031492980049"></iframe>
+  <iframe id="r5" src="https://www.jotform.com/grid/241086664226054"></iframe>
+  <iframe id="r6" src="https://www.jotform.com/grid/201496499131056"></iframe>
+  <iframe id="r7" src="https://www.jotform.com/grid/250716935607058"></iframe>
+  <iframe id="r8"></iframe>
+  <iframe id="r9"></iframe>
+  <iframe id="r10"></iframe>
 
 </div>
 
-<!-- ░░ JOTFORM AUTO HEIGHT LISTENER ░░ -->
-<script>
-window.addEventListener("message", e=>{
-  if(typeof e.data !== "string") return;
-  if(e.data.includes("setHeight")){
-    let h=e.data.split(":")[1];
-    document.querySelectorAll("iframe.jf").forEach(f=>{
-      if(h) f.style.height=h+"px";
-      f.classList.add("loaded");
-    });
-  }
-});
-</script>
-
-<!-- ░░ ROUTE SWITCHING ░░ -->
 <script>
 let currentSrc=document.getElementById("r1").src;
 
 function switchRoute(n){
   document.querySelectorAll("button.route").forEach((b,i)=>b.classList.toggle("active",(i+1)===n));
-  document.querySelectorAll(".frameWrap").forEach(w=>w.classList.remove("active"));
-  
-  const wrap=document.querySelectorAll(".frameWrap")[n-1];
-  wrap.classList.add("active");
+  document.querySelectorAll("iframe").forEach(f=>{
+    f.classList.remove("active","show");f.style.display="none";
+  });
 
-  currentSrc=document.getElementById("r"+n).src;
-  document.getElementById("routeTitle").innerText=document.querySelectorAll("button.route")[n-1].innerText;
+  let frame=document.getElementById("r"+n);
+  currentSrc=frame.src;
+
+  frame.style.display="block";
+  setTimeout(()=>frame.classList.add("active","show"),10);
+
+  document.getElementById("routeTitle").innerText =
+    document.querySelectorAll("button.route")[n-1].innerText;
 }
 </script>
 
