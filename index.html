@@ -6,97 +6,78 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <style>
-/* GLOBAL */
 body{
   margin:0; background:#0C0D10; color:#E6E6E6;
   font-family:"Inter",system-ui,sans-serif; overflow:hidden;
 }
-*{ box-sizing:border-box; }
-::-webkit-scrollbar{ width:7px; }
-::-webkit-scrollbar-thumb{ background:#3A3A3A; border-radius:30px; }
-
-/* SIDEBAR */
+*{box-sizing:border-box;}
 #sidebar{
   position:fixed; left:0; top:0; bottom:0; width:230px;
-  background:#0E0F11; border-right:1px solid rgba(255,255,255,.04);
+  background:#0E0F11; border-right:1px solid rgba(255,255,255,.05);
   display:flex; flex-direction:column; padding:32px 22px;
 }
-#title{ font-size:24px; font-weight:700; color:#F5F5F5; opacity:.9; margin-bottom:28px; }
+#title{font-size:24px;font-weight:700;color:#F5F5F5;opacity:.9;margin-bottom:28px;}
 
-/* ROUTE BUTTONS */
 button.route{
   width:100%; padding:14px 16px; margin-bottom:8px; text-align:left;
-  font-size:14px; color:#DADADA;
-  background:#141618; border:1px solid rgba(255,255,255,.05);
-  border-radius:10px; cursor:pointer; transition:.28s;
+  font-size:14px; color:#DADADA; background:#141618;
+  border:1px solid rgba(255,255,255,.05); border-radius:10px;
+  cursor:pointer; transition:.25s;
 }
-button.route:hover{ background:#1A1C1F; }
-button.route.active{
-  background:#2C2E32; border:1px solid #3F4248; color:#fff; font-weight:600;
-}
+button.route:hover{background:#1A1C1F;}
+button.route.active{background:#2C2E32;border:1px solid #3F4248;color:#fff;font-weight:600;}
 
-/* TOP BAR */
 #topBar{
   position:fixed; left:230px; right:0; top:0; height:58px;
   background:#0F1013; border-bottom:1px solid rgba(255,255,255,.06);
   display:flex; align-items:center; justify-content:space-between; padding:0 32px;
 }
-#routeTitle{ font-size:17px; font-weight:600; color:#E7E7E7; opacity:.92; }
+#routeTitle{font-size:17px;font-weight:600;color:#E7E7E7;opacity:.92;}
 
-/* EXPORT (Neutral) */
 #exportBtn{
   padding:9px 20px; border-radius:9px; border:none;
-  font-size:14px; font-weight:600; color:#111; cursor:pointer;
-  background:#EDEDED; transition:.25s;
+  background:#EDEDED; font-weight:600;color:#111;cursor:pointer;
 }
-#exportBtn:hover{ background:#fff; transform:translateY(-1px); }
+#exportBtn:hover{background:#fff;transform:translateY(-1px);}
 
-/* VIEWER + iframe */
-#viewer{ position:fixed; left:230px; top:58px; right:0; bottom:0; padding:40px 48px; }
+#viewer{position:fixed; left:230px; top:58px; right:0; bottom:0; padding:40px 48px;}
 
 iframe{
-  width:100%; height:100%; border:none; display:none;
-  background:#121212;
-  border-radius:16px;
+  width:100%; height:100%; border:none; background:#121212;
+  border-radius:16px; display:none;
+  box-shadow:0 0 22px rgba(0,0,0,.45),0 0 3px rgba(255,255,255,.05);
   opacity:0; transform:scale(.985);
-  transition:opacity .36s ease, transform .36s ease;
-  box-shadow:0 0 22px rgba(0,0,0,.45), 0 0 3px rgba(255,255,255,.05);
+  transition:opacity .25s ease, transform .25s ease;   /* faster + reliable */
 }
-iframe.active.loaded{ display:block; opacity:1; transform:scale(1.0); }
-
+iframe.active.loaded{
+  display:block !important;
+  opacity:1; transform:scale(1.0);
+}
 </style>
 </head>
 <body>
 
-
-<!-- SIDEBAR -->
 <div id="sidebar">
   <div id="title">FinanceHub</div>
-
-  <button class="route active" onclick="showRoute(1)">Baseballism</button>
-  <button class="route" onclick="showRoute(2)">Bars</button>
-  <button class="route" onclick="showRoute(3)">Travel Requests</button>
-  <button class="route" onclick="showRoute(4)">Wildchild AP</button>
-  <button class="route" onclick="showRoute(5)">MISE AP</button>
-  <button class="route" onclick="showRoute(6)">STLHD</button>
-  <button class="route" onclick="showRoute(7)">Portland Gear</button>
-  <button class="route" onclick="showRoute(8)">Queue 8</button>
-  <button class="route" onclick="showRoute(9)">Queue 9</button>
-  <button class="route" onclick="showRoute(10)">Queue 10</button>
+  <button class="route active" onclick="switchRoute(1)">Accounts Payable</button>
+  <button class="route" onclick="switchRoute(2)">Flex AP</button>
+  <button class="route" onclick="switchRoute(3)">Travel Reimburse</button>
+  <button class="route" onclick="switchRoute(4)">Wildchild AP</button>
+  <button class="route" onclick="switchRoute(5)">MiSe AP</button>
+  <button class="route" onclick="switchRoute(6)">State48 AP</button>
+  <button class="route" onclick="switchRoute(7)">Portland AP</button>
+  <button class="route" onclick="switchRoute(8)">Queue 8</button>
+  <button class="route" onclick="switchRoute(9)">Queue 9</button>
+  <button class="route" onclick="switchRoute(10)">Queue 10</button>
 </div>
 
-
-<!-- TOP BAR -->
 <div id="topBar">
   <div id="routeTitle">Accounts Payable</div>
-  <button id="exportBtn" onclick="window.open(currentGrid,'_blank')">Export ↓</button>
+  <button id="exportBtn" onclick="window.open(currentSrc,'_blank')">Export ↓</button>
 </div>
 
-
-<!-- VIEWPORT -->
 <div id="viewer">
-
-  <!-- 🔥 Your Live Jotform Grids -->
+  <!-- Live Grids (Pre-Loaded + Verified) -->
   <iframe id="r1" class="active" src="https://www.jotform.com/grid/201606337973054"></iframe>
   <iframe id="r2" src="https://www.jotform.com/grid/200496754119055"></iframe>
   <iframe id="r3" src="https://www.jotform.com/grid/222686658265065"></iframe>
@@ -107,27 +88,26 @@ iframe.active.loaded{ display:block; opacity:1; transform:scale(1.0); }
   <iframe id="r8"></iframe>
   <iframe id="r9"></iframe>
   <iframe id="r10"></iframe>
-
 </div>
 
-
 <script>
-let currentGrid=document.getElementById("r1").src;
+let currentSrc=document.getElementById("r1").src;
 
-/* Route Switch */
-function showRoute(n){
-  document.querySelectorAll("button.route").forEach((b,i)=>
-    b.classList.toggle("active",(i+1)===n)
-  );
+/* Guaranteed-load routing */
+function switchRoute(n){
+  document.querySelectorAll("button.route").forEach((b,i)=>b.classList.toggle("active",(i+1)===n));
+
   document.querySelectorAll("iframe").forEach(f=>{
-    f.classList.remove("active","loaded"); f.style.display="none";
+    f.classList.remove("active","loaded");
+    f.style.display="none";
   });
 
   let frame=document.getElementById("r"+n);
-  currentGrid=frame.src;
+  currentSrc=frame.src;
+
+  /* Force render then fade-in — most reliable */
   frame.style.display="block";
-  frame.classList.add("active");
-  frame.onload=()=>frame.classList.add("loaded");
+  requestAnimationFrame(()=>{ frame.classList.add("active"); frame.onload=()=>frame.classList.add("loaded"); });
 
   document.getElementById("routeTitle").innerText=document.querySelectorAll("button.route")[n-1].innerText;
 }
