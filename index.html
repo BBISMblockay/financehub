@@ -1,77 +1,132 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>FinanceHub Console</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
 
 <style>
-/* ==== Dark Futuristic UI ==== */
-body {margin:0;font-family:'Inter',sans-serif;background:#0d0f12;color:#fff;display:flex;height:100vh;}
-.sidebar{width:270px;background:rgba(255,255,255,.05);backdrop-filter:blur(10px);padding-top:35px;border-right:1px solid rgba(255,255,255,.08);}
-#logo{text-align:center;font-size:22px;font-weight:700;margin-bottom:25px;}
-.navItem{padding:14px 25px;margin:5px 18px;border-radius:10px;background:#1a1d22;border:1px solid #272b33;opacity:.75;cursor:pointer;transition:.25s;}
-.navItem:hover{opacity:1;background:#242830;transform:translateX(4px);}
-.navItem.active{background:linear-gradient(135deg,#5169ff,#7df1ff);color:#000;opacity:1;font-weight:700;}
-.settingsBtn{margin-top:30px;color:#bfbfbf;opacity:.6;}
-.settingsBtn:hover{opacity:1;transform:translateX(6px);}
+/* ===== GLOBAL APP UI ===== */
+body{
+  margin:0;background:#0d0f12;color:#fff;font-family:'Inter',sans-serif;
+  display:flex;height:100vh;overflow:hidden;
+}
 
-#main{flex:1;padding:35px;}
-#header{font-size:26px;font-weight:700;margin-bottom:25px;background:linear-gradient(90deg,#6f84ff,#7df1ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+/* ===== SIDEBAR ===== */
+#sidebar{
+  width:280px;background:rgba(255,255,255,.05);backdrop-filter:blur(14px);
+  border-right:1px solid rgba(255,255,255,.08);display:flex;flex-direction:column;padding-top:35px;
+}
+#logo{text-align:center;font-size:24px;font-weight:700;margin-bottom:28px;letter-spacing:.4px;}
 
-#iframeWrap{width:100%;height:82vh;background:#14171c;border:1px solid #2b3038;border-radius:14px;display:flex;align-items:center;justify-content:center;overflow:hidden;}
+/* Route Buttons */
+.navItem{
+  padding:14px 26px;margin:6px 18px;border-radius:10px;
+  background:#1b1e24;border:1px solid #262b31;opacity:.8;cursor:pointer;
+  transition:.25s;font-size:15px;
+}
+.navItem:hover{opacity:1;background:#262b32;transform:translateX(4px);}
+.navItem.active{
+  background:linear-gradient(135deg,#5872ff,#78faff);font-weight:700;
+  opacity:1;color:#000;border:none;box-shadow:0 0 18px rgba(118,168,255,.35);
+}
+
+/* Settings Nav */
+#settingsBtn{margin-top:auto;margin-bottom:25px;color:#d1d1d1;}
+#settingsBtn:hover{opacity:1;transform:translateX(6px);}
+
+/* ===== MAIN PANEL ===== */
+#main{flex:1;padding:32px;overflow:auto;}
+#header{
+  font-size:28px;font-weight:700;margin-bottom:25px;
+  background:linear-gradient(90deg,#7896ff,#7df1ff);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+}
+
+/* iframe Grid View */
+#iframeWrap{
+  width:100%;height:82vh;background:#121419;border:1px solid #262b31;
+  border-radius:14px;display:flex;align-items:center;justify-content:center;
+  box-shadow:0 0 35px rgba(0,0,0,.45);overflow:hidden;
+}
 iframe{width:100%;height:100%;border:none;}
-#placeholder{opacity:.35;font-size:18px;}
+#placeholder{opacity:.28;font-size:18px;}
 
+/* ===== SETTINGS PAGE ===== */
 #settings{display:none;margin-top:20px;}
-input{width:100%;padding:10px;border-radius:8px;background:#171b22;border:1px solid #262b33;color:white;}
-.row{display:grid;grid-template-columns:120px 1fr;margin:10px 0;gap:12px;}
-.saveBtn{background:#6f84ff;padding:10px;border-radius:8px;text-align:center;font-weight:600;cursor:pointer;margin-top:10px;}
-.saveBtn:hover{filter:brightness(1.15);}
+.row{display:grid;grid-template-columns:120px 1fr;gap:12px;margin:10px 0;}
+input{
+  width:100%;padding:10px;border-radius:8px;background:#171b22;
+  border:1px solid #2a2f36;color:#fff;font-size:14px;
+}
+.saveBtn{
+  background:linear-gradient(135deg,#6f84ff,#7df1ff);
+  padding:12px;border-radius:10px;font-weight:700;font-size:14px;
+  cursor:pointer;text-align:center;margin-top:15px;
+  box-shadow:0 0 15px rgba(115,150,255,.35);
+}
+.saveBtn:hover{filter:brightness(1.12);transform:scale(1.03);}
 </style>
 </head>
 
 <body>
 
-<div class="sidebar">
-    <div id="logo">📁 FinanceHub</div>
-    <div id="routes"></div>
-    <div class="navItem settingsBtn" onclick="openSettings()">⚙ Settings</div>
+<!--  LEFT NAVIGATION  -->
+<div id="sidebar">
+  <div id="logo">📁 FinanceHub</div>
+  <div id="routeList"></div>
+
+  <div id="settingsBtn" class="navItem" onclick="openSettings()">⚙ Settings</div>
 </div>
 
+<!--  MAIN REGION  -->
 <div id="main">
-    <div id="header">AP Command Center</div>
 
-    <div id="iframeWrap">
-        <div id="placeholder">← Select a client</div>
-    </div>
+  <div id="header">Accounts Payable Grid Center</div>
 
-    <div id="settings">
-        <h2>Configure Routes</h2>
-        <div id="form"></div>
-        <div class="saveBtn" onclick="updateConfig()">💾 Save to GitHub</div>
-    </div>
+  <div id="iframeWrap">
+      <div id="placeholder">← Select a client route</div>
+  </div>
+
+  <!-- SETTINGS UI -->
+  <div id="settings">
+      <h2>Route Configuration</h2>
+      <p>Supports up to <b>10 grid portals</b>. Values save to GitHub config.json.</p>
+      <div id="form"></div>
+      <div class="saveBtn" onclick="updateConfig()">💾 Save to GitHub</div>
+  </div>
 </div>
+
+<!--  LOAD TOKEN (YOU ADD THIS FILE)  -->
+<script src="token.js"></script>
 
 <script>
-const CONFIG_URL = "https://bbismblockay.github.io/financehub/config.json";
+/* ========= LIVE CONFIG READ ========= */
 
-/* Load config from GitHub */
+const USER = "bbismblockay";
+const REPO = "financehub";
+const FILE = "config.json";
+const RAW_URL = `https://${USER}.github.io/${REPO}/${FILE}`;
+
+let config;
+
+/* Fetch remote config.json */
 async function loadConfig(){
-  const res = await fetch(CONFIG_URL);
-  window.config = await res.json();
+  const res = await fetch(RAW_URL);
+  config = await res.json();
   buildSidebar();
   buildForm();
 }
+loadConfig();
 
-/* Sidebar */
+/* ========= SIDEBAR CREATION ========= */
 function buildSidebar(){
-  const wrap=document.getElementById("routes");
+  const wrap = document.getElementById("routeList");
   wrap.innerHTML="";
   config.routes.forEach((r,i)=>{
-    if(r.name){
+    if(r.name.trim()){
       let el=document.createElement("div");
       el.className="navItem";
       el.textContent=r.name;
@@ -81,38 +136,65 @@ function buildSidebar(){
   });
 }
 
-/* Load iframe */
+/* ========= LOAD A ROUTE ========= */
 function loadRoute(i,el){
   document.querySelectorAll(".navItem").forEach(n=>n.classList.remove("active"));
   el.classList.add("active");
+
   document.getElementById("settings").style.display="none";
   document.getElementById("placeholder").style.display="none";
-  document.getElementById("iframeWrap").innerHTML=`<iframe src="${config.routes[i].iframeUrl}"></iframe>`;
+  document.getElementById("iframeWrap").innerHTML =
+    `<iframe src="${config.routes[i].iframeUrl}"></iframe>`;
 }
 
-/* Settings panel */
+/* ========= SETTINGS PANEL ========= */
 function openSettings(){
+  document.querySelectorAll(".navItem").forEach(n=>n.classList.remove("active"));
   document.getElementById("iframeWrap").style.display="none";
   document.getElementById("settings").style.display="block";
 }
 
+/* Render editable form fields */
 function buildForm(){
-  const form=document.getElementById("form");
-  form.innerHTML="";
+  const form=document.getElementById("form"); form.innerHTML="";
   config.routes.forEach((r,i)=>{
     form.innerHTML+=`
-      <div class="row">
-        <input id="name${i}" placeholder="Name" value="${r.name}">
-        <input id="url${i}" placeholder="Iframe URL" value="${r.iframeUrl}">
-      </div>`;
+    <div class="row">
+        <input id="nm${i}" placeholder="Client Name" value="${r.name}">
+        <input id="url${i}" placeholder="iFrame URL" value="${r.iframeUrl}">
+    </div>`;
   });
 }
 
-/*  SAVE BACK TO GITHUB (next step)   */
-function updateConfig(){
-  alert("Config updated locally — need GitHub API token to auto-save.\nI can enable that next.");
+/* ========= GITHUB WRITE BACK (Option A) ========= */
+async function updateConfig(){
+
+  const last = await fetch(`https://api.github.com/repos/${USER}/${REPO}/contents/${FILE}`)
+                      .then(r=>r.json());
+
+  const updated = {
+    routes: config.routes.map((r,i)=>({
+      id:i+1,
+      name:document.getElementById(`nm${i}`).value,
+      iframeUrl:document.getElementById(`url${i}`).value,
+      exportUrl:r.exportUrl || ""
+    })),
+    updated:new Date().toISOString()
+  };
+
+  await fetch(`https://api.github.com/repos/${USER}/${REPO}/contents/${FILE}`,{
+    method:"PUT",
+    headers:{ "Authorization":`token ${window.GITHUB_TOKEN}` },
+    body:JSON.stringify({
+      message:"FinanceHub config update",
+      content:btoa(JSON.stringify(updated,null,2)),
+      sha:last.sha
+    })
+  });
+
+  alert("✓ Saved to GitHub — refresh to load new config.");
+  location.reload();
 }
-loadConfig();
 </script>
 </body>
 </html>
