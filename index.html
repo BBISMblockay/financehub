@@ -1,386 +1,157 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>FinanceHub – AP Routes</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta charset="UTF-8">
+<title>FinanceHub</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;800&display=swap" rel="stylesheet">
 
-  <style>
-    /* =============== GLOBAL =============== */
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: "Inter", system-ui, sans-serif;
-      background: #06070a;
-      color: #f4f4f6;
-      height: 100vh;
-      overflow: hidden;
-      display: flex;
-    }
+<style>
+/* ===== GLOBAL ===== */
+body {
+  margin:0; font-family:'Inter',sans-serif;
+  background:#0c0e12; color:#e6e9ef;
+  height:100vh; overflow:hidden; display:flex;
+}
 
-    /* =============== SIDEBAR =============== */
-    .sidebar {
-      width: 260px;
-      background: rgba(255, 255, 255, 0.04);
-      backdrop-filter: blur(16px);
-      border-right: 1px solid rgba(255, 255, 255, 0.08);
-      display: flex;
-      flex-direction: column;
-      padding: 26px 0;
-    }
+/* ===== SIDEBAR ===== */
+.sidebar{
+  width:240px; background:rgba(255,255,255,0.03);
+  backdrop-filter:blur(14px);
+  border-right:1px solid rgba(255,255,255,0.07);
+  display:flex; flex-direction:column; padding:25px 0;
+}
+.logo{
+  text-align:center; font-size:26px; font-weight:800; letter-spacing:.4px;
+  background:linear-gradient(90deg,#7ed7ff,#5e70ff);
+  -webkit-background-clip:text; -webkit-text-fill-color:transparent;
+  margin-bottom:22px;
+}
+.routes-title{
+  font-size:11px; opacity:.55; padding:0 20px 6px;
+  letter-spacing:.15em; text-transform:uppercase;
+}
+.route{
+  margin:5px 14px; padding:10px 14px;
+  border-radius:12px; font-size:14px; cursor:pointer;
+  background:rgba(255,255,255,0.03);
+  border:1px solid rgba(255,255,255,0.06);
+  display:flex; justify-content:space-between; align-items:center;
+  transition:.25s;
+}
+.route:hover{ background:rgba(255,255,255,0.10);}
+.route.active{
+  background:linear-gradient(135deg,#6b85ff,#6ff6ff);
+  color:#000; font-weight:600; box-shadow:0 0 26px rgba(110,160,255,.5);
+}
+.dot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.35);}
+.route.active .dot{background:#000;}
 
-    .logo {
-      text-align: center;
-      font-weight: 700;
-      font-size: 24px;
-      margin-bottom: 22px;
-      letter-spacing: 0.5px;
-    }
+/* ===== MAIN VIEW ===== */
+.main{flex:1;display:flex;flex-direction:column;padding:24px;}
+.header{
+  display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;
+}
+.head-title{font-size:24px;font-weight:700;}
+.head-sub{font-size:13px;opacity:.55;margin-top:3px;}
 
-    .logo span {
-      background: linear-gradient(90deg, #6b8bff, #62f5ff);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
+/* ===== EXPORT BUTTON ===== */
+.export{
+  background:linear-gradient(135deg,#6b85ff,#6ff6ff);
+  border:none;color:#000;font-weight:700;
+  padding:10px 22px;border-radius:999px;cursor:pointer;
+  box-shadow:0 0 20px rgba(120,170,255,.45);
+  transition:.18s;
+}
+.export:hover{transform:translateY(-2px) scale(1.03);}
 
-    .nav-title {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: 0.12em;
-      opacity: 0.6;
-      padding: 0 20px 6px;
-    }
+/* ===== FRAME WINDOW ===== */
+.frame-holder{
+  flex:1;border-radius:12px;overflow:hidden;
+  background:#131722; border:1px solid rgba(255,255,255,.08);
+  box-shadow:0 8px 40px rgba(0,0,0,.55);
+}
+iframe{width:100%;height:100%;border:none;display:none;}
+iframe.show{display:block;}
 
-    .route-btn {
-      margin: 5px 16px;
-      padding: 12px 16px;
-      border-radius: 10px;
-      font-size: 14px;
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid rgba(255, 255, 255, 0.06);
-      cursor: pointer;
-      opacity: 0.8;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      transition: 0.22s;
-    }
-
-    .route-btn span.label {
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .route-btn span.dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 999px;
-      background: rgba(255, 255, 255, 0.35);
-    }
-
-    .route-btn:hover {
-      opacity: 1;
-      background: rgba(255, 255, 255, 0.12);
-      transform: translateX(4px);
-    }
-
-    .route-btn.active {
-      background: linear-gradient(135deg, #5c73ff, #6ff7ff);
-      border: none;
-      color: #02040a;
-      opacity: 1;
-      box-shadow: 0 0 20px rgba(92, 115, 255, 0.5);
-    }
-
-    .route-btn.active span.dot {
-      background: #02040a;
-    }
-
-    /* =============== MAIN PANE =============== */
-    .main {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      padding: 26px 30px;
-    }
-
-    .top-bar {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 18px;
-    }
-
-    .title-block {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    .title {
-      font-size: 24px;
-      font-weight: 600;
-      letter-spacing: 0.02em;
-    }
-
-    .subtitle {
-      font-size: 13px;
-      opacity: 0.6;
-    }
-
-    .export-btn {
-      padding: 9px 18px;
-      border-radius: 999px;
-      background: linear-gradient(135deg, #5c73ff, #6ff7ff);
-      color: #02040a;
-      border: none;
-      font-size: 13px;
-      font-weight: 600;
-      cursor: pointer;
-      box-shadow: 0 0 16px rgba(108, 163, 255, 0.4);
-      transition: 0.2s;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .export-btn:hover {
-      transform: translateY(-1px);
-      filter: brightness(1.08);
-    }
-
-    .export-btn.disabled {
-      opacity: 0.35;
-      box-shadow: none;
-      cursor: default;
-      filter: none;
-    }
-
-    .export-btn.disabled:hover {
-      transform: none;
-    }
-
-    /* =============== IFRAME WRAP =============== */
-    .frame-wrap {
-      flex: 1;
-      border-radius: 16px;
-      background: radial-gradient(circle at top left, #202436, #090a0f 55%);
-      border: 1px solid #262a36;
-      box-shadow: 0 0 40px rgba(0, 0, 0, 0.65);
-      overflow: hidden;
-      position: relative;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    iframe {
-      width: 100%;
-      height: 100%;
-      border: none;
-      display: none;
-    }
-
-    iframe.visible {
-      display: block;
-    }
-
-    .placeholder {
-      text-align: center;
-      opacity: 0.35;
-      font-size: 17px;
-    }
-  </style>
+.placeholder{
+  text-align:center;font-size:15px;opacity:.35;
+  position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);
+}
+</style>
 </head>
 
 <body>
-  <aside class="sidebar">
-    <div class="logo"><span>FinanceHub</span></div>
-    <div class="nav-title">Routes</div>
 
-    <!-- You can rename these labels as you like -->
-    <button class="route-btn" data-route="1">
-      <span class="label">Route 1</span>
-      <span class="dot"></span>
-    </button>
-    <button class="route-btn" data-route="2">
-      <span class="label">Route 2</span>
-      <span class="dot"></span>
-    </button>
-    <button class="route-btn" data-route="3">
-      <span class="label">Route 3</span>
-      <span class="dot"></span>
-    </button>
-    <button class="route-btn" data-route="4">
-      <span class="label">Route 4</span>
-      <span class="dot"></span>
-    </button>
-    <button class="route-btn" data-route="5">
-      <span class="label">Route 5</span>
-      <span class="dot"></span>
-    </button>
-    <button class="route-btn" data-route="6">
-      <span class="label">Route 6</span>
-      <span class="dot"></span>
-    </button>
-    <button class="route-btn" data-route="7">
-      <span class="label">Route 7</span>
-      <span class="dot"></span>
-    </button>
-    <button class="route-btn" data-route="8">
-      <span class="label">Route 8</span>
-      <span class="dot"></span>
-    </button>
-    <button class="route-btn" data-route="9">
-      <span class="label">Route 9</span>
-      <span class="dot"></span>
-    </button>
-    <button class="route-btn" data-route="10">
-      <span class="label">Route 10</span>
-      <span class="dot"></span>
-    </button>
-  </aside>
+<div class="sidebar">
+  <div class="logo">FinanceHub</div>
+  <div class="routes-title">Routes</div>
 
-  <main class="main">
-    <div class="top-bar">
-      <div class="title-block">
-        <div class="title" id="routeTitle">No route selected</div>
-        <div class="subtitle" id="routeSubtitle">Choose a route from the left to load its AP grid.</div>
-      </div>
-      <button class="export-btn disabled" id="exportBtn">
-        ⬇ Export
-      </button>
+  <div class="route" data-id="1">Route 1 <div class="dot"></div></div>
+  <div class="route" data-id="2">Route 2 <div class="dot"></div></div>
+  <div class="route" data-id="3">Route 3 <div class="dot"></div></div>
+  <div class="route" data-id="4">Route 4 <div class="dot"></div></div>
+  <div class="route" data-id="5">Route 5 <div class="dot"></div></div>
+  <div class="route" data-id="6">Route 6 <div class="dot"></div></div>
+  <div class="route" data-id="7">Route 7 <div class="dot"></div></div>
+  <div class="route" data-id="8">Route 8 <div class="dot"></div></div>
+  <div class="route" data-id="9">Route 9 <div class="dot"></div></div>
+  <div class="route" data-id="10">Route 10 <div class="dot"></div></div>
+</div>
+
+<div class="main">
+
+  <div class="header">
+    <div>
+      <div id="routeName" class="head-title">No route selected</div>
+      <div id="routeURL" class="head-sub">Choose a route to load its queue</div>
     </div>
+    <button id="export" class="export" disabled>⬇ Export</button>
+  </div>
 
-    <div class="frame-wrap">
-      <div class="placeholder" id="placeholder">
-        ← Select a route to open its Jotform grid.
-      </div>
+  <div class="frame-holder">
+    <iframe id="frame"></iframe>
+    <div id="placeholder" class="placeholder">Select a route to load grid</div>
+  </div>
+</div>
 
-      <!-- Single iframe we re-use for all routes -->
-      <iframe id="routeFrame"></iframe>
-    </div>
-  </main>
+<script>
+/* your jotform links already working — re-centering layout only */
 
-  <script>
-    // HARD-CODED ROUTES
-    // You can rename titles or swap URLs directly here.
-    const ROUTES = {
-      1: {
-        title: "Route 1",
-        grid: "https://www.jotform.com/grid/201606337973054",
-        export: "https://www.jotform.com/excel/201606337973054"
-      },
-      2: {
-        title: "Route 2",
-        grid: "https://www.jotform.com/grid/200496754119055",
-        export: "https://www.jotform.com/excel/200496754119055"
-      },
-      3: {
-        title: "Route 3",
-        grid: "https://www.jotform.com/grid/222686658265065",
-        export: "https://www.jotform.com/excel/222686658265065"
-      },
-      4: {
-        title: "Route 4",
-        grid: "https://www.jotform.com/grid/253166616161051",
-        export: "https://www.jotform.com/excel/253166616161051"
-      },
-      5: {
-        title: "Route 5",
-        grid: "https://www.jotform.com/grid/241086664226054",
-        export: "https://www.jotform.com/excel/241086664226054"
-      },
-      6: {
-        title: "Route 6",
-        grid: "https://www.jotform.com/grid/201496499131056",
-        export: "https://www.jotform.com/excel/201496499131056"
-      },
-      7: {
-        title: "Route 7",
-        grid: "https://www.jotform.com/grid/240031492980049",
-        export: "https://www.jotform.com/excel/240031492980049"
-      },
-      8: {
-        title: "Route 8",
-        grid: "",
-        export: ""
-      },
-      9: {
-        title: "Route 9",
-        grid: "",
-        export: ""
-      },
-      10: {
-        title: "Route 10",
-        grid: "",
-        export: ""
-      }
-    };
+const ROUTES={
+  1:{url:"https://www.jotform.com/grid/201606337973054",excel:"https://www.jotform.com/excel/201606337973054"},
+  2:{url:"https://www.jotform.com/grid/200496754119055",excel:"https://www.jotform.com/excel/200496754119055"},
+  3:{url:"https://www.jotform.com/grid/222686658265065",excel:"https://www.jotform.com/excel/222686658265065"},
+  4:{url:"https://www.jotform.com/grid/253166616161051",excel:"https://www.jotform.com/excel/253166616161051"},
+  5:{url:"https://www.jotform.com/grid/241086664226054",excel:"https://www.jotform.com/excel/241086664226054"},
+  6:{url:"https://www.jotform.com/grid/201496499131056",excel:"https://www.jotform.com/excel/201496499131056"},
+  7:{url:"https://www.jotform.com/grid/240031492980049",excel:"https://www.jotform.com/excel/240031492980049"},
+  8:{url:"",excel:""},9:{url:"",excel:""},10:{url:"",excel:""},
+}
 
-    const routeButtons = document.querySelectorAll(".route-btn");
-    const frame = document.getElementById("routeFrame");
-    const placeholder = document.getElementById("placeholder");
-    const titleEl = document.getElementById("routeTitle");
-    const subtitleEl = document.getElementById("routeSubtitle");
-    const exportBtn = document.getElementById("exportBtn");
+const btns=document.querySelectorAll('.route')
+const frame=document.getElementById('frame')
+const nameEl=document.getElementById('routeName')
+const urlEl=document.getElementById('routeURL')
+const exportBtn=document.getElementById('export')
+const placeholder=document.getElementById('placeholder')
 
-    let activeRoute = null;
+btns.forEach(b=>b.onclick=()=>{
+  btns.forEach(x=>x.classList.remove('active'));b.classList.add('active')
+  let id=b.dataset.id,data=ROUTES[id]
 
-    routeButtons.forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const routeId = parseInt(btn.getAttribute("data-route"), 10);
-        loadRoute(routeId, btn);
-      });
-    });
+  if(!data.url){ frame.src="";frame.classList.remove('show')
+    placeholder.innerHTML="Route not configured";placeholder.style.display="block"
+    exportBtn.disabled=true;return }
 
-    function loadRoute(id, buttonEl) {
-      const route = ROUTES[id];
-      if (!route || !route.grid) {
-        // not configured
-        frame.classList.remove("visible");
-        frame.removeAttribute("src");
-        placeholder.textContent = "Route " + id + " is not configured yet.";
-        placeholder.style.display = "block";
-        titleEl.textContent = "Route " + id;
-        subtitleEl.textContent = "This route does not have a grid URL assigned yet.";
-        exportBtn.classList.add("disabled");
-        exportBtn.onclick = null;
-        setActiveButton(buttonEl);
-        activeRoute = null;
-        return;
-      }
-
-      // Set active button
-      setActiveButton(buttonEl);
-
-      // Update title & subtitle
-      titleEl.textContent = route.title || "Route " + id;
-      subtitleEl.textContent = route.grid;
-
-      // Show iframe
-      placeholder.style.display = "none";
-      frame.classList.add("visible");
-      frame.src = route.grid;
-
-      // Export button
-      if (route.export) {
-        exportBtn.classList.remove("disabled");
-        exportBtn.onclick = () => window.open(route.export, "_blank");
-      } else {
-        exportBtn.classList.add("disabled");
-        exportBtn.onclick = null;
-      }
-
-      activeRoute = id;
-    }
-
-    function setActiveButton(btn) {
-      routeButtons.forEach((b) => b.classList.remove("active"));
-      if (btn) btn.classList.add("active");
-    }
-  </script>
+  frame.src=data.url;frame.classList.add('show')
+  placeholder.style.display="none"
+  exportBtn.disabled=!data.excel?true:false
+  exportBtn.onclick=()=>window.open(data.excel,'_blank')
+  nameEl.textContent="Route "+id
+  urlEl.textContent=data.url
+})
+</script>
 </body>
 </html>
