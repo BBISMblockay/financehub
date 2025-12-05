@@ -2,266 +2,175 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>AP Frame Console — Multi Client Review Hub</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AP Hub Console</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
 
 <style>
-/* ======================= CORE ======================= */
-*{box-sizing:border-box;margin:0;padding:0;}
+/* ===== Global ===== */
 body{
-  font-family:"Inter",system-ui,sans-serif;
-  background:#0c0e12;color:#e5e8eb;
-  height:100vh;overflow:hidden;
-  display:flex;flex-direction:column;
+  margin:0;background:#121212;color:#e6e6e6;
+  font-family:'Inter',sans-serif;display:flex;height:100vh;overflow:hidden;
 }
 
-/* ======================= HEADER ======================= */
-.topbar{
-  padding:22px 32px;display:flex;align-items:center;justify-content:space-between;
-  background:#0f1116;border-bottom:1px solid rgba(255,255,255,.05);
+/* ===== Sidebar ===== */
+#sidebar{
+  width:260px;background:#181818;border-right:1px solid #222;
+  display:flex;flex-direction:column;padding:20px 0;
 }
-.topbar h1{font-size:20px;font-weight:600;opacity:.92;}
-.settingsToggle{
-  background:#00eaff;padding:8px 22px;border-radius:999px;border:none;color:#000;
-  font-weight:700;font-size:14px;cursor:pointer;transition:.2s;
+#logo{font-size:22px;font-weight:700;text-align:center;margin-bottom:25px;}
+.nav-item{
+  padding:14px 25px;margin:5px 12px;border-radius:6px;font-size:15px;
+  cursor:pointer;opacity:.8;transition:.2s;
 }
-.settingsToggle:hover{transform:translateY(-2px);box-shadow:0 0 18px rgba(0,231,255,.5);}
+.nav-item:hover{background:#262626;opacity:1}
+.nav-item.active{background:#4f68ff;color:white;opacity:1}
 
-/* ======================= MAIN UI ======================= */
-.main{flex:1;display:flex;overflow:hidden;}
-
-/* LEFT SIDE — CLIENT SELECTOR */
-.sidebar{
-  width:240px;padding:24px 18px;overflow-y:auto;
-  border-right:1px solid rgba(255,255,255,.05);
-  background:rgba(255,255,255,.02);backdrop-filter:blur(12px);
+/* ===== Main View ===== */
+#main{
+  flex:1;padding:25px;overflow:auto;
 }
-.sidebar h3{font-size:12px;text-transform:uppercase;opacity:.4;letter-spacing:.7px;margin-bottom:10px;}
-
-.clientBtn{
-  background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.06);
-  padding:12px 16px;margin-bottom:8px;border-radius:10px;font-size:14px;cursor:pointer;
-  transition:.25s;
+#iframeWrap{
+  width:100%;height:85vh;background:#1b1b1b;border:1px solid #2f2f2f;
+  border-radius:10px;overflow:hidden;display:flex;align-items:center;justify-content:center;
 }
-.clientBtn:hover{background:rgba(255,255,255,.12);}
-.clientBtn.active{
-  background:#00eaff;color:#000;font-weight:700;box-shadow:0 0 14px rgba(0,231,255,.5);
+iframe{
+  width:100%;height:100%;border:none;
+}
+#placeholder{
+  opacity:.3;text-align:center;font-size:18px;padding:100px 0;
 }
 
-/* ======================= CARD GRID VIEW ======================= */
-.gridWrap{
-  flex:1;padding:34px 28px;overflow-y:auto;display:flex;flex-wrap:wrap;
-  gap:26px;background:#0b0c10;
+/* ===== Settings Panel ===== */
+#settingsPage{display:none;}
+input{
+  width:100%;padding:9px;margin:6px 0;background:#222;border:1px solid #333;color:white;
+  border-radius:6px;font-size:14px;
 }
+.saveBtn{
+  background:#4f68ff;padding:10px;border-radius:6px;text-align:center;margin-top:10px;
+  cursor:pointer;font-weight:600;
+}
+.saveBtn:hover{background:#6d83ff;}
 
-.isoCard{
-  width:280px;height:180px;border-radius:16px;overflow:hidden;
-  background:#14171e;border:1px solid #1e212a;
-  cursor:pointer;position:relative;transition:.3s;
-  display:flex;align-items:center;justify-content:center;
-  color:#8ea0b3;font-size:17px;font-weight:500;
+.routeRow{
+  display:grid;grid-template-columns:120px 1fr;margin:10px 0;gap:10px;
 }
-.isoCard:hover{
-  transform:scale(1.04);border-color:#00eaff;
-  box-shadow:0 0 32px rgba(0,231,255,.25);
-}
-
-/* CARD PREVIEW FRAME (on hover) */
-.isoCard iframe{
-  position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;
-  pointer-events:none;border:none;transition:.5s;
-}
-.isoCard:hover iframe{opacity:.25;filter:blur(1px);}
-
-/* ======================= FULLSCREEN IF  ======================= */
-.fullFrame{
-  position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:20;
-  background:#000;border:none;opacity:0;pointer-events:none;transition:.45s;
-}
-.fullFrame.active{
-  opacity:1;pointer-events:auto;
-  border-radius:0;
-}
-
-/* Exit Frame */
-.closeFrame{
-  position:fixed;top:28px;right:32px;z-index:50;
-  background:#00eaff;color:#000;font-weight:700;padding:10px 24px;border:none;
-  border-radius:999px;cursor:pointer;font-size:14px;
-  display:none;transition:.25s;
-}
-.closeFrame.show{display:block;}
-.closeFrame:hover{transform:translateY(-2px);box-shadow:0 0 18px rgba(0,231,255,.4);}
-
-/* Export Button */
-.exportBtn{
-  position:fixed;top:28px;left:32px;z-index:50;display:none;
-  padding:10px 24px;background:#00eaff;color:#000;border:none;border-radius:999px;
-  font-weight:700;font-size:14px;cursor:pointer;
-}
-.exportBtn.show{display:block;}
-.exportBtn:hover{transform:translateY(-2px);box-shadow:0 0 18px rgba(0,231,255,.4);}
-
-/* ======================= SETTINGS ======================= */
-.settingsPanel{
-  position:absolute;top:74px;right:0;width:450px;height:calc(100vh - 74px);
-  background:#0d0f14;border-left:1px solid rgba(255,255,255,.05);
-  padding:26px 26px;overflow-y:auto;display:none;z-index:30;
-}
-
-.sRow{
-  background:#13171e;border:1px solid #1e222c;border-radius:14px;
-  padding:16px;margin-bottom:12px;display:flex;flex-direction:column;gap:8px;
-}
-.sRow input{
-  padding:10px;background:#171b23;border:1px solid #262b36;color:#fff;
-  border-radius:8px;font-size:13px;
-}
-.saveAll{
-  width:100%;padding:14px;background:#00eaff;color:#000;border:none;
-  border-radius:12px;font-weight:700;font-size:14px;cursor:pointer;margin-top:14px;
-}
-.saveAll:hover{background:#1af1ff;}
-
+hr{border:0;border-top:1px solid #333;margin:15px 0;}
 </style>
 </head>
-
-
-
 <body>
 
-<!-- ============ TOP ============ -->
-<div class="topbar">
-  <h1>AP FRAME HUB — Multi Vendor Command Console</h1>
-  <button class="settingsToggle" onclick="toggleSettings()">⚙ Configure Clients</button>
+<!-- Sidebar Navigation -->
+<div id="sidebar">
+  <div id="logo">📁 AP Hub</div>
+
+  <div id="nav"></div> <!-- Route buttons dynamically inserted -->
+
+  <div class="nav-item" onclick="openSettings()">⚙ Settings</div>
 </div>
 
-<!-- ============ MAIN UI ============ -->
-<div class="main">
 
-  <!-- Left Column: Client Selector -->
-  <div class="sidebar">
-      <h3>Clients</h3>
-      <div id="clientList"></div>
+<!-- Main Window -->
+<div id="main">
+
+  <div id="iframeWrap">
+      <div id="placeholder">← Select a client to load their grid</div>
   </div>
 
-  <!-- ISO CARD GRID -->
-  <div id="gridWrap" class="gridWrap"></div>
+  <!-- SETTINGS PAGE -->
+  <div id="settingsPage">
+    <h2 style="margin-top:0;">Settings — Client Routes</h2>
+    <p>Define up to <b>10 Client Portals</b>. Click Save when finished.</p>
+
+    <div id="settingsForm"></div>
+    <div class="saveBtn" onclick="saveRoutes()">💾 Save Routes</div>
+  </div>
+
 </div>
-
-<!-- ================= FULLSCREEN IFRAME ================= -->
-<iframe id="fullFrame" class="fullFrame"></iframe>
-<button id="closeFrame" class="closeFrame" onclick="exitFrame()">✕ Exit</button>
-<button id="export" class="exportBtn" onclick="exportFrame()">⬇ Export CSV</button>
-
-<!-- ================= SETTINGS ================= -->
-<div id="settingsPanel" class="settingsPanel"></div>
-
 
 
 <script>
-/* ==========================================================
-   CLIENT ROUTE CONFIG — BLANK TEMPLATE (YOU FILL WITH LINKS)
-========================================================== */
+/* ========= STORAGE ========= */
 
-let ROUTES = JSON.parse(localStorage.getItem("ap_frame_routes")) || {};
-for(let i=1;i<=10;i++) if(!ROUTES[i]) ROUTES[i]={name:"Client "+i,grid:"",export:""};
+let routes = JSON.parse(localStorage.getItem("apRoutes")) || [
+  {name:"",url:""},
+  {name:"",url:""},
+  {name:"",url:""},
+  {name:"",url:""},
+  {name:"",url:""},
+  {name:"",url:""},
+  {name:"",url:""},
+  {name:"",url:""},
+  {name:"",url:""},
+  {name:"",url:""},
+]; // 10 Blank Slots
 
+function renderSidebar(){
+  let nav=document.getElementById("nav");
+  nav.innerHTML="";
 
-/* ============ BUILD SIDEBAR & CARDS ============ */
-function buildUI(){
-  clientList.innerHTML="";
-  gridWrap.innerHTML="";
-
-  for(let i=1;i<=10;i++){
-    let r=ROUTES[i];
-
-    // SIDEBAR BUTTON
-    let btn=document.createElement("div");
-    btn.className="clientBtn";
-    btn.textContent=r.name;
-    btn.onclick=()=>focusFrame(i);
-    clientList.appendChild(btn);
-
-    // ISO CARD
-    let card=document.createElement("div");
-    card.className="isoCard";
-    card.textContent=r.name;
-    card.onclick=()=>openFrame(i);
-
-    if(r.grid){
-      let p=document.createElement("iframe");
-      p.src=r.grid;p.loading="lazy";
-      card.appendChild(p);
+  routes.forEach((r,i)=>{
+    if(r.name.trim().length){
+      let el=document.createElement("div");
+      el.className="nav-item";
+      el.innerHTML=r.name;
+      el.onclick=()=>loadRoute(i,el);
+      nav.appendChild(el);
     }
-    gridWrap.appendChild(card);
-  }
-}
-buildUI();
-
-
-/* ============ FULLSCREEN FRAME EXPAND ============ */
-function openFrame(n){
-  let link=ROUTES[n].grid;
-  if(!link){alert("No Grid URL assigned.");return;}
-
-  fullFrame.src=link;
-  fullFrame.classList.add("active");
-  closeFrame.classList.add("show");
-  export.classList.add("show");
-  export.setAttribute("data-exp",ROUTES[n].export||"");
+  });
 }
 
-/* exit */
-function exitFrame(){
-  fullFrame.classList.remove("active");
-  closeFrame.classList.remove("show");
-  export.classList.remove("show");
-  setTimeout(()=>fullFrame.src="",300);
+function renderSettings(){
+  let wrap=document.getElementById("settingsForm");
+  wrap.innerHTML="";
+
+  routes.forEach((r,i)=>{
+    wrap.innerHTML+=`
+      <div class="routeRow">
+        <input placeholder="Client Name" id="name${i}" value="${r.name}">
+        <input placeholder="Jotform or Grid URL (iframe src)" id="url${i}" value="${r.url}">
+      </div>`;
+  });
 }
 
-/* export */
-function exportFrame(){
-  let url=export.getAttribute("data-exp");
-  if(!url) return alert("No export URL configured");
-  window.open(url,"_blank");
+function saveRoutes(){
+  routes = routes.map((_,i)=>({
+    name:document.getElementById("name"+i).value,
+    url:document.getElementById("url"+i).value
+  }));
+  localStorage.setItem("apRoutes",JSON.stringify(routes));
+  alert("Saved ✓ — refresh sidebar updated");
+  renderSidebar();
 }
 
 
+/* ========= ROUTE LOADING ========= */
 
-/* ============ SETTINGS PANEL ============ */
-function toggleSettings(){
-  settingsPanel.style.display=settingsPanel.style.display==="block"?"none":"block";
-  buildSettings();
+function loadRoute(index,el){
+  document.querySelectorAll(".nav-item").forEach(n=>n.classList.remove("active"));
+  el.classList.add("active");
+
+  document.getElementById("settingsPage").style.display="none";
+  document.getElementById("iframeWrap").style.display="flex";
+  document.getElementById("placeholder").style.display="none";
+
+  const url=routes[index].url;
+  document.getElementById("iframeWrap").innerHTML=`<iframe src="${url}"></iframe>`;
 }
 
-function buildSettings(){
-  settingsPanel.innerHTML="";
-  for(let i=1;i<=10;i++){
-    let r=ROUTES[i];
-    settingsPanel.innerHTML+=`
-        <div class="sRow">
-            <b>Route ${i}</b>
-            <input id="n${i}" placeholder="Client Name" value="${r.name}">
-            <input id="g${i}" placeholder="JotForm Grid URL" value="${r.grid}">
-            <input id="e${i}" placeholder="Export URL" value="${r.export}">
-        </div>`;
-  }
-  settingsPanel.innerHTML+=`<button class="saveAll" onclick="saveAll()">Save Configuration</button>`;
+function openSettings(){
+  document.querySelectorAll(".nav-item").forEach(n=>n.classList.remove("active"));
+  document.getElementById("iframeWrap").style.display="none";
+  document.getElementById("settingsPage").style.display="block";
+  renderSettings();
 }
 
-function saveAll(){
-  for(let i=1;i<=10;i++){
-    ROUTES[i].name=document.getElementById("n"+i).value;
-    ROUTES[i].grid=document.getElementById("g"+i).value;
-    ROUTES[i].export=document.getElementById("e"+i).value;
-  }
-  localStorage.setItem("ap_frame_routes",JSON.stringify(ROUTES));
-  buildUI();
-  alert("✓ Saved & Updated");
-}
+
+/* INIT */
+renderSidebar();
 </script>
 </body>
 </html>
