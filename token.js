@@ -1,0 +1,2 @@
+// token.js
+window.GITHUB_TOKEN = "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";
