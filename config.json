@@ -1,6 +1,6 @@
 {
   "routes": [
-    { "id": 1, "name": "Baseballism", "https://www.jotform.com/grid/201606337973054": "", "https://www.jotform.com/grid/201606337973054": "" },
+    { "id": 1, "name": "Baseballism", "iframeUrl": "https://www.jotform.com/grid/201606337973054", "exportUrl": "https://www.jotform.com/export/201606337973054" },
     { "id": 2, "name": "Client 2", "iframeUrl": "", "exportUrl": "" },
     { "id": 3, "name": "Client 3", "iframeUrl": "", "exportUrl": "" },
     { "id": 4, "name": "Client 4", "iframeUrl": "", "exportUrl": "" },
