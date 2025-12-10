@@ -1,191 +1,218 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>FinanceHub AP Portal</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8">
+  <title>FinanceHub AP Portal</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<style>
-body{
-  margin:0;background:#0B0C0F;color:#E6E6E6;font-family:'Inter',sans-serif;overflow:hidden;
-}
-#sidebar{
-  position:fixed;left:0;top:0;bottom:0;width:230px;background:#0E0F12;
-  border-right:1px solid rgba(255,255,255,.08);padding:30px 18px;overflow-y:auto;
-}
-#sidebar h1{font-size:22px;font-weight:700;margin-bottom:22px;color:#fff;}
+  <style>
+    body {
+      margin: 0;
+      background: #0B0C0F;
+      color: #E6E6E6;
+      font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      overflow: hidden;
+    }
 
-button.route{
-  display:block;width:100%;padding:12px 14px;margin-bottom:8px;text-align:left;
-  font-size:14px;color:#CFCFCF;background:#15171B;border:1px solid rgba(255,255,255,.06);
-  border-radius:10px;cursor:pointer;transition:.25s;
-}
-button.route:hover{background:#1C1F24;}
-button.route.active{background:#2B2E34;border-color:#3F4248;color:#fff;font-weight:600;}
+    /* Sidebar */
+    #sidebar {
+      position: fixed;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 230px;
+      background: #0E0F12;
+      border-right: 1px solid rgba(255, 255, 255, .08);
+      padding: 30px 18px;
+      overflow-y: auto;
+    }
 
-#topBar{
-  position:fixed;left:230px;right:0;top:0;height:56px;background:#0F1014;
-  border-bottom:1px solid rgba(255,255,255,.08);display:flex;align-items:center;
-  justify-content:space-between;padding:0 30px;z-index:10;
-}
-#routeTitle{font-size:16px;font-weight:600;}
-#exportBtn{
-  padding:8px 16px;border-radius:8px;border:none;background:#F1F1F1;color:#111;font-weight:600;cursor:pointer;
-}
-#exportBtn:hover{background:white;}
+    #sidebar h1 {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 22px;
+      color: #fff;
+    }
 
-#viewer{
-  position:fixed;left:230px;top:56px;right:0;bottom:0;padding:22px;overflow:hidden;
-}
+    button.route {
+      display: block;
+      width: 100%;
+      padding: 12px 14px;
+      margin-bottom: 8px;
+      text-align: left;
+      font-size: 14px;
+      color: #CFCFCF;
+      background: #15171B;
+      border: 1px solid rgba(255, 255, 255, .06);
+      border-radius: 10px;
+      cursor: pointer;
+      transition: .25s;
+    }
 
-/* Standard iframe routes */
-iframe{
-  width:100%;height:100%;border:none;border-radius:14px;background:#111;
-  display:none;opacity:0;transform:scale(.985);
-  transition:opacity .25s,transform .25s;
-}
-iframe.active.show{display:block;opacity:1;transform:scale(1);}
+    button.route:hover {
+      background: #1C1F24;
+    }
 
-/* --------------------------- */
-/* 🔥 ROUTE 8 - MASTER PORTAL  */
-/* --------------------------- */
-#route8-wrapper{
-  display:none;opacity:0;transform:translateY(15px);
-  transition:.35s;overflow-y:auto;
-  height:calc(100vh - 90px); /* <-- makes spreadsheet visible */
-  padding-right:12px;
-}
-#route8-wrapper.show{display:block;opacity:1;transform:translateY(0);}
+    button.route.active {
+      background: #2B2E34;
+      border-color: #3F4248;
+      color: #fff;
+      font-weight: 600;
+    }
 
-/* iframe inside route 8 */
-#route8-wrapper .wpv-iframe-wrap iframe{
-  width:100%;height:785px!important; border:none;
-  margin-top:18px;border-radius:12px;background:#000;
-}
-</style>
+    /* Top bar */
+    #topBar {
+      position: fixed;
+      left: 230px;
+      right: 0;
+      top: 0;
+      height: 56px;
+      background: #0F1014;
+      border-bottom: 1px solid rgba(255, 255, 255, .08);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 30px;
+      z-index: 10;
+    }
+
+    #routeTitle {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    #exportBtn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      border: none;
+      background: #F1F1F1;
+      color: #111;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    #exportBtn:hover {
+      background: white;
+    }
+
+    /* Main viewer */
+    #viewer {
+      position: fixed;
+      left: 230px;
+      top: 56px;
+      right: 0;
+      bottom: 0;
+      padding: 22px;
+      overflow: hidden;
+    }
+
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+      border-radius: 14px;
+      background: #111;
+      display: none;
+      opacity: 0;
+      transform: scale(.985);
+      transition: opacity .25s, transform .25s;
+    }
+
+    iframe.active.show {
+      display: block;
+      opacity: 1;
+      transform: scale(1);
+    }
+  </style>
 </head>
 <body>
 
-<!-- SIDEBAR -->
-<div id="sidebar">
-  <h1>FinanceHub</h1>
-  <button class="route active" onclick="switchRoute(1)">Baseballism</button>
-  <button class="route" onclick="switchRoute(2)">Travel Requests</button>
-  <button class="route" onclick="switchRoute(3)">Bars Requests</button>
-  <button class="route" onclick="switchRoute(4)">Wild Child</button>
-  <button class="route" onclick="switchRoute(5)">MISE</button>
-  <button class="route" onclick="switchRoute(6)">STLHD</button>
-  <button class="route" onclick="switchRoute(7)">Portland Gear</button>
+  <!-- SIDEBAR -->
+  <div id="sidebar">
+    <h1>FinanceHub</h1>
 
-  <!-- 🔥 The new actual Route 8 -->
-  <button class="route" onclick="switchRoute(8)">WPV Master Portal</button>
-
-  <button class="route" onclick="switchRoute(9)">Baseballism Cashflow</button>
-  <button class="route" onclick="switchRoute(10)">Baseballism Sales Dashboard</button>
-</div>
-
-<!-- TOP BAR -->
-<div id="topBar">
-  <div id="routeTitle">Baseballism</div>
-  <button id="exportBtn" onclick="window.open(currentSrc,'_blank')">Export ↓</button>
-</div>
-
-<!-- VIEWER -->
-<div id="viewer">
-
-  <iframe id="r1" class="active" src="https://www.jotform.com/grid/201606337973054"></iframe>
-  <iframe id="r2" src="https://www.jotform.com/grid/200496754119055"></iframe>
-  <iframe id="r3" src="https://www.jotform.com/grid/222686658265065"></iframe>
-  <iframe id="r4" src="https://www.jotform.com/grid/240031492980049"></iframe>
-  <iframe id="r5" src="https://www.jotform.com/grid/241086664226054"></iframe>
-  <iframe id="r6" src="https://www.jotform.com/grid/201496499131056"></iframe>
-  <iframe id="r7" src="https://www.jotform.com/grid/250716935607058"></iframe>
-
-<!-- 🔥 Route 8 custom full HTML — not iframe -->
-<div id="route8-wrapper">
-
-<!-- ====== YOUR MASTER PORTAL HTML EXACTLY AS PROVIDED ====== -->
-<!-- You do NOT need to add anything. Already integrated. -->
-<!-- And spreadsheet now renders full width + scroll -->
-<!-- ========================================================= -->
-
-<div id="wpv-master-portal">
-  <div class="wpv-shell">
-
-    <header class="wpv-header">
-      <h1 class="wpv-header-title">WPV Master Financial Reporting</h1>
-      <p class="wpv-header-subtitle">Internal portfolio-wide reporting — all companies, all months.</p>
-
-      <div class="wpv-toggle-row">
-        <button class="wpv-toggle wpv-toggle--active"><span class="wpv-dot"></span> Internal Only</button>
-        <button class="wpv-toggle">All Entities</button>
-        <button class="wpv-toggle">Master View</button>
-      </div>
-    </header>
-
-    <main class="wpv-main">
-      <section class="wpv-card">
-
-        <div class="wpv-card-header">
-          <div>
-            <h2 class="wpv-card-title">Portfolio Financials <span class="wpv-pill">Master</span></h2>
-            <p class="wpv-card-subtitle">Grouped by company • reporting date • file type</p>
-          </div>
-
-          <div class="wpv-entity-dropdown">
-            <select id="entity-select">
-              <option value="">Jump to Entity…</option>
-              <option value="https://wpvportal.weebly.com/mise-analytics.html">MISE Footwear</option>
-              <option value="https://wpvportal.weebly.com/pgear-analytics.html">Portland Gear</option>
-              <option value="https://wpvportal.weebly.com/statefortyeight-analytics.html">State Forty Eight</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="wpv-iframe-wrap">
-          <iframe src="https://docs.google.com/spreadsheets/d/e/2PACX-1vR3WDgykPf-5QBhmiZZNO70Y953HgPb3vcA_kkUDrF0fv0nzLOBe4uKw0qrFmdbSnza7m6IoHQgdiSo/pubhtml?gid=1268095139&single=true"></iframe>
-        </div>
-
-        <p class="wpv-footer">Data source: QuickBooks Online exports — WPV Accounting</p>
-      </section>
-    </main>
-
-    <!-- 🔥 SUBMISSION PORTAL BELOW SHEET -->
-    <script type="text/javascript" src="https://form.jotform.com/jsform/253167355298063"></script>
-
+    <button class="route active" onclick="switchRoute(1)">Baseballism</button>
+    <button class="route" onclick="switchRoute(2)">Travel Requests</button>
+    <button class="route" onclick="switchRoute(3)">Bars Requests</button>
+    <button class="route" onclick="switchRoute(4)">Wild Child</button>
+    <button class="route" onclick="switchRoute(5)">MISE</button>
+    <button class="route" onclick="switchRoute(6)">STLHD</button>
+    <button class="route" onclick="switchRoute(7)">Portland Gear</button>
+    <button class="route" onclick="switchRoute(8)">WPV Master Portal</button>
+    <button class="route" onclick="switchRoute(9)">Baseballism Cashflow</button>
+    <button class="route" onclick="switchRoute(10)">Baseballism Sales Dashboard</button>
   </div>
-</div>
-</div>
 
-<iframe id="r9" src="https://docs.google.com/spreadsheets/d/e/2PACX-1vRPpmraQ0w75ZF-0Qn2ttEW-FeQhgwZcTOg4r8JfudwhJ9YGXungj5URnanTVA0ps79H3jXxtwkbKhp/pubhtml?gid=2083507502&single=true"></iframe>
-<iframe id="r10" src="https://app.powerbi.com/view?r=eyJrIjoiY2U0MWI2ZmMtMTY3MS00MDY3LTg5NjctN2VlYjk0NGMxNzUzIiwidCI6IjIzYTkzNDJkLTFjODEtNGJkNS1hY2U0LThmYWY4ZWVlNTZiZCJ9"></iframe>
-</div>
+  <!-- TOP BAR -->
+  <div id="topBar">
+    <div id="routeTitle">Baseballism</div>
+    <button id="exportBtn" onclick="window.open(currentSrc,'_blank')">Export ↓</button>
+  </div>
 
-<script>
-let currentSrc=document.getElementById("r1").src;
+  <!-- VIEWER -->
+  <div id="viewer">
+    <!-- Route 1–7: AP grids -->
+    <iframe id="r1" class="active"
+            src="https://www.jotform.com/grid/201606337973054"></iframe>
 
-function switchRoute(n){
-  document.querySelectorAll("button.route").forEach((b,i)=>b.classList.toggle("active",(i+1)===n));
+    <iframe id="r2"
+            src="https://www.jotform.com/grid/200496754119055"></iframe>
 
-  document.querySelectorAll("iframe,#route8-wrapper").forEach(el=>{
-    el.classList.remove("active","show");el.style.display="none";
-  });
+    <iframe id="r3"
+            src="https://www.jotform.com/grid/222686658265065"></iframe>
 
-  if(n===8){
-    document.getElementById("routeTitle").innerText="WPV Master Portal";
-    document.getElementById("route8-wrapper").style.display="block";
-    setTimeout(()=>document.getElementById("route8-wrapper").classList.add("show"),40);
-    return;
-  }
+    <iframe id="r4"
+            src="https://www.jotform.com/grid/240031492980049"></iframe>
 
-  let f=document.getElementById("r"+n);
-  currentSrc=f.src;
-  f.style.display="block";
-  setTimeout(()=>f.classList.add("active","show"),10);
-  document.getElementById("routeTitle").innerText =
-    document.querySelectorAll("button.route")[n-1].innerText;
-}
-</script>
+    <iframe id="r5"
+            src="https://www.jotform.com/grid/241086664226054"></iframe>
 
+    <iframe id="r6"
+            src="https://www.jotform.com/grid/201496499131056"></iframe>
+
+    <iframe id="r7"
+            src="https://www.jotform.com/grid/250716935607058"></iframe>
+
+    <!-- 🔥 Route 8: FULL WEEBLY MASTER PORTAL PAGE -->
+    <!-- Replace the src below with your exact master page URL -->
+    <iframe id="r8"
+            src="https://wpvportal.weebly.com/master.html"></iframe>
+
+    <!-- Route 9: Cashflow Google Sheet -->
+    <iframe id="r9"
+            src="https://docs.google.com/spreadsheets/d/e/2PACX-1vRPpmraQ0w75ZF-0Qn2ttEW-FeQhgwZcTOg4r8JfudwhJ9YGXungj5URnanTVA0ps79H3jXxtwkbKhp/pubhtml?gid=2083507502&single=true"></iframe>
+
+    <!-- Route 10: Power BI Sales Dashboard -->
+    <iframe id="r10"
+            src="https://app.powerbi.com/view?r=eyJrIjoiY2U0MWI2ZmMtMTY3MS00MDY3LTg5NjctN2VlYjk0NGMxNzUzIiwidCI6IjIzYTkzNDJkLTFjODEtNGJkNS1hY2U0LThmYWY4ZWVlNTZiZCJ9"></iframe>
+  </div>
+
+  <script>
+    let currentSrc = document.getElementById("r1").src;
+
+    function switchRoute(n) {
+      // Sidebar button active state
+      document.querySelectorAll("button.route")
+        .forEach((b, i) => b.classList.toggle("active", (i + 1) === n));
+
+      // Hide all iframes
+      document.querySelectorAll("iframe").forEach(f => {
+        f.classList.remove("active", "show");
+        f.style.display = "none";
+      });
+
+      // Show selected route iframe
+      const frame = document.getElementById("r" + n);
+      currentSrc = frame.src;
+      frame.style.display = "block";
+      requestAnimationFrame(() => {
+        frame.classList.add("active", "show");
+      });
+
+      // Update top title
+      document.getElementById("routeTitle").innerText =
+        document.querySelectorAll("button.route")[n - 1].innerText;
+    }
+  </script>
 </body>
 </html>
