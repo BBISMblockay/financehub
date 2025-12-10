@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Uploads Table</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { border: 1px solid #ccc; padding: 6px; text-align: left; }
+    th { background: #f0f0f0; }
+    tbody tr:nth-child(even) { background: #fafafa; }
+  </style>
+</head>
+<body>
+  <h2>Uploads Table</h2>
+  <table id="uploadsTable">
+    <thead>
+      <tr>
+        <th>Date</th><th>Month</th><th>Year</th><th>Notes</th>
+        <th>Uploaded By</th><th>Balance Sheet</th><th>P&L</th><th>GL</th><th>Other Docs</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <script>
+    const sheetID = "1dMNl3VuC4MlGk5vDrXIFnHRPt_B5lBtc5AHuT0Uo1N4";
+    const gid = "655106106";
+    const url = `https://docs.google.com/spreadsheets/d/${sheetID}/gviz/tq?tqx=out:json&gid=${gid}`;
+
+    async function loadSheet() {
+      const tbody = document.querySelector("#uploadsTable tbody");
+      tbody.innerHTML = "";
+
+      try {
+        const res = await fetch(url);
+        const text = await res.text();
+
+        // Strip Google’s JSON wrapper
+        const json = JSON.parse(text.substring(47, text.length - 2));
+        const rows = json.table.rows;
+
+        rows.forEach(r => {
+          const cells = r.c.map(c => (c && c.v != null) ? c.v : "");
+          const tr = document.createElement("tr");
+
+          const mapping = [
+            cells[0], // Date
+            cells[2], // Month
+            cells[3], // Year
+            cells[8], // Notes
+            cells[9], // Uploaded By
+            cells[10] ? `<a href="${cells[10]}" target="_blank">View</a>` : "",
+            cells[11] ? `<a href="${cells[11]}" target="_blank">View</a>` : "",
+            cells[12] ? `<a href="${cells[12]}" target="_blank">View</a>` : "",
+            cells[13] ? `<a href="${cells[13]}" target="_blank">Docs</a>` : ""
+          ];
+
+          mapping.forEach(val => {
+            const td = document.createElement("td");
+            td.innerHTML = val;
+            tr.appendChild(td);
+          });
+
+          tbody.appendChild(tr);
+        });
+      } catch (err) {
+        console.error("Error fetching sheet:", err);
+        tbody.innerHTML = `<tr><td colspan="9">Error fetching sheet data.</td></tr>`;
+      }
+    }
+
+    loadSheet();
+  </script>
+</body>
+</html>
