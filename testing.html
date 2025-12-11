@@ -51,6 +51,58 @@ body {
 }
 
 /* -------------------------------------------------------
+   COLLAPSIBLE UPLOAD PANEL (A1)
+------------------------------------------------------- */
+.upload-toggle {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  padding: 14px 18px;
+  border-radius: var(--card-radius);
+  margin-bottom: 14px;
+  cursor: pointer;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: background .2s;
+}
+
+.upload-toggle:hover {
+  background: var(--bg-hover);
+}
+
+.upload-toggle span {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.upload-toggle .arrow {
+  transition: transform .25s ease;
+}
+
+.upload-toggle.active .arrow {
+  transform: rotate(90deg);
+}
+
+/* Panel container */
+.upload-panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height .35s ease, opacity .25s ease;
+  margin-bottom: 26px;
+  padding: 0 0; /* padding added only when open */
+}
+
+.upload-panel.open {
+  opacity: 1;
+  padding: 20px 24px;
+}
+
+/* -------------------------------------------------------
    FILTER BAR
 ------------------------------------------------------- */
 .filters {
@@ -217,6 +269,19 @@ tbody tr:hover {
 </div>
 
 <!-- -----------------------------------------------------
+     COLLAPSIBLE UPLOAD PANEL
+------------------------------------------------------ -->
+<div class="upload-toggle" id="uploadToggle">
+  <span>+ Submit New Financial Upload</span>
+  <span class="arrow">▶</span>
+</div>
+
+<div class="upload-panel" id="uploadPanel">
+  <!-- Jotform Embed -->
+  <script type="text/javascript" src="https://form.jotform.com/jsform/253167355298063"></script>
+</div>
+
+<!-- -----------------------------------------------------
      FILTER BAR
 ------------------------------------------------------ -->
 <div class="filters">
@@ -259,6 +324,32 @@ tbody tr:hover {
 <div class="pagination" id="pagination"></div>
 
 <script>
+/* -------------------------------------------------------
+   COLLAPSIBLE LOGIC
+------------------------------------------------------- */
+const uploadToggle = document.getElementById("uploadToggle");
+const uploadPanel  = document.getElementById("uploadPanel");
+
+uploadToggle.addEventListener("click", () => {
+  const isOpen = uploadPanel.classList.contains("open");
+
+  if (isOpen) {
+    // closing
+    uploadPanel.style.maxHeight = "0px";
+    uploadPanel.classList.remove("open");
+    uploadToggle.classList.remove("active");
+  } else {
+    // opening
+    uploadPanel.classList.add("open");
+    uploadToggle.classList.add("active");
+
+    // auto-calc height
+    setTimeout(() => {
+      uploadPanel.style.maxHeight = uploadPanel.scrollHeight + "px";
+    }, 10);
+  }
+});
+
 /* -------------------------------------------------------
    CONFIG
 ------------------------------------------------------- */
