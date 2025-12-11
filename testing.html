@@ -1,76 +1,223 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Uploads Table</title>
-  <style>
-    body { font-family: Arial, sans-serif; margin: 20px; }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { border: 1px solid #ccc; padding: 6px; text-align: left; }
-    th { background: #f0f0f0; }
-    tbody tr:nth-child(even) { background: #fafafa; }
-  </style>
+<meta charset="UTF-8">
+<title>WPV Universal Financial Uploads</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+  body {
+    margin: 0;
+    padding: 32px;
+    background: #f6f7fb;
+    font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+    color: #111;
+  }
+
+  h1 {
+    font-size: 28px;
+    margin-bottom: 4px;
+    font-weight: 700;
+  }
+
+  .subtitle {
+    color: #6b7280;
+    margin-bottom: 24px;
+  }
+
+  /* ENTITY FILTER DROPDOWN */
+  .entity-select {
+    padding: 10px;
+    border-radius: 8px;
+    border: 1px solid #d1d5db;
+    font-size: 15px;
+    margin-bottom: 20px;
+    background: #fff;
+  }
+
+  /* MAIN TABLE WRAPPER */
+  .table-wrap {
+    margin-top: 20px;
+    overflow-x: auto;
+    background: #fff;
+    border-radius: 14px;
+    border: 1px solid #e5e7eb;
+    box-shadow: 0 8px 28px rgba(0,0,0,0.06);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+
+  th {
+    background: #f9fafb;
+    font-weight: 600;
+    text-align: left;
+    padding: 12px;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  td {
+    padding: 10px 12px;
+    border-bottom: 1px solid #f1f1f1;
+  }
+
+  tbody tr:hover {
+    background: #f3f4f6;
+  }
+
+  .file-link {
+    color: #2563eb;
+    font-weight: 500;
+    text-decoration: none;
+  }
+  .file-link:hover {
+    text-decoration: underline;
+  }
+
+  .footer-note {
+    margin-top: 12px;
+    color: #6b7280;
+    font-size: 12px;
+  }
+</style>
 </head>
+
 <body>
-  <h2>Uploads Table</h2>
-  <table id="uploadsTable">
+
+<h1>Financial Uploads — Universal Engine</h1>
+<div class="subtitle">Auto-pulled from Google Sheets · WPV Accounting</div>
+
+<select id="entityFilter" class="entity-select">
+  <option value="ALL">All Entities</option>
+</select>
+
+<div class="table-wrap">
+  <table>
     <thead>
       <tr>
-        <th>Date</th><th>Month</th><th>Year</th><th>Notes</th>
-        <th>Uploaded By</th><th>Balance Sheet</th><th>P&L</th><th>GL</th><th>Other Docs</th>
+        <th>Date</th>
+        <th>Entity</th>
+        <th>Month</th>
+        <th>Year</th>
+        <th>Notes</th>
+        <th>Uploaded By</th>
+        <th>Balance Sheet</th>
+        <th>P&L</th>
+        <th>GL Detail</th>
+        <th>Other Docs</th>
       </tr>
     </thead>
-    <tbody></tbody>
+    <tbody id="dataRows"></tbody>
   </table>
+</div>
 
-  <script>
-    const sheetID = "1dMNl3VuC4MlGk5vDrXIFnHRPt_B5lBtc5AHuT0Uo1N4";
-    const gid = "655106106";
-    const url = `https://docs.google.com/spreadsheets/d/${sheetID}/gviz/tq?tqx=out:json&gid=${gid}`;
+<div class="footer-note">Data source: Google Sheets upload · WPV Accounting</div>
 
-    async function loadSheet() {
-      const tbody = document.querySelector("#uploadsTable tbody");
-      tbody.innerHTML = "";
+<script>
+const sheetID = "1dMNl3VuC4MlGk5vDrXIFnHRPt_B5lBtc5AHuT0Uo1N4"; // your master sheet
+const gid = "0"; // IMPORTANT: universal gviz reader pulls full sheet
+const url = `https://docs.google.com/spreadsheets/d/${sheetID}/gviz/tq?tqx=out:json&gid=${gid}`;
 
-      try {
-        const res = await fetch(url);
-        const text = await res.text();
+let allRows = [];
 
-        // Strip Google’s JSON wrapper
-        const json = JSON.parse(text.substring(47, text.length - 2));
-        const rows = json.table.rows;
+async function loadSheet() {
+  try {
+    const res = await fetch(url);
+    const text = await res.text();
+    const json = JSON.parse(text.substring(47, text.length - 2));
 
-        rows.forEach(r => {
-          const cells = r.c.map(c => (c && c.v != null) ? c.v : "");
-          const tr = document.createElement("tr");
+    const rows = json.table.rows;
+    const tbody = document.getElementById("dataRows");
+    const entityFilter = document.getElementById("entityFilter");
 
-          const mapping = [
-            cells[0], // Date
-            cells[2], // Month
-            cells[3], // Year
-            cells[8], // Notes
-            cells[9], // Uploaded By
-            cells[10] ? `<a href="${cells[10]}" target="_blank">View</a>` : "",
-            cells[11] ? `<a href="${cells[11]}" target="_blank">View</a>` : "",
-            cells[12] ? `<a href="${cells[12]}" target="_blank">View</a>` : "",
-            cells[13] ? `<a href="${cells[13]}" target="_blank">Docs</a>` : ""
-          ];
+    tbody.innerHTML = "";
+    allRows = [];
 
-          mapping.forEach(val => {
-            const td = document.createElement("td");
-            td.innerHTML = val;
-            tr.appendChild(td);
-          });
+    rows.forEach(row => {
+      const c = row.c.map(cell => (cell ? cell.v : ""));
 
-          tbody.appendChild(tr);
-        });
-      } catch (err) {
-        console.error("Error fetching sheet:", err);
-        tbody.innerHTML = `<tr><td colspan="9">Error fetching sheet data.</td></tr>`;
-      }
-    }
+      const record = {
+        date: c[0],
+        entity: c[1],
+        month: c[2],
+        year: c[3],
 
-    loadSheet();
-  </script>
+        // raw URLs
+        bs_url: c[4],
+        pl_url: c[5],
+        gl_url: c[6],
+        other_url: c[7],
+
+        notes: c[9],
+        uploaded: c[10],
+
+        // renamed labels
+        bs_label: c[15],
+        pl_label: c[16],
+        gl_label: c[17],
+        other_label: c[18]
+      };
+
+      allRows.push(record);
+    });
+
+    buildEntityFilter();
+    renderTable("ALL");
+
+  } catch (err) {
+    console.error("Error loading sheet:", err);
+  }
+}
+
+function buildEntityFilter() {
+  const select = document.getElementById("entityFilter");
+
+  const entities = [...new Set(allRows.map(r => r.entity).filter(Boolean))].sort();
+  entities.forEach(ent => {
+    const opt = document.createElement("option");
+    opt.value = ent;
+    opt.textContent = ent;
+    select.appendChild(opt);
+  });
+
+  select.addEventListener("change", () => renderTable(select.value));
+}
+
+function renderTable(filterEntity) {
+  const tbody = document.getElementById("dataRows");
+  tbody.innerHTML = "";
+
+  const filtered = filterEntity === "ALL"
+    ? allRows
+    : allRows.filter(r => r.entity === filterEntity);
+
+  filtered.forEach(r => {
+    const tr = document.createElement("tr");
+
+    tr.innerHTML = `
+      <td>${r.date || ""}</td>
+      <td>${r.entity || ""}</td>
+      <td>${r.month || ""}</td>
+      <td>${r.year || ""}</td>
+      <td>${r.notes || ""}</td>
+      <td>${r.uploaded || ""}</td>
+
+      <td>${r.bs_url ? `<a class="file-link" href="${r.bs_url}" target="_blank">${r.bs_label || "View"}</a>` : ""}</td>
+      <td>${r.pl_url ? `<a class="file-link" href="${r.pl_url}" target="_blank">${r.pl_label || "View"}</a>` : ""}</td>
+      <td>${r.gl_url ? `<a class="file-link" href="${r.gl_url}" target="_blank">${r.gl_label || "View"}</a>` : ""}</td>
+      <td>${r.other_url ? `<a class="file-link" href="${r.other_url}" target="_blank">${r.other_label || "Docs"}</a>` : ""}</td>
+    `;
+
+    tbody.appendChild(tr);
+  });
+}
+
+loadSheet();
+</script>
+
 </body>
 </html>
