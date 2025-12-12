@@ -1,246 +1,717 @@
-<!DOCTYPE html> <html lang="en"> <head> <meta charset="UTF-8" /> <title>AP Requests — Live Dashboard</title> <meta name="viewport" content="width=device-width,initial-scale=1" /> <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" /> <style> :root { color-scheme: dark; --bg: #020617; --bg-elevated: #020617; --panel: #020617; --card: #020617; --card-soft: #020617; --border-subtle: rgba(148, 163, 184, 0.35); --border-strong: rgba(148, 163, 184, 0.6); --text-main: #e5e7eb; --text-muted: #9ca3af; --text-soft: #6b7280; --accent: #38bdf8; --accent-soft: rgba(56, 189, 248, 0.14); --accent-strong: #0ea5e9; --new-pill: #22c55e; --hold-pill: #facc15; --paid-pill: #4ade80; --danger: #fb7185; --shadow-soft: 0 18px 60px rgba(15, 23, 42, 0.55); --radius-card: 20px; --radius-inner: 14px; }
-* { box-sizing: border-box; }
+<!-- /index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>AP Requests — Live Dashboard</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #020617;
+      --text-main: #e5e7eb;
+      --text-soft: #6b7280;
+      --accent: #38bdf8;
+      --shadow-soft: 0 18px 60px rgba(15,23,42,0.55);
+      --radius-card: 20px;
+      --age-fresh: #22c55e;
+      --age-mid: #eab308;
+      --age-stale: #f97316;
+      --age-old: #fb7185;
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; padding:24px 16px 40px; font-family: Inter, sans-serif; background: var(--bg); color: var(--text-main); }
+    .shell { max-width:1200px; margin:0 auto; }
+    header h1 { margin:0;font-size:26px;font-weight:600; }
+    header p { margin:0;font-size:13px;color:var(--text-soft); }
 
-body {
-  margin: 0;
-  padding: 32px 16px 40px;
-  background: radial-gradient(circle at top left, #020617 0, #020617 38%, #020617 100%);
-  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  color: var(--text-main);
-}
+    /* Search + Filters */
+    .toolbar { margin-top:14px; display:grid; gap:10px; grid-template-columns: 1.2fr 3fr; }
+    .search-input { width:100%; background:var(--bg); border-radius:999px; border:1px solid rgba(148,163,184,0.35); padding:10px 14px; font-size:13px; color:var(--text-main); }
+    .filters { background: var(--bg); border:1px solid rgba(15,23,42,0.9); border-radius:14px; padding:10px; box-shadow: var(--shadow-soft); display:grid; gap:8px; grid-template-columns: repeat(6, 1fr); align-items:end; }
+    .f { display:flex; flex-direction:column; gap:6px; }
+    .f label { font-size:11px; color: var(--text-soft); }
+    .f input, .f select { background:var(--bg); border:1px solid rgba(148,163,184,0.35); border-radius:10px; padding:8px 10px; color:var(--text-main); font-size:12px; width:100%; }
+    .chips { display:flex; flex-wrap:wrap; gap:6px; }
+    .chip { font-size:11px; border:1px solid rgba(148,163,184,0.35); padding:6px 10px; border-radius:999px; cursor:pointer; user-select:none; }
+    .chip.active { border-color: var(--accent); color: var(--accent); }
+    .actions { display:flex; gap:8px; justify-content:flex-end; grid-column: 1 / -1; }
+    .btn { font-size:12px; border:1px solid rgba(148,163,184,0.35); background:var(--bg); color:var(--text-main); padding:8px 12px; border-radius:10px; cursor:pointer; }
+    .btn.primary { border-color: var(--accent); color: var(--accent); }
+    .toggle { display:flex; align-items:center; gap:8px; font-size:12px; color:var(--text-soft); }
+    .toggle input { accent-color: var(--accent); }
 
-.shell { max-width: 1200px; margin: 0 auto; }
+    /* KPIs */
+    .kpi-row { margin-top:16px; display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+    .kpi-card { background: var(--bg); border-radius:16px; border:1px solid rgba(15,23,42,0.9); padding:10px 12px; box-shadow: var(--shadow-soft); }
+    .kpi-label { font-size:11px;color:var(--text-soft); text-transform:uppercase; }
+    .kpi-value { font-size:20px;font-weight:600; }
+    .kpi-sub { font-size:11px;color:var(--text-soft); margin-top:4px; }
 
-header { margin-bottom: 24px; }
+    /* Lanes */
+    .lanes-row { margin-top:24px; display:grid; grid-template-columns:repeat(3,1fr); gap:14px; }
+    .lane { background:var(--bg); border-radius:var(--radius-card); border:1px solid rgba(15,23,42,0.9); padding:10px; box-shadow: var(--shadow-soft); display:flex; flex-direction:column; }
+    .lane-header { display:flex; justify-content:space-between; cursor:pointer; border-bottom:1px solid rgba(15,23,42,0.9); padding-bottom:8px; }
+    .lane-title { font-size:13px;font-weight:600; text-transform:uppercase; color:var(--text-soft);}
+    .lane-meta { font-size:11px;color:var(--text-soft); }
+    .vendor-group { margin-bottom:10px; border:1px solid rgba(15,23,42,0.9); border-radius:14px; }
+    .vendor-header { padding:7px 9px; display:flex;justify-content:space-between; cursor:pointer; background: rgba(15,23,42,0.95); }
+    .vendor-header.open { background:rgba(15,23,42,0.8); }
+    .vendor-list { display:none; padding:6px 9px; }
+    .vendor-list.open { display:block; }
+    .card { border-radius:10px; border:1px solid rgba(31,41,55,0.9); background:radial-gradient(circle at top left,rgba(17,24,39,0.9) 0,#020617 45%,#020617 100%); padding:7px 8px; margin-bottom:6px;font-size:11px; }
+    .card-header { display:flex; justify-content:space-between; align-items:center; gap:4px; margin-bottom:4px; }
+    .card-title { font-weight:500;font-size:11px; }
+    .card-subtitle { font-size:10px;color:var(--text-soft); }
+    .status-pill { padding:2px 8px;border-radius:999px;font-size:10px;font-weight:600;text-transform:uppercase; }
+    .status-new { color:#4ade80;border:1px solid #4ade80; }
+    .status-hold { color:#facc15;border:1px solid #facc15; }
+    .status-paid { color:#6ee7b7;border:1px solid #6ee7b7; }
+    .age-pill { display:inline-flex;align-items:center;padding:2px 6px;border-radius:999px; font-size:10px;border:1px solid rgba(148,163,184,0.6);gap:4px;color:var(--text-soft); }
+    .age-dot { width:6px;height:6px;border-radius:999px; }
+    .age-fresh { background:var(--age-fresh); }
+    .age-mid { background:var(--age-mid); }
+    .age-stale { background:var(--age-stale); }
+    .age-old { background:var(--age-old); }
+    .empty-state { font-size:11px;color:var(--text-soft);padding:8px; }
 
-header h1 {
-  font-size: 26px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  margin: 0 0 4px;
-}
+    /* Reporting */
+    .report { margin-top:18px; display:grid; grid-template-columns: 1fr 1fr; gap:14px; }
+    .panel { background:var(--bg); border:1px solid rgba(15,23,42,0.9); border-radius:16px; padding:10px 12px; box-shadow: var(--shadow-soft); }
+    .panel h3 { margin:0 0 8px 0; font-size:13px; color:var(--text-soft); text-transform:uppercase; }
+    table { width:100%; border-collapse:collapse; font-size:12px; }
+    th, td { border-bottom:1px solid rgba(15,23,42,0.9); padding:6px 4px; text-align:left; }
+    th { font-weight:600; color:var(--text-soft); }
 
-header p {
-  margin: 0;
-  font-size: 13px;
-  color: var(--text-soft);
-}
+    footer { text-align:center;color:var(--text-soft);font-size:11px;margin-top:18px; }
 
-.top-row {
-  margin-top: 20px;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  align-items: center;
-  justify-content: space-between;
-}
+    @media (max-width: 1100px) {
+      .toolbar { grid-template-columns: 1fr; }
+      .filters { grid-template-columns: repeat(2, 1fr); }
+      .lanes-row { grid-template-columns: 1fr; }
+      .report { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <h1>AP Requests — Live Dashboard</h1>
+      <p>Auto-pulled from Google Sheets · WPV Accounting</p>
+    </header>
 
-.search-wrap {
-  flex: 1 1 260px;
-  position: relative;
-}
+    <!-- Search + Filters -->
+    <div class="toolbar">
+      <input id="searchInput" class="search-input" placeholder="Search vendor, invoice, notes, email, amount..." />
+      <div class="filters">
+        <div class="f">
+          <label>Status</label>
+          <div id="statusChips" class="chips">
+            <span data-status="new"  class="chip">Ready</span>
+            <span data-status="hold" class="chip">Need Info</span>
+            <span data-status="paid" class="chip">Paid</span>
+          </div>
+        </div>
 
-.search-input {
-  width: 100%;
-  background: #020617;
-  border-radius: 999px;
-  border: 1px solid var(--border-subtle);
-  padding: 10px 14px 10px 34px;
-  font-size: 13px;
-  color: var(--text-main);
-  outline: none;
-}
+        <div class="f">
+          <label>Vendor</label>
+          <select id="vendorSelect" multiple size="4"></select>
+        </div>
 
-.search-input::placeholder { color: #4b5563; }
+        <div class="f">
+          <label>Amount Min</label>
+          <input id="amtMin" type="number" step="0.01" placeholder="0.00" />
+        </div>
+        <div class="f">
+          <label>Amount Max</label>
+          <input id="amtMax" type="number" step="0.01" placeholder="∞" />
+        </div>
 
-.search-icon {
-  position: absolute;
-  left: 11px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 2px solid #64748b;
-}
+        <div class="f">
+          <label>Due Date (from)</label>
+          <input id="dueFrom" type="date" />
+        </div>
+        <div class="f">
+          <label>Due Date (to)</label>
+          <input id="dueTo" type="date" />
+        </div>
 
-.search-icon::after {
-  content: "";
-  position: absolute;
-  right: -4px;
-  bottom: -3px;
-  width: 7px;
-  height: 2px;
-  background: #64748b;
-  transform: rotate(45deg);
-}
+        <div class="f">
+          <label>Submitted (from)</label>
+          <input id="subFrom" type="date" />
+        </div>
+        <div class="f">
+          <label>Submitted (to)</label>
+          <input id="subTo" type="date" />
+        </div>
 
-.kpi-row {
-  margin-top: 16px;
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
+        <div class="f" style="grid-column: 1 / -1;">
+          <label>Aging</label>
+          <div id="ageChips" class="chips">
+            <span data-age="0–30" class="chip">0–30</span>
+            <span data-age="31–60" class="chip">31–60</span>
+            <span data-age="61–90" class="chip">61–90</span>
+            <span data-age="90+"  class="chip">90+</span>
+          </div>
+        </div>
 
-.kpi-card {
-  background: #020617;
-  border-radius: 16px;
-  border: 1px solid rgba(15, 23, 42, 0.9);
-  padding: 10px 12px;
-  box-shadow: var(--shadow-soft);
-  min-height: 70px;
-}
+        <div class="actions">
+          <label class="toggle">
+            <input id="togglePaid" type="checkbox" />
+            Show Paid Lane
+          </label>
+          <button id="resetBtn" class="btn">Reset</button>
+          <button id="exportBtn" class="btn primary">Export CSV</button>
+        </div>
+      </div>
+    </div>
 
-.kpi-label {
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--text-soft);
-}
+    <!-- KPIs -->
+    <div class="kpi-row">
+      <div class="kpi-card"><div class="kpi-label">Total Requests</div><div id="kpiTotal" class="kpi-value">—</div></div>
+      <div class="kpi-card"><div class="kpi-label">Ready to Pay</div><div id="kpiNew" class="kpi-value">—</div><div id="kpiNewAmt" class="kpi-sub">—</div></div>
+      <div class="kpi-card"><div class="kpi-label">Need Info</div><div id="kpiHold" class="kpi-value">—</div><div id="kpiHoldAmt" class="kpi-sub">—</div></div>
+      <div class="kpi-card"><div class="kpi-label">Outstanding Amount</div><div id="kpiOutstanding" class="kpi-value">$0.00</div></div>
+    </div>
 
-.kpi-value {
-  font-size: 20px;
-  font-weight: 600;
-}
+    <!-- Lanes -->
+    <div class="lanes-row">
+      <section class="lane">
+        <div class="lane-header" data-toggle="new">
+          <div class="lane-title">Ready to Pay</div>
+          <div class="lane-meta"><span id="countNew">0</span> • <span id="amtNew">$0.00</span></div>
+        </div>
+        <div id="laneNew" class="lane-body"></div>
+      </section>
 
-.kpi-sub {
-  font-size: 11px;
-  color: var(--text-muted);
-}
+      <section class="lane">
+        <div class="lane-header" data-toggle="hold">
+          <div class="lane-title">Need Information</div>
+          <div class="lane-meta"><span id="countHold">0</span> • <span id="amtHold">$0.00</span></div>
+        </div>
+        <div id="laneHold" class="lane-body"></div>
+      </section>
 
-.lanes-row {
-  margin-top: 24px;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
+      <section class="lane">
+        <div class="lane-header" data-toggle="paid">
+          <div class="lane-title">Paid / Submitted</div>
+          <div class="lane-meta"><span id="countPaid">0</span> • <span id="amtPaid">$0.00</span></div>
+        </div>
+        <div id="lanePaid" class="lane-body" style="display:none;"></div>
+      </section>
+    </div>
 
-.lane {
-  background: #020617;
-  border-radius: var(--radius-card);
-  border: 1px solid rgba(15, 23, 42, 0.9);
-  padding: 10px;
-  box-shadow: var(--shadow-soft);
-  display: flex;
-  flex-direction: column;
-}
+    <!-- Reporting -->
+    <div class="report">
+      <div class="panel">
+        <h3>Aging Breakdown (Filtered)</h3>
+        <table id="agingTable">
+          <thead><tr><th>Aging</th><th>Count</th><th>Amount</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="panel">
+        <h3>Top Vendors by Outstanding (Filtered)</h3>
+        <table id="vendorsTable">
+          <thead><tr><th>Vendor</th><th>Count</th><th>Amount</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
 
-.lane-header {
-  display: flex;
-  justify-content: space-between;
-  padding-bottom: 8px;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.9);
-  cursor: pointer;
-}
+    <footer>FinanceHub · Powered by WPV Accounting</footer>
+  </div>
 
-.lane-title {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
+  <script>
+    const SHEET_ID = "1lXM1Bu8ZRks7wDK34Bz3O_zgWcwdFU8USjuHBdbDhV8";
+    const GID = "0";
+    const GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${GID}`;
 
-.lane-meta {
-  display: flex;
-  gap: 6px;
-  font-size: 11px;
-  color: var(--text-soft);
-}
+    let allRecords = [], filteredRecords = [];
+    const vendorOpenState = new Map(); // remember per-vendor collapse
 
-.lane-body {
-  margin-top: 6px;
-}
+    // Filters + UI state persisted
+    const filters = {
+      q: "",
+      statuses: new Set(["new","hold"]), // default hide paid in filters; paid is controlled by toggle for lane visibility
+      vendors: new Set(),
+      amtMin: null,
+      amtMax: null,
+      dueFrom: null,
+      dueTo: null,
+      subFrom: null,
+      subTo: null,
+      ages: new Set(), // "0–30","31–60","61–90","90+"
+    };
+    const ui = {
+      showPaidLane: false,
+    };
 
-.vendor-group {
-  margin-bottom: 10px;
-  border-radius: 14px;
-  border: 1px solid rgba(15, 23, 42, 0.9);
-  overflow: hidden;
-}
+    // --- Parsing helpers ---
+    function parseGViz(text) {
+      const start=text.indexOf('{'), end=text.lastIndexOf('}');
+      return start>=0&&end>=0?JSON.parse(text.slice(start,end+1)):null;
+    }
+    function parseGvizDate(v) {
+      if(!v) return null;
+      if(v instanceof Date) return v;
+      const parts=String(v).split("-");
+      if(parts.length===3) return new Date(+parts[2],+parts[0]-1,+parts[1]);
+      return null;
+    }
+    function formatDate(v) {
+      const d=parseGvizDate(v);
+      return d?d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}):"—";
+    }
+    function formatCurrency(n) {
+      const x=Number(n);
+      return isNaN(x)?"$0.00":x.toLocaleString("en-US",{style:"currency",currency:"USD"});
+    }
+    function ageBucket(r) {
+      const d=parseGvizDate(r.dueDateRaw)||parseGvizDate(r.submissionDate)||parseGvizDate(r.dateCompleted);
+      if(!d) return {range:"—",cls:"age-fresh",days:0};
+      const diff=Math.floor((Date.now()-d.getTime())/(1000*60*60*24));
+      if(diff<=30) return {range:"0–30",cls:"age-fresh",days:diff};
+      if(diff<=60) return {range:"31–60",cls:"age-mid",days:diff};
+      if(diff<=90) return {range:"61–90",cls:"age-stale",days:diff};
+      return {range:"90+",cls:"age-old",days:diff};
+    }
 
-.vendor-header {
-  display: flex;
-  justify-content: space-between;
-  padding: 7px 9px;
-  cursor: pointer;
-}
+    // --- Utils ---
+    const debounce = (fn, ms=250) => {
+      let t; return (...args)=>{ clearTimeout(t); t=setTimeout(()=>fn(...args), ms); };
+    };
+    function toCSV(rows) {
+      const header = ["Submission Date","Vendor","Type","Invoice #","Amount","Due Date","Email","Location","Notes","Form Type","Completed","Payment Detail","Status"];
+      const out = [header.join(",")];
+      for(const r of rows){
+        const line = [
+          formatDate(r.submissionDate),
+          r.vendor,
+          safe(r.typeMain),
+          safe(r.invoiceNo),
+          r.amount?.toFixed(2) ?? "",
+          formatDate(r.dueDateRaw),
+          safe(r.email),
+          safe(r.location),
+          safe(r.notes),
+          safe(r.formType),
+          formatDate(r.dateCompleted),
+          safe(r.paymentDetail),
+          r.status.toUpperCase()
+        ].map(csvEscape).join(",");
+        out.push(line);
+      }
+      function safe(s){ return (s??"").toString(); }
+      function csvEscape(s){
+        if(/[",\n]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
+        return s;
+      }
+      return out.join("\n");
+    }
+    function uniqueSortedVendors(records){
+      return Array.from(new Set(records.map(r=>r.vendor).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
+    }
 
-.vendor-header.open .chevron {
-  transform: rotate(90deg);
-}
+    // --- Load sheet ---
+    async function loadSheet() {
+      try {
+        hydrateStateFromURL();
+        hydrateUIFromStorage();
 
-.vendor-list {
-  display: none;
-  padding: 6px 9px;
-}
+        const res=await fetch(GVIZ_URL);
+        const text=await res.text();
+        const json=parseGViz(text);
+        const rows=json?.table?.rows || [];
 
-.vendor-list.open { display: block; }
+        allRecords=rows.map(r=>{
+          const c=r.c||[],v=i=>c[i]?c[i].v:"";
+          const comp=String(v(14)).toLowerCase(); // completion/notes column
+          let status="new";
+          if(comp==="hold") status="hold";
+          if(comp.includes("paid")||comp.includes("submitted")) status="paid";
+          return {
+            submissionDate:v(0),
+            vendor:(v(1)||v(2)||"—").trim(),
+            typeMain:v(3),
+            invoiceNo:v(4),
+            amount:Number(v(7))||0,
+            dueDateRaw:v(8),
+            email:v(10),
+            location:v(11),
+            notes:v(12),
+            formType:v(13),
+            dateCompleted:v(15),
+            paymentDetail:v(16),
+            status
+          };
+        }).filter(r=>r.vendor!=="Submission Date");
 
-.card {
-  border-radius: 10px;
-  border: 1px solid rgba(31, 41, 55, 0.9);
-  padding: 7px;
-  margin-bottom: 6px;
-  font-size: 11px;
-}
+        // Populate vendor multiselect
+        populateVendors(uniqueSortedVendors(allRecords));
 
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 4px;
-}
+        // Initial render
+        applyFilters();
+        renderAll();
+      } catch(err){
+        console.error(err);
+      }
+    }
 
-.status-pill {
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
+    // --- Filters application ---
+    function applyFilters(){
+      const q = filters.q.toLowerCase().trim();
+      filteredRecords = allRecords.filter(r=>{
+        // Status
+        if(filters.statuses.size && !filters.statuses.has(r.status)) return false;
 
-.status-new { color: #4ade80; border: 1px solid #4ade80; }
-.status-hold { color: #facc15; border: 1px solid #facc15; }
-.status-paid { color: #6ee7b7; border: 1px solid #6ee7b7; }
+        // Vendors
+        if(filters.vendors.size && !filters.vendors.has(r.vendor)) return false;
 
-.age-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  border-radius: 999px;
-  font-size: 10px;
-  border: 1px solid rgba(148,163,184,0.6);
-}
+        // Amount
+        if(filters.amtMin!=null && r.amount < filters.amtMin) return false;
+        if(filters.amtMax!=null && r.amount > filters.amtMax) return false;
 
-.age-dot { width: 6px; height: 6px; border-radius: 50%; }
-.age-fresh { background: #22c55e; }
-.age-mid { background: #eab308; }
-.age-stale { background: #f97316; }
-.age-old { background: #fb7185; }
+        // Due date range
+        const due = parseGvizDate(r.dueDateRaw);
+        if(filters.dueFrom && (!due || due < filters.dueFrom)) return false;
+        if(filters.dueTo   && (!due || due > filters.dueTo))   return false;
 
-.empty-state {
-  font-size: 11px;
-  color: var(--text-soft);
-  padding: 8px;
-}
+        // Submission date range
+        const sub = parseGvizDate(r.submissionDate);
+        if(filters.subFrom && (!sub || sub < filters.subFrom)) return false;
+        if(filters.subTo   && (!sub || sub > filters.subTo))   return false;
 
-footer {
-  margin-top: 18px;
-  font-size: 11px;
-  color: var(--text-soft);
-  text-align: center;
-}
+        // Aging buckets
+        if(filters.ages.size){
+          const ab = ageBucket(r).range;
+          if(!filters.ages.has(ab)) return false;
+        }
 
-</style> </head> <body> <div class="shell"> <header> <h1>AP Requests — Live Dashboard</h1> <p>Auto-pulled from Google Sheets · WPV Accounting</p> </header> <div class="top-row"> <div class="search-wrap"> <div class="search-icon"></div> <input id="searchInput" class="search-input" placeholder="Search vendor, invoice, notes, email, amount..." /> </div> </div> <div class="kpi-row"> <div class="kpi-card"><div class="kpi-label">Total Requests</div><div id="kpiTotal" class="kpi-value">—</div></div> <div class="kpi-card"><div class="kpi-label">Open Requests</div><div id="kpiOpen" class="kpi-value">—</div></div> <div class="kpi-card"><div class="kpi-label">On Hold</div><div id="kpiHold" class="kpi-value">—</div></div> <div class="kpi-card"><div class="kpi-label">Outstanding Amount</div><div id="kpiOutstanding" class="kpi-value">$0.00</div></div> </div> <div class="lanes-row"> <section class="lane"> <div class="lane-header"><div class="lane-title">Ready to Pay</div><div class="lane-meta"><span id="countNew">0</span><span id="amountNew">$0.00</span></div></div> <div id="laneNew" class="lane-body"></div> </section>
-<section class="lane">
-  <div class="lane-header"><div class="lane-title">Need Information</div><div class="lane-meta"><span id="countHold">0</span><span id="amountHold">$0.00</span></div></div>
-  <div id="laneHold" class="lane-body"></div>
-</section>
+        // Search
+        if(q){
+          const blob = [r.vendor,r.invoiceNo,r.notes,r.email,String(r.amount)].join(" ").toLowerCase();
+          if(!blob.includes(q)) return false;
+        }
+        return true;
+      });
+      syncURLFromState(); // shareable filtered view
+    }
 
-<section class="lane">
-  <div class="lane-header" id="paidHeader"><div class="lane-title">Paid / Submitted</div><div class="lane-meta"><span id="countPaid">0</span><span id="amountPaid">$0.00</span></div></div>
-  <div id="lanePaid" class="lane-body" style="display:none;"></div>
-</section>
+    // --- Rendering ---
+    function renderAll(){
+      renderKPIs();
+      renderLane("new");
+      renderLane("hold");
+      renderLane("paid");
+      renderReporting();
+      applyPaidLaneVisibility();
+    }
 
-</div> <footer>FinanceHub · Powered by WPV Accounting</footer> </div> <script> const SHEET_ID = "1lXM1Bu8ZRks7wDK34Bz3O_zgWcwdFU8USjuHBdbDhV8"; const GID = "0"; const GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${GID}`; let allRecords = []; let filteredRecords = []; function parseGvizDate(v) { if (!v) return null; if (v instanceof Date) return v; const p = String(v).split("-"); if (p.length === 3) return new Date(p[2], p[0] - 1, p[1]); return null; } function formatCurrency(n) { return Number(n || 0).toLocaleString("en-US", { style: "currency", currency: "USD" }); } function getAgeBucket(r) { const base = parseGvizDate(r.dueDateRaw) || parseGvizDate(r.submissionDate) || parseGvizDate(r.dateCompleted); if (!base) return { range: "—", cls: "age-fresh", days: 0 }; const days = Math.floor((Date.now() - base.getTime()) / 86400000); if (days <= 30) return { range: "0–30", cls: "age-fresh", days }; if (days <= 60) return { range: "31–60", cls: "age-mid", days }; if (days <= 90) return { range: "61–90", cls: "age-stale", days }; return { range: "90+", cls: "age-old", days }; } async function loadSheet() { const res = await fetch(GVIZ_URL); const txt = await res.text(); const json = JSON.parse(txt.substring(47, txt.length - 2)); allRecords = json.table.rows.map(r => { const c = r.c || []; const v = i => (c[i] ? c[i].v : ""); const completed = String(v(14)).toLowerCase(); let status = "new"; if (completed === "hold") status = "hold"; if (completed.includes("paid") || completed.includes("submitted")) status = "paid"; return { submissionDate: v(0), vendor: v(1) || v(2) || "—", invoiceNo: v(4), amount: Number(v(7)) || 0, dueDateRaw: v(8), submissionDateRaw: v(0), dateCompleted: v(15), status }; }); filteredRecords = [...allRecords]; render(); } function render() { renderKPIs(); renderLane("new"); renderLane("hold"); renderLane("paid"); } function renderKPIs() { document.getElementById("kpiTotal").textContent = filteredRecords.length; document.getElementById("kpiOpen").textContent = filteredRecords.filter(r => r.status === "new").length; document.getElementById("kpiHold").textContent = filteredRecords.filter(r => r.status === "hold").length; document.getElementById("kpiOutstanding").textContent = formatCurrency(filteredRecords.filter(r => r.status !== "paid").reduce((s,r)=>s+r.amount,0)); } function renderLane(status) { const el = document.getElementById("lane" + status.charAt(0).toUpperCase() + status.slice(1)); el.innerHTML = ""; let items = filteredRecords.filter(r => r.status === status); if (status === "new") { items.sort((a,b) => { const aa = getAgeBucket(a), bb = getAgeBucket(b); if (bb.days !== aa.days) return bb.days - aa.days; return (parseGvizDate(a.dueDateRaw)||0) - (parseGvizDate(b.dueDateRaw)||0); }); } if (!items.length) { el.innerHTML = '<div class="empty-state">No requests in this lane.</div>'; return; } for (const r of items) { const card = document.createElement("div"); card.className = "card"; const age = getAgeBucket(r); card.innerHTML = ` <div class="card-header"> <div>${r.invoiceNo || "(No invoice #)"}<br>${formatCurrency(r.amount)}</div> <div> <span class="status-pill status-${r.status}">${r.status}</span> <span class="age-pill"><span class="age-dot ${age.cls}"></span>${age.range}</span> </div> </div>`; el.appendChild(card); } document.getElementById("count" + status.charAt(0).toUpperCase() + status.slice(1)).textContent = items.length; document.getElementById("amount" + status.charAt(0).toUpperCase() + status.slice(1)).textContent = formatCurrency(items.reduce((s,r)=>s+r.amount,0)); } document.getElementById("paidHeader").addEventListener("click", () => { const el = document.getElementById("lanePaid"); el.style.display = el.style.display === "none" ? "block" : "none"; }); document.getElementById("searchInput").addEventListener("input", e => { const q = e.target.value.toLowerCase(); filteredRecords = allRecords.filter(r => [r.vendor, r.invoiceNo, r.amount].join(" ").toLowerCase().includes(q) ); render(); }); loadSheet(); </script> </body> </html>
+    function renderKPIs(){
+      const el = id=>document.getElementById(id);
+      el("kpiTotal").textContent = filteredRecords.length;
+
+      const newRecs = filteredRecords.filter(r=>r.status==="new");
+      const holdRecs = filteredRecords.filter(r=>r.status==="hold");
+      const outAmt = filteredRecords.filter(r=>r.status!=="paid").reduce((s,r)=>s+r.amount,0);
+
+      el("kpiNew").textContent = newRecs.length;
+      el("kpiHold").textContent = holdRecs.length;
+      el("kpiOutstanding").textContent = formatCurrency(outAmt);
+      el("kpiNewAmt").textContent = formatCurrency(newRecs.reduce((s,r)=>s+r.amount,0));
+      el("kpiHoldAmt").textContent = formatCurrency(holdRecs.reduce((s,r)=>s+r.amount,0));
+    }
+
+    function groupByVendor(arr){return arr.reduce((g,r)=>(g[r.vendor]||(g[r.vendor]=[])).concat(r)&&g,{})}
+
+    function renderLane(key){
+      const container=document.getElementById("lane"+cap(key));
+      container.innerHTML="";
+      let items=filteredRecords.filter(r=>r.status===key);
+
+      if(key==="new"){
+        items.sort((a,b)=>{
+          const A=ageBucket(a),B=ageBucket(b);
+          if(B.days!==A.days)return B.days-A.days;
+          const da=parseGvizDate(a.dueDateRaw),db=parseGvizDate(b.dueDateRaw);
+          if(da&&db)return da-db;
+          return b.amount-a.amount;
+        });
+      }
+      if(key==="hold"){
+        items.sort((a,b)=>parseGvizDate(a.submissionDate)-parseGvizDate(b.submissionDate));
+      }
+      if(key==="paid"){
+        items.sort((a,b)=>parseGvizDate(b.dateCompleted)-parseGvizDate(a.dateCompleted));
+      }
+
+      id("count"+cap(key)).textContent=items.length;
+      id("amt"+cap(key)).textContent=formatCurrency(items.reduce((s,r)=>s+r.amount,0));
+
+      if(!items.length){container.innerHTML='<div class="empty-state">No requests here.</div>';return;}
+
+      const grouped=groupByVendor(items);
+      Object.keys(grouped).sort().forEach(vendor=>{
+        const list=grouped[vendor];
+
+        const vg=document.createElement("div");vg.className="vendor-group";
+        const vh=document.createElement("div");vh.className="vendor-header";
+        vh.innerHTML=`<div><strong>${vendor}</strong> • ${list.length} • ${formatCurrency(list.reduce((s,r)=>s+r.amount,0))}</div>`;
+        const vl=document.createElement("div");vl.className="vendor-list";
+
+        // restore open state
+        const isOpen = vendorOpenState.get(vendor) ?? false;
+        if(isOpen){ vl.classList.add("open"); vh.classList.add("open"); }
+
+        list.forEach(r=>{
+          const card=document.createElement("div");card.className="card";
+          const age=ageBucket(r);
+          card.innerHTML=`
+            <div class="card-header">
+              <div>
+                <div class="card-title">${r.invoiceNo || "(No invoice #)"}</div>
+                <div class="card-subtitle">${formatDate(r.dueDateRaw)} • ${formatCurrency(r.amount)}</div>
+              </div>
+              <div>
+                <span class="status-pill status-${r.status}">${r.status.toUpperCase()}</span>
+                <span class="age-pill"><span class="age-dot ${age.cls}"></span>${age.range} (${age.days}d)</span>
+              </div>
+            </div>
+            <div class="card-subtitle">${r.typeMain || ""} • ${r.location || ""}</div>
+            <div class="card-subtitle">${r.email || ""}</div>
+            <div class="card-subtitle">${r.notes || ""}</div>
+          `;
+          vl.appendChild(card);
+        });
+
+        vh.addEventListener("click",()=>{
+          vl.classList.toggle("open");
+          vh.classList.toggle("open");
+          vendorOpenState.set(vendor, vl.classList.contains("open")); // persist vendor fold
+        });
+
+        vg.appendChild(vh);vg.appendChild(vl);container.appendChild(vg);
+      });
+    }
+
+    function renderReporting(){
+      // Aging table
+      const rows = [
+        "0–30","31–60","61–90","90+"
+      ].map(bucket=>{
+        const list = filteredRecords.filter(r=>ageBucket(r).range===bucket && r.status!=="paid");
+        return { bucket, count: list.length, amount: list.reduce((s,r)=>s+r.amount,0) };
+      });
+      const tb = document.querySelector("#agingTable tbody");
+      tb.innerHTML = rows.map(r=>`<tr><td>${r.bucket}</td><td>${r.count}</td><td>${formatCurrency(r.amount)}</td></tr>`).join("");
+
+      // Top vendors (by outstanding)
+      const byVendor = {};
+      filteredRecords.forEach(r=>{
+        if(r.status==="paid") return;
+        if(!byVendor[r.vendor]) byVendor[r.vendor]={count:0,amount:0};
+        byVendor[r.vendor].count++; byVendor[r.vendor].amount += r.amount;
+      });
+      const top = Object.entries(byVendor)
+        .map(([vendor,stats])=>({vendor, ...stats}))
+        .sort((a,b)=>b.amount-a.amount)
+        .slice(0,10);
+
+      const tv = document.querySelector("#vendorsTable tbody");
+      tv.innerHTML = top.length
+        ? top.map(v=>`<tr><td>${v.vendor}</td><td>${v.count}</td><td>${formatCurrency(v.amount)}</td></tr>`).join("")
+        : `<tr><td colspan="3" style="color:var(--text-soft)">No outstanding vendors.</td></tr>`;
+    }
+
+    // --- UI wiring ---
+    const id = s=>document.getElementById(s);
+    const cap = s=>s.charAt(0).toUpperCase()+s.slice(1);
+
+    // Search (debounced)
+    id("searchInput").addEventListener("input", debounce(e=>{
+      filters.q = e.target.value || "";
+      applyFilters(); renderAll();
+    }, 250));
+
+    // Status chips
+    document.getElementById("statusChips").addEventListener("click", e=>{
+      const chip = e.target.closest(".chip"); if(!chip) return;
+      const val = chip.dataset.status;
+      if(filters.statuses.has(val)) filters.statuses.delete(val); else filters.statuses.add(val);
+      chip.classList.toggle("active");
+      applyFilters(); renderAll();
+    });
+
+    // Aging chips
+    document.getElementById("ageChips").addEventListener("click", e=>{
+      const chip = e.target.closest(".chip"); if(!chip) return;
+      const val = chip.dataset.age;
+      if(filters.ages.has(val)) filters.ages.delete(val); else filters.ages.add(val);
+      chip.classList.toggle("active");
+      applyFilters(); renderAll();
+    });
+
+    // Amount inputs
+    id("amtMin").addEventListener("change", e=>{
+      const v = e.target.value.trim();
+      filters.amtMin = v==="" ? null : Number(v);
+      applyFilters(); renderAll();
+    });
+    id("amtMax").addEventListener("change", e=>{
+      const v = e.target.value.trim();
+      filters.amtMax = v==="" ? null : Number(v);
+      applyFilters(); renderAll();
+    });
+
+    // Dates
+    const toDate = v => v? new Date(v+"T00:00:00"): null;
+    id("dueFrom").addEventListener("change", e=>{ filters.dueFrom = toDate(e.target.value); applyFilters(); renderAll(); });
+    id("dueTo").addEventListener("change", e=>{ filters.dueTo = toDate(e.target.value); applyFilters(); renderAll(); });
+    id("subFrom").addEventListener("change", e=>{ filters.subFrom = toDate(e.target.value); applyFilters(); renderAll(); });
+    id("subTo").addEventListener("change", e=>{ filters.subTo = toDate(e.target.value); applyFilters(); renderAll(); });
+
+    // Vendor multi-select
+    function populateVendors(vendors){
+      const sel = id("vendorSelect");
+      sel.innerHTML = vendors.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
+      sel.addEventListener("change", ()=>{
+        const chosen = new Set(Array.from(sel.selectedOptions).map(o=>o.value));
+        filters.vendors = chosen;
+        applyFilters(); renderAll();
+      });
+    }
+
+    // Actions
+    id("resetBtn").addEventListener("click", ()=>{
+      // clear filters
+      filters.q=""; id("searchInput").value="";
+      filters.statuses = new Set(["new","hold"]);
+      filters.vendors = new Set(); id("vendorSelect").selectedIndex = -1;
+      filters.amtMin = filters.amtMax = null; id("amtMin").value=""; id("amtMax").value="";
+      filters.dueFrom=filters.dueTo=filters.subFrom=filters.subTo=null;
+      ["dueFrom","dueTo","subFrom","subTo"].forEach(k=>id(k).value="");
+      filters.ages = new Set();
+      // UI chips
+      document.querySelectorAll("#statusChips .chip,#ageChips .chip").forEach(c=>c.classList.remove("active"));
+      document.querySelectorAll('#statusChips .chip[data-status="new"],#statusChips .chip[data-status="hold"]').forEach(c=>c.classList.add("active"));
+      // Paid lane toggle left unchanged intentionally
+      applyFilters(); renderAll();
+    });
+
+    id("exportBtn").addEventListener("click", ()=>{
+      const csv = toCSV(filteredRecords);
+      const blob = new Blob([csv], {type:"text/csv;charset=utf-8;"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `ap_requests_filtered_${new Date().toISOString().slice(0,10)}.csv`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    });
+
+    // Lane toggles (keep your click to toggle Paid body)
+    document.querySelector('[data-toggle="paid"]').addEventListener("click",()=>{
+      ui.showPaidLane = !ui.showPaidLane;
+      persistUIToStorage();
+      applyPaidLaneVisibility();
+    });
+    function applyPaidLaneVisibility(){
+      const p = id("lanePaid");
+      p.style.display = ui.showPaidLane ? "block" : "none";
+      id("togglePaid").checked = ui.showPaidLane;
+    }
+    // Toggle from switch as well
+    id("togglePaid").addEventListener("change", e=>{
+      ui.showPaidLane = !!e.target.checked;
+      persistUIToStorage();
+      applyPaidLaneVisibility();
+    });
+
+    // Expand/collapse vendor groups persists per vendor (handled in click handler)
+
+    // --- URL & Storage sync (shareable views) ---
+    function hydrateStateFromURL(){
+      const q = new URLSearchParams(location.search);
+      const j = x => q.get(x);
+
+      filters.q = j("q") || "";
+      id("searchInput").value = filters.q;
+
+      const sts = (j("st")||"new,hold").split(",").filter(Boolean);
+      filters.statuses = new Set(sts);
+      // reflect on chips
+      document.querySelectorAll("#statusChips .chip").forEach(ch=>{
+        if(filters.statuses.has(ch.dataset.status)) ch.classList.add("active");
+      });
+
+      ["amtMin","amtMax"].forEach(k=>{
+        const v = j(k);
+        if(v!=null){ filters[k] = v===""?null:Number(v); id(k).value=v; }
+      });
+
+      ["dueFrom","dueTo","subFrom","subTo"].forEach(k=>{
+        const v=j(k); if(v){ id(k).value=v; filters[k]=toDate(v); }
+      });
+
+      const ages=(j("ages")||"").split(",").filter(Boolean);
+      filters.ages = new Set(ages);
+      document.querySelectorAll("#ageChips .chip").forEach(ch=>{
+        if(filters.ages.has(ch.dataset.age)) ch.classList.add("active");
+      });
+
+      // vendors will be hydrated after vendor list populated; we keep query for later
+      window.__pendingVendorQuery = (j("vendors")||"");
+    }
+    function syncURLFromState(){
+      const q = new URLSearchParams();
+      if(filters.q) q.set("q", filters.q);
+      if(filters.statuses.size) q.set("st", Array.from(filters.statuses).join(","));
+      if(filters.amtMin!=null) q.set("amtMin", String(filters.amtMin));
+      if(filters.amtMax!=null) q.set("amtMax", String(filters.amtMax));
+      const setDate = (k,d)=>{ if(d) q.set(k, d.toISOString().slice(0,10)); };
+      setDate("dueFrom",filters.dueFrom); setDate("dueTo",filters.dueTo);
+      setDate("subFrom",filters.subFrom); setDate("subTo",filters.subTo);
+      if(filters.ages.size) q.set("ages", Array.from(filters.ages).join(","));
+      if(filters.vendors.size) q.set("vendors", Array.from(filters.vendors).join("||"));
+      const s = q.toString();
+      const newURL = s ? `?${s}` : location.pathname;
+      history.replaceState(null,"",newURL);
+    }
+
+    function hydrateUIFromStorage(){
+      try{
+        const raw = localStorage.getItem("ap.ui");
+        if(raw){
+          const obj = JSON.parse(raw);
+          ui.showPaidLane = !!obj.showPaidLane;
+        }
+      }catch{}
+      applyPaidLaneVisibility();
+    }
+    function persistUIToStorage(){
+      try{ localStorage.setItem("ap.ui", JSON.stringify(ui)); }catch{}
+    }
+
+    // once vendors are ready, apply vendors from URL if provided
+    function applyPendingVendorsFromURL(){
+      const s = window.__pendingVendorQuery;
+      if(!s) return;
+      const wanted = new Set(s.split("||").filter(Boolean));
+      const sel = id("vendorSelect");
+      Array.from(sel.options).forEach(o=>{
+        if(wanted.has(o.value)){ o.selected=true; filters.vendors.add(o.value); }
+      });
+      window.__pendingVendorQuery = "";
+    }
+
+    // --- Misc ---
+    function escapeHtml(s){
+      return s.replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;" }[m]));
+    }
+
+    // Ready
+    loadSheet().then(()=>applyPendingVendorsFromURL());
+  </script>
+</body>
+</html>
