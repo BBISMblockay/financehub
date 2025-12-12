@@ -3,204 +3,254 @@
 <head>
   <meta charset="UTF-8" />
   <title>AP Requests — Live Dashboard</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <style>
     :root{
-      color-scheme: dark;
+      color-scheme:dark;
       --bg:#0b1220; --panel:#0f172a; --muted:#0b1425;
       --text:#e5e7eb; --soft:#9aa2b2; --line:rgba(148,163,184,.18);
-      --accent:#38bdf8; --radius:14px; --shadow:0 12px 40px rgba(2,6,23,.35);
+      --accent:#38bdf8; --radius:14px; --shadow:0 10px 30px rgba(2,6,23,.28);
       --fresh:#22c55e; --mid:#eab308; --stale:#f97316; --old:#fb7185;
+      --sidebar-w:320px;
     }
     *{box-sizing:border-box}
-    body{margin:0;padding:28px 16px 40px;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
-    .shell{max-width:1200px;margin:0 auto}
-    header h1{margin:0 0 4px;font-size:26px;font-weight:700}
-    header p{margin:0;color:var(--soft);font-size:13px}
+    html,body{height:100%;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;line-height:1.45;overflow-x:hidden}
 
-    .toolbar{margin-top:14px;display:grid;gap:10px;grid-template-columns:1.2fr 3fr}
-    .search-input{width:100%;border-radius:12px;border:1px solid var(--line);background:var(--muted);padding:12px 14px;font-size:13px;color:var(--text)}
-    .filters{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;box-shadow:var(--shadow);display:grid;gap:10px;grid-template-columns:repeat(6,1fr);align-items:end}
-    .f{display:flex;flex-direction:column;gap:6px}
+    .app{
+      display:grid;
+      grid-template-columns: var(--sidebar-w) 1fr;
+      gap:16px;
+      max-width:1300px;
+      margin:0 auto;
+      padding:20px 14px 32px;
+    }
+
+    /* Header sits full width above grid */
+    header{grid-column:1 / -1;margin:0 0 8px}
+    header h1{margin:0 0 2px;font-size:26px;font-weight:700}
+    header p{margin:0;color:var(--soft);font-size:12px}
+
+    /* Sidebar */
+    .sidebar{
+      position:sticky; top:12px; align-self:start;
+      background:var(--panel); border:1px solid var(--line); border-radius:16px; box-shadow:var(--shadow);
+      padding:12px;
+      height:calc(100dvh - 24px);
+      overflow:auto;
+    }
+    .s-title{font-size:12px;font-weight:700;color:var(--soft);text-transform:uppercase;margin:6px 0 8px}
+    .search-input{width:100%;border-radius:12px;border:1px solid var(--line);background:var(--muted);padding:10px 12px;font-size:13px;color:var(--text);margin-bottom:10px}
+    .f{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
     .f label{font-size:11px;color:var(--soft)}
     .f input,.f select{background:var(--muted);border:1px solid var(--line);border-radius:10px;padding:8px 10px;color:var(--text);font-size:12px;width:100%}
     .chips{display:flex;flex-wrap:wrap;gap:6px}
     .chip{font-size:11px;border:1px solid var(--line);padding:6px 10px;border-radius:999px;cursor:pointer}
     .chip.active{border-color:var(--accent);color:var(--accent)}
-    .actions{display:flex;gap:8px;justify-content:flex-end;grid-column:1 / -1}
+    .hr{height:1px;background:var(--line);margin:10px 0}
     .btn{font-size:12px;border:1px solid var(--line);background:var(--muted);color:var(--text);padding:8px 12px;border-radius:10px;cursor:pointer}
     .btn.primary{border-color:var(--accent);color:var(--accent)}
-    .toggle{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--soft)}
-    .toggle input{accent-color: var(--accent)}
+    .btn.block{width:100%}
+    .row-actions{display:flex;gap:8px;margin-top:8px}
+    .toggle{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--soft);margin-top:2px}
+    .toggle input{accent-color:var(--accent)}
 
-    .kpi-row{margin-top:16px;display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-    .kpi-card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;box-shadow:var(--shadow)}
-    .kpi-label{font-size:11px;color:var(--soft);text-transform:uppercase}
-    .kpi-value{font-size:20px;font-weight:700}
-    .kpi-sub{font-size:11px;color:var(--soft);margin-top:3px}
+    /* Main content */
+    .main{min-width:0}
+    .kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+    .kpi-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;box-shadow:var(--shadow)}
+    .kpi-label{font-size:10px;color:var(--soft);text-transform:uppercase}
+    .kpi-value{font-size:18px;font-weight:700}
+    .kpi-sub{font-size:11px;color:var(--soft);margin-top:2px}
 
-    .lanes-row{margin-top:20px;display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-    .lane{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:10px 10px 6px;box-shadow:var(--shadow);display:flex;flex-direction:column}
-    .lane-header{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);padding-bottom:8px}
+    .lanes-row{margin-top:14px;display:grid;grid-template-columns:1fr;gap:12px}
+    .lane{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px;box-shadow:var(--shadow)}
+    .lane-header{display:flex;justify-content:space-between;border-bottom:1px solid var(--line);padding:6px 2px}
     .lane-title{font-size:12px;font-weight:700;color:var(--soft);text-transform:uppercase}
     .lane-meta{font-size:11px;color:var(--soft)}
-    .vendor-group{margin:10px 0;border:1px solid var(--line);border-radius:12px}
+
+    .vendor-group{margin:8px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden}
     .vendor-header{padding:8px 10px;display:flex;justify-content:space-between;cursor:pointer;background:var(--muted)}
     .vendor-header.open{background:#0c1a33}
     .vendor-list{display:none;padding:8px 9px}
     .vendor-list.open{display:block}
-    .card{border-radius:12px;border:1px solid var(--line);background:linear-gradient(180deg,#10203f, #0b1220 60%);padding:10px 11px;margin-bottom:8px;font-size:12px;line-height:1.35;cursor:pointer}
+    .card{border-radius:10px;border:1px solid var(--line);background:linear-gradient(180deg,#10203f,#0b1220 60%);padding:9px 10px;margin-bottom:7px;font-size:12px;line-height:1.45;cursor:pointer;word-break:break-word;overflow-wrap:anywhere}
     .card:hover{outline:1px solid rgba(56,189,248,.25)}
-    .card-header{display:flex;justify-content:space-between;gap:8px;margin-bottom:6px}
+    .card-header{display:flex;justify-content:space-between;gap:8px;margin-bottom:5px}
     .card-title{font-weight:700}
     .pill-row{display:flex;gap:6px;flex-wrap:wrap}
     .muted{font-size:11px;color:var(--soft)}
-    .status-pill{padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;text-transform:uppercase;line-height:1}
+    .status-pill{padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;text-transform:uppercase;line-height:1;white-space:nowrap}
     .status-new{color:#4ade80;border:1px solid #4ade80}
     .status-hold{color:#facc15;border:1px solid #facc15}
     .status-paid{color:#6ee7b7;border:1px solid #6ee7b7}
-    .age-pill{display:inline-flex;align-items:center;padding:2px 6px;border-radius:999px;font-size:10px;border:1px solid var(--line);gap:4px;color:var(--soft);line-height:1}
+    .age-pill{display:inline-flex;align-items:center;padding:2px 6px;border-radius:999px;font-size:10px;border:1px solid var(--line);gap:4px;color:var(--soft);line-height:1;white-space:nowrap}
     .age-dot{width:6px;height:6px;border-radius:999px}
     .age-fresh{background:var(--fresh)} .age-mid{background:var(--mid)}
     .age-stale{background:var(--stale)} .age-old{background:var(--old)}
-    .link{color:var(--accent);text-decoration:none}
-    .link:hover{text-decoration:underline}
-    .empty-state{font-size:11px;color:var(--soft);padding:8px;text-align:center}
+    .empty-state{font-size:11px;color:var(--soft);padding:6px;text-align:center}
 
-    .report{margin-top:16px;display:grid;grid-template-columns:1fr 1fr;gap:14px}
-    .panel{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;box-shadow:var(--shadow)}
-    .panel h3{margin:0 0 8px;font-size:12px;color:var(--soft);text-transform:uppercase}
+    .report{margin-top:10px;display:grid;grid-template-columns:1fr;gap:10px}
+    .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;box-shadow:var(--shadow)}
+    .panel h3{margin:0 0 6px;font-size:12px;color:var(--soft);text-transform:uppercase}
     table{width:100%;border-collapse:collapse;font-size:12px}
     th,td{border-bottom:1px solid var(--line);padding:6px 4px;text-align:left}
     th{color:var(--soft)}
-    footer{text-align:center;color:var(--soft);font-size:11px;margin-top:18px}
 
-    .drawer{position:fixed;top:0;right:0;height:100%;width:420px;background:var(--panel);border-left:1px solid var(--line);box-shadow:-20px 0 60px rgba(2,6,23,.35);transform:translateX(100%);transition:transform .25s ease;z-index:50;display:flex;flex-direction:column}
+    footer{grid-column:1 / -1;text-align:center;color:var(--soft);font-size:11px;margin-top:14px}
+
+    /* Drawer */
+    .drawer{position:fixed;top:0;right:0;height:100%;width:420px;max-width:92vw;background:var(--panel);border-left:1px solid var(--line);box-shadow:-20px 0 60px rgba(2,6,23,.35);transform:translateX(100%);transition:transform .25s ease;z-index:50;display:flex;flex-direction:column}
     .drawer.open{transform:translateX(0)}
-    .drawer-header{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
+    .drawer-header{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line)}
     .drawer-title{font-size:14px;font-weight:700}
-    .drawer-body{padding:14px 16px;overflow:auto}
-    .row{display:grid;grid-template-columns:110px 1fr;gap:10px;margin:10px 0}
+    .drawer-body{padding:12px 14px;overflow:auto}
+    .row{display:grid;grid-template-columns:98px 1fr;gap:10px;margin:8px 0}
     .row label{color:var(--soft);font-size:11px;line-height:1.2;padding-top:2px}
-    .row .val{font-size:13px}
-    .badge{border:1px solid var(--line);border-radius:999px;padding:3px 8px;font-size:11px}
-    .drawer-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
-    .btn.small{padding:6px 10px;font-size:12px}
+    .row .val{font-size:13px;word-break:break-word;overflow-wrap:anywhere}
+    .drawer-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px}
+    .btn.small{padding:6px 9px;font-size:12px}
     .file-list{display:flex;flex-direction:column;gap:6px}
     .kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;background:#0a1020;border:1px solid var(--line);padding:1px 6px;border-radius:6px}
     .nav-arrows{display:flex;gap:6px;align-items:center}
 
-    @media (max-width:1100px){
-      .toolbar{grid-template-columns:1fr}
-      .filters{grid-template-columns:repeat(2,1fr)}
-      .lanes-row{grid-template-columns:1fr}
-      .report{grid-template-columns:1fr}
-      .drawer{width:100%}
+    /* Mobile: stack sidebar above main */
+    @media (max-width: 980px){
+      :root{ --sidebar-w:100%; }
+      .app{grid-template-columns:1fr}
+      .sidebar{height:auto;position:relative;top:auto}
+      .kpi-row{grid-template-columns:1fr 1fr}
     }
   </style>
 </head>
 <body>
-  <div class="shell">
+  <div class="app">
     <header>
       <h1>AP Requests — Live Dashboard</h1>
       <p>Auto-pulled from Google Sheets · WPV Accounting</p>
     </header>
 
-    <!-- Error/notice banner injected above here when needed -->
-
-    <div class="toolbar">
+    <!-- LEFT SIDEBAR -->
+    <aside class="sidebar">
+      <div class="s-title">Search</div>
       <input id="searchInput" class="search-input" placeholder="Search vendor, invoice, notes, email, amount..." />
-      <div class="filters">
-        <div class="f">
-          <label>Status</label>
-          <div id="statusChips" class="chips">
-            <span data-status="new"  class="chip active">Ready</span>
-            <span data-status="hold" class="chip active">Need Info</span>
-            <span data-status="paid" class="chip">Paid</span>
+
+      <div class="s-title">Status</div>
+      <div id="statusChips" class="chips" style="margin-bottom:10px">
+        <span data-status="new"  class="chip active">Ready</span>
+        <span data-status="hold" class="chip active">Need Info</span>
+        <span data-status="paid" class="chip">Paid</span>
+      </div>
+
+      <div class="hr"></div>
+
+      <div class="f">
+        <label>Vendor</label>
+        <select id="vendorSelect" multiple size="8"></select>
+      </div>
+
+      <div class="f">
+        <label>Amount Min</label>
+        <input id="amtMin" type="number" step="0.01" placeholder="0.00" />
+      </div>
+      <div class="f">
+        <label>Amount Max</label>
+        <input id="amtMax" type="number" step="0.01" placeholder="∞" />
+      </div>
+
+      <div class="f">
+        <label>Due Date (from)</label>
+        <input id="dueFrom" type="date" />
+      </div>
+      <div class="f">
+        <label>Due Date (to)</label>
+        <input id="dueTo" type="date" />
+      </div>
+
+      <div class="f">
+        <label>Submitted (from)</label>
+        <input id="subFrom" type="date" />
+      </div>
+      <div class="f">
+        <label>Submitted (to)</label>
+        <input id="subTo" type="date" />
+      </div>
+
+      <div class="s-title">Aging</div>
+      <div id="ageChips" class="chips" style="margin-bottom:8px">
+        <span data-age="0–30" class="chip">0–30</span>
+        <span data-age="31–60" class="chip">31–60</span>
+        <span data-age="61–90" class="chip">61–90</span>
+        <span data-age="90+"  class="chip">90+</span>
+      </div>
+
+      <label class="toggle"><input id="togglePaid" type="checkbox" /> Show Paid Lane</label>
+
+      <div class="row-actions">
+        <button id="resetBtn" class="btn block">Reset</button>
+        <button id="exportBtn" class="btn primary block">Export CSV</button>
+      </div>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <main class="main">
+      <div id="dataBanner" style="display:none"></div>
+
+      <section class="kpi-row">
+        <div class="kpi-card"><div class="kpi-label">Total Requests</div><div id="kpiTotal" class="kpi-value">—</div></div>
+        <div class="kpi-card"><div class="kpi-label">Outstanding Amount</div><div id="kpiOutstanding" class="kpi-value">$0.00</div></div>
+        <div class="kpi-card"><div class="kpi-label">Ready to Pay</div><div id="kpiNew" class="kpi-value">—</div><div id="kpiNewAmt" class="kpi-sub">—</div></div>
+        <div class="kpi-card"><div class="kpi-label">Need Info</div><div id="kpiHold" class="kpi-value">—</div><div id="kpiHoldAmt" class="kpi-sub">—</div></div>
+      </section>
+
+      <section class="lanes-row">
+        <section class="lane">
+          <div class="lane-header" data-toggle="new">
+            <div class="lane-title">Ready to Pay</div>
+            <div class="lane-meta"><span id="countNew">0</span> • <span id="amtNew">$0.00</span></div>
           </div>
-        </div>
-        <div class="f">
-          <label>Vendor</label>
-          <select id="vendorSelect" multiple size="4"></select>
-        </div>
-        <div class="f"><label>Amount Min</label><input id="amtMin" type="number" step="0.01" placeholder="0.00" /></div>
-        <div class="f"><label>Amount Max</label><input id="amtMax" type="number" step="0.01" placeholder="∞" /></div>
-        <div class="f"><label>Due Date (from)</label><input id="dueFrom" type="date" /></div>
-        <div class="f"><label>Due Date (to)</label><input id="dueTo" type="date" /></div>
-        <div class="f"><label>Submitted (from)</label><input id="subFrom" type="date" /></div>
-        <div class="f"><label>Submitted (to)</label><input id="subTo" type="date" /></div>
-        <div class="f" style="grid-column:1 / -1;">
-          <label>Aging</label>
-          <div id="ageChips" class="chips">
-            <span data-age="0–30" class="chip">0–30</span>
-            <span data-age="31–60" class="chip">31–60</span>
-            <span data-age="61–90" class="chip">61–90</span>
-            <span data-age="90+"  class="chip">90+</span>
+          <div id="laneNew" class="lane-body"></div>
+        </section>
+
+        <section class="lane">
+          <div class="lane-header" data-toggle="hold">
+            <div class="lane-title">Need Information</div>
+            <div class="lane-meta"><span id="countHold">0</span> • <span id="amtHold">$0.00</span></div>
           </div>
-        </div>
-        <div class="actions">
-          <label class="toggle"><input id="togglePaid" type="checkbox" /> Show Paid Lane</label>
-          <button id="resetBtn" class="btn">Reset</button>
-          <button id="exportBtn" class="btn primary">Export CSV</button>
-        </div>
-      </div>
-    </div>
+          <div id="laneHold" class="lane-body"></div>
+        </section>
 
-    <div class="kpi-row">
-      <div class="kpi-card"><div class="kpi-label">Total Requests</div><div id="kpiTotal" class="kpi-value">—</div></div>
-      <div class="kpi-card"><div class="kpi-label">Ready to Pay</div><div id="kpiNew" class="kpi-value">—</div><div id="kpiNewAmt" class="kpi-sub">—</div></div>
-      <div class="kpi-card"><div class="kpi-label">Need Info</div><div id="kpiHold" class="kpi-value">—</div><div id="kpiHoldAmt" class="kpi-sub">—</div></div>
-      <div class="kpi-card"><div class="kpi-label">Outstanding Amount</div><div id="kpiOutstanding" class="kpi-value">$0.00</div></div>
-    </div>
-
-    <div class="lanes-row">
-      <section class="lane">
-        <div class="lane-header" data-toggle="new">
-          <div class="lane-title">Ready to Pay</div>
-          <div class="lane-meta"><span id="countNew">0</span> • <span id="amtNew">$0.00</span></div>
-        </div>
-        <div id="laneNew" class="lane-body"></div>
+        <section class="lane">
+          <div class="lane-header" data-toggle="paid">
+            <div class="lane-title">Paid / Submitted</div>
+            <div class="lane-meta"><span id="countPaid">0</span> • <span id="amtPaid">$0.00</span></div>
+          </div>
+          <div id="lanePaid" class="lane-body" style="display:none;"></div>
+        </section>
       </section>
 
-      <section class="lane">
-        <div class="lane-header" data-toggle="hold">
-          <div class="lane-title">Need Information</div>
-          <div class="lane-meta"><span id="countHold">0</span> • <span id="amtHold">$0.00</span></div>
+      <section class="report">
+        <div class="panel">
+          <h3>Aging Breakdown (Filtered)</h3>
+          <table id="agingTable">
+            <thead><tr><th>Aging</th><th>Count</th><th>Amount</th></tr></thead>
+            <tbody></tbody>
+          </table>
         </div>
-        <div id="laneHold" class="lane-body"></div>
-      </section>
-
-      <section class="lane">
-        <div class="lane-header" data-toggle="paid">
-          <div class="lane-title">Paid / Submitted</div>
-          <div class="lane-meta"><span id="countPaid">0</span> • <span id="amtPaid">$0.00</span></div>
+        <div class="panel">
+          <h3>Top Vendors by Outstanding (Filtered)</h3>
+          <table id="vendorsTable">
+            <thead><tr><th>Vendor</th><th>Count</th><th>Amount</th></tr></thead>
+            <tbody></tbody>
+          </table>
         </div>
-        <div id="lanePaid" class="lane-body" style="display:none;"></div>
       </section>
-    </div>
-
-    <div class="report">
-      <div class="panel">
-        <h3>Aging Breakdown (Filtered)</h3>
-        <table id="agingTable">
-          <thead><tr><th>Aging</th><th>Count</th><th>Amount</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-      <div class="panel">
-        <h3>Top Vendors by Outstanding (Filtered)</h3>
-        <table id="vendorsTable">
-          <thead><tr><th>Vendor</th><th>Count</th><th>Amount</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </div>
+    </main>
 
     <footer>FinanceHub · Powered by WPV Accounting</footer>
   </div>
 
-  <!-- Detail Drawer -->
+  <!-- RIGHT DRAWER -->
   <aside id="drawer" class="drawer" aria-hidden="true">
     <div class="drawer-header">
       <div class="drawer-title" id="drawerTitle">Details</div>
@@ -214,12 +264,12 @@
   </aside>
 
   <script>
-    // --- CONFIG ---
+    /* ===== CONFIG ===== */
     const SHEET_ID = "1lXM1Bu8ZRks7wDK34Bz3O_zgWcwdFU8USjuHBdbDhV8";
     const GID = "0";
     const GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${GID}&tqx=out:json`;
 
-    // --- STATE ---
+    /* ===== STATE ===== */
     let allRecords=[], filteredRecords=[];
     const vendorOpenState = new Map();
     let currentOpenId = null;
@@ -230,24 +280,13 @@
     };
     const ui = { showPaidLane:false };
 
-    // --- UI helpers ---
+    /* ===== UTIL ===== */
     const id = s=>document.getElementById(s);
     const cap = s=>s.charAt(0).toUpperCase()+s.slice(1);
-    const debounce = (fn,ms=250)=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); }; };
-    function ensureErrorBanner(){
-      let b = document.getElementById("dataBanner");
-      if(b) return b;
-      b = document.createElement("div");
-      b.id = "dataBanner";
-      b.style.cssText="position:sticky;top:8px;margin:10px 0;padding:8px 12px;border:1px solid rgba(244,63,94,.35);background:#2a0d16;color:#fecdd3;border-radius:10px;font:12px/1.4 Inter,sans-serif;display:none";
-      b.textContent = "Data notice";
-      document.querySelector(".shell").prepend(b);
-      return b;
-    }
-    function showError(msg){ const b=ensureErrorBanner(); b.textContent = msg; b.style.display="block"; }
-    function hideError(){ const b=document.getElementById("dataBanner"); if(b) b.style.display="none"; }
+    const debounce=(fn,ms=250)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);};};
+    function banner(msg){ const b=id("dataBanner"); b.style.cssText="margin-bottom:10px;padding:8px 12px;border:1px solid rgba(244,63,94,.35);background:#2a0d16;color:#fecdd3;border-radius:10px;font:12px/1.4 Inter"; b.textContent=msg; b.style.display="block"; }
+    function hideBanner(){ id("dataBanner").style.display="none"; }
 
-    // --- Parsing / formats ---
     function parseGViz(text){ const s=text.indexOf("{"), e=text.lastIndexOf("}"); return s>=0&&e>=0?JSON.parse(text.slice(s,e+1)):null; }
     function asNumber(v){ if(v==null) return null; if(typeof v==="number") return v; const n=Number(String(v).replace(/[^0-9.-]/g,"")); return Number.isFinite(n)?n:null; }
     function parseGvizDate(raw){
@@ -270,9 +309,27 @@
       if(diff<=90) return {range:"61–90",cls:"age-stale",days:diff};
       return {range:"90+",cls:"age-old",days:diff};
     }
-    const escapeHtml = s => (s||"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;" }[m]));
+    const escapeHtml = s=>(s||"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;" }[m]));
+    function ensureAbsoluteUrl(u){
+      if(!u) return "";
+      let s=String(u).trim();
+      if(/^https?:\/\//i.test(s)) return s;
+      if(/^\/\//.test(s)) return `https:${s}`;
+      if(/^(drive|docs)\.google\.com|^forms\.gle|^www\./i.test(s)) return `https://${s}`;
+      return `https://${s}`;
+    }
+    function normalizeDriveUrl(u){
+      try{
+        const url=new URL(ensureAbsoluteUrl(u));
+        if(url.hostname.includes("drive.google.com")){
+          const id=url.searchParams.get("id");
+          if(id) return `https://drive.google.com/file/d/${id}/view`;
+        }
+      }catch{}
+      return ensureAbsoluteUrl(u);
+    }
 
-    // --- Header mapping / CSV ---
+    /* ===== Fetch (GViz + CSV fallback) ===== */
     function headerIndex(json){
       const labels=(json.table.cols||[]).map(c=>(c.label||"").trim());
       const map=new Map(labels.map((l,i)=>[l.toLowerCase(),i]));
@@ -280,141 +337,98 @@
     }
     function cell(c,i){ const x=c[i]; return x? (x.v ?? x.f ?? "") : ""; }
     function getByAliases(c, idx, aliases, fallback){ const i=idx.getIndex(aliases,fallback); return i>=0?cell(c,i):""; }
+
     async function fetchSheetJson(){
-      const cacheBuster = `_=${Date.now()}`;
-      const url1 = GVIZ_URL + `&${cacheBuster}`;
+      const cb=`_=${Date.now()}`;
+      const url1 = GVIZ_URL + `&${cb}`;
       try{
-        const res = await fetch(url1, { cache:"no-store" });
-        const text = await res.text();
-        const json = parseGViz(text);
-        const rows = json?.table?.rows || [];
-        if(rows.length>0) return { kind:"gviz", json };
-        showError("Primary feed empty; using CSV fallback.");
-      }catch(e){
-        showError("Primary feed failed; using CSV fallback.");
-      }
-      const csvURL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}&${cacheBuster}`;
-      const res2 = await fetch(csvURL, { cache:"no-store" });
-      const csv = await res2.text();
-      const parsed = parseCSV(csv);
-      return { kind:"csv", csv:parsed };
+        const res=await fetch(url1,{cache:"no-store"}); const text=await res.text(); const json=parseGViz(text);
+        const rows=json?.table?.rows||[];
+        if(rows.length>0) return {kind:"gviz",json};
+        banner("Primary feed empty; using CSV fallback.");
+      }catch{ banner("Primary feed failed; using CSV fallback."); }
+      const csvURL=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}&${cb}`;
+      const res2=await fetch(csvURL,{cache:"no-store"}); const csv=await res2.text();
+      return {kind:"csv",csv:parseCSV(csv)};
     }
     function parseCSV(text){
-      const rows=[]; let i=0, cur="", inQ=false, row=[];
-      const push=()=>{ row.push(cur); cur=""; };
-      const endRow=()=>{ rows.push(row); row=[]; };
-      while(i<text.length){
-        const ch=text[i++];
-        if(inQ){
-          if(ch==='"' && text[i]==='"'){ cur+='"'; i++; }
-          else if(ch==='"'){ inQ=false; }
-          else cur+=ch;
-        }else{
-          if(ch==='"'){ inQ=true; }
-          else if(ch===','){ push(); }
-          else if(ch==='\n'){ push(); endRow(); }
-          else if(ch!=='\r'){ cur+=ch; }
-        }
-      }
-      if(cur.length||row.length){ push(); endRow(); }
-      const [header, ...data] = rows;
-      return { header, data };
+      const rows=[]; let i=0,cur="",inQ=false,row=[];
+      const push=()=>{row.push(cur);cur="";}; const end=()=>{rows.push(row);row=[];};
+      while(i<text.length){ const ch=text[i++]; if(inQ){ if(ch=='"'&&text[i]=='"'){cur+='"';i++;} else if(ch=='"'){inQ=false;} else cur+=ch; } else { if(ch=='"'){inQ=true;} else if(ch==','){push();} else if(ch=='\n'){push();end();} else if(ch!=='\r'){cur+=ch;} } }
+      if(cur.length||row.length){push();end();} const [header,...data]=rows; return {header,data};
     }
 
-    // --- Files parsing ---
+    /* ===== Files parsing ===== */
     function parseFiles(raw){
       if(!raw) return [];
       const text=Array.isArray(raw)?raw.join("\n"):String(raw);
       const parts=text.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean);
-      const urls=[];
-      const urlRe=/(https?:\/\/[^\s)]+)|((?:https?:\/\/)?drive\.google\.com[^\s)]+)/ig;
+      const urls=[]; const urlRe=/(https?:\/\/[^\s)]+)|((?:https?:\/\/)?drive\.google\.com[^\s)]+)/ig;
       for(const p of parts){
-        let m; let pushed=false;
-        while((m=urlRe.exec(p))){ urls.push(normalizeDriveUrl(m[0])); pushed=true; }
-        if(!pushed && /^https?:\/\//i.test(p)) urls.push(p);
+        let m,added=false;
+        while((m=urlRe.exec(p))){ urls.push(normalizeDriveUrl(m[0])); added=true; }
+        if(!added && /^https?:\/\//i.test(p)) urls.push(ensureAbsoluteUrl(p));
       }
-      return urls.map(u=>({url:u, name:(u.split("/").pop()||"file").split("?")[0]}));
-    }
-    function normalizeDriveUrl(u){
-      try{
-        const url=new URL(u, location.origin);
-        if(url.hostname.includes("drive.google.com")){
-          const id=url.searchParams.get("id");
-          if(id) return `https://drive.google.com/file/d/${id}/view`;
-        }
-      }catch{}
-      return u;
+      return urls.map(u=>({url:u,name:(u.split("/").pop()||"file").split("?")[0]}));
     }
 
-    // --- Load sheet end-to-end ---
+    /* ===== Load ===== */
     async function loadSheet(){
-      hideError();
-      const feed = await fetchSheetJson();
+      hideBanner();
+      const feed=await fetchSheetJson();
 
       let rows, idx;
-      if(feed.kind==="gviz"){
-        const json = feed.json;
-        idx = headerIndex(json);
-        rows = json?.table?.rows || [];
-      }else{
-        const { header, data } = feed.csv;
-        const json = { table:{ cols: header.map(h=>({label:h})) } };
-        idx = headerIndex(json);
-        rows = data.map(r => ({ c: r.map(v=>({ v })) }));
-      }
+      if(feed.kind==="gviz"){ idx=headerIndex(feed.json); rows=feed.json.table.rows||[]; }
+      else{ const {header,data}=feed.csv; const json={table:{cols:header.map(h=>({label:h}))}}; idx=headerIndex(json); rows=data.map(r=>({c:r.map(v=>({v}))})); }
 
-      const I = {
-        submission: idx.getIndex(["Submission Date","Submitted","Created","Date Submitted"], 0),
-        vendorA: idx.getIndex(["Vendor","Vendor Name","Payee","Supplier"], 1),
-        vendorB: idx.getIndex(["Alternate Vendor","Alt Vendor","Company"], 2),
-        type: idx.getIndex(["Type","Main Type","Category"], 3),
-        invoice: idx.getIndex(["Invoice #","Invoice","Invoice Number","Bill #"], 4),
-        amount: idx.getIndex(["Amount","Invoice Amount","Total","$","Net Amount"], 7),
-        due: idx.getIndex(["Due Date","Due","Payment Due"], 8),
-        email: idx.getIndex(["Email","Contact Email","Requester Email"], 10),
-        location: idx.getIndex(["Location","Dept","Department","Site"], 11),
-        notes: idx.getIndex(["Notes","Memo","Comment","Description"], 12),
-        formType: idx.getIndex(["Form Type","Source","Form"], 13),
-        completion: idx.getIndex(["Completion","Status","State"], 14),
-        completedDate: idx.getIndex(["Date Completed","Completed","Paid Date","Submitted Date"], 15),
-        paymentDetail: idx.getIndex(["Payment Detail","Payment Ref","Method","Txn ID"], 16),
-        editUrl: idx.getIndex(["Edit Link","Edit URL","Edit Response Link","Response Edit URL","Edit"], -1),
-        filesRaw: idx.getIndex(["Files","Attachments","File Upload","Receipts","Supporting Docs","Upload"], -1),
+      const I={
+        submission: idx.getIndex(["Submission Date","Submitted","Created","Date Submitted"],0),
+        vendorA: idx.getIndex(["Vendor","Vendor Name","Payee","Supplier"],1),
+        vendorB: idx.getIndex(["Alternate Vendor","Alt Vendor","Company"],2),
+        type: idx.getIndex(["Type","Main Type","Category"],3),
+        invoice: idx.getIndex(["Invoice #","Invoice","Invoice Number","Bill #"],4),
+        amount: idx.getIndex(["Amount","Invoice Amount","Total","$","Net Amount"],7),
+        due: idx.getIndex(["Due Date","Due","Payment Due"],8),
+        email: idx.getIndex(["Email","Contact Email","Requester Email"],10),
+        location: idx.getIndex(["Location","Dept","Department","Site"],11),
+        notes: idx.getIndex(["Notes","Memo","Comment","Description"],12),
+        formType: idx.getIndex(["Form Type","Source","Form"],13),
+        completion: idx.getIndex(["Completion","Status","State"],14),
+        completedDate: idx.getIndex(["Date Completed","Completed","Paid Date","Submitted Date"],15),
+        paymentDetail: idx.getIndex(["Payment Detail","Payment Ref","Method","Txn ID"],16),
+        editUrl: idx.getIndex(["Edit Link","Edit URL","Edit Response Link","Response Edit URL","Edit"],-1),
+        filesRaw: idx.getIndex(["Files","Attachments","File Upload","Receipts","Supporting Docs","Upload"],-1),
       };
 
-      if (I.vendorA<0 && I.vendorB<0) showError("‘Vendor’ column not found; check sheet headers.");
-      if (I.amount<0) showError("‘Amount’ column not found; check sheet headers.");
-
-      allRecords = rows.map((r,idxRow)=>{
+      allRecords = rows.map((r,ri)=>{
         const c=r.c||[];
-        const vendor = String(getByAliases(c, idx, ["Vendor","Vendor Name","Payee","Supplier"], I.vendorA) || getByAliases(c, idx, ["Alternate Vendor","Company"], I.vendorB) || "—").trim();
-        const comp = String(getByAliases(c, idx, ["Completion","Status","State"], I.completion) || "").toLowerCase();
-        let status="new";
-        if(comp==="hold") status="hold";
-        if(comp.includes("paid")||comp.includes("submitted")) status="paid";
-        const files = parseFiles(getByAliases(c, idx, ["Files","Attachments","File Upload","Receipts","Supporting Docs","Upload"], I.filesRaw));
-        const editUrl = getByAliases(c, idx, ["Edit Link","Edit URL","Edit Response Link","Response Edit URL","Edit"], I.editUrl) || "";
+        const vendor=String(getByAliases(c,idx,["Vendor","Vendor Name","Payee","Supplier"],I.vendorA) || getByAliases(c,idx,["Alternate Vendor","Company"],I.vendorB) || "—").trim();
+        const comp=String(getByAliases(c,idx,["Completion","Status","State"],I.completion)||"").toLowerCase();
+        let status="new"; if(comp==="hold") status="hold"; if(comp.includes("paid")||comp.includes("submitted")) status="paid";
+        const files=parseFiles(getByAliases(c,idx,["Files","Attachments","File Upload","Receipts","Supporting Docs","Upload"],I.filesRaw));
+        let editUrl = getByAliases(c,idx,["Edit Link","Edit URL","Edit Response Link","Response Edit URL","Edit"],I.editUrl)||"";
+        editUrl = editUrl ? ensureAbsoluteUrl(editUrl) : "";
 
-        const idStr = `${vendor}|${getByAliases(c, idx, ["Invoice #","Invoice","Invoice Number","Bill #"], I.invoice)}|${getByAliases(c, idx, ["Submission Date","Submitted","Created","Date Submitted"], I.submission)}|${idxRow}`;
-        return {
-          id: btoa(unescape(encodeURIComponent(idStr))).replace(/=+$/,""),
-          submissionDate:getByAliases(c, idx, ["Submission Date","Submitted","Created","Date Submitted"], I.submission),
+        const idStr=`${vendor}|${getByAliases(c,idx,["Invoice #","Invoice","Invoice Number","Bill #"],I.invoice)}|${getByAliases(c,idx,["Submission Date","Submitted","Created","Date Submitted"],I.submission)}|${ri}`;
+        return{
+          id:btoa(unescape(encodeURIComponent(idStr))).replace(/=+$/,""),
+          submissionDate:getByAliases(c,idx,["Submission Date","Submitted","Created","Date Submitted"],I.submission),
           vendor,
-          typeMain:getByAliases(c, idx, ["Type","Main Type","Category"], I.type),
-          invoiceNo:getByAliases(c, idx, ["Invoice #","Invoice","Invoice Number","Bill #"], I.invoice),
-          amount: asNumber(getByAliases(c, idx, ["Amount","Invoice Amount","Total","$","Net Amount"], I.amount)) || 0,
-          dueDateRaw:getByAliases(c, idx, ["Due Date","Due","Payment Due"], I.due),
-          email:getByAliases(c, idx, ["Email","Contact Email","Requester Email"], I.email),
-          location:getByAliases(c, idx, ["Location","Dept","Department","Site"], I.location),
-          notes:getByAliases(c, idx, ["Notes","Memo","Comment","Description"], I.notes),
-          formType:getByAliases(c, idx, ["Form Type","Source","Form"], I.formType),
-          dateCompleted:getByAliases(c, idx, ["Date Completed","Completed","Paid Date","Submitted Date"], I.completedDate),
-          paymentDetail:getByAliases(c, idx, ["Payment Detail","Payment Ref","Method","Txn ID"], I.paymentDetail),
+          typeMain:getByAliases(c,idx,["Type","Main Type","Category"],I.type),
+          invoiceNo:getByAliases(c,idx,["Invoice #","Invoice","Invoice Number","Bill #"],I.invoice),
+          amount:asNumber(getByAliases(c,idx,["Amount","Invoice Amount","Total","$","Net Amount"],I.amount))||0,
+          dueDateRaw:getByAliases(c,idx,["Due Date","Due","Payment Due"],I.due),
+          email:getByAliases(c,idx,["Email","Contact Email","Requester Email"],I.email),
+          location:getByAliases(c,idx,["Location","Dept","Department","Site"],I.location),
+          notes:getByAliases(c,idx,["Notes","Memo","Comment","Description"],I.notes),
+          formType:getByAliases(c,idx,["Form Type","Source","Form"],I.formType),
+          dateCompleted:getByAliases(c,idx,["Date Completed","Completed","Paid Date","Submitted Date"],I.completedDate),
+          paymentDetail:getByAliases(c,idx,["Payment Detail","Payment Ref","Method","Txn ID"],I.paymentDetail),
           status, editUrl, files
         };
       }).filter(r=>r.vendor && r.vendor!=="Submission Date");
 
-      if (!filters.statuses.size) filters.statuses = new Set(["new","hold","paid"]);
+      if(!filters.statuses.size) filters.statuses=new Set(["new","hold","paid"]);
 
       populateVendors(uniqueSortedVendors(allRecords));
       applyFilters();
@@ -422,32 +436,28 @@
       initRouter();
     }
 
-    // --- Filtering / grouping ---
+    /* ===== Filters & grouping ===== */
     function uniqueSortedVendors(records){ return Array.from(new Set(records.map(r=>r.vendor).filter(Boolean))).sort((a,b)=>a.localeCompare(b)); }
     function populateVendors(vendors){
-      const sel = id("vendorSelect");
-      sel.innerHTML = vendors.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
-      sel.addEventListener("change", ()=>{ filters.vendors = new Set(Array.from(sel.selectedOptions).map(o=>o.value)); applyFilters(); renderAll(); });
+      const sel=id("vendorSelect");
+      sel.innerHTML=vendors.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
+      sel.addEventListener("change",()=>{ filters.vendors=new Set(Array.from(sel.selectedOptions).map(o=>o.value)); applyFilters(); renderAll(); });
     }
     function applyFilters(){
-      const q = filters.q.toLowerCase().trim();
-      const activeStatuses = filters.statuses.size ? filters.statuses : new Set(["new","hold","paid"]);
-      filteredRecords = allRecords.filter(r=>{
-        if(activeStatuses.size && !activeStatuses.has(r.status)) return false;
+      const q=filters.q.toLowerCase().trim();
+      const active=filters.statuses.size?filters.statuses:new Set(["new","hold","paid"]);
+      filteredRecords=allRecords.filter(r=>{
+        if(active.size && !active.has(r.status)) return false;
         if(filters.vendors.size && !filters.vendors.has(r.vendor)) return false;
-        if(filters.amtMin!=null && r.amount < filters.amtMin) return false;
-        if(filters.amtMax!=null && r.amount > filters.amtMax) return false;
-
-        const due = parseGvizDate(r.dueDateRaw);
-        if(filters.dueFrom && (!due || due < filters.dueFrom)) return false;
-        if(filters.dueTo   && (!due || due > filters.dueTo))   return false;
-
-        const sub = parseGvizDate(r.submissionDate);
-        if(filters.subFrom && (!sub || sub < filters.subFrom)) return false;
-        if(filters.subTo   && (!sub || sub > filters.subTo))   return false;
-
+        if(filters.amtMin!=null && r.amount<filters.amtMin) return false;
+        if(filters.amtMax!=null && r.amount>filters.amtMax) return false;
+        const due=parseGvizDate(r.dueDateRaw);
+        if(filters.dueFrom && (!due||due<filters.dueFrom)) return false;
+        if(filters.dueTo && (!due||due>filters.dueTo)) return false;
+        const sub=parseGvizDate(r.submissionDate);
+        if(filters.subFrom && (!sub||sub<filters.subFrom)) return false;
+        if(filters.subTo && (!sub||sub>filters.subTo)) return false;
         if(filters.ages.size && !filters.ages.has(ageBucket(r).range)) return false;
-
         if(q){
           const blob=[r.vendor,r.invoiceNo,r.notes,r.email,String(r.amount),r.location,r.typeMain].join(" ").toLowerCase();
           if(!blob.includes(q)) return false;
@@ -457,37 +467,31 @@
     }
     function groupByVendor(arr){ return arr.reduce((g,r)=>{ (g[r.vendor] ||= []).push(r); return g; },{}); }
 
-    // --- Rendering ---
+    /* ===== Render ===== */
     function renderAll(){ renderKPIs(); renderLane("new"); renderLane("hold"); renderLane("paid"); renderReporting(); applyPaidLaneVisibility(); }
     function renderKPIs(){
-      id("kpiTotal").textContent = filteredRecords.length;
-      const newRecs = filteredRecords.filter(r=>r.status==="new");
-      const holdRecs = filteredRecords.filter(r=>r.status==="hold");
-      id("kpiNew").textContent = newRecs.length;
-      id("kpiHold").textContent = holdRecs.length;
-      id("kpiNewAmt").textContent = formatCurrency(newRecs.reduce((s,r)=>s+r.amount,0));
-      id("kpiHoldAmt").textContent = formatCurrency(holdRecs.reduce((s,r)=>s+r.amount,0));
-      id("kpiOutstanding").textContent = formatCurrency(filteredRecords.filter(r=>r.status!=="paid").reduce((s,r)=>s+r.amount,0));
+      id("kpiTotal").textContent=filteredRecords.length;
+      const n=filteredRecords.filter(r=>r.status==="new");
+      const h=filteredRecords.filter(r=>r.status==="hold");
+      id("kpiNew").textContent=n.length; id("kpiHold").textContent=h.length;
+      id("kpiNewAmt").textContent=formatCurrency(n.reduce((s,r)=>s+r.amount,0));
+      id("kpiHoldAmt").textContent=formatCurrency(h.reduce((s,r)=>s+r.amount,0));
+      id("kpiOutstanding").textContent=formatCurrency(filteredRecords.filter(r=>r.status!=="paid").reduce((s,r)=>s+r.amount,0));
     }
     function renderLane(key){
       const container=id("lane"+cap(key)); container.innerHTML="";
       let items=filteredRecords.filter(r=>r.status===key);
 
       if(key==="new"){
-        items.sort((a,b)=>{
-          const A=ageBucket(a),B=ageBucket(b);
-          if(B.days!==A.days) return B.days-A.days;
-          const da=parseGvizDate(a.dueDateRaw), db=parseGvizDate(b.dueDateRaw);
-          if(da&&db) return da-db;
-          return b.amount-a.amount;
-        });
+        items.sort((a,b)=>{ const A=ageBucket(a),B=ageBucket(b); if(B.days!==A.days) return B.days-A.days;
+          const da=parseGvizDate(a.dueDateRaw), db=parseGvizDate(b.dueDateRaw); if(da&&db) return da-db; return b.amount-a.amount; });
       }else if(key==="hold"){ items.sort((a,b)=>parseGvizDate(a.submissionDate)-parseGvizDate(b.submissionDate)); }
-      else { items.sort((a,b)=>parseGvizDate(b.dateCompleted)-parseGvizDate(a.dateCompleted)); }
+      else{ items.sort((a,b)=>parseGvizDate(b.dateCompleted)-parseGvizDate(a.dateCompleted)); }
 
-      id("count"+cap(key)).textContent = items.length;
-      id("amt"+cap(key)).textContent = formatCurrency(items.reduce((s,r)=>s+r.amount,0));
+      id("count"+cap(key)).textContent=items.length;
+      id("amt"+cap(key)).textContent=formatCurrency(items.reduce((s,r)=>s+r.amount,0));
 
-      if(!items.length){ container.innerHTML = '<div class="empty-state">No requests here.</div>'; return; }
+      if(!items.length){ container.innerHTML='<div class="empty-state">No requests here.</div>'; return; }
 
       const grouped=groupByVendor(items);
       Object.keys(grouped).sort().forEach(vendor=>{
@@ -496,12 +500,11 @@
         const vh=document.createElement("div");vh.className="vendor-header";
         vh.innerHTML=`<div><strong>${vendor}</strong></div><div>${list.length} • ${formatCurrency(list.reduce((s,r)=>s+r.amount,0))}</div>`;
         const vl=document.createElement("div");vl.className="vendor-list";
-
-        const isOpen = vendorOpenState.get(vendor) ?? true;
+        const isOpen=vendorOpenState.get(vendor) ?? true;
         if(isOpen){ vl.classList.add("open"); vh.classList.add("open"); }
 
         list.forEach(r=>{
-          const card=document.createElement("div");card.className="card"; card.setAttribute("data-id", r.id);
+          const card=document.createElement("div");card.className="card"; card.dataset.id=r.id;
           const age=ageBucket(r);
           card.innerHTML=`
             <div class="card-header">
@@ -516,9 +519,9 @@
             </div>
             <div class="muted">${[r.typeMain,r.location].filter(Boolean).join(" • ")}</div>
             <div class="muted">${escapeHtml(r.email||"")}</div>
-            <div class="muted" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${escapeHtml(r.notes||"")}</div>
+            <div class="muted" style="-webkit-line-clamp:2;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden;">${escapeHtml(r.notes||"")}</div>
           `;
-          card.addEventListener("click", ()=> openRecord(r.id));
+          card.addEventListener("click",()=>openRecord(r.id));
           vl.appendChild(card);
         });
 
@@ -527,54 +530,48 @@
       });
     }
     function renderReporting(){
-      const rows = ["0–30","31–60","61–90","90+"].map(bucket=>{
-        const list = filteredRecords.filter(r=>ageBucket(r).range===bucket && r.status!=="paid");
-        return { bucket, count:list.length, amount:list.reduce((s,r)=>s+r.amount,0) };
+      const rows=["0–30","31–60","61–90","90+"].map(bucket=>{
+        const list=filteredRecords.filter(r=>ageBucket(r).range===bucket && r.status!=="paid");
+        return {bucket,count:list.length,amount:list.reduce((s,r)=>s+r.amount,0)};
       });
       const tb=document.querySelector("#agingTable tbody");
-      tb.innerHTML = rows.map(r=>`<tr><td>${r.bucket}</td><td>${r.count}</td><td>${formatCurrency(r.amount)}</td></tr>`).join("");
+      tb.innerHTML=rows.map(r=>`<tr><td>${r.bucket}</td><td>${r.count}</td><td>${formatCurrency(r.amount)}</td></tr>`).join("");
 
-      const byVendor = {};
-      filteredRecords.forEach(r=>{ if(r.status==="paid") return; (byVendor[r.vendor] ||= {count:0,amount:0}); byVendor[r.vendor].count++; byVendor[r.vendor].amount+=r.amount; });
-      const top = Object.entries(byVendor).map(([vendor,x])=>({vendor,...x})).sort((a,b)=>b.amount-a.amount).slice(0,10);
+      const byVendor={};
+      filteredRecords.forEach(r=>{ if(r.status==="paid") return; (byVendor[r.vendor]??={count:0,amount:0}); byVendor[r.vendor].count++; byVendor[r.vendor].amount+=r.amount; });
+      const top=Object.entries(byVendor).map(([vendor,x])=>({vendor,...x})).sort((a,b)=>b.amount-a.amount).slice(0,10);
       const tv=document.querySelector("#vendorsTable tbody");
-      tv.innerHTML = top.length ? top.map(v=>`<tr><td>${v.vendor}</td><td>${v.count}</td><td>${formatCurrency(v.amount)}</td></tr>`).join("")
-                               : `<tr><td colspan="3" style="color:var(--soft)">No outstanding vendors.</td></tr>`;
+      tv.innerHTML=top.length?top.map(v=>`<tr><td>${v.vendor}</td><td>${v.count}</td><td>${formatCurrency(v.amount)}</td></tr>`).join(""):`<tr><td colspan="3" style="color:var(--soft)">No outstanding vendors.</td></tr>`;
     }
 
-    // --- Drawer & routing ---
+    /* ===== Drawer & routing ===== */
     function openRecord(idStr){ location.hash = `#/r/${idStr}`; }
     function closeDrawer(){
-      currentOpenId = null;
-      id("drawer").classList.remove("open");
-      id("drawerBody").innerHTML = "";
-      id("drawerTitle").textContent = "Details";
-      if(location.hash.startsWith("#/r/")) history.replaceState(null,"",location.pathname + location.search);
+      currentOpenId=null; id("drawer").classList.remove("open");
+      id("drawerBody").innerHTML=""; id("drawerTitle").textContent="Details";
+      if(location.hash.startsWith("#/r/")) history.replaceState(null,"",location.pathname+location.search);
     }
     function initRouter(){
-      window.addEventListener("hashchange", handleRoute);
+      window.addEventListener("hashchange",handleRoute);
       handleRoute();
-      window.addEventListener("keydown",(e)=>{
+      window.addEventListener("keydown",e=>{
         if(!currentOpenId) return;
         if(e.key==="Escape") closeDrawer();
         if(e.key==="ArrowLeft") nav(-1);
         if(e.key==="ArrowRight") nav(1);
       });
-      id("closeBtn").addEventListener("click", closeDrawer);
-      id("prevBtn").addEventListener("click", ()=>nav(-1));
-      id("nextBtn").addEventListener("click", ()=>nav(1));
+      id("closeBtn").addEventListener("click",closeDrawer);
+      id("prevBtn").addEventListener("click",()=>nav(-1));
+      id("nextBtn").addEventListener("click",()=>nav(1));
     }
     function handleRoute(){
-      const m = location.hash.match(/^#\/r\/(.+)$/);
-      if(m){
-        const rid = m[1]; const rec = allRecords.find(r=>r.id===rid);
-        if(rec){ currentOpenId=rid; renderDrawer(rec); }
-      } else { closeDrawer(); }
+      const m=location.hash.match(/^#\/r\/(.+)$/);
+      if(m){ const rid=m[1]; const rec=allRecords.find(r=>r.id===rid); if(rec){ currentOpenId=rid; renderDrawer(rec); } }
+      else closeDrawer();
     }
     function nav(delta){
-      const idx = filteredRecords.findIndex(r=>r.id===currentOpenId);
-      if(idx<0) return;
-      const next = filteredRecords[(idx + delta + filteredRecords.length) % filteredRecords.length];
+      const i=filteredRecords.findIndex(r=>r.id===currentOpenId); if(i<0) return;
+      const next=filteredRecords[(i+delta+filteredRecords.length)%filteredRecords.length];
       openRecord(next.id);
     }
     function renderDrawer(r){
@@ -582,20 +579,20 @@
       id("drawerTitle").textContent = `${r.vendor} — ${r.invoiceNo || "No Invoice #"} (${formatCurrency(r.amount)})`;
       const age=ageBucket(r);
       const filesHtml = r.files && r.files.length
-        ? `<div class="file-list">${r.files.map(f=>`<a class="link" target="_blank" rel="noreferrer noopener" href="${f.url}">${escapeHtml(f.name || f.url)}</a>`).join("")}</div>`
+        ? `<div class="file-list">${r.files.map(f=>`<a class="link" target="_blank" rel="noopener" href="${ensureAbsoluteUrl(f.url)}">${escapeHtml(f.name||f.url)}</a>`).join("")}</div>`
         : `<span class="muted">No files</span>`;
-      const editBtn = r.editUrl ? `<a class="btn small primary" target="_blank" rel="noreferrer noopener" href="${r.editUrl}">Edit Response</a>` : `<button class="btn small" disabled title="Edit link not available">Edit Response</button>`;
-      const viewInSheet = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit#gid=${GID}`;
-      id("drawerBody").innerHTML = `
+      const editBtn = r.editUrl ? `<a class="btn small primary" target="_blank" rel="noopener" href="${ensureAbsoluteUrl(r.editUrl)}">Edit Response</a>` : `<button class="btn small" disabled>Edit Response</button>`;
+      const viewInSheet=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit#gid=${GID}`;
+      id("drawerBody").innerHTML=`
         <div class="drawer-actions">
           ${editBtn}
-          <a class="btn small" target="_blank" rel="noreferrer noopener" href="${viewInSheet}">Open Sheet</a>
+          <a class="btn small" target="_blank" rel="noopener" href="${viewInSheet}">Open Sheet</a>
           <button id="copyBtn" class="btn small">Copy Ref</button>
         </div>
 
         <div class="row"><label>Status</label><div class="val"><span class="status-pill status-${r.status}">${r.status.toUpperCase()}</span> <span class="age-pill"><span class="age-dot ${age.cls}"></span>${age.range} (${age.days}d)</span></div></div>
         <div class="row"><label>Vendor</label><div class="val">${escapeHtml(r.vendor)}</div></div>
-        <div class="row"><label>Invoice #</label><div class="val">${escapeHtml(r.invoiceNo || "")}</div></div>
+        <div class="row"><label>Invoice #</label><div class="val">${escapeHtml(r.invoiceNo||"")}</div></div>
         <div class="row"><label>Amount</label><div class="val">${formatCurrency(r.amount)}</div></div>
         <div class="row"><label>Due Date</label><div class="val">${formatDate(r.dueDateRaw)}</div></div>
         <div class="row"><label>Submitted</label><div class="val">${formatDate(r.submissionDate)}</div></div>
@@ -608,33 +605,33 @@
         <div class="row"><label>Notes</label><div class="val" style="white-space:pre-wrap">${escapeHtml(r.notes||"")}</div></div>
         <div class="row"><label>Record ID</label><div class="val"><span class="kbd">${r.id}</span></div></div>
       `;
-      id("copyBtn").addEventListener("click", ()=>{
-        const text = `${r.vendor} | ${r.invoiceNo || ""} | ${formatCurrency(r.amount)} | ID:${r.id}`;
+      id("copyBtn").addEventListener("click",()=>{
+        const text=`${r.vendor} | ${r.invoiceNo||""} | ${formatCurrency(r.amount)} | ID:${r.id}`;
         navigator.clipboard.writeText(text).catch(()=>{});
       });
     }
 
-    // --- Wiring ---
-    id("searchInput").addEventListener("input", debounce(e=>{ filters.q = e.target.value || ""; applyFilters(); renderAll(); },250));
-    document.getElementById("statusChips").addEventListener("click", e=>{
+    /* ===== Wire sidebar controls ===== */
+    id("searchInput").addEventListener("input",debounce(e=>{filters.q=e.target.value||"";applyFilters();renderAll();},250));
+    document.getElementById("statusChips").addEventListener("click",e=>{
       const chip=e.target.closest(".chip"); if(!chip) return;
-      const val=chip.dataset.status; chip.classList.toggle("active");
-      if(filters.statuses.has(val)) filters.statuses.delete(val); else filters.statuses.add(val);
+      const v=chip.dataset.status; chip.classList.toggle("active");
+      if(filters.statuses.has(v)) filters.statuses.delete(v); else filters.statuses.add(v);
       applyFilters(); renderAll();
     });
-    document.getElementById("ageChips").addEventListener("click", e=>{
+    document.getElementById("ageChips").addEventListener("click",e=>{
       const chip=e.target.closest(".chip"); if(!chip) return;
-      const val=chip.dataset.age; chip.classList.toggle("active");
-      if(filters.ages.has(val)) filters.ages.delete(val); else filters.ages.add(val);
+      const v=chip.dataset.age; chip.classList.toggle("active");
+      if(filters.ages.has(v)) filters.ages.delete(v); else filters.ages.add(v);
       applyFilters(); renderAll();
     });
-    ["amtMin","amtMax"].forEach(k=>{ id(k).addEventListener("change", e=>{ const v=e.target.value.trim(); filters[k]= v===""?null:Number(v); applyFilters(); renderAll(); }); });
-    const toDate=v=>v? new Date(v+"T00:00:00") : null;
-    ["dueFrom","dueTo","subFrom","subTo"].forEach(k=>{ id(k).addEventListener("change", e=>{ filters[k]=toDate(e.target.value); applyFilters(); renderAll(); }); });
+    ["amtMin","amtMax"].forEach(k=>id(k).addEventListener("change",e=>{const v=e.target.value.trim();filters[k]=v===""?null:Number(v);applyFilters();renderAll();}));
+    const toDate=v=>v?new Date(v+"T00:00:00"):null;
+    ["dueFrom","dueTo","subFrom","subTo"].forEach(k=>id(k).addEventListener("change",e=>{filters[k]=toDate(e.target.value);applyFilters();renderAll();}));
 
-    id("resetBtn").addEventListener("click", ()=>{
+    id("resetBtn").addEventListener("click",()=>{
       filters.q=""; id("searchInput").value="";
-      filters.statuses=new Set(["new","hold"]); document.querySelectorAll("#statusChips .chip").forEach(c=>c.classList.toggle("active", c.dataset.status!=="paid"));
+      filters.statuses=new Set(["new","hold"]); document.querySelectorAll("#statusChips .chip").forEach(c=>c.classList.toggle("active",c.dataset.status!=="paid"));
       filters.vendors=new Set(); id("vendorSelect").selectedIndex=-1;
       filters.amtMin=filters.amtMax=null; id("amtMin").value=""; id("amtMax").value="";
       filters.dueFrom=filters.dueTo=filters.subFrom=filters.subTo=null; ["dueFrom","dueTo","subFrom","subTo"].forEach(k=>id(k).value="");
@@ -642,16 +639,15 @@
       applyFilters(); renderAll();
     });
 
-    id("exportBtn").addEventListener("click", ()=>{
-      const csv = toCSV(filteredRecords);
-      const blob = new Blob([csv],{type:"text/csv;charset=utf-8;"});
-      const url = URL.createObjectURL(blob);
+    id("exportBtn").addEventListener("click",()=>{
+      const csv=toCSV(filteredRecords);
+      const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"}); const url=URL.createObjectURL(blob);
       const a=document.createElement("a"); a.href=url; a.download=`ap_requests_filtered_${new Date().toISOString().slice(0,10)}.csv`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
     });
 
-    document.querySelector('[data-toggle="paid"]').addEventListener("click",()=>{ ui.showPaidLane = !ui.showPaidLane; applyPaidLaneVisibility(); });
-    id("togglePaid").addEventListener("change", e=>{ ui.showPaidLane = !!e.target.checked; applyPaidLaneVisibility(); });
-    function applyPaidLaneVisibility(){ id("lanePaid").style.display = ui.showPaidLane ? "block" : "none"; id("togglePaid").checked = ui.showPaidLane; }
+    document.querySelector('[data-toggle="paid"]').addEventListener("click",()=>{ ui.showPaidLane=!ui.showPaidLane; applyPaidLaneVisibility(); });
+    id("togglePaid").addEventListener("change",e=>{ ui.showPaidLane=!!e.target.checked; applyPaidLaneVisibility(); });
+    function applyPaidLaneVisibility(){ id("lanePaid").style.display = ui.showPaidLane ? "block":"none"; id("togglePaid").checked=ui.showPaidLane; }
 
     function toCSV(rows){
       const header=["Submission Date","Vendor","Type","Invoice #","Amount","Due Date","Email","Location","Notes","Form Type","Completed","Payment Detail","Status","Edit Link","Files"];
@@ -661,16 +657,16 @@
           formatDate(r.submissionDate), r.vendor, safe(r.typeMain), safe(r.invoiceNo),
           r.amount?.toFixed(2) ?? "", formatDate(r.dueDateRaw), safe(r.email), safe(r.location),
           safe(r.notes), safe(r.formType), formatDate(r.dateCompleted), safe(r.paymentDetail),
-          r.status.toUpperCase(), r.editUrl || "", (r.files||[]).map(f=>f.url).join(" | ")
-        ].map(csvEscape).join(",");
+          r.status.toUpperCase(), ensureAbsoluteUrl(r.editUrl) || "", (r.files||[]).map(f=>ensureAbsoluteUrl(f.url)).join(" | ")
+        ].map(csvEsc).join(",");
         out.push(line);
       }
       function safe(s){ return (s??"").toString(); }
-      function csvEscape(s){ return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s; }
+      function csvEsc(s){ return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s; }
       return out.join("\n");
     }
 
-    // Boot
+    /* ===== Boot ===== */
     loadSheet();
   </script>
 </body>
