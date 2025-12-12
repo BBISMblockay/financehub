@@ -1,318 +1,246 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8" />
-<title>AP Requests — Live Dashboard</title>
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!DOCTYPE html> <html lang="en"> <head> <meta charset="UTF-8" /> <title>AP Requests — Live Dashboard</title> <meta name="viewport" content="width=device-width,initial-scale=1" /> <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" /> <style> :root { color-scheme: dark; --bg: #020617; --bg-elevated: #020617; --panel: #020617; --card: #020617; --card-soft: #020617; --border-subtle: rgba(148, 163, 184, 0.35); --border-strong: rgba(148, 163, 184, 0.6); --text-main: #e5e7eb; --text-muted: #9ca3af; --text-soft: #6b7280; --accent: #38bdf8; --accent-soft: rgba(56, 189, 248, 0.14); --accent-strong: #0ea5e9; --new-pill: #22c55e; --hold-pill: #facc15; --paid-pill: #4ade80; --danger: #fb7185; --shadow-soft: 0 18px 60px rgba(15, 23, 42, 0.55); --radius-card: 20px; --radius-inner: 14px; }
+* { box-sizing: border-box; }
 
-<style>
-/* =========================
-   THEME
-========================= */
-:root{
-  color-scheme:dark;
-  --bg:#020617;
-  --panel:#020617;
-  --border:rgba(148,163,184,.35);
-  --text:#e5e7eb;
-  --muted:#9ca3af;
-  --soft:#6b7280;
-  --accent:#38bdf8;
-  --shadow:0 18px 60px rgba(15,23,42,.55);
+body {
+  margin: 0;
+  padding: 32px 16px 40px;
+  background: radial-gradient(circle at top left, #020617 0, #020617 38%, #020617 100%);
+  font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  color: var(--text-main);
 }
 
-*{box-sizing:border-box}
-body{
-  margin:0;
-  padding:32px 16px;
-  background:var(--bg);
-  font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;
-  color:var(--text);
-}
-.shell{max-width:1300px;margin:auto}
+.shell { max-width: 1200px; margin: 0 auto; }
 
-/* =========================
-   HEADER / FILTERS
-========================= */
-header h1{margin:0;font-size:26px;font-weight:600}
-header p{margin:2px 0 0;font-size:13px;color:var(--soft)}
+header { margin-bottom: 24px; }
 
-.filters{
-  margin-top:20px;
-  display:grid;
-  grid-template-columns:1fr repeat(4,200px);
-  gap:10px;
-}
-input{
-  background:#020617;
-  border:1px solid var(--border);
-  border-radius:999px;
-  padding:10px 14px;
-  font-size:13px;
-  color:var(--text);
+header h1 {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin: 0 0 4px;
 }
 
-/* =========================
-   KPIs
-========================= */
-.kpis{
-  margin-top:18px;
-  display:grid;
-  grid-template-columns:repeat(4,1fr);
-  gap:12px;
-}
-.kpi{
-  border:1px solid rgba(15,23,42,.9);
-  border-radius:16px;
-  padding:12px;
-  box-shadow:var(--shadow);
-}
-.kpi label{
-  font-size:11px;
-  letter-spacing:.1em;
-  text-transform:uppercase;
-  color:var(--soft);
-}
-.kpi strong{font-size:20px;font-weight:600}
-
-.aging{
-  margin-top:12px;
-  display:grid;
-  grid-template-columns:repeat(4,1fr);
-  gap:12px;
+header p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-soft);
 }
 
-/* =========================
-   LANES
-========================= */
-.lanes{
-  margin-top:24px;
-  display:grid;
-  grid-template-columns:repeat(3,1fr);
-  gap:14px;
-}
-.lane{
-  border:1px solid rgba(15,23,42,.9);
-  border-radius:20px;
-  padding:10px;
-  box-shadow:var(--shadow);
-}
-.lane header{
-  display:flex;
-  justify-content:space-between;
-  margin-bottom:6px;
-}
-.lane header span{
-  font-size:13px;
-  letter-spacing:.1em;
-  text-transform:uppercase;
-  color:var(--muted);
-}
-.lane body{
-  max-height:65vh;
-  overflow:auto;
+.top-row {
+  margin-top: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
 }
 
-/* =========================
-   CARDS
-========================= */
-.card{
-  border:1px solid rgba(31,41,55,.9);
-  border-radius:12px;
-  padding:8px;
-  margin-bottom:8px;
-  font-size:11px;
-}
-.card-top{
-  display:flex;
-  justify-content:space-between;
-}
-.card-title{font-weight:600}
-.card-sub{color:var(--soft)}
-.pill{
-  border:1px solid var(--border);
-  border-radius:999px;
-  padding:2px 8px;
-  font-size:10px;
-  margin-left:4px;
-}
-.actions{
-  margin-top:6px;
-  display:flex;
-  gap:6px;
-}
-button,a{
-  border:1px solid var(--border);
-  background:#020617;
-  color:var(--text);
-  border-radius:999px;
-  padding:4px 10px;
-  font-size:10px;
-  cursor:pointer;
-  text-decoration:none;
-}
-.details{display:none;margin-top:6px;border-top:1px dashed rgba(31,41,55,.9);padding-top:4px}
-.details div{margin-bottom:2px;color:var(--soft)}
-.empty{font-size:11px;color:var(--soft);padding:8px}
-</style>
-</head>
-
-<body>
-<div class="shell">
-<header>
-  <h1>AP Requests — Live Dashboard</h1>
-  <p>Auto-pulled from Google Sheets · WPV Accounting</p>
-</header>
-
-<div class="filters">
-  <input id="search" placeholder="Search vendor, invoice, notes, email, amount">
-  <input id="from" type="date">
-  <input id="to" type="date">
-  <input id="min" type="number" placeholder="Min $">
-  <input id="max" type="number" placeholder="Max $">
-</div>
-
-<div class="kpis">
-  <div class="kpi"><label>Total</label><strong id="kTotal">—</strong></div>
-  <div class="kpi"><label>Open</label><strong id="kOpen">—</strong></div>
-  <div class="kpi"><label>Hold</label><strong id="kHold">—</strong></div>
-  <div class="kpi"><label>Outstanding</label><strong id="kOut">$0.00</strong></div>
-</div>
-
-<div class="aging">
-  <div class="kpi"><label>0–30</label><strong id="a30">$0</strong></div>
-  <div class="kpi"><label>31–60</label><strong id="a60">$0</strong></div>
-  <div class="kpi"><label>61–90</label><strong id="a90">$0</strong></div>
-  <div class="kpi"><label>90+</label><strong id="a90p">$0</strong></div>
-</div>
-
-<div class="lanes">
-  <section class="lane"><header><span>New</span><span id="cNew">0</span></header><body id="lNew"></body></section>
-  <section class="lane"><header><span>Hold</span><span id="cHold">0</span></header><body id="lHold"></body></section>
-  <section class="lane"><header><span>Paid</span><span id="cPaid">0</span></header><body id="lPaid"></body></section>
-</div>
-</div>
-
-<script>
-const SHEET_ID="1lXM1Bu8ZRks7wDK34Bz3O_zgWcwdFU8USjuHBdbDhV8";
-const GID="0";
-const URL=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${GID}`;
-
-let rows=[],filtered=[];
-
-const $=id=>document.getElementById(id);
-const money=n=>Number(n||0).toLocaleString("en-US",{style:"currency",currency:"USD"});
-const parse=v=>v&&v.startsWith("Date(")?new Date(...v.replace("Date(","").replace(")","").split(",")):v?new Date(v):null;
-
-fetch(URL).then(r=>r.text()).then(t=>{
-  const j=JSON.parse(t.substring(47,t.length-2));
-  rows=j.table.rows.map(r=>{
-    const c=r.c||[],v=i=>c[i]?.v??"";
-    const status=(v(14)+"").toLowerCase();
-    return{
-      submitted:parse(v(0)),
-      vendor:(v(1)||v(2)||"—"),
-      invoice:v(4)||"(No invoice)",
-      amount:Number(v(7))||0,
-      due:parse(v(8)),
-      file:v(9),view:v(19),edit:v(20),
-      notes:v(12),email:v(10),location:v(11),
-      flex:v(5),po:v(6),completed:v(14),pay:v(16),
-      ip:v(18),sid:v(22),page:v(17),
-      status:status==="hold"?"hold":status.includes("paid")?"paid":"new"
-    };
-  });
-  filtered=[...rows];
-  render();
-});
-
-["search","from","to","min","max"].forEach(id=>$(id).oninput=filter);
-
-function filter(){
-  const q=$("search").value.toLowerCase();
-  const f=$("from").value?new Date($("from").value):null;
-  const t=$("to").value?new Date($("to").value):null;
-  const min=+$("min").value||0,max=+$("max").value||Infinity;
-
-  filtered=rows.filter(r=>{
-    if(q&&!JSON.stringify(r).toLowerCase().includes(q))return false;
-    if(f&&r.submitted&&r.submitted<f)return false;
-    if(t&&r.submitted&&r.submitted>t)return false;
-    if(r.amount<min||r.amount>max)return false;
-    return true;
-  });
-  render();
+.search-wrap {
+  flex: 1 1 260px;
+  position: relative;
 }
 
-function render(){
-  const open=filtered.filter(r=>r.status==="new");
-  const hold=filtered.filter(r=>r.status==="hold");
-  const paid=filtered.filter(r=>r.status==="paid");
-
-  $("kTotal").textContent=filtered.length;
-  $("kOpen").textContent=open.length;
-  $("kHold").textContent=hold.length;
-  $("kOut").textContent=money([...open,...hold].reduce((s,r)=>s+r.amount,0));
-
-  let a30=0,a60=0,a90=0,a90p=0;
-  const now=new Date();
-  [...open,...hold].forEach(r=>{
-    if(!r.due)return;
-    const d=Math.floor((now-r.due)/86400000);
-    if(d<=30)a30+=r.amount;
-    else if(d<=60)a60+=r.amount;
-    else if(d<=90)a90+=r.amount;
-    else a90p+=r.amount;
-  });
-  $("a30").textContent=money(a30);
-  $("a60").textContent=money(a60);
-  $("a90").textContent=money(a90);
-  $("a90p").textContent=money(a90p);
-
-  renderLane("lNew",open.sort((a,b)=>a.submitted-b.submitted));
-  renderLane("lHold",hold);
-  renderLane("lPaid",paid);
+.search-input {
+  width: 100%;
+  background: #020617;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  padding: 10px 14px 10px 34px;
+  font-size: 13px;
+  color: var(--text-main);
+  outline: none;
 }
 
-function renderLane(id,list){
-  const el=$(id);el.innerHTML="";
-  if(!list.length){el.innerHTML='<div class="empty">No requests.</div>';return;}
-  list.forEach(r=>{
-    const c=document.createElement("div");
-    c.className="card";
-    c.innerHTML=`
-      <div class="card-top">
-        <div>
-          <div class="card-title">${r.invoice}</div>
-          <div class="card-sub">${r.vendor} • ${money(r.amount)}</div>
-        </div>
-        <div class="pill">${r.status.toUpperCase()}</div>
-      </div>
-      <div class="actions">
-        ${r.file?`<a href="${r.file}" target="_blank">Open File</a>`:""}
-        ${r.view?`<a href="${r.view}" target="_blank">View</a>`:""}
-        ${r.edit?`<a href="${r.edit}" target="_blank">Edit</a>`:""}
-        <button>Details</button>
-      </div>
-      <div class="details">
-        <div>Notes: ${r.notes||"—"}</div>
-        <div>Email: ${r.email||"—"}</div>
-        <div>Location: ${r.location||"—"}</div>
-        <div>Flex ID: ${r.flex||"—"}</div>
-        <div>Internal PO: ${r.po||"—"}</div>
-        <div>Completed: ${r.completed||"—"}</div>
-        <div>Payment Detail: ${r.pay||"—"}</div>
-        <div>Submission IP: ${r.ip||"—"}</div>
-        <div>Submission ID: ${r.sid||"—"}</div>
-        <div>Page URL: ${r.page||"—"}</div>
-      </div>`;
-    const btn=c.querySelector("button");
-    const det=c.querySelector(".details");
-    btn.onclick=()=>det.style.display=det.style.display==="block"?"none":"block";
-    el.appendChild(c);
-  });
+.search-input::placeholder { color: #4b5563; }
+
+.search-icon {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #64748b;
 }
-</script>
-</body>
-</html>
+
+.search-icon::after {
+  content: "";
+  position: absolute;
+  right: -4px;
+  bottom: -3px;
+  width: 7px;
+  height: 2px;
+  background: #64748b;
+  transform: rotate(45deg);
+}
+
+.kpi-row {
+  margin-top: 16px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.kpi-card {
+  background: #020617;
+  border-radius: 16px;
+  border: 1px solid rgba(15, 23, 42, 0.9);
+  padding: 10px 12px;
+  box-shadow: var(--shadow-soft);
+  min-height: 70px;
+}
+
+.kpi-label {
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+
+.kpi-value {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.kpi-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.lanes-row {
+  margin-top: 24px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.lane {
+  background: #020617;
+  border-radius: var(--radius-card);
+  border: 1px solid rgba(15, 23, 42, 0.9);
+  padding: 10px;
+  box-shadow: var(--shadow-soft);
+  display: flex;
+  flex-direction: column;
+}
+
+.lane-header {
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.9);
+  cursor: pointer;
+}
+
+.lane-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.lane-meta {
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-soft);
+}
+
+.lane-body {
+  margin-top: 6px;
+}
+
+.vendor-group {
+  margin-bottom: 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.9);
+  overflow: hidden;
+}
+
+.vendor-header {
+  display: flex;
+  justify-content: space-between;
+  padding: 7px 9px;
+  cursor: pointer;
+}
+
+.vendor-header.open .chevron {
+  transform: rotate(90deg);
+}
+
+.vendor-list {
+  display: none;
+  padding: 6px 9px;
+}
+
+.vendor-list.open { display: block; }
+
+.card {
+  border-radius: 10px;
+  border: 1px solid rgba(31, 41, 55, 0.9);
+  padding: 7px;
+  margin-bottom: 6px;
+  font-size: 11px;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.status-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-new { color: #4ade80; border: 1px solid #4ade80; }
+.status-hold { color: #facc15; border: 1px solid #facc15; }
+.status-paid { color: #6ee7b7; border: 1px solid #6ee7b7; }
+
+.age-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  border: 1px solid rgba(148,163,184,0.6);
+}
+
+.age-dot { width: 6px; height: 6px; border-radius: 50%; }
+.age-fresh { background: #22c55e; }
+.age-mid { background: #eab308; }
+.age-stale { background: #f97316; }
+.age-old { background: #fb7185; }
+
+.empty-state {
+  font-size: 11px;
+  color: var(--text-soft);
+  padding: 8px;
+}
+
+footer {
+  margin-top: 18px;
+  font-size: 11px;
+  color: var(--text-soft);
+  text-align: center;
+}
+
+</style> </head> <body> <div class="shell"> <header> <h1>AP Requests — Live Dashboard</h1> <p>Auto-pulled from Google Sheets · WPV Accounting</p> </header> <div class="top-row"> <div class="search-wrap"> <div class="search-icon"></div> <input id="searchInput" class="search-input" placeholder="Search vendor, invoice, notes, email, amount..." /> </div> </div> <div class="kpi-row"> <div class="kpi-card"><div class="kpi-label">Total Requests</div><div id="kpiTotal" class="kpi-value">—</div></div> <div class="kpi-card"><div class="kpi-label">Open Requests</div><div id="kpiOpen" class="kpi-value">—</div></div> <div class="kpi-card"><div class="kpi-label">On Hold</div><div id="kpiHold" class="kpi-value">—</div></div> <div class="kpi-card"><div class="kpi-label">Outstanding Amount</div><div id="kpiOutstanding" class="kpi-value">$0.00</div></div> </div> <div class="lanes-row"> <section class="lane"> <div class="lane-header"><div class="lane-title">Ready to Pay</div><div class="lane-meta"><span id="countNew">0</span><span id="amountNew">$0.00</span></div></div> <div id="laneNew" class="lane-body"></div> </section>
+<section class="lane">
+  <div class="lane-header"><div class="lane-title">Need Information</div><div class="lane-meta"><span id="countHold">0</span><span id="amountHold">$0.00</span></div></div>
+  <div id="laneHold" class="lane-body"></div>
+</section>
+
+<section class="lane">
+  <div class="lane-header" id="paidHeader"><div class="lane-title">Paid / Submitted</div><div class="lane-meta"><span id="countPaid">0</span><span id="amountPaid">$0.00</span></div></div>
+  <div id="lanePaid" class="lane-body" style="display:none;"></div>
+</section>
+
+</div> <footer>FinanceHub · Powered by WPV Accounting</footer> </div> <script> const SHEET_ID = "1lXM1Bu8ZRks7wDK34Bz3O_zgWcwdFU8USjuHBdbDhV8"; const GID = "0"; const GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${GID}`; let allRecords = []; let filteredRecords = []; function parseGvizDate(v) { if (!v) return null; if (v instanceof Date) return v; const p = String(v).split("-"); if (p.length === 3) return new Date(p[2], p[0] - 1, p[1]); return null; } function formatCurrency(n) { return Number(n || 0).toLocaleString("en-US", { style: "currency", currency: "USD" }); } function getAgeBucket(r) { const base = parseGvizDate(r.dueDateRaw) || parseGvizDate(r.submissionDate) || parseGvizDate(r.dateCompleted); if (!base) return { range: "—", cls: "age-fresh", days: 0 }; const days = Math.floor((Date.now() - base.getTime()) / 86400000); if (days <= 30) return { range: "0–30", cls: "age-fresh", days }; if (days <= 60) return { range: "31–60", cls: "age-mid", days }; if (days <= 90) return { range: "61–90", cls: "age-stale", days }; return { range: "90+", cls: "age-old", days }; } async function loadSheet() { const res = await fetch(GVIZ_URL); const txt = await res.text(); const json = JSON.parse(txt.substring(47, txt.length - 2)); allRecords = json.table.rows.map(r => { const c = r.c || []; const v = i => (c[i] ? c[i].v : ""); const completed = String(v(14)).toLowerCase(); let status = "new"; if (completed === "hold") status = "hold"; if (completed.includes("paid") || completed.includes("submitted")) status = "paid"; return { submissionDate: v(0), vendor: v(1) || v(2) || "—", invoiceNo: v(4), amount: Number(v(7)) || 0, dueDateRaw: v(8), submissionDateRaw: v(0), dateCompleted: v(15), status }; }); filteredRecords = [...allRecords]; render(); } function render() { renderKPIs(); renderLane("new"); renderLane("hold"); renderLane("paid"); } function renderKPIs() { document.getElementById("kpiTotal").textContent = filteredRecords.length; document.getElementById("kpiOpen").textContent = filteredRecords.filter(r => r.status === "new").length; document.getElementById("kpiHold").textContent = filteredRecords.filter(r => r.status === "hold").length; document.getElementById("kpiOutstanding").textContent = formatCurrency(filteredRecords.filter(r => r.status !== "paid").reduce((s,r)=>s+r.amount,0)); } function renderLane(status) { const el = document.getElementById("lane" + status.charAt(0).toUpperCase() + status.slice(1)); el.innerHTML = ""; let items = filteredRecords.filter(r => r.status === status); if (status === "new") { items.sort((a,b) => { const aa = getAgeBucket(a), bb = getAgeBucket(b); if (bb.days !== aa.days) return bb.days - aa.days; return (parseGvizDate(a.dueDateRaw)||0) - (parseGvizDate(b.dueDateRaw)||0); }); } if (!items.length) { el.innerHTML = '<div class="empty-state">No requests in this lane.</div>'; return; } for (const r of items) { const card = document.createElement("div"); card.className = "card"; const age = getAgeBucket(r); card.innerHTML = ` <div class="card-header"> <div>${r.invoiceNo || "(No invoice #)"}<br>${formatCurrency(r.amount)}</div> <div> <span class="status-pill status-${r.status}">${r.status}</span> <span class="age-pill"><span class="age-dot ${age.cls}"></span>${age.range}</span> </div> </div>`; el.appendChild(card); } document.getElementById("count" + status.charAt(0).toUpperCase() + status.slice(1)).textContent = items.length; document.getElementById("amount" + status.charAt(0).toUpperCase() + status.slice(1)).textContent = formatCurrency(items.reduce((s,r)=>s+r.amount,0)); } document.getElementById("paidHeader").addEventListener("click", () => { const el = document.getElementById("lanePaid"); el.style.display = el.style.display === "none" ? "block" : "none"; }); document.getElementById("searchInput").addEventListener("input", e => { const q = e.target.value.toLowerCase(); filteredRecords = allRecords.filter(r => [r.vendor, r.invoiceNo, r.amount].join(" ").toLowerCase().includes(q) ); render(); }); loadSheet(); </script> </body> </html>
