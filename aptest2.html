@@ -1,688 +1,318 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
+<meta charset="UTF-8" />
 <title>AP Requests — Live Dashboard</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1" />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 
 <style>
-/* ---------- BASE ---------- */
+/* =========================
+   THEME
+========================= */
 :root{
-  color-scheme:dark;
-  --bg:#020617;
-  --panel:#020617;
-  --border:rgba(148,163,184,.35);
-  --text:#e5e7eb;
-  --muted:#94a3b8;
-  --accent:#38bdf8;
-  --green:#22c55e;
-  --yellow:#facc15;
-  --red:#ef4444; /* ENHANCEMENT: Added a red color for urgent */
-  --paid:#4ade80;
-  --radius:14px;
+  color-scheme:dark;
+  --bg:#020617;
+  --panel:#020617;
+  --border:rgba(148,163,184,.35);
+  --text:#e5e7eb;
+  --muted:#9ca3af;
+  --soft:#6b7280;
+  --accent:#38bdf8;
+  --shadow:0 18px 60px rgba(15,23,42,.55);
 }
+
 *{box-sizing:border-box}
 body{
-  margin:0;padding:24px;
-  font-family:Inter,system-ui,sans-serif;
-  background:radial-gradient(circle at top left,#020617,#020617);
-  color:var(--text)
+  margin:0;
+  padding:32px 16px;
+  background:var(--bg);
+  font-family:Inter,system-ui,-apple-system,Segoe UI,sans-serif;
+  color:var(--text);
 }
-.shell{max-width:1400px;margin:auto}
+.shell{max-width:1300px;margin:auto}
 
-/* ---------- HEADER ---------- */
-h1{margin:0;font-size:26px;font-weight:600}
-.sub{color:var(--muted);font-size:13px;margin-top:4px}
+/* =========================
+   HEADER / FILTERS
+========================= */
+header h1{margin:0;font-size:26px;font-weight:600}
+header p{margin:2px 0 0;font-size:13px;color:var(--soft)}
 
-/* ---------- KPIs ---------- */
+.filters{
+  margin-top:20px;
+  display:grid;
+  grid-template-columns:1fr repeat(4,200px);
+  gap:10px;
+}
+input{
+  background:#020617;
+  border:1px solid var(--border);
+  border-radius:999px;
+  padding:10px 14px;
+  font-size:13px;
+  color:var(--text);
+}
+
+/* =========================
+   KPIs
+========================= */
 .kpis{
-  display:grid;
-  /* ENHANCEMENT: Adjusted grid for more KPIs */
-  grid-template-columns:repeat(5,1fr); 
-  gap:12px;
-  margin:18px 0
+  margin-top:18px;
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:12px;
 }
 .kpi{
-  background:var(--panel);
-  border:1px solid var(--border);
-  border-radius:var(--radius);
-  padding:14px;
-  /* ENHANCEMENT: Add visual flair on hover */
-  transition:border-color 0.2s;
+  border:1px solid rgba(15,23,42,.9);
+  border-radius:16px;
+  padding:12px;
+  box-shadow:var(--shadow);
 }
-.kpi:hover {border-color:var(--accent);}
-.kpi .label{
-  font-size:11px;
-  letter-spacing:.12em;
-  text-transform:uppercase;
-  color:var(--muted)
+.kpi label{
+  font-size:11px;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--soft);
 }
-.kpi .value{
-  font-size:22px;
-  font-weight:600;
-  margin-top:6px
-}
-/* ENHANCEMENT: KPI Age breakdown styling */
-.kpi-age-breakdown {
-  font-size: 10px;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px dashed rgba(148,163,184,.15);
-}
-.age-item {
-  display: flex;
-  justify-content: space-between;
-  color: var(--muted);
-}
-.age-item.critical {color: var(--red);}
+.kpi strong{font-size:20px;font-weight:600}
 
-
-/* ---------- FILTERS & SEARCH (ENHANCEMENT: Combined Section) ---------- */
-.controls{
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom:18px;
-  gap: 12px;
-}
-.filters, .quick-filters {
-  display:flex;
-  gap:8px;
-  flex-wrap: wrap; /* Allow wrapping on small screens */
-}
-.filter{
-  padding:6px 12px;
-  border-radius:999px;
-  border:1px solid var(--border);
-  cursor:pointer;
-  font-size:12px;
-  color:var(--muted);
-  transition:all 0.15s;
-}
-.filter:hover {border-color:var(--text);}
-.filter.active{
-  border-color:var(--accent);
-  color:var(--accent);
-  background:rgba(56,189,248,.1); /* Light background for active */
-}
-.filter-dropdown select { /* ENHANCEMENT: Vendor Dropdown Styling */
-  background: var(--panel);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 6px 12px;
-  font-size: 12px;
-  cursor: pointer;
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  appearance: none;
-  padding-right: 25px;
-}
-.filter-dropdown {
-  position: relative;
-}
-.filter-dropdown::after {
-  content: "\25BE"; /* Down arrow */
-  position: absolute;
-  top: 50%;
-  right: 10px;
-  transform: translateY(-50%);
-  pointer-events: none;
-  color: var(--muted);
+.aging{
+  margin-top:12px;
+  display:grid;
+  grid-template-columns:repeat(4,1fr);
+  gap:12px;
 }
 
-/* ENHANCEMENT: Search Bar Styling */
-.search-bar {
-  flex-grow: 1; /* Allows it to take up available space */
-  max-width: 300px;
+/* =========================
+   LANES
+========================= */
+.lanes{
+  margin-top:24px;
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:14px;
 }
-.search-bar input {
-  width: 100%;
-  padding: 8px 12px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: var(--panel);
-  color: var(--text);
-  font-size: 14px;
-  outline: none;
-  transition: border-color 0.2s;
+.lane{
+  border:1px solid rgba(15,23,42,.9);
+  border-radius:20px;
+  padding:10px;
+  box-shadow:var(--shadow);
 }
-.search-bar input:focus {
-  border-color: var(--accent);
+.lane header{
+  display:flex;
+  justify-content:space-between;
+  margin-bottom:6px;
+}
+.lane header span{
+  font-size:13px;
+  letter-spacing:.1em;
+  text-transform:uppercase;
+  color:var(--muted);
+}
+.lane body{
+  max-height:65vh;
+  overflow:auto;
 }
 
-
-/* ---------- LAYOUT & COLUMNS ---------- */
-.columns{
-  display:grid;
-  grid-template-columns:2.2fr 1.3fr 1.3fr;
-  gap:16px
-}
-.column{
-  background:var(--panel);
-  border:1px solid var(--border);
-  border-radius:var(--radius);
-  padding:10px;
-  max-height:calc(100vh - 260px);
-  overflow:auto;
-  /* ENHANCEMENT: Scrollbar styling */
-  scrollbar-width: thin;
-  scrollbar-color: rgba(148,163,184,.35) var(--panel);
-}
-.column::-webkit-scrollbar {width: 6px;}
-.column::-webkit-scrollbar-thumb {background-color: rgba(148,163,184,.35); border-radius: 3px;}
-.column h3{
-  margin:6px;
-  font-size:13px;
-  letter-spacing:.1em;
-  text-transform:uppercase;
-  color:var(--muted);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-/* ENHANCEMENT: Sorting Controls */
-.sort-controls button {
-  background: none;
-  border: none;
-  color: var(--muted);
-  cursor: pointer;
-  font-size: 11px;
-  margin-left: 10px;
-  transition: color 0.15s;
-}
-.sort-controls button:hover {color: var(--text);}
-.sort-controls button.active {color: var(--accent);}
-
-
-/* ---------- CARD & DETAILS ---------- */
+/* =========================
+   CARDS
+========================= */
 .card{
-  border:1px solid rgba(148,163,184,.25);
-  border-radius:12px;
-  padding:10px;
-  margin-bottom:8px;
-  background:linear-gradient(180deg,rgba(15,23,42,.6),#020617);
-  position: relative; /* For the age bar */
+  border:1px solid rgba(31,41,55,.9);
+  border-radius:12px;
+  padding:8px;
+  margin-bottom:8px;
+  font-size:11px;
 }
-.card-header{
-  display:grid;
-  grid-template-columns:100px 1fr 100px 90px; /* Simplified/Adjusted grid */
-  gap:10px;
-  align-items:center;
-  font-size:12px;
-  padding-bottom: 4px;
+.card-top{
+  display:flex;
+  justify-content:space-between;
 }
-.vendor{font-weight:500}
-.amount{font-weight:600}
-.badge{
-  padding:2px 8px;
-  border-radius:999px;
-  font-size:10px;
-  text-align:center;
-  text-transform:uppercase
+.card-title{font-weight:600}
+.card-sub{color:var(--soft)}
+.pill{
+  border:1px solid var(--border);
+  border-radius:999px;
+  padding:2px 8px;
+  font-size:10px;
+  margin-left:4px;
 }
-.b-new{background:rgba(34,197,94,.15);color:#4ade80}
-.b-hold{background:rgba(250,204,21,.15);color:#fde047}
-.b-paid{background:rgba(74,222,128,.15);color:#86efac}
-
-.actions a, .actions button{
-  font-size:11px;
-  color:var(--accent);
-  text-decoration:none;
-  margin-right:8px;
-  background:none;
-  border:none;
-  cursor:pointer;
-  transition:color 0.15s;
+.actions{
+  margin-top:6px;
+  display:flex;
+  gap:6px;
 }
-.actions a:hover, .actions button:hover {color: var(--text);}
-
-.details{
-  margin-top:8px;
-  padding-top:8px;
-  border-top:1px dashed rgba(148,163,184,.25);
-  font-size:11px;
-  color:var(--muted);
-  display:grid; /* ENHANCEMENT: Grid layout for details */
-  grid-template-columns: repeat(2, 1fr);
-  gap: 4px 10px;
-  display:none
+button,a{
+  border:1px solid var(--border);
+  background:#020617;
+  color:var(--text);
+  border-radius:999px;
+  padding:4px 10px;
+  font-size:10px;
+  cursor:pointer;
+  text-decoration:none;
 }
-.details.open{display:grid}
-
-/* ENHANCEMENT: Aging Progress Bar */
-.age-bar {
-  height: 2px;
-  background-color: rgba(148,163,184,.25);
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  border-top-left-radius: 12px;
-  border-top-right-radius: 12px;
-}
-.age-progress {
-  height: 100%;
-  width: 0%;
-  transition: width 0.5s ease-out;
-}
-.age-bar.g0-7 .age-progress {background-color: var(--green);}
-.age-bar.g8-30 .age-progress {background-color: var(--accent);}
-.age-bar.g31-60 .age-progress {background-color: var(--yellow);}
-.age-bar.g60-plus .age-progress {background-color: var(--red);}
-
-
-/* ---------- GROUPED VENDOR (HOLD / PAID) ---------- */
-.vendor-group{
-  border:1px solid rgba(148,163,184,.25);
-  border-radius:12px;
-  margin-bottom:8px;
-  overflow:hidden
-}
-.vendor-header{
-  padding:8px 10px;
-  display:flex;
-  justify-content:space-between;
-  cursor:pointer;
-  background:rgba(15,23,42,.6);
-  transition:background 0.15s;
-}
-.vendor-header:hover {background:rgba(15,23,42,.9);}
-.vendor-header span{
-  font-size:12px
-}
-.vendor-body{
-  display:none;
-  padding:8px
-}
-.vendor-body.open{display:block}
-.vendor-body .card {
-  border:none;
-  background: none;
-  padding: 6px 0;
-  border-bottom: 1px dashed rgba(148,163,184,.15);
-}
-.vendor-body .card:last-child {border-bottom: none;}
-.vendor-body .card-header {
-  grid-template-columns: 80px 1fr 90px 70px; /* Tighter layout for nested cards */
-  padding-bottom: 0;
-}
-.vendor-body .actions {margin-top: 4px;}
-
-/* ---------- RESPONSIVE ---------- */
-@media(max-width:1100px){
-  .columns{grid-template-columns:1fr}
-  /* ENHANCEMENT: Adjusted grid for smaller screen */
-  .kpis{grid-template-columns:repeat(3,1fr)}
-  .card-header{grid-template-columns:1fr 1fr}
-  .controls {flex-direction: column; align-items: stretch;}
-  .search-bar {max-width: 100%;}
-  .filters {justify-content: space-around;}
-}
-@media(max-width:600px){
-  .kpis{grid-template-columns:repeat(2,1fr)}
-}
+.details{display:none;margin-top:6px;border-top:1px dashed rgba(31,41,55,.9);padding-top:4px}
+.details div{margin-bottom:2px;color:var(--soft)}
+.empty{font-size:11px;color:var(--soft);padding:8px}
 </style>
 </head>
 
 <body>
 <div class="shell">
-  <h1>AP Requests — Live Dashboard</h1>
-  <div class="sub">Auto-pulled from Google Sheets · WPV Accounting</div>
+<header>
+  <h1>AP Requests — Live Dashboard</h1>
+  <p>Auto-pulled from Google Sheets · WPV Accounting</p>
+</header>
 
-  <div class="kpis">
-    <div class="kpi"><div class="label">Total Requests</div><div class="value" id="kpiTotal">—</div></div>
-    <div class="kpi"><div class="label">Open Pay Queue</div><div class="value" id="kpiOpen">—</div></div>
-    <div class="kpi"><div class="label">On Hold</div><div class="value" id="kpiHold">—</div></div>
-        <div class="kpi" id="kpiOutstandingContainer">
-      <div class="label">Outstanding Total</div>
-      <div class="value" id="kpiOutstanding">$0</div>
-    </div>
-        <div class="kpi">
-      <div class="label">Total Paid YTD</div>
-      <div class="value" id="kpiPaidTotal">$0</div>
-    </div>
-  </div>
+<div class="filters">
+  <input id="search" placeholder="Search vendor, invoice, notes, email, amount">
+  <input id="from" type="date">
+  <input id="to" type="date">
+  <input id="min" type="number" placeholder="Min $">
+  <input id="max" type="number" placeholder="Max $">
+</div>
 
-    <div class="controls">
-    <div class="filters">
-            <div class="filter-dropdown">
-        <select id="status-filter">
-          <option value="All">All Statuses</option>
-          <option value="new">New / Pay Queue</option>
-          <option value="hold">On Hold</option>
-          <option value="paid">Paid / Submitted</option>
-        </select>
-      </div>
-            <div class="filter-dropdown">
-        <select id="vendor-filter">
-          <option value="All">All Vendors</option>
-        </select>
-      </div>
-    </div>
+<div class="kpis">
+  <div class="kpi"><label>Total</label><strong id="kTotal">—</strong></div>
+  <div class="kpi"><label>Open</label><strong id="kOpen">—</strong></div>
+  <div class="kpi"><label>Hold</label><strong id="kHold">—</strong></div>
+  <div class="kpi"><label>Outstanding</label><strong id="kOut">$0.00</strong></div>
+</div>
 
-        <div class="quick-filters" id="age-filters">
-      <div class="filter active" data-age="all">All Age</div>
-      <div class="filter" data-age="0-7">0–7</div>
-      <div class="filter" data-age="8-30">8–30</div>
-      <div class="filter" data-age="31-60">31–60</div>
-      <div class="filter" data-age="60+">60+</div>
-    </div>
+<div class="aging">
+  <div class="kpi"><label>0–30</label><strong id="a30">$0</strong></div>
+  <div class="kpi"><label>31–60</label><strong id="a60">$0</strong></div>
+  <div class="kpi"><label>61–90</label><strong id="a90">$0</strong></div>
+  <div class="kpi"><label>90+</label><strong id="a90p">$0</strong></div>
+</div>
 
-        <div class="search-bar">
-      <input type="text" id="search-input" placeholder="Search Invoice, Vendor, PO...">
-    </div>
-  </div>
-
-  <div class="columns">
-    <div class="column">
-      <h3>
-        Pay Queue
-                <span class="sort-controls">
-          <button data-sort="due" class="active"><i class="fas fa-calendar-alt"></i> Due</button>
-          <button data-sort="amount"><i class="fas fa-dollar-sign"></i> Amount</button>
-        </span>
-      </h3>
-      <div id="queue"></div>
-    </div>
-
-    <div class="column">
-      <h3>On Hold (by Vendor)</h3>
-      <div id="hold"></div>
-    </div>
-
-    <div class="column">
-      <h3>Paid / Submitted (by Vendor)</h3>
-      <div id="paid"></div>
-    </div>
-  </div>
-
-  <div class="sub" style="text-align:center;margin-top:14px">
-    FinanceHub · Powered by WPV Accounting
-  </div>
+<div class="lanes">
+  <section class="lane"><header><span>New</span><span id="cNew">0</span></header><body id="lNew"></body></section>
+  <section class="lane"><header><span>Hold</span><span id="cHold">0</span></header><body id="lHold"></body></section>
+  <section class="lane"><header><span>Paid</span><span id="cPaid">0</span></header><body id="lPaid"></body></section>
+</div>
 </div>
 
 <script>
-/* ---------- DATA + LOGIC ---------- */
 const SHEET_ID="1lXM1Bu8ZRks7wDK34Bz3O_zgWcwdFU8USjuHBdbDhV8";
-const URL=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json`;
-let records=[], ageFilter="all", statusFilter="All", vendorFilter="All", searchTerm="", sortKey="due";
+const GID="0";
+const URL=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${GID}`;
 
-const parseDate=v=>{
-  if(!v)return null;
-  // Assuming input is "MM-DD-YYYY" or similar. Adjust if necessary.
-  const p=v.split(/[-\/]/); 
-  return new Date(p[2],p[0]-1,p[1]);
-};
-const fmt=n=>n.toLocaleString("en-US",{style:"currency",currency:"USD"});
-const bucket=(d)=>{
-  if (!d) return "60+";
-  const today = new Date();
-  today.setHours(0,0,0,0);
-  const diff = (d.getTime() - today.getTime()) / 86400000;
-  if(diff>=0 && diff<=7)return"0-7";
-  if(diff>7 && diff<=30)return"8-30";
-  if(diff>30 && diff<=60)return"31-60";
-  return"60+";
-};
+let rows=[],filtered=[];
 
-// ENHANCEMENT: Fetch Data and Prepare Records
+const $=id=>document.getElementById(id);
+const money=n=>Number(n||0).toLocaleString("en-US",{style:"currency",currency:"USD"});
+const parse=v=>v&&v.startsWith("Date(")?new Date(...v.replace("Date(","").replace(")","").split(",")):v?new Date(v):null;
+
 fetch(URL).then(r=>r.text()).then(t=>{
-  const j=JSON.parse(t.substring(47,t.length-2));
-  records=j.table.rows.map(r=>{
-    const c=i=>r.c[i]?.v||"";
-    const completed=c(14).toLowerCase();
-    let status="new";
-    if(completed==="hold")status="hold";
-    if(completed==="paid"||completed.includes("submitted"))status="paid";
-    return{
-      vendor:c(1)||c(2)||"—",
-      invoice:c(4),
-      amount:+c(7)||0,
-      due:c(8),
-      dueObj:parseDate(c(8)),
-      file:c(9),
-      edit:c(20),
-      notes:c(12),
-      email:c(10),
-      po:c(6),
-      flex:c(5),
-      payment:c(16),
-      status,
-      // ENHANCEMENT: Add searchable string for easy filtering
-      searchString: `${c(1)} ${c(2)} ${c(4)} ${c(6)} ${c(5)} ${c(12)}`.toLowerCase()
-    }
-  });
-  
-  // ENHANCEMENT: Populate Vendor Filter
-  const vendors = [...new Set(records.map(r => r.vendor))].sort();
-  const vendorSelect = document.getElementById('vendor-filter');
-  vendors.forEach(vendor => {
-    if (vendor && vendor !== "—") {
-      const option = document.createElement('option');
-      option.value = vendor;
-      option.textContent = vendor;
-      vendorSelect.appendChild(option);
-    }
-  });
-  
-  render();
+  const j=JSON.parse(t.substring(47,t.length-2));
+  rows=j.table.rows.map(r=>{
+    const c=r.c||[],v=i=>c[i]?.v??"";
+    const status=(v(14)+"").toLowerCase();
+    return{
+      submitted:parse(v(0)),
+      vendor:(v(1)||v(2)||"—"),
+      invoice:v(4)||"(No invoice)",
+      amount:Number(v(7))||0,
+      due:parse(v(8)),
+      file:v(9),view:v(19),edit:v(20),
+      notes:v(12),email:v(10),location:v(11),
+      flex:v(5),po:v(6),completed:v(14),pay:v(16),
+      ip:v(18),sid:v(22),page:v(17),
+      status:status==="hold"?"hold":status.includes("paid")?"paid":"new"
+    };
+  });
+  filtered=[...rows];
+  render();
 });
 
-/* ---------- RENDER FUNCTION (UPDATED) ---------- */
+["search","from","to","min","max"].forEach(id=>$(id).oninput=filter);
+
+function filter(){
+  const q=$("search").value.toLowerCase();
+  const f=$("from").value?new Date($("from").value):null;
+  const t=$("to").value?new Date($("to").value):null;
+  const min=+$("min").value||0,max=+$("max").value||Infinity;
+
+  filtered=rows.filter(r=>{
+    if(q&&!JSON.stringify(r).toLowerCase().includes(q))return false;
+    if(f&&r.submitted&&r.submitted<f)return false;
+    if(t&&r.submitted&&r.submitted>t)return false;
+    if(r.amount<min||r.amount>max)return false;
+    return true;
+  });
+  render();
+}
+
 function render(){
-  // 1. Apply primary filters
-  let filteredRecords = records.filter(r => {
-    const statusMatch = statusFilter === "All" || r.status === statusFilter;
-    const vendorMatch = vendorFilter === "All" || r.vendor === vendorFilter;
-    const searchMatch = searchTerm === "" || r.searchString.includes(searchTerm);
-    return statusMatch && vendorMatch && searchMatch;
-  });
+  const open=filtered.filter(r=>r.status==="new");
+  const hold=filtered.filter(r=>r.status==="hold");
+  const paid=filtered.filter(r=>r.status==="paid");
 
-  // 2. Separate into status groups
-  const open = filteredRecords.filter(r=>r.status==="new");
-  const hold = filteredRecords.filter(r=>r.status==="hold");
-  const paid = filteredRecords.filter(r=>r.status==="paid");
+  $("kTotal").textContent=filtered.length;
+  $("kOpen").textContent=open.length;
+  $("kHold").textContent=hold.length;
+  $("kOut").textContent=money([...open,...hold].reduce((s,r)=>s+r.amount,0));
 
-  // 3. Calculate KPIs
-  const outstanding = [...open, ...hold];
-  const outstandingAmount = outstanding.reduce((s,r)=>s+r.amount,0);
-  const paidAmount = records.filter(r=>r.status==="paid").reduce((s,r)=>s+r.amount,0); // Use ALL paid records for YTD
+  let a30=0,a60=0,a90=0,a90p=0;
+  const now=new Date();
+  [...open,...hold].forEach(r=>{
+    if(!r.due)return;
+    const d=Math.floor((now-r.due)/86400000);
+    if(d<=30)a30+=r.amount;
+    else if(d<=60)a60+=r.amount;
+    else if(d<=90)a90+=r.amount;
+    else a90p+=r.amount;
+  });
+  $("a30").textContent=money(a30);
+  $("a60").textContent=money(a60);
+  $("a90").textContent=money(a90);
+  $("a90p").textContent=money(a90p);
 
-  // 4. Outstanding Age Breakdown
-  const ageTotals = outstanding.reduce((acc, r) => {
-    const age = bucket(r.dueObj);
-    acc[age] = (acc[age] || 0) + r.amount;
-    return acc;
-  }, {});
-  
-  const breakdownEl = document.createElement('div');
-  breakdownEl.className = 'kpi-age-breakdown';
-  breakdownEl.innerHTML = `
-    <div class="age-item ${ageTotals['60+'] > 0 ? 'critical' : ''}"> > 60 Days: <span>${fmt(ageTotals['60+'] || 0)}</span></div>
-    <div class="age-item"> 31-60 Days: <span>${fmt(ageTotals['31-60'] || 0)}</span></div>
-    <div class="age-item"> 8-30 Days: <span>${fmt(ageTotals['8-30'] || 0)}</span></div>
-    <div class="age-item"> 0-7 Days: <span>${fmt(ageTotals['0-7'] || 0)}</span></div>
-  `;
-
-  // 5. Update KPI elements
-  document.getElementById("kpiTotal").textContent=records.length;
-  document.getElementById("kpiOpen").textContent=open.length;
-  document.getElementById("kpiHold").textContent=hold.length;
-  document.getElementById("kpiOutstanding").textContent=fmt(outstandingAmount);
-  
-  const outstandingContainer = document.getElementById("kpiOutstandingContainer");
-  while (outstandingContainer.children.length > 2) {
-    outstandingContainer.removeChild(outstandingContainer.lastChild);
-  }
-  outstandingContainer.appendChild(breakdownEl); // Add breakdown to outstanding KPI
-
-  document.getElementById("kpiPaidTotal").textContent=fmt(paidAmount);
-  
-  // 6. Draw columns (Pay Queue must respect ageFilter)
-  drawQueue(open);
-  drawGrouped(hold,"hold");
-  drawGrouped(paid,"paid");
+  renderLane("lNew",open.sort((a,b)=>a.submitted-b.submitted));
+  renderLane("lHold",hold);
+  renderLane("lPaid",paid);
 }
 
-/* ---------- PAY QUEUE (UPDATED) ---------- */
-function drawQueue(list){
-  const el=document.getElementById("queue");
-  el.innerHTML="";
-  
-  // ENHANCEMENT: Sorting logic
-  list.sort((a,b)=>{
-    if(sortKey==="amount")return b.amount-a.amount;
-    return a.dueObj-b.dueObj; // Sort by due date (default)
-  });
-
-  // Use the same age buckets as before
-  ["0-7","8-30","31-60","60+"].forEach(b=>{
-    if(ageFilter!=="all"&&ageFilter!==b)return;
-    
-    const rows=list.filter(r=>bucket(r.dueObj)===b);
-    if(!rows.length)return;
-    
-    el.innerHTML+=`<div class="sub" style="margin-top:10px">${b} days (${fmt(rows.reduce((s,r)=>s+r.amount,0))})</div>`;
-
-    rows.forEach(r=>{
-      // ENHANCEMENT: Calculate progress for age bar (0-100% of the 30-day window for simplicity)
-      let progress = 0;
-      if (r.dueObj) {
-        const diff = (new Date().getTime() - r.dueObj.getTime()) / 86400000;
-        // Basic progress calculation (e.g., how far past due or how close to 30 days)
-        if (diff > 0) { // Past due
-          progress = Math.min(100, (diff / 60) * 100); 
-        } else { // Not due yet
-          progress = Math.min(100, 100 - (Math.abs(diff) / 30) * 100);
-        }
-      }
-
-      const ageClass = `g${b.replace(/–|-/g, '_').replace(/\+/g, 'plus')}`;
-      const card=document.createElement("div");
-      card.className="card";
-      card.innerHTML=`
-        <div class="age-bar ${ageClass}"><div class="age-progress" style="width:${progress}%"></div></div>
-        <div class="card-header">
-          <div><i class="fas fa-calendar-alt"></i> ${r.due||"—"}</div>
-          <div class="vendor">${r.vendor}</div>
-          <div>#${r.invoice||"—"}</div>
-          <div class="amount">${fmt(r.amount)}</div>
-        </div>
-        <div class="actions">
-          ${r.file?`<a href="${r.file}" target="_blank"><i class="fas fa-file-invoice"></i> File</a>`:""}
-          ${r.edit?`<a href="${r.edit}" target="_blank"><i class="fas fa-edit"></i> Edit</a>`:""}
-          <button><i class="fas fa-info-circle"></i> Details</button>
-        </div>
-        <div class="details">
-          <div>**PO:** ${r.po||"—"}</div>
-          <div>**Flex ID:** ${r.flex||"—"}</div>
-          <div style="grid-column: 1 / -1;">**Notes:** ${r.notes||"—"}</div>
-          <div>**Email Contact:** ${r.email||"—"}</div>
-          <div>**Payment Method:** ${r.payment||"—"}</div>
-        </div>`;
-      card.querySelector("button").onclick=()=>card.querySelector(".details").classList.toggle("open");
-      el.appendChild(card);
-    });
-  });
+function renderLane(id,list){
+  const el=$(id);el.innerHTML="";
+  if(!list.length){el.innerHTML='<div class="empty">No requests.</div>';return;}
+  list.forEach(r=>{
+    const c=document.createElement("div");
+    c.className="card";
+    c.innerHTML=`
+      <div class="card-top">
+        <div>
+          <div class="card-title">${r.invoice}</div>
+          <div class="card-sub">${r.vendor} • ${money(r.amount)}</div>
+        </div>
+        <div class="pill">${r.status.toUpperCase()}</div>
+      </div>
+      <div class="actions">
+        ${r.file?`<a href="${r.file}" target="_blank">Open File</a>`:""}
+        ${r.view?`<a href="${r.view}" target="_blank">View</a>`:""}
+        ${r.edit?`<a href="${r.edit}" target="_blank">Edit</a>`:""}
+        <button>Details</button>
+      </div>
+      <div class="details">
+        <div>Notes: ${r.notes||"—"}</div>
+        <div>Email: ${r.email||"—"}</div>
+        <div>Location: ${r.location||"—"}</div>
+        <div>Flex ID: ${r.flex||"—"}</div>
+        <div>Internal PO: ${r.po||"—"}</div>
+        <div>Completed: ${r.completed||"—"}</div>
+        <div>Payment Detail: ${r.pay||"—"}</div>
+        <div>Submission IP: ${r.ip||"—"}</div>
+        <div>Submission ID: ${r.sid||"—"}</div>
+        <div>Page URL: ${r.page||"—"}</div>
+      </div>`;
+    const btn=c.querySelector("button");
+    const det=c.querySelector(".details");
+    btn.onclick=()=>det.style.display=det.style.display==="block"?"none":"block";
+    el.appendChild(c);
+  });
 }
-
-/* ---------- GROUPED HOLD / PAID (UPDATED) ---------- */
-function drawGrouped(list,id){
-  const el=document.getElementById(id);
-  el.innerHTML="";
-  const groups={};
-  list.forEach(r=>{
-    if(!groups[r.vendor])groups[r.vendor]=[];
-    groups[r.vendor].push(r);
-  });
-  
-  // ENHANCEMENT: Sort groups by total amount (desc)
-  const sortedGroups = Object.entries(groups).sort(([, itemsA], [, itemsB]) => {
-    const totalA = itemsA.reduce((s,r)=>s+r.amount,0);
-    const totalB = itemsB.reduce((s,r)=>s+r.amount,0);
-    return totalB - totalA;
-  });
-
-  sortedGroups.forEach(([vendor,items])=>{
-    const total=items.reduce((s,r)=>s+r.amount,0);
-    const g=document.createElement("div");
-    g.className="vendor-group";
-    g.innerHTML=`
-      <div class="vendor-header">
-        <span>**${vendor}** · ${items.length} items</span>
-        <span>${fmt(total)}</span>
-      </div>
-      <div class="vendor-body">
-        ${items.map(r=>`
-          <div class="card">
-            <div class="card-header">
-              <div>${r.due||"—"}</div>
-              <div>${r.invoice||"—"}</div>
-              <div class="amount">${fmt(r.amount)}</div>
-              <div class="badge ${id==="hold"?"b-hold":"b-paid"}">${id}</div>
-            </div>
-            <div class="actions">
-              ${r.file?`<a href="${r.file}" target="_blank"><i class="fas fa-file-invoice"></i> File</a>`:""}
-              ${r.edit?`<a href="${r.edit}" target="_blank"><i class="fas fa-edit"></i> Edit</a>`:""}
-            </div>
-          </div>
-        `).join("")}
-      </div>`;
-    g.querySelector(".vendor-header").onclick=()=>{
-      g.querySelector(".vendor-body").classList.toggle("open");
-    };
-    el.appendChild(g);
-  });
-}
-
-/* ---------- EVENT LISTENERS (UPDATED) ---------- */
-
-// Age Filters
-document.getElementById("age-filters").querySelectorAll(".filter").forEach(f=>{
-  f.onclick=()=>{
-    document.getElementById("age-filters").querySelectorAll(".filter").forEach(x=>x.classList.remove("active"));
-    f.classList.add("active");
-    ageFilter=f.dataset.age;
-    render();
-  }
-});
-
-// Status Filter (Dropdown)
-document.getElementById("status-filter").onchange=function(){
-  statusFilter=this.value;
-  // ENHANCEMENT: Reset age filter if we switch away from "new" status
-  if (statusFilter !== "new" && statusFilter !== "All") {
-    ageFilter = "all";
-    document.getElementById("age-filters").querySelectorAll(".filter").forEach(x=>x.classList.remove("active"));
-    document.querySelector(".filter[data-age='all']").classList.add("active");
-  }
-  render();
-}
-
-// Vendor Filter (Dropdown)
-document.getElementById("vendor-filter").onchange=function(){
-  vendorFilter=this.value;
-  render();
-}
-
-// Search Input
-document.getElementById("search-input").oninput=function(){
-  searchTerm=this.value.toLowerCase();
-  render();
-}
-
-// Sort Controls
-document.querySelectorAll(".sort-controls button").forEach(b=>{
-  b.onclick=function(){
-    document.querySelectorAll(".sort-controls button").forEach(x=>x.classList.remove("active"));
-    this.classList.add("active");
-    sortKey=this.dataset.sort;
-    render();
-  }
-});
 </script>
 </body>
 </html>
