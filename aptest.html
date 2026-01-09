@@ -2,1051 +2,809 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>AP Requests — Live Dashboard</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <title>Baseballism — Employee Hub</title>
+
+  <!-- Optional font (safe if blocked; clean fallback) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
   <style>
-    :root {
-      color-scheme: dark;
-      --bg: #020617;
-      --bg-elevated: #020617;
-      --panel: #020617;
-      --card: #020617;
-      --card-soft: #020617;
-      --border-subtle: rgba(148, 163, 184, 0.35);
-      --border-strong: rgba(148, 163, 184, 0.6);
-      --text-main: #e5e7eb;
-      --text-muted: #9ca3af;
-      --text-soft: #6b7280;
-      --accent: #38bdf8;
-      --accent-soft: rgba(56, 189, 248, 0.14);
-      --accent-strong: #0ea5e9;
-      --new-pill: #22c55e;
-      --hold-pill: #facc15;
-      --paid-pill: #4ade80;
-      --danger: #fb7185;
-      --shadow-soft: 0 18px 60px rgba(15, 23, 42, 0.55);
-      --radius-card: 20px;
-      --radius-inner: 14px;
-    }
-
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      margin: 0;
-      padding: 32px 16px 40px;
-      background: radial-gradient(circle at top left, #020617 0, #020617 38%, #020617 100%);
-      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-      color: var(--text-main);
-    }
-
-    .shell {
-      max-width: 1200px;
-      margin: 0 auto;
-    }
-
-    header {
-      margin-bottom: 24px;
-    }
-
-    header h1 {
-      font-size: 26px;
-      font-weight: 600;
-      letter-spacing: 0.02em;
-      margin: 0 0 4px;
-    }
-
-    header p {
-      margin: 0;
-      font-size: 13px;
-      color: var(--text-soft);
-    }
-
-    .top-row {
-      margin-top: 20px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .search-wrap {
-      flex: 1 1 260px;
-      position: relative;
-    }
-
-    .search-input {
-      width: 100%;
-      background: #020617;
-      border-radius: 999px;
-      border: 1px solid var(--border-subtle);
-      padding: 10px 14px 10px 34px;
-      font-size: 13px;
-      color: var(--text-main);
-      outline: none;
-      box-shadow: 0 0 0 1px transparent;
-      transition: border-color 0.14s ease, box-shadow 0.14s ease, background 0.14s ease;
-    }
-
-    .search-input::placeholder {
-      color: #4b5563;
-    }
-
-    .search-input:focus {
-      border-color: var(--accent);
-      background: #020617;
-      box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.25);
-    }
-
-    .search-icon {
-      position: absolute;
-      left: 11px;
-      top: 50%;
-      transform: translateY(-50%);
-      width: 14px;
-      height: 14px;
-      border-radius: 50%;
-      border: 2px solid #64748b;
-    }
-    .search-icon::after {
-      content: "";
-      position: absolute;
-      right: -4px;
-      bottom: -3px;
-      width: 7px;
-      height: 2px;
-      border-radius: 999px;
-      background: #64748b;
-      transform: rotate(45deg);
-    }
-
-    .kpi-row {
-      margin-top: 16px;
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 12px;
-    }
-
-    .kpi-card {
-      background: #020617;
-      border-radius: 16px;
-      border: 1px solid rgba(15, 23, 42, 0.9);
-      padding: 10px 12px;
-      box-shadow: var(--shadow-soft);
-      min-height: 70px;
-      display: flex;
-      flex-direction: column;
-      justify-content: space-between;
-    }
-
-    .kpi-label {
-      font-size: 11px;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: var(--text-soft);
-      margin-bottom: 6px;
-    }
-
-    .kpi-value {
-      font-size: 20px;
-      font-weight: 600;
-      letter-spacing: 0.01em;
-    }
-
-    .kpi-sub {
-      font-size: 11px;
-      color: var(--text-muted);
-      margin-top: 2px;
-    }
-
-    .lanes-row {
-      margin-top: 24px;
-      display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      gap: 14px;
-      align-items: flex-start;
-    }
-
-    .lane {
-      background: #020617;
-      border-radius: var(--radius-card);
-      border: 1px solid rgba(15, 23, 42, 0.9);
-      padding: 10px 10px 12px;
-      box-shadow: var(--shadow-soft);
-      display: flex;
-      flex-direction: column;
-      max-height: calc(100vh - 210px);
-    }
-
-    .lane-header {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 8px;
-      padding: 2px 4px 8px;
-      border-bottom: 1px solid rgba(15, 23, 42, 0.9);
-      margin-bottom: 6px;
-    }
-
-    .lane-title {
-      font-size: 13px;
-      font-weight: 600;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--text-muted);
-    }
-
-    .lane-meta {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 11px;
-      color: var(--text-soft);
-    }
-
-    .lane-count-pill {
-      padding: 2px 7px;
-      border-radius: 999px;
-      background: #020617;
-      border: 1px solid rgba(148, 163, 184, 0.6);
-      font-size: 11px;
-      font-weight: 500;
-      color: var(--text-muted);
-    }
-
-    .lane-total {
-      font-size: 11px;
-      color: var(--text-soft);
-    }
-
-    .lane-body {
-      margin-top: 4px;
-      overflow-y: auto;
-      padding-right: 4px;
-    }
-
-    .vendor-group {
-      margin-bottom: 10px;
-      background: #020617;
-      border-radius: 14px;
-      border: 1px solid rgba(15, 23, 42, 0.9);
-      overflow: hidden;
-    }
-
-    .vendor-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 7px 9px;
-      cursor: pointer;
-      background: radial-gradient(circle at top left, rgba(15,23,42,0.95) 0, #020617 40%, #020617 100%);
-    }
-
-    .vendor-main {
-      display: flex;
-      flex-direction: column;
-      gap: 2px;
-    }
-
-    .vendor-name {
-      font-size: 12px;
-      font-weight: 500;
-    }
-
-    .vendor-sub {
-      font-size: 11px;
-      color: var(--text-soft);
-    }
-
-    .vendor-meta {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      font-size: 11px;
-      color: var(--text-soft);
-    }
-
-    .tiny-pill {
-      padding: 2px 6px;
-      border-radius: 999px;
-      border: 1px solid rgba(148, 163, 184, 0.7);
-      background: #020617;
-      font-size: 10px;
-    }
-
-    .chevron {
-      width: 16px;
-      height: 16px;
-      border-radius: 999px;
-      border: 1px solid rgba(148, 163, 184, 0.6);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 10px;
-      color: var(--text-soft);
-      flex-shrink: 0;
-      transition: transform 0.18s ease, background 0.18s ease;
-    }
-
-    .vendor-header.open .chevron {
-      transform: rotate(90deg);
-      background: rgba(15, 23, 42, 0.8);
-    }
-
-    .vendor-list {
-      padding: 6px 9px 8px;
-      display: none;
-      background: #020617;
-    }
-
-    .vendor-list.open {
-      display: block;
-    }
-
-    .card {
-      border-radius: 10px;
-      border: 1px solid rgba(31, 41, 55, 0.9);
-      background: radial-gradient(circle at top left, rgba(17,24,39,0.9) 0, #020617 45%, #020617 100%);
-      padding: 7px 8px 8px;
-      margin-bottom: 6px;
-      font-size: 11px;
-    }
-
-    .card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 4px;
-      margin-bottom: 4px;
-    }
-
-    .card-title {
-      font-weight: 500;
-      font-size: 11px;
-      color: var(--text-main);
-    }
-
-    .card-subtitle {
-      font-size: 10px;
-      color: var(--text-soft);
-    }
-
-    .status-pill {
-      padding: 2px 8px;
-      border-radius: 999px;
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
-    }
-
-    .status-new {
-      background: rgba(34, 197, 94, 0.16);
-      border: 1px solid rgba(34, 197, 94, 0.7);
-      color: #4ade80;
-    }
-
-    .status-hold {
-      background: rgba(250, 204, 21, 0.16);
-      border: 1px solid rgba(250, 204, 21, 0.75);
-      color: #facc15;
-    }
-
-    .status-paid {
-      background: rgba(45, 212, 191, 0.1);
-      border: 1px solid rgba(45, 212, 191, 0.7);
-      color: #6ee7b7;
-    }
-
-    .metric-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 4px;
-    }
-
-    .metric {
-      display: flex;
-      flex-direction: column;
-      gap: 1px;
-    }
-
-    .metric-label {
-      font-size: 10px;
-      color: var(--text-soft);
-    }
-
-    .metric-value {
-      font-size: 11px;
-      font-weight: 500;
-    }
-
-    .metric-value-strong {
-      color: var(--accent-strong);
-    }
-
-    .age-pill {
-      display: inline-flex;
-      align-items: center;
-      padding: 2px 6px;
-      border-radius: 999px;
-      font-size: 10px;
-      border: 1px solid rgba(148, 163, 184, 0.6);
-      color: var(--text-soft);
-      gap: 4px;
-    }
-
-    .age-dot {
-      width: 6px;
-      height: 6px;
-      border-radius: 999px;
-    }
-
-    .age-fresh { background: #22c55e; }
-    .age-mid { background: #eab308; }
-    .age-stale { background: #f97316; }
-    .age-old { background: #fb7185; }
-
-    .card-actions {
-      margin-top: 5px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      align-items: center;
-      justify-content: flex-start;
-    }
-
-    .btn {
-      border-radius: 999px;
-      padding: 4px 10px;
-      font-size: 10px;
-      border: 1px solid rgba(148, 163, 184, 0.7);
-      background: #020617;
-      color: var(--text-main);
-      text-decoration: none;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-    }
-
-    .btn-primary {
-      border-color: var(--accent);
-      background: radial-gradient(circle at top left, var(--accent-soft) 0, #020617 60%);
-      color: var(--accent-strong);
-    }
-
-    .btn:hover {
-      border-color: var(--accent);
-    }
-
-    .caret {
-      font-size: 8px;
-      transform: translateY(0.5px);
-    }
-
-    .details {
-      margin-top: 4px;
-      padding-top: 4px;
-      border-top: 1px dashed rgba(31, 41, 55, 0.9);
-      display: none;
-    }
-
-    .details.open {
-      display: block;
-    }
-
-    .details-row {
-      font-size: 10px;
-      color: var(--text-soft);
-      margin-bottom: 2px;
-    }
-
-    .details-label {
-      color: var(--text-muted);
-      font-weight: 500;
-    }
-
-    .empty-state {
-      font-size: 11px;
-      color: var(--text-soft);
-      padding: 8px 6px 10px;
-    }
-
-    footer {
-      margin-top: 18px;
-      font-size: 11px;
-      color: var(--text-soft);
-      text-align: center;
-    }
-
-    @media (max-width: 960px) {
-      body {
-        padding: 20px 10px 28px;
-      }
-      .kpi-row {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-      .lanes-row {
-        grid-template-columns: 1fr;
-      }
-      .lane {
-        max-height: none;
-      }
-    }
-
-    @media (max-width: 600px) {
-      header h1 {
-        font-size: 22px;
-      }
-      .kpi-card {
-        min-height: 68px;
-      }
+    :root{
+      --bg0:#0b1220;
+      --bg1:#0f172a;
+      --border:rgba(148,163,184,.18);
+      --text:#e5e7eb;
+      --muted:#a7b0c0;
+      --muted2:#cbd5e1;
+
+      --shadow2:0 10px 30px rgba(0,0,0,.28);
+
+      --accent:#38bdf8;
+      --accent2:#22c55e;
+      --amber:#fbbf24;
+
+      --r18:18px;
+      --max:1100px;
+    }
+
+    *{ box-sizing:border-box; }
+    html,body{ height:100%; }
+    body{
+      margin:0;
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      color:var(--text);
+      background:
+        radial-gradient(1200px 600px at 12% -10%, rgba(56,189,248,.18), transparent 55%),
+        radial-gradient(900px 520px at 92% 0%, rgba(34,197,94,.12), transparent 55%),
+        radial-gradient(900px 520px at 70% 120%, rgba(251,191,36,.10), transparent 60%),
+        linear-gradient(180deg, var(--bg0), var(--bg1));
+    }
+
+    a{ color:inherit; text-decoration:none; }
+
+    .wrap{
+      max-width:var(--max);
+      margin:0 auto;
+      padding:28px 18px 46px;
+    }
+
+    /* Top bar */
+    .top{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:14px;
+      padding:16px 18px;
+      border:1px solid var(--border);
+      border-radius:var(--r18);
+      background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+      box-shadow:var(--shadow2);
+      backdrop-filter: blur(10px);
+    }
+    .brand{
+      display:flex;
+      align-items:center;
+      gap:12px;
+      min-width:240px;
+    }
+    .logo{
+      width:44px; height:44px;
+      border-radius:14px;
+      background:
+        radial-gradient(18px 18px at 30% 25%, rgba(255,255,255,.22), transparent 60%),
+        linear-gradient(135deg, rgba(56,189,248,.95), rgba(34,197,94,.70));
+      box-shadow:0 10px 26px rgba(56,189,248,.14);
+      display:grid; place-items:center;
+      border:1px solid rgba(255,255,255,.14);
+    }
+    .brand h1{
+      margin:0;
+      font-size:16px;
+      letter-spacing:.2px;
+      font-weight:900;
+      line-height:1.15;
+    }
+    .brand p{
+      margin:3px 0 0;
+      color:var(--muted);
+      font-size:12.5px;
+      line-height:1.2;
+    }
+    .top-right{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+    }
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:8px 10px;
+      border:1px solid var(--border);
+      border-radius:999px;
+      background:rgba(255,255,255,.05);
+      font-size:12px;
+      color:var(--muted2);
+      user-select:none;
+      white-space:nowrap;
+    }
+    .dot{
+      width:8px;height:8px;border-radius:50%;
+      background:var(--accent2);
+      box-shadow:0 0 0 4px rgba(34,197,94,.12);
+    }
+
+    /* Hero */
+    .hero{
+      margin-top:18px;
+      display:grid;
+      grid-template-columns: 1.25fr .75fr;
+      gap:14px;
+      align-items:stretch;
+    }
+    .hero-card{
+      border:1px solid var(--border);
+      border-radius:var(--r18);
+      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      box-shadow:var(--shadow2);
+      padding:18px;
+      position:relative;
+      overflow:hidden;
+    }
+    .hero-card:before{
+      content:"";
+      position:absolute;
+      inset:-120px -80px auto auto;
+      width:320px;height:320px;
+      background:radial-gradient(circle at 30% 30%, rgba(56,189,248,.20), transparent 60%);
+      pointer-events:none;
+      transform: rotate(14deg);
+    }
+    .hero-title{
+      margin:0 0 8px;
+      font-size:22px;
+      letter-spacing:.2px;
+      font-weight:950;
+    }
+    .hero-sub{
+      margin:0;
+      color:var(--muted);
+      font-size:13.5px;
+      line-height:1.45;
+      max-width:70ch;
+    }
+
+    .quick{
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      height:100%;
+    }
+    .quick h3{
+      margin:0;
+      font-size:13px;
+      font-weight:950;
+      letter-spacing:.35px;
+      color:rgba(203,213,225,.95);
+      text-transform:uppercase;
+    }
+    .quick p{
+      margin:0 0 2px;
+      color:var(--muted);
+      font-size:12.5px;
+      line-height:1.35;
+    }
+    .stack{ display:grid; gap:10px; margin-top:6px; }
+
+    /* Buttons */
+    .btn, .open{
+      display:inline-flex;
+      align-items:center;
+      gap:10px;
+      padding:10px 12px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.14);
+      background:rgba(255,255,255,.07);
+      font-weight:900;
+      font-size:13px;
+      transition: background .15s ease, border-color .15s ease, transform .08s ease;
+      white-space:nowrap;
+      cursor:pointer;
+      user-select:none;
+    }
+    .btn:hover, .open:hover{
+      background:rgba(255,255,255,.10);
+      border-color: rgba(56,189,248,.30);
+      transform: translateY(-1px);
+    }
+    .open{
+      justify-content:space-between;
+      width:100%;
+      padding:12px 12px;
+    }
+    .btn.ghost{
+      background:transparent;
+      border-color: rgba(148,163,184,.22);
+      font-weight:800;
+    }
+    .btn.ghost:hover{
+      background:rgba(255,255,255,.06);
+      border-color: rgba(255,255,255,.22);
+    }
+
+    /* Sections */
+    .section{ margin-top:18px; }
+    .section-head{
+      display:flex;
+      align-items:end;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:10px;
+    }
+    .section-head h2{
+      margin:0;
+      font-size:14px;
+      letter-spacing:.35px;
+      text-transform:uppercase;
+      color:rgba(203,213,225,.95);
+      font-weight:950;
+    }
+    .section-head .hint{
+      margin:0;
+      font-size:12px;
+      color:var(--muted);
+    }
+
+    .grid{
+      display:grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap:12px;
+    }
+
+    /* Cards */
+    .card{
+      grid-column: span 6;
+      border:1px solid var(--border);
+      border-radius:var(--r18);
+      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      box-shadow:var(--shadow2);
+      padding:14px;
+      position:relative;
+      overflow:hidden;
+      transition: transform .12s ease, border-color .12s ease, background .12s ease;
+    }
+    .card:hover{
+      transform: translateY(-2px);
+      border-color: rgba(56,189,248,.30);
+      background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.04));
+    }
+
+    .card-top{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:10px;
+    }
+    .left{
+      display:flex;
+      gap:12px;
+      align-items:flex-start;
+      min-width:0;
+    }
+    .ico{
+      width:42px;height:42px;border-radius:14px;
+      display:grid;place-items:center;
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(255,255,255,.06);
+      flex:0 0 auto;
+    }
+    .meta{ min-width:0; }
+    .meta .title{
+      margin:0;
+      font-size:15px;
+      font-weight:950;
+      letter-spacing:.1px;
+      line-height:1.2;
+    }
+    .meta .desc{
+      margin:6px 0 0;
+      font-size:12.5px;
+      color:var(--muted);
+      line-height:1.35;
+    }
+    .tags{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+    }
+    .tag{
+      font-size:11px;
+      padding:6px 9px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:rgba(0,0,0,.14);
+      color:rgba(203,213,225,.90);
+      white-space:nowrap;
+    }
+    .tag.blue{ border-color: rgba(56,189,248,.25); color: rgba(186,230,253,.92); }
+    .tag.green{ border-color: rgba(34,197,94,.22); color: rgba(187,247,208,.92); }
+    .tag.amber{ border-color: rgba(251,191,36,.22); color: rgba(253,230,138,.92); }
+
+    .card-actions{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin-top:12px;
+      padding-top:12px;
+      border-top:1px solid rgba(148,163,184,.14);
+      flex-wrap:wrap;
+    }
+    .small{
+      font-size:12px;
+      color:var(--muted);
+      white-space:nowrap;
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+    .actions-left{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+
+    /* Embed */
+    .embed-wrap{
+      border:1px solid rgba(148,163,184,.16);
+      border-radius:14px;
+      overflow:hidden;
+      background:rgba(0,0,0,.14);
+      box-shadow:var(--shadow2);
+    }
+    .embed-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      padding:12px 12px;
+      border-bottom:1px solid rgba(148,163,184,.16);
+      background:rgba(255,255,255,.05);
+      flex-wrap:wrap;
+    }
+    .embed-head .lefty{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      min-width:0;
+      flex: 1 1 320px;
+    }
+    .embed-title{
+      margin:0;
+      font-size:13px;
+      font-weight:950;
+      letter-spacing:.2px;
+    }
+    .embed-sub{
+      margin:0;
+      font-size:12px;
+      color:var(--muted);
+      line-height:1.25;
+    }
+    .embed-body{ padding:0; }
+    .embed-wrap iframe{
+      width:100% !important;
+      min-height:820px;
+      border:0 !important;
+      background:#fff;
+      display:block;
+    }
+
+    @keyframes spin{ to{ transform:rotate(360deg);} }
+
+    /* Footer */
+    .footer{
+      margin-top:18px;
+      border:1px solid var(--border);
+      border-radius:var(--r18);
+      background:rgba(255,255,255,.04);
+      padding:14px 16px;
+      display:flex;
+      flex-wrap:wrap;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      color:var(--muted);
+      font-size:12px;
+    }
+
+    /* Responsive */
+    @media (max-width: 940px){
+      .hero{ grid-template-columns: 1fr; }
+      .brand{ min-width:auto; }
+    }
+    @media (max-width: 760px){
+      .card{ grid-column: span 12; }
+      .top{ padding:14px; }
+      .hero-card{ padding:16px; }
+      .hero-title{ font-size:20px; }
+    }
+
+    @media print{
+      body{ background:#fff; color:#111; }
+      .top,.hero-card,.card,.footer,.embed-wrap{ box-shadow:none !important; background:#fff !important; }
+      .chip,.tag,.btn,.open{ border:1px solid #ddd !important; color:#111 !important; background:#fff !important; }
+      #forms{ display:none !important; }
     }
   </style>
 </head>
+
 <body>
-  <div class="shell">
-    <header>
-      <h1>AP Requests — Live Dashboard</h1>
-      <p>Auto-pulled from Google Sheets · WPV Accounting</p>
-    </header>
+  <div class="wrap">
+    <!-- TOP BAR -->
+    <div class="top" role="banner" aria-label="Employee Hub Header">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2l8.5 4.5v11L12 22 3.5 17.5v-11L12 2z" stroke="rgba(6,16,29,.85)" stroke-width="1.6"/>
+            <path d="M12 22V12.2" stroke="rgba(6,16,29,.65)" stroke-width="1.6"/>
+            <path d="M20.5 6.5L12 11.3 3.5 6.5" stroke="rgba(6,16,29,.65)" stroke-width="1.6"/>
+          </svg>
+        </div>
+        <div>
+          <h1>Baseballism — Employee Hub</h1>
+          <p>Travel, invoices, receipts, logistics, analytics, and requests.</p>
+        </div>
+      </div>
 
-    <div class="top-row">
-      <div class="search-wrap">
-        <div class="search-icon"></div>
-        <input id="searchInput" class="search-input" placeholder="Search vendor, invoice, notes, email, amount..." />
+      <div class="top-right">
+        <span class="chip"><span class="dot" aria-hidden="true"></span>Internal • Staff Use</span>
+        <span class="chip">Stays on this URL</span>
       </div>
     </div>
 
-    <div class="kpi-row">
-      <div class="kpi-card">
-        <div class="kpi-label">Total Requests</div>
-        <div class="kpi-value" id="kpiTotal">—</div>
-        <div class="kpi-sub">All rows in Jotform AP sheet</div>
+    <!-- HERO -->
+    <div class="hero" aria-label="Quick access area">
+      <div class="hero-card">
+        <h2 class="hero-title">Fast access to the tools you actually use.</h2>
+        <p class="hero-sub">
+          Click anything below and it opens inside this page (embedded) so the URL doesn’t change.
+          If a form ever doesn’t load, use the “Open in new tab” button in the form header.
+        </p>
       </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Open Requests</div>
-        <div class="kpi-value" id="kpiOpen">—</div>
-        <div class="kpi-sub">New (not paid / not on hold)</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">On Hold</div>
-        <div class="kpi-value" id="kpiHold">—</div>
-        <div class="kpi-sub">Marked Hold in “Completed”</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Outstanding Amount</div>
-        <div class="kpi-value" id="kpiOutstanding">$0.00</div>
-        <div class="kpi-sub">Open + Hold (excludes Paid / Submitted)</div>
+
+      <div class="hero-card">
+        <div class="quick">
+          <div>
+            <h3>Top Shortcuts</h3>
+            <p>Most common employee actions.</p>
+          </div>
+
+          <div class="stack">
+            <a class="open" href="#forms" data-open-form="purchase">
+              <span>Purchase / Invoice Request</span><span aria-hidden="true">→</span>
+            </a>
+
+            <a class="open" href="#forms" data-open-form="receipt">
+              <span>Receipt Upload</span><span aria-hidden="true">↓</span>
+            </a>
+
+            <a class="open" href="#forms" data-open-form="travel">
+              <span>Travel Request</span><span aria-hidden="true">→</span>
+            </a>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div class="lanes-row">
-      <section class="lane" data-lane="new">
-        <div class="lane-header">
-          <div class="lane-title">New Requests</div>
-          <div class="lane-meta">
-            <span class="lane-count-pill" id="countNew">0</span>
-            <span class="lane-total" id="amountNew">$0.00</span>
-          </div>
-        </div>
-        <div class="lane-body" id="laneNew"></div>
-      </section>
+    <!-- EMPLOYEE LINKS -->
+    <div class="section">
+      <div class="section-head">
+        <h2>Employee Links</h2>
+        <p class="hint">Forms open embedded. Admin pages open in a new tab.</p>
+      </div>
 
-      <section class="lane" data-lane="hold">
-        <div class="lane-header">
-          <div class="lane-title">Need Information</div>
-          <div class="lane-meta">
-            <span class="lane-count-pill" id="countHold">0</span>
-            <span class="lane-total" id="amountHold">$0.00</span>
+      <div class="grid">
+        <!-- Purchase / Invoice Request -->
+        <div class="card">
+          <div class="card-top">
+            <div class="left">
+              <div class="ico" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M7 3h10l2 3v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" stroke="rgba(186,230,253,.95)" stroke-width="2"/>
+                  <path d="M8 11h8M8 15h8" stroke="rgba(186,230,253,.75)" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <div class="meta">
+                <p class="title">Purchase / Invoice Request</p>
+                <p class="desc">Submit invoices or purchase requests for review and processing.</p>
+              </div>
+            </div>
+            <div class="tags">
+              <span class="tag blue">AP</span>
+              <span class="tag">Request</span>
+            </div>
           </div>
-        </div>
-        <div class="lane-body" id="laneHold"></div>
-      </section>
 
-      <section class="lane" data-lane="paid">
-        <div class="lane-header">
-          <div class="lane-title">Paid / Submitted</div>
-          <div class="lane-meta">
-            <span class="lane-count-pill" id="countPaid">0</span>
-            <span class="lane-total" id="amountPaid">$0.00</span>
+          <div class="card-actions">
+            <div class="actions-left">
+              <a class="btn" href="#forms" data-open-form="purchase">Open Embedded →</a>
+              <a class="btn ghost" href="https://wpvportal.weebly.com/submit-request---bbism.html" target="_blank" rel="noopener noreferrer">New tab ↗</a>
+            </div>
+            <span class="small">Invoices / Purchases</span>
           </div>
         </div>
-        <div class="lane-body" id="lanePaid"></div>
-      </section>
+
+        <!-- Travel Request -->
+        <div class="card">
+          <div class="card-top">
+            <div class="left">
+              <div class="ico" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M2.5 12.5l19-7-7 19-3.5-8-8.5-4z" stroke="rgba(187,247,208,.95)" stroke-width="2" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <div class="meta">
+                <p class="title">Travel Request</p>
+                <p class="desc">Submit travel details through the travel request form.</p>
+              </div>
+            </div>
+            <div class="tags">
+              <span class="tag green">Travel</span>
+              <span class="tag">Form</span>
+            </div>
+          </div>
+
+          <div class="card-actions">
+            <div class="actions-left">
+              <a class="btn" href="#forms" data-open-form="travel">Open Embedded →</a>
+              <a class="btn ghost" href="https://wpvportal.weebly.com/travel-form---bbism.html" target="_blank" rel="noopener noreferrer">New tab ↗</a>
+            </div>
+            <span class="small">Travel</span>
+          </div>
+        </div>
+
+        <!-- Travel (Google Form) -->
+        <div class="card">
+          <div class="card-top">
+            <div class="left">
+              <div class="ico" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M7 3h8l4 4v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" stroke="rgba(253,230,138,.95)" stroke-width="2"/>
+                  <path d="M15 3v5h5" stroke="rgba(253,230,138,.95)" stroke-width="2"/>
+                  <path d="M8 12h8M8 16h8" stroke="rgba(253,230,138,.75)" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <div class="meta">
+                <p class="title">Travel Request (Google Form)</p>
+                <p class="desc">Alternate entry to submit travel via Google Forms.</p>
+              </div>
+            </div>
+            <div class="tags">
+              <span class="tag amber">Google</span>
+              <span class="tag">Form</span>
+            </div>
+          </div>
+
+          <div class="card-actions">
+            <div class="actions-left">
+              <a class="btn" href="#forms" data-open-form="travel_google">Open Embedded →</a>
+              <a class="btn ghost" href="https://docs.google.com/forms/d/e/1FAIpQLSckmYA0pninVJLOyPduZnMQ__b7gByaFJxoGCVYlKUVgQZcLA/viewform" target="_blank" rel="noopener noreferrer">New tab ↗</a>
+            </div>
+            <span class="small">External</span>
+          </div>
+        </div>
+
+        <!-- Logistics -->
+        <div class="card">
+          <div class="card-top">
+            <div class="left">
+              <div class="ico" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M3 7h11v10H3V7z" stroke="rgba(186,230,253,.95)" stroke-width="2"/>
+                  <path d="M14 10h4l3 3v4h-7v-7z" stroke="rgba(186,230,253,.95)" stroke-width="2" stroke-linejoin="round"/>
+                  <path d="M7 19a1.5 1.5 0 1 0 0 .01V19zm10 0a1.5 1.5 0 1 0 0 .01V19z" stroke="rgba(186,230,253,.75)" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <div class="meta">
+                <p class="title">Logistics</p>
+                <p class="desc">Shipping, warehouse requests & resources.</p>
+              </div>
+            </div>
+            <div class="tags">
+              <span class="tag blue">Ops</span>
+              <span class="tag">Internal</span>
+            </div>
+          </div>
+
+          <div class="card-actions">
+            <div class="actions-left">
+              <a class="btn" href="https://wpvportal.weebly.com/logistics.html" target="_blank" rel="noopener noreferrer">Open Logistics ↗</a>
+            </div>
+            <span class="small">Baseballism Portal</span>
+          </div>
+        </div>
+
+        <!-- Analytics -->
+        <div class="card">
+          <div class="card-top">
+            <div class="left">
+              <div class="ico" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M4 19V5" stroke="rgba(253,230,138,.95)" stroke-width="2" stroke-linecap="round"/>
+                  <path d="M4 19h16" stroke="rgba(253,230,138,.95)" stroke-width="2" stroke-linecap="round"/>
+                  <path d="M7 15l3-4 3 2 4-6 2 2" stroke="rgba(253,230,138,.8)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <div class="meta">
+                <p class="title">Analytics (Login)</p>
+                <p class="desc">Reporting dashboards and KPI views (login required).</p>
+              </div>
+            </div>
+            <div class="tags">
+              <span class="tag amber">Analytics</span>
+              <span class="tag">Login</span>
+            </div>
+          </div>
+
+          <div class="card-actions">
+            <div class="actions-left">
+              <a class="btn" href="https://wpvportal.weebly.com/analytics-login---bbism.html" target="_blank" rel="noopener noreferrer">Open Analytics ↗</a>
+            </div>
+            <span class="small">Restricted</span>
+          </div>
+        </div>
+
+        <!-- Requests Hub (Status / Check) -->
+        <div class="card">
+          <div class="card-top">
+            <div class="left">
+              <div class="ico" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M8 4h8l2 3v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V7l2-3z" stroke="rgba(186,230,253,.95)" stroke-width="2" stroke-linejoin="round"/>
+                  <path d="M9 12h6M9 16h6" stroke="rgba(186,230,253,.75)" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <div class="meta">
+                <p class="title">Requests Hub (Status / Check)</p>
+                <p class="desc">View request submissions and status — use this to check what’s been submitted.</p>
+              </div>
+            </div>
+            <div class="tags">
+              <span class="tag blue">Requests</span>
+              <span class="tag">Status</span>
+            </div>
+          </div>
+
+          <div class="card-actions">
+            <div class="actions-left">
+              <a class="btn" href="https://wpvportal.weebly.com/database---bbism.html" target="_blank" rel="noopener noreferrer">Open Requests Hub ↗</a>
+            </div>
+            <span class="small">Submission tracking</span>
+          </div>
+        </div>
+      </div>
     </div>
 
-    <footer>FinanceHub · Powered by WPV Accounting</footer>
+    <!-- EMBEDDED FORMS (keeps you on the same URL) -->
+    <div class="section" id="forms">
+      <div class="section-head">
+        <h2>Forms</h2>
+        <p class="hint">Loads here by default. If it ever doesn’t load, use “Open in new tab”.</p>
+      </div>
+
+      <div class="embed-wrap">
+        <div class="embed-head">
+          <div class="lefty">
+            <div class="ico" aria-hidden="true" style="width:38px;height:38px;border-radius:12px;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path d="M7 3h10l2 3v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" stroke="rgba(229,231,235,.92)" stroke-width="2"/>
+                <path d="M8 13h8M8 17h6" stroke="rgba(229,231,235,.75)" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </div>
+
+            <div style="min-width:0;">
+              <p class="embed-title" id="embedTitle">Receipt Upload</p>
+              <p class="embed-sub" id="embedSub">Attach receipts for invoices, reimbursements, or card purchases.</p>
+            </div>
+          </div>
+
+          <a class="btn" id="embedNewTab" href="https://form.jotform.com/202585858721161" target="_blank" rel="noopener noreferrer">
+            Open in new tab ↗
+          </a>
+        </div>
+
+        <div style="position:relative;">
+          <div id="embedLoading" style="
+            display:none; position:absolute; inset:0; z-index:2;
+            background:rgba(11,18,32,.72);
+            backdrop-filter: blur(6px);
+            align-items:center; justify-content:center; flex-direction:column; gap:10px;
+            color:rgba(203,213,225,.95);
+            font-weight:900;
+          ">
+            <div style="width:34px;height:34px;border-radius:999px;border:3px solid rgba(255,255,255,.18);border-top-color:rgba(56,189,248,.9);animation:spin .9s linear infinite;"></div>
+            <div>Loading form…</div>
+            <div style="font-size:12px;color:rgba(167,176,192,.95);font-weight:700;">If it hangs, use “Open in new tab”.</div>
+          </div>
+
+          <iframe
+            id="embedFrame"
+            title="Embedded Form"
+            src="https://form.jotform.com/202585858721161"
+            loading="lazy"
+            allow="camera; microphone; geolocation"
+          ></iframe>
+        </div>
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <div class="footer" role="contentinfo">
+      <div>Baseballism • Internal Employee Hub</div>
+      <div>Forms open embedded to keep you on this URL • Use “New tab ↗” if needed</div>
+    </div>
   </div>
 
   <script>
-    const SHEET_ID = "1lXM1Bu8ZRks7wDK34Bz3O_zgWcwdFU8USjuHBdbDhV8";
-    const GID = "0";
-    const GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${GID}`;
-
-    let allRecords = [];
-    let filteredRecords = [];
-
-    function parseGvizDate(value) {
-      if (!value) return null;
-      if (value instanceof Date) return value;
-      if (typeof value === "string") {
-        // Expecting MM-DD-YYYY
-        const parts = value.split("-");
-        if (parts.length === 3) {
-          const [mm, dd, yyyy] = parts;
-          const y = Number(String(yyyy).slice(0, 4));
-          const m = Number(mm) - 1;
-          const d = Number(dd);
-          const dt = new Date(y, m, d);
-          return isNaN(dt.getTime()) ? null : dt;
+    (function(){
+      // Central router: keeps users on the same URL while loading forms in the iframe
+      const FORMS = {
+        purchase: {
+          title: "Purchase / Invoice Request",
+          sub: "Submit invoices or purchase requests for review and processing.",
+          url: "https://wpvportal.weebly.com/submit-request---bbism.html",
+          embed: "https://wpvportal.weebly.com/submit-request---bbism.html"
+        },
+        travel: {
+          title: "Travel Request",
+          sub: "Submit travel details through the travel request form.",
+          url: "https://wpvportal.weebly.com/travel-form---bbism.html",
+          embed: "https://wpvportal.weebly.com/travel-form---bbism.html"
+        },
+        travel_google: {
+          title: "Travel Request (Google Form)",
+          sub: "Alternate entry to submit travel via Google Forms.",
+          url: "https://docs.google.com/forms/d/e/1FAIpQLSckmYA0pninVJLOyPduZnMQ__b7gByaFJxoGCVYlKUVgQZcLA/viewform",
+          embed: "https://docs.google.com/forms/d/e/1FAIpQLSckmYA0pninVJLOyPduZnMQ__b7gByaFJxoGCVYlKUVgQZcLA/viewform?embedded=true"
+        },
+        receipt: {
+          title: "Receipt Upload",
+          sub: "Attach receipts for invoices, reimbursements, or card purchases.",
+          url: "https://form.jotform.com/202585858721161",
+          embed: "https://form.jotform.com/202585858721161"
         }
-      }
-      return null;
-    }
-
-    function formatDate(value) {
-      const d = parseGvizDate(value);
-      if (!d) return value || "—";
-      const monthNames = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-      const mm = monthNames[d.getMonth()];
-      const dd = String(d.getDate()).padStart(2, "0");
-      const yyyy = d.getFullYear();
-      return `${mm} ${dd}, ${yyyy}`;
-    }
-
-    function formatCurrency(num) {
-      const n = Number(num);
-      if (isNaN(n)) return "$0.00";
-      return n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 });
-    }
-
-    function getAgeBucket(dueStr) {
-      const due = parseGvizDate(dueStr);
-      if (!due) return { label: "No due date", cls: "age-fresh", range: "—" };
-      const today = new Date();
-      const diffDays = Math.floor((due - today) / (1000 * 60 * 60 * 24));
-      if (diffDays >= 0 && diffDays <= 30) return { label: "0-30 Days", cls: "age-fresh", range: "0–30" };
-      if (diffDays < 0 && diffDays >= -30) return { label: "Past due 0-30", cls: "age-mid", range: "PD 0–30" };
-      if (diffDays < -30 && diffDays >= -90) return { label: "Past due 31-90", cls: "age-stale", range: "PD 31–90" };
-      if (diffDays < -90) return { label: "Past due 90+", cls: "age-old", range: "PD 90+" };
-      return { label: "Future 31+", cls: "age-fresh", range: "31+" };
-    }
-
-    async function loadSheet() {
-      try {
-        const res = await fetch(GVIZ_URL);
-        const text = await res.text();
-        const json = JSON.parse(text.substring(47, text.length - 2));
-        const rows = json.table.rows || [];
-
-        allRecords = rows.map(r => {
-          const c = r.c || [];
-          const val = idx => (c[idx] && c[idx].v != null ? c[idx].v : "");
-
-          const submissionDate  = val(0);
-          const vendorPrimary   = val(1);
-          const vendorAlt       = val(2);
-          const typeMain        = val(3);
-          const invoiceNo       = val(4);
-          const flexId          = val(5);
-          const internalPo      = val(6);
-          const amount          = Number(val(7)) || 0;
-          const dueDateRaw      = val(8);
-          const fileUrl         = val(9);
-          const email           = val(10);
-          const location        = val(11);
-          const notes           = val(12);
-          const formType        = val(13);
-          const completedRaw    = (val(14) + "").trim().toLowerCase();
-          const dateCompleted   = val(15);
-          const paymentDetail   = val(16);
-          const pageUrl         = val(17);
-          const submissionIp    = val(18);
-          const submissionUrl   = val(19);
-          const submissionEdit  = val(20);
-          const lastUpdate      = val(21);
-          const submissionId    = val(22);
-
-          let status;
-          if (completedRaw === "hold") {
-            status = "hold";
-          } else if (completedRaw === "paid" || completedRaw === "submitted (flex)" || completedRaw === "submitted flex") {
-            status = "paid";
-          } else {
-            status = "new";
-          }
-
-          const vendor = (vendorPrimary || vendorAlt || "").toString().trim() || "—";
-
-          return {
-            submissionDate,
-            vendor,
-            vendorPrimary,
-            vendorAlt,
-            typeMain,
-            invoiceNo,
-            flexId,
-            internalPo,
-            amount,
-            dueDateRaw,
-            fileUrl,
-            email,
-            location,
-            notes,
-            formType,
-            completedRaw,
-            dateCompleted,
-            paymentDetail,
-            pageUrl,
-            submissionIp,
-            submissionUrl,
-            submissionEdit,
-            lastUpdate,
-            submissionId,
-            status,
-            dueDateObj: parseGvizDate(dueDateRaw)
-          };
-        }).filter(r => r.vendor !== "Submission Date"); // guard for stray header-like rows
-
-        filteredRecords = [...allRecords];
-        renderAll();
-      } catch (err) {
-        console.error("Error loading AP sheet:", err);
-        document.getElementById("laneNew").innerHTML =
-          '<div class="empty-state">Error loading AP data from Google Sheets.</div>';
-      }
-    }
-
-    function renderAll() {
-      renderKpis(filteredRecords);
-      renderLanes(filteredRecords);
-    }
-
-    function renderKpis(records) {
-      const total = records.length;
-      const open = records.filter(r => r.status === "new").length;
-      const hold = records.filter(r => r.status === "hold").length;
-      const paid = records.filter(r => r.status === "paid").length;
-      const outstandingAmount = records
-        .filter(r => r.status === "new" || r.status === "hold")
-        .reduce((sum, r) => sum + (r.amount || 0), 0);
-
-      document.getElementById("kpiTotal").textContent = total.toLocaleString();
-      document.getElementById("kpiOpen").textContent = open.toLocaleString();
-      document.getElementById("kpiHold").textContent = hold.toLocaleString();
-      document.getElementById("kpiOutstanding").textContent = formatCurrency(outstandingAmount);
-    }
-
-    function groupByVendor(records) {
-      const groups = {};
-      for (const r of records) {
-        if (!groups[r.vendor]) groups[r.vendor] = [];
-        groups[r.vendor].push(r);
-      }
-      // sort each group by due date ascending
-      for (const vendor of Object.keys(groups)) {
-        groups[vendor].sort((a, b) => {
-          if (a.dueDateObj && b.dueDateObj) return a.dueDateObj - b.dueDateObj;
-          if (a.dueDateObj) return -1;
-          if (b.dueDateObj) return 1;
-          return 0;
-        });
-      }
-      return groups;
-    }
-
-    function renderLanes(records) {
-      const laneNewEl  = document.getElementById("laneNew");
-      const laneHoldEl = document.getElementById("laneHold");
-      const lanePaidEl = document.getElementById("lanePaid");
-
-      laneNewEl.innerHTML = "";
-      laneHoldEl.innerHTML = "";
-      lanePaidEl.innerHTML = "";
-
-      const newRecords  = records.filter(r => r.status === "new");
-      const holdRecords = records.filter(r => r.status === "hold");
-      const paidRecords = records.filter(r => r.status === "paid");
-
-      updateLaneTotals("New", newRecords, "countNew", "amountNew");
-      updateLaneTotals("Hold", holdRecords, "countHold", "amountHold");
-      updateLaneTotals("Paid", paidRecords, "countPaid", "amountPaid");
-
-      renderLane(laneNewEl, newRecords, "new");
-      renderLane(laneHoldEl, holdRecords, "hold");
-      renderLane(lanePaidEl, paidRecords, "paid");
-    }
-
-    function updateLaneTotals(label, items, countId, amountId) {
-      const count = items.length;
-      const totalAmount = items.reduce((s, r) => s + (r.amount || 0), 0);
-      document.getElementById(countId).textContent = count.toLocaleString();
-      document.getElementById(amountId).textContent = formatCurrency(totalAmount);
-    }
-
-    function renderLane(container, records, laneStatus) {
-      if (!records.length) {
-        container.innerHTML = '<div class="empty-state">No requests in this lane.</div>';
-        return;
-      }
-
-      const groups = groupByVendor(records);
-      const vendorsSorted = Object.keys(groups).sort((a, b) => a.localeCompare(b));
-
-      for (const vendor of vendorsSorted) {
-        const list = groups[vendor];
-        const vendorGroup = document.createElement("div");
-        vendorGroup.className = "vendor-group";
-
-        const header = document.createElement("div");
-        header.className = "vendor-header";
-        const main = document.createElement("div");
-        main.className = "vendor-main";
-
-        const nameEl = document.createElement("div");
-        nameEl.className = "vendor-name";
-        nameEl.textContent = vendor;
-        main.appendChild(nameEl);
-
-        const subEl = document.createElement("div");
-        subEl.className = "vendor-sub";
-        const count = list.length;
-        const totalAmt = list.reduce((s, r) => s + (r.amount || 0), 0);
-        subEl.textContent = `${count} item${count !== 1 ? "s" : ""} • ${formatCurrency(totalAmt)}`;
-        main.appendChild(subEl);
-
-        const meta = document.createElement("div");
-        meta.className = "vendor-meta";
-
-        const pill = document.createElement("span");
-        pill.className = "tiny-pill";
-        pill.textContent = laneStatus === "new" ? "New" : laneStatus === "hold" ? "Need Info" : "Paid/Submitted";
-        meta.appendChild(pill);
-
-        const chevron = document.createElement("div");
-        chevron.className = "chevron";
-        chevron.textContent = "›";
-
-        header.appendChild(main);
-        header.appendChild(meta);
-        header.appendChild(chevron);
-
-        const listEl = document.createElement("div");
-        listEl.className = "vendor-list";
-
-        // default open vendors that have newest activity (e.g. at least one item in last 30 days)
-        const newest = list.reduce((latest, r) => {
-          const d = parseGvizDate(r.dueDateRaw);
-          if (!d) return latest;
-          if (!latest) return d;
-          return d > latest ? d : latest;
-        }, null);
-
-        const shouldOpen = newest && (Date.now() - newest.getTime()) / (1000 * 60 * 60 * 24) <= 30;
-
-        if (shouldOpen || laneStatus === "new") {
-          listEl.classList.add("open");
-          header.classList.add("open");
-        }
-
-        header.addEventListener("click", () => {
-          const isOpen = listEl.classList.toggle("open");
-          if (isOpen) {
-            header.classList.add("open");
-          } else {
-            header.classList.remove("open");
-          }
-        });
-
-        for (const r of list) {
-          listEl.appendChild(renderCard(r));
-        }
-
-        vendorGroup.appendChild(header);
-        vendorGroup.appendChild(listEl);
-        container.appendChild(vendorGroup);
-      }
-    }
-
-    function renderCard(r) {
-      const card = document.createElement("div");
-      card.className = "card";
-
-      const header = document.createElement("div");
-      header.className = "card-header";
-
-      const left = document.createElement("div");
-      const title = document.createElement("div");
-      title.className = "card-title";
-      title.textContent = r.invoiceNo || "(No invoice #)";
-      left.appendChild(title);
-
-      const subtitle = document.createElement("div");
-      subtitle.className = "card-subtitle";
-      subtitle.textContent = `Due: ${formatDate(r.dueDateRaw)} • Amount: ${formatCurrency(r.amount)}`;
-      left.appendChild(subtitle);
-
-      const right = document.createElement("div");
-      const statusPill = document.createElement("span");
-      statusPill.className = "status-pill " + (
-        r.status === "new" ? "status-new" :
-        r.status === "hold" ? "status-hold" : "status-paid"
-      );
-      statusPill.textContent =
-        r.status === "new" ? "New" :
-        r.status === "hold" ? "Hold" : "Paid / Submitted";
-
-      right.appendChild(statusPill);
-
-      const age = getAgeBucket(r.dueDateRaw);
-      const ageEl = document.createElement("span");
-      ageEl.className = "age-pill";
-      const dot = document.createElement("span");
-      dot.className = "age-dot " + age.cls;
-      ageEl.appendChild(dot);
-      const txt = document.createElement("span");
-      txt.textContent = age.range;
-      ageEl.appendChild(txt);
-      right.appendChild(ageEl);
-
-      header.appendChild(left);
-      header.appendChild(right);
-      card.appendChild(header);
-
-      const metricRow = document.createElement("div");
-      metricRow.className = "metric-row";
-
-      const m1 = document.createElement("div");
-      m1.className = "metric";
-      m1.innerHTML = `<div class="metric-label">Vendor</div><div class="metric-value">${r.vendor}</div>`;
-      metricRow.appendChild(m1);
-
-      const m2 = document.createElement("div");
-      m2.className = "metric";
-      m2.innerHTML = `<div class="metric-label">Type</div><div class="metric-value">${r.typeMain || r.formType || "—"}</div>`;
-      metricRow.appendChild(m2);
-
-      const m3 = document.createElement("div");
-      m3.className = "metric";
-      m3.innerHTML = `<div class="metric-label">Requested</div><div class="metric-value">${r.submissionDate || "—"}</div>`;
-      metricRow.appendChild(m3);
-
-      card.appendChild(metricRow);
-
-      const actions = document.createElement("div");
-      actions.className = "card-actions";
-
-      if (r.fileUrl) {
-        const openBtn = document.createElement("a");
-        openBtn.className = "btn btn-primary";
-        openBtn.href = r.fileUrl;
-        openBtn.target = "_blank";
-        openBtn.rel = "noopener";
-        openBtn.textContent = "Open File";
-        actions.appendChild(openBtn);
-      }
-
-      if (r.submissionUrl) {
-        const viewBtn = document.createElement("a");
-        viewBtn.className = "btn";
-        viewBtn.href = r.submissionUrl;
-        viewBtn.target = "_blank";
-        viewBtn.rel = "noopener";
-        viewBtn.innerHTML = 'View Request <span class="caret">▾</span>';
-        actions.appendChild(viewBtn);
-      }
-
-      if (r.submissionEdit) {
-        const editBtn = document.createElement("a");
-        editBtn.className = "btn";
-        editBtn.href = r.submissionEdit;
-        editBtn.target = "_blank";
-        editBtn.rel = "noopener";
-        editBtn.textContent = "Edit in Jotform";
-        actions.appendChild(editBtn);
-      }
-
-      const toggleDetails = document.createElement("button");
-      toggleDetails.type = "button";
-      toggleDetails.className = "btn";
-      toggleDetails.innerHTML = 'Details <span class="caret">▾</span>';
-      actions.appendChild(toggleDetails);
-
-      card.appendChild(actions);
-
-      const details = document.createElement("div");
-      details.className = "details";
-
-      const addDetail = (label, value) => {
-        if (!value) return;
-        const row = document.createElement("div");
-        row.className = "details-row";
-        row.innerHTML = `<span class="details-label">${label}:</span> ${value}`;
-        details.appendChild(row);
       };
 
-      addDetail("Notes", r.notes || "—");
-      addDetail("Email", r.email || "—");
-      addDetail("Location", r.location || "—");
-      addDetail("Flex ID", r.flexId || "—");
-      addDetail("Internal PO #", r.internalPo || "—");
-      addDetail("Completed", r.completedRaw || "—");
-      addDetail("Date Completed", r.dateCompleted || "—");
-      addDetail("Payment Detail", r.paymentDetail || "—");
-      addDetail("Submission IP", r.submissionIp || "—");
-      addDetail("Submission ID", r.submissionId || "—");
-      addDetail("Last Update", r.lastUpdate || "—");
-      addDetail("Page URL", r.pageUrl || "—");
+      const frame   = document.getElementById("embedFrame");
+      const titleEl = document.getElementById("embedTitle");
+      const subEl   = document.getElementById("embedSub");
+      const newTab  = document.getElementById("embedNewTab");
+      const loading = document.getElementById("embedLoading");
 
-      if (details.childElementCount) {
-        card.appendChild(details);
-        toggleDetails.addEventListener("click", () => {
-          details.classList.toggle("open");
-        });
-      } else {
-        toggleDetails.style.display = "none";
+      function showLoading(on){
+        loading.style.display = on ? "flex" : "none";
       }
 
-      return card;
-    }
+      function openForm(key){
+        const f = FORMS[key];
+        if(!f) return;
 
-    function applySearch() {
-      const q = document.getElementById("searchInput").value.trim().toLowerCase();
-      if (!q) {
-        filteredRecords = [...allRecords];
-      } else {
-        filteredRecords = allRecords.filter(r => {
-          const haystack = [
-            r.vendor,
-            r.invoiceNo,
-            r.notes,
-            r.email,
-            r.location,
-            r.submissionIp,
-            r.paymentDetail,
-            r.typeMain,
-            r.formType
-          ].join(" ").toLowerCase();
-          const amountStr = String(r.amount || "");
-          return haystack.includes(q) || amountStr.includes(q);
-        });
+        titleEl.textContent = f.title;
+        subEl.textContent = f.sub;
+        newTab.href = f.url;
+
+        showLoading(true);
+        frame.src = f.embed;
+
+        // Smooth scroll to embed section
+        const anchor = document.getElementById("forms");
+        if(anchor) anchor.scrollIntoView({ behavior:"smooth", block:"start" });
       }
-      renderAll();
-    }
 
-    document.getElementById("searchInput").addEventListener("input", () => {
-      window.clearTimeout(applySearch._t);
-      applySearch._t = window.setTimeout(applySearch, 120);
-    });
+      // Hide loader when iframe finishes
+      frame.addEventListener("load", () => showLoading(false));
 
-    loadSheet();
+      // Route any click with data-open-form="..."
+      document.addEventListener("click", (e) => {
+        const el = e.target.closest("[data-open-form]");
+        if(!el) return;
+        e.preventDefault();
+        openForm(el.getAttribute("data-open-form"));
+      });
+
+      // Optional: open a form directly via ?form=receipt / ?form=purchase / etc
+      const params = new URLSearchParams(location.search);
+      const key = params.get("form");
+      if(key && FORMS[key]) openForm(key);
+    })();
   </script>
 </body>
 </html>
