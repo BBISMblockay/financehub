@@ -1,810 +1,1763 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Baseballism — Employee Hub</title>
+<meta charset="UTF-8" />
+<title>AP Requests — Live Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    color-scheme: dark;
+    --bg: #070A12;
+    --surface: rgba(255,255,255,.03);
+    --surface-2: rgba(255,255,255,.05);
+    --panel: rgba(255,255,255,.04);
+    --border: rgba(255,255,255,.08);
+    --border-2: rgba(255,255,255,.12);
+    --text: rgba(255,255,255,.92);
+    --muted: rgba(255,255,255,.64);
+    --muted-2: rgba(255,255,255,.50);
+    --accent: #4FD1FF;
+    --accent-2: #6EE7B7;
+    --shadow: 0 12px 40px rgba(0,0,0,.55);
+    --shadow-soft: 0 10px 30px rgba(0,0,0,.35);
+    --radius: 18px;
+    --radius-sm: 14px;
+    --sidebar-w: 340px;
 
-  <!-- Optional font (safe if blocked; clean fallback) -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    --ok:#22c55e; --warn:#eab308; --risk:#fb7185;
+  }
 
-  <style>
-    :root{
-      --bg0:#0b1220;
-      --bg1:#0f172a;
-      --border:rgba(148,163,184,.18);
-      --text:#e5e7eb;
-      --muted:#a7b0c0;
-      --muted2:#cbd5e1;
+  :root[data-theme="light"]{
+    color-scheme: light;
+    --bg: #F6F7FB;
+    --surface: rgba(16,24,40,.02);
+    --surface-2: rgba(16,24,40,.04);
+    --panel: rgba(255,255,255,.80);
+    --border: rgba(16,24,40,.10);
+    --border-2: rgba(16,24,40,.14);
+    --text: rgba(16,24,40,.92);
+    --muted: rgba(16,24,40,.62);
+    --muted-2: rgba(16,24,40,.52);
+    --accent: #007AFF;
+    --accent-2: #22c55e;
+    --shadow: 0 14px 36px rgba(16,24,40,.12);
+    --shadow-soft: 0 10px 22px rgba(16,24,40,.10);
+  }
 
-      --shadow2:0 10px 30px rgba(0,0,0,.28);
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;
+    font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    line-height:1.45;
+    background:
+      radial-gradient(900px 500px at 20% 10%, rgba(79,209,255,.12), transparent 45%),
+      radial-gradient(900px 500px at 80% 15%, rgba(110,231,183,.10), transparent 45%),
+      var(--bg);
+    color:var(--text);
+    overflow-x:hidden;
+  }
 
-      --accent:#38bdf8;
-      --accent2:#22c55e;
-      --amber:#fbbf24;
+  .app{
+    display:grid;
+    grid-template-columns: var(--sidebar-w) 1fr;
+    gap:16px;
+    max-width: 1380px;
+    margin: 0 auto;
+    padding: 18px 14px 28px;
+  }
 
-      --r18:18px;
-      --max:1100px;
-    }
+  header{
+    grid-column: 1 / -1;
+    display:flex;
+    align-items:flex-end;
+    justify-content:space-between;
+    gap:12px;
+    padding: 8px 6px 2px;
+  }
+  .title-wrap h1{
+    margin:0;
+    font-size: 24px;
+    letter-spacing: -0.02em;
+    font-weight: 750;
+  }
+  .title-wrap p{
+    margin:4px 0 0;
+    color: var(--muted);
+    font-size: 12px;
+  }
 
-    *{ box-sizing:border-box; }
-    html,body{ height:100%; }
-    body{
-      margin:0;
-      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-      color:var(--text);
-      background:
-        radial-gradient(1200px 600px at 12% -10%, rgba(56,189,248,.18), transparent 55%),
-        radial-gradient(900px 520px at 92% 0%, rgba(34,197,94,.12), transparent 55%),
-        radial-gradient(900px 520px at 70% 120%, rgba(251,191,36,.10), transparent 60%),
-        linear-gradient(180deg, var(--bg0), var(--bg1));
-    }
+  .header-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .chip{
+    display:inline-flex;
+    align-items:center;
+    gap:8px;
+    padding: 7px 10px;
+    border-radius: 999px;
+    background: var(--surface-2);
+    border:1px solid var(--border);
+    color: var(--muted);
+    font-size: 12px;
+    cursor:pointer;
+    user-select:none;
+  }
+  .chip:hover{border-color: var(--border-2); color: var(--text)}
+  .chip b{color: var(--text); font-weight:650}
+  .chip .x{opacity:.7}
 
-    a{ color:inherit; text-decoration:none; }
+  /* Sidebar */
+  .sidebar{
+    position:sticky;
+    top:12px;
+    align-self:start;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 12px;
+    height: calc(100dvh - 24px);
+    overflow:auto;
+    backdrop-filter: blur(10px);
+  }
+  .s-title{
+    font-size:11px;
+    font-weight:800;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    margin: 6px 0 10px;
+  }
+  .search-input{
+    width:100%;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    padding: 10px 12px;
+    font-size: 13px;
+    color: var(--text);
+    outline:none;
+  }
+  .search-input:focus{border-color: color-mix(in oklab, var(--accent) 55%, var(--border)); box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 12%, transparent)}
+  .f{display:flex;flex-direction:column;gap:6px;margin: 10px 0}
+  .f label{font-size:11px;color:var(--muted);font-weight:600}
+  .f input,.f select{
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 9px 10px;
+    color: var(--text);
+    font-size: 12px;
+    width:100%;
+    outline:none;
+  }
+  .f input:focus,.f select:focus{border-color: color-mix(in oklab, var(--accent) 55%, var(--border)); box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 12%, transparent)}
+  select[multiple]{padding: 8px}
+  select[multiple] option{padding:6px 8px}
 
-    .wrap{
-      max-width:var(--max);
-      margin:0 auto;
-      padding:28px 18px 46px;
-    }
+  details{
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px;
+    margin-top: 10px;
+    background: var(--surface);
+  }
+  details>summary{
+    cursor:pointer;
+    list-style:none;
+    font-size:12px;
+    color: var(--muted);
+    font-weight: 700;
+  }
+  details>summary::-webkit-details-marker{display:none}
 
-    /* Top bar */
-    .top{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:14px;
-      padding:16px 18px;
-      border:1px solid var(--border);
-      border-radius:var(--r18);
-      background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
-      box-shadow:var(--shadow2);
-      backdrop-filter: blur(10px);
-    }
-    .brand{
-      display:flex;
-      align-items:center;
-      gap:12px;
-      min-width:240px;
-    }
-    .logo{
-      width:44px; height:44px;
-      border-radius:14px;
-      background:
-        radial-gradient(18px 18px at 30% 25%, rgba(255,255,255,.22), transparent 60%),
-        linear-gradient(135deg, rgba(56,189,248,.95), rgba(34,197,94,.70));
-      box-shadow:0 10px 26px rgba(56,189,248,.14);
-      display:grid; place-items:center;
-      border:1px solid rgba(255,255,255,.14);
-    }
-    .brand h1{
-      margin:0;
-      font-size:16px;
-      letter-spacing:.2px;
-      font-weight:900;
-      line-height:1.15;
-    }
-    .brand p{
-      margin:3px 0 0;
-      color:var(--muted);
-      font-size:12.5px;
-      line-height:1.2;
-    }
-    .top-right{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      flex-wrap:wrap;
-      justify-content:flex-end;
-    }
-    .chip{
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      padding:8px 10px;
-      border:1px solid var(--border);
-      border-radius:999px;
-      background:rgba(255,255,255,.05);
-      font-size:12px;
-      color:var(--muted2);
-      user-select:none;
-      white-space:nowrap;
-    }
-    .dot{
-      width:8px;height:8px;border-radius:50%;
-      background:var(--accent2);
-      box-shadow:0 0 0 4px rgba(34,197,94,.12);
-    }
+  .toggle{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    font-size:12px;
+    color: var(--muted);
+    margin-top: 8px;
+  }
+  .toggle-left{display:flex;align-items:center;gap:10px}
+  .toggle input{accent-color: var(--accent)}
 
-    /* Hero */
-    .hero{
-      margin-top:18px;
-      display:grid;
-      grid-template-columns: 1.25fr .75fr;
-      gap:14px;
-      align-items:stretch;
-    }
-    .hero-card{
-      border:1px solid var(--border);
-      border-radius:var(--r18);
-      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
-      box-shadow:var(--shadow2);
-      padding:18px;
-      position:relative;
-      overflow:hidden;
-    }
-    .hero-card:before{
-      content:"";
-      position:absolute;
-      inset:-120px -80px auto auto;
-      width:320px;height:320px;
-      background:radial-gradient(circle at 30% 30%, rgba(56,189,248,.20), transparent 60%);
-      pointer-events:none;
-      transform: rotate(14deg);
-    }
-    .hero-title{
-      margin:0 0 8px;
-      font-size:22px;
-      letter-spacing:.2px;
-      font-weight:950;
-    }
-    .hero-sub{
-      margin:0;
-      color:var(--muted);
-      font-size:13.5px;
-      line-height:1.45;
-      max-width:70ch;
-    }
+  .btn{
+    font-size:12px;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--text);
+    padding: 9px 12px;
+    border-radius: 14px;
+    cursor:pointer;
+    transition: transform .08s ease, border-color .15s ease;
+  }
+  .btn:hover{border-color: var(--border-2)}
+  .btn:active{transform: translateY(1px)}
+  .btn.primary{
+    border-color: color-mix(in oklab, var(--accent) 45%, var(--border));
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 10%, transparent);
+  }
+  .btn.block{width:100%}
+  .btn.small{padding:7px 10px;font-size:12px;border-radius: 12px}
+  .btn.ghost{background: transparent}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
 
-    .quick{
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-      height:100%;
-    }
-    .quick h3{
-      margin:0;
-      font-size:13px;
-      font-weight:950;
-      letter-spacing:.35px;
-      color:rgba(203,213,225,.95);
-      text-transform:uppercase;
-    }
-    .quick p{
-      margin:0 0 2px;
-      color:var(--muted);
-      font-size:12.5px;
-      line-height:1.35;
-    }
-    .stack{ display:grid; gap:10px; margin-top:6px; }
+  /* Main */
+  .main{min-width:0}
 
-    /* Buttons */
-    .btn, .open{
-      display:inline-flex;
-      align-items:center;
-      gap:10px;
-      padding:10px 12px;
-      border-radius:12px;
-      border:1px solid rgba(255,255,255,.14);
-      background:rgba(255,255,255,.07);
-      font-weight:900;
-      font-size:13px;
-      transition: background .15s ease, border-color .15s ease, transform .08s ease;
-      white-space:nowrap;
-      cursor:pointer;
-      user-select:none;
-    }
-    .btn:hover, .open:hover{
-      background:rgba(255,255,255,.10);
-      border-color: rgba(56,189,248,.30);
-      transform: translateY(-1px);
-    }
-    .open{
-      justify-content:space-between;
-      width:100%;
-      padding:12px 12px;
-    }
-    .btn.ghost{
-      background:transparent;
-      border-color: rgba(148,163,184,.22);
-      font-weight:800;
-    }
-    .btn.ghost:hover{
-      background:rgba(255,255,255,.06);
-      border-color: rgba(255,255,255,.22);
-    }
+  .kpis{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  .kpi-card{
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    box-shadow: var(--shadow-soft);
+    backdrop-filter: blur(10px);
+  }
+  .kpi-title{
+    font-size:11px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing:.08em;
+    font-weight: 800;
+    margin-bottom: 8px;
+  }
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .kpi-item .label{font-size:11px;color:var(--muted)}
+  .kpi-item .value{font-size:20px;font-weight:800;letter-spacing:-.02em}
 
-    /* Sections */
-    .section{ margin-top:18px; }
-    .section-head{
-      display:flex;
-      align-items:end;
-      justify-content:space-between;
-      gap:10px;
-      margin-bottom:10px;
-    }
-    .section-head h2{
-      margin:0;
-      font-size:14px;
-      letter-spacing:.35px;
-      text-transform:uppercase;
-      color:rgba(203,213,225,.95);
-      font-weight:950;
-    }
-    .section-head .hint{
-      margin:0;
-      font-size:12px;
-      color:var(--muted);
-    }
+  .tabs{display:flex;gap:8px;margin: 10px 0 10px;flex-wrap:wrap}
+  .tab{
+    border:1px solid var(--border);
+    background: var(--surface-2);
+    color: var(--muted);
+    padding: 8px 12px;
+    border-radius: 999px;
+    cursor:pointer;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .tab:hover{border-color: var(--border-2); color: var(--text)}
+  .tab.active{border-color: color-mix(in oklab, var(--accent) 55%, var(--border)); color: var(--text); background: color-mix(in oklab, var(--accent) 12%, var(--surface-2))}
+  .hidden{display:none}
 
-    .grid{
-      display:grid;
-      grid-template-columns: repeat(12, 1fr);
-      gap:12px;
-    }
+  .chipbar{
+    display:flex;
+    gap:8px;
+    flex-wrap:wrap;
+    margin: 6px 0 10px;
+  }
 
-    /* Cards */
-    .card{
-      grid-column: span 6;
-      border:1px solid var(--border);
-      border-radius:var(--r18);
-      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
-      box-shadow:var(--shadow2);
-      padding:14px;
-      position:relative;
-      overflow:hidden;
-      transition: transform .12s ease, border-color .12s ease, background .12s ease;
-    }
-    .card:hover{
-      transform: translateY(-2px);
-      border-color: rgba(56,189,248,.30);
-      background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.04));
-    }
+  .lane{
+    background: var(--panel);
+    border:1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px;
+    box-shadow: var(--shadow-soft);
+    backdrop-filter: blur(10px);
+  }
 
-    .card-top{
-      display:flex;
-      align-items:flex-start;
-      justify-content:space-between;
-      gap:10px;
-      margin-bottom:10px;
-    }
-    .left{
-      display:flex;
-      gap:12px;
-      align-items:flex-start;
-      min-width:0;
-    }
-    .ico{
-      width:42px;height:42px;border-radius:14px;
-      display:grid;place-items:center;
-      border:1px solid rgba(255,255,255,.12);
-      background:rgba(255,255,255,.06);
-      flex:0 0 auto;
-    }
-    .meta{ min-width:0; }
-    .meta .title{
-      margin:0;
-      font-size:15px;
-      font-weight:950;
-      letter-spacing:.1px;
-      line-height:1.2;
-    }
-    .meta .desc{
-      margin:6px 0 0;
-      font-size:12.5px;
-      color:var(--muted);
-      line-height:1.35;
-    }
-    .tags{
-      display:flex;
-      gap:8px;
-      flex-wrap:wrap;
-      justify-content:flex-end;
-    }
-    .tag{
-      font-size:11px;
-      padding:6px 9px;
-      border-radius:999px;
-      border:1px solid var(--border);
-      background:rgba(0,0,0,.14);
-      color:rgba(203,213,225,.90);
-      white-space:nowrap;
-    }
-    .tag.blue{ border-color: rgba(56,189,248,.25); color: rgba(186,230,253,.92); }
-    .tag.green{ border-color: rgba(34,197,94,.22); color: rgba(187,247,208,.92); }
-    .tag.amber{ border-color: rgba(251,191,36,.22); color: rgba(253,230,138,.92); }
+  .vendor-group{
+    margin: 10px 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow:hidden;
+    background: var(--surface);
+  }
+  .vendor-header{
+    padding: 10px 12px;
+    display:flex;
+    justify-content:space-between;
+    gap:10px;
+    cursor:pointer;
+    color: var(--text);
+    background: transparent;
+  }
+  .vendor-header.open{background: color-mix(in oklab, var(--accent) 8%, transparent)}
+  .vendor-header strong{font-weight:800;letter-spacing:-.01em}
+  .vendor-list{display:none;padding: 10px 12px 6px}
+  .vendor-list.open{display:block}
 
-    .card-actions{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      margin-top:12px;
-      padding-top:12px;
-      border-top:1px solid rgba(148,163,184,.14);
-      flex-wrap:wrap;
-    }
-    .small{
-      font-size:12px;
-      color:var(--muted);
-      white-space:nowrap;
-      display:flex;
-      align-items:center;
-      gap:8px;
-    }
-    .actions-left{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-      align-items:center;
-    }
+  .card{
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: color-mix(in oklab, var(--surface-2) 70%, transparent);
+    padding: 10px 11px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    cursor:pointer;
+    word-break:break-word;
+    overflow-wrap:anywhere;
+  }
+  .card:hover{border-color: var(--border-2); box-shadow: 0 10px 22px rgba(0,0,0,.15)}
+  .card-header{display:flex;justify-content:space-between;gap:10px;margin-bottom: 6px}
+  .card-title{font-weight:800;letter-spacing:-.01em}
+  .muted{font-size:11px;color:var(--muted)}
+  .pill-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 
-    /* Embed */
-    .embed-wrap{
-      border:1px solid rgba(148,163,184,.16);
-      border-radius:14px;
-      overflow:hidden;
-      background:rgba(0,0,0,.14);
-      box-shadow:var(--shadow2);
-    }
-    .embed-head{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      padding:12px 12px;
-      border-bottom:1px solid rgba(148,163,184,.16);
-      background:rgba(255,255,255,.05);
-      flex-wrap:wrap;
-    }
-    .embed-head .lefty{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      min-width:0;
-      flex: 1 1 320px;
-    }
-    .embed-title{
-      margin:0;
-      font-size:13px;
-      font-weight:950;
-      letter-spacing:.2px;
-    }
-    .embed-sub{
-      margin:0;
-      font-size:12px;
-      color:var(--muted);
-      line-height:1.25;
-    }
-    .embed-body{ padding:0; }
-    .embed-wrap iframe{
-      width:100% !important;
-      min-height:820px;
-      border:0 !important;
-      background:#fff;
-      display:block;
-    }
+  .status-pill{
+    padding: 2px 8px;
+    border-radius:999px;
+    font-size:10px;
+    font-weight:900;
+    text-transform:uppercase;
+    line-height:1.2;
+    white-space:nowrap;
+    border:1px solid var(--border);
+    color: var(--muted);
+  }
+  .status-new{border-color: color-mix(in oklab, var(--ok) 55%, var(--border)); color: color-mix(in oklab, var(--ok) 70%, var(--text))}
+  .status-hold{border-color: color-mix(in oklab, var(--warn) 55%, var(--border)); color: color-mix(in oklab, var(--warn) 70%, var(--text))}
+  .status-paid{border-color: color-mix(in oklab, var(--accent-2) 55%, var(--border)); color: color-mix(in oklab, var(--accent-2) 70%, var(--text))}
 
-    @keyframes spin{ to{ transform:rotate(360deg);} }
+  .age-pill{
+    display:inline-flex;
+    align-items:center;
+    padding: 2px 7px;
+    border-radius:999px;
+    font-size:10px;
+    border:1px solid var(--border);
+    gap:6px;
+    color: var(--muted);
+    line-height:1.2;
+    white-space:nowrap;
+  }
+  .age-dot{width:7px;height:7px;border-radius:999px}
+  .age-ok{background: var(--ok)}
+  .age-warn{background: var(--warn)}
+  .age-risk{background: var(--risk)}
 
-    /* Footer */
-    .footer{
-      margin-top:18px;
-      border:1px solid var(--border);
-      border-radius:var(--r18);
-      background:rgba(255,255,255,.04);
-      padding:14px 16px;
-      display:flex;
-      flex-wrap:wrap;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      color:var(--muted);
-      font-size:12px;
-    }
+  .empty-state{font-size:11px;color:var(--muted);padding: 10px;text-align:center}
 
-    /* Responsive */
-    @media (max-width: 940px){
-      .hero{ grid-template-columns: 1fr; }
-      .brand{ min-width:auto; }
-    }
-    @media (max-width: 760px){
-      .card{ grid-column: span 12; }
-      .top{ padding:14px; }
-      .hero-card{ padding:16px; }
-      .hero-title{ font-size:20px; }
-    }
+  .reports{
+    background: var(--panel);
+    border:1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    box-shadow: var(--shadow-soft);
+    backdrop-filter: blur(10px);
+  }
+  .panel h3{
+    margin: 0 0 8px;
+    font-size:11px;
+    color: var(--muted);
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    font-weight: 900;
+  }
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th,td{border-bottom:1px solid var(--border);padding:8px 6px;text-align:left}
+  th{color:var(--muted);font-weight:800}
 
-    @media print{
-      body{ background:#fff; color:#111; }
-      .top,.hero-card,.card,.footer,.embed-wrap{ box-shadow:none !important; background:#fff !important; }
-      .chip,.tag,.btn,.open{ border:1px solid #ddd !important; color:#111 !important; background:#fff !important; }
-      #forms{ display:none !important; }
-    }
-  </style>
+  footer{grid-column:1 / -1;text-align:center;color:var(--muted);font-size:11px;margin-top: 16px}
+
+  /* Calendar */
+  .calendar{
+    background: var(--panel);
+    border:1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 12px 14px;
+    box-shadow: var(--shadow-soft);
+    backdrop-filter: blur(10px);
+  }
+  .cal-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom: 12px;flex-wrap:wrap}
+  .cal-title{font-size:13px;font-weight:900;letter-spacing:-.01em}
+  .cal-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap: 10px}
+  .cal-dow{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em;padding: 2px 2px}
+  .cal-cell{
+    min-height: 118px;
+    border:1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    padding: 10px;
+    display:flex;
+    flex-direction:column;
+    gap: 8px;
+    overflow:hidden;
+  }
+  .cal-cell.muted{opacity:.55}
+  .cal-dayline{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .cal-daynum{font-size:12px;font-weight:900}
+  .cal-badge{
+    font-size:10px;
+    color: var(--muted);
+    border:1px solid var(--border);
+    border-radius:999px;
+    padding: 2px 8px;
+    white-space:nowrap;
+  }
+  .cal-items{display:flex;flex-direction:column;gap:8px;overflow:auto;padding-right:2px}
+  .cal-item{
+    border:1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px;
+    background: var(--surface-2);
+    cursor:pointer;
+  }
+  .cal-item:hover{border-color: var(--border-2)}
+  .cal-item .top{display:flex;justify-content:space-between;gap:8px}
+  .cal-item .t{font-size:11px;font-weight:900;letter-spacing:-.01em}
+  .cal-item .a{font-size:10px;color:var(--muted);margin-top:3px}
+
+  /* Drawer */
+  .drawer{
+    position:fixed;top:0;right:0;height:100%;
+    width: 440px;max-width: 92vw;
+    background: var(--panel);
+    border-left:1px solid var(--border);
+    box-shadow: -18px 0 50px rgba(0,0,0,.40);
+    transform: translateX(100%);
+    transition: transform .22s ease;
+    z-index:50;
+    display:flex;flex-direction:column;
+    backdrop-filter: blur(12px);
+  }
+  .drawer.open{transform: translateX(0)}
+  .drawer-header{
+    display:flex;justify-content:space-between;align-items:center;
+    padding: 12px 14px;
+    border-bottom:1px solid var(--border);
+    gap:10px;
+  }
+  .drawer-title{font-size:13px;font-weight:900;letter-spacing:-.01em}
+  .drawer-body{padding: 12px 14px;overflow:auto}
+  .key{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom: 12px}
+  .key-item{
+    background: var(--surface);
+    border:1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px;
+  }
+  .key-item .label{font-size:11px;color:var(--muted);font-weight:700}
+  .key-item .val{font-size:14px;font-weight:900;letter-spacing:-.01em;margin-top:3px}
+  .drawer-actions{display:flex;gap:8px;flex-wrap:wrap;margin: 8px 0 10px}
+  details.section{
+    border:1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px;
+    margin: 10px 0;
+    background: var(--surface);
+  }
+  details.section>summary{cursor:pointer;font-size:12px;color:var(--muted);font-weight:800}
+  .file-list{display:flex;flex-direction:column;gap:8px}
+  .link{color: var(--accent);text-decoration:none;font-weight:700}
+  .link:hover{text-decoration:underline}
+  .kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;background: var(--surface-2);border:1px solid var(--border);padding:2px 8px;border-radius: 10px;color: var(--muted)}
+
+  /* Preview overlay */
+  .preview{position:fixed;inset:0;display:none;background:rgba(0,0,0,.55);backdrop-filter:blur(6px);z-index:60;align-items:center;justify-content:center;padding:24px}
+  .preview.open{display:flex}
+  .preview-card{
+    background: var(--panel);
+    border:1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    width:min(1100px,94vw);
+    height:min(90vh,900px);
+    display:flex;flex-direction:column;overflow:hidden
+  }
+  .preview-bar{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--border)}
+  .preview-title{font-size:12px;font-weight:900}
+  .preview-actions{display:flex;gap:8px}
+  .preview iframe{flex:1;border:0;width:100%}
+  .preview-msg{padding:10px;color:#fecdd3;background:rgba(244,63,94,.12);border-top:1px solid rgba(244,63,94,.24);font-size:12px;text-align:center}
+
+  @media (max-width:980px){
+    :root{--sidebar-w: 100%}
+    .app{grid-template-columns: 1fr}
+    .sidebar{height:auto;position:relative;top:auto}
+    .kpis{grid-template-columns:1fr}
+    .cal-cell{min-height:100px}
+    .drawer{width: 100%}
+  }
+</style>
 </head>
 
 <body>
-  <div class="wrap">
-    <!-- TOP BAR -->
-    <div class="top" role="banner" aria-label="Employee Hub Header">
-      <div class="brand">
-        <div class="logo" aria-hidden="true">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-            <path d="M12 2l8.5 4.5v11L12 22 3.5 17.5v-11L12 2z" stroke="rgba(6,16,29,.85)" stroke-width="1.6"/>
-            <path d="M12 22V12.2" stroke="rgba(6,16,29,.65)" stroke-width="1.6"/>
-            <path d="M20.5 6.5L12 11.3 3.5 6.5" stroke="rgba(6,16,29,.65)" stroke-width="1.6"/>
-          </svg>
-        </div>
-        <div>
-          <h1>Baseballism — Employee Hub</h1>
-          <p>Travel, invoices, receipts, logistics, analytics, and requests.</p>
-        </div>
+  <div class="app">
+    <header>
+      <div class="title-wrap">
+        <h1>AP Requests — Live Dashboard</h1>
+        <p>Auto-pulled from Google Sheets · WPV Accounting</p>
       </div>
 
-      <div class="top-right">
-        <span class="chip"><span class="dot" aria-hidden="true"></span>Internal • Staff Use</span>
-        <span class="chip">Stays on this URL</span>
+      <div class="header-actions">
+        <div id="lastRefresh" class="chip" style="cursor:default"><span>Updated</span> <b id="lastRefreshText">—</b></div>
+        <button id="themeBtn" class="chip" title="Toggle theme"><span>Theme</span> <b id="themeLabel">Dark</b> <span class="x">↻</span></button>
       </div>
-    </div>
+    </header>
 
-    <!-- HERO -->
-    <div class="hero" aria-label="Quick access area">
-      <div class="hero-card">
-        <h2 class="hero-title">Fast access to the tools you actually use.</h2>
-        <p class="hero-sub">
-          Click anything below and it opens inside this page (embedded) so the URL doesn’t change.
-          If a form ever doesn’t load, use the “Open in new tab” button in the form header.
-        </p>
-      </div>
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="s-title">Search</div>
+      <input id="searchInput" class="search-input" placeholder="Search vendor, invoice, notes, email, amount..." />
 
-      <div class="hero-card">
-        <div class="quick">
-          <div>
-            <h3>Top Shortcuts</h3>
-            <p>Most common employee actions.</p>
-          </div>
-
-          <div class="stack">
-            <a class="open" href="#forms" data-open-form="purchase">
-              <span>Purchase / Invoice Request</span><span aria-hidden="true">→</span>
-            </a>
-
-            <a class="open" href="#forms" data-open-form="receipt">
-              <span>Receipt Upload</span><span aria-hidden="true">↓</span>
-            </a>
-
-            <a class="open" href="#forms" data-open-form="travel">
-              <span>Travel Request</span><span aria-hidden="true">→</span>
-            </a>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- EMPLOYEE LINKS -->
-    <div class="section">
-      <div class="section-head">
-        <h2>Employee Links</h2>
-        <p class="hint">Forms open embedded. Admin pages open in a new tab.</p>
+      <div class="f">
+        <label>Vendor</label>
+        <select id="vendorSelect" multiple size="7"></select>
       </div>
 
-      <div class="grid">
-        <!-- Purchase / Invoice Request -->
-        <div class="card">
-          <div class="card-top">
-            <div class="left">
-              <div class="ico" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M7 3h10l2 3v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" stroke="rgba(186,230,253,.95)" stroke-width="2"/>
-                  <path d="M8 11h8M8 15h8" stroke="rgba(186,230,253,.75)" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-              </div>
-              <div class="meta">
-                <p class="title">Purchase / Invoice Request</p>
-                <p class="desc">Submit invoices or purchase requests for review and processing.</p>
-              </div>
-            </div>
-            <div class="tags">
-              <span class="tag blue">AP</span>
-              <span class="tag">Request</span>
-            </div>
-          </div>
+      <details id="advFilters" open>
+        <summary>Filters</summary>
 
-          <div class="card-actions">
-            <div class="actions-left">
-              <a class="btn" href="#forms" data-open-form="purchase">Open Embedded →</a>
-              <a class="btn ghost" href="https://wpvportal.weebly.com/submit-request---bbism.html" target="_blank" rel="noopener noreferrer">New tab ↗</a>
-            </div>
-            <span class="small">Invoices / Purchases</span>
+        <div class="f">
+          <label>Status</label>
+          <select id="statusSelect" multiple size="3">
+            <option value="new">New</option>
+            <option value="hold">Hold</option>
+            <option value="paid">Paid</option>
+          </select>
+          <div class="toggle">
+            <div class="toggle-left"><input id="includePaid" type="checkbox" checked /> Include paid</div>
           </div>
         </div>
 
-        <!-- Travel Request -->
-        <div class="card">
-          <div class="card-top">
-            <div class="left">
-              <div class="ico" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M2.5 12.5l19-7-7 19-3.5-8-8.5-4z" stroke="rgba(187,247,208,.95)" stroke-width="2" stroke-linejoin="round"/>
-                </svg>
-              </div>
-              <div class="meta">
-                <p class="title">Travel Request</p>
-                <p class="desc">Submit travel details through the travel request form.</p>
-              </div>
-            </div>
-            <div class="tags">
-              <span class="tag green">Travel</span>
-              <span class="tag">Form</span>
-            </div>
-          </div>
+        <div class="f">
+          <label>Type</label>
+          <select id="typeSelect" multiple size="6"></select>
+        </div>
 
-          <div class="card-actions">
-            <div class="actions-left">
-              <a class="btn" href="#forms" data-open-form="travel">Open Embedded →</a>
-              <a class="btn ghost" href="https://wpvportal.weebly.com/travel-form---bbism.html" target="_blank" rel="noopener noreferrer">New tab ↗</a>
-            </div>
-            <span class="small">Travel</span>
+        <div class="f">
+          <label>Location</label>
+          <select id="locationSelect" multiple size="6"></select>
+        </div>
+
+        <div class="f">
+          <label>Form Type</label>
+          <select id="formTypeSelect" multiple size="6"></select>
+        </div>
+
+        <div class="f"><label>Amount Min</label><input id="amtMin" type="number" step="0.01" placeholder="0.00" /></div>
+        <div class="f"><label>Amount Max</label><input id="amtMax" type="number" step="0.01" placeholder="∞" /></div>
+
+        <div class="f"><label>Due Date (from)</label><input id="dueFrom" type="date" /></div>
+        <div class="f"><label>Due Date (to)</label><input id="dueTo" type="date" /></div>
+
+        <div class="f">
+          <label>Due Window</label>
+          <select id="dueWindow">
+            <option value="">Any</option>
+            <option value="7">Next 7 days</option>
+            <option value="14">Next 14 days</option>
+            <option value="30">Next 30 days</option>
+            <option value="60">Next 60 days</option>
+          </select>
+          <div class="toggle">
+            <div class="toggle-left"><input id="overdueOnly" type="checkbox" /> Overdue only</div>
           </div>
         </div>
 
-        <!-- Travel (Google Form) -->
-        <div class="card">
-          <div class="card-top">
-            <div class="left">
-              <div class="ico" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M7 3h8l4 4v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" stroke="rgba(253,230,138,.95)" stroke-width="2"/>
-                  <path d="M15 3v5h5" stroke="rgba(253,230,138,.95)" stroke-width="2"/>
-                  <path d="M8 12h8M8 16h8" stroke="rgba(253,230,138,.75)" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-              </div>
-              <div class="meta">
-                <p class="title">Travel Request (Google Form)</p>
-                <p class="desc">Alternate entry to submit travel via Google Forms.</p>
-              </div>
-            </div>
-            <div class="tags">
-              <span class="tag amber">Google</span>
-              <span class="tag">Form</span>
-            </div>
-          </div>
+        <div class="f"><label>Submitted (from)</label><input id="subFrom" type="date" /></div>
+        <div class="f"><label>Submitted (to)</label><input id="subTo" type="date" /></div>
 
-          <div class="card-actions">
-            <div class="actions-left">
-              <a class="btn" href="#forms" data-open-form="travel_google">Open Embedded →</a>
-              <a class="btn ghost" href="https://docs.google.com/forms/d/e/1FAIpQLSckmYA0pninVJLOyPduZnMQ__b7gByaFJxoGCVYlKUVgQZcLA/viewform" target="_blank" rel="noopener noreferrer">New tab ↗</a>
-            </div>
-            <span class="small">External</span>
-          </div>
+        <div class="f">
+          <label>Aging</label>
+          <select id="ageSelect">
+            <option value="">Any</option>
+            <option>0–30</option>
+            <option>31–60</option>
+            <option>61–90</option>
+            <option>90+</option>
+          </select>
         </div>
 
-        <!-- Logistics -->
-        <div class="card">
-          <div class="card-top">
-            <div class="left">
-              <div class="ico" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M3 7h11v10H3V7z" stroke="rgba(186,230,253,.95)" stroke-width="2"/>
-                  <path d="M14 10h4l3 3v4h-7v-7z" stroke="rgba(186,230,253,.95)" stroke-width="2" stroke-linejoin="round"/>
-                  <path d="M7 19a1.5 1.5 0 1 0 0 .01V19zm10 0a1.5 1.5 0 1 0 0 .01V19z" stroke="rgba(186,230,253,.75)" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-              </div>
-              <div class="meta">
-                <p class="title">Logistics</p>
-                <p class="desc">Shipping, warehouse requests & resources.</p>
-              </div>
-            </div>
-            <div class="tags">
-              <span class="tag blue">Ops</span>
-              <span class="tag">Internal</span>
-            </div>
-          </div>
+        <div class="f">
+          <label>Sort</label>
+          <select id="sortBy">
+            <option value="smart">Smart (lane default)</option>
+            <option value="dueDate">Due Date</option>
+            <option value="amount">Amount</option>
+            <option value="vendor">Vendor</option>
+            <option value="submitted">Submitted</option>
+            <option value="aging">Aging</option>
+          </select>
+          <select id="sortDir">
+            <option value="asc">Ascending</option>
+            <option value="desc">Descending</option>
+          </select>
+        </div>
+      </details>
 
-          <div class="card-actions">
-            <div class="actions-left">
-              <a class="btn" href="https://wpvportal.weebly.com/logistics.html" target="_blank" rel="noopener noreferrer">Open Logistics ↗</a>
-            </div>
-            <span class="small">Baseballism Portal</span>
+      <div class="toggle">
+        <div class="toggle-left"><input id="togglePaid" type="checkbox" /> Show Paid lane</div>
+      </div>
+
+      <div style="display:flex;gap:10px;margin-top:12px">
+        <button id="resetBtn" class="btn block">Reset</button>
+        <button id="exportBtn" class="btn primary block">Export CSV</button>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+      <div id="dataBanner" style="display:none"></div>
+
+      <section class="kpis">
+        <div class="kpi-card">
+          <div class="kpi-title">Totals</div>
+          <div class="grid2">
+            <div class="kpi-item"><div class="label">Total</div><div id="kpiTotal" class="value">—</div></div>
+            <div class="kpi-item"><div class="label">Outstanding</div><div id="kpiOutstanding" class="value">$0.00</div></div>
           </div>
         </div>
-
-        <!-- Analytics -->
-        <div class="card">
-          <div class="card-top">
-            <div class="left">
-              <div class="ico" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M4 19V5" stroke="rgba(253,230,138,.95)" stroke-width="2" stroke-linecap="round"/>
-                  <path d="M4 19h16" stroke="rgba(253,230,138,.95)" stroke-width="2" stroke-linecap="round"/>
-                  <path d="M7 15l3-4 3 2 4-6 2 2" stroke="rgba(253,230,138,.8)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-              </div>
-              <div class="meta">
-                <p class="title">Analytics (Login)</p>
-                <p class="desc">Reporting dashboards and KPI views (login required).</p>
-              </div>
-            </div>
-            <div class="tags">
-              <span class="tag amber">Analytics</span>
-              <span class="tag">Login</span>
-            </div>
-          </div>
-
-          <div class="card-actions">
-            <div class="actions-left">
-              <a class="btn" href="https://wpvportal.weebly.com/analytics-login---bbism.html" target="_blank" rel="noopener noreferrer">Open Analytics ↗</a>
-            </div>
-            <span class="small">Restricted</span>
+        <div class="kpi-card">
+          <div class="kpi-title">Status</div>
+          <div class="grid2">
+            <div class="kpi-item"><div class="label">Ready</div><div id="kpiNew" class="value">—</div><div id="kpiNewAmt" class="label">—</div></div>
+            <div class="kpi-item"><div class="label">Need Info</div><div id="kpiHold" class="value">—</div><div id="kpiHoldAmt" class="label">—</div></div>
           </div>
         </div>
+      </section>
 
-        <!-- Requests Hub (Status / Check) -->
-        <div class="card">
-          <div class="card-top">
-            <div class="left">
-              <div class="ico" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M8 4h8l2 3v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V7l2-3z" stroke="rgba(186,230,253,.95)" stroke-width="2" stroke-linejoin="round"/>
-                  <path d="M9 12h6M9 16h6" stroke="rgba(186,230,253,.75)" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-              </div>
-              <div class="meta">
-                <p class="title">Requests Hub (Status / Check)</p>
-                <p class="desc">View request submissions and status — use this to check what’s been submitted.</p>
-              </div>
-            </div>
-            <div class="tags">
-              <span class="tag blue">Requests</span>
-              <span class="tag">Status</span>
-            </div>
-          </div>
+      <div class="tabs" id="mainTabs">
+        <button class="tab active" data-main="requests">Requests</button>
+        <button class="tab" data-main="calendar">Calendar</button>
+        <button class="tab" data-main="reports">Reports</button>
+      </div>
 
-          <div class="card-actions">
-            <div class="actions-left">
-              <a class="btn" href="https://wpvportal.weebly.com/database---bbism.html" target="_blank" rel="noopener noreferrer">Open Requests Hub ↗</a>
-            </div>
-            <span class="small">Submission tracking</span>
-          </div>
+      <div id="chipBar" class="chipbar hidden"></div>
+
+      <section id="requestsView">
+        <div class="tabs" id="laneTabs">
+          <button class="tab active" data-toggle="new">New</button>
+          <button class="tab" data-toggle="hold">Hold</button>
+          <button class="tab" data-toggle="paid">Paid</button>
         </div>
+
+        <div id="laneNew" class="lane"></div>
+        <div id="laneHold" class="lane hidden"></div>
+        <div id="lanePaid" class="lane hidden"></div>
+      </section>
+
+      <section id="calendarView" class="hidden">
+        <div class="calendar">
+          <div class="cal-top">
+            <div class="cal-title" id="calTitle">Due Dates</div>
+            <div class="cal-actions">
+              <button class="btn small" id="calPrev">&larr; Prev</button>
+              <button class="btn small" id="calToday">Today</button>
+              <button class="btn small" id="calNext">Next &rarr;</button>
+            </div>
+          </div>
+          <div class="cal-grid" id="calGrid"></div>
+        </div>
+      </section>
+
+      <section id="reportsView" class="hidden">
+        <div class="reports panel">
+          <h3>Aging Breakdown (Filtered)</h3>
+          <table id="agingTable">
+            <thead><tr><th>Aging</th><th>Count</th><th>Amount</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="reports panel" style="margin-top:12px">
+          <h3>Top Vendors by Outstanding (Filtered)</h3>
+          <table id="vendorsTable">
+            <thead><tr><th>Vendor</th><th>Count</th><th>Amount</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <footer>FinanceHub · Powered by WPV Accounting</footer>
+  </div>
+
+  <!-- Drawer -->
+  <aside id="drawer" class="drawer" aria-hidden="true">
+    <div class="drawer-header">
+      <div class="drawer-title" id="drawerTitle">Details</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button id="prevBtn" class="btn small ghost" title="Previous (←)">&larr;</button>
+        <button id="nextBtn" class="btn small ghost" title="Next (→)">&rarr;</button>
+        <button id="closeBtn" class="btn small">Close</button>
       </div>
     </div>
+    <div class="drawer-body" id="drawerBody"></div>
+  </aside>
 
-    <!-- EMBEDDED FORMS (keeps you on the same URL) -->
-    <div class="section" id="forms">
-      <div class="section-head">
-        <h2>Forms</h2>
-        <p class="hint">Loads here by default. If it ever doesn’t load, use “Open in new tab”.</p>
-      </div>
-
-      <div class="embed-wrap">
-        <div class="embed-head">
-          <div class="lefty">
-            <div class="ico" aria-hidden="true" style="width:38px;height:38px;border-radius:12px;">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M7 3h10l2 3v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" stroke="rgba(229,231,235,.92)" stroke-width="2"/>
-                <path d="M8 13h8M8 17h6" stroke="rgba(229,231,235,.75)" stroke-width="2" stroke-linecap="round"/>
-              </svg>
-            </div>
-
-            <div style="min-width:0;">
-              <p class="embed-title" id="embedTitle">Receipt Upload</p>
-              <p class="embed-sub" id="embedSub">Attach receipts for invoices, reimbursements, or card purchases.</p>
-            </div>
-          </div>
-
-          <a class="btn" id="embedNewTab" href="https://form.jotform.com/202585858721161" target="_blank" rel="noopener noreferrer">
-            Open in new tab ↗
-          </a>
-        </div>
-
-        <div style="position:relative;">
-          <div id="embedLoading" style="
-            display:none; position:absolute; inset:0; z-index:2;
-            background:rgba(11,18,32,.72);
-            backdrop-filter: blur(6px);
-            align-items:center; justify-content:center; flex-direction:column; gap:10px;
-            color:rgba(203,213,225,.95);
-            font-weight:900;
-          ">
-            <div style="width:34px;height:34px;border-radius:999px;border:3px solid rgba(255,255,255,.18);border-top-color:rgba(56,189,248,.9);animation:spin .9s linear infinite;"></div>
-            <div>Loading form…</div>
-            <div style="font-size:12px;color:rgba(167,176,192,.95);font-weight:700;">If it hangs, use “Open in new tab”.</div>
-          </div>
-
-          <iframe
-            id="embedFrame"
-            title="Embedded Form"
-            src="https://form.jotform.com/202585858721161"
-            loading="lazy"
-            allow="camera; microphone; geolocation"
-          ></iframe>
+  <!-- Preview Modal -->
+  <div id="pdfPreview" class="preview" aria-hidden="true">
+    <div class="preview-card">
+      <div class="preview-bar">
+        <div class="preview-title" id="previewTitle">Preview</div>
+        <div class="preview-actions">
+          <a id="previewOpenOriginal" class="btn small" target="_blank" rel="noopener">Open Original</a>
+          <button id="previewClose" class="btn small">Close</button>
         </div>
       </div>
-    </div>
-
-    <!-- FOOTER -->
-    <div class="footer" role="contentinfo">
-      <div>Baseballism • Internal Employee Hub</div>
-      <div>Forms open embedded to keep you on this URL • Use “New tab ↗” if needed</div>
+      <iframe id="previewFrame" referrerpolicy="no-referrer"></iframe>
+      <div id="previewMsg" class="preview-msg hidden">We couldn’t embed this file here. Click “Open Original”.</div>
     </div>
   </div>
 
-  <script>
-    (function(){
-      // Central router: keeps users on the same URL while loading forms in the iframe
-      const FORMS = {
-        purchase: {
-          title: "Purchase / Invoice Request",
-          sub: "Submit invoices or purchase requests for review and processing.",
-          url: "https://wpvportal.weebly.com/submit-request---bbism.html",
-          embed: "https://wpvportal.weebly.com/submit-request---bbism.html"
-        },
-        travel: {
-          title: "Travel Request",
-          sub: "Submit travel details through the travel request form.",
-          url: "https://wpvportal.weebly.com/travel-form---bbism.html",
-          embed: "https://wpvportal.weebly.com/travel-form---bbism.html"
-        },
-        travel_google: {
-          title: "Travel Request (Google Form)",
-          sub: "Alternate entry to submit travel via Google Forms.",
-          url: "https://docs.google.com/forms/d/e/1FAIpQLSckmYA0pninVJLOyPduZnMQ__b7gByaFJxoGCVYlKUVgQZcLA/viewform",
-          embed: "https://docs.google.com/forms/d/e/1FAIpQLSckmYA0pninVJLOyPduZnMQ__b7gByaFJxoGCVYlKUVgQZcLA/viewform?embedded=true"
-        },
-        receipt: {
-          title: "Receipt Upload",
-          sub: "Attach receipts for invoices, reimbursements, or card purchases.",
-          url: "https://form.jotform.com/202585858721161",
-          embed: "https://form.jotform.com/202585858721161"
-        }
-      };
+<script>
+/* ========= CONFIG ========= */
+const SHEET_ID = "1lXM1Bu8ZRks7wDK34Bz3O_zgWcwdFU8USjuHBdbDhV8";
+const GID = "0";
+const GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${GID}&tqx=out:json`;
+const PROXY_ORIGIN = "";
 
-      const frame   = document.getElementById("embedFrame");
-      const titleEl = document.getElementById("embedTitle");
-      const subEl   = document.getElementById("embedSub");
-      const newTab  = document.getElementById("embedNewTab");
-      const loading = document.getElementById("embedLoading");
+/* ========= STATE ========= */
+let allRecords = [];
+let filteredRecords = [];
+const vendorOpenState = new Map();
+let currentOpenId = null;
 
-      function showLoading(on){
-        loading.style.display = on ? "flex" : "none";
+const filters = {
+  q:"",
+  vendors:new Set(),
+  statuses:new Set(),
+  types:new Set(),
+  locations:new Set(),
+  formTypes:new Set(),
+  includePaid:true,
+  overdueOnly:false,
+  dueWindowDays:null,
+  amtMin:null,
+  amtMax:null,
+  dueFrom:null,
+  dueTo:null,
+  subFrom:null,
+  subTo:null,
+  age:null,
+  sortBy:"smart",
+  sortDir:"asc",
+};
+
+const ui = {
+  showPaidLane:false,
+  activeLane:"new",
+  activeMain:"requests",
+  calendarMonthAnchor: startOfMonth(new Date()),
+};
+
+/* ========= HELPERS ========= */
+const $ = (id) => document.getElementById(id);
+const debounce = (fn, ms=250) => { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; };
+
+function banner(msg){
+  const b=$("dataBanner");
+  b.style.cssText="margin-bottom:12px;padding:10px 12px;border:1px solid rgba(244,63,94,.28);background:rgba(244,63,94,.10);color:#fecdd3;border-radius:14px;font:12px/1.4 Inter";
+  b.textContent=msg; b.style.display="block";
+}
+function hideBanner(){ $("dataBanner").style.display="none"; }
+
+function parseGViz(text){
+  const s=text.indexOf("{"), e=text.lastIndexOf("}");
+  return s>=0 && e>=0 ? JSON.parse(text.slice(s,e+1)) : null;
+}
+
+function asNumber(v){
+  if(v==null) return null;
+  if(typeof v==="number") return v;
+  const n=Number(String(v).replace(/[^0-9.-]/g,""));
+  return Number.isFinite(n)?n:null;
+}
+
+function parseGvizDate(raw){
+  if(!raw) return null;
+  if(raw instanceof Date) return raw;
+  const s=String(raw);
+  const m=s.match(/Date\((\d{4}),\s*(\d{1,2}),\s*(\d{1,2})\)/i);
+  if(m) return new Date(+m[1],+m[2],+m[3]);
+  const iso=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if(iso) return new Date(+iso[1],+iso[2]-1,+iso[3]);
+  const us=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if(us) return new Date(+us[3],+us[1]-1,+us[2]);
+  const short=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2})$/);
+  if(short){ const y=+short[3]+2000; return new Date(y,+short[1]-1,+short[2]); }
+  return null;
+}
+
+function formatDate(v){
+  const d=parseGvizDate(v);
+  return d?d.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}):"—";
+}
+function formatCurrency(n){
+  const x=Number(n);
+  return Number.isFinite(x)?x.toLocaleString("en-US",{style:"currency",currency:"USD"}):"$0.00";
+}
+
+function ageTag(r){
+  const d=parseGvizDate(r.dueDateRaw)||parseGvizDate(r.submissionDate)||parseGvizDate(r.dateCompleted);
+  if(!d) return {range:"—",cls:"age-ok",days:0};
+  const diff=Math.floor((Date.now()-d.getTime())/86400000);
+  if(diff<=30) return {range:"0–30",cls:"age-ok",days:diff};
+  if(diff<=60) return {range:"31–60",cls:"age-warn",days:diff};
+  return {range: diff<=90 ? "61–90" : "90+", cls:"age-risk",days:diff};
+}
+
+const escapeHtml = (s) => (s||"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;" }[m]));
+
+function ensureAbsoluteUrl(u){
+  if(!u) return "";
+  let s=String(u).trim();
+  if(/^https?:\/\//i.test(s)) return s;
+  if(/^\/\//.test(s)) return `https:${s}`;
+  if(/^(drive|docs)\.google\.com|^forms\.gle|^www\./i.test(s)) return `https://${s}`;
+  return `https://${s}`;
+}
+function normalizeDriveUrl(u){
+  try{
+    const url=new URL(ensureAbsoluteUrl(u));
+    if(url.hostname.includes("drive.google.com")){
+      const id=url.searchParams.get("id");
+      if(id) return `https://drive.google.com/file/d/${id}/view`;
+    }
+  }catch{}
+  return ensureAbsoluteUrl(u);
+}
+function normalizeJotformUrl(u){
+  if(!u) return "";
+  let url = ensureAbsoluteUrl(u);
+  if(/jotform/i.test(url)){
+    url = url.replace(/([?&])download=1(&|$)/, (m,p1,p2)=> p2 ? p1 : "");
+  }
+  return url;
+}
+
+function extOf(u){
+  try{
+    const url=new URL(ensureAbsoluteUrl(u));
+    const p=url.pathname.toLowerCase();
+    return p.split(".").pop()||"";
+  }catch{
+    return (u||"").split("?")[0].split(".").pop().toLowerCase();
+  }
+}
+function isPdfLike(url){
+  const u=(url||"").toLowerCase();
+  if(u.includes("drive.google.com/file")) return true;
+  if(u.endsWith(".pdf")) return true;
+  const m=u.match(/filename=([^&]+)/);
+  if(m && decodeURIComponent(m[1]||"").toLowerCase().endsWith(".pdf")) return true;
+  if(u.includes("jotform.com") || u.includes("jotformpro.com")) return true;
+  return false;
+}
+function isOfficeLike(url){ return ["xls","xlsx","csv"].includes(extOf(url)); }
+function isImageLike(url){ return ["png","jpg","jpeg","gif","webp"].includes(extOf(url)); }
+
+function toPreviewUrl(url){
+  const abs=ensureAbsoluteUrl(url);
+  const target = PROXY_ORIGIN ? `${PROXY_ORIGIN}/?url=${encodeURIComponent(abs)}` : abs;
+  if(abs.includes("drive.google.com/file")) return abs;
+  return `https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodeURIComponent(target)}`;
+}
+function toOfficeViewerUrl(url){
+  const abs=ensureAbsoluteUrl(url);
+  const target = PROXY_ORIGIN ? `${PROXY_ORIGIN}/?url=${encodeURIComponent(abs)}` : abs;
+  return `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(target)}`;
+}
+
+function startOfDay(d){ const x=new Date(d); x.setHours(0,0,0,0); return x; }
+function startOfMonth(d){ const x=new Date(d); x.setDate(1); x.setHours(0,0,0,0); return x; }
+function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+function toISODate(d){
+  const x=startOfDay(d);
+  const y=x.getFullYear();
+  const m=String(x.getMonth()+1).padStart(2,"0");
+  const day=String(x.getDate()).padStart(2,"0");
+  return `${y}-${m}-${day}`;
+}
+function clampText(s,max=64){
+  const t=String(s||"");
+  return t.length>max ? t.slice(0,max-1)+"…" : t;
+}
+
+/* ========= FETCH ========= */
+function headerIndex(json){
+  const labels=(json.table.cols||[]).map(c=>(c.label||"").trim());
+  const map=new Map();
+  labels.forEach((l,i)=>{ const k=l.toLowerCase(); if(!map.has(k)) map.set(k,i); });
+  return {
+    getIndex(aliases,fallback){
+      for(const a of aliases){
+        const k=a.toLowerCase();
+        if(map.has(k)) return map.get(k);
       }
+      return fallback ?? -1;
+    }
+  };
+}
+function cell(c,i){ const x=c[i]; return x? (x.v ?? x.f ?? "") : ""; }
+function getByAliases(c, idx, aliases, fallback){ const i=idx.getIndex(aliases,fallback); return i>=0?cell(c,i):""; }
 
-      function openForm(key){
-        const f = FORMS[key];
-        if(!f) return;
+async function fetchSheetJson(){
+  const cb=`_=${Date.now()}`;
+  const url1 = GVIZ_URL + `&${cb}`;
+  try{
+    const res=await fetch(url1,{cache:"no-store"});
+    const text=await res.text();
+    const json=parseGViz(text);
+    const rows=json?.table?.rows||[];
+    if(rows.length>0) return {kind:"gviz",json};
+    banner("Primary feed empty; using CSV fallback.");
+  }catch{
+    banner("Primary feed failed; using CSV fallback.");
+  }
+  const csvURL=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}&${cb}`;
+  const res2=await fetch(csvURL,{cache:"no-store"});
+  const csv=await res2.text();
+  return {kind:"csv",csv:parseCSV(csv)};
+}
 
-        titleEl.textContent = f.title;
-        subEl.textContent = f.sub;
-        newTab.href = f.url;
+function parseCSV(text){
+  const rows=[]; let i=0,cur="",inQ=false,row=[];
+  const push=()=>{row.push(cur);cur="";}; const end=()=>{rows.push(row);row=[];};
+  while(i<text.length){
+    const ch=text[i++];
+    if(inQ){
+      if(ch=='"'&&text[i]=='"'){cur+='"';i++;}
+      else if(ch=='"'){inQ=false;}
+      else cur+=ch;
+    }else{
+      if(ch=='"'){inQ=true;}
+      else if(ch==','){push();}
+      else if(ch=='\n'){push();end();}
+      else if(ch!=='\r'){cur+=ch;}
+    }
+  }
+  if(cur.length||row.length){push();end();}
+  const [header,...data]=rows;
+  return {header,data};
+}
 
-        showLoading(true);
-        frame.src = f.embed;
+/* Files */
+function parseFiles(raw){
+  if(!raw) return [];
+  const text=Array.isArray(raw)?raw.join("\n"):String(raw);
+  const parts=text.split(/[\n,]+/).map(s=>s.trim()).filter(Boolean);
+  const urls=[]; const urlRe=/(https?:\/\/[^\s)]+)|((?:https?:\/\/)?drive\.google\.com[^\s)]+)/ig;
+  for(const p of parts){
+    let m,added=false;
+    while((m=urlRe.exec(p))){ urls.push(normalizeDriveUrl(m[0])); added=true; }
+    if(!added && /^https?:\/\//i.test(p)) urls.push(ensureAbsoluteUrl(p));
+  }
+  return urls.map(u=>{
+    const jot=normalizeJotformUrl(u);
+    return {url:jot, name:(jot.split("/").pop()||"file").split("?")[0]};
+  });
+}
 
-        // Smooth scroll to embed section
-        const anchor = document.getElementById("forms");
-        if(anchor) anchor.scrollIntoView({ behavior:"smooth", block:"start" });
-      }
+/* ========= LOAD ========= */
+async function loadSheet(){
+  hideBanner();
+  const feed=await fetchSheetJson();
 
-      // Hide loader when iframe finishes
-      frame.addEventListener("load", () => showLoading(false));
+  let rows, idx;
+  if(feed.kind==="gviz"){ idx=headerIndex(feed.json); rows=feed.json.table.rows||[]; }
+  else{
+    const {header,data}=feed.csv;
+    const json={table:{cols:header.map(h=>({label:h}))}};
+    idx=headerIndex(json);
+    rows=data.map(r=>({c:r.map(v=>({v}))}));
+  }
 
-      // Route any click with data-open-form="..."
-      document.addEventListener("click", (e) => {
-        const el = e.target.closest("[data-open-form]");
-        if(!el) return;
-        e.preventDefault();
-        openForm(el.getAttribute("data-open-form"));
-      });
+  const I={
+    submission: idx.getIndex(["Submission Date","Submitted","Created","Date Submitted"],0),
+    vendorA: idx.getIndex(["Vendor","Vendor Name","Payee","Supplier"],1),
+    vendorB: idx.getIndex(["Alternate Vendor","Alt Vendor","Company"],2),
+    type: idx.getIndex(["Type","Main Type","Category"],3),
+    invoice: idx.getIndex(["Invoice #","Invoice","Invoice Number","Bill #"],4),
+    amount: idx.getIndex(["Amount Due","Amount","Invoice Amount","Total","$","Net Amount"],7),
+    due: idx.getIndex(["Due Date","Due","Payment Due"],8),
+    email: idx.getIndex(["Your Email","Email","Contact Email","Requester Email"],10),
+    location: idx.getIndex(["Location","Dept","Department","Site"],11),
+    notes: idx.getIndex(["Note & Comments","Notes","Memo","Comment","Description"],12),
+    formType: idx.getIndex(["Form Type","Source","Form","Type"],13),
+    completion: idx.getIndex(["Completed","Completion","Status","State"],14),
+    completedDate: idx.getIndex(["Date Completed","Completed Date","Paid Date","Submitted Date"],15),
+    paymentDetail: idx.getIndex(["Payment Detail","Payment Ref","Method","Txn ID"],16),
+    editUrl: idx.getIndex(["Submission Edit URL","Edit Link","Edit URL","Edit Response Link","Response Edit URL","Edit"],-1),
+    filesRaw: idx.getIndex(["File Upload","Files","Attachments","Receipts","Supporting Docs","Upload"],-1),
+  };
 
-      // Optional: open a form directly via ?form=receipt / ?form=purchase / etc
-      const params = new URLSearchParams(location.search);
-      const key = params.get("form");
-      if(key && FORMS[key]) openForm(key);
-    })();
-  </script>
+  allRecords = rows.map((r,ri)=>{
+    const c=r.c||[];
+    const vendor=String(
+      getByAliases(c,idx,["Vendor","Vendor Name","Payee","Supplier"],I.vendorA) ||
+      getByAliases(c,idx,["Alternate Vendor","Alt Vendor","Company"],I.vendorB) ||
+      "—"
+    ).trim();
+
+    const comp=String(getByAliases(c,idx,["Completed","Completion","Status","State"],I.completion)||"").toLowerCase();
+    let status="new";
+    if(comp==="hold") status="hold";
+    if(comp.includes("paid")) status="paid";
+
+    const files=parseFiles(getByAliases(c,idx,["File Upload","Files","Attachments","Receipts","Supporting Docs","Upload"],I.filesRaw));
+    let editUrl=getByAliases(c,idx,["Submission Edit URL","Edit Link","Edit URL","Edit Response Link","Response Edit URL","Edit"],I.editUrl)||"";
+    editUrl = editUrl ? ensureAbsoluteUrl(editUrl) : "";
+
+    const invoiceNo=getByAliases(c,idx,["Invoice #","Invoice","Invoice Number","Bill #"],I.invoice);
+    const submissionDate=getByAliases(c,idx,["Submission Date","Submitted","Created","Date Submitted"],I.submission);
+
+    const idStr=`${vendor}|${invoiceNo}|${submissionDate}|${ri}`;
+
+    return{
+      id:btoa(unescape(encodeURIComponent(idStr))).replace(/=+$/,""),
+      submissionDate,
+      vendor,
+      typeMain:getByAliases(c,idx,["Type","Main Type","Category"],I.type),
+      invoiceNo,
+      amount:asNumber(getByAliases(c,idx,["Amount Due","Amount","Invoice Amount","Total","$","Net Amount"],I.amount))||0,
+      dueDateRaw:getByAliases(c,idx,["Due Date","Due","Payment Due"],I.due),
+      email:getByAliases(c,idx,["Your Email","Email","Contact Email","Requester Email"],I.email),
+      location:getByAliases(c,idx,["Location","Dept","Department","Site"],I.location),
+      notes:getByAliases(c,idx,["Note & Comments","Notes","Memo","Comment","Description"],I.notes),
+      formType:getByAliases(c,idx,["Form Type","Source","Form"],I.formType),
+      dateCompleted:getByAliases(c,idx,["Date Completed","Completed Date","Paid Date","Submitted Date"],I.completedDate),
+      paymentDetail:getByAliases(c,idx,["Payment Detail","Payment Ref","Method","Txn ID"],I.paymentDetail),
+      status, editUrl, files
+    };
+  }).filter(r=>r.vendor && r.vendor!=="Submission Date");
+
+  $("lastRefreshText").textContent = new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});
+  populateAllFilterDropdowns();
+  applyFilters();
+  renderAll();
+  initRouter();
+}
+
+/* ========= FILTER POPULATION ========= */
+function uniqueSorted(arr){
+  return Array.from(new Set(arr.map(x=>String(x||"").trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
+}
+function populateMultiSelect(selectId, options){
+  const sel=$(selectId);
+  sel.innerHTML = options.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join("");
+}
+function readMultiSelectValues(selectId){
+  const sel=$(selectId);
+  return new Set(Array.from(sel.selectedOptions).map(o=>o.value));
+}
+function setMultiSelectValues(selectId, set){
+  const sel=$(selectId);
+  Array.from(sel.options).forEach(o=>{ o.selected = set.has(o.value); });
+}
+
+function populateAllFilterDropdowns(){
+  populateMultiSelect("vendorSelect", uniqueSorted(allRecords.map(r=>r.vendor)));
+  populateMultiSelect("typeSelect", uniqueSorted(allRecords.map(r=>r.typeMain)));
+  populateMultiSelect("locationSelect", uniqueSorted(allRecords.map(r=>r.location)));
+  populateMultiSelect("formTypeSelect", uniqueSorted(allRecords.map(r=>r.formType)));
+
+  $("vendorSelect").addEventListener("change",()=>{ filters.vendors=readMultiSelectValues("vendorSelect"); applyFilters(); renderAll(); });
+  $("typeSelect").addEventListener("change",()=>{ filters.types=readMultiSelectValues("typeSelect"); applyFilters(); renderAll(); });
+  $("locationSelect").addEventListener("change",()=>{ filters.locations=readMultiSelectValues("locationSelect"); applyFilters(); renderAll(); });
+  $("formTypeSelect").addEventListener("change",()=>{ filters.formTypes=readMultiSelectValues("formTypeSelect"); applyFilters(); renderAll(); });
+
+  $("statusSelect").addEventListener("change",()=>{ filters.statuses=readMultiSelectValues("statusSelect"); applyFilters(); renderAll(); });
+  $("includePaid").addEventListener("change",(e)=>{ filters.includePaid=!!e.target.checked; applyFilters(); renderAll(); });
+
+  $("dueWindow").addEventListener("change",(e)=>{
+    const v=e.target.value.trim();
+    filters.dueWindowDays = v==="" ? null : Number(v);
+    applyFilters(); renderAll();
+  });
+  $("overdueOnly").addEventListener("change",(e)=>{ filters.overdueOnly=!!e.target.checked; applyFilters(); renderAll(); });
+
+  $("sortBy").addEventListener("change",(e)=>{ filters.sortBy=e.target.value||"smart"; renderAll(); });
+  $("sortDir").addEventListener("change",(e)=>{ filters.sortDir=e.target.value||"asc"; renderAll(); });
+}
+
+/* ========= FILTERS ========= */
+function applyFilters(){
+  const q=(filters.q||"").toLowerCase().trim();
+  const now0 = startOfDay(new Date());
+  const dueWindowEnd = filters.dueWindowDays!=null ? addDays(now0, filters.dueWindowDays) : null;
+
+  filteredRecords = allRecords.filter(r=>{
+    if(filters.vendors.size && !filters.vendors.has(r.vendor)) return false;
+    if(filters.statuses.size && !filters.statuses.has(r.status)) return false;
+    if(!filters.includePaid && r.status==="paid") return false;
+
+    if(filters.types.size && !filters.types.has(String(r.typeMain||"").trim())) return false;
+    if(filters.locations.size && !filters.locations.has(String(r.location||"").trim())) return false;
+    if(filters.formTypes.size && !filters.formTypes.has(String(r.formType||"").trim())) return false;
+
+    if(filters.amtMin!=null && r.amount<filters.amtMin) return false;
+    if(filters.amtMax!=null && r.amount>filters.amtMax) return false;
+
+    const due=parseGvizDate(r.dueDateRaw);
+    if(filters.dueFrom && (!due || due < filters.dueFrom)) return false;
+    if(filters.dueTo && (!due || due > filters.dueTo)) return false;
+
+    if(filters.overdueOnly){
+      if(r.status==="paid") return false;
+      if(!due) return false;
+      if(startOfDay(due) >= now0) return false;
+    }
+
+    if(dueWindowEnd){
+      if(!due) return false;
+      const d0 = startOfDay(due);
+      if(d0 < now0) return false;
+      if(d0 > dueWindowEnd) return false;
+    }
+
+    const sub=parseGvizDate(r.submissionDate);
+    if(filters.subFrom && (!sub || sub < filters.subFrom)) return false;
+    if(filters.subTo && (!sub || sub > filters.subTo)) return false;
+
+    if(filters.age && ageTag(r).range !== filters.age) return false;
+
+    if(q){
+      const blob=[r.vendor,r.invoiceNo,r.notes,r.email,String(r.amount),r.location,r.typeMain,r.formType,r.status].join(" ").toLowerCase();
+      if(!blob.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+/* ========= SORT ========= */
+function laneSmartSort(key, items){
+  if(key==="new"){
+    items.sort((a,b)=>{
+      const A=ageTag(a),B=ageTag(b);
+      if(B.days!==A.days) return B.days-A.days;
+      const da=parseGvizDate(a.dueDateRaw), db=parseGvizDate(b.dueDateRaw);
+      if(da && db) return da-db;
+      return b.amount-a.amount;
+    });
+  }else if(key==="hold"){
+    items.sort((a,b)=> (parseGvizDate(a.submissionDate)?.getTime()||0) - (parseGvizDate(b.submissionDate)?.getTime()||0));
+  }else{
+    items.sort((a,b)=> (parseGvizDate(b.dateCompleted)?.getTime()||0) - (parseGvizDate(a.dateCompleted)?.getTime()||0));
+  }
+}
+function applyUserSort(items){
+  const dir = filters.sortDir==="desc" ? -1 : 1;
+  const by = filters.sortBy;
+
+  const val = (r)=>{
+    if(by==="dueDate") return parseGvizDate(r.dueDateRaw)?.getTime() ?? 0;
+    if(by==="amount") return r.amount ?? 0;
+    if(by==="vendor") return String(r.vendor||"");
+    if(by==="submitted") return parseGvizDate(r.submissionDate)?.getTime() ?? 0;
+    if(by==="aging") return ageTag(r).days ?? 0;
+    return 0;
+  };
+
+  if(by==="vendor"){
+    items.sort((a,b)=> String(val(a)).localeCompare(String(val(b))) * dir);
+    return;
+  }
+  items.sort((a,b)=> (val(a)-val(b)) * dir);
+}
+
+/* ========= RENDER ========= */
+function renderAll(){
+  renderKPIs();
+  renderChips();
+  renderActiveLane();
+  renderReporting();
+  renderCalendar();
+  applyPaidLaneVisibility();
+}
+
+function renderKPIs(){
+  $("kpiTotal").textContent = filteredRecords.length;
+
+  const n=filteredRecords.filter(r=>r.status==="new");
+  const h=filteredRecords.filter(r=>r.status==="hold");
+  $("kpiNew").textContent=n.length;
+  $("kpiHold").textContent=h.length;
+
+  $("kpiNewAmt").textContent=formatCurrency(n.reduce((s,r)=>s+r.amount,0));
+  $("kpiHoldAmt").textContent=formatCurrency(h.reduce((s,r)=>s+r.amount,0));
+  $("kpiOutstanding").textContent=formatCurrency(filteredRecords.filter(r=>r.status!=="paid").reduce((s,r)=>s+r.amount,0));
+}
+
+function groupByVendor(arr){
+  return arr.reduce((g,r)=>{ (g[r.vendor] ||= []).push(r); return g; },{});
+}
+
+function renderActiveLane(){
+  ["laneNew","laneHold","lanePaid"].forEach(id=>$(id).classList.add("hidden"));
+  const target = ui.activeLane==="new" ? "laneNew" : ui.activeLane==="hold" ? "laneHold" : "lanePaid";
+  $(target).classList.remove("hidden");
+  renderLane(ui.activeLane);
+}
+
+function renderLane(key){
+  const container=$(key==="new"?"laneNew":key==="hold"?"laneHold":"lanePaid");
+  container.innerHTML="";
+
+  let items=filteredRecords.filter(r=>r.status===key);
+  if(filters.sortBy==="smart") laneSmartSort(key, items);
+  else applyUserSort(items);
+
+  if(!items.length){
+    container.innerHTML='<div class="empty-state">No requests here.</div>';
+    return;
+  }
+
+  const grouped=groupByVendor(items);
+  Object.keys(grouped).sort().forEach(vendor=>{
+    const list=grouped[vendor];
+    const vg=document.createElement("div"); vg.className="vendor-group";
+
+    const vh=document.createElement("div"); vh.className="vendor-header";
+    vh.innerHTML=`<div><strong>${escapeHtml(vendor)}</strong></div><div class="muted">${list.length} • ${formatCurrency(list.reduce((s,r)=>s+r.amount,0))}</div>`;
+
+    const vl=document.createElement("div"); vl.className="vendor-list";
+    const isOpen=vendorOpenState.get(vendor) ?? true;
+    if(isOpen){ vl.classList.add("open"); vh.classList.add("open"); }
+
+    list.forEach(r=>{
+      const card=document.createElement("div"); card.className="card"; card.dataset.id=r.id;
+      const age=ageTag(r);
+
+      card.innerHTML=`
+        <div class="card-header">
+          <div>
+            <div class="card-title">${escapeHtml(r.invoiceNo || "(No invoice #)")}</div>
+            <div class="muted">${formatDate(r.dueDateRaw)} • ${formatCurrency(r.amount)}</div>
+          </div>
+          <div class="pill-row">
+            <span class="status-pill status-${r.status}">${r.status.toUpperCase()}</span>
+            <span class="age-pill"><span class="age-dot ${age.cls}"></span>${age.range} (${age.days}d)</span>
+          </div>
+        </div>
+        <div class="muted">${[r.typeMain,r.location].filter(Boolean).map(escapeHtml).join(" • ")}</div>
+        <div class="muted">${escapeHtml(r.email||"")}</div>
+        <div class="muted" style="-webkit-line-clamp:2;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden;">${escapeHtml(r.notes||"")}</div>
+      `;
+      card.addEventListener("click",()=>openRecord(r.id));
+      vl.appendChild(card);
+    });
+
+    vh.addEventListener("click",()=>{
+      vl.classList.toggle("open"); vh.classList.toggle("open");
+      vendorOpenState.set(vendor, vl.classList.contains("open"));
+    });
+
+    vg.appendChild(vh);
+    vg.appendChild(vl);
+    container.appendChild(vg);
+  });
+}
+
+function renderReporting(){
+  const rows=["0–30","31–60","61–90","90+"].map(bucket=>{
+    const list=filteredRecords.filter(r=>ageTag(r).range===bucket && r.status!=="paid");
+    return {bucket,count:list.length,amount:list.reduce((s,r)=>s+r.amount,0)};
+  });
+
+  document.querySelector("#agingTable tbody").innerHTML =
+    rows.map(r=>`<tr><td>${r.bucket}</td><td>${r.count}</td><td>${formatCurrency(r.amount)}</td></tr>`).join("");
+
+  const byVendor={};
+  filteredRecords.forEach(r=>{
+    if(r.status==="paid") return;
+    (byVendor[r.vendor] ??= {count:0,amount:0});
+    byVendor[r.vendor].count++;
+    byVendor[r.vendor].amount += r.amount;
+  });
+
+  const top=Object.entries(byVendor).map(([vendor,x])=>({vendor,...x})).sort((a,b)=>b.amount-a.amount).slice(0,10);
+  document.querySelector("#vendorsTable tbody").innerHTML =
+    top.length
+      ? top.map(v=>`<tr><td>${escapeHtml(v.vendor)}</td><td>${v.count}</td><td>${formatCurrency(v.amount)}</td></tr>`).join("")
+      : `<tr><td colspan="3" style="color:var(--muted)">No outstanding vendors.</td></tr>`;
+}
+
+/* ========= ACTIVE FILTER CHIPS ========= */
+function renderChips(){
+  const bar=$("chipBar");
+  const chips=[];
+
+  const pushChip = (label, onRemove) => chips.push({label, onRemove});
+
+  if(filters.q.trim()) pushChip(`Search: ${filters.q.trim()}`, ()=>{ filters.q=""; $("searchInput").value=""; });
+
+  if(filters.vendors.size) pushChip(`Vendors: ${filters.vendors.size}`, ()=>{ filters.vendors=new Set(); setMultiSelectValues("vendorSelect", filters.vendors); });
+  if(filters.statuses.size) pushChip(`Status: ${Array.from(filters.statuses).join(", ")}`, ()=>{ filters.statuses=new Set(); setMultiSelectValues("statusSelect", filters.statuses); });
+  if(!filters.includePaid) pushChip("Exclude paid", ()=>{ filters.includePaid=true; $("includePaid").checked=true; });
+
+  if(filters.types.size) pushChip(`Type: ${filters.types.size}`, ()=>{ filters.types=new Set(); setMultiSelectValues("typeSelect", filters.types); });
+  if(filters.locations.size) pushChip(`Location: ${filters.locations.size}`, ()=>{ filters.locations=new Set(); setMultiSelectValues("locationSelect", filters.locations); });
+  if(filters.formTypes.size) pushChip(`Form Type: ${filters.formTypes.size}`, ()=>{ filters.formTypes=new Set(); setMultiSelectValues("formTypeSelect", filters.formTypes); });
+
+  if(filters.amtMin!=null) pushChip(`Min ${formatCurrency(filters.amtMin)}`, ()=>{ filters.amtMin=null; $("amtMin").value=""; });
+  if(filters.amtMax!=null) pushChip(`Max ${formatCurrency(filters.amtMax)}`, ()=>{ filters.amtMax=null; $("amtMax").value=""; });
+
+  if(filters.dueFrom) pushChip(`Due ≥ ${formatDate(filters.dueFrom)}`, ()=>{ filters.dueFrom=null; $("dueFrom").value=""; });
+  if(filters.dueTo) pushChip(`Due ≤ ${formatDate(filters.dueTo)}`, ()=>{ filters.dueTo=null; $("dueTo").value=""; });
+
+  if(filters.dueWindowDays!=null) pushChip(`Due in ${filters.dueWindowDays}d`, ()=>{ filters.dueWindowDays=null; $("dueWindow").value=""; });
+  if(filters.overdueOnly) pushChip("Overdue only", ()=>{ filters.overdueOnly=false; $("overdueOnly").checked=false; });
+
+  if(filters.subFrom) pushChip(`Submitted ≥ ${formatDate(filters.subFrom)}`, ()=>{ filters.subFrom=null; $("subFrom").value=""; });
+  if(filters.subTo) pushChip(`Submitted ≤ ${formatDate(filters.subTo)}`, ()=>{ filters.subTo=null; $("subTo").value=""; });
+
+  if(filters.age) pushChip(`Aging: ${filters.age}`, ()=>{ filters.age=null; $("ageSelect").value=""; });
+
+  if(filters.sortBy!=="smart" || filters.sortDir!=="asc") pushChip(`Sort: ${filters.sortBy} (${filters.sortDir})`, ()=>{
+    filters.sortBy="smart"; filters.sortDir="asc";
+    $("sortBy").value="smart"; $("sortDir").value="asc";
+  });
+
+  if(!chips.length){
+    bar.classList.add("hidden");
+    bar.innerHTML="";
+    return;
+  }
+
+  bar.classList.remove("hidden");
+  bar.innerHTML = "";
+
+  const clearAll = document.createElement("button");
+  clearAll.className="chip";
+  clearAll.innerHTML = `<b>Clear all</b> <span class="x">×</span>`;
+  clearAll.addEventListener("click", ()=> $("resetBtn").click());
+  bar.appendChild(clearAll);
+
+  chips.forEach(c=>{
+    const el=document.createElement("button");
+    el.className="chip";
+    el.innerHTML = `${escapeHtml(c.label)} <span class="x">×</span>`;
+    el.addEventListener("click", ()=>{
+      c.onRemove();
+      applyFilters();
+      renderAll();
+    });
+    bar.appendChild(el);
+  });
+}
+
+/* ========= CALENDAR ========= */
+function renderCalendar(){
+  if(ui.activeMain!=="calendar") return;
+
+  const anchor=ui.calendarMonthAnchor;
+  const y=anchor.getFullYear();
+  const m=anchor.getMonth();
+  $("calTitle").textContent = `Due Dates — ${anchor.toLocaleDateString("en-US",{month:"long",year:"numeric"})}`;
+
+  const grid=$("calGrid");
+  grid.innerHTML="";
+
+  ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].forEach(d=>{
+    const el=document.createElement("div");
+    el.className="cal-dow";
+    el.textContent=d;
+    grid.appendChild(el);
+  });
+
+  const first=new Date(y,m,1);
+  const start=addDays(first, -first.getDay());
+  const last=new Date(y,m+1,0);
+  const end=addDays(last, 6-last.getDay());
+
+  const byDay=new Map();
+  for(const r of filteredRecords){
+    const due=parseGvizDate(r.dueDateRaw);
+    if(!due) continue;
+    const k=toISODate(due);
+    (byDay.get(k) ?? byDay.set(k,[]).get(k)).push(r);
+  }
+
+  for(const items of byDay.values()){
+    items.sort((a,b)=> (parseGvizDate(a.dueDateRaw)?.getTime()||0) - (parseGvizDate(b.dueDateRaw)?.getTime()||0) || (b.amount-a.amount));
+  }
+
+  const todayKey=toISODate(new Date());
+
+  for(let d=new Date(start); d<=end; d=addDays(d,1)){
+    const inMonth = d.getMonth()===m;
+    const key=toISODate(d);
+    const items=byDay.get(key) || [];
+
+    const cell=document.createElement("div");
+    cell.className="cal-cell" + (inMonth ? "" : " muted");
+
+    const total=items.reduce((s,r)=>s+r.amount,0);
+
+    const header=document.createElement("div");
+    header.className="cal-dayline";
+    header.innerHTML = `
+      <div class="cal-daynum">${d.getDate()}${key===todayKey ? ' <span class="cal-badge">Today</span>' : ""}</div>
+      <div class="cal-badge">${items.length ? `${items.length} • ${formatCurrency(total)}` : "—"}</div>
+    `;
+    cell.appendChild(header);
+
+    const list=document.createElement("div");
+    list.className="cal-items";
+
+    const MAX=4;
+    items.slice(0,MAX).forEach(r=>{
+      const it=document.createElement("div");
+      it.className="cal-item";
+      it.innerHTML = `
+        <div class="top">
+          <div class="t">${escapeHtml(clampText(r.vendor, 26))}</div>
+          <div><span class="status-pill status-${r.status}">${r.status.toUpperCase()}</span></div>
+        </div>
+        <div class="a">${escapeHtml(clampText(r.invoiceNo || "(No invoice #)", 36))} • ${formatCurrency(r.amount)}</div>
+      `;
+      it.addEventListener("click",()=>openRecord(r.id));
+      list.appendChild(it);
+    });
+
+    if(items.length>MAX){
+      const more=document.createElement("div");
+      more.className="muted";
+      more.textContent = `+ ${items.length-MAX} more… (tighten filters)`;
+      list.appendChild(more);
+    }
+
+    cell.appendChild(list);
+    grid.appendChild(cell);
+  }
+}
+
+/* ========= DRAWER & ROUTER ========= */
+function openRecord(idStr){ location.hash = `#/r/${idStr}`; }
+
+function closeDrawer(){
+  currentOpenId=null;
+  $("drawer").classList.remove("open");
+  $("drawerBody").innerHTML="";
+  $("drawerTitle").textContent="Details";
+  if(location.hash.startsWith("#/r/")) history.replaceState(null,"",location.pathname+location.search);
+}
+
+function initRouter(){
+  window.addEventListener("hashchange",handleRoute);
+  handleRoute();
+
+  $("closeBtn").addEventListener("click",closeDrawer);
+  $("prevBtn").addEventListener("click",()=>drawerStep(-1));
+  $("nextBtn").addEventListener("click",()=>drawerStep(1));
+
+  window.addEventListener("keydown",(e)=>{
+    if(!currentOpenId) return;
+    if(e.key==="Escape") closeDrawer();
+    if(e.key==="ArrowLeft") drawerStep(-1);
+    if(e.key==="ArrowRight") drawerStep(1);
+  });
+}
+
+function currentLaneList(){
+  const key=ui.activeLane;
+  let items=filteredRecords.filter(r=>r.status===key);
+  if(filters.sortBy==="smart") laneSmartSort(key, items);
+  else applyUserSort(items);
+  return items;
+}
+function drawerStep(delta){
+  if(!currentOpenId) return;
+  const list=currentLaneList();
+  const idx=list.findIndex(r=>r.id===currentOpenId);
+  if(idx<0 || list.length<2) return;
+  const next=list[(idx+delta+list.length)%list.length];
+  openRecord(next.id);
+}
+
+function handleRoute(){
+  const m=location.hash.match(/^#\/r\/(.+)$/);
+  if(m){
+    const rid=m[1];
+    const rec=allRecords.find(r=>r.id===rid);
+    if(rec){
+      currentOpenId=rid;
+      renderDrawer(rec);
+      $("drawer").classList.add("open");
+      return;
+    }
+  }
+  closeDrawer();
+}
+
+function renderDrawer(r){
+  $("drawer").classList.add("open");
+  $("drawerTitle").textContent = `${r.vendor} — ${r.invoiceNo || "No Invoice #"} (${formatCurrency(r.amount)})`;
+  const age=ageTag(r);
+
+  $("drawerBody").innerHTML = `
+    <div class="key">
+      <div class="key-item"><div class="label">Amount</div><div class="val">${formatCurrency(r.amount)}</div></div>
+      <div class="key-item"><div class="label">Due Date</div><div class="val">${formatDate(r.dueDateRaw)}</div></div>
+      <div class="key-item"><div class="label">Status</div><div class="val"><span class="status-pill status-${r.status}">${r.status.toUpperCase()}</span></div></div>
+      <div class="key-item"><div class="label">Aging</div><div class="val"><span class="age-pill"><span class="age-dot ${age.cls}"></span>${age.range} (${age.days}d)</span></div></div>
+    </div>
+
+    <div class="drawer-actions">
+      ${r.editUrl ? `<a class="btn small primary" target="_blank" rel="noopener" href="${ensureAbsoluteUrl(r.editUrl)}">Edit Response</a>` : `<button class="btn small" disabled>Edit Response</button>`}
+      <a class="btn small" target="_blank" rel="noopener" href="https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit#gid=${GID}">Open Sheet</a>
+      <button id="copyBtn" class="btn small">Copy Ref</button>
+    </div>
+
+    <details class="section">
+      <summary>Files</summary>
+      <div class="file-list" id="fileList" style="margin-top:10px">
+        ${(r.files&&r.files.length)? r.files.map(f=>`<a class="link" data-fname="${escapeHtml(f.name||'file')}" target="_blank" rel="noopener" href="${ensureAbsoluteUrl(f.url)}">${escapeHtml(f.name||f.url)}</a>`).join("") : `<span class="muted">No files</span>`}
+      </div>
+    </details>
+
+    <details class="section" open>
+      <summary>Primary</summary>
+      <div style="margin-top:10px">
+        <div style="margin:6px 0"><strong>Vendor:</strong> ${escapeHtml(r.vendor)}</div>
+        <div style="margin:6px 0"><strong>Invoice #:</strong> ${escapeHtml(r.invoiceNo||"")}</div>
+        <div style="margin:6px 0"><strong>Email:</strong> <a class="link" href="mailto:${escapeHtml(r.email||"")}">${escapeHtml(r.email||"")}</a></div>
+        <div style="margin:6px 0"><strong>Location:</strong> ${escapeHtml(r.location||"")}</div>
+        <div style="margin:6px 0"><strong>Type:</strong> ${escapeHtml(r.typeMain||"")}</div>
+        <div style="margin:6px 0"><strong>Form Type:</strong> ${escapeHtml(r.formType||"")}</div>
+        <div style="margin:6px 0"><strong>Submitted:</strong> ${formatDate(r.submissionDate)}</div>
+        <div style="margin:6px 0"><strong>Completed:</strong> ${formatDate(r.dateCompleted)}</div>
+        <div style="margin:6px 0"><strong>Payment:</strong> ${escapeHtml(r.paymentDetail||"")}</div>
+      </div>
+    </details>
+
+    <details class="section">
+      <summary>Notes</summary>
+      <div style="white-space:pre-wrap;margin-top:10px;color:var(--text)">${escapeHtml(r.notes||"—")}</div>
+    </details>
+
+    <details class="section">
+      <summary>Debug / IDs</summary>
+      <div style="margin-top:10px"><span class="kbd">${r.id}</span></div>
+    </details>
+  `;
+
+  $("copyBtn").addEventListener("click", ()=>{
+    const text = `${r.vendor} | ${r.invoiceNo || ""} | ${formatCurrency(r.amount)} | ID:${r.id}`;
+    navigator.clipboard.writeText(text).catch(()=>{});
+  });
+
+  const list=$("fileList");
+  if(list){
+    list.addEventListener("click", (e)=>{
+      const a=e.target.closest("a");
+      if(!a) return;
+      const url=a.getAttribute("href");
+      e.preventDefault();
+      openFilePreview(url, a.dataset.fname || a.textContent || "File");
+    });
+  }
+}
+
+/* ========= UNIVERSAL PREVIEW ========= */
+let previewTimer=null;
+function openFilePreview(originalUrl, title){
+  const modal=$("pdfPreview");
+  const frame=$("previewFrame");
+  const openLink=$("previewOpenOriginal");
+  const msg=$("previewMsg");
+
+  const normalized=normalizeJotformUrl(originalUrl);
+  $("previewTitle").textContent=title || "Preview";
+  openLink.href=ensureAbsoluteUrl(normalized);
+  msg.classList.add("hidden");
+  modal.classList.add("open");
+  modal.setAttribute("aria-hidden","false");
+
+  if(isPdfLike(normalized)){
+    frame.src = toPreviewUrl(normalized);
+    let triedEmbed=false;
+    const tryEmbed=()=>{
+      if(triedEmbed) return;
+      triedEmbed=true;
+      const container=frame.parentElement;
+      const embed=document.createElement("embed");
+      embed.type="application/pdf";
+      embed.style.cssText="flex:1;width:100%;height:100%";
+      embed.src=ensureAbsoluteUrl(normalized) + "#view=FitH";
+      container.replaceChild(embed, frame);
+      embed.addEventListener("error", ()=> msg.classList.remove("hidden"), {once:true});
+      setTimeout(()=>msg.classList.remove("hidden"), 2000);
+    };
+    clearTimeout(previewTimer);
+    previewTimer=setTimeout(tryEmbed, 2500);
+    frame.addEventListener("load", ()=> clearTimeout(previewTimer), {once:true});
+  }else if(isOfficeLike(normalized)){
+    frame.src = toOfficeViewerUrl(normalized);
+    clearTimeout(previewTimer);
+    previewTimer=setTimeout(()=>msg.classList.remove("hidden"), 3500);
+    frame.addEventListener("load", ()=> clearTimeout(previewTimer), {once:true});
+  }else if(isImageLike(normalized)){
+    frame.src = ensureAbsoluteUrl(normalized);
+  }else{
+    frame.src = ensureAbsoluteUrl(normalized);
+    clearTimeout(previewTimer);
+    previewTimer=setTimeout(()=>msg.classList.remove("hidden"), 2500);
+    frame.addEventListener("load", ()=> clearTimeout(previewTimer), {once:true});
+  }
+}
+
+function closePreview(){
+  const modal=$("pdfPreview");
+  const frame=$("previewFrame");
+  clearTimeout(previewTimer);
+  frame.src="about:blank";
+  modal.classList.remove("open");
+  modal.setAttribute("aria-hidden","true");
+}
+$("previewClose").addEventListener("click", closePreview);
+$("pdfPreview").addEventListener("click", (e)=>{ if(e.target.id==="pdfPreview") closePreview(); });
+window.addEventListener("keydown",(e)=>{ if(e.key==="Escape") closePreview(); });
+
+/* ========= EVENTS ========= */
+$("searchInput").addEventListener("input",debounce((e)=>{
+  filters.q=e.target.value||"";
+  applyFilters(); renderAll();
+},250));
+
+["amtMin","amtMax"].forEach(k=>$(k).addEventListener("change",(e)=>{
+  const v=e.target.value.trim();
+  filters[k]= v==="" ? null : Number(v);
+  applyFilters(); renderAll();
+}));
+
+const toDate=(v)=>v?new Date(v+"T00:00:00"):null;
+["dueFrom","dueTo","subFrom","subTo"].forEach(k=>$(k).addEventListener("change",(e)=>{
+  filters[k]=toDate(e.target.value);
+  applyFilters(); renderAll();
+}));
+
+$("ageSelect").addEventListener("change",(e)=>{
+  filters.age = e.target.value || null;
+  applyFilters(); renderAll();
+});
+
+$("resetBtn").addEventListener("click",()=>{
+  filters.q=""; $("searchInput").value="";
+
+  filters.vendors=new Set(); setMultiSelectValues("vendorSelect", filters.vendors);
+  filters.statuses=new Set(); setMultiSelectValues("statusSelect", filters.statuses);
+  filters.types=new Set(); setMultiSelectValues("typeSelect", filters.types);
+  filters.locations=new Set(); setMultiSelectValues("locationSelect", filters.locations);
+  filters.formTypes=new Set(); setMultiSelectValues("formTypeSelect", filters.formTypes);
+
+  filters.includePaid=true; $("includePaid").checked=true;
+  filters.overdueOnly=false; $("overdueOnly").checked=false;
+  filters.dueWindowDays=null; $("dueWindow").value="";
+
+  filters.amtMin=filters.amtMax=null; $("amtMin").value=""; $("amtMax").value="";
+  filters.dueFrom=filters.dueTo=filters.subFrom=filters.subTo=null;
+  ["dueFrom","dueTo","subFrom","subTo"].forEach(k=>$(k).value="");
+
+  filters.age=null; $("ageSelect").value="";
+  filters.sortBy="smart"; $("sortBy").value="smart";
+  filters.sortDir="asc"; $("sortDir").value="asc";
+
+  applyFilters(); renderAll();
+});
+
+$("exportBtn").addEventListener("click",()=>{
+  const csv=toCSV(filteredRecords);
+  const blob=new Blob([csv],{type:"text/csv;charset=utf-8;"});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a");
+  a.href=url;
+  a.download=`ap_requests_filtered_${new Date().toISOString().slice(0,10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+});
+
+$("togglePaid").addEventListener("change",(e)=>{
+  ui.showPaidLane=!!e.target.checked;
+  applyPaidLaneVisibility();
+});
+
+function applyPaidLaneVisibility(){
+  const paidTab=document.querySelector('#laneTabs [data-toggle="paid"]');
+  if(paidTab) paidTab.style.display = ui.showPaidLane ? "inline-flex" : "none";
+  if(!ui.showPaidLane && ui.activeLane==="paid"){
+    ui.activeLane="new";
+    setActiveLaneTab();
+    renderActiveLane();
+  }
+}
+
+$("laneTabs").addEventListener("click",(e)=>{
+  const t=e.target.closest(".tab");
+  if(!t) return;
+  ui.activeLane=t.dataset.toggle;
+  setActiveLaneTab();
+  renderActiveLane();
+});
+function setActiveLaneTab(){
+  document.querySelectorAll("#laneTabs .tab").forEach(b=>b.classList.toggle("active", b.dataset.toggle===ui.activeLane));
+}
+
+$("mainTabs").addEventListener("click",(e)=>{
+  const t=e.target.closest(".tab");
+  if(!t) return;
+
+  const v=t.dataset.main;
+  ui.activeMain=v;
+
+  document.querySelectorAll("#mainTabs .tab").forEach(b=>b.classList.toggle("active", b===t));
+  $("requestsView").classList.toggle("hidden", v!=="requests");
+  $("calendarView").classList.toggle("hidden", v!=="calendar");
+  $("reportsView").classList.toggle("hidden", v!=="reports");
+
+  if(v==="calendar") renderCalendar();
+});
+
+$("calPrev").addEventListener("click",()=>{
+  ui.calendarMonthAnchor = startOfMonth(new Date(ui.calendarMonthAnchor.getFullYear(), ui.calendarMonthAnchor.getMonth()-1, 1));
+  renderCalendar();
+});
+$("calNext").addEventListener("click",()=>{
+  ui.calendarMonthAnchor = startOfMonth(new Date(ui.calendarMonthAnchor.getFullYear(), ui.calendarMonthAnchor.getMonth()+1, 1));
+  renderCalendar();
+});
+$("calToday").addEventListener("click",()=>{
+  ui.calendarMonthAnchor = startOfMonth(new Date());
+  renderCalendar();
+});
+
+/* Theme toggle */
+const THEME_KEY="ap_theme_v1";
+function applyTheme(theme){
+  document.documentElement.setAttribute("data-theme", theme);
+  $("themeLabel").textContent = theme[0].toUpperCase()+theme.slice(1);
+  localStorage.setItem(THEME_KEY, theme);
+}
+$("themeBtn").addEventListener("click", ()=>{
+  const cur=document.documentElement.getAttribute("data-theme") || "dark";
+  applyTheme(cur==="dark" ? "light" : "dark");
+});
+applyTheme(localStorage.getItem(THEME_KEY) || "dark");
+
+/* ========= CSV export ========= */
+function toCSV(rows){
+  const header=["Submission Date","Vendor","Type","Invoice #","Amount","Due Date","Email","Location","Notes","Form Type","Completed","Payment Detail","Status","Edit Link","Files"];
+  const out=[header.join(",")];
+  for(const r of rows){
+    const line=[
+      formatDate(r.submissionDate), r.vendor, safe(r.typeMain), safe(r.invoiceNo),
+      r.amount?.toFixed(2) ?? "", formatDate(r.dueDateRaw), safe(r.email), safe(r.location),
+      safe(r.notes), safe(r.formType), formatDate(r.dateCompleted), safe(r.paymentDetail),
+      r.status.toUpperCase(), ensureAbsoluteUrl(r.editUrl)||"", (r.files||[]).map(f=>ensureAbsoluteUrl(f.url)).join(" | ")
+    ].map(csvEsc).join(",");
+    out.push(line);
+  }
+  function safe(s){ return (s??"").toString(); }
+  function csvEsc(s){ return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s; }
+  return out.join("\n");
+}
+
+/* ========= BOOT ========= */
+loadSheet();
+initRouter();
+</script>
 </body>
 </html>
