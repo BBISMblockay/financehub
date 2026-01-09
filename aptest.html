@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <title>AP Requests — Live Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 <style>
   :root{
     color-scheme: dark;
@@ -63,7 +63,7 @@
     display:grid;
     grid-template-columns: var(--sidebar-w) 1fr;
     gap:16px;
-    max-width: 1380px;
+    max-width: 1480px;
     margin: 0 auto;
     padding: 18px 14px 28px;
   }
@@ -80,7 +80,7 @@
     margin:0;
     font-size: 24px;
     letter-spacing: -0.02em;
-    font-weight: 750;
+    font-weight: 800;
   }
   .title-wrap p{
     margin:4px 0 0;
@@ -103,7 +103,7 @@
     user-select:none;
   }
   .chip:hover{border-color: var(--border-2); color: var(--text)}
-  .chip b{color: var(--text); font-weight:650}
+  .chip b{color: var(--text); font-weight:800}
   .chip .x{opacity:.7}
 
   /* Sidebar */
@@ -122,7 +122,7 @@
   }
   .s-title{
     font-size:11px;
-    font-weight:800;
+    font-weight:900;
     color: var(--muted);
     text-transform: uppercase;
     letter-spacing: .08em;
@@ -140,7 +140,7 @@
   }
   .search-input:focus{border-color: color-mix(in oklab, var(--accent) 55%, var(--border)); box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 12%, transparent)}
   .f{display:flex;flex-direction:column;gap:6px;margin: 10px 0}
-  .f label{font-size:11px;color:var(--muted);font-weight:600}
+  .f label{font-size:11px;color:var(--muted);font-weight:700}
   .f input,.f select{
     background: var(--surface);
     border: 1px solid var(--border);
@@ -167,7 +167,7 @@
     list-style:none;
     font-size:12px;
     color: var(--muted);
-    font-weight: 700;
+    font-weight: 900;
   }
   details>summary::-webkit-details-marker{display:none}
 
@@ -209,7 +209,7 @@
 
   .kpis{
     display:grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 12px;
     margin-bottom: 10px;
   }
@@ -226,12 +226,13 @@
     color: var(--muted);
     text-transform: uppercase;
     letter-spacing:.08em;
-    font-weight: 800;
+    font-weight: 900;
     margin-bottom: 8px;
   }
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
   .kpi-item .label{font-size:11px;color:var(--muted)}
-  .kpi-item .value{font-size:20px;font-weight:800;letter-spacing:-.02em}
+  .kpi-item .value{font-size:20px;font-weight:900;letter-spacing:-.02em}
+  .kpi-item .sub{font-size:11px;color:var(--muted-2);margin-top:2px}
 
   .tabs{display:flex;gap:8px;margin: 10px 0 10px;flex-wrap:wrap}
   .tab{
@@ -242,18 +243,13 @@
     border-radius: 999px;
     cursor:pointer;
     font-size: 12px;
-    font-weight: 700;
+    font-weight: 900;
   }
   .tab:hover{border-color: var(--border-2); color: var(--text)}
   .tab.active{border-color: color-mix(in oklab, var(--accent) 55%, var(--border)); color: var(--text); background: color-mix(in oklab, var(--accent) 12%, var(--surface-2))}
   .hidden{display:none}
 
-  .chipbar{
-    display:flex;
-    gap:8px;
-    flex-wrap:wrap;
-    margin: 6px 0 10px;
-  }
+  .chipbar{display:flex;gap:8px;flex-wrap:wrap;margin: 6px 0 10px}
 
   .lane{
     background: var(--panel);
@@ -281,7 +277,7 @@
     background: transparent;
   }
   .vendor-header.open{background: color-mix(in oklab, var(--accent) 8%, transparent)}
-  .vendor-header strong{font-weight:800;letter-spacing:-.01em}
+  .vendor-header strong{font-weight:900;letter-spacing:-.01em}
   .vendor-list{display:none;padding: 10px 12px 6px}
   .vendor-list.open{display:block}
 
@@ -298,7 +294,7 @@
   }
   .card:hover{border-color: var(--border-2); box-shadow: 0 10px 22px rgba(0,0,0,.15)}
   .card-header{display:flex;justify-content:space-between;gap:10px;margin-bottom: 6px}
-  .card-title{font-weight:800;letter-spacing:-.01em}
+  .card-title{font-weight:900;letter-spacing:-.01em}
   .muted{font-size:11px;color:var(--muted)}
   .pill-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 
@@ -354,7 +350,10 @@
   }
   table{width:100%;border-collapse:collapse;font-size:12px}
   th,td{border-bottom:1px solid var(--border);padding:8px 6px;text-align:left}
-  th{color:var(--muted);font-weight:800}
+  th{color:var(--muted);font-weight:900}
+
+  .report-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .report-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
 
   footer{grid-column:1 / -1;text-align:center;color:var(--muted);font-size:11px;margin-top: 16px}
 
@@ -410,7 +409,7 @@
   /* Drawer */
   .drawer{
     position:fixed;top:0;right:0;height:100%;
-    width: 440px;max-width: 92vw;
+    width: 460px;max-width: 92vw;
     background: var(--panel);
     border-left:1px solid var(--border);
     box-shadow: -18px 0 50px rgba(0,0,0,.40);
@@ -436,7 +435,7 @@
     border-radius: var(--radius);
     padding: 10px;
   }
-  .key-item .label{font-size:11px;color:var(--muted);font-weight:700}
+  .key-item .label{font-size:11px;color:var(--muted);font-weight:800}
   .key-item .val{font-size:14px;font-weight:900;letter-spacing:-.01em;margin-top:3px}
   .drawer-actions{display:flex;gap:8px;flex-wrap:wrap;margin: 8px 0 10px}
   details.section{
@@ -446,9 +445,9 @@
     margin: 10px 0;
     background: var(--surface);
   }
-  details.section>summary{cursor:pointer;font-size:12px;color:var(--muted);font-weight:800}
+  details.section>summary{cursor:pointer;font-size:12px;color:var(--muted);font-weight:900}
   .file-list{display:flex;flex-direction:column;gap:8px}
-  .link{color: var(--accent);text-decoration:none;font-weight:700}
+  .link{color: var(--accent);text-decoration:none;font-weight:800}
   .link:hover{text-decoration:underline}
   .kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;background: var(--surface-2);border:1px solid var(--border);padding:2px 8px;border-radius: 10px;color: var(--muted)}
 
@@ -470,11 +469,15 @@
   .preview iframe{flex:1;border:0;width:100%}
   .preview-msg{padding:10px;color:#fecdd3;background:rgba(244,63,94,.12);border-top:1px solid rgba(244,63,94,.24);font-size:12px;text-align:center}
 
+  @media (max-width:1180px){
+    .kpis{grid-template-columns:1fr 1fr}
+  }
   @media (max-width:980px){
     :root{--sidebar-w: 100%}
     .app{grid-template-columns: 1fr}
     .sidebar{height:auto;position:relative;top:auto}
     .kpis{grid-template-columns:1fr}
+    .report-grid,.report-grid-3{grid-template-columns:1fr}
     .cal-cell{min-height:100px}
     .drawer{width: 100%}
   }
@@ -498,15 +501,15 @@
     <!-- Sidebar -->
     <aside class="sidebar">
       <div class="s-title">Search</div>
-      <input id="searchInput" class="search-input" placeholder="Search vendor, invoice, notes, email, amount..." />
-
-      <div class="f">
-        <label>Vendor</label>
-        <select id="vendorSelect" multiple size="7"></select>
-      </div>
+      <input id="searchInput" class="search-input" placeholder="Search vendor, invoice, notes, email, amount, PO/Flex..." />
 
       <details id="advFilters" open>
         <summary>Filters</summary>
+
+        <div class="f">
+          <label>Vendor</label>
+          <select id="vendorSelect" multiple size="7"></select>
+        </div>
 
         <div class="f">
           <label>Status</label>
@@ -521,18 +524,18 @@
         </div>
 
         <div class="f">
-          <label>Type</label>
-          <select id="typeSelect" multiple size="6"></select>
+          <label>Category Type</label>
+          <select id="categorySelect" multiple size="6"></select>
+        </div>
+
+        <div class="f">
+          <label>Payment Method</label>
+          <select id="methodSelect" multiple size="4"></select>
         </div>
 
         <div class="f">
           <label>Location</label>
           <select id="locationSelect" multiple size="6"></select>
-        </div>
-
-        <div class="f">
-          <label>Form Type</label>
-          <select id="formTypeSelect" multiple size="6"></select>
         </div>
 
         <div class="f"><label>Amount Min</label><input id="amtMin" type="number" step="0.01" placeholder="0.00" /></div>
@@ -559,7 +562,7 @@
         <div class="f"><label>Submitted (to)</label><input id="subTo" type="date" /></div>
 
         <div class="f">
-          <label>Aging</label>
+          <label>Aging (based on Due)</label>
           <select id="ageSelect">
             <option value="">Any</option>
             <option>0–30</option>
@@ -600,19 +603,53 @@
     <main class="main">
       <div id="dataBanner" style="display:none"></div>
 
+      <!-- KPIs -->
       <section class="kpis">
         <div class="kpi-card">
-          <div class="kpi-title">Totals</div>
+          <div class="kpi-title">Totals (Filtered)</div>
           <div class="grid2">
-            <div class="kpi-item"><div class="label">Total</div><div id="kpiTotal" class="value">—</div></div>
-            <div class="kpi-item"><div class="label">Outstanding</div><div id="kpiOutstanding" class="value">$0.00</div></div>
+            <div class="kpi-item">
+              <div class="label">Count</div>
+              <div id="kpiTotalCount" class="value">—</div>
+              <div id="kpiTotalAmt" class="sub">—</div>
+            </div>
+            <div class="kpi-item">
+              <div class="label">Outstanding</div>
+              <div id="kpiOutstandingAmt" class="value">—</div>
+              <div id="kpiOutstandingCount" class="sub">—</div>
+            </div>
           </div>
         </div>
+
         <div class="kpi-card">
-          <div class="kpi-title">Status</div>
+          <div class="kpi-title">Due Risk (Outstanding)</div>
           <div class="grid2">
-            <div class="kpi-item"><div class="label">Ready</div><div id="kpiNew" class="value">—</div><div id="kpiNewAmt" class="label">—</div></div>
-            <div class="kpi-item"><div class="label">Need Info</div><div id="kpiHold" class="value">—</div><div id="kpiHoldAmt" class="label">—</div></div>
+            <div class="kpi-item">
+              <div class="label">Overdue</div>
+              <div id="kpiOverdueAmt" class="value">—</div>
+              <div id="kpiOverdueCount" class="sub">—</div>
+            </div>
+            <div class="kpi-item">
+              <div class="label">Due Next 7d</div>
+              <div id="kpiNext7Amt" class="value">—</div>
+              <div id="kpiNext7Count" class="sub">—</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-title">Paid (Filtered)</div>
+          <div class="grid2">
+            <div class="kpi-item">
+              <div class="label">Paid Count</div>
+              <div id="kpiPaidCount" class="value">—</div>
+              <div id="kpiPaidAmt" class="sub">—</div>
+            </div>
+            <div class="kpi-item">
+              <div class="label">Avg Days to Pay</div>
+              <div id="kpiAvgPayDays" class="value">—</div>
+              <div id="kpiMedianPayDays" class="sub">—</div>
+            </div>
           </div>
         </div>
       </section>
@@ -625,6 +662,7 @@
 
       <div id="chipBar" class="chipbar hidden"></div>
 
+      <!-- Requests -->
       <section id="requestsView">
         <div class="tabs" id="laneTabs">
           <button class="tab active" data-toggle="new">New</button>
@@ -637,6 +675,7 @@
         <div id="lanePaid" class="lane hidden"></div>
       </section>
 
+      <!-- Calendar -->
       <section id="calendarView" class="hidden">
         <div class="calendar">
           <div class="cal-top">
@@ -651,20 +690,68 @@
         </div>
       </section>
 
+      <!-- Reports -->
       <section id="reportsView" class="hidden">
-        <div class="reports panel">
-          <h3>Aging Breakdown (Filtered)</h3>
-          <table id="agingTable">
-            <thead><tr><th>Aging</th><th>Count</th><th>Amount</th></tr></thead>
-            <tbody></tbody>
-          </table>
+        <div class="report-grid">
+          <div class="reports panel">
+            <h3>Outstanding Aging (by Due)</h3>
+            <table id="agingTable">
+              <thead><tr><th>Aging</th><th>Count</th><th>Amount</th><th>%</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+
+          <div class="reports panel">
+            <h3>Due Buckets (Outstanding)</h3>
+            <table id="dueBucketsTable">
+              <thead><tr><th>Bucket</th><th>Count</th><th>Amount</th><th>%</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
-        <div class="reports panel" style="margin-top:12px">
-          <h3>Top Vendors by Outstanding (Filtered)</h3>
-          <table id="vendorsTable">
-            <thead><tr><th>Vendor</th><th>Count</th><th>Amount</th></tr></thead>
-            <tbody></tbody>
-          </table>
+
+        <div class="report-grid-3" style="margin-top:12px">
+          <div class="reports panel">
+            <h3>Top Vendors (Outstanding)</h3>
+            <table id="vendorsTable">
+              <thead><tr><th>Vendor</th><th>Count</th><th>Amount</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+
+          <div class="reports panel">
+            <h3>Category Type (Outstanding)</h3>
+            <table id="typesTable">
+              <thead><tr><th>Type</th><th>Count</th><th>Amount</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+
+          <div class="reports panel">
+            <h3>Location (Outstanding)</h3>
+            <table id="locationsTable">
+              <thead><tr><th>Location</th><th>Count</th><th>Amount</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="report-grid" style="margin-top:12px">
+          <div class="reports panel">
+            <h3>Paid Timing (Filtered Paid)</h3>
+            <table id="paidTimingTable">
+              <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+
+          <div class="reports panel">
+            <h3>Status Mix (Filtered)</h3>
+            <table id="statusMixTable">
+              <thead><tr><th>Status</th><th>Count</th><th>Amount</th><th>%</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
         </div>
       </section>
     </main>
@@ -712,14 +799,15 @@ let allRecords = [];
 let filteredRecords = [];
 const vendorOpenState = new Map();
 let currentOpenId = null;
+let routerInitialized = false;
 
 const filters = {
   q:"",
   vendors:new Set(),
   statuses:new Set(),
-  types:new Set(),
+  categories:new Set(),
+  methods:new Set(),
   locations:new Set(),
-  formTypes:new Set(),
   includePaid:true,
   overdueOnly:false,
   dueWindowDays:null,
@@ -767,16 +855,35 @@ function asNumber(v){
 function parseGvizDate(raw){
   if(!raw) return null;
   if(raw instanceof Date) return raw;
-  const s=String(raw);
-  const m=s.match(/Date\((\d{4}),\s*(\d{1,2}),\s*(\d{1,2})\)/i);
+
+  const s=String(raw).trim();
+
+  // GViz: Date(YYYY, M, D ...)
+  const m=s.match(/Date\((\d{4}),\s*(\d{1,2}),\s*(\d{1,2})/i);
   if(m) return new Date(+m[1],+m[2],+m[3]);
+
+  // ISO date only: YYYY-MM-DD
   const iso=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
   if(iso) return new Date(+iso[1],+iso[2]-1,+iso[3]);
+
+  // ISO datetime: YYYY-MM-DD HH:MM:SS
+  const isoDt=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if(isoDt){
+    const d=new Date(+isoDt[1],+isoDt[2]-1,+isoDt[3],+isoDt[4],+isoDt[5],+(isoDt[6]||0));
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
+  // US: M/D/YYYY or M-D-YYYY
   const us=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
   if(us) return new Date(+us[3],+us[1]-1,+us[2]);
+
+  // Short: M/D/YY
   const short=s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2})$/);
   if(short){ const y=+short[3]+2000; return new Date(y,+short[1]-1,+short[2]); }
-  return null;
+
+  // Fallback: Date.parse
+  const t=Date.parse(s);
+  return Number.isNaN(t) ? null : new Date(t);
 }
 
 function formatDate(v){
@@ -787,14 +894,16 @@ function formatCurrency(n){
   const x=Number(n);
   return Number.isFinite(x)?x.toLocaleString("en-US",{style:"currency",currency:"USD"}):"$0.00";
 }
-
-function ageTag(r){
-  const d=parseGvizDate(r.dueDateRaw)||parseGvizDate(r.submissionDate)||parseGvizDate(r.dateCompleted);
-  if(!d) return {range:"—",cls:"age-ok",days:0};
-  const diff=Math.floor((Date.now()-d.getTime())/86400000);
-  if(diff<=30) return {range:"0–30",cls:"age-ok",days:diff};
-  if(diff<=60) return {range:"31–60",cls:"age-warn",days:diff};
-  return {range: diff<=90 ? "61–90" : "90+", cls:"age-risk",days:diff};
+function pct(n, d){
+  if(!d) return "—";
+  const p=(n/d)*100;
+  return `${p.toFixed(1)}%`;
+}
+function median(nums){
+  const a=nums.filter(Number.isFinite).slice().sort((x,y)=>x-y);
+  if(!a.length) return null;
+  const m=Math.floor(a.length/2);
+  return a.length%2 ? a[m] : (a[m-1]+a[m])/2;
 }
 
 const escapeHtml = (s) => (s||"").replace(/[&<>"']/g, m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;" }[m]));
@@ -874,23 +983,84 @@ function clampText(s,max=64){
   return t.length>max ? t.slice(0,max-1)+"…" : t;
 }
 
-/* ========= FETCH ========= */
-function headerIndex(json){
-  const labels=(json.table.cols||[]).map(c=>(c.label||"").trim());
-  const map=new Map();
-  labels.forEach((l,i)=>{ const k=l.toLowerCase(); if(!map.has(k)) map.set(k,i); });
+/* ========= BUSINESS LOGIC ========= */
+function mapCompletionToStatus(completedRaw) {
+  const s = String(completedRaw ?? "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, " ");
+
+  // Your rule set:
+  // no, paid, hold, submitted (flex)  => submitted means paid
+  if (!s || s === "no" || s === "n" || s === "false" || s === "0") return "new";
+  if (s.includes("hold")) return "hold";
+  if (s.includes("paid")) return "paid";
+  if (s.includes("submitted")) return "paid";
+  return "new";
+}
+
+function ageTagByDue(r){
+  const due=parseGvizDate(r.dueDateRaw);
+  if(!due) return {range:"—",cls:"age-ok",days:null};
+
+  const d0=startOfDay(due);
+  const now0=startOfDay(new Date());
+  const diff=Math.floor((now0.getTime()-d0.getTime())/86400000);
+
+  const days = Math.max(0, diff);
+  if(days<=30) return {range:"0–30",cls:"age-ok",days};
+  if(days<=60) return {range:"31–60",cls:"age-warn",days};
+  return {range: days<=90 ? "61–90" : "90+", cls:"age-risk",days};
+}
+
+function isOutstanding(r){ return r.status !== "paid"; }
+function dueBucket(r){
+  const due=parseGvizDate(r.dueDateRaw);
+  if(!due) return "No due date";
+
+  const now0=startOfDay(new Date());
+  const d0=startOfDay(due);
+  const diff=Math.floor((d0.getTime()-now0.getTime())/86400000);
+
+  if(diff < 0) return "Overdue";
+  if(diff <= 7) return "Due 0–7d";
+  if(diff <= 14) return "Due 8–14d";
+  if(diff <= 30) return "Due 15–30d";
+  return "Due 31+d";
+}
+
+/* ========= FETCH / HEADER INDEX ========= */
+function buildHeaderIndex(cols){
+  const labels=(cols||[]).map(c=>(c.label||"").trim());
+  const map=new Map(); // labelLower -> [indices...]
+  labels.forEach((l,i)=>{
+    const k=l.toLowerCase();
+    const arr=map.get(k) || [];
+    arr.push(i);
+    map.set(k, arr);
+  });
+
   return {
-    getIndex(aliases,fallback){
+    labels,
+    getIndex(aliases, fallback=-1, occurrence=0){
       for(const a of aliases){
-        const k=a.toLowerCase();
-        if(map.has(k)) return map.get(k);
+        const k=String(a).toLowerCase();
+        const arr=map.get(k);
+        if(arr && arr.length){
+          if(occurrence < arr.length) return arr[occurrence];
+          return arr[0];
+        }
       }
-      return fallback ?? -1;
+      return fallback;
     }
   };
 }
+
 function cell(c,i){ const x=c[i]; return x? (x.v ?? x.f ?? "") : ""; }
-function getByAliases(c, idx, aliases, fallback){ const i=idx.getIndex(aliases,fallback); return i>=0?cell(c,i):""; }
+function getByAliases(c, idx, aliases, fallback=-1, occurrence=0){
+  const i=idx.getIndex(aliases, fallback, occurrence);
+  return i>=0 ? cell(c,i) : "";
+}
 
 async function fetchSheetJson(){
   const cb=`_=${Date.now()}`;
@@ -955,52 +1125,60 @@ async function loadSheet(){
   const feed=await fetchSheetJson();
 
   let rows, idx;
-  if(feed.kind==="gviz"){ idx=headerIndex(feed.json); rows=feed.json.table.rows||[]; }
-  else{
+  if(feed.kind==="gviz"){
+    idx=buildHeaderIndex(feed.json.table.cols||[]);
+    rows=feed.json.table.rows||[];
+  }else{
     const {header,data}=feed.csv;
-    const json={table:{cols:header.map(h=>({label:h}))}};
-    idx=headerIndex(json);
+    const cols=header.map(h=>({label:h}));
+    idx=buildHeaderIndex(cols);
     rows=data.map(r=>({c:r.map(v=>({v}))}));
   }
 
-  const I={
-    submission: idx.getIndex(["Submission Date","Submitted","Created","Date Submitted"],0),
-    vendorA: idx.getIndex(["Vendor","Vendor Name","Payee","Supplier"],1),
-    vendorB: idx.getIndex(["Alternate Vendor","Alt Vendor","Company"],2),
-    type: idx.getIndex(["Type","Main Type","Category"],3),
-    invoice: idx.getIndex(["Invoice #","Invoice","Invoice Number","Bill #"],4),
-    amount: idx.getIndex(["Amount Due","Amount","Invoice Amount","Total","$","Net Amount"],7),
-    due: idx.getIndex(["Due Date","Due","Payment Due"],8),
-    email: idx.getIndex(["Your Email","Email","Contact Email","Requester Email"],10),
-    location: idx.getIndex(["Location","Dept","Department","Site"],11),
-    notes: idx.getIndex(["Note & Comments","Notes","Memo","Comment","Description"],12),
-    formType: idx.getIndex(["Form Type","Source","Form","Type"],13),
-    completion: idx.getIndex(["Completed","Completion","Status","State"],14),
-    completedDate: idx.getIndex(["Date Completed","Completed Date","Paid Date","Submitted Date"],15),
-    paymentDetail: idx.getIndex(["Payment Detail","Payment Ref","Method","Txn ID"],16),
-    editUrl: idx.getIndex(["Submission Edit URL","Edit Link","Edit URL","Edit Response Link","Response Edit URL","Edit"],-1),
-    filesRaw: idx.getIndex(["File Upload","Files","Attachments","Receipts","Supporting Docs","Upload"],-1),
+  // Duplicate "Type" headers exist in your sheet:
+  // - first "Type" is Category Type (Invoice / Vendor Payment, etc)
+  // - second "Type" is Payment Method (Wire/Check)
+  const I = {
+    submission: idx.getIndex(["Submission Date","Submitted","Created","Date Submitted"], 0, 0),
+    vendorA: idx.getIndex(["Vendor"], 1, 0),
+    vendorB: idx.getIndex(["*Vendor Name if not listed above *","Vendor Name","Payee","Supplier"], 2, 0),
+    category: idx.getIndex(["Type"], 3, 0),
+    invoice: idx.getIndex(["Invoice #","Invoice","Invoice Number","Bill #"], 4, 0),
+    flexId: idx.getIndex(["Flex ID#","Flex ID","Flex"], 5, 0),
+    po: idx.getIndex(["Internal PO #","PO #","PO"], 6, 0),
+    amount: idx.getIndex(["Amount Due","Amount","Invoice Amount","Total","$"], 7, 0),
+    due: idx.getIndex(["Due Date","Due","Payment Due"], 8, 0),
+    filesRaw: idx.getIndex(["File Upload","Files","Attachments","Upload"], 9, 0),
+    email: idx.getIndex(["Your Email","Email","Contact Email","Requester Email"], 10, 0),
+    location: idx.getIndex(["Location","Dept","Department","Site"], 11, 0),
+    notes: idx.getIndex(["Note & Comments","Notes","Memo","Comment","Description"], 12, 0),
+    method: idx.getIndex(["Type"], 13, 1),
+    completed: idx.getIndex(["Completed","Completion","Status","State"], 14, 0),
+    completedDate: idx.getIndex(["Date Completed","Completed Date","Paid Date"], 15, 0),
+    paymentDetail: idx.getIndex(["Payment Detail","Payment Ref","Method","Txn ID"], 16, 0),
+    pageUrl: idx.getIndex(["Get Page URL","Submission URL","Submission Url"], 17, 0),
+    editUrl: idx.getIndex(["Submission Edit URL","Edit Link","Edit URL","Edit Response Link","Response Edit URL","Edit"], 20, 0),
+    lastUpdate: idx.getIndex(["Last Update Date","Last Update"], 21, 0),
+    submissionId: idx.getIndex(["Submission ID","ID"], 22, 0),
   };
 
   allRecords = rows.map((r,ri)=>{
     const c=r.c||[];
-    const vendor=String(
-      getByAliases(c,idx,["Vendor","Vendor Name","Payee","Supplier"],I.vendorA) ||
-      getByAliases(c,idx,["Alternate Vendor","Alt Vendor","Company"],I.vendorB) ||
-      "—"
-    ).trim();
 
-    const comp=String(getByAliases(c,idx,["Completed","Completion","Status","State"],I.completion)||"").toLowerCase();
-    let status="new";
-    if(comp==="hold") status="hold";
-    if(comp.includes("paid")) status="paid";
+    const vendorA = String(cell(c, I.vendorA) || "").trim();
+    const vendorB = String(cell(c, I.vendorB) || "").trim();
+    const vendor = (vendorA || vendorB || "—").trim();
 
-    const files=parseFiles(getByAliases(c,idx,["File Upload","Files","Attachments","Receipts","Supporting Docs","Upload"],I.filesRaw));
-    let editUrl=getByAliases(c,idx,["Submission Edit URL","Edit Link","Edit URL","Edit Response Link","Response Edit URL","Edit"],I.editUrl)||"";
+    const completedRaw = cell(c, I.completed);
+    const status = mapCompletionToStatus(completedRaw);
+
+    const files=parseFiles(cell(c, I.filesRaw));
+
+    let editUrl=cell(c, I.editUrl) || "";
     editUrl = editUrl ? ensureAbsoluteUrl(editUrl) : "";
 
-    const invoiceNo=getByAliases(c,idx,["Invoice #","Invoice","Invoice Number","Bill #"],I.invoice);
-    const submissionDate=getByAliases(c,idx,["Submission Date","Submitted","Created","Date Submitted"],I.submission);
+    const submissionDate = cell(c, I.submission);
+    const invoiceNo = cell(c, I.invoice);
 
     const idStr=`${vendor}|${invoiceNo}|${submissionDate}|${ri}`;
 
@@ -1008,25 +1186,34 @@ async function loadSheet(){
       id:btoa(unescape(encodeURIComponent(idStr))).replace(/=+$/,""),
       submissionDate,
       vendor,
-      typeMain:getByAliases(c,idx,["Type","Main Type","Category"],I.type),
+      categoryType: cell(c, I.category),
+      paymentMethod: cell(c, I.method),
       invoiceNo,
-      amount:asNumber(getByAliases(c,idx,["Amount Due","Amount","Invoice Amount","Total","$","Net Amount"],I.amount))||0,
-      dueDateRaw:getByAliases(c,idx,["Due Date","Due","Payment Due"],I.due),
-      email:getByAliases(c,idx,["Your Email","Email","Contact Email","Requester Email"],I.email),
-      location:getByAliases(c,idx,["Location","Dept","Department","Site"],I.location),
-      notes:getByAliases(c,idx,["Note & Comments","Notes","Memo","Comment","Description"],I.notes),
-      formType:getByAliases(c,idx,["Form Type","Source","Form"],I.formType),
-      dateCompleted:getByAliases(c,idx,["Date Completed","Completed Date","Paid Date","Submitted Date"],I.completedDate),
-      paymentDetail:getByAliases(c,idx,["Payment Detail","Payment Ref","Method","Txn ID"],I.paymentDetail),
-      status, editUrl, files
+      flexId: cell(c, I.flexId),
+      internalPo: cell(c, I.po),
+      amount: asNumber(cell(c, I.amount)) || 0,
+      dueDateRaw: cell(c, I.due),
+      email: cell(c, I.email),
+      location: cell(c, I.location),
+      notes: cell(c, I.notes),
+      completedRaw,
+      dateCompleted: cell(c, I.completedDate),
+      paymentDetail: cell(c, I.paymentDetail),
+      pageUrl: cell(c, I.pageUrl),
+      lastUpdate: cell(c, I.lastUpdate),
+      submissionId: cell(c, I.submissionId),
+      status,
+      editUrl,
+      files
     };
   }).filter(r=>r.vendor && r.vendor!=="Submission Date");
 
   $("lastRefreshText").textContent = new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});
   populateAllFilterDropdowns();
+
   applyFilters();
   renderAll();
-  initRouter();
+  initRouterOnce();
 }
 
 /* ========= FILTER POPULATION ========= */
@@ -1048,14 +1235,14 @@ function setMultiSelectValues(selectId, set){
 
 function populateAllFilterDropdowns(){
   populateMultiSelect("vendorSelect", uniqueSorted(allRecords.map(r=>r.vendor)));
-  populateMultiSelect("typeSelect", uniqueSorted(allRecords.map(r=>r.typeMain)));
+  populateMultiSelect("categorySelect", uniqueSorted(allRecords.map(r=>r.categoryType)));
+  populateMultiSelect("methodSelect", uniqueSorted(allRecords.map(r=>r.paymentMethod)));
   populateMultiSelect("locationSelect", uniqueSorted(allRecords.map(r=>r.location)));
-  populateMultiSelect("formTypeSelect", uniqueSorted(allRecords.map(r=>r.formType)));
 
   $("vendorSelect").addEventListener("change",()=>{ filters.vendors=readMultiSelectValues("vendorSelect"); applyFilters(); renderAll(); });
-  $("typeSelect").addEventListener("change",()=>{ filters.types=readMultiSelectValues("typeSelect"); applyFilters(); renderAll(); });
+  $("categorySelect").addEventListener("change",()=>{ filters.categories=readMultiSelectValues("categorySelect"); applyFilters(); renderAll(); });
+  $("methodSelect").addEventListener("change",()=>{ filters.methods=readMultiSelectValues("methodSelect"); applyFilters(); renderAll(); });
   $("locationSelect").addEventListener("change",()=>{ filters.locations=readMultiSelectValues("locationSelect"); applyFilters(); renderAll(); });
-  $("formTypeSelect").addEventListener("change",()=>{ filters.formTypes=readMultiSelectValues("formTypeSelect"); applyFilters(); renderAll(); });
 
   $("statusSelect").addEventListener("change",()=>{ filters.statuses=readMultiSelectValues("statusSelect"); applyFilters(); renderAll(); });
   $("includePaid").addEventListener("change",(e)=>{ filters.includePaid=!!e.target.checked; applyFilters(); renderAll(); });
@@ -1082,9 +1269,9 @@ function applyFilters(){
     if(filters.statuses.size && !filters.statuses.has(r.status)) return false;
     if(!filters.includePaid && r.status==="paid") return false;
 
-    if(filters.types.size && !filters.types.has(String(r.typeMain||"").trim())) return false;
+    if(filters.categories.size && !filters.categories.has(String(r.categoryType||"").trim())) return false;
+    if(filters.methods.size && !filters.methods.has(String(r.paymentMethod||"").trim())) return false;
     if(filters.locations.size && !filters.locations.has(String(r.location||"").trim())) return false;
-    if(filters.formTypes.size && !filters.formTypes.has(String(r.formType||"").trim())) return false;
 
     if(filters.amtMin!=null && r.amount<filters.amtMin) return false;
     if(filters.amtMax!=null && r.amount>filters.amtMax) return false;
@@ -1110,12 +1297,20 @@ function applyFilters(){
     if(filters.subFrom && (!sub || sub < filters.subFrom)) return false;
     if(filters.subTo && (!sub || sub > filters.subTo)) return false;
 
-    if(filters.age && ageTag(r).range !== filters.age) return false;
+    if(filters.age){
+      const at=ageTagByDue(r);
+      if(at.range !== filters.age) return false;
+    }
 
     if(q){
-      const blob=[r.vendor,r.invoiceNo,r.notes,r.email,String(r.amount),r.location,r.typeMain,r.formType,r.status].join(" ").toLowerCase();
+      const blob=[
+        r.vendor, r.invoiceNo, r.notes, r.email,
+        String(r.amount), r.location, r.categoryType, r.paymentMethod,
+        r.flexId, r.internalPo, r.paymentDetail, r.submissionId
+      ].join(" ").toLowerCase();
       if(!blob.includes(q)) return false;
     }
+
     return true;
   });
 }
@@ -1124,10 +1319,16 @@ function applyFilters(){
 function laneSmartSort(key, items){
   if(key==="new"){
     items.sort((a,b)=>{
-      const A=ageTag(a),B=ageTag(b);
-      if(B.days!==A.days) return B.days-A.days;
       const da=parseGvizDate(a.dueDateRaw), db=parseGvizDate(b.dueDateRaw);
-      if(da && db) return da-db;
+      const aDue = da ? startOfDay(da).getTime() : Number.MAX_SAFE_INTEGER;
+      const bDue = db ? startOfDay(db).getTime() : Number.MAX_SAFE_INTEGER;
+      if(aDue!==bDue) return aDue-bDue;
+
+      const A=ageTagByDue(a), B=ageTagByDue(b);
+      const aA = A.days==null ? -1 : A.days;
+      const bA = B.days==null ? -1 : B.days;
+      if(bA!==aA) return bA-aA;
+
       return b.amount-a.amount;
     });
   }else if(key==="hold"){
@@ -1136,6 +1337,7 @@ function laneSmartSort(key, items){
     items.sort((a,b)=> (parseGvizDate(b.dateCompleted)?.getTime()||0) - (parseGvizDate(a.dateCompleted)?.getTime()||0));
   }
 }
+
 function applyUserSort(items){
   const dir = filters.sortDir==="desc" ? -1 : 1;
   const by = filters.sortBy;
@@ -1145,7 +1347,7 @@ function applyUserSort(items){
     if(by==="amount") return r.amount ?? 0;
     if(by==="vendor") return String(r.vendor||"");
     if(by==="submitted") return parseGvizDate(r.submissionDate)?.getTime() ?? 0;
-    if(by==="aging") return ageTag(r).days ?? 0;
+    if(by==="aging") return ageTagByDue(r).days ?? 0;
     return 0;
   };
 
@@ -1161,22 +1363,68 @@ function renderAll(){
   renderKPIs();
   renderChips();
   renderActiveLane();
-  renderReporting();
   renderCalendar();
+  renderReporting();
   applyPaidLaneVisibility();
 }
 
 function renderKPIs(){
-  $("kpiTotal").textContent = filteredRecords.length;
+  const totalCount = filteredRecords.length;
+  const totalAmt = filteredRecords.reduce((s,r)=>s+r.amount,0);
 
-  const n=filteredRecords.filter(r=>r.status==="new");
-  const h=filteredRecords.filter(r=>r.status==="hold");
-  $("kpiNew").textContent=n.length;
-  $("kpiHold").textContent=h.length;
+  const outstanding = filteredRecords.filter(isOutstanding);
+  const outstandingCount = outstanding.length;
+  const outstandingAmt = outstanding.reduce((s,r)=>s+r.amount,0);
 
-  $("kpiNewAmt").textContent=formatCurrency(n.reduce((s,r)=>s+r.amount,0));
-  $("kpiHoldAmt").textContent=formatCurrency(h.reduce((s,r)=>s+r.amount,0));
-  $("kpiOutstanding").textContent=formatCurrency(filteredRecords.filter(r=>r.status!=="paid").reduce((s,r)=>s+r.amount,0));
+  const now0=startOfDay(new Date());
+  const overdue = outstanding.filter(r=>{
+    const due=parseGvizDate(r.dueDateRaw);
+    return due && startOfDay(due) < now0;
+  });
+  const overdueCount = overdue.length;
+  const overdueAmt = overdue.reduce((s,r)=>s+r.amount,0);
+
+  const next7 = outstanding.filter(r=>{
+    const due=parseGvizDate(r.dueDateRaw);
+    if(!due) return false;
+    const d0=startOfDay(due);
+    const diff=Math.floor((d0.getTime()-now0.getTime())/86400000);
+    return diff>=0 && diff<=7;
+  });
+  const next7Count = next7.length;
+  const next7Amt = next7.reduce((s,r)=>s+r.amount,0);
+
+  const paid = filteredRecords.filter(r=>r.status==="paid");
+  const paidCount = paid.length;
+  const paidAmt = paid.reduce((s,r)=>s+r.amount,0);
+
+  const payDays = paid.map(r=>{
+    const s=parseGvizDate(r.submissionDate);
+    const p=parseGvizDate(r.dateCompleted);
+    if(!s || !p) return null;
+    return Math.max(0, Math.floor((startOfDay(p).getTime()-startOfDay(s).getTime())/86400000));
+  }).filter(v=>v!=null);
+
+  const avgPayDays = payDays.length ? (payDays.reduce((a,b)=>a+b,0)/payDays.length) : null;
+  const medPayDays = median(payDays);
+
+  $("kpiTotalCount").textContent = totalCount.toLocaleString("en-US");
+  $("kpiTotalAmt").textContent = formatCurrency(totalAmt);
+
+  $("kpiOutstandingAmt").textContent = formatCurrency(outstandingAmt);
+  $("kpiOutstandingCount").textContent = `${outstandingCount.toLocaleString("en-US")} items`;
+
+  $("kpiOverdueAmt").textContent = formatCurrency(overdueAmt);
+  $("kpiOverdueCount").textContent = `${overdueCount.toLocaleString("en-US")} items`;
+
+  $("kpiNext7Amt").textContent = formatCurrency(next7Amt);
+  $("kpiNext7Count").textContent = `${next7Count.toLocaleString("en-US")} items`;
+
+  $("kpiPaidCount").textContent = paidCount.toLocaleString("en-US");
+  $("kpiPaidAmt").textContent = formatCurrency(paidAmt);
+
+  $("kpiAvgPayDays").textContent = avgPayDays==null ? "—" : `${avgPayDays.toFixed(1)}d`;
+  $("kpiMedianPayDays").textContent = medPayDays==null ? "—" : `Median: ${medPayDays.toFixed(0)}d`;
 }
 
 function groupByVendor(arr){
@@ -1217,7 +1465,18 @@ function renderLane(key){
 
     list.forEach(r=>{
       const card=document.createElement("div"); card.className="card"; card.dataset.id=r.id;
-      const age=ageTag(r);
+      const age=ageTagByDue(r);
+
+      const metaTop = [
+        r.categoryType ? escapeHtml(r.categoryType) : null,
+        r.paymentMethod ? escapeHtml(r.paymentMethod) : null,
+        r.location ? escapeHtml(r.location) : null
+      ].filter(Boolean).join(" • ");
+
+      const metaIds = [
+        r.flexId ? `Flex: ${escapeHtml(r.flexId)}` : null,
+        r.internalPo ? `PO: ${escapeHtml(r.internalPo)}` : null
+      ].filter(Boolean).join(" • ");
 
       card.innerHTML=`
         <div class="card-header">
@@ -1227,11 +1486,12 @@ function renderLane(key){
           </div>
           <div class="pill-row">
             <span class="status-pill status-${r.status}">${r.status.toUpperCase()}</span>
-            <span class="age-pill"><span class="age-dot ${age.cls}"></span>${age.range} (${age.days}d)</span>
+            ${age.range!=="—" ? `<span class="age-pill"><span class="age-dot ${age.cls}"></span>${age.range} (${age.days}d)</span>` : ``}
           </div>
         </div>
-        <div class="muted">${[r.typeMain,r.location].filter(Boolean).map(escapeHtml).join(" • ")}</div>
+        <div class="muted">${metaTop || ""}</div>
         <div class="muted">${escapeHtml(r.email||"")}</div>
+        ${metaIds ? `<div class="muted">${metaIds}</div>` : ``}
         <div class="muted" style="-webkit-line-clamp:2;display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden;">${escapeHtml(r.notes||"")}</div>
       `;
       card.addEventListener("click",()=>openRecord(r.id));
@@ -1249,35 +1509,10 @@ function renderLane(key){
   });
 }
 
-function renderReporting(){
-  const rows=["0–30","31–60","61–90","90+"].map(bucket=>{
-    const list=filteredRecords.filter(r=>ageTag(r).range===bucket && r.status!=="paid");
-    return {bucket,count:list.length,amount:list.reduce((s,r)=>s+r.amount,0)};
-  });
-
-  document.querySelector("#agingTable tbody").innerHTML =
-    rows.map(r=>`<tr><td>${r.bucket}</td><td>${r.count}</td><td>${formatCurrency(r.amount)}</td></tr>`).join("");
-
-  const byVendor={};
-  filteredRecords.forEach(r=>{
-    if(r.status==="paid") return;
-    (byVendor[r.vendor] ??= {count:0,amount:0});
-    byVendor[r.vendor].count++;
-    byVendor[r.vendor].amount += r.amount;
-  });
-
-  const top=Object.entries(byVendor).map(([vendor,x])=>({vendor,...x})).sort((a,b)=>b.amount-a.amount).slice(0,10);
-  document.querySelector("#vendorsTable tbody").innerHTML =
-    top.length
-      ? top.map(v=>`<tr><td>${escapeHtml(v.vendor)}</td><td>${v.count}</td><td>${formatCurrency(v.amount)}</td></tr>`).join("")
-      : `<tr><td colspan="3" style="color:var(--muted)">No outstanding vendors.</td></tr>`;
-}
-
 /* ========= ACTIVE FILTER CHIPS ========= */
 function renderChips(){
   const bar=$("chipBar");
   const chips=[];
-
   const pushChip = (label, onRemove) => chips.push({label, onRemove});
 
   if(filters.q.trim()) pushChip(`Search: ${filters.q.trim()}`, ()=>{ filters.q=""; $("searchInput").value=""; });
@@ -1286,9 +1521,9 @@ function renderChips(){
   if(filters.statuses.size) pushChip(`Status: ${Array.from(filters.statuses).join(", ")}`, ()=>{ filters.statuses=new Set(); setMultiSelectValues("statusSelect", filters.statuses); });
   if(!filters.includePaid) pushChip("Exclude paid", ()=>{ filters.includePaid=true; $("includePaid").checked=true; });
 
-  if(filters.types.size) pushChip(`Type: ${filters.types.size}`, ()=>{ filters.types=new Set(); setMultiSelectValues("typeSelect", filters.types); });
+  if(filters.categories.size) pushChip(`Category: ${filters.categories.size}`, ()=>{ filters.categories=new Set(); setMultiSelectValues("categorySelect", filters.categories); });
+  if(filters.methods.size) pushChip(`Method: ${filters.methods.size}`, ()=>{ filters.methods=new Set(); setMultiSelectValues("methodSelect", filters.methods); });
   if(filters.locations.size) pushChip(`Location: ${filters.locations.size}`, ()=>{ filters.locations=new Set(); setMultiSelectValues("locationSelect", filters.locations); });
-  if(filters.formTypes.size) pushChip(`Form Type: ${filters.formTypes.size}`, ()=>{ filters.formTypes=new Set(); setMultiSelectValues("formTypeSelect", filters.formTypes); });
 
   if(filters.amtMin!=null) pushChip(`Min ${formatCurrency(filters.amtMin)}`, ()=>{ filters.amtMin=null; $("amtMin").value=""; });
   if(filters.amtMax!=null) pushChip(`Max ${formatCurrency(filters.amtMax)}`, ()=>{ filters.amtMax=null; $("amtMax").value=""; });
@@ -1316,9 +1551,9 @@ function renderChips(){
   }
 
   bar.classList.remove("hidden");
-  bar.innerHTML = "";
+  bar.innerHTML="";
 
-  const clearAll = document.createElement("button");
+  const clearAll=document.createElement("button");
   clearAll.className="chip";
   clearAll.innerHTML = `<b>Clear all</b> <span class="x">×</span>`;
   clearAll.addEventListener("click", ()=> $("resetBtn").click());
@@ -1337,7 +1572,7 @@ function renderChips(){
   });
 }
 
-/* ========= CALENDAR ========= */
+/* ========= CALENDAR (Due dates, Outstanding) ========= */
 function renderCalendar(){
   if(ui.activeMain!=="calendar") return;
 
@@ -1361,8 +1596,10 @@ function renderCalendar(){
   const last=new Date(y,m+1,0);
   const end=addDays(last, 6-last.getDay());
 
+  const outstanding = filteredRecords.filter(isOutstanding);
+
   const byDay=new Map();
-  for(const r of filteredRecords){
+  for(const r of outstanding){
     const due=parseGvizDate(r.dueDateRaw);
     if(!due) continue;
     const k=toISODate(due);
@@ -1423,6 +1660,138 @@ function renderCalendar(){
   }
 }
 
+/* ========= REPORTING ========= */
+function renderReporting(){
+  if(ui.activeMain!=="reports") return;
+
+  const totalAmt = filteredRecords.reduce((s,r)=>s+r.amount,0);
+
+  const outstanding = filteredRecords.filter(isOutstanding);
+  const outstandingAmt = outstanding.reduce((s,r)=>s+r.amount,0);
+
+  // Aging (Outstanding)
+  const agingBuckets=["0–30","31–60","61–90","90+"];
+  const agingRows=agingBuckets.map(bucket=>{
+    const list=outstanding.filter(r=>ageTagByDue(r).range===bucket);
+    const amt=list.reduce((s,r)=>s+r.amount,0);
+    return {bucket,count:list.length,amount:amt};
+  });
+
+  document.querySelector("#agingTable tbody").innerHTML =
+    agingRows.map(r=>`<tr><td>${r.bucket}</td><td>${r.count}</td><td>${formatCurrency(r.amount)}</td><td>${pct(r.amount, outstandingAmt)}</td></tr>`).join("") ||
+    `<tr><td colspan="4" style="color:var(--muted)">No data.</td></tr>`;
+
+  // Due buckets (Outstanding)
+  const bucketOrder=["Overdue","Due 0–7d","Due 8–14d","Due 15–30d","Due 31+d","No due date"];
+  const byBucket=new Map();
+  for(const r of outstanding){
+    const b=dueBucket(r);
+    const cur=byBucket.get(b) || {count:0,amount:0};
+    cur.count += 1;
+    cur.amount += r.amount;
+    byBucket.set(b, cur);
+  }
+  const dueRows=bucketOrder.map(b=>({bucket:b, ...(byBucket.get(b)||{count:0,amount:0})}));
+
+  document.querySelector("#dueBucketsTable tbody").innerHTML =
+    dueRows.map(r=>`<tr><td>${r.bucket}</td><td>${r.count}</td><td>${formatCurrency(r.amount)}</td><td>${pct(r.amount, outstandingAmt)}</td></tr>`).join("") ||
+    `<tr><td colspan="4" style="color:var(--muted)">No data.</td></tr>`;
+
+  // Top Vendors (Outstanding)
+  const byVendor={};
+  outstanding.forEach(r=>{
+    (byVendor[r.vendor] ??= {count:0,amount:0});
+    byVendor[r.vendor].count++;
+    byVendor[r.vendor].amount+=r.amount;
+  });
+  const topVendors=Object.entries(byVendor)
+    .map(([vendor,x])=>({vendor,...x}))
+    .sort((a,b)=>b.amount-a.amount)
+    .slice(0,12);
+
+  document.querySelector("#vendorsTable tbody").innerHTML =
+    topVendors.length
+      ? topVendors.map(v=>`<tr><td>${escapeHtml(v.vendor)}</td><td>${v.count}</td><td>${formatCurrency(v.amount)}</td></tr>`).join("")
+      : `<tr><td colspan="3" style="color:var(--muted)">No outstanding vendors.</td></tr>`;
+
+  // Category Type (Outstanding)
+  const byType={};
+  outstanding.forEach(r=>{
+    const k=String(r.categoryType||"—").trim() || "—";
+    (byType[k] ??= {count:0,amount:0});
+    byType[k].count++;
+    byType[k].amount+=r.amount;
+  });
+  const topTypes=Object.entries(byType)
+    .map(([type,x])=>({type,...x}))
+    .sort((a,b)=>b.amount-a.amount)
+    .slice(0,12);
+
+  document.querySelector("#typesTable tbody").innerHTML =
+    topTypes.length
+      ? topTypes.map(v=>`<tr><td>${escapeHtml(v.type)}</td><td>${v.count}</td><td>${formatCurrency(v.amount)}</td></tr>`).join("")
+      : `<tr><td colspan="3" style="color:var(--muted)">No data.</td></tr>`;
+
+  // Location (Outstanding)
+  const byLoc={};
+  outstanding.forEach(r=>{
+    const k=String(r.location||"—").trim() || "—";
+    (byLoc[k] ??= {count:0,amount:0});
+    byLoc[k].count++;
+    byLoc[k].amount+=r.amount;
+  });
+  const topLocs=Object.entries(byLoc)
+    .map(([location,x])=>({location,...x}))
+    .sort((a,b)=>b.amount-a.amount)
+    .slice(0,12);
+
+  document.querySelector("#locationsTable tbody").innerHTML =
+    topLocs.length
+      ? topLocs.map(v=>`<tr><td>${escapeHtml(v.location)}</td><td>${v.count}</td><td>${formatCurrency(v.amount)}</td></tr>`).join("")
+      : `<tr><td colspan="3" style="color:var(--muted)">No data.</td></tr>`;
+
+  // Paid timing (Filtered Paid)
+  const paid=filteredRecords.filter(r=>r.status==="paid");
+  const payDays = paid.map(r=>{
+    const s=parseGvizDate(r.submissionDate);
+    const p=parseGvizDate(r.dateCompleted);
+    if(!s || !p) return null;
+    return Math.max(0, Math.floor((startOfDay(p).getTime()-startOfDay(s).getTime())/86400000));
+  }).filter(v=>v!=null);
+
+  const avgPayDays = payDays.length ? (payDays.reduce((a,b)=>a+b,0)/payDays.length) : null;
+  const medPayDays = median(payDays);
+
+  const paidAmt = paid.reduce((s,r)=>s+r.amount,0);
+
+  const timing = [
+    ["Paid count", paid.length.toLocaleString("en-US")],
+    ["Paid amount", formatCurrency(paidAmt)],
+    ["Avg days to pay (submitted → completed)", avgPayDays==null ? "—" : `${avgPayDays.toFixed(1)} days`],
+    ["Median days to pay", medPayDays==null ? "—" : `${medPayDays.toFixed(0)} days`],
+    ["Filtered total amount", formatCurrency(totalAmt)],
+  ];
+
+  document.querySelector("#paidTimingTable tbody").innerHTML =
+    timing.map(([k,v])=>`<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`).join("");
+
+  // Status mix (Filtered)
+  const statusOrder=["new","hold","paid"];
+  const byStatus=new Map(statusOrder.map(s=>[s,{count:0,amount:0}]));
+  filteredRecords.forEach(r=>{
+    const cur=byStatus.get(r.status) || {count:0,amount:0};
+    cur.count++;
+    cur.amount+=r.amount;
+    byStatus.set(r.status, cur);
+  });
+
+  document.querySelector("#statusMixTable tbody").innerHTML =
+    statusOrder.map(s=>{
+      const x=byStatus.get(s) || {count:0,amount:0};
+      return `<tr><td>${s.toUpperCase()}</td><td>${x.count}</td><td>${formatCurrency(x.amount)}</td><td>${pct(x.amount, totalAmt)}</td></tr>`;
+    }).join("");
+}
+
 /* ========= DRAWER & ROUTER ========= */
 function openRecord(idStr){ location.hash = `#/r/${idStr}`; }
 
@@ -1434,7 +1803,10 @@ function closeDrawer(){
   if(location.hash.startsWith("#/r/")) history.replaceState(null,"",location.pathname+location.search);
 }
 
-function initRouter(){
+function initRouterOnce(){
+  if(routerInitialized) return;
+  routerInitialized=true;
+
   window.addEventListener("hashchange",handleRoute);
   handleRoute();
 
@@ -1484,19 +1856,30 @@ function handleRoute(){
 function renderDrawer(r){
   $("drawer").classList.add("open");
   $("drawerTitle").textContent = `${r.vendor} — ${r.invoiceNo || "No Invoice #"} (${formatCurrency(r.amount)})`;
-  const age=ageTag(r);
+
+  const age=ageTagByDue(r);
+  const due=parseGvizDate(r.dueDateRaw);
+  const now0=startOfDay(new Date());
+  const overdue = r.status!=="paid" && due && startOfDay(due) < now0;
+
+  const metaIds = [
+    r.flexId ? `<div style="margin:6px 0"><strong>Flex ID:</strong> ${escapeHtml(r.flexId)}</div>` : ``,
+    r.internalPo ? `<div style="margin:6px 0"><strong>Internal PO:</strong> ${escapeHtml(r.internalPo)}</div>` : ``,
+    r.submissionId ? `<div style="margin:6px 0"><strong>Submission ID:</strong> ${escapeHtml(r.submissionId)}</div>` : ``
+  ].join("");
 
   $("drawerBody").innerHTML = `
     <div class="key">
       <div class="key-item"><div class="label">Amount</div><div class="val">${formatCurrency(r.amount)}</div></div>
-      <div class="key-item"><div class="label">Due Date</div><div class="val">${formatDate(r.dueDateRaw)}</div></div>
+      <div class="key-item"><div class="label">Due Date</div><div class="val">${formatDate(r.dueDateRaw)} ${overdue ? ' <span class="status-pill status-hold">OVERDUE</span>' : ""}</div></div>
       <div class="key-item"><div class="label">Status</div><div class="val"><span class="status-pill status-${r.status}">${r.status.toUpperCase()}</span></div></div>
-      <div class="key-item"><div class="label">Aging</div><div class="val"><span class="age-pill"><span class="age-dot ${age.cls}"></span>${age.range} (${age.days}d)</span></div></div>
+      <div class="key-item"><div class="label">Aging (Due)</div><div class="val">${age.range==="—" ? "—" : `<span class="age-pill"><span class="age-dot ${age.cls}"></span>${age.range} (${age.days}d)</span>`}</div></div>
     </div>
 
     <div class="drawer-actions">
       ${r.editUrl ? `<a class="btn small primary" target="_blank" rel="noopener" href="${ensureAbsoluteUrl(r.editUrl)}">Edit Response</a>` : `<button class="btn small" disabled>Edit Response</button>`}
       <a class="btn small" target="_blank" rel="noopener" href="https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit#gid=${GID}">Open Sheet</a>
+      ${r.pageUrl ? `<a class="btn small" target="_blank" rel="noopener" href="${ensureAbsoluteUrl(r.pageUrl)}">Open Submission</a>` : ``}
       <button id="copyBtn" class="btn small">Copy Ref</button>
     </div>
 
@@ -1514,11 +1897,14 @@ function renderDrawer(r){
         <div style="margin:6px 0"><strong>Invoice #:</strong> ${escapeHtml(r.invoiceNo||"")}</div>
         <div style="margin:6px 0"><strong>Email:</strong> <a class="link" href="mailto:${escapeHtml(r.email||"")}">${escapeHtml(r.email||"")}</a></div>
         <div style="margin:6px 0"><strong>Location:</strong> ${escapeHtml(r.location||"")}</div>
-        <div style="margin:6px 0"><strong>Type:</strong> ${escapeHtml(r.typeMain||"")}</div>
-        <div style="margin:6px 0"><strong>Form Type:</strong> ${escapeHtml(r.formType||"")}</div>
+        <div style="margin:6px 0"><strong>Category Type:</strong> ${escapeHtml(r.categoryType||"")}</div>
+        <div style="margin:6px 0"><strong>Payment Method:</strong> ${escapeHtml(r.paymentMethod||"")}</div>
         <div style="margin:6px 0"><strong>Submitted:</strong> ${formatDate(r.submissionDate)}</div>
-        <div style="margin:6px 0"><strong>Completed:</strong> ${formatDate(r.dateCompleted)}</div>
-        <div style="margin:6px 0"><strong>Payment:</strong> ${escapeHtml(r.paymentDetail||"")}</div>
+        <div style="margin:6px 0"><strong>Completed:</strong> ${escapeHtml(String(r.completedRaw||""))}</div>
+        <div style="margin:6px 0"><strong>Date Completed:</strong> ${formatDate(r.dateCompleted)}</div>
+        <div style="margin:6px 0"><strong>Payment Detail:</strong> ${escapeHtml(r.paymentDetail||"")}</div>
+        ${metaIds}
+        ${r.lastUpdate ? `<div style="margin:6px 0"><strong>Last Update:</strong> ${escapeHtml(String(r.lastUpdate))}</div>` : ``}
       </div>
     </details>
 
@@ -1534,7 +1920,7 @@ function renderDrawer(r){
   `;
 
   $("copyBtn").addEventListener("click", ()=>{
-    const text = `${r.vendor} | ${r.invoiceNo || ""} | ${formatCurrency(r.amount)} | ID:${r.id}`;
+    const text = `${r.vendor} | ${r.invoiceNo || ""} | ${formatCurrency(r.amount)} | Status:${r.status.toUpperCase()} | ID:${r.id}`;
     navigator.clipboard.writeText(text).catch(()=>{});
   });
 
@@ -1638,9 +2024,9 @@ $("resetBtn").addEventListener("click",()=>{
 
   filters.vendors=new Set(); setMultiSelectValues("vendorSelect", filters.vendors);
   filters.statuses=new Set(); setMultiSelectValues("statusSelect", filters.statuses);
-  filters.types=new Set(); setMultiSelectValues("typeSelect", filters.types);
+  filters.categories=new Set(); setMultiSelectValues("categorySelect", filters.categories);
+  filters.methods=new Set(); setMultiSelectValues("methodSelect", filters.methods);
   filters.locations=new Set(); setMultiSelectValues("locationSelect", filters.locations);
-  filters.formTypes=new Set(); setMultiSelectValues("formTypeSelect", filters.formTypes);
 
   filters.includePaid=true; $("includePaid").checked=true;
   filters.overdueOnly=false; $("overdueOnly").checked=false;
@@ -1709,6 +2095,7 @@ $("mainTabs").addEventListener("click",(e)=>{
   $("reportsView").classList.toggle("hidden", v!=="reports");
 
   if(v==="calendar") renderCalendar();
+  if(v==="reports") renderReporting();
 });
 
 $("calPrev").addEventListener("click",()=>{
@@ -1725,7 +2112,7 @@ $("calToday").addEventListener("click",()=>{
 });
 
 /* Theme toggle */
-const THEME_KEY="ap_theme_v1";
+const THEME_KEY="ap_theme_v2";
 function applyTheme(theme){
   document.documentElement.setAttribute("data-theme", theme);
   $("themeLabel").textContent = theme[0].toUpperCase()+theme.slice(1);
@@ -1739,14 +2126,32 @@ applyTheme(localStorage.getItem(THEME_KEY) || "dark");
 
 /* ========= CSV export ========= */
 function toCSV(rows){
-  const header=["Submission Date","Vendor","Type","Invoice #","Amount","Due Date","Email","Location","Notes","Form Type","Completed","Payment Detail","Status","Edit Link","Files"];
+  const header=[
+    "Submission Date","Vendor","Category Type","Payment Method","Invoice #",
+    "Flex ID","Internal PO","Amount Due","Due Date","Email","Location","Notes",
+    "Completed","Date Completed","Payment Detail","Status","Edit Link","Files"
+  ];
   const out=[header.join(",")];
   for(const r of rows){
     const line=[
-      formatDate(r.submissionDate), r.vendor, safe(r.typeMain), safe(r.invoiceNo),
-      r.amount?.toFixed(2) ?? "", formatDate(r.dueDateRaw), safe(r.email), safe(r.location),
-      safe(r.notes), safe(r.formType), formatDate(r.dateCompleted), safe(r.paymentDetail),
-      r.status.toUpperCase(), ensureAbsoluteUrl(r.editUrl)||"", (r.files||[]).map(f=>ensureAbsoluteUrl(f.url)).join(" | ")
+      safe(r.submissionDate),
+      safe(r.vendor),
+      safe(r.categoryType),
+      safe(r.paymentMethod),
+      safe(r.invoiceNo),
+      safe(r.flexId),
+      safe(r.internalPo),
+      (Number.isFinite(r.amount)?r.amount.toFixed(2):""),
+      safe(r.dueDateRaw),
+      safe(r.email),
+      safe(r.location),
+      safe(r.notes),
+      safe(r.completedRaw),
+      safe(r.dateCompleted),
+      safe(r.paymentDetail),
+      r.status.toUpperCase(),
+      ensureAbsoluteUrl(r.editUrl)||"",
+      (r.files||[]).map(f=>ensureAbsoluteUrl(f.url)).join(" | ")
     ].map(csvEsc).join(",");
     out.push(line);
   }
@@ -1757,7 +2162,6 @@ function toCSV(rows){
 
 /* ========= BOOT ========= */
 loadSheet();
-initRouter();
 </script>
 </body>
 </html>
