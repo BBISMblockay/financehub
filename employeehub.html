@@ -7,19 +7,19 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 
   <style>
     :root{
       --bg0:#0b1220;
       --bg1:#0f172a;
-      --panel:rgba(255,255,255,.06);
-      --panel2:rgba(255,255,255,.09);
       --border:rgba(148,163,184,.18);
       --text:#e5e7eb;
       --muted:#a7b0c0;
       --muted2:#cbd5e1;
+
       --shadow2:0 10px 30px rgba(0,0,0,.28);
+
       --accent:#38bdf8;
       --accent2:#22c55e;
       --amber:#fbbf24;
@@ -82,7 +82,7 @@
       margin:0;
       font-size:16px;
       letter-spacing:.2px;
-      font-weight:800;
+      font-weight:900;
       line-height:1.15;
     }
     .brand p{
@@ -147,7 +147,7 @@
       margin:0 0 8px;
       font-size:22px;
       letter-spacing:.2px;
-      font-weight:850;
+      font-weight:950;
     }
     .hero-sub{
       margin:0;
@@ -166,7 +166,7 @@
     .quick h3{
       margin:0;
       font-size:13px;
-      font-weight:900;
+      font-weight:950;
       letter-spacing:.35px;
       color:rgba(203,213,225,.95);
       text-transform:uppercase;
@@ -177,35 +177,46 @@
       font-size:12.5px;
       line-height:1.35;
     }
-    .stack{
-      display:grid;
-      gap:10px;
-      margin-top:6px;
-    }
-    .open{
+    .stack{ display:grid; gap:10px; margin-top:6px; }
+
+    /* Buttons */
+    .btn, .open{
       display:inline-flex;
       align-items:center;
       gap:10px;
-      padding:12px 12px;
+      padding:10px 12px;
       border-radius:12px;
       border:1px solid rgba(255,255,255,.14);
       background:rgba(255,255,255,.07);
-      font-weight:850;
+      font-weight:900;
       font-size:13px;
       transition: background .15s ease, border-color .15s ease, transform .08s ease;
       white-space:nowrap;
-      justify-content:space-between;
+      cursor:pointer;
+      user-select:none;
     }
-    .open:hover{
+    .btn:hover, .open:hover{
       background:rgba(255,255,255,.10);
       border-color: rgba(56,189,248,.30);
       transform: translateY(-1px);
     }
-
-    /* Section */
-    .section{
-      margin-top:18px;
+    .open{
+      justify-content:space-between;
+      width:100%;
+      padding:12px 12px;
     }
+    .btn.ghost{
+      background:transparent;
+      border-color: rgba(148,163,184,.22);
+      font-weight:800;
+    }
+    .btn.ghost:hover{
+      background:rgba(255,255,255,.06);
+      border-color: rgba(255,255,255,.22);
+    }
+
+    /* Sections */
+    .section{ margin-top:18px; }
     .section-head{
       display:flex;
       align-items:end;
@@ -219,7 +230,7 @@
       letter-spacing:.35px;
       text-transform:uppercase;
       color:rgba(203,213,225,.95);
-      font-weight:900;
+      font-weight:950;
     }
     .section-head .hint{
       margin:0;
@@ -233,6 +244,7 @@
       gap:12px;
     }
 
+    /* Cards */
     .card{
       grid-column: span 6;
       border:1px solid var(--border);
@@ -270,13 +282,11 @@
       background:rgba(255,255,255,.06);
       flex:0 0 auto;
     }
-    .meta{
-      min-width:0;
-    }
+    .meta{ min-width:0; }
     .meta .title{
       margin:0;
       font-size:15px;
-      font-weight:900;
+      font-weight:950;
       letter-spacing:.1px;
       line-height:1.2;
     }
@@ -313,26 +323,8 @@
       margin-top:12px;
       padding-top:12px;
       border-top:1px solid rgba(148,163,184,.14);
+      flex-wrap:wrap;
     }
-    .btn{
-      display:inline-flex;
-      align-items:center;
-      gap:10px;
-      padding:10px 12px;
-      border-radius:12px;
-      border:1px solid rgba(255,255,255,.14);
-      background:rgba(255,255,255,.07);
-      font-weight:900;
-      font-size:13px;
-      transition: background .15s ease, border-color .15s ease, transform .08s ease;
-      white-space:nowrap;
-    }
-    .btn:hover{
-      background:rgba(255,255,255,.10);
-      border-color: rgba(56,189,248,.30);
-      transform: translateY(-1px);
-    }
-
     .small{
       font-size:12px;
       color:var(--muted);
@@ -341,7 +333,82 @@
       align-items:center;
       gap:8px;
     }
+    .actions-left{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
 
+    /* Embedded Viewer */
+    .embed-wrap{
+      border:1px solid rgba(148,163,184,.16);
+      border-radius:14px;
+      overflow:hidden;
+      background:rgba(0,0,0,.14);
+      box-shadow:var(--shadow2);
+    }
+    .embed-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      padding:12px 12px;
+      border-bottom:1px solid rgba(148,163,184,.16);
+      background:rgba(255,255,255,.05);
+      flex-wrap:wrap;
+    }
+    .embed-head .lefty{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      min-width:0;
+      flex: 1 1 320px;
+    }
+    .embed-title{
+      margin:0;
+      font-size:13px;
+      font-weight:950;
+      letter-spacing:.2px;
+    }
+    .embed-sub{
+      margin:0;
+      font-size:12px;
+      color:var(--muted);
+      line-height:1.25;
+    }
+
+    .embed-shell{ position:relative; }
+    .embed-loading{
+      display:none;
+      position:absolute; inset:0;
+      z-index:2;
+      background:rgba(11,18,32,.70);
+      backdrop-filter: blur(6px);
+      align-items:center;
+      justify-content:center;
+      flex-direction:column;
+      gap:10px;
+      color:rgba(203,213,225,.95);
+      font-weight:900;
+    }
+    .spinner{
+      width:34px;height:34px;border-radius:999px;
+      border:3px solid rgba(255,255,255,.18);
+      border-top-color:rgba(56,189,248,.9);
+      animation:spin .9s linear infinite;
+    }
+    @keyframes spin{ to{ transform:rotate(360deg);} }
+
+    iframe.hub-frame{
+      width:100% !important;
+      min-height:880px;
+      border:0 !important;
+      background:#fff;
+      display:block;
+    }
+
+    /* Footer */
     .footer{
       margin-top:18px;
       border:1px solid var(--border);
@@ -357,51 +424,6 @@
       font-size:12px;
     }
 
-    /* Jotform embed styling */
-    .embed-wrap{
-      margin-top:12px;
-      border:1px solid rgba(148,163,184,.16);
-      border-radius:14px;
-      overflow:hidden;
-      background:rgba(0,0,0,.14);
-    }
-    .embed-head{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      padding:12px 12px;
-      border-bottom:1px solid rgba(148,163,184,.16);
-      background:rgba(255,255,255,.05);
-    }
-    .embed-head .lefty{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      min-width:0;
-    }
-    .embed-title{
-      margin:0;
-      font-size:13px;
-      font-weight:950;
-      letter-spacing:.2px;
-    }
-    .embed-sub{
-      margin:0;
-      font-size:12px;
-      color:var(--muted);
-    }
-    .embed-body{
-      padding:0;
-    }
-    /* Jotform script injects an iframe; this helps it behave nicely */
-    .embed-wrap iframe{
-      width:100% !important;
-      min-height:780px;
-      border:0 !important;
-      background:#fff;
-    }
-
     /* Responsive */
     @media (max-width: 940px){
       .hero{ grid-template-columns: 1fr; }
@@ -412,14 +434,14 @@
       .top{ padding:14px; }
       .hero-card{ padding:16px; }
       .hero-title{ font-size:20px; }
-      .open{ justify-content:space-between; }
+      iframe.hub-frame{ min-height:980px; }
     }
 
     @media print{
       body{ background:#fff; color:#111; }
       .top,.hero-card,.card,.footer,.embed-wrap{ box-shadow:none !important; background:#fff !important; }
       .chip,.tag,.btn,.open{ border:1px solid #ddd !important; color:#111 !important; background:#fff !important; }
-      .embed-wrap{ display:none !important; }
+      #viewer{ display:none !important; }
     }
   </style>
 </head>
@@ -438,62 +460,56 @@
         </div>
         <div>
           <h1>Baseballism — Employee Hub</h1>
-          <p>Travel, invoices, receipts, logistics, analytics, and requests.</p>
+          <p>Requests, receipts, travel, logistics, analytics.</p>
         </div>
       </div>
 
       <div class="top-right">
-        <span class="chip"><span class="dot" aria-hidden="true"></span>Internal • Staff Use</span>
-        <span class="chip">Open links in new tab</span>
+        <span class="chip"><span class="dot" aria-hidden="true"></span>Employee</span>
+        <span class="chip">Hub</span>
       </div>
     </div>
 
     <!-- HERO -->
     <div class="hero" aria-label="Quick access area">
       <div class="hero-card">
-        <h2 class="hero-title">Fast access to the tools you actually use.</h2>
+        <h2 class="hero-title">Quick access.</h2>
         <p class="hero-sub">
-          Use the tiles below to submit travel, purchase/invoice requests, upload receipts, and jump into
-          logistics and analytics. Titles are standardized so you know exactly what you’re clicking.
+          Everything opens inside this page.
         </p>
       </div>
 
       <div class="hero-card">
         <div class="quick">
           <div>
-            <h3>Top Shortcuts</h3>
-            <p>Most common employee actions.</p>
+            <h3>Shortcuts</h3>
+            <p>Top actions.</p>
           </div>
 
           <div class="stack">
-            <a class="open" href="https://wpvportal.weebly.com/submit-request---bbism.html" target="_blank" rel="noopener noreferrer">
-              <span>Purchase / Invoice Request</span>
-              <span aria-hidden="true">→</span>
+            <a class="open" href="#viewer" data-open="purchase">
+              <span>Purchase / Invoice Request</span><span aria-hidden="true">→</span>
             </a>
-
-            <a class="open" href="#receipt-upload">
-              <span>Receipt Upload</span>
-              <span aria-hidden="true">↓</span>
+            <a class="open" href="#viewer" data-open="receipt">
+              <span>Receipt Upload</span><span aria-hidden="true">→</span>
             </a>
-
-            <a class="open" href="https://wpvportal.weebly.com/travel-form---bbism.html" target="_blank" rel="noopener noreferrer">
-              <span>Travel Request</span>
-              <span aria-hidden="true">→</span>
+            <a class="open" href="#viewer" data-open="cash_recon">
+              <span>Cash Recon (Google Form)</span><span aria-hidden="true">→</span>
             </a>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- MAIN TILES -->
+    <!-- LINKS -->
     <div class="section">
       <div class="section-head">
         <h2>Employee Links</h2>
-        <p class="hint">Everything opens in a new tab (except the embedded receipt upload below).</p>
+        <p class="hint"></p>
       </div>
 
       <div class="grid">
-        <!-- Purchase / Invoice Request -->
+        <!-- Purchase / Invoice Request (Portal / Jotform inside) -->
         <div class="card">
           <div class="card-top">
             <div class="left">
@@ -505,75 +521,107 @@
               </div>
               <div class="meta">
                 <p class="title">Purchase / Invoice Request</p>
-                <p class="desc">Submit invoices or purchase requests for review and processing.</p>
+                <p class="desc">Submit invoices or purchase requests.</p>
               </div>
             </div>
             <div class="tags">
-              <span class="tag blue">AP</span>
-              <span class="tag">Request</span>
+              <span class="tag blue">Request</span>
+              <span class="tag">Portal</span>
             </div>
           </div>
           <div class="card-actions">
-            <a class="btn" href="https://wpvportal.weebly.com/submit-request---bbism.html" target="_blank" rel="noopener noreferrer">
-              Open Request Form →
-            </a>
+            <div class="actions-left">
+              <a class="btn" href="#viewer" data-open="purchase">Open →</a>
+              <a class="btn ghost" href="https://wpvportal.weebly.com/submit-request---bbism.html" target="_blank" rel="noopener noreferrer">New tab ↗</a>
+            </div>
             <span class="small">Invoices / Purchases</span>
           </div>
         </div>
 
-        <!-- Travel Request -->
+        <!-- Receipt Upload (Jotform direct) -->
         <div class="card">
           <div class="card-top">
             <div class="left">
               <div class="ico" aria-hidden="true">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M2.5 12.5l19-7-7 19-3.5-8-8.5-4z" stroke="rgba(187,247,208,.95)" stroke-width="2" stroke-linejoin="round"/>
+                  <path d="M7 3h10l2 3v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" stroke="rgba(187,247,208,.95)" stroke-width="2"/>
+                  <path d="M8 13h8M8 17h6" stroke="rgba(187,247,208,.75)" stroke-width="2" stroke-linecap="round"/>
                 </svg>
               </div>
               <div class="meta">
-                <p class="title">Travel Request </p>
-                <p class="desc">Submit travel details through the travel request form.</p>
+                <p class="title">Receipt Upload</p>
+                <p class="desc">Upload receipts.</p>
               </div>
             </div>
             <div class="tags">
-              <span class="tag green">Travel</span>
-              <span class="tag">Form</span>
+              <span class="tag green">Upload</span>
+              <span class="tag">Jotform</span>
             </div>
           </div>
           <div class="card-actions">
-            <a class="btn" href="https://wpvportal.weebly.com/travel-form---bbism.html" target="_blank" rel="noopener noreferrer">
-              Open Travel Form →
-            </a>
-            <span class="small">Baseballism Portal</span>
+            <div class="actions-left">
+              <a class="btn" href="#viewer" data-open="receipt">Open →</a>
+              <a class="btn ghost" href="https://form.jotform.com/202585858721161" target="_blank" rel="noopener noreferrer">New tab ↗</a>
+            </div>
+            <span class="small">Receipts</span>
           </div>
         </div>
 
-        <!-- Cash Recon Request -->
+        <!-- Travel Request (Portal / Jotform inside) -->
         <div class="card">
           <div class="card-top">
             <div class="left">
               <div class="ico" aria-hidden="true">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M7 3h8l4 4v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" stroke="rgba(253,230,138,.95)" stroke-width="2"/>
-                  <path d="M15 3v5h5" stroke="rgba(253,230,138,.95)" stroke-width="2"/>
-                  <path d="M8 12h8M8 16h8" stroke="rgba(253,230,138,.75)" stroke-width="2" stroke-linecap="round"/>
+                  <path d="M2.5 12.5l19-7-7 19-3.5-8-8.5-4z" stroke="rgba(253,230,138,.95)" stroke-width="2" stroke-linejoin="round"/>
                 </svg>
               </div>
               <div class="meta">
-                <p class="title">Cash Recon (Retail)</p>
-                <p class="desc">Direct Form link for Cash Reconciliation.</p>
+                <p class="title">Travel Request</p>
+                <p class="desc">Submit travel requests.</p>
               </div>
             </div>
             <div class="tags">
-              <span class="tag amber">Google</span>
-              <span class="tag">Form</span>
+              <span class="tag amber">Travel</span>
+              <span class="tag">Portal</span>
             </div>
           </div>
           <div class="card-actions">
-            <a class="btn" href="https://docs.google.com/forms/d/e/1FAIpQLSckmYA0pninVJLOyPduZnMQ__b7gByaFJxoGCVYlKUVgQZcLA/viewform" target="_blank" rel="noopener noreferrer">
-              Open Google Form →
-            </a>
-            <span class="small">External</span>
+            <div class="actions-left">
+              <a class="btn" href="#viewer" data-open="travel">Open →</a>
+              <a class="btn ghost" href="https://wpvportal.weebly.com/travel-form---bbism.html" target="_blank" rel="noopener noreferrer">New tab ↗</a>
+            </div>
+            <span class="small">Travel</span>
+          </div>
+        </div>
+
+        <!-- Cash Recon (Google Form) -->
+        <div class="card">
+          <div class="card-top">
+            <div class="left">
+              <div class="ico" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M7 3h8l4 4v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" stroke="rgba(186,230,253,.95)" stroke-width="2"/>
+                  <path d="M15 3v5h5" stroke="rgba(186,230,253,.95)" stroke-width="2"/>
+                  <path d="M8 12h8M8 16h8" stroke="rgba(186,230,253,.75)" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <div class="meta">
+                <p class="title">Cash Recon (Google Form)</p>
+                <p class="desc">Cash reconciliation tracking.</p>
+              </div>
+            </div>
+            <div class="tags">
+              <span class="tag blue">Google</span>
+              <span class="tag">Tracking</span>
+            </div>
+          </div>
+          <div class="card-actions">
+            <div class="actions-left">
+              <a class="btn" href="#viewer" data-open="cash_recon">Open →</a>
+              <a class="btn ghost" href="https://docs.google.com/forms/d/e/1FAIpQLSckmYA0pninVJLOyPduZnMQ__b7gByaFJxoGCVYlKUVgQZcLA/viewform" target="_blank" rel="noopener noreferrer">New tab ↗</a>
+            </div>
+            <span class="small">Google Forms</span>
           </div>
         </div>
 
@@ -590,19 +638,20 @@
               </div>
               <div class="meta">
                 <p class="title">Logistics</p>
-                <p class="desc">Shipping, warehouse requests & resources.</p>
+                <p class="desc">Shipping + warehouse.</p>
               </div>
             </div>
             <div class="tags">
               <span class="tag blue">Ops</span>
-              <span class="tag">Internal</span>
+              <span class="tag">Portal</span>
             </div>
           </div>
           <div class="card-actions">
-            <a class="btn" href="https://wpvportal.weebly.com/logistics.html" target="_blank" rel="noopener noreferrer">
-              Open Logistics →
-            </a>
-            <span class="small">Baseballism Portal</span>
+            <div class="actions-left">
+              <a class="btn" href="#viewer" data-open="logistics">Open →</a>
+              <a class="btn ghost" href="https://wpvportal.weebly.com/logistics.html" target="_blank" rel="noopener noreferrer">New tab ↗</a>
+            </div>
+            <span class="small">Logistics</span>
           </div>
         </div>
 
@@ -618,8 +667,8 @@
                 </svg>
               </div>
               <div class="meta">
-                <p class="title">Analytics (Login)</p>
-                <p class="desc">Reporting dashboards and KPI views (login required).</p>
+                <p class="title">Analytics</p>
+                <p class="desc">Dashboards + reporting.</p>
               </div>
             </div>
             <div class="tags">
@@ -628,14 +677,15 @@
             </div>
           </div>
           <div class="card-actions">
-            <a class="btn" href="https://wpvportal.weebly.com/analytics-login---bbism.html" target="_blank" rel="noopener noreferrer">
-              Open Analytics →
-            </a>
-            <span class="small">Restricted</span>
+            <div class="actions-left">
+              <a class="btn" href="#viewer" data-open="analytics">Open →</a>
+              <a class="btn ghost" href="https://wpvportal.weebly.com/analytics-login---bbism.html" target="_blank" rel="noopener noreferrer">New tab ↗</a>
+            </div>
+            <span class="small">Analytics</span>
           </div>
         </div>
 
-        <!-- Requests Hub (Database) -->
+        <!-- Requests Hub -->
         <div class="card">
           <div class="card-top">
             <div class="left">
@@ -646,30 +696,31 @@
                 </svg>
               </div>
               <div class="meta">
-                <p class="title">Requests Hub (Status / Check)</p>
-                <p class="desc">View request submissions and status — use this to check what’s been submitted.</p>
+                <p class="title">Requests Hub</p>
+                <p class="desc">Requests + submissions.</p>
               </div>
             </div>
             <div class="tags">
               <span class="tag blue">Requests</span>
-              <span class="tag">Status</span>
+              <span class="tag">Portal</span>
             </div>
           </div>
           <div class="card-actions">
-            <a class="btn" href="https://wpvportal.weebly.com/database---bbism.html" target="_blank" rel="noopener noreferrer">
-              Open Requests Hub →
-            </a>
-            <span class="small">Submission tracking</span>
+            <div class="actions-left">
+              <a class="btn" href="#viewer" data-open="requests">Open →</a>
+              <a class="btn ghost" href="https://wpvportal.weebly.com/database---bbism.html" target="_blank" rel="noopener noreferrer">New tab ↗</a>
+            </div>
+            <span class="small">Requests</span>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- RECEIPT UPLOAD EMBED -->
-    <div class="section" id="receipt-upload">
+    <!-- EMBEDDED VIEWER -->
+    <div class="section" id="viewer">
       <div class="section-head">
-        <h2>Receipt Upload</h2>
-        <p class="hint">Upload receipts here (embedded form). If it doesn’t load, refresh the page.</p>
+        <h2>Viewer</h2>
+        <p class="hint"></p>
       </div>
 
       <div class="embed-wrap">
@@ -681,29 +732,130 @@
                 <path d="M8 13h8M8 17h6" stroke="rgba(229,231,235,.75)" stroke-width="2" stroke-linecap="round"/>
               </svg>
             </div>
+
             <div style="min-width:0;">
-              <p class="embed-title">Receipt Upload Form</p>
-              <p class="embed-sub">Attach receipts for invoices, reimbursements, or card purchases.</p>
+              <p class="embed-title" id="embedTitle">Purchase / Invoice Request</p>
+              <p class="embed-sub" id="embedSub">Submit invoices or purchase requests.</p>
             </div>
           </div>
 
-          <a class="btn" href="https://form.jotform.com/202585858721161" target="_blank" rel="noopener noreferrer" title="Open the receipt form in a new tab">
-            Open in new tab →
+          <a class="btn" id="embedNewTab" href="https://wpvportal.weebly.com/submit-request---bbism.html" target="_blank" rel="noopener noreferrer">
+            New tab ↗
           </a>
         </div>
 
-        <div class="embed-body">
-          <!-- Jotform Embed (provided) -->
-          <script type="text/javascript" src="https://form.jotform.com/jsform/202585858721161"></script>
+        <div class="embed-shell">
+          <div class="embed-loading" id="embedLoading" aria-hidden="true">
+            <div class="spinner" aria-hidden="true"></div>
+            <div>Loading…</div>
+          </div>
+
+          <iframe
+            class="hub-frame"
+            id="embedFrame"
+            title="Embedded Viewer"
+            src="https://wpvportal.weebly.com/submit-request---bbism.html"
+            loading="lazy"
+            allow="camera; microphone; geolocation"
+          ></iframe>
         </div>
       </div>
     </div>
 
-    <!-- FOOTER -->
     <div class="footer" role="contentinfo">
-      <div>Baseballism • Internal Employee Hub</div>
-      <div>Keep this page bookmarked Links open in a new tab for speed and safety.</div>
+      <div>Baseballism • Employee Hub</div>
+      <div></div>
     </div>
   </div>
+
+  <script>
+    (function(){
+      // Everything (forms + pages) loads into the same iframe
+      const ITEMS = {
+        purchase: {
+          title: "Purchase / Invoice Request",
+          sub: "Submit invoices or purchase requests.",
+          url: "https://wpvportal.weebly.com/submit-request---bbism.html",
+          embed: "https://wpvportal.weebly.com/submit-request---bbism.html"
+        },
+        receipt: {
+          title: "Receipt Upload",
+          sub: "Upload receipts.",
+          url: "https://form.jotform.com/202585858721161",
+          embed: "https://form.jotform.com/202585858721161"
+        },
+        travel: {
+          title: "Travel Request",
+          sub: "Submit travel requests.",
+          url: "https://wpvportal.weebly.com/travel-form---bbism.html",
+          embed: "https://wpvportal.weebly.com/travel-form---bbism.html"
+        },
+        cash_recon: {
+          title: "Cash Recon (Google Form)",
+          sub: "Cash reconciliation tracking.",
+          url: "https://docs.google.com/forms/d/e/1FAIpQLSckmYA0pninVJLOyPduZnMQ__b7gByaFJxoGCVYlKUVgQZcLA/viewform",
+          embed: "https://docs.google.com/forms/d/e/1FAIpQLSckmYA0pninVJLOyPduZnMQ__b7gByaFJxoGCVYlKUVgQZcLA/viewform?embedded=true"
+        },
+        logistics: {
+          title: "Logistics",
+          sub: "Shipping + warehouse.",
+          url: "https://wpvportal.weebly.com/logistics.html",
+          embed: "https://wpvportal.weebly.com/logistics.html"
+        },
+        analytics: {
+          title: "Analytics",
+          sub: "Dashboards + reporting.",
+          url: "https://wpvportal.weebly.com/analytics-login---bbism.html",
+          embed: "https://wpvportal.weebly.com/analytics-login---bbism.html"
+        },
+        requests: {
+          title: "Requests Hub",
+          sub: "Requests + submissions.",
+          url: "https://wpvportal.weebly.com/database---bbism.html",
+          embed: "https://wpvportal.weebly.com/database---bbism.html"
+        }
+      };
+
+      const frame   = document.getElementById("embedFrame");
+      const titleEl = document.getElementById("embedTitle");
+      const subEl   = document.getElementById("embedSub");
+      const newTab  = document.getElementById("embedNewTab");
+      const loading = document.getElementById("embedLoading");
+
+      function showLoading(on){
+        loading.style.display = on ? "flex" : "none";
+        loading.setAttribute("aria-hidden", on ? "false" : "true");
+      }
+
+      function openItem(key){
+        const it = ITEMS[key];
+        if(!it) return;
+
+        titleEl.textContent = it.title;
+        subEl.textContent   = it.sub;
+        newTab.href         = it.url;
+
+        showLoading(true);
+        frame.src = it.embed;
+
+        const anchor = document.getElementById("viewer");
+        if(anchor) anchor.scrollIntoView({ behavior:"smooth", block:"start" });
+      }
+
+      frame.addEventListener("load", () => showLoading(false));
+
+      document.addEventListener("click", (e) => {
+        const el = e.target.closest("[data-open]");
+        if(!el) return;
+        e.preventDefault();
+        openItem(el.getAttribute("data-open"));
+      });
+
+      // Optional: direct open via ?open=purchase (purchase, receipt, travel, cash_recon, logistics, analytics, requests)
+      const params = new URLSearchParams(location.search);
+      const key = params.get("open");
+      if(key && ITEMS[key]) openItem(key);
+    })();
+  </script>
 </body>
 </html>
