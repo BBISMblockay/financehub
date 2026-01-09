@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Baseballism — Employee Hub</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    :root{
+      --bg0:#0b1220;
+      --bg1:#0f172a;
+      --panel:rgba(255,255,255,.06);
+      --panel2:rgba(255,255,255,.09);
+      --border:rgba(148,163,184,.18);
+      --text:#e5e7eb;
+      --muted:#a7b0c0;
+      --muted2:#cbd5e1;
+      --shadow2:0 10px 30px rgba(0,0,0,.28);
+      --accent:#38bdf8;
+      --accent2:#22c55e;
+      --amber:#fbbf24;
+
+      --r18:18px;
+      --max:1100px;
+    }
+
+    *{ box-sizing:border-box; }
+    html,body{ height:100%; }
+    body{
+      margin:0;
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      color:var(--text);
+      background:
+        radial-gradient(1200px 600px at 12% -10%, rgba(56,189,248,.18), transparent 55%),
+        radial-gradient(900px 520px at 92% 0%, rgba(34,197,94,.12), transparent 55%),
+        radial-gradient(900px 520px at 70% 120%, rgba(251,191,36,.10), transparent 60%),
+        linear-gradient(180deg, var(--bg0), var(--bg1));
+    }
+
+    a{ color:inherit; text-decoration:none; }
+
+    .wrap{
+      max-width:var(--max);
+      margin:0 auto;
+      padding:28px 18px 46px;
+    }
+
+    /* Top bar */
+    .top{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:14px;
+      padding:16px 18px;
+      border:1px solid var(--border);
+      border-radius:var(--r18);
+      background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
+      box-shadow:var(--shadow2);
+      backdrop-filter: blur(10px);
+    }
+    .brand{
+      display:flex;
+      align-items:center;
+      gap:12px;
+      min-width:240px;
+    }
+    .logo{
+      width:44px; height:44px;
+      border-radius:14px;
+      background:
+        radial-gradient(18px 18px at 30% 25%, rgba(255,255,255,.22), transparent 60%),
+        linear-gradient(135deg, rgba(56,189,248,.95), rgba(34,197,94,.70));
+      box-shadow:0 10px 26px rgba(56,189,248,.14);
+      display:grid; place-items:center;
+      border:1px solid rgba(255,255,255,.14);
+    }
+    .brand h1{
+      margin:0;
+      font-size:16px;
+      letter-spacing:.2px;
+      font-weight:800;
+      line-height:1.15;
+    }
+    .brand p{
+      margin:3px 0 0;
+      color:var(--muted);
+      font-size:12.5px;
+      line-height:1.2;
+    }
+    .top-right{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+    }
+    .chip{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:8px 10px;
+      border:1px solid var(--border);
+      border-radius:999px;
+      background:rgba(255,255,255,.05);
+      font-size:12px;
+      color:var(--muted2);
+      user-select:none;
+      white-space:nowrap;
+    }
+    .dot{
+      width:8px;height:8px;border-radius:50%;
+      background:var(--accent2);
+      box-shadow:0 0 0 4px rgba(34,197,94,.12);
+    }
+
+    /* Hero */
+    .hero{
+      margin-top:18px;
+      display:grid;
+      grid-template-columns: 1.25fr .75fr;
+      gap:14px;
+      align-items:stretch;
+    }
+    .hero-card{
+      border:1px solid var(--border);
+      border-radius:var(--r18);
+      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      box-shadow:var(--shadow2);
+      padding:18px;
+      position:relative;
+      overflow:hidden;
+    }
+    .hero-card:before{
+      content:"";
+      position:absolute;
+      inset:-120px -80px auto auto;
+      width:320px;height:320px;
+      background:radial-gradient(circle at 30% 30%, rgba(56,189,248,.20), transparent 60%);
+      pointer-events:none;
+      transform: rotate(14deg);
+    }
+    .hero-title{
+      margin:0 0 8px;
+      font-size:22px;
+      letter-spacing:.2px;
+      font-weight:850;
+    }
+    .hero-sub{
+      margin:0;
+      color:var(--muted);
+      font-size:13.5px;
+      line-height:1.45;
+      max-width:70ch;
+    }
+
+    .quick{
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+      height:100%;
+    }
+    .quick h3{
+      margin:0;
+      font-size:13px;
+      font-weight:900;
+      letter-spacing:.35px;
+      color:rgba(203,213,225,.95);
+      text-transform:uppercase;
+    }
+    .quick p{
+      margin:0 0 2px;
+      color:var(--muted);
+      font-size:12.5px;
+      line-height:1.35;
+    }
+    .stack{
+      display:grid;
+      gap:10px;
+      margin-top:6px;
+    }
+    .open{
+      display:inline-flex;
+      align-items:center;
+      gap:10px;
+      padding:12px 12px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.14);
+      background:rgba(255,255,255,.07);
+      font-weight:850;
+      font-size:13px;
+      transition: background .15s ease, border-color .15s ease, transform .08s ease;
+      white-space:nowrap;
+      justify-content:space-between;
+    }
+    .open:hover{
+      background:rgba(255,255,255,.10);
+      border-color: rgba(56,189,248,.30);
+      transform: translateY(-1px);
+    }
+
+    /* Section */
+    .section{
+      margin-top:18px;
+    }
+    .section-head{
+      display:flex;
+      align-items:end;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:10px;
+    }
+    .section-head h2{
+      margin:0;
+      font-size:14px;
+      letter-spacing:.35px;
+      text-transform:uppercase;
+      color:rgba(203,213,225,.95);
+      font-weight:900;
+    }
+    .section-head .hint{
+      margin:0;
+      font-size:12px;
+      color:var(--muted);
+    }
+
+    .grid{
+      display:grid;
+      grid-template-columns: repeat(12, 1fr);
+      gap:12px;
+    }
+
+    .card{
+      grid-column: span 6;
+      border:1px solid var(--border);
+      border-radius:var(--r18);
+      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
+      box-shadow:var(--shadow2);
+      padding:14px;
+      position:relative;
+      overflow:hidden;
+      transition: transform .12s ease, border-color .12s ease, background .12s ease;
+    }
+    .card:hover{
+      transform: translateY(-2px);
+      border-color: rgba(56,189,248,.30);
+      background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.04));
+    }
+
+    .card-top{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:10px;
+      margin-bottom:10px;
+    }
+    .left{
+      display:flex;
+      gap:12px;
+      align-items:flex-start;
+      min-width:0;
+    }
+    .ico{
+      width:42px;height:42px;border-radius:14px;
+      display:grid;place-items:center;
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(255,255,255,.06);
+      flex:0 0 auto;
+    }
+    .meta{
+      min-width:0;
+    }
+    .meta .title{
+      margin:0;
+      font-size:15px;
+      font-weight:900;
+      letter-spacing:.1px;
+      line-height:1.2;
+    }
+    .meta .desc{
+      margin:6px 0 0;
+      font-size:12.5px;
+      color:var(--muted);
+      line-height:1.35;
+    }
+    .tags{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+    }
+    .tag{
+      font-size:11px;
+      padding:6px 9px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:rgba(0,0,0,.14);
+      color:rgba(203,213,225,.90);
+      white-space:nowrap;
+    }
+    .tag.blue{ border-color: rgba(56,189,248,.25); color: rgba(186,230,253,.92); }
+    .tag.green{ border-color: rgba(34,197,94,.22); color: rgba(187,247,208,.92); }
+    .tag.amber{ border-color: rgba(251,191,36,.22); color: rgba(253,230,138,.92); }
+
+    .card-actions{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      margin-top:12px;
+      padding-top:12px;
+      border-top:1px solid rgba(148,163,184,.14);
+    }
+    .btn{
+      display:inline-flex;
+      align-items:center;
+      gap:10px;
+      padding:10px 12px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.14);
+      background:rgba(255,255,255,.07);
+      font-weight:900;
+      font-size:13px;
+      transition: background .15s ease, border-color .15s ease, transform .08s ease;
+      white-space:nowrap;
+    }
+    .btn:hover{
+      background:rgba(255,255,255,.10);
+      border-color: rgba(56,189,248,.30);
+      transform: translateY(-1px);
+    }
+
+    .small{
+      font-size:12px;
+      color:var(--muted);
+      white-space:nowrap;
+      display:flex;
+      align-items:center;
+      gap:8px;
+    }
+
+    .footer{
+      margin-top:18px;
+      border:1px solid var(--border);
+      border-radius:var(--r18);
+      background:rgba(255,255,255,.04);
+      padding:14px 16px;
+      display:flex;
+      flex-wrap:wrap;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      color:var(--muted);
+      font-size:12px;
+    }
+
+    /* Jotform embed styling */
+    .embed-wrap{
+      margin-top:12px;
+      border:1px solid rgba(148,163,184,.16);
+      border-radius:14px;
+      overflow:hidden;
+      background:rgba(0,0,0,.14);
+    }
+    .embed-head{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      padding:12px 12px;
+      border-bottom:1px solid rgba(148,163,184,.16);
+      background:rgba(255,255,255,.05);
+    }
+    .embed-head .lefty{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      min-width:0;
+    }
+    .embed-title{
+      margin:0;
+      font-size:13px;
+      font-weight:950;
+      letter-spacing:.2px;
+    }
+    .embed-sub{
+      margin:0;
+      font-size:12px;
+      color:var(--muted);
+    }
+    .embed-body{
+      padding:0;
+    }
+    /* Jotform script injects an iframe; this helps it behave nicely */
+    .embed-wrap iframe{
+      width:100% !important;
+      min-height:780px;
+      border:0 !important;
+      background:#fff;
+    }
+
+    /* Responsive */
+    @media (max-width: 940px){
+      .hero{ grid-template-columns: 1fr; }
+      .brand{ min-width:auto; }
+    }
+    @media (max-width: 760px){
+      .card{ grid-column: span 12; }
+      .top{ padding:14px; }
+      .hero-card{ padding:16px; }
+      .hero-title{ font-size:20px; }
+      .open{ justify-content:space-between; }
+    }
+
+    @media print{
+      body{ background:#fff; color:#111; }
+      .top,.hero-card,.card,.footer,.embed-wrap{ box-shadow:none !important; background:#fff !important; }
+      .chip,.tag,.btn,.open{ border:1px solid #ddd !important; color:#111 !important; background:#fff !important; }
+      .embed-wrap{ display:none !important; }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <!-- TOP BAR -->
+    <div class="top" role="banner" aria-label="Employee Hub Header">
+      <div class="brand">
+        <div class="logo" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2l8.5 4.5v11L12 22 3.5 17.5v-11L12 2z" stroke="rgba(6,16,29,.85)" stroke-width="1.6"/>
+            <path d="M12 22V12.2" stroke="rgba(6,16,29,.65)" stroke-width="1.6"/>
+            <path d="M20.5 6.5L12 11.3 3.5 6.5" stroke="rgba(6,16,29,.65)" stroke-width="1.6"/>
+          </svg>
+        </div>
+        <div>
+          <h1>Baseballism — Employee Hub</h1>
+          <p>Travel, invoices, receipts, logistics, analytics, and requests.</p>
+        </div>
+      </div>
+
+      <div class="top-right">
+        <span class="chip"><span class="dot" aria-hidden="true"></span>Internal • Staff Use</span>
+        <span class="chip">Open links in new tab</span>
+      </div>
+    </div>
+
+    <!-- HERO -->
+    <div class="hero" aria-label="Quick access area">
+      <div class="hero-card">
+        <h2 class="hero-title">Fast access to the tools you actually use.</h2>
+        <p class="hero-sub">
+          Use the tiles below to submit travel, purchase/invoice requests, upload receipts, and jump into
+          logistics and analytics. Titles are standardized so you know exactly what you’re clicking.
+        </p>
+      </div>
+
+      <div class="hero-card">
+        <div class="quick">
+          <div>
+            <h3>Top Shortcuts</h3>
+            <p>Most common employee actions.</p>
+          </div>
+
+          <div class="stack">
+            <a class="open" href="https://wpvportal.weebly.com/submit-request---bbism.html" target="_blank" rel="noopener noreferrer">
+              <span>Purchase / Invoice Request</span>
+              <span aria-hidden="true">→</span>
+            </a>
+
+            <a class="open" href="#receipt-upload">
+              <span>Receipt Upload</span>
+              <span aria-hidden="true">↓</span>
+            </a>
+
+            <a class="open" href="https://wpvportal.weebly.com/travel-form---bbism.html" target="_blank" rel="noopener noreferrer">
+              <span>Travel Request (Portal Form)</span>
+              <span aria-hidden="true">→</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MAIN TILES -->
+    <div class="section">
+      <div class="section-head">
+        <h2>Employee Links</h2>
+        <p class="hint">Everything opens in a new tab (except the embedded receipt upload below).</p>
+      </div>
+
+      <div class="grid">
+        <!-- Purchase / Invoice Request -->
+        <div class="card">
+          <div class="card-top">
+            <div class="left">
+              <div class="ico" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M7 3h10l2 3v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" stroke="rgba(186,230,253,.95)" stroke-width="2"/>
+                  <path d="M8 11h8M8 15h8" stroke="rgba(186,230,253,.75)" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <div class="meta">
+                <p class="title">Purchase / Invoice Request</p>
+                <p class="desc">Submit invoices or purchase requests for review and processing.</p>
+              </div>
+            </div>
+            <div class="tags">
+              <span class="tag blue">AP</span>
+              <span class="tag">Request</span>
+            </div>
+          </div>
+          <div class="card-actions">
+            <a class="btn" href="https://wpvportal.weebly.com/submit-request---bbism.html" target="_blank" rel="noopener noreferrer">
+              Open Request Form →
+            </a>
+            <span class="small">Invoices / Purchases</span>
+          </div>
+        </div>
+
+        <!-- Travel Request (Portal) -->
+        <div class="card">
+          <div class="card-top">
+            <div class="left">
+              <div class="ico" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M2.5 12.5l19-7-7 19-3.5-8-8.5-4z" stroke="rgba(187,247,208,.95)" stroke-width="2" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <div class="meta">
+                <p class="title">Travel Request (Portal Form)</p>
+                <p class="desc">Submit travel details through the WPV-hosted travel request form.</p>
+              </div>
+            </div>
+            <div class="tags">
+              <span class="tag green">Travel</span>
+              <span class="tag">Form</span>
+            </div>
+          </div>
+          <div class="card-actions">
+            <a class="btn" href="https://wpvportal.weebly.com/travel-form---bbism.html" target="_blank" rel="noopener noreferrer">
+              Open Travel Form →
+            </a>
+            <span class="small">WPV Portal</span>
+          </div>
+        </div>
+
+        <!-- Travel Request (Google) -->
+        <div class="card">
+          <div class="card-top">
+            <div class="left">
+              <div class="ico" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M7 3h8l4 4v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" stroke="rgba(253,230,138,.95)" stroke-width="2"/>
+                  <path d="M15 3v5h5" stroke="rgba(253,230,138,.95)" stroke-width="2"/>
+                  <path d="M8 12h8M8 16h8" stroke="rgba(253,230,138,.75)" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <div class="meta">
+                <p class="title">Travel Request (Google Form)</p>
+                <p class="desc">Direct Google Form link for travel submissions (same purpose, alternate entry).</p>
+              </div>
+            </div>
+            <div class="tags">
+              <span class="tag amber">Google</span>
+              <span class="tag">Form</span>
+            </div>
+          </div>
+          <div class="card-actions">
+            <a class="btn" href="https://docs.google.com/forms/d/e/1FAIpQLSckmYA0pninVJLOyPduZnMQ__b7gByaFJxoGCVYlKUVgQZcLA/viewform" target="_blank" rel="noopener noreferrer">
+              Open Google Form →
+            </a>
+            <span class="small">External</span>
+          </div>
+        </div>
+
+        <!-- Logistics -->
+        <div class="card">
+          <div class="card-top">
+            <div class="left">
+              <div class="ico" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M3 7h11v10H3V7z" stroke="rgba(186,230,253,.95)" stroke-width="2"/>
+                  <path d="M14 10h4l3 3v4h-7v-7z" stroke="rgba(186,230,253,.95)" stroke-width="2" stroke-linejoin="round"/>
+                  <path d="M7 19a1.5 1.5 0 1 0 0 .01V19zm10 0a1.5 1.5 0 1 0 0 .01V19z" stroke="rgba(186,230,253,.75)" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <div class="meta">
+                <p class="title">Logistics</p>
+                <p class="desc">Shipping, warehouse, carriers, and operational resources.</p>
+              </div>
+            </div>
+            <div class="tags">
+              <span class="tag blue">Ops</span>
+              <span class="tag">Internal</span>
+            </div>
+          </div>
+          <div class="card-actions">
+            <a class="btn" href="https://wpvportal.weebly.com/logistics.html" target="_blank" rel="noopener noreferrer">
+              Open Logistics →
+            </a>
+            <span class="small">WPV Portal</span>
+          </div>
+        </div>
+
+        <!-- Analytics -->
+        <div class="card">
+          <div class="card-top">
+            <div class="left">
+              <div class="ico" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M4 19V5" stroke="rgba(253,230,138,.95)" stroke-width="2" stroke-linecap="round"/>
+                  <path d="M4 19h16" stroke="rgba(253,230,138,.95)" stroke-width="2" stroke-linecap="round"/>
+                  <path d="M7 15l3-4 3 2 4-6 2 2" stroke="rgba(253,230,138,.8)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+              <div class="meta">
+                <p class="title">Analytics (Login)</p>
+                <p class="desc">Reporting dashboards and KPI views (login required).</p>
+              </div>
+            </div>
+            <div class="tags">
+              <span class="tag amber">Analytics</span>
+              <span class="tag">Login</span>
+            </div>
+          </div>
+          <div class="card-actions">
+            <a class="btn" href="https://wpvportal.weebly.com/analytics-login---bbism.html" target="_blank" rel="noopener noreferrer">
+              Open Analytics →
+            </a>
+            <span class="small">Restricted</span>
+          </div>
+        </div>
+
+        <!-- Requests Hub (Database) -->
+        <div class="card">
+          <div class="card-top">
+            <div class="left">
+              <div class="ico" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M8 4h8l2 3v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V7l2-3z" stroke="rgba(186,230,253,.95)" stroke-width="2" stroke-linejoin="round"/>
+                  <path d="M9 12h6M9 16h6" stroke="rgba(186,230,253,.75)" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <div class="meta">
+                <p class="title">Requests Hub (Status / Check)</p>
+                <p class="desc">View request submissions and status — use this to check what’s been submitted.</p>
+              </div>
+            </div>
+            <div class="tags">
+              <span class="tag blue">Requests</span>
+              <span class="tag">Status</span>
+            </div>
+          </div>
+          <div class="card-actions">
+            <a class="btn" href="https://wpvportal.weebly.com/database---bbism.html" target="_blank" rel="noopener noreferrer">
+              Open Requests Hub →
+            </a>
+            <span class="small">Submission tracking</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RECEIPT UPLOAD EMBED -->
+    <div class="section" id="receipt-upload">
+      <div class="section-head">
+        <h2>Receipt Upload</h2>
+        <p class="hint">Upload receipts here (embedded form). If it doesn’t load, refresh the page.</p>
+      </div>
+
+      <div class="embed-wrap">
+        <div class="embed-head">
+          <div class="lefty">
+            <div class="ico" aria-hidden="true" style="width:38px;height:38px;border-radius:12px;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <path d="M7 3h10l2 3v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" stroke="rgba(229,231,235,.92)" stroke-width="2"/>
+                <path d="M8 13h8M8 17h6" stroke="rgba(229,231,235,.75)" stroke-width="2" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div style="min-width:0;">
+              <p class="embed-title">Receipt Upload Form</p>
+              <p class="embed-sub">Attach receipts for invoices, reimbursements, or card purchases.</p>
+            </div>
+          </div>
+
+          <a class="btn" href="https://form.jotform.com/202585858721161" target="_blank" rel="noopener noreferrer" title="Open the receipt form in a new tab">
+            Open in new tab →
+          </a>
+        </div>
+
+        <div class="embed-body">
+          <!-- Jotform Embed (provided) -->
+          <script type="text/javascript" src="https://form.jotform.com/jsform/202585858721161"></script>
+        </div>
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <div class="footer" role="contentinfo">
+      <div>Baseballism • Internal Employee Hub</div>
+      <div>Keep this page private. Links open in a new tab for speed and safety.</div>
+    </div>
+  </div>
+</body>
+</html>
