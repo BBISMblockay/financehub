@@ -10,36 +10,20 @@
   <style>
     :root{
       color-scheme: dark;
-      --bg:#070a12;
-      --panel:rgba(255,255,255,.04);
-      --surf:rgba(255,255,255,.03);
-      --surf2:rgba(255,255,255,.05);
-      --b:rgba(255,255,255,.10);
-      --b2:rgba(255,255,255,.16);
-      --t:rgba(255,255,255,.92);
-      --m:rgba(255,255,255,.62);
-      --m2:rgba(255,255,255,.48);
-      --a:#4fd1ff;
-      --g:#22c55e; --y:#eab308; --r:#fb7185;
-      --R:18px; --Rs:14px;
-      --sh:0 16px 46px rgba(0,0,0,.55);
-      --sh2:0 12px 26px rgba(0,0,0,.35);
+      --bg:#070a12; --panel:rgba(255,255,255,.04); --surf:rgba(255,255,255,.03); --surf2:rgba(255,255,255,.05);
+      --b:rgba(255,255,255,.10); --b2:rgba(255,255,255,.16);
+      --t:rgba(255,255,255,.92); --m:rgba(255,255,255,.62);
+      --a:#4fd1ff; --g:#22c55e; --y:#eab308; --r:#fb7185;
+      --R:18px; --Rs:14px; --sh:0 16px 46px rgba(0,0,0,.55); --sh2:0 12px 26px rgba(0,0,0,.35);
       --side:340px;
     }
     :root[data-theme="light"]{
       color-scheme: light;
-      --bg:#f6f7fb;
-      --panel:rgba(255,255,255,.86);
-      --surf:rgba(16,24,40,.03);
-      --surf2:rgba(16,24,40,.05);
-      --b:rgba(16,24,40,.12);
-      --b2:rgba(16,24,40,.16);
-      --t:rgba(16,24,40,.92);
-      --m:rgba(16,24,40,.62);
-      --m2:rgba(16,24,40,.48);
-      --a:#007aff;
-      --sh:0 14px 36px rgba(16,24,40,.12);
-      --sh2:0 10px 22px rgba(16,24,40,.10);
+      --bg:#f6f7fb; --panel:rgba(255,255,255,.86);
+      --surf:rgba(16,24,40,.03); --surf2:rgba(16,24,40,.05);
+      --b:rgba(16,24,40,.12); --b2:rgba(16,24,40,.16);
+      --t:rgba(16,24,40,.92); --m:rgba(16,24,40,.62);
+      --a:#007aff; --sh:0 14px 36px rgba(16,24,40,.12); --sh2:0 10px 22px rgba(16,24,40,.10);
     }
     *{box-sizing:border-box}
     html,body{height:100%}
@@ -54,321 +38,96 @@
       color:var(--t);
       overflow-x:hidden;
     }
-
-    .app{
-      max-width: 1480px;
-      margin:0 auto;
-      padding: 16px;
-      display:grid;
-      grid-template-columns: var(--side) 1fr;
-      gap:14px;
-    }
-
-    header{
-      grid-column:1 / -1;
-      display:flex;
-      justify-content:space-between;
-      align-items:flex-end;
-      gap:10px;
-      padding: 2px 4px;
-    }
+    .app{max-width:1480px;margin:0 auto;padding:16px;display:grid;grid-template-columns:var(--side) 1fr;gap:14px}
+    header{grid-column:1/-1;display:flex;justify-content:space-between;align-items:flex-end;gap:10px;padding:2px 4px}
     h1{margin:0;font-size:22px;font-weight:900;letter-spacing:-.02em}
     .sub{margin:4px 0 0;color:var(--m);font-size:12px}
-
     .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
-    .chip{
-      display:inline-flex;align-items:center;gap:8px;
-      padding:7px 10px;border-radius:999px;
-      background:color-mix(in oklab,var(--surf2) 85%, transparent);
-      border:1px solid var(--b);
-      color:var(--m);
-      cursor:pointer; user-select:none;
-      font-size:12px;
-    }
+    .chip{display:inline-flex;align-items:center;gap:8px;padding:7px 10px;border-radius:999px;background:var(--surf2);border:1px solid var(--b);color:var(--m);cursor:pointer;user-select:none;font-size:12px}
     .chip:hover{border-color:var(--b2);color:var(--t)}
     .chip b{color:var(--t);font-weight:900}
-
-    .card{
-      background:var(--panel);
-      border:1px solid var(--b);
-      border-radius:var(--R);
-      box-shadow:var(--sh2);
-      backdrop-filter: blur(10px);
-    }
-
-    .side{
-      position:sticky;
-      top:12px;
-      align-self:start;
-      height:calc(100dvh - 24px);
-      overflow:auto;
-      padding:12px;
-      box-shadow:var(--sh);
-    }
-
-    .lbl{
-      font-size:11px;
-      color:var(--m);
-      text-transform:uppercase;
-      letter-spacing:.08em;
-      font-weight:900;
-      margin:10px 0 8px;
-    }
-
+    .card{background:var(--panel);border:1px solid var(--b);border-radius:var(--R);box-shadow:var(--sh2);backdrop-filter: blur(10px)}
+    .side{position:sticky;top:12px;align-self:start;height:calc(100dvh - 24px);overflow:auto;padding:12px;box-shadow:var(--sh)}
+    .lbl{font-size:11px;color:var(--m);text-transform:uppercase;letter-spacing:.08em;font-weight:900;margin:10px 0 8px}
     input,select,button{font:inherit;color:inherit}
-    .in{
-      width:100%;
-      padding:10px 11px;
-      border-radius:14px;
-      border:1px solid var(--b);
-      background:var(--surf);
-      outline:none;
-      font-size:12px;
-    }
-    .in:focus{
-      border-color:color-mix(in oklab,var(--a) 55%, var(--b));
-      box-shadow:0 0 0 4px color-mix(in oklab,var(--a) 12%, transparent);
-    }
+    .in{width:100%;padding:10px 11px;border-radius:14px;border:1px solid var(--b);background:var(--surf);outline:none;font-size:12px}
+    .in:focus{border-color:color-mix(in oklab,var(--a) 55%, var(--b));box-shadow:0 0 0 4px color-mix(in oklab,var(--a) 12%, transparent)}
     select[multiple]{padding:8px}
     select[multiple] option{padding:6px 8px}
-
-    .btn{
-      border:1px solid var(--b);
-      background:color-mix(in oklab,var(--surf2) 85%, transparent);
-      padding:9px 11px;border-radius:14px;
-      cursor:pointer;font-size:12px;
-      transition: transform .08s ease, border-color .12s ease;
-    }
+    .btn{border:1px solid var(--b);background:var(--surf2);padding:9px 11px;border-radius:14px;cursor:pointer;font-size:12px;transition:transform .08s ease,border-color .12s ease}
     .btn:hover{border-color:var(--b2)}
     .btn:active{transform:translateY(1px)}
-    .btn.p{
-      border-color:color-mix(in oklab,var(--a) 45%, var(--b));
-      box-shadow:0 0 0 4px color-mix(in oklab,var(--a) 10%, transparent);
-    }
+    .btn.p{border-color:color-mix(in oklab,var(--a) 45%, var(--b));box-shadow:0 0 0 4px color-mix(in oklab,var(--a) 10%, transparent)}
     .btn.block{width:100%}
     .btn.small{padding:7px 10px;border-radius:12px}
     .btn.ghost{background:transparent}
-
     .main{min-width:0}
-
-    .banner{
-      display:none;
-      margin:0 0 12px;
-      padding:10px 12px;
-      border-radius:14px;
-      border:1px solid rgba(244,63,94,.28);
-      background:rgba(244,63,94,.10);
-      color:#fecdd3;
-      font-size:12px;
-      white-space:pre-wrap;
-    }
-
-    .topbar{
-      padding:12px 14px;
-      display:flex;
-      justify-content:space-between;
-      gap:10px;
-      flex-wrap:wrap;
-      align-items:center;
-    }
-
+    .banner{display:none;margin:0 0 12px;padding:10px 12px;border-radius:14px;border:1px solid rgba(244,63,94,.28);background:rgba(244,63,94,.10);color:#fecdd3;font-size:12px;white-space:pre-wrap}
+    .topbar{padding:12px 14px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center}
     .kpis{display:flex;gap:8px;flex-wrap:wrap;color:var(--m)}
-    .kpis span{
-      border:1px solid var(--b);
-      background:color-mix(in oklab,var(--surf2) 85%, transparent);
-      padding:6px 10px;
-      border-radius:999px;
-    }
+    .kpis span{border:1px solid var(--b);background:var(--surf2);padding:6px 10px;border-radius:999px}
     .kpis b{color:var(--t)}
-
     .tabs{display:flex;gap:8px;flex-wrap:wrap}
-    .tab{
-      border:1px solid var(--b);
-      background:color-mix(in oklab,var(--surf2) 85%, transparent);
-      padding:8px 12px;border-radius:999px;
-      cursor:pointer;color:var(--m);
-      font-weight:900;font-size:12px;
-    }
+    .tab{border:1px solid var(--b);background:var(--surf2);padding:8px 12px;border-radius:999px;cursor:pointer;color:var(--m);font-weight:900;font-size:12px}
     .tab:hover{border-color:var(--b2);color:var(--t)}
-    .tab.on{
-      border-color:color-mix(in oklab,var(--a) 55%, var(--b));
-      background:color-mix(in oklab,var(--a) 12%, var(--surf2));
-      color:var(--t);
-    }
-
+    .tab.on{border-color:color-mix(in oklab,var(--a) 55%, var(--b));background:color-mix(in oklab,var(--a) 12%, var(--surf2));color:var(--t)}
     .lane{padding:12px 14px}
     .empty{padding:12px;color:var(--m);text-align:center}
 
-    .group{
-      margin:10px 0;
-      border:1px solid var(--b);
-      border-radius:var(--R);
-      overflow:hidden;
-      background:var(--surf);
-    }
-    .ghead{
-      padding:10px 12px;
-      display:flex;
-      justify-content:space-between;
-      gap:10px;
-      cursor:pointer;
-    }
+    .group{margin:10px 0;border:1px solid var(--b);border-radius:var(--R);overflow:hidden;background:var(--surf)}
+    .ghead{padding:10px 12px;display:flex;justify-content:space-between;gap:10px;cursor:pointer}
     .ghead.open{background:color-mix(in oklab,var(--a) 8%, transparent)}
     .ghead strong{font-weight:900;letter-spacing:-.01em}
     .gbody{display:none;padding:10px 12px 6px}
     .gbody.open{display:block}
 
-    .po{
-      border:1px solid var(--b);
-      border-radius:var(--Rs);
-      background:color-mix(in oklab,var(--surf2) 70%, transparent);
-      margin:0 0 8px;
-      overflow:hidden;
-    }
-    .pohead{
-      padding:10px 11px;
-      display:flex;
-      justify-content:space-between;
-      gap:10px;
-      cursor:pointer;
-    }
-    .pohead.open{background:color-mix(in oklab,var(--a) 8%, transparent)}
-    .pobody{display:none;padding:10px 11px 8px}
-    .pobody.open{display:block}
-
-    .line{
-      border:1px solid var(--b);
-      border-radius:var(--Rs);
-      background:color-mix(in oklab,var(--surf2) 70%, transparent);
-      padding:10px 11px;
-      margin:0 0 8px;
-      cursor:pointer;
-    }
-    .line:hover{border-color:var(--b2);box-shadow:0 10px 22px rgba(0,0,0,.12)}
-    .ltop{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
-    .title{font-weight:900;letter-spacing:-.01em;font-size:12px}
+    .po{border:1px solid var(--b);border-radius:var(--Rs);background:color-mix(in oklab,var(--surf2) 70%, transparent);margin:0 0 8px;overflow:hidden}
+    .pohead{padding:10px 11px;display:flex;justify-content:space-between;gap:10px;cursor:pointer;align-items:flex-start}
+    .pohead:hover{border-color:var(--b2)}
     .muted{color:var(--m);font-size:11px}
-    .pill{
-      display:inline-flex;align-items:center;gap:6px;
-      padding:2px 8px;border-radius:999px;
-      border:1px solid var(--b);
-      font-size:10px;font-weight:900;text-transform:uppercase;
-      color:var(--m);
-      white-space:nowrap;
-      line-height:1.2;
-    }
+    .title{font-weight:900;letter-spacing:-.01em;font-size:12px}
+    .pill{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:999px;border:1px solid var(--b);font-size:10px;font-weight:900;text-transform:uppercase;color:var(--m);white-space:nowrap;line-height:1.2}
     .dot{width:7px;height:7px;border-radius:999px}
     .dot.g{background:var(--g)} .dot.y{background:var(--y)} .dot.r{background:var(--r)}
 
-    /* Calendar */
     .calTop{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
     .calTitle{font-size:13px;font-weight:900}
     .calGrid{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}
     .dow{font-size:11px;color:var(--m);text-transform:uppercase;letter-spacing:.08em;padding:2px 2px}
-    .cell{
-      min-height:110px;
-      border:1px solid var(--b);
-      border-radius:var(--R);
-      background:var(--surf);
-      padding:10px;
-      display:flex;flex-direction:column;gap:8px;
-      overflow:hidden;
-    }
+    .cell{min-height:110px;border:1px solid var(--b);border-radius:var(--R);background:var(--surf);padding:10px;display:flex;flex-direction:column;gap:8px;overflow:hidden}
     .cell.mute{opacity:.55}
     .dayline{display:flex;justify-content:space-between;align-items:center;gap:8px}
     .daynum{font-size:12px;font-weight:900}
     .badge{font-size:10px;color:var(--m);border:1px solid var(--b);border-radius:999px;padding:2px 8px;white-space:nowrap}
     .items{display:flex;flex-direction:column;gap:8px;overflow:auto;padding-right:2px}
-    .it{
-      border:1px solid var(--b);
-      border-radius:var(--Rs);
-      padding:8px 10px;
-      background:var(--surf2);
-      cursor:pointer;
-    }
+    .it{border:1px solid var(--b);border-radius:var(--Rs);padding:8px 10px;background:var(--surf2);cursor:pointer}
     .it:hover{border-color:var(--b2)}
     .it .t{font-size:11px;font-weight:900;letter-spacing:-.01em}
     .it .a{font-size:10px;color:var(--m);margin-top:3px}
 
-    /* Reports */
     table{width:100%;border-collapse:collapse;font-size:12px}
     th,td{border-bottom:1px solid var(--b);padding:8px 6px;text-align:left}
     th{color:var(--m);font-weight:900}
     .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
     .panel{padding:12px 14px}
-    .panel h3{
-      margin:0 0 8px;
-      font-size:11px;
-      color:var(--m);
-      text-transform:uppercase;
-      letter-spacing:.08em;
-      font-weight:900;
-    }
+    .panel h3{margin:0 0 8px;font-size:11px;color:var(--m);text-transform:uppercase;letter-spacing:.08em;font-weight:900}
 
-    /* Drawer */
-    .drawer{
-      position:fixed;top:0;right:0;height:100%;
-      width:460px;max-width:92vw;
-      background:var(--panel);
-      border-left:1px solid var(--b);
-      box-shadow:-18px 0 50px rgba(0,0,0,.40);
-      transform:translateX(100%);
-      transition:transform .22s ease;
-      z-index:50;
-      display:flex;flex-direction:column;
-      backdrop-filter: blur(12px);
-    }
+    .drawer{position:fixed;top:0;right:0;height:100%;width:460px;max-width:92vw;background:var(--panel);border-left:1px solid var(--b);
+      box-shadow:-18px 0 50px rgba(0,0,0,.40);transform:translateX(100%);transition:transform .22s ease;z-index:50;display:flex;flex-direction:column;backdrop-filter: blur(12px)}
     .drawer.open{transform:translateX(0)}
-    .dhead{
-      display:flex;justify-content:space-between;align-items:center;
-      padding:12px 14px;border-bottom:1px solid var(--b);gap:10px;
-    }
+    .dhead{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-bottom:1px solid var(--b);gap:10px}
     .dtitle{font-size:13px;font-weight:900;letter-spacing:-.01em}
     .dbody{padding:12px 14px;overflow:auto}
-    .kv{
-      display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px
-    }
-    .k{
-      background:var(--surf);
-      border:1px solid var(--b);
-      border-radius:var(--R);
-      padding:10px;
-    }
+    .kv{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+    .k{background:var(--surf);border:1px solid var(--b);border-radius:var(--R);padding:10px}
     .k .l{font-size:11px;color:var(--m);font-weight:900}
     .k .v{font-size:14px;font-weight:900;letter-spacing:-.01em;margin-top:3px}
-    details{
-      border:1px solid var(--b);
-      border-radius:var(--R);
-      padding:10px;
-      margin:10px 0;
-      background:var(--surf);
-    }
-    details>summary{
-      cursor:pointer;
-      list-style:none;
-      font-size:12px;
-      color:var(--m);
-      font-weight:900;
-    }
+    details{border:1px solid var(--b);border-radius:var(--R);padding:10px;margin:10px 0;background:var(--surf)}
+    details>summary{cursor:pointer;list-style:none;font-size:12px;color:var(--m);font-weight:900}
     details>summary::-webkit-details-marker{display:none}
-    .kbd{
-      font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
-      font-size:11px;
-      background:var(--surf2);
-      border:1px solid var(--b);
-      padding:2px 8px;
-      border-radius:10px;
-      color:var(--m);
-    }
+    .kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;background:var(--surf2);border:1px solid var(--b);padding:2px 8px;border-radius:10px;color:var(--m)}
 
-    @media (max-width:980px){
-      :root{--side:100%}
-      .app{grid-template-columns:1fr}
-      .side{position:relative;height:auto}
-      .grid2{grid-template-columns:1fr}
-      .drawer{width:100%}
-      .cell{min-height:100px}
-    }
+    @media (max-width:980px){:root{--side:100%}.app{grid-template-columns:1fr}.side{position:relative;height:auto}.grid2{grid-template-columns:1fr}.drawer{width:100%}.cell{min-height:100px}}
   </style>
 </head>
 
@@ -377,7 +136,7 @@
     <header>
       <div>
         <h1>Planning Dashboard — POs & Factories</h1>
-        <div class="sub">Live from Google Sheets · Queue + Calendar + Reports</div>
+        <div class="sub">Master: PO_Lines_CLEAN (gid 1062059200) · Queue + Calendar + Reports</div>
       </div>
       <div class="row">
         <div class="chip" style="cursor:default"><span>Updated</span> <b id="updated">—</b></div>
@@ -401,11 +160,11 @@
       <div class="lbl">Wholesale Triggered</div>
       <select id="wh" class="in">
         <option value="">Any</option>
-        <option value="yes">Yes</option>
-        <option value="no">No</option>
+        <option value="true">True</option>
+        <option value="false">False</option>
       </select>
 
-      <div class="lbl">Ship date range</div>
+      <div class="lbl">Ship date range (Req Ship Date)</div>
       <div style="display:flex;gap:10px">
         <input id="shipFrom" class="in" type="date" />
         <input id="shipTo" class="in" type="date" />
@@ -414,14 +173,18 @@
       <div class="lbl">Actions</div>
       <div style="display:flex;gap:10px">
         <button id="reset" class="btn block">Reset</button>
-        <button id="export" class="btn p block">Export CSV</button>
+        <button id="export" class="btn p block">Export PO CSV</button>
       </div>
 
       <div class="lbl">Source</div>
       <div style="display:flex;gap:10px;flex-wrap:wrap">
         <a id="openSheet" class="btn small ghost" target="_blank" rel="noopener">Open sheet</a>
-        <a id="openPub" class="btn small ghost" target="_blank" rel="noopener">Published view</a>
+        <a id="openGid" class="btn small ghost" target="_blank" rel="noopener">Open gid</a>
+        <a id="openPublished" class="btn small ghost" target="_blank" rel="noopener">Published view</a>
       </div>
+
+      <div class="lbl">Debug</div>
+      <div class="muted" id="srcUsed">—</div>
     </aside>
 
     <main class="main">
@@ -429,12 +192,11 @@
 
       <section class="card topbar">
         <div class="kpis">
-          <span>Lines: <b id="kLines">—</b></span>
           <span>POs: <b id="kPOs">—</b></span>
           <span>Factories: <b id="kFac">—</b></span>
+          <span>Lines: <b id="kLines">—</b></span>
           <span>Qty: <b id="kQty">—</b></span>
-          <span>Retail Value: <b id="kVal">—</b></span>
-          <span>Ship next 30d: <b id="k30">—</b></span>
+          <span>PO Retail: <b id="kVal">—</b></span>
         </div>
         <div class="tabs" id="tabs">
           <button class="tab on" data-view="queue">Queue</button>
@@ -460,34 +222,17 @@
       <section id="reports" class="card lane" style="display:none">
         <div class="grid2">
           <div class="card panel">
-            <h3>Top Factories (Filtered)</h3>
+            <h3>Top Factories (PO-based)</h3>
             <table>
-              <thead><tr><th>Factory</th><th>Lines</th><th>Qty</th><th>Retail</th></tr></thead>
+              <thead><tr><th>Factory</th><th>POs</th><th>Qty</th><th>PO Retail</th></tr></thead>
               <tbody id="rFactories"></tbody>
             </table>
           </div>
           <div class="card panel">
-            <h3>Date Bucket (Filtered)</h3>
+            <h3>Ship Month (PO-based)</h3>
             <table>
-              <thead><tr><th>Bucket</th><th>Lines</th><th>Qty</th><th>Retail</th></tr></thead>
-              <tbody id="rBuckets"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="grid2" style="margin-top:12px">
-          <div class="card panel">
-            <h3>Ship Month (Filtered)</h3>
-            <table>
-              <thead><tr><th>Month</th><th>Lines</th><th>Qty</th><th>Retail</th></tr></thead>
+              <thead><tr><th>Month</th><th>POs</th><th>Qty</th><th>PO Retail</th></tr></thead>
               <tbody id="rMonths"></tbody>
-            </table>
-          </div>
-          <div class="card panel">
-            <h3>Wholesale Triggered (Filtered)</h3>
-            <table>
-              <thead><tr><th>Triggered</th><th>Lines</th><th>Qty</th><th>Retail</th></tr></thead>
-              <tbody id="rWholesale"></tbody>
             </table>
           </div>
         </div>
@@ -499,8 +244,6 @@
     <div class="dhead">
       <div class="dtitle" id="dTitle">Details</div>
       <div style="display:flex;gap:8px;align-items:center">
-        <button class="btn small ghost" id="prevBtn" title="Previous (←)">&larr;</button>
-        <button class="btn small ghost" id="nextBtn" title="Next (→)">&rarr;</button>
         <button class="btn small" id="closeBtn">Close</button>
       </div>
     </div>
@@ -510,46 +253,38 @@
 <script>
 (() => {
   /* ========= CONFIG =========
-    Master tab: PO_Lines_CLEAN (gid=1062059200)
-    Best for GitHub Pages: use Published-to-web CSV.
-  */
+   * Published-to-web is the most reliable for GitHub Pages.
+   * Keep GViz/Export as fallback (only works if the sheet is shared publicly).
+   */
   const SHEET_ID = "1VvBB_F0cXdOq5rKYDfV540v5_eAXyHi1NqkJi34Kv-o";
-  const GID = "1062059200"; // PO_Lines_CLEAN (master)
+  const GID = "1062059200"; // PO_Lines_CLEAN
 
-  // If your published link changes, update this PUBLISHED_ID.
-  const PUBLISHED_ID = "2PACX-1vQkrN-4CPWPkdS8sRFg-mkKBoPU_gqQXFkhjjSQ6hT5MvMhzmaHI-6DrKBh_jRE0Kucy9Edv9S4ptPO";
-  const PUBLISHED_CSV = `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_ID}/pub?gid=${GID}&single=true&output=csv`;
-  const PUBLISHED_HTML = `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_ID}/pubhtml?gid=${GID}&single=true`;
+  const PUBLISHED_BASE =
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vQkrN-4CPWPkdS8sRFg-mkKBoPU_gqQXFkhjjSQ6hT5MvMhzmaHI-6DrKBh_jRE0Kucy9Edv9S4ptPO";
 
-  // These work only if the sheet is shared ("anyone with link") or you have access in a same-origin app (not GitHub pages).
-  const GVIZ = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${GID}&tqx=out:json`;
-  const CSV = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
+  const PUBLISHED_HTML_URL = `${PUBLISHED_BASE}/pubhtml`;
+  const PUBLISHED_CSV_URL = `${PUBLISHED_BASE}/pub?gid=${GID}&single=true&output=csv`;
+
+  const GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${GID}&tqx=out:json`;
+  const EXPORT_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
 
   /* ========= STATE ========= */
-  let all = [];
-  let filtered = [];
-  const openFactory = new Map();
-  const openPO = new Map();
+  let allLines = [];
+  let poAll = new Map();   // key -> POAgg
+  let poFiltered = [];
   let view = "queue";
   let calAnchor = startOfMonth(new Date());
-  let currentOpenId = null;
+  const openFactory = new Map();
 
-  const F = {
-    q: "",
-    factories: new Set(),
-    ptypes: new Set(),
-    buckets: new Set(),
-    wh: "",
-    shipFrom: null,
-    shipTo: null
-  };
+  const F = { q:"", factories:new Set(), ptypes:new Set(), buckets:new Set(), wh:"", shipFrom:null, shipTo:null };
 
   /* ========= DOM ========= */
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, m => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;" }[m]));
   const deb = (fn, ms=200) => { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; };
-  const banner = (msg) => { const b=$("banner"); b.textContent=msg; b.style.display="block"; };
+  const showBanner = (msg) => { const b=$("banner"); b.textContent=msg; b.style.display="block"; };
   const clearBanner = () => { $("banner").style.display="none"; };
+  const clamp = (s,n=56)=>{ const t=String(s||""); return t.length>n ? t.slice(0,n-1)+"…" : t; };
 
   /* ========= HELPERS ========= */
   function startOfDay(d){ const x=new Date(d); x.setHours(0,0,0,0); return x; }
@@ -560,23 +295,20 @@
   function num(v){
     if(v==null) return 0;
     if(typeof v==="number") return Number.isFinite(v)?v:0;
-    const n=Number(String(v).replace(/[^0-9.-]/g,""));
+    const s=String(v).trim();
+    if(!s) return 0;
+    if(/^n\/a$/i.test(s)) return 0;
+    const n=Number(s.replace(/[^0-9.-]/g,""));
     return Number.isFinite(n)?n:0;
   }
   function parseDate(raw){
     if(!raw) return null;
     if(raw instanceof Date) return raw;
     const s=String(raw).trim();
-
     const g=s.match(/Date\((\d{4}),\s*(\d{1,2}),\s*(\d{1,2})/i);
     if(g) return new Date(+g[1], +g[2], +g[3]);
-
-    const isoOnly=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-    if(isoOnly) return new Date(+isoOnly[1], +isoOnly[2]-1, +isoOnly[3]);
-
     const us=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
     if(us){ const y=String(us[3]).length===2?(+us[3]+2000):+us[3]; return new Date(y, +us[1]-1, +us[2]); }
-
     const t=Date.parse(s);
     return Number.isNaN(t)?null:new Date(t);
   }
@@ -587,7 +319,13 @@
   function uniq(arr){ return [...new Set(arr.map(x=>String(x||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b)); }
   function setMulti(id, opts){ $(id).innerHTML = opts.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join(""); }
   function readMulti(id){ return new Set([...$(id).selectedOptions].map(o=>o.value)); }
-  function clamp(s,n=56){ const t=String(s||""); return t.length>n ? t.slice(0,n-1)+"…" : t; }
+  function boolish(v){
+    const s=String(v??"").toLowerCase().trim();
+    if(s==="" ) return null;
+    if(s==="true"||s==="t"||s==="yes"||s==="y"||s==="1") return true;
+    if(s==="false"||s==="f"||s==="no"||s==="n"||s==="0") return false;
+    return null;
+  }
 
   /* ========= CSV PARSER ========= */
   function parseCSV(txt){
@@ -597,7 +335,7 @@
     while(i<txt.length){
       const ch=txt[i++];
       if(q){
-        if(ch=='"'&&txt[i]=='"'){cur+='"';i++;}
+        if(ch=='"' && txt[i]=='"'){cur+='"';i++;}
         else if(ch=='"'){q=false;}
         else cur+=ch;
       }else{
@@ -611,364 +349,439 @@
     return out;
   }
 
-  /* ========= HEADER DETECTION + FUZZY MAP ========= */
-  function parseFromCsvText(txt){
-    const rows = parseCSV(txt);
-    if(!rows.length) return [];
-
-    const norm = (s) => String(s ?? "")
-      .trim()
-      .toLowerCase()
-      .replace(/\s+/g, " ")
-      .replace(/[^\w\s#]/g, "");
-
-    const aliases = {
-      po: ["po name","po","po#","po #","purchase order","purchase order name"],
-      factory: ["factory","vendor","supplier","mfg","manufacturer"],
-      sku: ["sku","style","style #","style#","item sku"],
-      title: ["title","product","item","product name","style name","description"],
-      productType: ["product type","type","category","product category"],
-      dateBucket: ["date bucket","bucket","ship bucket"],
-      wholesaleTriggered: ["wholesale triggered","wholesale trigger","wh triggered","wholesale"],
-      wholesaleSuffix: ["wholesale suffix","wh suffix","suffix"],
-      orderDate: ["order date","po date","date ordered"],
-      reqShipDate: ["req ship date","requested ship date","required ship date","requested ship","req ship"],
-      parsedShipDate: ["parsed ship date","parsed ship","ship date parsed","ship date"],
-      size: ["size","sz"],
-      color: ["color","colour"],
-      qty: ["qty","quantity","units","unit qty","total qty"],
-      retailValue: ["retail value","value","ext retail","extended retail","total retail"],
-      retailPrice: ["retail price","price","msrp"]
-    };
-
-    function scoreRow(r){
-      const cells = r.map(norm);
-      const has = (k) => aliases[k].some(a => cells.includes(norm(a)));
-      let s = 0;
-      if(has("po")) s += 3;
-      if(has("factory")) s += 3;
-      if(has("sku")) s += 2;
-      if(has("qty")) s += 2;
-      if(has("parsedShipDate") || has("reqShipDate")) s += 1;
-      return s;
-    }
-
-    let headerRowIndex = 0, best = -1;
-    for(let i=0;i<Math.min(30, rows.length);i++){
-      const s = scoreRow(rows[i]);
-      if(s > best){ best = s; headerRowIndex = i; }
-    }
-
-    const headerRaw = rows[headerRowIndex] || [];
-    const header = headerRaw.map(norm);
-
-    const gi = (key) => {
-      // exact
-      for(const a of aliases[key]){
-        const idx = header.indexOf(norm(a));
-        if(idx !== -1) return idx;
+  /* ========= GVIZ PARSE ========= */
+  function parseGViz(text){
+    const s=text.indexOf("{"), e=text.lastIndexOf("}");
+    if(s<0||e<0) return null;
+    try{ return JSON.parse(text.slice(s,e+1)); }catch{ return null; }
+  }
+  function buildHeaderIndex(labels){
+    const map=new Map();
+    labels.forEach((l,i)=>{
+      const k=String(l||"").trim().toLowerCase();
+      if(!k) return;
+      const a=map.get(k)||[];
+      a.push(i);
+      map.set(k,a);
+    });
+    return {
+      labels,
+      idx(name){
+        const k=String(name||"").trim().toLowerCase();
+        const a=map.get(k);
+        return a && a.length ? a[0] : -1;
       }
-      // contains
-      for(let i=0;i<header.length;i++){
-        const h = header[i];
-        if(aliases[key].some(a => h.includes(norm(a)))) return i;
-      }
-      return -1;
     };
+  }
+
+  /* ========= MAPPING (YOUR EXACT HEADERS) ========= */
+  const H = {
+    po: "PO Name",
+    factory: "Factory",
+    whSuffix: "Wholesale suffix",
+    whTrig: "Wholesale Triggered",
+    order: "Order Date",
+    reqShip: "Req Ship Date",
+    bucket: "Date Bucket",
+    ptype: "Product Type",
+    title: "Title",
+    sku: "SKU",
+    retailPrice: "Retail Price",
+    size: "Size",
+    qty: "Qty",
+    retailValue: "Retail Value",
+  };
+
+  /* ========= PO AGG (AVOID DOUBLE COUNT) ========= */
+  function poKey(line){ return `${line.factory}|||${line.po}`; }
+
+  function choosePoRetail(vals){
+    const v=vals.filter(x=>Number.isFinite(x)&&x>0);
+    if(!v.length) return {mode:"none", value:0};
+    const max=Math.max(...v);
+    const sum=v.reduce((a,b)=>a+b,0);
+    const eps=Math.max(1, max*0.002);
+    const nearMax=v.filter(x=>Math.abs(x-max)<=eps).length;
+    const ratio=nearMax/v.length;
+    if(v.length>=3 && ratio>=0.60 && sum>=max*1.35) return {mode:"max", value:max};
+    return {mode:"sum", value:sum};
+  }
+
+  function buildPoIndex(lines){
+    const map=new Map();
+    for(const l of lines){
+      const k=poKey(l);
+      let p=map.get(k);
+      if(!p){
+        p={ key:k, po:l.po, factory:l.factory, lines:[], qty:0, shipDateMin:null, orderDateMin:null,
+            productTypes:new Set(), buckets:new Set(), wh:null, retailVals:[] };
+        map.set(k,p);
+      }
+      p.lines.push(l);
+      p.qty += (l.qty||0);
+      p.retailVals.push(l.retailValue||0);
+      if(l.reqShipDate){
+        p.shipDateMin = p.shipDateMin ? (l.reqShipDate < p.shipDateMin ? l.reqShipDate : p.shipDateMin) : l.reqShipDate;
+      }
+      if(l.orderDate){
+        p.orderDateMin = p.orderDateMin ? (l.orderDate < p.orderDateMin ? l.orderDate : p.orderDateMin) : l.orderDate;
+      }
+      if(l.productType) p.productTypes.add(l.productType);
+      if(l.dateBucket) p.buckets.add(l.dateBucket);
+      const bt=boolish(l.wholesaleTriggered);
+      if(bt !== null) p.wh = p.wh === null ? bt : (p.wh || bt);
+    }
+    for(const p of map.values()){
+      const pick=choosePoRetail(p.retailVals);
+      p.poRetail=pick.value;
+      p.retailMode=pick.mode;
+    }
+    return map;
+  }
+
+  /* ========= LOADERS ========= */
+  async function fetchText(url){
+    const res=await fetch(url,{cache:"no-store"});
+    const txt=await res.text();
+    return {ok:res.ok, status:res.status, txt};
+  }
+
+  function parseFromGViz(json){
+    const cols=json?.table?.cols||[];
+    const rows=json?.table?.rows||[];
+    const labels=cols.map(c=>c.label||"");
+    const idx=buildHeaderIndex(labels);
 
     const I = {
-      po: gi("po"),
-      factory: gi("factory"),
-      sku: gi("sku"),
-      title: gi("title"),
-      productType: gi("productType"),
-      dateBucket: gi("dateBucket"),
-      wholesaleTriggered: gi("wholesaleTriggered"),
-      wholesaleSuffix: gi("wholesaleSuffix"),
-      orderDate: gi("orderDate"),
-      reqShipDate: gi("reqShipDate"),
-      parsedShipDate: gi("parsedShipDate"),
-      size: gi("size"),
-      color: gi("color"),
-      qty: gi("qty"),
-      retailValue: gi("retailValue"),
-      retailPrice: gi("retailPrice"),
+      po: idx.idx(H.po),
+      factory: idx.idx(H.factory),
+      whSuffix: idx.idx(H.whSuffix),
+      whTrig: idx.idx(H.whTrig),
+      order: idx.idx(H.order),
+      reqShip: idx.idx(H.reqShip),
+      bucket: idx.idx(H.bucket),
+      ptype: idx.idx(H.ptype),
+      title: idx.idx(H.title),
+      sku: idx.idx(H.sku),
+      retailPrice: idx.idx(H.retailPrice),
+      size: idx.idx(H.size),
+      qty: idx.idx(H.qty),
+      retailValue: idx.idx(H.retailValue),
     };
 
-    if(I.po === -1 || I.factory === -1){
-      banner(
-        `Header row not recognized.\n` +
-        `Detected header row: ${headerRowIndex+1}\n` +
-        `First headers: ${headerRaw.slice(0,14).join(" | ")}\n\n` +
-        `Fix: ensure PO_Lines_CLEAN is published, and the published gid matches.\n` +
-        `Or rename columns to include "PO Name" and "Factory".`
+    if(I.po<0 || I.factory<0){
+      showBanner(
+        `GViz loaded but header mismatch.\n`+
+        `Detected headers: ${labels.slice(0,18).join(" | ")}\n\n`+
+        `Need at least: "${H.po}" and "${H.factory}".`
       );
       return [];
     }
 
-    const data = rows.slice(headerRowIndex + 1);
+    const cell=(c,i)=>{ const x=c[i]; return x ? (x.v ?? x.f ?? "") : ""; };
 
-    return data.map((r,ri)=>{
-      const po = String(r[I.po] ?? "").trim();
-      const factory = String(r[I.factory] ?? "").trim();
-      const sku = I.sku !== -1 ? String(r[I.sku] ?? "").trim() : "";
-      const title = I.title !== -1 ? String(r[I.title] ?? "").trim() : "";
-
-      if(!po && !factory && !sku && !title) return null;
-
-      const shipDate = (I.parsedShipDate !== -1 ? parseDate(r[I.parsedShipDate]) : null)
-        || (I.reqShipDate !== -1 ? parseDate(r[I.reqShipDate]) : null);
+    return rows.map((r,ri)=>{
+      const c=r.c||[];
+      const po=String(cell(c,I.po)||"").trim();
+      const factory=String(cell(c,I.factory)||"").trim();
+      const title=String(cell(c,I.title)||"").trim();
+      const sku=String(cell(c,I.sku)||"").trim();
+      if(!po && !factory && !title && !sku) return null;
 
       return {
         id: btoa(unescape(encodeURIComponent(`${po}|${factory}|${sku}|${ri}`))).replace(/=+$/,""),
         po, factory,
-        sku,
+        wholesaleSuffix: String(cell(c,I.whSuffix)||"").trim(),
+        wholesaleTriggered: String(cell(c,I.whTrig)||"").trim(),
+        orderDate: parseDate(cell(c,I.order)),
+        reqShipDate: parseDate(cell(c,I.reqShip)),
+        dateBucket: String(cell(c,I.bucket)||"").trim(),
+        productType: String(cell(c,I.ptype)||"").trim(),
         title,
-        productType: I.productType !== -1 ? String(r[I.productType] ?? "").trim() : "",
-        dateBucket: I.dateBucket !== -1 ? String(r[I.dateBucket] ?? "").trim() : "",
-        wholesaleTriggered: I.wholesaleTriggered !== -1 ? String(r[I.wholesaleTriggered] ?? "").trim() : "",
-        wholesaleSuffix: I.wholesaleSuffix !== -1 ? String(r[I.wholesaleSuffix] ?? "").trim() : "",
-        orderDate: I.orderDate !== -1 ? parseDate(r[I.orderDate]) : null,
-        reqShipDate: I.reqShipDate !== -1 ? parseDate(r[I.reqShipDate]) : null,
-        shipDate,
-        size: I.size !== -1 ? String(r[I.size] ?? "").trim() : "",
-        color: I.color !== -1 ? String(r[I.color] ?? "").trim() : "",
-        qty: I.qty !== -1 ? num(r[I.qty]) : 0,
-        retailValue: I.retailValue !== -1 ? num(r[I.retailValue]) : 0,
-        retailPrice: I.retailPrice !== -1 ? num(r[I.retailPrice]) : 0,
-        _raw: r
+        sku,
+        retailPrice: num(cell(c,I.retailPrice)),
+        size: String(cell(c,I.size)||"").trim(),
+        qty: num(cell(c,I.qty)),
+        retailValue: num(cell(c,I.retailValue)),
       };
     }).filter(Boolean);
   }
 
-  /* ========= LOAD ========= */
-  async function fetchText(url){
-    const res = await fetch(url, { cache:"no-store" });
-    const txt = await res.text();
-    return { ok: res.ok, status: res.status, txt };
+  function parseFromCSVText(txt){
+    const rows=parseCSV(txt);
+    if(!rows.length) return [];
+
+    const norm=s=>String(s||"").trim().toLowerCase();
+    let headerRow=-1;
+    for(let i=0;i<Math.min(30,rows.length);i++){
+      const r=rows[i].map(norm);
+      if(r.includes(norm(H.po)) && r.includes(norm(H.factory))){ headerRow=i; break; }
+    }
+    if(headerRow<0){
+      showBanner(
+        `CSV loaded but could not find header row.\n`+
+        `First row: ${rows[0].slice(0,18).join(" | ")}\n\n`+
+        `Need headers including: "${H.po}" and "${H.factory}".`
+      );
+      return [];
+    }
+
+    const header=rows[headerRow].map(s=>String(s||"").trim());
+    const hNorm=header.map(norm);
+    const gi=(name)=>hNorm.indexOf(norm(name));
+    const I={
+      po:gi(H.po), factory:gi(H.factory), whSuffix:gi(H.whSuffix), whTrig:gi(H.whTrig),
+      order:gi(H.order), reqShip:gi(H.reqShip), bucket:gi(H.bucket), ptype:gi(H.ptype),
+      title:gi(H.title), sku:gi(H.sku), retailPrice:gi(H.retailPrice), size:gi(H.size),
+      qty:gi(H.qty), retailValue:gi(H.retailValue),
+    };
+    if(I.po<0 || I.factory<0){
+      showBanner(
+        `CSV header mismatch.\nHeader row detected: ${headerRow+1}\nFirst headers: ${header.slice(0,18).join(" | ")}`
+      );
+      return [];
+    }
+
+    return rows.slice(headerRow+1).map((r,ri)=>{
+      const po=String(r[I.po]??"").trim();
+      const factory=String(r[I.factory]??"").trim();
+      const title=String(r[I.title]??"").trim();
+      const sku=String(r[I.sku]??"").trim();
+      if(!po && !factory && !title && !sku) return null;
+
+      return {
+        id: btoa(unescape(encodeURIComponent(`${po}|${factory}|${sku}|${ri}`))).replace(/=+$/,""),
+        po, factory,
+        wholesaleSuffix: String(r[I.whSuffix]??"").trim(),
+        wholesaleTriggered: String(r[I.whTrig]??"").trim(),
+        orderDate: parseDate(r[I.order]),
+        reqShipDate: parseDate(r[I.reqShip]),
+        dateBucket: String(r[I.bucket]??"").trim(),
+        productType: String(r[I.ptype]??"").trim(),
+        title,
+        sku,
+        retailPrice: num(r[I.retailPrice]),
+        size: String(r[I.size]??"").trim(),
+        qty: num(r[I.qty]),
+        retailValue: num(r[I.retailValue]),
+      };
+    }).filter(Boolean);
   }
 
   async function load(){
     clearBanner();
     $("updated").textContent = new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});
-    $("openSheet").href = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit#gid=${GID}`;
-    $("openPub").href = PUBLISHED_HTML;
+    $("openSheet").href = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit`;
+    $("openGid").href = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit#gid=${GID}`;
+    $("openPublished").href = PUBLISHED_HTML_URL;
 
-    const cb = `_=${Date.now()}`;
+    const tries = [];
 
-    // 1) Published-to-web CSV (best for GitHub Pages)
+    // 0) Published-to-web CSV (2PACX) — best for GitHub Pages
     try{
-      const a = await fetchText(`${PUBLISHED_CSV}&${cb}`);
-      if(a.ok && a.txt.includes(",")){
-        all = parseFromCsvText(a.txt);
-        if(all.length){ init(); return; }
-        return; // parseFromCsvText already banner()'d
+      const url = PUBLISHED_CSV_URL + `&_=${Date.now()}`;
+      const r = await fetchText(url);
+      tries.push(`Published CSV: HTTP ${r.status}`);
+      if(!r.ok) throw new Error(`HTTP ${r.status}`);
+      allLines = parseFromCSVText(r.txt);
+      if(allLines.length){
+        $("srcUsed").textContent = "Loaded via: Published-to-web CSV (2PACX)";
+        initAfterLoad();
+        return;
       }
-      banner(`Published CSV fetch failed (${a.status}). Verify the tab is published and gid is correct.\n${PUBLISHED_CSV}`);
+      throw new Error(`Parsed 0 rows. First 200 chars:\n${r.txt.slice(0,200)}`);
     }catch(e){
-      banner(`Published CSV fetch error.\n${String(e)}`);
-      return;
+      showBanner(`Published CSV failed.\n${String(e)}\n\nTrying GViz…`);
     }
 
-    // 2) Normal CSV export (requires sharing)
+    // 1) GViz JSON — only works if sheet is publicly shareable (not just published)
     try{
-      const b = await fetchText(`${CSV}&${cb}`);
-      if(b.ok && b.txt.includes(",")){
-        all = parseFromCsvText(b.txt);
-        if(all.length){ init(); return; }
+      const url = GVIZ_URL + `&_=${Date.now()}`;
+      const r = await fetchText(url);
+      tries.push(`GViz: HTTP ${r.status}`);
+      if(!r.ok) throw new Error(`HTTP ${r.status}`);
+      const json = parseGViz(r.txt);
+      if(!json) throw new Error(`Non-JSON. First 120 chars:\n${r.txt.slice(0,120)}`);
+      allLines = parseFromGViz(json);
+      if(allLines.length){
+        $("srcUsed").textContent = "Loaded via: GViz JSON";
+        clearBanner();
+        initAfterLoad();
+        return;
       }
-    }catch{}
+      throw new Error("Parsed 0 rows (header mismatch or empty).");
+    }catch(e){
+      showBanner(`GViz failed.\n${String(e)}\n\nTrying export CSV…`);
+    }
 
-    // 3) GViz (requires sharing)
+    // 2) export?format=csv — also usually requires shareable permissions
     try{
-      const c = await fetchText(`${GVIZ}&${cb}`);
-      if(c.ok){
-        // GViz parsing intentionally omitted here; published CSV should be the source for this deployment.
-        banner("GViz loaded but not used in this build. Use Published-to-web CSV for GitHub Pages.");
+      const url = EXPORT_CSV_URL + `&_=${Date.now()}`;
+      const r = await fetchText(url);
+      tries.push(`Export CSV: HTTP ${r.status}`);
+      if(!r.ok) throw new Error(`HTTP ${r.status}`);
+      allLines = parseFromCSVText(r.txt);
+      if(allLines.length){
+        $("srcUsed").textContent = "Loaded via: export?format=csv";
+        clearBanner();
+        initAfterLoad();
+        return;
       }
-    }catch{}
+      throw new Error(`Parsed 0 rows. First 200 chars:\n${r.txt.slice(0,200)}`);
+    }catch(e){
+      showBanner(
+        `All sources failed.\n\n`+
+        `Published CSV URL:\n${PUBLISHED_CSV_URL}\n\n`+
+        `Tried:\n- ${tries.join("\n- ")}\n\n`+
+        `Last error:\n${String(e)}`
+      );
+      $("srcUsed").textContent = "No data loaded (see banner).";
+    }
   }
 
   /* ========= FILTERS ========= */
+  function poMatches(po){
+    if(F.factories.size && !F.factories.has(po.factory)) return false;
+
+    if(F.ptypes.size){
+      let ok=false;
+      for(const t of po.productTypes){ if(F.ptypes.has(t)){ ok=true; break; } }
+      if(!ok) return false;
+    }
+    if(F.buckets.size){
+      let ok=false;
+      for(const b of po.buckets){ if(F.buckets.has(b)){ ok=true; break; } }
+      if(!ok) return false;
+    }
+
+    if(F.wh){
+      const want = (F.wh==="true");
+      const got = po.wh === null ? null : !!po.wh;
+      if(got === null) return false;
+      if(got !== want) return false;
+    }
+
+    if(F.shipFrom || F.shipTo){
+      if(!po.shipDateMin) return false;
+      const d=startOfDay(po.shipDateMin);
+      if(F.shipFrom && d < startOfDay(F.shipFrom)) return false;
+      if(F.shipTo && d > startOfDay(F.shipTo)) return false;
+    }
+
+    const q=(F.q||"").toLowerCase().trim();
+    if(q){
+      const head=[po.factory, po.po, [...po.productTypes].join(" "), [...po.buckets].join(" ")].join(" ").toLowerCase();
+      if(head.includes(q)) return true;
+      for(const l of po.lines){
+        const blob=[l.title,l.sku,l.size,l.productType,l.dateBucket].join(" ").toLowerCase();
+        if(blob.includes(q)) return true;
+      }
+      return false;
+    }
+
+    return true;
+  }
+
   function applyFilters(){
-    const q = F.q.toLowerCase().trim();
-    const shipFrom = F.shipFrom ? startOfDay(F.shipFrom) : null;
-    const shipTo = F.shipTo ? startOfDay(F.shipTo) : null;
-
-    filtered = all.filter(x=>{
-      if(F.factories.size && !F.factories.has(x.factory)) return false;
-      if(F.ptypes.size && !F.ptypes.has(String(x.productType||"").trim())) return false;
-      if(F.buckets.size && !F.buckets.has(String(x.dateBucket||"").trim())) return false;
-
-      if(F.wh){
-        const v = String(x.wholesaleTriggered||"").toLowerCase().trim();
-        const yes = (v==="yes"||v==="y"||v==="true"||v==="1");
-        if(F.wh==="yes" && !yes) return false;
-        if(F.wh==="no" && yes) return false;
-      }
-
-      if(shipFrom || shipTo){
-        const d = x.shipDate ? startOfDay(x.shipDate) : null;
-        if(!d) return false;
-        if(shipFrom && d < shipFrom) return false;
-        if(shipTo && d > shipTo) return false;
-      }
-
-      if(q){
-        const blob = [
-          x.po, x.factory, x.productType, x.title, x.sku, x.size, x.color, x.dateBucket,
-          x.wholesaleTriggered, x.wholesaleSuffix
-        ].join(" ").toLowerCase();
-        if(!blob.includes(q)) return false;
-      }
-
-      return true;
-    });
+    poFiltered=[...poAll.values()].filter(poMatches);
+    poFiltered.sort((a,b)=>
+      String(a.factory).localeCompare(String(b.factory)) ||
+      ((a.shipDateMin?.getTime()||9e15) - (b.shipDateMin?.getTime()||9e15)) ||
+      (b.poRetail-a.poRetail) ||
+      String(a.po).localeCompare(String(b.po))
+    );
   }
 
-  /* ========= KPIs ========= */
+  /* ========= RENDER ========= */
+  function shipRisk(shipDate){
+    if(!shipDate) return {kind:"warn", label:"No ship date"};
+    const d0=startOfDay(shipDate);
+    const now0=startOfDay(new Date());
+    const diff=Math.floor((d0-now0)/86400000);
+    if(diff<0) return {kind:"risk", label:`Late ${Math.abs(diff)}d`};
+    if(diff<=14) return {kind:"warn", label:`Ship ${diff}d`};
+    return {kind:"ok", label:`Ship ${diff}d`};
+  }
+
   function renderKPIs(){
-    const lines = filtered.length;
-    const pos = new Set(filtered.map(x=>`${x.factory}|||${x.po}`)).size;
-    const facs = new Set(filtered.map(x=>x.factory)).size;
-    const qty = filtered.reduce((s,x)=>s+(x.qty||0),0);
-    const val = filtered.reduce((s,x)=>s+(x.retailValue||0),0);
+    const pos=poFiltered.length;
+    const facs=new Set(poFiltered.map(p=>p.factory)).size;
+    const lines=poFiltered.reduce((s,p)=>s+p.lines.length,0);
+    const qty=poFiltered.reduce((s,p)=>s+(p.qty||0),0);
+    const val=poFiltered.reduce((s,p)=>s+(p.poRetail||0),0);
 
-    const now0 = startOfDay(new Date());
-    const end30 = addDays(now0, 30);
-    const next30 = filtered.filter(x=>{
-      if(!x.shipDate) return false;
-      const d = startOfDay(x.shipDate);
-      return d >= now0 && d <= end30;
-    });
-
-    $("kLines").textContent = lines.toLocaleString("en-US");
-    $("kPOs").textContent = pos.toLocaleString("en-US");
-    $("kFac").textContent = facs.toLocaleString("en-US");
-    $("kQty").textContent = qty.toLocaleString("en-US");
-    $("kVal").textContent = money(val);
-    $("k30").textContent = next30.length.toLocaleString("en-US");
+    $("kPOs").textContent=pos.toLocaleString("en-US");
+    $("kFac").textContent=facs.toLocaleString("en-US");
+    $("kLines").textContent=lines.toLocaleString("en-US");
+    $("kQty").textContent=qty.toLocaleString("en-US");
+    $("kVal").textContent=money(val);
   }
 
-  /* ========= QUEUE RENDER ========= */
   function renderQueue(){
-    const root = $("queue");
-    if(!filtered.length){
-      root.innerHTML = `<div class="empty">No results.</div>`;
-      return;
-    }
+    const root=$("queue");
+    if(!poFiltered.length){ root.innerHTML=`<div class="empty">No results.</div>`; return; }
 
-    const byFactory = new Map();
-    for(const x of filtered){
-      (byFactory.get(x.factory) || byFactory.set(x.factory, []).get(x.factory)).push(x);
-    }
-    const factories = [...byFactory.keys()].sort((a,b)=>a.localeCompare(b));
+    const byF=new Map();
+    for(const p of poFiltered){ (byF.get(p.factory)||byF.set(p.factory,[]).get(p.factory)).push(p); }
+    const factories=[...byF.keys()].sort((a,b)=>a.localeCompare(b));
 
-    root.innerHTML = "";
+    root.innerHTML="";
     for(const f of factories){
-      const list = byFactory.get(f) || [];
-      const fKey = f;
-      const fOpen = openFactory.get(fKey) ?? true;
+      const list=byF.get(f)||[];
+      const open=openFactory.get(f) ?? true;
 
-      const fLines = list.length;
-      const fPOs = new Set(list.map(x=>x.po)).size;
-      const fQty = list.reduce((s,x)=>s+(x.qty||0),0);
-      const fVal = list.reduce((s,x)=>s+(x.retailValue||0),0);
+      const fPOs=list.length;
+      const fLines=list.reduce((s,p)=>s+p.lines.length,0);
+      const fQty=list.reduce((s,p)=>s+(p.qty||0),0);
+      const fVal=list.reduce((s,p)=>s+(p.poRetail||0),0);
 
-      const group = document.createElement("div");
-      group.className = "group";
+      const group=document.createElement("div");
+      group.className="group";
 
-      const head = document.createElement("div");
-      head.className = "ghead" + (fOpen ? " open" : "");
-      head.innerHTML = `
+      const head=document.createElement("div");
+      head.className="ghead" + (open?" open":"");
+      head.innerHTML=`
         <div><strong>${esc(f)}</strong><div class="muted">${fPOs} POs • ${fLines} lines</div></div>
         <div class="muted" style="text-align:right">Qty ${esc(fQty)}<br>${money(fVal)}</div>
       `;
 
-      const body = document.createElement("div");
-      body.className = "gbody" + (fOpen ? " open" : "");
+      const body=document.createElement("div");
+      body.className="gbody" + (open?" open":"");
 
-      // group by PO inside factory
-      const byPO = new Map();
-      for(const x of list){
-        (byPO.get(x.po) || byPO.set(x.po, []).get(x.po)).push(x);
-      }
-      const pos = [...byPO.keys()].sort((a,b)=>a.localeCompare(b));
+      for(const po of list){
+        const risk=shipRisk(po.shipDateMin);
+        const pill = risk.kind==="ok"
+          ? `<span class="pill"><span class="dot g"></span>${risk.label}</span>`
+          : risk.kind==="warn"
+            ? `<span class="pill"><span class="dot y"></span>${risk.label}</span>`
+            : `<span class="pill"><span class="dot r"></span>${risk.label}</span>`;
 
-      for(const poName of pos){
-        const pList = byPO.get(poName) || [];
-        const pKey = `${f}|||${poName}`;
-        const pOpen = openPO.get(pKey) ?? true;
-
-        const pQty = pList.reduce((s,x)=>s+(x.qty||0),0);
-        const pVal = pList.reduce((s,x)=>s+(x.retailValue||0),0);
-        const minShip = pList.map(x=>x.shipDate).filter(Boolean).sort((a,b)=>a-b)[0] || null;
-
-        const po = document.createElement("div");
-        po.className = "po";
-
-        const poHead = document.createElement("div");
-        poHead.className = "pohead" + (pOpen ? " open" : "");
-        poHead.innerHTML = `
+        const card=document.createElement("div");
+        card.className="po";
+        const h=document.createElement("div");
+        h.className="pohead";
+        h.innerHTML=`
           <div>
-            <div class="title">${esc(poName || "(No PO Name)")}</div>
-            <div class="muted">${pList.length} lines • Ship: ${esc(fmtDate(minShip))}</div>
+            <div class="title">${esc(po.po||"(No PO Name)")}</div>
+            <div class="muted">Req Ship: ${esc(fmtDate(po.shipDateMin))} • ${po.lines.length} lines</div>
+            <div class="muted">${esc([...po.productTypes].slice(0,3).join(" • "))}${po.productTypes.size>3?" • …":""}</div>
           </div>
-          <div class="muted" style="text-align:right">Qty ${esc(pQty)}<br>${money(pVal)}</div>
+          <div style="text-align:right">
+            ${pill}
+            <div class="muted" style="margin-top:6px">Qty ${esc(po.qty)} • ${money(po.poRetail)}</div>
+            <div class="muted">${po.retailMode==="max" ? "Retail: PO total" : (po.retailMode==="sum" ? "Retail: summed" : "Retail: —")}</div>
+          </div>
         `;
-
-        const poBody = document.createElement("div");
-        poBody.className = "pobody" + (pOpen ? " open" : "");
-
-        // sort lines: shipDate asc then value desc
-        pList.sort((a,b)=> (a.shipDate?.getTime()||9e15) - (b.shipDate?.getTime()||9e15) || (b.retailValue-a.retailValue));
-
-        for(const r of pList){
-          const line = document.createElement("div");
-          line.className = "line";
-          line.dataset.id = r.id;
-
-          const risk = shipRisk(r.shipDate);
-          const pill = risk.kind === "ok"
-            ? `<span class="pill"><span class="dot g"></span>${risk.label}</span>`
-            : risk.kind === "warn"
-              ? `<span class="pill"><span class="dot y"></span>${risk.label}</span>`
-              : `<span class="pill"><span class="dot r"></span>${risk.label}</span>`;
-
-          line.innerHTML = `
-            <div class="ltop">
-              <div>
-                <div class="title">${esc(clamp(r.title || r.sku || "(Untitled)", 64))}</div>
-                <div class="muted">${esc(r.sku||"")} ${r.size?`• ${esc(r.size)}`:""} ${r.color?`• ${esc(r.color)}`:""}</div>
-                <div class="muted">${esc(r.productType||"")} ${r.dateBucket?`• ${esc(r.dateBucket)}`:""}</div>
-              </div>
-              <div style="text-align:right">
-                ${pill}
-                <div class="muted" style="margin-top:6px">${fmtDate(r.shipDate)} • Qty ${esc(r.qty)} • ${money(r.retailValue)}</div>
-              </div>
-            </div>
-          `;
-          line.addEventListener("click",()=>openRecord(r.id));
-          poBody.appendChild(line);
-        }
-
-        poHead.addEventListener("click",()=>{
-          const open = !poBody.classList.contains("open");
-          poBody.classList.toggle("open", open);
-          poHead.classList.toggle("open", open);
-          openPO.set(pKey, open);
-        });
-
-        po.appendChild(poHead);
-        po.appendChild(poBody);
-        body.appendChild(po);
+        h.addEventListener("click",()=>openDrawer(po.key));
+        card.appendChild(h);
+        body.appendChild(card);
       }
 
       head.addEventListener("click",()=>{
-        const open = !body.classList.contains("open");
-        body.classList.toggle("open", open);
-        head.classList.toggle("open", open);
-        openFactory.set(fKey, open);
+        const o=!body.classList.contains("open");
+        body.classList.toggle("open",o);
+        head.classList.toggle("open",o);
+        openFactory.set(f,o);
       });
 
       group.appendChild(head);
@@ -977,24 +790,12 @@
     }
   }
 
-  function shipRisk(shipDate){
-    if(!shipDate) return {kind:"warn", label:"No ship date"};
-    const d0 = startOfDay(shipDate);
-    const now0 = startOfDay(new Date());
-    const diff = Math.floor((d0.getTime()-now0.getTime())/86400000);
-    if(diff < 0) return {kind:"risk", label:`Late ${Math.abs(diff)}d`};
-    if(diff <= 14) return {kind:"warn", label:`Ship ${diff}d`};
-    return {kind:"ok", label:`Ship ${diff}d`};
-  }
-
-  /* ========= CALENDAR RENDER ========= */
   function renderCalendar(){
-    const anchor = calAnchor;
-    $("calTitle").textContent = `Ship Calendar — ${anchor.toLocaleDateString("en-US",{month:"long",year:"numeric"})}`;
+    const anchor=calAnchor;
+    $("calTitle").textContent=`Ship Calendar — ${anchor.toLocaleDateString("en-US",{month:"long",year:"numeric"})}`;
 
-    const grid = $("calGrid");
-    grid.innerHTML = "";
-
+    const grid=$("calGrid");
+    grid.innerHTML="";
     ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].forEach(d=>{
       const el=document.createElement("div");
       el.className="dow";
@@ -1007,64 +808,52 @@
     const start=addDays(first, -first.getDay());
     const last=new Date(y,m+1,0);
     const end=addDays(last, 6-last.getDay());
-
-    const byDay=new Map();
-    for(const r of filtered){
-      if(!r.shipDate) continue;
-      const k=iso(r.shipDate);
-      (byDay.get(k) ?? byDay.set(k, []).get(k)).push(r);
-    }
-    for(const items of byDay.values()){
-      items.sort((a,b)=> (b.retailValue-a.retailValue));
-    }
-
     const todayKey=iso(new Date());
 
-    for(let d=new Date(start); d<=end; d=addDays(d,1)){
-      const inMonth = d.getMonth()===m;
-      const key=iso(d);
-      const items=byDay.get(key) || [];
+    const byDay=new Map();
+    for(const p of poFiltered){
+      if(!p.shipDateMin) continue;
+      const k=iso(p.shipDateMin);
+      (byDay.get(k) ?? byDay.set(k,[]).get(k)).push(p);
+    }
+    for(const items of byDay.values()){ items.sort((a,b)=>b.poRetail-a.poRetail); }
 
-      const qty=items.reduce((s,x)=>s+(x.qty||0),0);
-      const val=items.reduce((s,x)=>s+(x.retailValue||0),0);
+    for(let d=new Date(start); d<=end; d=addDays(d,1)){
+      const inMonth=d.getMonth()===m;
+      const key=iso(d);
+      const items=byDay.get(key)||[];
+      const qty=items.reduce((s,p)=>s+(p.qty||0),0);
+      const val=items.reduce((s,p)=>s+(p.poRetail||0),0);
 
       const cell=document.createElement("div");
-      cell.className="cell" + (inMonth ? "" : " mute");
-
-      cell.innerHTML = `
+      cell.className="cell" + (inMonth?"":" mute");
+      cell.innerHTML=`
         <div class="dayline">
           <div class="daynum">${d.getDate()} ${key===todayKey?`<span class="badge">Today</span>`:""}</div>
-          <div class="badge">${items.length ? `${items.length} • Qty ${qty}` : "—"}</div>
+          <div class="badge">${items.length?`${items.length} POs • ${money(val)}`:"—"}</div>
         </div>
       `;
 
       const list=document.createElement("div");
       list.className="items";
 
-      const MAX=4;
-      items.slice(0,MAX).forEach(r=>{
+      const MAX=5;
+      items.slice(0,MAX).forEach(p=>{
         const it=document.createElement("div");
         it.className="it";
-        it.innerHTML = `
-          <div class="t">${esc(clamp(r.factory, 22))}</div>
-          <div class="a">${esc(clamp(r.po, 34))} • ${money(r.retailValue)}</div>
+        it.innerHTML=`
+          <div class="t">${esc(clamp(p.factory,22))}</div>
+          <div class="a">${esc(clamp(p.po,34))} • Qty ${esc(p.qty)} • ${money(p.poRetail)}</div>
         `;
-        it.addEventListener("click",()=>openRecord(r.id));
+        it.addEventListener("click",()=>openDrawer(p.key));
         list.appendChild(it);
       });
 
       if(items.length>MAX){
         const more=document.createElement("div");
         more.className="muted";
-        more.textContent = `+ ${items.length-MAX} more… (filter to narrow)`;
+        more.textContent=`+ ${items.length-MAX} more…`;
         list.appendChild(more);
-      }
-
-      if(items.length){
-        const foot=document.createElement("div");
-        foot.className="muted";
-        foot.textContent = `Retail ${money(val)}`;
-        list.appendChild(foot);
       }
 
       cell.appendChild(list);
@@ -1072,239 +861,152 @@
     }
   }
 
-  /* ========= REPORTS RENDER ========= */
   function renderReports(){
-    const sumBy = (keyFn) => {
-      const m = new Map();
-      for(const r of filtered){
-        const k = String(keyFn(r) || "—").trim() || "—";
-        const cur = m.get(k) || {lines:0, qty:0, val:0};
-        cur.lines += 1;
-        cur.qty += (r.qty||0);
-        cur.val += (r.retailValue||0);
-        m.set(k, cur);
-      }
-      return m;
-    };
+    const byFactory=new Map();
+    const byMonth=new Map();
 
-    const factories = [...sumBy(r=>r.factory).entries()]
-      .map(([k,v])=>({k,...v}))
-      .sort((a,b)=>b.val-a.val)
-      .slice(0,12);
+    for(const p of poFiltered){
+      const f=p.factory||"—";
+      const fm=byFactory.get(f)||{pos:0,qty:0,val:0};
+      fm.pos++; fm.qty+=p.qty||0; fm.val+=p.poRetail||0; byFactory.set(f,fm);
 
-    const buckets = [...sumBy(r=>r.dateBucket).entries()]
-      .map(([k,v])=>({k,...v}))
-      .sort((a,b)=>b.val-a.val)
-      .slice(0,14);
+      const mo = p.shipDateMin ? `${p.shipDateMin.getFullYear()}-${String(p.shipDateMin.getMonth()+1).padStart(2,"0")}` : "No ship date";
+      const mm=byMonth.get(mo)||{pos:0,qty:0,val:0};
+      mm.pos++; mm.qty+=p.qty||0; mm.val+=p.poRetail||0; byMonth.set(mo,mm);
+    }
 
-    const months = [...sumBy(r=>{
-      if(!r.shipDate) return "No ship date";
-      const d=r.shipDate;
-      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
-    }).entries()]
-      .map(([k,v])=>({k,...v}))
-      .sort((a,b)=>a.k.localeCompare(b.k))
-      .slice(0,18);
+    const topF=[...byFactory.entries()].map(([k,v])=>({k,...v})).sort((a,b)=>b.val-a.val).slice(0,12);
+    const months=[...byMonth.entries()].map(([k,v])=>({k,...v})).sort((a,b)=>a.k.localeCompare(b.k)).slice(0,24);
 
-    const wh = [...sumBy(r=>{
-      const v=String(r.wholesaleTriggered||"").toLowerCase().trim();
-      const yes=(v==="yes"||v==="y"||v==="true"||v==="1");
-      return yes ? "Yes" : (v ? "No" : "—");
-    }).entries()]
-      .map(([k,v])=>({k,...v}))
-      .sort((a,b)=>b.val-a.val);
-
-    $("rFactories").innerHTML = factories.length
-      ? factories.map(x=>`<tr><td>${esc(x.k)}</td><td>${x.lines}</td><td>${x.qty}</td><td>${money(x.val)}</td></tr>`).join("")
-      : `<tr><td colspan="4" style="color:var(--m)">No data.</td></tr>`;
-
-    $("rBuckets").innerHTML = buckets.length
-      ? buckets.map(x=>`<tr><td>${esc(x.k)}</td><td>${x.lines}</td><td>${x.qty}</td><td>${money(x.val)}</td></tr>`).join("")
+    $("rFactories").innerHTML = topF.length
+      ? topF.map(x=>`<tr><td>${esc(x.k)}</td><td>${x.pos}</td><td>${x.qty}</td><td>${money(x.val)}</td></tr>`).join("")
       : `<tr><td colspan="4" style="color:var(--m)">No data.</td></tr>`;
 
     $("rMonths").innerHTML = months.length
-      ? months.map(x=>`<tr><td>${esc(x.k)}</td><td>${x.lines}</td><td>${x.qty}</td><td>${money(x.val)}</td></tr>`).join("")
+      ? months.map(x=>`<tr><td>${esc(x.k)}</td><td>${x.pos}</td><td>${x.qty}</td><td>${money(x.val)}</td></tr>`).join("")
       : `<tr><td colspan="4" style="color:var(--m)">No data.</td></tr>`;
-
-    $("rWholesale").innerHTML = wh.length
-      ? wh.map(x=>`<tr><td>${esc(x.k)}</td><td>${x.lines}</td><td>${x.qty}</td><td>${money(x.val)}</td></tr>`).join("")
-      : `<tr><td colspan="4" style="color:var(--m)">No data.</td></tr>`;
-  }
-
-  /* ========= DRAWER ========= */
-  function openRecord(id){ location.hash = `#/r/${id}`; }
-  function closeDrawer(){
-    currentOpenId=null;
-    $("drawer").classList.remove("open");
-    $("dTitle").textContent="Details";
-    $("dBody").innerHTML="";
-    if(location.hash.startsWith("#/r/")) history.replaceState(null,"",location.pathname+location.search);
-  }
-  function renderDrawer(r){
-    $("drawer").classList.add("open");
-    $("dTitle").textContent = `${r.factory} — ${r.po}`;
-
-    const risk = shipRisk(r.shipDate);
-
-    $("dBody").innerHTML = `
-      <div class="kv">
-        <div class="k"><div class="l">Ship Date</div><div class="v">${fmtDate(r.shipDate)} <span class="kbd">${esc(risk.label)}</span></div></div>
-        <div class="k"><div class="l">Retail Value</div><div class="v">${money(r.retailValue)}</div></div>
-        <div class="k"><div class="l">Qty</div><div class="v">${esc(r.qty)}</div></div>
-        <div class="k"><div class="l">SKU</div><div class="v">${esc(r.sku||"—")}</div></div>
-      </div>
-
-      <details open>
-        <summary>Primary</summary>
-        <div style="margin-top:10px">
-          <div style="margin:6px 0"><strong>Factory:</strong> ${esc(r.factory||"")}</div>
-          <div style="margin:6px 0"><strong>PO:</strong> ${esc(r.po||"")}</div>
-          <div style="margin:6px 0"><strong>Title:</strong> ${esc(r.title||"—")}</div>
-          <div style="margin:6px 0"><strong>Product Type:</strong> ${esc(r.productType||"—")}</div>
-          <div style="margin:6px 0"><strong>Date Bucket:</strong> ${esc(r.dateBucket||"—")}</div>
-          <div style="margin:6px 0"><strong>Wholesale Triggered:</strong> ${esc(r.wholesaleTriggered||"—")}</div>
-          <div style="margin:6px 0"><strong>Wholesale Suffix:</strong> ${esc(r.wholesaleSuffix||"—")}</div>
-          <div style="margin:6px 0"><strong>Order Date:</strong> ${esc(fmtDate(r.orderDate))}</div>
-          <div style="margin:6px 0"><strong>Req Ship Date:</strong> ${esc(fmtDate(r.reqShipDate))}</div>
-        </div>
-      </details>
-
-      <details>
-        <summary>Variant</summary>
-        <div style="margin-top:10px">
-          <div style="margin:6px 0"><strong>Size:</strong> ${esc(r.size||"—")}</div>
-          <div style="margin:6px 0"><strong>Color:</strong> ${esc(r.color||"—")}</div>
-          <div style="margin:6px 0"><strong>Retail Price:</strong> ${money(r.retailPrice)}</div>
-        </div>
-      </details>
-
-      <details>
-        <summary>Debug</summary>
-        <div style="margin-top:10px"><span class="kbd">${esc(r.id)}</span></div>
-      </details>
-    `;
-  }
-
-  function drawerList(){
-    // current filtered list sorted similar to queue: factory, po, shipDate, value
-    return filtered.slice().sort((a,b)=>
-      String(a.factory).localeCompare(String(b.factory)) ||
-      String(a.po).localeCompare(String(b.po)) ||
-      (a.shipDate?.getTime()||9e15) - (b.shipDate?.getTime()||9e15) ||
-      (b.retailValue-a.retailValue)
-    );
-  }
-  function drawerStep(delta){
-    if(!currentOpenId) return;
-    const list = drawerList();
-    const idx = list.findIndex(x=>x.id===currentOpenId);
-    if(idx<0 || list.length<2) return;
-    const next = list[(idx+delta+list.length)%list.length];
-    openRecord(next.id);
-  }
-  function handleRoute(){
-    const m = location.hash.match(/^#\/r\/(.+)$/);
-    if(m){
-      const id=m[1];
-      const r=all.find(x=>x.id===id);
-      if(r){
-        currentOpenId=id;
-        renderDrawer(r);
-        return;
-      }
-    }
-    closeDrawer();
-  }
-
-  /* ========= INIT ========= */
-  function init(){
-    clearBanner();
-
-    // populate filters
-    setMulti("factories", uniq(all.map(x=>x.factory)));
-    setMulti("ptype", uniq(all.map(x=>x.productType)));
-    setMulti("bucket", uniq(all.map(x=>x.dateBucket)));
-
-    // bind filters
-    $("q").addEventListener("input", deb((e)=>{ F.q=e.target.value||""; refresh(); }, 200));
-    $("factories").onchange=()=>{ F.factories=readMulti("factories"); refresh(); };
-    $("ptype").onchange=()=>{ F.ptypes=readMulti("ptype"); refresh(); };
-    $("bucket").onchange=()=>{ F.buckets=readMulti("bucket"); refresh(); };
-    $("wh").onchange=(e)=>{ F.wh=e.target.value||""; refresh(); };
-
-    const toDate = (v) => v ? new Date(v+"T00:00:00") : null;
-    $("shipFrom").onchange=(e)=>{ F.shipFrom=toDate(e.target.value); refresh(); };
-    $("shipTo").onchange=(e)=>{ F.shipTo=toDate(e.target.value); refresh(); };
-
-    $("reset").onclick=()=>{ location.reload(); };
-
-    $("export").onclick=()=>{
-      const head=["Factory","PO","Ship Date","Req Ship Date","Order Date","Date Bucket","Product Type","Title","SKU","Size","Color","Qty","Retail Value","Retail Price","Wholesale Triggered","Wholesale Suffix"];
-      const escCSV=s=>/[",\n]/.test(String(s))?`"${String(s).replace(/"/g,'""')}"`:String(s);
-      const fmt=d=>d?new Date(d).toISOString().slice(0,10):"";
-      const rows=[head.join(",")];
-      for(const r of filtered){
-        rows.push([
-          r.factory,r.po,fmt(r.shipDate),fmt(r.reqShipDate),fmt(r.orderDate),
-          r.dateBucket,r.productType,r.title,r.sku,r.size,r.color,r.qty,r.retailValue,r.retailPrice,r.wholesaleTriggered,r.wholesaleSuffix
-        ].map(x=>escCSV(x??"")).join(","));
-      }
-      const blob=new Blob([rows.join("\n")],{type:"text/csv;charset=utf-8;"});
-      const url=URL.createObjectURL(blob);
-      const a=document.createElement("a");
-      a.href=url;
-      a.download=`po_lines_clean_filtered_${new Date().toISOString().slice(0,10)}.csv`;
-      document.body.appendChild(a); a.click(); a.remove();
-      URL.revokeObjectURL(url);
-    };
-
-    // tabs
-    $("tabs").addEventListener("click",(e)=>{
-      const t=e.target.closest(".tab");
-      if(!t) return;
-      view=t.dataset.view;
-      document.querySelectorAll("#tabs .tab").forEach(x=>x.classList.toggle("on", x===t));
-      $("queue").style.display = view==="queue" ? "" : "none";
-      $("calendar").style.display = view==="calendar" ? "" : "none";
-      $("reports").style.display = view==="reports" ? "" : "none";
-      render();
-    });
-
-    // calendar nav
-    $("calPrev").onclick=()=>{ calAnchor = startOfMonth(new Date(calAnchor.getFullYear(), calAnchor.getMonth()-1, 1)); render(); };
-    $("calNext").onclick=()=>{ calAnchor = startOfMonth(new Date(calAnchor.getFullYear(), calAnchor.getMonth()+1, 1)); render(); };
-    $("calToday").onclick=()=>{ calAnchor = startOfMonth(new Date()); render(); };
-
-    // drawer routing
-    window.addEventListener("hashchange", handleRoute);
-    $("closeBtn").onclick=closeDrawer;
-    $("prevBtn").onclick=()=>drawerStep(-1);
-    $("nextBtn").onclick=()=>drawerStep(1);
-    window.addEventListener("keydown",(e)=>{
-      if(!currentOpenId) return;
-      if(e.key==="Escape") closeDrawer();
-      if(e.key==="ArrowLeft") drawerStep(-1);
-      if(e.key==="ArrowRight") drawerStep(1);
-    });
-
-    refresh();
-    handleRoute();
   }
 
   function refresh(){
     applyFilters();
-    render();
-  }
-
-  function render(){
     renderKPIs();
     if(view==="queue") renderQueue();
     if(view==="calendar") renderCalendar();
     if(view==="reports") renderReports();
   }
 
+  /* ========= DRAWER ========= */
+  function openDrawer(key){ location.hash = `#/po/${encodeURIComponent(key)}`; }
+  function closeDrawer(){
+    $("drawer").classList.remove("open");
+    $("dTitle").textContent="Details";
+    $("dBody").innerHTML="";
+    if(location.hash.startsWith("#/po/")) history.replaceState(null,"",location.pathname+location.search);
+  }
+  function renderDrawer(po){
+    $("drawer").classList.add("open");
+    $("dTitle").textContent=`${po.factory} — ${po.po}`;
+    const risk=shipRisk(po.shipDateMin);
+
+    const lines=po.lines.slice().sort((a,b)=>(a.reqShipDate?.getTime()||9e15)-(b.reqShipDate?.getTime()||9e15) || (b.retailValue-a.retailValue));
+
+    $("dBody").innerHTML=`
+      <div class="kv">
+        <div class="k"><div class="l">Req Ship (min)</div><div class="v">${fmtDate(po.shipDateMin)} <span class="kbd">${esc(risk.label)}</span></div></div>
+        <div class="k"><div class="l">PO Retail</div><div class="v">${money(po.poRetail)} <span class="kbd">${esc(po.retailMode)}</span></div></div>
+        <div class="k"><div class="l">Total Qty</div><div class="v">${esc(po.qty)}</div></div>
+        <div class="k"><div class="l">Lines</div><div class="v">${esc(po.lines.length)}</div></div>
+      </div>
+
+      <details open>
+        <summary>Lines</summary>
+        <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
+          ${lines.slice(0,250).map(l=>`
+            <div class="po" style="padding:10px 11px">
+              <div class="title">${esc(clamp(l.title || l.sku || "(Untitled)", 70))}</div>
+              <div class="muted">${esc(l.sku||"")} ${l.size?`• ${esc(l.size)}`:""} • Qty ${esc(l.qty)} • ${money(l.retailValue)}</div>
+              <div class="muted">${esc(l.productType||"")} ${l.dateBucket?`• ${esc(l.dateBucket)}`:""} • Req Ship ${esc(fmtDate(l.reqShipDate))}</div>
+            </div>
+          `).join("")}
+          ${lines.length>250?`<div class="muted">Showing first 250 lines…</div>`:""}
+        </div>
+      </details>
+    `;
+  }
+  function handleRoute(){
+    const m=location.hash.match(/^#\/po\/(.+)$/);
+    if(!m){ closeDrawer(); return; }
+    const key=decodeURIComponent(m[1]);
+    const po=poAll.get(key);
+    if(!po){ closeDrawer(); return; }
+    renderDrawer(po);
+  }
+
+  /* ========= INIT ========= */
+  function initAfterLoad(){
+    poAll = buildPoIndex(allLines);
+
+    setMulti("factories", uniq(allLines.map(x=>x.factory)));
+    setMulti("ptype", uniq(allLines.map(x=>x.productType)));
+    setMulti("bucket", uniq(allLines.map(x=>x.dateBucket)));
+
+    $("q").addEventListener("input", deb(e=>{ F.q=e.target.value||""; refresh(); }, 200));
+    $("factories").onchange=()=>{ F.factories=readMulti("factories"); refresh(); };
+    $("ptype").onchange=()=>{ F.ptypes=readMulti("ptype"); refresh(); };
+    $("bucket").onchange=()=>{ F.buckets=readMulti("bucket"); refresh(); };
+    $("wh").onchange=(e)=>{ F.wh=e.target.value||""; refresh(); };
+
+    const toDate=(v)=>v?new Date(v+"T00:00:00"):null;
+    $("shipFrom").onchange=(e)=>{ F.shipFrom=toDate(e.target.value); refresh(); };
+    $("shipTo").onchange=(e)=>{ F.shipTo=toDate(e.target.value); refresh(); };
+
+    $("reset").onclick=()=>location.reload();
+
+    $("export").onclick=()=>{
+      const head=["Factory","PO Name","Req Ship Date (min)","PO Retail","Retail Mode","Total Qty","Lines","Product Types","Date Buckets","Wholesale Triggered"];
+      const escCSV=s=>/[",\n]/.test(String(s))?`"${String(s).replace(/"/g,'""')}"`:String(s);
+      const fmt=d=>d?new Date(d).toISOString().slice(0,10):"";
+      const rows=[head.join(",")];
+      for(const p of poFiltered){
+        rows.push([
+          p.factory,p.po,fmt(p.shipDateMin),p.poRetail,p.retailMode,p.qty,p.lines.length,
+          [...p.productTypes].join(" | "),
+          [...p.buckets].join(" | "),
+          p.wh===null?"":(p.wh?"TRUE":"FALSE")
+        ].map(x=>escCSV(x??"")).join(","));
+      }
+      const blob=new Blob([rows.join("\n")],{type:"text/csv;charset=utf-8;"});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=url;
+      a.download=`po_summary_${new Date().toISOString().slice(0,10)}.csv`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    };
+
+    $("tabs").addEventListener("click",(e)=>{
+      const t=e.target.closest(".tab"); if(!t) return;
+      view=t.dataset.view;
+      document.querySelectorAll("#tabs .tab").forEach(x=>x.classList.toggle("on", x===t));
+      $("queue").style.display = view==="queue" ? "" : "none";
+      $("calendar").style.display = view==="calendar" ? "" : "none";
+      $("reports").style.display = view==="reports" ? "" : "none";
+      refresh();
+    });
+
+    $("calPrev").onclick=()=>{ calAnchor=startOfMonth(new Date(calAnchor.getFullYear(), calAnchor.getMonth()-1, 1)); refresh(); };
+    $("calNext").onclick=()=>{ calAnchor=startOfMonth(new Date(calAnchor.getFullYear(), calAnchor.getMonth()+1, 1)); refresh(); };
+    $("calToday").onclick=()=>{ calAnchor=startOfMonth(new Date()); refresh(); };
+
+    $("closeBtn").onclick=closeDrawer;
+    window.addEventListener("hashchange", handleRoute);
+
+    refresh();
+    handleRoute();
+  }
+
   /* ========= THEME ========= */
-  const THEME_KEY="planning_theme_v2";
+  const THEME_KEY="planning_theme_v5";
   function setTheme(t){
     document.documentElement.setAttribute("data-theme", t);
     $("themeLabel").textContent=t[0].toUpperCase()+t.slice(1);
