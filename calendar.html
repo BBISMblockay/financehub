@@ -1,0 +1,682 @@
+<!-- File: launch_compact.html
+     Live month + agenda launch calendar from Google Sheets (headers on row 2; auto-detected).
+-->
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Launch Calendar</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      color-scheme: dark;
+      --bg:#070a12; --panel:rgba(255,255,255,.04); --surf:rgba(255,255,255,.03);
+      --b:rgba(255,255,255,.10); --b2:rgba(255,255,255,.16);
+      --t:rgba(255,255,255,.92); --m:rgba(255,255,255,.62);
+      --a:#4fd1ff; --a2:#6ee7b7; --r:18px; --rs:14px;
+      --sh:0 16px 46px rgba(0,0,0,.55); --sh2:0 12px 26px rgba(0,0,0,.35);
+    }
+    :root[data-theme="light"]{
+      color-scheme: light;
+      --bg:#f6f7fb; --panel:rgba(255,255,255,.86); --surf:rgba(16,24,40,.03);
+      --b:rgba(16,24,40,.12); --b2:rgba(16,24,40,.16);
+      --t:rgba(16,24,40,.92); --m:rgba(16,24,40,.62);
+      --a:#007aff; --a2:#22c55e; --sh:0 14px 36px rgba(16,24,40,.12); --sh2:0 10px 22px rgba(16,24,40,.10);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; font: 13px/1.45 Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:var(--t);
+      background:
+        radial-gradient(900px 500px at 20% 10%, color-mix(in oklab,var(--a) 14%, transparent), transparent 45%),
+        radial-gradient(900px 500px at 80% 15%, color-mix(in oklab,var(--a2) 12%, transparent), transparent 45%),
+        var(--bg);
+      overflow-x:hidden;
+    }
+    .app{max-width:1400px;margin:0 auto;padding:16px;display:grid;grid-template-columns:320px 1fr;gap:14px}
+    header{grid-column:1/-1;display:flex;justify-content:space-between;align-items:flex-end;gap:10px;padding:2px 4px}
+    h1{margin:0;font-size:22px;letter-spacing:-.02em;font-weight:900}
+    .sub{margin:4px 0 0;color:var(--m);font-size:12px}
+    .chip{display:inline-flex;align-items:center;gap:8px;padding:7px 10px;border-radius:999px;background:color-mix(in oklab,var(--surf) 80%, transparent);border:1px solid var(--b);color:var(--m);cursor:pointer;user-select:none}
+    .chip:hover{border-color:var(--b2);color:var(--t)}
+    .chip b{color:var(--t);font-weight:900}
+    .card{background:var(--panel);border:1px solid var(--b);border-radius:var(--r);box-shadow:var(--sh2);backdrop-filter:blur(10px)}
+    .side{position:sticky;top:12px;align-self:start;height:calc(100dvh - 24px);overflow:auto;padding:12px;box-shadow:var(--sh)}
+    .lbl{font-size:11px;color:var(--m);text-transform:uppercase;letter-spacing:.08em;font-weight:900;margin:8px 0 8px}
+    input,select,button{font:inherit;color:inherit}
+    .in{width:100%;padding:10px 11px;border-radius:14px;border:1px solid var(--b);background:var(--surf);outline:none}
+    .in:focus{border-color:color-mix(in oklab,var(--a) 55%, var(--b));box-shadow:0 0 0 4px color-mix(in oklab,var(--a) 12%, transparent)}
+    .row{display:flex;gap:10px}
+    .btn{border:1px solid var(--b);background:color-mix(in oklab,var(--surf) 85%, transparent);padding:9px 11px;border-radius:14px;cursor:pointer}
+    .btn:hover{border-color:var(--b2)}
+    .btn:active{transform:translateY(1px)}
+    .btn.p{border-color:color-mix(in oklab,var(--a) 45%, var(--b));box-shadow:0 0 0 4px color-mix(in oklab,var(--a) 10%, transparent)}
+    .main{min-width:0}
+    .top{padding:12px 14px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center}
+    .k{display:flex;gap:8px;flex-wrap:wrap;color:var(--m)}
+    .k span{border:1px solid var(--b);background:color-mix(in oklab,var(--surf) 85%, transparent);padding:6px 10px;border-radius:999px}
+    .k b{color:var(--t)}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap}
+    .tab{border:1px solid var(--b);background:color-mix(in oklab,var(--surf) 85%, transparent);padding:8px 12px;border-radius:999px;cursor:pointer;color:var(--m);font-weight:900}
+    .tab:hover{border-color:var(--b2);color:var(--t)}
+    .tab.on{border-color:color-mix(in oklab,var(--a) 55%, var(--b));background:color-mix(in oklab,var(--a) 12%, var(--surf));color:var(--t)}
+    .cal{padding:12px 14px}
+    .calh{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+    .title{font-weight:900;letter-spacing:-.01em}
+    .grid{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}
+    .dow{font-size:11px;color:var(--m);text-transform:uppercase;letter-spacing:.08em;font-weight:900;padding:2px 2px}
+    .cell{min-height:126px;border:1px solid var(--b);border-radius:var(--r);background:var(--surf);padding:10px;display:flex;flex-direction:column;gap:8px;overflow:hidden}
+    .cell.off{opacity:.55}
+    .day{display:flex;justify-content:space-between;align-items:center;gap:10px}
+    .day b{font-weight:900}
+    .badge{font-size:10px;color:var(--m);border:1px solid var(--b);border-radius:999px;padding:2px 8px;white-space:nowrap}
+    .items{display:flex;flex-direction:column;gap:8px;overflow:auto;padding-right:2px}
+    .ev{border:1px solid var(--b);border-radius:var(--rs);background:color-mix(in oklab,var(--surf) 85%, transparent);padding:8px 10px;cursor:pointer}
+    .ev:hover{border-color:var(--b2)}
+    .ev .t{font-weight:900;font-size:11px;letter-spacing:-.01em;line-height:1.2}
+    .ev .m{color:var(--m);font-size:10px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .pill{font-size:10px;font-weight:900;text-transform:uppercase;border:1px solid var(--b);border-radius:999px;padding:2px 7px;color:var(--m);white-space:nowrap}
+    .pill.main{border-color:color-mix(in oklab,var(--a) 55%, var(--b));color:color-mix(in oklab,var(--a) 75%, var(--t))}
+    .pill.filler{border-color:color-mix(in oklab,#eab308 55%, var(--b));color:color-mix(in oklab,#eab308 80%, var(--t))}
+    .pill.other{border-color:color-mix(in oklab,#60a5fa 55%, var(--b));color:color-mix(in oklab,#60a5fa 80%, var(--t))}
+    .list{padding:12px 14px}
+    .lr{display:grid;grid-template-columns:120px 1fr 200px;gap:10px;align-items:center;padding:10px 12px;border-top:1px solid var(--b);cursor:pointer}
+    .lr:hover{background:color-mix(in oklab,var(--a) 6%, transparent)}
+    .ld{font-weight:900}
+    .ln{font-weight:900;letter-spacing:-.01em}
+    .ls{color:var(--m);font-size:11px;margin-top:3px}
+    .rr{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;align-items:center}
+    /* Modal */
+    .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.55);backdrop-filter:blur(6px);z-index:50}
+    .modal.on{display:flex}
+    .sheet{width:min(920px,96vw);height:min(88vh,720px);overflow:hidden}
+    .mh{display:flex;justify-content:space-between;gap:10px;align-items:center;padding:12px 14px;border-bottom:1px solid var(--b)}
+    .mb{padding:12px 14px;overflow:auto;height:calc(100% - 54px)}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .kv{border:1px solid var(--b);border-radius:var(--r);background:var(--surf);padding:10px}
+    .kv .k{font-size:11px;color:var(--m);font-weight:900;text-transform:uppercase;letter-spacing:.08em}
+    .kv .v{margin-top:4px;font-weight:900}
+    a{color:var(--a);text-decoration:none;font-weight:900}
+    a:hover{text-decoration:underline}
+    .pre{white-space:pre-wrap}
+    @media (max-width:980px){
+      .app{grid-template-columns:1fr}
+      .side{position:relative;height:auto}
+      .lr{grid-template-columns:110px 1fr}
+      .rr{justify-content:flex-start}
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <h1>Launch Calendar</h1>
+        <div class="sub">Live from Google Sheets · click an event for details</div>
+      </div>
+      <div class="row" style="align-items:center;flex-wrap:wrap;justify-content:flex-end">
+        <div class="chip" style="cursor:default"><span>Updated</span> <b id="updated">—</b></div>
+        <button class="chip" id="theme"><span>Theme</span> <b id="themeLabel">Dark</b> <span style="opacity:.7">↻</span></button>
+      </div>
+    </header>
+
+    <aside class="card side">
+      <div class="lbl">Search</div>
+      <input id="q" class="in" placeholder="Event, designer, details, type..." />
+
+      <div class="lbl">Quick filters</div>
+      <div class="row">
+        <select id="type" class="in"><option value="">All types</option></select>
+        <select id="des" class="in"><option value="">All designers</option></select>
+      </div>
+
+      <div class="lbl">Date range</div>
+      <div class="row">
+        <input id="from" class="in" type="date" />
+        <input id="to" class="in" type="date" />
+      </div>
+
+      <div class="lbl">Actions</div>
+      <div class="row">
+        <button id="reset" class="btn" style="flex:1">Reset</button>
+        <button id="csv" class="btn p" style="flex:1">Export CSV</button>
+      </div>
+
+      <div class="lbl">Source</div>
+      <a target="_blank" rel="noopener" href="https://docs.google.com/spreadsheets/d/1r2xGCz6hRDek7YHHzLCqV5BMyCVSTSh4A5FPOEvpQsc/edit#gid=0">Open sheet</a>
+    </aside>
+
+    <main class="main">
+      <section class="card top">
+        <div class="k">
+          <span>Filtered: <b id="kCount">—</b></span>
+          <span>This month: <b id="kMonth">—</b></span>
+          <span>Next 7d: <b id="k7">—</b></span>
+        </div>
+        <div class="tabs" id="tabs">
+          <button class="tab on" data-view="m">Month</button>
+          <button class="tab" data-view="a">Agenda</button>
+        </div>
+      </section>
+
+      <section id="month" class="card cal">
+        <div class="calh">
+          <div class="title" id="mtitle">—</div>
+          <div class="row" style="flex-wrap:wrap">
+            <button class="btn" id="prev">← Prev</button>
+            <button class="btn" id="today">Today</button>
+            <button class="btn" id="next">Next →</button>
+          </div>
+        </div>
+        <div class="grid" id="grid"></div>
+      </section>
+
+      <section id="agenda" class="card list" style="display:none">
+        <div class="calh" style="margin-bottom:6px">
+          <div class="title" id="atitle">Agenda</div>
+          <div class="row" style="flex-wrap:wrap">
+            <button class="btn" id="aprev">← Prev</button>
+            <button class="btn" id="atoday">Today</button>
+            <button class="btn" id="anext">Next →</button>
+          </div>
+        </div>
+        <div id="alist"></div>
+      </section>
+    </main>
+  </div>
+
+  <div id="modal" class="modal" aria-hidden="true">
+    <div class="card sheet">
+      <div class="mh">
+        <div class="title" id="dtitle">Details</div>
+        <div class="row" style="align-items:center">
+          <button class="btn" id="pbtn">←</button>
+          <button class="btn" id="nbtn">→</button>
+          <button class="btn" id="xbtn">Close</button>
+        </div>
+      </div>
+      <div class="mb" id="dbody"></div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  /* CONFIG */
+  const SHEET_ID="1r2xGCz6hRDek7YHHzLCqV5BMyCVSTSh4A5FPOEvpQsc";
+  const GID="0";
+  const GVIZ=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${GID}&tqx=out:json`;
+  const CSV=`https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
+
+  /* STATE */
+  let all=[], view="m", anchor=som(new Date()), aAnchor=sod(new Date()), openId=null;
+
+  const F={ q:"", type:"", des:"", from:null, to:null };
+
+  /* DOM */
+  const $=id=>document.getElementById(id);
+  const on=(id,ev,fn)=>$(id).addEventListener(ev,fn);
+  const esc=s=>String(s??"").replace(/[&<>"']/g,m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;" }[m]));
+  const clamp=(s,n=48)=>{s=String(s||"");return s.length>n?s.slice(0,n-1)+"…":s;};
+
+  /* Dates */
+  function sod(d){d=new Date(d);d.setHours(0,0,0,0);return d;}
+  function som(d){d=sod(d);d.setDate(1);return d;}
+  const addDays=(d,n)=>{d=new Date(d);d.setDate(d.getDate()+n);return d;};
+  const addMonths=(d,n)=>som(new Date(d.getFullYear(), d.getMonth()+n, 1));
+  const iso=d=>{d=sod(d);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;};
+  const fmt=d=>d?new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}):"—";
+
+  function parseDate(x){
+    if(!x) return null;
+    if(x instanceof Date) return x;
+    const s=String(x).trim();
+    const m=s.match(/Date\((\d{4}),\s*(\d{1,2}),\s*(\d{1,2})/i);
+    if(m) return new Date(+m[1],+m[2],+m[3]);
+    const us=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if(us){ const y=us[3].length===2?(+us[3]+2000):+us[3]; return new Date(y,+us[1]-1,+us[2]); }
+    const t=Date.parse(s);
+    return Number.isNaN(t)?null:new Date(t);
+  }
+
+  /* Fetch */
+  function parseGViz(txt){
+    const s=txt.indexOf("{"), e=txt.lastIndexOf("}");
+    return s>=0&&e>=0?JSON.parse(txt.slice(s,e+1)):null;
+  }
+  function parseCSV(txt){
+    const out=[]; let i=0,cur="",q=false,row=[];
+    const push=()=>{row.push(cur);cur="";};
+    const end=()=>{out.push(row);row=[];};
+    while(i<txt.length){
+      const ch=txt[i++];
+      if(q){
+        if(ch=='"'&&txt[i]=='"'){cur+='"';i++;}
+        else if(ch=='"'){q=false;}
+        else cur+=ch;
+      }else{
+        if(ch=='"') q=true;
+        else if(ch==',') push();
+        else if(ch=='\n'){push();end();}
+        else if(ch!=='\r') cur+=ch;
+      }
+    }
+    if(cur.length||row.length){push();end();}
+    return out;
+  }
+  function headerRow(rows){
+    const need=["day","date","event"];
+    const max=Math.min(8, rows.length);
+    for(let i=0;i<max;i++){
+      const r=(rows[i]||[]).map(x=>String(x||"").trim().toLowerCase());
+      if(need.every(k=>r.includes(k))) return i;
+    }
+    return 0;
+  }
+  function idxMap(headers){
+    const map=new Map();
+    headers.forEach((h,i)=>{
+      const k=String(h||"").trim().toLowerCase();
+      if(!k) return;
+      (map.get(k)||map.set(k,[]).get(k)).push(i);
+    });
+    const get=(name,fb=-1,occ=0)=> {
+      const arr=map.get(String(name).toLowerCase());
+      return arr && arr.length ? (arr[occ] ?? arr[0]) : fb;
+    };
+    return {get};
+  }
+
+  async function load(){
+    const cb=`_=${Date.now()}`;
+    let rows=null;
+    try{
+      const t=await (await fetch(`${GVIZ}&${cb}`,{cache:"no-store"})).text();
+      const j=parseGViz(t);
+      const cols=j?.table?.cols?.map(c=>String(c.label||"").trim())||[];
+      const rs=j?.table?.rows||[];
+      if(rs.length){
+        const lower=cols.map(x=>x.toLowerCase());
+        const gi=(label)=> lower.indexOf(label.toLowerCase());
+        const I={
+          day:gi("Day"), date:gi("Date"), event:gi("Event"), type:gi("Launch Type"),
+          des:gi("Designer"), assets:gi("Design Assets Needed"), details:gi("Details"),
+          time:gi("Time"), tz:gi("Time Zone"), img:gi("Launch img")
+        };
+        const fileIdx=cols.map((c,i)=>/^file\s*\d+/i.test(c)?i:-1).filter(i=>i>=0);
+        const cell=(c,i)=>{const x=c[i];return x?(x.v??x.f??""):"";};
+
+        all=rs.map((r,ri)=>{
+          const c=r.c||[];
+          const d=parseDate(cell(c,I.date)); if(!d) return null;
+          const files=fileIdx.map(i=>String(cell(c,i)||"").trim()).filter(Boolean).filter(x=>!x.startsWith("#REF"));
+          const ev={
+            id:btoa(unescape(encodeURIComponent(`${iso(d)}|${cell(c,I.event)}|${ri}`))).replace(/=+$/,""),
+            day:String(cell(c,I.day)||"").trim(),
+            date:d,
+            event:String(cell(c,I.event)||"").trim(),
+            type:String(cell(c,I.type)||"").trim(),
+            des:String(cell(c,I.des)||"").trim(),
+            assets:String(cell(c,I.assets)||"").trim(),
+            details:String(cell(c,I.details)||"").trim(),
+            time:String(cell(c,I.time)||"").trim(),
+            tz:String(cell(c,I.tz)||"").trim(),
+            img:String(cell(c,I.img)||"").trim(),
+            files
+          };
+          return ev;
+        }).filter(Boolean);
+
+        return done();
+      }
+    }catch{ /* fallback */ }
+
+    const csv=await (await fetch(`${CSV}&${cb}`,{cache:"no-store"})).text();
+    rows=parseCSV(csv);
+    const h=headerRow(rows);
+    const headers=rows[h]||[];
+    const {get}=idxMap(headers);
+
+    const I={
+      day:get("day",0), date:get("date",1), event:get("event",2), type:get("launch type",3),
+      des:get("designer",4), assets:get("design assets needed",5), details:get("details",6),
+      time:get("time",7), tz:get("time zone",8), img:get("launch img",9)
+    };
+    const fileIdx=headers.map((c,i)=>/^file\s*\d+/i.test(String(c||""))?i:-1).filter(i=>i>=0);
+
+    all=rows.slice(h+1).map((r,ri)=>{
+      const d=parseDate(r[I.date]); if(!d) return null;
+      const files=fileIdx.map(i=>String(r[i]||"").trim()).filter(Boolean).filter(x=>!x.startsWith("#REF"));
+      return {
+        id:btoa(unescape(encodeURIComponent(`${iso(d)}|${r[I.event]||""}|${ri}`))).replace(/=+$/,""),
+        day:String(r[I.day]||"").trim(),
+        date:d,
+        event:String(r[I.event]||"").trim(),
+        type:String(r[I.type]||"").trim(),
+        des:String(r[I.des]||"").trim(),
+        assets:String(r[I.assets]||"").trim(),
+        details:String(r[I.details]||"").trim(),
+        time:String(r[I.time]||"").trim(),
+        tz:String(r[I.tz]||"").trim(),
+        img:String(r[I.img]||"").trim(),
+        files
+      };
+    }).filter(Boolean);
+
+    done();
+  }
+
+  function done(){
+    all.sort((a,b)=>a.date-b.date || String(a.time||"").localeCompare(String(b.time||"")));
+    $("updated").textContent=new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});
+    fillSelects();
+    apply();
+    render();
+    routerOnce();
+  }
+
+  /* Filters */
+  function uniq(arr){ return [...new Set(arr.map(x=>String(x||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b)); }
+  function fillSelects(){
+    const types=uniq(all.map(x=>x.type));
+    const des=uniq(all.map(x=>x.des));
+    $("type").innerHTML=`<option value="">All types</option>` + types.map(v=>`<option>${esc(v)}</option>`).join("");
+    $("des").innerHTML=`<option value="">All designers</option>` + des.map(v=>`<option>${esc(v)}</option>`).join("");
+  }
+  function apply(){
+    const q=F.q.toLowerCase().trim();
+    const from=F.from?new Date(F.from+"T00:00:00"):null;
+    const to=F.to?new Date(F.to+"T23:59:59"):null;
+
+    const list=all.filter(e=>{
+      if(F.type && e.type!==F.type) return false;
+      if(F.des && e.des!==F.des) return false;
+      if(from && e.date<from) return false;
+      if(to && e.date>to) return false;
+      if(q){
+        const blob=[e.event,e.type,e.des,e.assets,e.details,e.time,e.tz,e.img,(e.files||[]).join(" ")].join(" ").toLowerCase();
+        if(!blob.includes(q)) return false;
+      }
+      return true;
+    });
+    window.filtered=list;
+  }
+
+  function pillCls(t){
+    t=String(t||"").toLowerCase();
+    if(t.includes("main")) return "main";
+    if(t.includes("filler")) return "filler";
+    return t? "other" : "";
+  }
+
+  /* Render */
+  function render(){
+    const f=window.filtered||[];
+    $("kCount").textContent=f.length.toLocaleString("en-US");
+
+    const ms=som(anchor), me=new Date(anchor.getFullYear(), anchor.getMonth()+1, 0, 23,59,59,999);
+    $("kMonth").textContent=f.filter(x=>x.date>=ms && x.date<=me).length.toLocaleString("en-US");
+
+    const now=sod(new Date()), end=addDays(now,7);
+    $("k7").textContent=f.filter(x=>x.date>=now && x.date<end).length.toLocaleString("en-US");
+
+    if(view==="m") renderMonth();
+    else renderAgenda();
+  }
+
+  function renderMonth(){
+    $("month").style.display="";
+    $("agenda").style.display="none";
+
+    const y=anchor.getFullYear(), m=anchor.getMonth();
+    $("mtitle").textContent=anchor.toLocaleDateString("en-US",{month:"long",year:"numeric"});
+
+    const grid=$("grid");
+    grid.innerHTML="";
+    ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].forEach(d=>{
+      const el=document.createElement("div"); el.className="dow"; el.textContent=d; grid.appendChild(el);
+    });
+
+    const first=new Date(y,m,1);
+    const start=addDays(first, -first.getDay());
+    const last=new Date(y,m+1,0);
+    const end=addDays(last, 6-last.getDay());
+
+    const by=new Map();
+    for(const e of (window.filtered||[])){
+      const k=iso(e.date);
+      (by.get(k)||by.set(k,[]).get(k)).push(e);
+    }
+    for(const v of by.values()) v.sort((a,b)=>a.date-b.date || String(a.time||"").localeCompare(String(b.time||"")));
+
+    const today=iso(new Date());
+    for(let d=new Date(start); d<=end; d=addDays(d,1)){
+      const inMonth=d.getMonth()===m;
+      const k=iso(d);
+      const items=by.get(k)||[];
+
+      const cell=document.createElement("div");
+      cell.className="cell"+(inMonth?"":" off");
+
+      const head=document.createElement("div");
+      head.className="day";
+      head.innerHTML=`<b>${d.getDate()}${k===today?` <span class="badge">Today</span>`:""}</b><span class="badge">${items.length?`${items.length} evt`:"—"}</span>`;
+      cell.appendChild(head);
+
+      const wrap=document.createElement("div"); wrap.className="items";
+      const MAX=4;
+      items.slice(0,MAX).forEach(e=>{
+        const el=document.createElement("div");
+        el.className="ev";
+        el.innerHTML=`
+          <div style="display:flex;justify-content:space-between;gap:10px">
+            <div style="min-width:0">
+              <div class="t">${esc(clamp(e.event||"(No event)",44))}</div>
+              <div class="m">${esc(clamp([e.des?`Designer: ${e.des}`:null, e.time?`${e.time}${e.tz?" "+e.tz:""}`:null].filter(Boolean).join(" • "), 56))}</div>
+            </div>
+            <span class="pill ${pillCls(e.type)}">${esc(clamp(e.type||"—",14))}</span>
+          </div>`;
+        el.onclick=()=>open(e.id);
+        wrap.appendChild(el);
+      });
+      if(items.length>MAX){
+        const more=document.createElement("div");
+        more.className="m";
+        more.style.fontSize="11px";
+        more.textContent=`+ ${items.length-MAX} more… (Agenda)`;
+        wrap.appendChild(more);
+      }
+      cell.appendChild(wrap);
+      grid.appendChild(cell);
+    }
+  }
+
+  function renderAgenda(){
+    $("month").style.display="none";
+    $("agenda").style.display="";
+
+    const start=sod(aAnchor), end=addDays(start,14);
+    $("atitle").textContent=`Agenda — ${fmt(start)} → ${fmt(addDays(end,-1))}`;
+
+    const items=(window.filtered||[]).filter(e=>e.date>=start && e.date<end)
+      .slice().sort((a,b)=>a.date-b.date || String(a.time||"").localeCompare(String(b.time||"")));
+
+    const box=$("alist");
+    box.innerHTML = items.length ? "" : `<div style="padding:12px;color:var(--m)">No events in this range.</div>`;
+
+    items.forEach(e=>{
+      const row=document.createElement("div");
+      row.className="lr";
+      row.innerHTML=`
+        <div class="ld">${esc(fmt(e.date))}</div>
+        <div>
+          <div class="ln">${esc(e.event||"(No event)")}</div>
+          <div class="ls">${esc(clamp([e.type||null,e.des?`Designer: ${e.des}`:null,e.time?`${e.time}${e.tz?" "+e.tz:""}`:null,e.assets?`Assets: ${e.assets}`:null].filter(Boolean).join(" • "), 130))}</div>
+        </div>
+        <div class="rr">
+          <span class="pill ${pillCls(e.type)}">${esc(clamp(e.type||"—",18))}</span>
+          <span class="badge">${(e.files||[]).length?`${e.files.length} file${e.files.length===1?"":"s"}`:"No files"}</span>
+        </div>`;
+      row.onclick=()=>open(e.id);
+      box.appendChild(row);
+    });
+  }
+
+  /* Modal */
+  function open(id){ location.hash=`#/e/${id}`; }
+  function close(){
+    openId=null;
+    $("modal").classList.remove("on");
+    $("dbody").innerHTML="";
+    if(location.hash.startsWith("#/e/")) history.replaceState(null,"",location.pathname+location.search);
+  }
+  function currentList(){
+    const f=window.filtered||[];
+    if(view==="a"){
+      const start=sod(aAnchor), end=addDays(start,14);
+      return f.filter(e=>e.date>=start && e.date<end);
+    }
+    const ms=som(anchor), me=new Date(anchor.getFullYear(), anchor.getMonth()+1, 0, 23,59,59,999);
+    return f.filter(e=>e.date>=ms && e.date<=me);
+  }
+  function step(d){
+    if(!openId) return;
+    const list=currentList().slice().sort((a,b)=>a.date-b.date || String(a.time||"").localeCompare(String(b.time||"")));
+    const i=list.findIndex(x=>x.id===openId);
+    if(i<0 || list.length<2) return;
+    open(list[(i+d+list.length)%list.length].id);
+  }
+  function renderModal(e){
+    openId=e.id;
+    $("modal").classList.add("on");
+    $("dtitle").textContent=`${e.event||"Event"} — ${fmt(e.date)}`;
+
+    const time=e.time?`${e.time}${e.tz?" "+e.tz:""}`:"—";
+    const files=(e.files||[]).filter(Boolean).map((f,i)=>{
+      f=String(f).trim();
+      if(!/^https?:\/\//i.test(f)) return `<div class="ls">${esc(f)}</div>`;
+      const name=decodeURIComponent((f.split("/").pop()||`file-${i+1}`)).split("?")[0];
+      return `<a target="_blank" rel="noopener" href="${esc(f)}">${esc(name||f)}</a>`;
+    });
+
+    const img=e.img && /^https?:\/\//i.test(e.img) ? `<a target="_blank" rel="noopener" href="${esc(e.img)}">Open launch image</a>` : esc(e.img||"—");
+
+    $("dbody").innerHTML=`
+      <div class="grid2">
+        <div class="kv"><div class="k">Launch type</div><div class="v"><span class="pill ${pillCls(e.type)}">${esc(e.type||"—")}</span></div></div>
+        <div class="kv"><div class="k">Time</div><div class="v">${esc(time)}</div></div>
+        <div class="kv"><div class="k">Designer</div><div class="v">${esc(e.des||"—")}</div></div>
+        <div class="kv"><div class="k">Assets needed</div><div class="v">${esc(e.assets||"—")}</div></div>
+      </div>
+
+      <div class="kv" style="margin-top:10px">
+        <div class="k">Details</div>
+        <div class="pre" style="margin-top:6px">${esc(e.details||"—")}</div>
+      </div>
+
+      <div class="kv" style="margin-top:10px">
+        <div class="k">Launch image</div>
+        <div style="margin-top:6px">${img}</div>
+      </div>
+
+      <div class="kv" style="margin-top:10px">
+        <div class="k">Files</div>
+        <div style="margin-top:6px;display:flex;flex-direction:column;gap:8px">
+          ${files.length?files.join(""):`<div class="ls">No files</div>`}
+        </div>
+      </div>
+    `;
+  }
+
+  function handleRoute(){
+    const m=location.hash.match(/^#\/e\/(.+)$/);
+    if(!m) return close();
+    const id=m[1];
+    const e=all.find(x=>x.id===id);
+    if(!e) return close();
+    renderModal(e);
+  }
+  function routerOnce(){
+    window.addEventListener("hashchange",handleRoute);
+    handleRoute();
+    window.addEventListener("keydown",e=>{
+      if(e.key==="Escape") close();
+      if(!openId) return;
+      if(e.key==="ArrowLeft") step(-1);
+      if(e.key==="ArrowRight") step(1);
+    });
+  }
+
+  /* Events */
+  const deb=(fn,ms=200)=>{let t;return (...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}};
+
+  on("q","input",deb(e=>{F.q=e.target.value||"";apply();render();},200));
+  on("type","change",e=>{F.type=e.target.value||"";apply();render();});
+  on("des","change",e=>{F.des=e.target.value||"";apply();render();});
+  on("from","change",e=>{F.from=e.target.value||"";apply();render();});
+  on("to","change",e=>{F.to=e.target.value||"";apply();render();});
+
+  on("reset","click",()=>{
+    F.q="";F.type="";F.des="";F.from="";F.to="";
+    $("q").value=""; $("type").value=""; $("des").value=""; $("from").value=""; $("to").value="";
+    apply(); render();
+  });
+
+  on("prev","click",()=>{anchor=addMonths(anchor,-1); render();});
+  on("next","click",()=>{anchor=addMonths(anchor, 1); render();});
+  on("today","click",()=>{anchor=som(new Date()); render();});
+
+  on("aprev","click",()=>{aAnchor=addDays(aAnchor,-14); render();});
+  on("anext","click",()=>{aAnchor=addDays(aAnchor, 14); render();});
+  on("atoday","click",()=>{aAnchor=sod(new Date()); render();});
+
+  $("tabs").addEventListener("click",(e)=>{
+    const t=e.target.closest(".tab"); if(!t) return;
+    view=t.dataset.view;
+    [...document.querySelectorAll(".tab")].forEach(x=>x.classList.toggle("on", x===t));
+    render();
+  });
+
+  on("csv","click",()=>{
+    const f=window.filtered||[];
+    const head=["Date","Event","Launch Type","Designer","Assets Needed","Time","Time Zone","Details","Launch Img","Files"];
+    const escCSV=s=>/[",\n]/.test(s)?`"${String(s).replace(/"/g,'""')}"`:String(s);
+    const lines=[head.join(",")];
+    for(const e of f){
+      lines.push([
+        fmt(e.date), e.event, e.type, e.des, e.assets, e.time, e.tz, e.details, e.img, (e.files||[]).join(" | ")
+      ].map(x=>escCSV(x||"")).join(","));
+    }
+    const blob=new Blob([lines.join("\n")],{type:"text/csv;charset=utf-8;"});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement("a");
+    a.href=url; a.download=`launch_filtered_${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  });
+
+  on("modal","click",(e)=>{ if(e.target.id==="modal") close(); });
+  on("xbtn","click",close);
+  on("pbtn","click",()=>step(-1));
+  on("nbtn","click",()=>step(1));
+
+  /* Theme */
+  const THEME_KEY="launch_theme_compact";
+  function setTheme(t){
+    document.documentElement.setAttribute("data-theme", t);
+    $("themeLabel").textContent=t[0].toUpperCase()+t.slice(1);
+    localStorage.setItem(THEME_KEY,t);
+  }
+  on("theme","click",()=>{
+    const cur=document.documentElement.getAttribute("data-theme")||"dark";
+    setTheme(cur==="dark"?"light":"dark");
+  });
+  setTheme(localStorage.getItem(THEME_KEY)||"dark");
+
+  /* Boot */
+  load();
+})();
+</script>
+</body>
+</html>
