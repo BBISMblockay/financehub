@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>FinanceHub • Universal Financial Uploads</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+/* -------------------------------------------------------
+   GLOBAL THEME — FINANCEHUB DARK
+------------------------------------------------------- */
+:root {
+  --bg: #0B0C0F;
+  --bg-panel: #111317;
+  --bg-hover: #181A1F;
+  --border: rgba(255,255,255,0.06);
+  --text: #E5E7EB;
+  --text-dim: #9CA3AF;
+  --primary: #4F8BFF;
+  --radius: 12px;
+  --card-radius: 16px;
+}
+
+body {
+  margin: 0;
+  padding: 32px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, system-ui, sans-serif;
+}
+
+/* -------------------------------------------------------
+   HEADER
+------------------------------------------------------- */
+.header {
+  margin-bottom: 26px;
+}
+
+.header h1 {
+  font-size: 26px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  letter-spacing: .3px;
+}
+
+.header .subtitle {
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+/* -------------------------------------------------------
+   FILTER BAR
+------------------------------------------------------- */
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+select, input[type="text"] {
+  padding: 10px 14px;
+  font-size: 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text);
+  outline: none;
+  width: 220px;
+}
+
+input[type="text"] {
+  flex: 1;
+}
+
+/* -------------------------------------------------------
+   TABLE WRAPPER
+------------------------------------------------------- */
+.table-wrap {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  overflow-x: auto;
+  padding: 0;
+  box-shadow: 0 0 24px rgba(0,0,0,0.45);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+th {
+  padding: 14px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+td {
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+/* -------------------------------------------------------
+   ENTITY TAG BAR
+------------------------------------------------------- */
+.entity-tag {
+  width: 6px;
+  height: 100%;
+  border-radius: 4px;
+  margin-right: 8px;
+  display: inline-block;
+}
+
+.entity-color-MISE { background: #4F46E5; }
+.entity-color-Portland { background: #10B981; }
+.entity-color-State { background: #F59E0B; }
+.entity-color-Bars { background: #EF4444; }
+.entity-color-Default { background: #6B7280; }
+
+/* -------------------------------------------------------
+   FILE LINKS
+------------------------------------------------------- */
+.file-link {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+.file-link:hover {
+  text-decoration: underline;
+}
+
+/* -------------------------------------------------------
+   EXPANDABLE ROW DRAWER
+------------------------------------------------------- */
+.expand-details {
+  display: none;
+  background: #14161A;
+  padding: 16px 24px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.expand-details.active {
+  display: block;
+  animation: fadeIn .25s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* -------------------------------------------------------
+   PAGINATION
+------------------------------------------------------- */
+.pagination {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.pagination button {
+  padding: 8px 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  cursor: pointer;
+  transition: .2s;
+}
+
+.pagination button:hover {
+  background: var(--bg-hover);
+}
+
+.pagination .active {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* -------------------------------------------------------
+   SKELETON LOADER
+------------------------------------------------------- */
+.skeleton {
+  background: linear-gradient(90deg, #1A1C20 25%, #22252B 37%, #1A1C20 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 6px;
+  height: 14px;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+</style>
+</head>
+<body>
+
+<!-- -----------------------------------------------------
+     HEADER
+------------------------------------------------------ -->
+<div class="header">
+  <h1>Financial Uploads — Universal Engine</h1>
+  <div class="subtitle">Auto-ingested from Google Sheets • WPV Accounting</div>
+</div>
+
+<!-- -----------------------------------------------------
+     FILTER BAR
+------------------------------------------------------ -->
+<div class="filters">
+  <select id="entityFilter">
+    <option value="ALL">All Entities</option>
+  </select>
+
+  <input id="searchBox" type="text" placeholder="Search uploads… (entity, notes, uploader)">
+</div>
+
+<!-- -----------------------------------------------------
+     TABLE WRAPPER 
+------------------------------------------------------ -->
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th data-sort="date">Date</th>
+        <th data-sort="entity">Entity</th>
+        <th data-sort="month">Month</th>
+        <th data-sort="year">Year</th>
+        <th>Notes</th>
+        <th>Uploaded By</th>
+        <th>Balance Sheet</th>
+        <th>P&L</th>
+        <th>GL Detail</th>
+        <th>Other Docs</th>
+      </tr>
+    </thead>
+
+    <tbody id="dataRows">
+      <!-- Skeleton placeholder -->
+      <tr><td colspan="10" style="padding:20px;"><div class="skeleton" style="height:18px;"></div></td></tr>
+      <tr><td colspan="10" style="padding:20px;"><div class="skeleton" style="height:18px;"></div></td></tr>
+      <tr><td colspan="10" style="padding:20px;"><div class="skeleton" style="height:18px;"></div></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="pagination" id="pagination"></div>
+
+<script>
+/* -------------------------------------------------------
+   CONFIG
+------------------------------------------------------- */
+const SHEET_ID = "1dMNl3VuC4MlGk5vDrXIFnHRPt_B5lBtc5AHuT0Uo1N4";
+const GID = "0"; 
+const URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${GID}`;
+
+let allRows = [];
+let filteredRows = [];
+let currentPage = 1;
+const ROWS_PER_PAGE = 50;
+
+/* -------------------------------------------------------
+   LOAD GOOGLE SHEET
+------------------------------------------------------- */
+async function loadSheet() {
+  try {
+    const res = await fetch(URL);
+    const text = await res.text();
+    const json = JSON.parse(text.substring(47, text.length - 2));
+    const rows = json.table.rows;
+
+    allRows = rows.map(r => {
+      const c = r.c.map(cell => (cell ? cell.v : ""));
+
+      return {
+        date: c[0],
+        entity: c[1],
+        month: c[2],
+        year: c[3],
+
+        bs_url: c[4],
+        pl_url: c[5],
+        gl_url: c[6],
+        other_url: c[7],
+
+        notes: c[9],
+        uploaded: c[10],
+
+        bs_label: c[15],
+        pl_label: c[16],
+        gl_label: c[17],
+        other_label: c[18]
+      };
+    });
+
+    buildEntityFilter();
+    applyFilters();
+
+  } catch (err) {
+    console.error("Error loading sheet:", err);
+  }
+}
+
+/* -------------------------------------------------------
+   ENTITY FILTER BUILDER
+------------------------------------------------------- */
+function buildEntityFilter() {
+  const select = document.getElementById("entityFilter");
+  const unique = [...new Set(allRows.map(r => r.entity).filter(Boolean))].sort();
+
+  unique.forEach(ent => {
+    const opt = document.createElement("option");
+    opt.value = ent;
+    opt.textContent = ent;
+    select.appendChild(opt);
+  });
+
+  select.addEventListener("change", applyFilters);
+}
+
+/* -------------------------------------------------------
+   SEARCH & FILTER LOGIC
+------------------------------------------------------- */
+document.getElementById("searchBox").addEventListener("input", applyFilters);
+
+function applyFilters() {
+  const search = document.getElementById("searchBox").value.toLowerCase();
+  const ent = document.getElementById("entityFilter").value;
+
+  filteredRows = allRows.filter(r => {
+    const matchEntity = (ent === "ALL" || r.entity === ent);
+    const matchSearch =
+      r.entity.toLowerCase().includes(search) ||
+      r.notes.toLowerCase().includes(search) ||
+      r.uploaded.toLowerCase().includes(search);
+
+    return matchEntity && matchSearch;
+  });
+
+  currentPage = 1;
+  renderTable();
+}
+
+/* -------------------------------------------------------
+   SORTING
+------------------------------------------------------- */
+document.querySelectorAll("th[data-sort]").forEach(th => {
+  th.addEventListener("click", () => {
+    const key = th.getAttribute("data-sort");
+    filteredRows.sort((a, b) => (a[key] > b[key] ? 1 : -1));
+    renderTable();
+  });
+});
+
+/* -------------------------------------------------------
+   RENDER TABLE
+------------------------------------------------------- */
+function renderTable() {
+  const tbody = document.getElementById("dataRows");
+  tbody.innerHTML = "";
+
+  const start = (currentPage - 1) * ROWS_PER_PAGE;
+  const pageRows = filteredRows.slice(start, start + ROWS_PER_PAGE);
+
+  pageRows.forEach((r, i) => {
+    const colorClass = getEntityColor(r.entity);
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><span class="entity-tag ${colorClass}"></span>${r.date}</td>
+      <td>${r.entity}</td>
+      <td>${r.month}</td>
+      <td>${r.year}</td>
+      <td>${r.notes}</td>
+      <td>${r.uploaded}</td>
+      <td>${r.bs_url ? `<a class="file-link" href="${r.bs_url}" target="_blank">${r.bs_label||"View"}</a>` : ""}</td>
+      <td>${r.pl_url ? `<a class="file-link" href="${r.pl_url}" target="_blank">${r.pl_label||"View"}</a>` : ""}</td>
+      <td>${r.gl_url ? `<a class="file-link" href="${r.gl_url}" target="_blank">${r.gl_label||"View"}</a>` : ""}</td>
+      <td>${r.other_url ? `<a class="file-link" href="${r.other_url}" target="_blank">${r.other_label||"Docs"}</a>` : ""}</td>
+    `;
+
+    tbody.appendChild(tr);
+  });
+
+  renderPagination();
+}
+
+/* -------------------------------------------------------
+   ENTITY COLOR HELPER
+------------------------------------------------------- */
+function getEntityColor(entity) {
+  entity = entity.toLowerCase();
+  if (entity.includes("mise")) return "entity-color-MISE";
+  if (entity.includes("portland")) return "entity-color-Portland";
+  if (entity.includes("state")) return "entity-color-State";
+  if (entity.includes("bar") || entity.includes("two") || entity.includes("palm") || entity.includes("flanders"))
+    return "entity-color-Bars";
+  return "entity-color-Default";
+}
+
+/* -------------------------------------------------------
+   PAGINATION
+------------------------------------------------------- */
+function renderPagination() {
+  const pages = Math.ceil(filteredRows.length / ROWS_PER_PAGE);
+  const container = document.getElementById("pagination");
+  container.innerHTML = "";
+
+  for (let p = 1; p <= pages; p++) {
+    const btn = document.createElement("button");
+    btn.textContent = p;
+    if (p === currentPage) btn.classList.add("active");
+
+    btn.addEventListener("click", () => {
+      currentPage = p;
+      renderTable();
+    });
+
+    container.appendChild(btn);
+  }
+}
+
+/* -------------------------------------------------------
+   INIT
+------------------------------------------------------- */
+loadSheet();
+</script>
+
+</body>
+</html>
