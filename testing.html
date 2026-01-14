@@ -1,533 +1,1324 @@
-<!DOCTYPE html>
-<html lang="en">
+<!-- File: planning.html -->
+<!doctype html>
+<html lang="en" data-theme="dark">
 <head>
-<meta charset="UTF-8" />
-<title>FinanceHub • Universal Financial Uploads</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Planning Dashboard — POs & Factories</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      color-scheme: dark;
+      --bg:#070a12;
+      --panel:rgba(255,255,255,.04);
+      --surf:rgba(255,255,255,.03);
+      --surf2:rgba(255,255,255,.05);
+      --b:rgba(255,255,255,.10);
+      --b2:rgba(255,255,255,.16);
+      --t:rgba(255,255,255,.92);
+      --m:rgba(255,255,255,.62);
+      --m2:rgba(255,255,255,.48);
+      --a:#4fd1ff;
+      --g:#22c55e; --y:#eab308; --r:#fb7185;
+      --R:18px; --Rs:14px;
+      --sh:0 16px 46px rgba(0,0,0,.55);
+      --sh2:0 12px 26px rgba(0,0,0,.35);
+      --side:340px;
+    }
+    :root[data-theme="light"]{
+      color-scheme: light;
+      --bg:#f6f7fb;
+      --panel:rgba(255,255,255,.86);
+      --surf:rgba(16,24,40,.03);
+      --surf2:rgba(16,24,40,.05);
+      --b:rgba(16,24,40,.12);
+      --b2:rgba(16,24,40,.16);
+      --t:rgba(16,24,40,.92);
+      --m:rgba(16,24,40,.62);
+      --m2:rgba(16,24,40,.48);
+      --a:#007aff;
+      --sh:0 14px 36px rgba(16,24,40,.12);
+      --sh2:0 10px 22px rgba(16,24,40,.10);
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      line-height:1.45;
+      background:
+        radial-gradient(900px 500px at 20% 10%, color-mix(in oklab,var(--a) 14%, transparent), transparent 45%),
+        radial-gradient(900px 500px at 80% 15%, rgba(34,197,94,.10), transparent 45%),
+        var(--bg);
+      color:var(--t);
+      overflow-x:hidden;
+    }
 
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    .app{
+      max-width: 1480px;
+      margin:0 auto;
+      padding: 16px;
+      display:grid;
+      grid-template-columns: var(--side) 1fr;
+      gap:14px;
+    }
 
-<style>
-/* -------------------------------------------------------
-   GLOBAL THEME — FINANCEHUB DARK
-------------------------------------------------------- */
-:root {
-  --bg: #0B0C0F;
-  --bg-panel: #111317;
-  --bg-hover: #181A1F;
-  --border: rgba(255,255,255,0.06);
-  --text: #E5E7EB;
-  --text-dim: #9CA3AF;
-  --primary: #4F8BFF;
-  --radius: 12px;
-  --card-radius: 16px;
-}
+    header{
+      grid-column:1 / -1;
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-end;
+      gap:10px;
+      padding: 2px 4px;
+    }
+    h1{margin:0;font-size:22px;font-weight:900;letter-spacing:-.02em}
+    .sub{margin:4px 0 0;color:var(--m);font-size:12px}
 
-body {
-  margin: 0;
-  padding: 32px;
-  background: var(--bg);
-  color: var(--text);
-  font-family: Inter, system-ui, sans-serif;
-}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+    .chip{
+      display:inline-flex;align-items:center;gap:8px;
+      padding:7px 10px;border-radius:999px;
+      background:color-mix(in oklab,var(--surf2) 85%, transparent);
+      border:1px solid var(--b);
+      color:var(--m);
+      cursor:pointer; user-select:none;
+      font-size:12px;
+    }
+    .chip:hover{border-color:var(--b2);color:var(--t)}
+    .chip b{color:var(--t);font-weight:900}
 
-/* -------------------------------------------------------
-   HEADER
-------------------------------------------------------- */
-.header {
-  margin-bottom: 26px;
-}
+    .card{
+      background:var(--panel);
+      border:1px solid var(--b);
+      border-radius:var(--R);
+      box-shadow:var(--sh2);
+      backdrop-filter: blur(10px);
+    }
 
-.header h1 {
-  font-size: 26px;
-  font-weight: 700;
-  margin-bottom: 6px;
-  letter-spacing: .3px;
-}
+    .side{
+      position:sticky;
+      top:12px;
+      align-self:start;
+      height:calc(100dvh - 24px);
+      overflow:auto;
+      padding:12px;
+      box-shadow:var(--sh);
+    }
 
-.header .subtitle {
-  color: var(--text-dim);
-  font-size: 14px;
-}
+    .lbl{
+      font-size:11px;
+      color:var(--m);
+      text-transform:uppercase;
+      letter-spacing:.08em;
+      font-weight:900;
+      margin:10px 0 8px;
+    }
 
-/* -------------------------------------------------------
-   COLLAPSIBLE UPLOAD PANEL (A1)
-------------------------------------------------------- */
-.upload-toggle {
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  padding: 14px 18px;
-  border-radius: var(--card-radius);
-  margin-bottom: 14px;
-  cursor: pointer;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  transition: background .2s;
-}
+    input,select,button{font:inherit;color:inherit}
+    .in{
+      width:100%;
+      padding:10px 11px;
+      border-radius:14px;
+      border:1px solid var(--b);
+      background:var(--surf);
+      outline:none;
+      font-size:12px;
+    }
+    .in:focus{
+      border-color:color-mix(in oklab,var(--a) 55%, var(--b));
+      box-shadow:0 0 0 4px color-mix(in oklab,var(--a) 12%, transparent);
+    }
+    select[multiple]{padding:8px}
+    select[multiple] option{padding:6px 8px}
 
-.upload-toggle:hover {
-  background: var(--bg-hover);
-}
+    .btn{
+      border:1px solid var(--b);
+      background:color-mix(in oklab,var(--surf2) 85%, transparent);
+      padding:9px 11px;border-radius:14px;
+      cursor:pointer;font-size:12px;
+      transition: transform .08s ease, border-color .12s ease;
+    }
+    .btn:hover{border-color:var(--b2)}
+    .btn:active{transform:translateY(1px)}
+    .btn.p{
+      border-color:color-mix(in oklab,var(--a) 45%, var(--b));
+      box-shadow:0 0 0 4px color-mix(in oklab,var(--a) 10%, transparent);
+    }
+    .btn.block{width:100%}
+    .btn.small{padding:7px 10px;border-radius:12px}
+    .btn.ghost{background:transparent}
 
-.upload-toggle span {
-  color: var(--text);
-  font-size: 15px;
-}
+    .main{min-width:0}
 
-.upload-toggle .arrow {
-  transition: transform .25s ease;
-}
+    .banner{
+      display:none;
+      margin:0 0 12px;
+      padding:10px 12px;
+      border-radius:14px;
+      border:1px solid rgba(244,63,94,.28);
+      background:rgba(244,63,94,.10);
+      color:#fecdd3;
+      font-size:12px;
+      white-space:pre-wrap;
+    }
 
-.upload-toggle.active .arrow {
-  transform: rotate(90deg);
-}
+    .topbar{
+      padding:12px 14px;
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
 
-/* Panel container */
-.upload-panel {
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: var(--card-radius);
-  overflow: hidden;
-  max-height: 0;
-  opacity: 0;
-  transition: max-height .35s ease, opacity .25s ease;
-  margin-bottom: 26px;
-  padding: 0 0; /* padding added only when open */
-}
+    .kpis{display:flex;gap:8px;flex-wrap:wrap;color:var(--m)}
+    .kpis span{
+      border:1px solid var(--b);
+      background:color-mix(in oklab,var(--surf2) 85%, transparent);
+      padding:6px 10px;
+      border-radius:999px;
+    }
+    .kpis b{color:var(--t)}
 
-.upload-panel.open {
-  opacity: 1;
-  padding: 20px 24px;
-}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap}
+    .tab{
+      border:1px solid var(--b);
+      background:color-mix(in oklab,var(--surf2) 85%, transparent);
+      padding:8px 12px;border-radius:999px;
+      cursor:pointer;color:var(--m);
+      font-weight:900;font-size:12px;
+    }
+    .tab:hover{border-color:var(--b2);color:var(--t)}
+    .tab.on{
+      border-color:color-mix(in oklab,var(--a) 55%, var(--b));
+      background:color-mix(in oklab,var(--a) 12%, var(--surf2));
+      color:var(--t);
+    }
 
-/* -------------------------------------------------------
-   FILTER BAR
-------------------------------------------------------- */
-.filters {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 18px;
-}
+    .lane{padding:12px 14px}
+    .empty{padding:12px;color:var(--m);text-align:center}
 
-select, input[type="text"] {
-  padding: 10px 14px;
-  font-size: 14px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: var(--bg-panel);
-  color: var(--text);
-  outline: none;
-  width: 220px;
-}
+    .group{
+      margin:10px 0;
+      border:1px solid var(--b);
+      border-radius:var(--R);
+      overflow:hidden;
+      background:var(--surf);
+    }
+    .ghead{
+      padding:10px 12px;
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      cursor:pointer;
+    }
+    .ghead.open{background:color-mix(in oklab,var(--a) 8%, transparent)}
+    .ghead strong{font-weight:900;letter-spacing:-.01em}
+    .gbody{display:none;padding:10px 12px 6px}
+    .gbody.open{display:block}
 
-input[type="text"] {
-  flex: 1;
-}
+    .po{
+      border:1px solid var(--b);
+      border-radius:var(--Rs);
+      background:color-mix(in oklab,var(--surf2) 70%, transparent);
+      margin:0 0 8px;
+      overflow:hidden;
+    }
+    .pohead{
+      padding:10px 11px;
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      cursor:pointer;
+    }
+    .pohead.open{background:color-mix(in oklab,var(--a) 8%, transparent)}
+    .pobody{display:none;padding:10px 11px 8px}
+    .pobody.open{display:block}
 
-/* -------------------------------------------------------
-   TABLE WRAPPER
-------------------------------------------------------- */
-.table-wrap {
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: var(--card-radius);
-  overflow-x: auto;
-  padding: 0;
-  box-shadow: 0 0 24px rgba(0,0,0,0.45);
-}
+    .line{
+      border:1px solid var(--b);
+      border-radius:var(--Rs);
+      background:color-mix(in oklab,var(--surf2) 70%, transparent);
+      padding:10px 11px;
+      margin:0 0 8px;
+      cursor:pointer;
+    }
+    .line:hover{border-color:var(--b2);box-shadow:0 10px 22px rgba(0,0,0,.12)}
+    .ltop{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+    .title{font-weight:900;letter-spacing:-.01em;font-size:12px}
+    .muted{color:var(--m);font-size:11px}
+    .pill{
+      display:inline-flex;align-items:center;gap:6px;
+      padding:2px 8px;border-radius:999px;
+      border:1px solid var(--b);
+      font-size:10px;font-weight:900;text-transform:uppercase;
+      color:var(--m);
+      white-space:nowrap;
+      line-height:1.2;
+    }
+    .dot{width:7px;height:7px;border-radius:999px}
+    .dot.g{background:var(--g)} .dot.y{background:var(--y)} .dot.r{background:var(--r)}
 
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-}
+    /* Calendar */
+    .calTop{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+    .calTitle{font-size:13px;font-weight:900}
+    .calGrid{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}
+    .dow{font-size:11px;color:var(--m);text-transform:uppercase;letter-spacing:.08em;padding:2px 2px}
+    .cell{
+      min-height:110px;
+      border:1px solid var(--b);
+      border-radius:var(--R);
+      background:var(--surf);
+      padding:10px;
+      display:flex;flex-direction:column;gap:8px;
+      overflow:hidden;
+    }
+    .cell.mute{opacity:.55}
+    .dayline{display:flex;justify-content:space-between;align-items:center;gap:8px}
+    .daynum{font-size:12px;font-weight:900}
+    .badge{font-size:10px;color:var(--m);border:1px solid var(--b);border-radius:999px;padding:2px 8px;white-space:nowrap}
+    .items{display:flex;flex-direction:column;gap:8px;overflow:auto;padding-right:2px}
+    .it{
+      border:1px solid var(--b);
+      border-radius:var(--Rs);
+      padding:8px 10px;
+      background:var(--surf2);
+      cursor:pointer;
+    }
+    .it:hover{border-color:var(--b2)}
+    .it .t{font-size:11px;font-weight:900;letter-spacing:-.01em}
+    .it .a{font-size:10px;color:var(--m);margin-top:3px}
 
-th {
-  padding: 14px;
-  text-align: left;
-  font-weight: 600;
-  color: var(--text);
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-}
+    /* Reports */
+    table{width:100%;border-collapse:collapse;font-size:12px}
+    th,td{border-bottom:1px solid var(--b);padding:8px 6px;text-align:left}
+    th{color:var(--m);font-weight:900}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .panel{padding:12px 14px}
+    .panel h3{
+      margin:0 0 8px;
+      font-size:11px;
+      color:var(--m);
+      text-transform:uppercase;
+      letter-spacing:.08em;
+      font-weight:900;
+    }
 
-td {
-  padding: 12px 14px;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
-}
+    /* Drawer */
+    .drawer{
+      position:fixed;top:0;right:0;height:100%;
+      width:460px;max-width:92vw;
+      background:var(--panel);
+      border-left:1px solid var(--b);
+      box-shadow:-18px 0 50px rgba(0,0,0,.40);
+      transform:translateX(100%);
+      transition:transform .22s ease;
+      z-index:50;
+      display:flex;flex-direction:column;
+      backdrop-filter: blur(12px);
+    }
+    .drawer.open{transform:translateX(0)}
+    .dhead{
+      display:flex;justify-content:space-between;align-items:center;
+      padding:12px 14px;border-bottom:1px solid var(--b);gap:10px;
+    }
+    .dtitle{font-size:13px;font-weight:900;letter-spacing:-.01em}
+    .dbody{padding:12px 14px;overflow:auto}
+    .kv{
+      display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px
+    }
+    .k{
+      background:var(--surf);
+      border:1px solid var(--b);
+      border-radius:var(--R);
+      padding:10px;
+    }
+    .k .l{font-size:11px;color:var(--m);font-weight:900}
+    .k .v{font-size:14px;font-weight:900;letter-spacing:-.01em;margin-top:3px}
+    details{
+      border:1px solid var(--b);
+      border-radius:var(--R);
+      padding:10px;
+      margin:10px 0;
+      background:var(--surf);
+    }
+    details>summary{
+      cursor:pointer;
+      list-style:none;
+      font-size:12px;
+      color:var(--m);
+      font-weight:900;
+    }
+    details>summary::-webkit-details-marker{display:none}
+    .kbd{
+      font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+      font-size:11px;
+      background:var(--surf2);
+      border:1px solid var(--b);
+      padding:2px 8px;
+      border-radius:10px;
+      color:var(--m);
+    }
 
-tbody tr:hover {
-  background: var(--bg-hover);
-}
-
-/* -------------------------------------------------------
-   ENTITY TAG BAR
-------------------------------------------------------- */
-.entity-tag {
-  width: 6px;
-  height: 100%;
-  border-radius: 4px;
-  margin-right: 8px;
-  display: inline-block;
-}
-
-.entity-color-MISE { background: #4F46E5; }
-.entity-color-Portland { background: #10B981; }
-.entity-color-State { background: #F59E0B; }
-.entity-color-Bars { background: #EF4444; }
-.entity-color-Default { background: #6B7280; }
-
-/* -------------------------------------------------------
-   FILE LINKS
-------------------------------------------------------- */
-.file-link {
-  color: var(--primary);
-  text-decoration: none;
-  font-weight: 500;
-}
-.file-link:hover {
-  text-decoration: underline;
-}
-
-/* -------------------------------------------------------
-   EXPANDABLE ROW DRAWER
-------------------------------------------------------- */
-.expand-details {
-  display: none;
-  background: #14161A;
-  padding: 16px 24px;
-  border-top: 1px solid rgba(255,255,255,0.06);
-}
-
-.expand-details.active {
-  display: block;
-  animation: fadeIn .25s ease-out;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(-4px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-/* -------------------------------------------------------
-   PAGINATION
-------------------------------------------------------- */
-.pagination {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  margin-top: 18px;
-}
-
-.pagination button {
-  padding: 8px 14px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text);
-  cursor: pointer;
-  transition: .2s;
-}
-
-.pagination button:hover {
-  background: var(--bg-hover);
-}
-
-.pagination .active {
-  background: var(--primary);
-  color: #fff;
-}
-
-/* -------------------------------------------------------
-   SKELETON LOADER
-------------------------------------------------------- */
-.skeleton {
-  background: linear-gradient(90deg, #1A1C20 25%, #22252B 37%, #1A1C20 63%);
-  background-size: 400% 100%;
-  animation: shimmer 1.4s infinite;
-  border-radius: 6px;
-  height: 14px;
-}
-
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-</style>
+    @media (max-width:980px){
+      :root{--side:100%}
+      .app{grid-template-columns:1fr}
+      .side{position:relative;height:auto}
+      .grid2{grid-template-columns:1fr}
+      .drawer{width:100%}
+      .cell{min-height:100px}
+    }
+  </style>
 </head>
+
 <body>
+  <div class="app">
+    <header>
+      <div>
+        <h1>Planning Dashboard — POs & Factories</h1>
+        <div class="sub">Live from Google Sheets · Queue + Calendar + Reports</div>
+      </div>
+      <div class="row">
+        <div class="chip" style="cursor:default"><span>Updated</span> <b id="updated">—</b></div>
+        <button class="chip" id="theme"><span>Theme</span> <b id="themeLabel">Dark</b> <span style="opacity:.7">↻</span></button>
+      </div>
+    </header>
 
-<!-- -----------------------------------------------------
-     HEADER
------------------------------------------------------- -->
-<div class="header">
-  <h1>Financial Uploads<h1>
-  <div class="subtitle">WPV Accounting</div>
-</div>
+    <aside class="card side">
+      <div class="lbl">Search</div>
+      <input id="q" class="in" placeholder="PO, factory, SKU, title..." />
 
-<!-- -----------------------------------------------------
-     COLLAPSIBLE UPLOAD PANEL
------------------------------------------------------- -->
-<div class="upload-toggle" id="uploadToggle">
-  <span>+ Submit New Financial Upload</span>
-  <span class="arrow">▶</span>
-</div>
+      <div class="lbl">Factories</div>
+      <select id="factories" class="in" multiple size="8"></select>
 
-<div class="upload-panel" id="uploadPanel">
-  <!-- Jotform Embed -->
-  <script type="text/javascript" src="https://form.jotform.com/jsform/253167355298063"></script>
-</div>
+      <div class="lbl">Product Type</div>
+      <select id="ptype" class="in" multiple size="6"></select>
 
-<!-- -----------------------------------------------------
-     FILTER BAR
------------------------------------------------------- -->
-<div class="filters">
-  <select id="entityFilter">
-    <option value="ALL">All Entities</option>
-  </select>
+      <div class="lbl">Date Bucket</div>
+      <select id="bucket" class="in" multiple size="6"></select>
 
-  <input id="searchBox" type="text" placeholder="Search uploads… (entity, notes, uploader)">
-</div>
+      <div class="lbl">Wholesale Triggered</div>
+      <select id="wh" class="in">
+        <option value="">Any</option>
+        <option value="yes">Yes</option>
+        <option value="no">No</option>
+      </select>
 
-<!-- -----------------------------------------------------
-     TABLE WRAPPER 
------------------------------------------------------- -->
-<div class="table-wrap">
-  <table>
-    <thead>
-      <tr>
-        <th data-sort="date">Date</th>
-        <th data-sort="entity">Entity</th>
-        <th data-sort="month">Month</th>
-        <th data-sort="year">Year</th>
-        <th>Notes</th>
-        <th>Uploaded By</th>
-        <th>Balance Sheet</th>
-        <th>P&L</th>
-        <th>GL Detail</th>
-        <th>Other Docs</th>
-      </tr>
-    </thead>
+      <div class="lbl">Ship date range</div>
+      <div style="display:flex;gap:10px">
+        <input id="shipFrom" class="in" type="date" />
+        <input id="shipTo" class="in" type="date" />
+      </div>
 
-    <tbody id="dataRows">
-      <!-- Skeleton placeholder -->
-      <tr><td colspan="10" style="padding:20px;"><div class="skeleton" style="height:18px;"></div></td></tr>
-      <tr><td colspan="10" style="padding:20px;"><div class="skeleton" style="height:18px;"></div></td></tr>
-      <tr><td colspan="10" style="padding:20px;"><div class="skeleton" style="height:18px;"></div></td></tr>
-    </tbody>
-  </table>
-</div>
+      <div class="lbl">Actions</div>
+      <div style="display:flex;gap:10px">
+        <button id="reset" class="btn block">Reset</button>
+        <button id="export" class="btn p block">Export CSV</button>
+      </div>
 
-<div class="pagination" id="pagination"></div>
+      <div class="lbl">Source</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <a id="openSheet" class="btn small ghost" target="_blank" rel="noopener">Open sheet</a>
+        <a id="openPub" class="btn small ghost" target="_blank" rel="noopener">Published view</a>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div id="banner" class="banner"></div>
+
+      <section class="card topbar">
+        <div class="kpis">
+          <span>Lines: <b id="kLines">—</b></span>
+          <span>POs: <b id="kPOs">—</b></span>
+          <span>Factories: <b id="kFac">—</b></span>
+          <span>Qty: <b id="kQty">—</b></span>
+          <span>Retail Value: <b id="kVal">—</b></span>
+          <span>Ship next 30d: <b id="k30">—</b></span>
+        </div>
+        <div class="tabs" id="tabs">
+          <button class="tab on" data-view="queue">Queue</button>
+          <button class="tab" data-view="calendar">Calendar</button>
+          <button class="tab" data-view="reports">Reports</button>
+        </div>
+      </section>
+
+      <section id="queue" class="card lane"><div class="empty">Loading…</div></section>
+
+      <section id="calendar" class="card lane" style="display:none">
+        <div class="calTop">
+          <div class="calTitle" id="calTitle">Ship Calendar</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn small" id="calPrev">&larr; Prev</button>
+            <button class="btn small" id="calToday">Today</button>
+            <button class="btn small" id="calNext">Next &rarr;</button>
+          </div>
+        </div>
+        <div class="calGrid" id="calGrid"></div>
+      </section>
+
+      <section id="reports" class="card lane" style="display:none">
+        <div class="grid2">
+          <div class="card panel">
+            <h3>Top Factories (Filtered)</h3>
+            <table>
+              <thead><tr><th>Factory</th><th>Lines</th><th>Qty</th><th>Retail</th></tr></thead>
+              <tbody id="rFactories"></tbody>
+            </table>
+          </div>
+          <div class="card panel">
+            <h3>Date Bucket (Filtered)</h3>
+            <table>
+              <thead><tr><th>Bucket</th><th>Lines</th><th>Qty</th><th>Retail</th></tr></thead>
+              <tbody id="rBuckets"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="grid2" style="margin-top:12px">
+          <div class="card panel">
+            <h3>Ship Month (Filtered)</h3>
+            <table>
+              <thead><tr><th>Month</th><th>Lines</th><th>Qty</th><th>Retail</th></tr></thead>
+              <tbody id="rMonths"></tbody>
+            </table>
+          </div>
+          <div class="card panel">
+            <h3>Wholesale Triggered (Filtered)</h3>
+            <table>
+              <thead><tr><th>Triggered</th><th>Lines</th><th>Qty</th><th>Retail</th></tr></thead>
+              <tbody id="rWholesale"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <aside id="drawer" class="drawer" aria-hidden="true">
+    <div class="dhead">
+      <div class="dtitle" id="dTitle">Details</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn small ghost" id="prevBtn" title="Previous (←)">&larr;</button>
+        <button class="btn small ghost" id="nextBtn" title="Next (→)">&rarr;</button>
+        <button class="btn small" id="closeBtn">Close</button>
+      </div>
+    </div>
+    <div class="dbody" id="dBody"></div>
+  </aside>
 
 <script>
-/* -------------------------------------------------------
-   COLLAPSIBLE LOGIC
-------------------------------------------------------- */
-const uploadToggle = document.getElementById("uploadToggle");
-const uploadPanel  = document.getElementById("uploadPanel");
+(() => {
+  /* ========= CONFIG =========
+    Master tab: PO_Lines_CLEAN (gid=1062059200)
+    Best for GitHub Pages: use Published-to-web CSV.
+  */
+  const SHEET_ID = "1VvBB_F0cXdOq5rKYDfV540v5_eAXyHi1NqkJi34Kv-o";
+  const GID = "1062059200"; // PO_Lines_CLEAN (master)
 
-uploadToggle.addEventListener("click", () => {
-  const isOpen = uploadPanel.classList.contains("open");
+  // If your published link changes, update this PUBLISHED_ID.
+  const PUBLISHED_ID = "2PACX-1vQkrN-4CPWPkdS8sRFg-mkKBoPU_gqQXFkhjjSQ6hT5MvMhzmaHI-6DrKBh_jRE0Kucy9Edv9S4ptPO";
+  const PUBLISHED_CSV = `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_ID}/pub?gid=${GID}&single=true&output=csv`;
+  const PUBLISHED_HTML = `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_ID}/pubhtml?gid=${GID}&single=true`;
 
-  if (isOpen) {
-    // closing
-    uploadPanel.style.maxHeight = "0px";
-    uploadPanel.classList.remove("open");
-    uploadToggle.classList.remove("active");
-  } else {
-    // opening
-    uploadPanel.classList.add("open");
-    uploadToggle.classList.add("active");
+  // These work only if the sheet is shared ("anyone with link") or you have access in a same-origin app (not GitHub pages).
+  const GVIZ = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${GID}&tqx=out:json`;
+  const CSV = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
 
-    // auto-calc height
-    setTimeout(() => {
-      uploadPanel.style.maxHeight = uploadPanel.scrollHeight + "px";
-    }, 10);
+  /* ========= STATE ========= */
+  let all = [];
+  let filtered = [];
+  const openFactory = new Map();
+  const openPO = new Map();
+  let view = "queue";
+  let calAnchor = startOfMonth(new Date());
+  let currentOpenId = null;
+
+  const F = {
+    q: "",
+    factories: new Set(),
+    ptypes: new Set(),
+    buckets: new Set(),
+    wh: "",
+    shipFrom: null,
+    shipTo: null
+  };
+
+  /* ========= DOM ========= */
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, m => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;" }[m]));
+  const deb = (fn, ms=200) => { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; };
+  const banner = (msg) => { const b=$("banner"); b.textContent=msg; b.style.display="block"; };
+  const clearBanner = () => { $("banner").style.display="none"; };
+
+  /* ========= HELPERS ========= */
+  function startOfDay(d){ const x=new Date(d); x.setHours(0,0,0,0); return x; }
+  function startOfMonth(d){ const x=new Date(d); x.setDate(1); x.setHours(0,0,0,0); return x; }
+  function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+  function iso(d){ const x=startOfDay(d); return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,"0")}-${String(x.getDate()).padStart(2,"0")}`; }
+  function money(n){ const x=Number(n); return Number.isFinite(x)?x.toLocaleString("en-US",{style:"currency",currency:"USD"}):"$0.00"; }
+  function num(v){
+    if(v==null) return 0;
+    if(typeof v==="number") return Number.isFinite(v)?v:0;
+    const n=Number(String(v).replace(/[^0-9.-]/g,""));
+    return Number.isFinite(n)?n:0;
   }
-});
+  function parseDate(raw){
+    if(!raw) return null;
+    if(raw instanceof Date) return raw;
+    const s=String(raw).trim();
 
-/* -------------------------------------------------------
-   CONFIG
-------------------------------------------------------- */
-const SHEET_ID = "1dMNl3VuC4MlGk5vDrXIFnHRPt_B5lBtc5AHuT0Uo1N4";
-const GID = "0"; 
-const URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${GID}`;
+    const g=s.match(/Date\((\d{4}),\s*(\d{1,2}),\s*(\d{1,2})/i);
+    if(g) return new Date(+g[1], +g[2], +g[3]);
 
-let allRows = [];
-let filteredRows = [];
-let currentPage = 1;
-const ROWS_PER_PAGE = 50;
+    const isoOnly=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if(isoOnly) return new Date(+isoOnly[1], +isoOnly[2]-1, +isoOnly[3]);
 
-/* -------------------------------------------------------
-   LOAD GOOGLE SHEET
-------------------------------------------------------- */
-async function loadSheet() {
-  try {
-    const res = await fetch(URL);
-    const text = await res.text();
-    const json = JSON.parse(text.substring(47, text.length - 2));
-    const rows = json.table.rows;
+    const us=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if(us){ const y=String(us[3]).length===2?(+us[3]+2000):+us[3]; return new Date(y, +us[1]-1, +us[2]); }
 
-    allRows = rows.map(r => {
-      const c = r.c.map(cell => (cell ? cell.v : ""));
+    const t=Date.parse(s);
+    return Number.isNaN(t)?null:new Date(t);
+  }
+  function fmtDate(d){
+    const x=parseDate(d);
+    return x ? x.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "—";
+  }
+  function uniq(arr){ return [...new Set(arr.map(x=>String(x||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b)); }
+  function setMulti(id, opts){ $(id).innerHTML = opts.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join(""); }
+  function readMulti(id){ return new Set([...$(id).selectedOptions].map(o=>o.value)); }
+  function clamp(s,n=56){ const t=String(s||""); return t.length>n ? t.slice(0,n-1)+"…" : t; }
+
+  /* ========= CSV PARSER ========= */
+  function parseCSV(txt){
+    const out=[]; let i=0,cur="",q=false,row=[];
+    const push=()=>{row.push(cur);cur="";};
+    const end=()=>{out.push(row);row=[];};
+    while(i<txt.length){
+      const ch=txt[i++];
+      if(q){
+        if(ch=='"'&&txt[i]=='"'){cur+='"';i++;}
+        else if(ch=='"'){q=false;}
+        else cur+=ch;
+      }else{
+        if(ch=='"') q=true;
+        else if(ch==',') push();
+        else if(ch=='\n'){push();end();}
+        else if(ch!=='\r') cur+=ch;
+      }
+    }
+    if(cur.length||row.length){push();end();}
+    return out;
+  }
+
+  /* ========= HEADER DETECTION + FUZZY MAP ========= */
+  function parseFromCsvText(txt){
+    const rows = parseCSV(txt);
+    if(!rows.length) return [];
+
+    const norm = (s) => String(s ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ")
+      .replace(/[^\w\s#]/g, "");
+
+    const aliases = {
+      po: ["po name","po","po#","po #","purchase order","purchase order name"],
+      factory: ["factory","vendor","supplier","mfg","manufacturer"],
+      sku: ["sku","style","style #","style#","item sku"],
+      title: ["title","product","item","product name","style name","description"],
+      productType: ["product type","type","category","product category"],
+      dateBucket: ["date bucket","bucket","ship bucket"],
+      wholesaleTriggered: ["wholesale triggered","wholesale trigger","wh triggered","wholesale"],
+      wholesaleSuffix: ["wholesale suffix","wh suffix","suffix"],
+      orderDate: ["order date","po date","date ordered"],
+      reqShipDate: ["req ship date","requested ship date","required ship date","requested ship","req ship"],
+      parsedShipDate: ["parsed ship date","parsed ship","ship date parsed","ship date"],
+      size: ["size","sz"],
+      color: ["color","colour"],
+      qty: ["qty","quantity","units","unit qty","total qty"],
+      retailValue: ["retail value","value","ext retail","extended retail","total retail"],
+      retailPrice: ["retail price","price","msrp"]
+    };
+
+    function scoreRow(r){
+      const cells = r.map(norm);
+      const has = (k) => aliases[k].some(a => cells.includes(norm(a)));
+      let s = 0;
+      if(has("po")) s += 3;
+      if(has("factory")) s += 3;
+      if(has("sku")) s += 2;
+      if(has("qty")) s += 2;
+      if(has("parsedShipDate") || has("reqShipDate")) s += 1;
+      return s;
+    }
+
+    let headerRowIndex = 0, best = -1;
+    for(let i=0;i<Math.min(30, rows.length);i++){
+      const s = scoreRow(rows[i]);
+      if(s > best){ best = s; headerRowIndex = i; }
+    }
+
+    const headerRaw = rows[headerRowIndex] || [];
+    const header = headerRaw.map(norm);
+
+    const gi = (key) => {
+      // exact
+      for(const a of aliases[key]){
+        const idx = header.indexOf(norm(a));
+        if(idx !== -1) return idx;
+      }
+      // contains
+      for(let i=0;i<header.length;i++){
+        const h = header[i];
+        if(aliases[key].some(a => h.includes(norm(a)))) return i;
+      }
+      return -1;
+    };
+
+    const I = {
+      po: gi("po"),
+      factory: gi("factory"),
+      sku: gi("sku"),
+      title: gi("title"),
+      productType: gi("productType"),
+      dateBucket: gi("dateBucket"),
+      wholesaleTriggered: gi("wholesaleTriggered"),
+      wholesaleSuffix: gi("wholesaleSuffix"),
+      orderDate: gi("orderDate"),
+      reqShipDate: gi("reqShipDate"),
+      parsedShipDate: gi("parsedShipDate"),
+      size: gi("size"),
+      color: gi("color"),
+      qty: gi("qty"),
+      retailValue: gi("retailValue"),
+      retailPrice: gi("retailPrice"),
+    };
+
+    if(I.po === -1 || I.factory === -1){
+      banner(
+        `Header row not recognized.\n` +
+        `Detected header row: ${headerRowIndex+1}\n` +
+        `First headers: ${headerRaw.slice(0,14).join(" | ")}\n\n` +
+        `Fix: ensure PO_Lines_CLEAN is published, and the published gid matches.\n` +
+        `Or rename columns to include "PO Name" and "Factory".`
+      );
+      return [];
+    }
+
+    const data = rows.slice(headerRowIndex + 1);
+
+    return data.map((r,ri)=>{
+      const po = String(r[I.po] ?? "").trim();
+      const factory = String(r[I.factory] ?? "").trim();
+      const sku = I.sku !== -1 ? String(r[I.sku] ?? "").trim() : "";
+      const title = I.title !== -1 ? String(r[I.title] ?? "").trim() : "";
+
+      if(!po && !factory && !sku && !title) return null;
+
+      const shipDate = (I.parsedShipDate !== -1 ? parseDate(r[I.parsedShipDate]) : null)
+        || (I.reqShipDate !== -1 ? parseDate(r[I.reqShipDate]) : null);
 
       return {
-        date: c[0],
-        entity: c[1],
-        month: c[2],
-        year: c[3],
-
-        bs_url: c[4],
-        pl_url: c[5],
-        gl_url: c[6],
-        other_url: c[7],
-
-        notes: c[9],
-        uploaded: c[10],
-
-        bs_label: c[15],
-        pl_label: c[16],
-        gl_label: c[17],
-        other_label: c[18]
+        id: btoa(unescape(encodeURIComponent(`${po}|${factory}|${sku}|${ri}`))).replace(/=+$/,""),
+        po, factory,
+        sku,
+        title,
+        productType: I.productType !== -1 ? String(r[I.productType] ?? "").trim() : "",
+        dateBucket: I.dateBucket !== -1 ? String(r[I.dateBucket] ?? "").trim() : "",
+        wholesaleTriggered: I.wholesaleTriggered !== -1 ? String(r[I.wholesaleTriggered] ?? "").trim() : "",
+        wholesaleSuffix: I.wholesaleSuffix !== -1 ? String(r[I.wholesaleSuffix] ?? "").trim() : "",
+        orderDate: I.orderDate !== -1 ? parseDate(r[I.orderDate]) : null,
+        reqShipDate: I.reqShipDate !== -1 ? parseDate(r[I.reqShipDate]) : null,
+        shipDate,
+        size: I.size !== -1 ? String(r[I.size] ?? "").trim() : "",
+        color: I.color !== -1 ? String(r[I.color] ?? "").trim() : "",
+        qty: I.qty !== -1 ? num(r[I.qty]) : 0,
+        retailValue: I.retailValue !== -1 ? num(r[I.retailValue]) : 0,
+        retailPrice: I.retailPrice !== -1 ? num(r[I.retailPrice]) : 0,
+        _raw: r
       };
+    }).filter(Boolean);
+  }
+
+  /* ========= LOAD ========= */
+  async function fetchText(url){
+    const res = await fetch(url, { cache:"no-store" });
+    const txt = await res.text();
+    return { ok: res.ok, status: res.status, txt };
+  }
+
+  async function load(){
+    clearBanner();
+    $("updated").textContent = new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});
+    $("openSheet").href = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit#gid=${GID}`;
+    $("openPub").href = PUBLISHED_HTML;
+
+    const cb = `_=${Date.now()}`;
+
+    // 1) Published-to-web CSV (best for GitHub Pages)
+    try{
+      const a = await fetchText(`${PUBLISHED_CSV}&${cb}`);
+      if(a.ok && a.txt.includes(",")){
+        all = parseFromCsvText(a.txt);
+        if(all.length){ init(); return; }
+        return; // parseFromCsvText already banner()'d
+      }
+      banner(`Published CSV fetch failed (${a.status}). Verify the tab is published and gid is correct.\n${PUBLISHED_CSV}`);
+    }catch(e){
+      banner(`Published CSV fetch error.\n${String(e)}`);
+      return;
+    }
+
+    // 2) Normal CSV export (requires sharing)
+    try{
+      const b = await fetchText(`${CSV}&${cb}`);
+      if(b.ok && b.txt.includes(",")){
+        all = parseFromCsvText(b.txt);
+        if(all.length){ init(); return; }
+      }
+    }catch{}
+
+    // 3) GViz (requires sharing)
+    try{
+      const c = await fetchText(`${GVIZ}&${cb}`);
+      if(c.ok){
+        // GViz parsing intentionally omitted here; published CSV should be the source for this deployment.
+        banner("GViz loaded but not used in this build. Use Published-to-web CSV for GitHub Pages.");
+      }
+    }catch{}
+  }
+
+  /* ========= FILTERS ========= */
+  function applyFilters(){
+    const q = F.q.toLowerCase().trim();
+    const shipFrom = F.shipFrom ? startOfDay(F.shipFrom) : null;
+    const shipTo = F.shipTo ? startOfDay(F.shipTo) : null;
+
+    filtered = all.filter(x=>{
+      if(F.factories.size && !F.factories.has(x.factory)) return false;
+      if(F.ptypes.size && !F.ptypes.has(String(x.productType||"").trim())) return false;
+      if(F.buckets.size && !F.buckets.has(String(x.dateBucket||"").trim())) return false;
+
+      if(F.wh){
+        const v = String(x.wholesaleTriggered||"").toLowerCase().trim();
+        const yes = (v==="yes"||v==="y"||v==="true"||v==="1");
+        if(F.wh==="yes" && !yes) return false;
+        if(F.wh==="no" && yes) return false;
+      }
+
+      if(shipFrom || shipTo){
+        const d = x.shipDate ? startOfDay(x.shipDate) : null;
+        if(!d) return false;
+        if(shipFrom && d < shipFrom) return false;
+        if(shipTo && d > shipTo) return false;
+      }
+
+      if(q){
+        const blob = [
+          x.po, x.factory, x.productType, x.title, x.sku, x.size, x.color, x.dateBucket,
+          x.wholesaleTriggered, x.wholesaleSuffix
+        ].join(" ").toLowerCase();
+        if(!blob.includes(q)) return false;
+      }
+
+      return true;
+    });
+  }
+
+  /* ========= KPIs ========= */
+  function renderKPIs(){
+    const lines = filtered.length;
+    const pos = new Set(filtered.map(x=>`${x.factory}|||${x.po}`)).size;
+    const facs = new Set(filtered.map(x=>x.factory)).size;
+    const qty = filtered.reduce((s,x)=>s+(x.qty||0),0);
+    const val = filtered.reduce((s,x)=>s+(x.retailValue||0),0);
+
+    const now0 = startOfDay(new Date());
+    const end30 = addDays(now0, 30);
+    const next30 = filtered.filter(x=>{
+      if(!x.shipDate) return false;
+      const d = startOfDay(x.shipDate);
+      return d >= now0 && d <= end30;
     });
 
-    buildEntityFilter();
-    applyFilters();
-
-  } catch (err) {
-    console.error("Error loading sheet:", err);
+    $("kLines").textContent = lines.toLocaleString("en-US");
+    $("kPOs").textContent = pos.toLocaleString("en-US");
+    $("kFac").textContent = facs.toLocaleString("en-US");
+    $("kQty").textContent = qty.toLocaleString("en-US");
+    $("kVal").textContent = money(val);
+    $("k30").textContent = next30.length.toLocaleString("en-US");
   }
-}
 
-/* -------------------------------------------------------
-   ENTITY FILTER BUILDER
-------------------------------------------------------- */
-function buildEntityFilter() {
-  const select = document.getElementById("entityFilter");
-  const unique = [...new Set(allRows.map(r => r.entity).filter(Boolean))].sort();
+  /* ========= QUEUE RENDER ========= */
+  function renderQueue(){
+    const root = $("queue");
+    if(!filtered.length){
+      root.innerHTML = `<div class="empty">No results.</div>`;
+      return;
+    }
 
-  unique.forEach(ent => {
-    const opt = document.createElement("option");
-    opt.value = ent;
-    opt.textContent = ent;
-    select.appendChild(opt);
-  });
+    const byFactory = new Map();
+    for(const x of filtered){
+      (byFactory.get(x.factory) || byFactory.set(x.factory, []).get(x.factory)).push(x);
+    }
+    const factories = [...byFactory.keys()].sort((a,b)=>a.localeCompare(b));
 
-  select.addEventListener("change", applyFilters);
-}
+    root.innerHTML = "";
+    for(const f of factories){
+      const list = byFactory.get(f) || [];
+      const fKey = f;
+      const fOpen = openFactory.get(fKey) ?? true;
 
-/* -------------------------------------------------------
-   SEARCH & FILTER LOGIC
-------------------------------------------------------- */
-document.getElementById("searchBox").addEventListener("input", applyFilters);
+      const fLines = list.length;
+      const fPOs = new Set(list.map(x=>x.po)).size;
+      const fQty = list.reduce((s,x)=>s+(x.qty||0),0);
+      const fVal = list.reduce((s,x)=>s+(x.retailValue||0),0);
 
-function applyFilters() {
-  const search = document.getElementById("searchBox").value.toLowerCase();
-  const ent = document.getElementById("entityFilter").value;
+      const group = document.createElement("div");
+      group.className = "group";
 
-  filteredRows = allRows.filter(r => {
-    const matchEntity = (ent === "ALL" || r.entity === ent);
-    const matchSearch =
-      r.entity.toLowerCase().includes(search) ||
-      r.notes.toLowerCase().includes(search) ||
-      r.uploaded.toLowerCase().includes(search);
+      const head = document.createElement("div");
+      head.className = "ghead" + (fOpen ? " open" : "");
+      head.innerHTML = `
+        <div><strong>${esc(f)}</strong><div class="muted">${fPOs} POs • ${fLines} lines</div></div>
+        <div class="muted" style="text-align:right">Qty ${esc(fQty)}<br>${money(fVal)}</div>
+      `;
 
-    return matchEntity && matchSearch;
-  });
+      const body = document.createElement("div");
+      body.className = "gbody" + (fOpen ? " open" : "");
 
-  currentPage = 1;
-  renderTable();
-}
+      // group by PO inside factory
+      const byPO = new Map();
+      for(const x of list){
+        (byPO.get(x.po) || byPO.set(x.po, []).get(x.po)).push(x);
+      }
+      const pos = [...byPO.keys()].sort((a,b)=>a.localeCompare(b));
 
-/* -------------------------------------------------------
-   SORTING
-------------------------------------------------------- */
-document.querySelectorAll("th[data-sort]").forEach(th => {
-  th.addEventListener("click", () => {
-    const key = th.getAttribute("data-sort");
-    filteredRows.sort((a, b) => (a[key] > b[key] ? 1 : -1));
-    renderTable();
-  });
-});
+      for(const poName of pos){
+        const pList = byPO.get(poName) || [];
+        const pKey = `${f}|||${poName}`;
+        const pOpen = openPO.get(pKey) ?? true;
 
-/* -------------------------------------------------------
-   RENDER TABLE
-------------------------------------------------------- */
-function renderTable() {
-  const tbody = document.getElementById("dataRows");
-  tbody.innerHTML = "";
+        const pQty = pList.reduce((s,x)=>s+(x.qty||0),0);
+        const pVal = pList.reduce((s,x)=>s+(x.retailValue||0),0);
+        const minShip = pList.map(x=>x.shipDate).filter(Boolean).sort((a,b)=>a-b)[0] || null;
 
-  const start = (currentPage - 1) * ROWS_PER_PAGE;
-  const pageRows = filteredRows.slice(start, start + ROWS_PER_PAGE);
+        const po = document.createElement("div");
+        po.className = "po";
 
-  pageRows.forEach((r, i) => {
-    const colorClass = getEntityColor(r.entity);
+        const poHead = document.createElement("div");
+        poHead.className = "pohead" + (pOpen ? " open" : "");
+        poHead.innerHTML = `
+          <div>
+            <div class="title">${esc(poName || "(No PO Name)")}</div>
+            <div class="muted">${pList.length} lines • Ship: ${esc(fmtDate(minShip))}</div>
+          </div>
+          <div class="muted" style="text-align:right">Qty ${esc(pQty)}<br>${money(pVal)}</div>
+        `;
 
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td><span class="entity-tag ${colorClass}"></span>${r.date}</td>
-      <td>${r.entity}</td>
-      <td>${r.month}</td>
-      <td>${r.year}</td>
-      <td>${r.notes}</td>
-      <td>${r.uploaded}</td>
-      <td>${r.bs_url ? `<a class="file-link" href="${r.bs_url}" target="_blank">${r.bs_label||"View"}</a>` : ""}</td>
-      <td>${r.pl_url ? `<a class="file-link" href="${r.pl_url}" target="_blank">${r.pl_label||"View"}</a>` : ""}</td>
-      <td>${r.gl_url ? `<a class="file-link" href="${r.gl_url}" target="_blank">${r.gl_label||"View"}</a>` : ""}</td>
-      <td>${r.other_url ? `<a class="file-link" href="${r.other_url}" target="_blank">${r.other_label||"Docs"}</a>` : ""}</td>
+        const poBody = document.createElement("div");
+        poBody.className = "pobody" + (pOpen ? " open" : "");
+
+        // sort lines: shipDate asc then value desc
+        pList.sort((a,b)=> (a.shipDate?.getTime()||9e15) - (b.shipDate?.getTime()||9e15) || (b.retailValue-a.retailValue));
+
+        for(const r of pList){
+          const line = document.createElement("div");
+          line.className = "line";
+          line.dataset.id = r.id;
+
+          const risk = shipRisk(r.shipDate);
+          const pill = risk.kind === "ok"
+            ? `<span class="pill"><span class="dot g"></span>${risk.label}</span>`
+            : risk.kind === "warn"
+              ? `<span class="pill"><span class="dot y"></span>${risk.label}</span>`
+              : `<span class="pill"><span class="dot r"></span>${risk.label}</span>`;
+
+          line.innerHTML = `
+            <div class="ltop">
+              <div>
+                <div class="title">${esc(clamp(r.title || r.sku || "(Untitled)", 64))}</div>
+                <div class="muted">${esc(r.sku||"")} ${r.size?`• ${esc(r.size)}`:""} ${r.color?`• ${esc(r.color)}`:""}</div>
+                <div class="muted">${esc(r.productType||"")} ${r.dateBucket?`• ${esc(r.dateBucket)}`:""}</div>
+              </div>
+              <div style="text-align:right">
+                ${pill}
+                <div class="muted" style="margin-top:6px">${fmtDate(r.shipDate)} • Qty ${esc(r.qty)} • ${money(r.retailValue)}</div>
+              </div>
+            </div>
+          `;
+          line.addEventListener("click",()=>openRecord(r.id));
+          poBody.appendChild(line);
+        }
+
+        poHead.addEventListener("click",()=>{
+          const open = !poBody.classList.contains("open");
+          poBody.classList.toggle("open", open);
+          poHead.classList.toggle("open", open);
+          openPO.set(pKey, open);
+        });
+
+        po.appendChild(poHead);
+        po.appendChild(poBody);
+        body.appendChild(po);
+      }
+
+      head.addEventListener("click",()=>{
+        const open = !body.classList.contains("open");
+        body.classList.toggle("open", open);
+        head.classList.toggle("open", open);
+        openFactory.set(fKey, open);
+      });
+
+      group.appendChild(head);
+      group.appendChild(body);
+      root.appendChild(group);
+    }
+  }
+
+  function shipRisk(shipDate){
+    if(!shipDate) return {kind:"warn", label:"No ship date"};
+    const d0 = startOfDay(shipDate);
+    const now0 = startOfDay(new Date());
+    const diff = Math.floor((d0.getTime()-now0.getTime())/86400000);
+    if(diff < 0) return {kind:"risk", label:`Late ${Math.abs(diff)}d`};
+    if(diff <= 14) return {kind:"warn", label:`Ship ${diff}d`};
+    return {kind:"ok", label:`Ship ${diff}d`};
+  }
+
+  /* ========= CALENDAR RENDER ========= */
+  function renderCalendar(){
+    const anchor = calAnchor;
+    $("calTitle").textContent = `Ship Calendar — ${anchor.toLocaleDateString("en-US",{month:"long",year:"numeric"})}`;
+
+    const grid = $("calGrid");
+    grid.innerHTML = "";
+
+    ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].forEach(d=>{
+      const el=document.createElement("div");
+      el.className="dow";
+      el.textContent=d;
+      grid.appendChild(el);
+    });
+
+    const y=anchor.getFullYear(), m=anchor.getMonth();
+    const first=new Date(y,m,1);
+    const start=addDays(first, -first.getDay());
+    const last=new Date(y,m+1,0);
+    const end=addDays(last, 6-last.getDay());
+
+    const byDay=new Map();
+    for(const r of filtered){
+      if(!r.shipDate) continue;
+      const k=iso(r.shipDate);
+      (byDay.get(k) ?? byDay.set(k, []).get(k)).push(r);
+    }
+    for(const items of byDay.values()){
+      items.sort((a,b)=> (b.retailValue-a.retailValue));
+    }
+
+    const todayKey=iso(new Date());
+
+    for(let d=new Date(start); d<=end; d=addDays(d,1)){
+      const inMonth = d.getMonth()===m;
+      const key=iso(d);
+      const items=byDay.get(key) || [];
+
+      const qty=items.reduce((s,x)=>s+(x.qty||0),0);
+      const val=items.reduce((s,x)=>s+(x.retailValue||0),0);
+
+      const cell=document.createElement("div");
+      cell.className="cell" + (inMonth ? "" : " mute");
+
+      cell.innerHTML = `
+        <div class="dayline">
+          <div class="daynum">${d.getDate()} ${key===todayKey?`<span class="badge">Today</span>`:""}</div>
+          <div class="badge">${items.length ? `${items.length} • Qty ${qty}` : "—"}</div>
+        </div>
+      `;
+
+      const list=document.createElement("div");
+      list.className="items";
+
+      const MAX=4;
+      items.slice(0,MAX).forEach(r=>{
+        const it=document.createElement("div");
+        it.className="it";
+        it.innerHTML = `
+          <div class="t">${esc(clamp(r.factory, 22))}</div>
+          <div class="a">${esc(clamp(r.po, 34))} • ${money(r.retailValue)}</div>
+        `;
+        it.addEventListener("click",()=>openRecord(r.id));
+        list.appendChild(it);
+      });
+
+      if(items.length>MAX){
+        const more=document.createElement("div");
+        more.className="muted";
+        more.textContent = `+ ${items.length-MAX} more… (filter to narrow)`;
+        list.appendChild(more);
+      }
+
+      if(items.length){
+        const foot=document.createElement("div");
+        foot.className="muted";
+        foot.textContent = `Retail ${money(val)}`;
+        list.appendChild(foot);
+      }
+
+      cell.appendChild(list);
+      grid.appendChild(cell);
+    }
+  }
+
+  /* ========= REPORTS RENDER ========= */
+  function renderReports(){
+    const sumBy = (keyFn) => {
+      const m = new Map();
+      for(const r of filtered){
+        const k = String(keyFn(r) || "—").trim() || "—";
+        const cur = m.get(k) || {lines:0, qty:0, val:0};
+        cur.lines += 1;
+        cur.qty += (r.qty||0);
+        cur.val += (r.retailValue||0);
+        m.set(k, cur);
+      }
+      return m;
+    };
+
+    const factories = [...sumBy(r=>r.factory).entries()]
+      .map(([k,v])=>({k,...v}))
+      .sort((a,b)=>b.val-a.val)
+      .slice(0,12);
+
+    const buckets = [...sumBy(r=>r.dateBucket).entries()]
+      .map(([k,v])=>({k,...v}))
+      .sort((a,b)=>b.val-a.val)
+      .slice(0,14);
+
+    const months = [...sumBy(r=>{
+      if(!r.shipDate) return "No ship date";
+      const d=r.shipDate;
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+    }).entries()]
+      .map(([k,v])=>({k,...v}))
+      .sort((a,b)=>a.k.localeCompare(b.k))
+      .slice(0,18);
+
+    const wh = [...sumBy(r=>{
+      const v=String(r.wholesaleTriggered||"").toLowerCase().trim();
+      const yes=(v==="yes"||v==="y"||v==="true"||v==="1");
+      return yes ? "Yes" : (v ? "No" : "—");
+    }).entries()]
+      .map(([k,v])=>({k,...v}))
+      .sort((a,b)=>b.val-a.val);
+
+    $("rFactories").innerHTML = factories.length
+      ? factories.map(x=>`<tr><td>${esc(x.k)}</td><td>${x.lines}</td><td>${x.qty}</td><td>${money(x.val)}</td></tr>`).join("")
+      : `<tr><td colspan="4" style="color:var(--m)">No data.</td></tr>`;
+
+    $("rBuckets").innerHTML = buckets.length
+      ? buckets.map(x=>`<tr><td>${esc(x.k)}</td><td>${x.lines}</td><td>${x.qty}</td><td>${money(x.val)}</td></tr>`).join("")
+      : `<tr><td colspan="4" style="color:var(--m)">No data.</td></tr>`;
+
+    $("rMonths").innerHTML = months.length
+      ? months.map(x=>`<tr><td>${esc(x.k)}</td><td>${x.lines}</td><td>${x.qty}</td><td>${money(x.val)}</td></tr>`).join("")
+      : `<tr><td colspan="4" style="color:var(--m)">No data.</td></tr>`;
+
+    $("rWholesale").innerHTML = wh.length
+      ? wh.map(x=>`<tr><td>${esc(x.k)}</td><td>${x.lines}</td><td>${x.qty}</td><td>${money(x.val)}</td></tr>`).join("")
+      : `<tr><td colspan="4" style="color:var(--m)">No data.</td></tr>`;
+  }
+
+  /* ========= DRAWER ========= */
+  function openRecord(id){ location.hash = `#/r/${id}`; }
+  function closeDrawer(){
+    currentOpenId=null;
+    $("drawer").classList.remove("open");
+    $("dTitle").textContent="Details";
+    $("dBody").innerHTML="";
+    if(location.hash.startsWith("#/r/")) history.replaceState(null,"",location.pathname+location.search);
+  }
+  function renderDrawer(r){
+    $("drawer").classList.add("open");
+    $("dTitle").textContent = `${r.factory} — ${r.po}`;
+
+    const risk = shipRisk(r.shipDate);
+
+    $("dBody").innerHTML = `
+      <div class="kv">
+        <div class="k"><div class="l">Ship Date</div><div class="v">${fmtDate(r.shipDate)} <span class="kbd">${esc(risk.label)}</span></div></div>
+        <div class="k"><div class="l">Retail Value</div><div class="v">${money(r.retailValue)}</div></div>
+        <div class="k"><div class="l">Qty</div><div class="v">${esc(r.qty)}</div></div>
+        <div class="k"><div class="l">SKU</div><div class="v">${esc(r.sku||"—")}</div></div>
+      </div>
+
+      <details open>
+        <summary>Primary</summary>
+        <div style="margin-top:10px">
+          <div style="margin:6px 0"><strong>Factory:</strong> ${esc(r.factory||"")}</div>
+          <div style="margin:6px 0"><strong>PO:</strong> ${esc(r.po||"")}</div>
+          <div style="margin:6px 0"><strong>Title:</strong> ${esc(r.title||"—")}</div>
+          <div style="margin:6px 0"><strong>Product Type:</strong> ${esc(r.productType||"—")}</div>
+          <div style="margin:6px 0"><strong>Date Bucket:</strong> ${esc(r.dateBucket||"—")}</div>
+          <div style="margin:6px 0"><strong>Wholesale Triggered:</strong> ${esc(r.wholesaleTriggered||"—")}</div>
+          <div style="margin:6px 0"><strong>Wholesale Suffix:</strong> ${esc(r.wholesaleSuffix||"—")}</div>
+          <div style="margin:6px 0"><strong>Order Date:</strong> ${esc(fmtDate(r.orderDate))}</div>
+          <div style="margin:6px 0"><strong>Req Ship Date:</strong> ${esc(fmtDate(r.reqShipDate))}</div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Variant</summary>
+        <div style="margin-top:10px">
+          <div style="margin:6px 0"><strong>Size:</strong> ${esc(r.size||"—")}</div>
+          <div style="margin:6px 0"><strong>Color:</strong> ${esc(r.color||"—")}</div>
+          <div style="margin:6px 0"><strong>Retail Price:</strong> ${money(r.retailPrice)}</div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Debug</summary>
+        <div style="margin-top:10px"><span class="kbd">${esc(r.id)}</span></div>
+      </details>
     `;
+  }
 
-    tbody.appendChild(tr);
-  });
+  function drawerList(){
+    // current filtered list sorted similar to queue: factory, po, shipDate, value
+    return filtered.slice().sort((a,b)=>
+      String(a.factory).localeCompare(String(b.factory)) ||
+      String(a.po).localeCompare(String(b.po)) ||
+      (a.shipDate?.getTime()||9e15) - (b.shipDate?.getTime()||9e15) ||
+      (b.retailValue-a.retailValue)
+    );
+  }
+  function drawerStep(delta){
+    if(!currentOpenId) return;
+    const list = drawerList();
+    const idx = list.findIndex(x=>x.id===currentOpenId);
+    if(idx<0 || list.length<2) return;
+    const next = list[(idx+delta+list.length)%list.length];
+    openRecord(next.id);
+  }
+  function handleRoute(){
+    const m = location.hash.match(/^#\/r\/(.+)$/);
+    if(m){
+      const id=m[1];
+      const r=all.find(x=>x.id===id);
+      if(r){
+        currentOpenId=id;
+        renderDrawer(r);
+        return;
+      }
+    }
+    closeDrawer();
+  }
 
-  renderPagination();
-}
+  /* ========= INIT ========= */
+  function init(){
+    clearBanner();
 
-/* -------------------------------------------------------
-   ENTITY COLOR HELPER
-------------------------------------------------------- */
-function getEntityColor(entity) {
-  entity = entity.toLowerCase();
-  if (entity.includes("mise")) return "entity-color-MISE";
-  if (entity.includes("portland")) return "entity-color-Portland";
-  if (entity.includes("state")) return "entity-color-State";
-  if (entity.includes("bar") || entity.includes("two") || entity.includes("palm") || entity.includes("flanders"))
-    return "entity-color-Bars";
-  return "entity-color-Default";
-}
+    // populate filters
+    setMulti("factories", uniq(all.map(x=>x.factory)));
+    setMulti("ptype", uniq(all.map(x=>x.productType)));
+    setMulti("bucket", uniq(all.map(x=>x.dateBucket)));
 
-/* -------------------------------------------------------
-   PAGINATION
-------------------------------------------------------- */
-function renderPagination() {
-  const pages = Math.ceil(filteredRows.length / ROWS_PER_PAGE);
-  const container = document.getElementById("pagination");
-  container.innerHTML = "";
+    // bind filters
+    $("q").addEventListener("input", deb((e)=>{ F.q=e.target.value||""; refresh(); }, 200));
+    $("factories").onchange=()=>{ F.factories=readMulti("factories"); refresh(); };
+    $("ptype").onchange=()=>{ F.ptypes=readMulti("ptype"); refresh(); };
+    $("bucket").onchange=()=>{ F.buckets=readMulti("bucket"); refresh(); };
+    $("wh").onchange=(e)=>{ F.wh=e.target.value||""; refresh(); };
 
-  for (let p = 1; p <= pages; p++) {
-    const btn = document.createElement("button");
-    btn.textContent = p;
-    if (p === currentPage) btn.classList.add("active");
+    const toDate = (v) => v ? new Date(v+"T00:00:00") : null;
+    $("shipFrom").onchange=(e)=>{ F.shipFrom=toDate(e.target.value); refresh(); };
+    $("shipTo").onchange=(e)=>{ F.shipTo=toDate(e.target.value); refresh(); };
 
-    btn.addEventListener("click", () => {
-      currentPage = p;
-      renderTable();
+    $("reset").onclick=()=>{ location.reload(); };
+
+    $("export").onclick=()=>{
+      const head=["Factory","PO","Ship Date","Req Ship Date","Order Date","Date Bucket","Product Type","Title","SKU","Size","Color","Qty","Retail Value","Retail Price","Wholesale Triggered","Wholesale Suffix"];
+      const escCSV=s=>/[",\n]/.test(String(s))?`"${String(s).replace(/"/g,'""')}"`:String(s);
+      const fmt=d=>d?new Date(d).toISOString().slice(0,10):"";
+      const rows=[head.join(",")];
+      for(const r of filtered){
+        rows.push([
+          r.factory,r.po,fmt(r.shipDate),fmt(r.reqShipDate),fmt(r.orderDate),
+          r.dateBucket,r.productType,r.title,r.sku,r.size,r.color,r.qty,r.retailValue,r.retailPrice,r.wholesaleTriggered,r.wholesaleSuffix
+        ].map(x=>escCSV(x??"")).join(","));
+      }
+      const blob=new Blob([rows.join("\n")],{type:"text/csv;charset=utf-8;"});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=url;
+      a.download=`po_lines_clean_filtered_${new Date().toISOString().slice(0,10)}.csv`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    };
+
+    // tabs
+    $("tabs").addEventListener("click",(e)=>{
+      const t=e.target.closest(".tab");
+      if(!t) return;
+      view=t.dataset.view;
+      document.querySelectorAll("#tabs .tab").forEach(x=>x.classList.toggle("on", x===t));
+      $("queue").style.display = view==="queue" ? "" : "none";
+      $("calendar").style.display = view==="calendar" ? "" : "none";
+      $("reports").style.display = view==="reports" ? "" : "none";
+      render();
     });
 
-    container.appendChild(btn);
+    // calendar nav
+    $("calPrev").onclick=()=>{ calAnchor = startOfMonth(new Date(calAnchor.getFullYear(), calAnchor.getMonth()-1, 1)); render(); };
+    $("calNext").onclick=()=>{ calAnchor = startOfMonth(new Date(calAnchor.getFullYear(), calAnchor.getMonth()+1, 1)); render(); };
+    $("calToday").onclick=()=>{ calAnchor = startOfMonth(new Date()); render(); };
+
+    // drawer routing
+    window.addEventListener("hashchange", handleRoute);
+    $("closeBtn").onclick=closeDrawer;
+    $("prevBtn").onclick=()=>drawerStep(-1);
+    $("nextBtn").onclick=()=>drawerStep(1);
+    window.addEventListener("keydown",(e)=>{
+      if(!currentOpenId) return;
+      if(e.key==="Escape") closeDrawer();
+      if(e.key==="ArrowLeft") drawerStep(-1);
+      if(e.key==="ArrowRight") drawerStep(1);
+    });
+
+    refresh();
+    handleRoute();
   }
-}
 
-/* -------------------------------------------------------
-   INIT
-------------------------------------------------------- */
-loadSheet();
+  function refresh(){
+    applyFilters();
+    render();
+  }
+
+  function render(){
+    renderKPIs();
+    if(view==="queue") renderQueue();
+    if(view==="calendar") renderCalendar();
+    if(view==="reports") renderReports();
+  }
+
+  /* ========= THEME ========= */
+  const THEME_KEY="planning_theme_v2";
+  function setTheme(t){
+    document.documentElement.setAttribute("data-theme", t);
+    $("themeLabel").textContent=t[0].toUpperCase()+t.slice(1);
+    localStorage.setItem(THEME_KEY, t);
+  }
+  $("theme").onclick=()=>{
+    const cur=document.documentElement.getAttribute("data-theme")||"dark";
+    setTheme(cur==="dark"?"light":"dark");
+  };
+  setTheme(localStorage.getItem(THEME_KEY) || "dark");
+
+  /* ========= BOOT ========= */
+  load();
+})();
 </script>
-
 </body>
 </html>
