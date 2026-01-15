@@ -1,2125 +1,1026 @@
+<!-- File: planning.html -->
 <!doctype html>
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Allocation — PO Transfers</title>
-
+  <title>Planning Dashboard — POs & Factories</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-
-  <!-- XLSX + PDF libs -->
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js"></script>
-
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root{
       color-scheme: dark;
-      --bg:#070A12;
-      --panel: rgba(255,255,255,.04);
-      --surface: rgba(255,255,255,.03);
-      --surface2: rgba(255,255,255,.06);
-      --border: rgba(255,255,255,.10);
-      --border2: rgba(255,255,255,.18);
-      --text: rgba(255,255,255,.92);
-      --muted: rgba(255,255,255,.62);
-      --muted2: rgba(255,255,255,.48);
-      --accent:#4FD1FF;
-      --good:#22c55e;
-      --warn:#eab308;
-      --bad:#fb7185;
-
-      --radius: 18px;
-      --radiusSm: 14px;
-      --shadow: 0 18px 52px rgba(0,0,0,.55);
-      --shadowSoft: 0 12px 28px rgba(0,0,0,.32);
-
-      --sidebar: 380px;
-      --stickyW: 360px;
-      --stickyN: 94px;
-
-      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --bg:#070a12; --panel:rgba(255,255,255,.04); --surf:rgba(255,255,255,.03); --surf2:rgba(255,255,255,.05);
+      --b:rgba(255,255,255,.10); --b2:rgba(255,255,255,.16);
+      --t:rgba(255,255,255,.92); --m:rgba(255,255,255,.62);
+      --a:#4fd1ff; --g:#22c55e; --y:#eab308; --r:#fb7185;
+      --R:18px; --Rs:14px; --sh:0 16px 46px rgba(0,0,0,.55); --sh2:0 12px 26px rgba(0,0,0,.35);
+      --side:340px;
     }
-
     :root[data-theme="light"]{
       color-scheme: light;
-      --bg:#F6F7FB;
-      --panel: rgba(255,255,255,.88);
-      --surface: rgba(16,24,40,.02);
-      --surface2: rgba(16,24,40,.05);
-      --border: rgba(16,24,40,.12);
-      --border2: rgba(16,24,40,.18);
-      --text: rgba(16,24,40,.92);
-      --muted: rgba(16,24,40,.62);
-      --muted2: rgba(16,24,40,.48);
-      --accent:#007AFF;
-      --shadow: 0 16px 36px rgba(16,24,40,.12);
-      --shadowSoft: 0 10px 24px rgba(16,24,40,.10);
+      --bg:#f6f7fb; --panel:rgba(255,255,255,.86);
+      --surf:rgba(16,24,40,.03); --surf2:rgba(16,24,40,.05);
+      --b:rgba(16,24,40,.12); --b2:rgba(16,24,40,.16);
+      --t:rgba(16,24,40,.92); --m:rgba(16,24,40,.62);
+      --a:#007aff; --sh:0 14px 36px rgba(16,24,40,.12); --sh2:0 10px 22px rgba(16,24,40,.10);
     }
-
     *{box-sizing:border-box}
     html,body{height:100%}
     body{
       margin:0;
-      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
       line-height:1.45;
       background:
-        radial-gradient(920px 540px at 16% 10%, rgba(79,209,255,.16), transparent 45%),
-        radial-gradient(920px 540px at 84% 14%, rgba(34,197,94,.10), transparent 45%),
+        radial-gradient(900px 500px at 20% 10%, color-mix(in oklab,var(--a) 14%, transparent), transparent 45%),
+        radial-gradient(900px 500px at 80% 15%, rgba(34,197,94,.10), transparent 45%),
         var(--bg);
-      color: var(--text);
+      color:var(--t);
       overflow-x:hidden;
     }
+    .app{max-width:1480px;margin:0 auto;padding:16px;display:grid;grid-template-columns:var(--side) 1fr;gap:14px}
+    header{grid-column:1/-1;display:flex;justify-content:space-between;align-items:flex-end;gap:10px;padding:2px 4px}
+    h1{margin:0;font-size:22px;font-weight:900;letter-spacing:-.02em}
+    .sub{margin:4px 0 0;color:var(--m);font-size:12px}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
+    .chip{display:inline-flex;align-items:center;gap:8px;padding:7px 10px;border-radius:999px;background:var(--surf2);border:1px solid var(--b);color:var(--m);cursor:pointer;user-select:none;font-size:12px}
+    .chip:hover{border-color:var(--b2);color:var(--t)}
+    .chip b{color:var(--t);font-weight:900}
+    .card{background:var(--panel);border:1px solid var(--b);border-radius:var(--R);box-shadow:var(--sh2);backdrop-filter: blur(10px)}
+    .side{position:sticky;top:12px;align-self:start;height:calc(100dvh - 24px);overflow:auto;padding:12px;box-shadow:var(--sh)}
+    .lbl{font-size:11px;color:var(--m);text-transform:uppercase;letter-spacing:.08em;font-weight:900;margin:10px 0 8px}
+    input,select,button{font:inherit;color:inherit}
+    .in{width:100%;padding:10px 11px;border-radius:14px;border:1px solid var(--b);background:var(--surf);outline:none;font-size:12px}
+    .in:focus{border-color:color-mix(in oklab,var(--a) 55%, var(--b));box-shadow:0 0 0 4px color-mix(in oklab,var(--a) 12%, transparent)}
+    select[multiple]{padding:8px}
+    select[multiple] option{padding:6px 8px}
+    .btn{border:1px solid var(--b);background:var(--surf2);padding:9px 11px;border-radius:14px;cursor:pointer;font-size:12px;transition:transform .08s ease,border-color .12s ease}
+    .btn:hover{border-color:var(--b2)}
+    .btn:active{transform:translateY(1px)}
+    .btn.p{border-color:color-mix(in oklab,var(--a) 45%, var(--b));box-shadow:0 0 0 4px color-mix(in oklab,var(--a) 10%, transparent)}
+    .btn.block{width:100%}
+    .btn.small{padding:7px 10px;border-radius:12px}
+    .btn.ghost{background:transparent}
+    .main{min-width:0}
+    .banner{display:none;margin:0 0 12px;padding:10px 12px;border-radius:14px;border:1px solid rgba(244,63,94,.28);background:rgba(244,63,94,.10);color:#fecdd3;font-size:12px;white-space:pre-wrap}
+    .topbar{padding:12px 14px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center}
+    .kpis{display:flex;gap:8px;flex-wrap:wrap;color:var(--m)}
+    .kpis span{border:1px solid var(--b);background:var(--surf2);padding:6px 10px;border-radius:999px}
+    .kpis b{color:var(--t)}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap}
+    .tab{border:1px solid var(--b);background:var(--surf2);padding:8px 12px;border-radius:999px;cursor:pointer;color:var(--m);font-weight:900;font-size:12px}
+    .tab:hover{border-color:var(--b2);color:var(--t)}
+    .tab.on{border-color:color-mix(in oklab,var(--a) 55%, var(--b));background:color-mix(in oklab,var(--a) 12%, var(--surf2));color:var(--t)}
+    .lane{padding:12px 14px}
+    .empty{padding:12px;color:var(--m);text-align:center}
 
-    /* Top Bar */
-    .topbar{
-      max-width: 1800px;
-      margin: 0 auto;
-      padding: 16px 14px 10px;
-      display:flex;
-      align-items:flex-end;
-      justify-content:space-between;
-      gap:12px;
-      flex-wrap:wrap;
-    }
-    .brand h1{margin:0;font-size:22px;font-weight:950;letter-spacing:-.02em}
-    .brand .sub{margin-top:4px;color:var(--muted);font-size:12px}
+    .group{margin:10px 0;border:1px solid var(--b);border-radius:var(--R);overflow:hidden;background:var(--surf)}
+    .ghead{padding:10px 12px;display:flex;justify-content:space-between;gap:10px;cursor:pointer}
+    .ghead.open{background:color-mix(in oklab,var(--a) 8%, transparent)}
+    .ghead strong{font-weight:900;letter-spacing:-.01em}
+    .gbody{display:none;padding:10px 12px 6px}
+    .gbody.open{display:block}
 
-    .chips{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-    .chip{
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      padding: 7px 10px;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      background: var(--surface2);
-      color: var(--muted);
-      font-size:12px;
-      user-select:none;
-      backdrop-filter: blur(10px);
-    }
-    .chip b{color:var(--text);font-weight:900}
-    .chip.btn{cursor:pointer}
-    .chip.btn:hover{border-color:var(--border2);color:var(--text)}
-    .dot{
-      width:8px;height:8px;border-radius:999px;background:var(--muted2);
-      box-shadow: 0 0 0 4px color-mix(in oklab, var(--muted2) 16%, transparent);
-    }
-    .dot.good{background:var(--good); box-shadow: 0 0 0 4px color-mix(in oklab, var(--good) 16%, transparent);}
+    .po{border:1px solid var(--b);border-radius:var(--Rs);background:color-mix(in oklab,var(--surf2) 70%, transparent);margin:0 0 8px;overflow:hidden}
+    .pohead{padding:10px 11px;display:flex;justify-content:space-between;gap:10px;cursor:pointer;align-items:flex-start}
+    .pohead:hover{border-color:var(--b2)}
+    .muted{color:var(--m);font-size:11px}
+    .title{font-weight:900;letter-spacing:-.01em;font-size:12px}
+    .pill{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:999px;border:1px solid var(--b);font-size:10px;font-weight:900;text-transform:uppercase;color:var(--m);white-space:nowrap;line-height:1.2}
+    .dot{width:7px;height:7px;border-radius:999px}
+    .dot.g{background:var(--g)} .dot.y{background:var(--y)} .dot.r{background:var(--r)}
 
-    /* Layout */
-    .app{
-      max-width: 1800px;
-      margin: 0 auto;
-      padding: 0 14px 28px;
-      display:grid;
-      grid-template-columns: var(--sidebar) 1fr;
-      gap: 14px;
-    }
+    .calTop{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+    .calTitle{font-size:13px;font-weight:900}
+    .calGrid{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}
+    .dow{font-size:11px;color:var(--m);text-transform:uppercase;letter-spacing:.08em;padding:2px 2px}
+    .cell{min-height:110px;border:1px solid var(--b);border-radius:var(--R);background:var(--surf);padding:10px;display:flex;flex-direction:column;gap:8px;overflow:hidden}
+    .cell.mute{opacity:.55}
+    .dayline{display:flex;justify-content:space-between;align-items:center;gap:8px}
+    .daynum{font-size:12px;font-weight:900}
+    .badge{font-size:10px;color:var(--m);border:1px solid var(--b);border-radius:999px;padding:2px 8px;white-space:nowrap}
+    .items{display:flex;flex-direction:column;gap:8px;overflow:auto;padding-right:2px}
+    .it{border:1px solid var(--b);border-radius:var(--Rs);padding:8px 10px;background:var(--surf2);cursor:pointer}
+    .it:hover{border-color:var(--b2)}
+    .it .t{font-size:11px;font-weight:900;letter-spacing:-.01em}
+    .it .a{font-size:10px;color:var(--m);margin-top:3px}
 
-    .panel{
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      box-shadow: var(--shadowSoft);
-      backdrop-filter: blur(12px);
-    }
+    table{width:100%;border-collapse:collapse;font-size:12px}
+    th,td{border-bottom:1px solid var(--b);padding:8px 6px;text-align:left}
+    th{color:var(--m);font-weight:900}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .panel{padding:12px 14px}
+    .panel h3{margin:0 0 8px;font-size:11px;color:var(--m);text-transform:uppercase;letter-spacing:.08em;font-weight:900}
 
-    .sidebar{
-      position: sticky;
-      top: 12px;
-      align-self: start;
-      height: calc(100dvh - 24px);
-      overflow: auto;
-      padding: 12px;
-      box-shadow: var(--shadow);
-    }
-    .main{
-      min-width: 0;
-      padding: 12px;
-    }
+    .drawer{position:fixed;top:0;right:0;height:100%;width:460px;max-width:92vw;background:var(--panel);border-left:1px solid var(--b);
+      box-shadow:-18px 0 50px rgba(0,0,0,.40);transform:translateX(100%);transition:transform .22s ease;z-index:50;display:flex;flex-direction:column;backdrop-filter: blur(12px)}
+    .drawer.open{transform:translateX(0)}
+    .dhead{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-bottom:1px solid var(--b);gap:10px}
+    .dtitle{font-size:13px;font-weight:900;letter-spacing:-.01em}
+    .dbody{padding:12px 14px;overflow:auto}
+    .kv{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+    .k{background:var(--surf);border:1px solid var(--b);border-radius:var(--R);padding:10px}
+    .k .l{font-size:11px;color:var(--m);font-weight:900}
+    .k .v{font-size:14px;font-weight:900;letter-spacing:-.01em;margin-top:3px}
+    details{border:1px solid var(--b);border-radius:var(--R);padding:10px;margin:10px 0;background:var(--surf)}
+    details>summary{cursor:pointer;list-style:none;font-size:12px;color:var(--m);font-weight:900}
+    details>summary::-webkit-details-marker{display:none}
+    .kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;background:var(--surf2);border:1px solid var(--b);padding:2px 8px;border-radius:10px;color:var(--m)}
 
-    /* Section titles */
-    .sTitle{
-      font-size:11px;
-      font-weight:900;
-      letter-spacing:.09em;
-      text-transform:uppercase;
-      color: var(--muted);
-      margin: 6px 0 10px;
-    }
-    .divider{height:1px;background:var(--border);margin:12px 0}
-
-    /* Inputs */
-    .f{display:flex;flex-direction:column;gap:6px;margin: 10px 0}
-    .f label{font-size:11px;color:var(--muted);font-weight:850}
-    .inp, select.inp, textarea.inp{
-      width:100%;
-      border-radius: 14px;
-      border: 1px solid var(--border);
-      background: var(--surface);
-      color: var(--text);
-      padding: 10px 11px;
-      font-size: 12px;
-      outline: none;
-    }
-    .inp:focus, select.inp:focus, textarea.inp:focus{
-      border-color: color-mix(in oklab, var(--accent) 50%, var(--border));
-      box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 12%, transparent);
-    }
-    textarea.inp{min-height:72px; resize:vertical}
-    .hint{font-size:11px;color:var(--muted2)}
-    .mono{font-family:var(--mono)}
-
-    /* Buttons */
-    .btn{
-      border:1px solid var(--border);
-      background: var(--surface2);
-      color: var(--text);
-      padding: 10px 12px;
-      border-radius: 14px;
-      cursor:pointer;
-      font-size:12px;
-      font-weight:900;
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      gap:8px;
-      white-space:nowrap;
-      user-select:none;
-    }
-    .btn:hover{border-color:var(--border2)}
-    .btn:disabled{opacity:.55;cursor:not-allowed}
-    .btn.primary{
-      border-color: color-mix(in oklab, var(--accent) 46%, var(--border));
-      box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 10%, transparent);
-    }
-    .btn.danger{
-      border-color: color-mix(in oklab, var(--bad) 46%, var(--border));
-      color: color-mix(in oklab, var(--bad) 70%, var(--text));
-    }
-    .btn.small{padding:8px 10px;font-size:11px;border-radius:12px}
-    .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-    .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
-
-    /* Banner */
-    .banner{
-      display:none;
-      margin-bottom:10px;
-      padding: 10px 12px;
-      border-radius: 14px;
-      border: 1px solid rgba(244,63,94,.28);
-      background: rgba(244,63,94,.10);
-      color: #fecdd3;
-      font-size: 12px;
-      white-space: pre-wrap;
-    }
-
-    /* KPI pills */
-    .kpis{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-      margin-bottom: 10px;
-    }
-    .kpi{
-      background: var(--surface2);
-      border:1px solid var(--border);
-      border-radius: 999px;
-      padding: 8px 12px;
-      font-size:12px;
-      color: var(--muted);
-      display:flex;
-      gap:8px;
-      align-items:center;
-    }
-    .kpi b{color:var(--text);font-weight:900}
-
-    /* Meta pills */
-    .pill{
-      padding:2px 9px;
-      border-radius:999px;
-      border:1px solid var(--border);
-      font-size:10px;
-      font-weight:900;
-      letter-spacing:.03em;
-      text-transform:uppercase;
-      color:var(--muted);
-      background: color-mix(in oklab, var(--surface2) 60%, transparent);
-      white-space:nowrap;
-    }
-    .pill.accent{border-color: color-mix(in oklab, var(--accent) 55%, var(--border)); color: color-mix(in oklab, var(--accent) 70%, var(--text))}
-    .pill.warn{border-color: color-mix(in oklab, var(--warn) 55%, var(--border)); color: color-mix(in oklab, var(--warn) 72%, var(--text))}
-
-    /* Toolbar */
-    .toolbar{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap: 10px;
-      flex-wrap:wrap;
-      margin-bottom: 10px;
-    }
-    .toolbar .left, .toolbar .right{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-    .search{
-      display:flex;
-      align-items:center;
-      gap:8px;
-      border:1px solid var(--border);
-      background: var(--surface);
-      border-radius: 999px;
-      padding: 6px 10px;
-    }
-    .search input{
-      border:0;
-      outline:none;
-      background: transparent;
-      color: var(--text);
-      font-size:12px;
-      width: min(520px, 52vw);
-    }
-    .search .kbd{
-      font-family: var(--mono);
-      font-size: 10px;
-      color: var(--muted2);
-      border: 1px solid var(--border);
-      background: var(--surface2);
-      padding: 2px 6px;
-      border-radius: 8px;
-    }
-
-    /* Table */
-    .tableWrap{
-      border:1px solid var(--border);
-      border-radius: var(--radius);
-      overflow:hidden;
-      background: var(--surface);
-    }
-    .tableScroll{
-      overflow:auto;
-      max-height: calc(100dvh - 290px);
-    }
-    table{
-      width:100%;
-      border-collapse:collapse;
-      font-size:12px;
-      min-width: 1180px;
-    }
-    th,td{
-      border-bottom:1px solid var(--border);
-      padding:8px 8px;
-      text-align:left;
-      vertical-align:top;
-    }
-    thead th{
-      position:sticky; top:0;
-      background: color-mix(in oklab, var(--panel) 76%, transparent);
-      backdrop-filter: blur(10px);
-      z-index:4;
-      color: var(--muted);
-      font-weight:900;
-      white-space:nowrap;
-    }
-    tbody tr:hover td{background: color-mix(in oklab, var(--accent) 6%, transparent)}
-    .right{text-align:right}
-
-    .stickyCol{
-      position:sticky; left:0;
-      z-index:3;
-      background: color-mix(in oklab, var(--panel) 84%, transparent);
-      backdrop-filter: blur(10px);
-      min-width: var(--stickyW);
-      max-width: 620px;
-    }
-    .stickyCol2{
-      position:sticky; left: var(--stickyW);
-      z-index:3;
-      background: color-mix(in oklab, var(--panel) 84%, transparent);
-      backdrop-filter: blur(10px);
-      min-width: var(--stickyN);
-      text-align:right;
-    }
-    .stickyCol3{
-      position:sticky; left: calc(var(--stickyW) + var(--stickyN));
-      z-index:3;
-      background: color-mix(in oklab, var(--panel) 84%, transparent);
-      backdrop-filter: blur(10px);
-      min-width: var(--stickyN);
-      text-align:right;
-    }
-    .stickyCol4{
-      position:sticky; left: calc(var(--stickyW) + var(--stickyN) + var(--stickyN));
-      z-index:3;
-      background: color-mix(in oklab, var(--panel) 84%, transparent);
-      backdrop-filter: blur(10px);
-      min-width: var(--stickyN);
-      text-align:right;
-    }
-
-    .skuTitle{font-weight:950;letter-spacing:-.01em}
-    .skuSub{margin-top:4px;color:var(--muted2)}
-    .tiny{font-size:10px;color:var(--muted2)}
-    .rowBad{outline: 2px solid rgba(244,63,94,.35); outline-offset:-2px}
-    .neg{color: var(--bad); font-weight:950}
-
-    .cellInput{
-      width: 86px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      background: var(--surface2);
-      color: var(--text);
-      padding: 7px 8px;
-      font-size: 12px;
-      outline:none;
-      text-align:right;
-    }
-    .cellInput:focus{
-      border-color: color-mix(in oklab, var(--accent) 55%, var(--border));
-      box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 10%, transparent);
-    }
-
-    tfoot td{
-      font-weight:950;
-      background: color-mix(in oklab, var(--accent) 7%, transparent);
-      border-bottom: none;
-    }
-
-    /* Location editor */
-    .locEditor{
-      border:1px solid var(--border);
-      border-radius: var(--radius);
-      background: var(--surface);
-      padding:10px;
-    }
-    .locList{display:flex;flex-direction:column;gap:8px;margin-top:8px}
-    .locRow{display:flex;gap:8px;align-items:center}
-    .locRow input{
-      flex:1;
-      border-radius: 12px;
-      border:1px solid var(--border);
-      background: var(--surface2);
-      color:var(--text);
-      padding:8px 10px;
-      font-size:12px;
-      outline:none;
-    }
-    .locRow input:focus{border-color:var(--border2)}
-    .tag{
-      font-size:10px;
-      font-weight:900;
-      color: var(--muted2);
-      border:1px solid var(--border);
-      padding:2px 7px;
-      border-radius:999px;
-      white-space:nowrap;
-      background: color-mix(in oklab, var(--panel) 40%, transparent);
-    }
-
-    /* Mobile */
-    .fab{
-      display:none;
-      position:fixed;
-      right:14px; bottom:14px;
-      z-index:50;
-      border-radius:999px;
-      padding: 12px 14px;
-      border:1px solid var(--border2);
-      background: color-mix(in oklab, var(--panel) 90%, transparent);
-      box-shadow: var(--shadowSoft);
-      backdrop-filter: blur(12px);
-      cursor:pointer;
-      font-weight:950;
-      color: var(--text);
-    }
-    @media (max-width:1100px){
-      :root{--sidebar: 100%; --stickyW: 310px;}
-      .app{grid-template-columns:1fr}
-      .sidebar{position:relative;height:auto}
-      table{min-width: 980px;}
-      .stickyCol2{left: var(--stickyW)}
-      .stickyCol3{left: calc(var(--stickyW) + var(--stickyN))}
-      .stickyCol4{left: calc(var(--stickyW) + var(--stickyN) + var(--stickyN))}
-      .search input{width: min(420px, 78vw);}
-    }
-    @media (max-width:820px){
-      .sidebar{display:none}
-      body.sidebarOpen .sidebar{display:block}
-      body.sidebarOpen .main{display:none}
-      .fab{display:block}
-    }
+    @media (max-width:980px){:root{--side:100%}.app{grid-template-columns:1fr}.side{position:relative;height:auto}.grid2{grid-template-columns:1fr}.drawer{width:100%}.cell{min-height:100px}}
   </style>
 </head>
 
 <body>
-  <div class="topbar">
-    <div class="brand">
-      <h1>Allocation</h1>
-      <div class="sub">PO_Lines_CLEAN → allocate units across locations → export PDF + Excel</div>
-    </div>
-    <div class="chips">
-      <div class="chip"><span class="dot good"></span> Autosave <b>On</b></div>
-      <div class="chip">Updated <b id="lastRefresh">—</b></div>
-      <div class="chip">Brand <b id="brandChip">—</b></div>
-      <div id="themeBtn" class="chip btn">Theme <b id="themeLabel">Dark</b> ↻</div>
-    </div>
-  </div>
-
-  <button id="fab" class="fab">Sidebar</button>
-
   <div class="app">
-    <aside class="sidebar panel">
-      <div id="banner" class="banner"></div>
+    <header>
+      <div>
+        <h1>Planning Dashboard — POs & Factories</h1>
+        <div class="sub">Master: PO_Lines_CLEAN (gid 1062059200) · Queue + Calendar + Reports</div>
+      </div>
+      <div class="row">
+        <div class="chip" style="cursor:default"><span>Updated</span> <b id="updated">—</b></div>
+        <button class="chip" id="theme"><span>Theme</span> <b id="themeLabel">Dark</b> <span style="opacity:.7">↻</span></button>
+      </div>
+    </header>
 
-      <div class="sTitle">Source</div>
-      <div class="hint">Published CSV (gid <span class="mono" id="gidLabel">—</span>)</div>
-      <div style="margin-top:6px">
-        <a class="btn small" id="openSheetLink" target="_blank" rel="noopener">Open Sheet</a>
+    <aside class="card side">
+      <div class="lbl">Search</div>
+      <input id="q" class="in" placeholder="PO, factory, SKU, title..." />
+
+      <div class="lbl">Factories</div>
+      <select id="factories" class="in" multiple size="8"></select>
+
+      <div class="lbl">Product Type</div>
+      <select id="ptype" class="in" multiple size="6"></select>
+
+      <div class="lbl">Date Bucket</div>
+      <select id="bucket" class="in" multiple size="6"></select>
+
+      <div class="lbl">Wholesale Triggered</div>
+      <select id="wh" class="in">
+        <option value="">Any</option>
+        <option value="true">True</option>
+        <option value="false">False</option>
+      </select>
+
+      <div class="lbl">Ship date range (Req Ship Date)</div>
+      <div style="display:flex;gap:10px">
+        <input id="shipFrom" class="in" type="date" />
+        <input id="shipTo" class="in" type="date" />
       </div>
 
-      <div class="divider"></div>
-
-      <div class="sTitle">Pick PO</div>
-      <div class="f">
-        <label>PO</label>
-        <select id="poSelect" class="inp"></select>
-        <div class="hint">PO selection controls the allocation grid and exports.</div>
+      <div class="lbl">Actions</div>
+      <div style="display:flex;gap:10px">
+        <button id="reset" class="btn block">Reset</button>
+        <button id="export" class="btn p block">Export PO CSV</button>
       </div>
 
-      <div class="divider"></div>
-
-      <div class="sTitle">Report</div>
-      <div class="f">
-        <label>Brand / Report title</label>
-        <input id="brandTitle" class="inp" placeholder="e.g., Baseballism" />
-      </div>
-      <div class="f">
-        <label>Prepared by</label>
-        <input id="preparedBy" class="inp" placeholder="Name (optional)" />
-      </div>
-      <div class="f">
-        <label>Notes</label>
-        <textarea id="notes" class="inp" placeholder="Internal notes, ship instructions, allocation rationale..."></textarea>
+      <div class="lbl">Source</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <a id="openSheet" class="btn small ghost" target="_blank" rel="noopener">Open sheet</a>
+        <a id="openGid" class="btn small ghost" target="_blank" rel="noopener">Open gid</a>
+        <a id="openPublished" class="btn small ghost" target="_blank" rel="noopener">Published view</a>
       </div>
 
-      <div class="divider"></div>
-
-      <div class="sTitle">Quick actions</div>
-      <div class="row2">
-        <button id="evenSplit" class="btn">Even split remaining</button>
-        <button id="zeroPO" class="btn danger">Zero PO</button>
-      </div>
-      <div class="hint" style="margin-top:8px">Even split uses the “Split targets” selection below.</div>
-
-      <div class="divider"></div>
-
-      <div class="sTitle">Allocation math</div>
-      <div class="panel" style="padding:10px;background:var(--surface)">
-        <div class="f" style="margin:0 0 10px">
-          <label>Mode</label>
-          <select id="mathMode" class="inp">
-            <option value="off">Off</option>
-            <option value="targets">Targets → allocate remaining (safe)</option>
-          </select>
-          <div class="hint">Uses remaining units per SKU group (SKU+Title), then spreads to sizes by remaining availability.</div>
-        </div>
-
-        <div class="row2">
-          <div class="f" style="margin:0">
-            <label>Rounding</label>
-            <select id="roundMode" class="inp">
-              <option value="nearest">Nearest</option>
-              <option value="up">Up</option>
-              <option value="down">Down</option>
-            </select>
-          </div>
-          <div class="f" style="margin:0">
-            <label>Step</label>
-            <input id="roundStep" class="inp" type="number" min="1" value="1" />
-          </div>
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="row2">
-          <button id="targetsUnits" class="btn small">Units</button>
-          <button id="targetsPct" class="btn small">Percent</button>
-        </div>
-
-        <div class="hint" style="margin-top:8px">Targets become shares across locations. Apply is safe: it won’t allocate beyond remaining.</div>
-
-        <div id="targetsWrap" class="locList" style="margin-top:10px"></div>
-
-        <div class="row3" style="margin-top:10px">
-          <button id="targetsUseCurrent" class="btn small">Use current</button>
-          <button id="targetsNormalize" class="btn small">Normalize</button>
-          <button id="targetsClear" class="btn small danger">Clear</button>
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="row2">
-          <button id="applyAdd" class="btn primary">Apply (Add)</button>
-          <button id="applyOverwrite" class="btn">Apply (Overwrite)</button>
-        </div>
-        <div class="hint" style="margin-top:8px"><b>Overwrite</b> clears allocations for this PO first, then applies the math.</div>
-
-        <div class="divider"></div>
-        <div class="hint">Target sum <b id="targetSum">0</b> • Share sum <b id="shareSum">0%</b></div>
-      </div>
-
-      <div class="divider"></div>
-
-      <div class="sTitle">Export</div>
-      <button id="exportXlsx" class="btn primary" style="width:100%">Export Excel (.xlsx)</button>
-      <button id="exportPdf" class="btn" style="width:100%; margin-top:8px">Generate PDF</button>
-
-      <div class="divider"></div>
-
-      <div class="sTitle">Locations</div>
-      <div class="locEditor">
-        <div class="hint">Edit allocation columns. Removing a location deletes its saved allocations (all POs in this browser).</div>
-
-        <div class="f" style="margin-top:10px">
-          <label>Split targets (for Even split)</label>
-          <select id="splitTargets" class="inp" multiple size="9"></select>
-          <div class="hint">Hold Shift/Cmd to multi-select.</div>
-        </div>
-
-        <div id="locList" class="locList"></div>
-
-        <div style="display:flex; gap:8px; margin-top:10px">
-          <button id="addLoc" class="btn small">+ Add</button>
-          <button id="resetLoc" class="btn small">Reset default</button>
-        </div>
-      </div>
-
-      <div class="divider"></div>
-      <div class="hint">Allocations + locations are stored in <span class="mono">localStorage</span>. Data is read-only from Sheets.</div>
+      <div class="lbl">Debug</div>
+      <div class="muted" id="srcUsed">—</div>
     </aside>
 
-    <main class="main panel">
-      <div class="kpis">
-        <div class="kpi">Lines <b id="kLines">—</b></div>
-        <div class="kpi">Distinct SKUs <b id="kSkus">—</b></div>
-        <div class="kpi">Units avail <b id="kAvail">—</b></div>
-        <div class="kpi">Allocated <b id="kAlloc">—</b></div>
-        <div class="kpi">Remaining <b id="kRemain">—</b></div>
-        <div class="kpi">Retail value <b id="kRetail">—</b></div>
-        <div class="kpi">Ship <b id="kShip">—</b></div>
-      </div>
+    <main class="main">
+      <div id="banner" class="banner"></div>
 
-      <div class="toolbar">
-        <div class="left">
-          <span class="pill accent" id="poPill">—</span>
-          <span class="pill" id="factoryPill">—</span>
-          <span class="pill" id="whPill">—</span>
-          <span class="pill" id="orderPill">—</span>
+      <section class="card topbar">
+        <div class="kpis">
+          <span>POs: <b id="kPOs">—</b></span>
+          <span>Factories: <b id="kFac">—</b></span>
+          <span>Lines: <b id="kLines">—</b></span>
+          <span>Qty: <b id="kQty">—</b></span>
+          <span>PO Retail: <b id="kVal">—</b></span>
         </div>
-        <div class="right">
-          <div class="search">
-            <input id="q" placeholder="Search SKU / title / size…" />
-            <span class="kbd">⌘/Ctrl K</span>
+        <div class="tabs" id="tabs">
+          <button class="tab on" data-view="queue">Queue</button>
+          <button class="tab" data-view="calendar">Calendar</button>
+          <button class="tab" data-view="reports">Reports</button>
+        </div>
+      </section>
+
+      <section id="queue" class="card lane"><div class="empty">Loading…</div></section>
+
+      <section id="calendar" class="card lane" style="display:none">
+        <div class="calTop">
+          <div class="calTitle" id="calTitle">Ship Calendar</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn small" id="calPrev">&larr; Prev</button>
+            <button class="btn small" id="calToday">Today</button>
+            <button class="btn small" id="calNext">Next &rarr;</button>
           </div>
-          <button id="clearSearch" class="btn">Clear</button>
-          <button id="reload" class="btn">Reload sheet</button>
         </div>
-      </div>
+        <div class="calGrid" id="calGrid"></div>
+      </section>
 
-      <div class="tableWrap">
-        <div class="tableScroll">
-          <table id="allocTable"></table>
+      <section id="reports" class="card lane" style="display:none">
+        <div class="grid2">
+          <div class="card panel">
+            <h3>Top Factories (PO-based)</h3>
+            <table>
+              <thead><tr><th>Factory</th><th>POs</th><th>Qty</th><th>PO Retail</th></tr></thead>
+              <tbody id="rFactories"></tbody>
+            </table>
+          </div>
+          <div class="card panel">
+            <h3>Ship Month (PO-based)</h3>
+            <table>
+              <thead><tr><th>Month</th><th>POs</th><th>Qty</th><th>PO Retail</th></tr></thead>
+              <tbody id="rMonths"></tbody>
+            </table>
+          </div>
         </div>
-      </div>
-
-      <div class="hint" style="margin-top:10px">
-        Tip: Negative “Remaining” means you allocated more than available on that row.
-      </div>
+      </section>
     </main>
   </div>
 
+  <aside id="drawer" class="drawer" aria-hidden="true">
+    <div class="dhead">
+      <div class="dtitle" id="dTitle">Details</div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn small" id="closeBtn">Close</button>
+      </div>
+    </div>
+    <div class="dbody" id="dBody"></div>
+  </aside>
+
 <script>
-/* =========================================================
-   CONFIG — KEEP FETCH WORKING (NO URL IMPORT UI)
-========================================================= */
-const PUBLISHED_PUB_BASE = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQkrN-4CPWPkdS8sRFg-mkKBoPU_gqQXFkhjjSQ6hT5MvMhzmaHI-6DrKBh_jRE0Kucy9Edv9S4ptPO/pub";
-const MASTER_GID = "1062059200";
-const CSV_URL = `${PUBLISHED_PUB_BASE}?gid=${MASTER_GID}&single=true&output=csv`;
+(() => {
+  /* ========= CONFIG =========
+   * Published-to-web is the most reliable for GitHub Pages.
+   * Keep GViz/Export as fallback (only works if the sheet is shared publicly).
+   */
+  const SHEET_ID = "1VvBB_F0cXdOq5rKYDfV540v5_eAXyHi1NqkJi34Kv-o";
+  const GID = "1062059200"; // PO_Lines_CLEAN
 
-const OPEN_SHEET_URL = "https://docs.google.com/spreadsheets/d/1VvBB_F0cXdOq5rKYDfV540v5_eAXyHi1NqkJi34Kv-o/edit?gid=1062059200#gid=1062059200";
+  const PUBLISHED_BASE =
+    "https://docs.google.com/spreadsheets/d/e/2PACX-1vQkrN-4CPWPkdS8sRFg-mkKBoPU_gqQXFkhjjSQ6hT5MvMhzmaHI-6DrKBh_jRE0Kucy9Edv9S4ptPO";
 
-/* Storage keys */
-const STORAGE = {
-  theme: "alloc_theme_v2026",
-  locations: "alloc_locations_v2026",
-  allocations: "alloc_allocations_v2026",
-  report: "alloc_report_v2026",
-  math: "alloc_math_v2026",
-};
+  const PUBLISHED_HTML_URL = `${PUBLISHED_BASE}/pubhtml`;
+  const PUBLISHED_CSV_URL = `${PUBLISHED_BASE}/pub?gid=${GID}&single=true&output=csv`;
 
-const DEFAULT_LOCATIONS = [
-  "Online",
-  "Wholesale",
-  "Portland",
-  "WPV",
-  "Baseballism HQ",
-  "STLHD",
-  "MISE",
-  "Wild Child",
-  "Portland Gear",
-  "Bars",
-  "Travel / Events",
-  "Retail 11",
-  "Retail 12",
-  "Retail 13",
-  "Retail 14",
-  "Retail 15",
-];
+  const GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${GID}&tqx=out:json`;
+  const EXPORT_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
 
-/* =========================================================
-   STATE
-========================================================= */
-let allLines = [];        // raw parsed rows
-let poList = [];          // string[]
-let currentPO = "";
-let currentRows = [];     // aggregated rows shown in table
-let poMeta = {};          // computed meta
+  /* ========= STATE ========= */
+  let allLines = [];
+  let poAll = new Map();   // key -> POAgg
+  let poFiltered = [];
+  let view = "queue";
+  let calAnchor = startOfMonth(new Date());
+  const openFactory = new Map();
 
-let locations = loadLocations();
-let allocations = loadAllocations(); // allocations[poName][rowKey][location] = qty
+  const F = { q:"", factories:new Set(), ptypes:new Set(), buckets:new Set(), wh:"", shipFrom:null, shipTo:null };
 
-let mathState = loadMathState();     // targets + rounding
-let filterQ = "";
+  /* ========= DOM ========= */
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, m => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;" }[m]));
+  const deb = (fn, ms=200) => { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; };
+  const showBanner = (msg) => { const b=$("banner"); b.textContent=msg; b.style.display="block"; };
+  const clearBanner = () => { $("banner").style.display="none"; };
+  const clamp = (s,n=56)=>{ const t=String(s||""); return t.length>n ? t.slice(0,n-1)+"…" : t; };
 
-/* =========================================================
-   DOM / HELPERS
-========================================================= */
-const $ = (id)=>document.getElementById(id);
-const esc = (s)=>String(s??"").replace(/[&<>"']/g,m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;" }[m]));
-const debounce=(fn,ms=220)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}};
-
-function showBanner(msg){ const b=$("banner"); b.textContent = msg; b.style.display="block"; }
-function clearBanner(){ $("banner").style.display="none"; $("banner").textContent=""; }
-
-function normalizeHeader(h){
-  return String(h||"").trim().toLowerCase()
-    .replace(/\([^)]*\)/g,"")
-    .replace(/[^a-z0-9]+/g," ")
-    .trim();
-}
-
-function parseCSV(text){
-  const rows=[]; let i=0,cur="",inQ=false,row=[];
-  const push=()=>{ row.push(cur); cur=""; };
-  const end=()=>{ rows.push(row); row=[]; };
-  while(i<text.length){
-    const ch=text[i++];
-    if(inQ){
-      if(ch==='"' && text[i]==='"'){ cur+='"'; i++; }
-      else if(ch==='"'){ inQ=false; }
-      else cur+=ch;
-    }else{
-      if(ch==='"'){ inQ=true; }
-      else if(ch===','){ push(); }
-      else if(ch==='\n'){ push(); end(); }
-      else if(ch!=='\r'){ cur+=ch; }
-    }
+  /* ========= HELPERS ========= */
+  function startOfDay(d){ const x=new Date(d); x.setHours(0,0,0,0); return x; }
+  function startOfMonth(d){ const x=new Date(d); x.setDate(1); x.setHours(0,0,0,0); return x; }
+  function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
+  function iso(d){ const x=startOfDay(d); return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,"0")}-${String(x.getDate()).padStart(2,"0")}`; }
+  function money(n){ const x=Number(n); return Number.isFinite(x)?x.toLocaleString("en-US",{style:"currency",currency:"USD"}):"$0.00"; }
+  function num(v){
+    if(v==null) return 0;
+    if(typeof v==="number") return Number.isFinite(v)?v:0;
+    const s=String(v).trim();
+    if(!s) return 0;
+    if(/^n\/a$/i.test(s)) return 0;
+    const n=Number(s.replace(/[^0-9.-]/g,""));
+    return Number.isFinite(n)?n:0;
   }
-  if(cur.length || row.length){ push(); end(); }
-  return rows;
-}
-
-function detectHeaderRow(rows){
-  for(let r=0;r<Math.min(rows.length, 30);r++){
-    const line = rows[r].map(c=>normalizeHeader(c));
-    const ok = (line.includes("po name") || line.includes("po")) &&
-               line.includes("factory") &&
-               (line.includes("qty") || line.includes("quantity")) &&
-               line.includes("sku");
-    if(ok) return r;
+  function parseDate(raw){
+    if(!raw) return null;
+    if(raw instanceof Date) return raw;
+    const s=String(raw).trim();
+    const g=s.match(/Date\((\d{4}),\s*(\d{1,2}),\s*(\d{1,2})/i);
+    if(g) return new Date(+g[1], +g[2], +g[3]);
+    const us=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if(us){ const y=String(us[3]).length===2?(+us[3]+2000):+us[3]; return new Date(y, +us[1]-1, +us[2]); }
+    const t=Date.parse(s);
+    return Number.isNaN(t)?null:new Date(t);
   }
-  return 0;
-}
-
-function buildIndex(header){
-  const map = new Map();
-  header.forEach((h,i)=>{
-    const k = normalizeHeader(h);
-    if(!k) return;
-    if(!map.has(k)) map.set(k, []);
-    map.get(k).push(i);
-  });
-  return {
-    get(keys, occ=0){
-      for(const k0 of keys){
-        const k = normalizeHeader(k0);
-        const arr = map.get(k);
-        if(arr && arr.length) return arr[Math.min(occ, arr.length-1)];
-      }
-      return -1;
-    }
-  };
-}
-
-function parseNumber(v){
-  if(v==null) return 0;
-  if(typeof v==="number" && Number.isFinite(v)) return v;
-  const s = String(v).trim();
-  if(!s) return 0;
-  const cleaned = s
-    .replace(/[\u00A0\s]/g,"")
-    .replace(/[$,]/g,"")
-    .replace(/^\((.*)\)$/,"-$1");
-  const n = Number(cleaned);
-  return Number.isFinite(n) ? n : 0;
-}
-function toInt(v){ return Math.max(0, Math.floor(parseNumber(v))); }
-function money(n){
-  const x=Number(n);
-  return Number.isFinite(x) ? x.toLocaleString("en-US",{style:"currency",currency:"USD"}) : "$0.00";
-}
-
-function parseDate(v){
-  if(!v) return null;
-  const s=String(v).trim();
-  if(!s) return null;
-
-  let m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if(m) return new Date(+m[1], +m[2]-1, +m[3]);
-
-  m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-  if(m){
-    const y = m[3].length===2 ? (+m[3]+2000) : +m[3];
-    return new Date(y, +m[1]-1, +m[2]);
+  function fmtDate(d){
+    const x=parseDate(d);
+    return x ? x.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "—";
+  }
+  function uniq(arr){ return [...new Set(arr.map(x=>String(x||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b)); }
+  function setMulti(id, opts){ $(id).innerHTML = opts.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join(""); }
+  function readMulti(id){ return new Set([...$(id).selectedOptions].map(o=>o.value)); }
+  function boolish(v){
+    const s=String(v??"").toLowerCase().trim();
+    if(s==="" ) return null;
+    if(s==="true"||s==="t"||s==="yes"||s==="y"||s==="1") return true;
+    if(s==="false"||s==="f"||s==="no"||s==="n"||s==="0") return false;
+    return null;
   }
 
-  const t = Date.parse(s);
-  return Number.isNaN(t) ? null : new Date(t);
-}
-function fmtDate(d){
-  const dt = d instanceof Date ? d : parseDate(d);
-  return dt ? dt.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "—";
-}
-function uniqSorted(arr){
-  return Array.from(new Set(arr.map(x=>String(x||"").trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
-}
-
-/* =========================================================
-   STORAGE
-========================================================= */
-function loadLocations(){
-  try{
-    const raw=localStorage.getItem(STORAGE.locations);
-    if(!raw) return [...DEFAULT_LOCATIONS];
-    const parsed=JSON.parse(raw);
-    if(Array.isArray(parsed) && parsed.length) return parsed.map(s=>String(s||"").trim()).filter(Boolean);
-  }catch{}
-  return [...DEFAULT_LOCATIONS];
-}
-function saveLocations(){ localStorage.setItem(STORAGE.locations, JSON.stringify(locations)); }
-
-function loadAllocations(){
-  try{
-    const raw=localStorage.getItem(STORAGE.allocations);
-    if(!raw) return {};
-    const parsed=JSON.parse(raw);
-    return parsed && typeof parsed==="object" ? parsed : {};
-  }catch{ return {}; }
-}
-function saveAllocations(){ localStorage.setItem(STORAGE.allocations, JSON.stringify(allocations)); }
-
-function loadReport(){
-  try{
-    const raw=localStorage.getItem(STORAGE.report);
-    if(!raw) return {};
-    const parsed=JSON.parse(raw);
-    return parsed && typeof parsed==="object" ? parsed : {};
-  }catch{ return {}; }
-}
-function saveReport(payload){ localStorage.setItem(STORAGE.report, JSON.stringify(payload)); }
-
-function loadMathState(){
-  try{
-    const raw=localStorage.getItem(STORAGE.math);
-    if(!raw) throw new Error();
-    const parsed=JSON.parse(raw);
-    if(parsed && typeof parsed==="object") return parsed;
-  }catch{}
-  return {
-    mode: "off",
-    targetsMode: "units",       // units | pct
-    targetsByLoc: {},           // loc -> number
-    roundMode: "nearest",       // nearest | up | down
-    roundStep: 1,               // integer >= 1
-  };
-}
-function saveMathState(){ localStorage.setItem(STORAGE.math, JSON.stringify(mathState)); }
-
-/* =========================================================
-   ALLOCATION ACCESSORS
-========================================================= */
-function ensurePO(po){ if(!allocations[po]) allocations[po] = {}; }
-function getAlloc(po,rowKey,loc){
-  const v = allocations?.[po]?.[rowKey]?.[loc];
-  return Number.isFinite(+v) ? +v : 0;
-}
-function setAlloc(po,rowKey,loc,val){
-  ensurePO(po);
-  if(!allocations[po][rowKey]) allocations[po][rowKey] = {};
-  allocations[po][rowKey][loc] = Math.max(0, Math.floor(+val||0));
-}
-function rowAllocTotal(po,rowKey){
-  let s=0;
-  for(const loc of locations) s += getAlloc(po,rowKey,loc);
-  return s;
-}
-function poTotals(po, rows=currentRows){
-  const byLoc = Object.fromEntries(locations.map(l=>[l,0]));
-  let avail=0, alloc=0, retail=0;
-  let lines=0; const skus=new Set();
-
-  for(const r of rows){
-    lines++;
-    if(r.sku) skus.add(r.sku);
-    avail += toInt(r.qty);
-    retail += parseNumber(r.retailValue);
-    for(const loc of locations){
-      const v = toInt(getAlloc(po, r.rowKey, loc));
-      byLoc[loc] += v;
-      alloc += v;
-    }
-  }
-  return { byLoc, avail, alloc, remain: (avail-alloc), retail, lines, skus: skus.size };
-}
-
-/* =========================================================
-   LOAD + PARSE SHEET
-========================================================= */
-async function loadSheet(){
-  clearBanner();
-  $("allocTable").innerHTML = "";
-  $("lastRefresh").textContent = "…";
-
-  $("gidLabel").textContent = MASTER_GID;
-  $("openSheetLink").href = OPEN_SHEET_URL;
-
-  try{
-    const res = await fetch(CSV_URL + `&_=${Date.now()}`, { cache:"no-store" });
-    if(!res.ok) throw new Error(`Fetch failed (${res.status}).`);
-    const text = await res.text();
-    const rows = parseCSV(text);
-    if(!rows.length) throw new Error("CSV empty.");
-
-    const hRow = detectHeaderRow(rows);
-    const header = rows[hRow] || [];
-    const data = rows.slice(hRow+1);
-
-    const idx = buildIndex(header);
-    const I = {
-      po: idx.get(["PO Name","PO"]),
-      factory: idx.get(["Factory"]),
-      wholesaleTriggered: idx.get(["Wholesale Triggered","Wholesale Trigger"]),
-      orderDate: idx.get(["Order Date","Date Ordered"]),
-      reqShipDate: idx.get(["Req Ship Date","Requested Ship Date","Req Ship"]),
-      productType: idx.get(["Product Type","Type"]),
-      title: idx.get(["Title","Product Title","Product"]),
-      sku: idx.get(["SKU","Product SKU"]),
-      retailPrice: idx.get(["Retail Price","Retail"]),
-      size: idx.get(["Size","Variant","Variant Size"]),
-      qty: idx.get(["Qty","Quantity","Units"]),
-      retailValue: idx.get(["Retail Value","Value","RetailValue"]),
-    };
-
-    const missing = [];
-    for(const [nm, pos] of [["PO Name",I.po],["Factory",I.factory],["Req Ship Date",I.reqShipDate],["SKU",I.sku],["Qty",I.qty]]){
-      if(pos < 0) missing.push(nm);
-    }
-    if(missing.length){
-      showBanner(
-        "Header mismatch in published CSV.\n" +
-        "Missing required columns: " + missing.join(", ") + "\n\n" +
-        "Expected columns (case-insensitive):\n" +
-        "PO Name, Factory, Wholesale Triggered, Order Date, Req Ship Date, Product Type, Title, SKU, Retail Price, Size, Qty, Retail Value"
-      );
-    }
-
-    allLines = data.map(r=>{
-      const hasAny = r.some(c=>String(c||"").trim()!=="");
-      if(!hasAny) return null;
-
-      const poName = String(r[I.po] ?? "").trim();
-      const factory = String(r[I.factory] ?? "").trim();
-      if(!poName || !factory) return null;
-
-      const qty = parseNumber(r[I.qty]);
-      const retailPrice = I.retailPrice>=0 ? parseNumber(r[I.retailPrice]) : 0;
-      const retailValue = I.retailValue>=0 ? parseNumber(r[I.retailValue]) : (qty * retailPrice);
-
-      const wtRaw = I.wholesaleTriggered>=0 ? String(r[I.wholesaleTriggered] ?? "").trim().toLowerCase() : "";
-      const wholesaleTriggered = ["true","yes","y","1"].includes(wtRaw);
-
-      return {
-        poName,
-        factory,
-        wholesaleTriggered,
-        orderDateRaw: I.orderDate>=0 ? (r[I.orderDate] ?? "") : "",
-        reqShipDateRaw: I.reqShipDate>=0 ? (r[I.reqShipDate] ?? "") : "",
-        productType: I.productType>=0 ? String(r[I.productType] ?? "").trim() : "",
-        title: I.title>=0 ? String(r[I.title] ?? "").trim() : "",
-        sku: I.sku>=0 ? String(r[I.sku] ?? "").trim() : "",
-        size: I.size>=0 ? String(r[I.size] ?? "").trim() : "",
-        qty,
-        retailPrice,
-        retailValue,
-      };
-    }).filter(Boolean);
-
-    poList = uniqSorted(allLines.map(x=>x.poName));
-    renderPOSelect();
-
-    if(!currentPO || !poList.includes(currentPO)){
-      currentPO = poList[0] || "";
-      $("poSelect").value = currentPO;
-    }
-
-    $("lastRefresh").textContent = new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});
-    recomputeAndRender();
-  }catch(e){
-    showBanner(String(e?.message || e));
-    $("lastRefresh").textContent = "—";
-  }
-}
-
-/* =========================================================
-   COMPUTE CURRENT PO + FILTER + AGGREGATION
-========================================================= */
-function recomputeAndRender(){
-  if(!currentPO){
-    currentRows = [];
-    renderAll();
-    return;
-  }
-
-  const q = (filterQ||"").trim().toLowerCase();
-  const poAll = allLines.filter(x=>x.poName === currentPO);
-
-  const lines = poAll.filter(x=>{
-    if(!q) return true;
-    const blob = [x.sku,x.title,x.size,x.productType].join(" ").toLowerCase();
-    return blob.includes(q);
-  });
-
-  const factories = uniqSorted(lines.map(x=>x.factory));
-  const shipDates = lines.map(x=>parseDate(x.reqShipDateRaw)).filter(Boolean);
-  const orderDates = lines.map(x=>parseDate(x.orderDateRaw)).filter(Boolean);
-
-  const minShip = shipDates.length ? new Date(Math.min(...shipDates.map(d=>d.getTime()))) : null;
-  const maxShip = shipDates.length ? new Date(Math.max(...shipDates.map(d=>d.getTime()))) : null;
-  const shipWindow = minShip ? (maxShip && maxShip.getTime()!==minShip.getTime() ? `${fmtDate(minShip)} → ${fmtDate(maxShip)}` : fmtDate(minShip)) : "—";
-
-  const minOrder = orderDates.length ? new Date(Math.min(...orderDates.map(d=>d.getTime()))) : null;
-  const maxOrder = orderDates.length ? new Date(Math.max(...orderDates.map(d=>d.getTime()))) : null;
-  const orderWindow = minOrder ? (maxOrder && maxOrder.getTime()!==minOrder.getTime() ? `${fmtDate(minOrder)} → ${fmtDate(maxOrder)}` : fmtDate(minOrder)) : "—";
-
-  const wholesaleAny = lines.some(x=>x.wholesaleTriggered);
-
-  poMeta = {
-    poName: currentPO,
-    factory: factories.join(", ") || "—",
-    shipWindow,
-    orderWindow,
-    wholesaleTriggered: wholesaleAny
-  };
-
-  // Aggregate rows by SKU + Size + Title (as requested)
-  const map = new Map();
-  for(const l of lines){
-    const key = [l.sku||"(No SKU)", l.size||"(Blank)", l.title||""].join("||");
-    if(!map.has(key)){
-      map.set(key,{
-        rowKey: key,
-        sku: l.sku || "",
-        title: l.title || "",
-        size: l.size || "",
-        productType: l.productType || "",
-        qty: 0,
-        retailPrice: l.retailPrice || 0,
-        retailValue: 0,
-      });
-    }
-    const r = map.get(key);
-    r.qty += parseNumber(l.qty);
-    r.retailValue += parseNumber(l.retailValue);
-    if(!r.retailPrice && l.retailPrice) r.retailPrice = l.retailPrice;
-  }
-  currentRows = Array.from(map.values()).sort((a,b)=>{
-    const sa=(a.sku||"").localeCompare(b.sku||""); if(sa) return sa;
-    const ta=(a.title||"").localeCompare(b.title||""); if(ta) return ta;
-    return (a.size||"").localeCompare(b.size||"");
-  });
-
-  ensurePO(currentPO);
-  renderAll();
-}
-
-/* =========================================================
-   RENDER
-========================================================= */
-function renderAll(){
-  renderMeta();
-  renderLocationsUI();
-  renderMathUI();
-  renderTable();
-  renderKPIs();
-}
-
-function renderMeta(){
-  $("poPill").textContent = `PO ${poMeta.poName || "—"}`;
-  $("factoryPill").textContent = poMeta.factory ? `Factory: ${poMeta.factory}` : "Factory: —";
-  $("whPill").textContent = poMeta.wholesaleTriggered ? "Wholesale Triggered: Yes" : "Wholesale Triggered: No";
-  $("whPill").className = "pill" + (poMeta.wholesaleTriggered ? " warn" : "");
-  $("orderPill").textContent = `Ordered: ${poMeta.orderWindow || "—"}`;
-  $("kShip").textContent = poMeta.shipWindow || "—";
-}
-
-function renderKPIs(){
-  if(!currentPO){
-    $("kLines").textContent = "—";
-    $("kSkus").textContent = "—";
-    $("kAvail").textContent = "—";
-    $("kAlloc").textContent = "—";
-    $("kRemain").textContent = "—";
-    $("kRetail").textContent = "—";
-    return;
-  }
-  const t = poTotals(currentPO);
-  $("kLines").textContent = t.lines.toLocaleString("en-US");
-  $("kSkus").textContent = t.skus.toLocaleString("en-US");
-  $("kAvail").textContent = t.avail.toLocaleString("en-US");
-  $("kAlloc").textContent = t.alloc.toLocaleString("en-US");
-  $("kRemain").textContent = t.remain.toLocaleString("en-US");
-  $("kRetail").textContent = money(t.retail);
-}
-
-/* =========================================================
-   TABLE (fast updates without full rerender loops)
-========================================================= */
-function renderTable(){
-  const table = $("allocTable");
-  if(!currentPO){
-    table.innerHTML = "";
-    return;
-  }
-
-  const cols = locations.slice();
-  const thead = `
-    <thead>
-      <tr>
-        <th class="stickyCol">SKU / Title / Size</th>
-        <th class="stickyCol2 right">Avail</th>
-        <th class="stickyCol3 right">Allocated</th>
-        <th class="stickyCol4 right">Remaining</th>
-        ${cols.map(c=>`<th class="right">${esc(c)}</th>`).join("")}
-      </tr>
-    </thead>
-  `;
-
-  const body = currentRows.map(r=>{
-    const alloc = rowAllocTotal(currentPO, r.rowKey);
-    const remain = toInt(r.qty) - alloc;
-    const bad = remain < 0;
-
-    const meta = `
-      <div class="skuTitle">${esc(r.sku || "(No SKU)")}</div>
-      <div class="skuSub">${esc(r.title || "")}</div>
-      <div class="tiny">Type: ${esc(r.productType||"—")} • Size: <b>${esc(r.size||"(Blank)")}</b> • Price: ${esc(money(r.retailPrice||0))}</div>
-    `;
-
-    return `
-      <tr data-row="${esc(r.rowKey)}" class="${bad ? "rowBad" : ""}">
-        <td class="stickyCol">${meta}</td>
-        <td class="stickyCol2 right" data-k="avail">${toInt(r.qty).toLocaleString("en-US")}</td>
-        <td class="stickyCol3 right" data-k="alloc">${alloc.toLocaleString("en-US")}</td>
-        <td class="stickyCol4 right" data-k="remain">${bad ? `<span class="neg">${remain.toLocaleString("en-US")}</span>` : remain.toLocaleString("en-US")}</td>
-        ${cols.map(loc=>{
-          const v = toInt(getAlloc(currentPO, r.rowKey, loc));
-          return `<td class="right">
-            <input class="cellInput" inputmode="numeric" pattern="[0-9]*"
-              data-row="${esc(r.rowKey)}" data-loc="${esc(loc)}"
-              value="${v ? v : ""}" placeholder="0" />
-          </td>`;
-        }).join("")}
-      </tr>
-    `;
-  }).join("");
-
-  const t = poTotals(currentPO);
-  const tfoot = `
-    <tfoot>
-      <tr>
-        <td class="stickyCol">Totals</td>
-        <td class="stickyCol2 right" id="ftAvail">${t.avail.toLocaleString("en-US")}</td>
-        <td class="stickyCol3 right" id="ftAlloc">${t.alloc.toLocaleString("en-US")}</td>
-        <td class="stickyCol4 right" id="ftRemain">${t.remain.toLocaleString("en-US")}</td>
-        ${cols.map(loc=>`<td class="right" data-ftloc="${esc(loc)}">${(t.byLoc[loc]||0).toLocaleString("en-US")}</td>`).join("")}
-      </tr>
-    </tfoot>
-  `;
-
-  table.innerHTML = thead + `<tbody>${body || `<tr><td colspan="${4+cols.length}" class="tiny">No rows.</td></tr>`}</tbody>` + tfoot;
-
-  // Wire cell inputs (update row + footers + KPIs without full rerender)
-  table.querySelectorAll("input.cellInput").forEach(inp=>{
-    inp.addEventListener("input", debounce(()=>{
-      const rowKey = inp.getAttribute("data-row");
-      const loc = inp.getAttribute("data-loc");
-      const val = toInt(inp.value);
-      setAlloc(currentPO, rowKey, loc, val);
-      saveAllocations();
-      refreshRowAndFooters(rowKey);
-    }, 110));
-
-    inp.addEventListener("blur", ()=>{
-      const v = toInt(inp.value);
-      inp.value = v ? String(v) : "";
-    });
-  });
-}
-
-function refreshRowAndFooters(rowKey){
-  // Row totals
-  const tr = document.querySelector(`tr[data-row="${CSS.escape(rowKey)}"]`);
-  if(tr){
-    const row = currentRows.find(r=>r.rowKey === rowKey);
-    if(row){
-      const alloc = rowAllocTotal(currentPO, rowKey);
-      const remain = toInt(row.qty) - alloc;
-      tr.classList.toggle("rowBad", remain < 0);
-
-      const allocCell = tr.querySelector(`[data-k="alloc"]`);
-      const remCell = tr.querySelector(`[data-k="remain"]`);
-      if(allocCell) allocCell.textContent = alloc.toLocaleString("en-US");
-      if(remCell){
-        remCell.innerHTML = remain < 0
-          ? `<span class="neg">${remain.toLocaleString("en-US")}</span>`
-          : remain.toLocaleString("en-US");
+  /* ========= CSV PARSER ========= */
+  function parseCSV(txt){
+    const out=[]; let i=0,cur="",q=false,row=[];
+    const push=()=>{row.push(cur);cur="";};
+    const end=()=>{out.push(row);row=[];};
+    while(i<txt.length){
+      const ch=txt[i++];
+      if(q){
+        if(ch=='"' && txt[i]=='"'){cur+='"';i++;}
+        else if(ch=='"'){q=false;}
+        else cur+=ch;
+      }else{
+        if(ch=='"') q=true;
+        else if(ch==',') push();
+        else if(ch=='\n'){push();end();}
+        else if(ch!=='\r') cur+=ch;
       }
     }
-  }
-
-  // Footers + KPIs
-  const t = poTotals(currentPO);
-  $("ftAvail").textContent = t.avail.toLocaleString("en-US");
-  $("ftAlloc").textContent = t.alloc.toLocaleString("en-US");
-  $("ftRemain").textContent = t.remain.toLocaleString("en-US");
-  for(const loc of locations){
-    const el = document.querySelector(`[data-ftloc="${CSS.escape(loc)}"]`);
-    if(el) el.textContent = (t.byLoc[loc]||0).toLocaleString("en-US");
-  }
-  renderKPIs();
-  renderMathPreview();
-}
-
-/* =========================================================
-   LOCATIONS UI (rename migrates allocations safely)
-========================================================= */
-function migrateLocationName(oldName, newName){
-  if(!oldName || !newName || oldName === newName) return;
-  for(const po of Object.keys(allocations)){
-    const poObj = allocations[po];
-    if(!poObj || typeof poObj !== "object") continue;
-    for(const rk of Object.keys(poObj)){
-      const rowObj = poObj[rk];
-      if(!rowObj || typeof rowObj !== "object") continue;
-      if(Object.prototype.hasOwnProperty.call(rowObj, oldName)){
-        const v = toInt(rowObj[oldName]);
-        delete rowObj[oldName];
-        rowObj[newName] = toInt(rowObj[newName]) + v;
-      }
-    }
-  }
-}
-function removeLocationEverywhere(name){
-  for(const po of Object.keys(allocations)){
-    const poObj = allocations[po];
-    if(!poObj || typeof poObj !== "object") continue;
-    for(const rk of Object.keys(poObj)){
-      const rowObj = poObj[rk];
-      if(!rowObj || typeof rowObj !== "object") continue;
-      delete rowObj[name];
-    }
-  }
-}
-
-function renderLocationsUI(){
-  // Split targets list
-  const sel = $("splitTargets");
-  const prev = new Set(Array.from(sel.selectedOptions||[]).map(o=>o.value));
-  sel.innerHTML = locations.map(l=>`<option value="${esc(l)}">${esc(l)}</option>`).join("");
-  if(prev.size){
-    Array.from(sel.options).forEach(o=>o.selected = prev.has(o.value));
-  }else{
-    Array.from(sel.options).forEach(o=>o.selected = true);
-  }
-
-  // Editor list
-  const wrap = $("locList");
-  wrap.innerHTML = "";
-  locations.forEach((loc, idx)=>{
-    const row = document.createElement("div");
-    row.className = "locRow";
-    row.innerHTML = `
-      <input data-idx="${idx}" data-old="${esc(loc)}" value="${esc(loc)}" />
-      <span class="tag">${idx<2 ? "PINNED" : "EDIT"}</span>
-      <button class="btn small danger" data-del="${idx}" ${idx<2 ? "disabled" : ""}>Remove</button>
-    `;
-    wrap.appendChild(row);
-  });
-
-  // Rename commits on blur / enter
-  wrap.querySelectorAll('input[data-idx]').forEach(inp=>{
-    const commit = ()=>{
-      const idx = +inp.getAttribute("data-idx");
-      const oldName = String(inp.getAttribute("data-old")||"").trim();
-      let v = String(inp.value||"").trim();
-      if(!v){ inp.value = oldName; return; }
-
-      // Uniqueness
-      const dupe = locations.some((x,i)=> i!==idx && x.trim().toLowerCase()===v.toLowerCase());
-      if(dupe){
-        inp.value = oldName;
-        showBanner(`Duplicate location name "${v}". Names must be unique.`);
-        return;
-      }
-      clearBanner();
-
-      locations[idx] = v;
-      inp.setAttribute("data-old", v);
-
-      migrateLocationName(oldName, v);
-
-      // migrate math targets
-      if(mathState.targetsByLoc && Object.prototype.hasOwnProperty.call(mathState.targetsByLoc, oldName)){
-        mathState.targetsByLoc[v] = parseNumber(mathState.targetsByLoc[oldName]);
-        delete mathState.targetsByLoc[oldName];
-        saveMathState();
-      }
-
-      saveLocations();
-      saveAllocations();
-
-      // table header columns depend on locations
-      renderLocationsUI();
-      renderMathUI();
-      renderTable();
-      renderKPIs();
-    };
-
-    inp.addEventListener("blur", commit);
-    inp.addEventListener("keydown", (e)=>{
-      if(e.key==="Enter"){ e.preventDefault(); inp.blur(); }
-      if(e.key==="Escape"){ inp.value = oldName; inp.blur(); }
-    });
-  });
-
-  // Remove
-  wrap.querySelectorAll('button[data-del]').forEach(btn=>{
-    btn.addEventListener("click", ()=>{
-      const idx = +btn.getAttribute("data-del");
-      if(idx < 2) return;
-
-      const name = locations[idx];
-      if(!confirm(`Remove location "${name}"?\nThis deletes its saved allocations across ALL POs in this browser.`)) return;
-
-      locations.splice(idx,1);
-      removeLocationEverywhere(name);
-      if(mathState.targetsByLoc) delete mathState.targetsByLoc[name];
-
-      saveLocations();
-      saveAllocations();
-      saveMathState();
-
-      renderLocationsUI();
-      renderMathUI();
-      renderTable();
-      renderKPIs();
-    });
-  });
-}
-
-/* =========================================================
-   QUICK ACTIONS
-========================================================= */
-function getSplitTargets(){
-  const sel = $("splitTargets");
-  const vals = Array.from(sel.selectedOptions||[]).map(o=>o.value);
-  return vals.length ? vals : locations.slice();
-}
-
-function evenSplitRemaining(){
-  if(!currentPO) return;
-  const targets = getSplitTargets().filter(x=>locations.includes(x));
-  if(!targets.length) return;
-
-  for(const r of currentRows){
-    const avail = toInt(r.qty);
-    const allocated = rowAllocTotal(currentPO, r.rowKey);
-    let remain = avail - allocated;
-    if(remain <= 0) continue;
-
-    const base = Math.floor(remain / targets.length);
-    let extra = remain % targets.length;
-
-    for(const loc of targets){
-      const add = base + (extra>0 ? 1 : 0);
-      if(extra>0) extra--;
-      setAlloc(currentPO, r.rowKey, loc, toInt(getAlloc(currentPO, r.rowKey, loc)) + add);
-    }
-  }
-
-  saveAllocations();
-  renderTable();
-  renderKPIs();
-  renderMathPreview();
-}
-
-function zeroPO(){
-  if(!currentPO) return;
-  if(!confirm(`Zero all allocations for PO "${currentPO}"?`)) return;
-  allocations[currentPO] = {};
-  saveAllocations();
-  renderTable();
-  renderKPIs();
-  renderMathPreview();
-}
-
-/* =========================================================
-   ALLOCATION MATH — SAFE + STABLE
-   - Group by SKU+Title
-   - Allocate REMAINING (not total) across locations by target shares
-   - Spread to sizes by remaining row availability
-   - Never allocates beyond remaining (no "bugging out")
-========================================================= */
-function targetsToShares(){
-  const mode = mathState.targetsMode || "units";
-  const raw = {};
-  let sum = 0;
-
-  for(const loc of locations){
-    const v = Math.max(0, parseNumber(mathState.targetsByLoc?.[loc] ?? 0));
-    raw[loc] = v;
-    sum += v;
-  }
-
-  // If percent mode: treat values as percent weights too (still shares by sum)
-  if(sum <= 0){
-    const eq = 1 / Math.max(1, locations.length);
-    const shares = Object.fromEntries(locations.map(l=>[l, eq]));
-    return { shares, sumTargets: 0, mode };
-  }
-  const shares = {};
-  for(const loc of locations) shares[loc] = raw[loc] / sum;
-  return { shares, sumTargets: sum, mode };
-}
-
-function largestRemainder(total, keys, weights){
-  // returns ints that sum to total
-  const t = Math.max(0, toInt(total));
-  const wSum = keys.reduce((a,k)=>a + Math.max(0, Number(weights[k]||0)), 0);
-
-  if(t === 0) return Object.fromEntries(keys.map(k=>[k,0]));
-  if(wSum <= 0){
-    const base = Math.floor(t / keys.length);
-    let rem = t - base*keys.length;
-    const out = {};
-    for(const k of keys){
-      out[k] = base + (rem>0?1:0);
-      if(rem>0) rem--;
-    }
+    if(cur.length||row.length){push();end();}
     return out;
   }
 
-  const out = {};
-  let floorSum = 0;
-  const fracs = [];
-  for(const k of keys){
-    const share = Math.max(0, Number(weights[k]||0)) / wSum;
-    const exact = t * share;
-    const flo = Math.floor(exact);
-    out[k] = flo;
-    floorSum += flo;
-    fracs.push({k, frac: exact - flo});
+  /* ========= GVIZ PARSE ========= */
+  function parseGViz(text){
+    const s=text.indexOf("{"), e=text.lastIndexOf("}");
+    if(s<0||e<0) return null;
+    try{ return JSON.parse(text.slice(s,e+1)); }catch{ return null; }
   }
-
-  let remaining = t - floorSum;
-  fracs.sort((a,b)=>b.frac - a.frac);
-  for(let i=0; i<fracs.length && remaining>0; i++){
-    out[fracs[i].k] += 1;
-    remaining--;
-  }
-  return out;
-}
-
-function roundWithMode(v, step, mode){
-  const s = Math.max(1, toInt(step));
-  const n = (Number.isFinite(v) ? v : 0) / s;
-  const r = (mode==="up") ? Math.ceil(n) : (mode==="down" ? Math.floor(n) : Math.round(n));
-  return r * s;
-}
-
-function groupBySkuTitle(rows){
-  const m = new Map();
-  for(const r of rows){
-    const k = `${r.sku||"(No SKU)"}||${r.title||""}`;
-    if(!m.has(k)) m.set(k, []);
-    m.get(k).push(r);
-  }
-  return m;
-}
-
-function applyMath({overwrite=false}){
-  if(!currentPO) return;
-  if((mathState.mode||"off") !== "targets"){
-    showBanner("Allocation math is Off. Set Mode to “Targets → allocate remaining (safe)” first.");
-    return;
-  }
-
-  const hasTargets = Object.values(mathState.targetsByLoc||{}).some(v=>parseNumber(v) > 0);
-  if(!hasTargets){
-    showBanner("Targets are empty. Fill targets (or click “Use current”), then Apply.");
-    return;
-  }
-  clearBanner();
-
-  if(overwrite){
-    allocations[currentPO] = {};
-  }
-  ensurePO(currentPO);
-
-  const { shares } = targetsToShares();
-  const step = Math.max(1, toInt(mathState.roundStep||1));
-  const rMode = mathState.roundMode || "nearest";
-
-  const groups = groupBySkuTitle(currentRows);
-
-  // For each SKU group, allocate the group's REMAINING units (safe) across locations
-  for(const [, rows] of groups.entries()){
-    // remaining by rowKey is based on current allocations (after overwrite clearing if overwrite=true)
-    const remainByRow = {};
-    let groupRemain = 0;
-
-    for(const r of rows){
-      const allocNow = rowAllocTotal(currentPO, r.rowKey);
-      const remain = Math.max(0, toInt(r.qty) - allocNow);
-      remainByRow[r.rowKey] = remain;
-      groupRemain += remain;
-    }
-    if(groupRemain <= 0) continue;
-
-    // Location totals for this group (ints sum to groupRemain)
-    let locTotals = largestRemainder(groupRemain, locations, shares);
-
-    // Optional rounding step at the location-total level (then repair to sum exactly groupRemain)
-    if(step > 1){
-      const rounded = {};
-      for(const loc of locations){
-        rounded[loc] = Math.max(0, roundWithMode(locTotals[loc]||0, step, rMode));
-      }
-      // Repair to exact sum
-      let sumRounded = locations.reduce((a,l)=>a + (rounded[l]||0), 0);
-
-      // If we rounded up too far, take away; if too low, add.
-      // Adjust using 1-unit granularity to always be able to hit exact.
-      // We adjust in descending share order.
-      const order = locations.slice().sort((a,b)=>(shares[b]||0)-(shares[a]||0));
-
-      // If sumRounded > groupRemain, decrement; else increment
-      while(sumRounded !== groupRemain){
-        let changed = false;
-        if(sumRounded > groupRemain){
-          for(const loc of order){
-            if((rounded[loc]||0) > 0){
-              rounded[loc] -= 1;
-              sumRounded -= 1;
-              changed = true;
-              if(sumRounded === groupRemain) break;
-            }
-          }
-        }else{
-          for(const loc of order){
-            rounded[loc] += 1;
-            sumRounded += 1;
-            changed = true;
-            if(sumRounded === groupRemain) break;
-          }
-        }
-        if(!changed) break;
-      }
-      locTotals = rounded;
-    }
-
-    // Spread each location's qty across rows by remaining capacity
-    for(const loc of locations){
-      let locQty = Math.max(0, toInt(locTotals[loc]||0));
-      if(locQty <= 0) continue;
-
-      // Build weights by row remaining
-      const rowKeys = rows.map(r=>r.rowKey);
-      const weights = {};
-      for(const rk of rowKeys) weights[rk] = remainByRow[rk] || 0;
-
-      // Allocate ints by remaining weights
-      const perRow = largestRemainder(locQty, rowKeys, weights);
-
-      // Apply, capped by remaining
-      for(const rk of rowKeys){
-        const add = Math.min(toInt(perRow[rk]||0), remainByRow[rk]||0);
-        if(add <= 0) continue;
-
-        const cur = toInt(getAlloc(currentPO, rk, loc));
-        setAlloc(currentPO, rk, loc, cur + add);
-        remainByRow[rk] -= add;
-      }
-    }
-  }
-
-  saveAllocations();
-  renderTable();
-  renderKPIs();
-  renderMathPreview();
-}
-
-/* =========================================================
-   MATH UI
-========================================================= */
-function renderMathUI(){
-  $("mathMode").value = mathState.mode || "off";
-  $("roundMode").value = mathState.roundMode || "nearest";
-  $("roundStep").value = String(Math.max(1, toInt(mathState.roundStep||1)));
-
-  const isPct = (mathState.targetsMode === "pct");
-  $("targetsUnits").className = "btn small" + (!isPct ? " primary" : "");
-  $("targetsPct").className = "btn small" + (isPct ? " primary" : "");
-
-  const wrap = $("targetsWrap");
-  wrap.innerHTML = "";
-
-  for(const loc of locations){
-    const v = parseNumber(mathState.targetsByLoc?.[loc] ?? 0);
-    const row = document.createElement("div");
-    row.className = "locRow";
-    row.innerHTML = `
-      <input data-loc="${esc(loc)}" inputmode="decimal" placeholder="${esc(isPct ? "% weight" : "units")}" value="${v ? esc(v) : ""}" />
-      <span class="tag">${esc(loc)}</span>
-    `;
-    wrap.appendChild(row);
-  }
-
-  wrap.querySelectorAll("input[data-loc]").forEach(inp=>{
-    inp.addEventListener("input", debounce(()=>{
-      const loc = inp.getAttribute("data-loc");
-      const v = Math.max(0, parseNumber(inp.value));
-      if(!mathState.targetsByLoc) mathState.targetsByLoc = {};
-      mathState.targetsByLoc[loc] = v;
-      saveMathState();
-      renderMathPreview();
-    }, 120));
-    inp.addEventListener("blur", ()=>{
-      const v = Math.max(0, parseNumber(inp.value));
-      inp.value = v ? String(v) : "";
+  function buildHeaderIndex(labels){
+    const map=new Map();
+    labels.forEach((l,i)=>{
+      const k=String(l||"").trim().toLowerCase();
+      if(!k) return;
+      const a=map.get(k)||[];
+      a.push(i);
+      map.set(k,a);
     });
-  });
+    return {
+      labels,
+      idx(name){
+        const k=String(name||"").trim().toLowerCase();
+        const a=map.get(k);
+        return a && a.length ? a[0] : -1;
+      }
+    };
+  }
 
-  renderMathPreview();
-}
-
-function renderMathPreview(){
-  const { shares, sumTargets, mode } = targetsToShares();
-  const shareSum = Object.values(shares).reduce((a,b)=>a+b,0) || 0;
-
-  $("targetSum").textContent = (mode==="pct")
-    ? sumTargets.toFixed(1)
-    : sumTargets.toLocaleString("en-US");
-
-  $("shareSum").textContent = (shareSum*100).toFixed(1) + "%";
-}
-
-/* =========================================================
-   EXPORTS
-========================================================= */
-function readReportMeta(){
-  return {
-    brandTitle: ($("brandTitle").value || "").trim(),
-    preparedBy: ($("preparedBy").value || "").trim(),
-    notes: ($("notes").value || "").trim(),
+  /* ========= MAPPING (YOUR EXACT HEADERS) ========= */
+  const H = {
+    po: "PO Name",
+    factory: "Factory",
+    whSuffix: "Wholesale suffix",
+    whTrig: "Wholesale Triggered",
+    order: "Order Date",
+    reqShip: "Req Ship Date",
+    bucket: "Date Bucket",
+    ptype: "Product Type",
+    title: "Title",
+    sku: "SKU",
+    retailPrice: "Retail Price",
+    size: "Size",
+    qty: "Qty",
+    retailValue: "Retail Value",
   };
-}
-function persistReportMeta(){
-  saveReport(readReportMeta());
-  $("brandChip").textContent = ($("brandTitle").value || "").trim() || "—";
-}
 
-function titleRows({title, now, poName, factory, shipWindow, preparedBy, notes}){
-  const dateStr = now.toLocaleDateString("en-US",{year:"numeric",month:"short",day:"2-digit"});
-  const timeStr = now.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});
-  const rows = [
-    [title],
-    [`PO: ${poName}`, `Factory: ${factory}`, `Ship window: ${shipWindow}`, `Generated: ${dateStr} ${timeStr}`]
-  ];
-  if(preparedBy) rows.push([`Prepared by: ${preparedBy}`]);
-  if(notes) rows.push([`Notes: ${notes}`]);
-  rows.push([]);
-  return rows;
-}
+  /* ========= PO AGG (AVOID DOUBLE COUNT) ========= */
+  function poKey(line){ return `${line.factory}|||${line.po}`; }
 
-function exportExcel(){
-  if(!currentPO) return;
+  function choosePoRetail(vals){
+    const v=vals.filter(x=>Number.isFinite(x)&&x>0);
+    if(!v.length) return {mode:"none", value:0};
+    const max=Math.max(...v);
+    const sum=v.reduce((a,b)=>a+b,0);
+    const eps=Math.max(1, max*0.002);
+    const nearMax=v.filter(x=>Math.abs(x-max)<=eps).length;
+    const ratio=nearMax/v.length;
+    if(v.length>=3 && ratio>=0.60 && sum>=max*1.35) return {mode:"max", value:max};
+    return {mode:"sum", value:sum};
+  }
 
-  const meta = readReportMeta();
-  const brand = meta.brandTitle || "Allocation";
-  const prep = meta.preparedBy || "";
-  const notes = meta.notes || "";
-  const now = new Date();
+  function buildPoIndex(lines){
+    const map=new Map();
+    for(const l of lines){
+      const k=poKey(l);
+      let p=map.get(k);
+      if(!p){
+        p={ key:k, po:l.po, factory:l.factory, lines:[], qty:0, shipDateMin:null, orderDateMin:null,
+            productTypes:new Set(), buckets:new Set(), wh:null, retailVals:[] };
+        map.set(k,p);
+      }
+      p.lines.push(l);
+      p.qty += (l.qty||0);
+      p.retailVals.push(l.retailValue||0);
+      if(l.reqShipDate){
+        p.shipDateMin = p.shipDateMin ? (l.reqShipDate < p.shipDateMin ? l.reqShipDate : p.shipDateMin) : l.reqShipDate;
+      }
+      if(l.orderDate){
+        p.orderDateMin = p.orderDateMin ? (l.orderDate < p.orderDateMin ? l.orderDate : p.orderDateMin) : l.orderDate;
+      }
+      if(l.productType) p.productTypes.add(l.productType);
+      if(l.dateBucket) p.buckets.add(l.dateBucket);
+      const bt=boolish(l.wholesaleTriggered);
+      if(bt !== null) p.wh = p.wh === null ? bt : (p.wh || bt);
+    }
+    for(const p of map.values()){
+      const pick=choosePoRetail(p.retailVals);
+      p.poRetail=pick.value;
+      p.retailMode=pick.mode;
+    }
+    return map;
+  }
 
-  const t = poTotals(currentPO);
+  /* ========= LOADERS ========= */
+  async function fetchText(url){
+    const res=await fetch(url,{cache:"no-store"});
+    const txt=await res.text();
+    return {ok:res.ok, status:res.status, txt};
+  }
 
-  // Sheet 1: Allocation_Lines (non-zero allocations only)
-  const sheet1 = [
-    ...titleRows({
-      title: `${brand} — Allocation_Lines`,
-      now,
-      poName: currentPO,
-      factory: poMeta.factory || "—",
-      shipWindow: poMeta.shipWindow || "—",
-      preparedBy: prep,
-      notes
-    }),
-    ["PO Name","Factory","Ship window","SKU","Title","Size","Avail Qty","Location","Alloc Qty","Retail Price","Retail Value (row)","Retail Value (alloc est)"]
-  ];
+  function parseFromGViz(json){
+    const cols=json?.table?.cols||[];
+    const rows=json?.table?.rows||[];
+    const labels=cols.map(c=>c.label||"");
+    const idx=buildHeaderIndex(labels);
 
-  for(const r of currentRows){
-    const avail = toInt(r.qty);
-    const price = parseNumber(r.retailPrice);
-    const rowValue = parseNumber(r.retailValue) || (avail * price);
+    const I = {
+      po: idx.idx(H.po),
+      factory: idx.idx(H.factory),
+      whSuffix: idx.idx(H.whSuffix),
+      whTrig: idx.idx(H.whTrig),
+      order: idx.idx(H.order),
+      reqShip: idx.idx(H.reqShip),
+      bucket: idx.idx(H.bucket),
+      ptype: idx.idx(H.ptype),
+      title: idx.idx(H.title),
+      sku: idx.idx(H.sku),
+      retailPrice: idx.idx(H.retailPrice),
+      size: idx.idx(H.size),
+      qty: idx.idx(H.qty),
+      retailValue: idx.idx(H.retailValue),
+    };
 
-    for(const loc of locations){
-      const a = toInt(getAlloc(currentPO, r.rowKey, loc));
-      if(!a) continue;
-      sheet1.push([
-        currentPO,
-        poMeta.factory || "",
-        poMeta.shipWindow || "",
-        r.sku || "",
-        r.title || "",
-        r.size || "",
-        avail,
-        loc,
-        a,
-        price,
-        rowValue,
-        a * price
-      ]);
+    if(I.po<0 || I.factory<0){
+      showBanner(
+        `GViz loaded but header mismatch.\n`+
+        `Detected headers: ${labels.slice(0,18).join(" | ")}\n\n`+
+        `Need at least: "${H.po}" and "${H.factory}".`
+      );
+      return [];
+    }
+
+    const cell=(c,i)=>{ const x=c[i]; return x ? (x.v ?? x.f ?? "") : ""; };
+
+    return rows.map((r,ri)=>{
+      const c=r.c||[];
+      const po=String(cell(c,I.po)||"").trim();
+      const factory=String(cell(c,I.factory)||"").trim();
+      const title=String(cell(c,I.title)||"").trim();
+      const sku=String(cell(c,I.sku)||"").trim();
+      if(!po && !factory && !title && !sku) return null;
+
+      return {
+        id: btoa(unescape(encodeURIComponent(`${po}|${factory}|${sku}|${ri}`))).replace(/=+$/,""),
+        po, factory,
+        wholesaleSuffix: String(cell(c,I.whSuffix)||"").trim(),
+        wholesaleTriggered: String(cell(c,I.whTrig)||"").trim(),
+        orderDate: parseDate(cell(c,I.order)),
+        reqShipDate: parseDate(cell(c,I.reqShip)),
+        dateBucket: String(cell(c,I.bucket)||"").trim(),
+        productType: String(cell(c,I.ptype)||"").trim(),
+        title,
+        sku,
+        retailPrice: num(cell(c,I.retailPrice)),
+        size: String(cell(c,I.size)||"").trim(),
+        qty: num(cell(c,I.qty)),
+        retailValue: num(cell(c,I.retailValue)),
+      };
+    }).filter(Boolean);
+  }
+
+  function parseFromCSVText(txt){
+    const rows=parseCSV(txt);
+    if(!rows.length) return [];
+
+    const norm=s=>String(s||"").trim().toLowerCase();
+    let headerRow=-1;
+    for(let i=0;i<Math.min(30,rows.length);i++){
+      const r=rows[i].map(norm);
+      if(r.includes(norm(H.po)) && r.includes(norm(H.factory))){ headerRow=i; break; }
+    }
+    if(headerRow<0){
+      showBanner(
+        `CSV loaded but could not find header row.\n`+
+        `First row: ${rows[0].slice(0,18).join(" | ")}\n\n`+
+        `Need headers including: "${H.po}" and "${H.factory}".`
+      );
+      return [];
+    }
+
+    const header=rows[headerRow].map(s=>String(s||"").trim());
+    const hNorm=header.map(norm);
+    const gi=(name)=>hNorm.indexOf(norm(name));
+    const I={
+      po:gi(H.po), factory:gi(H.factory), whSuffix:gi(H.whSuffix), whTrig:gi(H.whTrig),
+      order:gi(H.order), reqShip:gi(H.reqShip), bucket:gi(H.bucket), ptype:gi(H.ptype),
+      title:gi(H.title), sku:gi(H.sku), retailPrice:gi(H.retailPrice), size:gi(H.size),
+      qty:gi(H.qty), retailValue:gi(H.retailValue),
+    };
+    if(I.po<0 || I.factory<0){
+      showBanner(
+        `CSV header mismatch.\nHeader row detected: ${headerRow+1}\nFirst headers: ${header.slice(0,18).join(" | ")}`
+      );
+      return [];
+    }
+
+    return rows.slice(headerRow+1).map((r,ri)=>{
+      const po=String(r[I.po]??"").trim();
+      const factory=String(r[I.factory]??"").trim();
+      const title=String(r[I.title]??"").trim();
+      const sku=String(r[I.sku]??"").trim();
+      if(!po && !factory && !title && !sku) return null;
+
+      return {
+        id: btoa(unescape(encodeURIComponent(`${po}|${factory}|${sku}|${ri}`))).replace(/=+$/,""),
+        po, factory,
+        wholesaleSuffix: String(r[I.whSuffix]??"").trim(),
+        wholesaleTriggered: String(r[I.whTrig]??"").trim(),
+        orderDate: parseDate(r[I.order]),
+        reqShipDate: parseDate(r[I.reqShip]),
+        dateBucket: String(r[I.bucket]??"").trim(),
+        productType: String(r[I.ptype]??"").trim(),
+        title,
+        sku,
+        retailPrice: num(r[I.retailPrice]),
+        size: String(r[I.size]??"").trim(),
+        qty: num(r[I.qty]),
+        retailValue: num(r[I.retailValue]),
+      };
+    }).filter(Boolean);
+  }
+
+  async function load(){
+    clearBanner();
+    $("updated").textContent = new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});
+    $("openSheet").href = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit`;
+    $("openGid").href = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit#gid=${GID}`;
+    $("openPublished").href = PUBLISHED_HTML_URL;
+
+    const tries = [];
+
+    // 0) Published-to-web CSV (2PACX) — best for GitHub Pages
+    try{
+      const url = PUBLISHED_CSV_URL + `&_=${Date.now()}`;
+      const r = await fetchText(url);
+      tries.push(`Published CSV: HTTP ${r.status}`);
+      if(!r.ok) throw new Error(`HTTP ${r.status}`);
+      allLines = parseFromCSVText(r.txt);
+      if(allLines.length){
+        $("srcUsed").textContent = "Loaded via: Published-to-web CSV (2PACX)";
+        initAfterLoad();
+        return;
+      }
+      throw new Error(`Parsed 0 rows. First 200 chars:\n${r.txt.slice(0,200)}`);
+    }catch(e){
+      showBanner(`Published CSV failed.\n${String(e)}\n\nTrying GViz…`);
+    }
+
+    // 1) GViz JSON — only works if sheet is publicly shareable (not just published)
+    try{
+      const url = GVIZ_URL + `&_=${Date.now()}`;
+      const r = await fetchText(url);
+      tries.push(`GViz: HTTP ${r.status}`);
+      if(!r.ok) throw new Error(`HTTP ${r.status}`);
+      const json = parseGViz(r.txt);
+      if(!json) throw new Error(`Non-JSON. First 120 chars:\n${r.txt.slice(0,120)}`);
+      allLines = parseFromGViz(json);
+      if(allLines.length){
+        $("srcUsed").textContent = "Loaded via: GViz JSON";
+        clearBanner();
+        initAfterLoad();
+        return;
+      }
+      throw new Error("Parsed 0 rows (header mismatch or empty).");
+    }catch(e){
+      showBanner(`GViz failed.\n${String(e)}\n\nTrying export CSV…`);
+    }
+
+    // 2) export?format=csv — also usually requires shareable permissions
+    try{
+      const url = EXPORT_CSV_URL + `&_=${Date.now()}`;
+      const r = await fetchText(url);
+      tries.push(`Export CSV: HTTP ${r.status}`);
+      if(!r.ok) throw new Error(`HTTP ${r.status}`);
+      allLines = parseFromCSVText(r.txt);
+      if(allLines.length){
+        $("srcUsed").textContent = "Loaded via: export?format=csv";
+        clearBanner();
+        initAfterLoad();
+        return;
+      }
+      throw new Error(`Parsed 0 rows. First 200 chars:\n${r.txt.slice(0,200)}`);
+    }catch(e){
+      showBanner(
+        `All sources failed.\n\n`+
+        `Published CSV URL:\n${PUBLISHED_CSV_URL}\n\n`+
+        `Tried:\n- ${tries.join("\n- ")}\n\n`+
+        `Last error:\n${String(e)}`
+      );
+      $("srcUsed").textContent = "No data loaded (see banner).";
     }
   }
 
-  // Sheet 2: PO_Summary (totals + per location)
-  const sheet2 = [
-    ...titleRows({
-      title: `${brand} — PO_Summary`,
-      now,
-      poName: currentPO,
-      factory: poMeta.factory || "—",
-      shipWindow: poMeta.shipWindow || "—",
-      preparedBy: prep,
-      notes
-    }),
-    ["Metric","Value"],
-    ["Lines", t.lines],
-    ["Distinct SKUs", t.skus],
-    ["Available Units", t.avail],
-    ["Allocated Units", t.alloc],
-    ["Remaining Units", t.remain],
-    ["Retail Value (available)", t.retail],
-    [],
-    ["Location","Allocated Units"]
-  ];
-  for(const loc of locations){
-    sheet2.push([loc, t.byLoc[loc]||0]);
+  /* ========= FILTERS ========= */
+  function poMatches(po){
+    if(F.factories.size && !F.factories.has(po.factory)) return false;
+
+    if(F.ptypes.size){
+      let ok=false;
+      for(const t of po.productTypes){ if(F.ptypes.has(t)){ ok=true; break; } }
+      if(!ok) return false;
+    }
+    if(F.buckets.size){
+      let ok=false;
+      for(const b of po.buckets){ if(F.buckets.has(b)){ ok=true; break; } }
+      if(!ok) return false;
+    }
+
+    if(F.wh){
+      const want = (F.wh==="true");
+      const got = po.wh === null ? null : !!po.wh;
+      if(got === null) return false;
+      if(got !== want) return false;
+    }
+
+    if(F.shipFrom || F.shipTo){
+      if(!po.shipDateMin) return false;
+      const d=startOfDay(po.shipDateMin);
+      if(F.shipFrom && d < startOfDay(F.shipFrom)) return false;
+      if(F.shipTo && d > startOfDay(F.shipTo)) return false;
+    }
+
+    const q=(F.q||"").toLowerCase().trim();
+    if(q){
+      const head=[po.factory, po.po, [...po.productTypes].join(" "), [...po.buckets].join(" ")].join(" ").toLowerCase();
+      if(head.includes(q)) return true;
+      for(const l of po.lines){
+        const blob=[l.title,l.sku,l.size,l.productType,l.dateBucket].join(" ").toLowerCase();
+        if(blob.includes(q)) return true;
+      }
+      return false;
+    }
+
+    return true;
   }
 
-  // Sheet 3: Location_Summary (only non-zero; always include Online/Wholesale if they exist)
-  const must = new Set(["Online","Wholesale"]);
-  const sheet3 = [
-    ...titleRows({
-      title: `${brand} — Location_Summary`,
-      now,
-      poName: currentPO,
-      factory: poMeta.factory || "—",
-      shipWindow: poMeta.shipWindow || "—",
-      preparedBy: prep,
-      notes
-    }),
-    ["Location","Allocated Units","% of PO Units"]
-  ];
-  for(const loc of locations){
-    const v = t.byLoc[loc]||0;
-    if(!v && !must.has(loc)) continue;
-    sheet3.push([loc, v, t.avail ? (v/t.avail) : 0]);
+  function applyFilters(){
+    poFiltered=[...poAll.values()].filter(poMatches);
+    poFiltered.sort((a,b)=>
+      String(a.factory).localeCompare(String(b.factory)) ||
+      ((a.shipDateMin?.getTime()||9e15) - (b.shipDateMin?.getTime()||9e15)) ||
+      (b.poRetail-a.poRetail) ||
+      String(a.po).localeCompare(String(b.po))
+    );
   }
 
-  const wb = XLSX.utils.book_new();
-  const ws1 = XLSX.utils.aoa_to_sheet(sheet1);
-  const ws2 = XLSX.utils.aoa_to_sheet(sheet2);
-  const ws3 = XLSX.utils.aoa_to_sheet(sheet3);
-
-  // Percent formatting in sheet3 col C
-  const range = XLSX.utils.decode_range(ws3["!ref"]);
-  for(let R=0; R<=range.e.r; R++){
-    const cell = ws3[XLSX.utils.encode_cell({r:R,c:2})];
-    if(cell && typeof cell.v === "number") cell.z = "0.0%";
+  /* ========= RENDER ========= */
+  function shipRisk(shipDate){
+    if(!shipDate) return {kind:"warn", label:"No ship date"};
+    const d0=startOfDay(shipDate);
+    const now0=startOfDay(new Date());
+    const diff=Math.floor((d0-now0)/86400000);
+    if(diff<0) return {kind:"risk", label:`Late ${Math.abs(diff)}d`};
+    if(diff<=14) return {kind:"warn", label:`Ship ${diff}d`};
+    return {kind:"ok", label:`Ship ${diff}d`};
   }
 
-  ws1["!cols"] = [
-    {wch:18},{wch:20},{wch:18},{wch:18},{wch:44},{wch:12},{wch:10},{wch:20},{wch:10},{wch:12},{wch:18},{wch:22}
-  ];
-  ws2["!cols"] = [{wch:24},{wch:18}];
-  ws3["!cols"] = [{wch:24},{wch:16},{wch:14}];
+  function renderKPIs(){
+    const pos=poFiltered.length;
+    const facs=new Set(poFiltered.map(p=>p.factory)).size;
+    const lines=poFiltered.reduce((s,p)=>s+p.lines.length,0);
+    const qty=poFiltered.reduce((s,p)=>s+(p.qty||0),0);
+    const val=poFiltered.reduce((s,p)=>s+(p.poRetail||0),0);
 
-  XLSX.utils.book_append_sheet(wb, ws1, "Allocation_Lines");
-  XLSX.utils.book_append_sheet(wb, ws2, "PO_Summary");
-  XLSX.utils.book_append_sheet(wb, ws3, "Location_Summary");
-
-  const safeBrand = brand.replace(/[^\w\- ]+/g,"").trim().replace(/\s+/g," ");
-  XLSX.writeFile(wb, `${safeBrand} - Allocation - ${currentPO} - ${now.toISOString().slice(0,10)}.xlsx`);
-}
-
-function generatePDF(){
-  if(!currentPO) return;
-
-  const meta = readReportMeta();
-  const brand = meta.brandTitle || "Allocation";
-  const prep = meta.preparedBy || "";
-  const notes = meta.notes || "";
-  const now = new Date();
-  const dateStr = now.toLocaleDateString("en-US",{year:"numeric",month:"short",day:"2-digit"});
-  const timeStr = now.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});
-
-  const t = poTotals(currentPO);
-
-  // include only non-zero locations, but always include Online + Wholesale if present
-  const must = new Set(["Online","Wholesale"]);
-  const cols = locations.filter(l => (t.byLoc[l]||0) > 0 || must.has(l));
-  const useCols = cols.length ? cols : locations.slice();
-
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "letter" });
-
-  doc.setFont("helvetica","bold");
-  doc.setFontSize(18);
-  doc.text(`${brand} — Allocation / Transfer Sheet`, 40, 44);
-
-  doc.setFont("helvetica","normal");
-  doc.setFontSize(10);
-  doc.text(`PO: ${currentPO}   •   Factory: ${poMeta.factory||"—"}   •   Ship: ${poMeta.shipWindow||"—"}`, 40, 66);
-  doc.text(`Generated: ${dateStr} ${timeStr}` + (prep ? `   •   Prepared by: ${prep}` : ""), 40, 82);
-
-  doc.setFont("helvetica","bold");
-  doc.setFontSize(10);
-  doc.text(
-    `Avail: ${t.avail.toLocaleString("en-US")}   •   Allocated: ${t.alloc.toLocaleString("en-US")}   •   Remaining: ${t.remain.toLocaleString("en-US")}   •   Retail Value: ${money(t.retail)}`,
-    40, 104
-  );
-
-  let y = 126;
-  if(notes){
-    doc.setFont("helvetica","normal");
-    doc.setFontSize(9);
-    const lines = doc.splitTextToSize(`Notes: ${notes}`, 720);
-    doc.text(lines, 40, y);
-    y += lines.length * 12 + 8;
+    $("kPOs").textContent=pos.toLocaleString("en-US");
+    $("kFac").textContent=facs.toLocaleString("en-US");
+    $("kLines").textContent=lines.toLocaleString("en-US");
+    $("kQty").textContent=qty.toLocaleString("en-US");
+    $("kVal").textContent=money(val);
   }
 
-  // Group by SKU for PDF tables
-  const bySku = new Map();
-  for(const r of currentRows){
-    const sku = r.sku || "(No SKU)";
-    if(!bySku.has(sku)) bySku.set(sku, []);
-    bySku.get(sku).push(r);
-  }
-  for(const arr of bySku.values()){
-    arr.sort((a,b)=> (a.size||"").localeCompare(b.size||""));
-  }
+  function renderQueue(){
+    const root=$("queue");
+    if(!poFiltered.length){ root.innerHTML=`<div class="empty">No results.</div>`; return; }
 
-  for(const [sku, rows] of bySku.entries()){
-    doc.setFont("helvetica","bold");
-    doc.setFontSize(11);
-    doc.text(`${sku}`, 40, y);
+    const byF=new Map();
+    for(const p of poFiltered){ (byF.get(p.factory)||byF.set(p.factory,[]).get(p.factory)).push(p); }
+    const factories=[...byF.keys()].sort((a,b)=>a.localeCompare(b));
 
-    doc.setFont("helvetica","normal");
-    doc.setFontSize(9);
-    const titleAny = rows.find(r=>r.title)?.title || "";
-    const typeAny = rows.find(r=>r.productType)?.productType || "";
-    doc.text(`${typeAny}${typeAny && titleAny ? " • " : ""}${titleAny}`, 40, y+14);
+    root.innerHTML="";
+    for(const f of factories){
+      const list=byF.get(f)||[];
+      const open=openFactory.get(f) ?? true;
 
-    const head = ["Size","Avail","Alloc","Remain", ...useCols];
+      const fPOs=list.length;
+      const fLines=list.reduce((s,p)=>s+p.lines.length,0);
+      const fQty=list.reduce((s,p)=>s+(p.qty||0),0);
+      const fVal=list.reduce((s,p)=>s+(p.poRetail||0),0);
 
-    const body = rows.map(r=>{
-      const avail = toInt(r.qty);
-      let alloc = 0;
-      const locVals = useCols.map(loc=>{
-        const v = toInt(getAlloc(currentPO, r.rowKey, loc));
-        alloc += v;
-        return v ? String(v) : "";
+      const group=document.createElement("div");
+      group.className="group";
+
+      const head=document.createElement("div");
+      head.className="ghead" + (open?" open":"");
+      head.innerHTML=`
+        <div><strong>${esc(f)}</strong><div class="muted">${fPOs} POs • ${fLines} lines</div></div>
+        <div class="muted" style="text-align:right">Qty ${esc(fQty)}<br>${money(fVal)}</div>
+      `;
+
+      const body=document.createElement("div");
+      body.className="gbody" + (open?" open":"");
+
+      for(const po of list){
+        const risk=shipRisk(po.shipDateMin);
+        const pill = risk.kind==="ok"
+          ? `<span class="pill"><span class="dot g"></span>${risk.label}</span>`
+          : risk.kind==="warn"
+            ? `<span class="pill"><span class="dot y"></span>${risk.label}</span>`
+            : `<span class="pill"><span class="dot r"></span>${risk.label}</span>`;
+
+        const card=document.createElement("div");
+        card.className="po";
+        const h=document.createElement("div");
+        h.className="pohead";
+        h.innerHTML=`
+          <div>
+            <div class="title">${esc(po.po||"(No PO Name)")}</div>
+            <div class="muted">Req Ship: ${esc(fmtDate(po.shipDateMin))} • ${po.lines.length} lines</div>
+            <div class="muted">${esc([...po.productTypes].slice(0,3).join(" • "))}${po.productTypes.size>3?" • …":""}</div>
+          </div>
+          <div style="text-align:right">
+            ${pill}
+            <div class="muted" style="margin-top:6px">Qty ${esc(po.qty)} • ${money(po.poRetail)}</div>
+            <div class="muted">${po.retailMode==="max" ? "Retail: PO total" : (po.retailMode==="sum" ? "Retail: summed" : "Retail: —")}</div>
+          </div>
+        `;
+        h.addEventListener("click",()=>openDrawer(po.key));
+        card.appendChild(h);
+        body.appendChild(card);
+      }
+
+      head.addEventListener("click",()=>{
+        const o=!body.classList.contains("open");
+        body.classList.toggle("open",o);
+        head.classList.toggle("open",o);
+        openFactory.set(f,o);
       });
-      const remain = avail - alloc;
-      return [r.size || "(Blank)", String(avail), String(alloc), String(remain), ...locVals];
-    });
 
-    // footer totals per SKU
-    const skuTotals = Object.fromEntries(useCols.map(c=>[c,0]));
-    let skuAvail=0, skuAlloc=0;
-    for(const r of rows){
-      skuAvail += toInt(r.qty);
-      for(const loc of useCols){
-        const v = toInt(getAlloc(currentPO, r.rowKey, loc));
-        skuTotals[loc] += v;
-        skuAlloc += v;
-      }
+      group.appendChild(head);
+      group.appendChild(body);
+      root.appendChild(group);
     }
-    const skuRemain = skuAvail - skuAlloc;
-    const foot = ["TOTAL", String(skuAvail), String(skuAlloc), String(skuRemain), ...useCols.map(c=>String(skuTotals[c]||0))];
-
-    doc.autoTable({
-      startY: y + 22,
-      head: [head],
-      body,
-      foot: [foot],
-      theme: "grid",
-      styles: { font: "helvetica", fontSize: 8, cellPadding: 3, overflow: "linebreak" },
-      headStyles: { fillColor: [20, 28, 44], textColor: 255, fontStyle: "bold" },
-      footStyles: { fillColor: [16, 24, 40], textColor: 255, fontStyle: "bold" },
-      columnStyles: { 0:{cellWidth:60}, 1:{halign:"right",cellWidth:45}, 2:{halign:"right",cellWidth:45}, 3:{halign:"right",cellWidth:52} },
-      didParseCell: (data)=>{
-        if(data.section==="body" && data.column.index===3){
-          const v = Number(String(data.cell.raw||"").trim());
-          if(Number.isFinite(v) && v < 0){
-            data.cell.styles.textColor = [251, 113, 133];
-            data.cell.styles.fontStyle = "bold";
-          }
-        }
-      },
-      margin: { left: 40, right: 40 },
-      tableWidth: "auto",
-    });
-
-    y = doc.lastAutoTable.finalY + 18;
-    if(y > 500){ doc.addPage(); y = 46; }
   }
 
-  const safeBrand = brand.replace(/[^\w\- ]+/g,"").trim().replace(/\s+/g," ");
-  doc.save(`${safeBrand} - Transfer Sheet - ${currentPO} - ${now.toISOString().slice(0,10)}.pdf`);
-}
+  function renderCalendar(){
+    const anchor=calAnchor;
+    $("calTitle").textContent=`Ship Calendar — ${anchor.toLocaleDateString("en-US",{month:"long",year:"numeric"})}`;
 
-/* =========================================================
-   PO SELECT
-========================================================= */
-function renderPOSelect(){
-  const sel = $("poSelect");
-  sel.innerHTML = poList.map(po=>`<option value="${esc(po)}">${esc(po)}</option>`).join("");
-  sel.value = currentPO || "";
-}
+    const grid=$("calGrid");
+    grid.innerHTML="";
+    ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].forEach(d=>{
+      const el=document.createElement("div");
+      el.className="dow";
+      el.textContent=d;
+      grid.appendChild(el);
+    });
 
-/* =========================================================
-   INIT / EVENTS
-========================================================= */
-function setTheme(t){
-  document.documentElement.setAttribute("data-theme", t);
-  $("themeLabel").textContent = t[0].toUpperCase()+t.slice(1);
-  localStorage.setItem(STORAGE.theme, t);
-}
+    const y=anchor.getFullYear(), m=anchor.getMonth();
+    const first=new Date(y,m,1);
+    const start=addDays(first, -first.getDay());
+    const last=new Date(y,m+1,0);
+    const end=addDays(last, 6-last.getDay());
+    const todayKey=iso(new Date());
 
-function boot(){
-  // theme
-  setTheme(localStorage.getItem(STORAGE.theme) || "dark");
-  $("themeBtn").addEventListener("click", ()=>{
-    const cur = document.documentElement.getAttribute("data-theme") || "dark";
-    setTheme(cur==="dark" ? "light" : "dark");
-  });
-
-  // mobile sidebar
-  $("fab").addEventListener("click", ()=>{
-    document.body.classList.toggle("sidebarOpen");
-  });
-
-  // restore report meta
-  const rep = loadReport();
-  $("brandTitle").value = rep.brandTitle || "Baseballism";
-  $("preparedBy").value = rep.preparedBy || "";
-  $("notes").value = rep.notes || "";
-  $("brandChip").textContent = ($("brandTitle").value || "").trim() || "—";
-
-  $("brandTitle").addEventListener("input", debounce(persistReportMeta, 150));
-  $("preparedBy").addEventListener("input", debounce(persistReportMeta, 250));
-  $("notes").addEventListener("input", debounce(persistReportMeta, 350));
-
-  // PO selection
-  $("poSelect").addEventListener("change", (e)=>{
-    currentPO = e.target.value || "";
-    filterQ = "";
-    $("q").value = "";
-    recomputeAndRender();
-    document.body.classList.remove("sidebarOpen");
-  });
-
-  // search
-  $("q").addEventListener("input", debounce((e)=>{
-    filterQ = e.target.value || "";
-    recomputeAndRender();
-  }, 160));
-  $("clearSearch").addEventListener("click", ()=>{
-    filterQ = "";
-    $("q").value = "";
-    recomputeAndRender();
-  });
-
-  // shortcuts
-  window.addEventListener("keydown", (e)=>{
-    const isMac = navigator.platform.toLowerCase().includes("mac");
-    const mod = isMac ? e.metaKey : e.ctrlKey;
-    if(mod && e.key.toLowerCase()==="k"){
-      e.preventDefault();
-      $("q").focus();
-      $("q").select();
+    const byDay=new Map();
+    for(const p of poFiltered){
+      if(!p.shipDateMin) continue;
+      const k=iso(p.shipDateMin);
+      (byDay.get(k) ?? byDay.set(k,[]).get(k)).push(p);
     }
-    if(e.key==="Escape"){
-      document.body.classList.remove("sidebarOpen");
-    }
-  });
+    for(const items of byDay.values()){ items.sort((a,b)=>b.poRetail-a.poRetail); }
 
-  // reload
-  $("reload").addEventListener("click", loadSheet);
+    for(let d=new Date(start); d<=end; d=addDays(d,1)){
+      const inMonth=d.getMonth()===m;
+      const key=iso(d);
+      const items=byDay.get(key)||[];
+      const qty=items.reduce((s,p)=>s+(p.qty||0),0);
+      const val=items.reduce((s,p)=>s+(p.poRetail||0),0);
 
-  // quick actions
-  $("evenSplit").addEventListener("click", evenSplitRemaining);
-  $("zeroPO").addEventListener("click", zeroPO);
+      const cell=document.createElement("div");
+      cell.className="cell" + (inMonth?"":" mute");
+      cell.innerHTML=`
+        <div class="dayline">
+          <div class="daynum">${d.getDate()} ${key===todayKey?`<span class="badge">Today</span>`:""}</div>
+          <div class="badge">${items.length?`${items.length} POs • ${money(val)}`:"—"}</div>
+        </div>
+      `;
 
-  // exports
-  $("exportXlsx").addEventListener("click", exportExcel);
-  $("exportPdf").addEventListener("click", generatePDF);
+      const list=document.createElement("div");
+      list.className="items";
 
-  // locations buttons
-  $("addLoc").addEventListener("click", ()=>{
-    const base = `Retail ${locations.length+1}`;
-    let v = base;
-    let n = 2;
-    while(locations.some(x=>x.trim().toLowerCase()===v.toLowerCase())) v = `${base} (${n++})`;
-    locations.push(v);
-    saveLocations();
-    renderLocationsUI();
-    renderMathUI();
-    renderTable();
-    renderKPIs();
-  });
+      const MAX=5;
+      items.slice(0,MAX).forEach(p=>{
+        const it=document.createElement("div");
+        it.className="it";
+        it.innerHTML=`
+          <div class="t">${esc(clamp(p.factory,22))}</div>
+          <div class="a">${esc(clamp(p.po,34))} • Qty ${esc(p.qty)} • ${money(p.poRetail)}</div>
+        `;
+        it.addEventListener("click",()=>openDrawer(p.key));
+        list.appendChild(it);
+      });
 
-  $("resetLoc").addEventListener("click", ()=>{
-    if(!confirm("Reset locations to default?")) return;
-    locations = [...DEFAULT_LOCATIONS];
-    saveLocations();
-    renderLocationsUI();
-    renderMathUI();
-    renderTable();
-    renderKPIs();
-  });
-
-  // math controls
-  $("mathMode").addEventListener("change", (e)=>{
-    mathState.mode = e.target.value || "off";
-    saveMathState();
-  });
-  $("roundMode").addEventListener("change", (e)=>{
-    mathState.roundMode = e.target.value || "nearest";
-    saveMathState();
-  });
-  $("roundStep").addEventListener("input", debounce((e)=>{
-    mathState.roundStep = Math.max(1, toInt(e.target.value||1));
-    e.target.value = String(mathState.roundStep);
-    saveMathState();
-  }, 120));
-
-  $("targetsUnits").addEventListener("click", ()=>{
-    mathState.targetsMode = "units";
-    saveMathState();
-    renderMathUI();
-  });
-  $("targetsPct").addEventListener("click", ()=>{
-    mathState.targetsMode = "pct";
-    saveMathState();
-    renderMathUI();
-  });
-
-  $("targetsUseCurrent").addEventListener("click", ()=>{
-    if(!currentPO) return;
-    const t = poTotals(currentPO);
-    if(!mathState.targetsByLoc) mathState.targetsByLoc = {};
-    for(const loc of locations) mathState.targetsByLoc[loc] = t.byLoc[loc] || 0;
-    saveMathState();
-    renderMathUI();
-  });
-
-  $("targetsNormalize").addEventListener("click", ()=>{
-    if(!mathState.targetsByLoc) mathState.targetsByLoc = {};
-    const vals = locations.map(l=>Math.max(0, parseNumber(mathState.targetsByLoc[l]||0)));
-    const sum = vals.reduce((a,b)=>a+b,0);
-    if(sum <= 0) return;
-
-    if(mathState.targetsMode === "pct"){
-      for(const loc of locations){
-        mathState.targetsByLoc[loc] = (Math.max(0, parseNumber(mathState.targetsByLoc[loc]||0))/sum)*100;
+      if(items.length>MAX){
+        const more=document.createElement("div");
+        more.className="muted";
+        more.textContent=`+ ${items.length-MAX} more…`;
+        list.appendChild(more);
       }
-    }else{
-      // Normalize to PO remaining (not total) for a sensible default
-      const rem = currentPO ? Math.max(0, poTotals(currentPO).remain) : 0;
-      const base = rem > 0 ? rem : (currentPO ? poTotals(currentPO).avail : 0);
-      if(base > 0){
-        for(const loc of locations){
-          mathState.targetsByLoc[loc] = (Math.max(0, parseNumber(mathState.targetsByLoc[loc]||0))/sum)*base;
-        }
-      }
+
+      cell.appendChild(list);
+      grid.appendChild(cell);
+    }
+  }
+
+  function renderReports(){
+    const byFactory=new Map();
+    const byMonth=new Map();
+
+    for(const p of poFiltered){
+      const f=p.factory||"—";
+      const fm=byFactory.get(f)||{pos:0,qty:0,val:0};
+      fm.pos++; fm.qty+=p.qty||0; fm.val+=p.poRetail||0; byFactory.set(f,fm);
+
+      const mo = p.shipDateMin ? `${p.shipDateMin.getFullYear()}-${String(p.shipDateMin.getMonth()+1).padStart(2,"0")}` : "No ship date";
+      const mm=byMonth.get(mo)||{pos:0,qty:0,val:0};
+      mm.pos++; mm.qty+=p.qty||0; mm.val+=p.poRetail||0; byMonth.set(mo,mm);
     }
 
-    saveMathState();
-    renderMathUI();
-  });
+    const topF=[...byFactory.entries()].map(([k,v])=>({k,...v})).sort((a,b)=>b.val-a.val).slice(0,12);
+    const months=[...byMonth.entries()].map(([k,v])=>({k,...v})).sort((a,b)=>a.k.localeCompare(b.k)).slice(0,24);
 
-  $("targetsClear").addEventListener("click", ()=>{
-    mathState.targetsByLoc = {};
-    saveMathState();
-    renderMathUI();
-  });
+    $("rFactories").innerHTML = topF.length
+      ? topF.map(x=>`<tr><td>${esc(x.k)}</td><td>${x.pos}</td><td>${x.qty}</td><td>${money(x.val)}</td></tr>`).join("")
+      : `<tr><td colspan="4" style="color:var(--m)">No data.</td></tr>`;
 
-  $("applyAdd").addEventListener("click", ()=>applyMath({overwrite:false}));
-  $("applyOverwrite").addEventListener("click", ()=>{
-    if(!currentPO) return;
-    if(!confirm(`Overwrite allocations for PO "${currentPO}" and apply targets?\nThis cannot be undone (except by Zero PO).`)) return;
-    applyMath({overwrite:true});
-  });
+    $("rMonths").innerHTML = months.length
+      ? months.map(x=>`<tr><td>${esc(x.k)}</td><td>${x.pos}</td><td>${x.qty}</td><td>${money(x.val)}</td></tr>`).join("")
+      : `<tr><td colspan="4" style="color:var(--m)">No data.</td></tr>`;
+  }
 
-  // Initial render of sidebar bits
-  $("gidLabel").textContent = MASTER_GID;
-  $("openSheetLink").href = OPEN_SHEET_URL;
+  function refresh(){
+    applyFilters();
+    renderKPIs();
+    if(view==="queue") renderQueue();
+    if(view==="calendar") renderCalendar();
+    if(view==="reports") renderReports();
+  }
 
-  // Render locations + math immediately (table after load)
-  renderLocationsUI();
-  renderMathUI();
+  /* ========= DRAWER ========= */
+  function openDrawer(key){ location.hash = `#/po/${encodeURIComponent(key)}`; }
+  function closeDrawer(){
+    $("drawer").classList.remove("open");
+    $("dTitle").textContent="Details";
+    $("dBody").innerHTML="";
+    if(location.hash.startsWith("#/po/")) history.replaceState(null,"",location.pathname+location.search);
+  }
+  function renderDrawer(po){
+    $("drawer").classList.add("open");
+    $("dTitle").textContent=`${po.factory} — ${po.po}`;
+    const risk=shipRisk(po.shipDateMin);
 
-  // Load sheet
-  loadSheet();
-}
+    const lines=po.lines.slice().sort((a,b)=>(a.reqShipDate?.getTime()||9e15)-(b.reqShipDate?.getTime()||9e15) || (b.retailValue-a.retailValue));
 
-// Start
-boot();
+    $("dBody").innerHTML=`
+      <div class="kv">
+        <div class="k"><div class="l">Req Ship (min)</div><div class="v">${fmtDate(po.shipDateMin)} <span class="kbd">${esc(risk.label)}</span></div></div>
+        <div class="k"><div class="l">PO Retail</div><div class="v">${money(po.poRetail)} <span class="kbd">${esc(po.retailMode)}</span></div></div>
+        <div class="k"><div class="l">Total Qty</div><div class="v">${esc(po.qty)}</div></div>
+        <div class="k"><div class="l">Lines</div><div class="v">${esc(po.lines.length)}</div></div>
+      </div>
+
+      <details open>
+        <summary>Lines</summary>
+        <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
+          ${lines.slice(0,250).map(l=>`
+            <div class="po" style="padding:10px 11px">
+              <div class="title">${esc(clamp(l.title || l.sku || "(Untitled)", 70))}</div>
+              <div class="muted">${esc(l.sku||"")} ${l.size?`• ${esc(l.size)}`:""} • Qty ${esc(l.qty)} • ${money(l.retailValue)}</div>
+              <div class="muted">${esc(l.productType||"")} ${l.dateBucket?`• ${esc(l.dateBucket)}`:""} • Req Ship ${esc(fmtDate(l.reqShipDate))}</div>
+            </div>
+          `).join("")}
+          ${lines.length>250?`<div class="muted">Showing first 250 lines…</div>`:""}
+        </div>
+      </details>
+    `;
+  }
+  function handleRoute(){
+    const m=location.hash.match(/^#\/po\/(.+)$/);
+    if(!m){ closeDrawer(); return; }
+    const key=decodeURIComponent(m[1]);
+    const po=poAll.get(key);
+    if(!po){ closeDrawer(); return; }
+    renderDrawer(po);
+  }
+
+  /* ========= INIT ========= */
+  function initAfterLoad(){
+    poAll = buildPoIndex(allLines);
+
+    setMulti("factories", uniq(allLines.map(x=>x.factory)));
+    setMulti("ptype", uniq(allLines.map(x=>x.productType)));
+    setMulti("bucket", uniq(allLines.map(x=>x.dateBucket)));
+
+    $("q").addEventListener("input", deb(e=>{ F.q=e.target.value||""; refresh(); }, 200));
+    $("factories").onchange=()=>{ F.factories=readMulti("factories"); refresh(); };
+    $("ptype").onchange=()=>{ F.ptypes=readMulti("ptype"); refresh(); };
+    $("bucket").onchange=()=>{ F.buckets=readMulti("bucket"); refresh(); };
+    $("wh").onchange=(e)=>{ F.wh=e.target.value||""; refresh(); };
+
+    const toDate=(v)=>v?new Date(v+"T00:00:00"):null;
+    $("shipFrom").onchange=(e)=>{ F.shipFrom=toDate(e.target.value); refresh(); };
+    $("shipTo").onchange=(e)=>{ F.shipTo=toDate(e.target.value); refresh(); };
+
+    $("reset").onclick=()=>location.reload();
+
+    $("export").onclick=()=>{
+      const head=["Factory","PO Name","Req Ship Date (min)","PO Retail","Retail Mode","Total Qty","Lines","Product Types","Date Buckets","Wholesale Triggered"];
+      const escCSV=s=>/[",\n]/.test(String(s))?`"${String(s).replace(/"/g,'""')}"`:String(s);
+      const fmt=d=>d?new Date(d).toISOString().slice(0,10):"";
+      const rows=[head.join(",")];
+      for(const p of poFiltered){
+        rows.push([
+          p.factory,p.po,fmt(p.shipDateMin),p.poRetail,p.retailMode,p.qty,p.lines.length,
+          [...p.productTypes].join(" | "),
+          [...p.buckets].join(" | "),
+          p.wh===null?"":(p.wh?"TRUE":"FALSE")
+        ].map(x=>escCSV(x??"")).join(","));
+      }
+      const blob=new Blob([rows.join("\n")],{type:"text/csv;charset=utf-8;"});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a");
+      a.href=url;
+      a.download=`po_summary_${new Date().toISOString().slice(0,10)}.csv`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+    };
+
+    $("tabs").addEventListener("click",(e)=>{
+      const t=e.target.closest(".tab"); if(!t) return;
+      view=t.dataset.view;
+      document.querySelectorAll("#tabs .tab").forEach(x=>x.classList.toggle("on", x===t));
+      $("queue").style.display = view==="queue" ? "" : "none";
+      $("calendar").style.display = view==="calendar" ? "" : "none";
+      $("reports").style.display = view==="reports" ? "" : "none";
+      refresh();
+    });
+
+    $("calPrev").onclick=()=>{ calAnchor=startOfMonth(new Date(calAnchor.getFullYear(), calAnchor.getMonth()-1, 1)); refresh(); };
+    $("calNext").onclick=()=>{ calAnchor=startOfMonth(new Date(calAnchor.getFullYear(), calAnchor.getMonth()+1, 1)); refresh(); };
+    $("calToday").onclick=()=>{ calAnchor=startOfMonth(new Date()); refresh(); };
+
+    $("closeBtn").onclick=closeDrawer;
+    window.addEventListener("hashchange", handleRoute);
+
+    refresh();
+    handleRoute();
+  }
+
+  /* ========= THEME ========= */
+  const THEME_KEY="planning_theme_v5";
+  function setTheme(t){
+    document.documentElement.setAttribute("data-theme", t);
+    $("themeLabel").textContent=t[0].toUpperCase()+t.slice(1);
+    localStorage.setItem(THEME_KEY, t);
+  }
+  $("theme").onclick=()=>{
+    const cur=document.documentElement.getAttribute("data-theme")||"dark";
+    setTheme(cur==="dark"?"light":"dark");
+  };
+  setTheme(localStorage.getItem(THEME_KEY) || "dark");
+
+  /* ========= BOOT ========= */
+  load();
+})();
 </script>
 </body>
 </html>
