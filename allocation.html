@@ -1,9 +1,10 @@
+<!-- allocation.html | single-file (GitHub Pages) | Google Sheet (published CSV) → allocate by SKU+Size → XLSX + PDF -->
 <!doctype html>
 <html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Allocation — PO Transfers</title>
+  <title>Allocation</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,359 +18,383 @@
   <style>
     :root{
       color-scheme: dark;
-      --bg:#070A12;
-      --panel: rgba(255,255,255,.04);
-      --surface: rgba(255,255,255,.03);
-      --surface2: rgba(255,255,255,.06);
-      --border: rgba(255,255,255,.10);
-      --border2: rgba(255,255,255,.18);
+      --bg: #070A12;
+      --card: rgba(255,255,255,.05);
+      --card2: rgba(255,255,255,.07);
+      --line: rgba(255,255,255,.10);
+      --line2: rgba(255,255,255,.16);
       --text: rgba(255,255,255,.92);
-      --muted: rgba(255,255,255,.62);
-      --muted2: rgba(255,255,255,.48);
-      --accent:#4FD1FF;
-      --good:#22c55e;
-      --warn:#eab308;
-      --bad:#fb7185;
-
+      --muted: rgba(255,255,255,.64);
+      --muted2: rgba(255,255,255,.46);
+      --accent: #4FD1FF;
+      --accent2:#6EE7B7;
+      --danger:#fb7185;
+      --warn:#fbbf24;
+      --ok:#22c55e;
+      --shadow: 0 16px 48px rgba(0,0,0,.45);
+      --shadow2: 0 12px 30px rgba(0,0,0,.28);
       --radius: 18px;
       --radiusSm: 14px;
-      --shadow: 0 18px 52px rgba(0,0,0,.55);
-      --shadowSoft: 0 12px 28px rgba(0,0,0,.32);
-
-      --sidebar: 380px;
-      --stickyW: 360px;
-      --stickyN: 94px;
-
       --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sidebarW: 360px;
     }
-
     :root[data-theme="light"]{
       color-scheme: light;
       --bg:#F6F7FB;
-      --panel: rgba(255,255,255,.88);
-      --surface: rgba(16,24,40,.02);
-      --surface2: rgba(16,24,40,.05);
-      --border: rgba(16,24,40,.12);
-      --border2: rgba(16,24,40,.18);
+      --card: rgba(255,255,255,.92);
+      --card2: rgba(16,24,40,.04);
+      --line: rgba(16,24,40,.12);
+      --line2: rgba(16,24,40,.18);
       --text: rgba(16,24,40,.92);
       --muted: rgba(16,24,40,.62);
-      --muted2: rgba(16,24,40,.48);
+      --muted2: rgba(16,24,40,.46);
       --accent:#007AFF;
-      --shadow: 0 16px 36px rgba(16,24,40,.12);
-      --shadowSoft: 0 10px 24px rgba(16,24,40,.10);
+      --accent2:#22c55e;
+      --danger:#ef4444;
+      --warn:#d97706;
+      --ok:#16a34a;
+      --shadow: 0 16px 40px rgba(16,24,40,.12);
+      --shadow2: 0 12px 28px rgba(16,24,40,.10);
     }
-
-    *{box-sizing:border-box}
-    html,body{height:100%}
+    *{ box-sizing:border-box }
+    html,body{ height:100% }
     body{
       margin:0;
       font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      line-height:1.45;
       background:
-        radial-gradient(920px 540px at 16% 10%, rgba(79,209,255,.16), transparent 45%),
-        radial-gradient(920px 540px at 84% 14%, rgba(34,197,94,.10), transparent 45%),
+        radial-gradient(1000px 520px at 18% 10%, color-mix(in oklab, var(--accent) 20%, transparent), transparent 46%),
+        radial-gradient(1000px 520px at 82% 12%, color-mix(in oklab, var(--accent2) 18%, transparent), transparent 46%),
         var(--bg);
       color: var(--text);
       overflow-x:hidden;
     }
-
-    /* Top Bar */
-    .topbar{
-      max-width: 1800px;
+    .wrap{
+      max-width: 1720px;
       margin: 0 auto;
-      padding: 16px 14px 10px;
+      padding: 16px 14px 26px;
+      display:grid;
+      grid-template-columns: var(--sidebarW) 1fr;
+      gap: 14px;
+      align-items:start;
+    }
+
+    /* Topbar */
+    .topbar{
+      max-width: 1720px;
+      margin: 0 auto;
+      padding: 16px 14px 8px;
       display:flex;
+      gap:12px;
       align-items:flex-end;
       justify-content:space-between;
-      gap:12px;
       flex-wrap:wrap;
     }
-    .brand h1{margin:0;font-size:22px;font-weight:950;letter-spacing:-.02em}
-    .brand .sub{margin-top:4px;color:var(--muted);font-size:12px}
-
-    .chips{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .brand{
+      display:flex; flex-direction:column; gap:4px;
+    }
+    .brand h1{
+      margin:0;
+      font-size: 22px;
+      letter-spacing: -0.02em;
+      font-weight: 900;
+    }
+    .brand .sub{
+      font-size: 12px;
+      color: var(--muted);
+    }
+    .pillRow{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:flex-end; }
     .chip{
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
+      display:inline-flex; align-items:center; gap:8px;
       padding: 7px 10px;
       border-radius: 999px;
-      border: 1px solid var(--border);
-      background: var(--surface2);
+      border:1px solid var(--line);
+      background: var(--card2);
+      font-size: 12px;
       color: var(--muted);
-      font-size:12px;
       user-select:none;
-      backdrop-filter: blur(10px);
+      box-shadow: 0 0 0 0 rgba(0,0,0,0);
     }
-    .chip b{color:var(--text);font-weight:900}
-    .chip.btn{cursor:pointer}
-    .chip.btn:hover{border-color:var(--border2);color:var(--text)}
+    .chip b{ color: var(--text); font-weight: 900 }
+    .chip.btn{ cursor:pointer }
+    .chip.btn:hover{ border-color: var(--line2); color: var(--text) }
     .dot{
-      width:8px;height:8px;border-radius:999px;background:var(--muted2);
-      box-shadow: 0 0 0 4px color-mix(in oklab, var(--muted2) 16%, transparent);
+      width:8px;height:8px;border-radius:999px;
+      background: var(--ok);
+      box-shadow: 0 0 0 4px color-mix(in oklab, var(--ok) 16%, transparent);
     }
-    .dot.good{background:var(--good); box-shadow: 0 0 0 4px color-mix(in oklab, var(--good) 16%, transparent);}
+    .dot.off{ background: var(--muted2); box-shadow:none; }
 
-    /* Layout */
-    .app{
-      max-width: 1800px;
-      margin: 0 auto;
-      padding: 0 14px 28px;
-      display:grid;
-      grid-template-columns: var(--sidebar) 1fr;
-      gap: 14px;
-    }
-
-    .panel{
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      box-shadow: var(--shadowSoft);
-      backdrop-filter: blur(12px);
-    }
-
-    .sidebar{
+    /* Sidebar */
+    aside{
       position: sticky;
       top: 12px;
-      align-self: start;
       height: calc(100dvh - 24px);
-      overflow: auto;
+      overflow:auto;
       padding: 12px;
+      border-radius: var(--radius);
+      border: 1px solid var(--line);
+      background: color-mix(in oklab, var(--card) 92%, transparent);
+      backdrop-filter: blur(14px);
       box-shadow: var(--shadow);
     }
-    .main{
-      min-width: 0;
+    main{
+      min-width:0;
       padding: 12px;
+      border-radius: var(--radius);
+      border: 1px solid var(--line);
+      background: color-mix(in oklab, var(--card) 92%, transparent);
+      backdrop-filter: blur(14px);
+      box-shadow: var(--shadow2);
     }
-
-    /* Section titles */
-    .sTitle{
-      font-size:11px;
-      font-weight:900;
-      letter-spacing:.09em;
-      text-transform:uppercase;
+    .sectionTitle{
+      margin: 4px 0 10px;
+      font-size: 11px;
+      letter-spacing: .10em;
+      text-transform: uppercase;
       color: var(--muted);
-      margin: 6px 0 10px;
+      font-weight: 900;
     }
-    .divider{height:1px;background:var(--border);margin:12px 0}
-
-    /* Inputs */
-    .f{display:flex;flex-direction:column;gap:6px;margin: 10px 0}
-    .f label{font-size:11px;color:var(--muted);font-weight:850}
-    .inp, select.inp, textarea.inp{
+    .field{
+      display:flex; flex-direction:column; gap:6px;
+      margin: 10px 0;
+    }
+    .field label{
+      font-size: 11px;
+      color: var(--muted);
+      font-weight: 800;
+    }
+    .input, select, textarea{
       width:100%;
       border-radius: 14px;
-      border: 1px solid var(--border);
-      background: var(--surface);
+      border: 1px solid var(--line);
+      background: color-mix(in oklab, var(--card2) 70%, transparent);
       color: var(--text);
-      padding: 10px 11px;
+      padding: 9px 10px;
       font-size: 12px;
-      outline: none;
+      outline:none;
     }
-    .inp:focus, select.inp:focus, textarea.inp:focus{
-      border-color: color-mix(in oklab, var(--accent) 50%, var(--border));
-      box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 12%, transparent);
+    textarea{ min-height:70px; resize:vertical }
+    .input:focus, select:focus, textarea:focus{
+      border-color: color-mix(in oklab, var(--accent) 55%, var(--line));
+      box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 12%, transparent);
     }
-    textarea.inp{min-height:72px; resize:vertical}
-    .hint{font-size:11px;color:var(--muted2)}
-    .mono{font-family:var(--mono)}
-
-    /* Buttons */
+    .row2{ display:grid; grid-template-columns: 1fr 1fr; gap:8px }
+    .row3{ display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px }
     .btn{
-      border:1px solid var(--border);
-      background: var(--surface2);
+      border:1px solid var(--line);
+      background: color-mix(in oklab, var(--card2) 75%, transparent);
       color: var(--text);
-      padding: 10px 12px;
+      padding: 9px 12px;
       border-radius: 14px;
+      font-size: 12px;
+      font-weight: 900;
       cursor:pointer;
-      font-size:12px;
-      font-weight:900;
       display:inline-flex;
       align-items:center;
       justify-content:center;
       gap:8px;
       white-space:nowrap;
-      user-select:none;
     }
-    .btn:hover{border-color:var(--border2)}
-    .btn:disabled{opacity:.55;cursor:not-allowed}
+    .btn:hover{ border-color: var(--line2) }
     .btn.primary{
-      border-color: color-mix(in oklab, var(--accent) 46%, var(--border));
+      border-color: color-mix(in oklab, var(--accent) 55%, var(--line));
       box-shadow: 0 0 0 4px color-mix(in oklab, var(--accent) 10%, transparent);
     }
     .btn.danger{
-      border-color: color-mix(in oklab, var(--bad) 46%, var(--border));
-      color: color-mix(in oklab, var(--bad) 70%, var(--text));
+      border-color: color-mix(in oklab, var(--danger) 55%, var(--line));
+      color: color-mix(in oklab, var(--danger) 78%, var(--text));
     }
-    .btn.small{padding:8px 10px;font-size:11px;border-radius:12px}
-    .row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-    .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+    .btn.ghost{
+      background: transparent;
+    }
+    .btn.small{ padding:7px 10px; font-size: 11px; border-radius: 12px }
+    .btn.block{ width:100% }
+    .hint{ font-size: 11px; color: var(--muted2); line-height:1.35; }
+    .mono{ font-family: var(--mono) }
 
     /* Banner */
     .banner{
       display:none;
-      margin-bottom:10px;
       padding: 10px 12px;
       border-radius: 14px;
-      border: 1px solid rgba(244,63,94,.28);
-      background: rgba(244,63,94,.10);
-      color: #fecdd3;
+      border: 1px solid color-mix(in oklab, var(--danger) 40%, var(--line));
+      background: color-mix(in oklab, var(--danger) 12%, transparent);
+      color: color-mix(in oklab, var(--danger) 78%, var(--text));
       font-size: 12px;
-      white-space: pre-wrap;
+      margin-bottom: 10px;
     }
 
-    /* KPI pills */
-    .kpis{
+    /* Collapsible sections */
+    details{
+      border: 1px solid var(--line);
+      border-radius: var(--radiusSm);
+      background: color-mix(in oklab, var(--card2) 55%, transparent);
+      padding: 10px;
+      margin: 10px 0;
+    }
+    summary{
+      cursor:pointer;
+      list-style:none;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      user-select:none;
+      font-weight: 900;
+      font-size: 12px;
+      color: var(--text);
+    }
+    summary::-webkit-details-marker{ display:none }
+    .sumMeta{
+      color: var(--muted);
+      font-weight: 800;
+      font-size: 11px;
+    }
+
+    /* KPI bar */
+    .kpiBar{
       display:flex;
       gap:10px;
       flex-wrap:wrap;
       margin-bottom: 10px;
     }
     .kpi{
-      background: var(--surface2);
-      border:1px solid var(--border);
-      border-radius: 999px;
+      display:flex; align-items:center; gap:8px;
       padding: 8px 12px;
-      font-size:12px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: color-mix(in oklab, var(--card2) 70%, transparent);
+      font-size: 12px;
       color: var(--muted);
-      display:flex;
-      gap:8px;
-      align-items:center;
-    }
-    .kpi b{color:var(--text);font-weight:900}
-
-    /* Meta pills */
-    .pill{
-      padding:2px 9px;
-      border-radius:999px;
-      border:1px solid var(--border);
-      font-size:10px;
-      font-weight:900;
-      letter-spacing:.03em;
-      text-transform:uppercase;
-      color:var(--muted);
-      background: color-mix(in oklab, var(--surface2) 60%, transparent);
       white-space:nowrap;
     }
-    .pill.accent{border-color: color-mix(in oklab, var(--accent) 55%, var(--border)); color: color-mix(in oklab, var(--accent) 70%, var(--text))}
-    .pill.warn{border-color: color-mix(in oklab, var(--warn) 55%, var(--border)); color: color-mix(in oklab, var(--warn) 72%, var(--text))}
+    .kpi b{ color: var(--text); font-weight: 900 }
+    .kpi .tag{
+      padding:2px 8px;
+      border-radius:999px;
+      border:1px solid var(--line);
+      font-size: 10px;
+      letter-spacing:.04em;
+      text-transform:uppercase;
+      color: var(--muted);
+    }
+    .kpi .tag.ok{ border-color: color-mix(in oklab, var(--ok) 55%, var(--line)); color: color-mix(in oklab, var(--ok) 70%, var(--text)); }
+    .kpi .tag.warn{ border-color: color-mix(in oklab, var(--warn) 55%, var(--line)); color: color-mix(in oklab, var(--warn) 75%, var(--text)); }
+    .kpi .tag.risk{ border-color: color-mix(in oklab, var(--danger) 55%, var(--line)); color: color-mix(in oklab, var(--danger) 75%, var(--text)); }
 
     /* Toolbar */
     .toolbar{
       display:flex;
+      gap:10px;
+      flex-wrap:wrap;
       align-items:center;
       justify-content:space-between;
-      gap: 10px;
-      flex-wrap:wrap;
       margin-bottom: 10px;
     }
-    .toolbar .left, .toolbar .right{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-    .search{
-      display:flex;
-      align-items:center;
-      gap:8px;
-      border:1px solid var(--border);
-      background: var(--surface);
+    .pill{
+      padding: 5px 10px;
       border-radius: 999px;
-      padding: 6px 10px;
+      border: 1px solid var(--line);
+      background: color-mix(in oklab, var(--card2) 65%, transparent);
+      font-size: 11px;
+      font-weight: 900;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .04em;
     }
-    .search input{
-      border:0;
-      outline:none;
-      background: transparent;
-      color: var(--text);
-      font-size:12px;
-      width: min(520px, 52vw);
-    }
-    .search .kbd{
-      font-family: var(--mono);
-      font-size: 10px;
-      color: var(--muted2);
-      border: 1px solid var(--border);
-      background: var(--surface2);
-      padding: 2px 6px;
-      border-radius: 8px;
+    .pill b{ color: var(--text) }
+    .toolbar .left, .toolbar .right{
+      display:flex; gap:8px; flex-wrap:wrap; align-items:center;
     }
 
     /* Table */
     .tableWrap{
-      border:1px solid var(--border);
+      border:1px solid var(--line);
       border-radius: var(--radius);
       overflow:hidden;
-      background: var(--surface);
+      background: color-mix(in oklab, var(--card2) 45%, transparent);
     }
     .tableScroll{
       overflow:auto;
-      max-height: calc(100dvh - 290px);
+      max-height: calc(100dvh - 270px);
     }
     table{
       width:100%;
       border-collapse:collapse;
       font-size:12px;
-      min-width: 1180px;
+      min-width: 1200px;
     }
-    th,td{
-      border-bottom:1px solid var(--border);
-      padding:8px 8px;
+    th, td{
+      border-bottom: 1px solid var(--line);
+      padding: 8px 8px;
       text-align:left;
       vertical-align:top;
+      background: transparent;
     }
     thead th{
-      position:sticky; top:0;
-      background: color-mix(in oklab, var(--panel) 76%, transparent);
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      background: color-mix(in oklab, var(--card) 80%, transparent);
       backdrop-filter: blur(10px);
-      z-index:4;
       color: var(--muted);
-      font-weight:900;
+      font-weight: 900;
       white-space:nowrap;
     }
-    tbody tr:hover td{background: color-mix(in oklab, var(--accent) 6%, transparent)}
-    .right{text-align:right}
-
+    tbody tr:hover td{
+      background: color-mix(in oklab, var(--accent) 7%, transparent);
+    }
+    .right{ text-align:right }
+    .center{ text-align:center }
     .stickyCol{
-      position:sticky; left:0;
-      z-index:3;
-      background: color-mix(in oklab, var(--panel) 84%, transparent);
+      position: sticky;
+      left: 0;
+      z-index: 4;
+      background: color-mix(in oklab, var(--card) 82%, transparent);
       backdrop-filter: blur(10px);
-      min-width: var(--stickyW);
-      max-width: 620px;
+      min-width: 340px;
+      max-width: 520px;
     }
     .stickyCol2{
-      position:sticky; left: var(--stickyW);
-      z-index:3;
-      background: color-mix(in oklab, var(--panel) 84%, transparent);
+      position: sticky;
+      left: 340px;
+      z-index: 4;
+      background: color-mix(in oklab, var(--card) 82%, transparent);
       backdrop-filter: blur(10px);
-      min-width: var(--stickyN);
+      min-width: 90px;
       text-align:right;
     }
     .stickyCol3{
-      position:sticky; left: calc(var(--stickyW) + var(--stickyN));
-      z-index:3;
-      background: color-mix(in oklab, var(--panel) 84%, transparent);
+      position: sticky;
+      left: 430px;
+      z-index: 4;
+      background: color-mix(in oklab, var(--card) 82%, transparent);
       backdrop-filter: blur(10px);
-      min-width: var(--stickyN);
+      min-width: 90px;
       text-align:right;
     }
     .stickyCol4{
-      position:sticky; left: calc(var(--stickyW) + var(--stickyN) + var(--stickyN));
-      z-index:3;
-      background: color-mix(in oklab, var(--panel) 84%, transparent);
+      position: sticky;
+      left: 520px;
+      z-index: 4;
+      background: color-mix(in oklab, var(--card) 82%, transparent);
       backdrop-filter: blur(10px);
-      min-width: var(--stickyN);
+      min-width: 96px;
       text-align:right;
     }
-
-    .skuTitle{font-weight:950;letter-spacing:-.01em}
-    .skuSub{margin-top:4px;color:var(--muted2)}
-    .tiny{font-size:10px;color:var(--muted2)}
-    .rowBad{outline: 2px solid rgba(244,63,94,.35); outline-offset:-2px}
-    .neg{color: var(--bad); font-weight:950}
-
+    .skuTitle{ font-weight: 900; letter-spacing:-.01em; }
+    .skuSub{ margin-top:4px; color: var(--muted2); font-size: 11px; line-height:1.2; }
+    .tiny{ margin-top:4px; color: var(--muted2); font-size: 10px; }
+    .rowBad{ outline: 2px solid color-mix(in oklab, var(--danger) 34%, transparent); outline-offset:-2px; }
+    tfoot td{
+      font-weight: 900;
+      background: color-mix(in oklab, var(--accent) 8%, transparent);
+    }
     .cellInput{
-      width: 86px;
+      width: 88px;
       border-radius: 12px;
-      border: 1px solid var(--border);
-      background: var(--surface2);
+      border: 1px solid var(--line);
+      background: color-mix(in oklab, var(--card2) 75%, transparent);
       color: var(--text);
       padding: 7px 8px;
       font-size: 12px;
@@ -377,78 +402,148 @@
       text-align:right;
     }
     .cellInput:focus{
-      border-color: color-mix(in oklab, var(--accent) 55%, var(--border));
+      border-color: color-mix(in oklab, var(--accent) 55%, var(--line));
       box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent) 10%, transparent);
     }
+    .neg{ color: var(--danger); font-weight: 900; }
+    .muted2{ color: var(--muted2); font-size: 11px; }
 
-    tfoot td{
-      font-weight:950;
-      background: color-mix(in oklab, var(--accent) 7%, transparent);
-      border-bottom: none;
-    }
-
-    /* Location editor */
-    .locEditor{
-      border:1px solid var(--border);
-      border-radius: var(--radius);
-      background: var(--surface);
-      padding:10px;
-    }
-    .locList{display:flex;flex-direction:column;gap:8px;margin-top:8px}
-    .locRow{display:flex;gap:8px;align-items:center}
+    /* Locations editor */
+    .locList{ display:flex; flex-direction:column; gap:8px; margin-top:10px; }
+    .locRow{ display:flex; align-items:center; gap:8px; }
     .locRow input{
       flex:1;
       border-radius: 12px;
-      border:1px solid var(--border);
-      background: var(--surface2);
-      color:var(--text);
-      padding:8px 10px;
-      font-size:12px;
+      border: 1px solid var(--line);
+      background: color-mix(in oklab, var(--card2) 75%, transparent);
+      color: var(--text);
+      padding: 8px 10px;
+      font-size: 12px;
       outline:none;
     }
-    .locRow input:focus{border-color:var(--border2)}
-    .tag{
+    .locRow input:focus{ border-color: var(--line2) }
+    .pin{
       font-size:10px;
-      font-weight:900;
-      color: var(--muted2);
-      border:1px solid var(--border);
-      padding:2px 7px;
-      border-radius:999px;
-      white-space:nowrap;
-      background: color-mix(in oklab, var(--panel) 40%, transparent);
+      padding:2px 8px;
+      border-radius: 999px;
+      border:1px solid var(--line);
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      font-weight: 900;
     }
 
-    /* Mobile */
-    .fab{
-      display:none;
+    /* Modal */
+    .overlay{
       position:fixed;
-      right:14px; bottom:14px;
-      z-index:50;
-      border-radius:999px;
-      padding: 12px 14px;
-      border:1px solid var(--border2);
-      background: color-mix(in oklab, var(--panel) 90%, transparent);
-      box-shadow: var(--shadowSoft);
-      backdrop-filter: blur(12px);
+      inset:0;
+      background: rgba(0,0,0,.55);
+      display:none;
+      align-items:center;
+      justify-content:center;
+      padding: 14px;
+      z-index: 50;
+    }
+    .modal{
+      width: min(980px, 100%);
+      border-radius: 22px;
+      border:1px solid var(--line);
+      background: color-mix(in oklab, var(--card) 96%, transparent);
+      box-shadow: 0 22px 70px rgba(0,0,0,.55);
+      overflow:hidden;
+    }
+    .modalHead{
+      padding: 14px 14px 10px;
+      display:flex;
+      gap:10px;
+      align-items:center;
+      justify-content:space-between;
+      border-bottom:1px solid var(--line);
+      background: color-mix(in oklab, var(--card2) 55%, transparent);
+    }
+    .modalHead .title{
+      font-weight: 950;
+      letter-spacing:-.02em;
+      font-size: 14px;
+    }
+    .modalBody{
+      padding: 14px;
+      display:grid;
+      grid-template-columns: 1.1fr .9fr;
+      gap: 14px;
+    }
+    .card{
+      border:1px solid var(--line);
+      background: color-mix(in oklab, var(--card2) 55%, transparent);
+      border-radius: 18px;
+      padding: 12px;
+    }
+    .seg{
+      display:flex;
+      border:1px solid var(--line);
+      border-radius: 14px;
+      overflow:hidden;
+      background: color-mix(in oklab, var(--card2) 55%, transparent);
+    }
+    .seg button{
+      flex:1;
+      border:0;
+      background:transparent;
+      color: var(--muted);
+      padding: 10px 10px;
+      font-weight: 950;
       cursor:pointer;
-      font-weight:950;
+      font-size: 12px;
+    }
+    .seg button.active{
+      background: color-mix(in oklab, var(--accent) 14%, transparent);
       color: var(--text);
     }
-    @media (max-width:1100px){
-      :root{--sidebar: 100%; --stickyW: 310px;}
-      .app{grid-template-columns:1fr}
-      .sidebar{position:relative;height:auto}
-      table{min-width: 980px;}
-      .stickyCol2{left: var(--stickyW)}
-      .stickyCol3{left: calc(var(--stickyW) + var(--stickyN))}
-      .stickyCol4{left: calc(var(--stickyW) + var(--stickyN) + var(--stickyN))}
-      .search input{width: min(420px, 78vw);}
+    .weights{
+      display:flex; flex-direction:column; gap:8px;
+      max-height: 360px; overflow:auto; padding-right:6px;
     }
-    @media (max-width:820px){
-      .sidebar{display:none}
-      body.sidebarOpen .sidebar{display:block}
-      body.sidebarOpen .main{display:none}
-      .fab{display:block}
+    .wRow{
+      display:flex; align-items:center; gap:10px;
+    }
+    .wRow .name{
+      flex:1;
+      font-weight: 900;
+      color: var(--text);
+      font-size: 12px;
+    }
+    .wRow input{
+      width: 140px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: color-mix(in oklab, var(--card2) 75%, transparent);
+      color: var(--text);
+      padding: 8px 10px;
+      font-size: 12px;
+      text-align:right;
+      outline:none;
+    }
+    .modalFoot{
+      padding: 12px 14px 14px;
+      display:flex;
+      gap:10px;
+      align-items:center;
+      justify-content:space-between;
+      border-top:1px solid var(--line);
+      background: color-mix(in oklab, var(--card2) 55%, transparent);
+    }
+    .modalFoot .left, .modalFoot .right{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+
+    @media (max-width:1100px){
+      :root{ --sidebarW: 100% }
+      .wrap{ grid-template-columns: 1fr }
+      aside{ position:relative; height:auto }
+      table{ min-width: 980px; }
+      .stickyCol{ min-width: 260px }
+      .stickyCol2{ left: 260px }
+      .stickyCol3{ left: 350px }
+      .stickyCol4{ left: 440px }
+      .modalBody{ grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -459,152 +554,107 @@
       <h1>Allocation</h1>
       <div class="sub">PO_Lines_CLEAN → allocate units across locations → export PDF + Excel</div>
     </div>
-    <div class="chips">
-      <div class="chip"><span class="dot good"></span> Autosave <b>On</b></div>
+
+    <div class="pillRow">
+      <div class="chip"><span id="autosaveDot" class="dot"></span> Autosave <b id="autosaveLabel">On</b></div>
       <div class="chip">Updated <b id="lastRefresh">—</b></div>
-      <div class="chip">Brand <b id="brandChip">—</b></div>
+      <div class="chip">Brand <b id="brandChip">Baseballism</b></div>
       <div id="themeBtn" class="chip btn">Theme <b id="themeLabel">Dark</b> ↻</div>
     </div>
   </div>
 
-  <button id="fab" class="fab">Sidebar</button>
-
-  <div class="app">
-    <aside class="sidebar panel">
+  <div class="wrap">
+    <aside>
       <div id="banner" class="banner"></div>
 
-      <div class="sTitle">Source</div>
-      <div class="hint">Published CSV (gid <span class="mono" id="gidLabel">—</span>)</div>
-      <div style="margin-top:6px">
-        <a class="btn small" id="openSheetLink" target="_blank" rel="noopener">Open Sheet</a>
+      <div class="sectionTitle">Report</div>
+      <div class="field">
+        <label>Brand / Report Title</label>
+        <input id="brandTitle" class="input" value="Baseballism" />
+        <div class="hint">Used in PDF + Excel headers.</div>
       </div>
-
-      <div class="divider"></div>
-
-      <div class="sTitle">Pick PO</div>
-      <div class="f">
-        <label>PO</label>
-        <select id="poSelect" class="inp"></select>
-        <div class="hint">PO selection controls the allocation grid and exports.</div>
-      </div>
-
-      <div class="divider"></div>
-
-      <div class="sTitle">Report</div>
-      <div class="f">
-        <label>Brand / Report title</label>
-        <input id="brandTitle" class="inp" placeholder="e.g., Baseballism" />
-      </div>
-      <div class="f">
-        <label>Prepared by</label>
-        <input id="preparedBy" class="inp" placeholder="Name (optional)" />
-      </div>
-      <div class="f">
-        <label>Notes</label>
-        <textarea id="notes" class="inp" placeholder="Internal notes, ship instructions, allocation rationale..."></textarea>
-      </div>
-
-      <div class="divider"></div>
-
-      <div class="sTitle">Quick actions</div>
       <div class="row2">
-        <button id="evenSplit" class="btn">Even split remaining</button>
-        <button id="zeroPO" class="btn danger">Zero PO</button>
+        <div class="field">
+          <label>Prepared by</label>
+          <input id="preparedBy" class="input" placeholder="Name (optional)" />
+        </div>
+        <div class="field">
+          <label>Ship window (override)</label>
+          <input id="shipOverride" class="input" placeholder="Auto from PO (optional)" />
+        </div>
       </div>
-      <div class="hint" style="margin-top:8px">Even split uses the “Split targets” selection below.</div>
-
-      <div class="divider"></div>
-
-      <div class="sTitle">Allocation math</div>
-      <div class="panel" style="padding:10px;background:var(--surface)">
-        <div class="f" style="margin:0 0 10px">
-          <label>Mode</label>
-          <select id="mathMode" class="inp">
-            <option value="off">Off</option>
-            <option value="targets">Targets → allocate remaining (safe)</option>
-          </select>
-          <div class="hint">Uses remaining units per SKU group (SKU+Title), then spreads to sizes by remaining availability.</div>
-        </div>
-
-        <div class="row2">
-          <div class="f" style="margin:0">
-            <label>Rounding</label>
-            <select id="roundMode" class="inp">
-              <option value="nearest">Nearest</option>
-              <option value="up">Up</option>
-              <option value="down">Down</option>
-            </select>
-          </div>
-          <div class="f" style="margin:0">
-            <label>Step</label>
-            <input id="roundStep" class="inp" type="number" min="1" value="1" />
-          </div>
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="row2">
-          <button id="targetsUnits" class="btn small">Units</button>
-          <button id="targetsPct" class="btn small">Percent</button>
-        </div>
-
-        <div class="hint" style="margin-top:8px">Targets become shares across locations. Apply is safe: it won’t allocate beyond remaining.</div>
-
-        <div id="targetsWrap" class="locList" style="margin-top:10px"></div>
-
-        <div class="row3" style="margin-top:10px">
-          <button id="targetsUseCurrent" class="btn small">Use current</button>
-          <button id="targetsNormalize" class="btn small">Normalize</button>
-          <button id="targetsClear" class="btn small danger">Clear</button>
-        </div>
-
-        <div class="divider"></div>
-
-        <div class="row2">
-          <button id="applyAdd" class="btn primary">Apply (Add)</button>
-          <button id="applyOverwrite" class="btn">Apply (Overwrite)</button>
-        </div>
-        <div class="hint" style="margin-top:8px"><b>Overwrite</b> clears allocations for this PO first, then applies the math.</div>
-
-        <div class="divider"></div>
-        <div class="hint">Target sum <b id="targetSum">0</b> • Share sum <b id="shareSum">0%</b></div>
+      <div class="field">
+        <label>Notes (internal)</label>
+        <textarea id="notes" class="input" placeholder="Callouts, allocation rationale, ship instructions..."></textarea>
       </div>
 
-      <div class="divider"></div>
-
-      <div class="sTitle">Export</div>
-      <button id="exportXlsx" class="btn primary" style="width:100%">Export Excel (.xlsx)</button>
-      <button id="exportPdf" class="btn" style="width:100%; margin-top:8px">Generate PDF</button>
-
-      <div class="divider"></div>
-
-      <div class="sTitle">Locations</div>
-      <div class="locEditor">
-        <div class="hint">Edit allocation columns. Removing a location deletes its saved allocations (all POs in this browser).</div>
-
-        <div class="f" style="margin-top:10px">
-          <label>Split targets (for Even split)</label>
-          <select id="splitTargets" class="inp" multiple size="9"></select>
-          <div class="hint">Hold Shift/Cmd to multi-select.</div>
+      <details open>
+        <summary>
+          <span>PO & Search</span>
+          <span class="sumMeta" id="poCountMeta">—</span>
+        </summary>
+        <div class="field" style="margin-top:10px">
+          <label>PO</label>
+          <select id="poSelect"></select>
+        </div>
+        <div class="field">
+          <label>Search</label>
+          <input id="q" class="input" placeholder="SKU, title, size..." />
+          <div class="hint">Applies to table rows. <span class="mono">Esc</span> to clear.</div>
         </div>
 
-        <div id="locList" class="locList"></div>
+        <div class="row2">
+          <button id="openAllocator" class="btn primary">Allocate…</button>
+          <button id="zeroAll" class="btn danger">Zero PO</button>
+        </div>
 
-        <div style="display:flex; gap:8px; margin-top:10px">
+        <div class="row2" style="margin-top:8px">
+          <button id="reload" class="btn">Reload sheet</button>
+          <button id="saveNow" class="btn ghost">Save</button>
+        </div>
+
+        <div class="hint" style="margin-top:8px">
+          Saved in <span class="mono">localStorage</span> (this browser).
+        </div>
+      </details>
+
+      <details>
+        <summary>
+          <span>Exports</span>
+          <span class="sumMeta">.xlsx / .pdf</span>
+        </summary>
+        <div style="margin-top:10px">
+          <button id="exportXlsx" class="btn primary block">Export Excel (.xlsx)</button>
+          <button id="exportPdf" class="btn block" style="margin-top:8px">Generate PDF</button>
+          <div class="hint" style="margin-top:8px">
+            PDF only includes locations with non-zero allocations (but always includes Online + Wholesale if present).
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>
+          <span>Locations</span>
+          <span class="sumMeta" id="locCountMeta">—</span>
+        </summary>
+        <div class="hint" style="margin-top:10px">
+          Edit allocation columns. Removing a location deletes its saved allocations across all POs in this browser.
+        </div>
+
+        <div class="locList" id="locList"></div>
+
+        <div class="row2" style="margin-top:10px">
           <button id="addLoc" class="btn small">+ Add</button>
           <button id="resetLoc" class="btn small">Reset default</button>
         </div>
-      </div>
-
-      <div class="divider"></div>
-      <div class="hint">Allocations + locations are stored in <span class="mono">localStorage</span>. Data is read-only from Sheets.</div>
+      </details>
     </aside>
 
-    <main class="main panel">
-      <div class="kpis">
+    <main>
+      <div class="kpiBar">
         <div class="kpi">Lines <b id="kLines">—</b></div>
         <div class="kpi">Distinct SKUs <b id="kSkus">—</b></div>
-        <div class="kpi">Units avail <b id="kAvail">—</b></div>
+        <div class="kpi">Units avail <b id="kUnits">—</b></div>
         <div class="kpi">Allocated <b id="kAlloc">—</b></div>
         <div class="kpi">Remaining <b id="kRemain">—</b></div>
         <div class="kpi">Retail value <b id="kRetail">—</b></div>
@@ -613,105 +663,211 @@
 
       <div class="toolbar">
         <div class="left">
-          <span class="pill accent" id="poPill">—</span>
-          <span class="pill" id="factoryPill">—</span>
-          <span class="pill" id="whPill">—</span>
-          <span class="pill" id="orderPill">—</span>
+          <span class="pill" id="poMeta">PO <b>—</b></span>
+          <span class="pill" id="poFactory">Factory <b>—</b></span>
+          <span class="pill" id="poWholesale">Wholesale <b>—</b></span>
         </div>
         <div class="right">
-          <div class="search">
-            <input id="q" placeholder="Search SKU / title / size…" />
-            <span class="kbd">⌘/Ctrl K</span>
-          </div>
-          <button id="clearSearch" class="btn">Clear</button>
-          <button id="reload" class="btn">Reload sheet</button>
+          <span class="pill" id="filterMeta">Rows <b>—</b></span>
         </div>
       </div>
 
       <div class="tableWrap">
-        <div class="tableScroll">
-          <table id="allocTable"></table>
+        <div class="tableScroll" id="tableScroll">
+          <table id="allocTable" aria-label="Allocation table"></table>
         </div>
       </div>
 
-      <div class="hint" style="margin-top:10px">
-        Tip: Negative “Remaining” means you allocated more than available on that row.
+      <div class="muted2" style="margin-top:10px">
+        Tip: negative “Remaining” means you allocated more than available on that SKU+Size row.
       </div>
     </main>
   </div>
 
+  <!-- Allocator modal -->
+  <div id="overlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="allocTitle">
+    <div class="modal">
+      <div class="modalHead">
+        <div>
+          <div id="allocTitle" class="title">Allocation Math</div>
+          <div class="muted2" id="allocSubtitle">Distribute units across locations for each size row.</div>
+        </div>
+        <button id="closeAllocator" class="btn small">Close</button>
+      </div>
+
+      <div class="modalBody">
+        <div class="card">
+          <div class="sectionTitle" style="margin:0 0 10px">Mode</div>
+          <div class="seg" style="margin-bottom:10px">
+            <button id="modeEven" class="active" type="button">Even split</button>
+            <button id="modeWeights" type="button">Weights</button>
+          </div>
+
+          <div class="row2" style="margin-bottom:10px">
+            <div class="field" style="margin:0">
+              <label>Apply to</label>
+              <select id="applyScope">
+                <option value="filtered" selected>Filtered rows</option>
+                <option value="all">All rows in PO</option>
+              </select>
+            </div>
+            <div class="field" style="margin:0">
+              <label>Base</label>
+              <select id="applyBase">
+                <option value="remaining" selected>Remaining units</option>
+                <option value="total">Total available units</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="row2" style="margin-bottom:10px">
+            <div class="field" style="margin:0">
+              <label>Action</label>
+              <select id="applyAction">
+                <option value="add" selected>Add (keep existing)</option>
+                <option value="overwrite">Overwrite (clear then apply)</option>
+              </select>
+            </div>
+            <div class="field" style="margin:0">
+              <label>Rounding</label>
+              <select id="roundMode">
+                <option value="largest" selected>Largest remainder</option>
+                <option value="floor">Floor (may leave leftovers)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field" style="margin:0">
+            <label>Locations (targets)</label>
+            <select id="targetLocs" multiple size="10"></select>
+            <div class="hint" style="margin-top:6px">
+              Hold <span class="mono">Shift</span> / <span class="mono">Cmd</span> to multi-select.
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="sectionTitle" style="margin:0 0 10px">Weights</div>
+          <div class="row2" style="margin-bottom:10px">
+            <button id="wUnits" class="btn small primary" type="button">Units</button>
+            <button id="wPct" class="btn small" type="button">Percent</button>
+          </div>
+
+          <div class="weights" id="weightsWrap"></div>
+
+          <div class="row3" style="margin-top:10px">
+            <button id="useCurrent" class="btn small" type="button">Use current</button>
+            <button id="normalize" class="btn small" type="button">Normalize</button>
+            <button id="clearWeights" class="btn small danger" type="button">Clear</button>
+          </div>
+
+          <div class="hint" style="margin-top:10px">
+            “Use current” reads current PO allocation totals by location and uses them as weights.
+          </div>
+          <div class="hint" style="margin-top:6px" id="weightSumHint">—</div>
+        </div>
+      </div>
+
+      <div class="modalFoot">
+        <div class="left">
+          <span class="pill">Selected rows <b id="rowsToApply">—</b></span>
+        </div>
+        <div class="right">
+          <button id="applyMathAdd" class="btn">Apply</button>
+          <button id="applyMathOverwrite" class="btn primary">Apply (Overwrite)</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
 <script>
-/* =========================================================
-   CONFIG — KEEP FETCH WORKING (NO URL IMPORT UI)
-========================================================= */
+/* =======================
+   CONFIG (keep this like your working file)
+======================= */
 const PUBLISHED_PUB_BASE = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQkrN-4CPWPkdS8sRFg-mkKBoPU_gqQXFkhjjSQ6hT5MvMhzmaHI-6DrKBh_jRE0Kucy9Edv9S4ptPO/pub";
 const MASTER_GID = "1062059200";
 const CSV_URL = `${PUBLISHED_PUB_BASE}?gid=${MASTER_GID}&single=true&output=csv`;
 
-const OPEN_SHEET_URL = "https://docs.google.com/spreadsheets/d/1VvBB_F0cXdOq5rKYDfV540v5_eAXyHi1NqkJi34Kv-o/edit?gid=1062059200#gid=1062059200";
-
 /* Storage keys */
 const STORAGE = {
-  theme: "alloc_theme_v2026",
-  locations: "alloc_locations_v2026",
-  allocations: "alloc_allocations_v2026",
-  report: "alloc_report_v2026",
-  math: "alloc_math_v2026",
+  theme: "alloc_theme_v6",
+  autosave: "alloc_autosave_v6",
+  locations: "alloc_locations_v6",
+  allocations: "alloc_allocations_v6",
+  weights: "alloc_weights_v6", // saved allocator weights (optional)
 };
 
+/* Default store/location list (from your screenshot) */
 const DEFAULT_LOCATIONS = [
-  "Baseballism HQ",
+  "Online",
   "Wholesale",
-  "Atlanta",
-  "Cooperstown",
+  "Wholesale - MLB",
+  "Wholesale - Faire",
+  "Wholesale - DSG",
+  "Baseballism HQ",
   "Field of Dreams",
-  "Hohokam",
-  "Lakepoint",
-  "Mission Viejo",
-  "Sacramento"
-  "Ontario",
+  "Cooperstown",
+  "Scottsdale",
+  "Atlanta",
   "Texas",
+  "San Francisco",
   "St. Louis",
-  "Grand Park",
-  "Frisco",
+  "Pop Up",
+  "College World Series",
+  "Sacramento",
   "Peoria",
-  "CWS",
-  "Spring Training 1",
-  "Spring Training 2",
-  "St. Louis",
-  "WPV",
-  "Retail",
-  "Retail 2"
-
+  "Hohokam",
+  "Mission Viejo",
+  "West Palm",
+  "Franklin",
+  "Chicago",
+  "Lakepoint",
+  "Grand Park",
+  "Ontario",
 ];
 
-/* =========================================================
+/* Pinned always-first */
+const PINNED_LOCATIONS = new Set(["Online","Wholesale"]);
+
+/* =======================
    STATE
-========================================================= */
-let allLines = [];        // raw parsed rows
-let poList = [];          // string[]
-let currentPO = "";
-let currentRows = [];     // aggregated rows shown in table
-let poMeta = {};          // computed meta
-
+======================= */
+let allLines = [];
+let poList = [];
 let locations = loadLocations();
-let allocations = loadAllocations(); // allocations[poName][rowKey][location] = qty
+let allocations = loadAllocations(); // allocations[poName][rowKey][location]=qty
+let currentPO = "";
+let currentRows = [];     // aggregated SKU+Size+Title
+let filteredRows = [];    // after search filter
+let poMeta = { poName:"", factory:"—", ship:"—", wholesaleTriggered:"—" };
+let autosaveOn = loadAutosave();
 
-let mathState = loadMathState();     // targets + rounding
-let filterQ = "";
+/* Allocator UI state */
+let allocMode = "even";     // even | weights
+let weightMode = "units";   // units | pct
+let weights = loadWeights(); // { [loc]: number }
+let suppressAutosaveBlink = false;
 
-/* =========================================================
-   DOM / HELPERS
-========================================================= */
-const $ = (id)=>document.getElementById(id);
-const esc = (s)=>String(s??"").replace(/[&<>"']/g,m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;" }[m]));
-const debounce=(fn,ms=220)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}};
+/* =======================
+   DOM
+======================= */
+const $ = (id) => document.getElementById(id);
+const esc = (s)=>String(s??"").replace(/[&<>"']/g,m=>({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[m]));
+const debounce=(fn,ms=180)=>{let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}};
 
-function showBanner(msg){ const b=$("banner"); b.textContent = msg; b.style.display="block"; }
-function clearBanner(){ $("banner").style.display="none"; $("banner").textContent=""; }
+/* =======================
+   UTIL
+======================= */
+function banner(msg){
+  const b = $("banner");
+  b.textContent = msg;
+  b.style.display = "block";
+}
+function clearBanner(){ $("banner").style.display = "none"; }
 
 function normalizeHeader(h){
-  return String(h||"").trim().toLowerCase()
+  return String(h||"")
+    .trim().toLowerCase()
     .replace(/\([^)]*\)/g,"")
     .replace(/[^a-z0-9]+/g," ")
     .trim();
@@ -741,19 +897,18 @@ function parseCSV(text){
 function detectHeaderRow(rows){
   for(let r=0;r<Math.min(rows.length, 30);r++){
     const line = rows[r].map(c=>normalizeHeader(c));
-    const ok = (line.includes("po name") || line.includes("po")) &&
-               line.includes("factory") &&
-               (line.includes("qty") || line.includes("quantity")) &&
-               line.includes("sku");
-    if(ok) return r;
+    const hasPO = line.includes("po name") || line.includes("po");
+    const hasFactory = line.includes("factory");
+    const hasQty = line.includes("qty") || line.includes("quantity") || line.includes("units");
+    if(hasPO && hasFactory && hasQty) return r;
   }
   return 0;
 }
 
 function buildIndex(header){
-  const map = new Map();
+  const map=new Map();
   header.forEach((h,i)=>{
-    const k = normalizeHeader(h);
+    const k=normalizeHeader(h);
     if(!k) return;
     if(!map.has(k)) map.set(k, []);
     map.get(k).push(i);
@@ -761,8 +916,8 @@ function buildIndex(header){
   return {
     get(keys, occ=0){
       for(const k0 of keys){
-        const k = normalizeHeader(k0);
-        const arr = map.get(k);
+        const k=normalizeHeader(k0);
+        const arr=map.get(k);
         if(arr && arr.length) return arr[Math.min(occ, arr.length-1)];
       }
       return -1;
@@ -773,60 +928,90 @@ function buildIndex(header){
 function parseNumber(v){
   if(v==null) return 0;
   if(typeof v==="number" && Number.isFinite(v)) return v;
-  const s = String(v).trim();
+  const s=String(v).trim();
   if(!s) return 0;
-  const cleaned = s
-    .replace(/[\u00A0\s]/g,"")
-    .replace(/[$,]/g,"")
-    .replace(/^\((.*)\)$/,"-$1");
-  const n = Number(cleaned);
+  const cleaned=s.replace(/[$,]/g,"").trim();
+  const n=Number(cleaned);
   return Number.isFinite(n) ? n : 0;
-}
-function toInt(v){ return Math.max(0, Math.floor(parseNumber(v))); }
-function money(n){
-  const x=Number(n);
-  return Number.isFinite(x) ? x.toLocaleString("en-US",{style:"currency",currency:"USD"}) : "$0.00";
 }
 
 function parseDate(v){
   if(!v) return null;
   const s=String(v).trim();
   if(!s) return null;
-
   let m=s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
   if(m) return new Date(+m[1], +m[2]-1, +m[3]);
-
   m=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
   if(m){
     const y = m[3].length===2 ? (+m[3]+2000) : +m[3];
     return new Date(y, +m[1]-1, +m[2]);
   }
-
-  const t = Date.parse(s);
+  const t=Date.parse(s);
   return Number.isNaN(t) ? null : new Date(t);
 }
 function fmtDate(d){
-  const dt = d instanceof Date ? d : parseDate(d);
-  return dt ? dt.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "—";
+  const dd = (d instanceof Date) ? d : parseDate(d);
+  return dd ? dd.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "—";
+}
+function money(n){
+  const x=Number(n);
+  return Number.isFinite(x) ? x.toLocaleString("en-US",{style:"currency",currency:"USD"}) : "$0.00";
 }
 function uniqSorted(arr){
   return Array.from(new Set(arr.map(x=>String(x||"").trim()).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
 }
+function clampInt(n){
+  const v = Math.floor(parseNumber(n));
+  return Number.isFinite(v) ? Math.max(0, v) : 0;
+}
 
-/* =========================================================
+/* =======================
    STORAGE
-========================================================= */
+======================= */
+function loadAutosave(){
+  try{
+    const raw = localStorage.getItem(STORAGE.autosave);
+    if(raw==null) return true;
+    return raw === "1";
+  }catch{ return true; }
+}
+function saveAutosave(){
+  localStorage.setItem(STORAGE.autosave, autosaveOn ? "1" : "0");
+  $("autosaveLabel").textContent = autosaveOn ? "On" : "Off";
+  $("autosaveDot").className = autosaveOn ? "dot" : "dot off";
+}
 function loadLocations(){
   try{
     const raw=localStorage.getItem(STORAGE.locations);
     if(!raw) return [...DEFAULT_LOCATIONS];
     const parsed=JSON.parse(raw);
-    if(Array.isArray(parsed) && parsed.length) return parsed.map(s=>String(s||"").trim()).filter(Boolean);
+    if(Array.isArray(parsed) && parsed.length){
+      const clean = parsed.map(x=>String(x||"").trim()).filter(Boolean);
+      return normalizePinned(clean);
+    }
   }catch{}
   return [...DEFAULT_LOCATIONS];
 }
-function saveLocations(){ localStorage.setItem(STORAGE.locations, JSON.stringify(locations)); }
-
+function saveLocations(){
+  locations = normalizePinned(locations);
+  localStorage.setItem(STORAGE.locations, JSON.stringify(locations));
+  $("locCountMeta").textContent = `${locations.length} locations`;
+}
+function normalizePinned(list){
+  const dedup = [];
+  const seen = new Set();
+  for(const x of list){
+    const v = String(x||"").trim();
+    if(!v) continue;
+    const k = v.toLowerCase();
+    if(seen.has(k)) continue;
+    seen.add(k);
+    dedup.push(v);
+  }
+  const pinned = dedup.filter(x=>PINNED_LOCATIONS.has(x));
+  const rest = dedup.filter(x=>!PINNED_LOCATIONS.has(x));
+  return [...pinned, ...rest];
+}
 function loadAllocations(){
   try{
     const raw=localStorage.getItem(STORAGE.allocations);
@@ -835,88 +1020,79 @@ function loadAllocations(){
     return parsed && typeof parsed==="object" ? parsed : {};
   }catch{ return {}; }
 }
-function saveAllocations(){ localStorage.setItem(STORAGE.allocations, JSON.stringify(allocations)); }
-
-function loadReport(){
+function saveAllocations(){
+  localStorage.setItem(STORAGE.allocations, JSON.stringify(allocations));
+  if(autosaveOn && !suppressAutosaveBlink){
+    $("autosaveDot").style.boxShadow = "0 0 0 6px color-mix(in oklab, var(--ok) 22%, transparent)";
+    setTimeout(()=> $("autosaveDot").style.boxShadow = "", 250);
+  }
+}
+function loadWeights(){
   try{
-    const raw=localStorage.getItem(STORAGE.report);
+    const raw = localStorage.getItem(STORAGE.weights);
     if(!raw) return {};
-    const parsed=JSON.parse(raw);
+    const parsed = JSON.parse(raw);
     return parsed && typeof parsed==="object" ? parsed : {};
   }catch{ return {}; }
 }
-function saveReport(payload){ localStorage.setItem(STORAGE.report, JSON.stringify(payload)); }
-
-function loadMathState(){
-  try{
-    const raw=localStorage.getItem(STORAGE.math);
-    if(!raw) throw new Error();
-    const parsed=JSON.parse(raw);
-    if(parsed && typeof parsed==="object") return parsed;
-  }catch{}
-  return {
-    mode: "off",
-    targetsMode: "units",       // units | pct
-    targetsByLoc: {},           // loc -> number
-    roundMode: "nearest",       // nearest | up | down
-    roundStep: 1,               // integer >= 1
-  };
+function saveWeights(){
+  localStorage.setItem(STORAGE.weights, JSON.stringify(weights));
 }
-function saveMathState(){ localStorage.setItem(STORAGE.math, JSON.stringify(mathState)); }
 
-/* =========================================================
-   ALLOCATION ACCESSORS
-========================================================= */
-function ensurePO(po){ if(!allocations[po]) allocations[po] = {}; }
-function getAlloc(po,rowKey,loc){
-  const v = allocations?.[po]?.[rowKey]?.[loc];
+/* =======================
+   ALLOCATION STATE
+======================= */
+function ensurePO(poName){
+  if(!allocations[poName]) allocations[poName] = {};
+}
+function getAlloc(poName, rowKey, loc){
+  const v = allocations?.[poName]?.[rowKey]?.[loc];
   return Number.isFinite(+v) ? +v : 0;
 }
-function setAlloc(po,rowKey,loc,val){
-  ensurePO(po);
-  if(!allocations[po][rowKey]) allocations[po][rowKey] = {};
-  allocations[po][rowKey][loc] = Math.max(0, Math.floor(+val||0));
+function setAlloc(poName, rowKey, loc, val){
+  ensurePO(poName);
+  if(!allocations[poName][rowKey]) allocations[poName][rowKey] = {};
+  allocations[poName][rowKey][loc] = clampInt(val);
 }
-function rowAllocTotal(po,rowKey){
-  let s=0;
-  for(const loc of locations) s += getAlloc(po,rowKey,loc);
-  return s;
+function clearRowAllocs(poName, rowKey){
+  ensurePO(poName);
+  allocations[poName][rowKey] = {};
 }
-function poTotals(po, rows=currentRows){
+function rowAllocatedTotal(poName, rowKey){
+  let sum = 0;
+  for(const loc of locations) sum += getAlloc(poName, rowKey, loc);
+  return sum;
+}
+function totalsForRows(poName, rows){
   const byLoc = Object.fromEntries(locations.map(l=>[l,0]));
   let avail=0, alloc=0, retail=0;
-  let lines=0; const skus=new Set();
-
+  const skus = new Set();
   for(const r of rows){
-    lines++;
+    avail += r.qty || 0;
+    retail += r.retailValue || 0;
     if(r.sku) skus.add(r.sku);
-    avail += toInt(r.qty);
-    retail += parseNumber(r.retailValue);
     for(const loc of locations){
-      const v = toInt(getAlloc(po, r.rowKey, loc));
+      const v = getAlloc(poName, r.rowKey, loc);
       byLoc[loc] += v;
       alloc += v;
     }
   }
-  return { byLoc, avail, alloc, remain: (avail-alloc), retail, lines, skus: skus.size };
+  return { byLoc, avail, alloc, remain: (avail-alloc), retail, lines: rows.length, skus: skus.size };
 }
 
-/* =========================================================
-   LOAD + PARSE SHEET
-========================================================= */
+/* =======================
+   FETCH + PARSE
+======================= */
 async function loadSheet(){
   clearBanner();
   $("allocTable").innerHTML = "";
   $("lastRefresh").textContent = "…";
 
-  $("gidLabel").textContent = MASTER_GID;
-  $("openSheetLink").href = OPEN_SHEET_URL;
-
   try{
     const res = await fetch(CSV_URL + `&_=${Date.now()}`, { cache:"no-store" });
-    if(!res.ok) throw new Error(`Fetch failed (${res.status}).`);
-    const text = await res.text();
-    const rows = parseCSV(text);
+    if(!res.ok) throw new Error(`Fetch failed (${res.status}). Check published-to-web URL + gid.`);
+    const csvText = await res.text();
+    const rows = parseCSV(csvText);
     if(!rows.length) throw new Error("CSV empty.");
 
     const hRow = detectHeaderRow(rows);
@@ -927,10 +1103,10 @@ async function loadSheet(){
     const I = {
       po: idx.get(["PO Name","PO"]),
       factory: idx.get(["Factory"]),
-      wholesaleTriggered: idx.get(["Wholesale Triggered","Wholesale Trigger"]),
+      wholesaleTriggered: idx.get(["Wholesale Triggered"]),
       orderDate: idx.get(["Order Date","Date Ordered"]),
-      reqShipDate: idx.get(["Req Ship Date","Requested Ship Date","Req Ship"]),
-      productType: idx.get(["Product Type","Type"]),
+      reqShipDate: idx.get(["Req Ship Date","Requested Ship Date","Req Ready Ship Date"]),
+      ptype: idx.get(["Product Type","Type"]),
       title: idx.get(["Title","Product Title","Product"]),
       sku: idx.get(["SKU","Product SKU"]),
       retailPrice: idx.get(["Retail Price","Retail"]),
@@ -939,22 +1115,14 @@ async function loadSheet(){
       retailValue: idx.get(["Retail Value","Value","RetailValue"]),
     };
 
-    const missing = [];
-    for(const [nm, pos] of [["PO Name",I.po],["Factory",I.factory],["Req Ship Date",I.reqShipDate],["SKU",I.sku],["Qty",I.qty]]){
-      if(pos < 0) missing.push(nm);
-    }
-    if(missing.length){
-      showBanner(
-        "Header mismatch in published CSV.\n" +
-        "Missing required columns: " + missing.join(", ") + "\n\n" +
-        "Expected columns (case-insensitive):\n" +
-        "PO Name, Factory, Wholesale Triggered, Order Date, Req Ship Date, Product Type, Title, SKU, Retail Price, Size, Qty, Retail Value"
-      );
+    const required = ["po","factory","reqShipDate","sku","qty"].map(k=>I[k]);
+    if(required.some(x=>x<0)){
+      banner("Header mismatch: required columns missing. Expected: PO Name, Factory, Req Ship Date, SKU, Qty (case-insensitive).");
     }
 
     allLines = data.map(r=>{
-      const hasAny = r.some(c=>String(c||"").trim()!=="");
-      if(!hasAny) return null;
+      const nonEmpty = r.some(c=>String(c||"").trim()!=="");
+      if(!nonEmpty) return null;
 
       const poName = String(r[I.po] ?? "").trim();
       const factory = String(r[I.factory] ?? "").trim();
@@ -964,19 +1132,16 @@ async function loadSheet(){
       const retailPrice = I.retailPrice>=0 ? parseNumber(r[I.retailPrice]) : 0;
       const retailValue = I.retailValue>=0 ? parseNumber(r[I.retailValue]) : (qty * retailPrice);
 
-      const wtRaw = I.wholesaleTriggered>=0 ? String(r[I.wholesaleTriggered] ?? "").trim().toLowerCase() : "";
-      const wholesaleTriggered = ["true","yes","y","1"].includes(wtRaw);
-
       return {
         poName,
         factory,
-        wholesaleTriggered,
-        orderDateRaw: I.orderDate>=0 ? (r[I.orderDate] ?? "") : "",
-        reqShipDateRaw: I.reqShipDate>=0 ? (r[I.reqShipDate] ?? "") : "",
-        productType: I.productType>=0 ? String(r[I.productType] ?? "").trim() : "",
-        title: I.title>=0 ? String(r[I.title] ?? "").trim() : "",
-        sku: I.sku>=0 ? String(r[I.sku] ?? "").trim() : "",
-        size: I.size>=0 ? String(r[I.size] ?? "").trim() : "",
+        wholesaleTriggered: String(r[I.wholesaleTriggered] ?? "").trim().toLowerCase()==="true",
+        orderDateRaw: r[I.orderDate] ?? "",
+        reqShipDateRaw: r[I.reqShipDate] ?? "",
+        productType: String(r[I.ptype] ?? "").trim(),
+        title: String(r[I.title] ?? "").trim(),
+        sku: String(r[I.sku] ?? "").trim(),
+        size: String(r[I.size] ?? "").trim(),
         qty,
         retailPrice,
         retailValue,
@@ -986,142 +1151,216 @@ async function loadSheet(){
     poList = uniqSorted(allLines.map(x=>x.poName));
     renderPOSelect();
 
-    if(!currentPO || !poList.includes(currentPO)){
-      currentPO = poList[0] || "";
-      $("poSelect").value = currentPO;
-    }
-
+    $("poCountMeta").textContent = `${poList.length} POs`;
     $("lastRefresh").textContent = new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});
-    recomputeAndRender();
+    if(!currentPO) currentPO = poList[0] || "";
+    $("poSelect").value = currentPO;
+
+    recompute();
   }catch(e){
-    showBanner(String(e?.message || e));
+    banner(String(e?.message || e));
     $("lastRefresh").textContent = "—";
   }
 }
 
-/* =========================================================
-   COMPUTE CURRENT PO + FILTER + AGGREGATION
-========================================================= */
-function recomputeAndRender(){
+/* =======================
+   AGGREGATE (SKU + Size + Title)
+======================= */
+function recompute(){
   if(!currentPO){
-    currentRows = [];
-    renderAll();
+    $("allocTable").innerHTML = "";
     return;
   }
 
-  const q = (filterQ||"").trim().toLowerCase();
-  const poAll = allLines.filter(x=>x.poName === currentPO);
+  const q = ($("q").value || "").trim().toLowerCase();
 
-  const lines = poAll.filter(x=>{
-    if(!q) return true;
-    const blob = [x.sku,x.title,x.size,x.productType].join(" ").toLowerCase();
-    return blob.includes(q);
-  });
-
-  const factories = uniqSorted(lines.map(x=>x.factory));
-  const shipDates = lines.map(x=>parseDate(x.reqShipDateRaw)).filter(Boolean);
-  const orderDates = lines.map(x=>parseDate(x.orderDateRaw)).filter(Boolean);
-
+  const linesAll = allLines.filter(x=>x.poName===currentPO);
+  const factories = uniqSorted(linesAll.map(x=>x.factory));
+  const shipDates = linesAll.map(x=>parseDate(x.reqShipDateRaw)).filter(Boolean);
   const minShip = shipDates.length ? new Date(Math.min(...shipDates.map(d=>d.getTime()))) : null;
   const maxShip = shipDates.length ? new Date(Math.max(...shipDates.map(d=>d.getTime()))) : null;
-  const shipWindow = minShip ? (maxShip && maxShip.getTime()!==minShip.getTime() ? `${fmtDate(minShip)} → ${fmtDate(maxShip)}` : fmtDate(minShip)) : "—";
 
-  const minOrder = orderDates.length ? new Date(Math.min(...orderDates.map(d=>d.getTime()))) : null;
-  const maxOrder = orderDates.length ? new Date(Math.max(...orderDates.map(d=>d.getTime()))) : null;
-  const orderWindow = minOrder ? (maxOrder && maxOrder.getTime()!==minOrder.getTime() ? `${fmtDate(minOrder)} → ${fmtDate(maxOrder)}` : fmtDate(minOrder)) : "—";
+  const shipAuto = minShip
+    ? (maxShip && maxShip.getTime()!==minShip.getTime() ? `${fmtDate(minShip)} → ${fmtDate(maxShip)}` : fmtDate(minShip))
+    : "—";
+  const shipOverride = ($("shipOverride").value || "").trim();
+  const ship = shipOverride || shipAuto;
 
-  const wholesaleAny = lines.some(x=>x.wholesaleTriggered);
-
+  const wholesaleAny = linesAll.some(x=>x.wholesaleTriggered);
   poMeta = {
     poName: currentPO,
     factory: factories.join(", ") || "—",
-    shipWindow,
-    orderWindow,
-    wholesaleTriggered: wholesaleAny
+    ship,
+    shipAuto,
+    wholesaleTriggered: wholesaleAny ? "Yes" : "No",
   };
 
-  // Aggregate rows by SKU + Size + Title (as requested)
+  // Aggregate rows
   const map = new Map();
-  for(const l of lines){
-    const key = [l.sku||"(No SKU)", l.size||"(Blank)", l.title||""].join("||");
+  for(const l of linesAll){
+    const key = [l.sku || "(No SKU)", l.size || "(Blank)", l.title || ""].join("||");
     if(!map.has(key)){
       map.set(key,{
         rowKey: key,
-        sku: l.sku || "",
-        title: l.title || "",
-        size: l.size || "",
-        productType: l.productType || "",
+        poName: l.poName,
+        factory: l.factory,
+        reqShipDateRaw: l.reqShipDateRaw,
+        orderDateRaw: l.orderDateRaw,
+        productType: l.productType,
+        title: l.title,
+        sku: l.sku,
+        size: l.size,
         qty: 0,
         retailPrice: l.retailPrice || 0,
         retailValue: 0,
       });
     }
     const r = map.get(key);
-    r.qty += parseNumber(l.qty);
-    r.retailValue += parseNumber(l.retailValue);
+    r.qty += l.qty || 0;
+    r.retailValue += l.retailValue || 0;
     if(!r.retailPrice && l.retailPrice) r.retailPrice = l.retailPrice;
   }
+
   currentRows = Array.from(map.values()).sort((a,b)=>{
-    const sa=(a.sku||"").localeCompare(b.sku||""); if(sa) return sa;
-    const ta=(a.title||"").localeCompare(b.title||""); if(ta) return ta;
+    const s1=(a.sku||"").localeCompare(b.sku||""); if(s1) return s1;
+    const t1=(a.title||"").localeCompare(b.title||""); if(t1) return t1;
     return (a.size||"").localeCompare(b.size||"");
   });
 
-  ensurePO(currentPO);
-  renderAll();
-}
+  filteredRows = q
+    ? currentRows.filter(r=> ([r.sku,r.title,r.size,r.productType].join(" ").toLowerCase().includes(q)))
+    : currentRows.slice();
 
-/* =========================================================
-   RENDER
-========================================================= */
-function renderAll(){
+  ensurePO(currentPO);
   renderMeta();
-  renderLocationsUI();
-  renderMathUI();
+  renderKpis();
   renderTable();
-  renderKPIs();
+  renderFilterMeta();
+  refreshAllocatorUI();
 }
 
 function renderMeta(){
-  $("poPill").textContent = `PO ${poMeta.poName || "—"}`;
-  $("factoryPill").textContent = poMeta.factory ? `Factory: ${poMeta.factory}` : "Factory: —";
-  $("whPill").textContent = poMeta.wholesaleTriggered ? "Wholesale Triggered: Yes" : "Wholesale Triggered: No";
-  $("whPill").className = "pill" + (poMeta.wholesaleTriggered ? " warn" : "");
-  $("orderPill").textContent = `Ordered: ${poMeta.orderWindow || "—"}`;
-  $("kShip").textContent = poMeta.shipWindow || "—";
+  $("poMeta").innerHTML = `PO <b>${esc(poMeta.poName||"—")}</b>`;
+  $("poFactory").innerHTML = `Factory <b>${esc(poMeta.factory||"—")}</b>`;
+  $("poWholesale").innerHTML = `Wholesale <b>${esc(poMeta.wholesaleTriggered||"—")}</b>`;
+  $("kShip").textContent = poMeta.ship || "—";
 }
 
-function renderKPIs(){
+/* =======================
+   RENDER: PO select + Locations
+======================= */
+function renderPOSelect(){
+  const sel = $("poSelect");
+  sel.innerHTML = poList.map(po=>`<option value="${esc(po)}">${esc(po)}</option>`).join("");
+}
+function renderLocationsUI(){
+  $("locCountMeta").textContent = `${locations.length} locations`;
+
+  const wrap = $("locList");
+  wrap.innerHTML = "";
+  locations.forEach((name, idx)=>{
+    const row = document.createElement("div");
+    row.className = "locRow";
+    row.innerHTML = `
+      <input value="${esc(name)}" data-idx="${idx}" aria-label="Location name" />
+      ${PINNED_LOCATIONS.has(name) ? `<span class="pin">Pinned</span>` : `<button class="btn small danger" data-del="${idx}" type="button">Remove</button>`}
+    `;
+    wrap.appendChild(row);
+  });
+
+  wrap.querySelectorAll("input[data-idx]").forEach(inp=>{
+    inp.addEventListener("input", debounce((e)=>{
+      const i = Number(e.target.getAttribute("data-idx"));
+      const v = String(e.target.value||"").trim();
+      if(!v) return;
+
+      const old = locations[i];
+      locations[i] = v;
+      locations = normalizePinned(locations);
+
+      // rename allocations keys (all POs)
+      if(old !== v){
+        for(const poName of Object.keys(allocations)){
+          for(const rk of Object.keys(allocations[poName]||{})){
+            const rowObj = allocations[poName][rk] || {};
+            if(Object.prototype.hasOwnProperty.call(rowObj, old)){
+              rowObj[v] = rowObj[old];
+              delete rowObj[old];
+            }
+          }
+        }
+      }
+
+      saveLocations();
+      saveAllocations();
+      renderLocationsUI();
+      recompute(); // refresh table + allocator
+    }, 250));
+  });
+
+  wrap.querySelectorAll("button[data-del]").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const i = Number(btn.getAttribute("data-del"));
+      const removed = locations[i];
+      if(!removed) return;
+      if(!confirm(`Remove location "${removed}"? This deletes saved allocations across all POs in this browser.`)) return;
+
+      locations.splice(i,1);
+      locations = normalizePinned(locations);
+
+      // remove allocations across all POs
+      for(const poName of Object.keys(allocations)){
+        for(const rk of Object.keys(allocations[poName]||{})){
+          delete allocations[poName][rk]?.[removed];
+        }
+      }
+
+      saveLocations();
+      saveAllocations();
+      renderLocationsUI();
+      recompute();
+    });
+  });
+}
+
+/* =======================
+   RENDER: KPIs
+======================= */
+function renderKpis(){
   if(!currentPO){
-    $("kLines").textContent = "—";
-    $("kSkus").textContent = "—";
-    $("kAvail").textContent = "—";
-    $("kAlloc").textContent = "—";
-    $("kRemain").textContent = "—";
-    $("kRetail").textContent = "—";
+    $("kLines").textContent="—";
+    $("kSkus").textContent="—";
+    $("kUnits").textContent="—";
+    $("kAlloc").textContent="—";
+    $("kRemain").textContent="—";
+    $("kRetail").textContent="—";
+    $("kShip").textContent="—";
     return;
   }
-  const t = poTotals(currentPO);
+  const t = totalsForRows(currentPO, currentRows);
   $("kLines").textContent = t.lines.toLocaleString("en-US");
   $("kSkus").textContent = t.skus.toLocaleString("en-US");
-  $("kAvail").textContent = t.avail.toLocaleString("en-US");
+  $("kUnits").textContent = t.avail.toLocaleString("en-US");
   $("kAlloc").textContent = t.alloc.toLocaleString("en-US");
-  $("kRemain").textContent = t.remain.toLocaleString("en-US");
+  $("kRemain").textContent = (t.remain).toLocaleString("en-US");
   $("kRetail").textContent = money(t.retail);
 }
+function renderFilterMeta(){
+  $("filterMeta").innerHTML = `Rows <b>${filteredRows.length.toLocaleString("en-US")}</b>`;
+}
 
-/* =========================================================
-   TABLE (fast updates without full rerender loops)
-========================================================= */
+/* =======================
+   TABLE: Render once + update in-place (no focus loss)
+======================= */
 function renderTable(){
   const table = $("allocTable");
   if(!currentPO){
     table.innerHTML = "";
     return;
   }
+  const cols = locations;
 
-  const cols = locations.slice();
-  const thead = `
+  const head = `
     <thead>
       <tr>
         <th class="stickyCol">SKU / Title / Size</th>
@@ -1133,28 +1372,28 @@ function renderTable(){
     </thead>
   `;
 
-  const body = currentRows.map(r=>{
-    const alloc = rowAllocTotal(currentPO, r.rowKey);
-    const remain = toInt(r.qty) - alloc;
+  const body = filteredRows.map(r=>{
+    const alloc = rowAllocatedTotal(currentPO, r.rowKey);
+    const remain = (r.qty||0) - alloc;
     const bad = remain < 0;
 
     const meta = `
-      <div class="skuTitle">${esc(r.sku || "(No SKU)")}</div>
+      <div class="skuTitle">${esc(r.sku || "(No SKU)")} <span class="muted2">•</span> <span class="muted2">${esc(r.size || "(Blank)")}</span></div>
       <div class="skuSub">${esc(r.title || "")}</div>
-      <div class="tiny">Type: ${esc(r.productType||"—")} • Size: <b>${esc(r.size||"(Blank)")}</b> • Price: ${esc(money(r.retailPrice||0))}</div>
+      <div class="tiny">Type: ${esc(r.productType||"—")} • Price: ${esc(money(r.retailPrice||0))} • Row value: ${esc(money(r.retailValue||0))}</div>
     `;
 
     return `
       <tr data-row="${esc(r.rowKey)}" class="${bad ? "rowBad" : ""}">
         <td class="stickyCol">${meta}</td>
-        <td class="stickyCol2 right" data-k="avail">${toInt(r.qty).toLocaleString("en-US")}</td>
-        <td class="stickyCol3 right" data-k="alloc">${alloc.toLocaleString("en-US")}</td>
-        <td class="stickyCol4 right" data-k="remain">${bad ? `<span class="neg">${remain.toLocaleString("en-US")}</span>` : remain.toLocaleString("en-US")}</td>
+        <td class="stickyCol2 right" data-cell="avail">${Number(r.qty||0).toLocaleString("en-US")}</td>
+        <td class="stickyCol3 right" data-cell="alloc">${Number(alloc||0).toLocaleString("en-US")}</td>
+        <td class="stickyCol4 right" data-cell="remain">${bad ? `<span class="neg">${Number(remain).toLocaleString("en-US")}</span>` : Number(remain||0).toLocaleString("en-US")}</td>
         ${cols.map(loc=>{
-          const v = toInt(getAlloc(currentPO, r.rowKey, loc));
+          const v = getAlloc(currentPO, r.rowKey, loc);
           return `<td class="right">
             <input class="cellInput" inputmode="numeric" pattern="[0-9]*"
-              data-row="${esc(r.rowKey)}" data-loc="${esc(loc)}"
+              data-loc="${esc(loc)}" data-row="${esc(r.rowKey)}"
               value="${v ? v : ""}" placeholder="0" />
           </td>`;
         }).join("")}
@@ -1162,562 +1401,360 @@ function renderTable(){
     `;
   }).join("");
 
-  const t = poTotals(currentPO);
-  const tfoot = `
+  const totals = totalsForRows(currentPO, filteredRows);
+  const foot = `
     <tfoot>
       <tr>
-        <td class="stickyCol">Totals</td>
-        <td class="stickyCol2 right" id="ftAvail">${t.avail.toLocaleString("en-US")}</td>
-        <td class="stickyCol3 right" id="ftAlloc">${t.alloc.toLocaleString("en-US")}</td>
-        <td class="stickyCol4 right" id="ftRemain">${t.remain.toLocaleString("en-US")}</td>
-        ${cols.map(loc=>`<td class="right" data-ftloc="${esc(loc)}">${(t.byLoc[loc]||0).toLocaleString("en-US")}</td>`).join("")}
+        <td class="stickyCol">Totals (filtered)</td>
+        <td class="stickyCol2 right" data-foot="avail">${totals.avail.toLocaleString("en-US")}</td>
+        <td class="stickyCol3 right" data-foot="alloc">${totals.alloc.toLocaleString("en-US")}</td>
+        <td class="stickyCol4 right" data-foot="remain">${(totals.remain).toLocaleString("en-US")}</td>
+        ${cols.map(loc=>`<td class="right" data-foot-loc="${esc(loc)}">${(totals.byLoc[loc]||0).toLocaleString("en-US")}</td>`).join("")}
       </tr>
     </tfoot>
   `;
 
-  table.innerHTML = thead + `<tbody>${body || `<tr><td colspan="${4+cols.length}" class="tiny">No rows.</td></tr>`}</tbody>` + tfoot;
+  table.innerHTML = head + `<tbody>${body || `<tr><td colspan="${4+cols.length}" class="muted2">No rows.</td></tr>`}</tbody>` + foot;
 
-  // Wire cell inputs (update row + footers + KPIs without full rerender)
-  table.querySelectorAll("input.cellInput").forEach(inp=>{
-    inp.addEventListener("input", debounce(()=>{
-      const rowKey = inp.getAttribute("data-row");
-      const loc = inp.getAttribute("data-loc");
-      const val = toInt(inp.value);
-      setAlloc(currentPO, rowKey, loc, val);
-      saveAllocations();
-      refreshRowAndFooters(rowKey);
-    }, 110));
+  // event delegation for inputs
+  table.oninput = debounce((e)=>{
+    const el = e.target;
+    if(!(el instanceof HTMLInputElement)) return;
+    if(!el.classList.contains("cellInput")) return;
 
-    inp.addEventListener("blur", ()=>{
-      const v = toInt(inp.value);
-      inp.value = v ? String(v) : "";
-    });
-  });
+    const loc = el.getAttribute("data-loc");
+    const rowKey = el.getAttribute("data-row");
+    if(!loc || !rowKey || !currentPO) return;
+
+    const val = clampInt(el.value);
+    setAlloc(currentPO, rowKey, loc, val);
+    if(autosaveOn) saveAllocations();
+
+    // update that row + footer + kpis
+    updateRowUI(rowKey);
+    updateFooterUI();
+    renderKpis();
+  }, 90);
 }
 
-function refreshRowAndFooters(rowKey){
-  // Row totals
+function updateRowUI(rowKey){
   const tr = document.querySelector(`tr[data-row="${CSS.escape(rowKey)}"]`);
-  if(tr){
-    const row = currentRows.find(r=>r.rowKey === rowKey);
-    if(row){
-      const alloc = rowAllocTotal(currentPO, rowKey);
-      const remain = toInt(row.qty) - alloc;
-      tr.classList.toggle("rowBad", remain < 0);
+  if(!tr) return;
 
-      const allocCell = tr.querySelector(`[data-k="alloc"]`);
-      const remCell = tr.querySelector(`[data-k="remain"]`);
-      if(allocCell) allocCell.textContent = alloc.toLocaleString("en-US");
-      if(remCell){
-        remCell.innerHTML = remain < 0
-          ? `<span class="neg">${remain.toLocaleString("en-US")}</span>`
-          : remain.toLocaleString("en-US");
-      }
+  // read avail from state
+  const row = filteredRows.find(r=>r.rowKey===rowKey) || currentRows.find(r=>r.rowKey===rowKey);
+  if(!row) return;
+
+  const alloc = rowAllocatedTotal(currentPO, rowKey);
+  const remain = (row.qty||0) - alloc;
+
+  const allocCell = tr.querySelector(`[data-cell="alloc"]`);
+  const remainCell = tr.querySelector(`[data-cell="remain"]`);
+  if(allocCell) allocCell.textContent = Number(alloc||0).toLocaleString("en-US");
+
+  if(remainCell){
+    if(remain < 0){
+      remainCell.innerHTML = `<span class="neg">${Number(remain).toLocaleString("en-US")}</span>`;
+      tr.classList.add("rowBad");
+    }else{
+      remainCell.textContent = Number(remain||0).toLocaleString("en-US");
+      tr.classList.remove("rowBad");
     }
   }
+}
 
-  // Footers + KPIs
-  const t = poTotals(currentPO);
-  $("ftAvail").textContent = t.avail.toLocaleString("en-US");
-  $("ftAlloc").textContent = t.alloc.toLocaleString("en-US");
-  $("ftRemain").textContent = t.remain.toLocaleString("en-US");
+function updateFooterUI(){
+  const t = totalsForRows(currentPO, filteredRows);
+  const footAvail = document.querySelector(`[data-foot="avail"]`);
+  const footAlloc = document.querySelector(`[data-foot="alloc"]`);
+  const footRemain = document.querySelector(`[data-foot="remain"]`);
+  if(footAvail) footAvail.textContent = t.avail.toLocaleString("en-US");
+  if(footAlloc) footAlloc.textContent = t.alloc.toLocaleString("en-US");
+  if(footRemain) footRemain.textContent = t.remain.toLocaleString("en-US");
+
   for(const loc of locations){
-    const el = document.querySelector(`[data-ftloc="${CSS.escape(loc)}"]`);
-    if(el) el.textContent = (t.byLoc[loc]||0).toLocaleString("en-US");
-  }
-  renderKPIs();
-  renderMathPreview();
-}
-
-/* =========================================================
-   LOCATIONS UI (rename migrates allocations safely)
-========================================================= */
-function migrateLocationName(oldName, newName){
-  if(!oldName || !newName || oldName === newName) return;
-  for(const po of Object.keys(allocations)){
-    const poObj = allocations[po];
-    if(!poObj || typeof poObj !== "object") continue;
-    for(const rk of Object.keys(poObj)){
-      const rowObj = poObj[rk];
-      if(!rowObj || typeof rowObj !== "object") continue;
-      if(Object.prototype.hasOwnProperty.call(rowObj, oldName)){
-        const v = toInt(rowObj[oldName]);
-        delete rowObj[oldName];
-        rowObj[newName] = toInt(rowObj[newName]) + v;
-      }
-    }
-  }
-}
-function removeLocationEverywhere(name){
-  for(const po of Object.keys(allocations)){
-    const poObj = allocations[po];
-    if(!poObj || typeof poObj !== "object") continue;
-    for(const rk of Object.keys(poObj)){
-      const rowObj = poObj[rk];
-      if(!rowObj || typeof rowObj !== "object") continue;
-      delete rowObj[name];
-    }
+    const cell = document.querySelector(`[data-foot-loc="${CSS.escape(loc)}"]`);
+    if(cell) cell.textContent = (t.byLoc[loc]||0).toLocaleString("en-US");
   }
 }
 
-function renderLocationsUI(){
-  // Split targets list
-  const sel = $("splitTargets");
-  const prev = new Set(Array.from(sel.selectedOptions||[]).map(o=>o.value));
-  sel.innerHTML = locations.map(l=>`<option value="${esc(l)}">${esc(l)}</option>`).join("");
-  if(prev.size){
-    Array.from(sel.options).forEach(o=>o.selected = prev.has(o.value));
-  }else{
-    Array.from(sel.options).forEach(o=>o.selected = true);
-  }
-
-  // Editor list
-  const wrap = $("locList");
-  wrap.innerHTML = "";
-  locations.forEach((loc, idx)=>{
-    const row = document.createElement("div");
-    row.className = "locRow";
-    row.innerHTML = `
-      <input data-idx="${idx}" data-old="${esc(loc)}" value="${esc(loc)}" />
-      <span class="tag">${idx<2 ? "PINNED" : "EDIT"}</span>
-      <button class="btn small danger" data-del="${idx}" ${idx<2 ? "disabled" : ""}>Remove</button>
-    `;
-    wrap.appendChild(row);
-  });
-
-  // Rename commits on blur / enter
-  wrap.querySelectorAll('input[data-idx]').forEach(inp=>{
-    const commit = ()=>{
-      const idx = +inp.getAttribute("data-idx");
-      const oldName = String(inp.getAttribute("data-old")||"").trim();
-      let v = String(inp.value||"").trim();
-      if(!v){ inp.value = oldName; return; }
-
-      // Uniqueness
-      const dupe = locations.some((x,i)=> i!==idx && x.trim().toLowerCase()===v.toLowerCase());
-      if(dupe){
-        inp.value = oldName;
-        showBanner(`Duplicate location name "${v}". Names must be unique.`);
-        return;
-      }
-      clearBanner();
-
-      locations[idx] = v;
-      inp.setAttribute("data-old", v);
-
-      migrateLocationName(oldName, v);
-
-      // migrate math targets
-      if(mathState.targetsByLoc && Object.prototype.hasOwnProperty.call(mathState.targetsByLoc, oldName)){
-        mathState.targetsByLoc[v] = parseNumber(mathState.targetsByLoc[oldName]);
-        delete mathState.targetsByLoc[oldName];
-        saveMathState();
-      }
-
-      saveLocations();
-      saveAllocations();
-
-      // table header columns depend on locations
-      renderLocationsUI();
-      renderMathUI();
-      renderTable();
-      renderKPIs();
-    };
-
-    inp.addEventListener("blur", commit);
-    inp.addEventListener("keydown", (e)=>{
-      if(e.key==="Enter"){ e.preventDefault(); inp.blur(); }
-      if(e.key==="Escape"){ inp.value = oldName; inp.blur(); }
-    });
-  });
-
-  // Remove
-  wrap.querySelectorAll('button[data-del]').forEach(btn=>{
-    btn.addEventListener("click", ()=>{
-      const idx = +btn.getAttribute("data-del");
-      if(idx < 2) return;
-
-      const name = locations[idx];
-      if(!confirm(`Remove location "${name}"?\nThis deletes its saved allocations across ALL POs in this browser.`)) return;
-
-      locations.splice(idx,1);
-      removeLocationEverywhere(name);
-      if(mathState.targetsByLoc) delete mathState.targetsByLoc[name];
-
-      saveLocations();
-      saveAllocations();
-      saveMathState();
-
-      renderLocationsUI();
-      renderMathUI();
-      renderTable();
-      renderKPIs();
-    });
-  });
+/* =======================
+   ALLOCATOR (math apply)
+======================= */
+function openAllocator(){
+  $("overlay").style.display = "flex";
+  refreshAllocatorUI();
+  setTimeout(()=> $("targetLocs")?.focus?.(), 50);
+}
+function closeAllocator(){
+  $("overlay").style.display = "none";
+}
+function setAllocMode(mode){
+  allocMode = mode;
+  $("modeEven").classList.toggle("active", mode==="even");
+  $("modeWeights").classList.toggle("active", mode==="weights");
+  $("weightsWrap").style.opacity = (mode==="weights") ? "1" : ".55";
+  $("weightsWrap").style.pointerEvents = (mode==="weights") ? "auto" : "none";
+}
+function setWeightMode(mode){
+  weightMode = mode;
+  $("wUnits").classList.toggle("primary", mode==="units");
+  $("wPct").classList.toggle("primary", mode==="pct");
+  renderWeightsEditor();
 }
 
-/* =========================================================
-   QUICK ACTIONS
-========================================================= */
-function getSplitTargets(){
-  const sel = $("splitTargets");
-  const vals = Array.from(sel.selectedOptions||[]).map(o=>o.value);
-  return vals.length ? vals : locations.slice();
+function selectedTargetLocs(){
+  const sel = $("targetLocs");
+  const vals = Array.from(sel.selectedOptions || []).map(o=>o.value);
+  const cleaned = vals.filter(v=>locations.includes(v));
+  if(cleaned.length) return cleaned;
+
+  // default: all except none (but keep at least pinned)
+  const fallback = locations.slice();
+  return fallback.length ? fallback : [];
 }
 
-function evenSplitRemaining(){
-  if(!currentPO) return;
-  const targets = getSplitTargets().filter(x=>locations.includes(x));
-  if(!targets.length) return;
-
-  for(const r of currentRows){
-    const avail = toInt(r.qty);
-    const allocated = rowAllocTotal(currentPO, r.rowKey);
-    let remain = avail - allocated;
-    if(remain <= 0) continue;
-
-    const base = Math.floor(remain / targets.length);
-    let extra = remain % targets.length;
-
-    for(const loc of targets){
-      const add = base + (extra>0 ? 1 : 0);
-      if(extra>0) extra--;
-      setAlloc(currentPO, r.rowKey, loc, toInt(getAlloc(currentPO, r.rowKey, loc)) + add);
-    }
-  }
-
-  saveAllocations();
-  renderTable();
-  renderKPIs();
-  renderMathPreview();
+function rowsForScope(){
+  const scope = $("applyScope").value;
+  return scope==="all" ? currentRows : filteredRows;
 }
 
-function zeroPO(){
-  if(!currentPO) return;
-  if(!confirm(`Zero all allocations for PO "${currentPO}"?`)) return;
-  allocations[currentPO] = {};
-  saveAllocations();
-  renderTable();
-  renderKPIs();
-  renderMathPreview();
+function baseUnitsForRow(row, base){
+  const avail = clampInt(row.qty || 0);
+  const alloc = rowAllocatedTotal(currentPO, row.rowKey);
+  if(base==="total") return avail;
+  return Math.max(0, avail - alloc);
 }
 
-/* =========================================================
-   ALLOCATION MATH — SAFE + STABLE
-   - Group by SKU+Title
-   - Allocate REMAINING (not total) across locations by target shares
-   - Spread to sizes by remaining row availability
-   - Never allocates beyond remaining (no "bugging out")
-========================================================= */
-function targetsToShares(){
-  const mode = mathState.targetsMode || "units";
+function allocateInteger(total, weightsMap, mode, rounding){
+  const locs = Object.keys(weightsMap);
+  if(total<=0 || !locs.length) return Object.fromEntries(locs.map(l=>[l,0]));
+
+  // mode pct: weights are percentages (any scale) -> shares
+  // mode units: weights are relative weights (any scale) -> shares
   const raw = {};
   let sum = 0;
 
-  for(const loc of locations){
-    const v = Math.max(0, parseNumber(mathState.targetsByLoc?.[loc] ?? 0));
-    raw[loc] = v;
-    sum += v;
+  for(const l of locs){
+    const w = parseNumber(weightsMap[l]);
+    const ww = Number.isFinite(w) ? Math.max(0, w) : 0;
+    raw[l] = ww;
+    sum += ww;
   }
 
-  // If percent mode: treat values as percent weights too (still shares by sum)
   if(sum <= 0){
-    const eq = 1 / Math.max(1, locations.length);
-    const shares = Object.fromEntries(locations.map(l=>[l, eq]));
-    return { shares, sumTargets: 0, mode };
-  }
-  const shares = {};
-  for(const loc of locations) shares[loc] = raw[loc] / sum;
-  return { shares, sumTargets: sum, mode };
-}
-
-function largestRemainder(total, keys, weights){
-  // returns ints that sum to total
-  const t = Math.max(0, toInt(total));
-  const wSum = keys.reduce((a,k)=>a + Math.max(0, Number(weights[k]||0)), 0);
-
-  if(t === 0) return Object.fromEntries(keys.map(k=>[k,0]));
-  if(wSum <= 0){
-    const base = Math.floor(t / keys.length);
-    let rem = t - base*keys.length;
+    // even fallback
+    const base = Math.floor(total / locs.length);
+    let rem = total % locs.length;
     const out = {};
-    for(const k of keys){
-      out[k] = base + (rem>0?1:0);
+    for(const l of locs){
+      out[l] = base + (rem>0 ? 1 : 0);
       if(rem>0) rem--;
     }
     return out;
   }
 
-  const out = {};
-  let floorSum = 0;
-  const fracs = [];
-  for(const k of keys){
-    const share = Math.max(0, Number(weights[k]||0)) / wSum;
-    const exact = t * share;
-    const flo = Math.floor(exact);
-    out[k] = flo;
-    floorSum += flo;
-    fracs.push({k, frac: exact - flo});
+  // compute fractional shares
+  const exact = {};
+  for(const l of locs){
+    exact[l] = (raw[l] / sum) * total;
   }
 
-  let remaining = t - floorSum;
-  fracs.sort((a,b)=>b.frac - a.frac);
-  for(let i=0; i<fracs.length && remaining>0; i++){
-    out[fracs[i].k] += 1;
-    remaining--;
+  const out = {};
+  let used = 0;
+
+  if(rounding === "floor"){
+    for(const l of locs){
+      out[l] = Math.floor(exact[l]);
+      used += out[l];
+    }
+    return out; // might leave leftovers intentionally
+  }
+
+  // largest remainder: floor then distribute remainder by fractional part desc
+  const fracs = locs.map(l=>{
+    const f = exact[l] - Math.floor(exact[l]);
+    return { l, f };
+  }).sort((a,b)=> b.f - a.f);
+
+  for(const l of locs){
+    out[l] = Math.floor(exact[l]);
+    used += out[l];
+  }
+
+  let rem = total - used;
+  for(let i=0; i<fracs.length && rem>0; i++){
+    out[fracs[i].l] += 1;
+    rem--;
   }
   return out;
 }
 
-function roundWithMode(v, step, mode){
-  const s = Math.max(1, toInt(step));
-  const n = (Number.isFinite(v) ? v : 0) / s;
-  const r = (mode==="up") ? Math.ceil(n) : (mode==="down" ? Math.floor(n) : Math.round(n));
-  return r * s;
-}
-
-function groupBySkuTitle(rows){
-  const m = new Map();
-  for(const r of rows){
-    const k = `${r.sku||"(No SKU)"}||${r.title||""}`;
-    if(!m.has(k)) m.set(k, []);
-    m.get(k).push(r);
-  }
-  return m;
-}
-
-function applyMath({overwrite=false}){
+function applyMath({ overwrite=false }){
   if(!currentPO) return;
-  if((mathState.mode||"off") !== "targets"){
-    showBanner("Allocation math is Off. Set Mode to “Targets → allocate remaining (safe)” first.");
-    return;
+
+  const rows = rowsForScope();
+  const base = $("applyBase").value; // remaining|total
+  const action = overwrite ? "overwrite" : $("applyAction").value;
+  const rounding = $("roundMode").value; // largest|floor
+  const targets = selectedTargetLocs();
+
+  if(!rows.length) return alert("No rows to apply.");
+  if(!targets.length) return alert("Select at least one target location.");
+
+  // decide weights map
+  let wMap = {};
+  if(allocMode === "even"){
+    wMap = Object.fromEntries(targets.map(l=>[l, 1]));
+  }else{
+    wMap = Object.fromEntries(targets.map(l=>[l, parseNumber(weights[l] ?? 0)]));
   }
 
-  const hasTargets = Object.values(mathState.targetsByLoc||{}).some(v=>parseNumber(v) > 0);
-  if(!hasTargets){
-    showBanner("Targets are empty. Fill targets (or click “Use current”), then Apply.");
-    return;
-  }
-  clearBanner();
-
-  if(overwrite){
-    allocations[currentPO] = {};
-  }
-  ensurePO(currentPO);
-
-  const { shares } = targetsToShares();
-  const step = Math.max(1, toInt(mathState.roundStep||1));
-  const rMode = mathState.roundMode || "nearest";
-
-  const groups = groupBySkuTitle(currentRows);
-
-  // For each SKU group, allocate the group's REMAINING units (safe) across locations
-  for(const [, rows] of groups.entries()){
-    // remaining by rowKey is based on current allocations (after overwrite clearing if overwrite=true)
-    const remainByRow = {};
-    let groupRemain = 0;
-
+  suppressAutosaveBlink = true;
+  try{
     for(const r of rows){
-      const allocNow = rowAllocTotal(currentPO, r.rowKey);
-      const remain = Math.max(0, toInt(r.qty) - allocNow);
-      remainByRow[r.rowKey] = remain;
-      groupRemain += remain;
-    }
-    if(groupRemain <= 0) continue;
+      const units = baseUnitsForRow(r, base);
+      if(units <= 0) continue;
 
-    // Location totals for this group (ints sum to groupRemain)
-    let locTotals = largestRemainder(groupRemain, locations, shares);
-
-    // Optional rounding step at the location-total level (then repair to sum exactly groupRemain)
-    if(step > 1){
-      const rounded = {};
-      for(const loc of locations){
-        rounded[loc] = Math.max(0, roundWithMode(locTotals[loc]||0, step, rMode));
+      if(action === "overwrite"){
+        clearRowAllocs(currentPO, r.rowKey);
       }
-      // Repair to exact sum
-      let sumRounded = locations.reduce((a,l)=>a + (rounded[l]||0), 0);
 
-      // If we rounded up too far, take away; if too low, add.
-      // Adjust using 1-unit granularity to always be able to hit exact.
-      // We adjust in descending share order.
-      const order = locations.slice().sort((a,b)=>(shares[b]||0)-(shares[a]||0));
-
-      // If sumRounded > groupRemain, decrement; else increment
-      while(sumRounded !== groupRemain){
-        let changed = false;
-        if(sumRounded > groupRemain){
-          for(const loc of order){
-            if((rounded[loc]||0) > 0){
-              rounded[loc] -= 1;
-              sumRounded -= 1;
-              changed = true;
-              if(sumRounded === groupRemain) break;
-            }
-          }
-        }else{
-          for(const loc of order){
-            rounded[loc] += 1;
-            sumRounded += 1;
-            changed = true;
-            if(sumRounded === groupRemain) break;
-          }
-        }
-        if(!changed) break;
-      }
-      locTotals = rounded;
-    }
-
-    // Spread each location's qty across rows by remaining capacity
-    for(const loc of locations){
-      let locQty = Math.max(0, toInt(locTotals[loc]||0));
-      if(locQty <= 0) continue;
-
-      // Build weights by row remaining
-      const rowKeys = rows.map(r=>r.rowKey);
-      const weights = {};
-      for(const rk of rowKeys) weights[rk] = remainByRow[rk] || 0;
-
-      // Allocate ints by remaining weights
-      const perRow = largestRemainder(locQty, rowKeys, weights);
-
-      // Apply, capped by remaining
-      for(const rk of rowKeys){
-        const add = Math.min(toInt(perRow[rk]||0), remainByRow[rk]||0);
-        if(add <= 0) continue;
-
-        const cur = toInt(getAlloc(currentPO, rk, loc));
-        setAlloc(currentPO, rk, loc, cur + add);
-        remainByRow[rk] -= add;
+      const allocs = allocateInteger(units, wMap, weightMode, rounding==="floor" ? "floor" : "largest");
+      for(const loc of targets){
+        const add = clampInt(allocs[loc] || 0);
+        if(add<=0) continue;
+        const cur = getAlloc(currentPO, r.rowKey, loc);
+        setAlloc(currentPO, r.rowKey, loc, cur + add);
       }
     }
+  } finally {
+    suppressAutosaveBlink = false;
   }
 
-  saveAllocations();
+  if(autosaveOn) saveAllocations();
+  closeAllocator();
+
+  // update whole table quickly (values changed broadly)
   renderTable();
-  renderKPIs();
-  renderMathPreview();
+  renderKpis();
 }
 
-/* =========================================================
-   MATH UI
-========================================================= */
-function renderMathUI(){
-  $("mathMode").value = mathState.mode || "off";
-  $("roundMode").value = mathState.roundMode || "nearest";
-  $("roundStep").value = String(Math.max(1, toInt(mathState.roundStep||1)));
+function refreshAllocatorUI(){
+  // targetLocs
+  const sel = $("targetLocs");
+  const prev = new Set(Array.from(sel.selectedOptions||[]).map(o=>o.value));
+  sel.innerHTML = locations.map(l=>`<option value="${esc(l)}">${esc(l)}</option>`).join("");
+  // default selection: if no prev, select all non-empty
+  if(prev.size){
+    Array.from(sel.options).forEach(o=> o.selected = prev.has(o.value));
+  }else{
+    Array.from(sel.options).forEach(o=> o.selected = true);
+  }
 
-  const isPct = (mathState.targetsMode === "pct");
-  $("targetsUnits").className = "btn small" + (!isPct ? " primary" : "");
-  $("targetsPct").className = "btn small" + (isPct ? " primary" : "");
+  // selection count
+  $("rowsToApply").textContent = rowsForScope().length.toLocaleString("en-US");
 
-  const wrap = $("targetsWrap");
+  // weights editor
+  renderWeightsEditor();
+  updateWeightSumHint();
+}
+
+function updateWeightSumHint(){
+  const targets = selectedTargetLocs();
+  const sum = targets.reduce((a,l)=> a + Math.max(0, parseNumber(weights[l] ?? 0)), 0);
+  const label = (weightMode==="pct")
+    ? `Target sum ${sum.toFixed(2)}%`
+    : `Weight sum ${sum.toFixed(2)}`;
+  $("weightSumHint").textContent = label;
+}
+
+function renderWeightsEditor(){
+  const wrap = $("weightsWrap");
+  const targets = selectedTargetLocs();
   wrap.innerHTML = "";
 
-  for(const loc of locations){
-    const v = parseNumber(mathState.targetsByLoc?.[loc] ?? 0);
+  for(const loc of targets){
+    if(weights[loc]==null) weights[loc] = 0;
     const row = document.createElement("div");
-    row.className = "locRow";
+    row.className = "wRow";
     row.innerHTML = `
-      <input data-loc="${esc(loc)}" inputmode="decimal" placeholder="${esc(isPct ? "% weight" : "units")}" value="${v ? esc(v) : ""}" />
-      <span class="tag">${esc(loc)}</span>
+      <div class="name">${esc(loc)}</div>
+      <input data-wloc="${esc(loc)}" value="${esc(weights[loc] ?? 0)}" inputmode="decimal" />
     `;
     wrap.appendChild(row);
   }
 
-  wrap.querySelectorAll("input[data-loc]").forEach(inp=>{
-    inp.addEventListener("input", debounce(()=>{
-      const loc = inp.getAttribute("data-loc");
-      const v = Math.max(0, parseNumber(inp.value));
-      if(!mathState.targetsByLoc) mathState.targetsByLoc = {};
-      mathState.targetsByLoc[loc] = v;
-      saveMathState();
-      renderMathPreview();
+  wrap.querySelectorAll("input[data-wloc]").forEach(inp=>{
+    inp.addEventListener("input", debounce((e)=>{
+      const loc = e.target.getAttribute("data-wloc");
+      const v = parseNumber(e.target.value);
+      weights[loc] = Number.isFinite(v) ? v : 0;
+      saveWeights();
+      updateWeightSumHint();
     }, 120));
-    inp.addEventListener("blur", ()=>{
-      const v = Math.max(0, parseNumber(inp.value));
-      inp.value = v ? String(v) : "";
-    });
   });
 
-  renderMathPreview();
+  updateWeightSumHint();
 }
 
-function renderMathPreview(){
-  const { shares, sumTargets, mode } = targetsToShares();
-  const shareSum = Object.values(shares).reduce((a,b)=>a+b,0) || 0;
-
-  $("targetSum").textContent = (mode==="pct")
-    ? sumTargets.toFixed(1)
-    : sumTargets.toLocaleString("en-US");
-
-  $("shareSum").textContent = (shareSum*100).toFixed(1) + "%";
+/* =======================
+   QUICK ACTIONS
+======================= */
+function zeroPO(){
+  if(!currentPO) return;
+  if(!confirm(`Zero all allocations for ${currentPO}?`)) return;
+  allocations[currentPO] = {};
+  saveAllocations();
+  renderTable();
+  renderKpis();
 }
 
-/* =========================================================
-   EXPORTS
-========================================================= */
-function readReportMeta(){
-  return {
-    brandTitle: ($("brandTitle").value || "").trim(),
-    preparedBy: ($("preparedBy").value || "").trim(),
-    notes: ($("notes").value || "").trim(),
-  };
-}
-function persistReportMeta(){
-  saveReport(readReportMeta());
-  $("brandChip").textContent = ($("brandTitle").value || "").trim() || "—";
+function clearSearch(){
+  $("q").value = "";
+  recompute();
 }
 
-function titleRows({title, now, poName, factory, shipWindow, preparedBy, notes}){
-  const dateStr = now.toLocaleDateString("en-US",{year:"numeric",month:"short",day:"2-digit"});
-  const timeStr = now.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});
-  const rows = [
-    [title],
-    [`PO: ${poName}`, `Factory: ${factory}`, `Ship window: ${shipWindow}`, `Generated: ${dateStr} ${timeStr}`]
-  ];
-  if(preparedBy) rows.push([`Prepared by: ${preparedBy}`]);
-  if(notes) rows.push([`Notes: ${notes}`]);
-  rows.push([]);
-  return rows;
-}
-
+/* =======================
+   EXPORT: EXCEL (.xlsx)
+======================= */
 function exportExcel(){
   if(!currentPO) return;
 
-  const meta = readReportMeta();
-  const brand = meta.brandTitle || "Allocation";
-  const prep = meta.preparedBy || "";
-  const notes = meta.notes || "";
+  const brand = ($("brandTitle").value || "Allocation").trim();
+  const prep = ($("preparedBy").value || "").trim();
+  const notes = ($("notes").value || "").trim();
   const now = new Date();
+  const dateStr = now.toLocaleDateString("en-US",{year:"numeric",month:"short",day:"2-digit"});
+  const timeStr = now.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});
 
-  const t = poTotals(currentPO);
+  const ship = (poMeta.ship || "—");
 
-  // Sheet 1: Allocation_Lines (non-zero allocations only)
-  const sheet1 = [
-    ...titleRows({
-      title: `${brand} — Allocation_Lines`,
-      now,
-      poName: currentPO,
-      factory: poMeta.factory || "—",
-      shipWindow: poMeta.shipWindow || "—",
-      preparedBy: prep,
-      notes
-    }),
+  const totals = totalsForRows(currentPO, currentRows);
+
+  // Sheet 1: Allocation_Lines (one row per non-zero allocation)
+  const allocLines = [
+    [`${brand} — Allocation / Transfer Sheet`],
+    [`PO: ${currentPO}`, `Factory: ${poMeta.factory}`, `Ship window: ${ship}`, `Generated: ${dateStr} ${timeStr}`],
+    prep ? [`Prepared by: ${prep}`] : [],
+    notes ? [`Notes: ${notes}`] : [],
+    [],
     ["PO Name","Factory","Ship window","SKU","Title","Size","Avail Qty","Location","Alloc Qty","Retail Price","Retail Value (row)","Retail Value (alloc est)"]
-  ];
+  ].filter(r=>r.length);
 
   for(const r of currentRows){
-    const avail = toInt(r.qty);
-    const price = parseNumber(r.retailPrice);
-    const rowValue = parseNumber(r.retailValue) || (avail * price);
+    const avail = clampInt(r.qty||0);
+    const price = parseNumber(r.retailPrice||0);
+    const rowRetail = parseNumber(r.retailValue||0);
 
     for(const loc of locations){
-      const a = toInt(getAlloc(currentPO, r.rowKey, loc));
+      const a = clampInt(getAlloc(currentPO, r.rowKey, loc));
       if(!a) continue;
-      sheet1.push([
+
+      allocLines.push([
         currentPO,
-        poMeta.factory || "",
-        poMeta.shipWindow || "",
+        poMeta.factory,
+        ship,
         r.sku || "",
         r.title || "",
         r.size || "",
@@ -1725,74 +1762,63 @@ function exportExcel(){
         loc,
         a,
         price,
-        rowValue,
+        rowRetail,
         a * price
       ]);
     }
   }
 
-  // Sheet 2: PO_Summary (totals + per location)
-  const sheet2 = [
-    ...titleRows({
-      title: `${brand} — PO_Summary`,
-      now,
-      poName: currentPO,
-      factory: poMeta.factory || "—",
-      shipWindow: poMeta.shipWindow || "—",
-      preparedBy: prep,
-      notes
-    }),
+  // Sheet 2: PO_Summary
+  const poSummary = [
+    [`${brand} — PO Summary`],
+    [`PO: ${currentPO}`, `Factory: ${poMeta.factory}`, `Ship window: ${ship}`, `Generated: ${dateStr} ${timeStr}`],
+    [],
     ["Metric","Value"],
-    ["Lines", t.lines],
-    ["Distinct SKUs", t.skus],
-    ["Available Units", t.avail],
-    ["Allocated Units", t.alloc],
-    ["Remaining Units", t.remain],
-    ["Retail Value (available)", t.retail],
+    ["Lines", totals.lines],
+    ["Distinct SKUs", totals.skus],
+    ["Available Units", totals.avail],
+    ["Allocated Units", totals.alloc],
+    ["Remaining Units", totals.remain],
+    ["Retail Value (available)", totals.retail],
     [],
     ["Location","Allocated Units"]
   ];
   for(const loc of locations){
-    sheet2.push([loc, t.byLoc[loc]||0]);
+    poSummary.push([loc, totals.byLoc[loc]||0]);
   }
 
-  // Sheet 3: Location_Summary (only non-zero; always include Online/Wholesale if they exist)
-  const must = new Set(["Online","Wholesale"]);
-  const sheet3 = [
-    ...titleRows({
-      title: `${brand} — Location_Summary`,
-      now,
-      poName: currentPO,
-      factory: poMeta.factory || "—",
-      shipWindow: poMeta.shipWindow || "—",
-      preparedBy: prep,
-      notes
-    }),
+  // Sheet 3: Location_Summary (only locations w non-zero allocations)
+  const locSummary = [
+    [`${brand} — Location Summary`],
+    [`PO: ${currentPO}`, `Generated: ${dateStr} ${timeStr}`],
+    [],
     ["Location","Allocated Units","% of PO Units"]
   ];
   for(const loc of locations){
-    const v = t.byLoc[loc]||0;
-    if(!v && !must.has(loc)) continue;
-    sheet3.push([loc, v, t.avail ? (v/t.avail) : 0]);
+    const v = totals.byLoc[loc]||0;
+    if(!v) continue;
+    locSummary.push([loc, v, totals.avail ? (v/totals.avail) : 0]);
   }
 
   const wb = XLSX.utils.book_new();
-  const ws1 = XLSX.utils.aoa_to_sheet(sheet1);
-  const ws2 = XLSX.utils.aoa_to_sheet(sheet2);
-  const ws3 = XLSX.utils.aoa_to_sheet(sheet3);
+  const ws1 = XLSX.utils.aoa_to_sheet(allocLines);
+  const ws2 = XLSX.utils.aoa_to_sheet(poSummary);
+  const ws3 = XLSX.utils.aoa_to_sheet(locSummary);
 
-  // Percent formatting in sheet3 col C
-  const range = XLSX.utils.decode_range(ws3["!ref"]);
-  for(let R=0; R<=range.e.r; R++){
-    const cell = ws3[XLSX.utils.encode_cell({r:R,c:2})];
-    if(cell && typeof cell.v === "number") cell.z = "0.0%";
+  // % formatting in ws3 col C
+  if(ws3["!ref"]){
+    const range = XLSX.utils.decode_range(ws3["!ref"]);
+    for(let R=0; R<=range.e.r; R++){
+      const cell = ws3[XLSX.utils.encode_cell({r:R,c:2})];
+      if(cell && typeof cell.v==="number") cell.z = "0.0%";
+    }
   }
 
   ws1["!cols"] = [
-    {wch:18},{wch:20},{wch:18},{wch:18},{wch:44},{wch:12},{wch:10},{wch:20},{wch:10},{wch:12},{wch:18},{wch:22}
+    {wch:18},{wch:18},{wch:18},{wch:18},{wch:40},{wch:12},{wch:10},{wch:18},{wch:10},{wch:12},{wch:18},{wch:20}
   ];
-  ws2["!cols"] = [{wch:24},{wch:18}];
-  ws3["!cols"] = [{wch:24},{wch:16},{wch:14}];
+  ws2["!cols"] = [{wch:22},{wch:18}];
+  ws3["!cols"] = [{wch:22},{wch:16},{wch:14}];
 
   XLSX.utils.book_append_sheet(wb, ws1, "Allocation_Lines");
   XLSX.utils.book_append_sheet(wb, ws2, "PO_Summary");
@@ -1802,62 +1828,67 @@ function exportExcel(){
   XLSX.writeFile(wb, `${safeBrand} - Allocation - ${currentPO} - ${now.toISOString().slice(0,10)}.xlsx`);
 }
 
-function generatePDF(){
+/* =======================
+   EXPORT: PDF (landscape letter, grouped by SKU)
+======================= */
+function generatePdf(){
   if(!currentPO) return;
 
-  const meta = readReportMeta();
-  const brand = meta.brandTitle || "Allocation";
-  const prep = meta.preparedBy || "";
-  const notes = meta.notes || "";
+  const brand = ($("brandTitle").value || "Allocation").trim();
+  const prep = ($("preparedBy").value || "").trim();
+  const notes = ($("notes").value || "").trim();
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-US",{year:"numeric",month:"short",day:"2-digit"});
   const timeStr = now.toLocaleTimeString("en-US",{hour:"2-digit",minute:"2-digit"});
+  const ship = (poMeta.ship || "—");
 
-  const t = poTotals(currentPO);
+  const totals = totalsForRows(currentPO, currentRows);
 
-  // include only non-zero locations, but always include Online + Wholesale if present
   const must = new Set(["Online","Wholesale"]);
-  const cols = locations.filter(l => (t.byLoc[l]||0) > 0 || must.has(l));
-  const useCols = cols.length ? cols : locations.slice();
+  const cols = locations.filter(l => (totals.byLoc[l]||0) > 0 || must.has(l));
+  const usedCols = cols.length ? cols : locations.slice();
 
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "letter" });
+  const doc = new jsPDF({ orientation:"landscape", unit:"pt", format:"letter" });
 
+  // header
   doc.setFont("helvetica","bold");
   doc.setFontSize(18);
   doc.text(`${brand} — Allocation / Transfer Sheet`, 40, 44);
 
   doc.setFont("helvetica","normal");
   doc.setFontSize(10);
-  doc.text(`PO: ${currentPO}   •   Factory: ${poMeta.factory||"—"}   •   Ship: ${poMeta.shipWindow||"—"}`, 40, 66);
-  doc.text(`Generated: ${dateStr} ${timeStr}` + (prep ? `   •   Prepared by: ${prep}` : ""), 40, 82);
+  doc.text(`PO: ${currentPO}   •   Factory: ${poMeta.factory}   •   Ship window: ${ship}`, 40, 66);
+  doc.text(`Generated: ${dateStr} ${timeStr}${prep ? `   •   Prepared by: ${prep}` : ""}`, 40, 82);
 
   doc.setFont("helvetica","bold");
   doc.setFontSize(10);
   doc.text(
-    `Avail: ${t.avail.toLocaleString("en-US")}   •   Allocated: ${t.alloc.toLocaleString("en-US")}   •   Remaining: ${t.remain.toLocaleString("en-US")}   •   Retail Value: ${money(t.retail)}`,
+    `Avail: ${totals.avail.toLocaleString("en-US")}   •   Allocated: ${totals.alloc.toLocaleString("en-US")}   •   Remaining: ${totals.remain.toLocaleString("en-US")}   •   Retail Value: ${money(totals.retail)}`,
     40, 104
   );
 
-  let y = 126;
+  let startY = 128;
   if(notes){
     doc.setFont("helvetica","normal");
     doc.setFontSize(9);
-    const lines = doc.splitTextToSize(`Notes: ${notes}`, 720);
-    doc.text(lines, 40, y);
-    y += lines.length * 12 + 8;
+    const n = doc.splitTextToSize(`Notes: ${notes}`, 720);
+    doc.text(n, 40, 122);
+    startY = 148;
   }
 
-  // Group by SKU for PDF tables
+  // group rows by SKU
   const bySku = new Map();
   for(const r of currentRows){
     const sku = r.sku || "(No SKU)";
     if(!bySku.has(sku)) bySku.set(sku, []);
     bySku.get(sku).push(r);
   }
-  for(const arr of bySku.values()){
-    arr.sort((a,b)=> (a.size||"").localeCompare(b.size||""));
+  for(const [sku, rows] of bySku.entries()){
+    rows.sort((a,b)=> (a.size||"").localeCompare(b.size||""));
   }
+
+  let y = startY;
 
   for(const [sku, rows] of bySku.entries()){
     doc.setFont("helvetica","bold");
@@ -1867,16 +1898,15 @@ function generatePDF(){
     doc.setFont("helvetica","normal");
     doc.setFontSize(9);
     const titleAny = rows.find(r=>r.title)?.title || "";
-    const typeAny = rows.find(r=>r.productType)?.productType || "";
-    doc.text(`${typeAny}${typeAny && titleAny ? " • " : ""}${titleAny}`, 40, y+14);
+    const ptypeAny = rows.find(r=>r.productType)?.productType || "";
+    doc.text(`${ptypeAny}${ptypeAny && titleAny ? " • " : ""}${titleAny}`, 40, y+14);
 
-    const head = ["Size","Avail","Alloc","Remain", ...useCols];
-
+    const head = ["Size","Avail","Alloc","Remain", ...usedCols];
     const body = rows.map(r=>{
-      const avail = toInt(r.qty);
-      let alloc = 0;
-      const locVals = useCols.map(loc=>{
-        const v = toInt(getAlloc(currentPO, r.rowKey, loc));
+      const avail = clampInt(r.qty||0);
+      let alloc=0;
+      const locVals = usedCols.map(loc=>{
+        const v = clampInt(getAlloc(currentPO, r.rowKey, loc));
         alloc += v;
         return v ? String(v) : "";
       });
@@ -1884,19 +1914,19 @@ function generatePDF(){
       return [r.size || "(Blank)", String(avail), String(alloc), String(remain), ...locVals];
     });
 
-    // footer totals per SKU
-    const skuTotals = Object.fromEntries(useCols.map(c=>[c,0]));
+    // sku totals
+    const skuTotals = Object.fromEntries(usedCols.map(c=>[c,0]));
     let skuAvail=0, skuAlloc=0;
     for(const r of rows){
-      skuAvail += toInt(r.qty);
-      for(const loc of useCols){
-        const v = toInt(getAlloc(currentPO, r.rowKey, loc));
+      skuAvail += clampInt(r.qty||0);
+      for(const loc of usedCols){
+        const v = clampInt(getAlloc(currentPO, r.rowKey, loc));
         skuTotals[loc] += v;
         skuAlloc += v;
       }
     }
     const skuRemain = skuAvail - skuAlloc;
-    const foot = ["TOTAL", String(skuAvail), String(skuAlloc), String(skuRemain), ...useCols.map(c=>String(skuTotals[c]||0))];
+    const foot = ["TOTAL", String(skuAvail), String(skuAlloc), String(skuRemain), ...usedCols.map(c=>String(skuTotals[c]||0))];
 
     doc.autoTable({
       startY: y + 22,
@@ -1904,228 +1934,192 @@ function generatePDF(){
       body,
       foot: [foot],
       theme: "grid",
-      styles: { font: "helvetica", fontSize: 8, cellPadding: 3, overflow: "linebreak" },
-      headStyles: { fillColor: [20, 28, 44], textColor: 255, fontStyle: "bold" },
-      footStyles: { fillColor: [16, 24, 40], textColor: 255, fontStyle: "bold" },
-      columnStyles: { 0:{cellWidth:60}, 1:{halign:"right",cellWidth:45}, 2:{halign:"right",cellWidth:45}, 3:{halign:"right",cellWidth:52} },
-      didParseCell: (data)=>{
+      styles: { font:"helvetica", fontSize:8, cellPadding:3, overflow:"linebreak" },
+      headStyles: { fillColor:[20,28,44], textColor:255, fontStyle:"bold" },
+      footStyles: { fillColor:[16,24,40], textColor:255, fontStyle:"bold" },
+      columnStyles: {
+        0:{ cellWidth:60 },
+        1:{ halign:"right", cellWidth:45 },
+        2:{ halign:"right", cellWidth:45 },
+        3:{ halign:"right", cellWidth:50 },
+      },
+      didParseCell: function(data){
         if(data.section==="body" && data.column.index===3){
           const v = Number(String(data.cell.raw||"").trim());
           if(Number.isFinite(v) && v < 0){
-            data.cell.styles.textColor = [251, 113, 133];
+            data.cell.styles.textColor = [251,113,133];
             data.cell.styles.fontStyle = "bold";
           }
         }
       },
-      margin: { left: 40, right: 40 },
+      margin: { left:40, right:40 },
       tableWidth: "auto",
     });
 
     y = doc.lastAutoTable.finalY + 18;
-    if(y > 500){ doc.addPage(); y = 46; }
+    if(y > 500){
+      doc.addPage();
+      y = 46;
+    }
   }
 
   const safeBrand = brand.replace(/[^\w\- ]+/g,"").trim().replace(/\s+/g," ");
   doc.save(`${safeBrand} - Transfer Sheet - ${currentPO} - ${now.toISOString().slice(0,10)}.pdf`);
 }
 
-/* =========================================================
-   PO SELECT
-========================================================= */
-function renderPOSelect(){
-  const sel = $("poSelect");
-  sel.innerHTML = poList.map(po=>`<option value="${esc(po)}">${esc(po)}</option>`).join("");
-  sel.value = currentPO || "";
-}
-
-/* =========================================================
-   INIT / EVENTS
-========================================================= */
+/* =======================
+   EVENTS
+======================= */
 function setTheme(t){
   document.documentElement.setAttribute("data-theme", t);
   $("themeLabel").textContent = t[0].toUpperCase()+t.slice(1);
   localStorage.setItem(STORAGE.theme, t);
 }
+$("themeBtn").addEventListener("click", ()=>{
+  const cur = document.documentElement.getAttribute("data-theme") || "dark";
+  setTheme(cur==="dark" ? "light" : "dark");
+});
+setTheme(localStorage.getItem(STORAGE.theme) || "dark");
 
-function boot(){
-  // theme
-  setTheme(localStorage.getItem(STORAGE.theme) || "dark");
-  $("themeBtn").addEventListener("click", ()=>{
-    const cur = document.documentElement.getAttribute("data-theme") || "dark";
-    setTheme(cur==="dark" ? "light" : "dark");
-  });
+$("brandTitle").addEventListener("input", debounce(()=>{
+  const v = ($("brandTitle").value || "Allocation").trim();
+  $("brandChip").textContent = v || "Allocation";
+}, 120));
 
-  // mobile sidebar
-  $("fab").addEventListener("click", ()=>{
-    document.body.classList.toggle("sidebarOpen");
-  });
+$("poSelect").addEventListener("change", (e)=>{
+  currentPO = e.target.value || "";
+  recompute();
+});
 
-  // restore report meta
-  const rep = loadReport();
-  $("brandTitle").value = rep.brandTitle || "Baseballism";
-  $("preparedBy").value = rep.preparedBy || "";
-  $("notes").value = rep.notes || "";
-  $("brandChip").textContent = ($("brandTitle").value || "").trim() || "—";
+$("shipOverride").addEventListener("input", debounce(()=> recompute(), 200));
 
-  $("brandTitle").addEventListener("input", debounce(persistReportMeta, 150));
-  $("preparedBy").addEventListener("input", debounce(persistReportMeta, 250));
-  $("notes").addEventListener("input", debounce(persistReportMeta, 350));
+$("q").addEventListener("input", debounce(()=> recompute(), 150));
+window.addEventListener("keydown", (e)=>{
+  if(e.key==="Escape"){
+    if($("overlay").style.display==="flex") closeAllocator();
+    else clearSearch();
+  }
+});
 
-  // PO selection
-  $("poSelect").addEventListener("change", (e)=>{
-    currentPO = e.target.value || "";
-    filterQ = "";
-    $("q").value = "";
-    recomputeAndRender();
-    document.body.classList.remove("sidebarOpen");
-  });
+$("reload").addEventListener("click", loadSheet);
+$("saveNow").addEventListener("click", ()=>{
+  saveAllocations();
+  alert("Saved (local browser).");
+});
 
-  // search
-  $("q").addEventListener("input", debounce((e)=>{
-    filterQ = e.target.value || "";
-    recomputeAndRender();
-  }, 160));
-  $("clearSearch").addEventListener("click", ()=>{
-    filterQ = "";
-    $("q").value = "";
-    recomputeAndRender();
-  });
+$("openAllocator").addEventListener("click", openAllocator);
+$("closeAllocator").addEventListener("click", closeAllocator);
+$("overlay").addEventListener("click", (e)=>{
+  if(e.target === $("overlay")) closeAllocator();
+});
 
-  // shortcuts
-  window.addEventListener("keydown", (e)=>{
-    const isMac = navigator.platform.toLowerCase().includes("mac");
-    const mod = isMac ? e.metaKey : e.ctrlKey;
-    if(mod && e.key.toLowerCase()==="k"){
-      e.preventDefault();
-      $("q").focus();
-      $("q").select();
-    }
-    if(e.key==="Escape"){
-      document.body.classList.remove("sidebarOpen");
-    }
-  });
+$("zeroAll").addEventListener("click", zeroPO);
 
-  // reload
-  $("reload").addEventListener("click", loadSheet);
+$("exportXlsx").addEventListener("click", exportExcel);
+$("exportPdf").addEventListener("click", generatePdf);
 
-  // quick actions
-  $("evenSplit").addEventListener("click", evenSplitRemaining);
-  $("zeroPO").addEventListener("click", zeroPO);
-
-  // exports
-  $("exportXlsx").addEventListener("click", exportExcel);
-  $("exportPdf").addEventListener("click", generatePDF);
-
-  // locations buttons
-  $("addLoc").addEventListener("click", ()=>{
-    const base = `Retail ${locations.length+1}`;
-    let v = base;
-    let n = 2;
-    while(locations.some(x=>x.trim().toLowerCase()===v.toLowerCase())) v = `${base} (${n++})`;
-    locations.push(v);
-    saveLocations();
-    renderLocationsUI();
-    renderMathUI();
-    renderTable();
-    renderKPIs();
-  });
-
-  $("resetLoc").addEventListener("click", ()=>{
-    if(!confirm("Reset locations to default?")) return;
-    locations = [...DEFAULT_LOCATIONS];
-    saveLocations();
-    renderLocationsUI();
-    renderMathUI();
-    renderTable();
-    renderKPIs();
-  });
-
-  // math controls
-  $("mathMode").addEventListener("change", (e)=>{
-    mathState.mode = e.target.value || "off";
-    saveMathState();
-  });
-  $("roundMode").addEventListener("change", (e)=>{
-    mathState.roundMode = e.target.value || "nearest";
-    saveMathState();
-  });
-  $("roundStep").addEventListener("input", debounce((e)=>{
-    mathState.roundStep = Math.max(1, toInt(e.target.value||1));
-    e.target.value = String(mathState.roundStep);
-    saveMathState();
-  }, 120));
-
-  $("targetsUnits").addEventListener("click", ()=>{
-    mathState.targetsMode = "units";
-    saveMathState();
-    renderMathUI();
-  });
-  $("targetsPct").addEventListener("click", ()=>{
-    mathState.targetsMode = "pct";
-    saveMathState();
-    renderMathUI();
-  });
-
-  $("targetsUseCurrent").addEventListener("click", ()=>{
-    if(!currentPO) return;
-    const t = poTotals(currentPO);
-    if(!mathState.targetsByLoc) mathState.targetsByLoc = {};
-    for(const loc of locations) mathState.targetsByLoc[loc] = t.byLoc[loc] || 0;
-    saveMathState();
-    renderMathUI();
-  });
-
-  $("targetsNormalize").addEventListener("click", ()=>{
-    if(!mathState.targetsByLoc) mathState.targetsByLoc = {};
-    const vals = locations.map(l=>Math.max(0, parseNumber(mathState.targetsByLoc[l]||0)));
-    const sum = vals.reduce((a,b)=>a+b,0);
-    if(sum <= 0) return;
-
-    if(mathState.targetsMode === "pct"){
-      for(const loc of locations){
-        mathState.targetsByLoc[loc] = (Math.max(0, parseNumber(mathState.targetsByLoc[loc]||0))/sum)*100;
-      }
-    }else{
-      // Normalize to PO remaining (not total) for a sensible default
-      const rem = currentPO ? Math.max(0, poTotals(currentPO).remain) : 0;
-      const base = rem > 0 ? rem : (currentPO ? poTotals(currentPO).avail : 0);
-      if(base > 0){
-        for(const loc of locations){
-          mathState.targetsByLoc[loc] = (Math.max(0, parseNumber(mathState.targetsByLoc[loc]||0))/sum)*base;
-        }
-      }
-    }
-
-    saveMathState();
-    renderMathUI();
-  });
-
-  $("targetsClear").addEventListener("click", ()=>{
-    mathState.targetsByLoc = {};
-    saveMathState();
-    renderMathUI();
-  });
-
-  $("applyAdd").addEventListener("click", ()=>applyMath({overwrite:false}));
-  $("applyOverwrite").addEventListener("click", ()=>{
-    if(!currentPO) return;
-    if(!confirm(`Overwrite allocations for PO "${currentPO}" and apply targets?\nThis cannot be undone (except by Zero PO).`)) return;
-    applyMath({overwrite:true});
-  });
-
-  // Initial render of sidebar bits
-  $("gidLabel").textContent = MASTER_GID;
-  $("openSheetLink").href = OPEN_SHEET_URL;
-
-  // Render locations + math immediately (table after load)
+$("addLoc").addEventListener("click", ()=>{
+  const name = prompt("New location name:", `Store ${locations.length+1}`);
+  if(!name) return;
+  locations.push(String(name).trim());
+  saveLocations();
   renderLocationsUI();
-  renderMathUI();
+  recompute();
+});
 
-  // Load sheet
+$("resetLoc").addEventListener("click", ()=>{
+  if(!confirm("Reset locations to default list?")) return;
+  locations = [...DEFAULT_LOCATIONS];
+  saveLocations();
+
+  // remove allocations for non-existing locations after reset
+  const allowed = new Set(locations);
+  for(const poName of Object.keys(allocations)){
+    for(const rk of Object.keys(allocations[poName]||{})){
+      for(const loc of Object.keys(allocations[poName][rk]||{})){
+        if(!allowed.has(loc)) delete allocations[poName][rk][loc];
+      }
+    }
+  }
+  saveAllocations();
+
+  renderLocationsUI();
+  recompute();
+});
+
+/* Allocator controls */
+$("modeEven").addEventListener("click", ()=> setAllocMode("even"));
+$("modeWeights").addEventListener("click", ()=> setAllocMode("weights"));
+$("wUnits").addEventListener("click", ()=> setWeightMode("units"));
+$("wPct").addEventListener("click", ()=> setWeightMode("pct"));
+
+$("targetLocs").addEventListener("change", ()=>{
+  renderWeightsEditor();
+  updateWeightSumHint();
+});
+
+$("useCurrent").addEventListener("click", ()=>{
+  if(!currentPO) return;
+  const t = totalsForRows(currentPO, currentRows);
+  const targets = selectedTargetLocs();
+  for(const loc of targets){
+    weights[loc] = t.byLoc[loc] || 0;
+  }
+  saveWeights();
+  renderWeightsEditor();
+});
+
+$("normalize").addEventListener("click", ()=>{
+  const targets = selectedTargetLocs();
+  const sum = targets.reduce((a,l)=> a + Math.max(0, parseNumber(weights[l] ?? 0)), 0);
+  if(sum <= 0) return;
+
+  if(weightMode === "pct"){
+    // normalize to 100
+    for(const loc of targets){
+      weights[loc] = (Math.max(0, parseNumber(weights[loc] ?? 0)) / sum) * 100;
+    }
+  }else{
+    // normalize to sum=1 (weights), but keep user-friendly scale (sum=100)
+    for(const loc of targets){
+      weights[loc] = (Math.max(0, parseNumber(weights[loc] ?? 0)) / sum) * 100;
+    }
+  }
+  saveWeights();
+  renderWeightsEditor();
+});
+
+$("clearWeights").addEventListener("click", ()=>{
+  const targets = selectedTargetLocs();
+  for(const loc of targets) weights[loc] = 0;
+  saveWeights();
+  renderWeightsEditor();
+});
+
+$("applyMathAdd").addEventListener("click", ()=> applyMath({ overwrite:false }));
+$("applyMathOverwrite").addEventListener("click", ()=> applyMath({ overwrite:true }));
+
+$("applyAction").addEventListener("change", ()=>{
+  // keep footer buttons consistent with selection
+});
+$("applyScope").addEventListener("change", ()=> refreshAllocatorUI());
+$("applyBase").addEventListener("change", ()=> refreshAllocatorUI());
+
+/* Autosave UI (chip click toggles) */
+$("autosaveDot").parentElement.addEventListener("click", ()=>{
+  autosaveOn = !autosaveOn;
+  saveAutosave();
+});
+saveAutosave();
+
+/* =======================
+   INIT
+======================= */
+function boot(){
+  $("brandChip").textContent = ($("brandTitle").value || "Allocation").trim();
+  renderLocationsUI();
   loadSheet();
 }
-
-// Start
 boot();
 </script>
 </body>
