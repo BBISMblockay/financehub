@@ -25,34 +25,43 @@
       --t:rgba(16,24,40,.92); --m:rgba(16,24,40,.62);
       --a:#007aff; --a2:#22c55e; --sh:0 14px 36px rgba(16,24,40,.12); --sh2:0 10px 22px rgba(16,24,40,.10);
     }
+
     *{box-sizing:border-box}
     html,body{height:100%}
     body{
-      margin:0; font: 13px/1.45 Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:var(--t);
+      margin:0;
+      font: 13px/1.45 Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      color:var(--t);
       background:
         radial-gradient(900px 500px at 20% 10%, color-mix(in oklab,var(--a) 14%, transparent), transparent 45%),
         radial-gradient(900px 500px at 80% 15%, color-mix(in oklab,var(--a2) 12%, transparent), transparent 45%),
         var(--bg);
       overflow-x:hidden;
     }
+
     .app{max-width:1400px;margin:0 auto;padding:16px;display:grid;grid-template-columns:320px 1fr;gap:14px}
     header{grid-column:1/-1;display:flex;justify-content:space-between;align-items:flex-end;gap:10px;padding:2px 4px}
     h1{margin:0;font-size:22px;letter-spacing:-.02em;font-weight:900}
     .sub{margin:4px 0 0;color:var(--m);font-size:12px}
+
     .chip{display:inline-flex;align-items:center;gap:8px;padding:7px 10px;border-radius:999px;background:color-mix(in oklab,var(--surf) 80%, transparent);border:1px solid var(--b);color:var(--m);cursor:pointer;user-select:none}
     .chip:hover{border-color:var(--b2);color:var(--t)}
     .chip b{color:var(--t);font-weight:900}
+
     .card{background:var(--panel);border:1px solid var(--b);border-radius:var(--r);box-shadow:var(--sh2);backdrop-filter:blur(10px)}
     .side{position:sticky;top:12px;align-self:start;height:calc(100dvh - 24px);overflow:auto;padding:12px;box-shadow:var(--sh)}
     .lbl{font-size:11px;color:var(--m);text-transform:uppercase;letter-spacing:.08em;font-weight:900;margin:8px 0 8px}
+
     input,select,button{font:inherit;color:inherit}
     .in{width:100%;padding:10px 11px;border-radius:14px;border:1px solid var(--b);background:var(--surf);outline:none}
     .in:focus{border-color:color-mix(in oklab,var(--a) 55%, var(--b));box-shadow:0 0 0 4px color-mix(in oklab,var(--a) 12%, transparent)}
     .row{display:flex;gap:10px}
+
     .btn{border:1px solid var(--b);background:color-mix(in oklab,var(--surf) 85%, transparent);padding:9px 11px;border-radius:14px;cursor:pointer}
     .btn:hover{border-color:var(--b2)}
     .btn:active{transform:translateY(1px)}
     .btn.p{border-color:color-mix(in oklab,var(--a) 45%, var(--b));box-shadow:0 0 0 4px color-mix(in oklab,var(--a) 10%, transparent)}
+
     .main{min-width:0}
     .top{padding:12px 14px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center}
     .k{display:flex;gap:8px;flex-wrap:wrap;color:var(--m)}
@@ -62,25 +71,149 @@
     .tab{border:1px solid var(--b);background:color-mix(in oklab,var(--surf) 85%, transparent);padding:8px 12px;border-radius:999px;cursor:pointer;color:var(--m);font-weight:900}
     .tab:hover{border-color:var(--b2);color:var(--t)}
     .tab.on{border-color:color-mix(in oklab,var(--a) 55%, var(--b));background:color-mix(in oklab,var(--a) 12%, var(--surf));color:var(--t)}
+
     .cal{padding:12px 14px}
     .calh{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
     .title{font-weight:900;letter-spacing:-.01em}
+
+    .legend{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end}
+    .leg{
+      display:inline-flex;align-items:center;gap:8px;
+      padding:6px 10px;border-radius:999px;
+      border:1px solid var(--b);
+      background:color-mix(in oklab,var(--surf) 85%, transparent);
+      color:var(--m);
+      font-size:11px;
+      font-weight:900;
+      white-space:nowrap;
+    }
+    .sw{width:10px;height:10px;border-radius:999px;box-shadow:0 0 0 3px color-mix(in oklab, var(--t) 10%, transparent)}
+    .sw.main{background:var(--a)}
+    .sw.filler{background:#eab308}
+    .sw.other{background:#60a5fa}
+
     .grid{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}
     .dow{font-size:11px;color:var(--m);text-transform:uppercase;letter-spacing:.08em;font-weight:900;padding:2px 2px}
-    .cell{min-height:126px;border:1px solid var(--b);border-radius:var(--r);background:var(--surf);padding:10px;display:flex;flex-direction:column;gap:8px;overflow:hidden}
+
+    .cell{
+      min-height:126px;
+      border:1px solid var(--b);
+      border-radius:var(--r);
+      background:var(--surf);
+      padding:10px;
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      overflow:hidden;
+    }
     .cell.off{opacity:.55}
+
     .day{display:flex;justify-content:space-between;align-items:center;gap:10px}
     .day b{font-weight:900}
     .badge{font-size:10px;color:var(--m);border:1px solid var(--b);border-radius:999px;padding:2px 8px;white-space:nowrap}
+
     .items{display:flex;flex-direction:column;gap:8px;overflow:auto;padding-right:2px}
-    .ev{border:1px solid var(--b);border-radius:var(--rs);background:color-mix(in oklab,var(--surf) 85%, transparent);padding:8px 10px;cursor:pointer}
+    .items::-webkit-scrollbar{width:10px}
+    .items::-webkit-scrollbar-thumb{background:color-mix(in oklab,var(--b2) 55%, transparent);border-radius:999px;border:3px solid transparent;background-clip:padding-box}
+    .items::-webkit-scrollbar-track{background:transparent}
+
+    /* === Month event card (no type pill text) === */
+    .ev{
+      position:relative;
+      border:1px solid var(--b);
+      border-radius:var(--rs);
+      background:color-mix(in oklab,var(--surf) 90%, transparent);
+      padding:9px 10px 9px 12px;
+      cursor:pointer;
+      overflow:hidden;
+      box-shadow:0 10px 24px rgba(0,0,0,.10);
+      --p: color-mix(in oklab, var(--t) 45%, transparent);
+    }
     .ev:hover{border-color:var(--b2)}
-    .ev .t{font-weight:900;font-size:11px;letter-spacing:-.01em;line-height:1.2}
-    .ev .m{color:var(--m);font-size:10px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-    .pill{font-size:10px;font-weight:900;text-transform:uppercase;border:1px solid var(--b);border-radius:999px;padding:2px 7px;color:var(--m);white-space:nowrap}
-    .pill.main{border-color:color-mix(in oklab,var(--a) 55%, var(--b));color:color-mix(in oklab,var(--a) 75%, var(--t))}
-    .pill.filler{border-color:color-mix(in oklab,#eab308 55%, var(--b));color:color-mix(in oklab,#eab308 80%, var(--t))}
-    .pill.other{border-color:color-mix(in oklab,#60a5fa 55%, var(--b));color:color-mix(in oklab,#60a5fa 80%, var(--t))}
+    .ev::before{
+      content:"";
+      position:absolute;
+      left:0;
+      top:8px;
+      bottom:8px;
+      width:3px;
+      border-radius:999px;
+      background:color-mix(in oklab, var(--p) 72%, transparent);
+      box-shadow:0 0 0 1px color-mix(in oklab, var(--p) 18%, transparent);
+      opacity:.95;
+    }
+    .ev.t-main{--p: var(--a);}
+    .ev.t-filler{--p: #eab308;}
+    .ev.t-other{--p: #60a5fa;}
+
+    .ev .t{
+      font-weight:900;
+      font-size:11px;
+      letter-spacing:-.01em;
+      line-height:1.2;
+      display:-webkit-box;
+      -webkit-line-clamp:2;
+      -webkit-box-orient:vertical;
+      overflow:hidden;
+    }
+    .ev .d{
+      color:color-mix(in oklab, var(--t) 72%, var(--m));
+      font-size:10px;
+      line-height:1.25;
+      display:-webkit-box;
+      -webkit-line-clamp:2;
+      -webkit-box-orient:vertical;
+      overflow:hidden;
+    }
+    .ev .m{
+      color:var(--m);
+      font-size:10px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    /* Reusable tag (kept for agenda + modal) */
+    .tag{
+      --p: color-mix(in oklab, var(--t) 45%, transparent);
+      position:static;
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      height:18px;
+      padding:0 9px;
+      border-radius:999px;
+      font-size:10px;
+      font-weight:900;
+      letter-spacing:.10em;
+      text-transform:uppercase;
+      max-width:96px;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+      flex:0 0 auto;
+
+      border:1px solid color-mix(in oklab, var(--p) 30%, var(--b));
+      background:linear-gradient(
+        180deg,
+        color-mix(in oklab, var(--p) 16%, transparent),
+        color-mix(in oklab, var(--p) 10%, transparent)
+      );
+      color:color-mix(in oklab, var(--p) 80%, var(--t));
+    }
+    .tag::before{
+      content:"";
+      width:6px;height:6px;border-radius:999px;
+      background:color-mix(in oklab, var(--p) 92%, var(--t));
+      box-shadow:0 0 0 3px color-mix(in oklab, var(--p) 14%, transparent);
+      opacity:.95;
+    }
+    .tag.main{--p: var(--a);}
+    .tag.filler{--p: #eab308;}
+    .tag.other{--p: #60a5fa;}
+
+    .muted{color:var(--m)}
+
     .list{padding:12px 14px}
     .lr{display:grid;grid-template-columns:120px 1fr 200px;gap:10px;align-items:center;padding:10px 12px;border-top:1px solid var(--b);cursor:pointer}
     .lr:hover{background:color-mix(in oklab,var(--a) 6%, transparent)}
@@ -88,6 +221,7 @@
     .ln{font-weight:900;letter-spacing:-.01em}
     .ls{color:var(--m);font-size:11px;margin-top:3px}
     .rr{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap;align-items:center}
+
     /* Modal */
     .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,.55);backdrop-filter:blur(6px);z-index:50}
     .modal.on{display:flex}
@@ -101,11 +235,13 @@
     a{color:var(--a);text-decoration:none;font-weight:900}
     a:hover{text-decoration:underline}
     .pre{white-space:pre-wrap}
+
     @media (max-width:980px){
       .app{grid-template-columns:1fr}
       .side{position:relative;height:auto}
       .lr{grid-template-columns:110px 1fr}
       .rr{justify-content:flex-start}
+      .legend{justify-content:flex-start}
     }
   </style>
 </head>
@@ -164,7 +300,10 @@
 
       <section id="month" class="card cal">
         <div class="calh">
-          <div class="title" id="mtitle">—</div>
+          <div>
+            <div class="title" id="mtitle">—</div>
+            <div class="legend" id="mLegend"></div>
+          </div>
           <div class="row" style="flex-wrap:wrap">
             <button class="btn" id="prev">← Prev</button>
             <button class="btn" id="today">Today</button>
@@ -220,6 +359,22 @@
   const on=(id,ev,fn)=>$(id).addEventListener(ev,fn);
   const esc=s=>String(s??"").replace(/[&<>"']/g,m=>({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;" }[m]));
   const clamp=(s,n=48)=>{s=String(s||"");return s.length>n?s.slice(0,n-1)+"…":s;};
+
+  function isMeaningfulEvent(e){
+    const hasText = (v) => String(v || "").trim().length > 0;
+    const hasFiles = Array.isArray(e.files) && e.files.length > 0;
+    return (
+      hasText(e.event) ||
+      hasText(e.type) ||
+      hasText(e.des) ||
+      hasText(e.assets) ||
+      hasText(e.details) ||
+      hasText(e.time) ||
+      hasText(e.tz) ||
+      hasText(e.img) ||
+      hasFiles
+    );
+  }
 
   /* Dates */
   function sod(d){d=new Date(d);d.setHours(0,0,0,0);return d;}
@@ -308,7 +463,7 @@
         const fileIdx=cols.map((c,i)=>/^file\s*\d+/i.test(c)?i:-1).filter(i=>i>=0);
         const cell=(c,i)=>{const x=c[i];return x?(x.v??x.f??""):"";};
 
-        all=rs.map((r,ri)=>{
+        all = rs.map((r,ri)=>{
           const c=r.c||[];
           const d=parseDate(cell(c,I.date)); if(!d) return null;
           const files=fileIdx.map(i=>String(cell(c,i)||"").trim()).filter(Boolean).filter(x=>!x.startsWith("#REF"));
@@ -326,7 +481,7 @@
             img:String(cell(c,I.img)||"").trim(),
             files
           };
-          return ev;
+          return isMeaningfulEvent(ev) ? ev : null;
         }).filter(Boolean);
 
         return done();
@@ -346,10 +501,10 @@
     };
     const fileIdx=headers.map((c,i)=>/^file\s*\d+/i.test(String(c||""))?i:-1).filter(i=>i>=0);
 
-    all=rows.slice(h+1).map((r,ri)=>{
+    all = rows.slice(h+1).map((r,ri)=>{
       const d=parseDate(r[I.date]); if(!d) return null;
       const files=fileIdx.map(i=>String(r[i]||"").trim()).filter(Boolean).filter(x=>!x.startsWith("#REF"));
-      return {
+      const ev = {
         id:btoa(unescape(encodeURIComponent(`${iso(d)}|${r[I.event]||""}|${ri}`))).replace(/=+$/,""),
         day:String(r[I.day]||"").trim(),
         date:d,
@@ -363,6 +518,7 @@
         img:String(r[I.img]||"").trim(),
         files
       };
+      return isMeaningfulEvent(ev) ? ev : null;
     }).filter(Boolean);
 
     done();
@@ -372,9 +528,20 @@
     all.sort((a,b)=>a.date-b.date || String(a.time||"").localeCompare(String(b.time||"")));
     $("updated").textContent=new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});
     fillSelects();
+    renderLegend();
     apply();
     render();
     routerOnce();
+  }
+
+  function renderLegend(){
+    const box=$("mLegend");
+    if(!box) return;
+    box.innerHTML=`
+      <span class="leg" title="Main launches"><span class="sw main"></span>Main</span>
+      <span class="leg" title="Filler launches"><span class="sw filler"></span>Filler</span>
+      <span class="leg" title="Other / misc"><span class="sw other"></span>Other</span>
+    `;
   }
 
   /* Filters */
@@ -409,6 +576,13 @@
     if(t.includes("main")) return "main";
     if(t.includes("filler")) return "filler";
     return t? "other" : "";
+  }
+  function typeBucketClass(t){
+    const cls=pillCls(t);
+    if(cls==="main") return "t-main";
+    if(cls==="filler") return "t-filler";
+    if(cls==="other") return "t-other";
+    return "";
   }
 
   /* Render */
@@ -467,27 +641,32 @@
 
       const wrap=document.createElement("div"); wrap.className="items";
       const MAX=4;
+
       items.slice(0,MAX).forEach(e=>{
         const el=document.createElement("div");
-        el.className="ev";
+        const title = String(e.event||"").trim() || "Untitled";
+        const descSrc = String(e.details||"").trim() || String(e.assets||"").trim();
+        const desc = descSrc ? clamp(descSrc, 80) : "";
+        const meta = clamp([e.des?`Designer: ${e.des}`:null, e.time?`${e.time}${e.tz?" "+e.tz:""}`:null].filter(Boolean).join(" • "), 56);
+
+        el.className=`ev ${typeBucketClass(e.type)}`.trim();
         el.innerHTML=`
-          <div style="display:flex;justify-content:space-between;gap:10px">
-            <div style="min-width:0">
-              <div class="t">${esc(clamp(e.event||"(No event)",44))}</div>
-              <div class="m">${esc(clamp([e.des?`Designer: ${e.des}`:null, e.time?`${e.time}${e.tz?" "+e.tz:""}`:null].filter(Boolean).join(" • "), 56))}</div>
-            </div>
-            <span class="pill ${pillCls(e.type)}">${esc(clamp(e.type||"—",14))}</span>
-          </div>`;
+          <div class="t">${esc(clamp(title,60))}</div>
+          ${desc ? `<div class="d">${esc(desc)}</div>` : ``}
+          <div class="m">${esc(meta)}</div>
+        `;
         el.onclick=()=>open(e.id);
         wrap.appendChild(el);
       });
+
       if(items.length>MAX){
         const more=document.createElement("div");
-        more.className="m";
+        more.className="muted";
         more.style.fontSize="11px";
         more.textContent=`+ ${items.length-MAX} more… (Agenda)`;
         wrap.appendChild(more);
       }
+
       cell.appendChild(wrap);
       grid.appendChild(cell);
     }
@@ -508,17 +687,21 @@
 
     items.forEach(e=>{
       const row=document.createElement("div");
+      const title = String(e.event||"").trim() || "Untitled";
+      const meta = clamp([e.type||null,e.des?`Designer: ${e.des}`:null,e.time?`${e.time}${e.tz?" "+e.tz:""}`:null,e.assets?`Assets: ${e.assets}`:null].filter(Boolean).join(" • "), 130);
+
       row.className="lr";
       row.innerHTML=`
         <div class="ld">${esc(fmt(e.date))}</div>
         <div>
-          <div class="ln">${esc(e.event||"(No event)")}</div>
-          <div class="ls">${esc(clamp([e.type||null,e.des?`Designer: ${e.des}`:null,e.time?`${e.time}${e.tz?" "+e.tz:""}`:null,e.assets?`Assets: ${e.assets}`:null].filter(Boolean).join(" • "), 130))}</div>
+          <div class="ln">${esc(title)}</div>
+          <div class="ls">${esc(meta)}</div>
         </div>
         <div class="rr">
-          <span class="pill ${pillCls(e.type)}">${esc(clamp(e.type||"—",18))}</span>
+          ${e.type ? `<span class="tag ${pillCls(e.type)}" data-type="${esc(e.type)}" title="${esc(e.type)}">${esc(clamp(e.type,12))}</span>` : ``}
           <span class="badge">${(e.files||[]).length?`${e.files.length} file${e.files.length===1?"":"s"}`:"No files"}</span>
-        </div>`;
+        </div>
+      `;
       row.onclick=()=>open(e.id);
       box.appendChild(row);
     });
@@ -551,7 +734,8 @@
   function renderModal(e){
     openId=e.id;
     $("modal").classList.add("on");
-    $("dtitle").textContent=`${e.event||"Event"} — ${fmt(e.date)}`;
+    const title = String(e.event||"").trim() || "Untitled";
+    $("dtitle").textContent=`${title} — ${fmt(e.date)}`;
 
     const time=e.time?`${e.time}${e.tz?" "+e.tz:""}`:"—";
     const files=(e.files||[]).filter(Boolean).map((f,i)=>{
@@ -563,9 +747,13 @@
 
     const img=e.img && /^https?:\/\//i.test(e.img) ? `<a target="_blank" rel="noopener" href="${esc(e.img)}">Open launch image</a>` : esc(e.img||"—");
 
+    const typeBlock = e.type
+      ? `<span class="tag ${pillCls(e.type)}" data-type="${esc(e.type)}" title="${esc(e.type)}">${esc(e.type)}</span>`
+      : `<span class="muted">—</span>`;
+
     $("dbody").innerHTML=`
       <div class="grid2">
-        <div class="kv"><div class="k">Launch type</div><div class="v"><span class="pill ${pillCls(e.type)}">${esc(e.type||"—")}</span></div></div>
+        <div class="kv"><div class="k">Launch type</div><div class="v">${typeBlock}</div></div>
         <div class="kv"><div class="k">Time</div><div class="v">${esc(time)}</div></div>
         <div class="kv"><div class="k">Designer</div><div class="v">${esc(e.des||"—")}</div></div>
         <div class="kv"><div class="k">Assets needed</div><div class="v">${esc(e.assets||"—")}</div></div>
@@ -645,8 +833,9 @@
     const escCSV=s=>/[",\n]/.test(s)?`"${String(s).replace(/"/g,'""')}"`:String(s);
     const lines=[head.join(",")];
     for(const e of f){
+      const title = String(e.event||"").trim() || "Untitled";
       lines.push([
-        fmt(e.date), e.event, e.type, e.des, e.assets, e.time, e.tz, e.details, e.img, (e.files||[]).join(" | ")
+        fmt(e.date), title, e.type, e.des, e.assets, e.time, e.tz, e.details, e.img, (e.files||[]).join(" | ")
       ].map(x=>escCSV(x||"")).join(","));
     }
     const blob=new Blob([lines.join("\n")],{type:"text/csv;charset=utf-8;"});
