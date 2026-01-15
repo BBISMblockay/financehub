@@ -1,1026 +1,533 @@
-<!-- File: planning.html -->
-<!doctype html>
-<html lang="en" data-theme="dark">
+<!DOCTYPE html>
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Planning Dashboard — POs & Factories</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <style>
-    :root{
-      color-scheme: dark;
-      --bg:#070a12; --panel:rgba(255,255,255,.04); --surf:rgba(255,255,255,.03); --surf2:rgba(255,255,255,.05);
-      --b:rgba(255,255,255,.10); --b2:rgba(255,255,255,.16);
-      --t:rgba(255,255,255,.92); --m:rgba(255,255,255,.62);
-      --a:#4fd1ff; --g:#22c55e; --y:#eab308; --r:#fb7185;
-      --R:18px; --Rs:14px; --sh:0 16px 46px rgba(0,0,0,.55); --sh2:0 12px 26px rgba(0,0,0,.35);
-      --side:340px;
-    }
-    :root[data-theme="light"]{
-      color-scheme: light;
-      --bg:#f6f7fb; --panel:rgba(255,255,255,.86);
-      --surf:rgba(16,24,40,.03); --surf2:rgba(16,24,40,.05);
-      --b:rgba(16,24,40,.12); --b2:rgba(16,24,40,.16);
-      --t:rgba(16,24,40,.92); --m:rgba(16,24,40,.62);
-      --a:#007aff; --sh:0 14px 36px rgba(16,24,40,.12); --sh2:0 10px 22px rgba(16,24,40,.10);
-    }
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{
-      margin:0;
-      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-      line-height:1.45;
-      background:
-        radial-gradient(900px 500px at 20% 10%, color-mix(in oklab,var(--a) 14%, transparent), transparent 45%),
-        radial-gradient(900px 500px at 80% 15%, rgba(34,197,94,.10), transparent 45%),
-        var(--bg);
-      color:var(--t);
-      overflow-x:hidden;
-    }
-    .app{max-width:1480px;margin:0 auto;padding:16px;display:grid;grid-template-columns:var(--side) 1fr;gap:14px}
-    header{grid-column:1/-1;display:flex;justify-content:space-between;align-items:flex-end;gap:10px;padding:2px 4px}
-    h1{margin:0;font-size:22px;font-weight:900;letter-spacing:-.02em}
-    .sub{margin:4px 0 0;color:var(--m);font-size:12px}
-    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
-    .chip{display:inline-flex;align-items:center;gap:8px;padding:7px 10px;border-radius:999px;background:var(--surf2);border:1px solid var(--b);color:var(--m);cursor:pointer;user-select:none;font-size:12px}
-    .chip:hover{border-color:var(--b2);color:var(--t)}
-    .chip b{color:var(--t);font-weight:900}
-    .card{background:var(--panel);border:1px solid var(--b);border-radius:var(--R);box-shadow:var(--sh2);backdrop-filter: blur(10px)}
-    .side{position:sticky;top:12px;align-self:start;height:calc(100dvh - 24px);overflow:auto;padding:12px;box-shadow:var(--sh)}
-    .lbl{font-size:11px;color:var(--m);text-transform:uppercase;letter-spacing:.08em;font-weight:900;margin:10px 0 8px}
-    input,select,button{font:inherit;color:inherit}
-    .in{width:100%;padding:10px 11px;border-radius:14px;border:1px solid var(--b);background:var(--surf);outline:none;font-size:12px}
-    .in:focus{border-color:color-mix(in oklab,var(--a) 55%, var(--b));box-shadow:0 0 0 4px color-mix(in oklab,var(--a) 12%, transparent)}
-    select[multiple]{padding:8px}
-    select[multiple] option{padding:6px 8px}
-    .btn{border:1px solid var(--b);background:var(--surf2);padding:9px 11px;border-radius:14px;cursor:pointer;font-size:12px;transition:transform .08s ease,border-color .12s ease}
-    .btn:hover{border-color:var(--b2)}
-    .btn:active{transform:translateY(1px)}
-    .btn.p{border-color:color-mix(in oklab,var(--a) 45%, var(--b));box-shadow:0 0 0 4px color-mix(in oklab,var(--a) 10%, transparent)}
-    .btn.block{width:100%}
-    .btn.small{padding:7px 10px;border-radius:12px}
-    .btn.ghost{background:transparent}
-    .main{min-width:0}
-    .banner{display:none;margin:0 0 12px;padding:10px 12px;border-radius:14px;border:1px solid rgba(244,63,94,.28);background:rgba(244,63,94,.10);color:#fecdd3;font-size:12px;white-space:pre-wrap}
-    .topbar{padding:12px 14px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center}
-    .kpis{display:flex;gap:8px;flex-wrap:wrap;color:var(--m)}
-    .kpis span{border:1px solid var(--b);background:var(--surf2);padding:6px 10px;border-radius:999px}
-    .kpis b{color:var(--t)}
-    .tabs{display:flex;gap:8px;flex-wrap:wrap}
-    .tab{border:1px solid var(--b);background:var(--surf2);padding:8px 12px;border-radius:999px;cursor:pointer;color:var(--m);font-weight:900;font-size:12px}
-    .tab:hover{border-color:var(--b2);color:var(--t)}
-    .tab.on{border-color:color-mix(in oklab,var(--a) 55%, var(--b));background:color-mix(in oklab,var(--a) 12%, var(--surf2));color:var(--t)}
-    .lane{padding:12px 14px}
-    .empty{padding:12px;color:var(--m);text-align:center}
+<meta charset="UTF-8" />
+<title>FinanceHub • Universal Financial Uploads</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
-    .group{margin:10px 0;border:1px solid var(--b);border-radius:var(--R);overflow:hidden;background:var(--surf)}
-    .ghead{padding:10px 12px;display:flex;justify-content:space-between;gap:10px;cursor:pointer}
-    .ghead.open{background:color-mix(in oklab,var(--a) 8%, transparent)}
-    .ghead strong{font-weight:900;letter-spacing:-.01em}
-    .gbody{display:none;padding:10px 12px 6px}
-    .gbody.open{display:block}
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
-    .po{border:1px solid var(--b);border-radius:var(--Rs);background:color-mix(in oklab,var(--surf2) 70%, transparent);margin:0 0 8px;overflow:hidden}
-    .pohead{padding:10px 11px;display:flex;justify-content:space-between;gap:10px;cursor:pointer;align-items:flex-start}
-    .pohead:hover{border-color:var(--b2)}
-    .muted{color:var(--m);font-size:11px}
-    .title{font-weight:900;letter-spacing:-.01em;font-size:12px}
-    .pill{display:inline-flex;align-items:center;gap:6px;padding:2px 8px;border-radius:999px;border:1px solid var(--b);font-size:10px;font-weight:900;text-transform:uppercase;color:var(--m);white-space:nowrap;line-height:1.2}
-    .dot{width:7px;height:7px;border-radius:999px}
-    .dot.g{background:var(--g)} .dot.y{background:var(--y)} .dot.r{background:var(--r)}
+<style>
+/* -------------------------------------------------------
+   GLOBAL THEME — FINANCEHUB DARK
+------------------------------------------------------- */
+:root {
+  --bg: #0B0C0F;
+  --bg-panel: #111317;
+  --bg-hover: #181A1F;
+  --border: rgba(255,255,255,0.06);
+  --text: #E5E7EB;
+  --text-dim: #9CA3AF;
+  --primary: #4F8BFF;
+  --radius: 12px;
+  --card-radius: 16px;
+}
 
-    .calTop{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
-    .calTitle{font-size:13px;font-weight:900}
-    .calGrid{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}
-    .dow{font-size:11px;color:var(--m);text-transform:uppercase;letter-spacing:.08em;padding:2px 2px}
-    .cell{min-height:110px;border:1px solid var(--b);border-radius:var(--R);background:var(--surf);padding:10px;display:flex;flex-direction:column;gap:8px;overflow:hidden}
-    .cell.mute{opacity:.55}
-    .dayline{display:flex;justify-content:space-between;align-items:center;gap:8px}
-    .daynum{font-size:12px;font-weight:900}
-    .badge{font-size:10px;color:var(--m);border:1px solid var(--b);border-radius:999px;padding:2px 8px;white-space:nowrap}
-    .items{display:flex;flex-direction:column;gap:8px;overflow:auto;padding-right:2px}
-    .it{border:1px solid var(--b);border-radius:var(--Rs);padding:8px 10px;background:var(--surf2);cursor:pointer}
-    .it:hover{border-color:var(--b2)}
-    .it .t{font-size:11px;font-weight:900;letter-spacing:-.01em}
-    .it .a{font-size:10px;color:var(--m);margin-top:3px}
+body {
+  margin: 0;
+  padding: 32px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, system-ui, sans-serif;
+}
 
-    table{width:100%;border-collapse:collapse;font-size:12px}
-    th,td{border-bottom:1px solid var(--b);padding:8px 6px;text-align:left}
-    th{color:var(--m);font-weight:900}
-    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-    .panel{padding:12px 14px}
-    .panel h3{margin:0 0 8px;font-size:11px;color:var(--m);text-transform:uppercase;letter-spacing:.08em;font-weight:900}
+/* -------------------------------------------------------
+   HEADER
+------------------------------------------------------- */
+.header {
+  margin-bottom: 26px;
+}
 
-    .drawer{position:fixed;top:0;right:0;height:100%;width:460px;max-width:92vw;background:var(--panel);border-left:1px solid var(--b);
-      box-shadow:-18px 0 50px rgba(0,0,0,.40);transform:translateX(100%);transition:transform .22s ease;z-index:50;display:flex;flex-direction:column;backdrop-filter: blur(12px)}
-    .drawer.open{transform:translateX(0)}
-    .dhead{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-bottom:1px solid var(--b);gap:10px}
-    .dtitle{font-size:13px;font-weight:900;letter-spacing:-.01em}
-    .dbody{padding:12px 14px;overflow:auto}
-    .kv{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
-    .k{background:var(--surf);border:1px solid var(--b);border-radius:var(--R);padding:10px}
-    .k .l{font-size:11px;color:var(--m);font-weight:900}
-    .k .v{font-size:14px;font-weight:900;letter-spacing:-.01em;margin-top:3px}
-    details{border:1px solid var(--b);border-radius:var(--R);padding:10px;margin:10px 0;background:var(--surf)}
-    details>summary{cursor:pointer;list-style:none;font-size:12px;color:var(--m);font-weight:900}
-    details>summary::-webkit-details-marker{display:none}
-    .kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px;background:var(--surf2);border:1px solid var(--b);padding:2px 8px;border-radius:10px;color:var(--m)}
+.header h1 {
+  font-size: 26px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  letter-spacing: .3px;
+}
 
-    @media (max-width:980px){:root{--side:100%}.app{grid-template-columns:1fr}.side{position:relative;height:auto}.grid2{grid-template-columns:1fr}.drawer{width:100%}.cell{min-height:100px}}
-  </style>
+.header .subtitle {
+  color: var(--text-dim);
+  font-size: 14px;
+}
+
+/* -------------------------------------------------------
+   COLLAPSIBLE UPLOAD PANEL (A1)
+------------------------------------------------------- */
+.upload-toggle {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  padding: 14px 18px;
+  border-radius: var(--card-radius);
+  margin-bottom: 14px;
+  cursor: pointer;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: background .2s;
+}
+
+.upload-toggle:hover {
+  background: var(--bg-hover);
+}
+
+.upload-toggle span {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.upload-toggle .arrow {
+  transition: transform .25s ease;
+}
+
+.upload-toggle.active .arrow {
+  transform: rotate(90deg);
+}
+
+/* Panel container */
+.upload-panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height .35s ease, opacity .25s ease;
+  margin-bottom: 26px;
+  padding: 0 0; /* padding added only when open */
+}
+
+.upload-panel.open {
+  opacity: 1;
+  padding: 20px 24px;
+}
+
+/* -------------------------------------------------------
+   FILTER BAR
+------------------------------------------------------- */
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+select, input[type="text"] {
+  padding: 10px 14px;
+  font-size: 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+  color: var(--text);
+  outline: none;
+  width: 220px;
+}
+
+input[type="text"] {
+  flex: 1;
+}
+
+/* -------------------------------------------------------
+   TABLE WRAPPER
+------------------------------------------------------- */
+.table-wrap {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  overflow-x: auto;
+  padding: 0;
+  box-shadow: 0 0 24px rgba(0,0,0,0.45);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+th {
+  padding: 14px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+td {
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+/* -------------------------------------------------------
+   ENTITY TAG BAR
+------------------------------------------------------- */
+.entity-tag {
+  width: 6px;
+  height: 100%;
+  border-radius: 4px;
+  margin-right: 8px;
+  display: inline-block;
+}
+
+.entity-color-MISE { background: #4F46E5; }
+.entity-color-Portland { background: #10B981; }
+.entity-color-State { background: #F59E0B; }
+.entity-color-Bars { background: #EF4444; }
+.entity-color-Default { background: #6B7280; }
+
+/* -------------------------------------------------------
+   FILE LINKS
+------------------------------------------------------- */
+.file-link {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+.file-link:hover {
+  text-decoration: underline;
+}
+
+/* -------------------------------------------------------
+   EXPANDABLE ROW DRAWER
+------------------------------------------------------- */
+.expand-details {
+  display: none;
+  background: #14161A;
+  padding: 16px 24px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.expand-details.active {
+  display: block;
+  animation: fadeIn .25s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* -------------------------------------------------------
+   PAGINATION
+------------------------------------------------------- */
+.pagination {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.pagination button {
+  padding: 8px 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  cursor: pointer;
+  transition: .2s;
+}
+
+.pagination button:hover {
+  background: var(--bg-hover);
+}
+
+.pagination .active {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* -------------------------------------------------------
+   SKELETON LOADER
+------------------------------------------------------- */
+.skeleton {
+  background: linear-gradient(90deg, #1A1C20 25%, #22252B 37%, #1A1C20 63%);
+  background-size: 400% 100%;
+  animation: shimmer 1.4s infinite;
+  border-radius: 6px;
+  height: 14px;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+</style>
 </head>
-
 <body>
-  <div class="app">
-    <header>
-      <div>
-        <h1>Planning Dashboard — POs & Factories</h1>
-        <div class="sub">Master: PO_Lines_CLEAN (gid 1062059200) · Queue + Calendar + Reports</div>
-      </div>
-      <div class="row">
-        <div class="chip" style="cursor:default"><span>Updated</span> <b id="updated">—</b></div>
-        <button class="chip" id="theme"><span>Theme</span> <b id="themeLabel">Dark</b> <span style="opacity:.7">↻</span></button>
-      </div>
-    </header>
 
-    <aside class="card side">
-      <div class="lbl">Search</div>
-      <input id="q" class="in" placeholder="PO, factory, SKU, title..." />
+<!-- -----------------------------------------------------
+     HEADER
+------------------------------------------------------ -->
+<div class="header">
+  <h1>Financial Uploads<h1>
+  <div class="subtitle">WPV Accounting</div>
+</div>
 
-      <div class="lbl">Factories</div>
-      <select id="factories" class="in" multiple size="8"></select>
+<!-- -----------------------------------------------------
+     COLLAPSIBLE UPLOAD PANEL
+------------------------------------------------------ -->
+<div class="upload-toggle" id="uploadToggle">
+  <span>+ Submit New Financial Upload</span>
+  <span class="arrow">▶</span>
+</div>
 
-      <div class="lbl">Product Type</div>
-      <select id="ptype" class="in" multiple size="6"></select>
+<div class="upload-panel" id="uploadPanel">
+  <!-- Jotform Embed -->
+  <script type="text/javascript" src="https://form.jotform.com/jsform/253167355298063"></script>
+</div>
 
-      <div class="lbl">Date Bucket</div>
-      <select id="bucket" class="in" multiple size="6"></select>
+<!-- -----------------------------------------------------
+     FILTER BAR
+------------------------------------------------------ -->
+<div class="filters">
+  <select id="entityFilter">
+    <option value="ALL">All Entities</option>
+  </select>
 
-      <div class="lbl">Wholesale Triggered</div>
-      <select id="wh" class="in">
-        <option value="">Any</option>
-        <option value="true">True</option>
-        <option value="false">False</option>
-      </select>
+  <input id="searchBox" type="text" placeholder="Search uploads… (entity, notes, uploader)">
+</div>
 
-      <div class="lbl">Ship date range (Req Ship Date)</div>
-      <div style="display:flex;gap:10px">
-        <input id="shipFrom" class="in" type="date" />
-        <input id="shipTo" class="in" type="date" />
-      </div>
+<!-- -----------------------------------------------------
+     TABLE WRAPPER 
+------------------------------------------------------ -->
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th data-sort="date">Date</th>
+        <th data-sort="entity">Entity</th>
+        <th data-sort="month">Month</th>
+        <th data-sort="year">Year</th>
+        <th>Notes</th>
+        <th>Uploaded By</th>
+        <th>Balance Sheet</th>
+        <th>P&L</th>
+        <th>GL Detail</th>
+        <th>Other Docs</th>
+      </tr>
+    </thead>
 
-      <div class="lbl">Actions</div>
-      <div style="display:flex;gap:10px">
-        <button id="reset" class="btn block">Reset</button>
-        <button id="export" class="btn p block">Export PO CSV</button>
-      </div>
+    <tbody id="dataRows">
+      <!-- Skeleton placeholder -->
+      <tr><td colspan="10" style="padding:20px;"><div class="skeleton" style="height:18px;"></div></td></tr>
+      <tr><td colspan="10" style="padding:20px;"><div class="skeleton" style="height:18px;"></div></td></tr>
+      <tr><td colspan="10" style="padding:20px;"><div class="skeleton" style="height:18px;"></div></td></tr>
+    </tbody>
+  </table>
+</div>
 
-      <div class="lbl">Source</div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap">
-        <a id="openSheet" class="btn small ghost" target="_blank" rel="noopener">Open sheet</a>
-        <a id="openGid" class="btn small ghost" target="_blank" rel="noopener">Open gid</a>
-        <a id="openPublished" class="btn small ghost" target="_blank" rel="noopener">Published view</a>
-      </div>
-
-      <div class="lbl">Debug</div>
-      <div class="muted" id="srcUsed">—</div>
-    </aside>
-
-    <main class="main">
-      <div id="banner" class="banner"></div>
-
-      <section class="card topbar">
-        <div class="kpis">
-          <span>POs: <b id="kPOs">—</b></span>
-          <span>Factories: <b id="kFac">—</b></span>
-          <span>Lines: <b id="kLines">—</b></span>
-          <span>Qty: <b id="kQty">—</b></span>
-          <span>PO Retail: <b id="kVal">—</b></span>
-        </div>
-        <div class="tabs" id="tabs">
-          <button class="tab on" data-view="queue">Queue</button>
-          <button class="tab" data-view="calendar">Calendar</button>
-          <button class="tab" data-view="reports">Reports</button>
-        </div>
-      </section>
-
-      <section id="queue" class="card lane"><div class="empty">Loading…</div></section>
-
-      <section id="calendar" class="card lane" style="display:none">
-        <div class="calTop">
-          <div class="calTitle" id="calTitle">Ship Calendar</div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn small" id="calPrev">&larr; Prev</button>
-            <button class="btn small" id="calToday">Today</button>
-            <button class="btn small" id="calNext">Next &rarr;</button>
-          </div>
-        </div>
-        <div class="calGrid" id="calGrid"></div>
-      </section>
-
-      <section id="reports" class="card lane" style="display:none">
-        <div class="grid2">
-          <div class="card panel">
-            <h3>Top Factories (PO-based)</h3>
-            <table>
-              <thead><tr><th>Factory</th><th>POs</th><th>Qty</th><th>PO Retail</th></tr></thead>
-              <tbody id="rFactories"></tbody>
-            </table>
-          </div>
-          <div class="card panel">
-            <h3>Ship Month (PO-based)</h3>
-            <table>
-              <thead><tr><th>Month</th><th>POs</th><th>Qty</th><th>PO Retail</th></tr></thead>
-              <tbody id="rMonths"></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-    </main>
-  </div>
-
-  <aside id="drawer" class="drawer" aria-hidden="true">
-    <div class="dhead">
-      <div class="dtitle" id="dTitle">Details</div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <button class="btn small" id="closeBtn">Close</button>
-      </div>
-    </div>
-    <div class="dbody" id="dBody"></div>
-  </aside>
+<div class="pagination" id="pagination"></div>
 
 <script>
-(() => {
-  /* ========= CONFIG =========
-   * Published-to-web is the most reliable for GitHub Pages.
-   * Keep GViz/Export as fallback (only works if the sheet is shared publicly).
-   */
-  const SHEET_ID = "1VvBB_F0cXdOq5rKYDfV540v5_eAXyHi1NqkJi34Kv-o";
-  const GID = "1062059200"; // PO_Lines_CLEAN
+/* -------------------------------------------------------
+   COLLAPSIBLE LOGIC
+------------------------------------------------------- */
+const uploadToggle = document.getElementById("uploadToggle");
+const uploadPanel  = document.getElementById("uploadPanel");
 
-  const PUBLISHED_BASE =
-    "https://docs.google.com/spreadsheets/d/e/2PACX-1vQkrN-4CPWPkdS8sRFg-mkKBoPU_gqQXFkhjjSQ6hT5MvMhzmaHI-6DrKBh_jRE0Kucy9Edv9S4ptPO";
+uploadToggle.addEventListener("click", () => {
+  const isOpen = uploadPanel.classList.contains("open");
 
-  const PUBLISHED_HTML_URL = `${PUBLISHED_BASE}/pubhtml`;
-  const PUBLISHED_CSV_URL = `${PUBLISHED_BASE}/pub?gid=${GID}&single=true&output=csv`;
+  if (isOpen) {
+    // closing
+    uploadPanel.style.maxHeight = "0px";
+    uploadPanel.classList.remove("open");
+    uploadToggle.classList.remove("active");
+  } else {
+    // opening
+    uploadPanel.classList.add("open");
+    uploadToggle.classList.add("active");
 
-  const GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?gid=${GID}&tqx=out:json`;
-  const EXPORT_CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${GID}`;
-
-  /* ========= STATE ========= */
-  let allLines = [];
-  let poAll = new Map();   // key -> POAgg
-  let poFiltered = [];
-  let view = "queue";
-  let calAnchor = startOfMonth(new Date());
-  const openFactory = new Map();
-
-  const F = { q:"", factories:new Set(), ptypes:new Set(), buckets:new Set(), wh:"", shipFrom:null, shipTo:null };
-
-  /* ========= DOM ========= */
-  const $ = (id) => document.getElementById(id);
-  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, m => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;" }[m]));
-  const deb = (fn, ms=200) => { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a), ms); }; };
-  const showBanner = (msg) => { const b=$("banner"); b.textContent=msg; b.style.display="block"; };
-  const clearBanner = () => { $("banner").style.display="none"; };
-  const clamp = (s,n=56)=>{ const t=String(s||""); return t.length>n ? t.slice(0,n-1)+"…" : t; };
-
-  /* ========= HELPERS ========= */
-  function startOfDay(d){ const x=new Date(d); x.setHours(0,0,0,0); return x; }
-  function startOfMonth(d){ const x=new Date(d); x.setDate(1); x.setHours(0,0,0,0); return x; }
-  function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; }
-  function iso(d){ const x=startOfDay(d); return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,"0")}-${String(x.getDate()).padStart(2,"0")}`; }
-  function money(n){ const x=Number(n); return Number.isFinite(x)?x.toLocaleString("en-US",{style:"currency",currency:"USD"}):"$0.00"; }
-  function num(v){
-    if(v==null) return 0;
-    if(typeof v==="number") return Number.isFinite(v)?v:0;
-    const s=String(v).trim();
-    if(!s) return 0;
-    if(/^n\/a$/i.test(s)) return 0;
-    const n=Number(s.replace(/[^0-9.-]/g,""));
-    return Number.isFinite(n)?n:0;
+    // auto-calc height
+    setTimeout(() => {
+      uploadPanel.style.maxHeight = uploadPanel.scrollHeight + "px";
+    }, 10);
   }
-  function parseDate(raw){
-    if(!raw) return null;
-    if(raw instanceof Date) return raw;
-    const s=String(raw).trim();
-    const g=s.match(/Date\((\d{4}),\s*(\d{1,2}),\s*(\d{1,2})/i);
-    if(g) return new Date(+g[1], +g[2], +g[3]);
-    const us=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-    if(us){ const y=String(us[3]).length===2?(+us[3]+2000):+us[3]; return new Date(y, +us[1]-1, +us[2]); }
-    const t=Date.parse(s);
-    return Number.isNaN(t)?null:new Date(t);
-  }
-  function fmtDate(d){
-    const x=parseDate(d);
-    return x ? x.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "—";
-  }
-  function uniq(arr){ return [...new Set(arr.map(x=>String(x||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b)); }
-  function setMulti(id, opts){ $(id).innerHTML = opts.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join(""); }
-  function readMulti(id){ return new Set([...$(id).selectedOptions].map(o=>o.value)); }
-  function boolish(v){
-    const s=String(v??"").toLowerCase().trim();
-    if(s==="" ) return null;
-    if(s==="true"||s==="t"||s==="yes"||s==="y"||s==="1") return true;
-    if(s==="false"||s==="f"||s==="no"||s==="n"||s==="0") return false;
-    return null;
-  }
+});
 
-  /* ========= CSV PARSER ========= */
-  function parseCSV(txt){
-    const out=[]; let i=0,cur="",q=false,row=[];
-    const push=()=>{row.push(cur);cur="";};
-    const end=()=>{out.push(row);row=[];};
-    while(i<txt.length){
-      const ch=txt[i++];
-      if(q){
-        if(ch=='"' && txt[i]=='"'){cur+='"';i++;}
-        else if(ch=='"'){q=false;}
-        else cur+=ch;
-      }else{
-        if(ch=='"') q=true;
-        else if(ch==',') push();
-        else if(ch=='\n'){push();end();}
-        else if(ch!=='\r') cur+=ch;
-      }
-    }
-    if(cur.length||row.length){push();end();}
-    return out;
-  }
+/* -------------------------------------------------------
+   CONFIG
+------------------------------------------------------- */
+const SHEET_ID = "1dMNl3VuC4MlGk5vDrXIFnHRPt_B5lBtc5AHuT0Uo1N4";
+const GID = "0"; 
+const URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${GID}`;
 
-  /* ========= GVIZ PARSE ========= */
-  function parseGViz(text){
-    const s=text.indexOf("{"), e=text.lastIndexOf("}");
-    if(s<0||e<0) return null;
-    try{ return JSON.parse(text.slice(s,e+1)); }catch{ return null; }
-  }
-  function buildHeaderIndex(labels){
-    const map=new Map();
-    labels.forEach((l,i)=>{
-      const k=String(l||"").trim().toLowerCase();
-      if(!k) return;
-      const a=map.get(k)||[];
-      a.push(i);
-      map.set(k,a);
-    });
-    return {
-      labels,
-      idx(name){
-        const k=String(name||"").trim().toLowerCase();
-        const a=map.get(k);
-        return a && a.length ? a[0] : -1;
-      }
-    };
-  }
+let allRows = [];
+let filteredRows = [];
+let currentPage = 1;
+const ROWS_PER_PAGE = 50;
 
-  /* ========= MAPPING (YOUR EXACT HEADERS) ========= */
-  const H = {
-    po: "PO Name",
-    factory: "Factory",
-    whSuffix: "Wholesale suffix",
-    whTrig: "Wholesale Triggered",
-    order: "Order Date",
-    reqShip: "Req Ship Date",
-    bucket: "Date Bucket",
-    ptype: "Product Type",
-    title: "Title",
-    sku: "SKU",
-    retailPrice: "Retail Price",
-    size: "Size",
-    qty: "Qty",
-    retailValue: "Retail Value",
-  };
+/* -------------------------------------------------------
+   LOAD GOOGLE SHEET
+------------------------------------------------------- */
+async function loadSheet() {
+  try {
+    const res = await fetch(URL);
+    const text = await res.text();
+    const json = JSON.parse(text.substring(47, text.length - 2));
+    const rows = json.table.rows;
 
-  /* ========= PO AGG (AVOID DOUBLE COUNT) ========= */
-  function poKey(line){ return `${line.factory}|||${line.po}`; }
-
-  function choosePoRetail(vals){
-    const v=vals.filter(x=>Number.isFinite(x)&&x>0);
-    if(!v.length) return {mode:"none", value:0};
-    const max=Math.max(...v);
-    const sum=v.reduce((a,b)=>a+b,0);
-    const eps=Math.max(1, max*0.002);
-    const nearMax=v.filter(x=>Math.abs(x-max)<=eps).length;
-    const ratio=nearMax/v.length;
-    if(v.length>=3 && ratio>=0.60 && sum>=max*1.35) return {mode:"max", value:max};
-    return {mode:"sum", value:sum};
-  }
-
-  function buildPoIndex(lines){
-    const map=new Map();
-    for(const l of lines){
-      const k=poKey(l);
-      let p=map.get(k);
-      if(!p){
-        p={ key:k, po:l.po, factory:l.factory, lines:[], qty:0, shipDateMin:null, orderDateMin:null,
-            productTypes:new Set(), buckets:new Set(), wh:null, retailVals:[] };
-        map.set(k,p);
-      }
-      p.lines.push(l);
-      p.qty += (l.qty||0);
-      p.retailVals.push(l.retailValue||0);
-      if(l.reqShipDate){
-        p.shipDateMin = p.shipDateMin ? (l.reqShipDate < p.shipDateMin ? l.reqShipDate : p.shipDateMin) : l.reqShipDate;
-      }
-      if(l.orderDate){
-        p.orderDateMin = p.orderDateMin ? (l.orderDate < p.orderDateMin ? l.orderDate : p.orderDateMin) : l.orderDate;
-      }
-      if(l.productType) p.productTypes.add(l.productType);
-      if(l.dateBucket) p.buckets.add(l.dateBucket);
-      const bt=boolish(l.wholesaleTriggered);
-      if(bt !== null) p.wh = p.wh === null ? bt : (p.wh || bt);
-    }
-    for(const p of map.values()){
-      const pick=choosePoRetail(p.retailVals);
-      p.poRetail=pick.value;
-      p.retailMode=pick.mode;
-    }
-    return map;
-  }
-
-  /* ========= LOADERS ========= */
-  async function fetchText(url){
-    const res=await fetch(url,{cache:"no-store"});
-    const txt=await res.text();
-    return {ok:res.ok, status:res.status, txt};
-  }
-
-  function parseFromGViz(json){
-    const cols=json?.table?.cols||[];
-    const rows=json?.table?.rows||[];
-    const labels=cols.map(c=>c.label||"");
-    const idx=buildHeaderIndex(labels);
-
-    const I = {
-      po: idx.idx(H.po),
-      factory: idx.idx(H.factory),
-      whSuffix: idx.idx(H.whSuffix),
-      whTrig: idx.idx(H.whTrig),
-      order: idx.idx(H.order),
-      reqShip: idx.idx(H.reqShip),
-      bucket: idx.idx(H.bucket),
-      ptype: idx.idx(H.ptype),
-      title: idx.idx(H.title),
-      sku: idx.idx(H.sku),
-      retailPrice: idx.idx(H.retailPrice),
-      size: idx.idx(H.size),
-      qty: idx.idx(H.qty),
-      retailValue: idx.idx(H.retailValue),
-    };
-
-    if(I.po<0 || I.factory<0){
-      showBanner(
-        `GViz loaded but header mismatch.\n`+
-        `Detected headers: ${labels.slice(0,18).join(" | ")}\n\n`+
-        `Need at least: "${H.po}" and "${H.factory}".`
-      );
-      return [];
-    }
-
-    const cell=(c,i)=>{ const x=c[i]; return x ? (x.v ?? x.f ?? "") : ""; };
-
-    return rows.map((r,ri)=>{
-      const c=r.c||[];
-      const po=String(cell(c,I.po)||"").trim();
-      const factory=String(cell(c,I.factory)||"").trim();
-      const title=String(cell(c,I.title)||"").trim();
-      const sku=String(cell(c,I.sku)||"").trim();
-      if(!po && !factory && !title && !sku) return null;
+    allRows = rows.map(r => {
+      const c = r.c.map(cell => (cell ? cell.v : ""));
 
       return {
-        id: btoa(unescape(encodeURIComponent(`${po}|${factory}|${sku}|${ri}`))).replace(/=+$/,""),
-        po, factory,
-        wholesaleSuffix: String(cell(c,I.whSuffix)||"").trim(),
-        wholesaleTriggered: String(cell(c,I.whTrig)||"").trim(),
-        orderDate: parseDate(cell(c,I.order)),
-        reqShipDate: parseDate(cell(c,I.reqShip)),
-        dateBucket: String(cell(c,I.bucket)||"").trim(),
-        productType: String(cell(c,I.ptype)||"").trim(),
-        title,
-        sku,
-        retailPrice: num(cell(c,I.retailPrice)),
-        size: String(cell(c,I.size)||"").trim(),
-        qty: num(cell(c,I.qty)),
-        retailValue: num(cell(c,I.retailValue)),
+        date: c[0],
+        entity: c[1],
+        month: c[2],
+        year: c[3],
+
+        bs_url: c[4],
+        pl_url: c[5],
+        gl_url: c[6],
+        other_url: c[7],
+
+        notes: c[9],
+        uploaded: c[10],
+
+        bs_label: c[15],
+        pl_label: c[16],
+        gl_label: c[17],
+        other_label: c[18]
       };
-    }).filter(Boolean);
-  }
-
-  function parseFromCSVText(txt){
-    const rows=parseCSV(txt);
-    if(!rows.length) return [];
-
-    const norm=s=>String(s||"").trim().toLowerCase();
-    let headerRow=-1;
-    for(let i=0;i<Math.min(30,rows.length);i++){
-      const r=rows[i].map(norm);
-      if(r.includes(norm(H.po)) && r.includes(norm(H.factory))){ headerRow=i; break; }
-    }
-    if(headerRow<0){
-      showBanner(
-        `CSV loaded but could not find header row.\n`+
-        `First row: ${rows[0].slice(0,18).join(" | ")}\n\n`+
-        `Need headers including: "${H.po}" and "${H.factory}".`
-      );
-      return [];
-    }
-
-    const header=rows[headerRow].map(s=>String(s||"").trim());
-    const hNorm=header.map(norm);
-    const gi=(name)=>hNorm.indexOf(norm(name));
-    const I={
-      po:gi(H.po), factory:gi(H.factory), whSuffix:gi(H.whSuffix), whTrig:gi(H.whTrig),
-      order:gi(H.order), reqShip:gi(H.reqShip), bucket:gi(H.bucket), ptype:gi(H.ptype),
-      title:gi(H.title), sku:gi(H.sku), retailPrice:gi(H.retailPrice), size:gi(H.size),
-      qty:gi(H.qty), retailValue:gi(H.retailValue),
-    };
-    if(I.po<0 || I.factory<0){
-      showBanner(
-        `CSV header mismatch.\nHeader row detected: ${headerRow+1}\nFirst headers: ${header.slice(0,18).join(" | ")}`
-      );
-      return [];
-    }
-
-    return rows.slice(headerRow+1).map((r,ri)=>{
-      const po=String(r[I.po]??"").trim();
-      const factory=String(r[I.factory]??"").trim();
-      const title=String(r[I.title]??"").trim();
-      const sku=String(r[I.sku]??"").trim();
-      if(!po && !factory && !title && !sku) return null;
-
-      return {
-        id: btoa(unescape(encodeURIComponent(`${po}|${factory}|${sku}|${ri}`))).replace(/=+$/,""),
-        po, factory,
-        wholesaleSuffix: String(r[I.whSuffix]??"").trim(),
-        wholesaleTriggered: String(r[I.whTrig]??"").trim(),
-        orderDate: parseDate(r[I.order]),
-        reqShipDate: parseDate(r[I.reqShip]),
-        dateBucket: String(r[I.bucket]??"").trim(),
-        productType: String(r[I.ptype]??"").trim(),
-        title,
-        sku,
-        retailPrice: num(r[I.retailPrice]),
-        size: String(r[I.size]??"").trim(),
-        qty: num(r[I.qty]),
-        retailValue: num(r[I.retailValue]),
-      };
-    }).filter(Boolean);
-  }
-
-  async function load(){
-    clearBanner();
-    $("updated").textContent = new Date().toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"});
-    $("openSheet").href = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit`;
-    $("openGid").href = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit#gid=${GID}`;
-    $("openPublished").href = PUBLISHED_HTML_URL;
-
-    const tries = [];
-
-    // 0) Published-to-web CSV (2PACX) — best for GitHub Pages
-    try{
-      const url = PUBLISHED_CSV_URL + `&_=${Date.now()}`;
-      const r = await fetchText(url);
-      tries.push(`Published CSV: HTTP ${r.status}`);
-      if(!r.ok) throw new Error(`HTTP ${r.status}`);
-      allLines = parseFromCSVText(r.txt);
-      if(allLines.length){
-        $("srcUsed").textContent = "Loaded via: Published-to-web CSV (2PACX)";
-        initAfterLoad();
-        return;
-      }
-      throw new Error(`Parsed 0 rows. First 200 chars:\n${r.txt.slice(0,200)}`);
-    }catch(e){
-      showBanner(`Published CSV failed.\n${String(e)}\n\nTrying GViz…`);
-    }
-
-    // 1) GViz JSON — only works if sheet is publicly shareable (not just published)
-    try{
-      const url = GVIZ_URL + `&_=${Date.now()}`;
-      const r = await fetchText(url);
-      tries.push(`GViz: HTTP ${r.status}`);
-      if(!r.ok) throw new Error(`HTTP ${r.status}`);
-      const json = parseGViz(r.txt);
-      if(!json) throw new Error(`Non-JSON. First 120 chars:\n${r.txt.slice(0,120)}`);
-      allLines = parseFromGViz(json);
-      if(allLines.length){
-        $("srcUsed").textContent = "Loaded via: GViz JSON";
-        clearBanner();
-        initAfterLoad();
-        return;
-      }
-      throw new Error("Parsed 0 rows (header mismatch or empty).");
-    }catch(e){
-      showBanner(`GViz failed.\n${String(e)}\n\nTrying export CSV…`);
-    }
-
-    // 2) export?format=csv — also usually requires shareable permissions
-    try{
-      const url = EXPORT_CSV_URL + `&_=${Date.now()}`;
-      const r = await fetchText(url);
-      tries.push(`Export CSV: HTTP ${r.status}`);
-      if(!r.ok) throw new Error(`HTTP ${r.status}`);
-      allLines = parseFromCSVText(r.txt);
-      if(allLines.length){
-        $("srcUsed").textContent = "Loaded via: export?format=csv";
-        clearBanner();
-        initAfterLoad();
-        return;
-      }
-      throw new Error(`Parsed 0 rows. First 200 chars:\n${r.txt.slice(0,200)}`);
-    }catch(e){
-      showBanner(
-        `All sources failed.\n\n`+
-        `Published CSV URL:\n${PUBLISHED_CSV_URL}\n\n`+
-        `Tried:\n- ${tries.join("\n- ")}\n\n`+
-        `Last error:\n${String(e)}`
-      );
-      $("srcUsed").textContent = "No data loaded (see banner).";
-    }
-  }
-
-  /* ========= FILTERS ========= */
-  function poMatches(po){
-    if(F.factories.size && !F.factories.has(po.factory)) return false;
-
-    if(F.ptypes.size){
-      let ok=false;
-      for(const t of po.productTypes){ if(F.ptypes.has(t)){ ok=true; break; } }
-      if(!ok) return false;
-    }
-    if(F.buckets.size){
-      let ok=false;
-      for(const b of po.buckets){ if(F.buckets.has(b)){ ok=true; break; } }
-      if(!ok) return false;
-    }
-
-    if(F.wh){
-      const want = (F.wh==="true");
-      const got = po.wh === null ? null : !!po.wh;
-      if(got === null) return false;
-      if(got !== want) return false;
-    }
-
-    if(F.shipFrom || F.shipTo){
-      if(!po.shipDateMin) return false;
-      const d=startOfDay(po.shipDateMin);
-      if(F.shipFrom && d < startOfDay(F.shipFrom)) return false;
-      if(F.shipTo && d > startOfDay(F.shipTo)) return false;
-    }
-
-    const q=(F.q||"").toLowerCase().trim();
-    if(q){
-      const head=[po.factory, po.po, [...po.productTypes].join(" "), [...po.buckets].join(" ")].join(" ").toLowerCase();
-      if(head.includes(q)) return true;
-      for(const l of po.lines){
-        const blob=[l.title,l.sku,l.size,l.productType,l.dateBucket].join(" ").toLowerCase();
-        if(blob.includes(q)) return true;
-      }
-      return false;
-    }
-
-    return true;
-  }
-
-  function applyFilters(){
-    poFiltered=[...poAll.values()].filter(poMatches);
-    poFiltered.sort((a,b)=>
-      String(a.factory).localeCompare(String(b.factory)) ||
-      ((a.shipDateMin?.getTime()||9e15) - (b.shipDateMin?.getTime()||9e15)) ||
-      (b.poRetail-a.poRetail) ||
-      String(a.po).localeCompare(String(b.po))
-    );
-  }
-
-  /* ========= RENDER ========= */
-  function shipRisk(shipDate){
-    if(!shipDate) return {kind:"warn", label:"No ship date"};
-    const d0=startOfDay(shipDate);
-    const now0=startOfDay(new Date());
-    const diff=Math.floor((d0-now0)/86400000);
-    if(diff<0) return {kind:"risk", label:`Late ${Math.abs(diff)}d`};
-    if(diff<=14) return {kind:"warn", label:`Ship ${diff}d`};
-    return {kind:"ok", label:`Ship ${diff}d`};
-  }
-
-  function renderKPIs(){
-    const pos=poFiltered.length;
-    const facs=new Set(poFiltered.map(p=>p.factory)).size;
-    const lines=poFiltered.reduce((s,p)=>s+p.lines.length,0);
-    const qty=poFiltered.reduce((s,p)=>s+(p.qty||0),0);
-    const val=poFiltered.reduce((s,p)=>s+(p.poRetail||0),0);
-
-    $("kPOs").textContent=pos.toLocaleString("en-US");
-    $("kFac").textContent=facs.toLocaleString("en-US");
-    $("kLines").textContent=lines.toLocaleString("en-US");
-    $("kQty").textContent=qty.toLocaleString("en-US");
-    $("kVal").textContent=money(val);
-  }
-
-  function renderQueue(){
-    const root=$("queue");
-    if(!poFiltered.length){ root.innerHTML=`<div class="empty">No results.</div>`; return; }
-
-    const byF=new Map();
-    for(const p of poFiltered){ (byF.get(p.factory)||byF.set(p.factory,[]).get(p.factory)).push(p); }
-    const factories=[...byF.keys()].sort((a,b)=>a.localeCompare(b));
-
-    root.innerHTML="";
-    for(const f of factories){
-      const list=byF.get(f)||[];
-      const open=openFactory.get(f) ?? true;
-
-      const fPOs=list.length;
-      const fLines=list.reduce((s,p)=>s+p.lines.length,0);
-      const fQty=list.reduce((s,p)=>s+(p.qty||0),0);
-      const fVal=list.reduce((s,p)=>s+(p.poRetail||0),0);
-
-      const group=document.createElement("div");
-      group.className="group";
-
-      const head=document.createElement("div");
-      head.className="ghead" + (open?" open":"");
-      head.innerHTML=`
-        <div><strong>${esc(f)}</strong><div class="muted">${fPOs} POs • ${fLines} lines</div></div>
-        <div class="muted" style="text-align:right">Qty ${esc(fQty)}<br>${money(fVal)}</div>
-      `;
-
-      const body=document.createElement("div");
-      body.className="gbody" + (open?" open":"");
-
-      for(const po of list){
-        const risk=shipRisk(po.shipDateMin);
-        const pill = risk.kind==="ok"
-          ? `<span class="pill"><span class="dot g"></span>${risk.label}</span>`
-          : risk.kind==="warn"
-            ? `<span class="pill"><span class="dot y"></span>${risk.label}</span>`
-            : `<span class="pill"><span class="dot r"></span>${risk.label}</span>`;
-
-        const card=document.createElement("div");
-        card.className="po";
-        const h=document.createElement("div");
-        h.className="pohead";
-        h.innerHTML=`
-          <div>
-            <div class="title">${esc(po.po||"(No PO Name)")}</div>
-            <div class="muted">Req Ship: ${esc(fmtDate(po.shipDateMin))} • ${po.lines.length} lines</div>
-            <div class="muted">${esc([...po.productTypes].slice(0,3).join(" • "))}${po.productTypes.size>3?" • …":""}</div>
-          </div>
-          <div style="text-align:right">
-            ${pill}
-            <div class="muted" style="margin-top:6px">Qty ${esc(po.qty)} • ${money(po.poRetail)}</div>
-            <div class="muted">${po.retailMode==="max" ? "Retail: PO total" : (po.retailMode==="sum" ? "Retail: summed" : "Retail: —")}</div>
-          </div>
-        `;
-        h.addEventListener("click",()=>openDrawer(po.key));
-        card.appendChild(h);
-        body.appendChild(card);
-      }
-
-      head.addEventListener("click",()=>{
-        const o=!body.classList.contains("open");
-        body.classList.toggle("open",o);
-        head.classList.toggle("open",o);
-        openFactory.set(f,o);
-      });
-
-      group.appendChild(head);
-      group.appendChild(body);
-      root.appendChild(group);
-    }
-  }
-
-  function renderCalendar(){
-    const anchor=calAnchor;
-    $("calTitle").textContent=`Ship Calendar — ${anchor.toLocaleDateString("en-US",{month:"long",year:"numeric"})}`;
-
-    const grid=$("calGrid");
-    grid.innerHTML="";
-    ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].forEach(d=>{
-      const el=document.createElement("div");
-      el.className="dow";
-      el.textContent=d;
-      grid.appendChild(el);
     });
 
-    const y=anchor.getFullYear(), m=anchor.getMonth();
-    const first=new Date(y,m,1);
-    const start=addDays(first, -first.getDay());
-    const last=new Date(y,m+1,0);
-    const end=addDays(last, 6-last.getDay());
-    const todayKey=iso(new Date());
-
-    const byDay=new Map();
-    for(const p of poFiltered){
-      if(!p.shipDateMin) continue;
-      const k=iso(p.shipDateMin);
-      (byDay.get(k) ?? byDay.set(k,[]).get(k)).push(p);
-    }
-    for(const items of byDay.values()){ items.sort((a,b)=>b.poRetail-a.poRetail); }
-
-    for(let d=new Date(start); d<=end; d=addDays(d,1)){
-      const inMonth=d.getMonth()===m;
-      const key=iso(d);
-      const items=byDay.get(key)||[];
-      const qty=items.reduce((s,p)=>s+(p.qty||0),0);
-      const val=items.reduce((s,p)=>s+(p.poRetail||0),0);
-
-      const cell=document.createElement("div");
-      cell.className="cell" + (inMonth?"":" mute");
-      cell.innerHTML=`
-        <div class="dayline">
-          <div class="daynum">${d.getDate()} ${key===todayKey?`<span class="badge">Today</span>`:""}</div>
-          <div class="badge">${items.length?`${items.length} POs • ${money(val)}`:"—"}</div>
-        </div>
-      `;
-
-      const list=document.createElement("div");
-      list.className="items";
-
-      const MAX=5;
-      items.slice(0,MAX).forEach(p=>{
-        const it=document.createElement("div");
-        it.className="it";
-        it.innerHTML=`
-          <div class="t">${esc(clamp(p.factory,22))}</div>
-          <div class="a">${esc(clamp(p.po,34))} • Qty ${esc(p.qty)} • ${money(p.poRetail)}</div>
-        `;
-        it.addEventListener("click",()=>openDrawer(p.key));
-        list.appendChild(it);
-      });
-
-      if(items.length>MAX){
-        const more=document.createElement("div");
-        more.className="muted";
-        more.textContent=`+ ${items.length-MAX} more…`;
-        list.appendChild(more);
-      }
-
-      cell.appendChild(list);
-      grid.appendChild(cell);
-    }
-  }
-
-  function renderReports(){
-    const byFactory=new Map();
-    const byMonth=new Map();
-
-    for(const p of poFiltered){
-      const f=p.factory||"—";
-      const fm=byFactory.get(f)||{pos:0,qty:0,val:0};
-      fm.pos++; fm.qty+=p.qty||0; fm.val+=p.poRetail||0; byFactory.set(f,fm);
-
-      const mo = p.shipDateMin ? `${p.shipDateMin.getFullYear()}-${String(p.shipDateMin.getMonth()+1).padStart(2,"0")}` : "No ship date";
-      const mm=byMonth.get(mo)||{pos:0,qty:0,val:0};
-      mm.pos++; mm.qty+=p.qty||0; mm.val+=p.poRetail||0; byMonth.set(mo,mm);
-    }
-
-    const topF=[...byFactory.entries()].map(([k,v])=>({k,...v})).sort((a,b)=>b.val-a.val).slice(0,12);
-    const months=[...byMonth.entries()].map(([k,v])=>({k,...v})).sort((a,b)=>a.k.localeCompare(b.k)).slice(0,24);
-
-    $("rFactories").innerHTML = topF.length
-      ? topF.map(x=>`<tr><td>${esc(x.k)}</td><td>${x.pos}</td><td>${x.qty}</td><td>${money(x.val)}</td></tr>`).join("")
-      : `<tr><td colspan="4" style="color:var(--m)">No data.</td></tr>`;
-
-    $("rMonths").innerHTML = months.length
-      ? months.map(x=>`<tr><td>${esc(x.k)}</td><td>${x.pos}</td><td>${x.qty}</td><td>${money(x.val)}</td></tr>`).join("")
-      : `<tr><td colspan="4" style="color:var(--m)">No data.</td></tr>`;
-  }
-
-  function refresh(){
+    buildEntityFilter();
     applyFilters();
-    renderKPIs();
-    if(view==="queue") renderQueue();
-    if(view==="calendar") renderCalendar();
-    if(view==="reports") renderReports();
+
+  } catch (err) {
+    console.error("Error loading sheet:", err);
   }
+}
 
-  /* ========= DRAWER ========= */
-  function openDrawer(key){ location.hash = `#/po/${encodeURIComponent(key)}`; }
-  function closeDrawer(){
-    $("drawer").classList.remove("open");
-    $("dTitle").textContent="Details";
-    $("dBody").innerHTML="";
-    if(location.hash.startsWith("#/po/")) history.replaceState(null,"",location.pathname+location.search);
-  }
-  function renderDrawer(po){
-    $("drawer").classList.add("open");
-    $("dTitle").textContent=`${po.factory} — ${po.po}`;
-    const risk=shipRisk(po.shipDateMin);
+/* -------------------------------------------------------
+   ENTITY FILTER BUILDER
+------------------------------------------------------- */
+function buildEntityFilter() {
+  const select = document.getElementById("entityFilter");
+  const unique = [...new Set(allRows.map(r => r.entity).filter(Boolean))].sort();
 
-    const lines=po.lines.slice().sort((a,b)=>(a.reqShipDate?.getTime()||9e15)-(b.reqShipDate?.getTime()||9e15) || (b.retailValue-a.retailValue));
+  unique.forEach(ent => {
+    const opt = document.createElement("option");
+    opt.value = ent;
+    opt.textContent = ent;
+    select.appendChild(opt);
+  });
 
-    $("dBody").innerHTML=`
-      <div class="kv">
-        <div class="k"><div class="l">Req Ship (min)</div><div class="v">${fmtDate(po.shipDateMin)} <span class="kbd">${esc(risk.label)}</span></div></div>
-        <div class="k"><div class="l">PO Retail</div><div class="v">${money(po.poRetail)} <span class="kbd">${esc(po.retailMode)}</span></div></div>
-        <div class="k"><div class="l">Total Qty</div><div class="v">${esc(po.qty)}</div></div>
-        <div class="k"><div class="l">Lines</div><div class="v">${esc(po.lines.length)}</div></div>
-      </div>
+  select.addEventListener("change", applyFilters);
+}
 
-      <details open>
-        <summary>Lines</summary>
-        <div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
-          ${lines.slice(0,250).map(l=>`
-            <div class="po" style="padding:10px 11px">
-              <div class="title">${esc(clamp(l.title || l.sku || "(Untitled)", 70))}</div>
-              <div class="muted">${esc(l.sku||"")} ${l.size?`• ${esc(l.size)}`:""} • Qty ${esc(l.qty)} • ${money(l.retailValue)}</div>
-              <div class="muted">${esc(l.productType||"")} ${l.dateBucket?`• ${esc(l.dateBucket)}`:""} • Req Ship ${esc(fmtDate(l.reqShipDate))}</div>
-            </div>
-          `).join("")}
-          ${lines.length>250?`<div class="muted">Showing first 250 lines…</div>`:""}
-        </div>
-      </details>
+/* -------------------------------------------------------
+   SEARCH & FILTER LOGIC
+------------------------------------------------------- */
+document.getElementById("searchBox").addEventListener("input", applyFilters);
+
+function applyFilters() {
+  const search = document.getElementById("searchBox").value.toLowerCase();
+  const ent = document.getElementById("entityFilter").value;
+
+  filteredRows = allRows.filter(r => {
+    const matchEntity = (ent === "ALL" || r.entity === ent);
+    const matchSearch =
+      r.entity.toLowerCase().includes(search) ||
+      r.notes.toLowerCase().includes(search) ||
+      r.uploaded.toLowerCase().includes(search);
+
+    return matchEntity && matchSearch;
+  });
+
+  currentPage = 1;
+  renderTable();
+}
+
+/* -------------------------------------------------------
+   SORTING
+------------------------------------------------------- */
+document.querySelectorAll("th[data-sort]").forEach(th => {
+  th.addEventListener("click", () => {
+    const key = th.getAttribute("data-sort");
+    filteredRows.sort((a, b) => (a[key] > b[key] ? 1 : -1));
+    renderTable();
+  });
+});
+
+/* -------------------------------------------------------
+   RENDER TABLE
+------------------------------------------------------- */
+function renderTable() {
+  const tbody = document.getElementById("dataRows");
+  tbody.innerHTML = "";
+
+  const start = (currentPage - 1) * ROWS_PER_PAGE;
+  const pageRows = filteredRows.slice(start, start + ROWS_PER_PAGE);
+
+  pageRows.forEach((r, i) => {
+    const colorClass = getEntityColor(r.entity);
+
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td><span class="entity-tag ${colorClass}"></span>${r.date}</td>
+      <td>${r.entity}</td>
+      <td>${r.month}</td>
+      <td>${r.year}</td>
+      <td>${r.notes}</td>
+      <td>${r.uploaded}</td>
+      <td>${r.bs_url ? `<a class="file-link" href="${r.bs_url}" target="_blank">${r.bs_label||"View"}</a>` : ""}</td>
+      <td>${r.pl_url ? `<a class="file-link" href="${r.pl_url}" target="_blank">${r.pl_label||"View"}</a>` : ""}</td>
+      <td>${r.gl_url ? `<a class="file-link" href="${r.gl_url}" target="_blank">${r.gl_label||"View"}</a>` : ""}</td>
+      <td>${r.other_url ? `<a class="file-link" href="${r.other_url}" target="_blank">${r.other_label||"Docs"}</a>` : ""}</td>
     `;
-  }
-  function handleRoute(){
-    const m=location.hash.match(/^#\/po\/(.+)$/);
-    if(!m){ closeDrawer(); return; }
-    const key=decodeURIComponent(m[1]);
-    const po=poAll.get(key);
-    if(!po){ closeDrawer(); return; }
-    renderDrawer(po);
-  }
 
-  /* ========= INIT ========= */
-  function initAfterLoad(){
-    poAll = buildPoIndex(allLines);
+    tbody.appendChild(tr);
+  });
 
-    setMulti("factories", uniq(allLines.map(x=>x.factory)));
-    setMulti("ptype", uniq(allLines.map(x=>x.productType)));
-    setMulti("bucket", uniq(allLines.map(x=>x.dateBucket)));
+  renderPagination();
+}
 
-    $("q").addEventListener("input", deb(e=>{ F.q=e.target.value||""; refresh(); }, 200));
-    $("factories").onchange=()=>{ F.factories=readMulti("factories"); refresh(); };
-    $("ptype").onchange=()=>{ F.ptypes=readMulti("ptype"); refresh(); };
-    $("bucket").onchange=()=>{ F.buckets=readMulti("bucket"); refresh(); };
-    $("wh").onchange=(e)=>{ F.wh=e.target.value||""; refresh(); };
+/* -------------------------------------------------------
+   ENTITY COLOR HELPER
+------------------------------------------------------- */
+function getEntityColor(entity) {
+  entity = entity.toLowerCase();
+  if (entity.includes("mise")) return "entity-color-MISE";
+  if (entity.includes("portland")) return "entity-color-Portland";
+  if (entity.includes("state")) return "entity-color-State";
+  if (entity.includes("bar") || entity.includes("two") || entity.includes("palm") || entity.includes("flanders"))
+    return "entity-color-Bars";
+  return "entity-color-Default";
+}
 
-    const toDate=(v)=>v?new Date(v+"T00:00:00"):null;
-    $("shipFrom").onchange=(e)=>{ F.shipFrom=toDate(e.target.value); refresh(); };
-    $("shipTo").onchange=(e)=>{ F.shipTo=toDate(e.target.value); refresh(); };
+/* -------------------------------------------------------
+   PAGINATION
+------------------------------------------------------- */
+function renderPagination() {
+  const pages = Math.ceil(filteredRows.length / ROWS_PER_PAGE);
+  const container = document.getElementById("pagination");
+  container.innerHTML = "";
 
-    $("reset").onclick=()=>location.reload();
+  for (let p = 1; p <= pages; p++) {
+    const btn = document.createElement("button");
+    btn.textContent = p;
+    if (p === currentPage) btn.classList.add("active");
 
-    $("export").onclick=()=>{
-      const head=["Factory","PO Name","Req Ship Date (min)","PO Retail","Retail Mode","Total Qty","Lines","Product Types","Date Buckets","Wholesale Triggered"];
-      const escCSV=s=>/[",\n]/.test(String(s))?`"${String(s).replace(/"/g,'""')}"`:String(s);
-      const fmt=d=>d?new Date(d).toISOString().slice(0,10):"";
-      const rows=[head.join(",")];
-      for(const p of poFiltered){
-        rows.push([
-          p.factory,p.po,fmt(p.shipDateMin),p.poRetail,p.retailMode,p.qty,p.lines.length,
-          [...p.productTypes].join(" | "),
-          [...p.buckets].join(" | "),
-          p.wh===null?"":(p.wh?"TRUE":"FALSE")
-        ].map(x=>escCSV(x??"")).join(","));
-      }
-      const blob=new Blob([rows.join("\n")],{type:"text/csv;charset=utf-8;"});
-      const url=URL.createObjectURL(blob);
-      const a=document.createElement("a");
-      a.href=url;
-      a.download=`po_summary_${new Date().toISOString().slice(0,10)}.csv`;
-      document.body.appendChild(a); a.click(); a.remove();
-      URL.revokeObjectURL(url);
-    };
-
-    $("tabs").addEventListener("click",(e)=>{
-      const t=e.target.closest(".tab"); if(!t) return;
-      view=t.dataset.view;
-      document.querySelectorAll("#tabs .tab").forEach(x=>x.classList.toggle("on", x===t));
-      $("queue").style.display = view==="queue" ? "" : "none";
-      $("calendar").style.display = view==="calendar" ? "" : "none";
-      $("reports").style.display = view==="reports" ? "" : "none";
-      refresh();
+    btn.addEventListener("click", () => {
+      currentPage = p;
+      renderTable();
     });
 
-    $("calPrev").onclick=()=>{ calAnchor=startOfMonth(new Date(calAnchor.getFullYear(), calAnchor.getMonth()-1, 1)); refresh(); };
-    $("calNext").onclick=()=>{ calAnchor=startOfMonth(new Date(calAnchor.getFullYear(), calAnchor.getMonth()+1, 1)); refresh(); };
-    $("calToday").onclick=()=>{ calAnchor=startOfMonth(new Date()); refresh(); };
-
-    $("closeBtn").onclick=closeDrawer;
-    window.addEventListener("hashchange", handleRoute);
-
-    refresh();
-    handleRoute();
+    container.appendChild(btn);
   }
+}
 
-  /* ========= THEME ========= */
-  const THEME_KEY="planning_theme_v5";
-  function setTheme(t){
-    document.documentElement.setAttribute("data-theme", t);
-    $("themeLabel").textContent=t[0].toUpperCase()+t.slice(1);
-    localStorage.setItem(THEME_KEY, t);
-  }
-  $("theme").onclick=()=>{
-    const cur=document.documentElement.getAttribute("data-theme")||"dark";
-    setTheme(cur==="dark"?"light":"dark");
-  };
-  setTheme(localStorage.getItem(THEME_KEY) || "dark");
-
-  /* ========= BOOT ========= */
-  load();
-})();
+/* -------------------------------------------------------
+   INIT
+------------------------------------------------------- */
+loadSheet();
 </script>
+
 </body>
 </html>
