@@ -1,0 +1,1225 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Payroll Dashboard — Admin</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <style>
+    :root{
+      --bg0:#0b1220;
+      --bg1:#0f172a;
+      --panel:rgba(255,255,255,.05);
+      --panel2:rgba(255,255,255,.03);
+      --border:rgba(148,163,184,.18);
+      --text:#e5e7eb;
+      --muted:#a7b0c0;
+
+      --shadow:0 12px 34px rgba(0,0,0,.30);
+
+      --accent:#38bdf8;
+      --green:#22c55e;
+      --amber:#fbbf24;
+      --rose:#fb7185;
+      --violet:#a78bfa;
+
+      --r20:20px;
+      --r16:16px;
+      --max:1360px;
+    }
+
+    *{ box-sizing:border-box; }
+    html,body{ height:100%; }
+    body{
+      margin:0;
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      color:var(--text);
+      background:
+        radial-gradient(1200px 600px at 10% -10%, rgba(56,189,248,.16), transparent 55%),
+        radial-gradient(900px 520px at 92% 0%, rgba(34,197,94,.10), transparent 55%),
+        radial-gradient(900px 520px at 80% 120%, rgba(167,139,250,.10), transparent 60%),
+        linear-gradient(180deg, var(--bg0), var(--bg1));
+    }
+
+    .wrap{ max-width:var(--max); margin:0 auto; padding:18px 14px 34px; }
+    .card{
+      border:1px solid var(--border);
+      border-radius:var(--r20);
+      background:linear-gradient(180deg, var(--panel), var(--panel2));
+      box-shadow:var(--shadow);
+      overflow:hidden;
+      min-height: calc(100vh - 36px);
+      display:flex;
+      flex-direction:column;
+    }
+
+    /* sticky header area */
+    .sticky{
+      position:sticky;
+      top:0;
+      z-index:10;
+      backdrop-filter: blur(10px);
+      background: rgba(11,18,32,.74);
+      border-bottom:1px solid rgba(148,163,184,.14);
+    }
+
+    .top{
+      padding:14px 16px 10px;
+      display:flex;
+      align-items:flex-end;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+    }
+    .title{ margin:0; font-size:18px; font-weight:950; letter-spacing:.2px; line-height:1.1; }
+    .sub{ margin:6px 0 0; font-size:12.5px; color:var(--muted); line-height:1.25; }
+
+    .btn{
+      display:inline-flex; align-items:center; justify-content:center; gap:10px;
+      padding:10px 12px; border-radius:12px;
+      border:1px solid rgba(255,255,255,.14);
+      background:rgba(255,255,255,.08);
+      color:var(--text);
+      font-weight:900; font-size:13px;
+      cursor:pointer; user-select:none;
+      transition: background .15s ease, border-color .15s ease, transform .08s ease;
+      white-space:nowrap;
+    }
+    .btn:hover{ background:rgba(255,255,255,.10); border-color: rgba(56,189,248,.28); transform: translateY(-1px); }
+    .btn.ghost{ background:transparent; border-color: rgba(148,163,184,.22); font-weight:800; }
+    .btn.ghost:hover{ background:rgba(255,255,255,.06); border-color: rgba(255,255,255,.22); }
+
+    .bar{
+      padding:10px 16px 12px;
+      display:flex; align-items:center; justify-content:space-between;
+      gap:10px; flex-wrap:wrap;
+    }
+    .filters{
+      display:flex; gap:10px; flex-wrap:wrap; align-items:center;
+      flex: 1 1 980px;
+    }
+
+    .input, select{
+      appearance:none;
+      padding:10px 12px;
+      border-radius:12px;
+      border:1px solid rgba(255,255,255,.14);
+      background:rgba(255,255,255,.06);
+      color:var(--text);
+      font-weight:700;
+      font-size:13px;
+      outline:none;
+      min-width: 220px;
+    }
+    select{ min-width: 190px; }
+
+    .chips{
+      display:flex; flex-wrap:wrap; gap:8px;
+      padding:0 16px 12px;
+      align-items:center;
+      justify-content:space-between;
+    }
+    .chipRow{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+    .chip{
+      display:inline-flex; align-items:center; gap:8px;
+      padding:7px 10px;
+      border-radius:999px;
+      border:1px solid rgba(148,163,184,.18);
+      background:rgba(0,0,0,.16);
+      color:rgba(203,213,225,.92);
+      font-size:12px;
+      font-weight:900;
+      cursor:pointer;
+      user-select:none;
+      transition: background .15s ease, border-color .15s ease, transform .08s ease;
+      white-space:nowrap;
+    }
+    .chip:hover{ background:rgba(255,255,255,.05); transform: translateY(-1px); }
+    .chip.active{ border-color: rgba(56,189,248,.35); background: rgba(56,189,248,.10); }
+    .chip .dot{
+      width:8px;height:8px;border-radius:999px;background:var(--accent);
+      box-shadow:0 0 0 4px rgba(56,189,248,.10);
+    }
+
+    .stats{
+      padding:0 16px 12px;
+      display:grid;
+      gap:10px;
+      grid-template-columns: repeat(12, 1fr);
+    }
+    .stat{
+      grid-column: span 3;
+      border:1px solid rgba(148,163,184,.18);
+      background:rgba(0,0,0,.14);
+      border-radius:16px;
+      padding:10px 12px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      min-height:54px;
+      overflow:hidden;
+    }
+    .stat .k{ font-size:11px; font-weight:950; letter-spacing:.25px; color:rgba(203,213,225,.92); text-transform:uppercase; }
+    .stat .v{ font-size:16px; font-weight:950; letter-spacing:.1px; }
+    .stat .s{ font-size:12px; font-weight:800; color:var(--muted); margin-top:2px; }
+    .stat .left{ display:flex; flex-direction:column; gap:2px; min-width:0; }
+    .dotLg{ width:10px;height:10px;border-radius:50%; background:var(--accent); box-shadow:0 0 0 4px rgba(56,189,248,.12); }
+    .dotLg.g{ background:var(--green); box-shadow:0 0 0 4px rgba(34,197,94,.12); }
+    .dotLg.a{ background:var(--amber); box-shadow:0 0 0 4px rgba(251,191,36,.12); }
+    .dotLg.r{ background:var(--rose); box-shadow:0 0 0 4px rgba(251,113,133,.12); }
+    .dotLg.v{ background:var(--violet); box-shadow:0 0 0 4px rgba(167,139,250,.12); }
+
+    .status{
+      padding:0 16px 12px;
+      color:var(--muted);
+      font-size:12.5px;
+      font-weight:700;
+      display:flex;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+
+    .body{
+      display:grid;
+      grid-template-columns: 380px 1fr;
+      gap:12px;
+      padding:0 12px 12px;
+      flex:1 1 auto;
+      min-height:0;
+    }
+    .panel{
+      border:1px solid rgba(148,163,184,.16);
+      background:rgba(0,0,0,.12);
+      border-radius:16px;
+      overflow:hidden;
+      min-height:0;
+      display:flex;
+      flex-direction:column;
+    }
+    .panel .ph{
+      padding:10px 12px;
+      border-bottom:1px solid rgba(148,163,184,.12);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .panel .ph b{
+      font-size:12px;
+      letter-spacing:.22px;
+      text-transform:uppercase;
+      color:rgba(203,213,225,.92);
+    }
+    .panel .ph .tiny{
+      font-size:12px;
+      color:var(--muted);
+      font-weight:800;
+      white-space:nowrap;
+    }
+    .panel .pc{
+      padding:10px 12px;
+      overflow:auto;
+      min-height:0;
+    }
+
+    .list{ display:flex; flex-direction:column; gap:8px; }
+    .row{
+      border:1px solid rgba(148,163,184,.14);
+      background:rgba(255,255,255,.03);
+      border-radius:14px;
+      padding:10px 10px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+    }
+    .row:hover{ background:rgba(255,255,255,.05); }
+    .row .name{
+      font-weight:950;
+      font-size:13px;
+      color:rgba(229,231,235,.95);
+      min-width:0;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .row .subn{
+      margin-top:4px;
+      font-size:12px;
+      color:var(--muted);
+      font-weight:800;
+      min-width:0;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      white-space:nowrap;
+    }
+    .row .right{
+      text-align:right;
+      font-variant-numeric: tabular-nums;
+      white-space:nowrap;
+    }
+    .row .v1{ font-weight:950; font-size:13px; }
+    .row .v2{ font-size:12px; font-weight:900; color:rgba(203,213,225,.88); margin-top:4px; }
+
+    .table-wrap{
+      border-top:1px solid rgba(148,163,184,.12);
+      overflow:auto;
+      background:rgba(0,0,0,.08);
+      min-height:0;
+      flex:1 1 auto;
+    }
+    table{
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+      min-width:1200px;
+      font-size:12.5px;
+    }
+    thead th{
+      position:sticky;
+      top:0;
+      z-index:2;
+      text-align:left;
+      padding:10px 10px;
+      background:rgba(15,23,42,.92);
+      border-bottom:1px solid rgba(148,163,184,.18);
+      color:rgba(203,213,225,.96);
+      font-weight:950;
+      white-space:nowrap;
+    }
+    tbody td{
+      padding:10px 10px;
+      border-bottom:1px solid rgba(148,163,184,.12);
+      color:rgba(229,231,235,.92);
+      white-space:nowrap;
+    }
+    tbody tr:hover td{ background:rgba(255,255,255,.04); }
+
+    .num{ text-align:right; font-variant-numeric: tabular-nums; }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:5px 8px;
+      border-radius:999px;
+      font-weight:950;
+      font-size:11px;
+      border:1px solid rgba(148,163,184,.18);
+      background:rgba(0,0,0,.18);
+      color:rgba(203,213,225,.92);
+    }
+    .pill.earn{ border-color: rgba(34,197,94,.25); background: rgba(34,197,94,.10); }
+    .pill.dd{ border-color: rgba(251,191,36,.25); background: rgba(251,191,36,.10); }
+    .pill.tax{ border-color: rgba(56,189,248,.25); background: rgba(56,189,248,.10); }
+    .pill.net{ border-color: rgba(167,139,250,.28); background: rgba(167,139,250,.12); }
+
+    .hint{
+      padding:12px 16px;
+      color:rgba(167,176,192,.95);
+      font-size:12px;
+      border-top:1px solid rgba(148,163,184,.14);
+    }
+
+    .error{
+      padding:14px 16px;
+      border-top:1px solid rgba(148,163,184,.14);
+      color:rgba(253,164,175,.95);
+      font-weight:900;
+    }
+    .error small{
+      display:block;
+      margin-top:6px;
+      color:rgba(167,176,192,.95);
+      font-weight:700;
+      line-height:1.3;
+    }
+
+    @media (max-width: 1100px){
+      .stat{ grid-column: span 6; }
+      .body{ grid-template-columns: 1fr; }
+      table{ min-width: 980px; }
+    }
+    @media (max-width: 860px){
+      .input, select{ min-width: 100%; }
+      .filters{ flex: 1 1 100%; }
+      .stat{ grid-column: span 12; }
+      .chips{ gap:10px; }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <div class="card" role="region" aria-label="Payroll dashboard admin view">
+
+      <div class="sticky">
+        <div class="top">
+          <div>
+            <h1 class="title">Payroll Dashboard</h1>
+            <p class="sub">Admin view • Rollups for <b>Hours</b> + <b>Gross Earnings (EARN)</b>. Taxes/Deductions shown as separate totals.</p>
+          </div>
+
+          <div class="actions">
+            <button class="btn ghost" id="copyLink" type="button" title="Copy a shareable link (keeps current filters)">Copy Link</button>
+            <button class="btn" id="downloadCsv" type="button">Download CSV</button>
+          </div>
+        </div>
+
+        <div class="bar">
+          <div class="filters">
+            <input id="q" class="input" type="search" placeholder="Search employee, dept, location, code…" />
+
+            <select id="payPeriod">
+              <option value="">All Pay Periods</option>
+            </select>
+
+            <select id="registerType">
+              <option value="">All Register Types</option>
+              <option value="EARN">EARN (Earnings)</option>
+              <option value="DDUCT">DDUCT (Deductions)</option>
+              <option value="EETAX">EETAX (EE Tax)</option>
+              <option value="ERTAX">ERTAX (ER Tax)</option>
+              <option value="NET">NET (Net Pay)</option>
+            </select>
+
+            <select id="employee">
+              <option value="">All Employees</option>
+            </select>
+
+            <select id="department">
+              <option value="">All Departments</option>
+            </select>
+
+            <select id="location">
+              <option value="">All Locations</option>
+            </select>
+
+            <select id="typecode">
+              <option value="">All Codes</option>
+            </select>
+          </div>
+
+          <div class="actions">
+            <button class="btn ghost" id="reset" type="button">Reset</button>
+          </div>
+        </div>
+
+        <div class="chips" aria-label="Quick views">
+          <div class="chipRow">
+            <div class="chip active" data-view="detail"><span class="dot"></span>Detail</div>
+            <div class="chip" data-view="employee"><span class="dot"></span>By Employee</div>
+            <div class="chip" data-view="department"><span class="dot"></span>By Department</div>
+            <div class="chip" data-view="location"><span class="dot"></span>By Location</div>
+            <div class="chip" data-view="typecode"><span class="dot"></span>By Code</div>
+          </div>
+
+          <div class="chipRow">
+            <select id="rollMetric" title="Rollup metric">
+              <option value="amount">Rollup: $ Amount</option>
+              <option value="hours">Rollup: Hours</option>
+              <option value="both">Rollup: Both</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="stats" aria-label="Summary">
+          <div class="stat">
+            <div class="left">
+              <div class="k">Employees</div>
+              <div class="v" id="mEmp">0</div>
+              <div class="s">Unique (in view)</div>
+            </div>
+            <span class="dotLg a" aria-hidden="true"></span>
+          </div>
+
+          <div class="stat">
+            <div class="left">
+              <div class="k">Hours Worked</div>
+              <div class="v" id="mHours">0.00</div>
+              <div class="s">EARN subset (in view)</div>
+            </div>
+            <span class="dotLg.g" aria-hidden="true"></span>
+          </div>
+
+          <div class="stat">
+            <div class="left">
+              <div class="k">Gross Earnings</div>
+              <div class="v" id="mGross">$0.00</div>
+              <div class="s">EARN amount (in view)</div>
+            </div>
+            <span class="dotLg.g" aria-hidden="true"></span>
+          </div>
+
+          <div class="stat">
+            <div class="left">
+              <div class="k">Avg $ / Hour</div>
+              <div class="v" id="mRate">$0.00</div>
+              <div class="s">Gross ÷ Hours (EARN)</div>
+            </div>
+            <span class="dotLg" aria-hidden="true"></span>
+          </div>
+
+          <div class="stat">
+            <div class="left">
+              <div class="k">Deductions</div>
+              <div class="v" id="mDeduct">$0.00</div>
+              <div class="s">DDUCT amount (in view)</div>
+            </div>
+            <span class="dotLg.a" aria-hidden="true"></span>
+          </div>
+
+          <div class="stat">
+            <div class="left">
+              <div class="k">EE Taxes</div>
+              <div class="v" id="mEETax">$0.00</div>
+              <div class="s">EETAX amount (in view)</div>
+            </div>
+            <span class="dotLg" aria-hidden="true"></span>
+          </div>
+
+          <div class="stat">
+            <div class="left">
+              <div class="k">ER Taxes</div>
+              <div class="v" id="mERTax">$0.00</div>
+              <div class="s">ERTAX amount (in view)</div>
+            </div>
+            <span class="dotLg.v" aria-hidden="true"></span>
+          </div>
+
+          <div class="stat">
+            <div class="left">
+              <div class="k">Net Pay</div>
+              <div class="v" id="mNet">$0.00</div>
+              <div class="s">NET amount (in view)</div>
+            </div>
+            <span class="dotLg.v" aria-hidden="true"></span>
+          </div>
+
+          <div class="stat">
+            <div class="left">
+              <div class="k">Top Employee</div>
+              <div class="v" id="mTopEmp">—</div>
+              <div class="s" id="mTopEmpSub">—</div>
+            </div>
+            <span class="dotLg.r" aria-hidden="true"></span>
+          </div>
+
+          <div class="stat">
+            <div class="left">
+              <div class="k">Departments</div>
+              <div class="v" id="mDepts">0</div>
+              <div class="s">Unique (in view)</div>
+            </div>
+            <span class="dotLg.a" aria-hidden="true"></span>
+          </div>
+
+          <div class="stat">
+            <div class="left">
+              <div class="k">Locations</div>
+              <div class="v" id="mLocs">0</div>
+              <div class="s">Unique (in view)</div>
+            </div>
+            <span class="dotLg.a" aria-hidden="true"></span>
+          </div>
+
+          <div class="stat">
+            <div class="left">
+              <div class="k">Lines</div>
+              <div class="v" id="mLines">0</div>
+              <div class="s">Visible (in view)</div>
+            </div>
+            <span class="dotLg" aria-hidden="true"></span>
+          </div>
+        </div>
+
+        <div class="status">
+          <div id="status">Loading…</div>
+          <div id="hint2" style="color:rgba(167,176,192,.9);"></div>
+        </div>
+      </div>
+
+      <!-- BODY: rollups panel + table -->
+      <div class="body">
+        <div class="panel" id="rollupPanel">
+          <div class="ph">
+            <b id="rollupTitle">Rollups</b>
+            <span class="tiny" id="rollupMeta">—</span>
+          </div>
+          <div class="pc">
+            <div class="list" id="rollupList"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="ph">
+            <b>Detail Lines</b>
+            <span class="tiny" id="detailMeta">—</span>
+          </div>
+          <div class="table-wrap">
+            <table aria-label="Payroll detail table">
+              <thead>
+                <tr>
+                  <th>EE Name</th>
+                  <th>Department</th>
+                  <th>Location</th>
+                  <th>Register</th>
+                  <th>Code</th>
+                  <th>Description</th>
+                  <th>Pay Period</th>
+                  <th class="num">Hours</th>
+                  <th class="num">Amount</th>
+                  <th class="num">Wages</th>
+                </tr>
+              </thead>
+              <tbody id="tbody">
+                <tr><td colspan="10" style="padding:14px;color:rgba(167,176,192,.95);font-weight:800;">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="hint">
+        Summary math is based on the current filtered view. <b>Hours Worked</b> + <b>Gross Earnings</b> are calculated from <b>EARN</b> rows only.
+        Taxes/Deductions/Net are displayed as separate totals (not mixed into gross math).
+      </div>
+
+      <div id="error" class="error" style="display:none;"></div>
+    </div>
+  </div>
+
+  <script>
+    (function(){
+      /**********************
+       * CONFIG (Published CSV)
+       **********************/
+      const PUBLISHED_KEY = "2PACX-1vR0yHQp3zlQKu4tadOA6CAKcmaHarfdIs57I4RS4h4uczP_1McLRJeog2vqqbx9EswrmSxglirfUbX6";
+      const GID = null;
+
+      const CSV_URLS = [
+        `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_KEY}/pub?output=csv`,
+        `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_KEY}/pub?single=true&output=csv`,
+        ...(GID !== null ? [
+          `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_KEY}/pub?gid=${encodeURIComponent(GID)}&single=true&output=csv`,
+          `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_KEY}/pub?gid=${encodeURIComponent(GID)}&output=csv`
+        ] : [
+          `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_KEY}/pub?gid=0&single=true&output=csv`,
+          `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_KEY}/pub?gid=0&output=csv`
+        ])
+      ];
+
+      // Read what we need for filters + math + detail view.
+      const HEADERS = [
+        "Department Desc","Location Desc","clientcode",
+        "EE Code","EE Name",
+        "Typecode","Typedesc",
+        "Register Type","Amount","Hours/Units","Wages",
+        "Pay Period Start","Pay Period End"
+      ];
+
+      /**********************
+       * DOM
+       **********************/
+      const els = {
+        q: document.getElementById("q"),
+        payPeriod: document.getElementById("payPeriod"),
+        registerType: document.getElementById("registerType"),
+        employee: document.getElementById("employee"),
+        department: document.getElementById("department"),
+        location: document.getElementById("location"),
+        typecode: document.getElementById("typecode"),
+        reset: document.getElementById("reset"),
+        downloadCsv: document.getElementById("downloadCsv"),
+        copyLink: document.getElementById("copyLink"),
+        rollMetric: document.getElementById("rollMetric"),
+
+        status: document.getElementById("status"),
+        hint2: document.getElementById("hint2"),
+        tbody: document.getElementById("tbody"),
+        error: document.getElementById("error"),
+
+        // metrics
+        mEmp: document.getElementById("mEmp"),
+        mDepts: document.getElementById("mDepts"),
+        mLocs: document.getElementById("mLocs"),
+        mLines: document.getElementById("mLines"),
+
+        mHours: document.getElementById("mHours"),
+        mGross: document.getElementById("mGross"),
+        mRate: document.getElementById("mRate"),
+        mDeduct: document.getElementById("mDeduct"),
+        mEETax: document.getElementById("mEETax"),
+        mERTax: document.getElementById("mERTax"),
+        mNet: document.getElementById("mNet"),
+        mTopEmp: document.getElementById("mTopEmp"),
+        mTopEmpSub: document.getElementById("mTopEmpSub"),
+
+        // rollup
+        rollupTitle: document.getElementById("rollupTitle"),
+        rollupMeta: document.getElementById("rollupMeta"),
+        rollupList: document.getElementById("rollupList"),
+        detailMeta: document.getElementById("detailMeta"),
+        chips: Array.from(document.querySelectorAll(".chip"))
+      };
+
+      /**********************
+       * STATE
+       **********************/
+      let RAW = [];   // all rows from sheet
+      let VIEW = [];  // after filters
+      let activeView = "detail"; // detail | employee | department | location | typecode
+
+      /**********************
+       * UTILS
+       **********************/
+      const debounce = (fn, d=220)=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),d); } };
+      function cleanHeader(s){ return String(s||"").trim().replace(/\s+/g," ").toLowerCase(); }
+      function esc(s){
+        return String(s ?? "")
+          .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+          .replaceAll('"',"&quot;").replaceAll("'","&#039;");
+      }
+
+      function parseMoney(v){
+        // Handles: $1,234.56 | 1234.56 | (1,234.56) | -123.45
+        let s = String(v ?? "").trim();
+        if(!s) return 0;
+        let neg = false;
+        if(s.includes("(") && s.includes(")")) { neg = true; s = s.replace(/[()]/g,""); }
+        s = s.replace(/\$/g,"").replace(/,/g,"").replace(/\s+/g,"");
+        if(s.startsWith("-")){ neg = true; s = s.slice(1); }
+        const n = Number(s);
+        if(!isFinite(n)) return 0;
+        return neg ? -n : n;
+      }
+      function parseNumber(v){
+        let s = String(v ?? "").trim();
+        if(!s) return 0;
+        s = s.replace(/,/g,"").replace(/\s+/g,"");
+        const n = Number(s);
+        return isFinite(n) ? n : 0;
+      }
+      function fmtNum(n){
+        const v = Number(n);
+        if(!isFinite(v)) return "0.00";
+        return v.toLocaleString(undefined,{ minimumFractionDigits:2, maximumFractionDigits:2 });
+      }
+      function fmtUSD(n){
+        const v = Number(n);
+        if(!isFinite(v)) return "$0.00";
+        const abs = Math.abs(v);
+        const str = abs.toLocaleString(undefined,{ minimumFractionDigits:2, maximumFractionDigits:2 });
+        return (v < 0) ? `-$${str}` : `$${str}`;
+      }
+      function setError(msg, detail){
+        els.error.style.display = "block";
+        els.error.innerHTML = `${msg}<small>${detail || ""}</small>`;
+      }
+      function clearError(){ els.error.style.display = "none"; els.error.textContent = ""; }
+
+      function uniq(arr){
+        return Array.from(new Set(arr.filter(Boolean))).sort((a,b)=> a.localeCompare(b));
+      }
+      function labelPeriod(r){
+        const s = (r["Pay Period Start"]||"").trim();
+        const e = (r["Pay Period End"]||"").trim();
+        return (s||e) ? `${s} → ${e}` : "";
+      }
+      function pillClass(rt){
+        const x = String(rt||"").toUpperCase();
+        if(x === "EARN") return "earn";
+        if(x === "DDUCT") return "dd";
+        if(x === "EETAX" || x === "ERTAX") return "tax";
+        if(x === "NET") return "net";
+        return "";
+      }
+
+      function groupAgg(rows, keyFn){
+        // returns Map(key -> {hours, amount, lines})
+        const m = new Map();
+        for(const r of rows){
+          const k = keyFn(r);
+          if(!k) continue;
+          const cur = m.get(k) || { hours:0, amount:0, lines:0 };
+          cur.hours += parseNumber(r["Hours/Units"]);
+          cur.amount += parseMoney(r["Amount"]);
+          cur.lines += 1;
+          m.set(k, cur);
+        }
+        return m;
+      }
+      function topN(map, n, metric){
+        const arr = Array.from(map.entries()).map(([k,v])=>({k, v}));
+        arr.sort((a,b)=>{
+          const av = metric === "hours" ? a.v.hours : a.v.amount;
+          const bv = metric === "hours" ? b.v.hours : b.v.amount;
+          return bv - av;
+        });
+        return arr.slice(0,n);
+      }
+
+      function setChip(view){
+        activeView = view;
+        els.chips.forEach(c=>{
+          c.classList.toggle("active", c.dataset.view === view);
+        });
+        render();
+      }
+
+      /**********************
+       * CSV PARSER
+       **********************/
+      function parseCSV(text){
+        const rows = [];
+        let cur = [];
+        let val = "";
+        let i = 0;
+        let inQuotes = false;
+
+        while(i < text.length){
+          const c = text[i];
+          if(inQuotes){
+            if(c === '"'){
+              if(text[i+1] === '"'){ val += '"'; i += 2; continue; }
+              inQuotes = false; i++; continue;
+            }
+            val += c; i++; continue;
+          } else {
+            if(c === '"'){ inQuotes = true; i++; continue; }
+            if(c === ","){ cur.push(val); val=""; i++; continue; }
+            if(c === "\r"){ i++; continue; }
+            if(c === "\n"){ cur.push(val); rows.push(cur); cur=[]; val=""; i++; continue; }
+            val += c; i++; continue;
+          }
+        }
+        cur.push(val);
+        rows.push(cur);
+        return rows.filter(r => r.some(x => String(x||"").trim() !== ""));
+      }
+
+      function mapRows(rows){
+        const headerRow = rows[0].map(h => String(h||"").trim());
+        const headerMap = new Map();
+        headerRow.forEach((h, idx)=> headerMap.set(cleanHeader(h), idx));
+
+        const missing = HEADERS.filter(h => !headerMap.has(cleanHeader(h)));
+        if(missing.length){
+          return { ok:false, reason:`Missing headers: ${missing.join(", ")}` };
+        }
+
+        const data = rows.slice(1).map(r=>{
+          const obj = {};
+          HEADERS.forEach(h=>{
+            const idx = headerMap.get(cleanHeader(h));
+            obj[h] = (idx != null && idx < r.length) ? r[idx] : "";
+          });
+          return obj;
+        });
+
+        return { ok:true, data };
+      }
+
+      async function fetchFirstWorkingCSV(){
+        let lastErr = "";
+        for(const url of CSV_URLS){
+          try{
+            const res = await fetch(url, { cache:"no-store" });
+            if(!res.ok) throw new Error(`HTTP ${res.status}`);
+            const text = await res.text();
+            const rows = parseCSV(text);
+            if(rows.length < 2) throw new Error("No data rows");
+            const mapped = mapRows(rows);
+            if(!mapped.ok) throw new Error(mapped.reason);
+            return { url, data: mapped.data };
+          } catch(e){
+            lastErr = `${url} — ${e.message || e}`;
+          }
+        }
+        throw new Error(lastErr || "Unable to load published CSV");
+      }
+
+      /**********************
+       * FILTER LISTS
+       **********************/
+      function buildFilters(){
+        const emps = uniq(RAW.map(r => (r["EE Name"]||"").trim()));
+        els.employee.innerHTML = ['<option value="">All Employees</option>', ...emps.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`)].join("");
+
+        const depts = uniq(RAW.map(r => (r["Department Desc"]||"").trim()));
+        els.department.innerHTML = ['<option value="">All Departments</option>', ...depts.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`)].join("");
+
+        const locs = uniq(RAW.map(r => (r["Location Desc"]||"").trim()));
+        els.location.innerHTML = ['<option value="">All Locations</option>', ...locs.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`)].join("");
+
+        const codes = uniq(RAW.map(r => (r["Typecode"]||"").trim()));
+        els.typecode.innerHTML = ['<option value="">All Codes</option>', ...codes.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`)].join("");
+
+        const periods = uniq(RAW.map(labelPeriod));
+        els.payPeriod.innerHTML = ['<option value="">All Pay Periods</option>', ...periods.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`)].join("");
+      }
+
+      /**********************
+       * APPLY + METRICS + RENDER
+       **********************/
+      function apply(){
+        const q = (els.q.value || "").trim().toLowerCase();
+        const pp = (els.payPeriod.value || "").trim();
+        const rt = (els.registerType.value || "").trim().toUpperCase();
+        const emp = (els.employee.value || "").trim();
+        const dept = (els.department.value || "").trim();
+        const loc = (els.location.value || "").trim();
+        const code = (els.typecode.value || "").trim();
+
+        VIEW = RAW.filter(r=>{
+          if(pp && labelPeriod(r) !== pp) return false;
+          if(rt && String(r["Register Type"]||"").toUpperCase() !== rt) return false;
+
+          if(emp && (r["EE Name"]||"").trim() !== emp) return false;
+          if(dept && (r["Department Desc"]||"").trim() !== dept) return false;
+          if(loc && (r["Location Desc"]||"").trim() !== loc) return false;
+          if(code && (r["Typecode"]||"").trim() !== code) return false;
+
+          if(q){
+            const hay = [
+              r["EE Name"], r["EE Code"],
+              r["Department Desc"], r["Location Desc"],
+              r["Register Type"], r["Typecode"], r["Typedesc"],
+              r["Pay Period Start"], r["Pay Period End"]
+            ].join(" ").toLowerCase();
+            if(!hay.includes(q)) return false;
+          }
+          return true;
+        });
+
+        render();
+      }
+
+      function render(){
+        clearError();
+
+        const rows = VIEW;
+        const earnRows = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "EARN");
+
+        const uniqueEmployees = new Set(rows.map(r => (r["EE Name"]||"").trim()).filter(Boolean));
+        const uniqueDepts = new Set(rows.map(r => (r["Department Desc"]||"").trim()).filter(Boolean));
+        const uniqueLocs  = new Set(rows.map(r => (r["Location Desc"]||"").trim()).filter(Boolean));
+
+        const hoursEarn = earnRows.reduce((s,r)=> s + parseNumber(r["Hours/Units"]), 0);
+        const grossEarn = earnRows.reduce((s,r)=> s + parseMoney(r["Amount"]), 0);
+
+        const deduct = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "DDUCT")
+          .reduce((s,r)=> s + parseMoney(r["Amount"]), 0);
+
+        const eeTax = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "EETAX")
+          .reduce((s,r)=> s + parseMoney(r["Amount"]), 0);
+
+        const erTax = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "ERTAX")
+          .reduce((s,r)=> s + parseMoney(r["Amount"]), 0);
+
+        const net = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "NET")
+          .reduce((s,r)=> s + parseMoney(r["Amount"]), 0);
+
+        const rate = hoursEarn ? (grossEarn / hoursEarn) : 0;
+
+        // Top employee by gross (EARN only)
+        const empEarnAgg = groupAgg(earnRows, r => (r["EE Name"]||"").trim());
+        const topEmp = topN(empEarnAgg, 1, "amount")[0];
+
+        els.mEmp.textContent = uniqueEmployees.size.toLocaleString();
+        els.mDepts.textContent = uniqueDepts.size.toLocaleString();
+        els.mLocs.textContent = uniqueLocs.size.toLocaleString();
+        els.mLines.textContent = rows.length.toLocaleString();
+
+        els.mHours.textContent = fmtNum(hoursEarn);
+        els.mGross.textContent = fmtUSD(grossEarn);
+        els.mRate.textContent = fmtUSD(rate);
+
+        els.mDeduct.textContent = fmtUSD(deduct);
+        els.mEETax.textContent = fmtUSD(eeTax);
+        els.mERTax.textContent = fmtUSD(erTax);
+        els.mNet.textContent = fmtUSD(net);
+
+        if(topEmp){
+          els.mTopEmp.textContent = topEmp.k;
+          els.mTopEmpSub.textContent = `${fmtUSD(topEmp.v.amount)} • ${fmtNum(topEmp.v.hours)} hrs`;
+        } else {
+          els.mTopEmp.textContent = "—";
+          els.mTopEmpSub.textContent = "—";
+        }
+
+        els.status.textContent = rows.length ? "" : "No matching rows.";
+        els.hint2.textContent = rows.length
+          ? `View: ${activeView.toUpperCase()} • Rollup: ${els.rollMetric.value.toUpperCase()}`
+          : "";
+
+        els.detailMeta.textContent = rows.length ? `${rows.length.toLocaleString()} lines` : "—";
+
+        renderRollup(rows);
+        renderTable(rows);
+      }
+
+      function rollKeyFn(view){
+        if(view === "employee") return (r)=> (r["EE Name"]||"").trim();
+        if(view === "department") return (r)=> (r["Department Desc"]||"").trim();
+        if(view === "location") return (r)=> (r["Location Desc"]||"").trim();
+        if(view === "typecode") return (r)=> ((r["Typecode"]||"").trim() ? `${(r["Typecode"]||"").trim()} — ${(r["Typedesc"]||"").trim()}` : "");
+        return (r)=> (r["EE Name"]||"").trim();
+      }
+
+      function renderRollup(rows){
+        let title = "Rollups";
+        if(activeView === "employee") title = "By Employee";
+        else if(activeView === "department") title = "By Department";
+        else if(activeView === "location") title = "By Location";
+        else if(activeView === "typecode") title = "By Code";
+        else title = "Top Employees";
+
+        els.rollupTitle.textContent = title;
+
+        const keyFn = rollKeyFn(activeView === "detail" ? "employee" : activeView);
+        const agg = groupAgg(rows, keyFn);
+
+        els.rollupMeta.textContent = `${agg.size.toLocaleString()} groups`;
+
+        if(!agg.size){
+          els.rollupList.innerHTML = `<div style="color:rgba(167,176,192,.95);font-weight:800;">No rollups.</div>`;
+          return;
+        }
+
+        const metric = els.rollMetric.value; // amount | hours | both
+        const primary = (metric === "hours") ? "hours" : "amount";
+        const items = topN(agg, 20, primary);
+
+        // compute denominator for % (avoid 0)
+        const denom = Array.from(agg.values()).reduce((s,v)=> s + (primary === "hours" ? v.hours : v.amount), 0) || 1;
+
+        els.rollupList.innerHTML = items.map(({k,v})=>{
+          const primaryVal = (primary === "hours") ? v.hours : v.amount;
+          const pct = Math.round((primaryVal/denom)*1000)/10; // 0.1%
+          const v1 = (primary === "hours") ? `${fmtNum(v.hours)} hrs` : `${fmtUSD(v.amount)}`;
+          const v2 = (metric === "both")
+            ? ((primary === "hours") ? `${fmtUSD(v.amount)}` : `${fmtNum(v.hours)} hrs`)
+            : `${pct}%`;
+
+          return `
+            <div class="row">
+              <div style="min-width:0;">
+                <div class="name" title="${esc(k)}">${esc(k)}</div>
+                <div class="subn">${metric === "both" ? "Hours + Amount" : (primary === "hours" ? "Share of hours" : "Share of amount")}</div>
+              </div>
+              <div class="right">
+                <div class="v1">${esc(v1)}</div>
+                <div class="v2">${esc(v2)}</div>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }
+
+      function renderTable(rows){
+        if(!rows.length){
+          els.tbody.innerHTML = `<tr><td colspan="10" style="padding:14px;color:rgba(167,176,192,.95);font-weight:800;">No rows found.</td></tr>`;
+          return;
+        }
+
+        // UI cap for speed
+        const limit = 1200;
+        const slice = rows.slice(0, limit);
+
+        els.tbody.innerHTML = slice.map(r => {
+          const pp = labelPeriod(r);
+          const rt = String(r["Register Type"]||"").toUpperCase();
+          const code = (r["Typecode"]||"").trim();
+          const desc = (r["Typedesc"]||"").trim();
+
+          return `
+            <tr>
+              <td>${esc(r["EE Name"])}</td>
+              <td>${esc(r["Department Desc"])}</td>
+              <td>${esc(r["Location Desc"])}</td>
+              <td><span class="pill ${pillClass(rt)}">${esc(rt || "—")}</span></td>
+              <td>${esc(code)}</td>
+              <td title="${esc(desc)}">${esc(desc)}</td>
+              <td>${esc(pp)}</td>
+              <td class="num">${esc(r["Hours/Units"])}</td>
+              <td class="num">${esc(r["Amount"])}</td>
+              <td class="num">${esc(r["Wages"])}</td>
+            </tr>
+          `;
+        }).join("");
+
+        if(rows.length > limit){
+          const extra = rows.length - limit;
+          els.tbody.insertAdjacentHTML("beforeend",
+            `<tr><td colspan="10" style="padding:12px;color:rgba(167,176,192,.95);font-weight:800;">
+              Showing first ${limit.toLocaleString()} rows. ${extra.toLocaleString()} more available in CSV download.
+            </td></tr>`
+          );
+        }
+      }
+
+      /**********************
+       * EXPORT (Admin)
+       **********************/
+      const EXPORT_HEADERS = [
+        "Department Desc","Location Desc","clientcode","EE Code","EE Name",
+        "Register Type","Typecode","Typedesc","Amount","Hours/Units","Wages",
+        "Pay Period Start","Pay Period End"
+      ];
+
+      function toCSV(rows){
+        const escCSV = (s)=> `"${String(s??"").replaceAll('"','""')}"`;
+        const header = EXPORT_HEADERS.map(escCSV).join(",");
+        const lines = rows.map(r => EXPORT_HEADERS.map(h => escCSV(r[h])).join(","));
+        return [header, ...lines].join("\n");
+      }
+
+      function downloadBlob(filename, text){
+        const blob = new Blob([text], { type:"text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      }
+
+      /**********************
+       * SHAREABLE LINK (filters in querystring)
+       **********************/
+      function readQS(){
+        const p = new URLSearchParams(location.search);
+        const get = (k)=> (p.get(k) || "").trim();
+        return {
+          q: get("q"),
+          payPeriod: get("payPeriod"),
+          registerType: get("registerType"),
+          employee: get("employee"),
+          department: get("department"),
+          location: get("location"),
+          typecode: get("typecode"),
+          view: get("view") || "detail",
+          rollMetric: get("rollMetric") || "amount"
+        };
+      }
+      function writeQS(){
+        const p = new URLSearchParams();
+        const set = (k,v)=>{ if(v && String(v).trim()!=="") p.set(k, v); };
+
+        set("q", els.q.value);
+        set("payPeriod", els.payPeriod.value);
+        set("registerType", els.registerType.value);
+        set("employee", els.employee.value);
+        set("department", els.department.value);
+        set("location", els.location.value);
+        set("typecode", els.typecode.value);
+
+        if(activeView && activeView !== "detail") set("view", activeView);
+        if(els.rollMetric.value && els.rollMetric.value !== "amount") set("rollMetric", els.rollMetric.value);
+
+        const newUrl = `${location.pathname}${p.toString() ? ("?"+p.toString()) : ""}`;
+        history.replaceState(null, "", newUrl);
+      }
+      async function copyShareLink(){
+        writeQS();
+        const url = location.href;
+        try{
+          await navigator.clipboard.writeText(url);
+          els.copyLink.textContent = "Copied ✓";
+          setTimeout(()=> els.copyLink.textContent = "Copy Link", 1200);
+        } catch(e){
+          prompt("Copy this link:", url);
+        }
+      }
+
+      /**********************
+       * EVENTS
+       **********************/
+      const onChange = ()=>{ apply(); writeQS(); };
+
+      els.q.addEventListener("input", debounce(onChange, 220));
+      els.payPeriod.addEventListener("change", onChange);
+      els.registerType.addEventListener("change", onChange);
+      els.employee.addEventListener("change", onChange);
+      els.department.addEventListener("change", onChange);
+      els.location.addEventListener("change", onChange);
+      els.typecode.addEventListener("change", onChange);
+      els.rollMetric.addEventListener("change", ()=>{ render(); writeQS(); });
+
+      els.reset.addEventListener("click", ()=>{
+        els.q.value = "";
+        els.payPeriod.value = "";
+        els.registerType.value = "";
+        els.employee.value = "";
+        els.department.value = "";
+        els.location.value = "";
+        els.typecode.value = "";
+        setChip("detail");
+        VIEW = RAW.slice();
+        render();
+        writeQS();
+      });
+
+      els.downloadCsv.addEventListener("click", ()=>{
+        const rows = VIEW.length ? VIEW : RAW;
+        downloadBlob(`payroll_admin_${new Date().toISOString().slice(0,10)}.csv`, toCSV(rows));
+      });
+
+      els.copyLink.addEventListener("click", copyShareLink);
+
+      els.chips.forEach(c=>{
+        c.addEventListener("click", ()=>{
+          setChip(c.dataset.view);
+          writeQS();
+        });
+      });
+
+      /**********************
+       * LOAD
+       **********************/
+      (async function init(){
+        try{
+          els.status.textContent = "Loading…";
+          const { data } = await fetchFirstWorkingCSV();
+
+          RAW = data;
+          VIEW = RAW.slice();
+
+          buildFilters();
+
+          // apply QS defaults AFTER filter options exist
+          const qs = readQS();
+          if(qs.q) els.q.value = qs.q;
+          if(qs.payPeriod) els.payPeriod.value = qs.payPeriod;
+          if(qs.registerType) els.registerType.value = qs.registerType;
+          if(qs.employee) els.employee.value = qs.employee;
+          if(qs.department) els.department.value = qs.department;
+          if(qs.location) els.location.value = qs.location;
+          if(qs.typecode) els.typecode.value = qs.typecode;
+          if(qs.rollMetric) els.rollMetric.value = qs.rollMetric;
+          if(qs.view) setChip(qs.view);
+
+          const employees = new Set(RAW.map(r => (r["EE Name"]||"").trim()).filter(Boolean)).size;
+          els.status.textContent = `Loaded ${RAW.length.toLocaleString()} lines • ${employees.toLocaleString()} employees`;
+          apply();
+        } catch(err){
+          console.error(err);
+          els.status.textContent = "";
+          els.tbody.innerHTML = `<tr><td colspan="10" style="padding:14px;color:rgba(167,176,192,.95);font-weight:800;">Unable to load payroll.</td></tr>`;
+          setError("Payroll report unavailable.", "Confirm the sheet is published and accessible.");
+        }
+      })();
+    })();
+  </script>
+</body>
+</html>
