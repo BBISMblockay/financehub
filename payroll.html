@@ -92,9 +92,10 @@
     .btn:hover{ background:rgba(255,255,255,.10); border-color: rgba(56,189,248,.28); transform: translateY(-1px); }
     .btn.ghost{ background:transparent; border-color: rgba(148,163,184,.22); font-weight:800; }
     .btn.ghost:hover{ background:rgba(255,255,255,.06); border-color: rgba(255,255,255,.22); }
+    .btn.small{ padding:8px 10px; border-radius:11px; font-size:12.5px; font-weight:900; }
 
     .bar{
-      padding:10px 16px 12px;
+      padding:10px 16px 10px;
       display:flex; align-items:center; justify-content:space-between;
       gap:10px; flex-wrap:wrap;
     }
@@ -119,7 +120,7 @@
 
     .chips{
       display:flex; flex-wrap:wrap; gap:8px;
-      padding:0 16px 12px;
+      padding:0 16px 10px;
       align-items:center;
       justify-content:space-between;
     }
@@ -145,8 +146,42 @@
       box-shadow:0 0 0 4px rgba(56,189,248,.10);
     }
 
+    .tog{
+      display:inline-flex; align-items:center; gap:10px;
+      padding:7px 10px;
+      border-radius:999px;
+      border:1px solid rgba(148,163,184,.18);
+      background:rgba(0,0,0,.16);
+      color:rgba(203,213,225,.92);
+      font-size:12px;
+      font-weight:950;
+      user-select:none;
+      cursor:pointer;
+      white-space:nowrap;
+    }
+    .sw{
+      width:42px; height:22px;
+      border-radius:999px;
+      background:rgba(255,255,255,.10);
+      border:1px solid rgba(255,255,255,.16);
+      position:relative;
+      transition: background .15s ease, border-color .15s ease;
+      flex:0 0 auto;
+    }
+    .sw:before{
+      content:"";
+      position:absolute; top:50%; left:3px;
+      transform:translateY(-50%);
+      width:16px; height:16px; border-radius:50%;
+      background:rgba(255,255,255,.75);
+      box-shadow:0 6px 14px rgba(0,0,0,.35);
+      transition: left .15s ease;
+    }
+    .tog.on .sw{ background: rgba(34,197,94,.18); border-color: rgba(34,197,94,.30); }
+    .tog.on .sw:before{ left: 22px; background: rgba(255,255,255,.88); }
+
     .stats{
-      padding:0 16px 12px;
+      padding:0 16px 10px;
       display:grid;
       gap:10px;
       grid-template-columns: repeat(12, 1fr);
@@ -239,8 +274,10 @@
       align-items:center;
       justify-content:space-between;
       gap:12px;
+      cursor:pointer;
     }
-    .row:hover{ background:rgba(255,255,255,.05); }
+    .row:hover{ background:rgba(255,255,255,.05); border-color: rgba(56,189,248,.20); }
+    .row:active{ transform: translateY(1px); }
     .row .name{
       font-weight:950;
       font-size:13px;
@@ -293,6 +330,15 @@
       color:rgba(203,213,225,.96);
       font-weight:950;
       white-space:nowrap;
+      cursor:pointer;
+      user-select:none;
+    }
+    thead th:hover{ background: rgba(15,23,42,.98); }
+    thead th .sort{
+      opacity:.65;
+      font-size:11px;
+      margin-left:8px;
+      font-weight:950;
     }
     tbody td{
       padding:10px 10px;
@@ -320,6 +366,45 @@
     .pill.dd{ border-color: rgba(251,191,36,.25); background: rgba(251,191,36,.10); }
     .pill.tax{ border-color: rgba(56,189,248,.25); background: rgba(56,189,248,.10); }
     .pill.net{ border-color: rgba(167,139,250,.28); background: rgba(167,139,250,.12); }
+
+    /* pinned summary strip above table */
+    .pin{
+      padding:10px 12px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+      border-bottom:1px solid rgba(148,163,184,.12);
+      background:rgba(0,0,0,.10);
+      position:sticky;
+      top:0;
+      z-index:3;
+      backdrop-filter: blur(10px);
+    }
+    .pin .left{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+    .kpi{
+      display:flex;
+      align-items:baseline;
+      gap:8px;
+      padding:7px 10px;
+      border-radius:999px;
+      border:1px solid rgba(148,163,184,.16);
+      background:rgba(255,255,255,.03);
+      font-weight:950;
+      white-space:nowrap;
+    }
+    .kpi small{
+      color:var(--muted);
+      font-weight:900;
+      font-size:12px;
+    }
+    .kpi b{ font-size:13px; }
 
     .hint{
       padding:12px 16px;
@@ -427,6 +512,17 @@
               <option value="hours">Rollup: Hours</option>
               <option value="both">Rollup: Both</option>
             </select>
+
+            <select id="topN" title="How many rollup rows to show">
+              <option value="10">Top 10</option>
+              <option value="25" selected>Top 25</option>
+              <option value="50">Top 50</option>
+            </select>
+
+            <div class="tog" id="earnOnlyToggle" title="Show EARN lines only in the detail table (cards still show totals by register type)">
+              <span>Table: EARN only</span>
+              <span class="sw" aria-hidden="true"></span>
+            </div>
           </div>
         </div>
 
@@ -446,7 +542,7 @@
               <div class="v" id="mHours">0.00</div>
               <div class="s">EARN subset (in view)</div>
             </div>
-            <span class="dotLg.g" aria-hidden="true"></span>
+            <span class="dotLg g" aria-hidden="true"></span>
           </div>
 
           <div class="stat">
@@ -455,7 +551,7 @@
               <div class="v" id="mGross">$0.00</div>
               <div class="s">EARN amount (in view)</div>
             </div>
-            <span class="dotLg.g" aria-hidden="true"></span>
+            <span class="dotLg g" aria-hidden="true"></span>
           </div>
 
           <div class="stat">
@@ -473,7 +569,7 @@
               <div class="v" id="mDeduct">$0.00</div>
               <div class="s">DDUCT amount (in view)</div>
             </div>
-            <span class="dotLg.a" aria-hidden="true"></span>
+            <span class="dotLg a" aria-hidden="true"></span>
           </div>
 
           <div class="stat">
@@ -491,7 +587,7 @@
               <div class="v" id="mERTax">$0.00</div>
               <div class="s">ERTAX amount (in view)</div>
             </div>
-            <span class="dotLg.v" aria-hidden="true"></span>
+            <span class="dotLg v" aria-hidden="true"></span>
           </div>
 
           <div class="stat">
@@ -500,7 +596,7 @@
               <div class="v" id="mNet">$0.00</div>
               <div class="s">NET amount (in view)</div>
             </div>
-            <span class="dotLg.v" aria-hidden="true"></span>
+            <span class="dotLg v" aria-hidden="true"></span>
           </div>
 
           <div class="stat">
@@ -509,7 +605,7 @@
               <div class="v" id="mTopEmp">—</div>
               <div class="s" id="mTopEmpSub">—</div>
             </div>
-            <span class="dotLg.r" aria-hidden="true"></span>
+            <span class="dotLg r" aria-hidden="true"></span>
           </div>
 
           <div class="stat">
@@ -518,7 +614,7 @@
               <div class="v" id="mDepts">0</div>
               <div class="s">Unique (in view)</div>
             </div>
-            <span class="dotLg.a" aria-hidden="true"></span>
+            <span class="dotLg a" aria-hidden="true"></span>
           </div>
 
           <div class="stat">
@@ -527,7 +623,7 @@
               <div class="v" id="mLocs">0</div>
               <div class="s">Unique (in view)</div>
             </div>
-            <span class="dotLg.a" aria-hidden="true"></span>
+            <span class="dotLg a" aria-hidden="true"></span>
           </div>
 
           <div class="stat">
@@ -560,23 +656,37 @@
 
         <div class="panel">
           <div class="ph">
-            <b>Detail Lines</b>
+            <b id="detailTitle">Detail Lines</b>
             <span class="tiny" id="detailMeta">—</span>
           </div>
-          <div class="table-wrap">
+
+          <div class="pin" aria-label="Pinned totals">
+            <div class="left">
+              <div class="kpi"><small>EARN Hours</small> <b id="pinHours">0.00</b></div>
+              <div class="kpi"><small>EARN Gross</small> <b id="pinGross">$0.00</b></div>
+              <div class="kpi"><small>Avg $/Hr</small> <b id="pinRate">$0.00</b></div>
+              <div class="kpi"><small>Lines</small> <b id="pinLines">0</b></div>
+            </div>
+            <div class="right" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+              <button class="btn small ghost" id="clearDrill" type="button" style="display:none;">Clear Drill</button>
+              <button class="btn small ghost" id="scrollTop" type="button">Top</button>
+            </div>
+          </div>
+
+          <div class="table-wrap" id="tableWrap">
             <table aria-label="Payroll detail table">
               <thead>
                 <tr>
-                  <th>EE Name</th>
-                  <th>Department</th>
-                  <th>Location</th>
-                  <th>Register</th>
-                  <th>Code</th>
-                  <th>Description</th>
-                  <th>Pay Period</th>
-                  <th class="num">Hours</th>
-                  <th class="num">Amount</th>
-                  <th class="num">Wages</th>
+                  <th data-k="EE Name">EE Name <span class="sort" id="s_EEName"></span></th>
+                  <th data-k="Department Desc">Department <span class="sort" id="s_Dept"></span></th>
+                  <th data-k="Location Desc">Location <span class="sort" id="s_Loc"></span></th>
+                  <th data-k="Register Type">Register <span class="sort" id="s_Reg"></span></th>
+                  <th data-k="Typecode">Code <span class="sort" id="s_Code"></span></th>
+                  <th data-k="Typedesc">Description <span class="sort" id="s_Desc"></span></th>
+                  <th data-k="__pp">Pay Period <span class="sort" id="s_PP"></span></th>
+                  <th data-k="Hours/Units" class="num">Hours <span class="sort" id="s_Hours"></span></th>
+                  <th data-k="Amount" class="num">Amount <span class="sort" id="s_Amt"></span></th>
+                  <th data-k="Wages" class="num">Wages <span class="sort" id="s_Wages"></span></th>
                 </tr>
               </thead>
               <tbody id="tbody">
@@ -590,6 +700,8 @@
       <div class="hint">
         Summary math is based on the current filtered view. <b>Hours Worked</b> + <b>Gross Earnings</b> are calculated from <b>EARN</b> rows only.
         Taxes/Deductions/Net are displayed as separate totals (not mixed into gross math).
+        <br><br>
+        <b>Pro tips:</b> Click any rollup row to drill in automatically. Click table headers to sort. Use “Copy Link” to share the exact filtered view.
       </div>
 
       <div id="error" class="error" style="display:none;"></div>
@@ -640,6 +752,11 @@
         downloadCsv: document.getElementById("downloadCsv"),
         copyLink: document.getElementById("copyLink"),
         rollMetric: document.getElementById("rollMetric"),
+        topN: document.getElementById("topN"),
+        earnOnlyToggle: document.getElementById("earnOnlyToggle"),
+        clearDrill: document.getElementById("clearDrill"),
+        scrollTop: document.getElementById("scrollTop"),
+        tableWrap: document.getElementById("tableWrap"),
 
         status: document.getElementById("status"),
         hint2: document.getElementById("hint2"),
@@ -662,11 +779,18 @@
         mTopEmp: document.getElementById("mTopEmp"),
         mTopEmpSub: document.getElementById("mTopEmpSub"),
 
+        // pinned
+        pinHours: document.getElementById("pinHours"),
+        pinGross: document.getElementById("pinGross"),
+        pinRate: document.getElementById("pinRate"),
+        pinLines: document.getElementById("pinLines"),
+
         // rollup
         rollupTitle: document.getElementById("rollupTitle"),
         rollupMeta: document.getElementById("rollupMeta"),
         rollupList: document.getElementById("rollupList"),
         detailMeta: document.getElementById("detailMeta"),
+        detailTitle: document.getElementById("detailTitle"),
         chips: Array.from(document.querySelectorAll(".chip"))
       };
 
@@ -676,6 +800,15 @@
       let RAW = [];   // all rows from sheet
       let VIEW = [];  // after filters
       let activeView = "detail"; // detail | employee | department | location | typecode
+      let earnOnlyTable = false;
+
+      // drill-down lock (set by clicking rollups)
+      // { kind: 'employee'|'department'|'location'|'typecode', value: '...' }
+      let drill = null;
+
+      // sorting
+      let sortKey = "";     // e.g. 'Amount'
+      let sortDir = "desc"; // 'asc'|'desc'
 
       /**********************
        * UTILS
@@ -684,12 +817,11 @@
       function cleanHeader(s){ return String(s||"").trim().replace(/\s+/g," ").toLowerCase(); }
       function esc(s){
         return String(s ?? "")
-          .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+          .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">", "&gt;")
           .replaceAll('"',"&quot;").replaceAll("'","&#039;");
       }
 
       function parseMoney(v){
-        // Handles: $1,234.56 | 1234.56 | (1,234.56) | -123.45
         let s = String(v ?? "").trim();
         if(!s) return 0;
         let neg = false;
@@ -771,7 +903,32 @@
         els.chips.forEach(c=>{
           c.classList.toggle("active", c.dataset.view === view);
         });
+        // Default sort for "Detail" view: Amount desc
+        if(activeView === "detail" && !sortKey){
+          sortKey = "Amount";
+          sortDir = "desc";
+        }
         render();
+      }
+
+      function setDrill(kind, value){
+        drill = { kind, value };
+        els.clearDrill.style.display = "inline-flex";
+        els.detailTitle.textContent = `Detail Lines (Drill: ${kind})`;
+        // Also try to sync dropdowns for clarity
+        if(kind === "employee") els.employee.value = value;
+        if(kind === "department") els.department.value = value;
+        if(kind === "location") els.location.value = value;
+        if(kind === "typecode") els.typecode.value = value;
+        apply();
+        els.tableWrap.scrollTo({ top: 0, behavior: "smooth" });
+      }
+      function clearDrill(){
+        drill = null;
+        els.clearDrill.style.display = "none";
+        els.detailTitle.textContent = "Detail Lines";
+        // keep dropdown state as-is; user can reset or adjust
+        apply();
       }
 
       /**********************
@@ -821,6 +978,10 @@
             const idx = headerMap.get(cleanHeader(h));
             obj[h] = (idx != null && idx < r.length) ? r[idx] : "";
           });
+          obj.__pp = ""; // computed later for speed
+          obj.__amt = 0;
+          obj.__hrs = 0;
+          obj.__wgs = 0;
           return obj;
         });
 
@@ -862,7 +1023,7 @@
         const codes = uniq(RAW.map(r => (r["Typecode"]||"").trim()));
         els.typecode.innerHTML = ['<option value="">All Codes</option>', ...codes.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`)].join("");
 
-        const periods = uniq(RAW.map(labelPeriod));
+        const periods = uniq(RAW.map(r => r.__pp));
         els.payPeriod.innerHTML = ['<option value="">All Pay Periods</option>', ...periods.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`)].join("");
       }
 
@@ -879,13 +1040,21 @@
         const code = (els.typecode.value || "").trim();
 
         VIEW = RAW.filter(r=>{
-          if(pp && labelPeriod(r) !== pp) return false;
+          if(pp && r.__pp !== pp) return false;
           if(rt && String(r["Register Type"]||"").toUpperCase() !== rt) return false;
 
           if(emp && (r["EE Name"]||"").trim() !== emp) return false;
           if(dept && (r["Department Desc"]||"").trim() !== dept) return false;
           if(loc && (r["Location Desc"]||"").trim() !== loc) return false;
           if(code && (r["Typecode"]||"").trim() !== code) return false;
+
+          // drill lock (acts like an extra filter)
+          if(drill){
+            if(drill.kind === "employee" && (r["EE Name"]||"").trim() !== drill.value) return false;
+            if(drill.kind === "department" && (r["Department Desc"]||"").trim() !== drill.value) return false;
+            if(drill.kind === "location" && (r["Location Desc"]||"").trim() !== drill.value) return false;
+            if(drill.kind === "typecode" && (r["Typecode"]||"").trim() !== drill.value) return false;
+          }
 
           if(q){
             const hay = [
@@ -906,31 +1075,32 @@
         clearError();
 
         const rows = VIEW;
-        const earnRows = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "EARN");
+
+        const earnRowsForMetrics = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "EARN");
 
         const uniqueEmployees = new Set(rows.map(r => (r["EE Name"]||"").trim()).filter(Boolean));
         const uniqueDepts = new Set(rows.map(r => (r["Department Desc"]||"").trim()).filter(Boolean));
         const uniqueLocs  = new Set(rows.map(r => (r["Location Desc"]||"").trim()).filter(Boolean));
 
-        const hoursEarn = earnRows.reduce((s,r)=> s + parseNumber(r["Hours/Units"]), 0);
-        const grossEarn = earnRows.reduce((s,r)=> s + parseMoney(r["Amount"]), 0);
+        const hoursEarn = earnRowsForMetrics.reduce((s,r)=> s + r.__hrs, 0);
+        const grossEarn = earnRowsForMetrics.reduce((s,r)=> s + r.__amt, 0);
 
         const deduct = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "DDUCT")
-          .reduce((s,r)=> s + parseMoney(r["Amount"]), 0);
+          .reduce((s,r)=> s + r.__amt, 0);
 
         const eeTax = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "EETAX")
-          .reduce((s,r)=> s + parseMoney(r["Amount"]), 0);
+          .reduce((s,r)=> s + r.__amt, 0);
 
         const erTax = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "ERTAX")
-          .reduce((s,r)=> s + parseMoney(r["Amount"]), 0);
+          .reduce((s,r)=> s + r.__amt, 0);
 
         const net = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "NET")
-          .reduce((s,r)=> s + parseMoney(r["Amount"]), 0);
+          .reduce((s,r)=> s + r.__amt, 0);
 
         const rate = hoursEarn ? (grossEarn / hoursEarn) : 0;
 
         // Top employee by gross (EARN only)
-        const empEarnAgg = groupAgg(earnRows, r => (r["EE Name"]||"").trim());
+        const empEarnAgg = groupAgg(earnRowsForMetrics, r => (r["EE Name"]||"").trim());
         const topEmp = topN(empEarnAgg, 1, "amount")[0];
 
         els.mEmp.textContent = uniqueEmployees.size.toLocaleString();
@@ -955,36 +1125,54 @@
           els.mTopEmpSub.textContent = "—";
         }
 
+        // pinned strip mirrors EARN metrics (always)
+        els.pinHours.textContent = fmtNum(hoursEarn);
+        els.pinGross.textContent = fmtUSD(grossEarn);
+        els.pinRate.textContent = fmtUSD(rate);
+        els.pinLines.textContent = rows.length.toLocaleString();
+
         els.status.textContent = rows.length ? "" : "No matching rows.";
         els.hint2.textContent = rows.length
-          ? `View: ${activeView.toUpperCase()} • Rollup: ${els.rollMetric.value.toUpperCase()}`
+          ? `View: ${activeView.toUpperCase()} • Rollup: ${els.rollMetric.value.toUpperCase()} • Top ${els.topN.value}`
           : "";
 
         els.detailMeta.textContent = rows.length ? `${rows.length.toLocaleString()} lines` : "—";
 
         renderRollup(rows);
         renderTable(rows);
+        updateSortIndicators();
       }
 
       function rollKeyFn(view){
         if(view === "employee") return (r)=> (r["EE Name"]||"").trim();
         if(view === "department") return (r)=> (r["Department Desc"]||"").trim();
         if(view === "location") return (r)=> (r["Location Desc"]||"").trim();
-        if(view === "typecode") return (r)=> ((r["Typecode"]||"").trim() ? `${(r["Typecode"]||"").trim()} — ${(r["Typedesc"]||"").trim()}` : "");
+        if(view === "typecode") return (r)=> (r["Typecode"]||"").trim();
         return (r)=> (r["EE Name"]||"").trim();
       }
 
+      function rollTitle(view){
+        if(view === "employee") return "By Employee";
+        if(view === "department") return "By Department";
+        if(view === "location") return "By Location";
+        if(view === "typecode") return "By Code";
+        return "Top Employees";
+      }
+
+      function rollSubLabel(view, key){
+        if(view === "typecode"){
+          const r = RAW.find(x => (x["Typecode"]||"").trim() === key);
+          const d = r ? (r["Typedesc"]||"").trim() : "";
+          return d ? d : "Code";
+        }
+        return "Click to drill in";
+      }
+
       function renderRollup(rows){
-        let title = "Rollups";
-        if(activeView === "employee") title = "By Employee";
-        else if(activeView === "department") title = "By Department";
-        else if(activeView === "location") title = "By Location";
-        else if(activeView === "typecode") title = "By Code";
-        else title = "Top Employees";
+        const view = (activeView === "detail") ? "employee" : activeView;
+        els.rollupTitle.textContent = rollTitle(view);
 
-        els.rollupTitle.textContent = title;
-
-        const keyFn = rollKeyFn(activeView === "detail" ? "employee" : activeView);
+        const keyFn = rollKeyFn(view);
         const agg = groupAgg(rows, keyFn);
 
         els.rollupMeta.textContent = `${agg.size.toLocaleString()} groups`;
@@ -994,26 +1182,32 @@
           return;
         }
 
-        const metric = els.rollMetric.value; // amount | hours | both
-        const primary = (metric === "hours") ? "hours" : "amount";
-        const items = topN(agg, 20, primary);
+        const metricMode = els.rollMetric.value; // amount | hours | both
+        const primary = (metricMode === "hours") ? "hours" : "amount";
+        const limit = Math.max(5, parseInt(els.topN.value || "25", 10) || 25);
 
-        // compute denominator for % (avoid 0)
+        const items = topN(agg, limit, primary);
+
         const denom = Array.from(agg.values()).reduce((s,v)=> s + (primary === "hours" ? v.hours : v.amount), 0) || 1;
 
         els.rollupList.innerHTML = items.map(({k,v})=>{
           const primaryVal = (primary === "hours") ? v.hours : v.amount;
           const pct = Math.round((primaryVal/denom)*1000)/10; // 0.1%
           const v1 = (primary === "hours") ? `${fmtNum(v.hours)} hrs` : `${fmtUSD(v.amount)}`;
-          const v2 = (metric === "both")
-            ? ((primary === "hours") ? `${fmtUSD(v.amount)}` : `${fmtNum(v.hours)} hrs`)
-            : `${pct}%`;
+
+          let v2 = `${pct}%`;
+          if(metricMode === "both"){
+            v2 = (primary === "hours") ? `${fmtUSD(v.amount)}` : `${fmtNum(v.hours)} hrs`;
+          }
+
+          const sub = rollSubLabel(view, k);
+          const codeDesc = (view === "typecode") ? `${k} — ${sub}` : k;
 
           return `
-            <div class="row">
+            <div class="row" data-drill-kind="${esc(view)}" data-drill-value="${esc(k)}" title="Click to drill into ${esc(codeDesc)}">
               <div style="min-width:0;">
-                <div class="name" title="${esc(k)}">${esc(k)}</div>
-                <div class="subn">${metric === "both" ? "Hours + Amount" : (primary === "hours" ? "Share of hours" : "Share of amount")}</div>
+                <div class="name">${esc(codeDesc)}</div>
+                <div class="subn">${esc(metricMode === "both" ? "Hours + Amount" : (primary === "hours" ? "Share of hours" : "Share of amount"))}</div>
               </div>
               <div class="right">
                 <div class="v1">${esc(v1)}</div>
@@ -1022,24 +1216,72 @@
             </div>
           `;
         }).join("");
+
+        // attach click handlers (drill)
+        Array.from(els.rollupList.querySelectorAll(".row")).forEach(el=>{
+          el.addEventListener("click", ()=>{
+            const kind = el.getAttribute("data-drill-kind");
+            const value = el.getAttribute("data-drill-value");
+            // Drill by kind:
+            // typecode drill uses dropdown 'typecode'
+            setDrill(kind, value);
+          });
+        });
+      }
+
+      function sortValue(r, key){
+        if(key === "__pp") return r.__pp || "";
+        if(key === "Amount") return r.__amt;
+        if(key === "Hours/Units") return r.__hrs;
+        if(key === "Wages") return r.__wgs;
+        const v = (r[key] ?? "");
+        return String(v).toLowerCase();
+      }
+
+      function getSortedRows(rows){
+        if(!sortKey) return rows;
+        const dir = sortDir === "asc" ? 1 : -1;
+        const key = sortKey;
+
+        // stable-ish sort: decorate with index
+        return rows.map((r,i)=>({r,i})).sort((a,b)=>{
+          const av = sortValue(a.r, key);
+          const bv = sortValue(b.r, key);
+
+          if(typeof av === "number" && typeof bv === "number"){
+            if(av === bv) return a.i - b.i;
+            return (av > bv ? 1 : -1) * dir;
+          }
+
+          if(av === bv) return a.i - b.i;
+          return (av > bv ? 1 : -1) * dir;
+        }).map(x=>x.r);
       }
 
       function renderTable(rows){
-        if(!rows.length){
+        let tableRows = rows;
+
+        // earn-only affects table display, not metric cards
+        if(earnOnlyTable){
+          tableRows = tableRows.filter(r => String(r["Register Type"]||"").toUpperCase() === "EARN");
+        }
+
+        // sorting
+        tableRows = getSortedRows(tableRows);
+
+        if(!tableRows.length){
           els.tbody.innerHTML = `<tr><td colspan="10" style="padding:14px;color:rgba(167,176,192,.95);font-weight:800;">No rows found.</td></tr>`;
           return;
         }
 
         // UI cap for speed
-        const limit = 1200;
-        const slice = rows.slice(0, limit);
+        const limit = 1400;
+        const slice = tableRows.slice(0, limit);
 
         els.tbody.innerHTML = slice.map(r => {
-          const pp = labelPeriod(r);
           const rt = String(r["Register Type"]||"").toUpperCase();
           const code = (r["Typecode"]||"").trim();
           const desc = (r["Typedesc"]||"").trim();
-
           return `
             <tr>
               <td>${esc(r["EE Name"])}</td>
@@ -1048,7 +1290,7 @@
               <td><span class="pill ${pillClass(rt)}">${esc(rt || "—")}</span></td>
               <td>${esc(code)}</td>
               <td title="${esc(desc)}">${esc(desc)}</td>
-              <td>${esc(pp)}</td>
+              <td>${esc(r.__pp)}</td>
               <td class="num">${esc(r["Hours/Units"])}</td>
               <td class="num">${esc(r["Amount"])}</td>
               <td class="num">${esc(r["Wages"])}</td>
@@ -1056,14 +1298,52 @@
           `;
         }).join("");
 
-        if(rows.length > limit){
-          const extra = rows.length - limit;
+        if(tableRows.length > limit){
+          const extra = tableRows.length - limit;
           els.tbody.insertAdjacentHTML("beforeend",
             `<tr><td colspan="10" style="padding:12px;color:rgba(167,176,192,.95);font-weight:800;">
               Showing first ${limit.toLocaleString()} rows. ${extra.toLocaleString()} more available in CSV download.
             </td></tr>`
           );
         }
+      }
+
+      function updateSortIndicators(){
+        const ids = ["s_EEName","s_Dept","s_Loc","s_Reg","s_Code","s_Desc","s_PP","s_Hours","s_Amt","s_Wages"];
+        ids.forEach(id=>{
+          const el = document.getElementById(id);
+          if(el) el.textContent = "";
+        });
+
+        if(!sortKey) return;
+
+        const arrow = sortDir === "asc" ? "▲" : "▼";
+
+        const map = {
+          "EE Name": "s_EEName",
+          "Department Desc": "s_Dept",
+          "Location Desc": "s_Loc",
+          "Register Type": "s_Reg",
+          "Typecode": "s_Code",
+          "Typedesc": "s_Desc",
+          "__pp": "s_PP",
+          "Hours/Units": "s_Hours",
+          "Amount": "s_Amt",
+          "Wages": "s_Wages"
+        };
+
+        const id = map[sortKey];
+        if(id){
+          const el = document.getElementById(id);
+          if(el) el.textContent = arrow;
+        }
+      }
+
+      function toggleEarnOnly(){
+        earnOnlyTable = !earnOnlyTable;
+        els.earnOnlyToggle.classList.toggle("on", earnOnlyTable);
+        render();
+        writeQS();
       }
 
       /**********************
@@ -1109,9 +1389,16 @@
           location: get("location"),
           typecode: get("typecode"),
           view: get("view") || "detail",
-          rollMetric: get("rollMetric") || "amount"
+          rollMetric: get("rollMetric") || "amount",
+          topN: get("topN") || "25",
+          earnOnly: get("earnOnly") || "",
+          drillKind: get("drillKind") || "",
+          drillValue: get("drillValue") || "",
+          sortKey: get("sortKey") || "",
+          sortDir: get("sortDir") || ""
         };
       }
+
       function writeQS(){
         const p = new URLSearchParams();
         const set = (k,v)=>{ if(v && String(v).trim()!=="") p.set(k, v); };
@@ -1126,10 +1413,18 @@
 
         if(activeView && activeView !== "detail") set("view", activeView);
         if(els.rollMetric.value && els.rollMetric.value !== "amount") set("rollMetric", els.rollMetric.value);
+        if(els.topN.value && els.topN.value !== "25") set("topN", els.topN.value);
+
+        if(earnOnlyTable) set("earnOnly", "1");
+        if(drill){ set("drillKind", drill.kind); set("drillValue", drill.value); }
+
+        if(sortKey) set("sortKey", sortKey);
+        if(sortDir && sortDir !== "desc") set("sortDir", sortDir);
 
         const newUrl = `${location.pathname}${p.toString() ? ("?"+p.toString()) : ""}`;
         history.replaceState(null, "", newUrl);
       }
+
       async function copyShareLink(){
         writeQS();
         const url = location.href;
@@ -1150,11 +1445,13 @@
       els.q.addEventListener("input", debounce(onChange, 220));
       els.payPeriod.addEventListener("change", onChange);
       els.registerType.addEventListener("change", onChange);
-      els.employee.addEventListener("change", onChange);
-      els.department.addEventListener("change", onChange);
-      els.location.addEventListener("change", onChange);
-      els.typecode.addEventListener("change", onChange);
-      els.rollMetric.addEventListener("change", ()=>{ render(); writeQS(); });
+      els.employee.addEventListener("change", ()=>{ drill = null; els.clearDrill.style.display="none"; els.detailTitle.textContent="Detail Lines"; onChange(); });
+      els.department.addEventListener("change", ()=>{ drill = null; els.clearDrill.style.display="none"; els.detailTitle.textContent="Detail Lines"; onChange(); });
+      els.location.addEventListener("change", ()=>{ drill = null; els.clearDrill.style.display="none"; els.detailTitle.textContent="Detail Lines"; onChange(); });
+      els.typecode.addEventListener("change", ()=>{ drill = null; els.clearDrill.style.display="none"; els.detailTitle.textContent="Detail Lines"; onChange(); });
+
+      els.rollMetric.addEventListener("change", ()=>{ renderRollup(VIEW); writeQS(); });
+      els.topN.addEventListener("change", ()=>{ renderRollup(VIEW); writeQS(); });
 
       els.reset.addEventListener("click", ()=>{
         els.q.value = "";
@@ -1164,6 +1461,17 @@
         els.department.value = "";
         els.location.value = "";
         els.typecode.value = "";
+
+        drill = null;
+        els.clearDrill.style.display = "none";
+        els.detailTitle.textContent = "Detail Lines";
+
+        earnOnlyTable = false;
+        els.earnOnlyToggle.classList.remove("on");
+
+        sortKey = "Amount";
+        sortDir = "desc";
+
         setChip("detail");
         VIEW = RAW.slice();
         render();
@@ -1184,6 +1492,36 @@
         });
       });
 
+      els.earnOnlyToggle.addEventListener("click", toggleEarnOnly);
+
+      els.clearDrill.addEventListener("click", ()=>{
+        clearDrill();
+        writeQS();
+      });
+
+      els.scrollTop.addEventListener("click", ()=>{
+        els.tableWrap.scrollTo({ top: 0, behavior: "smooth" });
+      });
+
+      // sortable columns
+      Array.from(document.querySelectorAll("thead th[data-k]")).forEach(th=>{
+        th.addEventListener("click", ()=>{
+          const k = th.getAttribute("data-k");
+          if(!k) return;
+
+          if(sortKey === k){
+            sortDir = (sortDir === "desc") ? "asc" : "desc";
+          } else {
+            sortKey = k;
+            sortDir = (k === "EE Name" || k === "Department Desc" || k === "Location Desc" || k === "Register Type" || k === "Typecode" || k === "Typedesc" || k === "__pp")
+              ? "asc"
+              : "desc";
+          }
+          render();
+          writeQS();
+        });
+      });
+
       /**********************
        * LOAD
        **********************/
@@ -1192,7 +1530,15 @@
           els.status.textContent = "Loading…";
           const { data } = await fetchFirstWorkingCSV();
 
-          RAW = data;
+          // Precompute fast fields
+          RAW = data.map(r=>{
+            r.__pp = labelPeriod(r);
+            r.__amt = parseMoney(r["Amount"]);
+            r.__hrs = parseNumber(r["Hours/Units"]);
+            r.__wgs = parseMoney(r["Wages"]);
+            return r;
+          });
+
           VIEW = RAW.slice();
 
           buildFilters();
@@ -1206,8 +1552,30 @@
           if(qs.department) els.department.value = qs.department;
           if(qs.location) els.location.value = qs.location;
           if(qs.typecode) els.typecode.value = qs.typecode;
+
           if(qs.rollMetric) els.rollMetric.value = qs.rollMetric;
+          if(qs.topN) els.topN.value = qs.topN;
+
+          if(qs.earnOnly === "1"){
+            earnOnlyTable = true;
+            els.earnOnlyToggle.classList.add("on");
+          }
+
+          if(qs.sortKey){
+            sortKey = qs.sortKey;
+            sortDir = qs.sortDir || "desc";
+          } else {
+            sortKey = "Amount";
+            sortDir = "desc";
+          }
+
           if(qs.view) setChip(qs.view);
+
+          if(qs.drillKind && qs.drillValue){
+            drill = { kind: qs.drillKind, value: qs.drillValue };
+            els.clearDrill.style.display = "inline-flex";
+            els.detailTitle.textContent = `Detail Lines (Drill: ${qs.drillKind})`;
+          }
 
           const employees = new Set(RAW.map(r => (r["EE Name"]||"").trim()).filter(Boolean)).size;
           els.status.textContent = `Loaded ${RAW.length.toLocaleString()} lines • ${employees.toLocaleString()} employees`;
