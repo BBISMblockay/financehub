@@ -1,0 +1,787 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>FinanceHub</title>
+  <meta name="color-scheme" content="dark">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <style>
+    :root{
+      color-scheme: dark;
+      --bg0:#070a12;
+      --bg1:#0b1220;
+      --panel:rgba(255,255,255,.05);
+      --panel2:rgba(255,255,255,.03);
+      --border:rgba(148,163,184,.16);
+      --border2:rgba(148,163,184,.10);
+      --text:#e5e7eb;
+      --muted:#a7b0c0;
+      --muted2:#7f8aa1;
+
+      --shadow:0 18px 50px rgba(0,0,0,.45);
+      --shadow2:0 10px 30px rgba(0,0,0,.35);
+
+      --accent:#38bdf8;
+      --good:#22c55e;
+      --warn:#fbbf24;
+      --risk:#fb7185;
+
+      --r12:12px;
+      --r16:16px;
+      --r20:20px;
+
+      --sidebar:260px;
+      --top:60px;
+
+      --maxW: 1600px;
+    }
+
+    *{ box-sizing:border-box; }
+    html,body{ height:100%; }
+    body{
+      margin:0;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      color:var(--text);
+      background:
+        radial-gradient(1200px 700px at 10% -20%, rgba(56,189,248,.18), transparent 60%),
+        radial-gradient(900px 600px at 90% -10%, rgba(34,197,94,.10), transparent 60%),
+        linear-gradient(180deg, var(--bg0), var(--bg1));
+      overflow:hidden;
+    }
+
+    /* Layout */
+    .app{
+      height:100%;
+      display:grid;
+      grid-template-columns: var(--sidebar) 1fr;
+      grid-template-rows: var(--top) 1fr;
+      grid-template-areas:
+        "side top"
+        "side main";
+    }
+
+    /* Sidebar */
+    .side{
+      grid-area:side;
+      padding:18px 14px 16px;
+      border-right:1px solid var(--border2);
+      background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+      overflow:auto;
+    }
+    .brand{
+      display:flex; align-items:center; justify-content:space-between;
+      padding:10px 10px 12px;
+      border-radius:14px;
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(0,0,0,.18);
+      box-shadow: var(--shadow2);
+      margin-bottom:14px;
+    }
+    .brand h1{
+      margin:0;
+      font-size:18px;
+      font-weight:950;
+      letter-spacing:.2px;
+      line-height:1.1;
+    }
+    .brand .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:6px 10px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(255,255,255,.06);
+      color:rgba(203,213,225,.92);
+      font-weight:900;
+      font-size:12px;
+      white-space:nowrap;
+    }
+    .dot{
+      width:8px;height:8px;border-radius:50%;
+      background:var(--good);
+      box-shadow:0 0 0 4px rgba(34,197,94,.10);
+    }
+
+    .sectionTitle{
+      margin:14px 10px 8px;
+      font-size:11px;
+      letter-spacing:.25px;
+      text-transform:uppercase;
+      color:rgba(167,176,192,.9);
+      font-weight:950;
+    }
+
+    .nav{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+    }
+
+    .navBtn{
+      appearance:none;
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(255,255,255,.04);
+      color:rgba(229,231,235,.92);
+      border-radius:12px;
+      padding:12px 12px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      cursor:pointer;
+      transition: background .15s ease, border-color .15s ease, transform .08s ease;
+      text-align:left;
+    }
+    .navBtn:hover{
+      background:rgba(255,255,255,.06);
+      border-color:rgba(56,189,248,.22);
+      transform: translateY(-1px);
+    }
+    .navBtn.active{
+      background: linear-gradient(180deg, rgba(56,189,248,.14), rgba(56,189,248,.06));
+      border-color: rgba(56,189,248,.35);
+      box-shadow: 0 10px 26px rgba(56,189,248,.10);
+    }
+    .navBtn .lefty{
+      display:flex; align-items:center; gap:10px; min-width:0;
+    }
+    .navBtn .ico{
+      width:34px;height:34px;border-radius:12px;
+      border:1px solid rgba(255,255,255,.10);
+      background:rgba(0,0,0,.18);
+      display:flex;align-items:center;justify-content:center;
+      flex:0 0 auto;
+    }
+    .navBtn .meta{
+      min-width:0;
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+    }
+    .navBtn .name{
+      font-weight:950;
+      font-size:13px;
+      letter-spacing:.15px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .navBtn .sub{
+      font-size:11.5px;
+      color:rgba(167,176,192,.92);
+      font-weight:700;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .chip{
+      padding:6px 9px;
+      border-radius:999px;
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(255,255,255,.06);
+      color:rgba(203,213,225,.88);
+      font-size:11px;
+      font-weight:900;
+      white-space:nowrap;
+      flex:0 0 auto;
+    }
+
+    /* Top bar */
+    .top{
+      grid-area:top;
+      border-bottom:1px solid var(--border2);
+      background: linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:0 14px;
+    }
+    .topInner{
+      width:100%;
+      max-width:var(--maxW);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+    }
+    .routeTitleWrap{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      min-width:0;
+    }
+    .routeTitle{
+      font-size:15px;
+      font-weight:950;
+      letter-spacing:.2px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+    .routeHint{
+      font-size:12px;
+      color:rgba(167,176,192,.92);
+      font-weight:700;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+    }
+
+    .actions{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      flex:0 0 auto;
+    }
+    .btn{
+      appearance:none;
+      border:1px solid rgba(255,255,255,.12);
+      background:rgba(255,255,255,.06);
+      color:rgba(229,231,235,.92);
+      border-radius:12px;
+      padding:10px 12px;
+      font-weight:950;
+      font-size:13px;
+      cursor:pointer;
+      transition: background .15s ease, border-color .15s ease, transform .08s ease;
+      display:inline-flex;
+      align-items:center;
+      gap:10px;
+      white-space:nowrap;
+    }
+    .btn:hover{
+      background:rgba(255,255,255,.09);
+      border-color:rgba(56,189,248,.24);
+      transform: translateY(-1px);
+    }
+    .btn.primary{
+      background: linear-gradient(180deg, rgba(56,189,248,.22), rgba(56,189,248,.10));
+      border-color: rgba(56,189,248,.35);
+    }
+    .btn.ghost{
+      background:transparent;
+      border-color: rgba(148,163,184,.22);
+    }
+    .btn.ghost:hover{
+      background:rgba(255,255,255,.05);
+      border-color: rgba(255,255,255,.20);
+    }
+
+    /* Main */
+    .main{
+      grid-area:main;
+      overflow:hidden;
+      display:flex;
+      justify-content:center;
+      padding:16px 14px;
+    }
+    .mainInner{
+      width:100%;
+      max-width:var(--maxW);
+      height:100%;
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+
+    .viewerCard{
+      flex:1 1 auto;
+      border:1px solid var(--border);
+      border-radius:var(--r20);
+      background: linear-gradient(180deg, rgba(255,255,255,.05), rgba(255,255,255,.02));
+      box-shadow: var(--shadow);
+      overflow:hidden;
+      position:relative;
+    }
+
+    /* Loading / fallback overlay */
+    .overlay{
+      position:absolute;
+      inset:0;
+      display:none;
+      align-items:center;
+      justify-content:center;
+      padding:18px;
+      background: rgba(11,18,32,.74);
+      backdrop-filter: blur(8px);
+      z-index:5;
+    }
+    .overlay.show{ display:flex; }
+    .overlayCard{
+      width:min(560px, 92%);
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:18px;
+      background: rgba(0,0,0,.30);
+      box-shadow: 0 24px 80px rgba(0,0,0,.55);
+      padding:16px;
+    }
+    .overlayTop{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom:12px;
+    }
+    .overlayTop .t{
+      margin:0;
+      font-weight:950;
+      letter-spacing:.2px;
+      font-size:15px;
+    }
+    .overlayTop .p{
+      margin:6px 0 0;
+      color:rgba(167,176,192,.95);
+      font-size:12.5px;
+      font-weight:700;
+      line-height:1.35;
+    }
+    .overlayActions{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      margin-top:12px;
+    }
+    .spinner{
+      width:34px;height:34px;border-radius:999px;
+      border:3px solid rgba(255,255,255,.18);
+      border-top-color: rgba(56,189,248,.92);
+      animation: spin .9s linear infinite;
+      flex:0 0 auto;
+    }
+    @keyframes spin{ to{ transform: rotate(360deg); } }
+
+    /* iframe */
+    iframe{
+      width:100%;
+      height:100%;
+      border:0;
+      background:#0b0f1a;
+      display:block;
+    }
+
+    /* Responsive */
+    @media (max-width: 920px){
+      :root{ --sidebar: 92px; }
+      .brand h1{ display:none; }
+      .brand{ justify-content:center; }
+      .brand .pill{ display:none; }
+      .navBtn{ padding:10px; justify-content:center; }
+      .navBtn .meta{ display:none; }
+      .navBtn .chip{ display:none; }
+      .sectionTitle{ text-align:center; }
+      .top{ padding:0 10px; }
+      .routeHint{ display:none; }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <!-- SIDEBAR -->
+    <aside class="side" aria-label="FinanceHub navigation">
+      <div class="brand">
+        <div>
+          <h1>FinanceHub</h1>
+          <div style="margin-top:6px;color:rgba(167,176,192,.92);font-size:12px;font-weight:700;">Internal tools</div>
+        </div>
+        <div class="pill" title="Online">
+          <span class="dot" aria-hidden="true"></span> Live
+        </div>
+      </div>
+
+      <div class="sectionTitle">Core</div>
+      <nav class="nav" id="navCore"></nav>
+
+      <div class="sectionTitle">In Progress</div>
+      <nav class="nav" id="navProgress"></nav>
+
+      <div class="sectionTitle">Planning</div>
+      <nav class="nav" id="navPlanning"></nav>
+
+      <div style="height:10px;"></div>
+      <div class="sectionTitle">Utilities</div>
+      <nav class="nav" id="navUtil"></nav>
+    </aside>
+
+    <!-- TOP BAR -->
+    <header class="top" role="banner">
+      <div class="topInner">
+        <div class="routeTitleWrap">
+          <div style="width:34px;height:34px;border-radius:14px;border:1px solid rgba(255,255,255,.10);background:rgba(0,0,0,.18);display:flex;align-items:center;justify-content:center;">
+            <!-- cube icon -->
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M12 2 3 6.5v11L12 22l9-4.5v-11L12 2Z" stroke="rgba(229,231,235,.9)" stroke-width="2" stroke-linejoin="round"/>
+              <path d="M12 22V12" stroke="rgba(229,231,235,.55)" stroke-width="2"/>
+              <path d="M21 6.5 12 12 3 6.5" stroke="rgba(229,231,235,.55)" stroke-width="2" stroke-linejoin="round"/>
+            </svg>
+          </div>
+
+          <div style="min-width:0;">
+            <div class="routeTitle" id="routeTitle">Loading…</div>
+            <div class="routeHint" id="routeHint"> </div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button class="btn ghost" id="copyLink" type="button">Copy Link</button>
+          <button class="btn" id="reload" type="button">Reload</button>
+          <button class="btn primary" id="openNewTab" type="button">Open ↗</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- MAIN -->
+    <main class="main">
+      <div class="mainInner">
+        <section class="viewerCard" aria-label="Content viewer">
+          <!-- overlays -->
+          <div class="overlay show" id="overlayLoading">
+            <div class="overlayCard">
+              <div class="overlayTop">
+                <div style="display:flex;gap:12px;align-items:flex-start;">
+                  <div class="spinner" aria-hidden="true"></div>
+                  <div>
+                    <p class="t" style="margin:0;">Loading</p>
+                    <p class="p" id="loadingMsg" style="margin:6px 0 0;">Opening tool…</p>
+                  </div>
+                </div>
+                <button class="btn ghost" id="cancelLoad" type="button" title="Stop loading">Stop</button>
+              </div>
+              <div class="overlayActions">
+                <button class="btn primary" id="fallbackOpen" type="button">Open in new tab ↗</button>
+                <button class="btn" id="fallbackRetry" type="button">Retry</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="overlay" id="overlayBlocked">
+            <div class="overlayCard">
+              <div class="overlayTop">
+                <div>
+                  <p class="t">This page can’t be embedded</p>
+                  <p class="p">Some tools block iframe loading. Use “Open” to view it in a new tab.</p>
+                </div>
+              </div>
+              <div class="overlayActions">
+                <button class="btn primary" id="blockedOpen" type="button">Open in new tab ↗</button>
+                <button class="btn" id="blockedRetry" type="button">Retry</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- viewer iframe -->
+          <iframe id="viewer" title="FinanceHub Viewer" referrerpolicy="no-referrer-when-downgrade"></iframe>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    (function(){
+      /**********************
+       * ROUTES CONFIG
+       **********************/
+      const ROUTES = [
+        // Core
+        { id:"baseballism", group:"core",  title:"Baseballism",         sub:"Employee hub + requests", chip:"Hub",  src:"https://bbismblockay.github.io/financehub/employeehub.html" },
+        { id:"travel-requests", group:"core", title:"Travel Requests",   sub:"Travel intake / grids",   chip:"Form", src:"https://www.jotform.com/grid/200496754119055" },
+        { id:"bars-requests", group:"core",   title:"Bars Requests",     sub:"Requests grid",           chip:"Form", src:"https://www.jotform.com/grid/222686658265065" },
+        { id:"wild-child", group:"core",      title:"Wild Child",        sub:"Requests grid",           chip:"Form", src:"https://www.jotform.com/grid/240031492980049" },
+        { id:"mise", group:"core",            title:"MISE",              sub:"Requests grid",           chip:"Form", src:"https://www.jotform.com/grid/241086664226054" },
+        { id:"stlhd", group:"core",           title:"STLHD",             sub:"Requests grid",           chip:"Form", src:"https://www.jotform.com/grid/201496499131056" },
+        { id:"portland-gear", group:"core",   title:"Portland Gear",     sub:"Requests grid",           chip:"Form", src:"https://www.jotform.com/grid/250716935607058" },
+        { id:"wpv-financial-hub", group:"core", title:"WPV Financial Hub", sub:"Master portal",          chip:"Portal", src:"https://bbismblockay.github.io/financehub/testing.html" },
+
+        // In progress
+        { id:"payables", group:"progress",    title:"Payables",          sub:"AP database",              chip:"DB",   src:"https://bbismblockay.github.io/financehub/aptest.html" },
+        { id:"sales-dashboard", group:"progress", title:"Sales Dashboard", sub:"Power BI view",          chip:"BI",   src:"https://app.powerbi.com/view?r=eyJrIjoiY2U0MWI2ZmMtMTY3MS00MDY3LTg5NjctN2VlYjk0NGMxNzUzIiwidCI6IjIzYTkzNDJkLTFjODEtNGJkNS1hY2U0LThmYWY4ZWVlNTZiZCJ9" },
+        { id:"year-end-2025", group:"progress", title:"Year End 2025",   sub:"CPA / year-end tools",     chip:"CPA",  src:"https://bbismblockay.github.io/financehub/aprio.html" },
+        { id:"baseballism-travel", group:"progress", title:"Baseballism Travel", sub:"Travel DB",        chip:"DB",   src:"https://bbismblockay.github.io/financehub/travel.html" },
+
+        // Planning
+        { id:"launch-calendar", group:"planning", title:"Launch Calendar", sub:"Live calendar",          chip:"Cal",  src:"https://bbismblockay.github.io/financehub/calendar.html" },
+        { id:"po-calendar", group:"planning",     title:"PO Calendar",     sub:"Planner / pipeline",      chip:"Plan", src:"https://bbismblockay.github.io/financehub/planner.html" },
+        { id:"po-allocation", group:"planning",   title:"PO Allocation",   sub:"Allocation tool",         chip:"Ops",  src:"https://bbismblockay.github.io/financehub/allocation.html" },
+      ];
+
+      const DEFAULT_ROUTE_ID = "baseballism";
+
+      /**********************
+       * DOM
+       **********************/
+      const el = {
+        viewer: document.getElementById("viewer"),
+        routeTitle: document.getElementById("routeTitle"),
+        routeHint: document.getElementById("routeHint"),
+        openNewTab: document.getElementById("openNewTab"),
+        copyLink: document.getElementById("copyLink"),
+        reload: document.getElementById("reload"),
+
+        navCore: document.getElementById("navCore"),
+        navProgress: document.getElementById("navProgress"),
+        navPlanning: document.getElementById("navPlanning"),
+        navUtil: document.getElementById("navUtil"),
+
+        overlayLoading: document.getElementById("overlayLoading"),
+        overlayBlocked: document.getElementById("overlayBlocked"),
+        loadingMsg: document.getElementById("loadingMsg"),
+        cancelLoad: document.getElementById("cancelLoad"),
+        fallbackOpen: document.getElementById("fallbackOpen"),
+        fallbackRetry: document.getElementById("fallbackRetry"),
+        blockedOpen: document.getElementById("blockedOpen"),
+        blockedRetry: document.getElementById("blockedRetry"),
+      };
+
+      /**********************
+       * STATE
+       **********************/
+      let current = null;
+      let loadTimer = null;
+      let lastSrc = null;
+      let lastRouteId = null;
+
+      /**********************
+       * UTIL
+       **********************/
+      const esc = (s)=> String(s??"").replace(/[&<>"']/g, m => (
+        {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]
+      ));
+
+      function setOverlay(which, on){
+        if(which === "loading") el.overlayLoading.classList.toggle("show", !!on);
+        if(which === "blocked") el.overlayBlocked.classList.toggle("show", !!on);
+      }
+
+      function setActiveNav(routeId){
+        document.querySelectorAll(".navBtn").forEach(btn=>{
+          btn.classList.toggle("active", btn.getAttribute("data-route") === routeId);
+        });
+      }
+
+      function routeById(id){
+        return ROUTES.find(r => r.id === id) || null;
+      }
+
+      function setTitle(route){
+        el.routeTitle.textContent = route ? route.title : "FinanceHub";
+        el.routeHint.textContent = route ? (route.sub || "") : "";
+        document.title = route ? `FinanceHub • ${route.title}` : "FinanceHub";
+      }
+
+      function updateURL(routeId){
+        const url = new URL(window.location.href);
+        url.searchParams.set("route", routeId);
+        history.pushState({ route: routeId }, "", url.toString());
+      }
+
+      async function copyLink(){
+        const url = window.location.href;
+        try{
+          await navigator.clipboard.writeText(url);
+          toast("Link copied");
+        }catch{
+          // fallback
+          const ta = document.createElement("textarea");
+          ta.value = url;
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          ta.remove();
+          toast("Link copied");
+        }
+      }
+
+      function toast(msg){
+        const t = document.createElement("div");
+        t.textContent = msg;
+        t.style.cssText = `
+          position:fixed; z-index:50;
+          left: calc(var(--sidebar) + 18px);
+          bottom: 18px;
+          background: rgba(0,0,0,.45);
+          border: 1px solid rgba(255,255,255,.12);
+          color: rgba(229,231,235,.95);
+          padding: 10px 12px;
+          border-radius: 12px;
+          font-weight: 900;
+          font-size: 13px;
+          box-shadow: 0 18px 60px rgba(0,0,0,.55);
+          backdrop-filter: blur(10px);
+        `;
+        document.body.appendChild(t);
+        setTimeout(()=>{ t.style.opacity="0"; t.style.transition="opacity .25s"; }, 1300);
+        setTimeout(()=> t.remove(), 1700);
+      }
+
+      function openInNewTab(){
+        if(!current?.src) return;
+        window.open(current.src, "_blank", "noopener,noreferrer");
+      }
+
+      function clearLoadTimer(){
+        if(loadTimer){ clearTimeout(loadTimer); loadTimer = null; }
+      }
+
+      function startLoading(route){
+        setOverlay("blocked", false);
+        setOverlay("loading", true);
+        el.loadingMsg.textContent = route ? `Opening ${route.title}…` : "Opening…";
+
+        clearLoadTimer();
+        // if iframe doesn't fire load within 10s, assume blocked/slow and show blocked overlay
+        loadTimer = setTimeout(()=>{
+          setOverlay("loading", false);
+          setOverlay("blocked", true);
+        }, 10000);
+      }
+
+      function stopLoading(){
+        clearLoadTimer();
+        setOverlay("loading", false);
+        setOverlay("blocked", false);
+      }
+
+      function safeSetSrc(src){
+        // Avoid reloading if same src
+        if(lastSrc === src) return;
+        lastSrc = src;
+        el.viewer.src = src;
+      }
+
+      function navigate(routeId, opts={ push:true }){
+        const route = routeById(routeId) || routeById(DEFAULT_ROUTE_ID);
+        if(!route) return;
+
+        lastRouteId = route.id;
+        current = route;
+
+        setActiveNav(route.id);
+        setTitle(route);
+
+        if(opts.push) updateURL(route.id);
+
+        // Update top bar actions
+        el.openNewTab.disabled = !route.src;
+        el.openNewTab.style.opacity = route.src ? "1" : ".5";
+
+        // Start loading and set iframe src
+        startLoading(route);
+        safeSetSrc(route.src);
+      }
+
+      /**********************
+       * NAV RENDER
+       **********************/
+      function iconFor(route){
+        // simple inline icons by group/type feel
+        const map = {
+          Cal: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M7 3v3M17 3v3" stroke="rgba(229,231,235,.9)" stroke-width="2" stroke-linecap="round"/><path d="M4 8h16" stroke="rgba(229,231,235,.55)" stroke-width="2"/><path d="M6 6h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2Z" stroke="rgba(229,231,235,.9)" stroke-width="2"/></svg>`,
+          DB: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 6c0-2 4-3 8-3s8 1 8 3-4 3-8 3-8-1-8-3Z" stroke="rgba(229,231,235,.9)" stroke-width="2"/><path d="M4 6v6c0 2 4 3 8 3s8-1 8-3V6" stroke="rgba(229,231,235,.55)" stroke-width="2"/><path d="M4 12v6c0 2 4 3 8 3s8-1 8-3v-6" stroke="rgba(229,231,235,.55)" stroke-width="2"/></svg>`,
+          BI: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 19V5" stroke="rgba(229,231,235,.55)" stroke-width="2" stroke-linecap="round"/><path d="M8 19v-7M12 19V9M16 19v-4M20 19V7" stroke="rgba(229,231,235,.9)" stroke-width="2" stroke-linecap="round"/></svg>`,
+          Form: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M7 3h10l2 3v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" stroke="rgba(229,231,235,.9)" stroke-width="2"/><path d="M8 13h8M8 17h6" stroke="rgba(229,231,235,.55)" stroke-width="2" stroke-linecap="round"/></svg>`,
+          Hub: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 7a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3V7Z" stroke="rgba(229,231,235,.9)" stroke-width="2"/><path d="M8 9h8M8 12h8M8 15h6" stroke="rgba(229,231,235,.55)" stroke-width="2" stroke-linecap="round"/></svg>`,
+          Portal:`<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M3 12h8V3H3v9Zm10 9h8v-9h-8v9ZM3 21h8v-7H3v7Zm10-10h8V3h-8v8Z" stroke="rgba(229,231,235,.9)" stroke-width="2"/></svg>`,
+          Ops:`<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M3 12h18" stroke="rgba(229,231,235,.55)" stroke-width="2" stroke-linecap="round"/><path d="M12 3v18" stroke="rgba(229,231,235,.55)" stroke-width="2" stroke-linecap="round"/><path d="M5 5h6v6H5V5Zm8 8h6v6h-6v-6Z" stroke="rgba(229,231,235,.9)" stroke-width="2"/></svg>`,
+          CPA:`<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M7 3h10l2 3v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" stroke="rgba(229,231,235,.9)" stroke-width="2"/><path d="M9 10h6M9 14h6M9 18h4" stroke="rgba(229,231,235,.55)" stroke-width="2" stroke-linecap="round"/></svg>`,
+          Plan:`<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M4 4h16v16H4V4Z" stroke="rgba(229,231,235,.9)" stroke-width="2"/><path d="M8 8h8M8 12h8M8 16h6" stroke="rgba(229,231,235,.55)" stroke-width="2" stroke-linecap="round"/></svg>`
+        };
+        return map[route.chip] || map.Form;
+      }
+
+      function renderNav(){
+        const buckets = {
+          core: el.navCore,
+          progress: el.navProgress,
+          planning: el.navPlanning,
+          util: el.navUtil
+        };
+
+        Object.values(buckets).forEach(node => node.innerHTML = "");
+
+        ROUTES.forEach(r=>{
+          const nav = buckets[r.group] || buckets.util;
+
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = "navBtn";
+          btn.setAttribute("data-route", r.id);
+
+          btn.innerHTML = `
+            <span class="lefty">
+              <span class="ico" aria-hidden="true">${iconFor(r)}</span>
+              <span class="meta">
+                <span class="name">${esc(r.title)}</span>
+                <span class="sub">${esc(r.sub || "")}</span>
+              </span>
+            </span>
+            <span class="chip">${esc(r.chip || "Open")}</span>
+          `;
+
+          btn.addEventListener("click", ()=> navigate(r.id, { push:true }));
+          nav.appendChild(btn);
+        });
+      }
+
+      /**********************
+       * EVENTS
+       **********************/
+      el.viewer.addEventListener("load", ()=>{
+        // If we get a load event, hide overlays
+        stopLoading();
+      });
+
+      // If iframe errors aren't reliable, we rely on timeout -> blocked overlay
+      el.cancelLoad.addEventListener("click", ()=>{
+        // stop loading by blanking src but keep current route selected
+        try{ el.viewer.src = "about:blank"; }catch{}
+        setOverlay("loading", false);
+        setOverlay("blocked", true);
+      });
+
+      el.fallbackOpen.addEventListener("click", openInNewTab);
+      el.blockedOpen.addEventListener("click", openInNewTab);
+
+      el.fallbackRetry.addEventListener("click", ()=> navigate(lastRouteId || DEFAULT_ROUTE_ID, { push:false }));
+      el.blockedRetry.addEventListener("click", ()=> navigate(lastRouteId || DEFAULT_ROUTE_ID, { push:false }));
+
+      el.openNewTab.addEventListener("click", openInNewTab);
+      el.copyLink.addEventListener("click", copyLink);
+      el.reload.addEventListener("click", ()=>{
+        if(!current?.src) return;
+        startLoading(current);
+        // force reload by cache-busting
+        const u = new URL(current.src, window.location.href);
+        u.searchParams.set("_t", Date.now().toString());
+        safeSetSrc(u.toString());
+      });
+
+      window.addEventListener("popstate", (e)=>{
+        const id = (e.state && e.state.route) ? e.state.route : (new URL(location.href)).searchParams.get("route");
+        navigate(id || DEFAULT_ROUTE_ID, { push:false });
+      });
+
+      /**********************
+       * INIT
+       **********************/
+      renderNav();
+
+      const initial = new URL(location.href).searchParams.get("route") || DEFAULT_ROUTE_ID;
+      navigate(initial, { push:false });
+
+      // Ensure copy link uses current route even if the user hasn't clicked yet
+      // (navigate() sets the route param when push=false; we keep it consistent by setting it once)
+      const url = new URL(window.location.href);
+      if(!url.searchParams.get("route")){
+        url.searchParams.set("route", initial);
+        history.replaceState({ route: initial }, "", url.toString());
+      }
+    })();
+  </script>
+</body>
+</html>
