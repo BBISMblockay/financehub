@@ -1,0 +1,1230 @@
+<!-- file: index.html -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Check Printer (CSV → Print)</title>
+
+  <style>
+    :root{
+      --page-w: 8.5in;
+      --page-h: 11in;
+
+      /* Global printer alignment offsets */
+      --off-x: 0in;
+      --off-y: 0in;
+
+      /* Regions */
+      --check-w: 8.5in;
+      --check-h: 3.5in;
+      --check-x: 0in;
+      --check-y: 0.5in;
+
+      --stub-x: 0in;
+      --stub-y: 4.2in;
+      --stub-w: 8.5in;
+      --stub-h: 6.8in;
+
+      /* Window envelope address block (bottom-right) */
+      --addr-x: 4.60in;
+      --addr-y: 9.00in;
+      --addr-w: 3.70in;
+
+      /* Signature box (image/text) */
+      --sig-x: 5.25in;
+      --sig-y: 2.25in;
+      --sig-w: 2.80in;
+      --sig-h: 0.55in;
+
+      /* ===== Field positions (calibratable) ===== */
+      --date-x: 6.65in;  --date-y: 0.22in;
+
+      /* FIX OVERLAP: move fields right so they don't touch labels */
+      --payee-x: 1.85in; --payee-y: 0.78in;
+      --amt-x:  6.70in;  --amt-y:  0.76in;
+      --words-x: 1.85in; --words-y: 1.12in;
+      --memo-x: 1.20in;  --memo-y: 2.65in;
+      --chkno-x: 7.05in; --chkno-y: 2.65in;
+
+      /* Stub */
+      --details-x: 0.35in; --details-y: 0.65in;
+
+      /* Labels (separate from fields) */
+      --lbl-payee-x: 0.35in; --lbl-payee-y: 0.80in;
+      --lbl-dollars-x: 0.35in; --lbl-dollars-y: 1.12in;
+      --lbl-memo-x: 0.35in; --lbl-memo-y: 2.66in;
+      --lbl-sig-x: 5.25in; --lbl-sig-y: 2.82in;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background: #f6f7fb;
+      color: #111;
+    }
+
+    header {
+      padding: 14px 18px;
+      background: #111827;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .2px; }
+
+    .wrap {
+      display: grid;
+      grid-template-columns: 460px 1fr;
+      gap: 16px;
+      padding: 16px;
+      max-width: 1500px;
+      margin: 0 auto;
+    }
+
+    .panel {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 14px;
+      box-shadow: 0 1px 2px rgba(0,0,0,.03);
+      height: fit-content;
+    }
+    .panel h2 { font-size: 14px; margin: 0 0 10px; }
+    .hint { font-size: 12px; color: #6b7280; margin-top: 8px; line-height: 1.35; }
+
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+    .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+    .row4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+
+    label { font-size: 12px; color: #374151; display: block; margin-bottom: 6px; }
+    input[type="number"], input[type="file"], input[type="text"], select {
+      width: 100%;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      padding: 10px 10px;
+      font-size: 14px;
+      outline: none;
+      background: #fff;
+    }
+
+    .btns { display: flex; gap: 10px; flex-wrap: wrap; }
+    button {
+      border: 0;
+      border-radius: 10px;
+      padding: 10px 12px;
+      cursor: pointer;
+      font-weight: 650;
+      font-size: 13px;
+    }
+    .primary { background: #2563eb; color: #fff; }
+    .ghost { background: #eef2ff; color: #1e3a8a; }
+    .danger { background: #fee2e2; color: #991b1b; }
+
+    .list { border-top: 1px solid #e5e7eb; margin-top: 12px; padding-top: 12px; }
+    .checks { display: grid; gap: 10px; }
+    .checkItem {
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: 10px;
+      cursor: pointer;
+      background: #fafafa;
+    }
+    .checkItem.active { outline: 2px solid #2563eb; background: #fff; }
+
+    .previewOuter {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 14px;
+      box-shadow: 0 1px 2px rgba(0,0,0,.03);
+    }
+
+    /* PAGE */
+    .page {
+      width: var(--page-w);
+      height: var(--page-h);
+      background: #fff;
+      border: 1px dashed #cbd5e1;
+      position: relative;
+      overflow: hidden;
+      margin: 0 auto;
+    }
+
+    /* CHECK AREA */
+    .check {
+      position: absolute;
+      left: calc(var(--check-x) + var(--off-x));
+      top:  calc(var(--check-y) + var(--off-y));
+      width: var(--check-w);
+      height: var(--check-h);
+      border: 1px solid rgba(0,0,0,.12);
+      border-radius: 10px;
+      background: #fff;
+      overflow: hidden;
+    }
+
+    .checkBg {
+      position: absolute;
+      inset: 0;
+      background:
+        radial-gradient(circle at 20% 30%, rgba(37,99,235,.06), transparent 55%),
+        radial-gradient(circle at 80% 70%, rgba(16,185,129,.05), transparent 60%),
+        linear-gradient(135deg, rgba(0,0,0,.03), transparent 35%);
+      opacity: 0;
+      pointer-events: none;
+    }
+    .showTemplate .checkBg { opacity: 1; }
+
+    .checkChrome {
+      position: absolute;
+      inset: 0;
+      padding: 0.25in 0.35in;
+      pointer-events: none;
+    }
+
+    .bankName {
+      position: absolute;
+      left: 0.35in;
+      top: 0.2in;
+      font-weight: 800;
+      font-size: 12pt;
+      letter-spacing: .4px;
+      opacity: .9;
+    }
+    .bankSub {
+      position: absolute;
+      left: 0.35in;
+      top: 0.42in;
+      font-size: 9pt;
+      opacity: .7;
+    }
+
+    .label {
+      position: absolute;
+      font-size: 8pt;
+      opacity: .55;
+      text-transform: uppercase;
+      letter-spacing: .4px;
+      white-space: nowrap;
+    }
+
+    /* FIELDS */
+    .f {
+      position: absolute;
+      font-size: 11pt;
+      line-height: 1.1;
+      white-space: nowrap;
+      color: #111;
+    }
+
+    .date   { left: var(--date-x);  top: var(--date-y);  width: 1.6in; text-align: left; }
+    .payee  { left: var(--payee-x); top: var(--payee-y); width: 5.2in; }
+    .amtbox { left: var(--amt-x);   top: var(--amt-y);   width: 1.55in; text-align: right; font-weight: 700; }
+    .words  { left: var(--words-x); top: var(--words-y); width: 6.9in; white-space: normal; }
+    .memo   { left: var(--memo-x);  top: var(--memo-y);  width: 3.8in; font-size: 10pt; }
+    .chkno  { left: var(--chkno-x); top: var(--chkno-y); width: 1.15in; text-align: right; font-size: 10pt; }
+
+    .payeeLabel { left: var(--lbl-payee-x); top: var(--lbl-payee-y); }
+    .dollarsLabel { left: var(--lbl-dollars-x); top: var(--lbl-dollars-y); }
+    .memoLabel { left: var(--lbl-memo-x); top: var(--lbl-memo-y); }
+    .sigLabel { left: var(--lbl-sig-x); top: var(--lbl-sig-y); }
+
+    .sigLine {
+      position: absolute;
+      left: var(--sig-x);
+      top: calc(var(--sig-y) + 0.55in);
+      width: var(--sig-w);
+      border-top: 1px solid rgba(0,0,0,.18);
+      opacity: .6;
+    }
+
+    .sigBox {
+      position: absolute;
+      left: var(--sig-x);
+      top: var(--sig-y);
+      width: var(--sig-w);
+      height: var(--sig-h);
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+    .sigImg { max-width: 100%; max-height: 100%; object-fit: contain; filter: contrast(1.1); }
+    .sigText {
+      font-family: "Brush Script MT", "Segoe Script", "Lucida Handwriting", cursive;
+      font-size: 22pt;
+      transform: translateY(2px);
+      opacity: .9;
+      white-space: nowrap;
+    }
+
+    /* STUB AREA */
+    .stub {
+      position: absolute;
+      left: calc(var(--stub-x) + var(--off-x));
+      top:  calc(var(--stub-y) + var(--off-y));
+      width: var(--stub-w);
+      height: var(--stub-h);
+      border-top: 1px dashed rgba(0,0,0,.18);
+      overflow: hidden;
+    }
+
+    .stubBg {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(to bottom, rgba(0,0,0,.03) 1px, transparent 1px);
+      background-size: 100% 0.28in;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .showTemplate .stubBg { opacity: 1; }
+
+    .stubTitle {
+      position: absolute;
+      left: 0.35in;
+      top: 0.25in;
+      font-size: 10pt;
+      font-weight: 800;
+      opacity: .85;
+      letter-spacing: .2px;
+    }
+
+    .detailsBlock {
+      position: absolute;
+      left: var(--details-x);
+      top:  var(--details-y);
+      width: 7.8in;
+      font-size: 10pt;
+      white-space: pre-wrap;
+      line-height: 1.25;
+    }
+
+    .addrBlock {
+      position: absolute;
+      left: var(--addr-x);
+      top:  var(--addr-y);
+      width: var(--addr-w);
+      font-size: 11pt;
+      white-space: pre-wrap;
+      line-height: 1.25;
+      padding: 0.08in 0.12in;
+      border-radius: 8px;
+      background: rgba(255,255,255,.9);
+      border: 1px solid rgba(0,0,0,.10);
+      opacity: .98;
+    }
+    .showTemplate .addrBlock { box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+
+    /* Calibration visual helpers */
+    .guides .check, .guides .stub, .guides .addrBlock {
+      outline: 1px solid rgba(37,99,235,.25);
+      outline-offset: -2px;
+    }
+    .guides .f, .guides .label {
+      background: rgba(255,255,0,.10);
+      border-radius: 4px;
+    }
+
+    /* PRINT */
+    @page { size: letter; margin: 0; }
+    #printRoot { display: none; }
+
+    @media print {
+      body { background: #fff; }
+      header, .panel, .previewOuter { display: none !important; }
+      #printRoot { display: block !important; }
+      .page { border: 0; margin: 0; }
+      .printPage { page-break-after: always; }
+      .printPage:last-child { page-break-after: auto; }
+
+      .checkBg, .stubBg { opacity: 0 !important; }
+      .addrBlock { background: transparent; border-color: transparent; }
+
+      .printTemplate { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .printTemplate .checkBg, .printTemplate .stubBg { opacity: 1 !important; }
+    }
+  </style>
+</head>
+
+<body>
+<header>
+  <h1>Check Printer (CSV → Print)</h1>
+  <div class="btns">
+    <button class="ghost" id="btnSample">Download sample CSV</button>
+    <button class="primary" id="btnPrint">Print</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="panel">
+    <h2>1) Import</h2>
+    <div class="row">
+      <div>
+        <label>CSV file</label>
+        <input type="file" id="csvFile" accept=".csv,text/csv" />
+      </div>
+      <div>
+        <label>Delimiter</label>
+        <select id="delimiter">
+          <option value=",">Comma (,)</option>
+          <option value=";">Semicolon (;)</option>
+          <option value="\t">Tab</option>
+        </select>
+      </div>
+    </div>
+    <div class="hint">
+      Required: <b>date,payee,amount,memo,checkNo</b><br/>
+      Optional: <b>payeeAddress</b> (use <code>|</code> for new lines), <b>details</b> (use <code>|</code> for line items)
+    </div>
+
+    <div class="list">
+      <h2>2) Pick a check</h2>
+      <div class="checks" id="checkList"></div>
+      <div class="hint" id="emptyHint">No checks loaded yet.</div>
+    </div>
+
+    <div class="list">
+      <h2>3) Print options</h2>
+      <div class="row">
+        <div>
+          <label>Print mode</label>
+          <select id="printMode">
+            <option value="single">Single (selected check)</option>
+            <option value="all">All checks</option>
+          </select>
+        </div>
+        <div>
+          <label>Template preview</label>
+          <select id="templateMode">
+            <option value="off">Off</option>
+            <option value="on">On (preview)</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Print background (optional)</label>
+          <select id="printBg">
+            <option value="no">No</option>
+            <option value="yes">Yes</option>
+          </select>
+        </div>
+        <div>
+          <label>Guides</label>
+          <select id="guidesMode">
+            <option value="off">Off</option>
+            <option value="on">On (highlight fields)</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="list">
+      <h2>4) Alignment</h2>
+      <div class="row">
+        <div>
+          <label>Global X offset (inches)</label>
+          <input type="number" id="offX" step="0.01" value="0" />
+        </div>
+        <div>
+          <label>Global Y offset (inches)</label>
+          <input type="number" id="offY" step="0.01" value="0" />
+        </div>
+      </div>
+      <div class="btns">
+        <button class="ghost" id="btnSaveOffsets">Save offsets</button>
+        <button class="danger" id="btnResetOffsets">Reset</button>
+      </div>
+    </div>
+
+    <div class="list">
+      <h2>5) Signature</h2>
+      <div class="row">
+        <div>
+          <label>Signature image (PNG/JPG)</label>
+          <input type="file" id="sigFile" accept="image/*" />
+        </div>
+        <div>
+          <label>Or typed signature</label>
+          <input type="text" id="sigTyped" placeholder="e.g., Jane Smith" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Signature mode</label>
+          <select id="sigMode">
+            <option value="image">Use image if available</option>
+            <option value="typed">Use typed</option>
+            <option value="none">None</option>
+          </select>
+        </div>
+        <div>
+          <label>Signature scale</label>
+          <input type="number" id="sigScale" step="0.05" value="1" min="0.2" max="3" />
+        </div>
+      </div>
+
+      <div class="btns">
+        <button class="ghost" id="btnSaveSig">Save signature</button>
+        <button class="danger" id="btnClearSig">Clear signature</button>
+      </div>
+    </div>
+
+    <div class="list">
+      <h2>6) Field calibration (fix overlaps)</h2>
+      <div class="row">
+        <div>
+          <label>Field</label>
+          <select id="calField"></select>
+        </div>
+        <div>
+          <label>Step (inches)</label>
+          <input type="number" id="calStep" value="0.02" step="0.01" min="0.001" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>X (inches)</label>
+          <input type="number" id="calX" step="0.01" />
+        </div>
+        <div>
+          <label>Y (inches)</label>
+          <input type="number" id="calY" step="0.01" />
+        </div>
+      </div>
+
+      <div class="row4">
+        <button class="ghost" id="btnLeft">←</button>
+        <button class="ghost" id="btnUp">↑</button>
+        <button class="ghost" id="btnDown">↓</button>
+        <button class="ghost" id="btnRight">→</button>
+      </div>
+
+      <div class="btns">
+        <button class="ghost" id="btnSaveCal">Save calibration</button>
+        <button class="danger" id="btnResetCal">Reset calibration</button>
+      </div>
+      <div class="hint">
+        This is for fine-tuning text placement on your specific stock. Global offsets = printer feed; calibration = template layout.
+      </div>
+    </div>
+  </div>
+
+  <div class="previewOuter">
+    <div id="screenPreview"></div>
+  </div>
+</div>
+
+<div id="printRoot" aria-hidden="true"></div>
+
+<script>
+  /**
+   * Check Printer — adds per-field calibration to fix overlaps & drift.
+   */
+
+  const els = {
+    csvFile: document.getElementById("csvFile"),
+    delimiter: document.getElementById("delimiter"),
+    checkList: document.getElementById("checkList"),
+    emptyHint: document.getElementById("emptyHint"),
+
+    printMode: document.getElementById("printMode"),
+    templateMode: document.getElementById("templateMode"),
+    printBg: document.getElementById("printBg"),
+    guidesMode: document.getElementById("guidesMode"),
+
+    offX: document.getElementById("offX"),
+    offY: document.getElementById("offY"),
+    btnSaveOffsets: document.getElementById("btnSaveOffsets"),
+    btnResetOffsets: document.getElementById("btnResetOffsets"),
+
+    sigFile: document.getElementById("sigFile"),
+    sigTyped: document.getElementById("sigTyped"),
+    sigMode: document.getElementById("sigMode"),
+    sigScale: document.getElementById("sigScale"),
+    btnSaveSig: document.getElementById("btnSaveSig"),
+    btnClearSig: document.getElementById("btnClearSig"),
+
+    calField: document.getElementById("calField"),
+    calStep: document.getElementById("calStep"),
+    calX: document.getElementById("calX"),
+    calY: document.getElementById("calY"),
+    btnLeft: document.getElementById("btnLeft"),
+    btnRight: document.getElementById("btnRight"),
+    btnUp: document.getElementById("btnUp"),
+    btnDown: document.getElementById("btnDown"),
+    btnSaveCal: document.getElementById("btnSaveCal"),
+    btnResetCal: document.getElementById("btnResetCal"),
+
+    btnPrint: document.getElementById("btnPrint"),
+    btnSample: document.getElementById("btnSample"),
+
+    screenPreview: document.getElementById("screenPreview"),
+    printRoot: document.getElementById("printRoot"),
+  };
+
+  /**
+   * @typedef {Object} CheckRow
+   * @property {string} date
+   * @property {string} payee
+   * @property {number} amount
+   * @property {string} memo
+   * @property {string} checkNo
+   * @property {string=} payeeAddress
+   * @property {string=} details
+   */
+
+  /** @type {CheckRow[]} */
+  let checks = [];
+  let activeIndex = -1;
+
+  /** @type {{mode:'image'|'typed'|'none', typed:string, imageDataUrl:string|null, scale:number}} */
+  let signature = { mode: "image", typed: "", imageDataUrl: null, scale: 1 };
+
+  /**
+   * Calibration map: field -> {x,y} inches, applied to CSS vars.
+   * Keys map to CSS vars:
+   * - date -> --date-x/--date-y, payee -> --payee-x/--payee-y, ...
+   */
+  const CAL_FIELDS = [
+    { key: "date", label: "Date", varX: "--date-x", varY: "--date-y" },
+    { key: "payee", label: "Payee", varX: "--payee-x", varY: "--payee-y" },
+    { key: "amount", label: "Amount", varX: "--amt-x", varY: "--amt-y" },
+    { key: "words", label: "Amount in words", varX: "--words-x", varY: "--words-y" },
+    { key: "memo", label: "Memo", varX: "--memo-x", varY: "--memo-y" },
+    { key: "checkNo", label: "Check #", varX: "--chkno-x", varY: "--chkno-y" },
+    { key: "details", label: "Stub details", varX: "--details-x", varY: "--details-y" },
+    { key: "addr", label: "Address block", varX: "--addr-x", varY: "--addr-y" },
+    { key: "sig", label: "Signature", varX: "--sig-x", varY: "--sig-y" },
+    { key: "lblPayee", label: "Label: Pay to the order of", varX: "--lbl-payee-x", varY: "--lbl-payee-y" },
+    { key: "lblDollars", label: "Label: Dollars", varX: "--lbl-dollars-x", varY: "--lbl-dollars-y" },
+    { key: "lblMemo", label: "Label: Memo", varX: "--lbl-memo-x", varY: "--lbl-memo-y" },
+    { key: "lblSig", label: "Label: Authorized signature", varX: "--lbl-sig-x", varY: "--lbl-sig-y" },
+  ];
+
+  /** @type {Record<string,{x:number,y:number}>} */
+  let calibration = {};
+
+  init();
+
+  function init() {
+    loadOffsets();
+    loadSignature();
+    loadUiPrefs();
+    loadCalibration();
+    buildCalibrationSelect();
+    wireEvents();
+    renderList();
+    renderScreenPreview();
+    applyTemplateMode();
+    applyGuidesMode();
+  }
+
+  function wireEvents() {
+    els.csvFile.addEventListener("change", onFile);
+    els.delimiter.addEventListener("change", () => { if (els.csvFile.files?.[0]) onFile(); });
+
+    els.offX.addEventListener("input", applyOffsets);
+    els.offY.addEventListener("input", applyOffsets);
+    els.btnSaveOffsets.addEventListener("click", saveOffsets);
+    els.btnResetOffsets.addEventListener("click", resetOffsets);
+
+    els.templateMode.addEventListener("change", () => {
+      localStorage.setItem("check_printer_templateMode", els.templateMode.value);
+      applyTemplateMode();
+      renderScreenPreview();
+    });
+
+    els.guidesMode.addEventListener("change", () => {
+      localStorage.setItem("check_printer_guidesMode", els.guidesMode.value);
+      applyGuidesMode();
+      renderScreenPreview();
+    });
+
+    els.printBg.addEventListener("change", () => localStorage.setItem("check_printer_printBg", els.printBg.value));
+
+    els.sigFile.addEventListener("change", onSigFile);
+    els.sigMode.addEventListener("change", () => signature.mode = els.sigMode.value);
+    els.sigTyped.addEventListener("input", () => signature.typed = els.sigTyped.value);
+    els.sigScale.addEventListener("input", () => signature.scale = Number(els.sigScale.value || 1));
+    els.btnSaveSig.addEventListener("click", () => { saveSignature(); renderScreenPreview(); });
+    els.btnClearSig.addEventListener("click", clearSignature);
+
+    els.btnPrint.addEventListener("click", () => window.print());
+    els.btnSample.addEventListener("click", downloadSampleCsv);
+
+    // Calibration UI
+    els.calField.addEventListener("change", syncCalInputsFromCss);
+    els.calX.addEventListener("input", () => applyCalFromInputs());
+    els.calY.addEventListener("input", () => applyCalFromInputs());
+
+    els.btnLeft.addEventListener("click", () => nudgeCal(-1, 0));
+    els.btnRight.addEventListener("click", () => nudgeCal(1, 0));
+    els.btnUp.addEventListener("click", () => nudgeCal(0, -1));
+    els.btnDown.addEventListener("click", () => nudgeCal(0, 1));
+
+    els.btnSaveCal.addEventListener("click", saveCalibration);
+    els.btnResetCal.addEventListener("click", resetCalibration);
+
+    window.addEventListener("beforeprint", buildPrintPages);
+    window.addEventListener("afterprint", cleanupPrintPages);
+  }
+
+  function loadUiPrefs() {
+    els.templateMode.value = localStorage.getItem("check_printer_templateMode") || "on";
+    els.printBg.value = localStorage.getItem("check_printer_printBg") || "no";
+    els.guidesMode.value = localStorage.getItem("check_printer_guidesMode") || "off";
+  }
+
+  async function onFile() {
+    const file = els.csvFile.files?.[0];
+    if (!file) return;
+
+    const text = await file.text();
+    const delim = els.delimiter.value === "\\t" ? "\t" : els.delimiter.value;
+
+    try {
+      checks = parseChecksCsv(text, delim);
+      activeIndex = checks.length ? 0 : -1;
+      renderList();
+      renderScreenPreview();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  function parseChecksCsv(csvText, delimiter) {
+    const rows = parseCsv(csvText, delimiter);
+    if (!rows.length) return [];
+
+    const header = rows[0].map(h => h.trim().toLowerCase());
+    const idx = {
+      date: header.indexOf("date"),
+      payee: header.indexOf("payee"),
+      amount: header.indexOf("amount"),
+      memo: header.indexOf("memo"),
+      checkNo: header.indexOf("checkno"),
+      payeeAddress: header.indexOf("payeeaddress"),
+      details: header.indexOf("details"),
+    };
+
+    const required = ["date","payee","amount","memo","checkNo"];
+    const missing = required.filter(k => idx[k] < 0);
+    if (missing.length) throw new Error(`CSV missing columns: ${missing.join(", ")}.`);
+
+    /** @type {CheckRow[]} */
+    const out = [];
+    for (let r = 1; r < rows.length; r++) {
+      const row = rows[r];
+      if (row.every(c => !String(c || "").trim())) continue;
+
+      const rawAmount = String(row[idx.amount] ?? "").replace(/[$,]/g, "").trim();
+      const amount = Number(rawAmount);
+      if (!Number.isFinite(amount)) throw new Error(`Invalid amount on row ${r + 1}: "${row[idx.amount]}".`);
+
+      out.push({
+        date: normalizeDate(String(row[idx.date] ?? "").trim()),
+        payee: String(row[idx.payee] ?? "").trim(),
+        amount,
+        memo: String(row[idx.memo] ?? "").trim(),
+        checkNo: String(row[idx.checkNo] ?? "").trim(),
+        payeeAddress: idx.payeeAddress >= 0 ? String(row[idx.payeeAddress] ?? "").trim() : "",
+        details: idx.details >= 0 ? String(row[idx.details] ?? "").trim() : "",
+      });
+    }
+    return out;
+  }
+
+  function parseCsv(text, delimiter) {
+    const rows = [];
+    let row = [];
+    let cell = "";
+    let inQuotes = false;
+
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      const next = text[i + 1];
+
+      if (ch === '"') {
+        if (inQuotes && next === '"') { cell += '"'; i++; }
+        else { inQuotes = !inQuotes; }
+        continue;
+      }
+
+      if (!inQuotes && ch === delimiter) { row.push(cell); cell = ""; continue; }
+
+      if (!inQuotes && (ch === "\n" || ch === "\r")) {
+        if (ch === "\r" && next === "\n") i++;
+        row.push(cell); rows.push(row);
+        row = []; cell = "";
+        continue;
+      }
+
+      cell += ch;
+    }
+
+    row.push(cell);
+    rows.push(row);
+    return rows.map(r => r.map(c => (c ?? "").trim()));
+  }
+
+  function normalizeDate(s) {
+    if (!s) return "";
+    const iso = /^\d{4}-\d{2}-\d{2}$/;
+    if (iso.test(s)) {
+      const [y, m, d] = s.split("-");
+      return `${m}/${d}/${y}`;
+    }
+    return s;
+  }
+
+  function renderList() {
+    els.checkList.innerHTML = "";
+    els.emptyHint.style.display = checks.length ? "none" : "block";
+
+    checks.forEach((c, i) => {
+      const div = document.createElement("div");
+      div.className = "checkItem" + (i === activeIndex ? " active" : "");
+      div.innerHTML = `
+        <div style="display:flex;justify-content:space-between;gap:10px;">
+          <div style="font-weight:800;">#${escapeHtml(c.checkNo || String(i + 1))}</div>
+          <div style="color:#6b7280;font-size:12px;">${escapeHtml(c.date)}</div>
+        </div>
+        <div style="margin-top:6px;"><b>${escapeHtml(c.payee || "(no payee)")}</b></div>
+        <div style="margin-top:4px;color:#374151;">$${formatMoney(c.amount)}</div>
+        ${c.memo ? `<div style="margin-top:6px;color:#6b7280;font-size:12px;">${escapeHtml(c.memo)}</div>` : ""}
+      `;
+      div.addEventListener("click", () => {
+        activeIndex = i;
+        renderList();
+        renderScreenPreview();
+      });
+      els.checkList.appendChild(div);
+    });
+  }
+
+  function renderScreenPreview() {
+    els.screenPreview.innerHTML = "";
+    const c = checks[activeIndex];
+    els.screenPreview.appendChild(buildPageForCheck(c));
+    syncCalInputsFromCss();
+  }
+
+  function applyTemplateMode() {
+    document.body.classList.toggle("showTemplate", els.templateMode.value === "on");
+  }
+
+  function applyGuidesMode() {
+    document.body.classList.toggle("guides", els.guidesMode.value === "on");
+  }
+
+  function buildPageForCheck(c) {
+    const page = document.createElement("div");
+    page.className = "page";
+
+    // CHECK
+    const check = document.createElement("div");
+    check.className = "check";
+
+    const bg = document.createElement("div");
+    bg.className = "checkBg";
+
+    const chrome = document.createElement("div");
+    chrome.className = "checkChrome";
+
+    const bankName = div("bankName", "YOUR COMPANY NAME");
+    const bankSub = div("bankSub", "Street Address • City, ST ZIP • (555) 555-5555");
+
+    const lblPayee = div("label payeeLabel", "Pay to the order of");
+    const lblDollars = div("label dollarsLabel", "Dollars");
+    const lblMemo = div("label memoLabel", "Memo");
+    const lblSig = div("label sigLabel", "Authorized signature");
+
+    const fDate = div("f date", c?.date || "");
+    const fPayee = div("f payee", c?.payee || "");
+    const fAmount = div("f amtbox", c ? `$${formatMoney(c.amount)}` : "");
+    const fWords = div("f words", c ? amountToWords(c.amount) : "");
+    const fMemo = div("f memo", c?.memo || "");
+    const fCheckNo = div("f chkno", c?.checkNo || "");
+
+    const sigBox = document.createElement("div");
+    sigBox.className = "sigBox";
+    const sigNode = buildSignatureNode();
+    if (sigNode) sigBox.appendChild(sigNode);
+
+    const sigLine = document.createElement("div");
+    sigLine.className = "sigLine";
+
+    chrome.append(bankName, bankSub, lblPayee, lblDollars, lblMemo, lblSig);
+    check.append(bg, chrome, fDate, fPayee, fAmount, fWords, fMemo, fCheckNo, sigBox, sigLine);
+
+    // STUB
+    const stub = document.createElement("div");
+    stub.className = "stub";
+
+    const stubBg = document.createElement("div");
+    stubBg.className = "stubBg";
+
+    const stubTitle = div("stubTitle", "Payment details");
+
+    const detailsBlock = document.createElement("div");
+    detailsBlock.className = "detailsBlock";
+    detailsBlock.textContent = c ? normalizeMultiline(c.details || "") : "";
+
+    stub.append(stubBg, stubTitle, detailsBlock);
+
+    // Address (window envelope)
+    const addrBlock = document.createElement("div");
+    addrBlock.className = "addrBlock";
+    addrBlock.textContent = c ? normalizeMultiline(c.payeeAddress || "") : "";
+
+    page.append(check, stub, addrBlock);
+    return page;
+  }
+
+  function div(cls, text) {
+    const d = document.createElement("div");
+    d.className = cls;
+    d.textContent = text;
+    return d;
+  }
+
+  function buildSignatureNode() {
+    const mode = signature.mode;
+    const scale = clamp(signature.scale || 1, 0.2, 3);
+
+    if (mode === "none") return null;
+
+    if (mode === "typed") {
+      const t = (signature.typed || "").trim();
+      if (!t) return null;
+      const d = document.createElement("div");
+      d.className = "sigText";
+      d.style.transform = `translateY(2px) scale(${scale})`;
+      d.textContent = t;
+      return d;
+    }
+
+    if (signature.imageDataUrl) {
+      const img = document.createElement("img");
+      img.className = "sigImg";
+      img.src = signature.imageDataUrl;
+      img.style.transform = `scale(${scale})`;
+      return img;
+    }
+
+    const t = (signature.typed || "").trim();
+    if (!t) return null;
+    const d = document.createElement("div");
+    d.className = "sigText";
+    d.style.transform = `translateY(2px) scale(${scale})`;
+    d.textContent = t;
+    return d;
+  }
+
+  function buildPrintPages() {
+    els.printRoot.innerHTML = "";
+    els.printRoot.className = "";
+
+    if (els.printBg.value === "yes") els.printRoot.classList.add("printTemplate");
+
+    const mode = els.printMode.value;
+    if (!checks.length) {
+      els.printRoot.appendChild(wrapPrint(buildPageForCheck(null)));
+      return;
+    }
+
+    if (mode === "all") {
+      for (const c of checks) els.printRoot.appendChild(wrapPrint(buildPageForCheck(c)));
+    } else {
+      const c = checks[activeIndex] ?? checks[0];
+      els.printRoot.appendChild(wrapPrint(buildPageForCheck(c)));
+    }
+  }
+
+  function wrapPrint(page) {
+    const w = document.createElement("div");
+    w.className = "printPage";
+    w.appendChild(page);
+    return w;
+  }
+
+  function cleanupPrintPages() {
+    els.printRoot.innerHTML = "";
+    els.printRoot.className = "";
+  }
+
+  async function onSigFile() {
+    const file = els.sigFile.files?.[0];
+    if (!file) return;
+    signature.imageDataUrl = await fileToDataUrl(file);
+    signature.mode = "image";
+    els.sigMode.value = "image";
+    saveSignature(false);
+    renderScreenPreview();
+  }
+
+  function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(new Error("Failed to read signature file."));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function loadSignature() {
+    const saved = safeJsonParse(localStorage.getItem("check_printer_signature")) || {};
+    signature = {
+      mode: saved.mode || "image",
+      typed: saved.typed || "",
+      imageDataUrl: saved.imageDataUrl || null,
+      scale: Number(saved.scale || 1),
+    };
+    els.sigMode.value = signature.mode;
+    els.sigTyped.value = signature.typed;
+    els.sigScale.value = String(signature.scale);
+  }
+
+  function saveSignature(showAlert = true) {
+    signature.mode = els.sigMode.value;
+    signature.typed = els.sigTyped.value;
+    signature.scale = Number(els.sigScale.value || 1);
+    localStorage.setItem("check_printer_signature", JSON.stringify(signature));
+    if (showAlert) alert("Signature saved.");
+  }
+
+  function clearSignature() {
+    signature = { mode: "image", typed: "", imageDataUrl: null, scale: 1 };
+    localStorage.removeItem("check_printer_signature");
+    els.sigMode.value = "image";
+    els.sigTyped.value = "";
+    els.sigScale.value = "1";
+    els.sigFile.value = "";
+    renderScreenPreview();
+  }
+
+  function applyOffsets() {
+    const x = Number(els.offX.value || 0);
+    const y = Number(els.offY.value || 0);
+    document.documentElement.style.setProperty("--off-x", `${x}in`);
+    document.documentElement.style.setProperty("--off-y", `${y}in`);
+  }
+
+  function loadOffsets() {
+    const saved = safeJsonParse(localStorage.getItem("check_printer_offsets")) || {};
+    els.offX.value = String(saved.x ?? 0);
+    els.offY.value = String(saved.y ?? 0);
+    applyOffsets();
+  }
+
+  function saveOffsets() {
+    const x = Number(els.offX.value || 0);
+    const y = Number(els.offY.value || 0);
+    localStorage.setItem("check_printer_offsets", JSON.stringify({ x, y }));
+    applyOffsets();
+    alert("Offsets saved.");
+  }
+
+  function resetOffsets() {
+    els.offX.value = "0";
+    els.offY.value = "0";
+    localStorage.removeItem("check_printer_offsets");
+    applyOffsets();
+  }
+
+  function normalizeMultiline(s) {
+    return String(s || "")
+      .replace(/\\n/g, "\n")
+      .split("|")
+      .map(x => x.trim())
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  function downloadSampleCsv() {
+    const content =
+`date,payee,amount,memo,checkNo,payeeAddress,details
+2026-01-21,Acme Supplies,1234.56,Office supplies,1051,"Acme Supplies|123 Main St|Dallas, TX 75001","Inv #1001  $500.00|Inv #1002  $734.56|Total $1234.56"
+2026-01-22,John Doe,250.00,Consulting,1052,"John Doe|55 Market Ave|Austin, TX 78701","Consulting - Jan 2026  $250.00|Total $250.00"
+`;
+    const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "checks-sample.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function formatMoney(n) { return Number(n).toFixed(2); }
+  function safeJsonParse(s) { try { return JSON.parse(s); } catch { return null; } }
+  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, m => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+    })[m]);
+  }
+
+  function amountToWords(amount) {
+    const dollars = Math.floor(amount);
+    const cents = Math.round((amount - dollars) * 100);
+    const dollarsWords = dollars === 0 ? "Zero" : numberToEnglish(dollars);
+    const centsStr = String(cents).padStart(2, "0");
+    return `${dollarsWords} and ${centsStr}/100`.replace(/\s+/g, " ").trim();
+  }
+
+  function numberToEnglish(n) {
+    if (n < 0) return `Minus ${numberToEnglish(-n)}`;
+    if (n === 0) return "Zero";
+
+    const ones = ["","One","Two","Three","Four","Five","Six","Seven","Eight","Nine"];
+    const teens = ["Ten","Eleven","Twelve","Thirteen","Fourteen","Fifteen","Sixteen","Seventeen","Eighteen","Nineteen"];
+    const tens = ["","","Twenty","Thirty","Forty","Fifty","Sixty","Seventy","Eighty","Ninety"];
+    const scales = ["","Thousand","Million","Billion"];
+
+    function chunkToWords(num) {
+      const parts = [];
+      const h = Math.floor(num / 100);
+      const r = num % 100;
+      if (h) parts.push(`${ones[h]} Hundred`);
+      if (r >= 10 && r < 20) parts.push(teens[r - 10]);
+      else {
+        const t = Math.floor(r / 10);
+        const o = r % 10;
+        if (t) parts.push(tens[t]);
+        if (o) parts.push(ones[o]);
+      }
+      return parts.join(" ");
+    }
+
+    const chunks = [];
+    let x = n;
+    while (x > 0) { chunks.push(x % 1000); x = Math.floor(x / 1000); }
+
+    const words = [];
+    for (let i = chunks.length - 1; i >= 0; i--) {
+      const c = chunks[i];
+      if (!c) continue;
+      const w = chunkToWords(c);
+      const scale = scales[i];
+      words.push(scale ? `${w} ${scale}` : w);
+    }
+    return words.join(" ").trim();
+  }
+
+  /* ===== Calibration ===== */
+
+  function buildCalibrationSelect() {
+    els.calField.innerHTML = "";
+    for (const f of CAL_FIELDS) {
+      const opt = document.createElement("option");
+      opt.value = f.key;
+      opt.textContent = f.label;
+      els.calField.appendChild(opt);
+    }
+    els.calField.value = "memo"; // common overlap culprit
+    syncCalInputsFromCss();
+  }
+
+  function loadCalibration() {
+    calibration = safeJsonParse(localStorage.getItem("check_printer_calibration")) || {};
+    applyCalibrationToCss();
+  }
+
+  function saveCalibration() {
+    const key = els.calField.value;
+    const f = CAL_FIELDS.find(x => x.key === key);
+    if (!f) return;
+
+    const x = Number(els.calX.value || 0);
+    const y = Number(els.calY.value || 0);
+    calibration[key] = { x, y };
+
+    localStorage.setItem("check_printer_calibration", JSON.stringify(calibration));
+    applyCalibrationToCss();
+    renderScreenPreview();
+    alert("Calibration saved.");
+  }
+
+  function resetCalibration() {
+    calibration = {};
+    localStorage.removeItem("check_printer_calibration");
+    // reload defaults by removing overrides
+    applyCalibrationToCss(true);
+    renderScreenPreview();
+    alert("Calibration reset.");
+  }
+
+  function applyCalibrationToCss(reset = false) {
+    const root = document.documentElement;
+
+    if (reset) {
+      for (const f of CAL_FIELDS) {
+        root.style.removeProperty(f.varX);
+        root.style.removeProperty(f.varY);
+      }
+      return;
+    }
+
+    for (const f of CAL_FIELDS) {
+      const entry = calibration[f.key];
+      if (!entry) continue;
+      root.style.setProperty(f.varX, `${entry.x}in`);
+      root.style.setProperty(f.varY, `${entry.y}in`);
+    }
+  }
+
+  function syncCalInputsFromCss() {
+    const key = els.calField.value;
+    const f = CAL_FIELDS.find(x => x.key === key);
+    if (!f) return;
+
+    const styles = getComputedStyle(document.documentElement);
+    const xIn = cssInchesToNumber(styles.getPropertyValue(f.varX).trim());
+    const yIn = cssInchesToNumber(styles.getPropertyValue(f.varY).trim());
+
+    els.calX.value = String(round2(xIn));
+    els.calY.value = String(round2(yIn));
+  }
+
+  function applyCalFromInputs() {
+    const key = els.calField.value;
+    const f = CAL_FIELDS.find(x => x.key === key);
+    if (!f) return;
+
+    const x = Number(els.calX.value || 0);
+    const y = Number(els.calY.value || 0);
+
+    document.documentElement.style.setProperty(f.varX, `${x}in`);
+    document.documentElement.style.setProperty(f.varY, `${y}in`);
+    renderScreenPreview();
+  }
+
+  function nudgeCal(dx, dy) {
+    const step = Number(els.calStep.value || 0.02);
+    els.calX.value = String(round2(Number(els.calX.value || 0) + dx * step));
+    els.calY.value = String(round2(Number(els.calY.value || 0) + dy * step));
+    applyCalFromInputs();
+  }
+
+  function cssInchesToNumber(v) {
+    const m = String(v).match(/-?\d+(\.\d+)?/);
+    return m ? Number(m[0]) : 0;
+  }
+
+  function round2(n) {
+    return Math.round(n * 100) / 100;
+  }
+</script>
+</body>
+</html>
