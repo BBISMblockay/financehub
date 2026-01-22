@@ -57,7 +57,6 @@
       flex-direction:column;
     }
 
-    /* sticky header area */
     .sticky{
       position:sticky;
       top:0;
@@ -367,7 +366,6 @@
     .pill.tax{ border-color: rgba(56,189,248,.25); background: rgba(56,189,248,.10); }
     .pill.net{ border-color: rgba(167,139,250,.28); background: rgba(167,139,250,.12); }
 
-    /* pinned summary strip above table */
     .pin{
       padding:10px 12px;
       display:flex;
@@ -642,7 +640,6 @@
         </div>
       </div>
 
-      <!-- BODY: rollups panel + table -->
       <div class="body">
         <div class="panel" id="rollupPanel">
           <div class="ph">
@@ -728,8 +725,7 @@
         ])
       ];
 
-      // Read what we need for filters + math + detail view.
-      const HEADERS = [
+      const HEADERS = implies = [
         "Department Desc","Location Desc","clientcode",
         "EE Code","EE Name",
         "Typecode","Typedesc",
@@ -763,7 +759,6 @@
         tbody: document.getElementById("tbody"),
         error: document.getElementById("error"),
 
-        // metrics
         mEmp: document.getElementById("mEmp"),
         mDepts: document.getElementById("mDepts"),
         mLocs: document.getElementById("mLocs"),
@@ -779,13 +774,11 @@
         mTopEmp: document.getElementById("mTopEmp"),
         mTopEmpSub: document.getElementById("mTopEmpSub"),
 
-        // pinned
         pinHours: document.getElementById("pinHours"),
         pinGross: document.getElementById("pinGross"),
         pinRate: document.getElementById("pinRate"),
         pinLines: document.getElementById("pinLines"),
 
-        // rollup
         rollupTitle: document.getElementById("rollupTitle"),
         rollupMeta: document.getElementById("rollupMeta"),
         rollupList: document.getElementById("rollupList"),
@@ -797,18 +790,15 @@
       /**********************
        * STATE
        **********************/
-      let RAW = [];   // all rows from sheet
-      let VIEW = [];  // after filters
-      let activeView = "detail"; // detail | employee | department | location | typecode
+      let RAW = [];
+      let VIEW = [];
+      let activeView = "detail";
       let earnOnlyTable = false;
 
-      // drill-down lock (set by clicking rollups)
-      // { kind: 'employee'|'department'|'location'|'typecode', value: '...' }
       let drill = null;
 
-      // sorting
-      let sortKey = "";     // e.g. 'Amount'
-      let sortDir = "desc"; // 'asc'|'desc'
+      let sortKey = "";
+      let sortDir = "desc";
 
       /**********************
        * UTILS
@@ -875,7 +865,6 @@
       }
 
       function groupAgg(rows, keyFn){
-        // returns Map(key -> {hours, amount, lines})
         const m = new Map();
         for(const r of rows){
           const k = keyFn(r);
@@ -888,6 +877,7 @@
         }
         return m;
       }
+
       function topN(map, n, metric){
         const arr = Array.from(map.entries()).map(([k,v])=>({k, v}));
         arr.sort((a,b)=>{
@@ -903,7 +893,6 @@
         els.chips.forEach(c=>{
           c.classList.toggle("active", c.dataset.view === view);
         });
-        // Default sort for "Detail" view: Amount desc
         if(activeView === "detail" && !sortKey){
           sortKey = "Amount";
           sortDir = "desc";
@@ -915,7 +904,6 @@
         drill = { kind, value };
         els.clearDrill.style.display = "inline-flex";
         els.detailTitle.textContent = `Detail Lines (Drill: ${kind})`;
-        // Also try to sync dropdowns for clarity
         if(kind === "employee") els.employee.value = value;
         if(kind === "department") els.department.value = value;
         if(kind === "location") els.location.value = value;
@@ -927,8 +915,15 @@
         drill = null;
         els.clearDrill.style.display = "none";
         els.detailTitle.textContent = "Detail Lines";
-        // keep dropdown state as-is; user can reset or adjust
         apply();
+      }
+
+      function isRegisterTypeAll(){
+        return String(els.registerType.value || "").trim() === "";
+      }
+      function rowsForRollups(rows){
+        if(!isRegisterTypeAll()) return rows;
+        return rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "EARN");
       }
 
       /**********************
@@ -978,7 +973,7 @@
             const idx = headerMap.get(cleanHeader(h));
             obj[h] = (idx != null && idx < r.length) ? r[idx] : "";
           });
-          obj.__pp = ""; // computed later for speed
+          obj.__pp = "";
           obj.__amt = 0;
           obj.__hrs = 0;
           obj.__wgs = 0;
@@ -1048,7 +1043,6 @@
           if(loc && (r["Location Desc"]||"").trim() !== loc) return false;
           if(code && (r["Typecode"]||"").trim() !== code) return false;
 
-          // drill lock (acts like an extra filter)
           if(drill){
             if(drill.kind === "employee" && (r["EE Name"]||"").trim() !== drill.value) return false;
             if(drill.kind === "department" && (r["Department Desc"]||"").trim() !== drill.value) return false;
@@ -1099,7 +1093,6 @@
 
         const rate = hoursEarn ? (grossEarn / hoursEarn) : 0;
 
-        // Top employee by gross (EARN only)
         const empEarnAgg = groupAgg(earnRowsForMetrics, r => (r["EE Name"]||"").trim());
         const topEmp = topN(empEarnAgg, 1, "amount")[0];
 
@@ -1125,7 +1118,6 @@
           els.mTopEmpSub.textContent = "—";
         }
 
-        // pinned strip mirrors EARN metrics (always)
         els.pinHours.textContent = fmtNum(hoursEarn);
         els.pinGross.textContent = fmtUSD(grossEarn);
         els.pinRate.textContent = fmtUSD(rate);
@@ -1172,13 +1164,17 @@
         const view = (activeView === "detail") ? "employee" : activeView;
         els.rollupTitle.textContent = rollTitle(view);
 
+        const baseRows = rowsForRollups(rows);
         const keyFn = rollKeyFn(view);
-        const agg = groupAgg(rows, keyFn);
+        const agg = groupAgg(baseRows, keyFn);
 
         els.rollupMeta.textContent = `${agg.size.toLocaleString()} groups`;
 
         if(!agg.size){
-          els.rollupList.innerHTML = `<div style="color:rgba(167,176,192,.95);font-weight:800;">No rollups.</div>`;
+          const note = isRegisterTypeAll()
+            ? "No EARN rows in view."
+            : "No rollups.";
+          els.rollupList.innerHTML = `<div style="color:rgba(167,176,192,.95);font-weight:800;">${esc(note)}</div>`;
           return;
         }
 
@@ -1192,7 +1188,7 @@
 
         els.rollupList.innerHTML = items.map(({k,v})=>{
           const primaryVal = (primary === "hours") ? v.hours : v.amount;
-          const pct = Math.round((primaryVal/denom)*1000)/10; // 0.1%
+          const pct = Math.round((primaryVal/denom)*1000)/10;
           const v1 = (primary === "hours") ? `${fmtNum(v.hours)} hrs` : `${fmtUSD(v.amount)}`;
 
           let v2 = `${pct}%`;
@@ -1217,13 +1213,10 @@
           `;
         }).join("");
 
-        // attach click handlers (drill)
         Array.from(els.rollupList.querySelectorAll(".row")).forEach(el=>{
           el.addEventListener("click", ()=>{
             const kind = el.getAttribute("data-drill-kind");
             const value = el.getAttribute("data-drill-value");
-            // Drill by kind:
-            // typecode drill uses dropdown 'typecode'
             setDrill(kind, value);
           });
         });
@@ -1243,7 +1236,6 @@
         const dir = sortDir === "asc" ? 1 : -1;
         const key = sortKey;
 
-        // stable-ish sort: decorate with index
         return rows.map((r,i)=>({r,i})).sort((a,b)=>{
           const av = sortValue(a.r, key);
           const bv = sortValue(b.r, key);
@@ -1261,12 +1253,10 @@
       function renderTable(rows){
         let tableRows = rows;
 
-        // earn-only affects table display, not metric cards
         if(earnOnlyTable){
           tableRows = tableRows.filter(r => String(r["Register Type"]||"").toUpperCase() === "EARN");
         }
 
-        // sorting
         tableRows = getSortedRows(tableRows);
 
         if(!tableRows.length){
@@ -1274,7 +1264,6 @@
           return;
         }
 
-        // UI cap for speed
         const limit = 1400;
         const slice = tableRows.slice(0, limit);
 
@@ -1318,7 +1307,6 @@
         if(!sortKey) return;
 
         const arrow = sortDir === "asc" ? "▲" : "▼";
-
         const map = {
           "EE Name": "s_EEName",
           "Department Desc": "s_Dept",
@@ -1503,7 +1491,6 @@
         els.tableWrap.scrollTo({ top: 0, behavior: "smooth" });
       });
 
-      // sortable columns
       Array.from(document.querySelectorAll("thead th[data-k]")).forEach(th=>{
         th.addEventListener("click", ()=>{
           const k = th.getAttribute("data-k");
@@ -1530,7 +1517,6 @@
           els.status.textContent = "Loading…";
           const { data } = await fetchFirstWorkingCSV();
 
-          // Precompute fast fields
           RAW = data.map(r=>{
             r.__pp = labelPeriod(r);
             r.__amt = parseMoney(r["Amount"]);
@@ -1543,7 +1529,6 @@
 
           buildFilters();
 
-          // apply QS defaults AFTER filter options exist
           const qs = readQS();
           if(qs.q) els.q.value = qs.q;
           if(qs.payPeriod) els.payPeriod.value = qs.payPeriod;
