@@ -11,50 +11,54 @@
       --page-w: 8.5in;
       --page-h: 11in;
 
-      /* Global printer alignment offsets */
+      /* Global printer feed offsets */
       --off-x: 0in;
       --off-y: 0in;
 
-      /* Regions */
-      --check-w: 8.5in;
-      --check-h: 3.5in;
-      --check-x: 0in;
-      --check-y: 0.5in;
+      /* ===== Stock geometry (3-panel, check on top) =====
+         Check height: 3.5"
+         Voucher 1: 3.75"
+         Voucher 2: 3.75"
+         Perfs: 3.5" and 7.25"
+      */
+      --check-x: 0in;  --check-y: 0in;
+      --check-w: 8.5in; --check-h: 3.5in;
 
-      --stub-x: 0in;
-      --stub-y: 4.2in;
-      --stub-w: 8.5in;
-      --stub-h: 6.8in;
+      --v1-x: 0in; --v1-y: 3.5in;
+      --v1-w: 8.5in; --v1-h: 3.75in;
 
-      /* Window envelope address block (bottom-right) */
-      --addr-x: 4.60in;
-      --addr-y: 9.00in;
-      --addr-w: 3.70in;
+      --v2-x: 0in; --v2-y: 7.25in;
+      --v2-w: 8.5in; --v2-h: 3.75in;
+
+      /* Window cutout: calibrate to your envelope */
+      --win-x: 4.55in;
+      --win-y: 8.95in;
+      --win-w: 3.70in;
+      --win-h: 1.05in;
 
       /* Signature box (image/text) */
       --sig-x: 5.25in;
-      --sig-y: 2.25in;
+      --sig-y: 2.10in;
       --sig-w: 2.80in;
-      --sig-h: 0.55in;
+      --sig-h: 0.60in;
 
-      /* ===== Field positions (calibratable) ===== */
-      --date-x: 6.65in;  --date-y: 0.22in;
+      /* ===== Check variable positions (calibratable) ===== */
+      --date-x: 6.65in;  --date-y: 0.55in;
+      --payee-x: 1.85in; --payee-y: 1.12in;
+      --amt-x:  6.70in;  --amt-y:  1.10in;
+      --words-x: 1.85in; --words-y: 1.50in;
+      --memo-x: 1.20in;  --memo-y: 2.85in;
+      --chkno-x: 7.15in; --chkno-y: 0.20in;
 
-      /* FIX OVERLAP: move fields right so they don't touch labels */
-      --payee-x: 1.85in; --payee-y: 0.78in;
-      --amt-x:  6.70in;  --amt-y:  0.76in;
-      --words-x: 1.85in; --words-y: 1.12in;
-      --memo-x: 1.20in;  --memo-y: 2.65in;
-      --chkno-x: 7.05in; --chkno-y: 2.65in;
-
-      /* Stub */
-      --details-x: 0.35in; --details-y: 0.65in;
-
-      /* Labels (separate from fields) */
-      --lbl-payee-x: 0.35in; --lbl-payee-y: 0.80in;
-      --lbl-dollars-x: 0.35in; --lbl-dollars-y: 1.12in;
-      --lbl-memo-x: 0.35in; --lbl-memo-y: 2.66in;
+      /* Labels (template-only) */
+      --lbl-payee-x: 0.35in; --lbl-payee-y: 1.14in;
+      --lbl-dollars-x: 0.35in; --lbl-dollars-y: 1.50in;
+      --lbl-memo-x: 0.35in; --lbl-memo-y: 2.86in;
       --lbl-sig-x: 5.25in; --lbl-sig-y: 2.82in;
+
+      /* Voucher padding */
+      --v-pad-x: 0.45in;
+      --v-pad-y: 0.35in;
     }
 
     * { box-sizing: border-box; }
@@ -155,17 +159,36 @@
       margin: 0 auto;
     }
 
-    /* CHECK AREA */
+    /* Regions */
     .check {
       position: absolute;
       left: calc(var(--check-x) + var(--off-x));
       top:  calc(var(--check-y) + var(--off-y));
       width: var(--check-w);
       height: var(--check-h);
-      border: 1px solid rgba(0,0,0,.12);
+      border: 1px solid rgba(0,0,0,.10);
       border-radius: 10px;
       background: #fff;
       overflow: hidden;
+    }
+
+    .voucher {
+      position: absolute;
+      border-top: 1px dashed rgba(0,0,0,.18);
+      overflow: hidden;
+    }
+    .v1 {
+      left: calc(var(--v1-x) + var(--off-x));
+      top:  calc(var(--v1-y) + var(--off-y));
+      width: var(--v1-w);
+      height: var(--v1-h);
+    }
+    .v2 {
+      left: calc(var(--v2-x) + var(--off-x));
+      top:  calc(var(--v2-y) + var(--off-y));
+      width: var(--v2-w);
+      height: var(--v2-h);
+      border-bottom: 1px solid rgba(0,0,0,.06);
     }
 
     .checkBg {
@@ -183,14 +206,14 @@
     .checkChrome {
       position: absolute;
       inset: 0;
-      padding: 0.25in 0.35in;
+      padding: 0.22in 0.35in;
       pointer-events: none;
     }
 
     .bankName {
       position: absolute;
       left: 0.35in;
-      top: 0.2in;
+      top: 0.18in;
       font-weight: 800;
       font-size: 12pt;
       letter-spacing: .4px;
@@ -199,7 +222,7 @@
     .bankSub {
       position: absolute;
       left: 0.35in;
-      top: 0.42in;
+      top: 0.40in;
       font-size: 9pt;
       opacity: .7;
     }
@@ -213,7 +236,6 @@
       white-space: nowrap;
     }
 
-    /* FIELDS */
     .f {
       position: absolute;
       font-size: 11pt;
@@ -226,7 +248,7 @@
     .payee  { left: var(--payee-x); top: var(--payee-y); width: 5.2in; }
     .amtbox { left: var(--amt-x);   top: var(--amt-y);   width: 1.55in; text-align: right; font-weight: 700; }
     .words  { left: var(--words-x); top: var(--words-y); width: 6.9in; white-space: normal; }
-    .memo   { left: var(--memo-x);  top: var(--memo-y);  width: 3.8in; font-size: 10pt; }
+    .memo   { left: var(--memo-x);  top: var(--memo-y);  width: 4.9in; font-size: 10pt; }
     .chkno  { left: var(--chkno-x); top: var(--chkno-y); width: 1.15in; text-align: right; font-size: 10pt; }
 
     .payeeLabel { left: var(--lbl-payee-x); top: var(--lbl-payee-y); }
@@ -237,7 +259,7 @@
     .sigLine {
       position: absolute;
       left: var(--sig-x);
-      top: calc(var(--sig-y) + 0.55in);
+      top: calc(var(--sig-y) + 0.62in);
       width: var(--sig-w);
       border-top: 1px solid rgba(0,0,0,.18);
       opacity: .6;
@@ -262,18 +284,8 @@
       white-space: nowrap;
     }
 
-    /* STUB AREA */
-    .stub {
-      position: absolute;
-      left: calc(var(--stub-x) + var(--off-x));
-      top:  calc(var(--stub-y) + var(--off-y));
-      width: var(--stub-w);
-      height: var(--stub-h);
-      border-top: 1px dashed rgba(0,0,0,.18);
-      overflow: hidden;
-    }
-
-    .stubBg {
+    /* Vouchers */
+    .voucherBg {
       position: absolute;
       inset: 0;
       background: linear-gradient(to bottom, rgba(0,0,0,.03) 1px, transparent 1px);
@@ -281,52 +293,84 @@
       opacity: 0;
       pointer-events: none;
     }
-    .showTemplate .stubBg { opacity: 1; }
+    .showTemplate .voucherBg { opacity: 1; }
 
-    .stubTitle {
+    .voucherContent {
       position: absolute;
-      left: 0.35in;
-      top: 0.25in;
-      font-size: 10pt;
-      font-weight: 800;
-      opacity: .85;
-      letter-spacing: .2px;
+      left: var(--v-pad-x);
+      top:  var(--v-pad-y);
+      right: var(--v-pad-x);
+      bottom: var(--v-pad-y);
+      display: grid;
+      grid-template-columns: 1fr 2.8in;
+      gap: 0.25in;
     }
 
-    .detailsBlock {
+    .vTitle { font-size: 10pt; font-weight: 800; opacity: .85; letter-spacing: .2px; margin-bottom: 0.08in; }
+    .vLabel { font-size: 8pt; opacity: .55; text-transform: uppercase; letter-spacing: .4px; margin-top: 0.12in; margin-bottom: 0.05in; }
+    .vText { font-size: 10pt; white-space: pre-wrap; line-height: 1.25; }
+    .vRight { border-left: 1px dashed rgba(0,0,0,.16); padding-left: 0.18in; min-width: 0; }
+
+    /* Window address cutout */
+    .windowAddr {
       position: absolute;
-      left: var(--details-x);
-      top:  var(--details-y);
-      width: 7.8in;
+      left: calc(var(--win-x) + var(--off-x));
+      top:  calc(var(--win-y) + var(--off-y));
+      width: var(--win-w);
+      height: var(--win-h);
+      overflow: hidden;
       font-size: 10pt;
       white-space: pre-wrap;
-      line-height: 1.25;
-    }
-
-    .addrBlock {
-      position: absolute;
-      left: var(--addr-x);
-      top:  var(--addr-y);
-      width: var(--addr-w);
-      font-size: 11pt;
-      white-space: pre-wrap;
-      line-height: 1.25;
-      padding: 0.08in 0.12in;
+      line-height: 1.2;
+      padding: 0.06in 0.10in;
       border-radius: 8px;
-      background: rgba(255,255,255,.9);
+      background: rgba(255,255,255,.85);
       border: 1px solid rgba(0,0,0,.10);
-      opacity: .98;
     }
-    .showTemplate .addrBlock { box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+    .showTemplate .windowAddr { box-shadow: 0 1px 2px rgba(0,0,0,.06); }
 
-    /* Calibration visual helpers */
-    .guides .check, .guides .stub, .guides .addrBlock {
-      outline: 1px solid rgba(37,99,235,.25);
-      outline-offset: -2px;
+    /* Markers (alignment) */
+    .marker {
+      position: absolute;
+      width: 0.25in; height: 0.25in;
+      border-left: 1px solid rgba(220,38,38,.8);
+      border-top: 1px solid rgba(220,38,38,.8);
+      opacity: 0.9;
+      display: none;
+      pointer-events: none;
     }
-    .guides .f, .guides .label {
-      background: rgba(255,255,0,.10);
-      border-radius: 4px;
+    .showMarkers .marker { display: block; }
+    .m-check { left: calc(var(--check-x) + var(--off-x)); top: calc(var(--check-y) + var(--off-y)); }
+    .m-perf1 { left: 0; top: calc(var(--v1-y) + var(--off-y)); width: 100%; height: 0.01in; border: none; border-top: 2px solid rgba(220,38,38,.6); }
+    .m-perf2 { left: 0; top: calc(var(--v2-y) + var(--off-y)); width: 100%; height: 0.01in; border: none; border-top: 2px solid rgba(220,38,38,.6); }
+    .m-win { left: calc(var(--win-x) + var(--off-x)); top: calc(var(--win-y) + var(--off-y)); }
+    .m-winBox {
+      display: none;
+      position: absolute;
+      left: calc(var(--win-x) + var(--off-x));
+      top: calc(var(--win-y) + var(--off-y));
+      width: var(--win-w);
+      height: var(--win-h);
+      border: 2px solid rgba(220,38,38,.45);
+      pointer-events: none;
+    }
+    .showMarkers .m-winBox { display: block; }
+
+    /* Guides */
+    .guides .check, .guides .voucher, .guides .windowAddr { outline: 1px solid rgba(37,99,235,.25); outline-offset: -2px; }
+    .guides .f, .guides .label { background: rgba(255,255,0,.10); border-radius: 4px; }
+
+    /* ===== Production mode: variables-only for security stock ===== */
+    .production .checkBg,
+    .production .voucherBg { opacity: 0 !important; }
+    .production .bankName,
+    .production .bankSub,
+    .production .label { display: none !important; }
+    .production .check { border-color: transparent; }
+    .production .windowAddr {
+      background: transparent;
+      border-color: transparent;
+      box-shadow: none !important;
     }
 
     /* PRINT */
@@ -334,6 +378,7 @@
     #printRoot { display: none; }
 
     @media print {
+      html, body { margin: 0 !important; padding: 0 !important; width: 8.5in; height: 11in; }
       body { background: #fff; }
       header, .panel, .previewOuter { display: none !important; }
       #printRoot { display: block !important; }
@@ -341,11 +386,11 @@
       .printPage { page-break-after: always; }
       .printPage:last-child { page-break-after: auto; }
 
-      .checkBg, .stubBg { opacity: 0 !important; }
-      .addrBlock { background: transparent; border-color: transparent; }
+      .checkBg, .voucherBg { opacity: 0 !important; }
+      .windowAddr { background: transparent; border-color: transparent; }
 
       .printTemplate { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .printTemplate .checkBg, .printTemplate .stubBg { opacity: 1 !important; }
+      .printTemplate .checkBg, .printTemplate .voucherBg { opacity: 1 !important; }
     }
   </style>
 </head>
@@ -355,30 +400,38 @@
   <h1>Check Printer (CSV → Print)</h1>
   <div class="btns">
     <button class="ghost" id="btnSample">Download sample CSV</button>
+    <button class="ghost" id="btnAlign">Print alignment sheet</button>
     <button class="primary" id="btnPrint">Print</button>
   </div>
 </header>
 
 <div class="wrap">
   <div class="panel">
-    <h2>1) Import</h2>
-    <div class="row">
-      <div>
-        <label>CSV file</label>
-        <input type="file" id="csvFile" accept=".csv,text/csv" />
-      </div>
-      <div>
-        <label>Delimiter</label>
-        <select id="delimiter">
-          <option value=",">Comma (,)</option>
-          <option value=";">Semicolon (;)</option>
-          <option value="\t">Tab</option>
-        </select>
-      </div>
-    </div>
+    <h2>0) Print requirements</h2>
     <div class="hint">
-      Required: <b>date,payee,amount,memo,checkNo</b><br/>
-      Optional: <b>payeeAddress</b> (use <code>|</code> for new lines), <b>details</b> (use <code>|</code> for line items)
+      Print dialog: <b>Letter</b>, <b>Margins: None</b>, <b>Scale: 100% / Actual size</b>, disable headers/footers. No “Fit to page”.
+    </div>
+
+    <div class="list">
+      <h2>1) Import</h2>
+      <div class="row">
+        <div>
+          <label>CSV file</label>
+          <input type="file" id="csvFile" accept=".csv,text/csv" />
+        </div>
+        <div>
+          <label>Delimiter</label>
+          <select id="delimiter">
+            <option value=",">Comma (,)</option>
+            <option value=";">Semicolon (;)</option>
+            <option value="\t">Tab</option>
+          </select>
+        </div>
+      </div>
+      <div class="hint">
+        Required: <b>date,payee,amount,memo,checkNo</b><br/>
+        Optional: <b>payeeAddress</b> (use <code>|</code> for new lines), <b>details</b> (use <code>|</code> for line items)
+      </div>
     </div>
 
     <div class="list">
@@ -388,8 +441,16 @@
     </div>
 
     <div class="list">
-      <h2>3) Print options</h2>
+      <h2>3) Output & print options</h2>
+
       <div class="row">
+        <div>
+          <label>Output mode</label>
+          <select id="outputMode">
+            <option value="preview">Preview (show labels/header)</option>
+            <option value="production">Production (variables only)</option>
+          </select>
+        </div>
         <div>
           <label>Print mode</label>
           <select id="printMode">
@@ -397,6 +458,9 @@
             <option value="all">All checks</option>
           </select>
         </div>
+      </div>
+
+      <div class="row">
         <div>
           <label>Template preview</label>
           <select id="templateMode">
@@ -404,9 +468,6 @@
             <option value="on">On (preview)</option>
           </select>
         </div>
-      </div>
-
-      <div class="row">
         <div>
           <label>Print background (optional)</label>
           <select id="printBg">
@@ -414,6 +475,9 @@
             <option value="yes">Yes</option>
           </select>
         </div>
+      </div>
+
+      <div class="row">
         <div>
           <label>Guides</label>
           <select id="guidesMode">
@@ -421,11 +485,36 @@
             <option value="on">On (highlight fields)</option>
           </select>
         </div>
+        <div>
+          <label>Show markers</label>
+          <select id="markersMode">
+            <option value="off">Off</option>
+            <option value="on">On</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Window max lines</label>
+          <input type="number" id="winMaxLines" step="1" min="2" max="8" value="4" />
+        </div>
+        <div>
+          <label>Include payee on window</label>
+          <select id="winIncludePayee">
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="hint">
+        When real stock is loaded: set <b>Output mode = Production</b>, <b>Template preview = Off</b>, <b>Print background = No</b>.
       </div>
     </div>
 
     <div class="list">
-      <h2>4) Alignment</h2>
+      <h2>4) Alignment (printer feed)</h2>
       <div class="row">
         <div>
           <label>Global X offset (inches)</label>
@@ -440,6 +529,7 @@
         <button class="ghost" id="btnSaveOffsets">Save offsets</button>
         <button class="danger" id="btnResetOffsets">Reset</button>
       </div>
+      <div class="hint">Use “Print alignment sheet” to match perf lines + window cutout; then save offsets.</div>
     </div>
 
     <div class="list">
@@ -477,7 +567,7 @@
     </div>
 
     <div class="list">
-      <h2>6) Field calibration (fix overlaps)</h2>
+      <h2>6) Field calibration</h2>
       <div class="row">
         <div>
           <label>Field</label>
@@ -511,9 +601,6 @@
         <button class="ghost" id="btnSaveCal">Save calibration</button>
         <button class="danger" id="btnResetCal">Reset calibration</button>
       </div>
-      <div class="hint">
-        This is for fine-tuning text placement on your specific stock. Global offsets = printer feed; calibration = template layout.
-      </div>
     </div>
   </div>
 
@@ -526,7 +613,14 @@
 
 <script>
   /**
-   * Check Printer — adds per-field calibration to fix overlaps & drift.
+   * Plan (pseudocode)
+   * 1) Add outputMode: preview vs production
+   *    - preview: show labels/header/template as needed
+   *    - production: hide template-only elements, print variables only
+   * 2) Add alignment sheet printing:
+   *    - build a page containing ONLY perf markers + window box + origin crosshair
+   *    - print that page on plain paper, adjust global offsets, save
+   * 3) Keep CSV import, print single/all, signature storage, calibration storage
    */
 
   const els = {
@@ -535,10 +629,15 @@
     checkList: document.getElementById("checkList"),
     emptyHint: document.getElementById("emptyHint"),
 
+    outputMode: document.getElementById("outputMode"),
     printMode: document.getElementById("printMode"),
     templateMode: document.getElementById("templateMode"),
     printBg: document.getElementById("printBg"),
     guidesMode: document.getElementById("guidesMode"),
+    markersMode: document.getElementById("markersMode"),
+
+    winMaxLines: document.getElementById("winMaxLines"),
+    winIncludePayee: document.getElementById("winIncludePayee"),
 
     offX: document.getElementById("offX"),
     offY: document.getElementById("offY"),
@@ -565,6 +664,7 @@
 
     btnPrint: document.getElementById("btnPrint"),
     btnSample: document.getElementById("btnSample"),
+    btnAlign: document.getElementById("btnAlign"),
 
     screenPreview: document.getElementById("screenPreview"),
     printRoot: document.getElementById("printRoot"),
@@ -588,11 +688,6 @@
   /** @type {{mode:'image'|'typed'|'none', typed:string, imageDataUrl:string|null, scale:number}} */
   let signature = { mode: "image", typed: "", imageDataUrl: null, scale: 1 };
 
-  /**
-   * Calibration map: field -> {x,y} inches, applied to CSS vars.
-   * Keys map to CSS vars:
-   * - date -> --date-x/--date-y, payee -> --payee-x/--payee-y, ...
-   */
   const CAL_FIELDS = [
     { key: "date", label: "Date", varX: "--date-x", varY: "--date-y" },
     { key: "payee", label: "Payee", varX: "--payee-x", varY: "--payee-y" },
@@ -600,17 +695,18 @@
     { key: "words", label: "Amount in words", varX: "--words-x", varY: "--words-y" },
     { key: "memo", label: "Memo", varX: "--memo-x", varY: "--memo-y" },
     { key: "checkNo", label: "Check #", varX: "--chkno-x", varY: "--chkno-y" },
-    { key: "details", label: "Stub details", varX: "--details-x", varY: "--details-y" },
-    { key: "addr", label: "Address block", varX: "--addr-x", varY: "--addr-y" },
     { key: "sig", label: "Signature", varX: "--sig-x", varY: "--sig-y" },
     { key: "lblPayee", label: "Label: Pay to the order of", varX: "--lbl-payee-x", varY: "--lbl-payee-y" },
     { key: "lblDollars", label: "Label: Dollars", varX: "--lbl-dollars-x", varY: "--lbl-dollars-y" },
     { key: "lblMemo", label: "Label: Memo", varX: "--lbl-memo-x", varY: "--lbl-memo-y" },
     { key: "lblSig", label: "Label: Authorized signature", varX: "--lbl-sig-x", varY: "--lbl-sig-y" },
+    { key: "window", label: "Window cutout position", varX: "--win-x", varY: "--win-y" },
   ];
 
   /** @type {Record<string,{x:number,y:number}>} */
   let calibration = {};
+
+  let alignPrintRequested = false;
 
   init();
 
@@ -625,30 +721,62 @@
     renderScreenPreview();
     applyTemplateMode();
     applyGuidesMode();
+    applyMarkersMode();
+    applyOutputMode();
   }
 
   function wireEvents() {
     els.csvFile.addEventListener("change", onFile);
     els.delimiter.addEventListener("change", () => { if (els.csvFile.files?.[0]) onFile(); });
 
+    els.outputMode.addEventListener("change", () => {
+      localStorage.setItem("check_printer_outputMode", els.outputMode.value);
+      applyOutputMode();
+
+      if (els.outputMode.value === "production") {
+        els.templateMode.value = "off";
+        els.printBg.value = "no";
+        els.guidesMode.value = "off";
+        els.markersMode.value = "off";
+        persistUiPrefs();
+        applyTemplateMode();
+        applyGuidesMode();
+        applyMarkersMode();
+      }
+
+      renderScreenPreview();
+    });
+
+    els.templateMode.addEventListener("change", () => {
+      persistUiPrefs();
+      applyTemplateMode();
+      renderScreenPreview();
+    });
+    els.printBg.addEventListener("change", () => persistUiPrefs());
+    els.guidesMode.addEventListener("change", () => {
+      persistUiPrefs();
+      applyGuidesMode();
+      renderScreenPreview();
+    });
+    els.markersMode.addEventListener("change", () => {
+      persistUiPrefs();
+      applyMarkersMode();
+      renderScreenPreview();
+    });
+
+    els.winMaxLines.addEventListener("change", () => {
+      localStorage.setItem("check_printer_winMaxLines", els.winMaxLines.value);
+      renderScreenPreview();
+    });
+    els.winIncludePayee.addEventListener("change", () => {
+      localStorage.setItem("check_printer_winIncludePayee", els.winIncludePayee.value);
+      renderScreenPreview();
+    });
+
     els.offX.addEventListener("input", applyOffsets);
     els.offY.addEventListener("input", applyOffsets);
     els.btnSaveOffsets.addEventListener("click", saveOffsets);
     els.btnResetOffsets.addEventListener("click", resetOffsets);
-
-    els.templateMode.addEventListener("change", () => {
-      localStorage.setItem("check_printer_templateMode", els.templateMode.value);
-      applyTemplateMode();
-      renderScreenPreview();
-    });
-
-    els.guidesMode.addEventListener("change", () => {
-      localStorage.setItem("check_printer_guidesMode", els.guidesMode.value);
-      applyGuidesMode();
-      renderScreenPreview();
-    });
-
-    els.printBg.addEventListener("change", () => localStorage.setItem("check_printer_printBg", els.printBg.value));
 
     els.sigFile.addEventListener("change", onSigFile);
     els.sigMode.addEventListener("change", () => signature.mode = els.sigMode.value);
@@ -658,18 +786,19 @@
     els.btnClearSig.addEventListener("click", clearSignature);
 
     els.btnPrint.addEventListener("click", () => window.print());
+    els.btnAlign.addEventListener("click", () => {
+      alignPrintRequested = true;
+      window.print();
+    });
     els.btnSample.addEventListener("click", downloadSampleCsv);
 
-    // Calibration UI
     els.calField.addEventListener("change", syncCalInputsFromCss);
-    els.calX.addEventListener("input", () => applyCalFromInputs());
-    els.calY.addEventListener("input", () => applyCalFromInputs());
-
+    els.calX.addEventListener("input", applyCalFromInputs);
+    els.calY.addEventListener("input", applyCalFromInputs);
     els.btnLeft.addEventListener("click", () => nudgeCal(-1, 0));
     els.btnRight.addEventListener("click", () => nudgeCal(1, 0));
     els.btnUp.addEventListener("click", () => nudgeCal(0, -1));
     els.btnDown.addEventListener("click", () => nudgeCal(0, 1));
-
     els.btnSaveCal.addEventListener("click", saveCalibration);
     els.btnResetCal.addEventListener("click", resetCalibration);
 
@@ -677,10 +806,25 @@
     window.addEventListener("afterprint", cleanupPrintPages);
   }
 
+  function persistUiPrefs() {
+    localStorage.setItem("check_printer_templateMode", els.templateMode.value);
+    localStorage.setItem("check_printer_printBg", els.printBg.value);
+    localStorage.setItem("check_printer_guidesMode", els.guidesMode.value);
+    localStorage.setItem("check_printer_markersMode", els.markersMode.value);
+  }
+
   function loadUiPrefs() {
+    els.outputMode.value = localStorage.getItem("check_printer_outputMode") || "preview";
     els.templateMode.value = localStorage.getItem("check_printer_templateMode") || "on";
     els.printBg.value = localStorage.getItem("check_printer_printBg") || "no";
     els.guidesMode.value = localStorage.getItem("check_printer_guidesMode") || "off";
+    els.markersMode.value = localStorage.getItem("check_printer_markersMode") || "off";
+    els.winMaxLines.value = localStorage.getItem("check_printer_winMaxLines") || "4";
+    els.winIncludePayee.value = localStorage.getItem("check_printer_winIncludePayee") || "yes";
+  }
+
+  function applyOutputMode() {
+    document.body.classList.toggle("production", els.outputMode.value === "production");
   }
 
   async function onFile() {
@@ -813,7 +957,7 @@
   function renderScreenPreview() {
     els.screenPreview.innerHTML = "";
     const c = checks[activeIndex];
-    els.screenPreview.appendChild(buildPageForCheck(c));
+    els.screenPreview.appendChild(buildPageForCheck(c, { includeData: true, includeMarkers: els.markersMode.value === "on" }));
     syncCalInputsFromCss();
   }
 
@@ -825,17 +969,43 @@
     document.body.classList.toggle("guides", els.guidesMode.value === "on");
   }
 
-  function buildPageForCheck(c) {
+  function applyMarkersMode() {
+    document.body.classList.toggle("showMarkers", els.markersMode.value === "on");
+  }
+
+  function buildAlignmentPage() {
     const page = document.createElement("div");
     page.className = "page";
 
-    // CHECK
+    page.appendChild(marker("marker m-check"));
+    page.appendChild(marker("marker m-perf1"));
+    page.appendChild(marker("marker m-perf2"));
+    page.appendChild(marker("marker m-win"));
+    const winBox = document.createElement("div");
+    winBox.className = "m-winBox";
+    page.appendChild(winBox);
+
+    return page;
+  }
+
+  function buildPageForCheck(c, opts) {
+    const page = document.createElement("div");
+    page.className = "page";
+
+    if (opts.includeMarkers) {
+      page.appendChild(marker("marker m-check"));
+      page.appendChild(marker("marker m-perf1"));
+      page.appendChild(marker("marker m-perf2"));
+      page.appendChild(marker("marker m-win"));
+      const winBox = document.createElement("div");
+      winBox.className = "m-winBox";
+      page.appendChild(winBox);
+    }
+
     const check = document.createElement("div");
     check.className = "check";
-
     const bg = document.createElement("div");
     bg.className = "checkBg";
-
     const chrome = document.createElement("div");
     chrome.className = "checkChrome";
 
@@ -847,17 +1017,19 @@
     const lblMemo = div("label memoLabel", "Memo");
     const lblSig = div("label sigLabel", "Authorized signature");
 
-    const fDate = div("f date", c?.date || "");
-    const fPayee = div("f payee", c?.payee || "");
-    const fAmount = div("f amtbox", c ? `$${formatMoney(c.amount)}` : "");
-    const fWords = div("f words", c ? amountToWords(c.amount) : "");
-    const fMemo = div("f memo", c?.memo || "");
-    const fCheckNo = div("f chkno", c?.checkNo || "");
+    const fDate = div("f date", opts.includeData ? (c?.date || "") : "");
+    const fPayee = div("f payee", opts.includeData ? (c?.payee || "") : "");
+    const fAmount = div("f amtbox", opts.includeData && c ? `$${formatMoney(c.amount)}` : "");
+    const fWords = div("f words", opts.includeData && c ? amountToWords(c.amount) : "");
+    const fMemo = div("f memo", opts.includeData ? (c?.memo || "") : "");
+    const fCheckNo = div("f chkno", opts.includeData ? (c?.checkNo || "") : "");
 
     const sigBox = document.createElement("div");
     sigBox.className = "sigBox";
-    const sigNode = buildSignatureNode();
-    if (sigNode) sigBox.appendChild(sigNode);
+    if (opts.includeData) {
+      const sigNode = buildSignatureNode();
+      if (sigNode) sigBox.appendChild(sigNode);
+    }
 
     const sigLine = document.createElement("div");
     sigLine.className = "sigLine";
@@ -865,28 +1037,114 @@
     chrome.append(bankName, bankSub, lblPayee, lblDollars, lblMemo, lblSig);
     check.append(bg, chrome, fDate, fPayee, fAmount, fWords, fMemo, fCheckNo, sigBox, sigLine);
 
-    // STUB
-    const stub = document.createElement("div");
-    stub.className = "stub";
+    const v1 = document.createElement("div");
+    v1.className = "voucher v1";
+    const v1bg = document.createElement("div");
+    v1bg.className = "voucherBg";
+    const v1content = buildVoucherContent(opts.includeData ? c : null);
+    v1.append(v1bg, v1content);
 
-    const stubBg = document.createElement("div");
-    stubBg.className = "stubBg";
+    const v2 = document.createElement("div");
+    v2.className = "voucher v2";
+    const v2bg = document.createElement("div");
+    v2bg.className = "voucherBg";
+    const v2content = buildBottomVoucherContent(opts.includeData ? c : null);
+    v2.append(v2bg, v2content);
 
-    const stubTitle = div("stubTitle", "Payment details");
+    const windowAddr = document.createElement("div");
+    windowAddr.className = "windowAddr";
+    windowAddr.textContent = opts.includeData && c ? formatWindowAddress(c) : "";
 
-    const detailsBlock = document.createElement("div");
-    detailsBlock.className = "detailsBlock";
-    detailsBlock.textContent = c ? normalizeMultiline(c.details || "") : "";
-
-    stub.append(stubBg, stubTitle, detailsBlock);
-
-    // Address (window envelope)
-    const addrBlock = document.createElement("div");
-    addrBlock.className = "addrBlock";
-    addrBlock.textContent = c ? normalizeMultiline(c.payeeAddress || "") : "";
-
-    page.append(check, stub, addrBlock);
+    page.append(check, v1, v2, windowAddr);
     return page;
+  }
+
+  function marker(cls) {
+    const m = document.createElement("div");
+    m.className = cls;
+    return m;
+  }
+
+  function buildVoucherContent(c) {
+    const wrap = document.createElement("div");
+    wrap.className = "voucherContent";
+
+    const left = document.createElement("div");
+    const right = document.createElement("div");
+    right.className = "vRight";
+
+    left.appendChild(div("vTitle", "Payment details"));
+
+    left.appendChild(div("vLabel", "Payee"));
+    left.appendChild(div("vText", c?.payee || ""));
+
+    if (c?.memo) {
+      left.appendChild(div("vLabel", "Memo"));
+      left.appendChild(div("vText", c.memo));
+    }
+
+    const detailsTxt = c ? normalizeMultiline(c.details || "") : "";
+    if (detailsTxt) {
+      left.appendChild(div("vLabel", "Details"));
+      left.appendChild(div("vText", detailsTxt));
+    }
+
+    right.appendChild(div("vLabel", "Check info"));
+    right.appendChild(div("vText", [
+      c?.checkNo ? `Check #: ${c.checkNo}` : "",
+      c?.date ? `Date: ${c.date}` : "",
+      Number.isFinite(c?.amount) ? `Amount: $${formatMoney(c.amount)}` : ""
+    ].filter(Boolean).join("\n")));
+
+    const addrFull = c ? normalizeMultiline(c.payeeAddress || "") : "";
+    if (addrFull) {
+      right.appendChild(div("vLabel", "Payee address"));
+      right.appendChild(div("vText", addrFull));
+    }
+
+    wrap.append(left, right);
+    return wrap;
+  }
+
+  function buildBottomVoucherContent(c) {
+    const wrap = document.createElement("div");
+    wrap.className = "voucherContent";
+
+    const left = document.createElement("div");
+    const right = document.createElement("div");
+    right.className = "vRight";
+
+    left.appendChild(div("vTitle", "Voucher (bottom)"));
+    left.appendChild(div("vLabel", "Record"));
+    left.appendChild(div("vText", [
+      c?.payee ? c.payee : "",
+      Number.isFinite(c?.amount) ? `$${formatMoney(c.amount)}` : "",
+      c?.memo ? c.memo : ""
+    ].filter(Boolean).join("\n")));
+
+    right.appendChild(div("vLabel", "Window address source"));
+    right.appendChild(div("vText", c ? formatWindowAddress(c) : ""));
+
+    wrap.append(left, right);
+    return wrap;
+  }
+
+  function formatWindowAddress(c) {
+    const maxLines = clampInt(Number(els.winMaxLines.value || 4), 2, 8);
+    const includePayee = els.winIncludePayee.value === "yes";
+    const addrLines = splitLines(normalizeMultiline(c.payeeAddress || ""));
+    const out = [];
+
+    if (includePayee && c.payee) out.push(c.payee.trim());
+    for (const line of addrLines) {
+      out.push(line);
+      if (out.length >= maxLines) break;
+    }
+    return out.slice(0, maxLines).join("\n");
+  }
+
+  function splitLines(s) {
+    return String(s || "").split("\n").map(x => x.trim()).filter(Boolean);
   }
 
   function div(cls, text) {
@@ -934,18 +1192,28 @@
     els.printRoot.className = "";
 
     if (els.printBg.value === "yes") els.printRoot.classList.add("printTemplate");
+    if (els.outputMode.value === "production") els.printRoot.classList.add("production");
+    if (els.markersMode.value === "on") els.printRoot.classList.add("showMarkers");
+
+    if (alignPrintRequested) {
+      els.printRoot.appendChild(wrapPrint(buildAlignmentPage()));
+      return;
+    }
 
     const mode = els.printMode.value;
+
     if (!checks.length) {
-      els.printRoot.appendChild(wrapPrint(buildPageForCheck(null)));
+      els.printRoot.appendChild(wrapPrint(buildPageForCheck(null, { includeData: false, includeMarkers: els.markersMode.value === "on" })));
       return;
     }
 
     if (mode === "all") {
-      for (const c of checks) els.printRoot.appendChild(wrapPrint(buildPageForCheck(c)));
+      for (const c of checks) {
+        els.printRoot.appendChild(wrapPrint(buildPageForCheck(c, { includeData: true, includeMarkers: els.markersMode.value === "on" })));
+      }
     } else {
       const c = checks[activeIndex] ?? checks[0];
-      els.printRoot.appendChild(wrapPrint(buildPageForCheck(c)));
+      els.printRoot.appendChild(wrapPrint(buildPageForCheck(c, { includeData: true, includeMarkers: els.markersMode.value === "on" })));
     }
   }
 
@@ -959,6 +1227,7 @@
   function cleanupPrintPages() {
     els.printRoot.innerHTML = "";
     els.printRoot.className = "";
+    alignPrintRequested = false;
   }
 
   async function onSigFile() {
@@ -1052,8 +1321,7 @@
   function downloadSampleCsv() {
     const content =
 `date,payee,amount,memo,checkNo,payeeAddress,details
-2026-01-21,Acme Supplies,1234.56,Office supplies,1051,"Acme Supplies|123 Main St|Dallas, TX 75001","Inv #1001  $500.00|Inv #1002  $734.56|Total $1234.56"
-2026-01-22,John Doe,250.00,Consulting,1052,"John Doe|55 Market Ave|Austin, TX 78701","Consulting - Jan 2026  $250.00|Total $250.00"
+2026-01-23,Sin City Bison,88.25,Fundraiser payout + $50 delay credit,1001,"Sin City Bison|213 Wild Rose Ln|Rock Springs, WY 82901","Fundraiser payout  $38.25|Delay credit  $50.00|Total $88.25"
 `;
     const blob = new Blob([content], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -1069,6 +1337,7 @@
   function formatMoney(n) { return Number(n).toFixed(2); }
   function safeJsonParse(s) { try { return JSON.parse(s); } catch { return null; } }
   function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+  function clampInt(v, min, max) { return Math.max(min, Math.min(max, Math.trunc(v))); }
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, m => ({
       "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
@@ -1132,7 +1401,7 @@
       opt.textContent = f.label;
       els.calField.appendChild(opt);
     }
-    els.calField.value = "memo"; // common overlap culprit
+    els.calField.value = "window";
     syncCalInputsFromCss();
   }
 
@@ -1159,7 +1428,6 @@
   function resetCalibration() {
     calibration = {};
     localStorage.removeItem("check_printer_calibration");
-    // reload defaults by removing overrides
     applyCalibrationToCss(true);
     renderScreenPreview();
     alert("Calibration reset.");
@@ -1167,7 +1435,6 @@
 
   function applyCalibrationToCss(reset = false) {
     const root = document.documentElement;
-
     if (reset) {
       for (const f of CAL_FIELDS) {
         root.style.removeProperty(f.varX);
@@ -1175,7 +1442,6 @@
       }
       return;
     }
-
     for (const f of CAL_FIELDS) {
       const entry = calibration[f.key];
       if (!entry) continue;
