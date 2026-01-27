@@ -1,1359 +1,317 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
+  <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>FinanceHub</title>
-  <meta name="color-scheme" content="light dark" />
+  <title>Baseballism • Employee Hub</title>
 
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <style>
-    :root{
-      --bg: #f6f7fb;
-      --surface: #ffffff;
-      --surface2: #fbfbfe;
-      --text: #0b1220;
-      --muted: rgba(11,18,32,.62);
-      --muted2: rgba(11,18,32,.44);
-      --border: rgba(11,18,32,.12);
-      --border2: rgba(11,18,32,.08);
-
-      --accent: #2563eb;
-      --accent2: #0ea5e9;
-      --focus: rgba(37,99,235,.26);
-
-      --r10: 10px;
-      --r12: 12px;
-      --r16: 16px;
-      --r20: 20px;
-
-      --shadow: 0 1px 0 rgba(11,18,32,.04), 0 14px 36px rgba(11,18,32,.10);
-      --shadow2: 0 1px 0 rgba(11,18,32,.04), 0 8px 18px rgba(11,18,32,.08);
-
-      --maxW: 1600px;
-      --headerH: 88px;
-      --headerPad: 14px;
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: Inter, system-ui, sans-serif;
+      background: #f9fafb;
+      color: #111827;
     }
 
-    [data-theme="dark"]{
-      --bg: #0a0c10;
-      --surface: #10141b;
-      --surface2: #0c1016;
-      --text: #eef2f7;
-      --muted: rgba(238,242,247,.66);
-      --muted2: rgba(238,242,247,.46);
-      --border: rgba(238,242,247,.14);
-      --border2: rgba(238,242,247,.10);
-      --accent: #6aa7ff;
-      --accent2: #34d399;
-      --focus: rgba(106,167,255,.26);
-      --shadow: 0 1px 0 rgba(255,255,255,.04), 0 22px 54px rgba(0,0,0,.48);
-      --shadow2: 0 1px 0 rgba(255,255,255,.04), 0 12px 28px rgba(0,0,0,.36);
-    }
+    a { text-decoration: none; color: inherit; }
 
-    *{ box-sizing:border-box; }
-    html,body{ height:100%; }
-    body{
-      margin:0;
-      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      color: var(--text);
-      background:
-        radial-gradient(900px 520px at 18% -10%, color-mix(in oklab, var(--accent) 10%, transparent), transparent 60%),
-        radial-gradient(900px 520px at 88% -10%, color-mix(in oklab, var(--accent2) 10%, transparent), transparent 60%),
-        var(--bg);
-      overflow:hidden;
-    }
-
-    .srOnly{
-      position:absolute!important;
-      width:1px;height:1px;
-      padding:0;margin:-1px;
-      overflow:hidden;clip:rect(0,0,0,0);
-      white-space:nowrap;border:0;
-    }
-
-    .app{
-      height:100%;
-      display:grid;
-      grid-template-rows: var(--headerH) 1fr;
-      min-height:0;
-    }
-
-    header{
-      position: sticky;
-      top: 0;
-      z-index: 20;
-      border-bottom: 1px solid var(--border2);
-      background: color-mix(in oklab, var(--surface) 92%, transparent);
-      backdrop-filter: blur(10px);
-    }
-
-    .headerInner{
-      max-width: var(--maxW);
+    .wrap {
+      max-width: 1100px;
       margin: 0 auto;
-      height: var(--headerH);
-      padding: 0 var(--headerPad);
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:14px;
-      min-width:0;
+      padding: 20px 16px 40px;
     }
 
-    .brand{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      min-width: 180px;
-      flex: 0 0 auto;
+    /* Header */
+    .header {
+      margin-bottom: 20px;
     }
-    .mark{
-      width:36px;height:36px;
-      border-radius: 12px;
-      border: 1px solid var(--border2);
-      background:
-        linear-gradient(180deg, color-mix(in oklab, var(--surface2) 90%, transparent), transparent),
-        radial-gradient(18px 18px at 35% 35%, color-mix(in oklab, var(--accent) 24%, transparent), transparent 60%);
-      box-shadow: var(--shadow2);
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      flex:0 0 auto;
+    .title {
+      font-size: 22px;
+      font-weight: 700;
     }
-    .brandText{
-      display:flex;
-      flex-direction:column;
-      gap:2px;
-      min-width:0;
-    }
-    .brandText .name{
+    .subtitle {
       font-size: 14px;
-      font-weight: 700;
-      letter-spacing: .06px;
-      line-height: 1.1;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-    .brandText .crumb{
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--muted);
-      line-height: 1.1;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
+      color: #6b7280;
+      margin-top: 2px;
     }
 
-    .center{
-      flex: 1 1 auto;
-      min-width: 240px;
-      display:flex;
-      align-items:center;
-      justify-content:center;
-      gap:10px;
+    /* Cards */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
     }
 
-    .segmented{
-      display:flex;
-      align-items:center;
-      gap:4px;
-      padding: 4px;
-      border-radius: 999px;
-      border: 1px solid var(--border2);
-      background: color-mix(in oklab, var(--surface2) 86%, var(--surface));
-      box-shadow: 0 1px 0 rgba(0,0,0,.02);
-      max-width: 520px;
-      overflow:auto;
-      scrollbar-width: none;
-    }
-    .segmented::-webkit-scrollbar{ display:none; }
-
-    .segBtn{
-      appearance:none;
-      border: 1px solid transparent;
-      background: transparent;
-      color: var(--muted);
-      padding: 8px 12px;
-      border-radius: 999px;
-      font-size: 13px;
-      font-weight: 700;
-      cursor:pointer;
-      white-space:nowrap;
-      transition: background .12s ease, border-color .12s ease;
-    }
-    .segBtn:hover{
-      background: color-mix(in oklab, var(--surface2) 72%, transparent);
-      border-color: color-mix(in oklab, var(--border2) 70%, transparent);
-      color: var(--text);
-    }
-    .segBtn[aria-pressed="true"]{
-      background: color-mix(in oklab, var(--accent) 12%, transparent);
-      border-color: color-mix(in oklab, var(--accent) 24%, var(--border2));
-      color: var(--text);
-    }
-    .segBtn:focus-visible{
-      outline: 3px solid var(--focus);
-      outline-offset: 2px;
-    }
-
-    .actions{
-      display:flex;
-      align-items:center;
-      gap:8px;
-      flex: 0 0 auto;
-    }
-
-    .btn{
-      appearance:none;
-      border: 1px solid var(--border2);
-      background: color-mix(in oklab, var(--surface2) 78%, var(--surface));
-      color: var(--text);
+    .card {
+      background: #fff;
+      border: 1px solid #e5e7eb;
       border-radius: 12px;
-      padding: 9px 10px;
-      font-size: 13px;
-      font-weight: 700;
-      cursor:pointer;
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      white-space:nowrap;
-      transition: background .12s ease, border-color .12s ease, transform .08s ease;
-      box-shadow: 0 1px 0 rgba(0,0,0,.02);
+      padding: 16px;
+      cursor: pointer;
+      transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
     }
-    .btn:hover{
-      background: color-mix(in oklab, var(--surface2) 92%, var(--surface));
-      border-color: var(--border);
-      transform: translateY(-1px);
+
+    .card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 28px rgba(0,0,0,.08);
+      border-color: #d1d5db;
     }
-    .btn:active{ transform: translateY(0); }
-    .btn:focus-visible{
-      outline: 3px solid var(--focus);
-      outline-offset: 2px;
+
+    .card.active {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 1px #2563eb;
     }
-    .btn.primary{
-      background: color-mix(in oklab, var(--accent) 14%, var(--surface));
-      border-color: color-mix(in oklab, var(--accent) 34%, var(--border));
+
+    .card-top {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
     }
-    .btn.primary:hover{
-      background: color-mix(in oklab, var(--accent) 18%, var(--surface));
-    }
-    .btn.icon{
+
+    .icon {
       width: 40px;
-      padding: 9px;
-      justify-content:center;
-    }
-    .btn[disabled]{
-      opacity:.55;
-      cursor:not-allowed;
-      transform:none;
-    }
-
-    main{
-      min-height:0;
-      display:flex;
-      justify-content:center;
-      padding: 14px;
+      height: 40px;
+      border-radius: 10px;
+      background: #eef2f7;
+      display: grid;
+      place-items: center;
+      font-size: 18px;
+      flex-shrink: 0;
     }
 
-    .mainInner{
-      width:100%;
-      max-width: var(--maxW);
-      min-height:0;
-      display:flex;
-      flex-direction:column;
-      gap:12px;
-    }
-
-    .toolbar{
-      flex: 0 0 auto;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      min-width:0;
-    }
-
-    .currentCard{
-      flex: 1 1 auto;
+    .meta {
       min-width: 0;
-      border: 1px solid var(--border2);
-      border-radius: var(--r16);
-      background: color-mix(in oklab, var(--surface) 92%, var(--surface2));
-      box-shadow: 0 1px 0 rgba(0,0,0,.02);
-      padding: 10px 12px;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:12px;
     }
 
-    .currentMeta{
-      min-width:0;
-      display:flex;
-      flex-direction:column;
-      gap:3px;
-    }
-    .currentMeta .t{
-      font-size: 14px;
-      font-weight: 750;
-      letter-spacing: .04px;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      line-height: 1.1;
-    }
-    .currentMeta .s{
-      font-size: 12px;
-      font-weight: 650;
-      color: var(--muted);
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      line-height: 1.1;
+    .meta .name {
+      font-size: 15px;
+      font-weight: 700;
+      margin: 0;
     }
 
-    .switchBtn{
-      flex: 0 0 auto;
-      appearance:none;
-      border: 1px solid var(--border2);
-      background: var(--surface);
-      color: var(--text);
-      border-radius: 12px;
-      padding: 9px 10px;
+    .meta .desc {
       font-size: 13px;
-      font-weight: 750;
-      cursor:pointer;
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      transition: background .12s ease, border-color .12s ease;
-      box-shadow: 0 1px 0 rgba(0,0,0,.02);
-    }
-    .switchBtn:hover{
-      background: color-mix(in oklab, var(--surface2) 92%, var(--surface));
-      border-color: var(--border);
-    }
-    .switchBtn:focus-visible{
-      outline: 3px solid var(--focus);
-      outline-offset: 2px;
-    }
-    .kbd{
-      display:inline-flex;
-      align-items:center;
-      gap:6px;
-      margin-left: 6px;
-      color: var(--muted2);
-      font-weight: 750;
-      font-size: 12px;
-      white-space:nowrap;
-    }
-    .kbd kbd{
-      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      font-size: 12px;
-      font-weight: 800;
-      padding: 3px 7px;
-      border-radius: 9px;
-      border: 1px solid var(--border2);
-      background: color-mix(in oklab, var(--surface) 92%, var(--surface2));
-      box-shadow: 0 1px 0 rgba(0,0,0,.03);
-      color: var(--muted);
-    }
-
-    .viewer{
-      flex:1 1 auto;
-      min-height:0;
-      border: 1px solid var(--border2);
-      border-radius: var(--r20);
-      background: var(--surface);
-      box-shadow: var(--shadow);
-      overflow:hidden;
-      position:relative;
-    }
-
-    iframe{
-      width:100%;
-      height:100%;
-      border:0;
-      display:block;
-      background: color-mix(in oklab, var(--surface2) 92%, var(--surface));
-    }
-
-    .progress{
-      position:absolute;
-      top:0; left:0; right:0;
-      height: 3px;
-      display:none;
-      overflow:hidden;
-      z-index: 3;
-      pointer-events:none;
-    }
-    .progress.show{ display:block; }
-    .progress i{
-      display:block;
-      height:100%;
-      width: 40%;
-      background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--accent) 80%, var(--text)), transparent);
-      transform: translateX(-60%);
-      animation: glide 1.05s ease-in-out infinite;
-      opacity: .92;
-    }
-    @keyframes glide{
-      0%{ transform: translateX(-60%); }
-      60%{ transform: translateX(140%); }
-      100%{ transform: translateX(220%); }
-    }
-
-    .overlay{
-      position:absolute;
-      inset:0;
-      display:none;
-      align-items:center;
-      justify-content:center;
-      padding: 16px;
-      background: color-mix(in oklab, var(--surface) 72%, transparent);
-      backdrop-filter: blur(10px);
-      z-index: 4;
-    }
-    .overlay.show{ display:flex; }
-
-    .overlayCard{
-      width: min(640px, 100%);
-      border-radius: 20px;
-      border: 1px solid var(--border2);
-      background: color-mix(in oklab, var(--surface) 96%, transparent);
-      box-shadow: var(--shadow);
-      padding: 16px;
-    }
-    .overlayTitle{
-      margin:0;
-      font-size: 14px;
-      font-weight: 850;
-      letter-spacing: .05px;
-    }
-    .overlayDesc{
-      margin: 8px 0 0;
-      font-size: 13px;
-      font-weight: 650;
-      color: var(--muted);
+      color: #6b7280;
+      margin-top: 4px;
       line-height: 1.35;
     }
-    .overlayActions{
-      margin-top: 14px;
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
+
+    .tags {
+      display: flex;
+      gap: 6px;
+      margin-top: 10px;
+      flex-wrap: wrap;
     }
 
-    .modal{
-      position: fixed;
-      inset: 0;
-      z-index: 80;
-      display:none;
-      align-items:flex-start;
-      justify-content:center;
-      padding: 16px;
-      background: rgba(0,0,0,.18);
-    }
-    [data-theme="dark"] .modal{ background: rgba(0,0,0,.34); }
-    .modal.show{ display:flex; }
-
-    .dialog{
-      width: min(860px, 100%);
-      margin-top: 64px;
-      border-radius: 22px;
-      border: 1px solid var(--border2);
-      background: var(--surface);
-      box-shadow: var(--shadow);
-      overflow:hidden;
+    .tag {
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #f3f4f6;
+      border: 1px solid #e5e7eb;
+      color: #6b7280;
+      white-space: nowrap;
     }
 
-    .dialogTop{
-      padding: 12px;
-      border-bottom: 1px solid var(--border2);
-      background: color-mix(in oklab, var(--surface) 92%, var(--surface2));
-      display:flex;
-      align-items:center;
-      gap:10px;
+    /* Viewer */
+    .viewer {
+      margin-top: 28px;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #fff;
     }
-    .dialogTop svg{ opacity:.78; flex:0 0 auto; }
 
-    .dialogTop input{
-      width:100%;
-      border:0;
-      outline:none;
-      background:transparent;
-      color: var(--text);
+    .viewer-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .viewer-title {
       font-size: 14px;
       font-weight: 700;
-      min-width:0;
     }
-    .dialogTop input::placeholder{ color: var(--muted2); font-weight: 650; }
 
-    .dialogBody{
-      max-height: min(62vh, 560px);
-      overflow:auto;
-      padding: 10px;
-      scrollbar-width: thin;
-      scrollbar-color: color-mix(in oklab, var(--text) 18%, transparent) transparent;
-    }
-    .dialogBody::-webkit-scrollbar{ width: 12px; }
-    .dialogBody::-webkit-scrollbar-thumb{
-      background: color-mix(in oklab, var(--text) 18%, transparent);
-      border-radius: 999px;
-      border: 3px solid transparent;
-      background-clip: padding-box;
-    }
-    .dialogBody::-webkit-scrollbar-track{ background: transparent; }
-
-    .dialogFilters{
-      display:flex;
-      align-items:center;
-      gap:8px;
-      padding: 0 2px 10px;
-      flex-wrap:wrap;
-    }
-    .filter{
-      appearance:none;
-      border: 1px solid var(--border2);
-      background: color-mix(in oklab, var(--surface2) 80%, var(--surface));
-      color: var(--muted);
-      border-radius: 999px;
-      padding: 8px 10px;
+    .viewer-head a {
       font-size: 13px;
-      font-weight: 800;
-      cursor:pointer;
-      transition: background .12s ease, border-color .12s ease;
-    }
-    .filter:hover{
-      background: color-mix(in oklab, var(--surface2) 92%, var(--surface));
-      border-color: var(--border);
-      color: var(--text);
-    }
-    .filter[aria-pressed="true"]{
-      background: color-mix(in oklab, var(--accent) 12%, transparent);
-      border-color: color-mix(in oklab, var(--accent) 26%, var(--border2));
-      color: var(--text);
-    }
-    .filter:focus-visible{
-      outline: 3px solid var(--focus);
-      outline-offset: 2px;
+      font-weight: 600;
+      color: #2563eb;
     }
 
-    .section{
-      margin-top: 10px;
-    }
-    .sectionHead{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      padding: 6px 6px 8px;
-      color: var(--muted);
-      font-weight: 850;
-      font-size: 12px;
-      letter-spacing: .08px;
-      text-transform: uppercase;
-    }
-    .count{
-      font-weight: 800;
-      font-size: 12px;
-      color: var(--muted2);
-      border: 1px solid var(--border2);
-      background: color-mix(in oklab, var(--surface2) 70%, transparent);
-      padding: 3px 8px;
-      border-radius: 999px;
+    iframe {
+      width: 100%;
+      min-height: 720px;
+      border: none;
+      background: #fff;
     }
 
-    .list{
-      margin:0;
-      padding:0;
-      list-style:none;
-      display:flex;
-      flex-direction:column;
-      gap:8px;
-    }
-
-    .itemBtn{
-      width:100%;
-      text-align:left;
-      appearance:none;
-      border: 1px solid var(--border2);
-      background: var(--surface);
-      color: var(--text);
-      border-radius: 16px;
-      padding: 11px 12px;
-      cursor:pointer;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:12px;
-      transition: background .12s ease, border-color .12s ease;
-    }
-    .itemBtn:hover{
-      background: color-mix(in oklab, var(--surface2) 90%, var(--surface));
-      border-color: var(--border);
-    }
-    .itemBtn[aria-selected="true"]{
-      background: color-mix(in oklab, var(--accent) 10%, transparent);
-      border-color: color-mix(in oklab, var(--accent) 24%, var(--border2));
-    }
-    .itemBtn:focus-visible{
-      outline: 3px solid var(--focus);
-      outline-offset: 2px;
-    }
-
-    .itemLeft{
-      min-width:0;
-      display:flex;
-      align-items:center;
-      gap:10px;
-    }
-    .badge{
-      flex:0 0 auto;
-      font-size: 11px;
-      font-weight: 850;
-      color: var(--muted);
-      border: 1px solid var(--border2);
-      background: color-mix(in oklab, var(--surface2) 72%, transparent);
-      padding: 5px 9px;
-      border-radius: 999px;
-      white-space:nowrap;
-    }
-    .itemMeta{
-      min-width:0;
-      display:flex;
-      flex-direction:column;
-      gap:2px;
-    }
-    .itemMeta .t{
+    /* Empty state */
+    .empty {
+      padding: 80px 20px;
+      text-align: center;
+      color: #6b7280;
       font-size: 14px;
-      font-weight: 850;
-      letter-spacing: .02px;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      line-height:1.1;
-    }
-    .itemMeta .s{
-      font-size: 12.5px;
-      font-weight: 650;
-      color: var(--muted);
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      line-height:1.1;
     }
 
-    .itemRight{
-      flex:0 0 auto;
-      display:flex;
-      align-items:center;
-      gap:10px;
-      color: var(--muted2);
-      font-size: 12px;
-      font-weight: 800;
-      white-space:nowrap;
-    }
-
-    .empty{
-      display:none;
-      padding: 14px 6px 6px;
-      color: var(--muted);
-      font-weight: 750;
-      font-size: 13px;
-    }
-    .empty.show{ display:block; }
-
-    .toast{
-      position: fixed;
-      left: 14px;
-      bottom: 14px;
-      z-index: 90;
-      padding: 10px 12px;
-      border-radius: 14px;
-      border: 1px solid var(--border2);
-      background: color-mix(in oklab, var(--surface) 92%, var(--surface2));
-      box-shadow: var(--shadow2);
-      color: var(--text);
-      font-weight: 800;
-      font-size: 13px;
-      opacity: 0;
-      transform: translateY(6px);
-      transition: opacity .16s ease, transform .16s ease;
-      pointer-events:none;
-      max-width: min(680px, calc(100vw - 28px));
-    }
-    .toast.show{
-      opacity:1;
-      transform: translateY(0);
-    }
-
-    @media (max-width: 980px){
-      .kbd{ display:none; }
-      .brandText .crumb{ display:none; }
-      .btn .txt{ display:none; }
-      :root{ --headerH: 84px; }
-    }
-    @media (max-width: 720px){
-      .center{ justify-content:flex-start; }
-      .segmented{ max-width: 100%; }
-      .brand{ min-width: 140px; }
-    }
-    @media (max-width: 520px){
-      .center{ display:none; }
-      .brandText .name{ max-width: 120px; }
-      .actions{ gap:6px; }
-      main{ padding: 12px; }
-      .dialog{ margin-top: 78px; }
+    @media (max-width: 720px) {
+      iframe { min-height: 900px; }
     }
   </style>
 </head>
 
 <body>
-  <div class="app" id="root">
-    <header role="banner">
-      <div class="headerInner">
-        <div class="brand" aria-label="FinanceHub">
-          <div class="mark" aria-hidden="true">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-              <path d="M7 3h10l2 3v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="2" opacity=".92"/>
-              <path d="M8 12h8M8 16h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".60"/>
-              <path d="M7 6h10" stroke="currentColor" stroke-width="2" opacity=".60"/>
-            </svg>
-          </div>
-          <div class="brandText">
-            <div class="name">FinanceHub</div>
-            <div class="crumb" id="crumb"> </div>
-          </div>
-        </div>
+  <div class="wrap">
 
-        <div class="center" aria-label="Sections">
-          <div class="segmented" role="group" aria-label="Route sections">
-            <button class="segBtn" id="tabAll" type="button" aria-pressed="true">All</button>
-            <button class="segBtn" id="tabCore" type="button" aria-pressed="false">Core</button>
-            <button class="segBtn" id="tabProgress" type="button" aria-pressed="false">In Progress</button>
-            <button class="segBtn" id="tabPlanning" type="button" aria-pressed="false">Planning</button>
-          </div>
-        </div>
+    <!-- HEADER -->
+    <div class="header">
+      <div class="title">Employee Hub</div>
+      <div class="subtitle">Baseballism internal tools & requests</div>
+    </div>
 
-        <div class="actions" aria-label="Actions">
-          <button class="btn icon" id="themeToggle" type="button" aria-label="Toggle theme" title="Toggle theme">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M21 13a8 8 0 1 1-10-10 6 6 0 0 0 10 10Z" stroke="currentColor" stroke-width="2" opacity=".9"/>
-            </svg>
-          </button>
+    <!-- TOOL CARDS -->
+    <div class="grid" id="grid"></div>
 
-          <button class="btn" id="copyLink" type="button" aria-label="Copy link" title="Copy link">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M9 9h10v10H9V9Z" stroke="currentColor" stroke-width="2" opacity=".9"/>
-              <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" stroke="currentColor" stroke-width="2" opacity=".6"/>
-            </svg>
-            <span class="txt">Copy</span>
-          </button>
-
-          <button class="btn" id="reload" type="button" aria-label="Reload" title="Reload">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M21 12a9 9 0 1 1-3.1-6.8" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".9"/>
-              <path d="M21 3v6h-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/>
-            </svg>
-            <span class="txt">Reload</span>
-          </button>
-
-          <button class="btn primary" id="openNewTab" type="button" aria-label="Open in new tab" title="Open in new tab">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M14 3h7v7" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".95"/>
-              <path d="M10 14 21 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".95"/>
-              <path d="M21 14v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity=".6"/>
-            </svg>
-            <span class="txt">Open</span>
-          </button>
-        </div>
-      </div>
-    </header>
-
-    <main>
-      <div class="mainInner">
-        <div class="toolbar" aria-label="Routing UI">
-          <div class="currentCard" role="group" aria-label="Current tool">
-            <div class="currentMeta" aria-live="polite">
-              <div class="t" id="routeTitle">Loading…</div>
-              <div class="s" id="routeSub"> </div>
-            </div>
-
-            <button class="switchBtn" id="switchBtn" type="button" aria-haspopup="dialog" aria-expanded="false">
-              Switch tool
-              <span class="kbd" aria-hidden="true"><kbd>Ctrl</kbd><kbd>K</kbd></span>
-            </button>
-          </div>
-        </div>
-
-        <section class="viewer" aria-label="Viewer container">
-          <div class="progress" id="progress" aria-hidden="true"><i></i></div>
-
-          <div class="overlay show" id="overlayLoading" role="status" aria-live="polite">
-            <div class="overlayCard">
-              <p class="overlayTitle">Loading</p>
-              <p class="overlayDesc" id="loadingMsg">Opening tool…</p>
-              <div class="overlayActions">
-                <button class="btn primary" id="fallbackOpen" type="button">Open in new tab</button>
-                <button class="btn" id="stopLoad" type="button">Stop</button>
-                <button class="btn" id="fallbackRetry" type="button">Retry</button>
-              </div>
-            </div>
-          </div>
-
-          <div class="overlay" id="overlayBlocked" role="alert" aria-live="assertive">
-            <div class="overlayCard">
-              <p class="overlayTitle">Embedding blocked</p>
-              <p class="overlayDesc">This tool may prevent iframe loading. Open it in a new tab to continue.</p>
-              <div class="overlayActions">
-                <button class="btn primary" id="blockedOpen" type="button">Open in new tab</button>
-                <button class="btn" id="blockedRetry" type="button">Retry</button>
-              </div>
-            </div>
-          </div>
-
-          <iframe id="viewer" title="FinanceHub viewer" referrerpolicy="no-referrer-when-downgrade"></iframe>
-        </section>
-      </div>
-    </main>
-  </div>
-
-  <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-    <div class="dialog">
-      <div class="dialogTop">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-          <path d="M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15Z" stroke="currentColor" stroke-width="2"/>
-          <path d="M16.5 16.5 21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-        <div style="flex:1 1 auto;min-width:0;">
-          <div id="modalTitle" class="srOnly">Tool switcher</div>
-          <label class="srOnly" for="modalSearch">Search tools</label>
-          <input id="modalSearch" type="search" inputmode="search" autocomplete="off" placeholder="Search tools…" />
-        </div>
-        <button class="btn" id="closeModal" type="button" aria-label="Close">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-            <path d="M18 6 6 18M6 6l12 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          </svg>
-          <span class="txt">Close</span>
-        </button>
+    <!-- VIEWER -->
+    <div class="viewer" id="viewer">
+      <div class="viewer-head">
+        <div class="viewer-title" id="viewerTitle">Select a tool</div>
+        <a id="viewerNewTab" href="#" target="_blank" rel="noopener">Open in new tab ↗</a>
       </div>
 
-      <div class="dialogBody" id="dialogBody">
-        <div class="dialogFilters" aria-label="Filter tools">
-          <button class="filter" id="filterAll" type="button" aria-pressed="true">All</button>
-          <button class="filter" id="filterCore" type="button" aria-pressed="false">Core</button>
-          <button class="filter" id="filterProgress" type="button" aria-pressed="false">In Progress</button>
-          <button class="filter" id="filterPlanning" type="button" aria-pressed="false">Planning</button>
-        </div>
+      <iframe id="viewerFrame" src=""></iframe>
 
-        <div class="empty" id="empty">No matching tools.</div>
-
-        <div class="section" data-section="core">
-          <div class="sectionHead">Core <span class="count" id="countCore">0</span></div>
-          <ul class="list" id="listCore" role="listbox" aria-label="Core tools"></ul>
-        </div>
-
-        <div class="section" data-section="progress">
-          <div class="sectionHead">In Progress <span class="count" id="countProgress">0</span></div>
-          <ul class="list" id="listProgress" role="listbox" aria-label="In Progress tools"></ul>
-        </div>
-
-        <div class="section" data-section="planning">
-          <div class="sectionHead">Planning <span class="count" id="countPlanning">0</span></div>
-          <ul class="list" id="listPlanning" role="listbox" aria-label="Planning tools"></ul>
-        </div>
+      <div class="empty" id="emptyState">
+        Select a tool above to load it here.
       </div>
     </div>
+
   </div>
 
-  <div class="toast" id="toast" role="status" aria-live="polite"></div>
-
   <script>
-    (function(){
-      const ROUTES = [
-        // Core
-        { id:"baseballism", group:"core", title:"Baseballism", sub:"Employee hub + requests", chip:"Hub", src:"https://bbismblockay.github.io/financehub/employeehub.html" },
-        { id:"travel-requests", group:"core", title:"Travel Requests", sub:"Travel intake / grids", chip:"Form", src:"https://www.jotform.com/grid/200496754119055" },
-        { id:"bars-requests", group:"core", title:"Bars Requests", sub:"Requests grid", chip:"Form", src:"https://www.jotform.com/grid/222686658265065" },
-        { id:"wild-child", group:"core", title:"Wild Child", sub:"Requests grid", chip:"Form", src:"https://www.jotform.com/grid/240031492980049" },
-        { id:"mise", group:"core", title:"MISE", sub:"Requests grid", chip:"Form", src:"https://www.jotform.com/grid/241086664226054" },
-        { id:"stlhd", group:"core", title:"STLHD", sub:"Requests grid", chip:"Form", src:"https://www.jotform.com/grid/201496499131056" },
-        { id:"portland-gear", group:"core", title:"Portland Gear", sub:"Requests grid", chip:"Form", src:"https://www.jotform.com/grid/250716935607058" },
-        { id:"wpv-financial-hub", group:"core", title:"WPV Financial Hub", sub:"Master portal", chip:"Portal", src:"https://bbismblockay.github.io/financehub/testing.html" },
-
-        // In progress
-        { id:"payables", group:"progress", title:"Payables", sub:"AP database", chip:"DB", src:"https://bbismblockay.github.io/financehub/aptest.html" },
-        { id:"sales-dashboard", group:"progress", title:"Sales Dashboard (PowerBI)", sub:"Power BI view", chip:"BI", src:"https://app.powerbi.com/view?r=eyJrIjoiY2U0MWI2ZmMtMTY3MS00MDY3LTg5NjctN2VlYjk0NGMxNzUzIiwidCI6IjIzYTkzNDJkLTFjODEtNGJkNS1hY2U0LThmYWY4ZWVlNTZiZCJ9" },
-        { id:"year-end-2025", group:"progress", title:"Year End 2025", sub:"CPA / year-end tools", chip:"CPA", src:"https://bbismblockay.github.io/financehub/aprio.html" },
-        { id:"baseballism-travel", group:"progress", title:"Baseballism Travel", sub:"Travel DB", chip:"DB", src:"https://bbismblockay.github.io/financehub/travel.html" },
-
-        // Planning
-        { id:"launch-calendar", group:"planning", title:"Launch Calendar", sub:"Live calendar", chip:"Cal", src:"https://bbismblockay.github.io/financehub/calendar.html" },
-        { id:"po-calendar", group:"planning", title:"PO Calendar", sub:"Planner / pipeline", chip:"Plan", src:"https://bbismblockay.github.io/financehub/planner.html" },
-        { id:"po-allocation", group:"planning", title:"PO Allocation", sub:"Allocation tool", chip:"Ops", src:"https://bbismblockay.github.io/financehub/allocation.html" },
-      ];
-
-      const GROUP_LABEL = { core:"Core", progress:"In Progress", planning:"Planning" };
-      const DEFAULT_ROUTE_ID = "baseballism";
-
-      const el = {
-        root: document.getElementById("root"),
-
-        crumb: document.getElementById("crumb"),
-        routeTitle: document.getElementById("routeTitle"),
-        routeSub: document.getElementById("routeSub"),
-
-        tabAll: document.getElementById("tabAll"),
-        tabCore: document.getElementById("tabCore"),
-        tabProgress: document.getElementById("tabProgress"),
-        tabPlanning: document.getElementById("tabPlanning"),
-
-        copyLink: document.getElementById("copyLink"),
-        reload: document.getElementById("reload"),
-        openNewTab: document.getElementById("openNewTab"),
-        themeToggle: document.getElementById("themeToggle"),
-
-        viewer: document.getElementById("viewer"),
-        progress: document.getElementById("progress"),
-
-        overlayLoading: document.getElementById("overlayLoading"),
-        overlayBlocked: document.getElementById("overlayBlocked"),
-        loadingMsg: document.getElementById("loadingMsg"),
-        stopLoad: document.getElementById("stopLoad"),
-        fallbackOpen: document.getElementById("fallbackOpen"),
-        fallbackRetry: document.getElementById("fallbackRetry"),
-        blockedOpen: document.getElementById("blockedOpen"),
-        blockedRetry: document.getElementById("blockedRetry"),
-
-        switchBtn: document.getElementById("switchBtn"),
-        modal: document.getElementById("modal"),
-        closeModal: document.getElementById("closeModal"),
-        modalSearch: document.getElementById("modalSearch"),
-        dialogBody: document.getElementById("dialogBody"),
-
-        filterAll: document.getElementById("filterAll"),
-        filterCore: document.getElementById("filterCore"),
-        filterProgress: document.getElementById("filterProgress"),
-        filterPlanning: document.getElementById("filterPlanning"),
-
-        listCore: document.getElementById("listCore"),
-        listProgress: document.getElementById("listProgress"),
-        listPlanning: document.getElementById("listPlanning"),
-        countCore: document.getElementById("countCore"),
-        countProgress: document.getElementById("countProgress"),
-        countPlanning: document.getElementById("countPlanning"),
-        empty: document.getElementById("empty"),
-
-        toast: document.getElementById("toast"),
-      };
-
-      let current = null;
-      let lastRouteId = null;
-      let lastSrc = null;
-      let loadTimer = null;
-      let toastTimer = null;
-
-      let filterGroup = "all"; // all|core|progress|planning
-      let items = []; // {btn, route}
-      let activeIndex = -1;
-
-      function normalize(s){ return String(s || "").trim().toLowerCase(); }
-
-      function routeById(id){ return ROUTES.find(r => r.id === id) || null; }
-
-      function setOverlay(kind, on){
-        if(kind === "loading") el.overlayLoading.classList.toggle("show", !!on);
-        if(kind === "blocked") el.overlayBlocked.classList.toggle("show", !!on);
+    const TOOLS = [
+      {
+        id: "purchase",
+        name: "Purchase / Invoice Request",
+        desc: "Submit invoices or purchase requests.",
+        icon: "🧾",
+        tags: ["Request", "Portal"],
+        url: "https://wpvportal.weebly.com/submit-request---bbism.html",
+        embed: "https://wpvportal.weebly.com/submit-request---bbism.html"
+      },
+      {
+        id: "receipt",
+        name: "Receipt Upload",
+        desc: "Upload receipts.",
+        icon: "📤",
+        tags: ["Upload", "Jotform"],
+        url: "https://form.jotform.com/202585858721161",
+        embed: "https://form.jotform.com/202585858721161"
+      },
+      {
+        id: "travel",
+        name: "Travel Request",
+        desc: "Submit travel requests.",
+        icon: "✈️",
+        tags: ["Travel"],
+        url: "https://wpvportal.weebly.com/travel-form---bbism.html",
+        embed: "https://wpvportal.weebly.com/travel-form---bbism.html"
+      },
+      {
+        id: "cash",
+        name: "Cash Reconciliation",
+        desc: "Cash reconciliation tracking.",
+        icon: "💵",
+        tags: ["Google Form"],
+        url: "https://docs.google.com/forms/d/e/1FAIpQLSckmYA0pninVJLOyPduZnMQ__b7gByaFJxoGCVYlKUVgQZcLA/viewform",
+        embed: "https://docs.google.com/forms/d/e/1FAIpQLSckmYA0pninVJLOyPduZnMQ__b7gByaFJxoGCVYlKUVgQZcLA/viewform?embedded=true"
+      },
+      {
+        id: "logistics",
+        name: "Logistics",
+        desc: "Shipping & warehouse tools.",
+        icon: "📦",
+        tags: ["Operations"],
+        url: "https://wpvportal.weebly.com/logistics.html",
+        embed: "https://wpvportal.weebly.com/logistics.html"
+      },
+      {
+        id: "analytics",
+        name: "Analytics",
+        desc: "Dashboards & reporting.",
+        icon: "📊",
+        tags: ["Analytics"],
+        url: "https://wpvportal.weebly.com/analytics-login---bbism.html",
+        embed: "https://wpvportal.weebly.com/analytics-login---bbism.html"
+      },
+      {
+        id: "requests",
+        name: "Requests Hub",
+        desc: "Master requests portal.",
+        icon: "🗂️",
+        tags: ["Requests"],
+        url: "https://wpvportal.weebly.com/database---bbism.html",
+        embed: "https://wpvportal.weebly.com/database---bbism.html"
       }
+    ];
 
-      function setProgress(on){ el.progress.classList.toggle("show", !!on); }
+    const grid = document.getElementById("grid");
+    const frame = document.getElementById("viewerFrame");
+    const titleEl = document.getElementById("viewerTitle");
+    const newTabEl = document.getElementById("viewerNewTab");
+    const empty = document.getElementById("emptyState");
 
-      function clearLoadTimer(){
-        if(loadTimer){ clearTimeout(loadTimer); loadTimer = null; }
+    let activeCard = null;
+
+    function loadTool(tool, card) {
+      if (activeCard) activeCard.classList.remove("active");
+      card.classList.add("active");
+      activeCard = card;
+
+      titleEl.textContent = tool.name;
+      newTabEl.href = tool.url;
+      frame.src = tool.embed;
+      empty.style.display = "none";
+    }
+
+    TOOLS.forEach(tool => {
+      const card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML = `
+        <div class="card-top">
+          <div class="icon">${tool.icon}</div>
+          <div class="meta">
+            <p class="name">${tool.name}</p>
+            <p class="desc">${tool.desc}</p>
+            <div class="tags">
+              ${tool.tags.map(t => `<span class="tag">${t}</span>`).join("")}
+            </div>
+          </div>
+        </div>
+      `;
+      card.addEventListener("click", () => loadTool(tool, card));
+      grid.appendChild(card);
+    });
+
+    // Optional deep-link support: ?tool=purchase
+    const params = new URLSearchParams(location.search);
+    const initial = params.get("tool");
+    if (initial) {
+      const tool = TOOLS.find(t => t.id === initial);
+      if (tool) {
+        setTimeout(() => {
+          const card = [...grid.children].find(c => c.querySelector(".name").textContent === tool.name);
+          if (card) loadTool(tool, card);
+        }, 0);
       }
-
-      function startLoading(route){
-        setOverlay("blocked", false);
-        setOverlay("loading", true);
-        setProgress(true);
-        el.loadingMsg.textContent = route ? `Opening ${route.title}…` : "Opening…";
-        clearLoadTimer();
-        loadTimer = setTimeout(()=>{
-          setOverlay("loading", false);
-          setOverlay("blocked", true);
-          setProgress(false);
-        }, 12000);
-      }
-
-      function stopLoading(){
-        clearLoadTimer();
-        setOverlay("loading", false);
-        setOverlay("blocked", false);
-        setProgress(false);
-      }
-
-      function safeSetSrc(src){
-        if(lastSrc === src) return;
-        lastSrc = src;
-        el.viewer.src = src;
-      }
-
-      function setHeader(route){
-        const g = route ? (GROUP_LABEL[route.group] || "Core") : "";
-        el.crumb.textContent = route ? `${g} • ${route.title}` : " ";
-        el.routeTitle.textContent = route ? route.title : "FinanceHub";
-        el.routeSub.textContent = route ? (route.sub || " ") : " ";
-        document.title = route ? `FinanceHub • ${route.title}` : "FinanceHub";
-      }
-
-      function updateURL(routeId, replace){
-        const url = new URL(window.location.href);
-        url.searchParams.set("route", routeId);
-        const state = { route: routeId };
-        if(replace) history.replaceState(state, "", url.toString());
-        else history.pushState(state, "", url.toString());
-      }
-
-      function toast(msg){
-        if(toastTimer) clearTimeout(toastTimer);
-        el.toast.textContent = msg;
-        el.toast.classList.add("show");
-        toastTimer = setTimeout(()=> el.toast.classList.remove("show"), 1600);
-      }
-
-      async function copyLink(){
-        const url = window.location.href;
-        try{
-          await navigator.clipboard.writeText(url);
-          toast("Link copied");
-        }catch{
-          const ta = document.createElement("textarea");
-          ta.value = url;
-          ta.style.position = "fixed";
-          ta.style.left = "-9999px";
-          document.body.appendChild(ta);
-          ta.select();
-          try{ document.execCommand("copy"); }catch{}
-          ta.remove();
-          toast("Link copied");
-        }
-      }
-
-      function openInNewTab(){
-        if(!current?.src) return;
-        window.open(current.src, "_blank", "noopener,noreferrer");
-      }
-
-      function setSelected(routeId){
-        items.forEach(({btn, route})=>{
-          btn.setAttribute("aria-selected", route.id === routeId ? "true" : "false");
-        });
-      }
-
-      function navigate(routeId, opts){
-        opts = opts || { push:true };
-        const route = routeById(routeId) || routeById(DEFAULT_ROUTE_ID);
-        if(!route) return;
-
-        current = route;
-        lastRouteId = route.id;
-
-        setHeader(route);
-        setSelected(route.id);
-
-        el.openNewTab.disabled = !route.src;
-        el.reload.disabled = !route.src;
-
-        if(opts.push) updateURL(route.id, false);
-
-        startLoading(route);
-        safeSetSrc(route.src);
-      }
-
-      function setPressed(btn, on){ btn.setAttribute("aria-pressed", on ? "true" : "false"); }
-
-      function setTopTabs(group){
-        const map = { all: el.tabAll, core: el.tabCore, progress: el.tabProgress, planning: el.tabPlanning };
-        Object.entries(map).forEach(([k, b])=> setPressed(b, k === group));
-      }
-
-      function setModalFilters(group){
-        const map = { all: el.filterAll, core: el.filterCore, progress: el.filterProgress, planning: el.filterPlanning };
-        Object.entries(map).forEach(([k, b])=> setPressed(b, k === group));
-      }
-
-      function openModal(){
-        el.modal.classList.add("show");
-        el.switchBtn.setAttribute("aria-expanded","true");
-        setModalFilters(filterGroup);
-        el.modalSearch.value = "";
-        applyModalFilter();
-        setTimeout(()=> el.modalSearch.focus({ preventScroll:true }), 0);
-      }
-
-      function closeModal(){
-        el.modal.classList.remove("show");
-        el.switchBtn.setAttribute("aria-expanded","false");
-        setTimeout(()=> el.switchBtn.focus({ preventScroll:true }), 0);
-      }
-
-      function toggleModal(){
-        if(el.modal.classList.contains("show")) closeModal();
-        else openModal();
-      }
-
-      function buildLists(){
-        el.listCore.innerHTML = "";
-        el.listProgress.innerHTML = "";
-        el.listPlanning.innerHTML = "";
-        items = [];
-
-        function addTo(listEl, route){
-          const li = document.createElement("li");
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.className = "itemBtn";
-          btn.setAttribute("role","option");
-          btn.setAttribute("data-route", route.id);
-          btn.setAttribute("data-group", route.group);
-          btn.setAttribute("aria-selected","false");
-          btn.dataset.hay = normalize(`${route.title} ${route.sub||""} ${route.chip||""} ${GROUP_LABEL[route.group]||""}`);
-          btn.innerHTML = `
-            <span class="itemLeft">
-              <span class="badge">${route.chip || "Open"}</span>
-              <span class="itemMeta">
-                <span class="t">${escapeHtml(route.title)}</span>
-                <span class="s">${escapeHtml(route.sub || "")}</span>
-              </span>
-            </span>
-            <span class="itemRight" aria-hidden="true">
-              <span>Enter</span>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M9 18 15 12 9 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".7"/>
-              </svg>
-            </span>
-          `;
-          btn.addEventListener("click", ()=>{
-            closeModal();
-            navigate(route.id, { push:true });
-          });
-          li.appendChild(btn);
-          listEl.appendChild(li);
-          items.push({ btn, route });
-        }
-
-        ROUTES.forEach(r=>{
-          if(r.group === "core") addTo(el.listCore, r);
-          else if(r.group === "progress") addTo(el.listProgress, r);
-          else addTo(el.listPlanning, r);
-        });
-
-        el.countCore.textContent = String(ROUTES.filter(r=>r.group==="core").length);
-        el.countProgress.textContent = String(ROUTES.filter(r=>r.group==="progress").length);
-        el.countPlanning.textContent = String(ROUTES.filter(r=>r.group==="planning").length);
-      }
-
-      function escapeHtml(s){
-        return String(s ?? "").replace(/[&<>"']/g, m => (
-          {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]
-        ));
-      }
-
-      function visibleItems(){
-        return items.filter(({btn})=> !btn.closest("li").hidden && !btn.closest(".section").hidden);
-      }
-
-      function applyModalFilter(){
-        const q = normalize(el.modalSearch.value);
-        let visible = 0;
-        const per = { core:0, progress:0, planning:0 };
-
-        items.forEach(({btn, route})=>{
-          const groupOk = (filterGroup === "all") || (route.group === filterGroup);
-          const textOk = !q || (btn.dataset.hay || "").includes(q);
-          const show = groupOk && textOk;
-          btn.closest("li").hidden = !show;
-          if(show){
-            visible++;
-            per[route.group] = (per[route.group] || 0) + 1;
-          }
-        });
-
-        document.querySelectorAll(".section[data-section]").forEach(sec=>{
-          const k = sec.getAttribute("data-section");
-          sec.hidden = (per[k] || 0) === 0;
-        });
-
-        el.countCore.textContent = String(per.core || 0);
-        el.countProgress.textContent = String(per.progress || 0);
-        el.countPlanning.textContent = String(per.planning || 0);
-
-        el.empty.classList.toggle("show", visible === 0);
-
-        const vis = visibleItems();
-        activeIndex = vis.length ? 0 : -1;
-        if(activeIndex >= 0) vis[activeIndex].btn.focus({ preventScroll:true });
-      }
-
-      function handleModalKeys(e){
-        if(!el.modal.classList.contains("show")) return;
-
-        const vis = visibleItems();
-
-        if(e.key === "Escape"){
-          e.preventDefault();
-          closeModal();
-          return;
-        }
-
-        if(e.key === "ArrowDown"){
-          e.preventDefault();
-          if(!vis.length) return;
-          activeIndex = Math.min(vis.length - 1, activeIndex + 1);
-          const b = vis[activeIndex].btn;
-          b.focus({ preventScroll:true });
-          b.scrollIntoView({ block:"nearest" });
-          return;
-        }
-
-        if(e.key === "ArrowUp"){
-          e.preventDefault();
-          if(!vis.length) return;
-          activeIndex = Math.max(0, activeIndex - 1);
-          const b = vis[activeIndex].btn;
-          b.focus({ preventScroll:true });
-          b.scrollIntoView({ block:"nearest" });
-          return;
-        }
-
-        if(e.key === "Enter"){
-          if(document.activeElement === el.modalSearch){
-            e.preventDefault();
-            if(!vis.length) return;
-            closeModal();
-            navigate(vis[activeIndex].route.id, { push:true });
-          }
-        }
-      }
-
-      function setFilterGroup(group){
-        filterGroup = group;
-        setTopTabs(group);
-        setModalFilters(group);
-        if(el.modal.classList.contains("show")) applyModalFilter();
-      }
-
-      function setTheme(theme){
-        if(theme === "dark") el.root.setAttribute("data-theme","dark");
-        else if(theme === "light") el.root.removeAttribute("data-theme");
-        localStorage.setItem("fh_theme", theme);
-      }
-
-      function toggleTheme(){
-        const cur = el.root.getAttribute("data-theme") === "dark" ? "dark" : "light";
-        setTheme(cur === "dark" ? "light" : "dark");
-      }
-
-      // Events
-      el.viewer.addEventListener("load", ()=> stopLoading());
-
-      el.copyLink.addEventListener("click", copyLink);
-      el.openNewTab.addEventListener("click", openInNewTab);
-
-      el.reload.addEventListener("click", ()=>{
-        if(!current?.src) return;
-        startLoading(current);
-        const u = new URL(current.src, window.location.href);
-        u.searchParams.set("_t", Date.now().toString());
-        lastSrc = null;
-        safeSetSrc(u.toString());
-      });
-
-      el.themeToggle.addEventListener("click", toggleTheme);
-
-      el.switchBtn.addEventListener("click", toggleModal);
-      el.closeModal.addEventListener("click", closeModal);
-
-      el.modal.addEventListener("mousedown", (e)=>{
-        if(e.target === el.modal) closeModal();
-      });
-
-      el.modalSearch.addEventListener("input", applyModalFilter);
-      el.modalSearch.addEventListener("keydown", handleModalKeys);
-
-      document.addEventListener("keydown", (e)=>{
-        const k = (e.key || "").toLowerCase();
-        const mod = e.ctrlKey || e.metaKey;
-
-        if(mod && k === "k"){
-          e.preventDefault();
-          openModal();
-          return;
-        }
-
-        if(el.modal.classList.contains("show")){
-          handleModalKeys(e);
-        }
-      });
-
-      function bindFilter(btn, group){
-        btn.addEventListener("click", ()=>{
-          setFilterGroup(group);
-          if(el.modal.classList.contains("show")) el.modalSearch.focus({ preventScroll:true });
-        });
-      }
-
-      bindFilter(el.tabAll, "all");
-      bindFilter(el.tabCore, "core");
-      bindFilter(el.tabProgress, "progress");
-      bindFilter(el.tabPlanning, "planning");
-
-      bindFilter(el.filterAll, "all");
-      bindFilter(el.filterCore, "core");
-      bindFilter(el.filterProgress, "progress");
-      bindFilter(el.filterPlanning, "planning");
-
-      el.stopLoad.addEventListener("click", ()=>{
-        clearLoadTimer();
-        try{ el.viewer.src = "about:blank"; }catch{}
-        setOverlay("loading", false);
-        setOverlay("blocked", true);
-        setProgress(false);
-      });
-
-      el.fallbackOpen.addEventListener("click", openInNewTab);
-      el.blockedOpen.addEventListener("click", openInNewTab);
-
-      el.fallbackRetry.addEventListener("click", ()=> navigate(lastRouteId || DEFAULT_ROUTE_ID, { push:false }));
-      el.blockedRetry.addEventListener("click", ()=> navigate(lastRouteId || DEFAULT_ROUTE_ID, { push:false }));
-
-      window.addEventListener("popstate", (e)=>{
-        const id = (e.state && e.state.route) ? e.state.route : (new URL(location.href)).searchParams.get("route");
-        navigate(id || DEFAULT_ROUTE_ID, { push:false });
-      });
-
-      // Init
-      const savedTheme = localStorage.getItem("fh_theme");
-      if(savedTheme === "dark" || savedTheme === "light") setTheme(savedTheme);
-
-      buildLists();
-
-      const initial = new URL(location.href).searchParams.get("route") || DEFAULT_ROUTE_ID;
-      navigate(initial, { push:false });
-
-      const url = new URL(window.location.href);
-      if(url.searchParams.get("route") !== initial) updateURL(initial, true);
-
-      setSelected(initial);
-      setFilterGroup("all");
-      stopLoading();
-      startLoading(routeById(initial));
-    })();
+    }
   </script>
 </body>
 </html>
