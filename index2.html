@@ -2,316 +2,253 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Baseballism • Employee Hub</title>
-
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>FinanceHub</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
 
   <style>
-    * { box-sizing: border-box; }
     html, body {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      font-family: Inter, system-ui, sans-serif;
-      background: #f9fafb;
-      color: #111827;
+      margin: 0; padding: 0; height: 100%;
+      font-family: Inter, sans-serif;
+      background: var(--bg); color: var(--text);
     }
+    :root {
+      --bg: #f9fafb;
+      --surface: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --accent: #2563eb;
+      --border: #e5e7eb;
+    }
+    [data-theme="dark"] {
+      --bg: #0f1117;
+      --surface: #1a1e26;
+      --text: #f3f4f6;
+      --muted: #9ca3af;
+      --accent: #4f8cff;
+      --border: #2a2f3a;
+    }
+    * { box-sizing: border-box; }
 
-    a { text-decoration: none; color: inherit; }
+    /* HEADER */
+    header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 14px 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .brand { font-size: 16px; font-weight: 700; }
+    .crumb { font-size: 13px; color: var(--muted); margin-top: 2px; }
 
-    .wrap {
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 20px 16px 40px;
-    }
-
-    /* Header */
-    .header {
-      margin-bottom: 20px;
-    }
-    .title {
-      font-size: 22px;
-      font-weight: 700;
-    }
-    .subtitle {
-      font-size: 14px;
-      color: #6b7280;
-      margin-top: 2px;
-    }
-
-    /* Cards */
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-      gap: 16px;
-    }
-
-    .card {
-      background: #fff;
-      border: 1px solid #e5e7eb;
-      border-radius: 12px;
-      padding: 16px;
-      cursor: pointer;
-      transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
-    }
-
-    .card:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 10px 28px rgba(0,0,0,.08);
-      border-color: #d1d5db;
-    }
-
-    .card.active {
-      border-color: #2563eb;
-      box-shadow: 0 0 0 1px #2563eb;
-    }
-
-    .card-top {
+    .header-left {
       display: flex;
-      gap: 12px;
-      align-items: flex-start;
+      flex-direction: column;
+      gap: 2px;
     }
 
-    .icon {
-      width: 40px;
-      height: 40px;
-      border-radius: 10px;
-      background: #eef2f7;
-      display: grid;
-      place-items: center;
-      font-size: 18px;
-      flex-shrink: 0;
+    .actions {
+      display: flex; gap: 10px;
     }
-
-    .meta {
-      min-width: 0;
-    }
-
-    .meta .name {
-      font-size: 15px;
-      font-weight: 700;
-      margin: 0;
-    }
-
-    .meta .desc {
+    .icon-btn, .primary-btn {
+      padding: 8px 10px;
       font-size: 13px;
-      color: #6b7280;
-      margin-top: 4px;
-      line-height: 1.35;
+      border-radius: 6px;
+      font-weight: 600;
+      border: none;
+    }
+    .icon-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    .icon-btn:hover {
+      background: var(--border);
+    }
+    .primary-btn {
+      background: var(--accent);
+      color: white;
+    }
+    .primary-btn:hover {
+      opacity: 0.9;
     }
 
-    .tags {
+    /* TABS / SEGMENTED CONTROL */
+    .tabs {
       display: flex;
-      gap: 6px;
-      margin-top: 10px;
-      flex-wrap: wrap;
+      gap: 8px;
+      padding: 10px 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
     }
-
-    .tag {
-      font-size: 11px;
-      padding: 4px 10px;
-      border-radius: 999px;
-      background: #f3f4f6;
-      border: 1px solid #e5e7eb;
-      color: #6b7280;
-      white-space: nowrap;
-    }
-
-    /* Viewer */
-    .viewer {
-      margin-top: 28px;
-      border: 1px solid #e5e7eb;
-      border-radius: 12px;
-      overflow: hidden;
-      background: #fff;
-    }
-
-    .viewer-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 12px 16px;
-      border-bottom: 1px solid #e5e7eb;
-    }
-
-    .viewer-title {
-      font-size: 14px;
-      font-weight: 700;
-    }
-
-    .viewer-head a {
+    .tabs button {
+      padding: 8px 14px;
       font-size: 13px;
       font-weight: 600;
-      color: #2563eb;
+      border: none;
+      border-radius: 999px;
+      background: none;
+      color: var(--muted);
+    }
+    .tabs button.active {
+      background: var(--accent);
+      color: white;
+    }
+    .tabs button:hover {
+      background: var(--border);
+    }
+
+    /* MAIN LAYOUT */
+    .container {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      height: calc(100% - 108px);
+    }
+
+    .sidebar {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 12px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .sidebar button {
+      padding: 9px 12px;
+      text-align: left;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      background: none;
+      color: var(--text);
+      border: none;
+      transition: background 0.15s ease;
+    }
+    .sidebar button:hover {
+      background: var(--border);
+    }
+    .sidebar button.active {
+      background: var(--accent);
+      color: white;
+    }
+
+    .main {
+      display: flex;
+      flex-direction: column;
+      padding: 14px;
+      overflow: hidden;
     }
 
     iframe {
+      flex: 1;
       width: 100%;
-      min-height: 720px;
+      height: 100%;
       border: none;
-      background: #fff;
-    }
-
-    /* Empty state */
-    .empty {
-      padding: 80px 20px;
-      text-align: center;
-      color: #6b7280;
-      font-size: 14px;
-    }
-
-    @media (max-width: 720px) {
-      iframe { min-height: 900px; }
+      border-radius: 8px;
+      background: var(--surface);
     }
   </style>
 </head>
 
-<body>
-  <div class="wrap">
-
-    <!-- HEADER -->
-    <div class="header">
-      <div class="title">Employee Hub</div>
-      <div class="subtitle">Baseballism internal tools & requests</div>
+<body data-theme="light">
+  <header>
+    <div class="header-left">
+      <div class="brand">FinanceHub</div>
+      <div class="crumb" id="crumb">Finance Department</div>
     </div>
-
-    <!-- TOOL CARDS -->
-    <div class="grid" id="grid"></div>
-
-    <!-- VIEWER -->
-    <div class="viewer" id="viewer">
-      <div class="viewer-head">
-        <div class="viewer-title" id="viewerTitle">Select a tool</div>
-        <a id="viewerNewTab" href="#" target="_blank" rel="noopener">Open in new tab ↗</a>
-      </div>
-
-      <iframe id="viewerFrame" src=""></iframe>
-
-      <div class="empty" id="emptyState">
-        Select a tool above to load it here.
-      </div>
+    <div class="actions">
+      <button class="icon-btn" id="themeToggle">🌓</button>
+      <button class="icon-btn" id="reloadBtn">🔄</button>
+      <button class="primary-btn" id="openNewTab">↗</button>
     </div>
+  </header>
 
+  <div class="tabs" id="tabs"></div>
+
+  <div class="container">
+    <nav class="sidebar" id="sidebar"></nav>
+    <div class="main">
+      <iframe id="viewer" title="Tool Viewer"></iframe>
+    </div>
   </div>
 
   <script>
-    const TOOLS = [
-      {
-        id: "purchase",
-        name: "Purchase / Invoice Request",
-        desc: "Submit invoices or purchase requests.",
-        icon: "🧾",
-        tags: ["Request", "Portal"],
-        url: "https://wpvportal.weebly.com/submit-request---bbism.html",
-        embed: "https://wpvportal.weebly.com/submit-request---bbism.html"
-      },
-      {
-        id: "receipt",
-        name: "Receipt Upload",
-        desc: "Upload receipts.",
-        icon: "📤",
-        tags: ["Upload", "Jotform"],
-        url: "https://form.jotform.com/202585858721161",
-        embed: "https://form.jotform.com/202585858721161"
-      },
-      {
-        id: "travel",
-        name: "Travel Request",
-        desc: "Submit travel requests.",
-        icon: "✈️",
-        tags: ["Travel"],
-        url: "https://wpvportal.weebly.com/travel-form---bbism.html",
-        embed: "https://wpvportal.weebly.com/travel-form---bbism.html"
-      },
-      {
-        id: "cash",
-        name: "Cash Reconciliation",
-        desc: "Cash reconciliation tracking.",
-        icon: "💵",
-        tags: ["Google Form"],
-        url: "https://docs.google.com/forms/d/e/1FAIpQLSckmYA0pninVJLOyPduZnMQ__b7gByaFJxoGCVYlKUVgQZcLA/viewform",
-        embed: "https://docs.google.com/forms/d/e/1FAIpQLSckmYA0pninVJLOyPduZnMQ__b7gByaFJxoGCVYlKUVgQZcLA/viewform?embedded=true"
-      },
-      {
-        id: "logistics",
-        name: "Logistics",
-        desc: "Shipping & warehouse tools.",
-        icon: "📦",
-        tags: ["Operations"],
-        url: "https://wpvportal.weebly.com/logistics.html",
-        embed: "https://wpvportal.weebly.com/logistics.html"
-      },
-      {
-        id: "analytics",
-        name: "Analytics",
-        desc: "Dashboards & reporting.",
-        icon: "📊",
-        tags: ["Analytics"],
-        url: "https://wpvportal.weebly.com/analytics-login---bbism.html",
-        embed: "https://wpvportal.weebly.com/analytics-login---bbism.html"
-      },
-      {
-        id: "requests",
-        name: "Requests Hub",
-        desc: "Master requests portal.",
-        icon: "🗂️",
-        tags: ["Requests"],
-        url: "https://wpvportal.weebly.com/database---bbism.html",
-        embed: "https://wpvportal.weebly.com/database---bbism.html"
-      }
+    const ROUTES = [
+      { id:"baseballism", label:"Baseballism", group:"core", src:"https://bbismblockay.github.io/financehub/employeehub.html" },
+      { id:"travel-requests", label:"Travel Requests", group:"core", src:"https://www.jotform.com/grid/200496754119055" },
+      { id:"bars-requests", label:"Bars Requests", group:"core", src:"https://www.jotform.com/grid/222686658265065" },
+      { id:"wpv-financial-hub", label:"WPV Financial Hub", group:"core", src:"https://bbismblockay.github.io/financehub/testing.html" },
+      { id:"payables", label:"Payables", group:"wip", src:"https://bbismblockay.github.io/financehub/aptest.html" },
+      { id:"sales-dashboard", label:"Sales Dashboard", group:"wip", src:"https://app.powerbi.com/view?r=eyJrIjoiY2U0MWI2ZmMtMTY3MS00MDY3LTg5NjctN2VlYjk0NGMxNzUzIiwidCI6IjIzYTkzNDJkLTFjODEtNGJkNS1hY2U0LThmYWY4ZWVlNTZiZCJ9" },
+      { id:"launch-calendar", label:"Launch Calendar", group:"planning", src:"https://bbismblockay.github.io/financehub/calendar.html" },
+      { id:"po-calendar", label:"PO Calendar", group:"planning", src:"https://bbismblockay.github.io/financehub/planner.html" }
     ];
 
-    const grid = document.getElementById("grid");
-    const frame = document.getElementById("viewerFrame");
-    const titleEl = document.getElementById("viewerTitle");
-    const newTabEl = document.getElementById("viewerNewTab");
-    const empty = document.getElementById("emptyState");
+    let currentTab = "all";
+    let currentRoute = null;
 
-    let activeCard = null;
+    const tabsEl = document.getElementById("tabs");
+    const sidebarEl = document.getElementById("sidebar");
+    const viewerEl = document.getElementById("viewer");
+    const crumbEl = document.getElementById("crumb");
 
-    function loadTool(tool, card) {
-      if (activeCard) activeCard.classList.remove("active");
-      card.classList.add("active");
-      activeCard = card;
-
-      titleEl.textContent = tool.name;
-      newTabEl.href = tool.url;
-      frame.src = tool.embed;
-      empty.style.display = "none";
+    function buildTabs() {
+      const groups = ["all", "core", "wip", "planning"];
+      tabsEl.innerHTML = "";
+      groups.forEach(g => {
+        const btn = document.createElement("button");
+        btn.textContent = g.toUpperCase();
+        btn.classList.toggle("active", currentTab === g);
+        btn.onclick = () => {
+          currentTab = g;
+          buildSidebar();
+        };
+        tabsEl.appendChild(btn);
+      });
     }
 
-    TOOLS.forEach(tool => {
-      const card = document.createElement("div");
-      card.className = "card";
-      card.innerHTML = `
-        <div class="card-top">
-          <div class="icon">${tool.icon}</div>
-          <div class="meta">
-            <p class="name">${tool.name}</p>
-            <p class="desc">${tool.desc}</p>
-            <div class="tags">
-              ${tool.tags.map(t => `<span class="tag">${t}</span>`).join("")}
-            </div>
-          </div>
-        </div>
-      `;
-      card.addEventListener("click", () => loadTool(tool, card));
-      grid.appendChild(card);
-    });
+    function buildSidebar() {
+      sidebarEl.innerHTML = "";
+      const visible = ROUTES.filter(r => currentTab === "all" || r.group === currentTab);
+      visible.forEach(route => {
+        const btn = document.createElement("button");
+        btn.textContent = route.label;
+        btn.classList.toggle("active", currentRoute === route.id);
+        btn.onclick = () => navigate(route.id);
+        sidebarEl.appendChild(btn);
+      });
+    }
 
-    // Optional deep-link support: ?tool=purchase
-    const params = new URLSearchParams(location.search);
-    const initial = params.get("tool");
-    if (initial) {
-      const tool = TOOLS.find(t => t.id === initial);
-      if (tool) {
-        setTimeout(() => {
-          const card = [...grid.children].find(c => c.querySelector(".name").textContent === tool.name);
-          if (card) loadTool(tool, card);
-        }, 0);
+    function navigate(id) {
+      const route = ROUTES.find(r => r.id === id);
+      if (!route) return;
+      currentRoute = route.id;
+      viewerEl.src = route.src;
+      crumbEl.textContent = route.label;
+      buildSidebar();
+    }
+
+    document.getElementById("themeToggle").onclick = () => {
+      document.body.dataset.theme =
+        document.body.dataset.theme === "dark" ? "light" : "dark";
+    };
+
+    document.getElementById("reloadBtn").onclick = () => {
+      viewerEl.src = viewerEl.src;
+    };
+
+    document.getElementById("openNewTab").onclick = () => {
+      if (currentRoute) {
+        const tool = ROUTES.find(r => r.id === currentRoute);
+        if (tool) window.open(tool.src, "_blank");
       }
-    }
+    };
+
+    // Init
+    buildTabs();
+    buildSidebar();
+    if (ROUTES.length) navigate(ROUTES[0].id);
   </script>
 </body>
 </html>
