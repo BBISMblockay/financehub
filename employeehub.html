@@ -3,859 +3,315 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Baseballism — Employee Hub</title>
+  <title>Baseballism • Employee Hub</title>
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 
   <style>
-    :root{
-      --bg0:#0b1220;
-      --bg1:#0f172a;
-      --border:rgba(148,163,184,.18);
-      --text:#e5e7eb;
-      --muted:#a7b0c0;
-      --muted2:#cbd5e1;
-
-      --shadow2:0 10px 30px rgba(0,0,0,.28);
-
-      --accent:#38bdf8;
-      --accent2:#22c55e;
-      --amber:#fbbf24;
-
-      --r18:18px;
-      --max:1100px;
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: Inter, system-ui, sans-serif;
+      background: #f9fafb;
+      color: #111827;
     }
 
-    *{ box-sizing:border-box; }
-    html,body{ height:100%; }
-    body{
-      margin:0;
-      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-      color:var(--text);
-      background:
-        radial-gradient(1200px 600px at 12% -10%, rgba(56,189,248,.18), transparent 55%),
-        radial-gradient(900px 520px at 92% 0%, rgba(34,197,94,.12), transparent 55%),
-        radial-gradient(900px 520px at 70% 120%, rgba(251,191,36,.10), transparent 60%),
-        linear-gradient(180deg, var(--bg0), var(--bg1));
+    a { text-decoration: none; color: inherit; }
+
+    .wrap {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 20px 16px 40px;
     }
 
-    a{ color:inherit; text-decoration:none; }
-
-    .wrap{
-      max-width:var(--max);
-      margin:0 auto;
-      padding:28px 18px 46px;
+    /* Header */
+    .header {
+      margin-bottom: 20px;
     }
-
-    /* Top bar */
-    .top{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:14px;
-      padding:16px 18px;
-      border:1px solid var(--border);
-      border-radius:var(--r18);
-      background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.04));
-      box-shadow:var(--shadow2);
-      backdrop-filter: blur(10px);
+    .title {
+      font-size: 22px;
+      font-weight: 700;
     }
-    .brand{
-      display:flex;
-      align-items:center;
-      gap:12px;
-      min-width:240px;
-    }
-    .logo{
-      width:44px; height:44px;
-      border-radius:14px;
-      background:
-        radial-gradient(18px 18px at 30% 25%, rgba(255,255,255,.22), transparent 60%),
-        linear-gradient(135deg, rgba(56,189,248,.95), rgba(34,197,94,.70));
-      box-shadow:0 10px 26px rgba(56,189,248,.14);
-      display:grid; place-items:center;
-      border:1px solid rgba(255,255,255,.14);
-    }
-    .brand h1{
-      margin:0;
-      font-size:16px;
-      letter-spacing:.2px;
-      font-weight:900;
-      line-height:1.15;
-    }
-    .brand p{
-      margin:3px 0 0;
-      color:var(--muted);
-      font-size:12.5px;
-      line-height:1.2;
-    }
-    .top-right{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      flex-wrap:wrap;
-      justify-content:flex-end;
-    }
-    .chip{
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      padding:8px 10px;
-      border:1px solid var(--border);
-      border-radius:999px;
-      background:rgba(255,255,255,.05);
-      font-size:12px;
-      color:var(--muted2);
-      user-select:none;
-      white-space:nowrap;
-    }
-    .dot{
-      width:8px;height:8px;border-radius:50%;
-      background:var(--accent2);
-      box-shadow:0 0 0 4px rgba(34,197,94,.12);
-    }
-
-    /* Hero */
-    .hero{
-      margin-top:18px;
-      display:grid;
-      grid-template-columns: 1.25fr .75fr;
-      gap:14px;
-      align-items:stretch;
-    }
-    .hero-card{
-      border:1px solid var(--border);
-      border-radius:var(--r18);
-      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
-      box-shadow:var(--shadow2);
-      padding:18px;
-      position:relative;
-      overflow:hidden;
-    }
-    .hero-card:before{
-      content:"";
-      position:absolute;
-      inset:-120px -80px auto auto;
-      width:320px;height:320px;
-      background:radial-gradient(circle at 30% 30%, rgba(56,189,248,.20), transparent 60%);
-      pointer-events:none;
-      transform: rotate(14deg);
-    }
-    .hero-title{
-      margin:0 0 8px;
-      font-size:22px;
-      letter-spacing:.2px;
-      font-weight:950;
-    }
-    .hero-sub{
-      margin:0;
-      color:var(--muted);
-      font-size:13.5px;
-      line-height:1.45;
-      max-width:70ch;
-    }
-
-    .quick{
-      display:flex;
-      flex-direction:column;
-      gap:10px;
-      height:100%;
-    }
-    .quick h3{
-      margin:0;
-      font-size:13px;
-      font-weight:950;
-      letter-spacing:.35px;
-      color:rgba(203,213,225,.95);
-      text-transform:uppercase;
-    }
-    .quick p{
-      margin:0 0 2px;
-      color:var(--muted);
-      font-size:12.5px;
-      line-height:1.35;
-    }
-    .stack{ display:grid; gap:10px; margin-top:6px; }
-
-    /* Buttons */
-    .btn, .open{
-      display:inline-flex;
-      align-items:center;
-      gap:10px;
-      padding:10px 12px;
-      border-radius:12px;
-      border:1px solid rgba(255,255,255,.14);
-      background:rgba(255,255,255,.07);
-      font-weight:900;
-      font-size:13px;
-      transition: background .15s ease, border-color .15s ease, transform .08s ease;
-      white-space:nowrap;
-      cursor:pointer;
-      user-select:none;
-    }
-    .btn:hover, .open:hover{
-      background:rgba(255,255,255,.10);
-      border-color: rgba(56,189,248,.30);
-      transform: translateY(-1px);
-    }
-    .open{
-      justify-content:space-between;
-      width:100%;
-      padding:12px 12px;
-    }
-    .btn.ghost{
-      background:transparent;
-      border-color: rgba(148,163,184,.22);
-      font-weight:800;
-    }
-    .btn.ghost:hover{
-      background:rgba(255,255,255,.06);
-      border-color: rgba(255,255,255,.22);
-    }
-
-    /* Sections */
-    .section{ margin-top:18px; }
-    .section-head{
-      display:flex;
-      align-items:end;
-      justify-content:space-between;
-      gap:10px;
-      margin-bottom:10px;
-    }
-    .section-head h2{
-      margin:0;
-      font-size:14px;
-      letter-spacing:.35px;
-      text-transform:uppercase;
-      color:rgba(203,213,225,.95);
-      font-weight:950;
-    }
-    .section-head .hint{
-      margin:0;
-      font-size:12px;
-      color:var(--muted);
-    }
-
-    .grid{
-      display:grid;
-      grid-template-columns: repeat(12, 1fr);
-      gap:12px;
+    .subtitle {
+      font-size: 14px;
+      color: #6b7280;
+      margin-top: 2px;
     }
 
     /* Cards */
-    .card{
-      grid-column: span 6;
-      border:1px solid var(--border);
-      border-radius:var(--r18);
-      background:linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.03));
-      box-shadow:var(--shadow2);
-      padding:14px;
-      position:relative;
-      overflow:hidden;
-      transition: transform .12s ease, border-color .12s ease, background .12s ease;
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
     }
-    .card:hover{
+
+    .card {
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 16px;
+      cursor: pointer;
+      transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+    }
+
+    .card:hover {
       transform: translateY(-2px);
-      border-color: rgba(56,189,248,.30);
-      background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,.04));
+      box-shadow: 0 10px 28px rgba(0,0,0,.08);
+      border-color: #d1d5db;
     }
 
-    .card-top{
-      display:flex;
-      align-items:flex-start;
-      justify-content:space-between;
-      gap:10px;
-      margin-bottom:10px;
-    }
-    .left{
-      display:flex;
-      gap:12px;
-      align-items:flex-start;
-      min-width:0;
-    }
-    .ico{
-      width:42px;height:42px;border-radius:14px;
-      display:grid;place-items:center;
-      border:1px solid rgba(255,255,255,.12);
-      background:rgba(255,255,255,.06);
-      flex:0 0 auto;
-    }
-    .meta{ min-width:0; }
-    .meta .title{
-      margin:0;
-      font-size:15px;
-      font-weight:950;
-      letter-spacing:.1px;
-      line-height:1.2;
-    }
-    .meta .desc{
-      margin:6px 0 0;
-      font-size:12.5px;
-      color:var(--muted);
-      line-height:1.35;
-    }
-    .tags{
-      display:flex;
-      gap:8px;
-      flex-wrap:wrap;
-      justify-content:flex-end;
-    }
-    .tag{
-      font-size:11px;
-      padding:6px 9px;
-      border-radius:999px;
-      border:1px solid var(--border);
-      background:rgba(0,0,0,.14);
-      color:rgba(203,213,225,.90);
-      white-space:nowrap;
-    }
-    .tag.blue{ border-color: rgba(56,189,248,.25); color: rgba(186,230,253,.92); }
-    .tag.green{ border-color: rgba(34,197,94,.22); color: rgba(187,247,208,.92); }
-    .tag.amber{ border-color: rgba(251,191,36,.22); color: rgba(253,230,138,.92); }
-
-    .card-actions{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      margin-top:12px;
-      padding-top:12px;
-      border-top:1px solid rgba(148,163,184,.14);
-      flex-wrap:wrap;
-    }
-    .small{
-      font-size:12px;
-      color:var(--muted);
-      white-space:nowrap;
-      display:flex;
-      align-items:center;
-      gap:8px;
-    }
-    .actions-left{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-      align-items:center;
+    .card.active {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 1px #2563eb;
     }
 
-    /* Embedded Viewer */
-    .embed-wrap{
-      border:1px solid rgba(148,163,184,.16);
-      border-radius:14px;
-      overflow:hidden;
-      background:rgba(0,0,0,.14);
-      box-shadow:var(--shadow2);
-    }
-    .embed-head{
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      padding:12px 12px;
-      border-bottom:1px solid rgba(148,163,184,.16);
-      background:rgba(255,255,255,.05);
-      flex-wrap:wrap;
-    }
-    .embed-head .lefty{
-      display:flex;
-      align-items:center;
-      gap:10px;
-      min-width:0;
-      flex: 1 1 320px;
-    }
-    .embed-title{
-      margin:0;
-      font-size:13px;
-      font-weight:950;
-      letter-spacing:.2px;
-    }
-    .embed-sub{
-      margin:0;
-      font-size:12px;
-      color:var(--muted);
-      line-height:1.25;
+    .card-top {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
     }
 
-    .embed-shell{ position:relative; }
-    .embed-loading{
-      display:none;
-      position:absolute; inset:0;
-      z-index:2;
-      background:rgba(11,18,32,.70);
-      backdrop-filter: blur(6px);
-      align-items:center;
-      justify-content:center;
-      flex-direction:column;
-      gap:10px;
-      color:rgba(203,213,225,.95);
-      font-weight:900;
-    }
-    .spinner{
-      width:34px;height:34px;border-radius:999px;
-      border:3px solid rgba(255,255,255,.18);
-      border-top-color:rgba(56,189,248,.9);
-      animation:spin .9s linear infinite;
-    }
-    @keyframes spin{ to{ transform:rotate(360deg);} }
-
-    iframe.hub-frame{
-      width:100% !important;
-      min-height:880px;
-      border:0 !important;
-      background:#fff;
-      display:block;
+    .icon {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: #eef2f7;
+      display: grid;
+      place-items: center;
+      font-size: 18px;
+      flex-shrink: 0;
     }
 
-    /* Footer */
-    .footer{
-      margin-top:18px;
-      border:1px solid var(--border);
-      border-radius:var(--r18);
-      background:rgba(255,255,255,.04);
-      padding:14px 16px;
-      display:flex;
-      flex-wrap:wrap;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      color:var(--muted);
-      font-size:12px;
+    .meta {
+      min-width: 0;
     }
 
-    /* Responsive */
-    @media (max-width: 940px){
-      .hero{ grid-template-columns: 1fr; }
-      .brand{ min-width:auto; }
-    }
-    @media (max-width: 760px){
-      .card{ grid-column: span 12; }
-      .top{ padding:14px; }
-      .hero-card{ padding:16px; }
-      .hero-title{ font-size:20px; }
-      iframe.hub-frame{ min-height:980px; }
+    .meta .name {
+      font-size: 15px;
+      font-weight: 700;
+      margin: 0;
     }
 
-    @media print{
-      body{ background:#fff; color:#111; }
-      .top,.hero-card,.card,.footer,.embed-wrap{ box-shadow:none !important; background:#fff !important; }
-      .chip,.tag,.btn,.open{ border:1px solid #ddd !important; color:#111 !important; background:#fff !important; }
-      #viewer{ display:none !important; }
+    .meta .desc {
+      font-size: 13px;
+      color: #6b7280;
+      margin-top: 4px;
+      line-height: 1.35;
+    }
+
+    .tags {
+      display: flex;
+      gap: 6px;
+      margin-top: 10px;
+      flex-wrap: wrap;
+    }
+
+    .tag {
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: #f3f4f6;
+      border: 1px solid #e5e7eb;
+      color: #6b7280;
+      white-space: nowrap;
+    }
+
+    /* Viewer */
+    .viewer {
+      margin-top: 28px;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .viewer-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+
+    .viewer-title {
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .viewer-head a {
+      font-size: 13px;
+      font-weight: 600;
+      color: #2563eb;
+    }
+
+    iframe {
+      width: 100%;
+      min-height: 720px;
+      border: none;
+      background: #fff;
+    }
+
+    /* Empty state */
+    .empty {
+      padding: 80px 20px;
+      text-align: center;
+      color: #6b7280;
+      font-size: 14px;
+    }
+
+    @media (max-width: 720px) {
+      iframe { min-height: 900px; }
     }
   </style>
 </head>
 
 <body>
   <div class="wrap">
-    <!-- TOP BAR -->
-    <div class="top" role="banner" aria-label="Employee Hub Header">
-      <div class="brand">
-        <div class="logo" aria-hidden="true">
-          <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
-            <path d="M12 2l8.5 4.5v11L12 22 3.5 17.5v-11L12 2z" stroke="rgba(6,16,29,.85)" stroke-width="1.6"/>
-            <path d="M12 22V12.2" stroke="rgba(6,16,29,.65)" stroke-width="1.6"/>
-            <path d="M20.5 6.5L12 11.3 3.5 6.5" stroke="rgba(6,16,29,.65)" stroke-width="1.6"/>
-          </svg>
-        </div>
-        <div>
-          <h1>Baseballism — Employee Hub</h1>
-          <p>Requests, receipts, travel, logistics, analytics.</p>
-        </div>
+
+    <!-- HEADER -->
+    <div class="header">
+      <div class="title">Employee Hub</div>
+      <div class="subtitle">Baseballism internal tools & requests</div>
+    </div>
+
+    <!-- TOOL CARDS -->
+    <div class="grid" id="grid"></div>
+
+    <!-- VIEWER -->
+    <div class="viewer" id="viewer">
+      <div class="viewer-head">
+        <div class="viewer-title" id="viewerTitle">Select a tool</div>
+        <a id="viewerNewTab" href="#" target="_blank" rel="noopener">Open in new tab ↗</a>
       </div>
 
-      <div class="top-right">
-        <span class="chip"><span class="dot" aria-hidden="true"></span>Employee</span>
-        <span class="chip">Hub</span>
+      <iframe id="viewerFrame" src=""></iframe>
+
+      <div class="empty" id="emptyState">
+        Select a tool above to load it here.
       </div>
     </div>
 
-    <!-- HERO -->
-    <div class="hero" aria-label="Quick access area">
-      <div class="hero-card">
-        <h2 class="hero-title">Quick access.</h2>
-        <p class="hero-sub">
-          Everything opens inside this page.
-        </p>
-      </div>
-
-      <div class="hero-card">
-        <div class="quick">
-          <div>
-            <h3>Shortcuts</h3>
-            <p>Top actions.</p>
-          </div>
-
-          <div class="stack">
-            <a class="open" href="#viewer" data-open="purchase">
-              <span>Purchase / Invoice Request</span><span aria-hidden="true">→</span>
-            </a>
-            <a class="open" href="#viewer" data-open="receipt">
-              <span>Receipt Upload</span><span aria-hidden="true">→</span>
-            </a>
-            <a class="open" href="#viewer" data-open="cash_recon">
-              <span>Cash Recon (Google Form)</span><span aria-hidden="true">→</span>
-            </a>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- LINKS -->
-    <div class="section">
-      <div class="section-head">
-        <h2>Employee Links</h2>
-        <p class="hint"></p>
-      </div>
-
-      <div class="grid">
-        <!-- Purchase / Invoice Request (Portal / Jotform inside) -->
-        <div class="card">
-          <div class="card-top">
-            <div class="left">
-              <div class="ico" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M7 3h10l2 3v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" stroke="rgba(186,230,253,.95)" stroke-width="2"/>
-                  <path d="M8 11h8M8 15h8" stroke="rgba(186,230,253,.75)" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-              </div>
-              <div class="meta">
-                <p class="title">Purchase / Invoice Request</p>
-                <p class="desc">Submit invoices or purchase requests.</p>
-              </div>
-            </div>
-            <div class="tags">
-              <span class="tag blue">Request</span>
-              <span class="tag">Portal</span>
-            </div>
-          </div>
-          <div class="card-actions">
-            <div class="actions-left">
-              <a class="btn" href="#viewer" data-open="purchase">Open →</a>
-              <a class="btn ghost" href="https://wpvportal.weebly.com/submit-request---bbism.html" target="_blank" rel="noopener noreferrer">New tab ↗</a>
-            </div>
-            <span class="small">Invoices / Purchases</span>
-          </div>
-        </div>
-
-        <!-- Receipt Upload (Jotform direct) -->
-        <div class="card">
-          <div class="card-top">
-            <div class="left">
-              <div class="ico" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M7 3h10l2 3v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" stroke="rgba(187,247,208,.95)" stroke-width="2"/>
-                  <path d="M8 13h8M8 17h6" stroke="rgba(187,247,208,.75)" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-              </div>
-              <div class="meta">
-                <p class="title">Receipt Upload</p>
-                <p class="desc">Upload receipts.</p>
-              </div>
-            </div>
-            <div class="tags">
-              <span class="tag green">Upload</span>
-              <span class="tag">Jotform</span>
-            </div>
-          </div>
-          <div class="card-actions">
-            <div class="actions-left">
-              <a class="btn" href="#viewer" data-open="receipt">Open →</a>
-              <a class="btn ghost" href="https://form.jotform.com/202585858721161" target="_blank" rel="noopener noreferrer">New tab ↗</a>
-            </div>
-            <span class="small">Receipts</span>
-          </div>
-        </div>
-
-        <!-- Travel Request (Portal / Jotform inside) -->
-        <div class="card">
-          <div class="card-top">
-            <div class="left">
-              <div class="ico" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M2.5 12.5l19-7-7 19-3.5-8-8.5-4z" stroke="rgba(253,230,138,.95)" stroke-width="2" stroke-linejoin="round"/>
-                </svg>
-              </div>
-              <div class="meta">
-                <p class="title">Travel Request</p>
-                <p class="desc">Submit travel requests.</p>
-              </div>
-            </div>
-            <div class="tags">
-              <span class="tag amber">Travel</span>
-              <span class="tag">Portal</span>
-            </div>
-          </div>
-          <div class="card-actions">
-            <div class="actions-left">
-              <a class="btn" href="#viewer" data-open="travel">Open →</a>
-              <a class="btn ghost" href="https://wpvportal.weebly.com/travel-form---bbism.html" target="_blank" rel="noopener noreferrer">New tab ↗</a>
-            </div>
-            <span class="small">Travel</span>
-          </div>
-        </div>
-
-        <!-- Cash Recon (Google Form) -->
-        <div class="card">
-          <div class="card-top">
-            <div class="left">
-              <div class="ico" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M7 3h8l4 4v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" stroke="rgba(186,230,253,.95)" stroke-width="2"/>
-                  <path d="M15 3v5h5" stroke="rgba(186,230,253,.95)" stroke-width="2"/>
-                  <path d="M8 12h8M8 16h8" stroke="rgba(186,230,253,.75)" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-              </div>
-              <div class="meta">
-                <p class="title">Cash Recon (Google Form)</p>
-                <p class="desc">Cash reconciliation tracking.</p>
-              </div>
-            </div>
-            <div class="tags">
-              <span class="tag blue">Google</span>
-              <span class="tag">Tracking</span>
-            </div>
-          </div>
-          <div class="card-actions">
-            <div class="actions-left">
-              <a class="btn" href="#viewer" data-open="cash_recon">Open →</a>
-              <a class="btn ghost" href="https://docs.google.com/forms/d/e/1FAIpQLSckmYA0pninVJLOyPduZnMQ__b7gByaFJxoGCVYlKUVgQZcLA/viewform" target="_blank" rel="noopener noreferrer">New tab ↗</a>
-            </div>
-            <span class="small">Google Forms</span>
-          </div>
-        </div>
-
-        <!-- Logistics -->
-        <div class="card">
-          <div class="card-top">
-            <div class="left">
-              <div class="ico" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M3 7h11v10H3V7z" stroke="rgba(186,230,253,.95)" stroke-width="2"/>
-                  <path d="M14 10h4l3 3v4h-7v-7z" stroke="rgba(186,230,253,.95)" stroke-width="2" stroke-linejoin="round"/>
-                  <path d="M7 19a1.5 1.5 0 1 0 0 .01V19zm10 0a1.5 1.5 0 1 0 0 .01V19z" stroke="rgba(186,230,253,.75)" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-              </div>
-              <div class="meta">
-                <p class="title">Logistics</p>
-                <p class="desc">Shipping + warehouse.</p>
-              </div>
-            </div>
-            <div class="tags">
-              <span class="tag blue">Ops</span>
-              <span class="tag">Portal</span>
-            </div>
-          </div>
-          <div class="card-actions">
-            <div class="actions-left">
-              <a class="btn" href="#viewer" data-open="logistics">Open →</a>
-              <a class="btn ghost" href="https://wpvportal.weebly.com/logistics.html" target="_blank" rel="noopener noreferrer">New tab ↗</a>
-            </div>
-            <span class="small">Logistics</span>
-          </div>
-        </div>
-
-        <!-- Analytics -->
-        <div class="card">
-          <div class="card-top">
-            <div class="left">
-              <div class="ico" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M4 19V5" stroke="rgba(253,230,138,.95)" stroke-width="2" stroke-linecap="round"/>
-                  <path d="M4 19h16" stroke="rgba(253,230,138,.95)" stroke-width="2" stroke-linecap="round"/>
-                  <path d="M7 15l3-4 3 2 4-6 2 2" stroke="rgba(253,230,138,.8)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                </svg>
-              </div>
-              <div class="meta">
-                <p class="title">Analytics</p>
-                <p class="desc">Dashboards + reporting.</p>
-              </div>
-            </div>
-            <div class="tags">
-              <span class="tag amber">Analytics</span>
-              <span class="tag">Login</span>
-            </div>
-          </div>
-          <div class="card-actions">
-            <div class="actions-left">
-              <a class="btn" href="#viewer" data-open="analytics">Open →</a>
-              <a class="btn ghost" href="https://wpvportal.weebly.com/analytics-login---bbism.html" target="_blank" rel="noopener noreferrer">New tab ↗</a>
-            </div>
-            <span class="small">Analytics</span>
-          </div>
-        </div>
-
-        <!-- Requests Hub -->
-        <div class="card">
-          <div class="card-top">
-            <div class="left">
-              <div class="ico" aria-hidden="true">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M8 4h8l2 3v14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V7l2-3z" stroke="rgba(186,230,253,.95)" stroke-width="2" stroke-linejoin="round"/>
-                  <path d="M9 12h6M9 16h6" stroke="rgba(186,230,253,.75)" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-              </div>
-              <div class="meta">
-                <p class="title">Requests Hub</p>
-                <p class="desc">Requests + submissions.</p>
-              </div>
-            </div>
-            <div class="tags">
-              <span class="tag blue">Requests</span>
-              <span class="tag">Portal</span>
-            </div>
-          </div>
-          <div class="card-actions">
-            <div class="actions-left">
-              <a class="btn" href="#viewer" data-open="requests">Open →</a>
-              <a class="btn ghost" href="https://wpvportal.weebly.com/database---bbism.html" target="_blank" rel="noopener noreferrer">New tab ↗</a>
-            </div>
-            <span class="small">Requests</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- EMBEDDED VIEWER -->
-    <div class="section" id="viewer">
-      <div class="section-head">
-        <h2>Viewer</h2>
-        <p class="hint"></p>
-      </div>
-
-      <div class="embed-wrap">
-        <div class="embed-head">
-          <div class="lefty">
-            <div class="ico" aria-hidden="true" style="width:38px;height:38px;border-radius:12px;">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <path d="M7 3h10l2 3v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" stroke="rgba(229,231,235,.92)" stroke-width="2"/>
-                <path d="M8 13h8M8 17h6" stroke="rgba(229,231,235,.75)" stroke-width="2" stroke-linecap="round"/>
-              </svg>
-            </div>
-
-            <div style="min-width:0;">
-              <p class="embed-title" id="embedTitle">Purchase / Invoice Request</p>
-              <p class="embed-sub" id="embedSub">Submit invoices or purchase requests.</p>
-            </div>
-          </div>
-
-          <a class="btn" id="embedNewTab" href="https://wpvportal.weebly.com/submit-request---bbism.html" target="_blank" rel="noopener noreferrer">
-            New tab ↗
-          </a>
-        </div>
-
-        <div class="embed-shell">
-          <div class="embed-loading" id="embedLoading" aria-hidden="true">
-            <div class="spinner" aria-hidden="true"></div>
-            <div>Loading…</div>
-          </div>
-
-          <iframe
-            class="hub-frame"
-            id="embedFrame"
-            title="Embedded Viewer"
-            src="https://wpvportal.weebly.com/submit-request---bbism.html"
-            loading="lazy"
-            allow="camera; microphone; geolocation"
-          ></iframe>
-        </div>
-      </div>
-    </div>
-
-    <div class="footer" role="contentinfo">
-      <div>Baseballism • Employee Hub</div>
-      <div></div>
-    </div>
   </div>
 
   <script>
-    (function(){
-      // Everything (forms + pages) loads into the same iframe
-      const ITEMS = {
-        purchase: {
-          title: "Purchase / Invoice Request",
-          sub: "Submit invoices or purchase requests.",
-          url: "https://wpvportal.weebly.com/submit-request---bbism.html",
-          embed: "https://wpvportal.weebly.com/submit-request---bbism.html"
-        },
-        receipt: {
-          title: "Receipt Upload",
-          sub: "Upload receipts.",
-          url: "https://form.jotform.com/202585858721161",
-          embed: "https://form.jotform.com/202585858721161"
-        },
-        travel: {
-          title: "Travel Request",
-          sub: "Submit travel requests.",
-          url: "https://wpvportal.weebly.com/travel-form---bbism.html",
-          embed: "https://wpvportal.weebly.com/travel-form---bbism.html"
-        },
-        cash_recon: {
-          title: "Cash Recon (Google Form)",
-          sub: "Cash reconciliation tracking.",
-          url: "https://docs.google.com/forms/d/e/1FAIpQLSckmYA0pninVJLOyPduZnMQ__b7gByaFJxoGCVYlKUVgQZcLA/viewform",
-          embed: "https://docs.google.com/forms/d/e/1FAIpQLSckmYA0pninVJLOyPduZnMQ__b7gByaFJxoGCVYlKUVgQZcLA/viewform?embedded=true"
-        },
-        logistics: {
-          title: "Logistics",
-          sub: "Shipping + warehouse.",
-          url: "https://wpvportal.weebly.com/logistics.html",
-          embed: "https://wpvportal.weebly.com/logistics.html"
-        },
-        analytics: {
-          title: "Analytics",
-          sub: "Dashboards + reporting.",
-          url: "https://wpvportal.weebly.com/analytics-login---bbism.html",
-          embed: "https://wpvportal.weebly.com/analytics-login---bbism.html"
-        },
-        requests: {
-          title: "Requests Hub",
-          sub: "Requests + submissions.",
-          url: "https://wpvportal.weebly.com/database---bbism.html",
-          embed: "https://wpvportal.weebly.com/database---bbism.html"
-        }
-      };
-
-      const frame   = document.getElementById("embedFrame");
-      const titleEl = document.getElementById("embedTitle");
-      const subEl   = document.getElementById("embedSub");
-      const newTab  = document.getElementById("embedNewTab");
-      const loading = document.getElementById("embedLoading");
-
-      function showLoading(on){
-        loading.style.display = on ? "flex" : "none";
-        loading.setAttribute("aria-hidden", on ? "false" : "true");
+    const TOOLS = [
+      {
+        id: "purchase",
+        name: "Purchase / Invoice Request",
+        desc: "Submit invoices or purchase requests.",
+        icon: "🧾",
+        tags: ["Request", "Portal"],
+        url: "https://wpvportal.weebly.com/submit-request---bbism.html",
+        embed: "https://wpvportal.weebly.com/submit-request---bbism.html"
+      },
+      {
+        id: "receipt",
+        name: "Receipt Upload",
+        desc: "Upload receipts.",
+        icon: "📤",
+        tags: ["Upload", "Jotform"],
+        url: "https://form.jotform.com/202585858721161",
+        embed: "https://form.jotform.com/202585858721161"
+      },
+      {
+        id: "travel",
+        name: "Travel Request",
+        desc: "Submit travel requests.",
+        icon: "✈️",
+        tags: ["Travel"],
+        url: "https://wpvportal.weebly.com/travel-form---bbism.html",
+        embed: "https://wpvportal.weebly.com/travel-form---bbism.html"
+      },
+      {
+        id: "cash",
+        name: "Cash Reconciliation",
+        desc: "Cash reconciliation tracking.",
+        icon: "💵",
+        tags: ["Google Form"],
+        url: "https://docs.google.com/forms/d/e/1FAIpQLSckmYA0pninVJLOyPduZnMQ__b7gByaFJxoGCVYlKUVgQZcLA/viewform",
+        embed: "https://docs.google.com/forms/d/e/1FAIpQLSckmYA0pninVJLOyPduZnMQ__b7gByaFJxoGCVYlKUVgQZcLA/viewform?embedded=true"
+      },
+      {
+        id: "logistics",
+        name: "Logistics",
+        desc: "Shipping & warehouse tools.",
+        icon: "📦",
+        tags: ["Operations"],
+        url: "https://wpvportal.weebly.com/logistics.html",
+        embed: "https://wpvportal.weebly.com/logistics.html"
+      },
+      {
+        id: "analytics",
+        name: "Analytics",
+        desc: "Dashboards & reporting.",
+        icon: "📊",
+        tags: ["Analytics"],
+        url: "https://wpvportal.weebly.com/analytics-login---bbism.html",
+        embed: "https://wpvportal.weebly.com/analytics-login---bbism.html"
+      },
+      {
+        id: "requests",
+        name: "Requests Hub",
+        desc: "Master requests portal.",
+        icon: "🗂️",
+        tags: ["Requests"],
+        url: "https://wpvportal.weebly.com/database---bbism.html",
+        embed: "https://wpvportal.weebly.com/database---bbism.html"
       }
+    ];
 
-      function openItem(key){
-        const it = ITEMS[key];
-        if(!it) return;
+    const grid = document.getElementById("grid");
+    const frame = document.getElementById("viewerFrame");
+    const titleEl = document.getElementById("viewerTitle");
+    const newTabEl = document.getElementById("viewerNewTab");
+    const empty = document.getElementById("emptyState");
 
-        titleEl.textContent = it.title;
-        subEl.textContent   = it.sub;
-        newTab.href         = it.url;
+    let activeCard = null;
 
-        showLoading(true);
-        frame.src = it.embed;
+    function loadTool(tool, card) {
+      if (activeCard) activeCard.classList.remove("active");
+      card.classList.add("active");
+      activeCard = card;
 
-        const anchor = document.getElementById("viewer");
-        if(anchor) anchor.scrollIntoView({ behavior:"smooth", block:"start" });
+      titleEl.textContent = tool.name;
+      newTabEl.href = tool.url;
+      frame.src = tool.embed;
+      empty.style.display = "none";
+    }
+
+    TOOLS.forEach(tool => {
+      const card = document.createElement("div");
+      card.className = "card";
+      card.innerHTML = `
+        <div class="card-top">
+          <div class="icon">${tool.icon}</div>
+          <div class="meta">
+            <p class="name">${tool.name}</p>
+            <p class="desc">${tool.desc}</p>
+            <div class="tags">
+              ${tool.tags.map(t => `<span class="tag">${t}</span>`).join("")}
+            </div>
+          </div>
+        </div>
+      `;
+      card.addEventListener("click", () => loadTool(tool, card));
+      grid.appendChild(card);
+    });
+
+    // Optional deep-link support: ?tool=purchase
+    const params = new URLSearchParams(location.search);
+    const initial = params.get("tool");
+    if (initial) {
+      const tool = TOOLS.find(t => t.id === initial);
+      if (tool) {
+        setTimeout(() => {
+          const card = [...grid.children].find(c => c.querySelector(".name").textContent === tool.name);
+          if (card) loadTool(tool, card);
+        }, 0);
       }
-
-      frame.addEventListener("load", () => showLoading(false));
-
-      document.addEventListener("click", (e) => {
-        const el = e.target.closest("[data-open]");
-        if(!el) return;
-        e.preventDefault();
-        openItem(el.getAttribute("data-open"));
-      });
-
-      // Optional: direct open via ?open=purchase (purchase, receipt, travel, cash_recon, logistics, analytics, requests)
-      const params = new URLSearchParams(location.search);
-      const key = params.get("open");
-      if(key && ITEMS[key]) openItem(key);
-    })();
+    }
   </script>
 </body>
 </html>
