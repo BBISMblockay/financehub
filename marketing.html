@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Marketing</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
+
+  <style>
+    html, body {
+      margin: 0; padding: 0; height: 100%;
+      font-family: Inter, sans-serif;
+      background: var(--bg); color: var(--text);
+    }
+    :root {
+      --bg: #f9fafb;
+      --surface: #ffffff;
+      --text: #111827;
+      --muted: #6b7280;
+      --accent: #2563eb;
+      --border: #e5e7eb;
+    }
+    [data-theme="dark"] {
+      --bg: #0f1117;
+      --surface: #1a1e26;
+      --text: #f3f4f6;
+      --muted: #9ca3af;
+      --accent: #4f8cff;
+      --border: #2a2f3a;
+    }
+    * { box-sizing: border-box; }
+
+    /* HEADER */
+    header {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 14px 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .brand { font-size: 16px; font-weight: 700; }
+    .crumb { font-size: 13px; color: var(--muted); margin-top: 2px; }
+
+    .header-left {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .actions {
+      display: flex; gap: 10px;
+    }
+    .icon-btn, .primary-btn {
+      padding: 8px 10px;
+      font-size: 13px;
+      border-radius: 6px;
+      font-weight: 600;
+      border: none;
+    }
+    .icon-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    .icon-btn:hover {
+      background: var(--border);
+    }
+    .primary-btn {
+      background: var(--accent);
+      color: white;
+    }
+    .primary-btn:hover {
+      opacity: 0.9;
+    }
+
+    /* TABS / SEGMENTED CONTROL */
+    .tabs {
+      display: flex;
+      gap: 8px;
+      padding: 10px 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .tabs button {
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      border: none;
+      border-radius: 999px;
+      background: none;
+      color: var(--muted);
+    }
+    .tabs button.active {
+      background: var(--accent);
+      color: white;
+    }
+    .tabs button:hover {
+      background: var(--border);
+    }
+
+    /* MAIN LAYOUT */
+    .container {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      height: calc(100% - 108px);
+    }
+
+    .sidebar {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 12px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .sidebar button {
+      padding: 9px 12px;
+      text-align: left;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      background: none;
+      color: var(--text);
+      border: none;
+      transition: background 0.15s ease;
+    }
+    .sidebar button:hover {
+      background: var(--border);
+    }
+    .sidebar button.active {
+      background: var(--accent);
+      color: white;
+    }
+
+    .main {
+      display: flex;
+      flex-direction: column;
+      padding: 14px;
+      overflow: hidden;
+    }
+
+    iframe {
+      flex: 1;
+      width: 100%;
+      height: 100%;
+      border: none;
+      border-radius: 8px;
+      background: var(--surface);
+    }
+  </style>
+</head>
+
+<body data-theme="light">
+  <header>
+    <div class="header-left">
+      <div class="brand">Marketing</div>
+      <div class="crumb" id="crumb">Marketing Department</div>
+    </div>
+    <div class="actions">
+      <button class="icon-btn" id="themeToggle">🌓</button>
+      <button class="icon-btn" id="reloadBtn">🔄</button>
+      <button class="primary-btn" id="openNewTab">↗</button>
+    </div>
+  </header>
+
+  <div class="tabs" id="tabs"></div>
+
+  <div class="container">
+    <nav class="sidebar" id="sidebar"></nav>
+    <div class="main">
+      <iframe id="viewer" title="Tool Viewer"></iframe>
+    </div>
+  </div>
+
+  <script>
+    const ROUTES = [
+      { id:"baseballism", label:"Baseballism", group:"core", src:"https://bbismblockay.github.io/financehub/employeehub.html" },
+      { id:"inventory", label:"Inventory", group:"Inventory", src:"https://bbismblockay.github.io/financehub/inventory.html" },
+      { id:"sales-dashboard", label:"Sales Dashboard", group:"wip", src:"https://app.powerbi.com/view?r=eyJrIjoiY2U0MWI2ZmMtMTY3MS00MDY3LTg5NjctN2VlYjk0NGMxNzUzIiwidCI6IjIzYTkzNDJkLTFjODEtNGJkNS1hY2U0LThmYWY4ZWVlNTZiZCJ9" },
+      { id:"launch-calendar", label:"Launch Calendar", group:"planning", src:"https://bbismblockay.github.io/financehub/calendar.html" },
+      { id:"po-allocation", label:"Model Applications", group:"PO Allocation", src:"https://bbismblockay.github.io/financehub/modelapps.html" }
+    ];
+
+    let currentTab = "all";
+    let currentRoute = null;
+
+    const tabsEl = document.getElementById("tabs");
+    const sidebarEl = document.getElementById("sidebar");
+    const viewerEl = document.getElementById("viewer");
+    const crumbEl = document.getElementById("crumb");
+
+    function buildTabs() {
+      const groups = ["all", "core", "wip", "planning"];
+      tabsEl.innerHTML = "";
+      groups.forEach(g => {
+        const btn = document.createElement("button");
+        btn.textContent = g.toUpperCase();
+        btn.classList.toggle("active", currentTab === g);
+        btn.onclick = () => {
+          currentTab = g;
+          buildSidebar();
+        };
+        tabsEl.appendChild(btn);
+      });
+    }
+
+    function buildSidebar() {
+      sidebarEl.innerHTML = "";
+      const visible = ROUTES.filter(r => currentTab === "all" || r.group === currentTab);
+      visible.forEach(route => {
+        const btn = document.createElement("button");
+        btn.textContent = route.label;
+        btn.classList.toggle("active", currentRoute === route.id);
+        btn.onclick = () => navigate(route.id);
+        sidebarEl.appendChild(btn);
+      });
+    }
+
+    function navigate(id) {
+      const route = ROUTES.find(r => r.id === id);
+      if (!route) return;
+      currentRoute = route.id;
+      viewerEl.src = route.src;
+      crumbEl.textContent = route.label;
+      buildSidebar();
+    }
+
+    document.getElementById("themeToggle").onclick = () => {
+      document.body.dataset.theme =
+        document.body.dataset.theme === "dark" ? "light" : "dark";
+    };
+
+    document.getElementById("reloadBtn").onclick = () => {
+      viewerEl.src = viewerEl.src;
+    };
+
+    document.getElementById("openNewTab").onclick = () => {
+      if (currentRoute) {
+        const tool = ROUTES.find(r => r.id === currentRoute);
+        if (tool) window.open(tool.src, "_blank");
+      }
+    };
+
+    // Init
+    buildTabs();
+    buildSidebar();
+    if (ROUTES.length) navigate(ROUTES[0].id);
+  </script>
+</body>
+</html>
