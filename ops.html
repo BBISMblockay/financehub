@@ -6,6 +6,21 @@
   <title>Logistics</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet" />
 
+    <!-- 🔐 DEPARTMENT ACCESS GUARD -->
+  <script>
+    (function () {
+      const REQUIRED_DEPT = "Logistics";
+      const SESSION_KEY = "dept_access";
+
+      const access = sessionStorage.getItem(SESSION_KEY);
+
+      if (access !== REQUIRED_DEPT) {
+        // Hard redirect back to login
+        window.location.replace("./index.html");
+      }
+    })();
+  </script>
+
   <style>
     html, body {
       margin: 0; padding: 0; height: 100%;
