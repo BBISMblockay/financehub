@@ -1,1017 +1,1467 @@
 <!doctype html>
 <html lang="en">
+
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Model Applications — Inbox</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Model Applications — Inbox</title>
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 
-  <style>
-    :root{
-      --bg: #f6f7fb;
-      --panel: #ffffff;
-      --panel2:#fbfcff;
-      --border:#e6e8f0;
-      --border2:#dfe3ee;
-      --text:#0f172a;
-      --muted:#55627a;
-      --muted2:#6b7280;
+    <style>
+        :root {
+            --bg: #f6f7fb;
+            --panel: #ffffff;
+            --panel2: #fbfcff;
+            --border: #e6e8f0;
+            --border2: #dfe3ee;
+            --text: #0f172a;
+            --muted: #55627a;
+            --muted2: #6b7280;
 
-      --shadow: 0 10px 26px rgba(15,23,42,.08);
+            --shadow: 0 10px 20px rgba(15, 23, 42, .08);
 
-      --blue:#2563eb;
-      --blueSoft:#eff6ff;
-      --green:#16a34a;
-      --greenSoft:#ecfdf5;
-      --amber:#d97706;
-      --amberSoft:#fffbeb;
-      --rose:#e11d48;
-      --roseSoft:#fff1f2;
-      --violet:#7c3aed;
-      --violetSoft:#f5f3ff;
+            --blue: #2563eb;
+            --blueSoft: #eff6ff;
+            --green: #16a34a;
+            --greenSoft: #ecfdf5;
+            --amber: #d97706;
+            --amberSoft: #fffbeb;
+            --rose: #e11d48;
+            --roseSoft: #fff1f2;
+            --violet: #7c3aed;
+            --violetSoft: #f5f3ff;
 
-      --r16:16px;
-      --r12:12px;
-      --max: 1480px;
-    }
+            --r16: 16px;
+            --r12: 12px;
+            --max: 1680px;
+        }
 
-    *{ box-sizing:border-box; }
-    html,body{ height:100%; }
-    body{
-      margin:0;
-      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      color:var(--text);
-      background: radial-gradient(1100px 520px at 18% -10%, rgba(37,99,235,.10), transparent 55%),
-                  radial-gradient(900px 520px at 92% 0%, rgba(22,163,74,.08), transparent 55%),
-                  linear-gradient(180deg, #f8fafc, var(--bg));
-    }
+        * {
+            box-sizing: border-box;
+        }
 
-    .wrap{ max-width:var(--max); margin:0 auto; padding:16px 14px 34px; }
-    .app{
-      border:1px solid var(--border);
-      background:var(--panel);
-      border-radius:18px;
-      box-shadow: var(--shadow);
-      overflow:hidden;
-      min-height: calc(100vh - 32px);
-      display:flex;
-      flex-direction:column;
-    }
+        html,
+        body {
+            height: 100%;
+        }
 
-    .top{
-      padding:14px 16px 10px;
-      display:flex;
-      align-items:flex-end;
-      justify-content:space-between;
-      gap:12px;
-      flex-wrap:wrap;
-      border-bottom:1px solid var(--border);
-      background: linear-gradient(180deg, var(--panel), var(--panel2));
-      position:sticky;
-      top:0;
-      z-index:20;
-    }
-    .title{ margin:0; font-size:18px; font-weight:950; letter-spacing:.2px; line-height:1.1; }
-    .sub{ margin:6px 0 0; font-size:12.5px; color:var(--muted); line-height:1.25; max-width: 880px; }
+        body {
+            margin: 0;
+            font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+            color: var(--text);
+            background: radial-gradient(1100px 520px at 18% -10%, rgba(37, 99, 235, .10), transparent 55%),
+                radial-gradient(900px 520px at 92% 0%, rgba(22, 163, 74, .08), transparent 55%),
+                linear-gradient(180deg, #f8fafc, var(--bg));
+        }
 
-    .actions{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-    .btn{
-      display:inline-flex; align-items:center; justify-content:center; gap:10px;
-      padding:10px 12px;
-      border-radius:12px;
-      border:1px solid var(--border2);
-      background:#fff;
-      color:var(--text);
-      font-weight:900; font-size:13px;
-      cursor:pointer; user-select:none;
-      transition: transform .08s ease, border-color .15s ease, box-shadow .15s ease;
-      white-space:nowrap;
-    }
-    .btn:hover{ border-color:#c8d0e6; transform: translateY(-1px); box-shadow: 0 6px 16px rgba(15,23,42,.08); }
-    .btn.primary{
-      border-color: rgba(37,99,235,.25);
-      background: var(--blueSoft);
-      color: #1e40af;
-    }
-    .btn.small{ padding:8px 10px; border-radius:11px; font-size:12.5px; font-weight:900; }
-    .btn:disabled{ opacity:.55; cursor:not-allowed; transform:none; box-shadow:none; }
+        .wrap {
+            max-width: var(--max);
+            margin: 0 auto;
+            padding: 16px 14px 34px;
+        }
 
-    .filters{
-      padding:12px 16px 12px;
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-      align-items:center;
-      border-bottom:1px solid var(--border);
-      background: #ffffff;
-      position:sticky;
-      top:72px;
-      z-index:18;
-    }
+        .app {
+            border: 1px solid var(--border);
+            background: var(--panel);
+            border-radius: 18px;
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            min-height: calc(100vh - 32px);
+            display: flex;
+            flex-direction: column;
+        }
 
-    .input, select{
-      appearance:none;
-      padding:10px 12px;
-      border-radius:12px;
-      border:1px solid var(--border2);
-      background:#fff;
-      color:var(--text);
-      font-weight:800;
-      font-size:13px;
-      outline:none;
-      min-width: 220px;
-    }
-    .input{ min-width: 300px; flex: 1 1 420px; }
-    select{ min-width: 190px; }
+        .top {
+            padding: 14px 16px 10px;
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+            border-bottom: 1px solid var(--border);
+            background: linear-gradient(180deg, var(--panel), var(--panel2));
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
 
-    .tog{
-      display:inline-flex; align-items:center; gap:10px;
-      padding:9px 10px;
-      border-radius:999px;
-      border:1px solid var(--border2);
-      background:#fff;
-      color:var(--text);
-      font-size:12px;
-      font-weight:950;
-      user-select:none;
-      cursor:pointer;
-      white-space:nowrap;
-    }
-    .sw{
-      width:42px; height:22px;
-      border-radius:999px;
-      background:#f1f5f9;
-      border:1px solid var(--border2);
-      position:relative;
-      transition: background .15s ease, border-color .15s ease;
-      flex:0 0 auto;
-    }
-    .sw:before{
-      content:"";
-      position:absolute; top:50%; left:3px;
-      transform:translateY(-50%);
-      width:16px; height:16px; border-radius:50%;
-      background:#fff;
-      box-shadow:0 6px 14px rgba(0,0,0,.12);
-      transition: left .15s ease;
-    }
-    .tog.on .sw{ background: rgba(37,99,235,.14); border-color: rgba(37,99,235,.22); }
-    .tog.on .sw:before{ left: 22px; }
+        .title {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 950;
+            letter-spacing: .2px;
+            line-height: 1.1;
+        }
 
-    .kpis{
-      padding:10px 16px 12px;
-      display:grid;
-      gap:10px;
-      grid-template-columns: repeat(12, 1fr);
-      border-bottom:1px solid var(--border);
-      background: #ffffff;
-    }
-    .kpi{
-      grid-column: span 3;
-      border:1px solid var(--border);
-      background: #fff;
-      border-radius:14px;
-      padding:10px 12px;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      min-height:58px;
-    }
-    .kpi .k{ font-size:11px; font-weight:950; letter-spacing:.25px; color:var(--muted); text-transform:uppercase; }
-    .kpi .v{ font-size:18px; font-weight:950; letter-spacing:.1px; }
-    .kpi .s{ font-size:12px; font-weight:800; color:var(--muted2); margin-top:2px; }
-    .kpi .left{ display:flex; flex-direction:column; gap:2px; min-width:0; }
-    .dot{ width:10px;height:10px;border-radius:50%; background: var(--blue); box-shadow:0 0 0 5px rgba(37,99,235,.10); }
-    .dot.g{ background: var(--green); box-shadow:0 0 0 5px rgba(22,163,74,.10); }
-    .dot.a{ background: var(--amber); box-shadow:0 0 0 5px rgba(217,119,6,.10); }
-    .dot.r{ background: var(--rose); box-shadow:0 0 0 5px rgba(225,29,72,.10); }
-    .dot.v{ background: var(--violet); box-shadow:0 0 0 5px rgba(124,58,237,.10); }
+        .sub {
+            margin: 6px 0 0;
+            font-size: 12.5px;
+            color: var(--muted);
+            line-height: 1.25;
+            max-width: 880px;
+        }
 
-    .rollups{
-      padding:10px 16px 10px;
-      display:flex;
-      gap:8px;
-      flex-wrap:wrap;
-      align-items:center;
-      border-bottom:1px solid var(--border);
-      background:#fff;
-    }
-    .chip{
-      display:inline-flex; align-items:center; gap:8px;
-      padding:8px 10px;
-      border-radius:999px;
-      border:1px solid var(--border2);
-      background:#fff;
-      color:var(--text);
-      font-size:12.5px;
-      font-weight:950;
-      cursor:pointer;
-      user-select:none;
-      transition: background .15s ease, border-color .15s ease, transform .08s ease;
-      white-space:nowrap;
-    }
-    .chip:hover{ transform: translateY(-1px); border-color:#c8d0e6; }
-    .chip.active{ border-color: rgba(37,99,235,.35); background: rgba(37,99,235,.08); color:#1e40af; }
-    .chip .mini{ color:var(--muted); font-weight:900; }
+        .actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
 
-    .content{ padding:0; flex:1 1 auto; min-height:0; display:flex; flex-direction:column; }
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: 12px;
+            border: 1px solid var(--border2);
+            background: #fff;
+            color: var(--text);
+            font-weight: 700;
+            font-size: 11px;
+            cursor: pointer;
+            user-select: none;
+            transition: transform .08s ease, border-color .15s ease, box-shadow .15s ease;
+            white-space: nowrap;
+        }
 
-    .tableHeader{
-      padding:10px 16px;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      flex-wrap:wrap;
-      border-bottom:1px solid var(--border);
-      background:#fff;
-    }
-    .meta{ color:var(--muted); font-size:12.5px; font-weight:800; }
+        .btn:hover {
+            border-color: #c8d0e6;
+            transform: translateY(-1px);
+            box-shadow: 0 6px 16px rgba(15, 23, 42, .08);
+        }
 
-    .tableWrap{
-      overflow:auto;
-      min-height:0;
-      flex:1 1 auto;
-      background:#fff;
-    }
+        .btn.primary {
+            border-color: rgba(37, 99, 235, .25);
+            background: var(--blueSoft);
+            color: #1e40af;
+        }
 
-    table{
-      width:100%;
-      border-collapse:separate;
-      border-spacing:0;
-      font-size:13px;
-      table-layout: fixed;
-      min-width: 1100px;
-    }
-    thead th{
-      position:sticky;
-      top:0;
-      z-index:5;
-      background:#f8fafc;
-      border-bottom:1px solid var(--border);
-      color:#0f172a;
-      text-align:left;
-      padding:10px 10px;
-      font-weight:950;
-      white-space:nowrap;
-      cursor:pointer;
-      user-select:none;
-    }
-    thead th:hover{ background:#f1f5f9; }
-    thead th .sort{
-      opacity:.6;
-      font-size:11px;
-      margin-left:8px;
-      font-weight:950;
-    }
+        .btn.small {
+            padding: 8px 10px;
+            border-radius: 11px;
+            font-size: 12.5px;
+            font-weight: 900;
+        }
 
-    tbody td{
-      padding:10px 10px;
-      border-bottom:1px solid #eef0f6;
-      vertical-align:top;
-      color:#0f172a;
-      background:#fff;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-    tbody tr:nth-child(even) td{ background:#fcfdff; }
-    tbody tr:hover td{ background:#f6faff; }
+        .btn:disabled {
+            opacity: .55;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
 
-    .num{ text-align:right; font-variant-numeric: tabular-nums; }
-    .wrapCell{
-      white-space: normal;
-      overflow: visible;
-      text-overflow: clip;
-      word-break: break-word;
-    }
-    .tiny{
-      font-size:12px;
-      color:var(--muted);
-      font-weight:800;
-      margin-top:3px;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
+        .filters {
+            padding: 12px 16px 12px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            background: #ffffff;
+            position: sticky;
+            top: 12px;
+            z-index: 18;
+        }
 
-    .pill{
-      display:inline-flex;
-      align-items:center;
-      gap:6px;
-      padding:5px 8px;
-      border-radius:999px;
-      font-weight:950;
-      font-size:11.5px;
-      border:1px solid var(--border2);
-      background:#fff;
-      color:#0f172a;
-      white-space:nowrap;
-    }
-    .pill.new{ border-color: rgba(37,99,235,.25); background: var(--blueSoft); color:#1e40af; }
-    .pill.reviewed{ border-color: rgba(217,119,6,.25); background: var(--amberSoft); color:#92400e; }
-    .pill.shortlist{ border-color: rgba(22,163,74,.25); background: var(--greenSoft); color:#065f46; }
-    .pill.booked{ border-color: rgba(124,58,237,.25); background: var(--violetSoft); color:#5b21b6; }
-    .pill.rejected{ border-color: rgba(225,29,72,.25); background: var(--roseSoft); color:#9f1239; }
+        .input,
+        select {
+            appearance: none;
+            padding: 10px 12px;
+            border-radius: 12px;
+            border: .75px solid var(--border2);
+            background: #fff;
+            color: var(--text);
+            font-weight: 600;
+            font-size: 10px;
+            outline: none;
+            min-width: 120px;
+        }
 
-    a.link{
-      color:#1d4ed8;
-      text-decoration:none;
-      font-weight:900;
-      border-bottom: 1px solid rgba(29,78,216,.25);
-    }
-    a.link:hover{ border-bottom-color: rgba(29,78,216,.55); }
+        .input {
+            min-width: 300px;
+            flex: 1 1 420px;
+        }
 
-    .statusSel{
-      width: 140px;
-      min-width: 140px;
-      padding:8px 10px;
-      border-radius:10px;
-      font-size:12.5px;
-      font-weight:900;
-    }
+        select {
+            min-width: 190px;
+        }
 
-    .rowBtns{ display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+        .tog {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 5px 8px;
+            border-radius: 800px;
+            border: 1px solid var(--border2);
+            background: #fff;
+            color: var(--text);
+            font-size: 10px;
+            font-weight: 700;
+            user-select: none;
+            cursor: pointer;
+            white-space: nowrap;
+        }
 
-    /* Image UI */
-    .thumb{
-      width:44px; height:44px;
-      border-radius:10px;
-      border:1px solid var(--border);
-      background: #f8fafc;
-      object-fit: cover;
-      display:block;
-    }
-    .thumbWrap{
-      display:flex; align-items:center; gap:10px;
-    }
-    .thumbLink{
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-    }
-    .thumbMeta{
-      font-size:12px;
-      color: var(--muted);
-      font-weight:900;
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      max-width: 220px;
-    }
+        .sw {
+            width: 42px;
+            height: 22px;
+            border-radius: 999px;
+            background: #f1f5f9;
+            border: 1px solid var(--border2);
+            position: relative;
+            transition: background .15s ease, border-color .15s ease;
+            flex: 0 0 auto;
+        }
 
-    /* Column widths */
-    th.colDate, td.colDate{ width: 160px; }
-    th.colName, td.colName{ width: 230px; }
-    th.colAge, td.colAge{ width: 70px; }
-    th.colGender, td.colGender{ width: 120px; }
-    th.colLoc, td.colLoc{ width: 160px; }
-    th.colEmail, td.colEmail{ width: 220px; }
-    th.colPhone, td.colPhone{ width: 160px; }
-    th.colSocial, td.colSocial{ width: 260px; }
-    th.colHead, td.colHead{ width: 160px; }
-    th.colStatus, td.colStatus{ width: 220px; }
-    th.colAct, td.colAct{ width: 180px; }
+        .sw:before {
+            content: "";
+            position: absolute;
+            top: 50%;
+            left: 3px;
+            transform: translateY(-50%);
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: #fff;
+            box-shadow: 0 6px 14px rgba(0, 0, 0, .12);
+            transition: left .15s ease;
+        }
 
-    /* Drawer (details) */
-    .overlay{
-      position:fixed; inset:0;
-      background: rgba(15,23,42,.35);
-      display:none;
-      z-index:1000;
-    }
-    .drawer{
-      position:fixed;
-      top:0; right:0; height:100%;
-      width:min(620px, 96vw);
-      background:#fff;
-      border-left:1px solid var(--border);
-      box-shadow: -12px 0 34px rgba(15,23,42,.18);
-      transform: translateX(102%);
-      transition: transform .16s ease;
-      z-index:1001;
-      display:flex;
-      flex-direction:column;
-    }
-    .overlay.on{ display:block; }
-    .drawer.on{ transform: translateX(0); }
+        .tog.on .sw {
+            background: rgba(37, 99, 235, .14);
+            border-color: rgba(37, 99, 235, .22);
+        }
 
-    .dh{
-      padding:12px 14px;
-      border-bottom:1px solid var(--border);
-      display:flex; align-items:flex-start; justify-content:space-between; gap:10px;
-      background: linear-gradient(180deg, #ffffff, #fbfcff);
-    }
-    .dh .h1{
-      font-weight:950;
-      font-size:14px;
-      letter-spacing:.2px;
-      margin:0;
-      line-height:1.25;
-    }
-    .dh .h2{
-      margin:6px 0 0;
-      color:var(--muted);
-      font-size:12.5px;
-      font-weight:800;
-    }
-    .dc{
-      padding:12px 14px;
-      overflow:auto;
-      min-height:0;
-      display:grid;
-      gap:10px;
-    }
-    .kv{
-      border:1px solid var(--border);
-      border-radius:14px;
-      padding:10px 12px;
-      background:#fff;
-    }
-    .kv .k{
-      color:var(--muted);
-      font-weight:950;
-      font-size:11px;
-      text-transform:uppercase;
-      letter-spacing:.22px;
-      margin-bottom:6px;
-    }
-    .kv .v{
-      color:var(--text);
-      font-weight:800;
-      font-size:13px;
-      white-space:pre-wrap;
-      word-break:break-word;
-    }
+        .tog.on .sw:before {
+            left: 22px;
+        }
 
-    .imgGrid{
-      display:grid;
-      gap:10px;
-      grid-template-columns: repeat(3, minmax(0,1fr));
-    }
-    @media (max-width: 520px){
-      .imgGrid{ grid-template-columns: repeat(2, minmax(0,1fr)); }
-    }
-    .imgCard{
-      border:1px solid var(--border);
-      border-radius:14px;
-      overflow:hidden;
-      background:#fff;
-      display:flex;
-      flex-direction:column;
-    }
-    .imgCard img{
-      width:100%;
-      height:150px;
-      object-fit:cover;
-      background:#f8fafc;
-      display:block;
-    }
-    .imgCard .cap{
-      padding:8px 10px;
-      border-top:1px solid var(--border);
-      font-size:12px;
-      font-weight:900;
-      color:var(--muted);
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-    }
-    .imgCard .cap a{ color:#1d4ed8; text-decoration:none; border-bottom:1px solid rgba(29,78,216,.25); }
-    .imgCard .cap a:hover{ border-bottom-color: rgba(29,78,216,.55); }
+        .kpis {
+            padding: 5px 8px 6px;
+            display: grid;
+            gap: 1.5px;
+            grid-template-columns: repeat(12, 1fr);
+            border-bottom: .75px solid var(--border);
+            background: #ffffff;
+        }
 
-    textarea{
-      width:100%;
-      min-height:140px;
-      border-radius:14px;
-      border:1px solid var(--border2);
-      background:#fff;
-      color:var(--text);
-      font-weight:700;
-      padding:10px 12px;
-      resize:vertical;
-      outline:none;
-      font-size:13px;
-    }
-    .df{
-      padding:12px 14px;
-      border-top:1px solid var(--border);
-      display:flex;
-      justify-content:flex-end;
-      gap:10px;
-      background:#fff;
-    }
+        .kpi {
+            grid-column: span 4;
+            border: 1px solid var(--border);
+            background: #fff;
+            border-radius: 14px;
+            padding: 10px 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            min-height: 20px;
+        }
 
-    .error{
-      padding:12px 16px;
-      border-top:1px solid var(--border);
-      color:#9f1239;
-      font-weight:900;
-      background: #fff;
-      display:none;
-    }
-    .error small{ display:block; margin-top:6px; color:var(--muted); font-weight:800; }
+        .kpi .k {
+            font-size: 11px;
+            font-weight: 950;
+            letter-spacing: .25px;
+            color: var(--muted);
+            text-transform: uppercase;
+        }
 
-    @media (max-width: 1100px){
-      .kpi{ grid-column: span 6; }
-      .filters{ top:72px; }
-      table{ min-width: 980px; }
-    }
-    @media (max-width: 820px){
-      .kpi{ grid-column: span 12; }
-      .input{ min-width: 100%; flex: 1 1 100%; }
-      select{ min-width: 100%; }
-      .filters{ gap:8px; }
-      .rowBtns{ justify-content:flex-start; }
-    }
-  </style>
+        .kpi .v {
+            font-size: 15px;
+            font-weight: 950;
+            letter-spacing: .1px;
+        }
+
+        .kpi .s {
+            font-size: 12px;
+            font-weight: 800;
+            color: var(--muted2);
+            margin-top: 2px;
+        }
+
+        .kpi .left {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            min-width: 0;
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--blue);
+            box-shadow: 0 0 0 5px rgba(37, 99, 235, .10);
+        }
+
+        .dot.g {
+            background: var(--green);
+            box-shadow: 0 0 0 5px rgba(22, 163, 74, .10);
+        }
+
+        .dot.a {
+            background: var(--amber);
+            box-shadow: 0 0 0 5px rgba(217, 119, 6, .10);
+        }
+
+        .dot.r {
+            background: var(--rose);
+            box-shadow: 0 0 0 5px rgba(225, 29, 72, .10);
+        }
+
+        .dot.v {
+            background: var(--violet);
+            box-shadow: 0 0 0 5px rgba(124, 58, 237, .10);
+        }
+
+        .rollups {
+            padding: 10px 16px 10px;
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+            background: #fff;
+        }
+
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            border-radius: 999px;
+            border: .75px solid var(--border2);
+            background: #fff;
+            color: var(--text);
+            font-size: 10.5px;
+            font-weight: 650;
+            cursor: pointer;
+            user-select: none;
+            transition: background .15s ease, border-color .15s ease, transform .08s ease;
+            white-space: nowrap;
+        }
+
+        .chip:hover {
+            transform: translateY(-1px);
+            border-color: #c8d0e6;
+        }
+
+        .chip.active {
+            border-color: rgba(37, 99, 235, .35);
+            background: rgba(37, 99, 235, .08);
+            color: #1e40af;
+        }
+
+        .chip .mini {
+            color: var(--muted);
+            font-weight: 900;
+        }
+
+        .content {
+            padding: 0;
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .tableHeader {
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+            border-bottom: 1px solid var(--border);
+            background: #fff;
+        }
+
+        .meta {
+            color: var(--muted);
+            font-size: 12.5px;
+            font-weight: 800;
+        }
+
+        .tableWrap {
+            overflow: auto;
+            min-height: 0;
+            flex: 1 1 auto;
+            background: #fff;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: .0;
+            font-size: 11px;
+            table-layout: fixed;
+            min-width: 1100px;
+        }
+
+        thead th {
+            position: sticky;
+            top: 0;
+            z-index: 5;
+            background: #f8fafc;
+            border-bottom: 1px solid var(--border);
+            color: #0f172a;
+            text-align: left;
+            padding: 10px 10px;
+            font-weight: 950;
+            white-space: nowrap;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        thead th:hover {
+            background: #f1f5f9;
+        }
+
+        thead th .sort {
+            opacity: .6;
+            font-size: 11px;
+            margin-left: 8px;
+            font-weight: 950;
+        }
+
+        tbody td {
+            padding: 10px 10px;
+            border-bottom: 1px solid #eef0f6;
+            vertical-align: top;
+            color: #0f172a;
+            background: #fff;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        tbody tr:nth-child(even) td {
+            background: #fcfdff;
+        }
+
+        tbody tr:hover td {
+            background: #f6faff;
+        }
+
+        .num {
+            text-align: right;
+            font-variant-numeric: tabular-nums;
+        }
+
+        .wrapCell {
+            white-space: normal;
+            overflow: visible;
+            text-overflow: clip;
+            word-break: break-word;
+        }
+
+        .tiny {
+            font-size: 12px;
+            color: var(--muted);
+            font-weight: 800;
+            margin-top: 3px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            padding: 2px 4px;
+            border-radius: 444px;
+            font-weight: 75-;
+            font-size: 11.5px;
+            border: 1px solid var(--border2);
+            background: #fff;
+            color: #0f172a;
+            white-space: nowrap;
+        }
+
+        .pill.new {
+            border-color: rgba(37, 99, 235, .25);
+            background: var(--blueSoft);
+            color: #1e40af;
+        }
+
+        .pill.reviewed {
+            border-color: rgba(217, 119, 6, .25);
+            background: var(--amberSoft);
+            color: #92400e;
+        }
+
+        .pill.shortlist {
+            border-color: rgba(22, 163, 74, .25);
+            background: var(--greenSoft);
+            color: #065f46;
+        }
+
+        .pill.booked {
+            border-color: rgba(124, 58, 237, .25);
+            background: var(--violetSoft);
+            color: #5b21b6;
+        }
+
+        .pill.rejected {
+            border-color: rgba(225, 29, 72, .25);
+            background: var(--roseSoft);
+            color: #9f1239;
+        }
+
+        a.link {
+            color: #1d4ed8;
+            text-decoration: none;
+            font-weight: 900;
+            border-bottom: 1px solid rgba(29, 78, 216, .25);
+        }
+
+        a.link:hover {
+            border-bottom-color: rgba(29, 78, 216, .55);
+        }
+
+        .statusSel {
+            width: 140px;
+            min-width: 140px;
+            padding: 8px 10px;
+            border-radius: 10px;
+            font-size: 12.5px;
+            font-weight: 900;
+        }
+
+        .rowBtns {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+        }
+
+        /* Image UI */
+        .thumb {
+            width: 50px;
+            height: 50px;
+            border-radius: 5px;
+            border: 1px solid var(--border);
+            background: #f8fafc;
+            object-fit: cover;
+            display: block;
+        }
+
+        .thumbWrap {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .thumbLink {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .thumbMeta {
+            font-size: 12px;
+            color: var(--muted);
+            font-weight: 900;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 220px;
+        }
+
+        /* Column widths */
+        th.colDate,
+        td.colDate {
+            width: 160px;
+        }
+
+        th.colName,
+        td.colName {
+            width: 230px;
+        }
+
+        th.colAge,
+        td.colAge {
+            width: 70px;
+        }
+
+        th.colGender,
+        td.colGender {
+            width: 120px;
+        }
+
+        th.colLoc,
+        td.colLoc {
+            width: 160px;
+        }
+
+        th.colEmail,
+        td.colEmail {
+            width: 220px;
+        }
+
+        th.colPhone,
+        td.colPhone {
+            width: 160px;
+        }
+
+        th.colSocial,
+        td.colSocial {
+            width: 260px;
+        }
+
+        th.colHead,
+        td.colHead {
+            width: 160px;
+        }
+
+        th.colStatus,
+        td.colStatus {
+            width: 220px;
+        }
+
+        th.colAct,
+        td.colAct {
+            width: 180px;
+        }
+
+        /* Drawer (details) */
+        .overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, .35);
+            display: none;
+            z-index: 1000;
+        }
+
+        .drawer {
+            position: fixed;
+            top: 0;
+            right: 0;
+            height: 100%;
+            width: min(620px, 96vw);
+            background: #fff;
+            border-left: 1px solid var(--border);
+            box-shadow: -12px 0 34px rgba(15, 23, 42, .18);
+            transform: translateX(102%);
+            transition: transform .16s ease;
+            z-index: 1001;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .overlay.on {
+            display: block;
+        }
+
+        .drawer.on {
+            transform: translateX(0);
+        }
+
+        .dh {
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 10px;
+            background: linear-gradient(180deg, #ffffff, #fbfcff);
+        }
+
+        .dh .h1 {
+            font-weight: 950;
+            font-size: 14px;
+            letter-spacing: .2px;
+            margin: 0;
+            line-height: 1.25;
+        }
+
+        .dh .h2 {
+            margin: 6px 0 0;
+            color: var(--muted);
+            font-size: 12.5px;
+            font-weight: 800;
+        }
+
+        .dc {
+            padding: 12px 14px;
+            overflow: auto;
+            min-height: 0;
+            display: grid;
+            gap: 10px;
+        }
+
+        .kv {
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 10px 12px;
+            background: #fff;
+        }
+
+        .kv .k {
+            color: var(--muted);
+            font-weight: 950;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: .22px;
+            margin-bottom: 6px;
+        }
+
+        .kv .v {
+            color: var(--text);
+            font-weight: 800;
+            font-size: 13px;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .imgGrid {
+            display: grid;
+            gap: 10px;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        @media (max-width: 520px) {
+            .imgGrid {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+        }
+
+        .imgCard {
+            border: 1.5px solid var(--border);
+            border-radius: 14px;
+            overflow: hidden;
+            background: #fff;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .imgCard img {
+            width: 120%;
+            height: 325px;
+            object-fit: cover;
+            background: #f8fafc;
+            display: block;
+        }
+
+        .imgCard .cap {
+            padding: 8px 10px;
+            border-top: 1px solid var(--border);
+            font-size: 12px;
+            font-weight: 900;
+            color: var(--muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .imgCard .cap a {
+            color: #1d4ed8;
+            text-decoration: none;
+            border-bottom: 1px solid rgba(29, 78, 216, .25);
+        }
+
+        .imgCard .cap a:hover {
+            border-bottom-color: rgba(29, 78, 216, .55);
+        }
+
+        textarea {
+            width: 100%;
+            min-height: 140px;
+            border-radius: 14px;
+            border: 1px solid var(--border2);
+            background: #fff;
+            color: var(--text);
+            font-weight: 700;
+            padding: 10px 12px;
+            resize: vertical;
+            outline: none;
+            font-size: 13px;
+        }
+
+        .df {
+            padding: 12px 14px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            background: #fff;
+        }
+
+        .error {
+            padding: 12px 16px;
+            border-top: 1px solid var(--border);
+            color: #9f1239;
+            font-weight: 900;
+            background: #fff;
+            display: none;
+        }
+
+        .error small {
+            display: block;
+            margin-top: 6px;
+            color: var(--muted);
+            font-weight: 800;
+        }
+
+        @media (max-width: 1100px) {
+            .kpi {
+                grid-column: span 6;
+            }
+
+            .filters {
+                top: 72px;
+            }
+
+            table {
+                min-width: 980px;
+            }
+        }
+
+        @media (max-width: 820px) {
+            .kpi {
+                grid-column: span 12;
+            }
+
+            .input {
+                min-width: 100%;
+                flex: 1 1 100%;
+            }
+
+            select {
+                min-width: 100%;
+            }
+
+            .filters {
+                gap: 8px;
+            }
+
+            .rowBtns {
+                justify-content: flex-start;
+            }
+        }
+    </style>
 </head>
 
 <body>
-  <div class="wrap">
-    <div class="app" role="region" aria-label="Model applications inbox dashboard">
+    <div class="wrap">
+        <div class="app" role="region" aria-label="Model applications inbox dashboard">
 
-      <div class="top">
-        <div>
-          <h1 class="title">Model Applications — Inbox</h1>
-          <p class="sub">
-            Clean inbox view. Status + notes are saved locally (per browser) by <b>Submission ID</b>.
-            Sheet link:
-            <a class="link" href="https://docs.google.com/spreadsheets/d/11FnlNUfrLIRY47ibIrYb3GNaOi_j4BFArryUNjUd7Dw/edit?usp=sharing" target="_blank" rel="noopener noreferrer">Open Sheet</a>
-          </p>
+            <div class="top">
+                <div>
+                    <h1 class="title">Model Applications — Inbox</h1>
+                    <p class="sub">
+                        Clean inbox view. Status + notes are saved locally (per browser) by <b>Submission ID</b>.
+                        Sheet link:
+                        <a class="link" href="https://docs.google.com/spreadsheets/d/11FnlNUfrLIRY47ibIrYb3GNaOi_j4BFArryUNjUd7Dw/edit?usp=sharing" target="_blank" rel="noopener noreferrer">Open Sheet</a>
+                    </p>
+                </div>
+
+                <div class="actions">
+                    <button class="btn" id="copyLink" type="button">Copy Link</button>
+                    <button class="btn" id="refresh" type="button">Refresh</button>
+                    <button class="btn primary" id="downloadCsv" type="button">Download CSV</button>
+                </div>
+            </div>
+
+            <div class="filters" aria-label="Filters">
+                <input id="q" class="input" type="search" placeholder="Search name, email, phone, social, location, ID…" />
+
+                <select id="dateRange" title="Date range">
+                    <option value="all">All dates</option>
+                    <option value="7">Last 7 days</option>
+                    <option value="30">Last 30 days</option>
+                    <option value="90" selected>Last 90 days</option>
+                </select>
+
+                <select id="location" title="Location">
+                    <option value="">All locations</option>
+                    <option value="Portland">Portland, OR</option>
+                    <option value="Scottsdale">Scottsdale, AZ</option>
+                    <option value="Other">Other</option>
+                </select>
+
+                <select id="gender" title="Gender">
+                    <option value="">All genders</option>
+                </select>
+
+                <select id="statusFilter" title="Status">
+                    <option value="">All statuses</option>
+                    <option value="New">New</option>
+                    <option value="Reviewed">Reviewed</option>
+                    <option value="Shortlist">Shortlist</option>
+                    <option value="Booked">Booked</option>
+                    <option value="Rejected">Rejected</option>
+                </select>
+
+                <select id="sort" title="Sort">
+                    <option value="date_desc" selected>Sort: Newest</option>
+                    <option value="date_asc">Sort: Oldest</option>
+                    <option value="age_desc">Sort: Age (high→low)</option>
+                    <option value="age_asc">Sort: Age (low→high)</option>
+                    <option value="name_asc">Sort: Name (A→Z)</option>
+                    <option value="name_desc">Sort: Name (Z→A)</option>
+                    <option value="status_asc">Sort: Status (A→Z)</option>
+                </select>
+
+                <div class="tog" id="minorOnlyToggle" title="Show only applicants under 18">
+                    <span>Minors only</span>
+                    <span class="sw" aria-hidden="true"></span>
+                </div>
+
+                <div class="tog" id="wrapToggle" title="Wrap long text columns (social/work)">
+                    <span>Wrap text</span>
+                    <span class="sw" aria-hidden="true"></span>
+                </div>
+
+                <div class="tog" id="compactToggle" title="More rows on screen">
+                    <span>Compact</span>
+                    <span class="sw" aria-hidden="true"></span>
+                </div>
+
+                <button class="btn" id="reset" type="button">Reset</button>
+            </div>
+
+            <div class="kpis" aria-label="Summary KPIs">
+                <div class="kpi">
+                    <div class="left">
+                        <div class="k">In view</div>
+                        <div class="v" id="mTotal">0</div>
+                        <div class="s">Submissions</div>
+                    </div><span class="dot" aria-hidden="true"></span>
+                </div>
+                <div class="kpi">
+                    <div class="left">
+                        <div class="k">New</div>
+                        <div class="v" id="mNew">0</div>
+                        <div class="s">Status = New</div>
+                    </div><span class="dot a" aria-hidden="true"></span>
+                </div>
+                <div class="kpi">
+                    <div class="left">
+                        <div class="k">Minors</div>
+                        <div class="v" id="mMinors">0</div>
+                        <div class="s">&lt; 18</div>
+                    </div><span class="dot r" aria-hidden="true"></span>
+                </div>
+                <div class="kpi">
+                    <div class="left">
+                        <div class="k">Avg age</div>
+                        <div class="v" id="mAvgAge">0</div>
+                        <div class="s">In view</div>
+                    </div><span class="dot v" aria-hidden="true"></span>
+                </div>
+
+                <div class="kpi">
+                    <div class="left">
+                        <div class="k">Portland</div>
+                        <div class="v" id="mPortland">0</div>
+                        <div class="s">In view</div>
+                    </div><span class="dot g" aria-hidden="true"></span>
+                </div>
+                <div class="kpi">
+                    <div class="left">
+                        <div class="k">Scottsdale</div>
+                        <div class="v" id="mScottsdale">0</div>
+                        <div class="s">In view</div>
+                    </div><span class="dot v" aria-hidden="true"></span>
+                </div>
+                <div class="kpi">
+                    <div class="left">
+                        <div class="k">Other</div>
+                        <div class="v" id="mOther">0</div>
+                        <div class="s">In view</div>
+                    </div><span class="dot a" aria-hidden="true"></span>
+                </div>
+                <div class="kpi">
+                    <div class="left">
+                        <div class="k">Headshot link</div>
+                        <div class="v" id="mHeadshot">0</div>
+                        <div class="s">Has upload</div>
+                    </div><span class="dot" aria-hidden="true"></span>
+                </div>
+            </div>
+
+            <div class="rollups" aria-label="Quick drill chips">
+                <div class="chip active" data-kind="" data-value=""><span>All</span><span class="mini" id="chipAllMeta">—</span></div>
+                <div class="chip" data-kind="status" data-value="New"><span>New</span><span class="mini" id="chipNewMeta">—</span></div>
+                <div class="chip" data-kind="status" data-value="Reviewed"><span>Reviewed</span><span class="mini" id="chipReviewedMeta">—</span></div>
+                <div class="chip" data-kind="status" data-value="Shortlist"><span>Shortlist</span><span class="mini" id="chipShortlistMeta">—</span></div>
+                <div class="chip" data-kind="status" data-value="Booked"><span>Booked</span><span class="mini" id="chipBookedMeta">—</span></div>
+                <div class="chip" data-kind="status" data-value="Rejected"><span>Rejected</span><span class="mini" id="chipRejectedMeta">—</span></div>
+
+                <span style="width:10px;"></span>
+
+                <div class="chip" data-kind="location" data-value="Portland"><span>Portland</span><span class="mini" id="chipPortlandMeta">—</span></div>
+                <div class="chip" data-kind="location" data-value="Scottsdale"><span>Scottsdale</span><span class="mini" id="chipScottsdaleMeta">—</span></div>
+                <div class="chip" data-kind="location" data-value="Other"><span>Other</span><span class="mini" id="chipOtherMeta">—</span></div>
+
+                <span style="flex:1 1 auto;"></span>
+                <div class="meta" id="statusLine">Loading…</div>
+            </div>
+
+            <div class="content">
+                <div class="tableHeader">
+                    <div class="meta" id="tableMeta">—</div>
+                    <div class="actions">
+                        <button class="btn small" id="clearDrill" type="button" style="display:none;">Clear Drill</button>
+                        <button class="btn small" id="scrollTop" type="button">Top</button>
+                    </div>
+                </div>
+
+                <div class="tableWrap" id="tableWrap">
+                    <table aria-label="Applications inbox table">
+                        <thead>
+                            <tr>
+                                <th class="colDate">Submitted</th>
+                                <th class="colName">Name</th>
+                                <th class="colAge num">Age</th>
+                                <th class="colGender">Gender</th>
+                                <th class="colLoc">Location</th>
+                                <th class="colEmail">Email</th>
+                                <th class="colPhone">Phone</th>
+                                <th class="colSocial">Social / Work</th>
+                                <th class="colHead">Headshot</th>
+                                <th class="colStatus">Status</th>
+                                <th class="colAct">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tbody">
+                            <tr>
+                                <td colspan="11" style="padding:14px;color:#6b7280;font-weight:800;">Loading…</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div id="error" class="error"></div>
         </div>
-
-        <div class="actions">
-          <button class="btn" id="copyLink" type="button">Copy Link</button>
-          <button class="btn" id="refresh" type="button">Refresh</button>
-          <button class="btn primary" id="downloadCsv" type="button">Download CSV</button>
-        </div>
-      </div>
-
-      <div class="filters" aria-label="Filters">
-        <input id="q" class="input" type="search" placeholder="Search name, email, phone, social, location, ID…" />
-
-        <select id="dateRange" title="Date range">
-          <option value="all">All dates</option>
-          <option value="7" selected>Last 7 days</option>
-          <option value="30">Last 30 days</option>
-          <option value="90">Last 90 days</option>
-        </select>
-
-        <select id="location" title="Location">
-          <option value="">All locations</option>
-          <option value="Portland">Portland, OR</option>
-          <option value="Scottsdale">Scottsdale, AZ</option>
-          <option value="Other">Other</option>
-        </select>
-
-        <select id="gender" title="Gender">
-          <option value="">All genders</option>
-        </select>
-
-        <select id="statusFilter" title="Status">
-          <option value="">All statuses</option>
-          <option value="New">New</option>
-          <option value="Reviewed">Reviewed</option>
-          <option value="Shortlist">Shortlist</option>
-          <option value="Booked">Booked</option>
-          <option value="Rejected">Rejected</option>
-        </select>
-
-        <select id="sort" title="Sort">
-          <option value="date_desc" selected>Sort: Newest</option>
-          <option value="date_asc">Sort: Oldest</option>
-          <option value="age_desc">Sort: Age (high→low)</option>
-          <option value="age_asc">Sort: Age (low→high)</option>
-          <option value="name_asc">Sort: Name (A→Z)</option>
-          <option value="name_desc">Sort: Name (Z→A)</option>
-          <option value="status_asc">Sort: Status (A→Z)</option>
-        </select>
-
-        <div class="tog" id="minorOnlyToggle" title="Show only applicants under 18">
-          <span>Minors only</span>
-          <span class="sw" aria-hidden="true"></span>
-        </div>
-
-        <div class="tog" id="wrapToggle" title="Wrap long text columns (social/work)">
-          <span>Wrap text</span>
-          <span class="sw" aria-hidden="true"></span>
-        </div>
-
-        <div class="tog" id="compactToggle" title="More rows on screen">
-          <span>Compact</span>
-          <span class="sw" aria-hidden="true"></span>
-        </div>
-
-        <button class="btn" id="reset" type="button">Reset</button>
-      </div>
-
-      <div class="kpis" aria-label="Summary KPIs">
-        <div class="kpi"><div class="left"><div class="k">In view</div><div class="v" id="mTotal">0</div><div class="s">Submissions</div></div><span class="dot" aria-hidden="true"></span></div>
-        <div class="kpi"><div class="left"><div class="k">New</div><div class="v" id="mNew">0</div><div class="s">Status = New</div></div><span class="dot a" aria-hidden="true"></span></div>
-        <div class="kpi"><div class="left"><div class="k">Minors</div><div class="v" id="mMinors">0</div><div class="s">&lt; 18</div></div><span class="dot r" aria-hidden="true"></span></div>
-        <div class="kpi"><div class="left"><div class="k">Avg age</div><div class="v" id="mAvgAge">0</div><div class="s">In view</div></div><span class="dot v" aria-hidden="true"></span></div>
-
-        <div class="kpi"><div class="left"><div class="k">Portland</div><div class="v" id="mPortland">0</div><div class="s">In view</div></div><span class="dot g" aria-hidden="true"></span></div>
-        <div class="kpi"><div class="left"><div class="k">Scottsdale</div><div class="v" id="mScottsdale">0</div><div class="s">In view</div></div><span class="dot v" aria-hidden="true"></span></div>
-        <div class="kpi"><div class="left"><div class="k">Other</div><div class="v" id="mOther">0</div><div class="s">In view</div></div><span class="dot a" aria-hidden="true"></span></div>
-        <div class="kpi"><div class="left"><div class="k">Headshot link</div><div class="v" id="mHeadshot">0</div><div class="s">Has upload</div></div><span class="dot" aria-hidden="true"></span></div>
-      </div>
-
-      <div class="rollups" aria-label="Quick drill chips">
-        <div class="chip active" data-kind="" data-value=""><span>All</span><span class="mini" id="chipAllMeta">—</span></div>
-        <div class="chip" data-kind="status" data-value="New"><span>New</span><span class="mini" id="chipNewMeta">—</span></div>
-        <div class="chip" data-kind="status" data-value="Reviewed"><span>Reviewed</span><span class="mini" id="chipReviewedMeta">—</span></div>
-        <div class="chip" data-kind="status" data-value="Shortlist"><span>Shortlist</span><span class="mini" id="chipShortlistMeta">—</span></div>
-        <div class="chip" data-kind="status" data-value="Booked"><span>Booked</span><span class="mini" id="chipBookedMeta">—</span></div>
-        <div class="chip" data-kind="status" data-value="Rejected"><span>Rejected</span><span class="mini" id="chipRejectedMeta">—</span></div>
-
-        <span style="width:10px;"></span>
-
-        <div class="chip" data-kind="location" data-value="Portland"><span>Portland</span><span class="mini" id="chipPortlandMeta">—</span></div>
-        <div class="chip" data-kind="location" data-value="Scottsdale"><span>Scottsdale</span><span class="mini" id="chipScottsdaleMeta">—</span></div>
-        <div class="chip" data-kind="location" data-value="Other"><span>Other</span><span class="mini" id="chipOtherMeta">—</span></div>
-
-        <span style="flex:1 1 auto;"></span>
-        <div class="meta" id="statusLine">Loading…</div>
-      </div>
-
-      <div class="content">
-        <div class="tableHeader">
-          <div class="meta" id="tableMeta">—</div>
-          <div class="actions">
-            <button class="btn small" id="clearDrill" type="button" style="display:none;">Clear Drill</button>
-            <button class="btn small" id="scrollTop" type="button">Top</button>
-          </div>
-        </div>
-
-        <div class="tableWrap" id="tableWrap">
-          <table aria-label="Applications inbox table">
-            <thead>
-              <tr>
-                <th class="colDate">Submitted</th>
-                <th class="colName">Name</th>
-                <th class="colAge num">Age</th>
-                <th class="colGender">Gender</th>
-                <th class="colLoc">Location</th>
-                <th class="colEmail">Email</th>
-                <th class="colPhone">Phone</th>
-                <th class="colSocial">Social / Work</th>
-                <th class="colHead">Headshot</th>
-                <th class="colStatus">Status</th>
-                <th class="colAct">Actions</th>
-              </tr>
-            </thead>
-            <tbody id="tbody">
-              <tr><td colspan="11" style="padding:14px;color:#6b7280;font-weight:800;">Loading…</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div id="error" class="error"></div>
     </div>
-  </div>
 
-  <div class="overlay" id="overlay" aria-hidden="true"></div>
-  <div class="drawer" id="drawer" role="dialog" aria-modal="true" aria-label="Applicant details">
-    <div class="dh">
-      <div>
-        <p class="h1" id="dTitle">Applicant</p>
-        <p class="h2" id="dSub">—</p>
-      </div>
-      <div class="actions">
-        <button class="btn small" id="dCopyEmail" type="button">Copy Email</button>
-        <button class="btn small" id="dOpenEdit" type="button">Edit URL</button>
-        <button class="btn small" id="dClose" type="button">Close</button>
-      </div>
-    </div>
-    <div class="dc">
-      <div class="kv"><div class="k">Submission ID</div><div class="v" id="dId">—</div></div>
-      <div class="kv"><div class="k">Location</div><div class="v" id="dLoc">—</div></div>
-      <div class="kv"><div class="k">Contact</div><div class="v" id="dContact">—</div></div>
-      <div class="kv"><div class="k">Sizes</div><div class="v" id="dSizes">—</div></div>
-      <div class="kv"><div class="k">Social Links</div><div class="v" id="dSocial">—</div></div>
-      <div class="kv"><div class="k">Previous Work</div><div class="v" id="dWork">—</div></div>
-
-      <div class="kv">
-        <div class="k">Headshots / Uploads</div>
-        <div class="v" id="dHead">—</div>
-      </div>
-
-      <div class="kv">
-        <div class="k">Status</div>
-        <div class="v">
-          <select id="dStatus" class="statusSel">
-            <option>New</option>
-            <option>Reviewed</option>
-            <option>Shortlist</option>
-            <option>Booked</option>
-            <option>Rejected</option>
-          </select>
-          <div class="tiny" id="dUpdated">Not updated yet.</div>
+    <div class="overlay" id="overlay" aria-hidden="true"></div>
+    <div class="drawer" id="drawer" role="dialog" aria-modal="true" aria-label="Applicant details">
+        <div class="dh">
+            <div>
+                <p class="h1" id="dTitle">Applicant</p>
+                <p class="h2" id="dSub">—</p>
+            </div>
+            <div class="actions">
+                <button class="btn small" id="dCopyEmail" type="button">Copy Email</button>
+                <button class="btn small" id="dOpenEdit" type="button">Edit URL</button>
+                <button class="btn small" id="dClose" type="button">Close</button>
+            </div>
         </div>
-      </div>
+        <div class="dc">
+            <div class="kv">
+                <div class="k">Submission ID</div>
+                <div class="v" id="dId">—</div>
+            </div>
+            <div class="kv">
+                <div class="k">Location</div>
+                <div class="v" id="dLoc">—</div>
+            </div>
+            <div class="kv">
+                <div class="k">Contact</div>
+                <div class="v" id="dContact">—</div>
+            </div>
+            <div class="kv">
+                <div class="k">Sizes</div>
+                <div class="v" id="dSizes">—</div>
+            </div>
+            <div class="kv">
+                <div class="k">Social Links</div>
+                <div class="v" id="dSocial">—</div>
+            </div>
+            <div class="kv">
+                <div class="k">Previous Work</div>
+                <div class="v" id="dWork">—</div>
+            </div>
 
-      <div>
-        <div class="kv" style="margin-bottom:10px;">
-          <div class="k">Notes (local only)</div>
-          <div class="v" style="color:var(--muted);font-weight:800;">Saved per browser.</div>
+            <div class="kv">
+                <div class="k">Headshots / Uploads</div>
+                <div class="v" id="dHead">—</div>
+            </div>
+
+            <div class="kv">
+                <div class="k">Status</div>
+                <div class="v">
+                    <select id="dStatus" class="statusSel">
+                        <option>New</option>
+                        <option>Reviewed</option>
+                        <option>Shortlist</option>
+                        <option>Booked</option>
+                        <option>Rejected</option>
+                    </select>
+                    <div class="tiny" id="dUpdated">Not updated yet.</div>
+                </div>
+            </div>
+
+            <div>
+                <div class="kv" style="margin-bottom:10px;">
+                    <div class="k">Notes (local only)</div>
+                    <div class="v" style="color:var(--muted);font-weight:800;">Saved per browser.</div>
+                </div>
+                <textarea id="dNotes" placeholder="Notes…"></textarea>
+            </div>
         </div>
-        <textarea id="dNotes" placeholder="Notes…"></textarea>
-      </div>
+        <div class="df">
+            <button class="btn primary" id="dSave" type="button">Save</button>
+        </div>
     </div>
-    <div class="df">
-      <button class="btn primary" id="dSave" type="button">Save</button>
-    </div>
-  </div>
 
-  <script>
-    (function(){
-      /**********************
-       * CONFIG
-       **********************/
-      const SHEET_ID = "11FnlNUfrLIRY47ibIrYb3GNaOi_j4BFArryUNjUd7Dw";
-      const GID = 0;
+    <script>
+        (function() {
+            /**********************
+             * CONFIG
+             **********************/
+            const SHEET_ID = "11FnlNUfrLIRY47ibIrYb3GNaOi_j4BFArryUNjUd7Dw";
+            const GID = 0;
 
-      const CSV_URLS = [
-        `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${encodeURIComponent(GID)}`,
-        `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${encodeURIComponent(GID)}`,
-        `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv`,
-        `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv`,
-      ];
+            const CSV_URLS = [
+                `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&gid=${encodeURIComponent(GID)}`,
+                `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${encodeURIComponent(GID)}`,
+                `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv`,
+                `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv`,
+            ];
 
-      const REQUIRED_HEADERS = [
-        "Submission Date","Name:","Gender:","Age",
-        "T-Shirt/Hoodie size","Pant/Short Size",
-        "Contact Info: Email","Phone Number",
-        "Are you located in the Portland, OR  or Scottsdale, AZ areas?",
-        "If you selected other, please state your location.",
-        "Social Links","Previous Work:","Headshot / Uploads of Previous Work",
-        "Email","Submission Edit URL","Parent / Guardian Name (if applicable) :","Submission ID"
-      ];
+            const REQUIRED_HEADERS = [
+                "Submission Date", "Name:", "Gender:", "Age",
+                "T-Shirt/Hoodie size", "Pant/Short Size",
+                "Contact Info: Email", "Phone Number",
+                "Are you located in the Portland, OR  or Scottsdale, AZ areas?",
+                "If you selected other, please state your location.",
+                "Social Links", "Previous Work:", "Headshot / Uploads of Previous Work",
+                "Email", "Submission Edit URL", "Parent / Guardian Name (if applicable) :", "Submission ID"
+            ];
 
-      const STATUS_OPTIONS = ["New","Reviewed","Shortlist","Booked","Rejected"];
+            const STATUS_OPTIONS = ["New", "Reviewed", "Shortlist", "Booked", "Rejected"];
 
-      /**********************
-       * DOM
-       **********************/
-      const els = {
-        q: document.getElementById("q"),
-        dateRange: document.getElementById("dateRange"),
-        location: document.getElementById("location"),
-        gender: document.getElementById("gender"),
-        statusFilter: document.getElementById("statusFilter"),
-        sort: document.getElementById("sort"),
+            /**********************
+             * DOM
+             **********************/
+            const els = {
+                q: document.getElementById("q"),
+                dateRange: document.getElementById("dateRange"),
+                location: document.getElementById("location"),
+                gender: document.getElementById("gender"),
+                statusFilter: document.getElementById("statusFilter"),
+                sort: document.getElementById("sort"),
 
-        minorOnlyToggle: document.getElementById("minorOnlyToggle"),
-        wrapToggle: document.getElementById("wrapToggle"),
-        compactToggle: document.getElementById("compactToggle"),
+                minorOnlyToggle: document.getElementById("minorOnlyToggle"),
+                wrapToggle: document.getElementById("wrapToggle"),
+                compactToggle: document.getElementById("compactToggle"),
 
-        reset: document.getElementById("reset"),
-        refresh: document.getElementById("refresh"),
-        downloadCsv: document.getElementById("downloadCsv"),
-        copyLink: document.getElementById("copyLink"),
+                reset: document.getElementById("reset"),
+                refresh: document.getElementById("refresh"),
+                downloadCsv: document.getElementById("downloadCsv"),
+                copyLink: document.getElementById("copyLink"),
 
-        statusLine: document.getElementById("statusLine"),
-        tableMeta: document.getElementById("tableMeta"),
-        tbody: document.getElementById("tbody"),
-        error: document.getElementById("error"),
-        tableWrap: document.getElementById("tableWrap"),
-        scrollTop: document.getElementById("scrollTop"),
-        clearDrill: document.getElementById("clearDrill"),
+                statusLine: document.getElementById("statusLine"),
+                tableMeta: document.getElementById("tableMeta"),
+                tbody: document.getElementById("tbody"),
+                error: document.getElementById("error"),
+                tableWrap: document.getElementById("tableWrap"),
+                scrollTop: document.getElementById("scrollTop"),
+                clearDrill: document.getElementById("clearDrill"),
 
-        // KPIs
-        mTotal: document.getElementById("mTotal"),
-        mNew: document.getElementById("mNew"),
-        mMinors: document.getElementById("mMinors"),
-        mAvgAge: document.getElementById("mAvgAge"),
-        mPortland: document.getElementById("mPortland"),
-        mScottsdale: document.getElementById("mScottsdale"),
-        mOther: document.getElementById("mOther"),
-        mHeadshot: document.getElementById("mHeadshot"),
+                // KPIs
+                mTotal: document.getElementById("mTotal"),
+                mNew: document.getElementById("mNew"),
+                mMinors: document.getElementById("mMinors"),
+                mAvgAge: document.getElementById("mAvgAge"),
+                mPortland: document.getElementById("mPortland"),
+                mScottsdale: document.getElementById("mScottsdale"),
+                mOther: document.getElementById("mOther"),
+                mHeadshot: document.getElementById("mHeadshot"),
 
-        // chips
-        chips: Array.from(document.querySelectorAll(".chip")),
-        chipAllMeta: document.getElementById("chipAllMeta"),
-        chipNewMeta: document.getElementById("chipNewMeta"),
-        chipReviewedMeta: document.getElementById("chipReviewedMeta"),
-        chipShortlistMeta: document.getElementById("chipShortlistMeta"),
-        chipBookedMeta: document.getElementById("chipBookedMeta"),
-        chipRejectedMeta: document.getElementById("chipRejectedMeta"),
-        chipPortlandMeta: document.getElementById("chipPortlandMeta"),
-        chipScottsdaleMeta: document.getElementById("chipScottsdaleMeta"),
-        chipOtherMeta: document.getElementById("chipOtherMeta"),
+                // chips
+                chips: Array.from(document.querySelectorAll(".chip")),
+                chipAllMeta: document.getElementById("chipAllMeta"),
+                chipNewMeta: document.getElementById("chipNewMeta"),
+                chipReviewedMeta: document.getElementById("chipReviewedMeta"),
+                chipShortlistMeta: document.getElementById("chipShortlistMeta"),
+                chipBookedMeta: document.getElementById("chipBookedMeta"),
+                chipRejectedMeta: document.getElementById("chipRejectedMeta"),
+                chipPortlandMeta: document.getElementById("chipPortlandMeta"),
+                chipScottsdaleMeta: document.getElementById("chipScottsdaleMeta"),
+                chipOtherMeta: document.getElementById("chipOtherMeta"),
 
-        // drawer
-        overlay: document.getElementById("overlay"),
-        drawer: document.getElementById("drawer"),
-        dTitle: document.getElementById("dTitle"),
-        dSub: document.getElementById("dSub"),
-        dClose: document.getElementById("dClose"),
-        dCopyEmail: document.getElementById("dCopyEmail"),
-        dOpenEdit: document.getElementById("dOpenEdit"),
-        dSave: document.getElementById("dSave"),
+                // drawer
+                overlay: document.getElementById("overlay"),
+                drawer: document.getElementById("drawer"),
+                dTitle: document.getElementById("dTitle"),
+                dSub: document.getElementById("dSub"),
+                dClose: document.getElementById("dClose"),
+                dCopyEmail: document.getElementById("dCopyEmail"),
+                dOpenEdit: document.getElementById("dOpenEdit"),
+                dSave: document.getElementById("dSave"),
 
-        dId: document.getElementById("dId"),
-        dLoc: document.getElementById("dLoc"),
-        dContact: document.getElementById("dContact"),
-        dSizes: document.getElementById("dSizes"),
-        dSocial: document.getElementById("dSocial"),
-        dWork: document.getElementById("dWork"),
-        dHead: document.getElementById("dHead"),
-        dStatus: document.getElementById("dStatus"),
-        dUpdated: document.getElementById("dUpdated"),
-        dNotes: document.getElementById("dNotes"),
-      };
+                dId: document.getElementById("dId"),
+                dLoc: document.getElementById("dLoc"),
+                dContact: document.getElementById("dContact"),
+                dSizes: document.getElementById("dSizes"),
+                dSocial: document.getElementById("dSocial"),
+                dWork: document.getElementById("dWork"),
+                dHead: document.getElementById("dHead"),
+                dStatus: document.getElementById("dStatus"),
+                dUpdated: document.getElementById("dUpdated"),
+                dNotes: document.getElementById("dNotes"),
+            };
 
-      /**********************
-       * STATE
-       **********************/
-      let RAW = [];
-      let VIEW = [];
-      let minorOnly = false;
-      let wrapText = false;
-      let compact = false;
+            /**********************
+             * STATE
+             **********************/
+            let RAW = [];
+            let VIEW = [];
+            let minorOnly = false;
+            let wrapText = false;
+            let compact = false;
 
-      let drill = null;
-      let sortKey = "__submitted";
-      let sortDir = "desc";
-      let drawerRow = null;
+            let drill = null;
+            let sortKey = "__submitted";
+            let sortDir = "desc";
+            let drawerRow = null;
 
-      /**********************
-       * UTILS
-       **********************/
-      const debounce = (fn, d=220)=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),d); } };
-      function cleanHeader(s){ return String(s||"").trim().replace(/\s+/g," ").toLowerCase(); }
-      function normalizeSpace(s){ return String(s||"").replace(/\s+/g," ").trim(); }
-      function esc(s){
-        return String(s ?? "")
-          .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
-          .replaceAll('"',"&quot;").replaceAll("'","&#039;");
-      }
+            /**********************
+             * UTILS
+             **********************/
+            const debounce = (fn, d = 220) => {
+                let t;
+                return (...a) => {
+                    clearTimeout(t);
+                    t = setTimeout(() => fn(...a), d);
+                }
+            };
 
-      function setError(msg, detail){
-        els.error.style.display = "block";
-        els.error.innerHTML = `${esc(msg)}<small>${esc(detail||"")}</small>`;
-      }
-      function clearError(){
-        els.error.style.display = "none";
-        els.error.textContent = "";
-      }
-
-      function parseCSV(text){
-        const rows = [];
-        let cur = [];
-        let val = "";
-        let i = 0;
-        let inQuotes = false;
-
-        while(i < text.length){
-          const c = text[i];
-          if(inQuotes){
-            if(c === '"'){
-              if(text[i+1] === '"'){ val += '"'; i += 2; continue; }
-              inQuotes = false; i++; continue;
+            function cleanHeader(s) {
+                return String(s || "").trim().replace(/\s+/g, " ").toLowerCase();
             }
-            val += c; i++; continue;
-          } else {
-            if(c === '"'){ inQuotes = true; i++; continue; }
-            if(c === ","){ cur.push(val); val=""; i++; continue; }
-            if(c === "\r"){ i++; continue; }
-            if(c === "\n"){ cur.push(val); rows.push(cur); cur=[]; val=""; i++; continue; }
-            val += c; i++; continue;
-          }
-        }
-        cur.push(val);
-        rows.push(cur);
-        return rows.filter(r => r.some(x => String(x||"").trim() !== ""));
-      }
 
-      function toInt(v){
-        const n = Number(String(v ?? "").replace(/[^\d.-]/g,""));
-        return Number.isFinite(n) ? n : 0;
-      }
+            function normalizeSpace(s) {
+                return String(s || "").replace(/\s+/g, " ").trim();
+            }
 
-      function parseDateTime(v){
-        const s = normalizeSpace(v);
-        if(!s) return null;
-        const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/);
-        if(m){
-          const y = Number(m[1]), mo = Number(m[2])-1, d = Number(m[3]);
-          const hh = Number(m[4]||"0"), mm = Number(m[5]||"0"), ss = Number(m[6]||"0");
-          const dt = new Date(y, mo, d, hh, mm, ss);
-          return isNaN(dt.getTime()) ? null : dt;
-        }
-        const dt2 = new Date(s);
-        return isNaN(dt2.getTime()) ? null : dt2;
-      }
+            function esc(s) {
+                return String(s ?? "")
+                    .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+                    .replaceAll('"', "&quot;").replaceAll("'", "&#039;");
+            }
 
-      function fmtDate(dt){
-        if(!dt) return "—";
-        return dt.toLocaleString(undefined, { year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit" });
-      }
+            function setError(msg, detail) {
+                els.error.style.display = "block";
+                els.error.innerHTML = `${esc(msg)}<small>${esc(detail||"")}</small>`;
+            }
 
-      function computeLocation(obj){
-        const choice = normalizeSpace(obj["Are you located in the Portland, OR  or Scottsdale, AZ areas?"]).toLowerCase();
-        const other = normalizeSpace(obj["If you selected other, please state your location."]);
-        if(choice.includes("portland")) return "Portland";
-        if(choice.includes("scottsdale")) return "Scottsdale";
-        if(choice.includes("other")) return other ? `Other: ${other}` : "Other";
-        if(other) return `Other: ${other}`;
-        return choice ? (choice[0].toUpperCase() + choice.slice(1)) : "—";
-      }
+            function clearError() {
+                els.error.style.display = "none";
+                els.error.textContent = "";
+            }
 
-      function statusPill(status){
-        const s = String(status||"New");
-        const cls = s.toLowerCase();
-        return `<span class="pill ${esc(cls)}">${esc(s)}</span>`;
-      }
+            function parseCSV(text) {
+                const rows = [];
+                let cur = [];
+                let val = "";
+                let i = 0;
+                let inQuotes = false;
 
-      function uniq(arr){
-        return Array.from(new Set(arr.map(normalizeSpace).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
-      }
+                while (i < text.length) {
+                    const c = text[i];
+                    if (inQuotes) {
+                        if (c === '"') {
+                            if (text[i + 1] === '"') {
+                                val += '"';
+                                i += 2;
+                                continue;
+                            }
+                            inQuotes = false;
+                            i++;
+                            continue;
+                        }
+                        val += c;
+                        i++;
+                        continue;
+                    } else {
+                        if (c === '"') {
+                            inQuotes = true;
+                            i++;
+                            continue;
+                        }
+                        if (c === ",") {
+                            cur.push(val);
+                            val = "";
+                            i++;
+                            continue;
+                        }
+                        if (c === "\r") {
+                            i++;
+                            continue;
+                        }
+                        if (c === "\n") {
+                            cur.push(val);
+                            rows.push(cur);
+                            cur = [];
+                            val = "";
+                            i++;
+                            continue;
+                        }
+                        val += c;
+                        i++;
+                        continue;
+                    }
+                }
+                cur.push(val);
+                rows.push(cur);
+                return rows.filter(r => r.some(x => String(x || "").trim() !== ""));
+            }
 
-      function localKey(id){ return `modelInbox:${id}`; }
-      function loadLocal(id){
-        const fallback = { status:"New", notes:"", updatedAt:"" };
-        if(!id) return fallback;
-        try{
-          const raw = localStorage.getItem(localKey(id));
-          if(!raw) return fallback;
-          const v = JSON.parse(raw);
-          const st = STATUS_OPTIONS.includes(v.status) ? v.status : "New";
-          return { status: st, notes: String(v.notes||""), updatedAt: String(v.updatedAt||"") };
-        } catch {
-          return fallback;
-        }
-      }
-      function saveLocal(id, patch){
-        if(!id) return;
-        const cur = loadLocal(id);
-        const next = {
-          status: patch.status ?? cur.status,
-          notes: patch.notes ?? cur.notes,
-          updatedAt: new Date().toISOString(),
-        };
-        localStorage.setItem(localKey(id), JSON.stringify(next));
-      }
+            function toInt(v) {
+                const n = Number(String(v ?? "").replace(/[^\d.-]/g, ""));
+                return Number.isFinite(n) ? n : 0;
+            }
 
-      function extractUrls(text){
-        const s = String(text || "");
-        if(!s.trim()) return [];
-        const matches = s.match(/https?:\/\/[^\s"'<>()]+/g) || [];
-        const cleaned = matches
-          .map(u => u.replace(/[),.]+$/g, "")) // trim trailing punctuation
-          .map(u => u.trim());
-        return Array.from(new Set(cleaned));
-      }
+            function parseDateTime(v) {
+                const s = normalizeSpace(v);
+                if (!s) return null;
+                const m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}):(\d{2})(?::(\d{2}))?)?$/);
+                if (m) {
+                    const y = Number(m[1]),
+                        mo = Number(m[2]) - 1,
+                        d = Number(m[3]);
+                    const hh = Number(m[4] || "0"),
+                        mm = Number(m[5] || "0"),
+                        ss = Number(m[6] || "0");
+                    const dt = new Date(y, mo, d, hh, mm, ss);
+                    return isNaN(dt.getTime()) ? null : dt;
+                }
+                const dt2 = new Date(s);
+                return isNaN(dt2.getTime()) ? null : dt2;
+            }
 
-      function isLikelyImageUrl(url){
-        const u = String(url||"").toLowerCase();
-        if(!u.startsWith("http")) return false;
-        if(/\.(png|jpe?g|gif|webp|bmp|avif)(\?|#|$)/.test(u)) return true;
-        if(u.includes("jotform.com/uploads/")) return true;
-        return false;
-      }
+            function fmtDate(dt) {
+                if (!dt) return "—";
+                return dt.toLocaleString(undefined, {
+                    year: "numeric",
+                    month: "2-digit",
+                    day: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit"
+                });
+            }
 
-      function safeLink(url, label){
-        const u = normalizeSpace(url);
-        if(!u) return "—";
-        return `<a class="link" href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(label || "Open")}</a>`;
-      }
+            function computeLocation(obj) {
+                const choice = normalizeSpace(obj["Are you located in the Portland, OR  or Scottsdale, AZ areas?"]).toLowerCase();
+                const other = normalizeSpace(obj["If you selected other, please state your location."]);
+                if (choice.includes("portland")) return "Portland";
+                if (choice.includes("scottsdale")) return "Scottsdale";
+                if (choice.includes("other")) return other ? `Other: ${other}` : "Other";
+                if (other) return `Other: ${other}`;
+                return choice ? (choice[0].toUpperCase() + choice.slice(1)) : "—";
+            }
 
-      function headshotCellHTML(headshotRaw){
-        const urls = extractUrls(headshotRaw);
-        if(!urls.length) return "—";
-        const first = urls[0];
-        const count = urls.length;
+            function statusPill(status) {
+                const s = String(status || "New");
+                const cls = s.toLowerCase();
+                return `<span class="pill ${esc(cls)}">${esc(s)}</span>`;
+            }
 
-        if(isLikelyImageUrl(first)){
-          const meta = count > 1 ? `${count} imgs` : "image";
-          return `
+            function uniq(arr) {
+                return Array.from(new Set(arr.map(normalizeSpace).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+            }
+
+            function localKey(id) {
+                return `modelInbox:${id}`;
+            }
+
+            function loadLocal(id) {
+                const fallback = {
+                    status: "New",
+                    notes: "",
+                    updatedAt: ""
+                };
+                if (!id) return fallback;
+                try {
+                    const raw = localStorage.getItem(localKey(id));
+                    if (!raw) return fallback;
+                    const v = JSON.parse(raw);
+                    const st = STATUS_OPTIONS.includes(v.status) ? v.status : "New";
+                    return {
+                        status: st,
+                        notes: String(v.notes || ""),
+                        updatedAt: String(v.updatedAt || "")
+                    };
+                } catch {
+                    return fallback;
+                }
+            }
+
+            function saveLocal(id, patch) {
+                if (!id) return;
+                const cur = loadLocal(id);
+                const next = {
+                    status: patch.status ?? cur.status,
+                    notes: patch.notes ?? cur.notes,
+                    updatedAt: new Date().toISOString(),
+                };
+                localStorage.setItem(localKey(id), JSON.stringify(next));
+            }
+
+            function extractUrls(text) {
+                const s = String(text || "");
+                if (!s.trim()) return [];
+                const matches = s.match(/https?:\/\/[^\s"'<>()]+/g) || [];
+                const cleaned = matches
+                    .map(u => u.replace(/[),.]+$/g, "")) // trim trailing punctuation
+                    .map(u => u.trim());
+                return Array.from(new Set(cleaned));
+            }
+
+            function isLikelyImageUrl(url) {
+                const u = String(url || "").toLowerCase();
+                if (!u.startsWith("http")) return false;
+                if (/\.(png|jpe?g|gif|webp|bmp|avif)(\?|#|$)/.test(u)) return true;
+                if (u.includes("jotform.com/uploads/")) return true;
+                return false;
+            }
+
+            function safeLink(url, label) {
+                const u = normalizeSpace(url);
+                if (!u) return "—";
+                return `<a class="link" href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(label || "Open")}</a>`;
+            }
+
+            function headshotCellHTML(headshotRaw) {
+                const urls = extractUrls(headshotRaw);
+                if (!urls.length) return "—";
+                const first = urls[0];
+                const count = urls.length;
+
+                if (isLikelyImageUrl(first)) {
+                    const meta = count > 1 ? `${count} imgs` : "image";
+                    return `
             <a class="thumbLink" href="${esc(first)}" target="_blank" rel="noopener noreferrer" title="Open image">
               <img class="thumb" src="${esc(first)}" loading="lazy" alt="Headshot thumbnail"
                    onerror="this.style.display='none'; this.closest('a').querySelector('.thumbMeta').textContent='Open';" />
               <span class="thumbMeta">${esc(meta)}</span>
             </a>
           `;
-        }
+                }
 
-        return safeLink(first, count > 1 ? `Open (${count})` : "Open");
-      }
+                return safeLink(first, count > 1 ? `Open (${count})` : "Open");
+            }
 
-      function headshotsDrawerHTML(headshotRaw){
-        const urls = extractUrls(headshotRaw);
-        if(!urls.length) return "—";
+            function headshotsDrawerHTML(headshotRaw) {
+                const urls = extractUrls(headshotRaw);
+                if (!urls.length) return "—";
 
-        const imgs = urls.filter(isLikelyImageUrl);
-        const nonImgs = urls.filter(u => !isLikelyImageUrl(u));
+                const imgs = urls.filter(isLikelyImageUrl);
+                const nonImgs = urls.filter(u => !isLikelyImageUrl(u));
 
-        const imgGrid = imgs.length ? `
+                const imgGrid = imgs.length ? `
           <div class="imgGrid">
             ${imgs.map((u, idx)=>`
               <div class="imgCard">
@@ -1025,307 +1475,336 @@
           </div>
         ` : "";
 
-        const linksList = nonImgs.length ? `
+                const linksList = nonImgs.length ? `
           <div style="margin-top:10px; display:grid; gap:6px;">
             ${nonImgs.map((u, idx)=>`<div>${safeLink(u, `Link ${idx+1}`)}</div>`).join("")}
           </div>
         ` : "";
 
-        const hint = (imgs.length && urls.length > imgs.length)
-          ? `<div style="margin-top:10px; color:var(--muted); font-weight:900; font-size:12px;">Some uploads are links (not direct images).</div>`
-          : "";
+                const hint = (imgs.length && urls.length > imgs.length) ?
+                    `<div style="margin-top:10px; color:var(--muted); font-weight:900; font-size:12px;">Some uploads are links (not direct images).</div>` :
+                    "";
 
-        return `${imgGrid}${linksList}${hint || ""}` || "—";
-      }
-
-      function mapRows(rows){
-        const headerRow = rows[0].map(h => String(h||"").trim());
-        const headerMap = new Map();
-        headerRow.forEach((h, idx)=> headerMap.set(cleanHeader(h), idx));
-
-        const missing = REQUIRED_HEADERS.filter(h => !headerMap.has(cleanHeader(h)));
-        if(missing.length) return { ok:false, reason:`Missing headers: ${missing.join(", ")}` };
-
-        const data = rows.slice(1).map(r=>{
-          const obj = {};
-          for(const h of REQUIRED_HEADERS){
-            const idx = headerMap.get(cleanHeader(h));
-            obj[h] = (idx != null && idx < r.length) ? r[idx] : "";
-          }
-
-          obj.__id = normalizeSpace(obj["Submission ID"]) || "";
-          obj.__name = normalizeSpace(obj["Name:"]) || "";
-          obj.__gender = normalizeSpace(obj["Gender:"]) || "";
-          obj.__age = toInt(obj["Age"]);
-          obj.__submitted = parseDateTime(obj["Submission Date"]);
-          obj.__loc = computeLocation(obj);
-          obj.__social = normalizeSpace(obj["Social Links"]) || "";
-          obj.__work = normalizeSpace(obj["Previous Work:"]) || "";
-          obj.__headshot = String(obj["Headshot / Uploads of Previous Work"] || "");
-          obj.__email = normalizeSpace(obj["Contact Info: Email"]) || normalizeSpace(obj["Email"]) || "";
-          obj.__phone = normalizeSpace(obj["Phone Number"]) || "";
-          obj.__editUrl = normalizeSpace(obj["Submission Edit URL"]) || "";
-          obj.__guardian = normalizeSpace(obj["Parent / Guardian Name (if applicable) :"]) || "";
-          obj.__topSize = normalizeSpace(obj["T-Shirt/Hoodie size"]) || "";
-          obj.__bottomSize = normalizeSpace(obj["Pant/Short Size"]) || "";
-
-          const st = loadLocal(obj.__id);
-          obj.__status = st.status;
-          obj.__notes = st.notes;
-          obj.__updatedAt = st.updatedAt;
-
-          return obj;
-        }).filter(x => x.__id || x.__name || x.__email);
-
-        return { ok:true, data };
-      }
-
-      async function fetchFirstWorkingCSV(){
-        let lastErr = "";
-        for(const url of CSV_URLS){
-          try{
-            const res = await fetch(url, { cache:"no-store" });
-            if(!res.ok) throw new Error(`HTTP ${res.status}`);
-            const text = await res.text();
-            const rows = parseCSV(text);
-            if(rows.length < 2) throw new Error("No data rows");
-            const mapped = mapRows(rows);
-            if(!mapped.ok) throw new Error(mapped.reason);
-            return { url, data: mapped.data };
-          } catch(e){
-            lastErr = `${url} — ${e.message || e}`;
-          }
-        }
-        throw new Error(lastErr || "Unable to load sheet CSV");
-      }
-
-      function getDateCutoff(days){
-        if(days === "all") return null;
-        const d = Number(days);
-        if(!Number.isFinite(d) || d <= 0) return null;
-        const now = new Date();
-        now.setHours(0,0,0,0);
-        return new Date(now.getTime() - d * 86400000);
-      }
-
-      function apply(){
-        const q = normalizeSpace(els.q.value).toLowerCase();
-        const loc = normalizeSpace(els.location.value);
-        const gender = normalizeSpace(els.gender.value);
-        const st = normalizeSpace(els.statusFilter.value);
-        const cutoff = getDateCutoff(els.dateRange.value || "all");
-
-        VIEW = RAW.filter(r=>{
-          if(drill){
-            if(drill.kind === "status" && normalizeSpace(r.__status) !== drill.value) return false;
-            if(drill.kind === "location"){
-              const l = String(r.__loc||"").toLowerCase();
-              if(drill.value === "Portland" && !l.includes("portland")) return false;
-              if(drill.value === "Scottsdale" && !l.includes("scottsdale")) return false;
-              if(drill.value === "Other" && !l.startsWith("other")) return false;
+                return `${imgGrid}${linksList}${hint || ""}` || "—";
             }
-          }
 
-          if(cutoff && r.__submitted && r.__submitted < cutoff) return false;
+            function mapRows(rows) {
+                const headerRow = rows[0].map(h => String(h || "").trim());
+                const headerMap = new Map();
+                headerRow.forEach((h, idx) => headerMap.set(cleanHeader(h), idx));
 
-          if(loc){
-            const l = String(r.__loc||"").toLowerCase();
-            if(loc === "Portland" && !l.includes("portland")) return false;
-            if(loc === "Scottsdale" && !l.includes("scottsdale")) return false;
-            if(loc === "Other" && !l.startsWith("other")) return false;
-          }
+                const missing = REQUIRED_HEADERS.filter(h => !headerMap.has(cleanHeader(h)));
+                if (missing.length) return {
+                    ok: false,
+                    reason: `Missing headers: ${missing.join(", ")}`
+                };
 
-          if(gender && normalizeSpace(r.__gender) !== gender) return false;
-          if(st && normalizeSpace(r.__status) !== st) return false;
-          if(minorOnly && !(r.__age > 0 && r.__age < 18)) return false;
+                const data = rows.slice(1).map(r => {
+                    const obj = {};
+                    for (const h of REQUIRED_HEADERS) {
+                        const idx = headerMap.get(cleanHeader(h));
+                        obj[h] = (idx != null && idx < r.length) ? r[idx] : "";
+                    }
 
-          if(q){
-            const hay = [
-              r.__name, r.__email, r.__phone, r.__gender,
-              r.__loc, r.__social, r.__work, r.__id
-            ].join(" ").toLowerCase();
-            if(!hay.includes(q)) return false;
-          }
+                    obj.__id = normalizeSpace(obj["Submission ID"]) || "";
+                    obj.__name = normalizeSpace(obj["Name:"]) || "";
+                    obj.__gender = normalizeSpace(obj["Gender:"]) || "";
+                    obj.__age = toInt(obj["Age"]);
+                    obj.__submitted = parseDateTime(obj["Submission Date"]);
+                    obj.__loc = computeLocation(obj);
+                    obj.__social = normalizeSpace(obj["Social Links"]) || "";
+                    obj.__work = normalizeSpace(obj["Previous Work:"]) || "";
+                    obj.__headshot = String(obj["Headshot / Uploads of Previous Work"] || "");
+                    obj.__email = normalizeSpace(obj["Contact Info: Email"]) || normalizeSpace(obj["Email"]) || "";
+                    obj.__phone = normalizeSpace(obj["Phone Number"]) || "";
+                    obj.__editUrl = normalizeSpace(obj["Submission Edit URL"]) || "";
+                    obj.__guardian = normalizeSpace(obj["Parent / Guardian Name (if applicable) :"]) || "";
+                    obj.__topSize = normalizeSpace(obj["T-Shirt/Hoodie size"]) || "";
+                    obj.__bottomSize = normalizeSpace(obj["Pant/Short Size"]) || "";
 
-          return true;
-        });
+                    const st = loadLocal(obj.__id);
+                    obj.__status = st.status;
+                    obj.__notes = st.notes;
+                    obj.__updatedAt = st.updatedAt;
 
-        render();
-        writeQS();
-      }
+                    return obj;
+                }).filter(x => x.__id || x.__name || x.__email);
 
-      function getSorted(rows){
-        const mode = normalizeSpace(els.sort.value) || "date_desc";
-        if(mode === "date_desc"){ sortKey="__submitted"; sortDir="desc"; }
-        else if(mode === "date_asc"){ sortKey="__submitted"; sortDir="asc"; }
-        else if(mode === "age_desc"){ sortKey="__age"; sortDir="desc"; }
-        else if(mode === "age_asc"){ sortKey="__age"; sortDir="asc"; }
-        else if(mode === "name_asc"){ sortKey="__name"; sortDir="asc"; }
-        else if(mode === "name_desc"){ sortKey="__name"; sortDir="desc"; }
-        else if(mode === "status_asc"){ sortKey="__status"; sortDir="asc"; }
+                return {
+                    ok: true,
+                    data
+                };
+            }
 
-        const dir = sortDir === "asc" ? 1 : -1;
-        return rows
-          .map((r,i)=>({r,i}))
-          .sort((a,b)=>{
-            const av = sortKey === "__submitted" ? (a.r.__submitted ? a.r.__submitted.getTime() : 0)
-              : sortKey === "__age" ? (a.r.__age || 0)
-              : String(a.r[sortKey] ?? "").toLowerCase();
+            async function fetchFirstWorkingCSV() {
+                let lastErr = "";
+                for (const url of CSV_URLS) {
+                    try {
+                        const res = await fetch(url, {
+                            cache: "no-store"
+                        });
+                        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                        const text = await res.text();
+                        const rows = parseCSV(text);
+                        if (rows.length < 2) throw new Error("No data rows");
+                        const mapped = mapRows(rows);
+                        if (!mapped.ok) throw new Error(mapped.reason);
+                        return {
+                            url,
+                            data: mapped.data
+                        };
+                    } catch (e) {
+                        lastErr = `${url} — ${e.message || e}`;
+                    }
+                }
+                throw new Error(lastErr || "Unable to load sheet CSV");
+            }
 
-            const bv = sortKey === "__submitted" ? (b.r.__submitted ? b.r.__submitted.getTime() : 0)
-              : sortKey === "__age" ? (b.r.__age || 0)
-              : String(b.r[sortKey] ?? "").toLowerCase();
+            function getDateCutoff(days) {
+                if (days === "all") return null;
+                const d = Number(days);
+                if (!Number.isFinite(d) || d <= 0) return null;
+                const now = new Date();
+                now.setHours(0, 0, 0, 0);
+                return new Date(now.getTime() - d * 86400000);
+            }
 
-            if(av === bv) return a.i - b.i;
-            return (av > bv ? 1 : -1) * dir;
-          })
-          .map(x=>x.r);
-      }
+            function apply() {
+                const q = normalizeSpace(els.q.value).toLowerCase();
+                const loc = normalizeSpace(els.location.value);
+                const gender = normalizeSpace(els.gender.value);
+                const st = normalizeSpace(els.statusFilter.value);
+                const cutoff = getDateCutoff(els.dateRange.value || "all");
 
-      function updateChipsCounts(baseRows){
-        const total = baseRows.length;
-        const countStatus = (s)=> baseRows.filter(r=>r.__status===s).length;
-        const countLoc = (v)=>{
-          return baseRows.filter(r=>{
-            const l = String(r.__loc||"").toLowerCase();
-            if(v==="Portland") return l.includes("portland");
-            if(v==="Scottsdale") return l.includes("scottsdale");
-            if(v==="Other") return l.startsWith("other");
-            return true;
-          }).length;
-        };
+                VIEW = RAW.filter(r => {
+                    if (drill) {
+                        if (drill.kind === "status" && normalizeSpace(r.__status) !== drill.value) return false;
+                        if (drill.kind === "location") {
+                            const l = String(r.__loc || "").toLowerCase();
+                            if (drill.value === "Portland" && !l.includes("portland")) return false;
+                            if (drill.value === "Scottsdale" && !l.includes("scottsdale")) return false;
+                            if (drill.value === "Other" && !l.startsWith("other")) return false;
+                        }
+                    }
 
-        els.chipAllMeta.textContent = total.toLocaleString();
-        els.chipNewMeta.textContent = countStatus("New").toLocaleString();
-        els.chipReviewedMeta.textContent = countStatus("Reviewed").toLocaleString();
-        els.chipShortlistMeta.textContent = countStatus("Shortlist").toLocaleString();
-        els.chipBookedMeta.textContent = countStatus("Booked").toLocaleString();
-        els.chipRejectedMeta.textContent = countStatus("Rejected").toLocaleString();
+                    if (cutoff && r.__submitted && r.__submitted < cutoff) return false;
 
-        els.chipPortlandMeta.textContent = countLoc("Portland").toLocaleString();
-        els.chipScottsdaleMeta.textContent = countLoc("Scottsdale").toLocaleString();
-        els.chipOtherMeta.textContent = countLoc("Other").toLocaleString();
-      }
+                    if (loc) {
+                        const l = String(r.__loc || "").toLowerCase();
+                        if (loc === "Portland" && !l.includes("portland")) return false;
+                        if (loc === "Scottsdale" && !l.includes("scottsdale")) return false;
+                        if (loc === "Other" && !l.startsWith("other")) return false;
+                    }
 
-      function render(){
-        clearError();
+                    if (gender && normalizeSpace(r.__gender) !== gender) return false;
+                    if (st && normalizeSpace(r.__status) !== st) return false;
+                    if (minorOnly && !(r.__age > 0 && r.__age < 18)) return false;
 
-        for(const r of RAW){
-          const st = loadLocal(r.__id);
-          r.__status = st.status;
-          r.__notes = st.notes;
-          r.__updatedAt = st.updatedAt;
-        }
+                    if (q) {
+                        const hay = [
+                            r.__name, r.__email, r.__phone, r.__gender,
+                            r.__loc, r.__social, r.__work, r.__id
+                        ].join(" ").toLowerCase();
+                        if (!hay.includes(q)) return false;
+                    }
 
-        const rows = VIEW.slice();
-        const total = rows.length;
+                    return true;
+                });
 
-        const newCount = rows.filter(r => r.__status === "New").length;
-        const minors = rows.filter(r => r.__age > 0 && r.__age < 18).length;
-        const ages = rows.map(r => r.__age).filter(a => a > 0);
-        const avgAge = ages.length ? (ages.reduce((s,a)=>s+a,0) / ages.length) : 0;
+                render();
+                writeQS();
+            }
 
-        const pdx = rows.filter(r => String(r.__loc||"").toLowerCase().includes("portland")).length;
-        const az = rows.filter(r => String(r.__loc||"").toLowerCase().includes("scottsdale")).length;
-        const oth = rows.filter(r => String(r.__loc||"").toLowerCase().startsWith("other")).length;
-        const head = rows.filter(r => extractUrls(r.__headshot).length > 0).length;
+            function getSorted(rows) {
+                const mode = normalizeSpace(els.sort.value) || "date_desc";
+                if (mode === "date_desc") {
+                    sortKey = "__submitted";
+                    sortDir = "desc";
+                } else if (mode === "date_asc") {
+                    sortKey = "__submitted";
+                    sortDir = "asc";
+                } else if (mode === "age_desc") {
+                    sortKey = "__age";
+                    sortDir = "desc";
+                } else if (mode === "age_asc") {
+                    sortKey = "__age";
+                    sortDir = "asc";
+                } else if (mode === "name_asc") {
+                    sortKey = "__name";
+                    sortDir = "asc";
+                } else if (mode === "name_desc") {
+                    sortKey = "__name";
+                    sortDir = "desc";
+                } else if (mode === "status_asc") {
+                    sortKey = "__status";
+                    sortDir = "asc";
+                }
 
-        els.mTotal.textContent = total.toLocaleString();
-        els.mNew.textContent = newCount.toLocaleString();
-        els.mMinors.textContent = minors.toLocaleString();
-        els.mAvgAge.textContent = avgAge ? avgAge.toFixed(1) : "0";
-        els.mPortland.textContent = pdx.toLocaleString();
-        els.mScottsdale.textContent = az.toLocaleString();
-        els.mOther.textContent = oth.toLocaleString();
-        els.mHeadshot.textContent = head.toLocaleString();
+                const dir = sortDir === "asc" ? 1 : -1;
+                return rows
+                    .map((r, i) => ({
+                        r,
+                        i
+                    }))
+                    .sort((a, b) => {
+                        const av = sortKey === "__submitted" ? (a.r.__submitted ? a.r.__submitted.getTime() : 0) :
+                            sortKey === "__age" ? (a.r.__age || 0) :
+                            String(a.r[sortKey] ?? "").toLowerCase();
 
-        const baseFiltered = RAW.filter(r=>{
-          const q = normalizeSpace(els.q.value).toLowerCase();
-          const loc = normalizeSpace(els.location.value);
-          const gender = normalizeSpace(els.gender.value);
-          const st = normalizeSpace(els.statusFilter.value);
-          const cutoff = getDateCutoff(els.dateRange.value || "all");
+                        const bv = sortKey === "__submitted" ? (b.r.__submitted ? b.r.__submitted.getTime() : 0) :
+                            sortKey === "__age" ? (b.r.__age || 0) :
+                            String(b.r[sortKey] ?? "").toLowerCase();
 
-          if(cutoff && r.__submitted && r.__submitted < cutoff) return false;
+                        if (av === bv) return a.i - b.i;
+                        return (av > bv ? 1 : -1) * dir;
+                    })
+                    .map(x => x.r);
+            }
 
-          if(loc){
-            const l = String(r.__loc||"").toLowerCase();
-            if(loc === "Portland" && !l.includes("portland")) return false;
-            if(loc === "Scottsdale" && !l.includes("scottsdale")) return false;
-            if(loc === "Other" && !l.startsWith("other")) return false;
-          }
-          if(gender && normalizeSpace(r.__gender) !== gender) return false;
-          if(st && normalizeSpace(r.__status) !== st) return false;
-          if(minorOnly && !(r.__age > 0 && r.__age < 18)) return false;
+            function updateChipsCounts(baseRows) {
+                const total = baseRows.length;
+                const countStatus = (s) => baseRows.filter(r => r.__status === s).length;
+                const countLoc = (v) => {
+                    return baseRows.filter(r => {
+                        const l = String(r.__loc || "").toLowerCase();
+                        if (v === "Portland") return l.includes("portland");
+                        if (v === "Scottsdale") return l.includes("scottsdale");
+                        if (v === "Other") return l.startsWith("other");
+                        return true;
+                    }).length;
+                };
 
-          if(q){
-            const hay = [r.__name,r.__email,r.__phone,r.__gender,r.__loc,r.__social,r.__work,r.__id].join(" ").toLowerCase();
-            if(!hay.includes(q)) return false;
-          }
-          return true;
-        });
+                els.chipAllMeta.textContent = total.toLocaleString();
+                els.chipNewMeta.textContent = countStatus("New").toLocaleString();
+                els.chipReviewedMeta.textContent = countStatus("Reviewed").toLocaleString();
+                els.chipShortlistMeta.textContent = countStatus("Shortlist").toLocaleString();
+                els.chipBookedMeta.textContent = countStatus("Booked").toLocaleString();
+                els.chipRejectedMeta.textContent = countStatus("Rejected").toLocaleString();
 
-        updateChipsCounts(baseFiltered);
+                els.chipPortlandMeta.textContent = countLoc("Portland").toLocaleString();
+                els.chipScottsdaleMeta.textContent = countLoc("Scottsdale").toLocaleString();
+                els.chipOtherMeta.textContent = countLoc("Other").toLocaleString();
+            }
 
-        els.chips.forEach(c=>{
-          const k = c.dataset.kind || "";
-          const v = c.dataset.value || "";
-          const active = (!drill && !k && !v) || (drill && drill.kind === k && drill.value === v);
-          c.classList.toggle("active", active);
-        });
+            function render() {
+                clearError();
 
-        els.clearDrill.style.display = drill ? "inline-flex" : "none";
+                for (const r of RAW) {
+                    const st = loadLocal(r.__id);
+                    r.__status = st.status;
+                    r.__notes = st.notes;
+                    r.__updatedAt = st.updatedAt;
+                }
 
-        const drillText = drill ? `Drill: ${drill.kind}=${drill.value}` : "No drill";
-        els.statusLine.textContent = `${total.toLocaleString()} in view • ${drillText}`;
+                const rows = VIEW.slice();
+                const total = rows.length;
 
-        const newest = rows
-          .filter(r => r.__submitted)
-          .sort((a,b)=> (b.__submitted?.getTime()||0) - (a.__submitted?.getTime()||0))[0];
-        els.tableMeta.textContent = total
-          ? `Showing ${total.toLocaleString()} submissions • Newest: ${newest ? fmtDate(newest.__submitted) : "—"}`
-          : "No matches";
+                const newCount = rows.filter(r => r.__status === "New").length;
+                const minors = rows.filter(r => r.__age > 0 && r.__age < 18).length;
+                const ages = rows.map(r => r.__age).filter(a => a > 0);
+                const avgAge = ages.length ? (ages.reduce((s, a) => s + a, 0) / ages.length) : 0;
 
-        renderTable(rows);
-      }
+                const pdx = rows.filter(r => String(r.__loc || "").toLowerCase().includes("portland")).length;
+                const az = rows.filter(r => String(r.__loc || "").toLowerCase().includes("scottsdale")).length;
+                const oth = rows.filter(r => String(r.__loc || "").toLowerCase().startsWith("other")).length;
+                const head = rows.filter(r => extractUrls(r.__headshot).length > 0).length;
 
-      function renderTable(rows){
-        const sorted = getSorted(rows);
+                els.mTotal.textContent = total.toLocaleString();
+                els.mNew.textContent = newCount.toLocaleString();
+                els.mMinors.textContent = minors.toLocaleString();
+                els.mAvgAge.textContent = avgAge ? avgAge.toFixed(1) : "0";
+                els.mPortland.textContent = pdx.toLocaleString();
+                els.mScottsdale.textContent = az.toLocaleString();
+                els.mOther.textContent = oth.toLocaleString();
+                els.mHeadshot.textContent = head.toLocaleString();
 
-        const styleEl = document.getElementById("__density");
-        if(styleEl) styleEl.remove();
-        const density = document.createElement("style");
-        density.id = "__density";
-        density.textContent = compact
-          ? `tbody td{ padding:7px 10px; } thead th{ padding:9px 10px; }`
-          : `tbody td{ padding:10px 10px; } thead th{ padding:10px 10px; }`;
-        document.head.appendChild(density);
+                const baseFiltered = RAW.filter(r => {
+                    const q = normalizeSpace(els.q.value).toLowerCase();
+                    const loc = normalizeSpace(els.location.value);
+                    const gender = normalizeSpace(els.gender.value);
+                    const st = normalizeSpace(els.statusFilter.value);
+                    const cutoff = getDateCutoff(els.dateRange.value || "all");
 
-        if(!sorted.length){
-          els.tbody.innerHTML = `<tr><td colspan="11" style="padding:14px;color:#6b7280;font-weight:800;">No submissions found.</td></tr>`;
-          return;
-        }
+                    if (cutoff && r.__submitted && r.__submitted < cutoff) return false;
 
-        const limit = 1200;
-        const slice = sorted.slice(0, limit);
+                    if (loc) {
+                        const l = String(r.__loc || "").toLowerCase();
+                        if (loc === "Portland" && !l.includes("portland")) return false;
+                        if (loc === "Scottsdale" && !l.includes("scottsdale")) return false;
+                        if (loc === "Other" && !l.startsWith("other")) return false;
+                    }
+                    if (gender && normalizeSpace(r.__gender) !== gender) return false;
+                    if (st && normalizeSpace(r.__status) !== st) return false;
+                    if (minorOnly && !(r.__age > 0 && r.__age < 18)) return false;
 
-        els.tbody.innerHTML = slice.map(r=>{
-          const submitted = r.__submitted ? fmtDate(r.__submitted) : (normalizeSpace(r["Submission Date"]) || "—");
-          const minor = (r.__age > 0 && r.__age < 18);
+                    if (q) {
+                        const hay = [r.__name, r.__email, r.__phone, r.__gender, r.__loc, r.__social, r.__work, r.__id].join(" ").toLowerCase();
+                        if (!hay.includes(q)) return false;
+                    }
+                    return true;
+                });
 
-          const socialWork = [normalizeSpace(r.__social), normalizeSpace(r.__work)].filter(Boolean).join("\n");
-          const socialCell = socialWork
-            ? `<div class="${wrapText ? "wrapCell" : ""}" title="${esc(socialWork)}">${esc(wrapText ? socialWork : (socialWork.length>80 ? socialWork.slice(0,80)+"…" : socialWork))}</div>`
-            : "—";
+                updateChipsCounts(baseFiltered);
 
-          const emailCell = r.__email ? `<a class="link" href="mailto:${esc(r.__email)}">${esc(r.__email)}</a>` : "—";
-          const phoneCell = r.__phone ? `<a class="link" href="tel:${esc(r.__phone)}">${esc(r.__phone)}</a>` : "—";
+                els.chips.forEach(c => {
+                    const k = c.dataset.kind || "";
+                    const v = c.dataset.value || "";
+                    const active = (!drill && !k && !v) || (drill && drill.kind === k && drill.value === v);
+                    c.classList.toggle("active", active);
+                });
 
-          const name = r.__name || "—";
-          const id = r.__id || "";
-          const nameSub = `ID: ${id || "—"}${minor ? " • Minor" : ""}`;
+                els.clearDrill.style.display = drill ? "inline-flex" : "none";
 
-          return `
+                const drillText = drill ? `Drill: ${drill.kind}=${drill.value}` : "No drill";
+                els.statusLine.textContent = `${total.toLocaleString()} in view • ${drillText}`;
+
+                const newest = rows
+                    .filter(r => r.__submitted)
+                    .sort((a, b) => (b.__submitted?.getTime() || 0) - (a.__submitted?.getTime() || 0))[0];
+                els.tableMeta.textContent = total ?
+                    `Showing ${total.toLocaleString()} submissions • Newest: ${newest ? fmtDate(newest.__submitted) : "—"}` :
+                    "No matches";
+
+                renderTable(rows);
+            }
+
+            function renderTable(rows) {
+                const sorted = getSorted(rows);
+
+                const styleEl = document.getElementById("__density");
+                if (styleEl) styleEl.remove();
+                const density = document.createElement("style");
+                density.id = "__density";
+                density.textContent = compact ?
+                    `tbody td{ padding:7px 10px; } thead th{ padding:9px 10px; }` :
+                    `tbody td{ padding:10px 10px; } thead th{ padding:10px 10px; }`;
+                document.head.appendChild(density);
+
+                if (!sorted.length) {
+                    els.tbody.innerHTML = `<tr><td colspan="11" style="padding:14px;color:#6b7280;font-weight:800;">No submissions found.</td></tr>`;
+                    return;
+                }
+
+                const limit = 1200;
+                const slice = sorted.slice(0, limit);
+
+                els.tbody.innerHTML = slice.map(r => {
+                    const submitted = r.__submitted ? fmtDate(r.__submitted) : (normalizeSpace(r["Submission Date"]) || "—");
+                    const minor = (r.__age > 0 && r.__age < 18);
+
+                    const socialWork = [normalizeSpace(r.__social), normalizeSpace(r.__work)].filter(Boolean).join("\n");
+                    const socialCell = socialWork ?
+                        `<div class="${wrapText ? "wrapCell" : ""}" title="${esc(socialWork)}">${esc(wrapText ? socialWork : (socialWork.length>80 ? socialWork.slice(0,80)+"…" : socialWork))}</div>` :
+                        "—";
+
+                    const emailCell = r.__email ? `<a class="link" href="mailto:${esc(r.__email)}">${esc(r.__email)}</a>` : "—";
+                    const phoneCell = r.__phone ? `<a class="link" href="tel:${esc(r.__phone)}">${esc(r.__phone)}</a>` : "—";
+
+                    const name = r.__name || "—";
+                    const id = r.__id || "";
+                    const nameSub = `ID: ${id || "—"}${minor ? " • Minor" : ""}`;
+
+                    return `
             <tr data-id="${esc(id)}">
               <td class="colDate">${esc(submitted)}</td>
               <td class="colName">
@@ -1356,332 +1835,366 @@
               </td>
             </tr>
           `;
-        }).join("");
+                }).join("");
 
-        if(sorted.length > limit){
-          els.tbody.insertAdjacentHTML("beforeend",
-            `<tr><td colspan="11" style="padding:12px;color:#6b7280;font-weight:800;">
+                if (sorted.length > limit) {
+                    els.tbody.insertAdjacentHTML("beforeend",
+                        `<tr><td colspan="11" style="padding:12px;color:#6b7280;font-weight:800;">
               Showing first ${limit.toLocaleString()} rows. Download CSV for all results.
             </td></tr>`
-          );
-        }
+                    );
+                }
 
-        Array.from(els.tbody.querySelectorAll("tr[data-id]")).forEach(tr=>{
-          const id = tr.getAttribute("data-id");
+                Array.from(els.tbody.querySelectorAll("tr[data-id]")).forEach(tr => {
+                    const id = tr.getAttribute("data-id");
 
-          tr.addEventListener("click", (e)=>{
-            const t = e.target;
-            if(t && t.closest && t.closest("button,select,a,img")) return;
-            const r = RAW.find(x => x.__id === id);
-            if(r) openDrawer(r);
-          });
+                    tr.addEventListener("click", (e) => {
+                        const t = e.target;
+                        if (t && t.closest && t.closest("button,select,a,img")) return;
+                        const r = RAW.find(x => x.__id === id);
+                        if (r) openDrawer(r);
+                    });
 
-          const sel = tr.querySelector('select[data-action="setStatus"]');
-          if(sel){
-            sel.addEventListener("change", ()=>{
-              const r = RAW.find(x => x.__id === id);
-              if(!r) return;
-              saveLocal(r.__id, { status: sel.value });
-              const st = loadLocal(r.__id);
-              r.__status = st.status;
-              r.__notes = st.notes;
-              r.__updatedAt = st.updatedAt;
-              apply();
+                    const sel = tr.querySelector('select[data-action="setStatus"]');
+                    if (sel) {
+                        sel.addEventListener("change", () => {
+                            const r = RAW.find(x => x.__id === id);
+                            if (!r) return;
+                            saveLocal(r.__id, {
+                                status: sel.value
+                            });
+                            const st = loadLocal(r.__id);
+                            r.__status = st.status;
+                            r.__notes = st.notes;
+                            r.__updatedAt = st.updatedAt;
+                            apply();
+                        });
+                    }
+
+                    const openBtn = tr.querySelector('button[data-action="open"]');
+                    if (openBtn) {
+                        openBtn.addEventListener("click", () => {
+                            const r = RAW.find(x => x.__id === id);
+                            if (r) openDrawer(r);
+                        });
+                    }
+
+                    const editBtn = tr.querySelector('button[data-action="edit"]');
+                    if (editBtn) {
+                        editBtn.addEventListener("click", () => {
+                            const r = RAW.find(x => x.__id === id);
+                            if (r && r.__editUrl) window.open(r.__editUrl, "_blank", "noopener,noreferrer");
+                        });
+                    }
+                });
+            }
+
+            /**********************
+             * DRAWER
+             **********************/
+            function openDrawer(r) {
+                drawerRow = r;
+                els.dTitle.textContent = r.__name ? `Applicant: ${r.__name}` : "Applicant";
+                els.dSub.textContent = r.__submitted ? `Submitted: ${fmtDate(r.__submitted)}` : (normalizeSpace(r["Submission Date"]) || "Submitted: —");
+                els.dId.textContent = r.__id || "—";
+                els.dLoc.textContent = r.__loc || "—";
+                els.dContact.textContent = `${r.__email || "—"}\n${r.__phone || "—"}`;
+                els.dSizes.textContent = `Top: ${r.__topSize || "—"} • Bottom: ${r.__bottomSize || "—"}\nGuardian: ${r.__guardian || "—"}`;
+                els.dSocial.textContent = r.__social || "—";
+                els.dWork.textContent = r.__work || "—";
+
+                els.dHead.innerHTML = headshotsDrawerHTML(r.__headshot);
+
+                els.dStatus.value = r.__status || "New";
+                els.dNotes.value = r.__notes || "";
+                els.dUpdated.textContent = r.__updatedAt ? `Last updated: ${fmtDate(new Date(r.__updatedAt))}` : "Not updated yet.";
+
+                els.overlay.classList.add("on");
+                els.drawer.classList.add("on");
+            }
+
+            function closeDrawer() {
+                els.overlay.classList.remove("on");
+                els.drawer.classList.remove("on");
+                drawerRow = null;
+            }
+
+            async function copyText(text) {
+                try {
+                    await navigator.clipboard.writeText(text);
+                    return true;
+                } catch {
+                    return false;
+                }
+            }
+
+            function saveDrawer() {
+                if (!drawerRow) return;
+                saveLocal(drawerRow.__id, {
+                    status: els.dStatus.value,
+                    notes: els.dNotes.value || "",
+                });
+                const st = loadLocal(drawerRow.__id);
+                drawerRow.__status = st.status;
+                drawerRow.__notes = st.notes;
+                drawerRow.__updatedAt = st.updatedAt;
+                els.dUpdated.textContent = st.updatedAt ? `Last updated: ${fmtDate(new Date(st.updatedAt))}` : "Not updated yet.";
+                apply();
+            }
+
+            /**********************
+             * EXPORT / SHARE LINK
+             **********************/
+            function toCSV(rows) {
+                const escCSV = (s) => `"${String(s??"").replaceAll('"','""')}"`;
+                const header = REQUIRED_HEADERS.map(escCSV).join(",");
+                const lines = rows.map(r => REQUIRED_HEADERS.map(h => escCSV(r[h])).join(","));
+                return [header, ...lines].join("\n");
+            }
+
+            function downloadBlob(filename, text) {
+                const blob = new Blob([text], {
+                    type: "text/csv;charset=utf-8"
+                });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+            }
+
+            function readQS() {
+                const p = new URLSearchParams(location.search);
+                const get = (k) => normalizeSpace(p.get(k));
+                return {
+                    q: get("q"),
+                    dateRange: get("dateRange") || "7",
+                    location: get("location"),
+                    gender: get("gender"),
+                    status: get("status"),
+                    sort: get("sort") || "date_desc",
+                    minors: get("minors"),
+                    wrap: get("wrap"),
+                    compact: get("compact"),
+                    drillKind: get("drillKind"),
+                    drillValue: get("drillValue"),
+                };
+            }
+
+            function writeQS() {
+                const p = new URLSearchParams();
+                const set = (k, v) => {
+                    if (v && String(v).trim() !== "") p.set(k, v);
+                };
+
+                set("q", els.q.value);
+                if (els.dateRange.value !== "7") set("dateRange", els.dateRange.value);
+                set("location", els.location.value);
+                set("gender", els.gender.value);
+                set("status", els.statusFilter.value);
+                if (els.sort.value !== "date_desc") set("sort", els.sort.value);
+                if (minorOnly) set("minors", "1");
+                if (wrapText) set("wrap", "1");
+                if (compact) set("compact", "1");
+                if (drill) {
+                    set("drillKind", drill.kind);
+                    set("drillValue", drill.value);
+                }
+
+                const newUrl = `${location.pathname}${p.toString() ? ("?"+p.toString()) : ""}`;
+                history.replaceState(null, "", newUrl);
+            }
+
+            async function copyShareLink() {
+                writeQS();
+                const url = location.href;
+                const ok = await copyText(url);
+                if (ok) {
+                    els.copyLink.textContent = "Copied ✓";
+                    setTimeout(() => els.copyLink.textContent = "Copy Link", 1200);
+                } else {
+                    prompt("Copy this link:", url);
+                }
+            }
+
+            /**********************
+             * FILTER OPTIONS
+             **********************/
+            function buildGenderFilter() {
+                const genders = uniq(RAW.map(r => r.__gender));
+                els.gender.innerHTML = ['<option value="">All genders</option>', ...genders.map(g => `<option value="${esc(g)}">${esc(g)}</option>`)].join("");
+            }
+
+            /**********************
+             * EVENTS
+             **********************/
+            const onChange = () => apply();
+
+            els.q.addEventListener("input", debounce(onChange, 220));
+            els.dateRange.addEventListener("change", onChange);
+            els.location.addEventListener("change", onChange);
+            els.gender.addEventListener("change", onChange);
+            els.statusFilter.addEventListener("change", onChange);
+            els.sort.addEventListener("change", onChange);
+
+            els.minorOnlyToggle.addEventListener("click", () => {
+                minorOnly = !minorOnly;
+                els.minorOnlyToggle.classList.toggle("on", minorOnly);
+                apply();
             });
-          }
 
-          const openBtn = tr.querySelector('button[data-action="open"]');
-          if(openBtn){
-            openBtn.addEventListener("click", ()=>{
-              const r = RAW.find(x => x.__id === id);
-              if(r) openDrawer(r);
+            els.wrapToggle.addEventListener("click", () => {
+                wrapText = !wrapText;
+                els.wrapToggle.classList.toggle("on", wrapText);
+                apply();
             });
-          }
 
-          const editBtn = tr.querySelector('button[data-action="edit"]');
-          if(editBtn){
-            editBtn.addEventListener("click", ()=>{
-              const r = RAW.find(x => x.__id === id);
-              if(r && r.__editUrl) window.open(r.__editUrl, "_blank", "noopener,noreferrer");
+            els.compactToggle.addEventListener("click", () => {
+                compact = !compact;
+                els.compactToggle.classList.toggle("on", compact);
+                apply();
             });
-          }
-        });
-      }
 
-      /**********************
-       * DRAWER
-       **********************/
-      function openDrawer(r){
-        drawerRow = r;
-        els.dTitle.textContent = r.__name ? `Applicant: ${r.__name}` : "Applicant";
-        els.dSub.textContent = r.__submitted ? `Submitted: ${fmtDate(r.__submitted)}` : (normalizeSpace(r["Submission Date"]) || "Submitted: —");
-        els.dId.textContent = r.__id || "—";
-        els.dLoc.textContent = r.__loc || "—";
-        els.dContact.textContent = `${r.__email || "—"}\n${r.__phone || "—"}`;
-        els.dSizes.textContent = `Top: ${r.__topSize || "—"} • Bottom: ${r.__bottomSize || "—"}\nGuardian: ${r.__guardian || "—"}`;
-        els.dSocial.textContent = r.__social || "—";
-        els.dWork.textContent = r.__work || "—";
+            els.reset.addEventListener("click", () => {
+                els.q.value = "";
+                els.dateRange.value = "7";
+                els.location.value = "";
+                els.gender.value = "";
+                els.statusFilter.value = "";
+                els.sort.value = "date_desc";
+                minorOnly = false;
+                wrapText = false;
+                compact = false;
+                els.minorOnlyToggle.classList.remove("on");
+                els.wrapToggle.classList.remove("on");
+                els.compactToggle.classList.remove("on");
+                drill = null;
+                els.clearDrill.style.display = "none";
+                apply();
+            });
 
-        els.dHead.innerHTML = headshotsDrawerHTML(r.__headshot);
+            els.refresh.addEventListener("click", () => init());
+            els.downloadCsv.addEventListener("click", () => {
+                const rows = VIEW.length ? VIEW : RAW;
+                downloadBlob(`model_applications_${new Date().toISOString().slice(0,10)}.csv`, toCSV(rows));
+            });
+            els.copyLink.addEventListener("click", copyShareLink);
 
-        els.dStatus.value = r.__status || "New";
-        els.dNotes.value = r.__notes || "";
-        els.dUpdated.textContent = r.__updatedAt ? `Last updated: ${fmtDate(new Date(r.__updatedAt))}` : "Not updated yet.";
+            els.clearDrill.addEventListener("click", () => {
+                drill = null;
+                els.clearDrill.style.display = "none";
+                apply();
+            });
 
-        els.overlay.classList.add("on");
-        els.drawer.classList.add("on");
-      }
+            els.scrollTop.addEventListener("click", () => {
+                els.tableWrap.scrollTo({
+                    top: 0,
+                    behavior: "smooth"
+                });
+            });
 
-      function closeDrawer(){
-        els.overlay.classList.remove("on");
-        els.drawer.classList.remove("on");
-        drawerRow = null;
-      }
+            els.chips.forEach(ch => {
+                ch.addEventListener("click", () => {
+                    const kind = ch.dataset.kind || "";
+                    const value = ch.dataset.value || "";
+                    drill = kind ? {
+                        kind,
+                        value
+                    } : null;
+                    els.clearDrill.style.display = drill ? "inline-flex" : "none";
+                    apply();
+                });
+            });
 
-      async function copyText(text){
-        try{ await navigator.clipboard.writeText(text); return true; }
-        catch{ return false; }
-      }
+            els.overlay.addEventListener("click", closeDrawer);
+            els.dClose.addEventListener("click", closeDrawer);
+            document.addEventListener("keydown", (e) => {
+                if (e.key === "Escape" && els.drawer.classList.contains("on")) closeDrawer();
+            });
 
-      function saveDrawer(){
-        if(!drawerRow) return;
-        saveLocal(drawerRow.__id, {
-          status: els.dStatus.value,
-          notes: els.dNotes.value || "",
-        });
-        const st = loadLocal(drawerRow.__id);
-        drawerRow.__status = st.status;
-        drawerRow.__notes = st.notes;
-        drawerRow.__updatedAt = st.updatedAt;
-        els.dUpdated.textContent = st.updatedAt ? `Last updated: ${fmtDate(new Date(st.updatedAt))}` : "Not updated yet.";
-        apply();
-      }
+            els.dSave.addEventListener("click", saveDrawer);
 
-      /**********************
-       * EXPORT / SHARE LINK
-       **********************/
-      function toCSV(rows){
-        const escCSV = (s)=> `"${String(s??"").replaceAll('"','""')}"`;
-        const header = REQUIRED_HEADERS.map(escCSV).join(",");
-        const lines = rows.map(r => REQUIRED_HEADERS.map(h => escCSV(r[h])).join(","));
-        return [header, ...lines].join("\n");
-      }
+            els.dCopyEmail.addEventListener("click", async () => {
+                if (!drawerRow) return;
+                const email = drawerRow.__email || "";
+                if (!email) return;
+                const ok = await copyText(email);
+                els.dCopyEmail.textContent = ok ? "Copied ✓" : "Copy Email";
+                setTimeout(() => els.dCopyEmail.textContent = "Copy Email", 900);
+            });
 
-      function downloadBlob(filename, text){
-        const blob = new Blob([text], { type:"text/csv;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-      }
+            els.dOpenEdit.addEventListener("click", () => {
+                if (!drawerRow) return;
+                if (drawerRow.__editUrl) window.open(drawerRow.__editUrl, "_blank", "noopener,noreferrer");
+            });
 
-      function readQS(){
-        const p = new URLSearchParams(location.search);
-        const get = (k)=> normalizeSpace(p.get(k));
-        return {
-          q: get("q"),
-          dateRange: get("dateRange") || "7",
-          location: get("location"),
-          gender: get("gender"),
-          status: get("status"),
-          sort: get("sort") || "date_desc",
-          minors: get("minors"),
-          wrap: get("wrap"),
-          compact: get("compact"),
-          drillKind: get("drillKind"),
-          drillValue: get("drillValue"),
-        };
-      }
+            /**********************
+             * INIT
+             **********************/
+            async function init() {
+                try {
+                    clearError();
+                    els.statusLine.textContent = "Loading…";
+                    els.tbody.innerHTML = `<tr><td colspan="11" style="padding:14px;color:#6b7280;font-weight:800;">Loading…</td></tr>`;
 
-      function writeQS(){
-        const p = new URLSearchParams();
-        const set = (k,v)=>{ if(v && String(v).trim()!=="") p.set(k, v); };
+                    const {
+                        data
+                    } = await fetchFirstWorkingCSV();
+                    RAW = data;
 
-        set("q", els.q.value);
-        if(els.dateRange.value !== "7") set("dateRange", els.dateRange.value);
-        set("location", els.location.value);
-        set("gender", els.gender.value);
-        set("status", els.statusFilter.value);
-        if(els.sort.value !== "date_desc") set("sort", els.sort.value);
-        if(minorOnly) set("minors","1");
-        if(wrapText) set("wrap","1");
-        if(compact) set("compact","1");
-        if(drill){ set("drillKind", drill.kind); set("drillValue", drill.value); }
+                    buildGenderFilter();
 
-        const newUrl = `${location.pathname}${p.toString() ? ("?"+p.toString()) : ""}`;
-        history.replaceState(null, "", newUrl);
-      }
+                    const qs = readQS();
+                    if (qs.q) els.q.value = qs.q;
+                    if (qs.dateRange) els.dateRange.value = qs.dateRange;
+                    if (qs.location) els.location.value = qs.location;
+                    if (qs.gender) els.gender.value = qs.gender;
+                    if (qs.status) els.statusFilter.value = qs.status;
+                    if (qs.sort) els.sort.value = qs.sort;
 
-      async function copyShareLink(){
-        writeQS();
-        const url = location.href;
-        const ok = await copyText(url);
-        if(ok){
-          els.copyLink.textContent = "Copied ✓";
-          setTimeout(()=> els.copyLink.textContent = "Copy Link", 1200);
-        } else {
-          prompt("Copy this link:", url);
-        }
-      }
+                    if (qs.minors === "1") {
+                        minorOnly = true;
+                        els.minorOnlyToggle.classList.add("on");
+                    }
+                    if (qs.wrap === "1") {
+                        wrapText = true;
+                        els.wrapToggle.classList.add("on");
+                    }
+                    if (qs.compact === "1") {
+                        compact = true;
+                        els.compactToggle.classList.add("on");
+                    }
 
-      /**********************
-       * FILTER OPTIONS
-       **********************/
-      function buildGenderFilter(){
-        const genders = uniq(RAW.map(r => r.__gender));
-        els.gender.innerHTML = ['<option value="">All genders</option>', ...genders.map(g=>`<option value="${esc(g)}">${esc(g)}</option>`)].join("");
-      }
+                    if (qs.drillKind && qs.drillValue) {
+                        drill = {
+                            kind: qs.drillKind,
+                            value: qs.drillValue
+                        };
+                        els.clearDrill.style.display = "inline-flex";
+                    } else {
+                        drill = null;
+                        els.clearDrill.style.display = "none";
+                    }
 
-      /**********************
-       * EVENTS
-       **********************/
-      const onChange = ()=> apply();
+                    els.statusLine.textContent = `Loaded ${RAW.length.toLocaleString()} submissions`;
+                    apply();
+                } catch (err) {
+                    console.error(err);
+                    els.statusLine.textContent = "";
+                    els.tbody.innerHTML = `<tr><td colspan="11" style="padding:14px;color:#6b7280;font-weight:800;">Unable to load submissions.</td></tr>`;
+                    setError(
+                        "Inbox unavailable.",
+                        "If export is blocked, publish the sheet to web (File → Share → Publish to web) OR ensure Anyone-with-link has access."
+                    );
+                }
+            }
 
-      els.q.addEventListener("input", debounce(onChange, 220));
-      els.dateRange.addEventListener("change", onChange);
-      els.location.addEventListener("change", onChange);
-      els.gender.addEventListener("change", onChange);
-      els.statusFilter.addEventListener("change", onChange);
-      els.sort.addEventListener("change", onChange);
-
-      els.minorOnlyToggle.addEventListener("click", ()=>{
-        minorOnly = !minorOnly;
-        els.minorOnlyToggle.classList.toggle("on", minorOnly);
-        apply();
-      });
-
-      els.wrapToggle.addEventListener("click", ()=>{
-        wrapText = !wrapText;
-        els.wrapToggle.classList.toggle("on", wrapText);
-        apply();
-      });
-
-      els.compactToggle.addEventListener("click", ()=>{
-        compact = !compact;
-        els.compactToggle.classList.toggle("on", compact);
-        apply();
-      });
-
-      els.reset.addEventListener("click", ()=>{
-        els.q.value = "";
-        els.dateRange.value = "7";
-        els.location.value = "";
-        els.gender.value = "";
-        els.statusFilter.value = "";
-        els.sort.value = "date_desc";
-        minorOnly = false;
-        wrapText = false;
-        compact = false;
-        els.minorOnlyToggle.classList.remove("on");
-        els.wrapToggle.classList.remove("on");
-        els.compactToggle.classList.remove("on");
-        drill = null;
-        els.clearDrill.style.display = "none";
-        apply();
-      });
-
-      els.refresh.addEventListener("click", ()=> init());
-      els.downloadCsv.addEventListener("click", ()=>{
-        const rows = VIEW.length ? VIEW : RAW;
-        downloadBlob(`model_applications_${new Date().toISOString().slice(0,10)}.csv`, toCSV(rows));
-      });
-      els.copyLink.addEventListener("click", copyShareLink);
-
-      els.clearDrill.addEventListener("click", ()=>{
-        drill = null;
-        els.clearDrill.style.display = "none";
-        apply();
-      });
-
-      els.scrollTop.addEventListener("click", ()=>{
-        els.tableWrap.scrollTo({ top: 0, behavior: "smooth" });
-      });
-
-      els.chips.forEach(ch=>{
-        ch.addEventListener("click", ()=>{
-          const kind = ch.dataset.kind || "";
-          const value = ch.dataset.value || "";
-          drill = kind ? { kind, value } : null;
-          els.clearDrill.style.display = drill ? "inline-flex" : "none";
-          apply();
-        });
-      });
-
-      els.overlay.addEventListener("click", closeDrawer);
-      els.dClose.addEventListener("click", closeDrawer);
-      document.addEventListener("keydown", (e)=>{
-        if(e.key === "Escape" && els.drawer.classList.contains("on")) closeDrawer();
-      });
-
-      els.dSave.addEventListener("click", saveDrawer);
-
-      els.dCopyEmail.addEventListener("click", async ()=>{
-        if(!drawerRow) return;
-        const email = drawerRow.__email || "";
-        if(!email) return;
-        const ok = await copyText(email);
-        els.dCopyEmail.textContent = ok ? "Copied ✓" : "Copy Email";
-        setTimeout(()=> els.dCopyEmail.textContent = "Copy Email", 900);
-      });
-
-      els.dOpenEdit.addEventListener("click", ()=>{
-        if(!drawerRow) return;
-        if(drawerRow.__editUrl) window.open(drawerRow.__editUrl, "_blank", "noopener,noreferrer");
-      });
-
-      /**********************
-       * INIT
-       **********************/
-      async function init(){
-        try{
-          clearError();
-          els.statusLine.textContent = "Loading…";
-          els.tbody.innerHTML = `<tr><td colspan="11" style="padding:14px;color:#6b7280;font-weight:800;">Loading…</td></tr>`;
-
-          const { data } = await fetchFirstWorkingCSV();
-          RAW = data;
-
-          buildGenderFilter();
-
-          const qs = readQS();
-          if(qs.q) els.q.value = qs.q;
-          if(qs.dateRange) els.dateRange.value = qs.dateRange;
-          if(qs.location) els.location.value = qs.location;
-          if(qs.gender) els.gender.value = qs.gender;
-          if(qs.status) els.statusFilter.value = qs.status;
-          if(qs.sort) els.sort.value = qs.sort;
-
-          if(qs.minors === "1"){ minorOnly = true; els.minorOnlyToggle.classList.add("on"); }
-          if(qs.wrap === "1"){ wrapText = true; els.wrapToggle.classList.add("on"); }
-          if(qs.compact === "1"){ compact = true; els.compactToggle.classList.add("on"); }
-
-          if(qs.drillKind && qs.drillValue){
-            drill = { kind: qs.drillKind, value: qs.drillValue };
-            els.clearDrill.style.display = "inline-flex";
-          } else {
-            drill = null;
-            els.clearDrill.style.display = "none";
-          }
-
-          els.statusLine.textContent = `Loaded ${RAW.length.toLocaleString()} submissions`;
-          apply();
-        } catch(err){
-          console.error(err);
-          els.statusLine.textContent = "";
-          els.tbody.innerHTML = `<tr><td colspan="11" style="padding:14px;color:#6b7280;font-weight:800;">Unable to load submissions.</td></tr>`;
-          setError(
-            "Inbox unavailable.",
-            "If export is blocked, publish the sheet to web (File → Share → Publish to web) OR ensure Anyone-with-link has access."
-          );
-        }
-      }
-
-      init();
-    })();
-  </script>
+            init();
+        })();
+    </script>
 </body>
+
 </html>
