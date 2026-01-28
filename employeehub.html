@@ -21,20 +21,37 @@
     a { text-decoration: none; color: inherit; }
 
     .wrap {
-      max-width: 1100px;
+      max-width: 100000px;
       margin: 0 auto;
       padding: 20px 16px 40px;
     }
 
-    /* Header */
-    .header {
+    /* BRAND HEADER */
+    .brand-row {
+      display: flex;
+      align-items: center;
+      gap: 14px;
       margin-bottom: 20px;
     }
-    .title {
+
+    .logo {
+      width: 148px;
+      height: 148px;
+      object-fit: contain;
+      border-radius: 8px;
+      background: #fff;
+      border: 1px solid #e5e7eb;
+      padding: 4px;
+      flex-shrink: 0;
+    }
+
+    .brand-text .title {
       font-size: 22px;
       font-weight: 700;
+      line-height: 1.2;
     }
-    .subtitle {
+
+    .brand-text .subtitle {
       font-size: 14px;
       color: #6b7280;
       margin-top: 2px;
@@ -153,7 +170,6 @@
       background: #fff;
     }
 
-    /* Empty state */
     .empty {
       padding: 80px 20px;
       text-align: center;
@@ -170,10 +186,18 @@
 <body>
   <div class="wrap">
 
-    <!-- HEADER -->
-    <div class="header">
-      <div class="title">Employee Hub</div>
-      <div class="subtitle">Baseballism internal tools & requests</div>
+    <!-- BRAND HEADER -->
+    <div class="brand-row">
+      <!-- 🔁 Replace src with your logo -->
+      <img
+        src="https://uspto.report/TM/88190359/mark.png"
+        alt="Brand Logo"
+        class="logo"
+      />
+      <div class="brand-text">
+        <div class="title">Employee Hub</div>
+        <div class="subtitle">Baseballism internal tools & requests</div>
+      </div>
     </div>
 
     <!-- TOOL CARDS -->
@@ -203,8 +227,8 @@
         desc: "Submit invoices or purchase requests.",
         icon: "🧾",
         tags: ["Request", "Portal"],
-        url: "https://wpvportal.weebly.com/submit-request---bbism.html",
-        embed: "https://wpvportal.weebly.com/submit-request---bbism.html"
+        url: "https://form.jotform.com/93366037976167",
+        embed: "https://form.jotform.com/93366037976167"
       },
       {
         id: "receipt",
@@ -221,8 +245,8 @@
         desc: "Submit travel requests.",
         icon: "✈️",
         tags: ["Travel"],
-        url: "https://wpvportal.weebly.com/travel-form---bbism.html",
-        embed: "https://wpvportal.weebly.com/travel-form---bbism.html"
+        url: "https://form.jotform.com/93366858544169",
+        embed: "https://form.jotform.com/93366858544169"
       },
       {
         id: "cash",
@@ -239,8 +263,8 @@
         desc: "Shipping & warehouse tools.",
         icon: "📦",
         tags: ["Operations"],
-        url: "https://wpvportal.weebly.com/logistics.html",
-        embed: "https://wpvportal.weebly.com/logistics.html"
+        url: "https://form.jotform.com/221717017586054",
+        embed: "https://form.jotform.com/221717017586054"
       },
       {
         id: "analytics",
@@ -257,8 +281,8 @@
         desc: "Master requests portal.",
         icon: "🗂️",
         tags: ["Requests"],
-        url: "https://wpvportal.weebly.com/database---bbism.html",
-        embed: "https://wpvportal.weebly.com/database---bbism.html"
+        url: "https://www.jotform.com/grid/200496570228052",
+        embed: "https://www.jotform.com/grid/200496570228052"
       }
     ];
 
@@ -300,7 +324,6 @@
       grid.appendChild(card);
     });
 
-    // Optional deep-link support: ?tool=purchase
     const params = new URLSearchParams(location.search);
     const initial = params.get("tool");
     if (initial) {
