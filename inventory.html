@@ -59,7 +59,7 @@
           <div class="min-w-0">
             <div class="text-sm font-semibold truncate">Silo ERP — Inventory Workboard</div>
             <div class="text-xs text-slate-500 truncate">
-              Multi-tab Google Sheet → CSV → Sales summary merge • Location + Company aggregation • export • PO draft • allocation prep
+              Google Sheet → CSV → Sales summary merge • Location + Company aggregation • export • PO draft • growth planning tags
             </div>
           </div>
         </div>
@@ -129,6 +129,10 @@
               Suggest PO
             </button>
 
+            <button id="btnTagSelected" class="rounded-lg px-3 py-2 text-sm font-semibold btn">
+              Tag Selected
+            </button>
+
             <button id="btnAddSelectedToDraft" class="rounded-lg px-3 py-2 text-sm font-semibold btn-dark">
               Add → Draft
             </button>
@@ -162,46 +166,144 @@
             </div>
           </div>
 
+          <!-- PO math + Growth planning -->
           <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3">
-            <div class="md:col-span-3">
-              <label class="block text-xs font-semibold text-slate-700 mb-1">PO: Target Days Cover</label>
-              <input id="numTargetCover" type="number" min="1" step="1" value="45"
-                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
-            </div>
-            <div class="md:col-span-3">
-              <label class="block text-xs font-semibold text-slate-700 mb-1">PO: Min Reorder Qty</label>
-              <input id="numMinReorder" type="number" min="0" step="1" value="0"
-                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+            <div class="md:col-span-6">
+              <div class="rounded-lg border border-slate-200 bg-white p-3">
+                <div class="flex items-center justify-between gap-2">
+                  <div>
+                    <div class="text-xs font-semibold text-slate-800">PO Strategy</div>
+                    <div class="text-[11px] text-slate-500 mt-0.5">
+                      Replenishment keeps you in-stock. Growth adds intentional uplift for launches/marketing/wholesale pushes.
+                    </div>
+                  </div>
+                  <div class="seg rounded-xl p-1 flex items-center gap-1">
+                    <button id="btnStratRepl" class="active" type="button">Replenish</button>
+                    <button id="btnStratGrowth" type="button">Growth</button>
+                    <button id="btnStratHybrid" type="button">Hybrid</button>
+                  </div>
+                </div>
+
+                <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3">
+                  <div class="md:col-span-4">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Target Days Cover</label>
+                    <input id="numTargetCover" type="number" min="1" step="1" value="45"
+                      class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+                  </div>
+                  <div class="md:col-span-4">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Safety Stock (days)</label>
+                    <input id="numSafetyDays" type="number" min="0" step="1" value="7"
+                      class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+                  </div>
+                  <div class="md:col-span-4">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Min Reorder Qty</label>
+                    <input id="numMinReorder" type="number" min="0" step="1" value="0"
+                      class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+                  </div>
+                </div>
+
+                <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3">
+                  <div class="md:col-span-4">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Growth uplift (default %)</label>
+                    <input id="numGrowthPct" type="number" min="0" step="1" value="20"
+                      class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+                  </div>
+                  <div class="md:col-span-4">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">New/Low-history seed avg/day</label>
+                    <input id="numSeedAvgDay" type="number" min="0" step="0.01" value="0.25"
+                      class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+                  </div>
+                  <div class="md:col-span-4">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">KPI: Risk threshold (days)</label>
+                    <input id="numRiskDays" type="number" min="1" step="1" value="14"
+                      class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+                  </div>
+                </div>
+
+                <div class="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 leading-relaxed">
+                  <span class="font-semibold">How it works:</span>
+                  Suggested PO = <span class="kbd">(TargetCover + SafetyDays) × Avg/Day × GrowthFactor</span> minus On Hand.
+                  <span class="text-slate-500">Hybrid applies GrowthFactor only to rows you tag.</span>
+                </div>
+              </div>
             </div>
 
-            <div class="md:col-span-3">
-              <label class="block text-xs font-semibold text-slate-700 mb-1">KPI: Risk threshold (days)</label>
-              <input id="numRiskDays" type="number" min="1" step="1" value="14"
-                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
-            </div>
+            <div class="md:col-span-6">
+              <div class="rounded-lg border border-slate-200 bg-white p-3">
+                <div class="text-xs font-semibold text-slate-800">Tags & Drivers</div>
+                <div class="text-[11px] text-slate-500 mt-0.5">
+                  These are lightweight “intent” tags stored in <span class="kbd">localStorage</span>. Later we can push to Supabase notes/actions.
+                </div>
 
-            <div class="md:col-span-3 text-xs text-slate-600 flex items-end">
-              <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 w-full">
-                <div class="font-semibold text-slate-800">Sales merge</div>
-                <div class="mt-1 leading-relaxed">
-                  Each location can optionally define a <span class="kbd">sales_summary CSV</span> (5K rows) to override sold/velocity and add 7/30/90/120 + last sold.
+                <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                  <div class="md:col-span-5">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Tag selected as…</label>
+                    <select id="selDriver" class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                      <option value="none">None (replenish only)</option>
+                      <option value="core">Core Restock</option>
+                      <option value="hero">Hero SKU</option>
+                      <option value="new">New Product / Launch</option>
+                      <option value="influencer">Influencer Push</option>
+                      <option value="wholesale">Wholesale Push</option>
+                      <option value="promo">Promo / Event Spike</option>
+                      <option value="seasonal">Seasonal Bet</option>
+                    </select>
+                  </div>
+                  <div class="md:col-span-4">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Driver uplift override (%)</label>
+                    <input id="numDriverPct" type="number" min="0" step="1" placeholder="blank = use default"
+                      class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+                  </div>
+                  <div class="md:col-span-3 flex gap-2">
+                    <button id="btnApplyTag" class="w-full rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Apply Tag</button>
+                    <button id="btnClearTags" class="w-full rounded-lg px-3 py-2 text-sm font-semibold btn">Clear</button>
+                  </div>
+                </div>
+
+                <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3">
+                  <div class="md:col-span-6">
+                    <div class="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 leading-relaxed">
+                      <div class="font-semibold text-slate-800 mb-1">Company aggregation key (for blanks)</div>
+                      Company View groups by <b>SKU</b> when present. If SKU is blank it falls back to <b>Barcode</b>, then <b>Product+Variant</b>.
+                    </div>
+                  </div>
+                  <div class="md:col-span-6">
+                    <div class="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 leading-relaxed">
+                      <div class="font-semibold text-slate-800 mb-1">Suggestion behavior</div>
+                      After you run <b>Suggest PO</b>, suggestions stay “live” as you change filters/sort/mode.
+                    </div>
+                  </div>
+                </div>
+
+                <div class="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+                  <span class="font-semibold">Rollout tip:</span> Start with Replenish-only for trust. Then add tags for just a handful of “growth bets” each week.
                 </div>
               </div>
             </div>
           </div>
 
           <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3">
-            <div class="md:col-span-6">
-              <label class="block text-xs font-semibold text-slate-700 mb-1">Company aggregation key (for blanks)</label>
-              <div class="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 leading-relaxed">
-                Company View groups by <b>SKU</b> when present. If SKU is blank it falls back to <b>Barcode</b>, then <b>Product+Variant</b>.
-                This prevents “Company KPI drops” caused by blank SKUs.
+            <div class="md:col-span-3 text-xs text-slate-600 flex items-end">
+              <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 w-full">
+                <div class="font-semibold text-slate-800">Sales merge</div>
+                <div class="mt-1 leading-relaxed">
+                  Each location can define a <span class="kbd">sales_summary CSV</span> to override velocity and add 7/30/90/120 + last sold.
+                </div>
               </div>
             </div>
-            <div class="md:col-span-6">
-              <label class="block text-xs font-semibold text-slate-700 mb-1">Suggestion behavior</label>
-              <div class="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 leading-relaxed">
-                After you run <b>Suggest PO</b> once, suggestions stay “live” and update automatically as you change filters, sort, or switch modes.
+            <div class="md:col-span-3 text-xs text-slate-600 flex items-end">
+              <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 w-full">
+                <div class="font-semibold text-slate-800">Growth vs replenish</div>
+                <div class="mt-1 leading-relaxed">
+                  “Replenish” is standard practice. “Growth” is how you drive upside instead of just replacing units sold.
+                </div>
+              </div>
+            </div>
+            <div class="md:col-span-6 text-xs text-slate-600 flex items-end">
+              <div class="rounded-lg border border-slate-200 bg-white p-3 w-full leading-relaxed">
+                <div class="font-semibold text-slate-800 mb-1">What we’ll add next</div>
+                Allocation v1: allocate company suggested PO to locations by demand share, apply rounding + mins + transfer rules.
+                Notes/actions can later be pushed to Supabase without replacing the Sheet sources.
               </div>
             </div>
           </div>
@@ -217,7 +319,8 @@
               <div id="statusLine" class="text-xs text-slate-600 mt-1">—</div>
               <div id="modeLine" class="text-xs text-slate-500 mt-1 mono">Mode: Location View</div>
               <div id="kpiNote" class="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                Note: <b>Rows</b> differs by mode (Location rows vs Company unique items). <b>Units/Value</b> align by definition; <b>Sold/Avg/Days</b> are driven by <b>sales_summary</b> when available (fallback to inventory report metrics).
+                Note: <b>Rows</b> differs by mode. <b>Sold/Avg/Days</b> use <b>sales_summary</b> when available.
+                Suggested PO uses Strategy + Tags (Replenish/Growth/Hybrid).
               </div>
             </div>
             <div class="flex items-center gap-2">
@@ -277,7 +380,7 @@
             <div class="text-xs text-slate-500 mono">localStorage</div>
           </div>
           <div class="text-xs text-slate-600 mt-1">
-            Draft lines are SKU-level. Quantity defaults to suggested PO when available.
+            Draft lines are SKU-level. Qty defaults to suggested PO when available (Strategy-aware).
           </div>
 
           <div class="mt-3 grid grid-cols-1 gap-2">
@@ -314,7 +417,7 @@
 
             <div class="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 leading-relaxed">
               <div class="font-semibold text-slate-800 mb-1">Next enhancement (allocation)</div>
-              Allocate company suggested PO to locations by demand share (avg/day ÷ company avg/day), then round + apply min transfer rules.
+              Allocate company suggested PO to locations by demand share, then round + apply min transfer rules.
             </div>
           </div>
         </div>
@@ -323,7 +426,7 @@
       <!-- Table -->
       <section class="rounded-xl border border-slate-200 bg-white overflow-hidden">
         <div class="overflow-auto thin-scroll">
-          <table class="min-w-[2200px] w-full text-sm stickyHead">
+          <table class="min-w-[2400px] w-full text-sm stickyHead">
             <thead class="bg-slate-50 border-b border-slate-200">
               <tr id="theadRow"></tr>
             </thead>
@@ -361,7 +464,13 @@
      * Reload/dupe fix:
      * - Uses LOAD_SEQ "version token" so stale async loads can't write into state.
      * - Disables Reload while loading.
+     * - Hard resets arrays on load (replace, never append).
      * - Dedupes inventory rows within a load using a stable business key.
+     *
+     * Upgrade:
+     * - PO Strategy: Replenish / Growth / Hybrid
+     * - Lightweight tags (drivers) per SKU/company key stored in localStorage
+     * - Suggested PO incorporates safety stock + uplift logic (without breaking existing flow)
      ******************************************************************/
 
     // ==== Workbook ID (inventory workbook) ====
@@ -441,12 +550,46 @@
     let SUGGEST_ENABLED = false;
 
     // Columns
-    const COLS_KEY = "silo_inv_cols_v3_salesmerge";
+    const COLS_KEY = "silo_inv_cols_v4_growth";
     let VISIBLE = null;
 
     // === Load protection (prevents dupes on rapid reload) ===
     let LOAD_SEQ = 0;
     let IS_LOADING = false;
+
+    // === PO Strategy state ===
+    let STRATEGY = "replenish"; // replenish | growth | hybrid
+
+    // === Lightweight tags (drivers) stored in localStorage ===
+    // { [rowKey]: { driver: "hero"|"new"|..., pct_override: number|null, updated_at: iso } }
+    const TAGS_KEY = "silo_growth_tags_v1";
+
+    function loadTags(){
+      try{
+        const raw = localStorage.getItem(TAGS_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        return (parsed && typeof parsed === "object") ? parsed : {};
+      }catch(e){ return {}; }
+    }
+    function saveTags(obj){
+      localStorage.setItem(TAGS_KEY, JSON.stringify(obj || {}));
+    }
+    function getTag(rowKey){
+      const tags = loadTags();
+      return tags[rowKey] || null;
+    }
+    function setTag(rowKey, driver, pctOverride){
+      const tags = loadTags();
+      tags[rowKey] = {
+        driver: driver || "none",
+        pct_override: (pctOverride === null || pctOverride === undefined || pctOverride === "") ? null : Number(pctOverride),
+        updated_at: new Date().toISOString()
+      };
+      saveTags(tags);
+    }
+    function clearAllTags(){
+      saveTags({});
+    }
 
     // Location table columns
     const COLS_LOCATION = [
@@ -458,6 +601,7 @@
       { key: "barcode", label: "Barcode", default: false },
       { key: "product", label: "Product", default: true },
       { key: "variant", label: "Variant", default: false },
+      { key: "driver", label: "Driver", default: true },
       { key: "avail_qty", label: "Avail Qty", align: "right", default: true },
       { key: "inv_value", label: "Retail Value (MSRP)", align: "right", default: true },
       { key: "qty_7d", label: "Sold 7d", align: "right", default: false },
@@ -481,6 +625,7 @@
       { key: "barcode", label: "Barcode", default: false },
       { key: "product", label: "Product", default: true },
       { key: "variant", label: "Variant", default: false },
+      { key: "driver", label: "Driver", default: true },
       { key: "locations_count", label: "Locations", align: "right", default: true },
       { key: "avail_qty", label: "On Hand (Total)", align: "right", default: true },
       { key: "inv_value", label: "Retail Value (MSRP)", align: "right", default: true },
@@ -498,7 +643,7 @@
     ];
 
     // Draft
-    const DRAFT_KEY = "silo_po_draft_v3_salesmerge";
+    const DRAFT_KEY = "silo_po_draft_v4_growth";
     function loadDraft(){ try{ return JSON.parse(localStorage.getItem(DRAFT_KEY) || "[]"); } catch(e){ return []; } }
     function saveDraft(lines){ localStorage.setItem(DRAFT_KEY, JSON.stringify(lines)); }
 
@@ -530,6 +675,56 @@
     function daysSince(ms){
       if (!ms) return null;
       return (Date.now() - ms) / (1000*60*60*24);
+    }
+
+    // Stable row key for tagging (works across modes)
+    function rowKeyFor(r){
+      const sku = norm(r.sku);
+      if (sku) return `SKU::${sku}`;
+      const bc = norm(r.barcode);
+      if (bc) return `BC::${bc}`;
+      const prod = norm(r.product);
+      const varr = norm(r.variant);
+      if (prod || varr) return `PV::${prod}::${varr}`;
+      return `ROW::${r._id}`;
+    }
+
+    function driverLabel(code){
+      switch(code){
+        case "core": return "Core";
+        case "hero": return "Hero";
+        case "new": return "New";
+        case "influencer": return "Influencer";
+        case "wholesale": return "Wholesale";
+        case "promo": return "Promo";
+        case "seasonal": return "Seasonal";
+        case "none":
+        default: return "—";
+      }
+    }
+
+    function driverBadgeForRow(r){
+      const tag = getTag(rowKeyFor(r));
+      const driver = tag?.driver || "none";
+      const pct = (tag && tag.pct_override !== null && Number.isFinite(Number(tag.pct_override))) ? Number(tag.pct_override) : null;
+
+      if (!tag || driver === "none"){
+        return `<span class="badge border-slate-200 bg-white text-slate-500">—</span>`;
+      }
+
+      // Slight styling by driver
+      const base = "badge border-slate-200 bg-white text-slate-800";
+      const cls =
+        driver === "hero" ? "border-emerald-200 bg-emerald-50 text-emerald-900" :
+        driver === "new" ? "border-indigo-200 bg-indigo-50 text-indigo-900" :
+        driver === "influencer" ? "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-900" :
+        driver === "promo" ? "border-amber-200 bg-amber-50 text-amber-900" :
+        driver === "wholesale" ? "border-sky-200 bg-sky-50 text-sky-900" :
+        driver === "seasonal" ? "border-orange-200 bg-orange-50 text-orange-900" :
+        "border-slate-200 bg-white text-slate-800";
+
+      const pctTxt = pct !== null ? ` • +${pct}%` : "";
+      return `<span class="${base} ${cls}">${escapeHtml(driverLabel(driver))}${pctTxt}</span>`;
     }
 
     // CSV parsing
@@ -723,6 +918,12 @@
 
       const tags = [];
 
+      // Growth driver tag (if present)
+      const t = getTag(rowKeyFor(row));
+      if (t && t.driver && t.driver !== "none"){
+        tags.push({ t: driverLabel(t.driver).toUpperCase(), cls:"border-slate-200 bg-white text-slate-800" });
+      }
+
       if (avg30 <= 0 && onhand > 0){
         tags.push({ t:"NO DEMAND", cls:"border-slate-200 bg-white text-slate-600" });
       } else if (days > 0 && days <= 14){
@@ -898,7 +1099,6 @@
       let tmpRows = [];
 
       for (const src of SOURCES){
-        // If a newer load started, stop doing work
         if (mySeq !== LOAD_SEQ) return;
 
         try{
@@ -976,7 +1176,6 @@
             const prodType = (s && s.product_type) ? s.product_type : "";
             const vendor = (s && s.vendor) ? s.vendor : "";
 
-            // id is not used for dedupe anymore; still keep as unique identifier
             const rid = `${src.source_id}::${location}::${sku || barcode || product || "row"}::${variant || ""}::${idx}`;
 
             return {
@@ -1030,10 +1229,8 @@
         }
       }
 
-      // If a newer load started, don't write state
       if (mySeq !== LOAD_SEQ) return;
 
-      // Deduplicate within this load (prevents "same SKU row repeated" cases)
       tmpRows = dedupeLocationRows(tmpRows);
 
       RAW = tmpRows;
@@ -1065,6 +1262,9 @@
         }).join("");
         msg += `<div class="mt-2">${detail}</div>`;
       }
+
+      // strategy line
+      msg += `<div class="mt-2 text-xs text-slate-600">Strategy: <b>${escapeHtml(STRATEGY.toUpperCase())}</b> • Tags stored locally (${Object.keys(loadTags()).length} tagged items)</div>`;
 
       setStatus(msg);
       setLoadingUI(false);
@@ -1150,22 +1350,98 @@
       render();
     }
 
-    // Suggest PO logic
-    function suggestPOQty(row, targetDaysCover, minReorder){
-      const avg = num(row.avg_day);
+    // Strategy-aware PO logic
+    function getStrategyInputs(){
+      const targetCover = num(el("numTargetCover").value || 45);
+      const safetyDays = num(el("numSafetyDays").value || 0);
+      const minReorder = num(el("numMinReorder").value || 0);
+
+      const defaultGrowthPct = num(el("numGrowthPct").value || 0);
+      const seedAvgDay = num(el("numSeedAvgDay").value || 0);
+
+      return { targetCover, safetyDays, minReorder, defaultGrowthPct, seedAvgDay };
+    }
+
+    // Determine growth factor for a row based on strategy + tag
+    function growthFactorForRow(row, defaultGrowthPct){
+      const tag = getTag(rowKeyFor(row));
+      const driver = tag?.driver || "none";
+
+      // base default growth
+      let pct = defaultGrowthPct;
+
+      // driver-specific default bumps (if no override) — simple + opinionated
+      // you can tune these anytime without changing data sources
+      const driverDefaults = {
+        core: 0,
+        hero: Math.max(defaultGrowthPct, 30),
+        new: Math.max(defaultGrowthPct, 50),
+        influencer: Math.max(defaultGrowthPct, 40),
+        wholesale: Math.max(defaultGrowthPct, 25),
+        promo: Math.max(defaultGrowthPct, 35),
+        seasonal: Math.max(defaultGrowthPct, 20),
+        none: 0
+      };
+
+      if (tag && tag.pct_override !== null && Number.isFinite(Number(tag.pct_override))){
+        pct = Number(tag.pct_override);
+      } else if (driver && driver !== "none"){
+        pct = driverDefaults[driver] ?? defaultGrowthPct;
+      }
+
+      // Strategy gate:
+      // - replenish: no uplift
+      // - growth: uplift always (even if not tagged) using defaultGrowthPct
+      // - hybrid: uplift only if tagged (driver != none)
+      if (STRATEGY === "replenish") return 1.0;
+      if (STRATEGY === "growth"){
+        const p = (tag && driver !== "none") ? pct : defaultGrowthPct;
+        return 1.0 + Math.max(0, p)/100;
+      }
+      // hybrid
+      if (!tag || driver === "none") return 1.0;
+      return 1.0 + Math.max(0, pct)/100;
+    }
+
+    function effectiveAvgDay(row, seedAvgDay){
+      // Use avg_day, but if it’s effectively zero and we have recent 7d, use that as a hint.
+      const avg30 = num(row.avg_day);
+      if (avg30 > 0) return avg30;
+
+      const sold7 = num(row.qty_7d);
+      if (sold7 > 0) return sold7 / 7;
+
+      // If tagged as new/launch or similar, seed it so we can create inventory intentionally
+      const tag = getTag(rowKeyFor(row));
+      const driver = tag?.driver || "none";
+      if (driver === "new" || driver === "hero" || driver === "influencer" || driver === "promo"){
+        return Math.max(0, seedAvgDay);
+      }
+
+      return 0;
+    }
+
+    function suggestPOQty(row, inputs){
+      const { targetCover, safetyDays, minReorder, defaultGrowthPct, seedAvgDay } = inputs;
+
+      const avg = effectiveAvgDay(row, seedAvgDay);
       if (avg <= 0) return 0;
-      const targetUnits = targetDaysCover * avg;
+
+      const factor = growthFactorForRow(row, defaultGrowthPct);
+      const coverDays = Math.max(0, targetCover) + Math.max(0, safetyDays);
+
+      const targetUnits = coverDays * avg * factor;
       const needed = Math.max(Math.ceil(targetUnits - num(row.avail_qty)), 0);
+
       if (needed < (minReorder || 0)) return 0;
       return needed;
     }
 
     function computeSuggestions(){
-      const target = num(el("numTargetCover").value || 45);
-      const minR = num(el("numMinReorder").value || 0);
+      const inputs = getStrategyInputs();
       LAST_SUGGEST = new Map();
       for (const r of VIEW){
-        LAST_SUGGEST.set(r._id, suggestPOQty(r, target, minR));
+        LAST_SUGGEST.set(r._id, suggestPOQty(r, inputs));
       }
       render();
     }
@@ -1258,6 +1534,7 @@
         const detailsBtn = `<button data-details="${escapeHtml(r._id)}" class="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold hover:bg-slate-50">Details</button>`;
         const planner = plannerBadge(r);
         const lastSoldTxt = r.last_sold_date ? escapeHtml(r.last_sold_date) : "—";
+        const driverBadge = driverBadgeForRow(r);
 
         const tds = [];
         for (const c of cols){
@@ -1280,6 +1557,8 @@
             tds.push(`<td class="px-3 py-2 ${align} text-xs">${escapeHtml(r.product || "—")}</td>`);
           } else if (c.key === "variant"){
             tds.push(`<td class="px-3 py-2 ${align} text-xs text-slate-600">${escapeHtml(r.variant || "—")}</td>`);
+          } else if (c.key === "driver"){
+            tds.push(`<td class="px-3 py-2 ${align}">${driverBadge}</td>`);
           } else if (c.key === "locations_count"){
             tds.push(`<td class="px-3 py-2 ${align} mono">${num(r.locations_count).toLocaleString()}</td>`);
           } else if (c.key === "avail_qty"){
@@ -1355,6 +1634,10 @@
       const seasonalRatio = (num(row.avg_day_90) > 0) ? (num(row.avg_day) / num(row.avg_day_90)) : null;
       const staleDays = row.last_sold_ms ? daysSince(row.last_sold_ms) : null;
 
+      const inputs = getStrategyInputs();
+      const gFactor = growthFactorForRow(row, inputs.defaultGrowthPct);
+      const effAvg = effectiveAvgDay(row, inputs.seedAvgDay);
+
       openModal("Location SKU Details", `
         <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
           <div class="md:col-span-4">
@@ -1375,6 +1658,7 @@
 
               <div class="mt-2 flex flex-wrap gap-2">
                 ${plannerBadge(row)}
+                ${driverBadgeForRow(row)}
                 ${row.product_type ? `<span class="badge border-slate-200 bg-slate-50 text-slate-700">${escapeHtml(row.product_type)}</span>` : ""}
                 ${row.vendor ? `<span class="badge border-slate-200 bg-white text-slate-700">Vendor: ${escapeHtml(row.vendor)}</span>` : ""}
                 ${seasonalRatio !== null ? `<span class="badge border-slate-200 bg-white text-slate-700">Seasonality (30/90): ${seasonalRatio.toFixed(2)}x</span>` : ""}
@@ -1414,8 +1698,27 @@
                   <div class="mono font-semibold">${num(row.avg_day).toFixed(2)}</div>
                 </div>
                 <div class="rounded-lg bg-white border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Days to OOS</div>
-                  <div class="mono font-semibold">${num(row.days_oos) ? num(row.days_oos).toFixed(0) : "—"}</div>
+                  <div class="text-[11px] text-slate-500">Eff Avg/Day (used)</div>
+                  <div class="mono font-semibold">${effAvg.toFixed(2)}</div>
+                </div>
+              </div>
+
+              <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Strategy</div>
+                  <div class="mono font-semibold">${escapeHtml(STRATEGY)}</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Growth factor</div>
+                  <div class="mono font-semibold">${gFactor.toFixed(2)}x</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Target+Safety days</div>
+                  <div class="mono font-semibold">${(num(el("numTargetCover").value||0)+num(el("numSafetyDays").value||0)).toFixed(0)}</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Suggested PO</div>
+                  <div class="mono font-semibold">${(LAST_SUGGEST.get(row._id) ?? suggestPOQty(row, inputs)).toLocaleString()}</div>
                 </div>
               </div>
 
@@ -1439,7 +1742,7 @@
               </div>
 
               <div class="mt-3 text-xs text-slate-600 mono">
-                gid=${escapeHtml(String(row.gid))} • source_id=${escapeHtml(row.source_id)}
+                gid=${escapeHtml(String(row.gid))} • source_id=${escapeHtml(row.source_id)} • tag_key=${escapeHtml(rowKeyFor(row))}
               </div>
             </div>
           </div>
@@ -1476,6 +1779,7 @@
 
               <div class="mt-2 flex flex-wrap gap-2">
                 ${plannerBadge(row)}
+                ${driverBadgeForRow(row)}
                 ${row.last_sold_date ? `<span class="badge border-slate-200 bg-white text-slate-700">Last sold: ${escapeHtml(row.last_sold_date)}</span>` : ""}
               </div>
 
@@ -1632,7 +1936,7 @@
     function updateDraftPeek(){
       const lines = loadDraft();
       if (!lines.length){ el("draftPeek").textContent = "Draft empty."; return; }
-      const peek = lines.slice(0, 14).map(l => `${l.sku || "—"} | qty ${num(l.qty)}${l.mode_added_from ? " | " + l.mode_added_from : ""}`).join("\n");
+      const peek = lines.slice(0, 14).map(l => `${l.sku || "—"} | qty ${num(l.qty)}${l.mode_added_from ? " | " + l.mode_added_from : ""}${l.driver ? " | " + l.driver : ""}`).join("\n");
       el("draftPeek").textContent = (lines.length > 14 ? peek + `\n… +${lines.length-14} more` : peek);
     }
 
@@ -1646,8 +1950,7 @@
       const vendor = norm(el("txtVendor").value);
       const eta = norm(el("txtEta").value);
 
-      const target = num(el("numTargetCover").value || 45);
-      const minR = num(el("numMinReorder").value || 0);
+      const inputs = getStrategyInputs();
 
       const lines = loadDraft();
       const index = new Map();
@@ -1656,7 +1959,11 @@
       const selectedRows = VIEW.filter(r => SELECTED.has(r._id));
       for (const r of selectedRows){
         const skuKey = norm(r.sku) || norm(r.barcode) || norm(r.product) || r._id;
-        const qty = (LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : suggestPOQty(r, target, minR)) || 0;
+        const qty = (LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : suggestPOQty(r, inputs)) || 0;
+
+        const tag = getTag(rowKeyFor(r));
+        const driver = tag?.driver || "none";
+        const driverPct = (tag && tag.pct_override !== null && Number.isFinite(Number(tag.pct_override))) ? Number(tag.pct_override) : "";
 
         if (index.has(skuKey)){
           const i = index.get(skuKey);
@@ -1673,7 +1980,12 @@
             sold_30: num(r.sold_30),
             sold_90: num(r.qty_90d),
             last_sold_date: r.last_sold_date || "",
-            mode_added_from: MODE
+            mode_added_from: MODE,
+
+            // new metadata (does not break old exports)
+            strategy: STRATEGY,
+            driver,
+            driver_pct: driverPct
           });
           index.set(skuKey, lines.length - 1);
         }
@@ -1685,7 +1997,7 @@
       openModal("Added to PO Draft", `
         <div class="text-slate-800">
           Added <b>${SELECTED.size}</b> row(s) to draft.
-          <div class="mt-2 text-xs text-slate-600">Run <b>Suggest PO</b> then add selected for fastest flow.</div>
+          <div class="mt-2 text-xs text-slate-600">Strategy: <b>${escapeHtml(STRATEGY)}</b>. Run <b>Suggest PO</b> for live quantities.</div>
         </div>
       `);
     }
@@ -1700,7 +2012,11 @@
         sold_30: l.sold_30, sold_90: l.sold_90,
         last_sold_date: l.last_sold_date,
         retail_value_on_hand: l.retail_value_on_hand,
-        mode_added_from: l.mode_added_from
+        mode_added_from: l.mode_added_from,
+
+        strategy: l.strategy || "",
+        driver: l.driver || "",
+        driver_pct: l.driver_pct ?? ""
       }));
       download(`silo_po_draft_${safeId(lines[0].po_name || "draft")}.csv`, toCSV(out, Object.keys(out[0])));
     }
@@ -1716,6 +2032,7 @@
               <tr>
                 <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">SKU / Key</th>
                 <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">Product</th>
+                <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">Driver</th>
                 <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Qty</th>
                 <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Sold 30d</th>
                 <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">Mode</th>
@@ -1726,6 +2043,7 @@
                 <tr>
                   <td class="px-3 py-2 mono font-semibold">${escapeHtml(l.sku)}</td>
                   <td class="px-3 py-2">${escapeHtml(l.product || "")}</td>
+                  <td class="px-3 py-2 text-xs">${escapeHtml(l.driver || "—")}${(l.driver_pct!=="" && l.driver_pct!==null && l.driver_pct!==undefined) ? ` <span class="text-slate-500">(+${escapeHtml(String(l.driver_pct))}%)</span>` : ""}</td>
                   <td class="px-3 py-2 text-right mono font-semibold">${num(l.qty).toLocaleString()}</td>
                   <td class="px-3 py-2 text-right mono">${num(l.sold_30).toLocaleString()}</td>
                   <td class="px-3 py-2 text-xs text-slate-600">${escapeHtml(l.mode_added_from || "")}</td>
@@ -1740,52 +2058,84 @@
     // Export filtered/selected
     function exportFiltered(){
       if (!VIEW.length){ openModal("Export", `<div class="text-slate-700">No rows to export.</div>`); return; }
-      const out = VIEW.map(r => ({
-        mode: MODE,
-        sku: r.sku,
-        barcode: r.barcode,
-        product: r.product,
-        variant: r.variant,
-        source: MODE === "location" ? r.source_label : "",
-        location: MODE === "location" ? r.location : "",
-        locations_count: MODE === "company" ? r.locations_count : "",
-        avail_qty: r.avail_qty,
-        inv_value_msrp: r.inv_value,
-        qty_7d: r.qty_7d,
-        qty_30d: r.sold_30,
-        qty_90d: r.qty_90d,
-        qty_120d: r.qty_120d,
-        avg_day_30: r.avg_day,
-        days_oos: r.days_oos,
-        last_sold_date: r.last_sold_date,
-        suggested_po: (LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : "")
-      }));
+      const inputs = getStrategyInputs();
+      const out = VIEW.map(r => {
+        const tag = getTag(rowKeyFor(r));
+        const driver = tag?.driver || "";
+        const driver_pct = (tag && tag.pct_override !== null && Number.isFinite(Number(tag.pct_override))) ? Number(tag.pct_override) : "";
+        return ({
+          mode: MODE,
+          strategy: STRATEGY,
+          driver,
+          driver_pct,
+
+          sku: r.sku,
+          barcode: r.barcode,
+          product: r.product,
+          variant: r.variant,
+          source: MODE === "location" ? r.source_label : "",
+          location: MODE === "location" ? r.location : "",
+          locations_count: MODE === "company" ? r.locations_count : "",
+          avail_qty: r.avail_qty,
+          inv_value_msrp: r.inv_value,
+          qty_7d: r.qty_7d,
+          qty_30d: r.sold_30,
+          qty_90d: r.qty_90d,
+          qty_120d: r.qty_120d,
+          avg_day_30: r.avg_day,
+          days_oos: r.days_oos,
+          last_sold_date: r.last_sold_date,
+
+          target_cover_days: inputs.targetCover,
+          safety_days: inputs.safetyDays,
+          default_growth_pct: inputs.defaultGrowthPct,
+          seed_avg_day: inputs.seedAvgDay,
+
+          suggested_po: (LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : "")
+        });
+      });
       download(`silo_inventory_${MODE}_filtered_${new Date().toISOString().slice(0,10)}.csv`, toCSV(out, Object.keys(out[0])));
     }
 
     function exportSelected(){
       const selected = VIEW.filter(r => SELECTED.has(r._id));
       if (!selected.length){ openModal("Export", `<div class="text-slate-700">No selected rows.</div>`); return; }
-      const out = selected.map(r => ({
-        mode: MODE,
-        sku: r.sku,
-        barcode: r.barcode,
-        product: r.product,
-        variant: r.variant,
-        source: MODE === "location" ? r.source_label : "",
-        location: MODE === "location" ? r.location : "",
-        locations_count: MODE === "company" ? r.locations_count : "",
-        avail_qty: r.avail_qty,
-        inv_value_msrp: r.inv_value,
-        qty_7d: r.qty_7d,
-        qty_30d: r.sold_30,
-        qty_90d: r.qty_90d,
-        qty_120d: r.qty_120d,
-        avg_day_30: r.avg_day,
-        days_oos: r.days_oos,
-        last_sold_date: r.last_sold_date,
-        suggested_po: (LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : "")
-      }));
+      const inputs = getStrategyInputs();
+      const out = selected.map(r => {
+        const tag = getTag(rowKeyFor(r));
+        const driver = tag?.driver || "";
+        const driver_pct = (tag && tag.pct_override !== null && Number.isFinite(Number(tag.pct_override))) ? Number(tag.pct_override) : "";
+        return ({
+          mode: MODE,
+          strategy: STRATEGY,
+          driver,
+          driver_pct,
+
+          sku: r.sku,
+          barcode: r.barcode,
+          product: r.product,
+          variant: r.variant,
+          source: MODE === "location" ? r.source_label : "",
+          location: MODE === "location" ? r.location : "",
+          locations_count: MODE === "company" ? r.locations_count : "",
+          avail_qty: r.avail_qty,
+          inv_value_msrp: r.inv_value,
+          qty_7d: r.qty_7d,
+          qty_30d: r.sold_30,
+          qty_90d: r.qty_90d,
+          qty_120d: r.qty_120d,
+          avg_day_30: r.avg_day,
+          days_oos: r.days_oos,
+          last_sold_date: r.last_sold_date,
+
+          target_cover_days: inputs.targetCover,
+          safety_days: inputs.safetyDays,
+          default_growth_pct: inputs.defaultGrowthPct,
+          seed_avg_day: inputs.seedAvgDay,
+
+          suggested_po: (LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : "")
+        });
+      });
       download(`silo_inventory_${MODE}_selected_${new Date().toISOString().slice(0,10)}.csv`, toCSV(out, Object.keys(out[0])));
     }
 
@@ -1804,11 +2154,82 @@
       applyFilters();
     }
 
+    // Strategy switching
+    function setStrategy(next){
+      STRATEGY = next;
+
+      el("btnStratRepl").classList.toggle("active", STRATEGY === "replenish");
+      el("btnStratGrowth").classList.toggle("active", STRATEGY === "growth");
+      el("btnStratHybrid").classList.toggle("active", STRATEGY === "hybrid");
+
+      // If suggestions are enabled, recompute live
+      if (SUGGEST_ENABLED) computeSuggestions();
+      render();
+    }
+
+    // Tagging UI
+    function openTagModal(){
+      if (!SELECTED.size){
+        openModal("Tag Selected", `<div class="text-slate-700">Select rows first, then tag them.</div>`);
+        return;
+      }
+
+      openModal("Tag Selected", `
+        <div class="text-slate-800">
+          You have <b>${SELECTED.size}</b> selected row(s).
+          <div class="mt-2 text-xs text-slate-600">Use the Filters panel for the full tag controls, or apply quickly here.</div>
+
+          <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+            <div class="md:col-span-6">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Driver</label>
+              <select id="modalDriver" class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                <option value="none">None (replenish only)</option>
+                <option value="core">Core Restock</option>
+                <option value="hero">Hero SKU</option>
+                <option value="new">New Product / Launch</option>
+                <option value="influencer">Influencer Push</option>
+                <option value="wholesale">Wholesale Push</option>
+                <option value="promo">Promo / Event Spike</option>
+                <option value="seasonal">Seasonal Bet</option>
+              </select>
+            </div>
+            <div class="md:col-span-4">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Uplift override (%)</label>
+              <input id="modalDriverPct" type="number" min="0" step="1" placeholder="blank = use default"
+                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+            </div>
+            <div class="md:col-span-2 flex gap-2">
+              <button id="modalApplyTag" class="w-full rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Apply</button>
+            </div>
+          </div>
+
+          <div class="mt-3 text-xs text-slate-600">
+            Hybrid strategy only applies uplift to tagged items. Growth strategy applies uplift across the board.
+          </div>
+        </div>
+      `);
+
+      setTimeout(() => {
+        const btn = document.getElementById("modalApplyTag");
+        if (!btn) return;
+        btn.onclick = () => {
+          const driver = document.getElementById("modalDriver").value;
+          const pct = document.getElementById("modalDriverPct").value;
+          applyTagToSelected(driver, pct);
+          closeModal();
+        };
+      }, 0);
+    }
+
+    function applyTagToSelected(driver, pctOverride){
+      const selectedRows = VIEW.filter(r => SELECTED.has(r._id));
+      selectedRows.forEach(r => setTag(rowKeyFor(r), driver, pctOverride));
+      if (SUGGEST_ENABLED) computeSuggestions();
+      render();
+    }
+
     // Events
-    el("btnReload").addEventListener("click", () => {
-      // Force a brand-new load; old async results are ignored by LOAD_SEQ
-      loadAll();
-    });
+    el("btnReload").addEventListener("click", () => loadAll());
     el("btnColumns").addEventListener("click", openColumns);
     el("btnExportFiltered").addEventListener("click", exportFiltered);
 
@@ -1821,12 +2242,19 @@
       el("numMaxDays").value = "";
       el("numMaxQty").value = "";
       el("numMinSold30").value = "";
+      el("txtSearch").value = "";
       applyFilters();
     });
 
     el("selLocation").addEventListener("change", applyFilters);
     el("selSort").addEventListener("change", applyFilters);
     el("numRiskDays").addEventListener("change", applyFilters);
+    el("numTargetCover").addEventListener("change", () => { if (SUGGEST_ENABLED) computeSuggestions(); });
+    el("numSafetyDays").addEventListener("change", () => { if (SUGGEST_ENABLED) computeSuggestions(); });
+    el("numMinReorder").addEventListener("change", () => { if (SUGGEST_ENABLED) computeSuggestions(); });
+    el("numGrowthPct").addEventListener("change", () => { if (SUGGEST_ENABLED) computeSuggestions(); });
+    el("numSeedAvgDay").addEventListener("change", () => { if (SUGGEST_ENABLED) computeSuggestions(); });
+
     el("txtSearch").addEventListener("keydown", (e) => { if (e.key === "Enter") applyFilters(); });
 
     document.querySelectorAll("button[data-chip]").forEach(b => {
@@ -1845,6 +2273,34 @@
       computeSuggestions();
     });
 
+    el("btnTagSelected").addEventListener("click", openTagModal);
+
+    el("btnApplyTag").addEventListener("click", () => {
+      const driver = el("selDriver").value;
+      const pct = el("numDriverPct").value;
+      applyTagToSelected(driver, pct);
+      // keep input but clear pct after apply (less accidental reuse)
+      el("numDriverPct").value = "";
+    });
+
+    el("btnClearTags").addEventListener("click", () => {
+      openModal("Clear all tags?", `
+        <div class="text-slate-800">
+          This removes all stored driver tags (local only).
+          <div class="mt-3 flex gap-2">
+            <button id="btnConfirmClearTags" class="rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Clear Tags</button>
+            <button id="btnCancelClearTags" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Cancel</button>
+          </div>
+        </div>
+      `);
+      setTimeout(() => {
+        const c = document.getElementById("btnConfirmClearTags");
+        const x = document.getElementById("btnCancelClearTags");
+        if (c) c.onclick = () => { clearAllTags(); if (SUGGEST_ENABLED) computeSuggestions(); render(); closeModal(); };
+        if (x) x.onclick = () => closeModal();
+      }, 0);
+    });
+
     el("btnAddSelectedToDraft").addEventListener("click", addSelectedToDraft);
     el("btnExportDraft").addEventListener("click", exportDraft);
     el("btnViewDraft").addEventListener("click", viewDraft);
@@ -1859,6 +2315,11 @@
 
     el("btnCloseModal").addEventListener("click", closeModal);
     el("modal").addEventListener("click", (e) => { if (e.target === el("modal")) closeModal(); });
+
+    // Strategy buttons
+    el("btnStratRepl").addEventListener("click", () => setStrategy("replenish"));
+    el("btnStratGrowth").addEventListener("click", () => setStrategy("growth"));
+    el("btnStratHybrid").addEventListener("click", () => setStrategy("hybrid"));
 
     // Init
     initVisible();
