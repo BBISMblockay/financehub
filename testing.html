@@ -1,533 +1,1880 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="h-full">
 <head>
-<meta charset="UTF-8" />
-<title>FinanceHub • Universal Financial Uploads</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Silo ERP — Inventory Workboard (Multi-Location)</title>
 
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
-<style>
-/* -------------------------------------------------------
-   GLOBAL THEME — FINANCEHUB DARK
-------------------------------------------------------- */
-:root {
-  --bg: #0B0C0F;
-  --bg-panel: #111317;
-  --bg-hover: #181A1F;
-  --border: rgba(255,255,255,0.06);
-  --text: #E5E7EB;
-  --text-dim: #9CA3AF;
-  --primary: #4F8BFF;
-  --radius: 12px;
-  --card-radius: 16px;
-}
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
 
-body {
-  margin: 0;
-  padding: 32px;
-  background: var(--bg);
-  color: var(--text);
-  font-family: Inter, system-ui, sans-serif;
-}
+  <style>
+    :root{ color-scheme: light; }
+    body{ font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    .mono{ font-variant-numeric: tabular-nums; font-feature-settings:"tnum" 1; }
+    .stickyHead thead th{ position: sticky; top: 0; z-index: 20; }
+    .thin-scroll::-webkit-scrollbar{ height: 10px; width: 10px; }
+    .thin-scroll::-webkit-scrollbar-thumb{ background: rgba(15,23,42,.18); border-radius: 999px; }
+    .thin-scroll::-webkit-scrollbar-track{ background: rgba(15,23,42,.06); }
 
-/* -------------------------------------------------------
-   HEADER
-------------------------------------------------------- */
-.header {
-  margin-bottom: 26px;
-}
+    .shadow-soft{ box-shadow: 0 10px 30px rgba(2,6,23,.08); }
+    .chip{ border: 1px solid rgba(15,23,42,.14); background: white; }
+    .chip:hover{ background: rgba(15,23,42,.03); }
+    .seg{ border: 1px solid rgba(15,23,42,.14); background: #fff; }
+    .seg button{ padding: 8px 10px; font-size: 12px; font-weight: 800; border-radius: 10px; }
+    .seg button.active{ background: #0f172a; color: #fff; }
+    .seg button:not(.active):hover{ background: rgba(15,23,42,.03); }
 
-.header h1 {
-  font-size: 26px;
-  font-weight: 700;
-  margin-bottom: 6px;
-  letter-spacing: .3px;
-}
+    .kbd{ border:1px solid rgba(15,23,42,.18); background:rgba(15,23,42,.03); border-bottom-width:2px; border-radius:8px; padding:2px 6px; font-size:11px; }
+    .btn{ border:1px solid rgba(15,23,42,.14); background:#fff; }
+    .btn:hover{ background: rgba(15,23,42,.03); }
+    .btn-dark{ background:#0f172a; color:#fff; border:1px solid #0f172a; }
+    .btn-dark:hover{ background:#0b1220; }
+    .pill{ border:1px solid rgba(15,23,42,.14); background:#fff; border-radius:999px; }
+    .pill:hover{ background: rgba(15,23,42,.03); }
 
-.header .subtitle {
-  color: var(--text-dim);
-  font-size: 14px;
-}
-
-/* -------------------------------------------------------
-   COLLAPSIBLE UPLOAD PANEL (A1)
-------------------------------------------------------- */
-.upload-toggle {
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  padding: 14px 18px;
-  border-radius: var(--card-radius);
-  margin-bottom: 14px;
-  cursor: pointer;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  transition: background .2s;
-}
-
-.upload-toggle:hover {
-  background: var(--bg-hover);
-}
-
-.upload-toggle span {
-  color: var(--text);
-  font-size: 15px;
-}
-
-.upload-toggle .arrow {
-  transition: transform .25s ease;
-}
-
-.upload-toggle.active .arrow {
-  transform: rotate(90deg);
-}
-
-/* Panel container */
-.upload-panel {
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: var(--card-radius);
-  overflow: hidden;
-  max-height: 0;
-  opacity: 0;
-  transition: max-height .35s ease, opacity .25s ease;
-  margin-bottom: 26px;
-  padding: 0 0; /* padding added only when open */
-}
-
-.upload-panel.open {
-  opacity: 1;
-  padding: 20px 24px;
-}
-
-/* -------------------------------------------------------
-   FILTER BAR
-------------------------------------------------------- */
-.filters {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 18px;
-}
-
-select, input[type="text"] {
-  padding: 10px 14px;
-  font-size: 14px;
-  border-radius: var(--radius);
-  border: 1px solid var(--border);
-  background: var(--bg-panel);
-  color: var(--text);
-  outline: none;
-  width: 220px;
-}
-
-input[type="text"] {
-  flex: 1;
-}
-
-/* -------------------------------------------------------
-   TABLE WRAPPER
-------------------------------------------------------- */
-.table-wrap {
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: var(--card-radius);
-  overflow-x: auto;
-  padding: 0;
-  box-shadow: 0 0 24px rgba(0,0,0,0.45);
-}
-
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 14px;
-}
-
-th {
-  padding: 14px;
-  text-align: left;
-  font-weight: 600;
-  color: var(--text);
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-}
-
-td {
-  padding: 12px 14px;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
-}
-
-tbody tr:hover {
-  background: var(--bg-hover);
-}
-
-/* -------------------------------------------------------
-   ENTITY TAG BAR
-------------------------------------------------------- */
-.entity-tag {
-  width: 6px;
-  height: 100%;
-  border-radius: 4px;
-  margin-right: 8px;
-  display: inline-block;
-}
-
-.entity-color-MISE { background: #4F46E5; }
-.entity-color-Portland { background: #10B981; }
-.entity-color-State { background: #F59E0B; }
-.entity-color-Bars { background: #EF4444; }
-.entity-color-Default { background: #6B7280; }
-
-/* -------------------------------------------------------
-   FILE LINKS
-------------------------------------------------------- */
-.file-link {
-  color: var(--primary);
-  text-decoration: none;
-  font-weight: 500;
-}
-.file-link:hover {
-  text-decoration: underline;
-}
-
-/* -------------------------------------------------------
-   EXPANDABLE ROW DRAWER
-------------------------------------------------------- */
-.expand-details {
-  display: none;
-  background: #14161A;
-  padding: 16px 24px;
-  border-top: 1px solid rgba(255,255,255,0.06);
-}
-
-.expand-details.active {
-  display: block;
-  animation: fadeIn .25s ease-out;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(-4px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-/* -------------------------------------------------------
-   PAGINATION
-------------------------------------------------------- */
-.pagination {
-  display: flex;
-  justify-content: center;
-  gap: 10px;
-  margin-top: 18px;
-}
-
-.pagination button {
-  padding: 8px 14px;
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  color: var(--text);
-  cursor: pointer;
-  transition: .2s;
-}
-
-.pagination button:hover {
-  background: var(--bg-hover);
-}
-
-.pagination .active {
-  background: var(--primary);
-  color: #fff;
-}
-
-/* -------------------------------------------------------
-   SKELETON LOADER
-------------------------------------------------------- */
-.skeleton {
-  background: linear-gradient(90deg, #1A1C20 25%, #22252B 37%, #1A1C20 63%);
-  background-size: 400% 100%;
-  animation: shimmer 1.4s infinite;
-  border-radius: 6px;
-  height: 14px;
-}
-
-@keyframes shimmer {
-  0% { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
-}
-</style>
+    .badge{
+      display:inline-flex; align-items:center; gap:.35rem;
+      border:1px solid rgba(15,23,42,.14);
+      background:#fff; border-radius:999px;
+      padding:2px 8px; font-size:11px; font-weight:800;
+    }
+  </style>
 </head>
-<body>
 
-<!-- -----------------------------------------------------
-     HEADER
------------------------------------------------------- -->
-<div class="header">
-  <h1>Financial Uploads<h1>
-  <div class="subtitle">WPV Accounting</div>
-</div>
+<body class="h-full bg-white text-slate-900">
+  <div class="min-h-full">
+    <!-- Top bar -->
+    <header class="border-b border-slate-200 bg-white">
+      <div class="mx-auto max-w-[1580px] px-4 py-4 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3 min-w-0">
+          <div class="h-9 w-9 rounded-xl border border-slate-200 grid place-items-center shrink-0">
+            <span class="text-sm font-extrabold">S</span>
+          </div>
+          <div class="min-w-0">
+            <div class="text-sm font-semibold truncate">Silo ERP — Inventory Workboard</div>
+            <div class="text-xs text-slate-500 truncate">
+              Multi-tab Google Sheet → CSV → Sales summary merge • Location + Company aggregation • export • PO draft • allocation prep
+            </div>
+          </div>
+        </div>
 
-<!-- -----------------------------------------------------
-     COLLAPSIBLE UPLOAD PANEL
------------------------------------------------------- -->
-<div class="upload-toggle" id="uploadToggle">
-  <span>+ Submit New Financial Upload</span>
-  <span class="arrow">▶</span>
-</div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button id="btnReload" class="rounded-lg px-3 py-2 text-sm font-medium btn">Reload</button>
+          <button id="btnColumns" class="rounded-lg px-3 py-2 text-sm font-medium btn">Columns</button>
+          <button id="btnExportFiltered" class="rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Export CSV</button>
+        </div>
+      </div>
+    </header>
 
-<div class="upload-panel" id="uploadPanel">
-  <!-- Jotform Embed -->
-  <script type="text/javascript" src="https://form.jotform.com/jsform/253167355298063"></script>
-</div>
+    <main class="mx-auto max-w-[1580px] px-4 py-5 space-y-4">
+      <!-- Controls -->
+      <section class="rounded-xl border border-slate-200 bg-white p-3">
+        <div class="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-3">
+          <div class="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
+            <!-- View mode toggle -->
+            <div class="seg rounded-xl p-1 flex items-center gap-1">
+              <button id="btnModeLocation" class="active" type="button">Location View</button>
+              <button id="btnModeCompany" type="button">Company View</button>
+            </div>
 
-<!-- -----------------------------------------------------
-     FILTER BAR
------------------------------------------------------- -->
-<div class="filters">
-  <select id="entityFilter">
-    <option value="ALL">All Entities</option>
-  </select>
+            <div class="w-full lg:w-[360px]">
+              <div class="relative">
+                <input id="txtSearch" type="text" placeholder="Search SKU, product, barcode… (Enter)"
+                  class="w-full rounded-lg border border-slate-200 pl-9 pr-3 py-2 text-sm" />
+                <svg class="absolute left-3 top-2.5 h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none">
+                  <path d="M21 21l-4.3-4.3m1.8-5.2a7 7 0 11-14 0 7 7 0 0114 0z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </div>
+            </div>
 
-  <input id="searchBox" type="text" placeholder="Search uploads… (entity, notes, uploader)">
-</div>
+            <div class="w-full lg:w-[360px]">
+              <select id="selLocation" class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                <option value="__ALL__">All locations (loaded)</option>
+              </select>
+            </div>
 
-<!-- -----------------------------------------------------
-     TABLE WRAPPER 
------------------------------------------------------- -->
-<div class="table-wrap">
-  <table>
-    <thead>
-      <tr>
-        <th data-sort="date">Date</th>
-        <th data-sort="entity">Entity</th>
-        <th data-sort="month">Month</th>
-        <th data-sort="year">Year</th>
-        <th>Notes</th>
-        <th>Uploaded By</th>
-        <th>Balance Sheet</th>
-        <th>P&L</th>
-        <th>GL Detail</th>
-        <th>Other Docs</th>
-      </tr>
-    </thead>
+            <button id="btnMoreFilters" class="rounded-lg px-3 py-2 text-sm font-medium btn shrink-0">
+              Filters
+            </button>
 
-    <tbody id="dataRows">
-      <!-- Skeleton placeholder -->
-      <tr><td colspan="10" style="padding:20px;"><div class="skeleton" style="height:18px;"></div></td></tr>
-      <tr><td colspan="10" style="padding:20px;"><div class="skeleton" style="height:18px;"></div></td></tr>
-      <tr><td colspan="10" style="padding:20px;"><div class="skeleton" style="height:18px;"></div></td></tr>
-    </tbody>
-  </table>
-</div>
+            <div class="hidden lg:flex items-center gap-2 pl-1">
+              <button data-chip="oos7" class="pill px-3 py-1.5 text-xs font-semibold">≤ 7 days</button>
+              <button data-chip="oos14" class="pill px-3 py-1.5 text-xs font-semibold">≤ 14 days</button>
+              <button data-chip="low10" class="pill px-3 py-1.5 text-xs font-semibold">Qty ≤ 10</button>
+              <button data-chip="clear" class="pill px-3 py-1.5 text-xs font-semibold">Clear</button>
+            </div>
+          </div>
 
-<div class="pagination" id="pagination"></div>
+          <div class="flex items-center gap-2">
+            <select id="selSort" class="rounded-lg border border-slate-200 px-3 py-2 text-sm">
+              <option value="days_asc">Days to OOS (asc)</option>
+              <option value="days_desc">Days to OOS (desc)</option>
+              <option value="qty_asc">Avail Qty (asc)</option>
+              <option value="qty_desc">Avail Qty (desc)</option>
+              <option value="sold30_desc">Sold 30d (desc)</option>
+              <option value="sold90_desc">Sold 90d (desc)</option>
+              <option value="value_desc">Retail Value (desc)</option>
+              <option value="risk_value_desc">Retail Risk (≤14d + value)</option>
+              <option value="stale_desc">Stale (last sold oldest)</option>
+              <option value="sku_asc">SKU (A→Z)</option>
+            </select>
 
-<script>
-/* -------------------------------------------------------
-   COLLAPSIBLE LOGIC
-------------------------------------------------------- */
-const uploadToggle = document.getElementById("uploadToggle");
-const uploadPanel  = document.getElementById("uploadPanel");
+            <button id="btnSuggestPO" class="rounded-lg px-3 py-2 text-sm font-semibold btn">
+              Suggest PO
+            </button>
 
-uploadToggle.addEventListener("click", () => {
-  const isOpen = uploadPanel.classList.contains("open");
+            <button id="btnAddSelectedToDraft" class="rounded-lg px-3 py-2 text-sm font-semibold btn-dark">
+              Add → Draft
+            </button>
+          </div>
+        </div>
 
-  if (isOpen) {
-    // closing
-    uploadPanel.style.maxHeight = "0px";
-    uploadPanel.classList.remove("open");
-    uploadToggle.classList.remove("active");
-  } else {
-    // opening
-    uploadPanel.classList.add("open");
-    uploadToggle.classList.add("active");
+        <!-- Filter drawer -->
+        <div id="filterDrawer" class="hidden mt-3 border-t border-slate-200 pt-3">
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+            <div class="md:col-span-3">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Max Days To OOS</label>
+              <input id="numMaxDays" type="number" min="0" step="1" placeholder="ex: 30"
+                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+            </div>
 
-    // auto-calc height
-    setTimeout(() => {
-      uploadPanel.style.maxHeight = uploadPanel.scrollHeight + "px";
-    }, 10);
-  }
-});
+            <div class="md:col-span-3">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Max Available Qty</label>
+              <input id="numMaxQty" type="number" min="0" step="1" placeholder="ex: 10"
+                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+            </div>
 
-/* -------------------------------------------------------
-   CONFIG
-------------------------------------------------------- */
-const SHEET_ID = "1dMNl3VuC4MlGk5vDrXIFnHRPt_B5lBtc5AHuT0Uo1N4";
-const GID = "0"; 
-const URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&gid=${GID}`;
+            <div class="md:col-span-3">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Min Sold 30d</label>
+              <input id="numMinSold30" type="number" min="0" step="1" placeholder="ex: 5"
+                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+            </div>
 
-let allRows = [];
-let filteredRows = [];
-let currentPage = 1;
-const ROWS_PER_PAGE = 50;
+            <div class="md:col-span-3 flex gap-2">
+              <button id="btnApply" class="w-full rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Apply</button>
+              <button id="btnClear" class="w-full rounded-lg px-3 py-2 text-sm font-medium btn">Reset</button>
+            </div>
+          </div>
 
-/* -------------------------------------------------------
-   LOAD GOOGLE SHEET
-------------------------------------------------------- */
-async function loadSheet() {
-  try {
-    const res = await fetch(URL);
-    const text = await res.text();
-    const json = JSON.parse(text.substring(47, text.length - 2));
-    const rows = json.table.rows;
+          <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3">
+            <div class="md:col-span-3">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">PO: Target Days Cover</label>
+              <input id="numTargetCover" type="number" min="1" step="1" value="45"
+                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+            </div>
+            <div class="md:col-span-3">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">PO: Min Reorder Qty</label>
+              <input id="numMinReorder" type="number" min="0" step="1" value="0"
+                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+            </div>
 
-    allRows = rows.map(r => {
-      const c = r.c.map(cell => (cell ? cell.v : ""));
+            <div class="md:col-span-3">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">KPI: Risk threshold (days)</label>
+              <input id="numRiskDays" type="number" min="1" step="1" value="14"
+                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+            </div>
 
-      return {
-        date: c[0],
-        entity: c[1],
-        month: c[2],
-        year: c[3],
+            <div class="md:col-span-3 text-xs text-slate-600 flex items-end">
+              <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 w-full">
+                <div class="font-semibold text-slate-800">Sales merge</div>
+                <div class="mt-1 leading-relaxed">
+                  Each location can optionally define a <span class="kbd">sales_summary CSV</span> (5K rows) to override sold/velocity and add 7/30/90/120 + last sold.
+                </div>
+              </div>
+            </div>
+          </div>
 
-        bs_url: c[4],
-        pl_url: c[5],
-        gl_url: c[6],
-        other_url: c[7],
+          <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3">
+            <div class="md:col-span-6">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Company aggregation key (for blanks)</label>
+              <div class="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 leading-relaxed">
+                Company View groups by <b>SKU</b> when present. If SKU is blank it falls back to <b>Barcode</b>, then <b>Product+Variant</b>.
+                This prevents “Company KPI drops” caused by blank SKUs.
+              </div>
+            </div>
+            <div class="md:col-span-6">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Suggestion behavior</label>
+              <div class="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 leading-relaxed">
+                After you run <b>Suggest PO</b> once, suggestions stay “live” and update automatically as you change filters, sort, or switch modes.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
 
-        notes: c[9],
-        uploaded: c[10],
+      <!-- KPIs -->
+      <section class="grid grid-cols-1 lg:grid-cols-12 gap-3">
+        <div class="lg:col-span-8 rounded-xl border border-slate-200 bg-white p-4">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="text-sm font-semibold">KPI Snapshot</div>
+              <div id="statusLine" class="text-xs text-slate-600 mt-1">—</div>
+              <div id="modeLine" class="text-xs text-slate-500 mt-1 mono">Mode: Location View</div>
+              <div id="kpiNote" class="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                Note: <b>Rows</b> differs by mode (Location rows vs Company unique items). <b>Units/Value</b> align by definition; <b>Sold/Avg/Days</b> are driven by <b>sales_summary</b> when available (fallback to inventory report metrics).
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="btnExportSelected" class="rounded-lg px-3 py-2 text-sm font-medium btn">Export Selected</button>
+              <button id="btnClearSelection" class="rounded-lg px-3 py-2 text-sm font-medium btn">Clear Selection</button>
+            </div>
+          </div>
 
-        bs_label: c[15],
-        pl_label: c[16],
-        gl_label: c[17],
-        other_label: c[18]
+          <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="rounded-lg bg-slate-50 border border-slate-200 p-3">
+              <div class="text-xs text-slate-500">Rows (filtered)</div>
+              <div id="kRows" class="text-lg font-bold mono">0</div>
+            </div>
+            <div class="rounded-lg bg-slate-50 border border-slate-200 p-3">
+              <div class="text-xs text-slate-500">Units on hand</div>
+              <div id="kUnits" class="text-lg font-bold mono">0</div>
+            </div>
+            <div class="rounded-lg bg-slate-50 border border-slate-200 p-3">
+              <div class="text-xs text-slate-500">Retail value on hand (MSRP)</div>
+              <div id="kRetailValue" class="text-lg font-bold mono">$0</div>
+            </div>
+            <div class="rounded-lg bg-slate-50 border border-slate-200 p-3">
+              <div class="text-xs text-slate-500">Stockout risk (≤ threshold)</div>
+              <div id="kRiskCount" class="text-lg font-bold mono">0</div>
+            </div>
+          </div>
+
+          <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="rounded-lg bg-white border border-slate-200 p-3">
+              <div class="text-xs text-slate-500">Sold 30d (sum)</div>
+              <div id="kSold30" class="text-lg font-bold mono">0</div>
+            </div>
+            <div class="rounded-lg bg-white border border-slate-200 p-3">
+              <div class="text-xs text-slate-500">Avg days to OOS (nonzero)</div>
+              <div id="kAvgDays" class="text-lg font-bold mono">—</div>
+            </div>
+            <div class="rounded-lg bg-white border border-slate-200 p-3">
+              <div class="text-xs text-slate-500">Retail at risk (≤ threshold)</div>
+              <div id="kRiskRetail" class="text-lg font-bold mono">$0</div>
+            </div>
+            <div class="rounded-lg bg-white border border-slate-200 p-3">
+              <div class="text-xs text-slate-500">Selected rows</div>
+              <div id="kSelected" class="text-lg font-bold mono">0</div>
+            </div>
+          </div>
+
+          <div class="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+            <span class="font-semibold">Planner tip:</span>
+            Use Company View to draft the buy (SKU-level), then drill into a SKU to see location demand share for transfers/allocation.
+          </div>
+        </div>
+
+        <!-- Draft -->
+        <div class="lg:col-span-4 rounded-xl border border-slate-200 bg-white p-4">
+          <div class="flex items-center justify-between">
+            <div class="text-sm font-semibold">PO Draft</div>
+            <div class="text-xs text-slate-500 mono">localStorage</div>
+          </div>
+          <div class="text-xs text-slate-600 mt-1">
+            Draft lines are SKU-level. Quantity defaults to suggested PO when available.
+          </div>
+
+          <div class="mt-3 grid grid-cols-1 gap-2">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">PO Name / Batch</label>
+              <input id="txtPoName" type="text" placeholder="ex: PO-2026-02-17 Company"
+                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Vendor (optional)</label>
+                <input id="txtVendor" type="text" placeholder="ex: Factory A"
+                  class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">ETA (optional)</label>
+                <input id="txtEta" type="date"
+                  class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+              </div>
+            </div>
+
+            <div class="flex gap-2">
+              <button id="btnViewDraft" class="w-full rounded-lg px-3 py-2 text-sm font-semibold btn">View Draft</button>
+              <button id="btnExportDraft" class="w-full rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Export Draft</button>
+            </div>
+
+            <button id="btnClearDraft" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Clear Draft</button>
+
+            <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div class="text-xs font-semibold text-slate-700">Draft peek</div>
+              <pre id="draftPeek" class="mt-2 text-xs text-slate-700 max-h-44 overflow-auto thin-scroll">Draft empty.</pre>
+            </div>
+
+            <div class="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 leading-relaxed">
+              <div class="font-semibold text-slate-800 mb-1">Next enhancement (allocation)</div>
+              Allocate company suggested PO to locations by demand share (avg/day ÷ company avg/day), then round + apply min transfer rules.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Table -->
+      <section class="rounded-xl border border-slate-200 bg-white overflow-hidden">
+        <div class="overflow-auto thin-scroll">
+          <table class="min-w-[1700px] w-full text-sm stickyHead">
+            <thead class="bg-slate-50 border-b border-slate-200">
+              <tr id="theadRow"></tr>
+            </thead>
+            <tbody id="tbody" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+
+        <div class="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-200 bg-white">
+          <div class="text-xs text-slate-600"><span id="pagerInfo">—</span></div>
+          <div class="flex items-center gap-2">
+            <button id="btnPrev" class="rounded-lg px-3 py-2 text-sm font-medium btn">Prev</button>
+            <button id="btnNext" class="rounded-lg px-3 py-2 text-sm font-medium btn">Next</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Modal -->
+      <div id="modal" class="fixed inset-0 hidden">
+        <div class="absolute inset-0 bg-black/40"></div>
+        <div class="absolute inset-x-0 top-10 mx-auto max-w-6xl px-4">
+          <div class="rounded-xl bg-white border border-slate-200 shadow-soft overflow-hidden">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+              <div class="text-sm font-semibold" id="modalTitle">Modal</div>
+              <button id="btnCloseModal" class="rounded-lg px-3 py-1.5 text-sm font-medium btn">Close</button>
+            </div>
+            <div id="modalBody" class="p-4 text-sm"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    /******************************************************************
+     * Silo ERP — Inventory Workboard (multi-location) + Sales Summary Merge
+     *
+     * What changed (add-on, no feature loss):
+     * - Each location can define an optional sales_summary CSV (5K rows)
+     * - We merge by SKU:
+     *    - sold_30     ← sales_summary.qty_30d (fallback to inventory report)
+     *    - avg_day     ← sales_summary.avg_day_30 (fallback to inventory report)
+     *    - days_oos    ← recomputed as on_hand / avg_day_30 when sales exists
+     * - We also add: qty_7d / qty_90d / qty_120d / last_sold_date + seasonality signals
+     * - Company aggregation recomputes avg/day from totals (qty_30/30) to avoid KPI weirdness
+     *
+     * Your provided sales_summary CSV (Online):
+     * https://docs.google.com/spreadsheets/d/e/2PACX-1vRRZETeD2kKpL4vMvXnn4Z-xyb6M_oQ6u9cOSJts_YTLnGXrvMPhlhe0XQuL5VAYLlGlxSvQdUfxycp/pub?gid=481096073&single=true&output=csv
+     ******************************************************************/
+
+    // ==== Workbook ID (inventory workbook) ====
+    const SHEET_ID = "1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0";
+
+    // ==== Up to 20 locations ====
+    // Add locations by adding { label, gid, sales_csv }.
+    // sales_csv is optional. If omitted, inventory report velocity is used.
+    const SHEET_TABS = [
+      {
+        label: "Online",
+        gid: 0,
+        // ✅ Online sales_summary (provided)
+        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRRZETeD2kKpL4vMvXnn4Z-xyb6M_oQ6u9cOSJts_YTLnGXrvMPhlhe0XQuL5VAYLlGlxSvQdUfxycp/pub?gid=481096073&single=true&output=csv"
+      },
+      {
+        label: "Scottsdale",
+        gid: 1686608564,
+        // TODO: paste Scottsdale sales_summary published CSV here when ready
+        sales_csv: ""
+      },
+
+      // { label: "Warehouse", gid: 123456789, sales_csv: "PASTE_PUBLISHED_CSV" },
+      // ... up to 20 total
+    ];
+
+    const MAX_LOCATIONS = 20;
+    if (SHEET_TABS.length > MAX_LOCATIONS) SHEET_TABS.length = MAX_LOCATIONS;
+
+    function gidToCsvUrl(gid){
+      return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${encodeURIComponent(gid)}`;
+    }
+
+    const SOURCES = SHEET_TABS.map(t => ({
+      source_id: t.label.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"") || `gid_${t.gid}`,
+      location_label: t.label,
+      gid: t.gid,
+      csv_url: gidToCsvUrl(t.gid),
+      sales_csv: (t.sales_csv || "").trim()
+    }));
+
+    // ==== Expected Better Reports headers (inventory CSV) ====
+    const H = {
+      location: "Location",
+      shop_domain: "Shop MyShopify Domain",
+      sku: "Variant SKU",
+      barcode: "Variant Barcode",
+      product: "Product title",
+      variant: "Variant title",
+      avail_qty: "Total available quantity",
+      inv_value: "Total available inventory value", // MSRP retail value per row
+      sold_30: "SUM Variant Quantity sold over the last 30 days",
+      avg_day: "SUM Variant Average quantity sold per day",
+      days_oos: "SUM Variant Estimated days before out of stock",
+      img: "Product Image url"
+    };
+
+    // ==== Sales summary headers (sales_summary CSV) ====
+    const SH = {
+      sku: "SKU",
+      product_name: "Product name",
+      product_type: "Product type",
+      vendor: "Vendor (original)",
+      qty_7d: "qty_7d",
+      qty_30d: "qty_30d",
+      qty_90d: "qty_90d",
+      qty_120d: "qty_120d",
+      avg_day_30: "avg_day_30",
+      avg_day_90: "avg_day_90",
+      avg_day_120: "avg_day_120",
+      last_sold_date: "last_sold_date"
+    };
+
+    // ==== State ====
+    let MODE = "location"; // location | company
+    let RAW = [];
+    let COMPANY = [];
+    let VIEW = [];
+    let PAGE = 1;
+    const PAGE_SIZE = 50;
+
+    const SELECTED = new Set();
+    let LAST_SUGGEST = new Map();
+    let SUGGEST_ENABLED = false;
+
+    // Columns
+    const COLS_KEY = "silo_inv_cols_v3_salesmerge";
+    let VISIBLE = null;
+
+    // Location table columns (keeps existing, adds sales fields + planner signals)
+    const COLS_LOCATION = [
+      { key: "_select", label: "", default: true },
+      { key: "image", label: "Image", default: true },
+      { key: "source", label: "Source", default: false },
+      { key: "location", label: "Location", default: true },
+      { key: "sku", label: "SKU", default: true },
+      { key: "barcode", label: "Barcode", default: false },
+      { key: "product", label: "Product", default: true },
+      { key: "variant", label: "Variant", default: false },
+
+      { key: "avail_qty", label: "Avail Qty", align: "right", default: true },
+      { key: "inv_value", label: "Retail Value (MSRP)", align: "right", default: true },
+
+      { key: "qty_7d", label: "Sold 7d", align: "right", default: false },
+      { key: "sold_30", label: "Sold 30d", align: "right", default: true },
+      { key: "qty_90d", label: "Sold 90d", align: "right", default: false },
+      { key: "qty_120d", label: "Sold 120d", align: "right", default: false },
+
+      { key: "avg_day", label: "Avg/Day (30)", align: "right", default: true },
+      { key: "days_oos", label: "Days to OOS", align: "right", default: true },
+      { key: "last_sold_date", label: "Last Sold", default: true },
+      { key: "planner_flag", label: "Planner", default: true },
+
+      // keep existing fields
+      { key: "risk_flag", label: "Risk", default: true },
+      { key: "suggested_po", label: "Suggested PO", align: "right", default: true },
+      { key: "_details", label: "", default: true }
+    ];
+
+    // Company columns (sum across locations, recompute avg/day from totals)
+    const COLS_COMPANY = [
+      { key: "_select", label: "", default: true },
+      { key: "image", label: "Image", default: true },
+      { key: "sku", label: "SKU", default: true },
+      { key: "barcode", label: "Barcode", default: false },
+      { key: "product", label: "Product", default: true },
+      { key: "variant", label: "Variant", default: false },
+
+      { key: "locations_count", label: "Locations", align: "right", default: true },
+      { key: "avail_qty", label: "On Hand (Total)", align: "right", default: true },
+      { key: "inv_value", label: "Retail Value (MSRP)", align: "right", default: true },
+
+      { key: "qty_7d", label: "Sold 7d (Total)", align: "right", default: false },
+      { key: "sold_30", label: "Sold 30d (Total)", align: "right", default: true },
+      { key: "qty_90d", label: "Sold 90d (Total)", align: "right", default: false },
+      { key: "qty_120d", label: "Sold 120d (Total)", align: "right", default: false },
+
+      { key: "avg_day", label: "Avg/Day (30, Total)", align: "right", default: true },
+      { key: "days_oos", label: "Days to OOS (Company)", align: "right", default: true },
+      { key: "last_sold_date", label: "Last Sold (latest)", default: true },
+      { key: "planner_flag", label: "Planner", default: true },
+
+      { key: "risk_flag", label: "Risk", default: true },
+      { key: "suggested_po", label: "Suggested PO (Company)", align: "right", default: true },
+      { key: "_details", label: "", default: true }
+    ];
+
+    // Draft
+    const DRAFT_KEY = "silo_po_draft_v3_salesmerge";
+    function loadDraft(){ try{ return JSON.parse(localStorage.getItem(DRAFT_KEY) || "[]"); } catch(e){ return []; } }
+    function saveDraft(lines){ localStorage.setItem(DRAFT_KEY, JSON.stringify(lines)); }
+
+    // DOM helper
+    const el = (id) => document.getElementById(id);
+
+    // Utils
+    function norm(s){ return (s ?? "").toString().replace(/\u00A0/g," ").trim(); }
+    function num(v){
+      const x = parseFloat((v ?? "").toString().replace(/[^0-9.\-]/g,""));
+      return Number.isFinite(x) ? x : 0;
+    }
+    function money(v){
+      const n = num(v);
+      return n.toLocaleString(undefined,{style:"currency", currency:"USD", maximumFractionDigits:0});
+    }
+    function escapeHtml(str){
+      return (str ?? "").toString().replace(/[&<>"']/g, (m) => ({
+        "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;"
+      }[m]));
+    }
+    function safeId(str){
+      return (str || "").toString().toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"");
+    }
+
+    function parseDateLoose(s){
+      // expects "Feb 16, 2026" from sheet; returns ms or null
+      const t = Date.parse((s||"").toString().trim());
+      return Number.isFinite(t) ? t : null;
+    }
+    function daysSince(ms){
+      if (!ms) return null;
+      const d = (Date.now() - ms) / (1000*60*60*24);
+      return d;
+    }
+
+    // CSV parsing
+    function parseCSV(text){
+      const rows = [];
+      let i = 0, field = "", row = [], inQuotes = false;
+      while (i < text.length){
+        const c = text[i], n = text[i+1];
+        if (inQuotes){
+          if (c === '"' && n === '"'){ field += '"'; i += 2; continue; }
+          if (c === '"'){ inQuotes = false; i++; continue; }
+          field += c; i++; continue;
+        } else {
+          if (c === '"'){ inQuotes = true; i++; continue; }
+          if (c === ','){ row.push(field); field = ""; i++; continue; }
+          if (c === '\r'){ i++; continue; }
+          if (c === '\n'){ row.push(field); rows.push(row); field = ""; row = []; i++; continue; }
+          field += c; i++; continue;
+        }
+      }
+      row.push(field); rows.push(row);
+      return rows;
+    }
+
+    function rowsToObjects(csvText){
+      const grid = parseCSV(csvText).filter(r => r.some(c => norm(c) !== ""));
+      if (!grid.length) return { headers: [], rows: [] };
+      const headers = grid[0].map(h => norm(h));
+      const rows = grid.slice(1).map(r => {
+        const o = {};
+        headers.forEach((h, idx) => o[h] = r[idx] ?? "");
+        return o;
+      });
+      return { headers, rows };
+    }
+
+    function toCSV(objects, headers){
+      const esc = (v) => {
+        const s = (v ?? "").toString();
+        if (/[,"\n]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
+        return s;
       };
+      const head = headers.map(esc).join(",");
+      const lines = objects.map(o => headers.map(h => esc(o[h])).join(","));
+      return [head, ...lines].join("\n");
+    }
+
+    function download(name, content, mime="text/csv"){
+      const blob = new Blob([content], {type: mime});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    // Modal
+    function openModal(title, html){
+      el("modalTitle").textContent = title;
+      el("modalBody").innerHTML = html;
+      el("modal").classList.remove("hidden");
+    }
+    function closeModal(){ el("modal").classList.add("hidden"); }
+
+    // Column persistence
+    function loadVisible(){
+      try{
+        const raw = localStorage.getItem(COLS_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") return null;
+        return parsed;
+      }catch(e){ return null; }
+    }
+    function saveVisible(map){ localStorage.setItem(COLS_KEY, JSON.stringify(map)); }
+
+    function initVisible(){
+      VISIBLE = loadVisible();
+      if (!VISIBLE){
+        VISIBLE = {};
+        [...COLS_LOCATION, ...COLS_COMPANY].forEach(c => {
+          if (!(c.key in VISIBLE)) VISIBLE[c.key] = !!c.default;
+        });
+      }
+      // Force details + image always visible (cannot be hidden)
+      VISIBLE["_details"] = true;
+      VISIBLE["image"] = true;
+      saveVisible(VISIBLE);
+    }
+
+    function currentCols(){ return MODE === "company" ? COLS_COMPANY : COLS_LOCATION; }
+
+    function setStatus(html){ el("statusLine").innerHTML = html; }
+
+    // Header render
+    function renderThead(){
+      const tr = el("theadRow");
+      tr.innerHTML = "";
+      const cols = currentCols();
+
+      for (const c of cols){
+        if (!VISIBLE[c.key]) continue;
+
+        if (c.key === "_select"){
+          tr.innerHTML += `
+            <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600 w-10">
+              <input id="chkAll" type="checkbox" class="h-4 w-4 align-middle" />
+            </th>`;
+          continue;
+        }
+        const align = c.align === "right" ? "text-right" : "text-left";
+        tr.innerHTML += `<th class="px-3 py-2 ${align} text-xs font-semibold text-slate-600">${escapeHtml(c.label)}</th>`;
+      }
+
+      const chkAll = document.getElementById("chkAll");
+      if (chkAll){
+        chkAll.addEventListener("change", (e) => {
+          const on = e.target.checked;
+          const start = (PAGE - 1) * PAGE_SIZE;
+          const slice = VIEW.slice(start, start + PAGE_SIZE);
+          slice.forEach(r => toggleSelect(r._id, on));
+          render();
+        });
+      }
+    }
+
+    // Location dropdown
+    function renderLocationDropdown(){
+      const sel = el("selLocation");
+      const current = sel.value || "__ALL__";
+      sel.innerHTML = `<option value="__ALL__">All locations (loaded)</option>`;
+      SOURCES.forEach(s => {
+        const opt = document.createElement("option");
+        opt.value = s.source_id;
+        opt.textContent = s.location_label;
+        sel.appendChild(opt);
+      });
+      if ([...sel.options].some(o => o.value === current)) sel.value = current;
+      else sel.value = "__ALL__";
+    }
+
+    // Fetch helper
+    async function fetchCsvObjects(url){
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      return rowsToObjects(text);
+    }
+
+    // Build sales map by SKU (per location)
+    function buildSalesMap(salesRows){
+      const m = new Map();
+      for (const r of salesRows){
+        const sku = norm(r[SH.sku] || r["sku"] || r["SKU"] || "");
+        if (!sku) continue;
+
+        const last = norm(r[SH.last_sold_date]);
+        const lastMs = parseDateLoose(last);
+
+        m.set(sku, {
+          sku,
+          product_name: norm(r[SH.product_name]),
+          product_type: norm(r[SH.product_type]),
+          vendor: norm(r[SH.vendor]),
+          qty_7d: num(r[SH.qty_7d]),
+          qty_30d: num(r[SH.qty_30d]),
+          qty_90d: num(r[SH.qty_90d]),
+          qty_120d: num(r[SH.qty_120d]),
+          avg_day_30: num(r[SH.avg_day_30]),
+          avg_day_90: num(r[SH.avg_day_90]),
+          avg_day_120: num(r[SH.avg_day_120]),
+          last_sold_date: last,
+          last_sold_ms: lastMs
+        });
+      }
+      return m;
+    }
+
+    // Planner flags (buyer mindset)
+    function plannerBadge(row){
+      // Built from: demand, oos risk, staleness, seasonality signal
+      const avg30 = num(row.avg_day);
+      const days = num(row.days_oos);
+      const onhand = num(row.avail_qty);
+
+      const lastMs = row.last_sold_ms || null;
+      const staleDays = lastMs ? daysSince(lastMs) : null;
+
+      // seasonality signal: if avg30 >> avg90, it's spiking; if avg30 << avg90, it's cooling
+      const avg90 = num(row.avg_day_90);
+      const seasonalRatio = (avg90 > 0) ? (avg30 / avg90) : null;
+
+      // classify
+      const tags = [];
+
+      if (avg30 <= 0 && onhand > 0){
+        tags.push({ t:"NO DEMAND", cls:"border-slate-200 bg-white text-slate-600" });
+      } else if (days > 0 && days <= 14){
+        tags.push({ t:"BUY NOW", cls:"border-amber-200 bg-amber-50 text-amber-900" });
+      } else if (days > 0 && days <= 30){
+        tags.push({ t:"WATCH", cls:"border-amber-200 bg-white text-amber-800" });
+      }
+
+      if (staleDays !== null && staleDays >= 90 && avg30 <= 0){
+        tags.push({ t:"STALE", cls:"border-rose-200 bg-rose-50 text-rose-900" });
+      }
+
+      if (seasonalRatio !== null){
+        if (seasonalRatio >= 1.35) tags.push({ t:"SPIKING", cls:"border-emerald-200 bg-emerald-50 text-emerald-900" });
+        else if (seasonalRatio <= 0.75) tags.push({ t:"COOLING", cls:"border-slate-200 bg-slate-50 text-slate-700" });
+      }
+
+      if (!tags.length) return `<span class="badge border-slate-200 bg-white text-slate-600">OK</span>`;
+
+      // limit clutter
+      return tags.slice(0,2).map(x => `<span class="badge ${x.cls}">${escapeHtml(x.t)}</span>`).join(" ");
+    }
+
+    // Company aggregation (SKU > Barcode > Product+Variant fallback)
+    function buildCompanyAgg(rows){
+      const byKey = new Map();
+
+      const keyFor = (r) => {
+        const sku = norm(r.sku);
+        if (sku) return `SKU::${sku}`;
+        const bc = norm(r.barcode);
+        if (bc) return `BC::${bc}`;
+        const prod = norm(r.product);
+        const varr = norm(r.variant);
+        if (prod || varr) return `PV::${prod}::${varr}`;
+        return `ROW::${r._id}`;
+      };
+
+      for (const r of rows){
+        const key = keyFor(r);
+
+        if (!byKey.has(key)){
+          byKey.set(key, {
+            _id: `COMPANY::${key}`,
+            key,
+            sku: norm(r.sku),
+            barcode: norm(r.barcode),
+            product: r.product,
+            variant: r.variant || "",
+            image_url: r.image_url || "",
+            avail_qty: 0,
+            inv_value: 0,
+
+            // totals for windows
+            qty_7d: 0,
+            sold_30: 0,
+            qty_90d: 0,
+            qty_120d: 0,
+
+            // avg/day derived from totals (prevents KPI weirdness)
+            avg_day: 0,
+            avg_day_90: 0,
+            avg_day_120: 0,
+
+            days_oos: 0,
+            last_sold_ms: null,
+            last_sold_date: "",
+
+            locations_count: 0,
+            locations: []
+          });
+        }
+
+        const agg = byKey.get(key);
+
+        agg.avail_qty += num(r.avail_qty);
+        agg.inv_value += num(r.inv_value);
+
+        agg.qty_7d += num(r.qty_7d);
+        agg.sold_30 += num(r.sold_30);
+        agg.qty_90d += num(r.qty_90d);
+        agg.qty_120d += num(r.qty_120d);
+
+        // latest last sold across locations
+        const ms = r.last_sold_ms || null;
+        if (ms && (!agg.last_sold_ms || ms > agg.last_sold_ms)){
+          agg.last_sold_ms = ms;
+          agg.last_sold_date = r.last_sold_date || "";
+        }
+
+        agg.locations.push({
+          location: r.location || r.source_label,
+          source_label: r.source_label,
+          source_id: r.source_id,
+          avail_qty: num(r.avail_qty),
+          sold_30: num(r.sold_30),
+          qty_7d: num(r.qty_7d),
+          qty_90d: num(r.qty_90d),
+          qty_120d: num(r.qty_120d),
+          avg_day: num(r.avg_day),
+          avg_day_90: num(r.avg_day_90),
+          avg_day_120: num(r.avg_day_120),
+          inv_value: num(r.inv_value),
+          days_oos: num(r.days_oos),
+          last_sold_date: r.last_sold_date || "",
+          last_sold_ms: r.last_sold_ms || null
+        });
+
+        if (!agg.image_url && r.image_url) agg.image_url = r.image_url;
+        if (!agg.product && r.product) agg.product = r.product;
+        if (!agg.variant && r.variant) agg.variant = r.variant;
+        if (!agg.sku && r.sku) agg.sku = r.sku;
+        if (!agg.barcode && r.barcode) agg.barcode = r.barcode;
+      }
+
+      const out = [];
+      for (const agg of byKey.values()){
+        const locSet = new Set(agg.locations.map(x => `${x.source_id}::${x.location}`));
+        agg.locations_count = locSet.size;
+
+        // derive averages from totals (avoid averaging averages)
+        agg.avg_day = agg.sold_30 / 30;
+        agg.avg_day_90 = agg.qty_90d / 90;
+        agg.avg_day_120 = agg.qty_120d / 120;
+
+        // days to OOS derived from avg_day (30)
+        agg.days_oos = (agg.avg_day > 0) ? (agg.avail_qty / agg.avg_day) : 0;
+
+        out.push(agg);
+      }
+      return out;
+    }
+
+    // Load all tabs (inventory + optional sales summary merge)
+    async function loadAll(){
+      setStatus("Loading…");
+      RAW = [];
+      COMPANY = [];
+      VIEW = [];
+      SELECTED.clear();
+      LAST_SUGGEST = new Map();
+      SUGGEST_ENABLED = false;
+      PAGE = 1;
+
+      renderLocationDropdown();
+
+      const results = [];
+
+      for (const src of SOURCES){
+        try{
+          // inventory CSV
+          const invParsed = await fetchCsvObjects(src.csv_url);
+          const invHeaders = new Set(invParsed.headers);
+
+          // Optional sales summary CSV
+          let salesMap = new Map();
+          let salesCount = 0;
+          let salesWarn = "";
+
+          if (src.sales_csv){
+            try{
+              const salesParsed = await fetchCsvObjects(src.sales_csv);
+              salesCount = salesParsed.rows.length;
+              const salesHeaders = new Set(salesParsed.headers);
+
+              const need = [SH.sku, SH.qty_30d, SH.avg_day_30, SH.last_sold_date];
+              const miss = need.filter(k => !salesHeaders.has(k));
+              if (miss.length){
+                salesWarn = `sales_summary missing: ${miss.join(" | ")}`;
+              } else {
+                salesMap = buildSalesMap(salesParsed.rows);
+              }
+            } catch(e){
+              salesWarn = `sales_summary failed: ${e.message || String(e)}`;
+            }
+          }
+
+          // Inventory required fields (still needed for on-hand + retail)
+          const required = [H.sku, H.avail_qty, H.inv_value];
+          const missing = required.filter(k => !invHeaders.has(k));
+          if (missing.length){
+            results.push({ source: src, warning: `Missing inventory columns: ${missing.join(" | ")}` });
+          } else {
+            results.push({ source: src, ok: invParsed.rows.length, sales_ok: salesCount, sales_warn: salesWarn });
+          }
+
+          const mapped = invParsed.rows.map((o, idx) => {
+            const shopDomain = norm(o[H.shop_domain]);
+            const location = norm(o[H.location]) || src.location_label;
+
+            const sku = norm(o[H.sku]);
+            const product = norm(o[H.product]);
+            const variant = norm(o[H.variant]);
+            const barcode = norm(o[H.barcode]);
+
+            const avail = num(o[H.avail_qty]);
+            const invValue = num(o[H.inv_value]);
+            const img = norm(o[H.img]);
+
+            // Inventory report velocity (fallback only)
+            const invSold30 = num(o[H.sold_30]);
+            const invAvgDay = num(o[H.avg_day]);
+            const invDaysOos = num(o[H.days_oos]);
+
+            // Sales merge
+            const s = sku ? salesMap.get(sku) : null;
+
+            // Prefer sales summary if present
+            const qty7 = s ? s.qty_7d : 0;
+            const qty30 = s ? s.qty_30d : invSold30;
+            const qty90 = s ? s.qty_90d : 0;
+            const qty120 = s ? s.qty_120d : 0;
+
+            const avg30 = s ? s.avg_day_30 : invAvgDay;
+            const avg90 = s ? s.avg_day_90 : (qty90 ? qty90/90 : 0);
+            const avg120 = s ? s.avg_day_120 : (qty120 ? qty120/120 : 0);
+
+            // days to OOS: recompute when sales avg exists, else use inventory's precomputed
+            const daysOos = (avg30 > 0) ? (avail / avg30) : (invDaysOos || 0);
+
+            const lastSold = s ? (s.last_sold_date || "") : "";
+            const lastSoldMs = s ? (s.last_sold_ms || null) : null;
+
+            // If sales summary has a cleaner product name/type/vendor, keep them (planner-friendly)
+            const prodName = (s && s.product_name) ? s.product_name : product;
+            const prodType = (s && s.product_type) ? s.product_type : "";
+            const vendor = (s && s.vendor) ? s.vendor : "";
+
+            const rid = `${src.source_id}::${location}::${sku || barcode || product || "row"}::${variant || ""}::${idx}`;
+
+            return {
+              _id: rid,
+              source_id: src.source_id,
+              source_label: src.location_label,
+              gid: src.gid,
+
+              shop_domain: shopDomain,
+              location,
+
+              sku,
+              barcode,
+
+              // keep your original product/variant columns, but allow sales summary to clean product label
+              product: prodName,
+              variant,
+
+              // buyer/analyst extra labels
+              product_type: prodType,
+              vendor,
+
+              avail_qty: avail,
+              inv_value: invValue,
+
+              qty_7d: qty7,
+              sold_30: qty30,
+              qty_90d: qty90,
+              qty_120d: qty120,
+
+              avg_day: avg30,
+              avg_day_90: avg90,
+              avg_day_120: avg120,
+
+              days_oos: daysOos,
+
+              last_sold_date: lastSold,
+              last_sold_ms: lastSoldMs,
+
+              // stash inventory velocities for debugging if you want later
+              _inv_sold30: invSold30,
+              _inv_avgday: invAvgDay,
+              _inv_daysoos: invDaysOos,
+
+              image_url: img,
+              _raw: o
+            };
+          });
+
+          RAW.push(...mapped);
+
+        } catch(err){
+          results.push({ source: src, error: err.message || String(err) });
+        }
+      }
+
+      COMPANY = buildCompanyAgg(RAW);
+      applyFilters();
+
+      const warn = results.filter(r => r.warning).length;
+      const bad = results.filter(r => r.error).length;
+
+      let msg = `Loaded <b>${RAW.length.toLocaleString()}</b> location-rows from <b>${SOURCES.length}</b> tab(s).`;
+      const salesGood = results.filter(r => r.sales_ok && !r.sales_warn).length;
+      const salesAny = results.filter(r => r.sales_ok).length;
+      if (salesAny){
+        msg += ` <span class="text-slate-600">Sales summaries: <b>${salesGood}</b> ok / <b>${salesAny}</b> present.</span>`;
+      }
+      if (warn) msg += ` <span class="text-amber-700 font-semibold">${warn} tab(s) missing inventory columns.</span>`;
+      if (bad) msg += ` <span class="text-rose-700 font-semibold">${bad} tab(s) failed.</span>`;
+
+      if (warn || bad || salesAny){
+        const detail = results.map(r => {
+          const name = escapeHtml(r.source.location_label);
+          const gid = escapeHtml(String(r.source.gid));
+          if (r.error) return `<div class="mono text-xs text-rose-700">• ${name} (gid ${gid}) — ERROR: ${escapeHtml(r.error)}</div>`;
+          if (r.warning) return `<div class="mono text-xs text-amber-700">• ${name} (gid ${gid}) — WARN: ${escapeHtml(r.warning)}</div>`;
+          const salesLine = (r.sales_ok || r.sales_warn) ? ` • sales=${(r.sales_ok||0).toLocaleString()}${r.sales_warn ? ` <span class="text-amber-700">(${escapeHtml(r.sales_warn)})</span>` : ""}` : "";
+          return `<div class="mono text-xs text-slate-600">• ${name} (gid ${gid}) — ${(r.ok||0).toLocaleString()} inv rows${salesLine}</div>`;
+        }).join("");
+        msg += `<div class="mt-2">${detail}</div>`;
+      }
+
+      setStatus(msg);
+    }
+
+    // Filters/sort
+    function applyFilters(){
+      const sourceFilter = el("selLocation").value;
+      const q = norm(el("txtSearch").value).toLowerCase();
+      const maxDays = el("numMaxDays").value === "" ? null : num(el("numMaxDays").value);
+      const maxQty = el("numMaxQty").value === "" ? null : num(el("numMaxQty").value);
+      const minSold30 = el("numMinSold30").value === "" ? null : num(el("numMinSold30").value);
+      const sort = el("selSort").value;
+
+      const base = (MODE === "company") ? COMPANY : RAW;
+
+      VIEW = base.filter(r => {
+        if (sourceFilter !== "__ALL__"){
+          if (MODE === "location"){
+            if (r.source_id !== sourceFilter) return false;
+          } else {
+            const has = (r.locations || []).some(x => x.source_id === sourceFilter);
+            if (!has) return false;
+          }
+        }
+
+        if (q){
+          const hay = `${r.sku||""} ${r.product||""} ${r.variant||""} ${r.barcode||""}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+
+        if (maxDays !== null){
+          const d = num(r.days_oos);
+          if (d > 0 && d > maxDays) return false;
+        }
+        if (maxQty !== null){
+          if (num(r.avail_qty) > maxQty) return false;
+        }
+        if (minSold30 !== null){
+          if (num(r.sold_30) < minSold30) return false;
+        }
+        return true;
+      });
+
+      VIEW.sort((a,b) => {
+        const ad = num(a.days_oos), bd = num(b.days_oos);
+        const aq = num(a.avail_qty), bq = num(b.avail_qty);
+        const as = num(a.sold_30), bs = num(b.sold_30);
+        const a90 = num(a.qty_90d), b90 = num(b.qty_90d);
+        const av = num(a.inv_value), bv = num(b.inv_value);
+
+        const aSt = a.last_sold_ms ? a.last_sold_ms : 0;
+        const bSt = b.last_sold_ms ? b.last_sold_ms : 0;
+
+        switch(sort){
+          case "days_asc": return (ad || 999999) - (bd || 999999);
+          case "days_desc": return (bd || 0) - (ad || 0);
+          case "qty_asc": return aq - bq;
+          case "qty_desc": return bq - aq;
+          case "sold30_desc": return bs - as;
+          case "sold90_desc": return b90 - a90;
+          case "value_desc": return bv - av;
+          case "risk_value_desc": {
+            const thr = num(el("numRiskDays").value || 14);
+            const aRisk = (ad > 0 && ad <= thr) ? 1 : 0;
+            const bRisk = (bd > 0 && bd <= thr) ? 1 : 0;
+            if (aRisk !== bRisk) return bRisk - aRisk;
+            return bv - av;
+          }
+          case "stale_desc": {
+            // oldest last sold first (staler = lower ms). Put missing dates last.
+            if (!aSt && !bSt) return 0;
+            if (!aSt) return 1;
+            if (!bSt) return -1;
+            return aSt - bSt;
+          }
+          case "sku_asc": return (a.sku || "").localeCompare(b.sku || "");
+          default: return 0;
+        }
+      });
+
+      PAGE = 1;
+
+      // If suggestions have been enabled once, keep them live on filter/sort/mode changes
+      if (SUGGEST_ENABLED) computeSuggestions();
+
+      render();
+    }
+
+    // Suggest PO logic (uses avg_day_30)
+    function suggestPOQty(row, targetDaysCover, minReorder){
+      const avg = num(row.avg_day);
+      if (avg <= 0) return 0;
+      const targetUnits = targetDaysCover * avg;
+      const needed = Math.max(Math.ceil(targetUnits - num(row.avail_qty)), 0);
+      if (needed < (minReorder || 0)) return 0;
+      return needed;
+    }
+
+    function computeSuggestions(){
+      const target = num(el("numTargetCover").value || 45);
+      const minR = num(el("numMinReorder").value || 0);
+      LAST_SUGGEST = new Map();
+      for (const r of VIEW){
+        LAST_SUGGEST.set(r._id, suggestPOQty(r, target, minR));
+      }
+      render();
+    }
+
+    // Selection
+    function toggleSelect(id, on){
+      if (on) SELECTED.add(id);
+      else SELECTED.delete(id);
+      el("kSelected").textContent = String(SELECTED.size);
+    }
+
+    function clearSelection(){
+      SELECTED.clear();
+      el("kSelected").textContent = "0";
+      render();
+    }
+
+    // KPIs
+    function updateKPIs(){
+      const rows = VIEW.length;
+      let units = 0, retail = 0, sold30 = 0;
+      let riskCount = 0, riskRetail = 0;
+      let daysSum = 0, daysCount = 0;
+
+      const riskThr = num(el("numRiskDays").value || 14);
+
+      for (const r of VIEW){
+        const u = num(r.avail_qty);
+        const v = num(r.inv_value);
+        const s = num(r.sold_30);
+        const d = num(r.days_oos);
+
+        units += u;
+        retail += v;
+        sold30 += s;
+
+        if (d > 0){
+          daysSum += d; daysCount++;
+          if (d <= riskThr){
+            riskCount++;
+            riskRetail += v;
+          }
+        }
+      }
+
+      el("kRows").textContent = rows.toLocaleString();
+      el("kUnits").textContent = units.toLocaleString();
+      el("kRetailValue").textContent = money(retail);
+      el("kSold30").textContent = sold30.toLocaleString();
+      el("kRiskCount").textContent = riskCount.toLocaleString();
+      el("kRiskRetail").textContent = money(riskRetail);
+      el("kAvgDays").textContent = daysCount ? (daysSum / daysCount).toFixed(1) : "—";
+      el("kSelected").textContent = String(SELECTED.size);
+    }
+
+    // Render table
+    function render(){
+      renderThead();
+      updateKPIs();
+      updateDraftPeek();
+
+      const total = VIEW.length;
+      const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+      PAGE = Math.min(PAGE, pages);
+      const start = (PAGE - 1) * PAGE_SIZE;
+      const slice = VIEW.slice(start, start + PAGE_SIZE);
+
+      el("pagerInfo").textContent = `Page ${PAGE} of ${pages} • Showing ${slice.length} of ${total.toLocaleString()} filtered rows`;
+
+      const chkAll = document.getElementById("chkAll");
+      if (chkAll) chkAll.checked = slice.length > 0 && slice.every(r => SELECTED.has(r._id));
+
+      const riskThr = num(el("numRiskDays").value || 14);
+      const cols = currentCols();
+      const tbody = el("tbody");
+
+      tbody.innerHTML = slice.map(r => {
+        const checked = SELECTED.has(r._id);
+        const sug = LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : null;
+
+        const days = num(r.days_oos);
+        const rowTint =
+          (days > 0 && days <= 7) ? "bg-rose-50" :
+          (days > 0 && days <= riskThr) ? "bg-amber-50" : "";
+
+        const riskBadge = (days > 0 && days <= riskThr)
+          ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border border-amber-200 bg-amber-50 text-amber-800">RISK</span>`
+          : `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border border-slate-200 bg-white text-slate-500">OK</span>`;
+
+        const thumb = r.image_url
+          ? `<button data-img="${escapeHtml(r.image_url)}" class="flex items-center gap-2">
+               <img src="${escapeHtml(r.image_url)}" alt="" class="h-9 w-9 rounded-md border border-slate-200 object-cover bg-white" loading="lazy" />
+             </button>`
+          : `<div class="h-9 w-9 rounded-md border border-slate-200 bg-slate-50 grid place-items-center text-[10px] text-slate-400">—</div>`;
+
+        const detailsBtn = `<button data-details="${escapeHtml(r._id)}" class="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold hover:bg-slate-50">Details</button>`;
+
+        const planner = plannerBadge(r);
+
+        const lastSoldTxt = r.last_sold_date ? escapeHtml(r.last_sold_date) : "—";
+
+        const tds = [];
+        for (const c of cols){
+          if (!VISIBLE[c.key]) continue;
+          const align = c.align === "right" ? "text-right" : "text-left";
+
+          if (c.key === "_select"){
+            tds.push(`<td class="px-3 py-2"><input data-rowchk="1" data-id="${escapeHtml(r._id)}" type="checkbox" class="h-4 w-4" ${checked ? "checked" : ""}/></td>`);
+          } else if (c.key === "image"){
+            tds.push(`<td class="px-3 py-2 ${align}">${thumb}</td>`);
+          } else if (c.key === "source"){
+            tds.push(`<td class="px-3 py-2 ${align} text-xs text-slate-600">${escapeHtml(r.source_label || "—")}</td>`);
+          } else if (c.key === "location"){
+            tds.push(`<td class="px-3 py-2 ${align} text-xs">${escapeHtml(r.location || r.source_label || "—")}</td>`);
+          } else if (c.key === "sku"){
+            tds.push(`<td class="px-3 py-2 ${align} mono text-xs font-semibold">${escapeHtml(r.sku || "—")}</td>`);
+          } else if (c.key === "barcode"){
+            tds.push(`<td class="px-3 py-2 ${align} mono text-xs">${escapeHtml(r.barcode || "—")}</td>`);
+          } else if (c.key === "product"){
+            tds.push(`<td class="px-3 py-2 ${align} text-xs">${escapeHtml(r.product || "—")}</td>`);
+          } else if (c.key === "variant"){
+            tds.push(`<td class="px-3 py-2 ${align} text-xs text-slate-600">${escapeHtml(r.variant || "—")}</td>`);
+          } else if (c.key === "locations_count"){
+            tds.push(`<td class="px-3 py-2 ${align} mono">${num(r.locations_count).toLocaleString()}</td>`);
+          } else if (c.key === "avail_qty"){
+            tds.push(`<td class="px-3 py-2 ${align} mono font-semibold">${num(r.avail_qty).toLocaleString()}</td>`);
+          } else if (c.key === "inv_value"){
+            tds.push(`<td class="px-3 py-2 ${align} mono">${money(r.inv_value)}</td>`);
+          } else if (c.key === "qty_7d"){
+            tds.push(`<td class="px-3 py-2 ${align} mono">${num(r.qty_7d).toLocaleString()}</td>`);
+          } else if (c.key === "sold_30"){
+            tds.push(`<td class="px-3 py-2 ${align} mono">${num(r.sold_30).toLocaleString()}</td>`);
+          } else if (c.key === "qty_90d"){
+            tds.push(`<td class="px-3 py-2 ${align} mono">${num(r.qty_90d).toLocaleString()}</td>`);
+          } else if (c.key === "qty_120d"){
+            tds.push(`<td class="px-3 py-2 ${align} mono">${num(r.qty_120d).toLocaleString()}</td>`);
+          } else if (c.key === "avg_day"){
+            tds.push(`<td class="px-3 py-2 ${align} mono">${num(r.avg_day).toFixed(2)}</td>`);
+          } else if (c.key === "days_oos"){
+            tds.push(`<td class="px-3 py-2 ${align} mono">${days ? days.toFixed(0) : "—"}</td>`);
+          } else if (c.key === "last_sold_date"){
+            tds.push(`<td class="px-3 py-2 ${align} text-xs mono">${lastSoldTxt}</td>`);
+          } else if (c.key === "planner_flag"){
+            tds.push(`<td class="px-3 py-2 ${align}">${planner}</td>`);
+          } else if (c.key === "risk_flag"){
+            tds.push(`<td class="px-3 py-2 ${align}">${riskBadge}</td>`);
+          } else if (c.key === "suggested_po"){
+            const v = (sug === null ? "—" : num(sug).toLocaleString());
+            tds.push(`<td class="px-3 py-2 ${align} mono font-semibold">${v}</td>`);
+          } else if (c.key === "_details"){
+            tds.push(`<td class="px-3 py-2 ${align}">${detailsBtn}</td>`);
+          }
+        }
+
+        return `<tr class="${rowTint}">${tds.join("")}</tr>`;
+      }).join("");
+
+      // row checkbox handlers
+      document.querySelectorAll('input[data-rowchk="1"]').forEach(chk => {
+        chk.addEventListener("change", (e) => {
+          const id = e.target.getAttribute("data-id");
+          toggleSelect(id, e.target.checked);
+          updateKPIs();
+        });
+      });
+
+      // image zoom
+      document.querySelectorAll('button[data-img]').forEach(btn => {
+        btn.addEventListener("click", () => {
+          const url = btn.getAttribute("data-img");
+          openModal("Product Image", `
+            <div class="flex flex-col gap-3">
+              <div class="text-xs text-slate-600 mono break-all">${escapeHtml(url)}</div>
+              <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <img src="${escapeHtml(url)}" alt="" class="w-full max-h-[70vh] object-contain rounded-lg bg-white" />
+              </div>
+            </div>
+          `);
+        });
+      });
+
+      // details drill-in
+      document.querySelectorAll('button[data-details]').forEach(btn => {
+        btn.addEventListener("click", () => {
+          const id = btn.getAttribute("data-details");
+          if (MODE === "company"){
+            const row = COMPANY.find(x => x._id === id);
+            if (row) openCompanyDetails(row);
+          } else {
+            const row = RAW.find(x => x._id === id);
+            if (row) openLocationDetails(row);
+          }
+        });
+      });
+    }
+
+    function openLocationDetails(row){
+      const seasonalRatio = (num(row.avg_day_90) > 0) ? (num(row.avg_day) / num(row.avg_day_90)) : null;
+      const staleDays = row.last_sold_ms ? daysSince(row.last_sold_ms) : null;
+
+      openModal("Location SKU Details", `
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+          <div class="md:col-span-4">
+            <div class="rounded-xl border border-slate-200 bg-white p-3">
+              <div class="text-xs text-slate-500">Image</div>
+              <div class="mt-2">
+                ${row.image_url
+                  ? `<img src="${escapeHtml(row.image_url)}" class="w-full max-h-64 object-contain rounded-lg border border-slate-200 bg-white" />`
+                  : `<div class="h-40 rounded-lg border border-slate-200 bg-slate-50 grid place-items-center text-slate-400">No image</div>`}
+              </div>
+            </div>
+          </div>
+
+          <div class="md:col-span-8">
+            <div class="rounded-xl border border-slate-200 bg-white p-3">
+              <div class="text-sm font-semibold">${escapeHtml(row.product || "—")}</div>
+              <div class="text-xs text-slate-600 mt-1">${escapeHtml(row.variant || "")}</div>
+
+              <div class="mt-2 flex flex-wrap gap-2">
+                ${plannerBadge(row)}
+                ${row.product_type ? `<span class="badge border-slate-200 bg-slate-50 text-slate-700">${escapeHtml(row.product_type)}</span>` : ""}
+                ${row.vendor ? `<span class="badge border-slate-200 bg-white text-slate-700">Vendor: ${escapeHtml(row.vendor)}</span>` : ""}
+                ${seasonalRatio !== null ? `<span class="badge border-slate-200 bg-white text-slate-700">Seasonality (30/90): ${seasonalRatio.toFixed(2)}x</span>` : ""}
+                ${staleDays !== null ? `<span class="badge border-slate-200 bg-white text-slate-700">Days since sold: ${staleDays.toFixed(0)}</span>` : ""}
+              </div>
+
+              <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Source</div>
+                  <div class="font-semibold">${escapeHtml(row.source_label || "—")}</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Location</div>
+                  <div class="font-semibold">${escapeHtml(row.location || "—")}</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">SKU</div>
+                  <div class="mono font-semibold">${escapeHtml(row.sku || "—")}</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Barcode</div>
+                  <div class="mono font-semibold">${escapeHtml(row.barcode || "—")}</div>
+                </div>
+              </div>
+
+              <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div class="rounded-lg bg-white border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">On hand</div>
+                  <div class="mono font-semibold">${num(row.avail_qty).toLocaleString()}</div>
+                </div>
+                <div class="rounded-lg bg-white border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Retail value</div>
+                  <div class="mono font-semibold">${money(row.inv_value)}</div>
+                </div>
+                <div class="rounded-lg bg-white border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Avg/Day (30)</div>
+                  <div class="mono font-semibold">${num(row.avg_day).toFixed(2)}</div>
+                </div>
+                <div class="rounded-lg bg-white border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Days to OOS</div>
+                  <div class="mono font-semibold">${num(row.days_oos) ? num(row.days_oos).toFixed(0) : "—"}</div>
+                </div>
+              </div>
+
+              <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Sold 7d</div>
+                  <div class="mono font-semibold">${num(row.qty_7d).toLocaleString()}</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Sold 30d</div>
+                  <div class="mono font-semibold">${num(row.sold_30).toLocaleString()}</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Sold 90d</div>
+                  <div class="mono font-semibold">${num(row.qty_90d).toLocaleString()}</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Last sold</div>
+                  <div class="mono font-semibold">${escapeHtml(row.last_sold_date || "—")}</div>
+                </div>
+              </div>
+
+              <div class="mt-3 text-xs text-slate-600 mono">
+                gid=${escapeHtml(String(row.gid))} • source_id=${escapeHtml(row.source_id)}
+              </div>
+            </div>
+          </div>
+        </div>
+      `);
+    }
+
+    function openCompanyDetails(row){
+      const lines = (row.locations || []).slice().sort((a,b) => num(b.avg_day) - num(a.avg_day));
+      const totalAvg = num(row.avg_day) || 0;
+
+      openModal("Company SKU Breakdown", `
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+          <div class="md:col-span-4">
+            <div class="rounded-xl border border-slate-200 bg-white p-3">
+              <div class="text-xs text-slate-500">Image</div>
+              <div class="mt-2">
+                ${row.image_url
+                  ? `<img src="${escapeHtml(row.image_url)}" class="w-full max-h-64 object-contain rounded-lg border border-slate-200 bg-white" />`
+                  : `<div class="h-40 rounded-lg border border-slate-200 bg-slate-50 grid place-items-center text-slate-400">No image</div>`}
+              </div>
+            </div>
+          </div>
+
+          <div class="md:col-span-8">
+            <div class="rounded-xl border border-slate-200 bg-white p-3">
+              <div class="text-sm font-semibold">${escapeHtml(row.product || "—")}</div>
+              <div class="text-xs text-slate-600 mt-1">
+                <span class="mono">SKU: ${escapeHtml(row.sku || "—")}</span>
+                <span class="mx-2 text-slate-300">•</span>
+                <span class="mono">Barcode: ${escapeHtml(row.barcode || "—")}</span>
+              </div>
+              <div class="text-xs text-slate-500 mt-1">Group key: <span class="mono">${escapeHtml(row.key || "")}</span></div>
+
+              <div class="mt-2 flex flex-wrap gap-2">
+                ${plannerBadge(row)}
+                ${row.last_sold_date ? `<span class="badge border-slate-200 bg-white text-slate-700">Last sold: ${escapeHtml(row.last_sold_date)}</span>` : ""}
+              </div>
+
+              <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Total On Hand</div>
+                  <div class="mono font-semibold">${num(row.avail_qty).toLocaleString()}</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Retail Value</div>
+                  <div class="mono font-semibold">${money(row.inv_value)}</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Avg/Day (30, Total)</div>
+                  <div class="mono font-semibold">${num(row.avg_day).toFixed(2)}</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Company Days to OOS</div>
+                  <div class="mono font-semibold">${num(row.days_oos) ? num(row.days_oos).toFixed(0) : "—"}</div>
+                </div>
+              </div>
+
+              <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div class="rounded-lg bg-white border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Sold 7d</div>
+                  <div class="mono font-semibold">${num(row.qty_7d).toLocaleString()}</div>
+                </div>
+                <div class="rounded-lg bg-white border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Sold 30d</div>
+                  <div class="mono font-semibold">${num(row.sold_30).toLocaleString()}</div>
+                </div>
+                <div class="rounded-lg bg-white border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Sold 90d</div>
+                  <div class="mono font-semibold">${num(row.qty_90d).toLocaleString()}</div>
+                </div>
+                <div class="rounded-lg bg-white border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Sold 120d</div>
+                  <div class="mono font-semibold">${num(row.qty_120d).toLocaleString()}</div>
+                </div>
+              </div>
+
+              <div class="mt-4 rounded-xl border border-slate-200 overflow-hidden">
+                <div class="px-3 py-2 bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-700">
+                  By Location (demand share = avg/day ÷ company avg/day)
+                </div>
+                <div class="max-h-[45vh] overflow-auto thin-scroll">
+                  <table class="min-w-full text-xs">
+                    <thead class="bg-white border-b border-slate-200">
+                      <tr>
+                        <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">Location</th>
+                        <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">On hand</th>
+                        <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Avg/Day</th>
+                        <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Sold 30d</th>
+                        <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Retail</th>
+                        <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Demand share</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                      ${lines.map(l => {
+                        const share = totalAvg > 0 ? (num(l.avg_day) / totalAvg) : 0;
+                        return `
+                          <tr>
+                            <td class="px-3 py-2">${escapeHtml(l.location || l.source_label || "—")}</td>
+                            <td class="px-3 py-2 text-right mono">${num(l.avail_qty).toLocaleString()}</td>
+                            <td class="px-3 py-2 text-right mono">${num(l.avg_day).toFixed(2)}</td>
+                            <td class="px-3 py-2 text-right mono">${num(l.sold_30).toLocaleString()}</td>
+                            <td class="px-3 py-2 text-right mono">${money(l.inv_value)}</td>
+                            <td class="px-3 py-2 text-right mono">${(share*100).toFixed(1)}%</td>
+                          </tr>`;
+                      }).join("")}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="mt-3 text-xs text-slate-600">
+                Allocation v1 (next): <b>Suggested PO × demand share</b> per location, with rounding + min constraints + transfer exceptions.
+              </div>
+            </div>
+          </div>
+        </div>
+      `);
+    }
+
+    // Columns modal (cannot hide image/details)
+    function openColumns(){
+      const cols = currentCols().filter(c => c.key !== "_select" && c.key !== "_details" && c.key !== "image");
+      const rows = cols.map(c => `
+        <label class="flex items-center justify-between gap-3 px-3 py-2 border border-slate-200 rounded-lg hover:bg-slate-50">
+          <div class="text-sm font-semibold text-slate-800">${escapeHtml(c.label || c.key)}</div>
+          <input type="checkbox" data-col="${escapeHtml(c.key)}" class="h-4 w-4" ${VISIBLE[c.key] ? "checked" : ""}/>
+        </label>
+      `).join("");
+
+      openModal("Columns", `
+        <div class="text-xs text-slate-600 mb-3">Toggle columns for the current mode. Image + Details are always on.</div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">${rows}</div>
+        <div class="mt-3 flex gap-2">
+          <button id="btnColsDefault" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Reset Defaults</button>
+          <button id="btnColsAll" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Show All</button>
+        </div>
+      `);
+
+      setTimeout(() => {
+        document.querySelectorAll("input[data-col]").forEach(chk => {
+          chk.addEventListener("change", (e) => {
+            const key = e.target.getAttribute("data-col");
+            VISIBLE[key] = !!e.target.checked;
+            VISIBLE["_details"] = true;
+            VISIBLE["image"] = true;
+            saveVisible(VISIBLE);
+            render();
+          });
+        });
+
+        const d = document.getElementById("btnColsDefault");
+        const a = document.getElementById("btnColsAll");
+
+        if (d) d.onclick = () => {
+          currentCols().forEach(c => VISIBLE[c.key] = !!c.default);
+          VISIBLE["_details"] = true;
+          VISIBLE["image"] = true;
+          saveVisible(VISIBLE);
+          render();
+          closeModal();
+        };
+        if (a) a.onclick = () => {
+          currentCols().forEach(c => VISIBLE[c.key] = true);
+          VISIBLE["_details"] = true;
+          VISIBLE["image"] = true;
+          saveVisible(VISIBLE);
+          render();
+          closeModal();
+        };
+      }, 0);
+    }
+
+    // Chips
+    function applyChip(kind){
+      if (kind === "oos7"){ el("numMaxDays").value = 7; el("numMaxQty").value = ""; }
+      else if (kind === "oos14"){ el("numMaxDays").value = 14; el("numMaxQty").value = ""; }
+      else if (kind === "low10"){ el("numMaxQty").value = 10; el("numMaxDays").value = ""; }
+      else if (kind === "clear"){
+        el("numMaxDays").value = "";
+        el("numMaxQty").value = "";
+        el("numMinSold30").value = "";
+        el("txtSearch").value = "";
+        el("selLocation").value = "__ALL__";
+      }
+      applyFilters();
+    }
+
+    // Draft
+    function updateDraftPeek(){
+      const lines = loadDraft();
+      if (!lines.length){ el("draftPeek").textContent = "Draft empty."; return; }
+      const peek = lines.slice(0, 14).map(l => `${l.sku || "—"} | qty ${num(l.qty)}${l.mode_added_from ? " | " + l.mode_added_from : ""}`).join("\n");
+      el("draftPeek").textContent = (lines.length > 14 ? peek + `\n… +${lines.length-14} more` : peek);
+    }
+
+    function addSelectedToDraft(){
+      if (!SELECTED.size){
+        openModal("Nothing selected", `<div class="text-slate-700">Select rows to add to a draft PO.</div>`);
+        return;
+      }
+
+      const poName = norm(el("txtPoName").value) || "PO Draft";
+      const vendor = norm(el("txtVendor").value);
+      const eta = norm(el("txtEta").value);
+
+      const target = num(el("numTargetCover").value || 45);
+      const minR = num(el("numMinReorder").value || 0);
+
+      const lines = loadDraft();
+      const index = new Map();
+      lines.forEach((l, idx) => index.set(l.sku, idx));
+
+      const selectedRows = VIEW.filter(r => SELECTED.has(r._id));
+      for (const r of selectedRows){
+        const skuKey = norm(r.sku) || norm(r.barcode) || norm(r.product) || r._id;
+        const qty = (LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : suggestPOQty(r, target, minR)) || 0;
+
+        if (index.has(skuKey)){
+          const i = index.get(skuKey);
+          lines[i].qty = num(lines[i].qty) + qty;
+        } else {
+          lines.push({
+            po_name: poName, vendor, eta,
+            sku: skuKey,
+            product: r.product || "",
+            qty,
+            retail_value_on_hand: num(r.inv_value),
+            avg_day_30: num(r.avg_day),
+            days_oos: num(r.days_oos),
+            sold_30: num(r.sold_30),
+            sold_90: num(r.qty_90d),
+            last_sold_date: r.last_sold_date || "",
+            mode_added_from: MODE
+          });
+          index.set(skuKey, lines.length - 1);
+        }
+      }
+
+      saveDraft(lines);
+      updateDraftPeek();
+
+      openModal("Added to PO Draft", `
+        <div class="text-slate-800">
+          Added <b>${SELECTED.size}</b> row(s) to draft.
+          <div class="mt-2 text-xs text-slate-600">Run <b>Suggest PO</b> then add selected for fastest flow.</div>
+        </div>
+      `);
+    }
+
+    function exportDraft(){
+      const lines = loadDraft();
+      if (!lines.length){ openModal("Draft is empty", `<div class="text-slate-700">Nothing to export yet.</div>`); return; }
+      const out = lines.map(l => ({
+        po_name: l.po_name, vendor: l.vendor, eta: l.eta,
+        sku: l.sku, product: l.product, qty: l.qty,
+        avg_day_30: l.avg_day_30, days_oos: l.days_oos,
+        sold_30: l.sold_30, sold_90: l.sold_90,
+        last_sold_date: l.last_sold_date,
+        retail_value_on_hand: l.retail_value_on_hand,
+        mode_added_from: l.mode_added_from
+      }));
+      download(`silo_po_draft_${safeId(lines[0].po_name || "draft")}.csv`, toCSV(out, Object.keys(out[0])));
+    }
+
+    function viewDraft(){
+      const lines = loadDraft();
+      if (!lines.length){ openModal("PO Draft", `<div class="text-slate-700">Draft empty.</div>`); return; }
+      openModal("PO Draft", `
+        <div class="text-xs text-slate-600 mb-2">Lines: <b>${lines.length}</b></div>
+        <div class="overflow-auto max-h-[65vh] border border-slate-200 rounded-lg thin-scroll">
+          <table class="min-w-full text-sm">
+            <thead class="bg-slate-50 border-b border-slate-200">
+              <tr>
+                <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">SKU / Key</th>
+                <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">Product</th>
+                <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Qty</th>
+                <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Sold 30d</th>
+                <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">Mode</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              ${lines.map(l => `
+                <tr>
+                  <td class="px-3 py-2 mono font-semibold">${escapeHtml(l.sku)}</td>
+                  <td class="px-3 py-2">${escapeHtml(l.product || "")}</td>
+                  <td class="px-3 py-2 text-right mono font-semibold">${num(l.qty).toLocaleString()}</td>
+                  <td class="px-3 py-2 text-right mono">${num(l.sold_30).toLocaleString()}</td>
+                  <td class="px-3 py-2 text-xs text-slate-600">${escapeHtml(l.mode_added_from || "")}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      `);
+    }
+
+    // Export filtered/selected
+    function exportFiltered(){
+      if (!VIEW.length){ openModal("Export", `<div class="text-slate-700">No rows to export.</div>`); return; }
+      const out = VIEW.map(r => ({
+        mode: MODE,
+        sku: r.sku,
+        barcode: r.barcode,
+        product: r.product,
+        variant: r.variant,
+        source: MODE === "location" ? r.source_label : "",
+        location: MODE === "location" ? r.location : "",
+        locations_count: MODE === "company" ? r.locations_count : "",
+        avail_qty: r.avail_qty,
+        inv_value_msrp: r.inv_value,
+        qty_7d: r.qty_7d,
+        qty_30d: r.sold_30,
+        qty_90d: r.qty_90d,
+        qty_120d: r.qty_120d,
+        avg_day_30: r.avg_day,
+        days_oos: r.days_oos,
+        last_sold_date: r.last_sold_date,
+        suggested_po: (LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : "")
+      }));
+      download(`silo_inventory_${MODE}_filtered_${new Date().toISOString().slice(0,10)}.csv`, toCSV(out, Object.keys(out[0])));
+    }
+
+    function exportSelected(){
+      const selected = VIEW.filter(r => SELECTED.has(r._id));
+      if (!selected.length){ openModal("Export", `<div class="text-slate-700">No selected rows.</div>`); return; }
+      const out = selected.map(r => ({
+        mode: MODE,
+        sku: r.sku,
+        barcode: r.barcode,
+        product: r.product,
+        variant: r.variant,
+        source: MODE === "location" ? r.source_label : "",
+        location: MODE === "location" ? r.location : "",
+        locations_count: MODE === "company" ? r.locations_count : "",
+        avail_qty: r.avail_qty,
+        inv_value_msrp: r.inv_value,
+        qty_7d: r.qty_7d,
+        qty_30d: r.sold_30,
+        qty_90d: r.qty_90d,
+        qty_120d: r.qty_120d,
+        avg_day_30: r.avg_day,
+        days_oos: r.days_oos,
+        last_sold_date: r.last_sold_date,
+        suggested_po: (LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : "")
+      }));
+      download(`silo_inventory_${MODE}_selected_${new Date().toISOString().slice(0,10)}.csv`, toCSV(out, Object.keys(out[0])));
+    }
+
+    // Mode switching
+    function setMode(next){
+      MODE = next;
+      SELECTED.clear();
+      LAST_SUGGEST = new Map();
+      PAGE = 1;
+
+      el("btnModeLocation").classList.toggle("active", MODE === "location");
+      el("btnModeCompany").classList.toggle("active", MODE === "company");
+      el("modeLine").textContent = `Mode: ${MODE === "company" ? "Company View" : "Location View"}`;
+
+      renderThead();
+      applyFilters();
+    }
+
+    // Events
+    el("btnReload").addEventListener("click", loadAll);
+    el("btnColumns").addEventListener("click", openColumns);
+    el("btnExportFiltered").addEventListener("click", exportFiltered);
+
+    el("btnModeLocation").addEventListener("click", () => setMode("location"));
+    el("btnModeCompany").addEventListener("click", () => setMode("company"));
+
+    el("btnMoreFilters").addEventListener("click", () => el("filterDrawer").classList.toggle("hidden"));
+    el("btnApply").addEventListener("click", applyFilters);
+    el("btnClear").addEventListener("click", () => {
+      el("numMaxDays").value = "";
+      el("numMaxQty").value = "";
+      el("numMinSold30").value = "";
+      applyFilters();
     });
 
-    buildEntityFilter();
-    applyFilters();
+    el("selLocation").addEventListener("change", applyFilters);
+    el("selSort").addEventListener("change", applyFilters);
+    el("numRiskDays").addEventListener("change", applyFilters);
+    el("txtSearch").addEventListener("keydown", (e) => { if (e.key === "Enter") applyFilters(); });
 
-  } catch (err) {
-    console.error("Error loading sheet:", err);
-  }
-}
-
-/* -------------------------------------------------------
-   ENTITY FILTER BUILDER
-------------------------------------------------------- */
-function buildEntityFilter() {
-  const select = document.getElementById("entityFilter");
-  const unique = [...new Set(allRows.map(r => r.entity).filter(Boolean))].sort();
-
-  unique.forEach(ent => {
-    const opt = document.createElement("option");
-    opt.value = ent;
-    opt.textContent = ent;
-    select.appendChild(opt);
-  });
-
-  select.addEventListener("change", applyFilters);
-}
-
-/* -------------------------------------------------------
-   SEARCH & FILTER LOGIC
-------------------------------------------------------- */
-document.getElementById("searchBox").addEventListener("input", applyFilters);
-
-function applyFilters() {
-  const search = document.getElementById("searchBox").value.toLowerCase();
-  const ent = document.getElementById("entityFilter").value;
-
-  filteredRows = allRows.filter(r => {
-    const matchEntity = (ent === "ALL" || r.entity === ent);
-    const matchSearch =
-      r.entity.toLowerCase().includes(search) ||
-      r.notes.toLowerCase().includes(search) ||
-      r.uploaded.toLowerCase().includes(search);
-
-    return matchEntity && matchSearch;
-  });
-
-  currentPage = 1;
-  renderTable();
-}
-
-/* -------------------------------------------------------
-   SORTING
-------------------------------------------------------- */
-document.querySelectorAll("th[data-sort]").forEach(th => {
-  th.addEventListener("click", () => {
-    const key = th.getAttribute("data-sort");
-    filteredRows.sort((a, b) => (a[key] > b[key] ? 1 : -1));
-    renderTable();
-  });
-});
-
-/* -------------------------------------------------------
-   RENDER TABLE
-------------------------------------------------------- */
-function renderTable() {
-  const tbody = document.getElementById("dataRows");
-  tbody.innerHTML = "";
-
-  const start = (currentPage - 1) * ROWS_PER_PAGE;
-  const pageRows = filteredRows.slice(start, start + ROWS_PER_PAGE);
-
-  pageRows.forEach((r, i) => {
-    const colorClass = getEntityColor(r.entity);
-
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td><span class="entity-tag ${colorClass}"></span>${r.date}</td>
-      <td>${r.entity}</td>
-      <td>${r.month}</td>
-      <td>${r.year}</td>
-      <td>${r.notes}</td>
-      <td>${r.uploaded}</td>
-      <td>${r.bs_url ? `<a class="file-link" href="${r.bs_url}" target="_blank">${r.bs_label||"View"}</a>` : ""}</td>
-      <td>${r.pl_url ? `<a class="file-link" href="${r.pl_url}" target="_blank">${r.pl_label||"View"}</a>` : ""}</td>
-      <td>${r.gl_url ? `<a class="file-link" href="${r.gl_url}" target="_blank">${r.gl_label||"View"}</a>` : ""}</td>
-      <td>${r.other_url ? `<a class="file-link" href="${r.other_url}" target="_blank">${r.other_label||"Docs"}</a>` : ""}</td>
-    `;
-
-    tbody.appendChild(tr);
-  });
-
-  renderPagination();
-}
-
-/* -------------------------------------------------------
-   ENTITY COLOR HELPER
-------------------------------------------------------- */
-function getEntityColor(entity) {
-  entity = entity.toLowerCase();
-  if (entity.includes("mise")) return "entity-color-MISE";
-  if (entity.includes("portland")) return "entity-color-Portland";
-  if (entity.includes("state")) return "entity-color-State";
-  if (entity.includes("bar") || entity.includes("two") || entity.includes("palm") || entity.includes("flanders"))
-    return "entity-color-Bars";
-  return "entity-color-Default";
-}
-
-/* -------------------------------------------------------
-   PAGINATION
-------------------------------------------------------- */
-function renderPagination() {
-  const pages = Math.ceil(filteredRows.length / ROWS_PER_PAGE);
-  const container = document.getElementById("pagination");
-  container.innerHTML = "";
-
-  for (let p = 1; p <= pages; p++) {
-    const btn = document.createElement("button");
-    btn.textContent = p;
-    if (p === currentPage) btn.classList.add("active");
-
-    btn.addEventListener("click", () => {
-      currentPage = p;
-      renderTable();
+    document.querySelectorAll("button[data-chip]").forEach(b => {
+      b.addEventListener("click", () => applyChip(b.getAttribute("data-chip")));
     });
 
-    container.appendChild(btn);
-  }
-}
+    el("btnPrev").addEventListener("click", () => { PAGE = Math.max(1, PAGE - 1); render(); });
+    el("btnNext").addEventListener("click", () => {
+      const pages = Math.max(1, Math.ceil(VIEW.length / PAGE_SIZE));
+      PAGE = Math.min(pages, PAGE + 1);
+      render();
+    });
 
-/* -------------------------------------------------------
-   INIT
-------------------------------------------------------- */
-loadSheet();
-</script>
+    // Suggest PO (instant, then becomes live)
+    el("btnSuggestPO").addEventListener("click", () => {
+      SUGGEST_ENABLED = true;
+      computeSuggestions();
+    });
 
+    el("btnAddSelectedToDraft").addEventListener("click", addSelectedToDraft);
+    el("btnExportDraft").addEventListener("click", exportDraft);
+    el("btnViewDraft").addEventListener("click", viewDraft);
+    el("btnClearDraft").addEventListener("click", () => { saveDraft([]); updateDraftPeek(); });
+
+    el("btnExportSelected").addEventListener("click", exportSelected);
+    el("btnClearSelection").addEventListener("click", () => {
+      SELECTED.clear();
+      el("kSelected").textContent = "0";
+      render();
+    });
+
+    el("btnCloseModal").addEventListener("click", closeModal);
+    el("modal").addEventListener("click", (e) => { if (e.target === el("modal")) closeModal(); });
+
+    // Init
+    initVisible();
+    renderThead();
+    renderLocationDropdown();
+    updateDraftPeek();
+    loadAll();
+  </script>
 </body>
 </html>
