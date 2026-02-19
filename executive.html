@@ -1,785 +1,1342 @@
-<!DOCTYPE html>
-<html lang="en" class="h-full">
+<!-- executive.html -->
+<!doctype html>
+<html lang="en" data-theme="light">
 <head>
-  <meta charset="utf-8" />
+  <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Silo ERP — Owner Cockpit</title>
-
-  <!-- Inter -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
-  <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
-
   <style>
-    :root{ color-scheme: light; }
-    body{ font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
-    .mono{ font-variant-numeric: tabular-nums; font-feature-settings:"tnum" 1; }
-    .thin-scroll::-webkit-scrollbar{ height: 10px; width: 10px; }
-    .thin-scroll::-webkit-scrollbar-thumb{ background: rgba(15,23,42,.18); border-radius: 999px; }
-    .thin-scroll::-webkit-scrollbar-track{ background: rgba(15,23,42,.06); }
-    .shadow-soft{ box-shadow: 0 10px 30px rgba(2,6,23,.08); }
-    .btn{ border:1px solid rgba(15,23,42,.14); background:#fff; }
-    .btn:hover{ background: rgba(15,23,42,.03); }
-    .btn-dark{ background:#0f172a; color:#fff; border:1px solid #0f172a; }
-    .btn-dark:hover{ background:#0b1220; }
-    .chip{ border:1px solid rgba(15,23,42,.14); background:#fff; }
-    .chip:hover{ background: rgba(15,23,42,.03); }
-    .kpi{
-      border: 1px solid rgba(15,23,42,.10);
-      background: linear-gradient(180deg, rgba(2,6,23,.02), rgba(2,6,23,.00));
+    .mono { font-variant-numeric: tabular-nums; }
+    .scrollbar::-webkit-scrollbar { height: 10px; width: 10px; }
+    .scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+    .scrollbar::-webkit-scrollbar-track { background: transparent; }
+    dialog::backdrop { background: rgba(15, 23, 42, 0.55); }
+
+    :root[data-theme="light"]{
+      --bg: #f8fafc;
+      --panel: #ffffff;
+      --border: rgba(15,23,42,.08);
+      --muted: rgba(15,23,42,.62);
+      --muted2: rgba(15,23,42,.46);
+      --text: rgba(15,23,42,.92);
+      --chip: rgba(15,23,42,.04);
+      --chipb: rgba(15,23,42,.10);
     }
-    .subtle{
-      border: 1px solid rgba(15,23,42,.10);
-      background: #fff;
+    :root[data-theme="dark"]{
+      --bg: #070A12;
+      --panel: rgba(255,255,255,.04);
+      --border: rgba(255,255,255,.10);
+      --muted: rgba(255,255,255,.64);
+      --muted2: rgba(255,255,255,.50);
+      --text: rgba(255,255,255,.92);
+      --chip: rgba(255,255,255,.05);
+      --chipb: rgba(255,255,255,.12);
+    }
+    body.themeable{
+      background: var(--bg);
+      color: var(--text);
+    }
+    .panel{
+      background: var(--panel);
+      border: 1px solid var(--border);
+    }
+    .muted{ color: var(--muted); }
+    .muted2{ color: var(--muted2); }
+    .chip{
+      background: var(--chip);
+      border: 1px solid var(--chipb);
     }
   </style>
 </head>
 
-<body class="h-full bg-white text-slate-900">
-  <div class="min-h-full">
-    <!-- Top bar -->
-    <header class="border-b border-slate-200 bg-white">
-      <div class="mx-auto max-w-[1900px] px-4 py-4 flex items-center justify-between gap-3">
-        <div class="flex items-center gap-3 min-w-0">
-          <div class="h-9 w-9 rounded-xl border border-slate-200 grid place-items-center shrink-0">
-            <span class="text-sm font-extrabold">S</span>
-          </div>
-          <div class="min-w-0">
-            <div class="text-sm font-semibold truncate">Silo ERP — Owner Cockpit</div>
-            <div id="subhead" class="text-xs text-slate-500 truncate">
-              Live rollups from Inventory Workboard sources • AP + Marketing links • Sales report embed
-            </div>
-          </div>
+<body class="themeable">
+  <header class="border-b" style="border-color: var(--border); background: var(--panel);">
+    <div class="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8 flex flex-col gap-3">
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <div class="text-sm muted">Silo ERP</div>
+          <h1 class="text-2xl font-semibold tracking-tight">Owner Cockpit</h1>
+          <div class="text-xs muted2 mt-1">Inventory + Sales velocity + Stockout risk + AP + Marketing calendar</div>
         </div>
+        <div class="flex items-center gap-2 flex-wrap justify-end">
+          <button id="themeBtn"
+                  class="chip inline-flex items-center rounded-lg px-3 py-2 text-sm font-medium hover:opacity-90"
+                  title="Toggle theme">
+            Theme <span id="themeLabel" class="ml-2 font-semibold">Light</span>
+          </button>
 
-        <div class="flex items-center gap-2 shrink-0">
-          <a href="inventory.html" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Open Inventory</a>
-          <a href="ap.html" class="rounded-lg px-3 py-2 text-sm font-semibold btn">AP Queue</a>
-          <a href="marketing.html" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Marketing</a>
-          <button id="btnReload" class="rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Reload</button>
+          <a id="openRiskInventoryBtn"
+             class="inline-flex items-center rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
+             href="inventory.html?maxDays=14"
+             target="_blank" rel="noreferrer">
+            Open Inventory (At Risk)
+          </a>
+
+          <button id="breakdownBtn"
+                  class="inline-flex items-center rounded-lg border px-3 py-2 text-sm font-medium hover:opacity-90"
+                  style="border-color: var(--border); background: var(--panel);">
+            Breakdown by location
+          </button>
+
+          <button id="reloadBtn"
+                  class="inline-flex items-center rounded-lg border px-3 py-2 text-sm font-medium hover:opacity-90"
+                  style="border-color: var(--border); background: var(--panel);">
+            Reload
+          </button>
         </div>
       </div>
-    </header>
 
-    <main class="mx-auto max-w-[1900px] px-4 py-5 space-y-4">
-      <!-- Status line -->
-      <section class="rounded-xl border border-slate-200 bg-white p-3">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-          <div class="min-w-0">
-            <div class="text-xs font-semibold text-slate-700">Data status</div>
-            <div id="statusLine" class="text-xs text-slate-600 mt-1">
-              —
-            </div>
-          </div>
-          <div class="flex items-center gap-2">
-            <div class="text-xs text-slate-500">Risk threshold</div>
-            <select id="selRiskDays" class="rounded-lg border border-slate-200 px-3 py-2 text-sm">
-              <option value="7">≤ 7 days</option>
-              <option value="14" selected>≤ 14 days</option>
-              <option value="30">≤ 30 days</option>
-            </select>
-            <button id="btnOpenInventoryRisk" class="rounded-lg px-3 py-2 text-sm font-semibold btn">
-              Open Inventory (Risk)
-            </button>
-          </div>
-        </div>
-      </section>
-
-      <!-- KPIs (tighter, less moduley) -->
-      <section class="grid grid-cols-1 lg:grid-cols-12 gap-3">
-        <div class="lg:col-span-9 rounded-xl kpi p-4">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <div class="text-sm font-semibold">Inventory rollup</div>
-              <div class="text-xs text-slate-600 mt-1">
-                Uses the exact Inventory Workboard sources (inventory workbook CSV + per-location sales_summary CSV).
-              </div>
-            </div>
-            <div class="flex items-center gap-2">
-              <button id="btnDetails" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Breakdown</button>
-            </div>
-          </div>
-
-          <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div class="rounded-lg subtle p-3">
-              <div class="text-xs text-slate-500">Units on hand</div>
-              <div id="kUnits" class="text-xl font-extrabold mono">—</div>
-              <div id="kUnitsSub" class="text-[11px] text-slate-500 mt-1">—</div>
-            </div>
-            <div class="rounded-lg subtle p-3">
-              <div class="text-xs text-slate-500">Retail value (MSRP)</div>
-              <div id="kRetail" class="text-xl font-extrabold mono">—</div>
-              <div id="kRetailSub" class="text-[11px] text-slate-500 mt-1">—</div>
-            </div>
-            <div class="rounded-lg subtle p-3">
-              <div class="text-xs text-slate-500">Sold 30d (total)</div>
-              <div id="kSold30" class="text-xl font-extrabold mono">—</div>
-              <div id="kSoldSub" class="text-[11px] text-slate-500 mt-1">—</div>
-            </div>
-            <div class="rounded-lg subtle p-3">
-              <div class="text-xs text-slate-500">Stockout risk</div>
-              <div class="flex items-baseline justify-between gap-2">
-                <div id="kRiskCount" class="text-xl font-extrabold mono">—</div>
-                <div id="kRiskPct" class="text-xs font-semibold text-slate-600">—</div>
-              </div>
-              <div id="kRiskRetail" class="text-[11px] text-slate-500 mt-1 mono">—</div>
-            </div>
-          </div>
-
-          <div class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
-            <div class="rounded-lg subtle p-3">
-              <div class="text-xs text-slate-500">Avg days to OOS (nonzero)</div>
-              <div id="kAvgDays" class="text-lg font-bold mono">—</div>
-              <div class="text-[11px] text-slate-500 mt-1">Weighted by items with demand</div>
-            </div>
-            <div class="rounded-lg subtle p-3">
-              <div class="text-xs text-slate-500">Rows loaded</div>
-              <div id="kRows" class="text-lg font-bold mono">—</div>
-              <div id="kLocs" class="text-[11px] text-slate-500 mt-1">—</div>
-            </div>
-            <div class="rounded-lg subtle p-3">
-              <div class="text-xs text-slate-500">Biggest risk locations</div>
-              <div id="kTopRisk" class="text-sm text-slate-800 mt-1 leading-relaxed">
-                —
-              </div>
-            </div>
-          </div>
+      <div class="flex items-center gap-3 flex-wrap">
+        <div class="flex items-center gap-2">
+          <span class="text-sm muted">Risk threshold</span>
+          <select id="thresholdSelect" class="rounded-lg border text-sm px-3 py-2"
+                  style="border-color: var(--border); background: var(--panel);">
+            <option value="7">7 days</option>
+            <option value="14" selected>14 days</option>
+            <option value="30">30 days</option>
+          </select>
         </div>
 
-        <!-- Right rail: quick actions (links only — no sheet links) -->
-        <div class="lg:col-span-3 rounded-xl border border-slate-200 bg-white p-4">
-          <div class="text-sm font-semibold">Quick actions</div>
-          <div class="text-xs text-slate-600 mt-1">Jump into ops tools. No Google Sheets links.</div>
-
-          <div class="mt-3 grid grid-cols-1 gap-2">
-            <a class="rounded-lg px-3 py-2 text-sm font-semibold btn" href="inventory.html">Inventory Workboard</a>
-            <a class="rounded-lg px-3 py-2 text-sm font-semibold btn" href="transactions.html">Transactions</a>
-            <a class="rounded-lg px-3 py-2 text-sm font-semibold btn" href="planning.html">Planning</a>
-            <a class="rounded-lg px-3 py-2 text-sm font-semibold btn" href="ap.html">Accounts Payable Queue</a>
-            <a class="rounded-lg px-3 py-2 text-sm font-semibold btn" href="marketing.html">Marketing Calendar</a>
-          </div>
-
-          <div class="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <div class="text-xs font-semibold text-slate-700">Owner note</div>
-            <div class="text-xs text-slate-600 mt-1 leading-relaxed">
-              Inventory totals here are computed from the same inventory workbook CSVs your workboard uses
-              (Total available quantity + Total available inventory value).
-            </div>
-          </div>
+        <div class="text-xs muted2">
+          Days-to-OOS = avail_qty / avg_day_30 when avg_day_30 &gt; 0; else fallback to inventory “estimated days before OOS”.
         </div>
-      </section>
+      </div>
+    </div>
+  </header>
 
-      <!-- Sales report + “next up” -->
-      <section class="grid grid-cols-1 lg:grid-cols-12 gap-3">
-        <div class="lg:col-span-9 rounded-xl border border-slate-200 bg-white overflow-hidden">
-          <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-            <div>
-              <div class="text-sm font-semibold">Shopify sales report</div>
-              <div class="text-xs text-slate-500 mt-0.5">Embedded Power BI view</div>
-            </div>
-            <div class="flex items-center gap-2">
-              <a class="rounded-lg px-3 py-2 text-sm font-semibold btn" target="_blank" rel="noreferrer"
-                 href="https://app.powerbi.com/view?r=eyJrIjoiY2U0MWI2ZmMtMTY3MS00MDY3LTg5NjctN2VlYjk0NGMxNzUzIiwidCI6IjIzYTkzNDJkLTFjODEtNGJkNS1hY2U0LThmYWY4ZWVlNTZiZCJ9">
-                Open in new tab
-              </a>
-            </div>
+  <main class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 space-y-6">
+    <section class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div class="rounded-2xl p-4 shadow-sm panel">
+        <div class="text-sm muted">Units on hand</div>
+        <div id="kpiUnits" class="mono mt-1 text-2xl font-semibold">—</div>
+        <div id="kpiUnitsSub" class="mt-1 text-xs muted2">Across loaded location-rows</div>
+      </div>
+
+      <div class="rounded-2xl p-4 shadow-sm panel">
+        <div class="text-sm muted">Retail value (MSRP)</div>
+        <div id="kpiRetail" class="mono mt-1 text-2xl font-semibold">—</div>
+        <div id="kpiAvgMsrp" class="mt-1 text-xs muted2">Avg MSRP / unit: —</div>
+      </div>
+
+      <div class="rounded-2xl p-4 shadow-sm panel">
+        <div class="text-sm muted">Sold 30d (total)</div>
+        <div id="kpiSold30" class="mono mt-1 text-2xl font-semibold">—</div>
+        <div id="kpiVelocity" class="mt-1 text-xs muted2">Top 50 sellers = —</div>
+      </div>
+
+      <div class="rounded-2xl p-4 shadow-sm panel">
+        <div class="text-sm muted">Stockout risk (≤ N days)</div>
+        <div id="kpiRiskCount" class="mono mt-1 text-2xl font-semibold">—</div>
+        <div id="kpiRiskRetail" class="mt-1 text-xs muted2">Retail at risk: —</div>
+      </div>
+
+      <div class="rounded-2xl p-4 shadow-sm panel">
+        <div class="text-sm muted">Avg days to OOS (nonzero)</div>
+        <div id="kpiAvgDays" class="mono mt-1 text-2xl font-semibold">—</div>
+        <div id="kpiAvgDaysSub" class="mt-1 text-xs muted2">Only rows where days_oos &gt; 0</div>
+      </div>
+
+      <div class="rounded-2xl p-4 shadow-sm panel">
+        <div class="text-sm muted">Location risk ranking</div>
+        <div id="kpiLocationRank" class="mt-2 text-sm">—</div>
+        <div class="mt-1 text-xs muted2">Ranked by retail-at-risk</div>
+      </div>
+
+      <div class="rounded-2xl p-4 shadow-sm panel">
+        <div class="text-sm muted">AP (all requests)</div>
+        <div class="mt-2 grid grid-cols-2 gap-3">
+          <div>
+            <div class="text-xs muted2">Count</div>
+            <div id="apTotalCount" class="mono text-xl font-semibold">—</div>
+            <div id="apTotalAmt" class="text-xs muted2">—</div>
           </div>
-          <div class="w-full bg-white">
-            <iframe
-              title="Shopify Sales Report (Power BI)"
-              class="w-full h-[720px]"
-              style="border:0;"
-              allowfullscreen="true"
-              src="https://app.powerbi.com/view?r=eyJrIjoiY2U0MWI2ZmMtMTY3MS00MDY3LTg5NjctN2VlYjk0NGMxNzUzIiwidCI6IjIzYTkzNDJkLTFjODEtNGJkNS1hY2U0LThmYWY4ZWVlNTZiZCJ9">
-            </iframe>
-          </div>
-        </div>
-
-        <div class="lg:col-span-3 rounded-xl border border-slate-200 bg-white p-4">
-          <div class="text-sm font-semibold">Ops summary</div>
-          <div class="text-xs text-slate-600 mt-1">Fast read of what matters today.</div>
-
-          <div class="mt-3 space-y-2">
-            <div class="rounded-lg border border-slate-200 p-3">
-              <div class="text-xs text-slate-500">Inventory risk (today)</div>
-              <div id="opsRiskLine" class="text-sm font-semibold text-slate-900 mt-1">—</div>
-              <div id="opsRiskHint" class="text-[11px] text-slate-500 mt-1">—</div>
-            </div>
-
-            <div class="rounded-lg border border-slate-200 p-3">
-              <div class="text-xs text-slate-500">Velocity concentration</div>
-              <div id="opsVelocityLine" class="text-sm font-semibold text-slate-900 mt-1">—</div>
-              <div id="opsVelocityHint" class="text-[11px] text-slate-500 mt-1">—</div>
-            </div>
-
-            <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <div class="text-xs font-semibold text-slate-700">Links</div>
-              <div class="mt-2 text-xs text-slate-600 leading-relaxed">
-                Use <b>Inventory Workboard</b> for SKU-level actions (PO draft, tagging, exports).
-              </div>
-              <div class="mt-2 flex gap-2">
-                <a href="inventory.html" class="rounded-lg px-3 py-2 text-sm font-semibold btn-dark w-full text-center">Inventory</a>
-                <a href="ap.html" class="rounded-lg px-3 py-2 text-sm font-semibold btn w-full text-center">AP</a>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Hidden modal -->
-      <div id="modal" class="fixed inset-0 hidden">
-        <div class="absolute inset-0 bg-black/40"></div>
-        <div class="absolute inset-x-0 top-10 mx-auto max-w-5xl px-4">
-          <div class="rounded-xl bg-white border border-slate-200 shadow-soft overflow-hidden">
-            <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-              <div class="text-sm font-semibold" id="modalTitle">Modal</div>
-              <button id="btnCloseModal" class="rounded-lg px-3 py-1.5 text-sm font-semibold btn">Close</button>
-            </div>
-            <div id="modalBody" class="p-4 text-sm"></div>
+          <div>
+            <div class="text-xs muted2">Outstanding</div>
+            <div id="apOutstandingAmt" class="mono text-xl font-semibold">—</div>
+            <div id="apOutstandingCount" class="text-xs muted2">—</div>
           </div>
         </div>
       </div>
-    </main>
-  </div>
+
+      <div class="rounded-2xl p-4 shadow-sm panel">
+        <div class="text-sm muted">AP due risk (outstanding)</div>
+        <div class="mt-2 grid grid-cols-2 gap-3">
+          <div>
+            <div class="text-xs muted2">Overdue</div>
+            <div id="apOverdueAmt" class="mono text-xl font-semibold">—</div>
+            <div id="apOverdueCount" class="text-xs muted2">—</div>
+          </div>
+          <div>
+            <div class="text-xs muted2">Due next 7d</div>
+            <div id="apNext7Amt" class="mono text-xl font-semibold">—</div>
+            <div id="apNext7Count" class="text-xs muted2">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="rounded-2xl p-4 shadow-sm panel">
+        <div class="text-sm muted">Marketing & releases</div>
+        <div class="mt-2 grid grid-cols-3 gap-3">
+          <div>
+            <div class="text-xs muted2">Total</div>
+            <div id="mktTotal" class="mono text-xl font-semibold">—</div>
+          </div>
+          <div>
+            <div class="text-xs muted2">This month</div>
+            <div id="mktMonth" class="mono text-xl font-semibold">—</div>
+          </div>
+          <div>
+            <div class="text-xs muted2">Next 7d</div>
+            <div id="mkt7" class="mono text-xl font-semibold">—</div>
+          </div>
+        </div>
+        <div id="mktNextLine" class="mt-2 text-xs muted2">—</div>
+      </div>
+    </section>
+
+    <section class="rounded-2xl p-5 shadow-sm panel">
+      <div class="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 class="text-lg font-semibold">Today’s priorities</h2>
+          <p class="text-sm muted">Ops summary across Inventory, AP, and Marketing</p>
+        </div>
+        <div class="text-xs muted2">
+          Updated: <span id="lastUpdated">—</span>
+        </div>
+      </div>
+
+      <div class="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <div class="rounded-xl p-4"
+             style="border: 1px solid var(--border); background: color-mix(in oklab, var(--panel) 88%, transparent);">
+          <div class="text-sm font-medium">Inventory risk</div>
+          <div id="alertRisk" class="mt-1 text-sm muted">—</div>
+        </div>
+
+        <div class="rounded-xl p-4"
+             style="border: 1px solid var(--border); background: color-mix(in oklab, var(--panel) 88%, transparent);">
+          <div class="text-sm font-medium">Velocity concentration</div>
+          <div id="alertVelocity" class="mt-1 text-sm muted">—</div>
+        </div>
+
+        <div class="rounded-xl p-4"
+             style="border: 1px solid var(--border); background: color-mix(in oklab, var(--panel) 88%, transparent);">
+          <div class="text-sm font-medium">AP risk</div>
+          <div id="alertAp" class="mt-1 text-sm muted">—</div>
+        </div>
+
+        <div class="rounded-xl p-4"
+             style="border: 1px solid var(--border); background: color-mix(in oklab, var(--panel) 88%, transparent);">
+          <div class="text-sm font-medium">Marketing next up</div>
+          <div id="alertMkt" class="mt-1 text-sm muted">—</div>
+        </div>
+      </div>
+
+      <div class="mt-4 rounded-xl p-4" style="border: 1px solid var(--border);">
+        <div class="text-sm font-medium">Ops narrative</div>
+        <div id="opsSummary" class="mt-2 text-sm leading-relaxed muted">—</div>
+      </div>
+    </section>
+
+    <section class="rounded-2xl p-5 shadow-sm panel">
+      <div class="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 class="text-lg font-semibold">Sales report (Power BI)</h2>
+          <p class="text-sm muted">Embedded view</p>
+        </div>
+        <a id="pbiOpenNewTab"
+           class="text-sm font-medium underline underline-offset-4 hover:opacity-80"
+           href="#"
+           target="_blank" rel="noreferrer">
+          Open in new tab
+        </a>
+      </div>
+
+      <div class="mt-4 overflow-hidden rounded-2xl" style="border: 1px solid var(--border);">
+        <iframe id="pbiIframe"
+                title="Power BI Sales Report"
+                class="w-full"
+                style="height: 560px;"
+                src=""
+                allowfullscreen="true"></iframe>
+      </div>
+    </section>
+
+    <section class="rounded-2xl p-5 shadow-sm panel">
+      <div class="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 class="text-lg font-semibold">Load status</h2>
+          <p class="text-sm muted">Success/warnings/errors by source</p>
+        </div>
+        <div class="text-xs muted2">If headers rename/missing, warnings show here immediately.</div>
+      </div>
+
+      <div id="statusSummary" class="mt-3 text-sm muted">—</div>
+
+      <div class="mt-3 overflow-x-auto scrollbar">
+        <table class="min-w-full text-sm">
+          <thead class="text-xs uppercase muted2">
+            <tr class="border-b" style="border-color: var(--border);">
+              <th class="py-2 pr-4 text-left font-medium">Source</th>
+              <th class="py-2 pr-4 text-right font-medium">Rows</th>
+              <th class="py-2 pr-4 text-left font-medium">Warnings</th>
+              <th class="py-2 pr-4 text-left font-medium">Errors</th>
+            </tr>
+          </thead>
+          <tbody id="statusTable" class="divide-y" style="border-color: var(--border);"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="breakdownDialog" class="w-[min(980px,calc(100vw-24px))] rounded-2xl p-0 shadow-xl">
+    <div class="rounded-2xl overflow-hidden panel">
+      <div class="flex items-start justify-between gap-3 border-b p-4" style="border-color: var(--border);">
+        <div>
+          <div class="text-xs muted2">Silo ERP</div>
+          <div class="text-lg font-semibold">Inventory breakdown by location</div>
+          <div id="breakdownSubtitle" class="mt-1 text-sm muted">—</div>
+        </div>
+        <button id="closeBreakdownBtn"
+                class="rounded-lg border px-3 py-2 text-sm font-medium hover:opacity-90"
+                style="border-color: var(--border); background: var(--panel);">
+          Close
+        </button>
+      </div>
+
+      <div class="p-4 overflow-x-auto scrollbar">
+        <table class="min-w-full text-sm">
+          <thead class="text-xs uppercase muted2">
+            <tr class="border-b" style="border-color: var(--border);">
+              <th class="py-2 pr-4 text-left font-medium">Location</th>
+              <th class="py-2 pr-4 text-right font-medium">Units</th>
+              <th class="py-2 pr-4 text-right font-medium">Retail</th>
+              <th class="py-2 pr-4 text-right font-medium">Sold 30d</th>
+              <th class="py-2 pr-4 text-right font-medium">Risk count</th>
+              <th class="py-2 pr-4 text-right font-medium">Retail at risk</th>
+              <th class="py-2 pr-4 text-right font-medium">Avg days to OOS</th>
+              <th class="py-2 pr-4 text-left font-medium">Notes</th>
+            </tr>
+          </thead>
+          <tbody id="breakdownTable" class="divide-y" style="border-color: var(--border);"></tbody>
+        </table>
+      </div>
+
+      <div class="border-t p-4" style="border-color: var(--border); background: color-mix(in oklab, var(--panel) 88%, transparent);">
+        <div class="text-xs muted2">
+          Risk uses selected threshold. days_oos computed per SKU; avg days excludes zeros.
+        </div>
+      </div>
+    </div>
+  </dialog>
 
   <script>
-    /******************************************************************
-     * Owner Cockpit
-     * - Uses the exact Inventory Workboard sources & mapping
-     * - Computes rollup KPIs (units, retail value, sold 30, risk, etc.)
-     * - Adds Power BI iframe
-     * - No Google Sheet deep links (links point to app pages)
-     ******************************************************************/
-
-    // ====== Inventory Workboard sources (copied from inventory.html) ======
+    // ====== Required sources (copy exactly) ======
     const SHEET_ID = "1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0";
+    const INVENTORY_CSV_PATTERN = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid={GID}`;
 
-    const SHEET_TABS = [
-      {
-        label: "Online",
-        gid: 0,
-        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRRZETeD2kKpL4vMvXnn4Z-xyb6M_oQ6u9cOSJts_YTLnGXrvMPhlhe0XQuL5VAYLlGlxSvQdUfxycp/pub?gid=481096073&single=true&output=csv"
-      },
-      {
-        label: "Scottsdale",
-        gid: 1686608564,
-        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRisfYgm-JqLdAW4GrAl_K3dNPJxadE5VaQ7Fzju8vaWv9zEyXGJk6d5ZfM6owfhvHHz_Q-B36FuUqo/pub?gid=1328363473&single=true&output=csv"
-      },
-      {
-        label: "Field of Dreams",
-        gid: 1737418391,
-        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQNcbG_a-H8vmNF7Qm3S_n5a3MTuMZvsicODjImal2jylO74gB--3Mpgv9cCPG37WG4HFvshUrIfDdM/pub?gid=343232419&single=true&output=csv"
-      },
-      {
-        label: "Cooperstown",
-        gid: 1924417187,
-        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTZDCPonNizaXhEklZp8ovhc_Iti725FpgZzyeu_rovAceUq9obq_AKvo0a7u-5SotcJh4xi-FC3FAv/pub?gid=965359182&single=true&output=csv"
-      }
+    const POWER_BI_URL = "https://app.powerbi.com/view?r=eyJrIjoiY2U0MWI2ZmMtMTY3MS00MDY3LTg5NjctN2VlYjk0NGMxNzUzIiwidCI6IjIzYTkzNDJkLTFjODEtNGJkNS1hY2U0LThmYWY4ZWVlNTZiZCJ9";
+
+    const LOCATIONS = [
+      { key: "online", label: "Online", gid: "0",
+        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRRZETeD2kKpL4vMvXnn4Z-xyb6M_oQ6u9cOSJts_YTLnGXrvMPhlhe0XQuL5VAYLlGlxSvQdUfxycp/pub?gid=481096073&single=true&output=csv" },
+      { key: "scottsdale", label: "Scottsdale", gid: "1686608564",
+        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRisfYgm-JqLdAW4GrAl_K3dNPJxadE5VaQ7Fzju8vaWv9zEyXGJk6d5ZfM6owfhvHHz_Q-B36FuUqo/pub?gid=1328363473&single=true&output=csv" },
+      { key: "field_of_dreams", label: "Field of Dreams", gid: "1737418391",
+        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQNcbG_a-H8vmNF7Qm3S_n5a3MTuMZvsicODjImal2jylO74gB--3Mpgv9cCPG37WG4HFvshUrIfDdM/pub?gid=343232419&single=true&output=csv" },
+      { key: "cooperstown", label: "Cooperstown", gid: "1924417187",
+        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTZDCPonNizaXhEklZp8ovhc_Iti725FpgZzyeu_rovAceUq9obq_AKvo0a7u-5SotcJh4xi-FC3FAv/pub?gid=965359182&single=true&output=csv" }
     ];
 
-    function gidToCsvUrl(gid){
-      return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${encodeURIComponent(gid)}`;
-    }
+    // AP source (NOTE: CSV export may fail if sheet not published; we fallback to GViz like your AP dashboard)
+    const AP_SHEET_ID = "1lXM1Bu8ZRks7wDK34Bz3O_zgWcwdFU8USjuHBdbDhV8";
+    const AP_GID = "0";
+    const AP_CSV_URL = `https://docs.google.com/spreadsheets/d/${AP_SHEET_ID}/export?format=csv&gid=${AP_GID}`;
+    const AP_GVIZ_URL = `https://docs.google.com/spreadsheets/d/${AP_SHEET_ID}/gviz/tq?gid=${AP_GID}&tqx=out:json`;
 
-    const SOURCES = SHEET_TABS.map(t => ({
-      source_id: t.label.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"") || `gid_${t.gid}`,
-      location_label: t.label,
-      gid: t.gid,
-      csv_url: gidToCsvUrl(t.gid),
-      sales_csv: (t.sales_csv || "").trim()
-    }));
+    // Marketing/Release source (published; CSV works)
+    const MKT_SHEET_ID = "1r2xGCz6hRDek7YHHzLCqV5BMyCVSTSh4A5FPOEvpQsc";
+    const MKT_GID = "0";
+    const MKT_CSV_URL = `https://docs.google.com/spreadsheets/d/${MKT_SHEET_ID}/export?format=csv&gid=${MKT_GID}`;
 
-    // Expected Better Reports headers (inventory CSV)
+    // ====== Header mapping ======
     const H = {
-      location: "Location",
-      shop_domain: "Shop MyShopify Domain",
-      sku: "Variant SKU",
-      barcode: "Variant Barcode",
-      product: "Product title",
-      variant: "Variant title",
-      avail_qty: "Total available quantity",
-      inv_value: "Total available inventory value",
-      sold_30: "SUM Variant Quantity sold over the last 30 days",
-      avg_day: "SUM Variant Average quantity sold per day",
-      days_oos: "SUM Variant Estimated days before out of stock",
-      img: "Product Image url"
+      location: ["Location", "Store", "Shop", "Location name"],
+      sku: ["Variant SKU", "SKU", "Variant sku", "variant_sku"],
+      barcode: ["Variant Barcode", "Barcode", "UPC", "Variant barcode", "variant_barcode"],
+      product_title: ["Product title", "Product Title", "Product", "Title", "product_title"],
+      variant_title: ["Variant title", "Variant Title", "Variant", "Option", "variant_title"],
+      avail_qty: ["Total available quantity", "Available quantity", "On hand", "Qty available", "total_available_quantity"],
+      inv_value: ["Total available inventory value", "Available inventory value", "Inventory value", "Retail value", "total_available_inventory_value"],
+      sold_30: ["SUM Variant Quantity sold over the last 30 days", "Quantity sold last 30 days", "Qty sold 30d", "sold_30", "qty_30d"],
+      avg_day_30: ["SUM Variant Average quantity sold per day", "Average quantity sold per day", "Avg sold per day", "avg_day_30"],
+      est_days_oos: ["SUM Variant Estimated days before out of stock", "Estimated days before out of stock", "Days before OOS", "est_days_oos"],
+      image_url: ["Product Image url", "Image url", "Image URL", "Product image", "product_image_url"]
     };
 
-    // Sales summary headers (sales_summary CSV)
     const SH = {
-      sku: "SKU",
-      qty_7d: "qty_7d",
-      qty_30d: "qty_30d",
-      qty_90d: "qty_90d",
-      qty_120d: "qty_120d",
-      avg_day_30: "avg_day_30",
-      avg_day_90: "avg_day_90",
-      avg_day_120: "avg_day_120",
-      last_sold_date: "last_sold_date"
+      sku: ["SKU", "Variant SKU", "sku", "variant_sku"],
+      qty_30d: ["qty_30d", "Qty 30d", "qty30d", "30d_qty"],
+      avg_day_30: ["avg_day_30", "Avg day 30", "avg/day 30", "avg30", "Avg per day 30"],
+      last_sold_date: ["last_sold_date", "Last sold date", "last sold", "Last Sold", "last_sold"]
     };
 
-    // ====== State ======
-    let RAW = [];
-    let LOAD_SEQ = 0;
-    let IS_LOADING = false;
+    // AP header aliases (your AP sheet has duplicate "Type"; we handle occurrence 0/1)
+    const APH = {
+      submission: ["Submission Date","Submitted","Created","Date Submitted"],
+      vendorA: ["Vendor"],
+      vendorB: ["*Vendor Name if not listed above *","Vendor Name","Payee","Supplier"],
+      category: ["Type"],     // occurrence 0
+      method: ["Type"],       // occurrence 1
+      invoice: ["Invoice #","Invoice","Invoice Number","Bill #"],
+      amount: ["Amount Due","Amount","Invoice Amount","Total","$"],
+      due: ["Due Date","Due","Payment Due"],
+      completed: ["Completed","Completion","Status","State"],
+      completedDate: ["Date Completed","Completed Date","Paid Date"]
+    };
+
+    // Marketing header aliases
+    const MKTH = {
+      day: ["Day"], date: ["Date"], event: ["Event"],
+      type: ["Launch Type"], des: ["Designer"],
+      assets: ["Design Assets Needed"], details: ["Details"],
+      time: ["Time"], tz: ["Time Zone"], img: ["Launch img"]
+    };
 
     // ====== DOM ======
     const el = (id) => document.getElementById(id);
+    const thresholdSelect = el("thresholdSelect");
+    const reloadBtn = el("reloadBtn");
+    const openRiskInventoryBtn = el("openRiskInventoryBtn");
+    const breakdownBtn = el("breakdownBtn");
+    const breakdownDialog = el("breakdownDialog");
+    const closeBreakdownBtn = el("closeBreakdownBtn");
+    const pbiIframe = el("pbiIframe");
+    const pbiOpenNewTab = el("pbiOpenNewTab");
+    const themeBtn = el("themeBtn");
+    const themeLabel = el("themeLabel");
+    const THEME_KEY = "silo_exec_theme_v1";
 
-    function setStatus(html){ el("statusLine").innerHTML = html; }
-    function setLoadingUI(on){
-      IS_LOADING = on;
-      const btn = el("btnReload");
-      btn.disabled = on;
-      btn.classList.toggle("opacity-60", on);
-      btn.classList.toggle("cursor-not-allowed", on);
-      btn.textContent = on ? "Loading…" : "Reload";
-    }
+    // ====== State ======
+    const state = {
+      thresholdDays: 14,
+
+      invRows: [],
+      invStatsByLocation: new Map(),
+
+      ap: { rows: [], warnings: [], errors: [], loadedAt: null },
+      mkt: { events: [], warnings: [], errors: [], loadedAt: null },
+
+      loadStartedAt: null,
+      loadFinishedAt: null
+    };
 
     // ====== Utils ======
-    function norm(s){ return (s ?? "").toString().replace(/\u00A0/g," ").trim(); }
-    function num(v){
-      const x = parseFloat((v ?? "").toString().replace(/[^0-9.\-]/g,""));
-      return Number.isFinite(x) ? x : 0;
+    function fmtInt(n) { return Number.isFinite(n) ? Math.round(n).toLocaleString() : "—"; }
+    function fmtNum(n, digits = 1) {
+      return Number.isFinite(n) ? n.toLocaleString(undefined,{maximumFractionDigits:digits,minimumFractionDigits:digits}) : "—";
     }
-    function money(v){
-      const n = num(v);
-      return n.toLocaleString(undefined,{style:"currency", currency:"USD", maximumFractionDigits:0});
+    function fmtMoney(n) { return Number.isFinite(n) ? n.toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:0}) : "—"; }
+    function safeLower(s) { return String(s ?? "").trim().toLowerCase(); }
+    function toNumber(v) {
+      const s = String(v ?? "").trim();
+      if (!s) return 0;
+      const cleaned = s.replace(/[$,]/g, "");
+      const n = Number(cleaned);
+      return Number.isFinite(n) ? n : 0;
     }
-    function escapeHtml(str){
-      return (str ?? "").toString().replace(/[&<>"']/g, (m) => ({
-        "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;"
-      }[m]));
-    }
-    function parseDateLoose(s){
-      const t = Date.parse((s||"").toString().trim());
-      return Number.isFinite(t) ? t : null;
+    function normalizeKeyParts(parts) { return parts.map(p => String(p ?? "").trim()).join("||").toLowerCase(); }
+    function escapeHtml(str) {
+      return String(str ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+        .replaceAll('"',"&quot;").replaceAll("'","&#039;");
     }
 
-    // CSV parsing
-    function parseCSV(text){
+    function parseCsv(text) {
       const rows = [];
-      let i = 0, field = "", row = [], inQuotes = false;
-      while (i < text.length){
-        const c = text[i], n = text[i+1];
-        if (inQuotes){
-          if (c === '"' && n === '"'){ field += '"'; i += 2; continue; }
-          if (c === '"'){ inQuotes = false; i++; continue; }
-          field += c; i++; continue;
-        } else {
-          if (c === '"'){ inQuotes = true; i++; continue; }
-          if (c === ','){ row.push(field); field = ""; i++; continue; }
-          if (c === '\r'){ i++; continue; }
-          if (c === '\n'){ row.push(field); rows.push(row); field = ""; row = []; i++; continue; }
-          field += c; i++; continue;
+      let row = [];
+      let cur = "";
+      let inQuotes = false;
+
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i], next = text[i+1];
+        if (inQuotes) {
+          if (ch === '"' && next === '"') { cur += '"'; i++; }
+          else if (ch === '"') inQuotes = false;
+          else cur += ch;
+          continue;
         }
+        if (ch === '"') { inQuotes = true; continue; }
+        if (ch === ",") { row.push(cur); cur = ""; continue; }
+        if (ch === "\r") continue;
+        if (ch === "\n") { row.push(cur); rows.push(row); row = []; cur = ""; continue; }
+        cur += ch;
       }
-      row.push(field); rows.push(row);
+      row.push(cur); rows.push(row);
+      while (rows.length && rows[rows.length-1].every(c => String(c ?? "").trim() === "")) rows.pop();
       return rows;
     }
 
-    function rowsToObjects(csvText){
-      const grid = parseCSV(csvText).filter(r => r.some(c => norm(c) !== ""));
-      if (!grid.length) return { headers: [], rows: [] };
-      const headers = grid[0].map(h => norm(h));
-      const rows = grid.slice(1).map(r => {
-        const o = {};
-        headers.forEach((h, idx) => o[h] = r[idx] ?? "");
-        return o;
-      });
-      return { headers, rows };
+    function buildHeaderIndex(headerRow) {
+      const idx = new Map();
+      headerRow.forEach((h, i) => idx.set(safeLower(h), i));
+      return idx;
     }
 
-    async function fetchCsvObjects(url){
-      const res = await fetch(url, { cache: "no-store" });
+    function findHeader(headerIndex, aliases, occurrence = 0) {
+      const hits = [];
+      for (const a of aliases) {
+        const key = safeLower(a);
+        if (headerIndex.has(key)) hits.push(headerIndex.get(key));
+      }
+      if (hits.length) return hits[Math.min(occurrence, hits.length - 1)];
+
+      const aliasesLower = aliases.map(safeLower).filter(Boolean);
+      for (const [k, i] of headerIndex.entries()) {
+        for (const a of aliasesLower) {
+          if (a && k.includes(a)) return i;
+        }
+      }
+      return null;
+    }
+
+    function mapHeaders(headerRow, mapping, specialOccurrences = {}) {
+      const headerIndex = buildHeaderIndex(headerRow);
+      const out = {};
+      const missing = [];
+      for (const [key, aliases] of Object.entries(mapping)) {
+        const occ = specialOccurrences[key] ?? 0;
+        const hit = findHeader(headerIndex, aliases, occ);
+        if (hit !== null && hit !== undefined) out[key] = hit;
+        else missing.push(key);
+      }
+      return { indices: out, missing };
+    }
+
+    async function fetchText(url) {
+      const u = new URL(url);
+      u.searchParams.set("_ts", String(Date.now()));
+      const res = await fetch(u.toString(), { cache: "no-store" });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const text = await res.text();
-      return rowsToObjects(text);
+      return await res.text();
     }
 
-    function buildSalesMap(salesRows){
-      const m = new Map();
-      for (const r of salesRows){
-        const sku = norm(r[SH.sku] || r["sku"] || r["SKU"] || "");
-        if (!sku) continue;
+    function inventoryUrlForGid(gid) {
+      return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${encodeURIComponent(gid)}`;
+    }
 
-        const last = norm(r[SH.last_sold_date]);
-        const lastMs = parseDateLoose(last);
-
-        m.set(sku, {
-          qty_7d: num(r[SH.qty_7d]),
-          qty_30d: num(r[SH.qty_30d]),
-          qty_90d: num(r[SH.qty_90d]),
-          qty_120d: num(r[SH.qty_120d]),
-          avg_day_30: num(r[SH.avg_day_30]),
-          avg_day_90: num(r[SH.avg_day_90]),
-          avg_day_120: num(r[SH.avg_day_120]),
-          last_sold_date: last,
-          last_sold_ms: lastMs
+    function ensureInvStats(locLabel) {
+      if (!state.invStatsByLocation.has(locLabel)) {
+        state.invStatsByLocation.set(locLabel, {
+          label: locLabel,
+          invRowsRaw: 0,
+          invRowsDeduped: 0,
+          salesRows: 0,
+          warnings: [],
+          errors: [],
+          units: 0,
+          retail: 0,
+          sold30: 0,
+          riskCount: 0,
+          riskRetail: 0,
+          avgDaysNonZero: 0,
+          avgDaysNonZeroCount: 0
         });
       }
-      return m;
+      return state.invStatsByLocation.get(locLabel);
     }
 
-    function dedupeLocationRows(rows){
-      const m = new Map();
-      for (const r of rows){
-        const key = [
-          norm(r.source_id),
-          norm(r.location),
-          norm(r.sku),
-          norm(r.barcode),
-          norm(r.product),
-          norm(r.variant)
-        ].join("||");
-        m.set(key, r);
+    // ====== Inventory loading ======
+    async function loadInventoryAll() {
+      state.invRows = [];
+      state.invStatsByLocation.clear();
+      await Promise.all(LOCATIONS.map(loc => loadInventoryLocation(loc)));
+    }
+
+    async function loadInventoryLocation(loc) {
+      const stats = ensureInvStats(loc.label);
+
+      let invRows = [];
+      try {
+        const invText = await fetchText(inventoryUrlForGid(loc.gid));
+        invRows = parseInventoryCsv(invText, loc.label, stats);
+      } catch (e) {
+        stats.errors.push(`Inventory CSV failed: ${String(e.message || e)}`);
       }
-      return [...m.values()];
-    }
 
-    // ====== Rollups ======
-    function computeRollups(rows){
-      const riskThr = num(el("selRiskDays").value || 14);
+      let salesMap = null;
+      if (loc.sales_csv) {
+        try {
+          const salesText = await fetchText(loc.sales_csv);
+          salesMap = parseSalesCsvToMap(salesText, stats);
+        } catch (e) {
+          stats.warnings.push(`Sales summary failed; falling back to inventory metrics (${String(e.message || e)})`);
+        }
+      } else {
+        stats.warnings.push("Sales summary not configured; falling back to inventory metrics");
+      }
 
-      let units = 0, retail = 0, sold30 = 0;
-      let riskCount = 0, riskRetail = 0;
-      let daysSum = 0, daysCount = 0;
-
-      const byLoc = new Map(); // {units, retail, riskCount, riskRetail}
-      const bySkuSold = []; // for top velocity concentration
-
-      for (const r of rows){
-        const u = num(r.avail_qty);
-        const v = num(r.inv_value);
-        const s30 = num(r.sold_30);
-        const d = num(r.days_oos);
-
-        units += u;
-        retail += v;
-        sold30 += s30;
-
-        if (d > 0){
-          daysSum += d; daysCount++;
-          if (d <= riskThr){
-            riskCount++;
-            riskRetail += v;
+      for (const r of invRows) {
+        const skuKey = String(r.sku ?? "").trim();
+        if (salesMap && skuKey) {
+          const s = salesMap.get(skuKey);
+          if (s) {
+            r.sold_30 = s.qty_30d;
+            r.avg_day_30 = s.avg_day_30;
+            r.last_sold_date = s.last_sold_date || "";
           }
         }
+        state.invRows.push(r);
+      }
+    }
 
-        const loc = r.location || r.source_label || "—";
-        if (!byLoc.has(loc)) byLoc.set(loc, { units:0, retail:0, riskCount:0, riskRetail:0 });
-        const L = byLoc.get(loc);
-        L.units += u;
-        L.retail += v;
-        if (d > 0 && d <= riskThr){
-          L.riskCount += 1;
-          L.riskRetail += v;
-        }
+    function parseInventoryCsv(csvText, locLabel, stats) {
+      const table = parseCsv(csvText);
+      if (!table.length) { stats.errors.push("Inventory CSV empty"); return []; }
 
-        // velocity concentration (top sellers by sold 30)
-        if (s30 > 0) bySkuSold.push(s30);
+      const header = table[0];
+      const { indices, missing } = mapHeaders(header, H);
+
+      const required = ["sku", "avail_qty", "inv_value"];
+      const missingRequired = required.filter(k => !(k in indices));
+      if (missingRequired.length) {
+        stats.warnings.push(`Missing required inv headers: ${missingRequired.join(", ")} (loading what we can)`);
+      }
+      const missingOptional = missing.filter(k => !required.includes(k));
+      if (missingOptional.length) stats.warnings.push(`Missing optional inv headers: ${missingOptional.join(", ")}`);
+
+      const raw = table.slice(1);
+      stats.invRowsRaw = raw.length;
+
+      const dedupe = new Map();
+
+      for (const row of raw) {
+        const sku = (indices.sku !== undefined ? (row[indices.sku] ?? "") : "").trim();
+        const barcode = indices.barcode !== undefined ? (row[indices.barcode] ?? "").trim() : "";
+        const product = indices.product_title !== undefined ? (row[indices.product_title] ?? "").trim() : "";
+        const variant = indices.variant_title !== undefined ? (row[indices.variant_title] ?? "").trim() : "";
+        const key = normalizeKeyParts([locLabel, sku, barcode, product, variant]);
+
+        const candidate = {
+          location: locLabel,
+          sku,
+          barcode,
+          product_title: product,
+          variant_title: variant,
+          avail_qty: indices.avail_qty !== undefined ? toNumber(row[indices.avail_qty]) : 0,
+          inv_value: indices.inv_value !== undefined ? toNumber(row[indices.inv_value]) : 0,
+          sold_30: indices.sold_30 !== undefined ? toNumber(row[indices.sold_30]) : 0,
+          avg_day_30: indices.avg_day_30 !== undefined ? toNumber(row[indices.avg_day_30]) : 0,
+          est_days_oos: indices.est_days_oos !== undefined ? toNumber(row[indices.est_days_oos]) : 0,
+          image_url: indices.image_url !== undefined ? (row[indices.image_url] ?? "").trim() : "",
+          last_sold_date: ""
+        };
+
+        const existing = dedupe.get(key);
+        if (!existing) { dedupe.set(key, candidate); continue; }
+
+        // Parity-friendly: do NOT sum duplicates; keep best/max values.
+        existing.avail_qty = Math.max(existing.avail_qty, candidate.avail_qty);
+        existing.inv_value = Math.max(existing.inv_value, candidate.inv_value);
+        existing.sold_30 = Math.max(existing.sold_30, candidate.sold_30);
+        existing.avg_day_30 = Math.max(existing.avg_day_30, candidate.avg_day_30);
+        existing.est_days_oos = Math.max(existing.est_days_oos, candidate.est_days_oos);
+
+        if (!existing.image_url && candidate.image_url) existing.image_url = candidate.image_url;
+        if (!existing.product_title && candidate.product_title) existing.product_title = candidate.product_title;
+        if (!existing.variant_title && candidate.variant_title) existing.variant_title = candidate.variant_title;
       }
 
-      bySkuSold.sort((a,b)=>b-a);
-      const top20 = bySkuSold.slice(0,20).reduce((a,b)=>a+b,0);
-      const top50 = bySkuSold.slice(0,50).reduce((a,b)=>a+b,0);
-      const top200 = bySkuSold.slice(0,200).reduce((a,b)=>a+b,0);
+      const out = Array.from(dedupe.values());
+      stats.invRowsDeduped = out.length;
 
-      const locRank = [...byLoc.entries()]
-        .sort((a,b)=> (b[1].riskRetail - a[1].riskRetail) || (b[1].riskCount - a[1].riskCount))
-        .slice(0,3);
+      if (!out.length) stats.warnings.push("No deduped inventory rows produced (check headers/CSV content)");
+      if (missingRequired.includes("sku")) stats.warnings.push("Join key SKU missing; sales_summary overrides may not apply");
+      return out;
+    }
 
+    function parseSalesCsvToMap(csvText, stats) {
+      const table = parseCsv(csvText);
+      if (!table.length) { stats.warnings.push("Sales summary CSV empty; falling back to inventory metrics"); return null; }
+
+      const header = table[0];
+      const { indices, missing } = mapHeaders(header, SH);
+
+      const required = ["sku", "qty_30d", "avg_day_30", "last_sold_date"];
+      const missingRequired = required.filter(k => !(k in indices));
+      if (missingRequired.length) {
+        stats.warnings.push(`Sales summary missing required headers: ${missingRequired.join(", ")} (falling back where missing)`);
+      }
+
+      const raw = table.slice(1);
+      stats.salesRows = raw.length;
+
+      const map = new Map();
+      for (const row of raw) {
+        const sku = indices.sku !== undefined ? String(row[indices.sku] ?? "").trim() : "";
+        if (!sku) continue;
+        map.set(sku, {
+          sku,
+          qty_30d: indices.qty_30d !== undefined ? toNumber(row[indices.qty_30d]) : 0,
+          avg_day_30: indices.avg_day_30 !== undefined ? toNumber(row[indices.avg_day_30]) : 0,
+          last_sold_date: indices.last_sold_date !== undefined ? String(row[indices.last_sold_date] ?? "").trim() : ""
+        });
+      }
+
+      const optionalMissing = missing.filter(k => !required.includes(k));
+      if (optionalMissing.length) stats.warnings.push(`Sales summary missing optional headers: ${optionalMissing.join(", ")}`);
+      if (!map.size) stats.warnings.push("Sales summary parsed but no SKU rows found; falling back to inventory metrics");
+      return map;
+    }
+
+    // ====== Inventory KPIs ======
+    function computeDaysOos(row) {
+      const avg = Number(row.avg_day_30 ?? 0);
+      const avail = Number(row.avail_qty ?? 0);
+      if (avg > 0) return avail / avg;
+      const fallback = Number(row.est_days_oos ?? 0);
+      return fallback > 0 ? fallback : 0;
+    }
+
+    function computeInventoryAndRender() {
+      const threshold = state.thresholdDays;
+
+      for (const loc of LOCATIONS) {
+        const s = ensureInvStats(loc.label);
+        s.units = 0; s.retail = 0; s.sold30 = 0;
+        s.riskCount = 0; s.riskRetail = 0;
+        s.avgDaysNonZero = 0; s.avgDaysNonZeroCount = 0;
+      }
+
+      let units = 0, retail = 0, sold30Total = 0;
+      let riskCount = 0, riskRetail = 0;
+      let avgDaysSum = 0, avgDaysCount = 0;
+
+      const soldList = [];
+
+      for (const row of state.invRows) {
+        const s = ensureInvStats(row.location);
+
+        const avail = Number(row.avail_qty ?? 0);
+        const value = Number(row.inv_value ?? 0);
+        const sold30 = Number(row.sold_30 ?? 0);
+
+        units += avail; retail += value; sold30Total += sold30;
+        s.units += avail; s.retail += value; s.sold30 += sold30;
+
+        if (sold30 > 0) soldList.push(sold30);
+
+        const days = computeDaysOos(row);
+        if (days > 0) {
+          avgDaysSum += days; avgDaysCount++;
+          s.avgDaysNonZero += days; s.avgDaysNonZeroCount++;
+        }
+
+        const isRisk = (days > 0 && days <= threshold);
+        if (isRisk) {
+          riskCount++;
+          riskRetail += value;
+          s.riskCount++;
+          s.riskRetail += value;
+        }
+      }
+
+      soldList.sort((a, b) => b - a);
+      const sumTop = (n) => soldList.slice(0, n).reduce((s, v) => s + v, 0);
+      const top20 = sumTop(20);
+      const top50 = sumTop(50);
+      const top200 = sumTop(200);
+      const pct = (num, den) => (den > 0 ? (num / den) : 0);
+
+      const ranked = Array.from(state.invStatsByLocation.values())
+        .filter(s => LOCATIONS.some(l => l.label === s.label))
+        .sort((a, b) => (b.riskRetail - a.riskRetail) || (b.riskCount - a.riskCount));
+      const top3 = ranked.slice(0, 3);
+
+      el("kpiUnits").textContent = fmtInt(units);
+      el("kpiRetail").textContent = fmtMoney(retail);
+
+      const avgMsrpUnit = units > 0 ? (retail / units) : 0;
+      el("kpiAvgMsrp").textContent = `Avg MSRP / unit: ${units > 0 ? fmtMoney(avgMsrpUnit) : "—"}`;
+
+      el("kpiSold30").textContent = fmtInt(sold30Total);
+      el("kpiVelocity").textContent = sold30Total > 0
+        ? `Top 50 sellers = ${fmtNum(pct(top50, sold30Total) * 100, 1)}% of 30d units`
+        : "Top 50 sellers = —";
+
+      el("kpiRiskCount").textContent = fmtInt(riskCount);
+      el("kpiRiskRetail").textContent = `Retail at risk: ${fmtMoney(riskRetail)}`;
+
+      el("kpiAvgDays").textContent = avgDaysCount > 0 ? fmtNum(avgDaysSum / avgDaysCount, 1) : "—";
+      el("kpiAvgDaysSub").textContent = avgDaysCount > 0
+        ? `Computed across ${fmtInt(avgDaysCount)} rows with days_oos > 0`
+        : "No rows with days_oos > 0";
+
+      el("kpiLocationRank").innerHTML = top3.length
+        ? top3.map((s, i) => {
+            const badge = `<span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium chip">${i + 1}</span>`;
+            return `<div class="flex items-center justify-between gap-2">
+                <div class="flex items-center gap-2">${badge}<span class="font-medium">${escapeHtml(s.label)}</span></div>
+                <div class="mono muted">${fmtMoney(s.riskRetail)} <span class="text-xs muted2">(${fmtInt(s.riskCount)} SKUs)</span></div>
+              </div>`;
+          }).join("")
+        : "—";
+
+      const n = threshold;
+      el("alertRisk").textContent = riskCount === 0
+        ? `No SKUs projected to stock out within ${n} days.`
+        : `${fmtInt(riskCount)} SKUs at risk (≤ ${n} days) • ${fmtMoney(riskRetail)} retail.`;
+
+      el("alertVelocity").textContent = sold30Total === 0
+        ? "No 30d sales found… check sales_summary headers (SKU, qty_30d, avg_day_30) or inventory fallback fields."
+        : `Top 50 sellers = ${fmtNum(pct(top50, sold30Total) * 100, 1)}% of 30d units (Top 20: ${fmtNum(pct(top20, sold30Total) * 100, 1)}%, Top 200: ${fmtNum(pct(top200, sold30Total) * 100, 1)}%).`;
+
+      renderBreakdownTable(n);
+
+      return { units, retail, sold30Total, riskCount, riskRetail, avgDays: (avgDaysCount ? (avgDaysSum / avgDaysCount) : 0), top3, top50Pct: pct(top50, sold30Total) };
+    }
+
+    function renderBreakdownTable(threshold) {
+      el("breakdownSubtitle").textContent = `Risk threshold: ≤ ${threshold} days • Ranked by retail-at-risk`;
+
+      const rows = Array.from(state.invStatsByLocation.values())
+        .filter(s => LOCATIONS.some(l => l.label === s.label))
+        .sort((a, b) => (b.riskRetail - a.riskRetail) || (b.riskCount - a.riskCount));
+
+      const tbody = el("breakdownTable");
+      tbody.innerHTML = "";
+
+      for (const s of rows) {
+        const avgDays = s.avgDaysNonZeroCount > 0 ? (s.avgDaysNonZero / s.avgDaysNonZeroCount) : 0;
+        const notes = [];
+        if ((s.errors?.length || 0) > 0) notes.push(`${s.errors.length} error(s)`);
+        if ((s.warnings?.length || 0) > 0) notes.push(`${s.warnings.length} warning(s)`);
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td class="py-2 pr-4 font-medium">${escapeHtml(s.label)}</td>
+          <td class="py-2 pr-4 text-right mono">${fmtInt(s.units)}</td>
+          <td class="py-2 pr-4 text-right mono">${fmtMoney(s.retail)}</td>
+          <td class="py-2 pr-4 text-right mono">${fmtInt(s.sold30)}</td>
+          <td class="py-2 pr-4 text-right mono">${fmtInt(s.riskCount)}</td>
+          <td class="py-2 pr-4 text-right mono">${fmtMoney(s.riskRetail)}</td>
+          <td class="py-2 pr-4 text-right mono">${s.avgDaysNonZeroCount > 0 ? fmtNum(avgDays, 1) : "—"}</td>
+          <td class="py-2 pr-4 muted">${notes.length ? escapeHtml(notes.join(" • ")) : "<span class='muted2'>—</span>"}</td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+
+    // ====== AP (GViz-first, CSV fallback) ======
+    function parseGViz(text){
+      const s=text.indexOf("{"), e=text.lastIndexOf("}");
+      return (s>=0 && e>=0) ? JSON.parse(text.slice(s,e+1)) : null;
+    }
+    function asCell(c,i){ const x=c[i]; return x ? (x.v ?? x.f ?? "") : ""; }
+
+    function parseDateAny(raw) {
+      if (!raw) return null;
+      if (raw instanceof Date) return raw;
+      const s = String(raw).trim();
+
+      const m=s.match(/Date\((\d{4}),\s*(\d{1,2}),\s*(\d{1,2})/i);
+      if(m) return new Date(+m[1],+m[2],+m[3]);
+
+      const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      if (iso) return new Date(+iso[1], +iso[2] - 1, +iso[3]);
+
+      const isoDt = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+      if (isoDt) return new Date(+isoDt[1], +isoDt[2] - 1, +isoDt[3], +isoDt[4], +isoDt[5], +(isoDt[6] || 0));
+
+      const us = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+      if (us) return new Date(+us[3], +us[1] - 1, +us[2]);
+
+      const sh = s.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2})$/);
+      if (sh) return new Date(+sh[3] + 2000, +sh[1] - 1, +sh[2]);
+
+      const t = Date.parse(s);
+      return Number.isNaN(t) ? null : new Date(t);
+    }
+    function startOfDay(d){ const x=new Date(d); x.setHours(0,0,0,0); return x; }
+    function median(nums){
+      const a = nums.filter(Number.isFinite).slice().sort((x,y)=>x-y);
+      if (!a.length) return null;
+      const m = Math.floor(a.length/2);
+      return a.length%2 ? a[m] : (a[m-1]+a[m])/2;
+    }
+    function mapCompletionToStatus(completedRaw) {
+      const s = String(completedRaw ?? "").toLowerCase().trim().replace(/\s+/g, " ");
+      if (!s || s === "no" || s === "n" || s === "false" || s === "0") return "new";
+      if (s.includes("hold")) return "hold";
+      if (s.includes("paid")) return "paid";
+      if (s.includes("submitted")) return "paid";
+      return "new";
+    }
+
+    // header index that supports duplicates (like your AP dashboard)
+    function buildHeaderIndexMulti(cols){
+      const labels=(cols||[]).map(c=>(c.label||"").trim());
+      const map=new Map();
+      labels.forEach((l,i)=>{
+        const k=l.toLowerCase();
+        const arr=map.get(k) || [];
+        arr.push(i);
+        map.set(k, arr);
+      });
       return {
-        riskThr,
-        units, retail, sold30,
-        riskCount, riskRetail,
-        avgDays: daysCount ? (daysSum/daysCount) : null,
-        locRank,
-        velocity: { top20, top50, top200, totalSold30: sold30 },
-        rows: rows.length,
-        locs: new Set(rows.map(r => r.location || r.source_label || "—")).size
+        labels,
+        getIndex(aliases, fallback=-1, occurrence=0){
+          for(const a of aliases){
+            const k=String(a).toLowerCase();
+            const arr=map.get(k);
+            if(arr && arr.length){
+              if(occurrence < arr.length) return arr[occurrence];
+              return arr[0];
+            }
+          }
+          // loose contains fallback
+          for(const [k,arr] of map.entries()){
+            for(const a of aliases){
+              const needle=String(a).toLowerCase();
+              if(needle && k.includes(needle)) return arr[0];
+            }
+          }
+          return fallback;
+        }
       };
     }
 
-    function renderRollups(r){
-      el("kUnits").textContent = r.units.toLocaleString();
-      el("kUnitsSub").textContent = `${r.locs.toLocaleString()} locations loaded`;
+    function parseApFromGviz(json){
+      const cols=json?.table?.cols||[];
+      const rows=json?.table?.rows||[];
+      const idx=buildHeaderIndexMulti(cols);
 
-      el("kRetail").textContent = money(r.retail);
-      el("kRetailSub").textContent = `Avg MSRP/unit: ${r.units > 0 ? money(r.retail / r.units) : "—"}`;
+      const I = {
+        submission: idx.getIndex(APH.submission, -1, 0),
+        amount: idx.getIndex(APH.amount, -1, 0),
+        due: idx.getIndex(APH.due, -1, 0),
+        completed: idx.getIndex(APH.completed, -1, 0),
+        completedDate: idx.getIndex(APH.completedDate, -1, 0),
+        // not needed for KPIs, but helps debug if mapping breaks later
+        category: idx.getIndex(APH.category, -1, 0),
+        method: idx.getIndex(APH.method, -1, 1)
+      };
 
-      el("kSold30").textContent = r.sold30.toLocaleString();
-      el("kSoldSub").textContent = `Daily run-rate: ${Math.round(r.sold30/30).toLocaleString()}/day`;
+      const miss=[];
+      ["amount","due","completed"].forEach(k=>{ if(I[k] < 0) miss.push(k); });
 
-      el("kRiskCount").textContent = `${r.riskCount.toLocaleString()}`;
-      el("kRiskPct").textContent = r.rows ? `${((r.riskCount/r.rows)*100).toFixed(1)}%` : "—";
-      el("kRiskRetail").textContent = `Retail at risk: ${money(r.riskRetail)}`;
-
-      el("kAvgDays").textContent = (r.avgDays === null) ? "—" : r.avgDays.toFixed(1);
-      el("kRows").textContent = r.rows.toLocaleString();
-      el("kLocs").textContent = `${r.locs.toLocaleString()} locations`;
-
-      el("kTopRisk").innerHTML = r.locRank.length
-        ? r.locRank.map(([loc, v]) => `
-            <div class="flex items-center justify-between gap-3">
-              <div class="truncate">${escapeHtml(loc)}</div>
-              <div class="mono text-slate-600">${money(v.riskRetail)}</div>
-            </div>
-          `).join("")
-        : `<div class="text-slate-500">No risk locations found.</div>`;
-
-      // Ops cards
-      el("opsRiskLine").textContent =
-        (r.riskCount === 0)
-          ? `No SKUs projected to stock out within ${r.riskThr} days`
-          : `${r.riskCount.toLocaleString()} SKUs at risk (≤ ${r.riskThr} days) • ${money(r.riskRetail)} retail`;
-      el("opsRiskHint").textContent =
-        `Open Inventory and filter Days to OOS ≤ ${r.riskThr} for the action list.`;
-
-      const pct = (r.velocity.totalSold30 > 0) ? (r.velocity.top50 / r.velocity.totalSold30) * 100 : 0;
-      el("opsVelocityLine").textContent =
-        (r.velocity.totalSold30 > 0)
-          ? `Top 50 sellers = ${pct.toFixed(1)}% of 30d units`
-          : `No 30d sales found in merged summaries`;
-      el("opsVelocityHint").textContent =
-        (r.velocity.totalSold30 > 0)
-          ? `Top 20: ${(r.velocity.top20/r.velocity.totalSold30*100).toFixed(1)}% • Top 200: ${(r.velocity.top200/r.velocity.totalSold30*100).toFixed(1)}%`
-          : `Check sales_summary CSV headers if this looks off.`;
+      return {
+        rows: rows.map(r=>{
+          const c=r.c||[];
+          const amount = I.amount>=0 ? toNumber(asCell(c,I.amount)) : 0;
+          const due = I.due>=0 ? parseDateAny(asCell(c,I.due)) : null;
+          const sub = I.submission>=0 ? parseDateAny(asCell(c,I.submission)) : null;
+          const completedRaw = I.completed>=0 ? asCell(c,I.completed) : "";
+          const status = mapCompletionToStatus(completedRaw);
+          const paidDate = I.completedDate>=0 ? parseDateAny(asCell(c,I.completedDate)) : null;
+          return { amount, due, submission: sub, status, paidDate };
+        }),
+        missingKpi: miss,
+        headerLabels: idx.labels
+      };
     }
 
-    // ====== Breakdown modal ======
-    function openModal(title, html){
-      el("modalTitle").textContent = title;
-      el("modalBody").innerHTML = html;
-      el("modal").classList.remove("hidden");
-    }
-    function closeModal(){ el("modal").classList.add("hidden"); }
+    async function loadAp() {
+      state.ap.rows = [];
+      state.ap.warnings = [];
+      state.ap.errors = [];
 
-    function openBreakdown(){
-      const riskThr = num(el("selRiskDays").value || 14);
-
-      // by location breakdown
-      const byLoc = new Map();
-      for (const r of RAW){
-        const loc = r.location || r.source_label || "—";
-        if (!byLoc.has(loc)) byLoc.set(loc, { rows:0, units:0, retail:0, sold30:0, risk:0, riskRetail:0 });
-        const L = byLoc.get(loc);
-        L.rows += 1;
-        L.units += num(r.avail_qty);
-        L.retail += num(r.inv_value);
-        L.sold30 += num(r.sold_30);
-        const d = num(r.days_oos);
-        if (d > 0 && d <= riskThr){
-          L.risk += 1;
-          L.riskRetail += num(r.inv_value);
-        }
-      }
-
-      const lines = [...byLoc.entries()].sort((a,b)=> b[1].riskRetail - a[1].riskRetail);
-
-      openModal("Inventory breakdown (by location)", `
-        <div class="text-xs text-slate-600 mb-3">
-          Risk = Days to OOS ≤ ${riskThr}. Units/Retail computed from inventory workbook CSV fields.
-        </div>
-        <div class="overflow-auto max-h-[65vh] border border-slate-200 rounded-lg thin-scroll">
-          <table class="min-w-full text-sm">
-            <thead class="bg-slate-50 border-b border-slate-200">
-              <tr>
-                <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">Location</th>
-                <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Rows</th>
-                <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Units</th>
-                <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Retail</th>
-                <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Sold 30d</th>
-                <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Risk SKUs</th>
-                <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Risk Retail</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-              ${lines.map(([loc,v]) => `
-                <tr>
-                  <td class="px-3 py-2">${escapeHtml(loc)}</td>
-                  <td class="px-3 py-2 text-right mono">${v.rows.toLocaleString()}</td>
-                  <td class="px-3 py-2 text-right mono font-semibold">${Math.round(v.units).toLocaleString()}</td>
-                  <td class="px-3 py-2 text-right mono">${money(v.retail)}</td>
-                  <td class="px-3 py-2 text-right mono">${Math.round(v.sold30).toLocaleString()}</td>
-                  <td class="px-3 py-2 text-right mono">${v.risk.toLocaleString()}</td>
-                  <td class="px-3 py-2 text-right mono">${money(v.riskRetail)}</td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-        </div>
-      `);
-    }
-
-    // ====== Load all (inventory + sales merge) ======
-    async function loadAll(){
-      const mySeq = ++LOAD_SEQ;
-      setLoadingUI(true);
-
-      const started = Date.now();
-      setStatus("Loading inventory sources…");
-
-      RAW = [];
-
-      const results = [];
-      let tmpRows = [];
-
-      for (const src of SOURCES){
-        if (mySeq !== LOAD_SEQ) return;
-
-        try{
-          const invParsed = await fetchCsvObjects(src.csv_url);
-          if (mySeq !== LOAD_SEQ) return;
-
-          const invHeaders = new Set(invParsed.headers);
-
-          let salesMap = new Map();
-          let salesCount = 0;
-          let salesWarn = "";
-
-          if (src.sales_csv){
-            try{
-              const salesParsed = await fetchCsvObjects(src.sales_csv);
-              if (mySeq !== LOAD_SEQ) return;
-
-              salesCount = salesParsed.rows.length;
-              const salesHeaders = new Set(salesParsed.headers);
-
-              const need = [SH.sku, SH.qty_30d, SH.avg_day_30, SH.last_sold_date];
-              const miss = need.filter(k => !salesHeaders.has(k));
-              if (miss.length){
-                salesWarn = `sales_summary missing: ${miss.join(" | ")}`;
-              } else {
-                salesMap = buildSalesMap(salesParsed.rows);
-              }
-            } catch(e){
-              salesWarn = `sales_summary failed: ${e.message || String(e)}`;
-            }
+      // Try GViz first (works even when CSV export isn't published)
+      try{
+        const t = await fetchText(AP_GVIZ_URL);
+        const json = parseGViz(t);
+        if(!json || !json.table){
+          state.ap.warnings.push("AP GViz returned no table; trying CSV export fallback.");
+        }else{
+          const parsed = parseApFromGviz(json);
+          state.ap.rows = parsed.rows;
+          if(parsed.missingKpi.length){
+            state.ap.warnings.push(`AP missing KPI columns (GViz): ${parsed.missingKpi.join(", ")} (KPIs may be off)`);
           }
-
-          const required = [H.sku, H.avail_qty, H.inv_value];
-          const missing = required.filter(k => !invHeaders.has(k));
-
-          if (missing.length){
-            results.push({ source: src, warning: `Missing inventory columns: ${missing.join(" | ")}` });
-          } else {
-            results.push({ source: src, ok: invParsed.rows.length, sales_ok: salesCount, sales_warn: salesWarn });
-          }
-
-          const mapped = invParsed.rows.map((o, idx) => {
-            const location = norm(o[H.location]) || src.location_label;
-
-            const sku = norm(o[H.sku]);
-            const product = norm(o[H.product]);
-            const variant = norm(o[H.variant]);
-            const barcode = norm(o[H.barcode]);
-
-            const avail = num(o[H.avail_qty]);
-            const invValue = num(o[H.inv_value]);
-
-            const invSold30 = num(o[H.sold_30]);
-            const invAvgDay = num(o[H.avg_day]);
-            const invDaysOos = num(o[H.days_oos]);
-
-            const s = sku ? salesMap.get(sku) : null;
-
-            const qty30 = s ? s.qty_30d : invSold30;
-            const avg30 = s ? s.avg_day_30 : invAvgDay;
-            const daysOos = (avg30 > 0) ? (avail / avg30) : (invDaysOos || 0);
-
-            const rid = `${src.source_id}::${location}::${sku || barcode || product || "row"}::${variant || ""}::${idx}`;
-
-            return {
-              _id: rid,
-              source_id: src.source_id,
-              source_label: src.location_label,
-              gid: src.gid,
-              location,
-              sku,
-              barcode,
-              product,
-              variant,
-              avail_qty: avail,
-              inv_value: invValue,
-              sold_30: qty30,
-              avg_day: avg30,
-              days_oos: daysOos,
-              last_sold_date: s ? (s.last_sold_date || "") : "",
-              last_sold_ms: s ? (s.last_sold_ms || null) : null
-            };
-          });
-
-          tmpRows.push(...mapped);
-
-        } catch(err){
-          results.push({ source: src, error: err.message || String(err) });
+          state.ap.loadedAt = new Date();
+          return;
         }
+      }catch(e){
+        state.ap.warnings.push(`AP GViz failed; trying CSV export fallback (${String(e.message||e)})`);
       }
 
-      if (mySeq !== LOAD_SEQ) return;
+      // CSV fallback
+      try {
+        const txt = await fetchText(AP_CSV_URL);
+        // If Google returns an HTML login page, detect and error clearly
+        if (/<html/i.test(txt) && /google/i.test(txt)) {
+          throw new Error("CSV export returned HTML (likely not published/public). GViz also failed.");
+        }
 
-      tmpRows = dedupeLocationRows(tmpRows);
-      RAW = tmpRows;
+        const table = parseCsv(txt);
+        if (!table.length) { state.ap.warnings.push("AP CSV empty"); return; }
+        const header = table[0];
+        const { indices } = mapHeaders(header, APH, { category: 0, method: 1 });
 
-      // status line
-      const warn = results.filter(r => r.warning).length;
-      const bad = results.filter(r => r.error).length;
-      const salesGood = results.filter(r => r.sales_ok && !r.sales_warn).length;
-      const salesAny = results.filter(r => r.sales_ok).length;
+        const must = ["amount", "due", "completed"];
+        const missMust = must.filter(k => !(k in indices));
+        if (missMust.length) state.ap.warnings.push(`AP missing KPI headers (CSV): ${missMust.join(", ")} (KPIs may be off)`);
 
-      const ms = Date.now() - started;
-      let msg = `Loaded <b>${RAW.length.toLocaleString()}</b> rows from <b>${SOURCES.length}</b> location tab(s) in <span class="mono">${ms}ms</span>.`;
-      if (salesAny) msg += ` <span class="text-slate-600">Sales summaries: <b>${salesGood}</b> ok / <b>${salesAny}</b> present.</span>`;
-      if (warn) msg += ` <span class="text-amber-700 font-semibold">${warn} warning(s).</span>`;
-      if (bad) msg += ` <span class="text-rose-700 font-semibold">${bad} error(s).</span>`;
+        const raw = table.slice(1);
+        for (const r of raw) {
+          const amount = indices.amount !== undefined ? toNumber(r[indices.amount]) : 0;
+          const due = indices.due !== undefined ? parseDateAny(r[indices.due]) : null;
+          const sub = indices.submission !== undefined ? parseDateAny(r[indices.submission]) : null;
+          const completedRaw = indices.completed !== undefined ? (r[indices.completed] ?? "") : "";
+          const status = mapCompletionToStatus(completedRaw);
+          const paidDate = indices.completedDate !== undefined ? parseDateAny(r[indices.completedDate]) : null;
+          state.ap.rows.push({ amount, due, submission: sub, status, paidDate });
+        }
 
-      if (warn || bad || salesAny){
-        const detail = results.map(r => {
-          const name = escapeHtml(r.source.location_label);
-          const gid = escapeHtml(String(r.source.gid));
-          if (r.error) return `<div class="mono text-xs text-rose-700">• ${name} (gid ${gid}) — ERROR: ${escapeHtml(r.error)}</div>`;
-          if (r.warning) return `<div class="mono text-xs text-amber-700">• ${name} (gid ${gid}) — WARN: ${escapeHtml(r.warning)}</div>`;
-          const salesLine = (r.sales_ok || r.sales_warn) ? ` • sales=${(r.sales_ok||0).toLocaleString()}${r.sales_warn ? ` <span class="text-amber-700">(${escapeHtml(r.sales_warn)})</span>` : ""}` : "";
-          return `<div class="mono text-xs text-slate-600">• ${name} (gid ${gid}) — ${(r.ok||0).toLocaleString()} inv rows${salesLine}</div>`;
-        }).join("");
-        msg += `<div class="mt-2">${detail}</div>`;
+        state.ap.loadedAt = new Date();
+      } catch (e) {
+        state.ap.errors.push(`AP load failed: ${String(e.message || e)}`);
       }
-
-      setStatus(msg);
-
-      // compute + render KPIs
-      const roll = computeRollups(RAW);
-      renderRollups(roll);
-
-      setLoadingUI(false);
     }
 
-    // ====== Events ======
-    el("btnReload").addEventListener("click", () => loadAll());
-    el("selRiskDays").addEventListener("change", () => {
-      if (!RAW.length) return;
-      const roll = computeRollups(RAW);
-      renderRollups(roll);
-    });
+    function computeApAndRender() {
+      const rows = state.ap.rows || [];
+      const totalCount = rows.length;
+      const totalAmt = rows.reduce((s,r)=>s + (r.amount || 0), 0);
 
-    el("btnOpenInventoryRisk").addEventListener("click", () => {
-      // Opens the app page; you can optionally add query params later for pre-filtering.
-      // Example (future): inventory.html?maxDays=14&view=location
-      const d = num(el("selRiskDays").value || 14);
-      window.location.href = `inventory.html?maxDays=${encodeURIComponent(d)}`;
-    });
+      const outstanding = rows.filter(r => r.status !== "paid");
+      const outstandingCount = outstanding.length;
+      const outstandingAmt = outstanding.reduce((s,r)=>s + (r.amount || 0), 0);
 
-    el("btnDetails").addEventListener("click", openBreakdown);
+      const now0 = startOfDay(new Date());
 
-    el("btnCloseModal").addEventListener("click", closeModal);
-    el("modal").addEventListener("click", (e) => { if (e.target === el("modal")) closeModal(); });
+      const overdue = outstanding.filter(r => r.due && startOfDay(r.due) < now0);
+      const overdueCount = overdue.length;
+      const overdueAmt = overdue.reduce((s,r)=>s + (r.amount || 0), 0);
 
-    // Init
-    loadAll();
+      const next7 = outstanding.filter(r => {
+        if (!r.due) return false;
+        const d0 = startOfDay(r.due);
+        const diff = Math.floor((d0.getTime() - now0.getTime()) / 86400000);
+        return diff >= 0 && diff <= 7;
+      });
+      const next7Count = next7.length;
+      const next7Amt = next7.reduce((s,r)=>s + (r.amount || 0), 0);
+
+      const paid = rows.filter(r => r.status === "paid");
+      const payDays = paid.map(r => {
+        if (!r.submission || !r.paidDate) return null;
+        return Math.max(0, Math.floor((startOfDay(r.paidDate).getTime() - startOfDay(r.submission).getTime()) / 86400000));
+      }).filter(v => v != null);
+
+      const avgPayDays = payDays.length ? (payDays.reduce((a,b)=>a+b,0) / payDays.length) : null;
+      const medPayDays = median(payDays);
+
+      el("apTotalCount").textContent = fmtInt(totalCount);
+      el("apTotalAmt").textContent = fmtMoney(totalAmt);
+      el("apOutstandingAmt").textContent = fmtMoney(outstandingAmt);
+      el("apOutstandingCount").textContent = `${fmtInt(outstandingCount)} items`;
+
+      el("apOverdueAmt").textContent = fmtMoney(overdueAmt);
+      el("apOverdueCount").textContent = `${fmtInt(overdueCount)} items`;
+      el("apNext7Amt").textContent = fmtMoney(next7Amt);
+      el("apNext7Count").textContent = `${fmtInt(next7Count)} items`;
+
+      if (totalCount === 0) {
+        el("alertAp").textContent = "No AP rows loaded. Check AP permissions/publishing (GViz/CSV) and headers.";
+      } else if (outstandingCount === 0) {
+        el("alertAp").textContent = `All AP items marked paid. Avg days to pay: ${avgPayDays == null ? "—" : `${avgPayDays.toFixed(1)}d`} (median ${medPayDays == null ? "—" : `${medPayDays.toFixed(0)}d`}).`;
+      } else {
+        const parts = [];
+        if (overdueCount > 0) parts.push(`${fmtInt(overdueCount)} overdue (${fmtMoney(overdueAmt)})`);
+        if (next7Count > 0) parts.push(`${fmtInt(next7Count)} due next 7d (${fmtMoney(next7Amt)})`);
+        if (!parts.length) parts.push(`Outstanding: ${fmtInt(outstandingCount)} (${fmtMoney(outstandingAmt)})`);
+        const timing = (avgPayDays == null) ? "" : ` • Avg pay time ${avgPayDays.toFixed(1)}d`;
+        el("alertAp").textContent = parts.join(" • ") + timing;
+      }
+
+      return { totalCount, totalAmt, outstandingCount, outstandingAmt, overdueCount, overdueAmt, next7Count, next7Amt, avgPayDays, medPayDays };
+    }
+
+    // ====== Marketing (CSV-only) ======
+    function isMeaningfulEvent(e){
+      const hasText = (v) => String(v || "").trim().length > 0;
+      const hasFiles = Array.isArray(e.files) && e.files.length > 0;
+      return (
+        hasText(e.event) || hasText(e.type) || hasText(e.des) || hasText(e.assets) ||
+        hasText(e.details) || hasText(e.time) || hasText(e.tz) || hasText(e.img) || hasFiles
+      );
+    }
+    function headerRowDetect(rows){
+      const need = ["day","date","event"];
+      const max = Math.min(8, rows.length);
+      for (let i = 0; i < max; i++){
+        const r = (rows[i] || []).map(x => String(x || "").trim().toLowerCase());
+        if (need.every(k => r.includes(k))) return i;
+      }
+      return 0;
+    }
+    async function loadMarketing() {
+      state.mkt.events = [];
+      state.mkt.warnings = [];
+      state.mkt.errors = [];
+      try {
+        const txt = await fetchText(MKT_CSV_URL);
+        const rows = parseCsv(txt);
+        if (!rows.length) { state.mkt.warnings.push("Marketing CSV empty"); return; }
+
+        const h = headerRowDetect(rows);
+        const header = rows[h] || [];
+        const { indices, missing } = mapHeaders(header, MKTH);
+
+        const required = ["date","event"];
+        const missReq = required.filter(k => !(k in indices));
+        if (missReq.length) state.mkt.warnings.push(`Marketing missing required headers: ${missReq.join(", ")} (KPIs may be off)`);
+
+        const fileIdx = header
+          .map((c,i)=> /^file\s*\d+/i.test(String(c||"")) ? i : -1)
+          .filter(i=>i>=0);
+
+        for (let i = h + 1; i < rows.length; i++) {
+          const r = rows[i];
+          const d = indices.date !== undefined ? parseDateAny(r[indices.date]) : null;
+          if (!d) continue;
+
+          const files = fileIdx.map(ix => String(r[ix] || "").trim()).filter(Boolean).filter(x => !x.startsWith("#REF"));
+          const ev = {
+            date: d,
+            day: indices.day !== undefined ? String(r[indices.day] || "").trim() : "",
+            event: indices.event !== undefined ? String(r[indices.event] || "").trim() : "",
+            type: indices.type !== undefined ? String(r[indices.type] || "").trim() : "",
+            des: indices.des !== undefined ? String(r[indices.des] || "").trim() : "",
+            assets: indices.assets !== undefined ? String(r[indices.assets] || "").trim() : "",
+            details: indices.details !== undefined ? String(r[indices.details] || "").trim() : "",
+            time: indices.time !== undefined ? String(r[indices.time] || "").trim() : "",
+            tz: indices.tz !== undefined ? String(r[indices.tz] || "").trim() : "",
+            img: indices.img !== undefined ? String(r[indices.img] || "").trim() : "",
+            files
+          };
+          if (isMeaningfulEvent(ev)) state.mkt.events.push(ev);
+        }
+
+        state.mkt.events.sort((a,b)=>a.date-b.date || String(a.time||"").localeCompare(String(b.time||"")));
+        state.mkt.loadedAt = new Date();
+
+        const optionalMissing = missing.filter(k => !required.includes(k));
+        if (optionalMissing.length) state.mkt.warnings.push(`Marketing missing optional headers: ${optionalMissing.join(", ")}`);
+      } catch (e) {
+        state.mkt.errors.push(`Marketing CSV failed: ${String(e.message || e)}`);
+      }
+    }
+
+    function fmtDateShort(d){ return d ? new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : "—"; }
+
+    function computeMktAndRender() {
+      const events = state.mkt.events || [];
+      const total = events.length;
+
+      const now0 = startOfDay(new Date());
+      const monthStart = new Date(now0.getFullYear(), now0.getMonth(), 1);
+      const monthEnd = new Date(now0.getFullYear(), now0.getMonth() + 1, 0, 23,59,59,999);
+      const inMonth = events.filter(e => e.date >= monthStart && e.date <= monthEnd).length;
+
+      const next7End = new Date(now0); next7End.setDate(next7End.getDate() + 7);
+      const next7 = events.filter(e => e.date >= now0 && e.date < next7End).length;
+
+      el("mktTotal").textContent = fmtInt(total);
+      el("mktMonth").textContent = fmtInt(inMonth);
+      el("mkt7").textContent = fmtInt(next7);
+
+      const next = events.find(e => e.date >= now0) || null;
+      el("mktNextLine").textContent = next
+        ? `Next: ${fmtDateShort(next.date)} • ${String(next.event || "Untitled").slice(0, 70)}`
+        : "Next: —";
+
+      if (!total) el("alertMkt").textContent = "No marketing events loaded. Check Marketing CSV access / headers (Day, Date, Event).";
+      else if (next7 === 0) el("alertMkt").textContent = "No events in the next 7 days.";
+      else {
+        const upcoming = events
+          .filter(e => e.date >= now0 && e.date < next7End)
+          .slice(0, 3)
+          .map(e => `${fmtDateShort(e.date)}: ${(String(e.event||"Untitled").trim() || "Untitled")}`)
+          .join(" • ");
+        el("alertMkt").textContent = `${fmtInt(next7)} event(s) in next 7d • ${upcoming}`;
+      }
+
+      return { total, inMonth, next7, next };
+    }
+
+    // ====== Status ======
+    function summarizeHealth() {
+      let warnings = 0, errors = 0;
+      for (const s of state.invStatsByLocation.values()) {
+        warnings += (s.warnings?.length || 0);
+        errors += (s.errors?.length || 0);
+      }
+      warnings += (state.ap.warnings?.length || 0) + (state.mkt.warnings?.length || 0);
+      errors += (state.ap.errors?.length || 0) + (state.mkt.errors?.length || 0);
+      const detail = errors > 0 ? `${errors} error(s), ${warnings} warning(s)` : (warnings > 0 ? `${warnings} warning(s)` : "All sources loaded");
+      return { warnings, errors, detail };
+    }
+
+    function renderStatus() {
+      const tbody = el("statusTable");
+      tbody.innerHTML = "";
+
+      const addRow = (source, rows, warnings, errors) => {
+        const tr = document.createElement("tr");
+        tr.className = "align-top";
+        tr.innerHTML = `
+          <td class="py-2 pr-4 font-medium">${escapeHtml(source)}</td>
+          <td class="py-2 pr-4 text-right mono">${escapeHtml(String(rows))}</td>
+          <td class="py-2 pr-4 muted">${warnings ? escapeHtml(warnings) : "<span class='muted2'>—</span>"}</td>
+          <td class="py-2 pr-4 muted">${errors ? escapeHtml(errors) : "<span class='muted2'>—</span>"}</td>
+        `;
+        tbody.appendChild(tr);
+      };
+
+      let invTotal = 0;
+      for (const loc of LOCATIONS) {
+        const s = ensureInvStats(loc.label);
+        invTotal += (s.invRowsDeduped || 0);
+        addRow(
+          `Inventory — ${loc.label}`,
+          `${fmtInt(s.invRowsDeduped || 0)} (raw ${fmtInt(s.invRowsRaw || 0)})`,
+          (s.warnings || []).slice(0, 2).join(" • "),
+          (s.errors || []).slice(0, 2).join(" • ")
+        );
+      }
+
+      addRow("AP — Requests", fmtInt(state.ap.rows.length),
+        (state.ap.warnings || []).slice(0, 2).join(" • "),
+        (state.ap.errors || []).slice(0, 2).join(" • "));
+
+      addRow("Marketing — Calendar", fmtInt(state.mkt.events.length),
+        (state.mkt.warnings || []).slice(0, 2).join(" • "),
+        (state.mkt.errors || []).slice(0, 2).join(" • "));
+
+      const finished = state.loadFinishedAt ? state.loadFinishedAt.toLocaleString() : "—";
+      const started = state.loadStartedAt ? state.loadStartedAt.toLocaleString() : "—";
+      const health = summarizeHealth();
+
+      el("statusSummary").innerHTML = `
+        <div class="text-sm">
+          <span class="font-medium">Started:</span> ${escapeHtml(started)} &nbsp;·&nbsp;
+          <span class="font-medium">Finished:</span> ${escapeHtml(finished)} &nbsp;·&nbsp;
+          <span class="font-medium">Inventory rows (deduped):</span> <span class="mono">${fmtInt(invTotal)}</span> &nbsp;·&nbsp;
+          <span class="font-medium">Health:</span> ${escapeHtml(health.detail)}
+        </div>
+      `;
+    }
+
+    // ====== Ops narrative ======
+    function renderOpsNarrative(inv, ap, mkt) {
+      const n = state.thresholdDays;
+
+      const topLocLine = inv.top3?.length
+        ? `Inventory risk concentrates in: ${inv.top3.map(s => `${s.label} (${fmtMoney(s.riskRetail)})`).join(", ")}.`
+        : "Inventory location ranking unavailable.";
+
+      const apLine = (ap.totalCount === 0)
+        ? "AP: no rows loaded (check AP permissions/publishing)."
+        : (ap.outstandingCount === 0)
+          ? `AP: all items paid.`
+          : `AP: ${fmtInt(ap.overdueCount)} overdue (${fmtMoney(ap.overdueAmt)}), ${fmtInt(ap.next7Count)} due next 7d (${fmtMoney(ap.next7Amt)}).`;
+
+      const mktLine = (mkt.total === 0)
+        ? "Marketing: no events loaded (check Marketing CSV headers/access)."
+        : (mkt.next7 === 0)
+          ? "Marketing: no events next 7 days."
+          : `Marketing: ${fmtInt(mkt.next7)} event(s) next 7d; next up ${mkt.next ? `${fmtDateShort(mkt.next.date)} — ${String(mkt.next.event||"Untitled")}` : "—"}.`;
+
+      const health = summarizeHealth();
+      const healthLine = (health.warnings || health.errors)
+        ? `Data health: ${health.warnings} warning(s), ${health.errors} error(s). See Load status.`
+        : "Data health: all sources loaded cleanly.";
+
+      const ops = [
+        `Threshold set to ${n} days. ${inv.riskCount === 0 ? "No imminent stockouts." : `Prioritize replenishment for ${fmtInt(inv.riskCount)} at-risk SKUs (${fmtMoney(inv.riskRetail)} retail exposure).`}`,
+        topLocLine,
+        inv.sold30Total > 0
+          ? `Sales concentration: Top 50 sellers = ${fmtNum(inv.top50Pct * 100, 1)}% of 30d units.`
+          : "Sales concentration: missing (check sales_summary headers).",
+        apLine,
+        mktLine,
+        healthLine
+      ];
+
+      el("opsSummary").innerHTML = `<ul class="list-disc pl-5 space-y-1">${ops.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>`;
+    }
+
+    // ====== Full load ======
+    async function loadAll() {
+      state.loadStartedAt = new Date();
+      state.loadFinishedAt = null;
+
+      state.ap.rows = []; state.ap.warnings = []; state.ap.errors = [];
+      state.mkt.events = []; state.mkt.warnings = []; state.mkt.errors = [];
+
+      await Promise.all([ loadInventoryAll(), loadAp(), loadMarketing() ]);
+
+      state.loadFinishedAt = new Date();
+
+      const inv = computeInventoryAndRender();
+      const ap = computeApAndRender();
+      const mkt = computeMktAndRender();
+
+      renderOpsNarrative(inv, ap, mkt);
+      renderStatus();
+
+      el("lastUpdated").textContent = new Date().toLocaleString();
+      openRiskInventoryBtn.href = `inventory.html?maxDays=${encodeURIComponent(String(state.thresholdDays))}`;
+    }
+
+    // ====== UI ======
+    function initUi() {
+      pbiIframe.src = POWER_BI_URL;
+      pbiOpenNewTab.href = POWER_BI_URL;
+
+      thresholdSelect.addEventListener("change", () => {
+        state.thresholdDays = Number(thresholdSelect.value) || 14;
+        const inv = computeInventoryAndRender();
+        const ap = computeApAndRender();
+        const mkt = computeMktAndRender();
+        renderOpsNarrative(inv, ap, mkt);
+        el("lastUpdated").textContent = new Date().toLocaleString();
+        openRiskInventoryBtn.href = `inventory.html?maxDays=${encodeURIComponent(String(state.thresholdDays))}`;
+      });
+
+      reloadBtn.addEventListener("click", () => loadAll());
+
+      breakdownBtn.addEventListener("click", () => {
+        if (typeof breakdownDialog.showModal === "function") breakdownDialog.showModal();
+        else breakdownDialog.setAttribute("open", "true");
+      });
+      closeBreakdownBtn.addEventListener("click", () => breakdownDialog.close());
+      breakdownDialog.addEventListener("click", (e) => {
+        const rect = breakdownDialog.getBoundingClientRect();
+        const inDialog = rect.top <= e.clientY && e.clientY <= rect.top + rect.height &&
+                         rect.left <= e.clientX && e.clientX <= rect.left + rect.width;
+        if (!inDialog) breakdownDialog.close();
+      });
+
+      function applyTheme(t){
+        document.documentElement.setAttribute("data-theme", t);
+        themeLabel.textContent = t[0].toUpperCase() + t.slice(1);
+        localStorage.setItem(THEME_KEY, t);
+      }
+      themeBtn.addEventListener("click", () => {
+        const cur = document.documentElement.getAttribute("data-theme") || "light";
+        applyTheme(cur === "dark" ? "light" : "dark");
+      });
+      applyTheme(localStorage.getItem(THEME_KEY) || "light");
+    }
+
+    // ====== Boot ======
+    (function boot() {
+      state.thresholdDays = Number(thresholdSelect.value) || 14;
+      initUi();
+      loadAll();
+    })();
   </script>
 </body>
 </html>
