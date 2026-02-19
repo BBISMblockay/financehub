@@ -6,329 +6,814 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Silo ERP — Owner Cockpit</title>
   <script src="https://cdn.tailwindcss.com"></script>
+
   <style>
-    .mono { font-variant-numeric: tabular-nums; }
+    /* ========== Quiet, enterprise UI ========== */
+    .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
     .scrollbar::-webkit-scrollbar { height: 10px; width: 10px; }
-    .scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+    .scrollbar::-webkit-scrollbar-thumb { background: rgba(148,163,184,.85); border-radius: 999px; }
     .scrollbar::-webkit-scrollbar-track { background: transparent; }
     dialog::backdrop { background: rgba(15, 23, 42, 0.55); }
+    dialog{ border:0; background:transparent; }
 
     :root[data-theme="light"]{
-      --bg: #f8fafc;
+      --bg: #f6f7fb;
       --panel: #ffffff;
-      --border: rgba(15,23,42,.08);
-      --muted: rgba(15,23,42,.62);
-      --muted2: rgba(15,23,42,.46);
+      --panel2: #f8fafc;
+      --panel3: #f1f5f9;
+      --border: rgba(15,23,42,.10);
       --text: rgba(15,23,42,.92);
-      --chip: rgba(15,23,42,.04);
-      --chipb: rgba(15,23,42,.10);
+      --muted: rgba(15,23,42,.68);
+      --muted2: rgba(15,23,42,.48);
+      --shadow1: 0 1px 2px rgba(2,6,23,.05);
+      --shadow2: 0 8px 18px rgba(2,6,23,.08);
+      --ring: rgba(37,99,235,.18);
+      --accent: #1d4ed8;
+      --danger: #b91c1c;
+      --warn: #b45309;
+      --good: #166534;
     }
     :root[data-theme="dark"]{
-      --bg: #070A12;
-      --panel: rgba(255,255,255,.04);
-      --border: rgba(255,255,255,.10);
-      --muted: rgba(255,255,255,.64);
-      --muted2: rgba(255,255,255,.50);
+      --bg: #070b18;
+      --panel: #0b1226;
+      --panel2: #0a1022;
+      --panel3: #0f172a;
+      --border: rgba(255,255,255,.12);
       --text: rgba(255,255,255,.92);
-      --chip: rgba(255,255,255,.05);
-      --chipb: rgba(255,255,255,.12);
+      --muted: rgba(255,255,255,.74);
+      --muted2: rgba(255,255,255,.54);
+      --shadow1: 0 1px 2px rgba(0,0,0,.55);
+      --shadow2: 0 10px 22px rgba(0,0,0,.50);
+      --ring: rgba(56,189,248,.18);
+      --accent: #60a5fa;
+      --danger: #fb7185;
+      --warn: #fbbf24;
+      --good: #22c55e;
     }
+
+    html, body {
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      letter-spacing: -0.01em;
+    }
+
     body.themeable{
       background: var(--bg);
       color: var(--text);
     }
-    .panel{
+
+    /* ========== Layout ========== */
+    .app-shell{
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 292px 1fr;
+    }
+    @media (max-width: 1024px){
+      .app-shell{ grid-template-columns: 1fr; }
+    }
+
+    .sidebar{
+      position: sticky;
+      top: 0;
+      align-self: start;
+      height: 100vh;
+      padding: 16px;
+      border-right: 1px solid var(--border);
+      background: var(--panel);
+      box-shadow: var(--shadow1);
+    }
+    @media (max-width: 1024px){
+      .sidebar{
+        position: relative;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+      }
+    }
+
+    .main{ padding: 16px; }
+    .container{ max-width: 1320px; margin: 0 auto; }
+
+    /* ========== Components ========== */
+    .card{
       background: var(--panel);
       border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: var(--shadow1);
+    }
+
+    .btn{
+      display:inline-flex; align-items:center; justify-content:center;
+      height: 38px;
+      padding: 0 .9rem;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      font-weight: 800;
+      font-size: .875rem;
+      transition: background .12s ease, box-shadow .12s ease, transform .08s ease;
+      white-space: nowrap;
+      user-select: none;
+    }
+    .btn:hover{ background: var(--panel2); box-shadow: var(--shadow2); }
+    .btn:active{ transform: translateY(1px); }
+    .btn:focus{ outline:none; box-shadow: 0 0 0 4px var(--ring); }
+
+    .btn-primary{
+      background: var(--accent);
+      color: #fff;
+      border-color: color-mix(in oklab, var(--accent) 80%, #000);
+      box-shadow: 0 6px 14px color-mix(in oklab, var(--accent) 18%, transparent);
+    }
+    .btn-primary:hover{ background: color-mix(in oklab, var(--accent) 90%, #000); }
+    :root[data-theme="dark"] .btn-primary{
+      color: #071122;
+      background: color-mix(in oklab, var(--accent) 86%, white);
+      border-color: color-mix(in oklab, var(--accent) 80%, white);
+    }
+
+    .btn-ghost{
+      background: transparent;
+      border-color: color-mix(in oklab, var(--border) 70%, transparent);
+      box-shadow: none;
+    }
+    .btn-ghost:hover{ background: var(--panel2); box-shadow: none; }
+
+    .select{
+      height: 38px;
+      border-radius: 10px;
+      padding: 0 .85rem;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      font-weight: 800;
+      font-size: .875rem;
+    }
+    .select:focus{ outline:none; box-shadow: 0 0 0 4px var(--ring); }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:.45rem;
+      padding:.22rem .65rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--panel2);
+      font-size:.72rem;
+      font-weight: 900;
+      letter-spacing:.02em;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .dot{ width:.44rem; height:.44rem; border-radius:999px; display:inline-block; }
+    .pill-danger{ color: var(--danger); border-color: color-mix(in oklab, var(--danger) 30%, var(--border)); }
+    .pill-warn{ color: var(--warn); border-color: color-mix(in oklab, var(--warn) 30%, var(--border)); }
+    .pill-good{ color: var(--good); border-color: color-mix(in oklab, var(--good) 30%, var(--border)); }
+
+    .section-title{
+      font-size: .72rem;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--muted2);
+      font-weight: 900;
     }
     .muted{ color: var(--muted); }
     .muted2{ color: var(--muted2); }
-    .chip{
-      background: var(--chip);
-      border: 1px solid var(--chipb);
+
+    .kpi{
+      padding: 14px 14px 12px;
+      min-height: 104px;
+      display:flex;
+      flex-direction:column;
+      justify-content:space-between;
     }
+    .kpi .label{
+      font-size: .78rem;
+      letter-spacing: .01em;
+      color: var(--muted);
+      font-weight: 900;
+      display:flex;
+      align-items:center;
+      gap: .5rem;
+    }
+    .kpi .value{
+      margin-top: 6px;
+      font-size: 1.75rem;
+      font-weight: 950;
+      letter-spacing: -0.03em;
+      line-height: 1.05;
+    }
+    .kpi .sub{
+      margin-top: 6px;
+      font-size: .76rem;
+      color: var(--muted2);
+      line-height: 1.25;
+    }
+
+    .divider{ height: 1px; background: var(--border); width: 100%; }
+
+    .kbd{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel2);
+      color: var(--muted);
+      font-weight: 900;
+    }
+
+    /* ========== Table ========== */
+    .table{
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      overflow: hidden;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+    }
+    .table thead th{
+      font-size: .68rem;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--muted2);
+      background: var(--panel2);
+      border-bottom: 1px solid var(--border);
+      padding: .7rem .85rem;
+      white-space: nowrap;
+      font-weight: 900;
+    }
+    .table tbody td{
+      padding: .7rem .85rem;
+      border-bottom: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+      vertical-align: top;
+    }
+    .table tbody tr:hover td{ background: var(--panel2); }
+    .table tbody tr:last-child td{ border-bottom: 0; }
+
+    /* ========== Drawer (Marketing) ========== */
+    .drawer{
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 50;
+    }
+    .drawer.open{ pointer-events: auto; }
+    .drawer .overlay{
+      position: absolute;
+      inset: 0;
+      background: rgba(2,6,23,.55);
+      opacity: 0;
+      transition: opacity .16s ease;
+    }
+    .drawer.open .overlay{ opacity: 1; }
+    .drawer .panel{
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: min(560px, calc(100vw - 32px));
+      height: 100%;
+      background: var(--panel);
+      border-left: 1px solid var(--border);
+      box-shadow: var(--shadow2);
+      transform: translateX(12px);
+      opacity: 0;
+      transition: transform .16s ease, opacity .16s ease;
+      display:flex;
+      flex-direction: column;
+    }
+    .drawer.open .panel{ transform: translateX(0); opacity: 1; }
+
+    /* Timeline list */
+    .timeline{ display:flex; flex-direction: column; gap: 10px; }
+    .tl-item{
+      display:flex;
+      gap: 12px;
+      padding: 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--panel2);
+    }
+    .tl-rail{ width: 14px; display:flex; align-items: flex-start; justify-content: center; padding-top: 4px; }
+    .tl-dot{ width: 10px; height: 10px; border-radius: 999px; background: var(--accent); }
+    .tl-body{ flex: 1; min-width: 0; }
+    .tl-top{ display:flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .tl-title{ font-weight: 900; }
+    .tl-meta{ font-size: 12px; color: var(--muted2); }
+    .tl-badges{ display:flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+    .chip{
+      display:inline-flex; align-items:center;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 900;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--muted);
+    }
+
+    /* Sparklines */
+    .spark-wrap{
+      display:flex;
+      align-items:center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--panel2);
+    }
+    .spark-meta{ min-width: 0; }
+    .spark-title{ font-size: 12px; font-weight: 900; color: var(--muted); }
+    .spark-sub{ font-size: 12px; color: var(--muted2); margin-top: 2px; }
+    .spark{
+      width: 120px;
+      height: 34px;
+      flex: 0 0 auto;
+    }
+    .spark polyline{ fill: none; stroke: var(--accent); stroke-width: 2; }
+    .spark .axis{ stroke: color-mix(in oklab, var(--border) 80%, transparent); stroke-width: 1; }
   </style>
 </head>
 
 <body class="themeable">
-  <header class="border-b" style="border-color: var(--border); background: var(--panel);">
-    <div class="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8 flex flex-col gap-3">
-      <div class="flex items-center justify-between gap-3">
+  <div class="app-shell">
+    <!-- ========== Sidebar ========== -->
+    <aside class="sidebar">
+      <div class="flex items-start justify-between gap-3">
         <div>
-          <div class="text-sm muted">Silo ERP</div>
-          <h1 class="text-2xl font-semibold tracking-tight">Owner Cockpit</h1>
-          <div class="text-xs muted2 mt-1">Inventory + Sales velocity + Stockout risk + AP + Marketing calendar</div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="pill"><span class="dot" style="background: var(--accent)"></span>Silo ERP</span>
+            <span class="pill">Owner Cockpit</span>
+          </div>
+          <h1 class="mt-2 text-lg font-semibold tracking-tight">Executive Overview</h1>
+          <p class="mt-1 text-xs muted2">
+            Inventory · Stockout risk · Demand concentration · AP pressure · Marketing cadence
+          </p>
         </div>
-        <div class="flex items-center gap-2 flex-wrap justify-end">
-          <button id="themeBtn"
-                  class="chip inline-flex items-center rounded-lg px-3 py-2 text-sm font-medium hover:opacity-90"
-                  title="Toggle theme">
-            Theme <span id="themeLabel" class="ml-2 font-semibold">Light</span>
-          </button>
 
-          <a id="openRiskInventoryBtn"
-             class="inline-flex items-center rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800"
-             href="inventory.html?maxDays=14"
-             target="_blank" rel="noreferrer">
-            Open Inventory (At Risk)
-          </a>
-
-          <button id="breakdownBtn"
-                  class="inline-flex items-center rounded-lg border px-3 py-2 text-sm font-medium hover:opacity-90"
-                  style="border-color: var(--border); background: var(--panel);">
-            Breakdown by location
-          </button>
-
-          <button id="reloadBtn"
-                  class="inline-flex items-center rounded-lg border px-3 py-2 text-sm font-medium hover:opacity-90"
-                  style="border-color: var(--border); background: var(--panel);">
-            Reload
-          </button>
-        </div>
+        <button id="themeBtn" class="btn btn-ghost" title="Toggle theme">
+          Theme <span id="themeLabel" class="ml-2 font-extrabold">Light</span>
+        </button>
       </div>
 
-      <div class="flex items-center gap-3 flex-wrap">
-        <div class="flex items-center gap-2">
-          <span class="text-sm muted">Risk threshold</span>
-          <select id="thresholdSelect" class="rounded-lg border text-sm px-3 py-2"
-                  style="border-color: var(--border); background: var(--panel);">
+      <div class="mt-4 card p-4">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div class="section-title">Controls</div>
+            <div class="mt-1 text-sm font-extrabold muted">Risk threshold</div>
+          </div>
+          <div class="kbd">R</div>
+        </div>
+
+        <div class="mt-3">
+          <select id="thresholdSelect" class="select w-full">
             <option value="7">7 days</option>
             <option value="14" selected>14 days</option>
             <option value="30">30 days</option>
           </select>
         </div>
 
-        <div class="text-xs muted2">
-          Days-to-OOS = avail_qty / avg_day_30 when avg_day_30 &gt; 0; else fallback to inventory “estimated days before OOS”.
+        <p class="mt-3 text-xs muted2">
+          Days-to-OOS = avail_qty / avg_day_30 when avg_day_30 &gt; 0; else fallback.
+        </p>
+
+        <div class="mt-4 flex flex-col gap-2">
+          <a id="openRiskInventoryBtn"
+             class="btn btn-primary w-full"
+             href="inventory.html?maxDays=14"
+             target="_blank" rel="noreferrer">
+            Open Inventory (At Risk)
+          </a>
+
+          <button id="breakdownBtn" class="btn w-full">Breakdown by location</button>
+          <button id="openMarketingBtn" class="btn w-full">Marketing timeline</button>
+          <button id="reloadBtn" class="btn w-full">Reload</button>
+        </div>
+
+        <div class="mt-4 divider"></div>
+
+        <div class="mt-3 flex items-center justify-between gap-2 text-xs muted2">
+          <span>Updated</span>
+          <span id="lastUpdated" class="mono">—</span>
         </div>
       </div>
-    </div>
-  </header>
 
-  <main class="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8 space-y-6">
-    <section class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-      <div class="rounded-2xl p-4 shadow-sm panel">
-        <div class="text-sm muted">Units on hand</div>
-        <div id="kpiUnits" class="mono mt-1 text-2xl font-semibold">—</div>
-        <div id="kpiUnitsSub" class="mt-1 text-xs muted2">Across loaded location-rows</div>
-      </div>
-
-      <div class="rounded-2xl p-4 shadow-sm panel">
-        <div class="text-sm muted">Retail value (MSRP)</div>
-        <div id="kpiRetail" class="mono mt-1 text-2xl font-semibold">—</div>
-        <div id="kpiAvgMsrp" class="mt-1 text-xs muted2">Avg MSRP / unit: —</div>
-      </div>
-
-      <div class="rounded-2xl p-4 shadow-sm panel">
-        <div class="text-sm muted">Sold 30d (total)</div>
-        <div id="kpiSold30" class="mono mt-1 text-2xl font-semibold">—</div>
-        <div id="kpiVelocity" class="mt-1 text-xs muted2">Top 50 sellers = —</div>
-      </div>
-
-      <div class="rounded-2xl p-4 shadow-sm panel">
-        <div class="text-sm muted">Stockout risk (≤ N days)</div>
-        <div id="kpiRiskCount" class="mono mt-1 text-2xl font-semibold">—</div>
-        <div id="kpiRiskRetail" class="mt-1 text-xs muted2">Retail at risk: —</div>
-      </div>
-
-      <div class="rounded-2xl p-4 shadow-sm panel">
-        <div class="text-sm muted">Avg days to OOS (nonzero)</div>
-        <div id="kpiAvgDays" class="mono mt-1 text-2xl font-semibold">—</div>
-        <div id="kpiAvgDaysSub" class="mt-1 text-xs muted2">Only rows where days_oos &gt; 0</div>
-      </div>
-
-      <div class="rounded-2xl p-4 shadow-sm panel">
-        <div class="text-sm muted">Location risk ranking</div>
-        <div id="kpiLocationRank" class="mt-2 text-sm">—</div>
-        <div class="mt-1 text-xs muted2">Ranked by retail-at-risk</div>
-      </div>
-
-      <div class="rounded-2xl p-4 shadow-sm panel">
-        <div class="text-sm muted">AP (all requests)</div>
-        <div class="mt-2 grid grid-cols-2 gap-3">
+      <div class="mt-4 card p-4">
+        <div class="flex items-center justify-between gap-2">
           <div>
-            <div class="text-xs muted2">Count</div>
-            <div id="apTotalCount" class="mono text-xl font-semibold">—</div>
-            <div id="apTotalAmt" class="text-xs muted2">—</div>
+            <div class="section-title">Signals</div>
+            <div class="mt-1 text-sm font-extrabold muted">Quick read</div>
           </div>
+          <div class="kbd">Q</div>
+        </div>
+
+        <div id="quickInsights" class="mt-3 space-y-2 text-sm">
+          <div class="text-sm muted2">Loading insights…</div>
+        </div>
+      </div>
+
+      <div class="mt-4 card p-4">
+        <div class="flex items-center justify-between gap-2">
           <div>
-            <div class="text-xs muted2">Outstanding</div>
-            <div id="apOutstandingAmt" class="mono text-xl font-semibold">—</div>
-            <div id="apOutstandingCount" class="text-xs muted2">—</div>
+            <div class="section-title">Trend</div>
+            <div class="mt-1 text-sm font-extrabold muted">Last 7 reloads</div>
           </div>
         </div>
-      </div>
 
-      <div class="rounded-2xl p-4 shadow-sm panel">
-        <div class="text-sm muted">AP due risk (outstanding)</div>
-        <div class="mt-2 grid grid-cols-2 gap-3">
-          <div>
-            <div class="text-xs muted2">Overdue</div>
-            <div id="apOverdueAmt" class="mono text-xl font-semibold">—</div>
-            <div id="apOverdueCount" class="text-xs muted2">—</div>
+        <div class="mt-3 space-y-2">
+          <div id="sparkCoverage" class="spark-wrap">
+            <div class="spark-meta">
+              <div class="spark-title">Coverage (days)</div>
+              <div id="sparkCoverageSub" class="spark-sub mono">—</div>
+            </div>
+            <svg class="spark" viewBox="0 0 120 34" aria-hidden="true">
+              <line class="axis" x1="0" y1="33" x2="120" y2="33"></line>
+              <polyline id="sparkCoverageLine" points=""></polyline>
+            </svg>
           </div>
-          <div>
-            <div class="text-xs muted2">Due next 7d</div>
-            <div id="apNext7Amt" class="mono text-xl font-semibold">—</div>
-            <div id="apNext7Count" class="text-xs muted2">—</div>
-          </div>
-        </div>
-      </div>
 
-      <div class="rounded-2xl p-4 shadow-sm panel">
-        <div class="text-sm muted">Marketing & releases</div>
-        <div class="mt-2 grid grid-cols-3 gap-3">
-          <div>
-            <div class="text-xs muted2">Total</div>
-            <div id="mktTotal" class="mono text-xl font-semibold">—</div>
-          </div>
-          <div>
-            <div class="text-xs muted2">This month</div>
-            <div id="mktMonth" class="mono text-xl font-semibold">—</div>
-          </div>
-          <div>
-            <div class="text-xs muted2">Next 7d</div>
-            <div id="mkt7" class="mono text-xl font-semibold">—</div>
+          <div id="sparkRisk" class="spark-wrap">
+            <div class="spark-meta">
+              <div class="spark-title">Retail at risk (%)</div>
+              <div id="sparkRiskSub" class="spark-sub mono">—</div>
+            </div>
+            <svg class="spark" viewBox="0 0 120 34" aria-hidden="true">
+              <line class="axis" x1="0" y1="33" x2="120" y2="33"></line>
+              <polyline id="sparkRiskLine" points=""></polyline>
+            </svg>
           </div>
         </div>
-        <div id="mktNextLine" class="mt-2 text-xs muted2">—</div>
-      </div>
-    </section>
 
-    <section class="rounded-2xl p-5 shadow-sm panel">
-      <div class="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h2 class="text-lg font-semibold">Today’s priorities</h2>
-          <p class="text-sm muted">Ops summary across Inventory, AP, and Marketing</p>
-        </div>
-        <div class="text-xs muted2">
-          Updated: <span id="lastUpdated">—</span>
+        <div class="mt-3 text-xs muted2">
+          Stored locally in this browser (no server).
         </div>
       </div>
 
-      <div class="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <div class="rounded-xl p-4"
-             style="border: 1px solid var(--border); background: color-mix(in oklab, var(--panel) 88%, transparent);">
-          <div class="text-sm font-medium">Inventory risk</div>
-          <div id="alertRisk" class="mt-1 text-sm muted">—</div>
-        </div>
-
-        <div class="rounded-xl p-4"
-             style="border: 1px solid var(--border); background: color-mix(in oklab, var(--panel) 88%, transparent);">
-          <div class="text-sm font-medium">Velocity concentration</div>
-          <div id="alertVelocity" class="mt-1 text-sm muted">—</div>
-        </div>
-
-        <div class="rounded-xl p-4"
-             style="border: 1px solid var(--border); background: color-mix(in oklab, var(--panel) 88%, transparent);">
-          <div class="text-sm font-medium">AP risk</div>
-          <div id="alertAp" class="mt-1 text-sm muted">—</div>
-        </div>
-
-        <div class="rounded-xl p-4"
-             style="border: 1px solid var(--border); background: color-mix(in oklab, var(--panel) 88%, transparent);">
-          <div class="text-sm font-medium">Marketing next up</div>
-          <div id="alertMkt" class="mt-1 text-sm muted">—</div>
+      <div class="mt-4 card p-4">
+        <div class="section-title">Shortcuts</div>
+        <div class="mt-3 grid grid-cols-2 gap-2 text-xs muted2">
+          <div class="flex items-center justify-between gap-2"><span>Reload</span><span class="kbd">⌘/Ctrl + K</span></div>
+          <div class="flex items-center justify-between gap-2"><span>Theme</span><span class="kbd">T</span></div>
+          <div class="flex items-center justify-between gap-2"><span>Breakdown</span><span class="kbd">B</span></div>
+          <div class="flex items-center justify-between gap-2"><span>Marketing</span><span class="kbd">M</span></div>
         </div>
       </div>
+    </aside>
 
-      <div class="mt-4 rounded-xl p-4" style="border: 1px solid var(--border);">
-        <div class="text-sm font-medium">Ops narrative</div>
-        <div id="opsSummary" class="mt-2 text-sm leading-relaxed muted">—</div>
-      </div>
-    </section>
+    <!-- ========== Main ========== -->
+    <main class="main">
+      <div class="container space-y-4">
 
-    <section class="rounded-2xl p-5 shadow-sm panel">
-      <div class="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h2 class="text-lg font-semibold">Sales report (Power BI)</h2>
-          <p class="text-sm muted">Embedded view</p>
+        <!-- Header row: Snapshot + PowerBI -->
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-12">
+          <div class="card p-5 lg:col-span-5">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <div class="section-title">Snapshot</div>
+                <h2 class="mt-2 text-xl font-semibold tracking-tight">Company cockpit</h2>
+                <p class="mt-2 text-sm muted">
+                  Inventory risk, payables pressure, and sales momentum in one view.
+                </p>
+              </div>
+              <div class="flex flex-col items-end gap-2">
+                <span id="healthPill" class="pill"><span class="dot" style="background: var(--accent)"></span>Health: —</span>
+                <span class="pill"><span class="dot" style="background: var(--accent)"></span>Threshold: <span id="thresholdPill" class="mono">14</span>d</span>
+              </div>
+            </div>
+
+            <div class="mt-4 grid grid-cols-2 gap-3">
+              <div class="card p-4" style="background: var(--panel2); box-shadow:none;">
+                <div class="section-title">Inventory</div>
+                <div class="mt-2 text-sm font-extrabold muted">Retail exposure</div>
+                <div id="kpiRetail" class="mono text-2xl font-black mt-2">—</div>
+                <div id="kpiAvgMsrp" class="mt-1 text-xs muted2">Avg MSRP / unit: —</div>
+              </div>
+
+              <div class="card p-4" style="background: var(--panel2); box-shadow:none;">
+                <div class="section-title">Risk</div>
+                <div class="mt-2 text-sm font-extrabold muted">Retail at risk</div>
+                <div id="kpiRiskRetail" class="mono text-2xl font-black mt-2">—</div>
+                <div class="mt-1 text-xs muted2">
+                  <span id="kpiRiskPct">—</span> of inventory retail
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-4 flex flex-wrap items-center gap-2">
+              <span class="pill"><span class="dot" style="background: var(--accent)"></span>Units: <span id="kpiUnits" class="mono">—</span></span>
+              <span class="pill pill-good"><span class="dot" style="background: var(--good)"></span>Sold 30d: <span id="kpiSold30" class="mono">—</span></span>
+              <span class="pill pill-warn"><span class="dot" style="background: var(--warn)"></span>Risk SKUs: <span id="kpiRiskCount" class="mono">—</span></span>
+            </div>
+
+            <div class="mt-3 text-xs muted2">
+              <span id="kpiVelocity">Top 50 sellers = —</span>
+            </div>
+          </div>
+
+          <div class="card p-5 lg:col-span-7">
+            <div class="flex items-start justify-between gap-3 flex-wrap">
+              <div>
+                <div class="section-title">Sales</div>
+                <h3 class="mt-2 text-lg font-semibold">Power BI report</h3>
+                <p class="mt-1 text-sm muted">Embedded view for quick checks.</p>
+              </div>
+              <a id="pbiOpenNewTab" class="btn" href="#" target="_blank" rel="noreferrer">Open in new tab</a>
+            </div>
+
+            <div class="mt-4 overflow-hidden rounded-xl" style="border: 1px solid var(--border); box-shadow: var(--shadow1);">
+              <iframe id="pbiIframe"
+                      title="Power BI Sales Report"
+                      class="w-full"
+                      style="height: 520px; background: var(--panel2);"
+                      src=""
+                      allowfullscreen="true"></iframe>
+            </div>
+          </div>
         </div>
-        <a id="pbiOpenNewTab"
-           class="text-sm font-medium underline underline-offset-4 hover:opacity-80"
-           href="#"
-           target="_blank" rel="noreferrer">
-          Open in new tab
-        </a>
-      </div>
 
-      <div class="mt-4 overflow-hidden rounded-2xl" style="border: 1px solid var(--border);">
-        <iframe id="pbiIframe"
-                title="Power BI Sales Report"
-                class="w-full"
-                style="height: 560px;"
-                src=""
-                allowfullscreen="true"></iframe>
-      </div>
-    </section>
+        <!-- KPIs + right panels -->
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-12">
+          <section class="lg:col-span-8 space-y-4">
+            <div class="flex items-end justify-between gap-3 flex-wrap">
+              <div>
+                <div class="section-title">KPIs</div>
+                <div class="mt-1 text-sm font-extrabold muted">Coverage + stockout signal</div>
+              </div>
+              <div class="text-xs muted2">Avg days uses rows where days_oos &gt; 0.</div>
+            </div>
 
-    <section class="rounded-2xl p-5 shadow-sm panel">
-      <div class="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h2 class="text-lg font-semibold">Load status</h2>
-          <p class="text-sm muted">Success/warnings/errors by source</p>
+            <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div class="card kpi">
+                <div class="label">
+                  Units on hand
+                  <span class="pill"><span class="dot" style="background: var(--accent)"></span>Inventory</span>
+                </div>
+                <div>
+                  <div id="kpiUnits__dup" class="mono value">—</div>
+                  <div id="kpiUnitsSub" class="sub">Across loaded location-rows</div>
+                </div>
+              </div>
+
+              <div class="card kpi">
+                <div class="label">
+                  30d coverage (days)
+                  <span class="pill"><span class="dot" style="background: var(--accent)"></span>Coverage</span>
+                </div>
+                <div>
+                  <div id="kpiCoverageDays" class="mono value">—</div>
+                  <div id="kpiCoverageDaysSub" class="sub">Total units / total avg/day</div>
+                </div>
+              </div>
+
+              <div class="card kpi">
+                <div class="label">
+                  Avg days to OOS (nonzero)
+                  <span class="pill"><span class="dot" style="background: var(--accent)"></span>Signal</span>
+                </div>
+                <div>
+                  <div id="kpiAvgDays" class="mono value">—</div>
+                  <div id="kpiAvgDaysSub" class="sub">Only rows where days_oos &gt; 0</div>
+                </div>
+              </div>
+
+              <div class="card kpi">
+                <div class="label">
+                  Retail at-risk % of inventory
+                  <span class="pill pill-warn"><span class="dot" style="background: var(--warn)"></span>Share</span>
+                </div>
+                <div>
+                  <div id="kpiRiskPct__dup" class="mono value">—</div>
+                  <div id="kpiRiskPctSub" class="sub">Risk retail / total retail</div>
+                </div>
+              </div>
+
+              <div class="card kpi">
+                <div class="label">
+                  Stockout risk (≤ N days)
+                  <span class="pill pill-warn"><span class="dot" style="background: var(--warn)"></span>Risk</span>
+                </div>
+                <div>
+                  <div id="kpiRiskCount__dup" class="mono value">—</div>
+                  <div class="sub">Open the at-risk list for full detail.</div>
+                </div>
+              </div>
+
+              <div class="card kpi">
+                <div class="label">
+                  Data health
+                  <span class="pill"><span class="dot" style="background: var(--accent)"></span>Integrity</span>
+                </div>
+                <div>
+                  <div id="kpiHealth" class="value">—</div>
+                  <div id="kpiHealthSub" class="sub">Warnings + errors across sources</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Load status board -->
+            <div class="card p-5">
+              <div class="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <div class="section-title">Operations</div>
+                  <h3 class="mt-2 text-lg font-semibold">Load status</h3>
+                  <p class="mt-1 text-sm muted">Success/warnings/errors by source</p>
+                </div>
+                <div class="text-xs muted2">Header changes surface here immediately.</div>
+              </div>
+
+              <div id="statusSummary" class="mt-3 text-sm muted">—</div>
+
+              <div class="mt-3 overflow-x-auto scrollbar">
+                <table class="table min-w-full text-sm">
+                  <thead>
+                    <tr>
+                      <th class="text-left">Source</th>
+                      <th class="text-right">Rows</th>
+                      <th class="text-left">Warnings</th>
+                      <th class="text-left">Errors</th>
+                    </tr>
+                  </thead>
+                  <tbody id="statusTable"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <aside class="lg:col-span-4 space-y-4">
+            <!-- AP -->
+            <div class="card p-5">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="section-title">Cash</div>
+                  <h3 class="mt-2 text-lg font-semibold">AP pressure</h3>
+                  <p class="mt-1 text-sm muted">Outstanding vs overdue.</p>
+                </div>
+                <span class="pill pill-danger"><span class="dot" style="background: var(--danger)"></span>Overdue % <span id="kpiApOverduePct" class="mono">—</span></span>
+              </div>
+
+              <div class="mt-4 grid grid-cols-2 gap-3">
+                <div class="card p-4" style="background: var(--panel2); box-shadow:none;">
+                  <div class="text-[11px] uppercase tracking-wide muted2" style="font-weight: 900;">Total</div>
+                  <div id="apTotalCount" class="mono text-xl font-black mt-1">—</div>
+                  <div id="apTotalAmt" class="mt-1 text-xs muted2">—</div>
+                </div>
+                <div class="card p-4" style="background: var(--panel2); box-shadow:none;">
+                  <div class="text-[11px] uppercase tracking-wide muted2" style="font-weight: 900;">Outstanding</div>
+                  <div id="apOutstandingAmt" class="mono text-xl font-black mt-1">—</div>
+                  <div id="apOutstandingCount" class="mt-1 text-xs muted2">—</div>
+                </div>
+              </div>
+
+              <div class="mt-3 grid grid-cols-2 gap-3">
+                <div class="card p-4" style="background: var(--panel2); box-shadow:none;">
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="text-[11px] uppercase tracking-wide muted2" style="font-weight: 900;">Overdue</div>
+                    <span class="pill pill-danger"><span class="dot" style="background: var(--danger)"></span></span>
+                  </div>
+                  <div id="apOverdueAmt" class="mono text-xl font-black mt-2">—</div>
+                  <div id="apOverdueCount" class="mt-1 text-xs muted2">—</div>
+                </div>
+                <div class="card p-4" style="background: var(--panel2); box-shadow:none;">
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="text-[11px] uppercase tracking-wide muted2" style="font-weight: 900;">Due next 7d</div>
+                    <span class="pill pill-warn"><span class="dot" style="background: var(--warn)"></span></span>
+                  </div>
+                  <div id="apNext7Amt" class="mono text-xl font-black mt-2">—</div>
+                  <div id="apNext7Count" class="mt-1 text-xs muted2">—</div>
+                </div>
+              </div>
+
+              <div class="mt-3 text-xs muted2">
+                <span id="kpiApOverduePctSub">Overdue amount / outstanding</span>
+              </div>
+            </div>
+
+            <!-- Location rank -->
+            <div class="card p-5">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="section-title">Operations</div>
+                  <h3 class="mt-2 text-lg font-semibold">Location risk ranking</h3>
+                  <p class="mt-1 text-sm muted">By retail-at-risk.</p>
+                </div>
+                <span class="pill pill-warn"><span class="dot" style="background: var(--warn)"></span>Top 3</span>
+              </div>
+
+              <div id="kpiLocationRank" class="mt-4 text-sm space-y-2">—</div>
+            </div>
+
+            <!-- Top at-risk SKUs (new) -->
+            <div class="card p-5">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="section-title">Risk</div>
+                  <h3 class="mt-2 text-lg font-semibold">Top at-risk SKUs</h3>
+                  <p class="mt-1 text-sm muted">Sorted by retail at risk.</p>
+                </div>
+                <span class="pill pill-warn"><span class="dot" style="background: var(--warn)"></span>Top 10</span>
+              </div>
+
+              <div id="topRiskSkus" class="mt-4 space-y-2 text-sm">
+                <div class="text-sm muted2">Loading…</div>
+              </div>
+
+              <div class="mt-3 text-xs muted2">
+                Uses selected threshold. Retail = inv_value field.
+              </div>
+            </div>
+
+            <!-- Demand concentration (kept) -->
+            <div class="card p-5">
+              <div class="section-title">Demand</div>
+              <h3 class="mt-2 text-lg font-semibold">Sales concentration</h3>
+              <p class="mt-1 text-sm muted">Top movers drive volume.</p>
+
+              <div class="mt-3 flex flex-wrap items-center gap-2">
+                <span class="pill pill-good"><span class="dot" style="background: var(--good)"></span>Sold 30d <span id="kpiSold30__dup" class="mono">—</span></span>
+                <span class="pill"><span class="dot" style="background: var(--accent)"></span><span id="kpiVelocity__dup">Top 50 sellers = —</span></span>
+              </div>
+            </div>
+          </aside>
         </div>
-        <div class="text-xs muted2">If headers rename/missing, warnings show here immediately.</div>
       </div>
+    </main>
+  </div>
 
-      <div id="statusSummary" class="mt-3 text-sm muted">—</div>
-
-      <div class="mt-3 overflow-x-auto scrollbar">
-        <table class="min-w-full text-sm">
-          <thead class="text-xs uppercase muted2">
-            <tr class="border-b" style="border-color: var(--border);">
-              <th class="py-2 pr-4 text-left font-medium">Source</th>
-              <th class="py-2 pr-4 text-right font-medium">Rows</th>
-              <th class="py-2 pr-4 text-left font-medium">Warnings</th>
-              <th class="py-2 pr-4 text-left font-medium">Errors</th>
-            </tr>
-          </thead>
-          <tbody id="statusTable" class="divide-y" style="border-color: var(--border);"></tbody>
-        </table>
-      </div>
-    </section>
-  </main>
-
+  <!-- ========== Breakdown dialog ========== -->
   <dialog id="breakdownDialog" class="w-[min(980px,calc(100vw-24px))] rounded-2xl p-0 shadow-xl">
-    <div class="rounded-2xl overflow-hidden panel">
+    <div class="card overflow-hidden" style="box-shadow: var(--shadow2); border-radius: 14px;">
       <div class="flex items-start justify-between gap-3 border-b p-4" style="border-color: var(--border);">
         <div>
-          <div class="text-xs muted2">Silo ERP</div>
+          <div class="text-xs muted2 font-black">Silo ERP</div>
           <div class="text-lg font-semibold">Inventory breakdown by location</div>
           <div id="breakdownSubtitle" class="mt-1 text-sm muted">—</div>
         </div>
-        <button id="closeBreakdownBtn"
-                class="rounded-lg border px-3 py-2 text-sm font-medium hover:opacity-90"
-                style="border-color: var(--border); background: var(--panel);">
-          Close
-        </button>
+        <button id="closeBreakdownBtn" class="btn">Close</button>
       </div>
 
       <div class="p-4 overflow-x-auto scrollbar">
-        <table class="min-w-full text-sm">
-          <thead class="text-xs uppercase muted2">
-            <tr class="border-b" style="border-color: var(--border);">
-              <th class="py-2 pr-4 text-left font-medium">Location</th>
-              <th class="py-2 pr-4 text-right font-medium">Units</th>
-              <th class="py-2 pr-4 text-right font-medium">Retail</th>
-              <th class="py-2 pr-4 text-right font-medium">Sold 30d</th>
-              <th class="py-2 pr-4 text-right font-medium">Risk count</th>
-              <th class="py-2 pr-4 text-right font-medium">Retail at risk</th>
-              <th class="py-2 pr-4 text-right font-medium">Avg days to OOS</th>
-              <th class="py-2 pr-4 text-left font-medium">Notes</th>
+        <table class="table min-w-full text-sm">
+          <thead>
+            <tr>
+              <th class="text-left">Location</th>
+              <th class="text-right">Units</th>
+              <th class="text-right">Retail</th>
+              <th class="text-right">Sold 30d</th>
+              <th class="text-right">Risk count</th>
+              <th class="text-right">Retail at risk</th>
+              <th class="text-right">Avg days to OOS</th>
+              <th class="text-left">Notes</th>
             </tr>
           </thead>
-          <tbody id="breakdownTable" class="divide-y" style="border-color: var(--border);"></tbody>
+          <tbody id="breakdownTable"></tbody>
         </table>
       </div>
 
-      <div class="border-t p-4" style="border-color: var(--border); background: color-mix(in oklab, var(--panel) 88%, transparent);">
+      <div class="border-t p-4" style="border-color: var(--border); background: var(--panel2);">
         <div class="text-xs muted2">
           Risk uses selected threshold. days_oos computed per SKU; avg days excludes zeros.
         </div>
       </div>
     </div>
   </dialog>
+
+  <!-- ========== Marketing drawer ========== -->
+  <div id="mktDrawer" class="drawer" aria-hidden="true">
+    <div class="overlay" id="mktOverlay"></div>
+    <div class="panel">
+      <div class="p-5 border-b" style="border-color: var(--border);">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="section-title">Marketing</div>
+            <h3 class="mt-2 text-lg font-semibold">Launch timeline</h3>
+            <p class="mt-1 text-sm muted">From calendar sheet — sorted by date/time.</p>
+          </div>
+          <button id="closeMarketingBtn" class="btn">Close</button>
+        </div>
+
+        <div class="mt-4 flex items-center gap-2 flex-wrap">
+          <button id="mktFilterAll" class="btn btn-ghost" data-filter="all">All</button>
+          <button id="mktFilter7" class="btn btn-ghost" data-filter="7">Next 7d</button>
+          <button id="mktFilter30" class="btn btn-ghost" data-filter="30">Next 30d</button>
+          <div class="ml-auto text-xs muted2">
+            Events: <span id="mktCount" class="mono">—</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-5 overflow-y-auto scrollbar" style="flex: 1;">
+        <div id="mktList" class="timeline">
+          <div class="text-sm muted2">Loading…</div>
+        </div>
+      </div>
+
+      <div class="p-5 border-t" style="border-color: var(--border); background: var(--panel2);">
+        <div class="text-xs muted2">
+          Shows only meaningful rows (event/type/des/assets/details/time/tz/img/files).
+        </div>
+      </div>
+    </div>
+  </div>
 
   <script>
     // ====== Required sources (copy exactly) ======
@@ -381,7 +866,7 @@
       last_sold_date: ["last_sold_date", "Last sold date", "last sold", "Last Sold", "last_sold"]
     };
 
-    // AP header aliases (your AP sheet has duplicate "Type"; we handle occurrence 0/1)
+    // AP header aliases
     const APH = {
       submission: ["Submission Date","Submitted","Created","Date Submitted"],
       vendorA: ["Vendor"],
@@ -405,6 +890,9 @@
 
     // ====== DOM ======
     const el = (id) => document.getElementById(id);
+    const setText = (id, text) => { const n = el(id); if (n) n.textContent = text; };
+    const setHtml = (id, html) => { const n = el(id); if (n) n.innerHTML = html; };
+
     const thresholdSelect = el("thresholdSelect");
     const reloadBtn = el("reloadBtn");
     const openRiskInventoryBtn = el("openRiskInventoryBtn");
@@ -417,16 +905,34 @@
     const themeLabel = el("themeLabel");
     const THEME_KEY = "silo_exec_theme_v1";
 
+    const quickInsights = el("quickInsights");
+    const healthPill = el("healthPill");
+    const thresholdPill = el("thresholdPill");
+
+    const openMarketingBtn = el("openMarketingBtn");
+    const mktDrawer = el("mktDrawer");
+    const mktOverlay = el("mktOverlay");
+    const closeMarketingBtn = el("closeMarketingBtn");
+    const mktList = el("mktList");
+    const mktCount = el("mktCount");
+    const mktFilterAll = el("mktFilterAll");
+    const mktFilter7 = el("mktFilter7");
+    const mktFilter30 = el("mktFilter30");
+
+    const topRiskSkus = el("topRiskSkus");
+
+    const sparkCoverageLine = el("sparkCoverageLine");
+    const sparkRiskLine = el("sparkRiskLine");
+    const sparkCoverageSub = el("sparkCoverageSub");
+    const sparkRiskSub = el("sparkRiskSub");
+
     // ====== State ======
     const state = {
       thresholdDays: 14,
-
       invRows: [],
       invStatsByLocation: new Map(),
-
       ap: { rows: [], warnings: [], errors: [], loadedAt: null },
       mkt: { events: [], warnings: [], errors: [], loadedAt: null },
-
       loadStartedAt: null,
       loadFinishedAt: null
     };
@@ -434,9 +940,15 @@
     // ====== Utils ======
     function fmtInt(n) { return Number.isFinite(n) ? Math.round(n).toLocaleString() : "—"; }
     function fmtNum(n, digits = 1) {
-      return Number.isFinite(n) ? n.toLocaleString(undefined,{maximumFractionDigits:digits,minimumFractionDigits:digits}) : "—";
+      return Number.isFinite(n)
+        ? n.toLocaleString(undefined,{maximumFractionDigits:digits,minimumFractionDigits:digits})
+        : "—";
     }
-    function fmtMoney(n) { return Number.isFinite(n) ? n.toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:0}) : "—"; }
+    function fmtMoney(n) {
+      return Number.isFinite(n)
+        ? n.toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:0})
+        : "—";
+    }
     function safeLower(s) { return String(s ?? "").trim().toLowerCase(); }
     function toNumber(v) {
       const s = String(v ?? "").trim();
@@ -447,7 +959,8 @@
     }
     function normalizeKeyParts(parts) { return parts.map(p => String(p ?? "").trim()).join("||").toLowerCase(); }
     function escapeHtml(str) {
-      return String(str ?? "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+      return String(str ?? "")
+        .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
         .replaceAll('"',"&quot;").replaceAll("'","&#039;");
     }
 
@@ -634,7 +1147,6 @@
         const existing = dedupe.get(key);
         if (!existing) { dedupe.set(key, candidate); continue; }
 
-        // Parity-friendly: do NOT sum duplicates; keep best/max values.
         existing.avail_qty = Math.max(existing.avail_qty, candidate.avail_qty);
         existing.inv_value = Math.max(existing.inv_value, candidate.inv_value);
         existing.sold_30 = Math.max(existing.sold_30, candidate.sold_30);
@@ -710,8 +1222,10 @@
       let units = 0, retail = 0, sold30Total = 0;
       let riskCount = 0, riskRetail = 0;
       let avgDaysSum = 0, avgDaysCount = 0;
+      let totalAvgPerDay = 0;
 
       const soldList = [];
+      const riskRows = [];
 
       for (const row of state.invRows) {
         const s = ensureInvStats(row.location);
@@ -719,11 +1233,13 @@
         const avail = Number(row.avail_qty ?? 0);
         const value = Number(row.inv_value ?? 0);
         const sold30 = Number(row.sold_30 ?? 0);
+        const avgDay = Number(row.avg_day_30 ?? 0);
 
         units += avail; retail += value; sold30Total += sold30;
         s.units += avail; s.retail += value; s.sold30 += sold30;
 
         if (sold30 > 0) soldList.push(sold30);
+        if (avgDay > 0) totalAvgPerDay += avgDay;
 
         const days = computeDaysOos(row);
         if (days > 0) {
@@ -737,14 +1253,13 @@
           riskRetail += value;
           s.riskCount++;
           s.riskRetail += value;
+          riskRows.push({ row, days, value });
         }
       }
 
       soldList.sort((a, b) => b - a);
       const sumTop = (n) => soldList.slice(0, n).reduce((s, v) => s + v, 0);
-      const top20 = sumTop(20);
       const top50 = sumTop(50);
-      const top200 = sumTop(200);
       const pct = (num, den) => (den > 0 ? (num / den) : 0);
 
       const ranked = Array.from(state.invStatsByLocation.values())
@@ -752,57 +1267,124 @@
         .sort((a, b) => (b.riskRetail - a.riskRetail) || (b.riskCount - a.riskCount));
       const top3 = ranked.slice(0, 3);
 
-      el("kpiUnits").textContent = fmtInt(units);
-      el("kpiRetail").textContent = fmtMoney(retail);
+      setText("kpiUnits", fmtInt(units));
+      setText("kpiUnits__dup", fmtInt(units));
+
+      setText("kpiRetail", fmtMoney(retail));
 
       const avgMsrpUnit = units > 0 ? (retail / units) : 0;
-      el("kpiAvgMsrp").textContent = `Avg MSRP / unit: ${units > 0 ? fmtMoney(avgMsrpUnit) : "—"}`;
+      setText("kpiAvgMsrp", `Avg MSRP / unit: ${units > 0 ? fmtMoney(avgMsrpUnit) : "—"}`);
 
-      el("kpiSold30").textContent = fmtInt(sold30Total);
-      el("kpiVelocity").textContent = sold30Total > 0
+      setText("kpiSold30", fmtInt(sold30Total));
+      setText("kpiSold30__dup", fmtInt(sold30Total));
+
+      const velocityText = sold30Total > 0
         ? `Top 50 sellers = ${fmtNum(pct(top50, sold30Total) * 100, 1)}% of 30d units`
         : "Top 50 sellers = —";
+      setText("kpiVelocity", velocityText);
+      setText("kpiVelocity__dup", velocityText);
 
-      el("kpiRiskCount").textContent = fmtInt(riskCount);
-      el("kpiRiskRetail").textContent = `Retail at risk: ${fmtMoney(riskRetail)}`;
+      setText("kpiRiskCount", fmtInt(riskCount));
+      setText("kpiRiskCount__dup", fmtInt(riskCount));
+      setText("kpiRiskRetail", `Retail at risk: ${fmtMoney(riskRetail)}`);
 
-      el("kpiAvgDays").textContent = avgDaysCount > 0 ? fmtNum(avgDaysSum / avgDaysCount, 1) : "—";
-      el("kpiAvgDaysSub").textContent = avgDaysCount > 0
+      setText("kpiAvgDays", avgDaysCount > 0 ? fmtNum(avgDaysSum / avgDaysCount, 1) : "—");
+      setText("kpiAvgDaysSub", avgDaysCount > 0
         ? `Computed across ${fmtInt(avgDaysCount)} rows with days_oos > 0`
-        : "No rows with days_oos > 0";
+        : "No rows with days_oos > 0"
+      );
 
-      el("kpiLocationRank").innerHTML = top3.length
-        ? top3.map((s, i) => {
-            const badge = `<span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium chip">${i + 1}</span>`;
-            return `<div class="flex items-center justify-between gap-2">
-                <div class="flex items-center gap-2">${badge}<span class="font-medium">${escapeHtml(s.label)}</span></div>
-                <div class="mono muted">${fmtMoney(s.riskRetail)} <span class="text-xs muted2">(${fmtInt(s.riskCount)} SKUs)</span></div>
+      const locRank = el("kpiLocationRank");
+      if (locRank) {
+        locRank.innerHTML = top3.length
+          ? top3.map((s, i) => {
+              return `<div class="flex items-center justify-between gap-3">
+                <div class="flex items-center gap-2">
+                  <span class="mono" style="min-width: 18px; font-weight: 900; color: var(--muted2);">${i + 1}</span>
+                  <span style="font-weight: 900;">${escapeHtml(s.label)}</span>
+                </div>
+                <div class="mono" style="color: var(--muted); font-weight: 900;">
+                  ${fmtMoney(s.riskRetail)}
+                  <span style="color: var(--muted2); font-weight: 900; font-size: 12px;">(${fmtInt(s.riskCount)} SKUs)</span>
+                </div>
               </div>`;
-          }).join("")
-        : "—";
+            }).join("")
+          : "—";
+      }
 
-      const n = threshold;
-      el("alertRisk").textContent = riskCount === 0
-        ? `No SKUs projected to stock out within ${n} days.`
-        : `${fmtInt(riskCount)} SKUs at risk (≤ ${n} days) • ${fmtMoney(riskRetail)} retail.`;
+      const riskPct = retail > 0 ? (riskRetail / retail) : 0;
+      const riskPctText = retail > 0 ? `${fmtNum(riskPct * 100, 1)}%` : "—";
+      setText("kpiRiskPct", riskPctText);
+      setText("kpiRiskPct__dup", riskPctText);
+      setText("kpiRiskPctSub", retail > 0 ? `${fmtMoney(riskRetail)} / ${fmtMoney(retail)}` : "Risk retail / total retail");
 
-      el("alertVelocity").textContent = sold30Total === 0
-        ? "No 30d sales found… check sales_summary headers (SKU, qty_30d, avg_day_30) or inventory fallback fields."
-        : `Top 50 sellers = ${fmtNum(pct(top50, sold30Total) * 100, 1)}% of 30d units (Top 20: ${fmtNum(pct(top20, sold30Total) * 100, 1)}%, Top 200: ${fmtNum(pct(top200, sold30Total) * 100, 1)}%).`;
+      const coverageDays = totalAvgPerDay > 0 ? (units / totalAvgPerDay) : 0;
+      setText("kpiCoverageDays", totalAvgPerDay > 0 ? fmtNum(coverageDays, 1) : "—");
+      setText("kpiCoverageDaysSub", totalAvgPerDay > 0
+        ? `Units ${fmtInt(units)} / Avg/day ${fmtNum(totalAvgPerDay, 1)}`
+        : "No avg/day rows (check sales summary)"
+      );
 
-      renderBreakdownTable(n);
+      renderBreakdownTable(threshold);
+      renderQuickInsights({ units, retail, sold30Total, riskCount, riskRetail, riskPct, coverageDays, topLocation: top3[0] || null, velocityText });
+      renderTopRiskSkus(riskRows);
+      pushHistoryAndRenderSparks({ coverageDays, riskPct });
 
-      return { units, retail, sold30Total, riskCount, riskRetail, avgDays: (avgDaysCount ? (avgDaysSum / avgDaysCount) : 0), top3, top50Pct: pct(top50, sold30Total) };
+      return { units, retail, sold30Total, riskCount, riskRetail, coverageDays, riskPct };
+    }
+
+    function renderTopRiskSkus(riskRows){
+      if (!topRiskSkus) return;
+
+      const rows = (riskRows || [])
+        .slice()
+        .sort((a,b) => (b.value - a.value) || (a.days - b.days))
+        .slice(0, 10);
+
+      if (!rows.length){
+        topRiskSkus.innerHTML = `<div class="text-sm muted2">No at-risk SKUs under this threshold.</div>`;
+        return;
+      }
+
+      topRiskSkus.innerHTML = rows.map(({ row, days, value }) => {
+        const sku = String(row.sku || "").trim() || "—";
+        const title = String(row.product_title || "").trim() || "Untitled";
+        const variant = String(row.variant_title || "").trim();
+        const loc = String(row.location || "").trim() || "—";
+        const daysTxt = Number.isFinite(days) && days > 0 ? fmtNum(days, 1) : "—";
+
+        return `
+          <div class="flex items-start justify-between gap-3 p-3 rounded-xl" style="border:1px solid var(--border); background: var(--panel2);">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="pill pill-warn" style="padding:.12rem .55rem;"><span class="dot" style="background: var(--warn)"></span>${escapeHtml(daysTxt)}d</span>
+                <span class="mono" style="font-weight: 950;">${escapeHtml(sku)}</span>
+                <span class="pill" style="padding:.12rem .55rem;"><span class="dot" style="background: var(--accent)"></span>${escapeHtml(loc)}</span>
+              </div>
+              <div class="mt-1 text-sm" style="font-weight: 900; white-space: nowrap; overflow:hidden; text-overflow: ellipsis;">
+                ${escapeHtml(title)}
+              </div>
+              ${variant ? `<div class="mt-1 text-xs muted2" style="white-space: nowrap; overflow:hidden; text-overflow: ellipsis;">${escapeHtml(variant)}</div>` : `<div class="mt-1 text-xs muted2">—</div>`}
+            </div>
+            <div class="text-right">
+              <div class="mono" style="font-weight: 950;">${fmtMoney(value)}</div>
+              <div class="text-xs muted2">retail at risk</div>
+            </div>
+          </div>
+        `;
+      }).join("");
     }
 
     function renderBreakdownTable(threshold) {
-      el("breakdownSubtitle").textContent = `Risk threshold: ≤ ${threshold} days • Ranked by retail-at-risk`;
+      const sub = el("breakdownSubtitle");
+      if (sub) sub.textContent = `Risk threshold: ≤ ${threshold} days • Ranked by retail-at-risk`;
 
       const rows = Array.from(state.invStatsByLocation.values())
         .filter(s => LOCATIONS.some(l => l.label === s.label))
         .sort((a, b) => (b.riskRetail - a.riskRetail) || (b.riskCount - a.riskCount));
 
       const tbody = el("breakdownTable");
+      if (!tbody) return;
       tbody.innerHTML = "";
 
       for (const s of rows) {
@@ -813,14 +1395,14 @@
 
         const tr = document.createElement("tr");
         tr.innerHTML = `
-          <td class="py-2 pr-4 font-medium">${escapeHtml(s.label)}</td>
-          <td class="py-2 pr-4 text-right mono">${fmtInt(s.units)}</td>
-          <td class="py-2 pr-4 text-right mono">${fmtMoney(s.retail)}</td>
-          <td class="py-2 pr-4 text-right mono">${fmtInt(s.sold30)}</td>
-          <td class="py-2 pr-4 text-right mono">${fmtInt(s.riskCount)}</td>
-          <td class="py-2 pr-4 text-right mono">${fmtMoney(s.riskRetail)}</td>
-          <td class="py-2 pr-4 text-right mono">${s.avgDaysNonZeroCount > 0 ? fmtNum(avgDays, 1) : "—"}</td>
-          <td class="py-2 pr-4 muted">${notes.length ? escapeHtml(notes.join(" • ")) : "<span class='muted2'>—</span>"}</td>
+          <td style="font-weight: 900;">${escapeHtml(s.label)}</td>
+          <td class="text-right mono">${fmtInt(s.units)}</td>
+          <td class="text-right mono">${fmtMoney(s.retail)}</td>
+          <td class="text-right mono">${fmtInt(s.sold30)}</td>
+          <td class="text-right mono">${fmtInt(s.riskCount)}</td>
+          <td class="text-right mono">${fmtMoney(s.riskRetail)}</td>
+          <td class="text-right mono">${s.avgDaysNonZeroCount > 0 ? fmtNum(avgDays, 1) : "—"}</td>
+          <td class="muted">${notes.length ? escapeHtml(notes.join(" • ")) : "<span class='muted2'>—</span>"}</td>
         `;
         tbody.appendChild(tr);
       }
@@ -857,12 +1439,7 @@
       return Number.isNaN(t) ? null : new Date(t);
     }
     function startOfDay(d){ const x=new Date(d); x.setHours(0,0,0,0); return x; }
-    function median(nums){
-      const a = nums.filter(Number.isFinite).slice().sort((x,y)=>x-y);
-      if (!a.length) return null;
-      const m = Math.floor(a.length/2);
-      return a.length%2 ? a[m] : (a[m-1]+a[m])/2;
-    }
+
     function mapCompletionToStatus(completedRaw) {
       const s = String(completedRaw ?? "").toLowerCase().trim().replace(/\s+/g, " ");
       if (!s || s === "no" || s === "n" || s === "false" || s === "0") return "new";
@@ -872,7 +1449,6 @@
       return "new";
     }
 
-    // header index that supports duplicates (like your AP dashboard)
     function buildHeaderIndexMulti(cols){
       const labels=(cols||[]).map(c=>(c.label||"").trim());
       const map=new Map();
@@ -893,7 +1469,6 @@
               return arr[0];
             }
           }
-          // loose contains fallback
           for(const [k,arr] of map.entries()){
             for(const a of aliases){
               const needle=String(a).toLowerCase();
@@ -916,28 +1491,18 @@
         due: idx.getIndex(APH.due, -1, 0),
         completed: idx.getIndex(APH.completed, -1, 0),
         completedDate: idx.getIndex(APH.completedDate, -1, 0),
-        // not needed for KPIs, but helps debug if mapping breaks later
-        category: idx.getIndex(APH.category, -1, 0),
-        method: idx.getIndex(APH.method, -1, 1)
       };
 
-      const miss=[];
-      ["amount","due","completed"].forEach(k=>{ if(I[k] < 0) miss.push(k); });
-
-      return {
-        rows: rows.map(r=>{
-          const c=r.c||[];
-          const amount = I.amount>=0 ? toNumber(asCell(c,I.amount)) : 0;
-          const due = I.due>=0 ? parseDateAny(asCell(c,I.due)) : null;
-          const sub = I.submission>=0 ? parseDateAny(asCell(c,I.submission)) : null;
-          const completedRaw = I.completed>=0 ? asCell(c,I.completed) : "";
-          const status = mapCompletionToStatus(completedRaw);
-          const paidDate = I.completedDate>=0 ? parseDateAny(asCell(c,I.completedDate)) : null;
-          return { amount, due, submission: sub, status, paidDate };
-        }),
-        missingKpi: miss,
-        headerLabels: idx.labels
-      };
+      return rows.map(r=>{
+        const c=r.c||[];
+        const amount = I.amount>=0 ? toNumber(asCell(c,I.amount)) : 0;
+        const due = I.due>=0 ? parseDateAny(asCell(c,I.due)) : null;
+        const sub = I.submission>=0 ? parseDateAny(asCell(c,I.submission)) : null;
+        const completedRaw = I.completed>=0 ? asCell(c,I.completed) : "";
+        const status = mapCompletionToStatus(completedRaw);
+        const paidDate = I.completedDate>=0 ? parseDateAny(asCell(c,I.completedDate)) : null;
+        return { amount, due, submission: sub, status, paidDate };
+      });
     }
 
     async function loadAp() {
@@ -945,41 +1510,28 @@
       state.ap.warnings = [];
       state.ap.errors = [];
 
-      // Try GViz first (works even when CSV export isn't published)
       try{
         const t = await fetchText(AP_GVIZ_URL);
         const json = parseGViz(t);
-        if(!json || !json.table){
-          state.ap.warnings.push("AP GViz returned no table; trying CSV export fallback.");
-        }else{
-          const parsed = parseApFromGviz(json);
-          state.ap.rows = parsed.rows;
-          if(parsed.missingKpi.length){
-            state.ap.warnings.push(`AP missing KPI columns (GViz): ${parsed.missingKpi.join(", ")} (KPIs may be off)`);
-          }
+        if(json && json.table){
+          state.ap.rows = parseApFromGviz(json);
           state.ap.loadedAt = new Date();
           return;
         }
+        state.ap.warnings.push("AP GViz returned no table; trying CSV export fallback.");
       }catch(e){
         state.ap.warnings.push(`AP GViz failed; trying CSV export fallback (${String(e.message||e)})`);
       }
 
-      // CSV fallback
       try {
         const txt = await fetchText(AP_CSV_URL);
-        // If Google returns an HTML login page, detect and error clearly
         if (/<html/i.test(txt) && /google/i.test(txt)) {
           throw new Error("CSV export returned HTML (likely not published/public). GViz also failed.");
         }
-
         const table = parseCsv(txt);
         if (!table.length) { state.ap.warnings.push("AP CSV empty"); return; }
         const header = table[0];
         const { indices } = mapHeaders(header, APH, { category: 0, method: 1 });
-
-        const must = ["amount", "due", "completed"];
-        const missMust = must.filter(k => !(k in indices));
-        if (missMust.length) state.ap.warnings.push(`AP missing KPI headers (CSV): ${missMust.join(", ")} (KPIs may be off)`);
 
         const raw = table.slice(1);
         for (const r of raw) {
@@ -991,7 +1543,6 @@
           const paidDate = indices.completedDate !== undefined ? parseDateAny(r[indices.completedDate]) : null;
           state.ap.rows.push({ amount, due, submission: sub, status, paidDate });
         }
-
         state.ap.loadedAt = new Date();
       } catch (e) {
         state.ap.errors.push(`AP load failed: ${String(e.message || e)}`);
@@ -1022,39 +1573,21 @@
       const next7Count = next7.length;
       const next7Amt = next7.reduce((s,r)=>s + (r.amount || 0), 0);
 
-      const paid = rows.filter(r => r.status === "paid");
-      const payDays = paid.map(r => {
-        if (!r.submission || !r.paidDate) return null;
-        return Math.max(0, Math.floor((startOfDay(r.paidDate).getTime() - startOfDay(r.submission).getTime()) / 86400000));
-      }).filter(v => v != null);
+      setText("apTotalCount", fmtInt(totalCount));
+      setText("apTotalAmt", fmtMoney(totalAmt));
+      setText("apOutstandingAmt", fmtMoney(outstandingAmt));
+      setText("apOutstandingCount", `${fmtInt(outstandingCount)} items`);
 
-      const avgPayDays = payDays.length ? (payDays.reduce((a,b)=>a+b,0) / payDays.length) : null;
-      const medPayDays = median(payDays);
+      setText("apOverdueAmt", fmtMoney(overdueAmt));
+      setText("apOverdueCount", `${fmtInt(overdueCount)} items`);
+      setText("apNext7Amt", fmtMoney(next7Amt));
+      setText("apNext7Count", `${fmtInt(next7Count)} items`);
 
-      el("apTotalCount").textContent = fmtInt(totalCount);
-      el("apTotalAmt").textContent = fmtMoney(totalAmt);
-      el("apOutstandingAmt").textContent = fmtMoney(outstandingAmt);
-      el("apOutstandingCount").textContent = `${fmtInt(outstandingCount)} items`;
+      const apOverduePct = outstandingAmt > 0 ? (overdueAmt / outstandingAmt) : 0;
+      setText("kpiApOverduePct", outstandingAmt > 0 ? `${fmtNum(apOverduePct * 100, 1)}%` : "—");
+      setText("kpiApOverduePctSub", outstandingAmt > 0 ? `${fmtMoney(overdueAmt)} / ${fmtMoney(outstandingAmt)}` : "Overdue amount / outstanding");
 
-      el("apOverdueAmt").textContent = fmtMoney(overdueAmt);
-      el("apOverdueCount").textContent = `${fmtInt(overdueCount)} items`;
-      el("apNext7Amt").textContent = fmtMoney(next7Amt);
-      el("apNext7Count").textContent = `${fmtInt(next7Count)} items`;
-
-      if (totalCount === 0) {
-        el("alertAp").textContent = "No AP rows loaded. Check AP permissions/publishing (GViz/CSV) and headers.";
-      } else if (outstandingCount === 0) {
-        el("alertAp").textContent = `All AP items marked paid. Avg days to pay: ${avgPayDays == null ? "—" : `${avgPayDays.toFixed(1)}d`} (median ${medPayDays == null ? "—" : `${medPayDays.toFixed(0)}d`}).`;
-      } else {
-        const parts = [];
-        if (overdueCount > 0) parts.push(`${fmtInt(overdueCount)} overdue (${fmtMoney(overdueAmt)})`);
-        if (next7Count > 0) parts.push(`${fmtInt(next7Count)} due next 7d (${fmtMoney(next7Amt)})`);
-        if (!parts.length) parts.push(`Outstanding: ${fmtInt(outstandingCount)} (${fmtMoney(outstandingAmt)})`);
-        const timing = (avgPayDays == null) ? "" : ` • Avg pay time ${avgPayDays.toFixed(1)}d`;
-        el("alertAp").textContent = parts.join(" • ") + timing;
-      }
-
-      return { totalCount, totalAmt, outstandingCount, outstandingAmt, overdueCount, overdueAmt, next7Count, next7Amt, avgPayDays, medPayDays };
+      return { totalCount, outstandingAmt, overdueAmt };
     }
 
     // ====== Marketing (CSV-only) ======
@@ -1086,11 +1619,7 @@
 
         const h = headerRowDetect(rows);
         const header = rows[h] || [];
-        const { indices, missing } = mapHeaders(header, MKTH);
-
-        const required = ["date","event"];
-        const missReq = required.filter(k => !(k in indices));
-        if (missReq.length) state.mkt.warnings.push(`Marketing missing required headers: ${missReq.join(", ")} (KPIs may be off)`);
+        const { indices } = mapHeaders(header, MKTH);
 
         const fileIdx = header
           .map((c,i)=> /^file\s*\d+/i.test(String(c||"")) ? i : -1)
@@ -1120,49 +1649,69 @@
 
         state.mkt.events.sort((a,b)=>a.date-b.date || String(a.time||"").localeCompare(String(b.time||"")));
         state.mkt.loadedAt = new Date();
-
-        const optionalMissing = missing.filter(k => !required.includes(k));
-        if (optionalMissing.length) state.mkt.warnings.push(`Marketing missing optional headers: ${optionalMissing.join(", ")}`);
       } catch (e) {
         state.mkt.errors.push(`Marketing CSV failed: ${String(e.message || e)}`);
       }
     }
 
-    function fmtDateShort(d){ return d ? new Date(d).toLocaleDateString("en-US",{month:"short",day:"numeric"}) : "—"; }
-
-    function computeMktAndRender() {
-      const events = state.mkt.events || [];
-      const total = events.length;
-
+    function formatShortDate(d){
+      if(!(d instanceof Date)) return "—";
+      return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+    }
+    function daysFromNow(d){
       const now0 = startOfDay(new Date());
-      const monthStart = new Date(now0.getFullYear(), now0.getMonth(), 1);
-      const monthEnd = new Date(now0.getFullYear(), now0.getMonth() + 1, 0, 23,59,59,999);
-      const inMonth = events.filter(e => e.date >= monthStart && e.date <= monthEnd).length;
+      const d0 = startOfDay(d);
+      return Math.floor((d0.getTime() - now0.getTime()) / 86400000);
+    }
+    function renderMarketing(filterDays = "all"){
+      if (!mktList) return;
+      const events = state.mkt.events || [];
+      let filtered = events;
 
-      const next7End = new Date(now0); next7End.setDate(next7End.getDate() + 7);
-      const next7 = events.filter(e => e.date >= now0 && e.date < next7End).length;
-
-      el("mktTotal").textContent = fmtInt(total);
-      el("mktMonth").textContent = fmtInt(inMonth);
-      el("mkt7").textContent = fmtInt(next7);
-
-      const next = events.find(e => e.date >= now0) || null;
-      el("mktNextLine").textContent = next
-        ? `Next: ${fmtDateShort(next.date)} • ${String(next.event || "Untitled").slice(0, 70)}`
-        : "Next: —";
-
-      if (!total) el("alertMkt").textContent = "No marketing events loaded. Check Marketing CSV access / headers (Day, Date, Event).";
-      else if (next7 === 0) el("alertMkt").textContent = "No events in the next 7 days.";
-      else {
-        const upcoming = events
-          .filter(e => e.date >= now0 && e.date < next7End)
-          .slice(0, 3)
-          .map(e => `${fmtDateShort(e.date)}: ${(String(e.event||"Untitled").trim() || "Untitled")}`)
-          .join(" • ");
-        el("alertMkt").textContent = `${fmtInt(next7)} event(s) in next 7d • ${upcoming}`;
+      if (filterDays !== "all"){
+        const limit = Number(filterDays);
+        filtered = events.filter(e => {
+          const diff = daysFromNow(e.date);
+          return diff >= 0 && diff <= limit;
+        });
       }
 
-      return { total, inMonth, next7, next };
+      setText("mktCount", fmtInt(filtered.length));
+
+      if (!filtered.length){
+        mktList.innerHTML = `<div class="text-sm muted2">No events for this view.</div>`;
+        return;
+      }
+
+      mktList.innerHTML = filtered.slice(0, 200).map(ev => {
+        const diff = daysFromNow(ev.date);
+        const when = diff === 0 ? "Today" : (diff === 1 ? "Tomorrow" : (diff > 1 ? `In ${diff}d` : `${Math.abs(diff)}d ago`));
+        const title = ev.event || ev.type || "Launch";
+        const meta = `${formatShortDate(ev.date)} · ${when}${ev.time ? ` · ${escapeHtml(ev.time)}` : ""}${ev.tz ? ` ${escapeHtml(ev.tz)}` : ""}`;
+
+        const chips = [];
+        if (ev.type) chips.push(`<span class="chip">Type: ${escapeHtml(ev.type)}</span>`);
+        if (ev.des) chips.push(`<span class="chip">Designer: ${escapeHtml(ev.des)}</span>`);
+        if (ev.assets) chips.push(`<span class="chip">Assets: ${escapeHtml(ev.assets)}</span>`);
+        if (ev.img) chips.push(`<span class="chip">Img: ${escapeHtml(ev.img)}</span>`);
+        if ((ev.files||[]).length) chips.push(`<span class="chip">Files: ${escapeHtml(String(ev.files.length))}</span>`);
+
+        const details = ev.details ? `<div class="mt-2 text-sm muted">${escapeHtml(ev.details)}</div>` : "";
+
+        return `
+          <div class="tl-item">
+            <div class="tl-rail"><div class="tl-dot"></div></div>
+            <div class="tl-body">
+              <div class="tl-top">
+                <div class="tl-title">${escapeHtml(title)}</div>
+                <div class="tl-meta">${escapeHtml(meta)}</div>
+              </div>
+              ${details}
+              ${chips.length ? `<div class="tl-badges">${chips.join("")}</div>` : ""}
+            </div>
+          </div>
+        `;
+      }).join("");
     }
 
     // ====== Status ======
@@ -1180,16 +1729,17 @@
 
     function renderStatus() {
       const tbody = el("statusTable");
+      if (!tbody) return;
       tbody.innerHTML = "";
 
       const addRow = (source, rows, warnings, errors) => {
         const tr = document.createElement("tr");
         tr.className = "align-top";
         tr.innerHTML = `
-          <td class="py-2 pr-4 font-medium">${escapeHtml(source)}</td>
-          <td class="py-2 pr-4 text-right mono">${escapeHtml(String(rows))}</td>
-          <td class="py-2 pr-4 muted">${warnings ? escapeHtml(warnings) : "<span class='muted2'>—</span>"}</td>
-          <td class="py-2 pr-4 muted">${errors ? escapeHtml(errors) : "<span class='muted2'>—</span>"}</td>
+          <td style="font-weight: 900;">${escapeHtml(source)}</td>
+          <td class="text-right mono">${escapeHtml(String(rows))}</td>
+          <td class="muted">${warnings ? escapeHtml(warnings) : "<span class='muted2'>—</span>"}</td>
+          <td class="muted">${errors ? escapeHtml(errors) : "<span class='muted2'>—</span>"}</td>
         `;
         tbody.appendChild(tr);
       };
@@ -1218,53 +1768,190 @@
       const started = state.loadStartedAt ? state.loadStartedAt.toLocaleString() : "—";
       const health = summarizeHealth();
 
-      el("statusSummary").innerHTML = `
+      setHtml("statusSummary", `
         <div class="text-sm">
-          <span class="font-medium">Started:</span> ${escapeHtml(started)} &nbsp;·&nbsp;
-          <span class="font-medium">Finished:</span> ${escapeHtml(finished)} &nbsp;·&nbsp;
-          <span class="font-medium">Inventory rows (deduped):</span> <span class="mono">${fmtInt(invTotal)}</span> &nbsp;·&nbsp;
-          <span class="font-medium">Health:</span> ${escapeHtml(health.detail)}
+          <span style="font-weight: 900;">Started:</span> ${escapeHtml(started)} &nbsp;·&nbsp;
+          <span style="font-weight: 900;">Finished:</span> ${escapeHtml(finished)} &nbsp;·&nbsp;
+          <span style="font-weight: 900;">Inventory rows:</span> <span class="mono">${fmtInt(invTotal)}</span> &nbsp;·&nbsp;
+          <span style="font-weight: 900;">Health:</span> ${escapeHtml(health.detail)}
         </div>
-      `;
+      `);
+
+      const totalIssues = (health.errors || 0) + (health.warnings || 0);
+      setText("kpiHealth", totalIssues === 0 ? "Clean" : `${fmtInt(totalIssues)} issue(s)`);
+      setText("kpiHealthSub", totalIssues === 0 ? "No warnings or errors" : `${fmtInt(health.errors)} errors · ${fmtInt(health.warnings)} warnings`);
+
+      if (healthPill){
+        const isBad = (health.errors || 0) > 0;
+        const isWarn = !isBad && (health.warnings || 0) > 0;
+        const dotColor = isBad ? "var(--danger)" : (isWarn ? "var(--warn)" : "var(--good)");
+        healthPill.className = `pill ${isBad ? "pill-danger" : (isWarn ? "pill-warn" : "pill-good")}`;
+        healthPill.innerHTML = `<span class="dot" style="background:${dotColor}"></span>Health: ${escapeHtml(totalIssues === 0 ? "Clean" : health.detail)}`;
+      }
     }
 
-    // ====== Ops narrative ======
-    function renderOpsNarrative(inv, ap, mkt) {
-      const n = state.thresholdDays;
+    // ====== Sidebar insights (derived only) ======
+    function renderQuickInsights(ctx){
+      if (!quickInsights) return;
 
-      const topLocLine = inv.top3?.length
-        ? `Inventory risk concentrates in: ${inv.top3.map(s => `${s.label} (${fmtMoney(s.riskRetail)})`).join(", ")}.`
-        : "Inventory location ranking unavailable.";
+      const bullets = [];
 
-      const apLine = (ap.totalCount === 0)
-        ? "AP: no rows loaded (check AP permissions/publishing)."
-        : (ap.outstandingCount === 0)
-          ? `AP: all items paid.`
-          : `AP: ${fmtInt(ap.overdueCount)} overdue (${fmtMoney(ap.overdueAmt)}), ${fmtInt(ap.next7Count)} due next 7d (${fmtMoney(ap.next7Amt)}).`;
+      if (Number.isFinite(ctx.riskPct) && ctx.riskPct > 0){
+        bullets.push({
+          tone: ctx.riskPct >= 0.2 ? "warn" : "good",
+          text: `Risk exposure: ${fmtNum(ctx.riskPct*100,1)}% of retail at risk.`
+        });
+      }
 
-      const mktLine = (mkt.total === 0)
-        ? "Marketing: no events loaded (check Marketing CSV headers/access)."
-        : (mkt.next7 === 0)
-          ? "Marketing: no events next 7 days."
-          : `Marketing: ${fmtInt(mkt.next7)} event(s) next 7d; next up ${mkt.next ? `${fmtDateShort(mkt.next.date)} — ${String(mkt.next.event||"Untitled")}` : "—"}.`;
+      if (Number.isFinite(ctx.coverageDays) && ctx.coverageDays > 0){
+        bullets.push({
+          tone: ctx.coverageDays < ctxThresholdBand() ? "warn" : "good",
+          text: `Coverage: ${fmtNum(ctx.coverageDays,1)} days on 30d velocity.`
+        });
+      }
 
-      const health = summarizeHealth();
-      const healthLine = (health.warnings || health.errors)
-        ? `Data health: ${health.warnings} warning(s), ${health.errors} error(s). See Load status.`
-        : "Data health: all sources loaded cleanly.";
+      if (ctx.topLocation){
+        bullets.push({
+          tone: "warn",
+          text: `Top risk location: ${ctx.topLocation.label} at ${fmtMoney(ctx.topLocation.riskRetail)} (${fmtInt(ctx.topLocation.riskCount)} SKUs).`
+        });
+      }
 
-      const ops = [
-        `Threshold set to ${n} days. ${inv.riskCount === 0 ? "No imminent stockouts." : `Prioritize replenishment for ${fmtInt(inv.riskCount)} at-risk SKUs (${fmtMoney(inv.riskRetail)} retail exposure).`}`,
-        topLocLine,
-        inv.sold30Total > 0
-          ? `Sales concentration: Top 50 sellers = ${fmtNum(inv.top50Pct * 100, 1)}% of 30d units.`
-          : "Sales concentration: missing (check sales_summary headers).",
-        apLine,
-        mktLine,
-        healthLine
-      ];
+      if (ctx.velocityText){
+        bullets.push({ tone: "neutral", text: ctx.velocityText });
+      }
 
-      el("opsSummary").innerHTML = `<ul class="list-disc pl-5 space-y-1">${ops.map(x => `<li>${escapeHtml(x)}</li>`).join("")}</ul>`;
+      if (!bullets.length) bullets.push({ tone: "neutral", text: "No signals yet — waiting for data load." });
+
+      quickInsights.innerHTML = bullets.slice(0, 5).map(b => {
+        const pillClass = b.tone === "warn" ? "pill pill-warn" : (b.tone === "good" ? "pill pill-good" : "pill");
+        const dot = b.tone === "warn" ? "var(--warn)" : (b.tone === "good" ? "var(--good)" : "var(--accent)");
+        return `
+          <div class="flex items-start gap-2">
+            <span class="${pillClass}" style="padding:.12rem .55rem;"><span class="dot" style="background:${dot}"></span></span>
+            <div class="text-sm muted">${escapeHtml(b.text)}</div>
+          </div>
+        `;
+      }).join("");
+    }
+    function ctxThresholdBand(){
+      const t = Number(state.thresholdDays || 14);
+      return Math.max(7, Math.min(30, t * 1.5));
+    }
+
+    // ====== Local history + sparklines ======
+    const HISTORY_KEY = "silo_exec_history_v1";
+
+    function loadHistory(){
+      try{
+        const raw = localStorage.getItem(HISTORY_KEY);
+        const arr = raw ? JSON.parse(raw) : [];
+        return Array.isArray(arr) ? arr : [];
+      }catch{
+        return [];
+      }
+    }
+    function saveHistory(arr){
+      try{
+        localStorage.setItem(HISTORY_KEY, JSON.stringify(arr));
+      }catch{
+        // ignore storage failures
+      }
+    }
+    function pushHistoryAndRenderSparks({ coverageDays, riskPct }){
+      const now = Date.now();
+      const entry = {
+        ts: now,
+        coverageDays: Number.isFinite(coverageDays) ? Number(coverageDays) : null,
+        riskPct: Number.isFinite(riskPct) ? Number(riskPct) : null
+      };
+
+      const hist = loadHistory();
+      const last = hist[hist.length - 1];
+      const tooSoon = last && Math.abs(entry.ts - (last.ts || 0)) < 10_000;
+
+      if (!tooSoon){
+        hist.push(entry);
+        while (hist.length > 7) hist.shift();
+        saveHistory(hist);
+      }
+
+      renderSparks(loadHistory());
+    }
+
+    function renderSparks(hist){
+      renderSparkOne({
+        hist,
+        lineEl: sparkCoverageLine,
+        subEl: sparkCoverageSub,
+        labelFmt: (v) => Number.isFinite(v) ? `${fmtNum(v,1)}d` : "—",
+        valueKey: "coverageDays",
+        clampMin: 0
+      });
+
+      renderSparkOne({
+        hist,
+        lineEl: sparkRiskLine,
+        subEl: sparkRiskSub,
+        labelFmt: (v) => Number.isFinite(v) ? `${fmtNum(v*100,1)}%` : "—",
+        valueKey: "riskPct",
+        clampMin: 0
+      });
+    }
+
+    function renderSparkOne({ hist, lineEl, subEl, labelFmt, valueKey, clampMin = null }){
+      if (!lineEl || !subEl) return;
+
+      const vals = (hist || [])
+        .map(x => x ? x[valueKey] : null)
+        .map(v => (typeof v === "number" && Number.isFinite(v) ? v : null));
+
+      const last = vals.length ? vals[vals.length - 1] : null;
+      subEl.textContent = labelFmt(last);
+
+      const pointsVals = vals.filter(v => v !== null);
+      if (!vals.length || pointsVals.length < 2){
+        lineEl.setAttribute("points", "");
+        return;
+      }
+
+      const W = 120, H = 34;
+      const padX = 2, padY = 3;
+      const innerW = W - padX * 2;
+      const innerH = H - padY * 2;
+
+      let minV = Math.min(...pointsVals);
+      let maxV = Math.max(...pointsVals);
+
+      if (clampMin !== null) minV = Math.min(minV, clampMin);
+      if (maxV === minV) maxV = minV + 1e-6;
+
+      const n = vals.length;
+      const pts = vals.map((v, i) => {
+        const x = padX + (innerW * (n === 1 ? 0 : i / (n - 1)));
+        if (v === null) return null;
+        const t = (v - minV) / (maxV - minV);
+        const y = padY + (innerH * (1 - t));
+        return [x, y];
+      });
+
+      const filled = forwardFillGaps(pts);
+      const s = filled.map(([x,y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+      lineEl.setAttribute("points", s);
+    }
+
+    function forwardFillGaps(pts){
+      let last = null;
+      const out = [];
+      for (let i=0; i<pts.length; i++){
+        if (pts[i]) { last = pts[i]; out.push(pts[i]); continue; }
+        if (last) out.push(last);
+        else {
+          const next = pts.slice(i).find(Boolean);
+          out.push(next || [0, 33]);
+        }
+      }
+      return out;
     }
 
     // ====== Full load ======
@@ -1279,14 +1966,12 @@
 
       state.loadFinishedAt = new Date();
 
-      const inv = computeInventoryAndRender();
-      const ap = computeApAndRender();
-      const mkt = computeMktAndRender();
-
-      renderOpsNarrative(inv, ap, mkt);
+      computeInventoryAndRender();
+      computeApAndRender();
       renderStatus();
+      renderMarketing("all");
 
-      el("lastUpdated").textContent = new Date().toLocaleString();
+      setText("lastUpdated", new Date().toLocaleString());
       openRiskInventoryBtn.href = `inventory.html?maxDays=${encodeURIComponent(String(state.thresholdDays))}`;
     }
 
@@ -1295,13 +1980,25 @@
       pbiIframe.src = POWER_BI_URL;
       pbiOpenNewTab.href = POWER_BI_URL;
 
+      function applyTheme(t){
+        document.documentElement.setAttribute("data-theme", t);
+        themeLabel.textContent = t[0].toUpperCase() + t.slice(1);
+        localStorage.setItem(THEME_KEY, t);
+      }
+
+      themeBtn.addEventListener("click", () => {
+        const cur = document.documentElement.getAttribute("data-theme") || "light";
+        applyTheme(cur === "dark" ? "light" : "dark");
+      });
+      applyTheme(localStorage.getItem(THEME_KEY) || "light");
+
       thresholdSelect.addEventListener("change", () => {
         state.thresholdDays = Number(thresholdSelect.value) || 14;
-        const inv = computeInventoryAndRender();
-        const ap = computeApAndRender();
-        const mkt = computeMktAndRender();
-        renderOpsNarrative(inv, ap, mkt);
-        el("lastUpdated").textContent = new Date().toLocaleString();
+        if (thresholdPill) thresholdPill.textContent = String(state.thresholdDays);
+        computeInventoryAndRender();
+        computeApAndRender();
+        renderStatus();
+        setText("lastUpdated", new Date().toLocaleString());
         openRiskInventoryBtn.href = `inventory.html?maxDays=${encodeURIComponent(String(state.thresholdDays))}`;
       });
 
@@ -1311,27 +2008,100 @@
         if (typeof breakdownDialog.showModal === "function") breakdownDialog.showModal();
         else breakdownDialog.setAttribute("open", "true");
       });
+
       closeBreakdownBtn.addEventListener("click", () => breakdownDialog.close());
       breakdownDialog.addEventListener("click", (e) => {
         const rect = breakdownDialog.getBoundingClientRect();
         const inDialog = rect.top <= e.clientY && e.clientY <= rect.top + rect.height &&
+                         rect.left <= e.clientX && e.clientX <= rect.left + rect.height &&
                          rect.left <= e.clientX && e.clientX <= rect.left + rect.width;
         if (!inDialog) breakdownDialog.close();
       });
 
-      function applyTheme(t){
-        document.documentElement.setAttribute("data-theme", t);
-        themeLabel.textContent = t[0].toUpperCase() + t.slice(1);
-        localStorage.setItem(THEME_KEY, t);
+      // Marketing drawer
+      function openDrawer(){
+        if (!mktDrawer) return;
+        mktDrawer.classList.add("open");
+        mktDrawer.setAttribute("aria-hidden", "false");
       }
-      themeBtn.addEventListener("click", () => {
-        const cur = document.documentElement.getAttribute("data-theme") || "light";
-        applyTheme(cur === "dark" ? "light" : "dark");
+      function closeDrawer(){
+        if (!mktDrawer) return;
+        mktDrawer.classList.remove("open");
+        mktDrawer.setAttribute("aria-hidden", "true");
+      }
+      openMarketingBtn?.addEventListener("click", openDrawer);
+      closeMarketingBtn?.addEventListener("click", closeDrawer);
+      mktOverlay?.addEventListener("click", closeDrawer);
+
+      function setFilterBtn(active){
+        [mktFilterAll, mktFilter7, mktFilter30].forEach(b=>{
+          if(!b) return;
+          b.classList.remove("btn-primary");
+          b.classList.add("btn-ghost");
+        });
+        if(active){
+          active.classList.remove("btn-ghost");
+          active.classList.add("btn-primary");
+        }
+      }
+      [mktFilterAll, mktFilter7, mktFilter30].forEach(btn=>{
+        btn?.addEventListener("click", () => {
+          const f = btn.getAttribute("data-filter") || "all";
+          setFilterBtn(btn);
+          renderMarketing(f);
+        });
       });
-      applyTheme(localStorage.getItem(THEME_KEY) || "light");
+      setFilterBtn(mktFilterAll);
+
+      // Keyboard shortcuts
+      window.addEventListener("keydown", (e) => {
+        const key = String(e.key || "").toLowerCase();
+        const inInput = ["input","textarea","select"].includes((e.target?.tagName || "").toLowerCase());
+        if (inInput) return;
+
+        if ((e.ctrlKey || e.metaKey) && key === "k") {
+          e.preventDefault();
+          loadAll();
+          return;
+        }
+        if (key === "t") {
+          e.preventDefault();
+          const cur = document.documentElement.getAttribute("data-theme") || "light";
+          applyTheme(cur === "dark" ? "light" : "dark");
+          return;
+        }
+        if (key === "b") {
+          e.preventDefault();
+          if (typeof breakdownDialog.showModal === "function") breakdownDialog.showModal();
+          else breakdownDialog.setAttribute("open", "true");
+          return;
+        }
+        if (key === "m") {
+          e.preventDefault();
+          if (mktDrawer?.classList.contains("open")) closeDrawer();
+          else openDrawer();
+          return;
+        }
+        if (key === "r") {
+          e.preventDefault();
+          thresholdSelect?.focus();
+          return;
+        }
+        if (key === "q") {
+          e.preventDefault();
+          quickInsights?.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+        if (key === "escape") {
+          if (mktDrawer?.classList.contains("open")) closeDrawer();
+        }
+      });
+
+      if (thresholdPill) thresholdPill.textContent = String(Number(thresholdSelect.value) || 14);
+
+      // render sparks immediately from existing local history
+      renderSparks(loadHistory());
     }
 
-    // ====== Boot ======
     (function boot() {
       state.thresholdDays = Number(thresholdSelect.value) || 14;
       initUi();
