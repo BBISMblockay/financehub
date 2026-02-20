@@ -1,227 +1,412 @@
+<!-- /pages/login.html -->
 <!doctype html>
 <html lang="en" class="h-full">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Silo ERP — Login</title>
 
+  <!-- Tailwind (ok for now; later replace for production) -->
   <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+
+  <!-- Supabase JS v2 -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- Config (must be alongside this file: /pages/config.js) -->
+  <script src="./config.js"></script>
 
   <style>
-    body { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    :root { color-scheme: light; }
     .mono { font-variant-numeric: tabular-nums; }
+    .shadow-soft { box-shadow: 0 10px 30px rgba(2,6,23,.08); }
   </style>
 </head>
 
 <body class="h-full bg-slate-50 text-slate-900">
-  <div class="min-h-full flex items-center justify-center p-6">
-    <div class="w-full max-w-md bg-white border border-slate-200 rounded-2xl shadow-sm p-6">
+  <div class="min-h-full flex items-center justify-center px-4 py-10">
+    <div class="w-full max-w-md">
       <div class="mb-6">
-        <h1 class="text-2xl font-bold tracking-tight">Sign in</h1>
-        <p class="text-sm text-slate-600 mt-1">Access Silo ERP securely.</p>
+        <div class="flex items-center gap-3">
+          <div class="h-10 w-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-semibold shadow-soft">
+            S
+          </div>
+          <div>
+            <div class="text-lg font-semibold leading-tight">Silo ERP</div>
+            <div class="text-sm text-slate-600">Sign in to continue</div>
+          </div>
+        </div>
       </div>
 
-      <div id="msg" class="hidden mb-4 text-sm rounded-lg border p-3"></div>
+      <div class="rounded-2xl bg-white border border-slate-200 p-6 shadow-soft">
+        <!-- Status -->
+        <div id="status" class="hidden mb-4 rounded-xl border px-3 py-2 text-sm"></div>
 
-      <form id="authForm" class="space-y-4">
-        <div>
-          <label class="block text-sm font-semibold text-slate-700">Email</label>
-          <input id="email" type="email" autocomplete="email" required
-                 class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400"
-                 placeholder="you@company.com" />
+        <!-- Tabs -->
+        <div class="mb-5 flex rounded-xl bg-slate-100 p-1">
+          <button id="tabPassword" class="flex-1 rounded-lg px-3 py-2 text-sm font-medium bg-white shadow-sm">Password</button>
+          <button id="tabMagic" class="flex-1 rounded-lg px-3 py-2 text-sm font-medium text-slate-600">Magic link</button>
         </div>
 
-        <div>
-          <label class="block text-sm font-semibold text-slate-700">Password</label>
-          <input id="password" type="password" autocomplete="current-password"
-                 class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-400"
-                 placeholder="••••••••" />
-          <p class="mt-2 text-xs text-slate-500">
-            Password required for sign-in/sign-up. For magic link, leave password blank.
-          </p>
-        </div>
+        <!-- Password form -->
+        <form id="formPassword" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-slate-700">Email</label>
+            <input id="email1" type="email" autocomplete="email"
+                   class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                   placeholder="you@company.com" required />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700">Password</label>
+            <input id="password" type="password" autocomplete="current-password"
+                   class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                   placeholder="••••••••" required />
+          </div>
 
-        <div class="grid grid-cols-1 gap-2 pt-2">
-          <button type="button" id="btnSignIn"
-                  class="w-full rounded-xl bg-slate-900 text-white py-2.5 font-semibold hover:bg-slate-800">
+          <button id="btnLogin" type="submit"
+                  class="w-full rounded-xl bg-slate-900 text-white py-2.5 font-semibold hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed">
             Sign in
           </button>
 
-          <button type="button" id="btnSignUp"
-                  class="w-full rounded-xl border border-slate-300 py-2.5 font-semibold hover:bg-slate-50">
-            Create account
+          <div class="pt-1 flex items-center justify-between">
+            <button id="btnGoSignup" type="button" class="text-sm font-medium text-slate-900 hover:underline">
+              Create account
+            </button>
+            <button id="btnForgot" type="button" class="text-sm text-slate-600 hover:underline">
+              Forgot password?
+            </button>
+          </div>
+        </form>
+
+        <!-- Magic link form -->
+        <form id="formMagic" class="space-y-4 hidden">
+          <div>
+            <label class="block text-sm font-medium text-slate-700">Email</label>
+            <input id="email2" type="email" autocomplete="email"
+                   class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                   placeholder="you@company.com" required />
+          </div>
+
+          <button id="btnMagic" type="submit"
+                  class="w-full rounded-xl bg-slate-900 text-white py-2.5 font-semibold hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed">
+            Email me a sign-in link
           </button>
 
-          <button type="button" id="btnMagic"
-                  class="w-full rounded-xl border border-slate-200 py-2.5 font-semibold text-slate-700 hover:bg-slate-50">
-            Send magic link
-          </button>
+          <div class="text-xs text-slate-500 leading-relaxed">
+            We’ll send a one-time link. If your project requires email confirmation, you may need to confirm first.
+          </div>
+        </form>
+
+        <!-- Signup modal -->
+        <dialog id="dlgSignup" class="rounded-2xl p-0 w-full max-w-md">
+          <div class="bg-white rounded-2xl border border-slate-200 shadow-soft">
+            <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <div class="text-base font-semibold">Create account</div>
+                <div class="text-sm text-slate-600">This creates a Supabase auth user</div>
+              </div>
+              <button id="btnCloseSignup" class="rounded-lg px-2 py-1 text-slate-600 hover:bg-slate-100">✕</button>
+            </div>
+
+            <form id="formSignup" class="p-6 space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-slate-700">Name</label>
+                <input id="name3" type="text" autocomplete="name"
+                       class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                       placeholder="Blake" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-700">Email</label>
+                <input id="email3" type="email" autocomplete="email"
+                       class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                       placeholder="you@company.com" required />
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-700">Password</label>
+                <input id="password3" type="password" autocomplete="new-password"
+                       class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                       placeholder="Minimum 6 characters" required />
+              </div>
+
+              <button id="btnSignup" type="submit"
+                      class="w-full rounded-xl bg-slate-900 text-white py-2.5 font-semibold hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed">
+                Create account
+              </button>
+
+              <div class="text-xs text-slate-500 leading-relaxed">
+                If <span class="mono">EXPECT_EMAIL_CONFIRMATION</span> is true, you may need to confirm your email before you can sign in.
+              </div>
+            </form>
+          </div>
+        </dialog>
+
+        <!-- Footer -->
+        <div class="mt-6 text-xs text-slate-500">
+          <div class="flex items-center justify-between">
+            <span class="mono" id="envInfo">—</span>
+            <button id="btnSignout" class="hidden text-slate-600 hover:underline">Sign out</button>
+          </div>
         </div>
+      </div>
 
-        <div class="pt-2 flex items-center justify-between">
-          <button type="button" id="btnSignOut" class="text-sm text-slate-600 hover:text-slate-900">
-            Sign out
-          </button>
-          <span id="sessionState" class="text-xs text-slate-500 mono"></span>
-        </div>
-      </form>
-
-      <div class="mt-6 pt-4 border-t border-slate-200">
-        <p class="text-xs text-slate-500">
-          If you just enabled email confirmation, check your inbox after sign-up.
-        </p>
+      <div class="mt-6 text-xs text-slate-500 leading-relaxed">
+        Tip: Put <span class="mono">config.js</span> next to this file under <span class="mono">/pages/</span>.
       </div>
     </div>
   </div>
 
-  <!-- 1) Load config from same folder -->
-  <script src="./config.js"></script>
-
-  <!-- 2) Supabase JS (v2) -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
   <script>
-    const $ = (id) => document.getElementById(id);
+    (function () {
+      // ---- Config ----
+      const CFG = window.__SILO_CONFIG__ || {};
+      const SUPABASE_URL = (CFG.SUPABASE_URL || "").trim();
+      const SUPABASE_ANON_KEY = (CFG.SUPABASE_ANON_KEY || "").trim();
+      const REDIRECT_TO = (CFG.REDIRECT_TO || "/pages/executive.html").trim();
+      const EXPECT_EMAIL_CONFIRMATION = !!CFG.EXPECT_EMAIL_CONFIRMATION;
 
-    function showMsg(type, text) {
-      const el = $('msg');
-      el.className = 'mb-4 text-sm rounded-lg border p-3';
-      if (type === 'ok') el.classList.add('border-emerald-200','bg-emerald-50','text-emerald-900');
-      else if (type === 'warn') el.classList.add('border-amber-200','bg-amber-50','text-amber-900');
-      else el.classList.add('border-rose-200','bg-rose-50','text-rose-900');
-      el.textContent = text;
-      el.classList.remove('hidden');
-    }
+      const statusEl = document.getElementById("status");
+      const envInfo = document.getElementById("envInfo");
+      const btnSignout = document.getElementById("btnSignout");
 
-    function hideMsg() {
-      const el = $('msg');
-      el.classList.add('hidden');
-      el.textContent = '';
-    }
-
-    // Validate config
-    const CFG = window.__SILO_CONFIG__;
-    if (!CFG || !CFG.SUPABASE_URL || !CFG.SUPABASE_ANON_KEY) {
-      showMsg('err',
-        'Config not loaded. Make sure config.js is in the same /pages/ folder and referenced as "./config.js".'
-      );
-      throw new Error('Missing window.__SILO_CONFIG__ / SUPABASE_URL / SUPABASE_ANON_KEY');
-    }
-
-    // Create Supabase client
-    const supabase = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true
+      // ---- Helpers ----
+      function showStatus(msg, type = "info") {
+        statusEl.classList.remove("hidden");
+        statusEl.className =
+          "mb-4 rounded-xl border px-3 py-2 text-sm " +
+          (type === "error"
+            ? "border-rose-200 bg-rose-50 text-rose-800"
+            : type === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : "border-slate-200 bg-slate-50 text-slate-800");
+        statusEl.textContent = msg;
       }
-    });
 
-    const redirectTo = CFG.REDIRECT_TO || '/executive.html';
-
-    async function refreshSessionState() {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user?.email) {
-        $('sessionState').textContent = `signed in as ${session.user.email}`;
-      } else {
-        $('sessionState').textContent = 'not signed in';
+      function clearStatus() {
+        statusEl.classList.add("hidden");
+        statusEl.textContent = "";
       }
-    }
 
-    async function goIfAuthed() {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        window.location.href = redirectTo;
+      function setLoading(btn, loading, textWhenNotLoading) {
+        btn.disabled = loading;
+        btn.textContent = loading ? "Working…" : textWhenNotLoading;
       }
-    }
 
-    async function signIn() {
-      hideMsg();
-      const email = $('email').value.trim();
-      const password = $('password').value;
+      function assertConfig() {
+        if (!SUPABASE_URL || !SUPABASE_URL.startsWith("https://") || !SUPABASE_URL.includes(".supabase.co")) {
+          showStatus(
+            "Config error: SUPABASE_URL is missing or not a valid *.supabase.co URL. " +
+            "Your config.js must be loaded and SUPABASE_URL must look like https://<ref>.supabase.co",
+            "error"
+          );
+          return false;
+        }
+        if (!SUPABASE_ANON_KEY || SUPABASE_ANON_KEY.length < 50) {
+          showStatus("Config error: SUPABASE_ANON_KEY is missing or looks wrong.", "error");
+          return false;
+        }
+        return true;
+      }
 
-      if (!email || !password) return showMsg('err', 'Email + password required to sign in.');
+      // ---- Create client (IMPORTANT: don't name it 'supabase' to avoid redeclare) ----
+      if (!assertConfig()) return;
 
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) return showMsg('err', error.message);
-
-      showMsg('ok', 'Signed in. Redirecting…');
-      setTimeout(() => window.location.href = redirectTo, 250);
-    }
-
-    async function signUp() {
-      hideMsg();
-      const email = $('email').value.trim();
-      const password = $('password').value;
-
-      if (!email || !password) return showMsg('err', 'Email + password required to create account.');
-
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: window.location.origin + redirectTo
+      const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: true
+          // If Safari privacy blocks localStorage persistence, swap in:
+          // storage: window.sessionStorage
         }
       });
 
-      if (error) return showMsg('err', error.message);
+      envInfo.textContent = `Supabase: ${SUPABASE_URL.replace("https://", "")}`;
 
-      // If email confirmation is on, session may be null until confirmed
-      if (!data.session && (CFG.EXPECT_EMAIL_CONFIRMATION ?? true)) {
-        showMsg('warn', 'Account created. Check your email to confirm, then come back and sign in.');
-      } else {
-        showMsg('ok', 'Account created and signed in. Redirecting…');
-        setTimeout(() => window.location.href = redirectTo, 250);
+      // ---- Tabs ----
+      const tabPassword = document.getElementById("tabPassword");
+      const tabMagic = document.getElementById("tabMagic");
+      const formPassword = document.getElementById("formPassword");
+      const formMagic = document.getElementById("formMagic");
+
+      function setTab(which) {
+        clearStatus();
+        if (which === "password") {
+          tabPassword.className = "flex-1 rounded-lg px-3 py-2 text-sm font-medium bg-white shadow-sm";
+          tabMagic.className = "flex-1 rounded-lg px-3 py-2 text-sm font-medium text-slate-600";
+          formPassword.classList.remove("hidden");
+          formMagic.classList.add("hidden");
+        } else {
+          tabMagic.className = "flex-1 rounded-lg px-3 py-2 text-sm font-medium bg-white shadow-sm";
+          tabPassword.className = "flex-1 rounded-lg px-3 py-2 text-sm font-medium text-slate-600";
+          formMagic.classList.remove("hidden");
+          formPassword.classList.add("hidden");
+        }
       }
-      await refreshSessionState();
-    }
+      tabPassword.addEventListener("click", () => setTab("password"));
+      tabMagic.addEventListener("click", () => setTab("magic"));
 
-    async function magicLink() {
-      hideMsg();
-      const email = $('email').value.trim();
-      if (!email) return showMsg('err', 'Email required for magic link.');
+      // ---- Signup dialog ----
+      const dlgSignup = document.getElementById("dlgSignup");
+      const btnGoSignup = document.getElementById("btnGoSignup");
+      const btnCloseSignup = document.getElementById("btnCloseSignup");
+      btnGoSignup.addEventListener("click", () => dlgSignup.showModal());
+      btnCloseSignup.addEventListener("click", () => dlgSignup.close());
 
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          emailRedirectTo: window.location.origin + redirectTo
+      // ---- Session bootstrap ----
+      async function bootstrap() {
+        // Handle OAuth / magic link callbacks
+        const { data, error } = await supabaseClient.auth.getSession();
+        if (error) {
+          showStatus("Auth error: " + error.message, "error");
+          return;
+        }
+        if (data?.session) {
+          btnSignout.classList.remove("hidden");
+          showStatus("You are already signed in. Redirecting…", "success");
+          window.location.href = REDIRECT_TO;
+        }
+      }
+      bootstrap();
+
+      // ---- Sign in (password) ----
+      const btnLogin = document.getElementById("btnLogin");
+      formPassword.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        clearStatus();
+
+        const email = document.getElementById("email1").value.trim();
+        const password = document.getElementById("password").value;
+
+        if (!email || !password) return showStatus("Enter email and password.", "error");
+
+        setLoading(btnLogin, true, "Sign in");
+        try {
+          const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+          if (error) throw error;
+
+          if (!data?.session) {
+            // Some projects require email confirmation before session is created
+            if (EXPECT_EMAIL_CONFIRMATION) {
+              showStatus("Signed in request accepted. If email confirmation is required, confirm your email then sign in again.", "info");
+            } else {
+              showStatus("Signed in, but no session returned. Check auth settings.", "error");
+            }
+            return;
+          }
+
+          showStatus("Signed in. Redirecting…", "success");
+          window.location.href = REDIRECT_TO;
+        } catch (err) {
+          showStatus(err?.message || "Sign-in failed.", "error");
+        } finally {
+          setLoading(btnLogin, false, "Sign in");
         }
       });
 
-      if (error) return showMsg('err', error.message);
-      showMsg('ok', 'Magic link sent. Check your email.');
-    }
+      // ---- Magic link ----
+      const btnMagic = document.getElementById("btnMagic");
+      formMagic.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        clearStatus();
 
-    async function signOut() {
-      hideMsg();
-      const { error } = await supabase.auth.signOut();
-      if (error) return showMsg('err', error.message);
-      showMsg('ok', 'Signed out.');
-      await refreshSessionState();
-    }
+        const email = document.getElementById("email2").value.trim();
+        if (!email) return showStatus("Enter your email.", "error");
 
-    // Wire buttons
-    $('btnSignIn').addEventListener('click', signIn);
-    $('btnSignUp').addEventListener('click', signUp);
-    $('btnMagic').addEventListener('click', magicLink);
-    $('btnSignOut').addEventListener('click', signOut);
+        setLoading(btnMagic, true, "Email me a sign-in link");
+        try {
+          // Redirect back to THIS page so detectSessionInUrl can complete the sign-in
+          const redirectTo = window.location.origin + window.location.pathname;
 
-    // Boot
-    (async () => {
-      await refreshSessionState();
+          const { error } = await supabaseClient.auth.signInWithOtp({
+            email,
+            options: { emailRedirectTo: redirectTo }
+          });
+          if (error) throw error;
 
-      // If you landed here already authed, bounce to app
-      await goIfAuthed();
-
-      // React to auth changes (also handles magic-link redirect back)
-      supabase.auth.onAuthStateChange(async (event, session) => {
-        await refreshSessionState();
-        if (event === 'SIGNED_IN' && session?.user) {
-          window.location.href = redirectTo;
+          showStatus("Magic link sent. Check your inbox.", "success");
+        } catch (err) {
+          showStatus(err?.message || "Could not send magic link.", "error");
+        } finally {
+          setLoading(btnMagic, false, "Email me a sign-in link");
         }
+      });
+
+      // ---- Signup ----
+      const formSignup = document.getElementById("formSignup");
+      const btnSignup = document.getElementById("btnSignup");
+      formSignup.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        clearStatus();
+
+        const name = document.getElementById("name3").value.trim();
+        const email = document.getElementById("email3").value.trim();
+        const password = document.getElementById("password3").value;
+
+        if (!email || !password) return showStatus("Email and password are required.", "error");
+        if (password.length < 6) return showStatus("Password must be at least 6 characters.", "error");
+
+        setLoading(btnSignup, true, "Create account");
+        try {
+          const redirectTo = window.location.origin + window.location.pathname;
+
+          const { data, error } = await supabaseClient.auth.signUp({
+            email,
+            password,
+            options: {
+              emailRedirectTo: redirectTo,
+              data: { name }
+            }
+          });
+          if (error) throw error;
+
+          dlgSignup.close();
+
+          // If email confirmation is required, session may be null until confirmed
+          if (EXPECT_EMAIL_CONFIRMATION && !data?.session) {
+            showStatus("Account created. Confirm your email, then come back and sign in.", "success");
+          } else {
+            showStatus("Account created. Redirecting…", "success");
+            window.location.href = REDIRECT_TO;
+          }
+        } catch (err) {
+          showStatus(err?.message || "Signup failed.", "error");
+        } finally {
+          setLoading(btnSignup, false, "Create account");
+        }
+      });
+
+      // ---- Forgot password (simple) ----
+      const btnForgot = document.getElementById("btnForgot");
+      btnForgot.addEventListener("click", async () => {
+        clearStatus();
+        const email = (document.getElementById("email1").value || "").trim();
+        if (!email) return showStatus("Enter your email in the Email field first.", "error");
+
+        try {
+          const redirectTo = window.location.origin + window.location.pathname;
+          const { error } = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo });
+          if (error) throw error;
+          showStatus("Password reset email sent.", "success");
+        } catch (err) {
+          showStatus(err?.message || "Could not send reset email.", "error");
+        }
+      });
+
+      // ---- Sign out ----
+      btnSignout.addEventListener("click", async () => {
+        clearStatus();
+        try {
+          const { error } = await supabaseClient.auth.signOut();
+          if (error) throw error;
+          showStatus("Signed out.", "success");
+          btnSignout.classList.add("hidden");
+        } catch (err) {
+          showStatus(err?.message || "Sign out failed.", "error");
+        }
+      });
+
+      // ---- Auth state change (optional UX) ----
+      supabaseClient.auth.onAuthStateChange((event, session) => {
+        if (session) btnSignout.classList.remove("hidden");
       });
     })();
   </script>
