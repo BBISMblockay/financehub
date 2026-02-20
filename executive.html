@@ -6,6 +6,8 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Silo ERP — Owner Cockpit</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/financehub/pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 
   <style>
     /* ========== Quiet, enterprise UI ========== */
@@ -334,7 +336,6 @@
     .spark .axis{ stroke: color-mix(in oklab, var(--border) 80%, transparent); stroke-width: 1; }
   </style>
 </head>
-
 <!-- Add somewhere in executive.html (e.g., top nav) -->
 <div id="authBar" class="flex items-center gap-3 text-sm">
   <span id="authEmail" class="text-slate-600"></span>
@@ -362,6 +363,15 @@
 </script>
 
 <body class="themeable">
+    <!-- Auth bar (fixed top-right) -->
+  <div id="authBar" style="position:fixed; top:14px; right:16px; z-index:9999;"
+       class="flex items-center gap-3 text-sm">
+    <span id="authEmail" class="text-slate-600"></span>
+    <button id="logoutBtn"
+      class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-800 hover:bg-slate-50">
+      Logout
+    </button>
+  </div>
   <div class="app-shell">
     <!-- ========== Sidebar ========== -->
     <aside class="sidebar">
@@ -842,6 +852,40 @@
   </div>
 
   <script>
+
+    // ====== Auth guard + logout ======
+const cfg = window.__SILO_CONFIG__ || {};
+if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
+  console.error("Missing SUPABASE_URL / SUPABASE_ANON_KEY in config.js");
+} else {
+  const supabaseClient = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+
+  (async () => {
+    const { data, error } = await supabaseClient.auth.getSession();
+    if (error) console.warn("getSession error:", error);
+
+    if (!data?.session) {
+      window.location.href = "/financehub/pages/login.html";
+      return;
+    }
+
+    const email = data.session.user?.email || "Signed in";
+    const emailEl = document.getElementById("authEmail");
+    if (emailEl) emailEl.textContent = email;
+
+    const btn = document.getElementById("logoutBtn");
+    if (btn) {
+      btn.addEventListener("click", async () => {
+        try {
+          await supabaseClient.auth.signOut();
+        } catch (e) {
+          console.warn("signOut error:", e);
+        }
+        window.location.href = "/financehub/pages/login.html";
+      });
+    }
+  })();
+}
     // ====== Required sources (copy exactly) ======
     const SHEET_ID = "1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0";
     const INVENTORY_CSV_PATTERN = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid={GID}`;
