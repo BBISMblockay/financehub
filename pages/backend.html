@@ -1,0 +1,1012 @@
+<!-- admin-hub.html
+     Silo ERP — Admin Hub (Super Admin / Systems Manager)
+
+     IMPORTANT:
+     - This page assumes Supabase Auth is already working (login.html -> session).
+     - This page does NOT use "Create account" at all.
+     - Invites + user listing MUST be done via your backend (Render) using Service Role.
+       This HTML calls backend endpoints you implement:
+         GET  /financehub/api/admin/health
+         GET  /financehub/api/admin/users
+         POST /financehub/api/admin/invite
+         POST /financehub/api/admin/user/update
+         POST /financehub/api/admin/user/disable
+         POST /financehub/api/admin/user/reset_password (optional)
+         GET  /financehub/api/admin/audit?limit=200 (optional)
+
+     - Auth model:
+       This page checks:
+         1) Supabase session exists
+         2) profile.role is "owner" or "admin"
+       Then it calls backend endpoints with Authorization: Bearer <access_token>.
+-->
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Silo ERP — Admin Hub</title>
+
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Config + Supabase -->
+  <script src="/financehub/pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+
+  <style>
+    :root[data-theme="light"]{
+      --bg:#f6f7fb; --panel:#fff; --panel2:#f8fafc; --panel3:#f1f5f9;
+      --border:rgba(15,23,42,.10);
+      --text:rgba(15,23,42,.92);
+      --muted:rgba(15,23,42,.66);
+      --muted2:rgba(15,23,42,.46);
+      --shadow1:0 1px 2px rgba(2,6,23,.05);
+      --shadow2:0 10px 22px rgba(2,6,23,.08);
+      --ring:rgba(37,99,235,.18);
+      --accent:#1d4ed8; --good:#166534; --warn:#b45309; --danger:#b91c1c;
+    }
+    :root[data-theme="dark"]{
+      --bg:#070b18; --panel:#0b1226; --panel2:#0a1022; --panel3:#0f172a;
+      --border:rgba(255,255,255,.12);
+      --text:rgba(255,255,255,.92);
+      --muted:rgba(255,255,255,.74);
+      --muted2:rgba(255,255,255,.54);
+      --shadow1:0 1px 2px rgba(0,0,0,.55);
+      --shadow2:0 10px 22px rgba(0,0,0,.50);
+      --ring:rgba(56,189,248,.18);
+      --accent:#60a5fa; --good:#22c55e; --warn:#fbbf24; --danger:#fb7185;
+    }
+    html, body{
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+      letter-spacing: -0.01em;
+      background: var(--bg);
+      color: var(--text);
+    }
+    .mono{ font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+    .card{
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: var(--shadow1);
+    }
+    .btn{
+      display:inline-flex; align-items:center; justify-content:center;
+      height: 38px; padding: 0 .9rem;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      font-weight: 800; font-size: .875rem;
+      transition: background .12s ease, box-shadow .12s ease, transform .08s ease;
+      user-select:none; white-space:nowrap;
+    }
+    .btn:hover{ background: var(--panel2); box-shadow: var(--shadow2); }
+    .btn:active{ transform: translateY(1px); }
+    .btn:focus{ outline:none; box-shadow: 0 0 0 4px var(--ring); }
+    .btn-primary{
+      background: var(--accent);
+      color: #fff;
+      border-color: color-mix(in oklab, var(--accent) 80%, #000);
+      box-shadow: 0 6px 14px color-mix(in oklab, var(--accent) 18%, transparent);
+    }
+    .btn-primary:hover{ background: color-mix(in oklab, var(--accent) 90%, #000); }
+    :root[data-theme="dark"] .btn-primary{
+      color:#071122;
+      background: color-mix(in oklab, var(--accent) 86%, white);
+      border-color: color-mix(in oklab, var(--accent) 80%, white);
+    }
+    .btn-danger{
+      background: color-mix(in oklab, var(--danger) 18%, var(--panel));
+      border-color: color-mix(in oklab, var(--danger) 30%, var(--border));
+      color: var(--danger);
+      box-shadow:none;
+    }
+    .btn-danger:hover{ background: color-mix(in oklab, var(--danger) 24%, var(--panel2)); box-shadow:none; }
+
+    .input, .select{
+      height: 38px;
+      border-radius: 10px;
+      padding: 0 .85rem;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      font-weight: 800;
+      font-size: .875rem;
+    }
+    .input:focus, .select:focus{ outline:none; box-shadow: 0 0 0 4px var(--ring); }
+
+    .pill{
+      display:inline-flex; align-items:center; gap:.45rem;
+      padding:.22rem .65rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--panel2);
+      font-size:.72rem;
+      font-weight: 900;
+      letter-spacing:.02em;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+    .dot{ width:.44rem; height:.44rem; border-radius:999px; display:inline-block; }
+    .pill-good{ color: var(--good); border-color: color-mix(in oklab, var(--good) 30%, var(--border)); }
+    .pill-warn{ color: var(--warn); border-color: color-mix(in oklab, var(--warn) 30%, var(--border)); }
+    .pill-danger{ color: var(--danger); border-color: color-mix(in oklab, var(--danger) 30%, var(--border)); }
+
+    .section-title{
+      font-size: .72rem;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--muted2);
+      font-weight: 950;
+    }
+    .muted{ color: var(--muted); }
+    .muted2{ color: var(--muted2); }
+
+    .table{
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      overflow: hidden;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+    }
+    .table thead th{
+      font-size: .68rem;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--muted2);
+      background: var(--panel2);
+      border-bottom: 1px solid var(--border);
+      padding: .7rem .85rem;
+      white-space: nowrap;
+      font-weight: 950;
+    }
+    .table tbody td{
+      padding: .7rem .85rem;
+      border-bottom: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+      vertical-align: top;
+    }
+    .table tbody tr:hover td{ background: var(--panel2); }
+    .table tbody tr:last-child td{ border-bottom: 0; }
+
+    .scrollbar::-webkit-scrollbar { height: 10px; width: 10px; }
+    .scrollbar::-webkit-scrollbar-thumb { background: rgba(148,163,184,.85); border-radius: 999px; }
+    .scrollbar::-webkit-scrollbar-track { background: transparent; }
+
+    dialog::backdrop { background: rgba(15, 23, 42, 0.55); }
+    dialog{ border:0; background:transparent; }
+    .kbd{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel2);
+      color: var(--muted);
+      font-weight: 900;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Top bar -->
+  <div class="sticky top-0 z-40" style="background: color-mix(in oklab, var(--bg) 82%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border);">
+    <div class="mx-auto max-w-[1400px] px-4 py-3 flex items-center justify-between gap-3">
+      <div class="min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="pill"><span class="dot" style="background: var(--accent)"></span>Silo ERP</span>
+          <span class="pill">Admin Hub</span>
+          <span id="rolePill" class="pill"><span class="dot" style="background: var(--accent)"></span>Role: —</span>
+        </div>
+        <div class="mt-1 text-lg font-semibold tracking-tight">Systems & Access Management</div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button id="themeBtn" class="btn" title="Toggle theme">Theme <span id="themeLabel" class="ml-2 font-extrabold">Light</span></button>
+        <a class="btn" href="/financehub/pages/executive.html">Owner Cockpit</a>
+        <button id="refreshBtn" class="btn btn-primary">Refresh</button>
+        <button id="logoutBtn" class="btn btn-danger">Logout</button>
+      </div>
+    </div>
+  </div>
+
+  <main class="mx-auto max-w-[1400px] px-4 py-4 space-y-4">
+    <!-- Auth / context row -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+      <div class="card p-5 lg:col-span-7">
+        <div class="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <div class="section-title">Context</div>
+            <div class="mt-2 text-xl font-semibold tracking-tight">Admin control plane</div>
+            <div class="mt-2 text-sm muted">
+              Manage users, roles, departments, and validate data pipeline health without exposing Google Sheet publish links in the UI.
+            </div>
+          </div>
+          <div class="text-right">
+            <div class="section-title">Signed in</div>
+            <div id="authEmail" class="mt-2 mono text-sm font-black">—</div>
+            <div id="authUid" class="mt-1 mono text-xs muted2">—</div>
+          </div>
+        </div>
+
+        <div class="mt-4 flex flex-wrap items-center gap-2">
+          <span class="pill"><span class="dot" style="background: var(--accent)"></span>Backend: <span id="apiBasePill" class="mono">/financehub</span></span>
+          <span class="pill"><span class="dot" style="background: var(--accent)"></span>Last refresh: <span id="lastRefresh" class="mono">—</span></span>
+          <span id="accessStatePill" class="pill pill-warn"><span class="dot" style="background: var(--warn)"></span>Access: checking…</span>
+        </div>
+      </div>
+
+      <div class="card p-5 lg:col-span-5">
+        <div class="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <div class="section-title">Health</div>
+            <div class="mt-2 text-lg font-semibold">Pipeline & services</div>
+            <div class="mt-1 text-sm muted">Snapshot of cron sync + data freshness.</div>
+          </div>
+          <span id="healthPill" class="pill"><span class="dot" style="background: var(--accent)"></span>—</span>
+        </div>
+
+        <div class="mt-4 grid grid-cols-2 gap-3">
+          <div class="card p-4" style="background: var(--panel2); box-shadow:none;">
+            <div class="section-title">Cron</div>
+            <div id="cronStatus" class="mt-2 text-sm font-extrabold muted">—</div>
+            <div id="cronLastRun" class="mt-1 text-xs muted2 mono">—</div>
+          </div>
+          <div class="card p-4" style="background: var(--panel2); box-shadow:none;">
+            <div class="section-title">Supabase</div>
+            <div id="sbStatus" class="mt-2 text-sm font-extrabold muted">—</div>
+            <div id="sbLatency" class="mt-1 text-xs muted2 mono">—</div>
+          </div>
+          <div class="card p-4" style="background: var(--panel2); box-shadow:none;">
+            <div class="section-title">Sheets ingest</div>
+            <div id="ingestStatus" class="mt-2 text-sm font-extrabold muted">—</div>
+            <div id="ingestDetail" class="mt-1 text-xs muted2 mono">—</div>
+          </div>
+          <div class="card p-4" style="background: var(--panel2); box-shadow:none;">
+            <div class="section-title">Rows</div>
+            <div id="rowCounts" class="mt-2 text-sm font-extrabold muted">—</div>
+            <div id="rowCountsSub" class="mt-1 text-xs muted2 mono">—</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- User management row -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+      <section class="lg:col-span-8 space-y-4">
+        <!-- Invite -->
+        <div class="card p-5">
+          <div class="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <div class="section-title">Users</div>
+              <div class="mt-2 text-lg font-semibold">Invite employee</div>
+              <div class="mt-1 text-sm muted">Creates a user via backend invite and sets profile defaults.</div>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="kbd">I</span>
+            </div>
+          </div>
+
+          <div class="mt-4 grid grid-cols-1 md:grid-cols-12 gap-3">
+            <div class="md:col-span-4">
+              <label class="text-xs font-black muted2">Email</label>
+              <input id="inviteEmail" class="input w-full mt-1" placeholder="name@company.com" />
+            </div>
+            <div class="md:col-span-3">
+              <label class="text-xs font-black muted2">Department</label>
+              <select id="inviteDept" class="select w-full mt-1">
+                <option value="ops">Ops</option>
+                <option value="finance">Finance</option>
+                <option value="logistics">Logistics</option>
+                <option value="marketing">Marketing</option>
+                <option value="retail">Retail</option>
+                <option value="exec">Exec</option>
+              </select>
+            </div>
+            <div class="md:col-span-3">
+              <label class="text-xs font-black muted2">Role</label>
+              <select id="inviteRole" class="select w-full mt-1">
+                <option value="member">member</option>
+                <option value="admin">admin</option>
+                <option value="viewer">viewer</option>
+              </select>
+            </div>
+            <div class="md:col-span-2 flex items-end">
+              <button id="inviteBtn" class="btn btn-primary w-full">Send invite</button>
+            </div>
+          </div>
+
+          <div id="inviteMsg" class="mt-3 text-sm muted2">—</div>
+        </div>
+
+        <!-- Directory -->
+        <div class="card p-5">
+          <div class="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <div class="section-title">Directory</div>
+              <div class="mt-2 text-lg font-semibold">User access</div>
+              <div class="mt-1 text-sm muted">Search, filter, and adjust department/role.</div>
+            </div>
+            <div class="flex items-center gap-2">
+              <input id="userSearch" class="input" style="width: 260px;" placeholder="Search email/name…" />
+              <select id="roleFilter" class="select">
+                <option value="all">All roles</option>
+                <option value="owner">owner</option>
+                <option value="admin">admin</option>
+                <option value="member">member</option>
+                <option value="viewer">viewer</option>
+              </select>
+              <select id="deptFilter" class="select">
+                <option value="all">All depts</option>
+                <option value="ops">ops</option>
+                <option value="finance">finance</option>
+                <option value="logistics">logistics</option>
+                <option value="marketing">marketing</option>
+                <option value="retail">retail</option>
+                <option value="exec">exec</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="mt-4 overflow-x-auto scrollbar">
+            <table class="table min-w-full text-sm">
+              <thead>
+                <tr>
+                  <th class="text-left">User</th>
+                  <th class="text-left">Dept</th>
+                  <th class="text-left">Role</th>
+                  <th class="text-left">Status</th>
+                  <th class="text-right">Last seen</th>
+                  <th class="text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="usersTbody">
+                <tr><td colspan="6" class="muted2">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div class="mt-3 flex items-center justify-between gap-2 text-xs muted2">
+            <div>Users loaded: <span id="usersCount" class="mono">—</span></div>
+            <div class="mono">Tip: click a row to edit</div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="lg:col-span-4 space-y-4">
+        <!-- System signals -->
+        <div class="card p-5">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="section-title">Signals</div>
+              <div class="mt-2 text-lg font-semibold">Operational alerts</div>
+              <div class="mt-1 text-sm muted">Derived from health endpoint.</div>
+            </div>
+            <span class="kbd">S</span>
+          </div>
+          <div id="signalsBox" class="mt-4 space-y-2 text-sm">
+            <div class="muted2">Loading…</div>
+          </div>
+        </div>
+
+        <!-- Audit (optional endpoint) -->
+        <div class="card p-5">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="section-title">Audit</div>
+              <div class="mt-2 text-lg font-semibold">Recent admin actions</div>
+              <div class="mt-1 text-sm muted">Invites + role changes.</div>
+            </div>
+            <button id="auditReloadBtn" class="btn">Reload</button>
+          </div>
+          <div id="auditBox" class="mt-4 space-y-2 text-sm">
+            <div class="muted2">—</div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <!-- User edit dialog -->
+  <dialog id="userDialog" class="w-[min(840px,calc(100vw-24px))] rounded-2xl p-0 shadow-xl">
+    <div class="card overflow-hidden" style="box-shadow: var(--shadow2); border-radius: 16px;">
+      <div class="flex items-start justify-between gap-3 border-b p-4" style="border-color: var(--border);">
+        <div class="min-w-0">
+          <div class="text-xs muted2 font-black">User</div>
+          <div id="dlgEmail" class="mt-1 text-lg font-semibold truncate">—</div>
+          <div id="dlgUid" class="mt-1 mono text-xs muted2 truncate">—</div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="dlgCloseBtn" class="btn">Close</button>
+        </div>
+      </div>
+
+      <div class="p-4 space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+          <div class="md:col-span-4">
+            <label class="text-xs font-black muted2">Department</label>
+            <select id="dlgDept" class="select w-full mt-1">
+              <option value="ops">ops</option>
+              <option value="finance">finance</option>
+              <option value="logistics">logistics</option>
+              <option value="marketing">marketing</option>
+              <option value="retail">retail</option>
+              <option value="exec">exec</option>
+            </select>
+          </div>
+          <div class="md:col-span-4">
+            <label class="text-xs font-black muted2">Role</label>
+            <select id="dlgRole" class="select w-full mt-1">
+              <option value="viewer">viewer</option>
+              <option value="member">member</option>
+              <option value="admin">admin</option>
+              <option value="owner">owner</option>
+            </select>
+          </div>
+          <div class="md:col-span-4">
+            <label class="text-xs font-black muted2">Status</label>
+            <select id="dlgStatus" class="select w-full mt-1">
+              <option value="active">active</option>
+              <option value="disabled">disabled</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+          <div class="md:col-span-8">
+            <label class="text-xs font-black muted2">Notes (optional)</label>
+            <input id="dlgNotes" class="input w-full mt-1" placeholder="e.g., AP approvals, inventory-only, etc." />
+          </div>
+          <div class="md:col-span-4">
+            <label class="text-xs font-black muted2">Actions</label>
+            <div class="mt-1 flex gap-2">
+              <button id="dlgSaveBtn" class="btn btn-primary flex-1">Save</button>
+              <button id="dlgDisableBtn" class="btn btn-danger flex-1">Disable</button>
+            </div>
+          </div>
+        </div>
+
+        <div id="dlgMsg" class="text-sm muted2">—</div>
+      </div>
+
+      <div class="border-t p-4" style="border-color: var(--border); background: var(--panel2);">
+        <div class="text-xs muted2">
+          Changes persist to <span class="mono">public.profiles</span> via backend (service role).
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <script>
+    // ====== Config / Supabase ======
+    const cfg = window.__SILO_CONFIG__ || {};
+    const SUPABASE_URL = cfg.SUPABASE_URL;
+    const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY;
+    const API_BASE = "/financehub"; // keep links stable; change if your app base differs
+
+    const THEME_KEY = "silo_admin_theme_v1";
+    const el = (id) => document.getElementById(id);
+    const setText = (id, v) => { const n = el(id); if (n) n.textContent = v; };
+    const setHtml = (id, v) => { const n = el(id); if (n) n.innerHTML = v; };
+    const escapeHtml = (s) => String(s ?? "")
+      .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+      .replaceAll('"',"&quot;").replaceAll("'","&#039;");
+
+    const fmt = {
+      dt: (d) => {
+        const x = d ? new Date(d) : null;
+        return x && !Number.isNaN(x.getTime()) ? x.toLocaleString() : "—";
+      }
+    };
+
+    function applyTheme(t){
+      document.documentElement.setAttribute("data-theme", t);
+      setText("themeLabel", t[0].toUpperCase() + t.slice(1));
+      localStorage.setItem(THEME_KEY, t);
+    }
+
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY){
+      alert("Missing SUPABASE_URL / SUPABASE_ANON_KEY in /financehub/pages/config.js");
+    }
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // ====== Auth guard (must be owner/admin) ======
+    let ACCESS_TOKEN = null;
+    let CURRENT_USER = null;
+    let CURRENT_PROFILE = null;
+
+    async function requireAdmin(){
+      const { data, error } = await supabaseClient.auth.getSession();
+      if (error) console.warn("getSession error:", error);
+
+      const session = data?.session;
+      if (!session){
+        window.location.href = "/financehub/pages/login.html";
+        return false;
+      }
+
+      ACCESS_TOKEN = session.access_token;
+      CURRENT_USER = session.user;
+
+      setText("authEmail", CURRENT_USER?.email || "Signed in");
+      setText("authUid", CURRENT_USER?.id ? `uid: ${CURRENT_USER.id}` : "—");
+      setText("apiBasePill", API_BASE);
+
+      // pull profile role
+      const { data: prof, error: pErr } = await supabaseClient
+        .from("profiles")
+        .select("id, email, role, department, status")
+        .eq("id", CURRENT_USER.id)
+        .maybeSingle();
+
+      if (pErr) console.warn("profiles lookup error:", pErr);
+
+      CURRENT_PROFILE = prof || null;
+
+      const role = (CURRENT_PROFILE?.role || "user").toLowerCase();
+      setText("rolePill", "");
+      const rolePill = el("rolePill");
+      if (rolePill){
+        rolePill.innerHTML = `<span class="dot" style="background: var(--accent)"></span>Role: ${escapeHtml(role)}`;
+      }
+
+      const allowed = (role === "owner" || role === "admin");
+      const accessPill = el("accessStatePill");
+      if (accessPill){
+        accessPill.className = allowed ? "pill pill-good" : "pill pill-danger";
+        accessPill.innerHTML = `<span class="dot" style="background:${allowed ? "var(--good)" : "var(--danger)"}"></span>Access: ${allowed ? "approved" : "denied"}`;
+      }
+
+      if (!allowed){
+        // Keep it blunt and safe: bounce to executive or login.
+        alert("Access denied: admin/owner required.");
+        window.location.href = "/financehub/pages/executive.html";
+        return false;
+      }
+      return true;
+    }
+
+    // ====== Backend calls (service role lives server-side) ======
+    async function apiFetch(path, opts = {}){
+      const url = `${API_BASE}${path}`;
+      const headers = Object.assign(
+        { "Content-Type":"application/json" },
+        opts.headers || {}
+      );
+      if (ACCESS_TOKEN) headers["Authorization"] = `Bearer ${ACCESS_TOKEN}`;
+
+      const res = await fetch(url, {
+        method: opts.method || "GET",
+        headers,
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+        credentials: "include"
+      });
+
+      const text = await res.text();
+      let json = null;
+      try { json = text ? JSON.parse(text) : null; } catch { /* ignore */ }
+
+      if (!res.ok){
+        const msg = (json && (json.error || json.message)) ? (json.error || json.message) : `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+      return json;
+    }
+
+    // ====== Health ======
+    function renderSignals(health){
+      const items = [];
+
+      const add = (tone, text) => items.push({ tone, text });
+
+      if (!health){
+        add("warn", "No health payload returned.");
+      } else {
+        // expected shape (your backend can return this):
+        // {
+        //   ok: true,
+        //   cron: { status:"ok|warn|down", last_run_at, last_success_at, last_error },
+        //   supabase: { status:"ok|warn|down", latency_ms },
+        //   ingest: { status:"ok|warn|down", note, last_sales_day, last_inventory_day },
+        //   rows: { sales_by_day, inventory_on_hand, products_master },
+        // }
+
+        const cron = health.cron || {};
+        const sb = health.supabase || {};
+        const ing = health.ingest || {};
+        const rows = health.rows || {};
+
+        const overallBad = ["down","error"].includes(String(cron.status)) ||
+                           ["down","error"].includes(String(sb.status)) ||
+                           ["down","error"].includes(String(ing.status));
+        const overallWarn = !overallBad && (
+          ["warn","stale"].includes(String(cron.status)) ||
+          ["warn","stale"].includes(String(sb.status)) ||
+          ["warn","stale"].includes(String(ing.status))
+        );
+
+        const hp = el("healthPill");
+        if (hp){
+          hp.className = overallBad ? "pill pill-danger" : (overallWarn ? "pill pill-warn" : "pill pill-good");
+          hp.innerHTML = `<span class="dot" style="background:${overallBad ? "var(--danger)" : (overallWarn ? "var(--warn)" : "var(--good)") }"></span>${overallBad ? "Degraded" : (overallWarn ? "Watch" : "Healthy")}`;
+        }
+
+        // cards
+        setText("cronStatus", cron.status ? String(cron.status).toUpperCase() : "—");
+        setText("cronLastRun", cron.last_run_at ? `last: ${fmt.dt(cron.last_run_at)}` : "—");
+
+        setText("sbStatus", sb.status ? String(sb.status).toUpperCase() : "—");
+        setText("sbLatency", (typeof sb.latency_ms === "number") ? `latency: ${sb.latency_ms}ms` : "—");
+
+        setText("ingestStatus", ing.status ? String(ing.status).toUpperCase() : "—");
+        setText("ingestDetail", ing.note ? String(ing.note) : (ing.last_sales_day ? `sales day: ${ing.last_sales_day}` : "—"));
+
+        const rowLine = [
+          (rows.sales_by_day != null ? `sales_by_day ${rows.sales_by_day}` : null),
+          (rows.inventory_on_hand != null ? `inventory_on_hand ${rows.inventory_on_hand}` : null),
+          (rows.products_master != null ? `products_master ${rows.products_master}` : null),
+        ].filter(Boolean).join(" · ");
+        setText("rowCounts", rowLine || "—");
+
+        const rowSub = [
+          (ing.last_sales_day ? `latest sales: ${ing.last_sales_day}` : null),
+          (ing.last_inventory_day ? `latest inv: ${ing.last_inventory_day}` : null),
+        ].filter(Boolean).join(" · ");
+        setText("rowCountsSub", rowSub || "—");
+
+        // signals list
+        if (cron.status === "down" || cron.status === "error") add("danger", `Cron failing: ${cron.last_error || "check logs"}.`);
+        else if (cron.status === "warn" || cron.status === "stale") add("warn", `Cron stale: last run ${fmt.dt(cron.last_run_at)}.`);
+        else add("good", `Cron healthy: last run ${fmt.dt(cron.last_run_at)}.`);
+
+        if (ing.status === "warn" || ing.status === "stale") add("warn", `Ingest stale: ${ing.note || "verify sheet exports + sync"}.`);
+        if (ing.status === "down" || ing.status === "error") add("danger", `Ingest failing: ${ing.note || "verify backend sync"}.`);
+
+        if (typeof sb.latency_ms === "number" && sb.latency_ms > 600) add("warn", `Supabase latency elevated: ${sb.latency_ms}ms.`);
+        else if (sb.status) add(sb.status === "ok" ? "good" : "warn", `Supabase status: ${String(sb.status)}.`);
+
+        // quick row sanity
+        if (rows.sales_by_day === 0) add("warn", "sales_by_day has 0 rows (sync not running yet).");
+      }
+
+      if (!items.length) items.push({ tone:"neutral", text:"No signals." });
+
+      const box = el("signalsBox");
+      if (!box) return;
+
+      box.innerHTML = items.slice(0, 8).map(it => {
+        const tone = it.tone;
+        const cls = tone === "danger" ? "pill pill-danger" : (tone === "warn" ? "pill pill-warn" : (tone === "good" ? "pill pill-good" : "pill"));
+        const dot = tone === "danger" ? "var(--danger)" : (tone === "warn" ? "var(--warn)" : (tone === "good" ? "var(--good)" : "var(--accent)"));
+        return `
+          <div class="flex items-start gap-2">
+            <span class="${cls}" style="padding:.12rem .55rem;"><span class="dot" style="background:${dot}"></span></span>
+            <div class="muted">${escapeHtml(it.text)}</div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    // ====== Users ======
+    let USERS = [];
+
+    function statusPill(status){
+      const s = String(status || "active").toLowerCase();
+      if (s === "disabled") return `<span class="pill pill-danger"><span class="dot" style="background: var(--danger)"></span>disabled</span>`;
+      return `<span class="pill pill-good"><span class="dot" style="background: var(--good)"></span>active</span>`;
+    }
+
+    function rolePill(role){
+      const r = String(role || "member").toLowerCase();
+      if (r === "owner") return `<span class="pill pill-good"><span class="dot" style="background: var(--good)"></span>owner</span>`;
+      if (r === "admin") return `<span class="pill"><span class="dot" style="background: var(--accent)"></span>admin</span>`;
+      if (r === "viewer") return `<span class="pill pill-warn"><span class="dot" style="background: var(--warn)"></span>viewer</span>`;
+      return `<span class="pill"><span class="dot" style="background: var(--accent)"></span>member</span>`;
+    }
+
+    function applyUserFilters(){
+      const q = String(el("userSearch")?.value || "").trim().toLowerCase();
+      const rf = String(el("roleFilter")?.value || "all").toLowerCase();
+      const df = String(el("deptFilter")?.value || "all").toLowerCase();
+
+      return USERS.filter(u => {
+        const email = String(u.email || "").toLowerCase();
+        const name = String(u.full_name || "").toLowerCase();
+        const role = String(u.role || "").toLowerCase();
+        const dept = String(u.department || "").toLowerCase();
+
+        if (q && !(email.includes(q) || name.includes(q))) return false;
+        if (rf !== "all" && role !== rf) return false;
+        if (df !== "all" && dept !== df) return false;
+        return true;
+      });
+    }
+
+    function renderUsers(){
+      const tbody = el("usersTbody");
+      if (!tbody) return;
+
+      const list = applyUserFilters();
+      setText("usersCount", String(list.length));
+
+      if (!list.length){
+        tbody.innerHTML = `<tr><td colspan="6" class="muted2">No users match your filters.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = list.map(u => {
+        const email = escapeHtml(u.email || "—");
+        const dept = escapeHtml(u.department || "—");
+        const role = escapeHtml(u.role || "member");
+        const last = u.last_seen_at ? fmt.dt(u.last_seen_at) : "—";
+        const status = String(u.status || "active").toLowerCase();
+
+        return `
+          <tr class="cursor-pointer" data-uid="${escapeHtml(u.id)}">
+            <td>
+              <div class="font-black">${email}</div>
+              <div class="text-xs muted2 mono">${escapeHtml(u.id || "")}</div>
+            </td>
+            <td class="font-extrabold">${dept}</td>
+            <td>${rolePill(role)}</td>
+            <td>${statusPill(status)}</td>
+            <td class="text-right mono muted">${escapeHtml(last)}</td>
+            <td class="text-right">
+              <button class="btn" data-action="edit" data-uid="${escapeHtml(u.id)}">Edit</button>
+            </td>
+          </tr>
+        `;
+      }).join("");
+
+      // row click / edit button
+      tbody.querySelectorAll("[data-action='edit']").forEach(btn => {
+        btn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const uid = btn.getAttribute("data-uid");
+          openUserDialog(uid);
+        });
+      });
+      tbody.querySelectorAll("tr[data-uid]").forEach(tr => {
+        tr.addEventListener("click", () => {
+          const uid = tr.getAttribute("data-uid");
+          openUserDialog(uid);
+        });
+      });
+    }
+
+    async function loadUsers(){
+      // backend returns array of users joined with profiles
+      // expected shape:
+      // [{ id, email, role, department, status, full_name, last_seen_at }]
+      const data = await apiFetch("/api/admin/users");
+      USERS = Array.isArray(data?.users) ? data.users : (Array.isArray(data) ? data : []);
+      renderUsers();
+    }
+
+    // ====== Invite ======
+    async function sendInvite(){
+      const email = String(el("inviteEmail")?.value || "").trim();
+      const department = String(el("inviteDept")?.value || "ops").trim();
+      const role = String(el("inviteRole")?.value || "member").trim();
+
+      const msg = el("inviteMsg");
+      if (msg) msg.textContent = "Sending…";
+
+      if (!email || !email.includes("@")){
+        if (msg) msg.textContent = "Enter a valid email.";
+        return;
+      }
+
+      try{
+        const out = await apiFetch("/api/admin/invite", {
+          method: "POST",
+          body: { email, department, role }
+        });
+        if (msg) msg.textContent = out?.message || "Invite sent.";
+        el("inviteEmail").value = "";
+        await loadUsers();
+        await loadAudit();
+      }catch(e){
+        if (msg) msg.textContent = `Invite failed: ${String(e.message || e)}`;
+      }
+    }
+
+    // ====== User dialog ======
+    const userDialog = el("userDialog");
+    let DLG_UID = null;
+
+    function openUserDialog(uid){
+      const u = USERS.find(x => String(x.id) === String(uid));
+      if (!u) return;
+
+      DLG_UID = u.id;
+
+      setText("dlgEmail", u.email || "—");
+      setText("dlgUid", u.id ? `uid: ${u.id}` : "—");
+
+      el("dlgDept").value = u.department || "ops";
+      el("dlgRole").value = u.role || "member";
+      el("dlgStatus").value = u.status || "active";
+      el("dlgNotes").value = u.notes || "";
+
+      setText("dlgMsg", "—");
+
+      if (typeof userDialog.showModal === "function") userDialog.showModal();
+      else userDialog.setAttribute("open", "true");
+    }
+
+    async function saveUserDialog(){
+      const msg = el("dlgMsg");
+      if (msg) msg.textContent = "Saving…";
+      if (!DLG_UID) return;
+
+      const payload = {
+        user_id: DLG_UID,
+        department: String(el("dlgDept")?.value || "").trim(),
+        role: String(el("dlgRole")?.value || "").trim(),
+        status: String(el("dlgStatus")?.value || "").trim(),
+        notes: String(el("dlgNotes")?.value || "").trim()
+      };
+
+      try{
+        const out = await apiFetch("/api/admin/user/update", { method:"POST", body: payload });
+        if (msg) msg.textContent = out?.message || "Saved.";
+        await loadUsers();
+        await loadAudit();
+      }catch(e){
+        if (msg) msg.textContent = `Save failed: ${String(e.message || e)}`;
+      }
+    }
+
+    async function disableUserDialog(){
+      const msg = el("dlgMsg");
+      if (msg) msg.textContent = "Disabling…";
+      if (!DLG_UID) return;
+
+      try{
+        const out = await apiFetch("/api/admin/user/disable", { method:"POST", body: { user_id: DLG_UID } });
+        if (msg) msg.textContent = out?.message || "Disabled.";
+        el("dlgStatus").value = "disabled";
+        await loadUsers();
+        await loadAudit();
+      }catch(e){
+        if (msg) msg.textContent = `Disable failed: ${String(e.message || e)}`;
+      }
+    }
+
+    // ====== Audit (optional) ======
+    async function loadAudit(){
+      const box = el("auditBox");
+      if (!box) return;
+
+      box.innerHTML = `<div class="muted2">Loading…</div>`;
+
+      try{
+        const out = await apiFetch("/api/admin/audit?limit=200");
+        const rows = Array.isArray(out?.rows) ? out.rows : [];
+
+        if (!rows.length){
+          box.innerHTML = `<div class="muted2">No audit rows.</div>`;
+          return;
+        }
+
+        box.innerHTML = rows.slice(0, 12).map(r => {
+          const ts = fmt.dt(r.created_at);
+          const action = r.action || "action";
+          const actor = r.actor_email || r.actor_id || "—";
+          const target = r.target_email || r.target_id || "—";
+          const note = r.note ? ` · ${r.note}` : "";
+
+          return `
+            <div class="p-3 rounded-xl" style="border:1px solid var(--border); background: var(--panel2);">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="font-black">${escapeHtml(action)}</div>
+                  <div class="mt-1 text-xs muted2">
+                    <span class="mono">${escapeHtml(ts)}</span> · by <span class="mono">${escapeHtml(actor)}</span> → <span class="mono">${escapeHtml(target)}</span>${escapeHtml(note)}
+                  </div>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join("");
+      }catch(e){
+        box.innerHTML = `<div class="muted2">Audit unavailable: ${escapeHtml(String(e.message || e))}</div>`;
+      }
+    }
+
+    // ====== Page load ======
+    async function loadHealth(){
+      try{
+        const t0 = performance.now();
+        const out = await apiFetch("/api/admin/health");
+        const t1 = performance.now();
+
+        // if backend didn't provide sb latency, show round-trip
+        if (out && (!out.supabase || typeof out.supabase.latency_ms !== "number")){
+          out.supabase = out.supabase || {};
+          out.supabase.status = out.supabase.status || "ok";
+          out.supabase.latency_ms = Math.round(t1 - t0);
+        }
+
+        renderSignals(out);
+      }catch(e){
+        renderSignals({ cron:{status:"warn", last_error:String(e.message || e)}, ingest:{status:"warn", note:"Health endpoint failed"}, supabase:{status:"warn", latency_ms:null}, rows:{} });
+      }
+    }
+
+    async function refreshAll(){
+      setText("lastRefresh", new Date().toLocaleString());
+      await Promise.allSettled([ loadHealth(), loadUsers(), loadAudit() ]);
+    }
+
+    function initUi(){
+      // theme
+      el("themeBtn")?.addEventListener("click", () => {
+        const cur = document.documentElement.getAttribute("data-theme") || "light";
+        applyTheme(cur === "dark" ? "light" : "dark");
+      });
+      applyTheme(localStorage.getItem(THEME_KEY) || "light");
+
+      // refresh
+      el("refreshBtn")?.addEventListener("click", refreshAll);
+
+      // invite
+      el("inviteBtn")?.addEventListener("click", sendInvite);
+      el("inviteEmail")?.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") sendInvite();
+      });
+
+      // filters
+      ["userSearch","roleFilter","deptFilter"].forEach(id => {
+        el(id)?.addEventListener("input", renderUsers);
+        el(id)?.addEventListener("change", renderUsers);
+      });
+
+      // dialog
+      el("dlgCloseBtn")?.addEventListener("click", () => userDialog.close());
+      userDialog?.addEventListener("click", (e) => {
+        const rect = userDialog.getBoundingClientRect();
+        const inDialog = rect.top <= e.clientY && e.clientY <= rect.top + rect.height &&
+                         rect.left <= e.clientX && e.clientX <= rect.left + rect.width;
+        if (!inDialog) userDialog.close();
+      });
+
+      el("dlgSaveBtn")?.addEventListener("click", saveUserDialog);
+      el("dlgDisableBtn")?.addEventListener("click", disableUserDialog);
+
+      // audit reload
+      el("auditReloadBtn")?.addEventListener("click", loadAudit);
+
+      // logout
+      el("logoutBtn")?.addEventListener("click", async () => {
+        try { await supabaseClient.auth.signOut(); } catch(e){ /* ignore */ }
+        window.location.href = "/financehub/pages/login.html";
+      });
+
+      // shortcuts (quiet)
+      window.addEventListener("keydown", (e) => {
+        const key = String(e.key || "").toLowerCase();
+        const inInput = ["input","textarea","select"].includes((e.target?.tagName || "").toLowerCase());
+        if (inInput) return;
+
+        if ((e.ctrlKey || e.metaKey) && key === "k"){
+          e.preventDefault(); refreshAll(); return;
+        }
+        if (key === "t"){ e.preventDefault();
+          const cur = document.documentElement.getAttribute("data-theme") || "light";
+          applyTheme(cur === "dark" ? "light" : "dark");
+        }
+        if (key === "i"){ e.preventDefault(); el("inviteEmail")?.focus(); }
+      });
+    }
+
+    (async function boot(){
+      initUi();
+      const ok = await requireAdmin();
+      if (!ok) return;
+      await refreshAll();
+    })();
+  </script>
+</body>
+</html>
