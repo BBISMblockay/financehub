@@ -1,31 +1,29 @@
-<!-- admin-hub.html
-     Silo ERP — Admin Hub (Super Admin / Systems Manager)
+<!-- backend.html
+     Silo ERP — Backend Hub (Supabase-only, NO custom server required)
 
-     IMPORTANT:
-     - This page assumes Supabase Auth is already working (login.html -> session).
-     - This page does NOT use "Create account" at all.
-     - Invites + user listing MUST be done via your backend (Render) using Service Role.
-       This HTML calls backend endpoints you implement:
-         GET  /financehub/api/admin/health
-         GET  /financehub/api/admin/users
-         POST /financehub/api/admin/invite
-         POST /financehub/api/admin/user/update
-         POST /financehub/api/admin/user/disable
-         POST /financehub/api/admin/user/reset_password (optional)
-         GET  /financehub/api/admin/audit?limit=200 (optional)
+     Works with your schemas:
+     ✅ public.profiles: id, name, email, role, department, is_active, created_at, updated_at (and optional notes)
+     ✅ public.access_requests: id, created_at, status, email, full_name, department, requested_role, note
 
-     - Auth model:
-       This page checks:
-         1) Supabase session exists
-         2) profile.role is "owner" or "admin"
-       Then it calls backend endpoints with Authorization: Bearer <access_token>.
+     Uses RPCs (run once in Supabase SQL editor):
+     - public.is_admin()
+     - public.admin_counts()
+     - public.admin_list_profiles()
+     - public.admin_update_profile(...)
+     - public.admin_list_access_requests(p_status text)
+     - public.approve_access_request(p_request_id uuid, p_department text, p_role text)  ✅ you just ran this
+     - public.deny_access_request(p_request_id uuid)                                   ✅ you just ran this
+
+     Notes:
+     - No /api endpoints. All calls go directly to Supabase.
+     - “Invite auth user” is not done here (no service role in browser). Users log in → access_requests → approve here.
 -->
 <!doctype html>
 <html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Silo ERP — Admin Hub</title>
+  <title>Silo ERP — Backend Hub</title>
 
   <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -102,6 +100,13 @@
       box-shadow:none;
     }
     .btn-danger:hover{ background: color-mix(in oklab, var(--danger) 24%, var(--panel2)); box-shadow:none; }
+    .btn-soft{
+      background: color-mix(in oklab, var(--accent) 10%, var(--panel));
+      border-color: color-mix(in oklab, var(--accent) 18%, var(--border));
+      color: var(--text);
+      box-shadow:none;
+    }
+    .btn-soft:hover{ background: color-mix(in oklab, var(--accent) 14%, var(--panel2)); box-shadow:none; }
 
     .input, .select{
       height: 38px;
@@ -175,6 +180,7 @@
 
     dialog::backdrop { background: rgba(15, 23, 42, 0.55); }
     dialog{ border:0; background:transparent; }
+
     .kbd{
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       font-size: 11px;
@@ -185,6 +191,7 @@
       color: var(--muted);
       font-weight: 900;
     }
+    .divider{ height:1px; background: var(--border); }
   </style>
 </head>
 
@@ -195,7 +202,7 @@
       <div class="min-w-0">
         <div class="flex items-center gap-2 flex-wrap">
           <span class="pill"><span class="dot" style="background: var(--accent)"></span>Silo ERP</span>
-          <span class="pill">Admin Hub</span>
+          <span class="pill">Backend Hub</span>
           <span id="rolePill" class="pill"><span class="dot" style="background: var(--accent)"></span>Role: —</span>
         </div>
         <div class="mt-1 text-lg font-semibold tracking-tight">Systems & Access Management</div>
@@ -211,7 +218,7 @@
   </div>
 
   <main class="mx-auto max-w-[1400px] px-4 py-4 space-y-4">
-    <!-- Auth / context row -->
+    <!-- Context row -->
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
       <div class="card p-5 lg:col-span-7">
         <div class="flex items-start justify-between gap-4 flex-wrap">
@@ -219,7 +226,8 @@
             <div class="section-title">Context</div>
             <div class="mt-2 text-xl font-semibold tracking-tight">Admin control plane</div>
             <div class="mt-2 text-sm muted">
-              Manage users, roles, departments, and validate data pipeline health without exposing Google Sheet publish links in the UI.
+              Supabase-only backend hub. Users request access via <span class="mono">login.html</span> → <span class="mono">access_requests</span>.
+              Approve to upsert <span class="mono">profiles</span> with role/department and activate the user.
             </div>
           </div>
           <div class="text-right">
@@ -230,93 +238,83 @@
         </div>
 
         <div class="mt-4 flex flex-wrap items-center gap-2">
-          <span class="pill"><span class="dot" style="background: var(--accent)"></span>Backend: <span id="apiBasePill" class="mono">/financehub</span></span>
+          <span class="pill"><span class="dot" style="background: var(--accent)"></span>Supabase: <span id="sbUrlPill" class="mono">—</span></span>
           <span class="pill"><span class="dot" style="background: var(--accent)"></span>Last refresh: <span id="lastRefresh" class="mono">—</span></span>
           <span id="accessStatePill" class="pill pill-warn"><span class="dot" style="background: var(--warn)"></span>Access: checking…</span>
         </div>
+
+        <div id="bootMsg" class="mt-3 text-sm muted2">—</div>
       </div>
 
       <div class="card p-5 lg:col-span-5">
         <div class="flex items-start justify-between gap-3 flex-wrap">
           <div>
             <div class="section-title">Health</div>
-            <div class="mt-2 text-lg font-semibold">Pipeline & services</div>
-            <div class="mt-1 text-sm muted">Snapshot of cron sync + data freshness.</div>
+            <div class="mt-2 text-lg font-semibold">Supabase + data</div>
+            <div class="mt-1 text-sm muted">Latency + row counts (via RPC).</div>
           </div>
           <span id="healthPill" class="pill"><span class="dot" style="background: var(--accent)"></span>—</span>
         </div>
 
         <div class="mt-4 grid grid-cols-2 gap-3">
           <div class="card p-4" style="background: var(--panel2); box-shadow:none;">
-            <div class="section-title">Cron</div>
-            <div id="cronStatus" class="mt-2 text-sm font-extrabold muted">—</div>
-            <div id="cronLastRun" class="mt-1 text-xs muted2 mono">—</div>
+            <div class="section-title">Latency</div>
+            <div id="sbLatency" class="mt-2 text-sm font-extrabold muted">—</div>
+            <div id="sbLatencySub" class="mt-1 text-xs muted2 mono">—</div>
           </div>
           <div class="card p-4" style="background: var(--panel2); box-shadow:none;">
-            <div class="section-title">Supabase</div>
-            <div id="sbStatus" class="mt-2 text-sm font-extrabold muted">—</div>
-            <div id="sbLatency" class="mt-1 text-xs muted2 mono">—</div>
+            <div class="section-title">Profiles</div>
+            <div id="profilesCount" class="mt-2 text-sm font-extrabold muted">—</div>
+            <div id="profilesCountSub" class="mt-1 text-xs muted2 mono">—</div>
           </div>
           <div class="card p-4" style="background: var(--panel2); box-shadow:none;">
-            <div class="section-title">Sheets ingest</div>
-            <div id="ingestStatus" class="mt-2 text-sm font-extrabold muted">—</div>
-            <div id="ingestDetail" class="mt-1 text-xs muted2 mono">—</div>
+            <div class="section-title">Access requests</div>
+            <div id="reqCount" class="mt-2 text-sm font-extrabold muted">—</div>
+            <div id="reqCountSub" class="mt-1 text-xs muted2 mono">—</div>
           </div>
           <div class="card p-4" style="background: var(--panel2); box-shadow:none;">
-            <div class="section-title">Rows</div>
-            <div id="rowCounts" class="mt-2 text-sm font-extrabold muted">—</div>
-            <div id="rowCountsSub" class="mt-1 text-xs muted2 mono">—</div>
+            <div class="section-title">Notes</div>
+            <div id="healthNote" class="mt-2 text-sm font-extrabold muted">—</div>
+            <div class="mt-1 text-xs muted2">If counts fail, ensure admin RPCs exist.</div>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- User management row -->
+    <!-- Main row -->
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
       <section class="lg:col-span-8 space-y-4">
-        <!-- Invite -->
+        <!-- Access Requests -->
         <div class="card p-5">
           <div class="flex items-start justify-between gap-3 flex-wrap">
             <div>
-              <div class="section-title">Users</div>
-              <div class="mt-2 text-lg font-semibold">Invite employee</div>
-              <div class="mt-1 text-sm muted">Creates a user via backend invite and sets profile defaults.</div>
+              <div class="section-title">Access</div>
+              <div class="mt-2 text-lg font-semibold">Pending access requests</div>
+              <div class="mt-1 text-sm muted">Approve to create/activate a <span class="mono">profiles</span> row for that auth user email.</div>
             </div>
             <div class="flex items-center gap-2">
-              <span class="kbd">I</span>
+              <button id="reqReloadBtn" class="btn btn-soft">Reload</button>
+              <span class="kbd">A</span>
             </div>
           </div>
 
-          <div class="mt-4 grid grid-cols-1 md:grid-cols-12 gap-3">
-            <div class="md:col-span-4">
-              <label class="text-xs font-black muted2">Email</label>
-              <input id="inviteEmail" class="input w-full mt-1" placeholder="name@company.com" />
-            </div>
-            <div class="md:col-span-3">
-              <label class="text-xs font-black muted2">Department</label>
-              <select id="inviteDept" class="select w-full mt-1">
-                <option value="ops">Ops</option>
-                <option value="finance">Finance</option>
-                <option value="logistics">Logistics</option>
-                <option value="marketing">Marketing</option>
-                <option value="retail">Retail</option>
-                <option value="exec">Exec</option>
-              </select>
-            </div>
-            <div class="md:col-span-3">
-              <label class="text-xs font-black muted2">Role</label>
-              <select id="inviteRole" class="select w-full mt-1">
-                <option value="member">member</option>
-                <option value="admin">admin</option>
-                <option value="viewer">viewer</option>
-              </select>
-            </div>
-            <div class="md:col-span-2 flex items-end">
-              <button id="inviteBtn" class="btn btn-primary w-full">Send invite</button>
-            </div>
+          <div class="mt-4 overflow-x-auto scrollbar">
+            <table class="table min-w-full text-sm">
+              <thead>
+                <tr>
+                  <th class="text-left">User</th>
+                  <th class="text-left">Requested</th>
+                  <th class="text-left">Note</th>
+                  <th class="text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="reqTbody">
+                <tr><td colspan="4" class="muted2">Loading…</td></tr>
+              </tbody>
+            </table>
           </div>
 
-          <div id="inviteMsg" class="mt-3 text-sm muted2">—</div>
+          <div id="reqMsg" class="mt-3 text-sm muted2">—</div>
         </div>
 
         <!-- Directory -->
@@ -324,8 +322,8 @@
           <div class="flex items-start justify-between gap-3 flex-wrap">
             <div>
               <div class="section-title">Directory</div>
-              <div class="mt-2 text-lg font-semibold">User access</div>
-              <div class="mt-1 text-sm muted">Search, filter, and adjust department/role.</div>
+              <div class="mt-2 text-lg font-semibold">Profiles</div>
+              <div class="mt-1 text-sm muted">Search, filter, and adjust department/role/is_active.</div>
             </div>
             <div class="flex items-center gap-2">
               <input id="userSearch" class="input" style="width: 260px;" placeholder="Search email/name…" />
@@ -335,6 +333,7 @@
                 <option value="admin">admin</option>
                 <option value="member">member</option>
                 <option value="viewer">viewer</option>
+                <option value="superadmin">superadmin</option>
               </select>
               <select id="deptFilter" class="select">
                 <option value="all">All depts</option>
@@ -345,6 +344,7 @@
                 <option value="retail">retail</option>
                 <option value="exec">exec</option>
               </select>
+              <button id="usersReloadBtn" class="btn">Reload</button>
             </div>
           </div>
 
@@ -356,7 +356,7 @@
                   <th class="text-left">Dept</th>
                   <th class="text-left">Role</th>
                   <th class="text-left">Status</th>
-                  <th class="text-right">Last seen</th>
+                  <th class="text-right">Updated</th>
                   <th class="text-right">Actions</th>
                 </tr>
               </thead>
@@ -367,20 +367,20 @@
           </div>
 
           <div class="mt-3 flex items-center justify-between gap-2 text-xs muted2">
-            <div>Users loaded: <span id="usersCount" class="mono">—</span></div>
+            <div>Profiles loaded: <span id="usersCount" class="mono">—</span></div>
             <div class="mono">Tip: click a row to edit</div>
           </div>
         </div>
       </section>
 
       <aside class="lg:col-span-4 space-y-4">
-        <!-- System signals -->
+        <!-- Signals -->
         <div class="card p-5">
           <div class="flex items-start justify-between gap-3">
             <div>
               <div class="section-title">Signals</div>
               <div class="mt-2 text-lg font-semibold">Operational alerts</div>
-              <div class="mt-1 text-sm muted">Derived from health endpoint.</div>
+              <div class="mt-1 text-sm muted">Derived from health & queue.</div>
             </div>
             <span class="kbd">S</span>
           </div>
@@ -389,18 +389,20 @@
           </div>
         </div>
 
-        <!-- Audit (optional endpoint) -->
+        <!-- Help -->
         <div class="card p-5">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <div class="section-title">Audit</div>
-              <div class="mt-2 text-lg font-semibold">Recent admin actions</div>
-              <div class="mt-1 text-sm muted">Invites + role changes.</div>
-            </div>
-            <button id="auditReloadBtn" class="btn">Reload</button>
+          <div class="section-title">Notes</div>
+          <div class="mt-2 text-sm muted">
+            <div class="font-black">Workflow</div>
+            <ol class="list-decimal ml-5 mt-2 space-y-1">
+              <li>User logs in → creates <span class="mono">access_requests</span> row</li>
+              <li>You approve → upserts <span class="mono">profiles</span> by matching <span class="mono">auth.users</span> on email</li>
+              <li>App pages gate by <span class="mono">profiles.role</span> and <span class="mono">is_active</span></li>
+            </ol>
           </div>
-          <div id="auditBox" class="mt-4 space-y-2 text-sm">
-            <div class="muted2">—</div>
+          <div class="divider my-4"></div>
+          <div class="text-xs muted2">
+            If “profiles list” fails: ensure admin RPCs exist (admin_list_profiles/admin_update_profile).
           </div>
         </div>
       </aside>
@@ -408,11 +410,11 @@
   </main>
 
   <!-- User edit dialog -->
-  <dialog id="userDialog" class="w-[min(840px,calc(100vw-24px))] rounded-2xl p-0 shadow-xl">
+  <dialog id="userDialog" class="w-[min(860px,calc(100vw-24px))] rounded-2xl p-0 shadow-xl">
     <div class="card overflow-hidden" style="box-shadow: var(--shadow2); border-radius: 16px;">
       <div class="flex items-start justify-between gap-3 border-b p-4" style="border-color: var(--border);">
         <div class="min-w-0">
-          <div class="text-xs muted2 font-black">User</div>
+          <div class="text-xs muted2 font-black">Profile</div>
           <div id="dlgEmail" class="mt-1 text-lg font-semibold truncate">—</div>
           <div id="dlgUid" class="mt-1 mono text-xs muted2 truncate">—</div>
         </div>
@@ -423,9 +425,14 @@
 
       <div class="p-4 space-y-4">
         <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+          <div class="md:col-span-5">
+            <label class="text-xs font-black muted2">Name</label>
+            <input id="dlgName" class="input w-full mt-1" placeholder="Full name" />
+          </div>
           <div class="md:col-span-4">
             <label class="text-xs font-black muted2">Department</label>
             <select id="dlgDept" class="select w-full mt-1">
+              <option value="">—</option>
               <option value="ops">ops</option>
               <option value="finance">finance</option>
               <option value="logistics">logistics</option>
@@ -434,15 +441,19 @@
               <option value="exec">exec</option>
             </select>
           </div>
-          <div class="md:col-span-4">
+          <div class="md:col-span-3">
             <label class="text-xs font-black muted2">Role</label>
             <select id="dlgRole" class="select w-full mt-1">
               <option value="viewer">viewer</option>
               <option value="member">member</option>
               <option value="admin">admin</option>
               <option value="owner">owner</option>
+              <option value="superadmin">superadmin</option>
             </select>
           </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
           <div class="md:col-span-4">
             <label class="text-xs font-black muted2">Status</label>
             <select id="dlgStatus" class="select w-full mt-1">
@@ -450,19 +461,19 @@
               <option value="disabled">disabled</option>
             </select>
           </div>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
           <div class="md:col-span-8">
             <label class="text-xs font-black muted2">Notes (optional)</label>
-            <input id="dlgNotes" class="input w-full mt-1" placeholder="e.g., AP approvals, inventory-only, etc." />
+            <input id="dlgNotes" class="input w-full mt-1" placeholder="(optional) notes field if your table has it" />
           </div>
-          <div class="md:col-span-4">
-            <label class="text-xs font-black muted2">Actions</label>
-            <div class="mt-1 flex gap-2">
-              <button id="dlgSaveBtn" class="btn btn-primary flex-1">Save</button>
-              <button id="dlgDisableBtn" class="btn btn-danger flex-1">Disable</button>
-            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+          <div class="md:col-span-8 text-xs muted2">
+            Saved via RPC (<span class="mono">admin_update_profile</span>) so client never needs elevated keys.
+          </div>
+          <div class="md:col-span-4 flex gap-2">
+            <button id="dlgSaveBtn" class="btn btn-primary flex-1">Save</button>
+            <button id="dlgDisableBtn" class="btn btn-danger flex-1">Disable</button>
           </div>
         </div>
 
@@ -471,8 +482,57 @@
 
       <div class="border-t p-4" style="border-color: var(--border); background: var(--panel2);">
         <div class="text-xs muted2">
-          Changes persist to <span class="mono">public.profiles</span> via backend (service role).
+          Table: <span class="mono">public.profiles</span> uses <span class="mono">is_active</span> (not <span class="mono">status</span>).
         </div>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- Approve dialog -->
+  <dialog id="approveDialog" class="w-[min(760px,calc(100vw-24px))] rounded-2xl p-0 shadow-xl">
+    <div class="card overflow-hidden" style="box-shadow: var(--shadow2); border-radius: 16px;">
+      <div class="flex items-start justify-between gap-3 border-b p-4" style="border-color: var(--border);">
+        <div class="min-w-0">
+          <div class="text-xs muted2 font-black">Approve request</div>
+          <div id="apprEmail" class="mt-1 text-lg font-semibold truncate">—</div>
+          <div id="apprReqId" class="mt-1 mono text-xs muted2 truncate">—</div>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="apprCloseBtn" class="btn">Close</button>
+        </div>
+      </div>
+
+      <div class="p-4 space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+          <div class="md:col-span-6">
+            <label class="text-xs font-black muted2">Department</label>
+            <select id="apprDept" class="select w-full mt-1">
+              <option value="ops">ops</option>
+              <option value="finance">finance</option>
+              <option value="logistics">logistics</option>
+              <option value="marketing">marketing</option>
+              <option value="retail">retail</option>
+              <option value="exec">exec</option>
+            </select>
+          </div>
+          <div class="md:col-span-6">
+            <label class="text-xs font-black muted2">Role</label>
+            <select id="apprRole" class="select w-full mt-1">
+              <option value="member">member</option>
+              <option value="viewer">viewer</option>
+              <option value="admin">admin</option>
+              <option value="owner">owner</option>
+              <option value="superadmin">superadmin</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="flex gap-2">
+          <button id="apprApproveBtn" class="btn btn-primary flex-1">Approve</button>
+          <button id="apprDenyBtn" class="btn btn-danger flex-1">Deny</button>
+        </div>
+
+        <div id="apprMsg" class="text-sm muted2">—</div>
       </div>
     </div>
   </dialog>
@@ -482,12 +542,10 @@
     const cfg = window.__SILO_CONFIG__ || {};
     const SUPABASE_URL = cfg.SUPABASE_URL;
     const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY;
-    const API_BASE = "/financehub"; // keep links stable; change if your app base differs
 
-    const THEME_KEY = "silo_admin_theme_v1";
+    const THEME_KEY = "silo_backend_theme_v1";
     const el = (id) => document.getElementById(id);
     const setText = (id, v) => { const n = el(id); if (n) n.textContent = v; };
-    const setHtml = (id, v) => { const n = el(id); if (n) n.innerHTML = v; };
     const escapeHtml = (s) => String(s ?? "")
       .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
       .replaceAll('"',"&quot;").replaceAll("'","&#039;");
@@ -508,12 +566,17 @@
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY){
       alert("Missing SUPABASE_URL / SUPABASE_ANON_KEY in /financehub/pages/config.js");
     }
+
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    // ====== Auth guard (must be owner/admin) ======
-    let ACCESS_TOKEN = null;
+    // ====== Auth guard ======
     let CURRENT_USER = null;
     let CURRENT_PROFILE = null;
+
+    function roleAllowed(role){
+      const r = String(role || "").toLowerCase();
+      return ["owner","admin","superadmin"].includes(r);
+    }
 
     async function requireAdmin(){
       const { data, error } = await supabaseClient.auth.getSession();
@@ -525,160 +588,87 @@
         return false;
       }
 
-      ACCESS_TOKEN = session.access_token;
       CURRENT_USER = session.user;
 
       setText("authEmail", CURRENT_USER?.email || "Signed in");
       setText("authUid", CURRENT_USER?.id ? `uid: ${CURRENT_USER.id}` : "—");
-      setText("apiBasePill", API_BASE);
+      setText("sbUrlPill", (SUPABASE_URL || "").replace(/^https?:\/\//,'').slice(0, 48) + "…");
 
-      // pull profile role
       const { data: prof, error: pErr } = await supabaseClient
         .from("profiles")
-        .select("id, email, role, department, is_active")
+        .select("id, email, role, department, is_active, name, updated_at")
         .eq("id", CURRENT_USER.id)
         .maybeSingle();
 
       if (pErr) console.warn("profiles lookup error:", pErr);
 
       CURRENT_PROFILE = prof || null;
-         if (CURRENT_PROFILE) {
-  // normalize: treat is_active as status for UI logic
-  CURRENT_PROFILE.status = (CURRENT_PROFILE.is_active === false) ? "disabled" : "active";
-}
+
+      // normalize status from is_active
+      if (CURRENT_PROFILE){
+        CURRENT_PROFILE.status = (CURRENT_PROFILE.is_active === false) ? "disabled" : "active";
+      }
 
       const role = (CURRENT_PROFILE?.role || "user").toLowerCase();
-      setText("rolePill", "");
       const rolePill = el("rolePill");
       if (rolePill){
         rolePill.innerHTML = `<span class="dot" style="background: var(--accent)"></span>Role: ${escapeHtml(role)}`;
       }
 
-      const allowed = (role === "owner" || role === "admin");
+      const allowed = roleAllowed(role);
       const accessPill = el("accessStatePill");
       if (accessPill){
         accessPill.className = allowed ? "pill pill-good" : "pill pill-danger";
         accessPill.innerHTML = `<span class="dot" style="background:${allowed ? "var(--good)" : "var(--danger)"}"></span>Access: ${allowed ? "approved" : "denied"}`;
       }
 
+      if (!CURRENT_PROFILE){
+        setText("bootMsg", "No profile found for your UID (or RLS blocked it). Create/repair your profiles row.");
+      } else {
+        setText("bootMsg", "Ready. Approve access requests and manage roles.");
+      }
+
       if (!allowed){
-        // Keep it blunt and safe: bounce to executive or login.
-        alert("Access denied: admin/owner required.");
+        alert("Access denied: owner/admin/superadmin required.");
         window.location.href = "/financehub/pages/executive.html";
         return false;
       }
       return true;
     }
 
-    // ====== Backend calls (service role lives server-side) ======
-    async function apiFetch(path, opts = {}){
-      const url = `${API_BASE}${path}`;
-      const headers = Object.assign(
-        { "Content-Type":"application/json" },
-        opts.headers || {}
-      );
-      if (ACCESS_TOKEN) headers["Authorization"] = `Bearer ${ACCESS_TOKEN}`;
-
-      const res = await fetch(url, {
-        method: opts.method || "GET",
-        headers,
-        body: opts.body ? JSON.stringify(opts.body) : undefined,
-        credentials: "include"
-      });
-
-      const text = await res.text();
-      let json = null;
-      try { json = text ? JSON.parse(text) : null; } catch { /* ignore */ }
-
-      if (!res.ok){
-        const msg = (json && (json.error || json.message)) ? (json.error || json.message) : `HTTP ${res.status}`;
-        throw new Error(msg);
-      }
-      return json;
-    }
-
-    // ====== Health ======
-    function renderSignals(health){
+    // ====== Health & signals ======
+    function renderSignals({ latencyMs, counts, pendingCount, errNote }){
       const items = [];
-
       const add = (tone, text) => items.push({ tone, text });
 
-      if (!health){
-        add("warn", "No health payload returned.");
-      } else {
-        // expected shape (your backend can return this):
-        // {
-        //   ok: true,
-        //   cron: { status:"ok|warn|down", last_run_at, last_success_at, last_error },
-        //   supabase: { status:"ok|warn|down", latency_ms },
-        //   ingest: { status:"ok|warn|down", note, last_sales_day, last_inventory_day },
-        //   rows: { sales_by_day, inventory_on_hand, products_master },
-        // }
+      if (errNote) add("warn", errNote);
 
-        const cron = health.cron || {};
-        const sb = health.supabase || {};
-        const ing = health.ingest || {};
-        const rows = health.rows || {};
+      if (typeof latencyMs === "number"){
+        if (latencyMs > 900) add("warn", `Supabase latency elevated (${latencyMs}ms).`);
+        else add("good", `Supabase responsive (${latencyMs}ms).`);
+      } else add("warn", "Latency unavailable.");
 
-        const overallBad = ["down","error"].includes(String(cron.status)) ||
-                           ["down","error"].includes(String(sb.status)) ||
-                           ["down","error"].includes(String(ing.status));
-        const overallWarn = !overallBad && (
-          ["warn","stale"].includes(String(cron.status)) ||
-          ["warn","stale"].includes(String(sb.status)) ||
-          ["warn","stale"].includes(String(ing.status))
-        );
+      if (counts && typeof counts.profiles_count === "number"){
+        add("good", `Profiles: ${counts.profiles_count}`);
+      } else add("warn", "Profiles count unavailable (admin_counts RPC missing).");
 
-        const hp = el("healthPill");
-        if (hp){
-          hp.className = overallBad ? "pill pill-danger" : (overallWarn ? "pill pill-warn" : "pill pill-good");
-          hp.innerHTML = `<span class="dot" style="background:${overallBad ? "var(--danger)" : (overallWarn ? "var(--warn)" : "var(--good)") }"></span>${overallBad ? "Degraded" : (overallWarn ? "Watch" : "Healthy")}`;
-        }
+      if (typeof pendingCount === "number"){
+        if (pendingCount > 0) add("warn", `${pendingCount} access requests pending.`);
+        else add("good", "No access requests pending.");
+      } else add("warn", "Access request count unavailable (admin_list_access_requests missing).");
 
-        // cards
-        setText("cronStatus", cron.status ? String(cron.status).toUpperCase() : "—");
-        setText("cronLastRun", cron.last_run_at ? `last: ${fmt.dt(cron.last_run_at)}` : "—");
-
-        setText("sbStatus", sb.status ? String(sb.status).toUpperCase() : "—");
-        setText("sbLatency", (typeof sb.latency_ms === "number") ? `latency: ${sb.latency_ms}ms` : "—");
-
-        setText("ingestStatus", ing.status ? String(ing.status).toUpperCase() : "—");
-        setText("ingestDetail", ing.note ? String(ing.note) : (ing.last_sales_day ? `sales day: ${ing.last_sales_day}` : "—"));
-
-        const rowLine = [
-          (rows.sales_by_day != null ? `sales_by_day ${rows.sales_by_day}` : null),
-          (rows.inventory_on_hand != null ? `inventory_on_hand ${rows.inventory_on_hand}` : null),
-          (rows.products_master != null ? `products_master ${rows.products_master}` : null),
-        ].filter(Boolean).join(" · ");
-        setText("rowCounts", rowLine || "—");
-
-        const rowSub = [
-          (ing.last_sales_day ? `latest sales: ${ing.last_sales_day}` : null),
-          (ing.last_inventory_day ? `latest inv: ${ing.last_inventory_day}` : null),
-        ].filter(Boolean).join(" · ");
-        setText("rowCountsSub", rowSub || "—");
-
-        // signals list
-        if (cron.status === "down" || cron.status === "error") add("danger", `Cron failing: ${cron.last_error || "check logs"}.`);
-        else if (cron.status === "warn" || cron.status === "stale") add("warn", `Cron stale: last run ${fmt.dt(cron.last_run_at)}.`);
-        else add("good", `Cron healthy: last run ${fmt.dt(cron.last_run_at)}.`);
-
-        if (ing.status === "warn" || ing.status === "stale") add("warn", `Ingest stale: ${ing.note || "verify sheet exports + sync"}.`);
-        if (ing.status === "down" || ing.status === "error") add("danger", `Ingest failing: ${ing.note || "verify backend sync"}.`);
-
-        if (typeof sb.latency_ms === "number" && sb.latency_ms > 600) add("warn", `Supabase latency elevated: ${sb.latency_ms}ms.`);
-        else if (sb.status) add(sb.status === "ok" ? "good" : "warn", `Supabase status: ${String(sb.status)}.`);
-
-        // quick row sanity
-        if (rows.sales_by_day === 0) add("warn", "sales_by_day has 0 rows (sync not running yet).");
+      const hp = el("healthPill");
+      const overallBad = items.some(x => x.tone === "danger");
+      const overallWarn = !overallBad && items.some(x => x.tone === "warn");
+      if (hp){
+        hp.className = overallBad ? "pill pill-danger" : (overallWarn ? "pill pill-warn" : "pill pill-good");
+        hp.innerHTML = `<span class="dot" style="background:${overallBad ? "var(--danger)" : (overallWarn ? "var(--warn)" : "var(--good)") }"></span>${overallBad ? "Degraded" : (overallWarn ? "Watch" : "Healthy")}`;
       }
-
-      if (!items.length) items.push({ tone:"neutral", text:"No signals." });
 
       const box = el("signalsBox");
       if (!box) return;
 
-      box.innerHTML = items.slice(0, 8).map(it => {
+      box.innerHTML = items.slice(0, 10).map(it => {
         const tone = it.tone;
         const cls = tone === "danger" ? "pill pill-danger" : (tone === "warn" ? "pill pill-warn" : (tone === "good" ? "pill pill-good" : "pill"));
         const dot = tone === "danger" ? "var(--danger)" : (tone === "warn" ? "var(--warn)" : (tone === "good" ? "var(--good)" : "var(--accent)"));
@@ -691,23 +681,187 @@
       }).join("");
     }
 
-    // ====== Users ======
-    let USERS = [];
+    async function loadHealth(){
+      let latencyMs = null;
+      let errNote = null;
 
-       USERS = USERS.map(u => ({
-  ...u,
-  status: u.status ?? ((u.is_active === false) ? "disabled" : "active")
-}));
+      try{
+        const t0 = performance.now();
+        await supabaseClient.from("profiles").select("id").limit(1);
+        const t1 = performance.now();
+        latencyMs = Math.round(t1 - t0);
+      } catch(e){
+        errNote = "Latency query failed (check RLS / network).";
+      }
+
+      let counts = null;
+      try{
+        const { data, error } = await supabaseClient.rpc("admin_counts");
+        if (error) throw error;
+        counts = data || null;
+      } catch(e){
+        // keep going
+      }
+
+      let pendingCount = null;
+      try{
+        const { data, error } = await supabaseClient.rpc("admin_list_access_requests", { p_status: "pending" });
+        if (error) throw error;
+        if (Array.isArray(data)) pendingCount = data.length;
+      } catch(e){
+        // keep going
+      }
+
+      setText("sbLatency", (typeof latencyMs === "number") ? `${latencyMs}ms` : "—");
+      setText("sbLatencySub", (typeof latencyMs === "number") ? `roundtrip` : "—");
+
+      setText("profilesCount", (counts && typeof counts.profiles_count === "number") ? String(counts.profiles_count) : "—");
+      setText("profilesCountSub", counts?.profiles_updated_at ? `last update: ${fmt.dt(counts.profiles_updated_at)}` : "—";
+
+      setText("reqCount", (typeof pendingCount === "number") ? String(pendingCount) : "—");
+      setText("reqCountSub", (typeof pendingCount === "number") ? `pending` : "—";
+
+      setText("healthNote", counts ? "RPC OK" : "RPC missing");
+
+      renderSignals({ latencyMs, counts, pendingCount, errNote });
+    }
+
+    // ====== Access requests ======
+    let ACCESS_REQUESTS = [];
+    const approveDialog = el("approveDialog");
+    let APPROVE_REQ_ID = null;
+
+    function renderRequests(){
+      const tbody = el("reqTbody");
+      const msg = el("reqMsg");
+      if (!tbody) return;
+
+      if (!ACCESS_REQUESTS.length){
+        tbody.innerHTML = `<tr><td colspan="4" class="muted2">No pending requests.</td></tr>`;
+        if (msg) msg.textContent = "—";
+        return;
+      }
+
+      tbody.innerHTML = ACCESS_REQUESTS.map(r => {
+        const email = escapeHtml(r.email || "—");
+        const name = escapeHtml(r.full_name || "—");
+        const dept = escapeHtml(r.department || "—");
+        const roleReq = escapeHtml(r.requested_role || "—");
+        const created = fmt.dt(r.created_at);
+        const note = escapeHtml(r.note || "");
+
+        return `
+          <tr>
+            <td>
+              <div class="font-black">${email}</div>
+              <div class="text-xs muted2">${name} · requested <span class="mono">${roleReq}</span> · <span class="mono">${dept}</span></div>
+            </td>
+            <td class="mono muted">${escapeHtml(created)}</td>
+            <td class="muted">${note || "—"}</td>
+            <td class="text-right">
+              <button class="btn btn-primary" data-action="review" data-id="${escapeHtml(r.id)}">Review</button>
+            </td>
+          </tr>
+        `;
+      }).join("");
+
+      tbody.querySelectorAll("[data-action='review']").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const id = btn.getAttribute("data-id");
+          openApproveDialog(id);
+        });
+      });
+
+      if (msg) msg.textContent = `${ACCESS_REQUESTS.length} pending.`;
+    }
+
+    async function loadRequests(){
+      const msg = el("reqMsg");
+      if (msg) msg.textContent = "Loading…";
+
+      const { data, error } = await supabaseClient.rpc("admin_list_access_requests", { p_status: "pending" });
+      if (error){
+        console.warn("admin_list_access_requests error:", error);
+        ACCESS_REQUESTS = [];
+        renderRequests();
+        if (msg) msg.textContent = `Requests failed: ${error.message}`;
+        return;
+      }
+
+      ACCESS_REQUESTS = Array.isArray(data) ? data : [];
+      renderRequests();
+    }
+
+    function openApproveDialog(requestId){
+      const r = ACCESS_REQUESTS.find(x => String(x.id) === String(requestId));
+      if (!r) return;
+
+      APPROVE_REQ_ID = r.id;
+
+      setText("apprEmail", r.email || "—");
+      setText("apprReqId", r.id ? `request: ${r.id}` : "—");
+      el("apprDept").value = r.department || "ops";
+      el("apprRole").value = r.requested_role || "member";
+      setText("apprMsg", "—");
+
+      if (typeof approveDialog.showModal === "function") approveDialog.showModal();
+      else approveDialog.setAttribute("open","true");
+    }
+
+    async function approveRequest(){
+      const msg = el("apprMsg");
+      if (msg) msg.textContent = "Approving…";
+      if (!APPROVE_REQ_ID) return;
+
+      const p_department = String(el("apprDept")?.value || "ops").trim();
+      const p_role = String(el("apprRole")?.value || "member").trim();
+
+      const { data, error } = await supabaseClient.rpc("approve_access_request", {
+        p_request_id: APPROVE_REQ_ID,
+        p_department,
+        p_role
+      });
+
+      if (error){
+        if (msg) msg.textContent = `Approve failed: ${error.message}`;
+        return;
+      }
+
+      if (msg) msg.textContent = `Approved. ${data?.user_id ? "uid: " + data.user_id : ""}`;
+      await Promise.allSettled([ loadRequests(), loadUsers(), loadHealth() ]);
+      setTimeout(() => approveDialog.close(), 450);
+    }
+
+    async function denyRequest(){
+      const msg = el("apprMsg");
+      if (msg) msg.textContent = "Denying…";
+      if (!APPROVE_REQ_ID) return;
+
+      const { error } = await supabaseClient.rpc("deny_access_request", {
+        p_request_id: APPROVE_REQ_ID
+      });
+
+      if (error){
+        if (msg) msg.textContent = `Deny failed: ${error.message}`;
+        return;
+      }
+
+      if (msg) msg.textContent = "Denied.";
+      await Promise.allSettled([ loadRequests(), loadHealth() ]);
+      setTimeout(() => approveDialog.close(), 450);
+    }
+
+    // ====== Users / profiles ======
+    let USERS = [];
 
     function statusPill(status){
       const s = String(status || "active").toLowerCase();
       if (s === "disabled") return `<span class="pill pill-danger"><span class="dot" style="background: var(--danger)"></span>disabled</span>`;
       return `<span class="pill pill-good"><span class="dot" style="background: var(--good)"></span>active</span>`;
     }
-
     function rolePill(role){
       const r = String(role || "member").toLowerCase();
-      if (r === "owner") return `<span class="pill pill-good"><span class="dot" style="background: var(--good)"></span>owner</span>`;
+      if (r === "owner" || r === "superadmin") return `<span class="pill pill-good"><span class="dot" style="background: var(--good)"></span>${escapeHtml(r)}</span>`;
       if (r === "admin") return `<span class="pill"><span class="dot" style="background: var(--accent)"></span>admin</span>`;
       if (r === "viewer") return `<span class="pill pill-warn"><span class="dot" style="background: var(--warn)"></span>viewer</span>`;
       return `<span class="pill"><span class="dot" style="background: var(--accent)"></span>member</span>`;
@@ -720,7 +874,7 @@
 
       return USERS.filter(u => {
         const email = String(u.email || "").toLowerCase();
-        const name = String(u.full_name || "").toLowerCase();
+        const name = String(u.name || "").toLowerCase();
         const role = String(u.role || "").toLowerCase();
         const dept = String(u.department || "").toLowerCase();
 
@@ -739,35 +893,36 @@
       setText("usersCount", String(list.length));
 
       if (!list.length){
-        tbody.innerHTML = `<tr><td colspan="6" class="muted2">No users match your filters.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="6" class="muted2">No profiles match your filters.</td></tr>`;
         return;
       }
 
       tbody.innerHTML = list.map(u => {
         const email = escapeHtml(u.email || "—");
+        const uid = escapeHtml(u.id || "");
         const dept = escapeHtml(u.department || "—");
         const role = escapeHtml(u.role || "member");
-        const last = u.last_seen_at ? fmt.dt(u.last_seen_at) : "—";
         const status = String(u.status || "active").toLowerCase();
+        const upd = u.updated_at ? fmt.dt(u.updated_at) : "—";
 
         return `
-          <tr class="cursor-pointer" data-uid="${escapeHtml(u.id)}">
+          <tr class="cursor-pointer" data-uid="${uid}">
             <td>
               <div class="font-black">${email}</div>
-              <div class="text-xs muted2 mono">${escapeHtml(u.id || "")}</div>
+              <div class="text-xs muted2">${escapeHtml(u.name || "")}</div>
+              <div class="text-xs muted2 mono">${uid}</div>
             </td>
             <td class="font-extrabold">${dept}</td>
             <td>${rolePill(role)}</td>
             <td>${statusPill(status)}</td>
-            <td class="text-right mono muted">${escapeHtml(last)}</td>
+            <td class="text-right mono muted">${escapeHtml(upd)}</td>
             <td class="text-right">
-              <button class="btn" data-action="edit" data-uid="${escapeHtml(u.id)}">Edit</button>
+              <button class="btn" data-action="edit" data-uid="${uid}">Edit</button>
             </td>
           </tr>
         `;
       }).join("");
 
-      // row click / edit button
       tbody.querySelectorAll("[data-action='edit']").forEach(btn => {
         btn.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -776,51 +931,35 @@
         });
       });
       tbody.querySelectorAll("tr[data-uid]").forEach(tr => {
-        tr.addEventListener("click", () => {
-          const uid = tr.getAttribute("data-uid");
-          openUserDialog(uid);
-        });
+        tr.addEventListener("click", () => openUserDialog(tr.getAttribute("data-uid")));
       });
     }
 
     async function loadUsers(){
-      // backend returns array of users joined with profiles
-      // expected shape:
-      // [{ id, email, role, department, status, full_name, last_seen_at }]
-      const data = await apiFetch("/api/admin/users");
-      USERS = Array.isArray(data?.users) ? data.users : (Array.isArray(data) ? data : []);
-      renderUsers();
-    }
+      const tbody = el("usersTbody");
+      if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="muted2">Loading…</td></tr>`;
 
-    // ====== Invite ======
-    async function sendInvite(){
-      const email = String(el("inviteEmail")?.value || "").trim();
-      const department = String(el("inviteDept")?.value || "ops").trim();
-      const role = String(el("inviteRole")?.value || "member").trim();
-
-      const msg = el("inviteMsg");
-      if (msg) msg.textContent = "Sending…";
-
-      if (!email || !email.includes("@")){
-        if (msg) msg.textContent = "Enter a valid email.";
+      const { data, error } = await supabaseClient.rpc("admin_list_profiles");
+      if (error){
+        console.warn("admin_list_profiles error:", error);
+        USERS = [];
+        if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="muted2">Profiles failed: ${escapeHtml(error.message)}</td></tr>`;
+        setText("usersCount","0");
         return;
       }
 
-      try{
-        const out = await apiFetch("/api/admin/invite", {
-          method: "POST",
-          body: { email, department, role }
-        });
-        if (msg) msg.textContent = out?.message || "Invite sent.";
-        el("inviteEmail").value = "";
-        await loadUsers();
-        await loadAudit();
-      }catch(e){
-        if (msg) msg.textContent = `Invite failed: ${String(e.message || e)}`;
-      }
+      USERS = Array.isArray(data) ? data : [];
+
+      // normalize status from is_active
+      USERS = USERS.map(u => ({
+        ...u,
+        status: u.status ?? ((u.is_active === false) ? "disabled" : "active")
+      }));
+
+      renderUsers();
     }
 
-    // ====== User dialog ======
+    // ====== User dialog (RPC update) ======
     const userDialog = el("userDialog");
     let DLG_UID = null;
 
@@ -833,9 +972,12 @@
       setText("dlgEmail", u.email || "—");
       setText("dlgUid", u.id ? `uid: ${u.id}` : "—");
 
-      el("dlgDept").value = u.department || "ops";
+      el("dlgName").value = u.name || "";
+      el("dlgDept").value = u.department || "";
       el("dlgRole").value = u.role || "member";
-      el("dlgStatus").value = u.status || "active";
+      el("dlgStatus").value = (u.is_active === false || String(u.status).toLowerCase()==="disabled") ? "disabled" : "active";
+
+      // notes is optional (only if column exists)
       el("dlgNotes").value = u.notes || "";
 
       setText("dlgMsg", "—");
@@ -849,22 +991,24 @@
       if (msg) msg.textContent = "Saving…";
       if (!DLG_UID) return;
 
+      const p_is_active = (String(el("dlgStatus")?.value || "active").toLowerCase() !== "disabled");
       const payload = {
-        user_id: DLG_UID,
-        department: String(el("dlgDept")?.value || "").trim(),
-        role: String(el("dlgRole")?.value || "").trim(),
-        status: String(el("dlgStatus")?.value || "").trim(),
-        notes: String(el("dlgNotes")?.value || "").trim()
+        p_user_id: DLG_UID,
+        p_name: String(el("dlgName")?.value || "").trim() || null,
+        p_department: String(el("dlgDept")?.value || "").trim() || null,
+        p_role: String(el("dlgRole")?.value || "").trim() || null,
+        p_is_active: p_is_active,
+        p_notes: (String(el("dlgNotes")?.value || "").trim() || null)
       };
 
-      try{
-        const out = await apiFetch("/api/admin/user/update", { method:"POST", body: payload });
-        if (msg) msg.textContent = out?.message || "Saved.";
-        await loadUsers();
-        await loadAudit();
-      }catch(e){
-        if (msg) msg.textContent = `Save failed: ${String(e.message || e)}`;
+      const { error } = await supabaseClient.rpc("admin_update_profile", payload);
+      if (error){
+        if (msg) msg.textContent = `Save failed: ${error.message}`;
+        return;
       }
+
+      if (msg) msg.textContent = "Saved.";
+      await Promise.allSettled([ loadUsers(), loadHealth() ]);
     }
 
     async function disableUserDialog(){
@@ -872,81 +1016,25 @@
       if (msg) msg.textContent = "Disabling…";
       if (!DLG_UID) return;
 
-      try{
-        const out = await apiFetch("/api/admin/user/disable", { method:"POST", body: { user_id: DLG_UID } });
-        if (msg) msg.textContent = out?.message || "Disabled.";
-        el("dlgStatus").value = "disabled";
-        await loadUsers();
-        await loadAudit();
-      }catch(e){
-        if (msg) msg.textContent = `Disable failed: ${String(e.message || e)}`;
+      const { error } = await supabaseClient.rpc("admin_update_profile", {
+        p_user_id: DLG_UID,
+        p_is_active: false
+      });
+
+      if (error){
+        if (msg) msg.textContent = `Disable failed: ${error.message}`;
+        return;
       }
+
+      if (msg) msg.textContent = "Disabled.";
+      el("dlgStatus").value = "disabled";
+      await Promise.allSettled([ loadUsers(), loadHealth() ]);
     }
 
-    // ====== Audit (optional) ======
-    async function loadAudit(){
-      const box = el("auditBox");
-      if (!box) return;
-
-      box.innerHTML = `<div class="muted2">Loading…</div>`;
-
-      try{
-        const out = await apiFetch("/api/admin/audit?limit=200");
-        const rows = Array.isArray(out?.rows) ? out.rows : [];
-
-        if (!rows.length){
-          box.innerHTML = `<div class="muted2">No audit rows.</div>`;
-          return;
-        }
-
-        box.innerHTML = rows.slice(0, 12).map(r => {
-          const ts = fmt.dt(r.created_at);
-          const action = r.action || "action";
-          const actor = r.actor_email || r.actor_id || "—";
-          const target = r.target_email || r.target_id || "—";
-          const note = r.note ? ` · ${r.note}` : "";
-
-          return `
-            <div class="p-3 rounded-xl" style="border:1px solid var(--border); background: var(--panel2);">
-              <div class="flex items-start justify-between gap-3">
-                <div class="min-w-0">
-                  <div class="font-black">${escapeHtml(action)}</div>
-                  <div class="mt-1 text-xs muted2">
-                    <span class="mono">${escapeHtml(ts)}</span> · by <span class="mono">${escapeHtml(actor)}</span> → <span class="mono">${escapeHtml(target)}</span>${escapeHtml(note)}
-                  </div>
-                </div>
-              </div>
-            </div>
-          `;
-        }).join("");
-      }catch(e){
-        box.innerHTML = `<div class="muted2">Audit unavailable: ${escapeHtml(String(e.message || e))}</div>`;
-      }
-    }
-
-    // ====== Page load ======
-    async function loadHealth(){
-      try{
-        const t0 = performance.now();
-        const out = await apiFetch("/api/admin/health");
-        const t1 = performance.now();
-
-        // if backend didn't provide sb latency, show round-trip
-        if (out && (!out.supabase || typeof out.supabase.latency_ms !== "number")){
-          out.supabase = out.supabase || {};
-          out.supabase.status = out.supabase.status || "ok";
-          out.supabase.latency_ms = Math.round(t1 - t0);
-        }
-
-        renderSignals(out);
-      }catch(e){
-        renderSignals({ cron:{status:"warn", last_error:String(e.message || e)}, ingest:{status:"warn", note:"Health endpoint failed"}, supabase:{status:"warn", latency_ms:null}, rows:{} });
-      }
-    }
-
+    // ====== Boot ======
     async function refreshAll(){
       setText("lastRefresh", new Date().toLocaleString());
-      await Promise.allSettled([ loadHealth(), loadUsers(), loadAudit() ]);
+      await Promise.allSettled([ loadHealth(), loadRequests(), loadUsers() ]);
     }
 
     function initUi(){
@@ -960,11 +1048,11 @@
       // refresh
       el("refreshBtn")?.addEventListener("click", refreshAll);
 
-      // invite
-      el("inviteBtn")?.addEventListener("click", sendInvite);
-      el("inviteEmail")?.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") sendInvite();
-      });
+      // requests reload
+      el("reqReloadBtn")?.addEventListener("click", loadRequests);
+
+      // users reload
+      el("usersReloadBtn")?.addEventListener("click", loadUsers);
 
       // filters
       ["userSearch","roleFilter","deptFilter"].forEach(id => {
@@ -972,7 +1060,7 @@
         el(id)?.addEventListener("change", renderUsers);
       });
 
-      // dialog
+      // dialogs
       el("dlgCloseBtn")?.addEventListener("click", () => userDialog.close());
       userDialog?.addEventListener("click", (e) => {
         const rect = userDialog.getBoundingClientRect();
@@ -980,12 +1068,19 @@
                          rect.left <= e.clientX && e.clientX <= rect.left + rect.width;
         if (!inDialog) userDialog.close();
       });
-
       el("dlgSaveBtn")?.addEventListener("click", saveUserDialog);
       el("dlgDisableBtn")?.addEventListener("click", disableUserDialog);
 
-      // audit reload
-      el("auditReloadBtn")?.addEventListener("click", loadAudit);
+      // approve dialog
+      el("apprCloseBtn")?.addEventListener("click", () => approveDialog.close());
+      approveDialog?.addEventListener("click", (e) => {
+        const rect = approveDialog.getBoundingClientRect();
+        const inDialog = rect.top <= e.clientY && e.clientY <= rect.top + rect.height &&
+                         rect.left <= e.clientX && e.clientY <= rect.left + rect.width;
+        if (!inDialog) approveDialog.close();
+      });
+      el("apprApproveBtn")?.addEventListener("click", approveRequest);
+      el("apprDenyBtn")?.addEventListener("click", denyRequest);
 
       // logout
       el("logoutBtn")?.addEventListener("click", async () => {
@@ -993,7 +1088,7 @@
         window.location.href = "/financehub/pages/login.html";
       });
 
-      // shortcuts (quiet)
+      // shortcuts
       window.addEventListener("keydown", (e) => {
         const key = String(e.key || "").toLowerCase();
         const inInput = ["input","textarea","select"].includes((e.target?.tagName || "").toLowerCase());
@@ -1006,7 +1101,7 @@
           const cur = document.documentElement.getAttribute("data-theme") || "light";
           applyTheme(cur === "dark" ? "light" : "dark");
         }
-        if (key === "i"){ e.preventDefault(); el("inviteEmail")?.focus(); }
+        if (key === "a"){ e.preventDefault(); loadRequests(); }
       });
     }
 
