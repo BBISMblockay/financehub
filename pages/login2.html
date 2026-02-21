@@ -70,7 +70,6 @@
           </button>
 
           <div class="pt-1 flex items-center justify-between">
-            <!-- REPLACED: Create account => Request access -->
             <button id="btnRequestAccess" type="button" class="text-sm font-medium text-slate-900 hover:underline">
               Request access
             </button>
@@ -96,10 +95,9 @@
           </button>
 
           <div class="text-xs text-slate-500 leading-relaxed">
-            We’ll send a one-time link. If your project requires email confirmation, you may need to confirm first.
+            We’ll send a one-time link. If you’re not approved yet, you’ll land in a “pending approval” state.
           </div>
 
-          <!-- REPLACED: Create account => Request access -->
           <div class="pt-1">
             <button id="btnRequestAccess2" type="button" class="text-sm font-medium text-slate-900 hover:underline">
               Request access
@@ -113,7 +111,7 @@
             <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
               <div>
                 <div class="text-base font-semibold">Request access</div>
-                <div class="text-sm text-slate-600">Submit a request for an invite.</div>
+                <div class="text-sm text-slate-600">We’ll email you a sign-in link to complete your request.</div>
               </div>
               <button id="btnCloseRequest" class="rounded-lg px-2 py-1 text-slate-600 hover:bg-slate-100">✕</button>
             </div>
@@ -128,7 +126,7 @@
 
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label class="block text-sm font-medium text-slate-700">Name (optional)</label>
+                  <label class="block text-sm font-medium text-slate-700">Name</label>
                   <input id="reqName" type="text" autocomplete="name"
                          class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
                          placeholder="Full name" />
@@ -137,7 +135,6 @@
                   <label class="block text-sm font-medium text-slate-700">Department</label>
                   <select id="reqDept"
                           class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-slate-900">
-                    <option value="">Select…</option>
                     <option value="ops">Ops</option>
                     <option value="finance">Finance</option>
                     <option value="logistics">Logistics</option>
@@ -154,9 +151,7 @@
                   <label class="block text-sm font-medium text-slate-700">Requested role</label>
                   <select id="reqRole"
                           class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-slate-900">
-                    <option value="">Select…</option>
-                    <option value="viewer">viewer</option>
-                    <option value="member">member</option>
+                    <option value="user">user</option>
                     <option value="admin">admin</option>
                   </select>
                 </div>
@@ -170,11 +165,11 @@
 
               <button id="btnSubmitRequest" type="submit"
                       class="w-full rounded-xl bg-slate-900 text-white py-2.5 font-semibold hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed">
-                Submit request
+                Email me a link to submit
               </button>
 
               <div class="text-xs text-slate-500 leading-relaxed">
-                You’ll receive an invite if approved.
+                After you click the link, your request is recorded and awaits approval.
               </div>
             </form>
           </div>
@@ -197,12 +192,18 @@
       const CFG = window.__SILO_CONFIG__ || {};
       const SUPABASE_URL = (CFG.SUPABASE_URL || "").trim();
       const SUPABASE_ANON_KEY = (CFG.SUPABASE_ANON_KEY || "").trim();
-      const REDIRECT_TO = (CFG.REDIRECT_TO || "/financehub/executive.html").trim();
-      const EXPECT_EMAIL_CONFIRMATION = !!CFG.EXPECT_EMAIL_CONFIRMATION;
+
+      // Where approved users should go
+      const REDIRECT_TO = (CFG.REDIRECT_TO || "/financehub/pages/executive.html").trim();
+
+      // If you want a dedicated pending page later
+      const PENDING_URL = (CFG.PENDING_URL || "").trim(); // optional
 
       const statusEl = document.getElementById("status");
       const envInfo = document.getElementById("envInfo");
       const btnSignout = document.getElementById("btnSignout");
+
+      const LS_KEY = "silo_pending_access_request_v1";
 
       // ---- Helpers ----
       function showStatus(msg, type = "info") {
@@ -216,23 +217,17 @@
               : "border-slate-200 bg-slate-50 text-slate-800");
         statusEl.textContent = msg;
       }
-
       function clearStatus() {
         statusEl.classList.add("hidden");
         statusEl.textContent = "";
       }
-
       function setLoading(btn, loading, textWhenNotLoading) {
         btn.disabled = loading;
         btn.textContent = loading ? "Working…" : textWhenNotLoading;
       }
-
       function assertConfig() {
         if (!SUPABASE_URL || !SUPABASE_URL.startsWith("https://") || !SUPABASE_URL.includes(".supabase.co")) {
-          showStatus(
-            "Config error: SUPABASE_URL is missing or not a valid *.supabase.co URL.",
-            "error"
-          );
+          showStatus("Config error: SUPABASE_URL is missing or invalid.", "error");
           return false;
         }
         if (!SUPABASE_ANON_KEY || SUPABASE_ANON_KEY.length < 50) {
@@ -241,16 +236,11 @@
         }
         return true;
       }
-
       if (!assertConfig()) return;
 
       // ---- Client ----
       const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-        auth: {
-          persistSession: true,
-          autoRefreshToken: true,
-          detectSessionInUrl: true
-        }
+        auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
       });
 
       envInfo.textContent = `Supabase: ${SUPABASE_URL.replace("https://", "")}`;
@@ -288,7 +278,6 @@
 
       function openRequest() {
         clearStatus();
-        // prefill with current email field if present
         const e1 = (document.getElementById("email1")?.value || "").trim();
         const e2 = (document.getElementById("email2")?.value || "").trim();
         const pref = e1 || e2;
@@ -299,6 +288,72 @@
       btnRequestAccess2?.addEventListener("click", openRequest);
       btnCloseRequest?.addEventListener("click", () => dlgRequest.close());
 
+      // ---- Gate logic: only redirect if approved ----
+      async function routeAfterAuth(session) {
+        if (!session) return;
+
+        const user = session.user;
+        btnSignout.classList.remove("hidden");
+
+        // 1) If a pending request is staged in localStorage, upsert it now with user_id
+        const staged = localStorage.getItem(LS_KEY);
+        if (staged) {
+          try {
+            const req = JSON.parse(staged);
+            if (req && req.email && user.email && req.email.toLowerCase() === user.email.toLowerCase()) {
+              const payload = {
+                user_id: user.id,
+                email: user.email.toLowerCase(),
+                full_name: req.full_name || null,
+                department: req.department || null,
+                requested_role: req.requested_role || "user",
+                note: req.note || null,
+                status: "pending"
+              };
+
+              // Upsert by user_id (recommended unique index for pending user_id)
+              const { error: upErr } = await supabaseClient
+                .from("access_requests")
+                .upsert(payload, { onConflict: "user_id" });
+
+              if (!upErr) localStorage.removeItem(LS_KEY);
+            }
+          } catch (e) {
+            // ignore
+          }
+        }
+
+        // 2) Check profile approval
+        const { data: prof, error: pErr } = await supabaseClient
+          .from("profiles")
+          .select("role, is_active, department")
+          .eq("id", user.id)
+          .maybeSingle();
+
+        if (pErr) {
+          showStatus("Signed in, but profile check failed. Contact owner.", "error");
+          return;
+        }
+
+        const role = (prof?.role || "user").toLowerCase();
+        const active = prof?.is_active !== false;
+
+        // Approved = has a profile row and active; you can tighten this to role-based later
+        if (prof && active) {
+          showStatus("Approved. Redirecting…", "success");
+          window.location.href = REDIRECT_TO;
+          return;
+        }
+
+        // Not approved yet
+        if (PENDING_URL) {
+          window.location.href = PENDING_URL;
+          return;
+        }
+
+        showStatus("You’re signed in, but not approved yet. Your access request is pending.", "info");
+      }
+
       // ---- Session bootstrap ----
       async function bootstrap() {
         const { data, error } = await supabaseClient.auth.getSession();
@@ -307,9 +362,7 @@
           return;
         }
         if (data?.session) {
-          btnSignout.classList.remove("hidden");
-          showStatus("You are already signed in. Redirecting…", "success");
-          window.location.href = REDIRECT_TO;
+          await routeAfterAuth(data.session);
         }
       }
       bootstrap();
@@ -322,25 +375,15 @@
 
         const email = document.getElementById("email1").value.trim();
         const password = document.getElementById("password").value;
-
         if (!email || !password) return showStatus("Enter email and password.", "error");
 
         setLoading(btnLogin, true, "Sign in");
         try {
           const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
           if (error) throw error;
+          if (!data?.session) throw new Error("Signed in, but no session returned.");
 
-          if (!data?.session) {
-            if (EXPECT_EMAIL_CONFIRMATION) {
-              showStatus("Sign-in accepted. If email confirmation is required, confirm your email then sign in again.", "info");
-            } else {
-              showStatus("Signed in, but no session returned. Check auth settings.", "error");
-            }
-            return;
-          }
-
-          showStatus("Signed in. Redirecting…", "success");
-          window.location.href = REDIRECT_TO;
+          await routeAfterAuth(data.session);
         } catch (err) {
           showStatus(err?.message || "Sign-in failed.", "error");
         } finally {
@@ -348,7 +391,7 @@
         }
       });
 
-      // ---- Magic link ----
+      // ---- Magic link (normal sign-in) ----
       const btnMagic = document.getElementById("btnMagic");
       formMagic.addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -359,9 +402,7 @@
 
         setLoading(btnMagic, true, "Email me a sign-in link");
         try {
-          // redirect back to this page so detectSessionInUrl can complete sign-in
           const redirectTo = window.location.origin + window.location.pathname;
-
           const { error } = await supabaseClient.auth.signInWithOtp({
             email,
             options: { emailRedirectTo: redirectTo }
@@ -376,7 +417,7 @@
         }
       });
 
-      // ---- Request access submit ----
+      // ---- Request access submit (stages request + sends OTP link) ----
       formRequest.addEventListener("submit", async (e) => {
         e.preventDefault();
         clearStatus();
@@ -384,26 +425,33 @@
         const email = (document.getElementById("reqEmail").value || "").trim().toLowerCase();
         if (!email || !email.includes("@")) return showStatus("Enter a valid work email.", "error");
 
-        const payload = {
+        const staged = {
           email,
           full_name: (document.getElementById("reqName").value || "").trim() || null,
           department: (document.getElementById("reqDept").value || "").trim() || null,
-          requested_role: (document.getElementById("reqRole").value || "").trim() || null,
-          note: (document.getElementById("reqNote").value || "").trim() || null,
-          status: "pending"
+          requested_role: (document.getElementById("reqRole").value || "").trim() || "user",
+          note: (document.getElementById("reqNote").value || "").trim() || null
         };
 
-        setLoading(btnSubmitRequest, true, "Submit request");
+        // Store locally so after they click the magic link we can write user_id + request row
+        localStorage.setItem(LS_KEY, JSON.stringify(staged));
+
+        setLoading(btnSubmitRequest, true, "Email me a link to submit");
         try {
-          const { error } = await supabaseClient.from("access_requests").insert(payload);
+          const redirectTo = window.location.origin + window.location.pathname;
+
+          const { error } = await supabaseClient.auth.signInWithOtp({
+            email,
+            options: { emailRedirectTo: redirectTo }
+          });
           if (error) throw error;
 
           dlgRequest.close();
-          showStatus("Request submitted. If approved, you’ll receive an invite.", "success");
+          showStatus("Check your email. Click the link to complete your request.", "success");
         } catch (err) {
-          showStatus(err?.message || "Request failed.", "error");
+          showStatus(err?.message || "Request flow failed.", "error");
         } finally {
-          setLoading(btnSubmitRequest, false, "Submit request");
+          setLoading(btnSubmitRequest, false, "Email me a link to submit");
         }
       });
 
@@ -437,9 +485,9 @@
         }
       });
 
-      // ---- Auth state change ----
-      supabaseClient.auth.onAuthStateChange((event, session) => {
-        if (session) btnSignout.classList.remove("hidden");
+      // ---- Auth state change (route if session appears) ----
+      supabaseClient.auth.onAuthStateChange(async (_event, session) => {
+        if (session) await routeAfterAuth(session);
       });
     })();
   </script>
