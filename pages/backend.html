@@ -535,7 +535,7 @@
       // pull profile role
       const { data: prof, error: pErr } = await supabaseClient
         .from("profiles")
-        .select("id, email, role, department, status")
+        .select("id, email, role, department, is_active")
         .eq("id", CURRENT_USER.id)
         .maybeSingle();
 
