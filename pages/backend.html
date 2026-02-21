@@ -542,6 +542,10 @@
       if (pErr) console.warn("profiles lookup error:", pErr);
 
       CURRENT_PROFILE = prof || null;
+         if (CURRENT_PROFILE) {
+  // normalize: treat is_active as status for UI logic
+  CURRENT_PROFILE.status = (CURRENT_PROFILE.is_active === false) ? "disabled" : "active";
+}
 
       const role = (CURRENT_PROFILE?.role || "user").toLowerCase();
       setText("rolePill", "");
@@ -689,6 +693,11 @@
 
     // ====== Users ======
     let USERS = [];
+
+       USERS = USERS.map(u => ({
+  ...u,
+  status: u.status ?? ((u.is_active === false) ? "disabled" : "active")
+}));
 
     function statusPill(status){
       const s = String(status || "active").toLowerCase();
