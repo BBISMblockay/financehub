@@ -1,22 +1,18 @@
 <!-- backend.html
      Silo ERP — Backend Hub (Supabase-only, NO custom server required)
 
-     Works with your schemas:
-     ✅ public.profiles: id, name, email, role, department, is_active, created_at, updated_at (and optional notes)
+     Schemas:
+     ✅ public.profiles: id, name, email, role, department, is_active, created_at, updated_at, (optional notes)
      ✅ public.access_requests: id, created_at, status, email, full_name, department, requested_role, note
 
-     Uses RPCs (run once in Supabase SQL editor):
+     RPCs expected:
      - public.is_admin()
      - public.admin_counts()
      - public.admin_list_profiles()
      - public.admin_update_profile(...)
      - public.admin_list_access_requests(p_status text)
-     - public.approve_access_request(p_request_id uuid, p_department text, p_role text)  ✅ you just ran this
-     - public.deny_access_request(p_request_id uuid)                                   ✅ you just ran this
-
-     Notes:
-     - No /api endpoints. All calls go directly to Supabase.
-     - “Invite auth user” is not done here (no service role in browser). Users log in → access_requests → approve here.
+     - public.approve_access_request(p_request_id uuid, p_department text, p_role text)
+     - public.deny_access_request(p_request_id uuid)
 -->
 <!doctype html>
 <html lang="en" data-theme="light">
@@ -25,7 +21,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Silo ERP — Backend Hub</title>
 
-  <!-- Tailwind -->
+  <!-- Tailwind (dev warning is OK; for prod, compile Tailwind instead of CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
   <!-- Config + Supabase -->
@@ -227,7 +223,7 @@
             <div class="mt-2 text-xl font-semibold tracking-tight">Admin control plane</div>
             <div class="mt-2 text-sm muted">
               Supabase-only backend hub. Users request access via <span class="mono">login.html</span> → <span class="mono">access_requests</span>.
-              Approve to upsert <span class="mono">profiles</span> with role/department and activate the user.
+              Approve to upsert <span class="mono">profiles</span> by matching <span class="mono">auth.users</span> on email.
             </div>
           </div>
           <div class="text-right">
@@ -463,13 +459,13 @@
           </div>
           <div class="md:col-span-8">
             <label class="text-xs font-black muted2">Notes (optional)</label>
-            <input id="dlgNotes" class="input w-full mt-1" placeholder="(optional) notes field if your table has it" />
+            <input id="dlgNotes" class="input w-full mt-1" placeholder="(optional) notes column if present" />
           </div>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
           <div class="md:col-span-8 text-xs muted2">
-            Saved via RPC (<span class="mono">admin_update_profile</span>) so client never needs elevated keys.
+            Saved via RPC (<span class="mono">admin_update_profile</span>).
           </div>
           <div class="md:col-span-4 flex gap-2">
             <button id="dlgSaveBtn" class="btn btn-primary flex-1">Save</button>
@@ -482,7 +478,7 @@
 
       <div class="border-t p-4" style="border-color: var(--border); background: var(--panel2);">
         <div class="text-xs muted2">
-          Table: <span class="mono">public.profiles</span> uses <span class="mono">is_active</span> (not <span class="mono">status</span>).
+          Table: <span class="mono">public.profiles</span> uses <span class="mono">is_active</span>.
         </div>
       </div>
     </div>
@@ -604,7 +600,6 @@
 
       CURRENT_PROFILE = prof || null;
 
-      // normalize status from is_active
       if (CURRENT_PROFILE){
         CURRENT_PROFILE.status = (CURRENT_PROFILE.is_active === false) ? "disabled" : "active";
       }
@@ -622,11 +617,7 @@
         accessPill.innerHTML = `<span class="dot" style="background:${allowed ? "var(--good)" : "var(--danger)"}"></span>Access: ${allowed ? "approved" : "denied"}`;
       }
 
-      if (!CURRENT_PROFILE){
-        setText("bootMsg", "No profile found for your UID (or RLS blocked it). Create/repair your profiles row.");
-      } else {
-        setText("bootMsg", "Ready. Approve access requests and manage roles.");
-      }
+      setText("bootMsg", CURRENT_PROFILE ? "Ready. Approve access requests and manage roles." : "No profile found for your UID (or RLS blocked it).");
 
       if (!allowed){
         alert("Access denied: owner/admin/superadmin required.");
@@ -644,8 +635,7 @@
       if (errNote) add("warn", errNote);
 
       if (typeof latencyMs === "number"){
-        if (latencyMs > 900) add("warn", `Supabase latency elevated (${latencyMs}ms).`);
-        else add("good", `Supabase responsive (${latencyMs}ms).`);
+        add(latencyMs > 900 ? "warn" : "good", `Supabase latency ${latencyMs}ms.`);
       } else add("warn", "Latency unavailable.");
 
       if (counts && typeof counts.profiles_count === "number"){
@@ -653,9 +643,8 @@
       } else add("warn", "Profiles count unavailable (admin_counts RPC missing).");
 
       if (typeof pendingCount === "number"){
-        if (pendingCount > 0) add("warn", `${pendingCount} access requests pending.`);
-        else add("good", "No access requests pending.");
-      } else add("warn", "Access request count unavailable (admin_list_access_requests missing).");
+        add(pendingCount > 0 ? "warn" : "good", pendingCount > 0 ? `${pendingCount} requests pending.` : "No access requests pending.");
+      } else add("warn", "Access request count unavailable.");
 
       const hp = el("healthPill");
       const overallBad = items.some(x => x.tone === "danger");
@@ -669,9 +658,8 @@
       if (!box) return;
 
       box.innerHTML = items.slice(0, 10).map(it => {
-        const tone = it.tone;
-        const cls = tone === "danger" ? "pill pill-danger" : (tone === "warn" ? "pill pill-warn" : (tone === "good" ? "pill pill-good" : "pill"));
-        const dot = tone === "danger" ? "var(--danger)" : (tone === "warn" ? "var(--warn)" : (tone === "good" ? "var(--good)" : "var(--accent)"));
+        const cls = it.tone === "danger" ? "pill pill-danger" : (it.tone === "warn" ? "pill pill-warn" : "pill pill-good");
+        const dot = it.tone === "danger" ? "var(--danger)" : (it.tone === "warn" ? "var(--warn)" : "var(--good)");
         return `
           <div class="flex items-start gap-2">
             <span class="${cls}" style="padding:.12rem .55rem;"><span class="dot" style="background:${dot}"></span></span>
@@ -688,41 +676,33 @@
       try{
         const t0 = performance.now();
         await supabaseClient.from("profiles").select("id").limit(1);
-        const t1 = performance.now();
-        latencyMs = Math.round(t1 - t0);
+        latencyMs = Math.round(performance.now() - t0);
       } catch(e){
-        errNote = "Latency query failed (check RLS / network).";
+        errNote = "Latency query failed (RLS/network).";
       }
 
       let counts = null;
       try{
         const { data, error } = await supabaseClient.rpc("admin_counts");
-        if (error) throw error;
-        counts = data || null;
-      } catch(e){
-        // keep going
-      }
+        if (!error) counts = data || null;
+      } catch(e){}
 
       let pendingCount = null;
       try{
         const { data, error } = await supabaseClient.rpc("admin_list_access_requests", { p_status: "pending" });
-        if (error) throw error;
-        if (Array.isArray(data)) pendingCount = data.length;
-      } catch(e){
-        // keep going
-      }
+        if (!error && Array.isArray(data)) pendingCount = data.length;
+      } catch(e){}
 
-      setText("sbLatency", (typeof latencyMs === "number") ? `${latencyMs}ms` : "—");
-      setText("sbLatencySub", (typeof latencyMs === "number") ? `roundtrip` : "—");
+      setText("sbLatency", typeof latencyMs === "number" ? `${latencyMs}ms` : "—");
+      setText("sbLatencySub", typeof latencyMs === "number" ? "roundtrip" : "—");
 
-      setText("profilesCount", (counts && typeof counts.profiles_count === "number") ? String(counts.profiles_count) : "—");
-      setText("profilesCountSub", counts?.profiles_updated_at ? `last update: ${fmt.dt(counts.profiles_updated_at)}` : "—";
+      setText("profilesCount", counts?.profiles_count != null ? String(counts.profiles_count) : "—");
+      setText("profilesCountSub", counts?.profiles_updated_at ? `last update: ${fmt.dt(counts.profiles_updated_at)}` : "—");
 
-      setText("reqCount", (typeof pendingCount === "number") ? String(pendingCount) : "—");
-      setText("reqCountSub", (typeof pendingCount === "number") ? `pending` : "—";
+      setText("reqCount", typeof pendingCount === "number" ? String(pendingCount) : "—");
+      setText("reqCountSub", typeof pendingCount === "number" ? "pending" : "—");
 
       setText("healthNote", counts ? "RPC OK" : "RPC missing");
-
       renderSignals({ latencyMs, counts, pendingCount, errNote });
     }
 
@@ -749,7 +729,6 @@
         const roleReq = escapeHtml(r.requested_role || "—");
         const created = fmt.dt(r.created_at);
         const note = escapeHtml(r.note || "");
-
         return `
           <tr>
             <td>
@@ -766,10 +745,7 @@
       }).join("");
 
       tbody.querySelectorAll("[data-action='review']").forEach(btn => {
-        btn.addEventListener("click", () => {
-          const id = btn.getAttribute("data-id");
-          openApproveDialog(id);
-        });
+        btn.addEventListener("click", () => openApproveDialog(btn.getAttribute("data-id")));
       });
 
       if (msg) msg.textContent = `${ACCESS_REQUESTS.length} pending.`;
@@ -797,7 +773,6 @@
       if (!r) return;
 
       APPROVE_REQ_ID = r.id;
-
       setText("apprEmail", r.email || "—");
       setText("apprReqId", r.id ? `request: ${r.id}` : "—");
       el("apprDept").value = r.department || "ops";
@@ -827,7 +802,7 @@
         return;
       }
 
-      if (msg) msg.textContent = `Approved. ${data?.user_id ? "uid: " + data.user_id : ""}`;
+      if (msg) msg.textContent = `Approved.${data?.user_id ? " uid: " + data.user_id : ""}`;
       await Promise.allSettled([ loadRequests(), loadUsers(), loadHealth() ]);
       setTimeout(() => approveDialog.close(), 450);
     }
@@ -837,9 +812,7 @@
       if (msg) msg.textContent = "Denying…";
       if (!APPROVE_REQ_ID) return;
 
-      const { error } = await supabaseClient.rpc("deny_access_request", {
-        p_request_id: APPROVE_REQ_ID
-      });
+      const { error } = await supabaseClient.rpc("deny_access_request", { p_request_id: APPROVE_REQ_ID });
 
       if (error){
         if (msg) msg.textContent = `Deny failed: ${error.message}`;
@@ -926,8 +899,7 @@
       tbody.querySelectorAll("[data-action='edit']").forEach(btn => {
         btn.addEventListener("click", (e) => {
           e.stopPropagation();
-          const uid = btn.getAttribute("data-uid");
-          openUserDialog(uid);
+          openUserDialog(btn.getAttribute("data-uid"));
         });
       });
       tbody.querySelectorAll("tr[data-uid]").forEach(tr => {
@@ -949,13 +921,7 @@
       }
 
       USERS = Array.isArray(data) ? data : [];
-
-      // normalize status from is_active
-      USERS = USERS.map(u => ({
-        ...u,
-        status: u.status ?? ((u.is_active === false) ? "disabled" : "active")
-      }));
-
+      USERS = USERS.map(u => ({ ...u, status: u.status ?? ((u.is_active === false) ? "disabled" : "active") }));
       renderUsers();
     }
 
@@ -968,16 +934,13 @@
       if (!u) return;
 
       DLG_UID = u.id;
-
       setText("dlgEmail", u.email || "—");
       setText("dlgUid", u.id ? `uid: ${u.id}` : "—");
 
       el("dlgName").value = u.name || "";
       el("dlgDept").value = u.department || "";
       el("dlgRole").value = u.role || "member";
-      el("dlgStatus").value = (u.is_active === false || String(u.status).toLowerCase()==="disabled") ? "disabled" : "active";
-
-      // notes is optional (only if column exists)
+      el("dlgStatus").value = (u.is_active === false || String(u.status).toLowerCase() === "disabled") ? "disabled" : "active";
       el("dlgNotes").value = u.notes || "";
 
       setText("dlgMsg", "—");
@@ -994,9 +957,9 @@
       const p_is_active = (String(el("dlgStatus")?.value || "active").toLowerCase() !== "disabled");
       const payload = {
         p_user_id: DLG_UID,
-        p_name: String(el("dlgName")?.value || "").trim() || null,
-        p_department: String(el("dlgDept")?.value || "").trim() || null,
-        p_role: String(el("dlgRole")?.value || "").trim() || null,
+        p_name: (String(el("dlgName")?.value || "").trim() || null),
+        p_department: (String(el("dlgDept")?.value || "").trim() || null),
+        p_role: (String(el("dlgRole")?.value || "").trim() || null),
         p_is_active: p_is_active,
         p_notes: (String(el("dlgNotes")?.value || "").trim() || null)
       };
@@ -1016,11 +979,7 @@
       if (msg) msg.textContent = "Disabling…";
       if (!DLG_UID) return;
 
-      const { error } = await supabaseClient.rpc("admin_update_profile", {
-        p_user_id: DLG_UID,
-        p_is_active: false
-      });
-
+      const { error } = await supabaseClient.rpc("admin_update_profile", { p_user_id: DLG_UID, p_is_active: false });
       if (error){
         if (msg) msg.textContent = `Disable failed: ${error.message}`;
         return;
@@ -1031,7 +990,7 @@
       await Promise.allSettled([ loadUsers(), loadHealth() ]);
     }
 
-    // ====== Boot ======
+    // ====== Boot / UI wiring ======
     async function refreshAll(){
       setText("lastRefresh", new Date().toLocaleString());
       await Promise.allSettled([ loadHealth(), loadRequests(), loadUsers() ]);
@@ -1048,10 +1007,8 @@
       // refresh
       el("refreshBtn")?.addEventListener("click", refreshAll);
 
-      // requests reload
+      // reload buttons
       el("reqReloadBtn")?.addEventListener("click", loadRequests);
-
-      // users reload
       el("usersReloadBtn")?.addEventListener("click", loadUsers);
 
       // filters
@@ -1060,31 +1017,36 @@
         el(id)?.addEventListener("change", renderUsers);
       });
 
-      // dialogs
+      // dialogs: close buttons
       el("dlgCloseBtn")?.addEventListener("click", () => userDialog.close());
+      el("apprCloseBtn")?.addEventListener("click", () => approveDialog.close());
+
+      // dialogs: click outside to close (FIXED / safe)
       userDialog?.addEventListener("click", (e) => {
         const rect = userDialog.getBoundingClientRect();
-        const inDialog = rect.top <= e.clientY && e.clientY <= rect.top + rect.height &&
-                         rect.left <= e.clientX && e.clientX <= rect.left + rect.width;
+        const inDialog =
+          rect.top <= e.clientY && e.clientY <= rect.top + rect.height &&
+          rect.left <= e.clientX && e.clientX <= rect.left + rect.width;
         if (!inDialog) userDialog.close();
       });
-      el("dlgSaveBtn")?.addEventListener("click", saveUserDialog);
-      el("dlgDisableBtn")?.addEventListener("click", disableUserDialog);
 
-      // approve dialog
-      el("apprCloseBtn")?.addEventListener("click", () => approveDialog.close());
       approveDialog?.addEventListener("click", (e) => {
         const rect = approveDialog.getBoundingClientRect();
-        const inDialog = rect.top <= e.clientY && e.clientY <= rect.top + rect.height &&
-                         rect.left <= e.clientX && e.clientY <= rect.left + rect.width;
+        const inDialog =
+          rect.top <= e.clientY && e.clientY <= rect.top + rect.height &&
+          rect.left <= e.clientX && e.clientX <= rect.left + rect.width;
         if (!inDialog) approveDialog.close();
       });
+
+      // dialog actions
+      el("dlgSaveBtn")?.addEventListener("click", saveUserDialog);
+      el("dlgDisableBtn")?.addEventListener("click", disableUserDialog);
       el("apprApproveBtn")?.addEventListener("click", approveRequest);
       el("apprDenyBtn")?.addEventListener("click", denyRequest);
 
       // logout
       el("logoutBtn")?.addEventListener("click", async () => {
-        try { await supabaseClient.auth.signOut(); } catch(e){ /* ignore */ }
+        try { await supabaseClient.auth.signOut(); } catch(e){}
         window.location.href = "/financehub/pages/login.html";
       });
 
@@ -1094,10 +1056,9 @@
         const inInput = ["input","textarea","select"].includes((e.target?.tagName || "").toLowerCase());
         if (inInput) return;
 
-        if ((e.ctrlKey || e.metaKey) && key === "k"){
-          e.preventDefault(); refreshAll(); return;
-        }
-        if (key === "t"){ e.preventDefault();
+        if ((e.ctrlKey || e.metaKey) && key === "k"){ e.preventDefault(); refreshAll(); }
+        if (key === "t"){
+          e.preventDefault();
           const cur = document.documentElement.getAttribute("data-theme") || "light";
           applyTheme(cur === "dark" ? "light" : "dark");
         }
