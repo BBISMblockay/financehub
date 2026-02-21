@@ -1,0 +1,447 @@
+<!-- /pages/login.html -->
+<!doctype html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Silo ERP — Login</title>
+
+  <!-- Tailwind -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Supabase JS v2 (pin version) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+
+  <!-- Config (same folder as this file: /pages/config.js) -->
+  <script src="./config.js"></script>
+
+  <style>
+    :root { color-scheme: light; }
+    .mono { font-variant-numeric: tabular-nums; }
+    .shadow-soft { box-shadow: 0 10px 30px rgba(2,6,23,.08); }
+    dialog::backdrop { background: rgba(2,6,23,.45); }
+  </style>
+</head>
+
+<body class="h-full bg-slate-50 text-slate-900">
+  <div class="min-h-full flex items-center justify-center px-4 py-10">
+    <div class="w-full max-w-md">
+      <!-- Brand -->
+      <div class="mb-6">
+        <div class="flex items-center gap-3">
+          <div class="h-10 w-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-semibold shadow-soft">
+            S
+          </div>
+          <div>
+            <div class="text-lg font-semibold leading-tight">Silo ERP</div>
+            <div class="text-sm text-slate-600">Sign in to continue</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="rounded-2xl bg-white border border-slate-200 p-6 shadow-soft">
+        <!-- Status -->
+        <div id="status" class="hidden mb-4 rounded-xl border px-3 py-2 text-sm"></div>
+
+        <!-- Tabs -->
+        <div class="mb-5 flex rounded-xl bg-slate-100 p-1">
+          <button id="tabPassword" class="flex-1 rounded-lg px-3 py-2 text-sm font-medium bg-white shadow-sm">Password</button>
+          <button id="tabMagic" class="flex-1 rounded-lg px-3 py-2 text-sm font-medium text-slate-600">Magic link</button>
+        </div>
+
+        <!-- Password form -->
+        <form id="formPassword" class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-slate-700">Email</label>
+            <input id="email1" type="email" autocomplete="email"
+                   class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                   placeholder="you@company.com" required />
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-700">Password</label>
+            <input id="password" type="password" autocomplete="current-password"
+                   class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                   placeholder="••••••••" required />
+          </div>
+
+          <button id="btnLogin" type="submit"
+                  class="w-full rounded-xl bg-slate-900 text-white py-2.5 font-semibold hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed">
+            Sign in
+          </button>
+
+          <div class="pt-1 flex items-center justify-between">
+            <!-- REPLACED: Create account => Request access -->
+            <button id="btnRequestAccess" type="button" class="text-sm font-medium text-slate-900 hover:underline">
+              Request access
+            </button>
+
+            <button id="btnForgot" type="button" class="text-sm text-slate-600 hover:underline">
+              Forgot password?
+            </button>
+          </div>
+        </form>
+
+        <!-- Magic link form -->
+        <form id="formMagic" class="space-y-4 hidden">
+          <div>
+            <label class="block text-sm font-medium text-slate-700">Email</label>
+            <input id="email2" type="email" autocomplete="email"
+                   class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                   placeholder="you@company.com" required />
+          </div>
+
+          <button id="btnMagic" type="submit"
+                  class="w-full rounded-xl bg-slate-900 text-white py-2.5 font-semibold hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed">
+            Email me a sign-in link
+          </button>
+
+          <div class="text-xs text-slate-500 leading-relaxed">
+            We’ll send a one-time link. If your project requires email confirmation, you may need to confirm first.
+          </div>
+
+          <!-- REPLACED: Create account => Request access -->
+          <div class="pt-1">
+            <button id="btnRequestAccess2" type="button" class="text-sm font-medium text-slate-900 hover:underline">
+              Request access
+            </button>
+          </div>
+        </form>
+
+        <!-- Request access modal -->
+        <dialog id="dlgRequest" class="rounded-2xl p-0 w-full max-w-md">
+          <div class="bg-white rounded-2xl border border-slate-200 shadow-soft">
+            <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+              <div>
+                <div class="text-base font-semibold">Request access</div>
+                <div class="text-sm text-slate-600">Submit a request for an invite.</div>
+              </div>
+              <button id="btnCloseRequest" class="rounded-lg px-2 py-1 text-slate-600 hover:bg-slate-100">✕</button>
+            </div>
+
+            <form id="formRequest" class="p-6 space-y-4">
+              <div>
+                <label class="block text-sm font-medium text-slate-700">Work email</label>
+                <input id="reqEmail" type="email" autocomplete="email"
+                       class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                       placeholder="you@company.com" required />
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-sm font-medium text-slate-700">Name (optional)</label>
+                  <input id="reqName" type="text" autocomplete="name"
+                         class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                         placeholder="Full name" />
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-slate-700">Department</label>
+                  <select id="reqDept"
+                          class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-slate-900">
+                    <option value="">Select…</option>
+                    <option value="ops">Ops</option>
+                    <option value="finance">Finance</option>
+                    <option value="logistics">Logistics</option>
+                    <option value="marketing">Marketing</option>
+                    <option value="retail">Retail</option>
+                    <option value="exec">Exec</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-sm font-medium text-slate-700">Requested role</label>
+                  <select id="reqRole"
+                          class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-slate-900">
+                    <option value="">Select…</option>
+                    <option value="viewer">viewer</option>
+                    <option value="member">member</option>
+                    <option value="admin">admin</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-sm font-medium text-slate-700">Note (optional)</label>
+                  <input id="reqNote" type="text"
+                         class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                         placeholder="Anything useful…" />
+                </div>
+              </div>
+
+              <button id="btnSubmitRequest" type="submit"
+                      class="w-full rounded-xl bg-slate-900 text-white py-2.5 font-semibold hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed">
+                Submit request
+              </button>
+
+              <div class="text-xs text-slate-500 leading-relaxed">
+                You’ll receive an invite if approved.
+              </div>
+            </form>
+          </div>
+        </dialog>
+
+        <!-- Footer -->
+        <div class="mt-6 text-xs text-slate-500">
+          <div class="flex items-center justify-between">
+            <span class="mono" id="envInfo">—</span>
+            <button id="btnSignout" class="hidden text-slate-600 hover:underline">Sign out</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      // ---- Config ----
+      const CFG = window.__SILO_CONFIG__ || {};
+      const SUPABASE_URL = (CFG.SUPABASE_URL || "").trim();
+      const SUPABASE_ANON_KEY = (CFG.SUPABASE_ANON_KEY || "").trim();
+      const REDIRECT_TO = (CFG.REDIRECT_TO || "/financehub/executive.html").trim();
+      const EXPECT_EMAIL_CONFIRMATION = !!CFG.EXPECT_EMAIL_CONFIRMATION;
+
+      const statusEl = document.getElementById("status");
+      const envInfo = document.getElementById("envInfo");
+      const btnSignout = document.getElementById("btnSignout");
+
+      // ---- Helpers ----
+      function showStatus(msg, type = "info") {
+        statusEl.classList.remove("hidden");
+        statusEl.className =
+          "mb-4 rounded-xl border px-3 py-2 text-sm " +
+          (type === "error"
+            ? "border-rose-200 bg-rose-50 text-rose-800"
+            : type === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : "border-slate-200 bg-slate-50 text-slate-800");
+        statusEl.textContent = msg;
+      }
+
+      function clearStatus() {
+        statusEl.classList.add("hidden");
+        statusEl.textContent = "";
+      }
+
+      function setLoading(btn, loading, textWhenNotLoading) {
+        btn.disabled = loading;
+        btn.textContent = loading ? "Working…" : textWhenNotLoading;
+      }
+
+      function assertConfig() {
+        if (!SUPABASE_URL || !SUPABASE_URL.startsWith("https://") || !SUPABASE_URL.includes(".supabase.co")) {
+          showStatus(
+            "Config error: SUPABASE_URL is missing or not a valid *.supabase.co URL.",
+            "error"
+          );
+          return false;
+        }
+        if (!SUPABASE_ANON_KEY || SUPABASE_ANON_KEY.length < 50) {
+          showStatus("Config error: SUPABASE_ANON_KEY is missing or looks wrong.", "error");
+          return false;
+        }
+        return true;
+      }
+
+      if (!assertConfig()) return;
+
+      // ---- Client ----
+      const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: true
+        }
+      });
+
+      envInfo.textContent = `Supabase: ${SUPABASE_URL.replace("https://", "")}`;
+
+      // ---- Tabs ----
+      const tabPassword = document.getElementById("tabPassword");
+      const tabMagic = document.getElementById("tabMagic");
+      const formPassword = document.getElementById("formPassword");
+      const formMagic = document.getElementById("formMagic");
+
+      function setTab(which) {
+        clearStatus();
+        if (which === "password") {
+          tabPassword.className = "flex-1 rounded-lg px-3 py-2 text-sm font-medium bg-white shadow-sm";
+          tabMagic.className = "flex-1 rounded-lg px-3 py-2 text-sm font-medium text-slate-600";
+          formPassword.classList.remove("hidden");
+          formMagic.classList.add("hidden");
+        } else {
+          tabMagic.className = "flex-1 rounded-lg px-3 py-2 text-sm font-medium bg-white shadow-sm";
+          tabPassword.className = "flex-1 rounded-lg px-3 py-2 text-sm font-medium text-slate-600";
+          formMagic.classList.remove("hidden");
+          formPassword.classList.add("hidden");
+        }
+      }
+      tabPassword.addEventListener("click", () => setTab("password"));
+      tabMagic.addEventListener("click", () => setTab("magic"));
+
+      // ---- Request access dialog ----
+      const dlgRequest = document.getElementById("dlgRequest");
+      const btnRequestAccess = document.getElementById("btnRequestAccess");
+      const btnRequestAccess2 = document.getElementById("btnRequestAccess2");
+      const btnCloseRequest = document.getElementById("btnCloseRequest");
+      const formRequest = document.getElementById("formRequest");
+      const btnSubmitRequest = document.getElementById("btnSubmitRequest");
+
+      function openRequest() {
+        clearStatus();
+        // prefill with current email field if present
+        const e1 = (document.getElementById("email1")?.value || "").trim();
+        const e2 = (document.getElementById("email2")?.value || "").trim();
+        const pref = e1 || e2;
+        if (pref) document.getElementById("reqEmail").value = pref;
+        dlgRequest.showModal();
+      }
+      btnRequestAccess?.addEventListener("click", openRequest);
+      btnRequestAccess2?.addEventListener("click", openRequest);
+      btnCloseRequest?.addEventListener("click", () => dlgRequest.close());
+
+      // ---- Session bootstrap ----
+      async function bootstrap() {
+        const { data, error } = await supabaseClient.auth.getSession();
+        if (error) {
+          showStatus("Auth error: " + error.message, "error");
+          return;
+        }
+        if (data?.session) {
+          btnSignout.classList.remove("hidden");
+          showStatus("You are already signed in. Redirecting…", "success");
+          window.location.href = REDIRECT_TO;
+        }
+      }
+      bootstrap();
+
+      // ---- Sign in (password) ----
+      const btnLogin = document.getElementById("btnLogin");
+      formPassword.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        clearStatus();
+
+        const email = document.getElementById("email1").value.trim();
+        const password = document.getElementById("password").value;
+
+        if (!email || !password) return showStatus("Enter email and password.", "error");
+
+        setLoading(btnLogin, true, "Sign in");
+        try {
+          const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+          if (error) throw error;
+
+          if (!data?.session) {
+            if (EXPECT_EMAIL_CONFIRMATION) {
+              showStatus("Sign-in accepted. If email confirmation is required, confirm your email then sign in again.", "info");
+            } else {
+              showStatus("Signed in, but no session returned. Check auth settings.", "error");
+            }
+            return;
+          }
+
+          showStatus("Signed in. Redirecting…", "success");
+          window.location.href = REDIRECT_TO;
+        } catch (err) {
+          showStatus(err?.message || "Sign-in failed.", "error");
+        } finally {
+          setLoading(btnLogin, false, "Sign in");
+        }
+      });
+
+      // ---- Magic link ----
+      const btnMagic = document.getElementById("btnMagic");
+      formMagic.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        clearStatus();
+
+        const email = document.getElementById("email2").value.trim();
+        if (!email) return showStatus("Enter your email.", "error");
+
+        setLoading(btnMagic, true, "Email me a sign-in link");
+        try {
+          // redirect back to this page so detectSessionInUrl can complete sign-in
+          const redirectTo = window.location.origin + window.location.pathname;
+
+          const { error } = await supabaseClient.auth.signInWithOtp({
+            email,
+            options: { emailRedirectTo: redirectTo }
+          });
+          if (error) throw error;
+
+          showStatus("Magic link sent. Check your inbox.", "success");
+        } catch (err) {
+          showStatus(err?.message || "Could not send magic link.", "error");
+        } finally {
+          setLoading(btnMagic, false, "Email me a sign-in link");
+        }
+      });
+
+      // ---- Request access submit ----
+      formRequest.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        clearStatus();
+
+        const email = (document.getElementById("reqEmail").value || "").trim().toLowerCase();
+        if (!email || !email.includes("@")) return showStatus("Enter a valid work email.", "error");
+
+        const payload = {
+          email,
+          full_name: (document.getElementById("reqName").value || "").trim() || null,
+          department: (document.getElementById("reqDept").value || "").trim() || null,
+          requested_role: (document.getElementById("reqRole").value || "").trim() || null,
+          note: (document.getElementById("reqNote").value || "").trim() || null,
+          status: "pending"
+        };
+
+        setLoading(btnSubmitRequest, true, "Submit request");
+        try {
+          const { error } = await supabaseClient.from("access_requests").insert(payload);
+          if (error) throw error;
+
+          dlgRequest.close();
+          showStatus("Request submitted. If approved, you’ll receive an invite.", "success");
+        } catch (err) {
+          showStatus(err?.message || "Request failed.", "error");
+        } finally {
+          setLoading(btnSubmitRequest, false, "Submit request");
+        }
+      });
+
+      // ---- Forgot password ----
+      const btnForgot = document.getElementById("btnForgot");
+      btnForgot.addEventListener("click", async () => {
+        clearStatus();
+        const email = (document.getElementById("email1").value || "").trim();
+        if (!email) return showStatus("Enter your email in the Email field first.", "error");
+
+        try {
+          const redirectTo = window.location.origin + window.location.pathname;
+          const { error } = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo });
+          if (error) throw error;
+          showStatus("Password reset email sent.", "success");
+        } catch (err) {
+          showStatus(err?.message || "Could not send reset email.", "error");
+        }
+      });
+
+      // ---- Sign out ----
+      btnSignout.addEventListener("click", async () => {
+        clearStatus();
+        try {
+          const { error } = await supabaseClient.auth.signOut();
+          if (error) throw error;
+          showStatus("Signed out.", "success");
+          btnSignout.classList.add("hidden");
+        } catch (err) {
+          showStatus(err?.message || "Sign out failed.", "error");
+        }
+      });
+
+      // ---- Auth state change ----
+      supabaseClient.auth.onAuthStateChange((event, session) => {
+        if (session) btnSignout.classList.remove("hidden");
+      });
+    })();
+  </script>
+</body>
+</html>
