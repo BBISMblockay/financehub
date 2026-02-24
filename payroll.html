@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Payroll Dashboard — Admin</title>
+  <title>Payroll Analytics — Meeting View</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -13,13 +13,13 @@
     :root{
       --bg0:#0b1220;
       --bg1:#0f172a;
-      --panel:rgba(255,255,255,.05);
+      --panel:rgba(255,255,255,.06);
       --panel2:rgba(255,255,255,.03);
       --border:rgba(148,163,184,.18);
+      --border2:rgba(148,163,184,.12);
       --text:#e5e7eb;
       --muted:#a7b0c0;
-
-      --shadow:0 12px 34px rgba(0,0,0,.30);
+      --shadow:0 14px 40px rgba(0,0,0,.35);
 
       --accent:#38bdf8;
       --green:#22c55e;
@@ -27,9 +27,12 @@
       --rose:#fb7185;
       --violet:#a78bfa;
 
-      --r20:20px;
-      --r16:16px;
-      --max:1360px;
+      --r24:24px;
+      --r18:18px;
+      --r14:14px;
+      --max:1480px;
+
+      --gap:12px;
     }
 
     *{ box-sizing:border-box; }
@@ -39,16 +42,16 @@
       font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
       color:var(--text);
       background:
-        radial-gradient(1200px 600px at 10% -10%, rgba(56,189,248,.16), transparent 55%),
+        radial-gradient(1200px 650px at 10% -10%, rgba(56,189,248,.16), transparent 55%),
         radial-gradient(900px 520px at 92% 0%, rgba(34,197,94,.10), transparent 55%),
         radial-gradient(900px 520px at 80% 120%, rgba(167,139,250,.10), transparent 60%),
         linear-gradient(180deg, var(--bg0), var(--bg1));
     }
 
     .wrap{ max-width:var(--max); margin:0 auto; padding:18px 14px 34px; }
-    .card{
+    .shell{
       border:1px solid var(--border);
-      border-radius:var(--r20);
+      border-radius:var(--r24);
       background:linear-gradient(180deg, var(--panel), var(--panel2));
       box-shadow:var(--shadow);
       overflow:hidden;
@@ -61,12 +64,12 @@
       position:sticky;
       top:0;
       z-index:10;
-      backdrop-filter: blur(10px);
-      background: rgba(11,18,32,.74);
+      backdrop-filter: blur(12px);
+      background: rgba(11,18,32,.78);
       border-bottom:1px solid rgba(148,163,184,.14);
     }
 
-    .top{
+    .hdr{
       padding:14px 16px 10px;
       display:flex;
       align-items:flex-end;
@@ -74,8 +77,19 @@
       gap:12px;
       flex-wrap:wrap;
     }
-    .title{ margin:0; font-size:18px; font-weight:950; letter-spacing:.2px; line-height:1.1; }
-    .sub{ margin:6px 0 0; font-size:12.5px; color:var(--muted); line-height:1.25; }
+    .title{
+      margin:0;
+      font-size:18px;
+      font-weight:950;
+      letter-spacing:.2px;
+      line-height:1.1;
+    }
+    .sub{
+      margin:6px 0 0;
+      font-size:12.5px;
+      color:var(--muted);
+      line-height:1.25;
+    }
 
     .btn{
       display:inline-flex; align-items:center; justify-content:center; gap:10px;
@@ -89,65 +103,43 @@
       white-space:nowrap;
     }
     .btn:hover{ background:rgba(255,255,255,.10); border-color: rgba(56,189,248,.28); transform: translateY(-1px); }
-    .btn.ghost{ background:transparent; border-color: rgba(148,163,184,.22); font-weight:800; }
+    .btn.ghost{ background:transparent; border-color: rgba(148,163,184,.22); font-weight:850; }
     .btn.ghost:hover{ background:rgba(255,255,255,.06); border-color: rgba(255,255,255,.22); }
     .btn.small{ padding:8px 10px; border-radius:11px; font-size:12.5px; font-weight:900; }
 
-    .bar{
-      padding:10px 16px 10px;
-      display:flex; align-items:center; justify-content:space-between;
-      gap:10px; flex-wrap:wrap;
+    .toolbar{
+      padding:10px 16px 12px;
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      justify-content:space-between;
     }
     .filters{
-      display:flex; gap:10px; flex-wrap:wrap; align-items:center;
-      flex: 1 1 980px;
+      display:grid;
+      grid-template-columns: 260px 260px 220px 240px 240px 240px 220px;
+      gap:10px;
+      flex: 1 1 auto;
+      align-items:center;
     }
 
     .input, select{
       appearance:none;
       padding:10px 12px;
-      border-radius:12px;
+      border-radius:14px;
       border:1px solid rgba(255,255,255,.14);
       background:rgba(255,255,255,.06);
       color:var(--text);
-      font-weight:700;
+      font-weight:750;
       font-size:13px;
       outline:none;
-      min-width: 220px;
+      min-width: 180px;
     }
-    select{ min-width: 190px; }
-
-    .chips{
-      display:flex; flex-wrap:wrap; gap:8px;
-      padding:0 16px 10px;
-      align-items:center;
-      justify-content:space-between;
-    }
-    .chipRow{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
-    .chip{
-      display:inline-flex; align-items:center; gap:8px;
-      padding:7px 10px;
-      border-radius:999px;
-      border:1px solid rgba(148,163,184,.18);
-      background:rgba(0,0,0,.16);
-      color:rgba(203,213,225,.92);
-      font-size:12px;
-      font-weight:900;
-      cursor:pointer;
-      user-select:none;
-      transition: background .15s ease, border-color .15s ease, transform .08s ease;
-      white-space:nowrap;
-    }
-    .chip:hover{ background:rgba(255,255,255,.05); transform: translateY(-1px); }
-    .chip.active{ border-color: rgba(56,189,248,.35); background: rgba(56,189,248,.10); }
-    .chip .dot{
-      width:8px;height:8px;border-radius:999px;background:var(--accent);
-      box-shadow:0 0 0 4px rgba(56,189,248,.10);
-    }
+    .input{ width:100%; }
 
     .tog{
       display:inline-flex; align-items:center; gap:10px;
-      padding:7px 10px;
+      padding:8px 10px;
       border-radius:999px;
       border:1px solid rgba(148,163,184,.18);
       background:rgba(0,0,0,.16);
@@ -172,71 +164,30 @@
       position:absolute; top:50%; left:3px;
       transform:translateY(-50%);
       width:16px; height:16px; border-radius:50%;
-      background:rgba(255,255,255,.75);
+      background:rgba(255,255,255,.78);
       box-shadow:0 6px 14px rgba(0,0,0,.35);
       transition: left .15s ease;
     }
     .tog.on .sw{ background: rgba(34,197,94,.18); border-color: rgba(34,197,94,.30); }
-    .tog.on .sw:before{ left: 22px; background: rgba(255,255,255,.88); }
+    .tog.on .sw:before{ left: 22px; background: rgba(255,255,255,.90); }
 
-    .stats{
-      padding:0 16px 10px;
+    /* Meeting-friendly summary row */
+    .story{
+      padding:0 16px 14px;
       display:grid;
-      gap:10px;
-      grid-template-columns: repeat(12, 1fr);
+      gap:var(--gap);
+      grid-template-columns: 1.2fr .8fr;
     }
-    .stat{
-      grid-column: span 3;
-      border:1px solid rgba(148,163,184,.18);
+    .card{
+      border:1px solid var(--border2);
       background:rgba(0,0,0,.14);
-      border-radius:16px;
-      padding:10px 12px;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      min-height:54px;
+      border-radius:var(--r18);
       overflow:hidden;
-    }
-    .stat .k{ font-size:11px; font-weight:950; letter-spacing:.25px; color:rgba(203,213,225,.92); text-transform:uppercase; }
-    .stat .v{ font-size:16px; font-weight:950; letter-spacing:.1px; }
-    .stat .s{ font-size:12px; font-weight:800; color:var(--muted); margin-top:2px; }
-    .stat .left{ display:flex; flex-direction:column; gap:2px; min-width:0; }
-    .dotLg{ width:10px;height:10px;border-radius:50%; background:var(--accent); box-shadow:0 0 0 4px rgba(56,189,248,.12); }
-    .dotLg.g{ background:var(--green); box-shadow:0 0 0 4px rgba(34,197,94,.12); }
-    .dotLg.a{ background:var(--amber); box-shadow:0 0 0 4px rgba(251,191,36,.12); }
-    .dotLg.r{ background:var(--rose); box-shadow:0 0 0 4px rgba(251,113,133,.12); }
-    .dotLg.v{ background:var(--violet); box-shadow:0 0 0 4px rgba(167,139,250,.12); }
-
-    .status{
-      padding:0 16px 12px;
-      color:var(--muted);
-      font-size:12.5px;
-      font-weight:700;
-      display:flex;
-      justify-content:space-between;
-      gap:10px;
-      flex-wrap:wrap;
-    }
-
-    .body{
-      display:grid;
-      grid-template-columns: 380px 1fr;
-      gap:12px;
-      padding:0 12px 12px;
-      flex:1 1 auto;
-      min-height:0;
-    }
-    .panel{
-      border:1px solid rgba(148,163,184,.16);
-      background:rgba(0,0,0,.12);
-      border-radius:16px;
-      overflow:hidden;
-      min-height:0;
       display:flex;
       flex-direction:column;
+      min-height:0;
     }
-    .panel .ph{
+    .cardH{
       padding:10px 12px;
       border-bottom:1px solid rgba(148,163,184,.12);
       display:flex;
@@ -245,22 +196,156 @@
       gap:10px;
       flex-wrap:wrap;
     }
-    .panel .ph b{
+    .cardH b{
       font-size:12px;
-      letter-spacing:.22px;
+      letter-spacing:.24px;
       text-transform:uppercase;
       color:rgba(203,213,225,.92);
     }
-    .panel .ph .tiny{
+    .cardH .tiny{
       font-size:12px;
       color:var(--muted);
-      font-weight:800;
+      font-weight:850;
       white-space:nowrap;
     }
-    .panel .pc{
+    .cardC{ padding:12px; }
+
+    .kpis{
+      display:grid;
+      gap:10px;
+      grid-template-columns: repeat(12, 1fr);
+    }
+    .kpi{
+      grid-column: span 3;
+      border:1px solid rgba(148,163,184,.16);
+      background:rgba(255,255,255,.03);
+      border-radius:16px;
+      padding:12px;
+      display:flex;
+      align-items:flex-end;
+      justify-content:space-between;
+      gap:10px;
+      min-height:74px;
+    }
+    .kpi .k{ font-size:11px; font-weight:950; letter-spacing:.25px; color:rgba(203,213,225,.90); text-transform:uppercase; }
+    .kpi .v{ font-size:20px; font-weight:950; letter-spacing:.1px; }
+    .kpi .s{ font-size:12px; font-weight:850; color:var(--muted); margin-top:4px; }
+    .kpi .left{ display:flex; flex-direction:column; gap:2px; min-width:0; }
+
+    .dotLg{ width:11px;height:11px;border-radius:50%; background:var(--accent); box-shadow:0 0 0 4px rgba(56,189,248,.12); }
+    .dotLg.g{ background:var(--green); box-shadow:0 0 0 4px rgba(34,197,94,.12); }
+    .dotLg.a{ background:var(--amber); box-shadow:0 0 0 4px rgba(251,191,36,.12); }
+    .dotLg.r{ background:var(--rose); box-shadow:0 0 0 4px rgba(251,113,133,.12); }
+    .dotLg.v{ background:var(--violet); box-shadow:0 0 0 4px rgba(167,139,250,.12); }
+
+    .compareGrid{
+      display:grid;
+      gap:10px;
+      grid-template-columns: 1fr;
+    }
+    .compareTop{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      justify-content:space-between;
+    }
+    .compareControls{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+    .compareTitle{
+      font-weight:950;
+      font-size:16px;
+      letter-spacing:.1px;
+    }
+    .compareSub{
+      margin-top:6px;
+      color:rgba(167,176,192,.92);
+      font-size:12.5px;
+      font-weight:800;
+      line-height:1.35;
+    }
+
+    .deltas{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      justify-content:space-between;
+      margin-top:10px;
       padding:10px 12px;
-      overflow:auto;
+      border-radius:16px;
+      border:1px solid rgba(148,163,184,.14);
+      background:rgba(0,0,0,.16);
+      font-variant-numeric: tabular-nums;
+      font-weight:900;
+      font-size:13px;
+    }
+    .deltas span{ white-space:nowrap; }
+    .deltaUp{ color: rgba(34,197,94,.95); }
+    .deltaDown{ color: rgba(251,113,133,.95); }
+    .deltaFlat{ color: rgba(167,176,192,.95); }
+
+    .trendCanvas{
+      width:100%;
+      height:92px;
+      border-radius:16px;
+      border:1px solid rgba(148,163,184,.14);
+      background:rgba(0,0,0,.14);
+      overflow:hidden;
+      display:block;
+    }
+    .trendMeta{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+      justify-content:space-between;
+      width:100%;
+      margin-top:10px;
+      color:rgba(167,176,192,.92);
+      font-size:12px;
+      font-weight:900;
+    }
+
+    /* Lower area */
+    .main{
+      display:grid;
+      grid-template-columns: 420px 1fr;
+      gap:var(--gap);
+      padding:0 16px 16px;
+      flex:1 1 auto;
       min-height:0;
+    }
+
+    .tabs{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+    .chip{
+      display:inline-flex; align-items:center; gap:8px;
+      padding:8px 10px;
+      border-radius:999px;
+      border:1px solid rgba(148,163,184,.18);
+      background:rgba(0,0,0,.16);
+      color:rgba(203,213,225,.92);
+      font-size:12px;
+      font-weight:950;
+      cursor:pointer;
+      user-select:none;
+      transition: background .15s ease, border-color .15s ease, transform .08s ease;
+      white-space:nowrap;
+    }
+    .chip:hover{ background:rgba(255,255,255,.05); transform: translateY(-1px); }
+    .chip.active{ border-color: rgba(56,189,248,.35); background: rgba(56,189,248,.10); }
+    .chip .dot{
+      width:8px;height:8px;border-radius:999px;background:var(--accent);
+      box-shadow:0 0 0 4px rgba(56,189,248,.10);
     }
 
     .list{ display:flex; flex-direction:column; gap:8px; }
@@ -290,7 +375,7 @@
       margin-top:4px;
       font-size:12px;
       color:var(--muted);
-      font-weight:800;
+      font-weight:850;
       min-width:0;
       overflow:hidden;
       text-overflow:ellipsis;
@@ -304,7 +389,45 @@
     .row .v1{ font-weight:950; font-size:13px; }
     .row .v2{ font-size:12px; font-weight:900; color:rgba(203,213,225,.88); margin-top:4px; }
 
-    .table-wrap{
+    .pin{
+      padding:10px 12px;
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      flex-wrap:wrap;
+      border-bottom:1px solid rgba(148,163,184,.12);
+      background:rgba(0,0,0,.10);
+      position:sticky;
+      top:0;
+      z-index:3;
+      backdrop-filter: blur(10px);
+    }
+    .pin .left{
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+    .pillKpi{
+      display:flex;
+      align-items:baseline;
+      gap:8px;
+      padding:8px 10px;
+      border-radius:999px;
+      border:1px solid rgba(148,163,184,.16);
+      background:rgba(255,255,255,.03);
+      font-weight:950;
+      white-space:nowrap;
+    }
+    .pillKpi small{
+      color:var(--muted);
+      font-weight:900;
+      font-size:12px;
+    }
+    .pillKpi b{ font-size:13px; }
+
+    .tableWrap{
       border-top:1px solid rgba(148,163,184,.12);
       overflow:auto;
       background:rgba(0,0,0,.08);
@@ -346,7 +469,6 @@
       white-space:nowrap;
     }
     tbody tr:hover td{ background:rgba(255,255,255,.04); }
-
     .num{ text-align:right; font-variant-numeric: tabular-nums; }
 
     .pill{
@@ -366,43 +488,16 @@
     .pill.tax{ border-color: rgba(56,189,248,.25); background: rgba(56,189,248,.10); }
     .pill.net{ border-color: rgba(167,139,250,.28); background: rgba(167,139,250,.12); }
 
-    .pin{
-      padding:10px 12px;
+    .status{
+      padding:0 16px 14px;
+      color:var(--muted);
+      font-size:12.5px;
+      font-weight:800;
       display:flex;
-      align-items:center;
       justify-content:space-between;
       gap:10px;
       flex-wrap:wrap;
-      border-bottom:1px solid rgba(148,163,184,.12);
-      background:rgba(0,0,0,.10);
-      position:sticky;
-      top:0;
-      z-index:3;
-      backdrop-filter: blur(10px);
     }
-    .pin .left{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-      align-items:center;
-    }
-    .kpi{
-      display:flex;
-      align-items:baseline;
-      gap:8px;
-      padding:7px 10px;
-      border-radius:999px;
-      border:1px solid rgba(148,163,184,.16);
-      background:rgba(255,255,255,.03);
-      font-weight:950;
-      white-space:nowrap;
-    }
-    .kpi small{
-      color:var(--muted);
-      font-weight:900;
-      font-size:12px;
-    }
-    .kpi b{ font-size:13px; }
 
     .hint{
       padding:12px 16px;
@@ -415,48 +510,69 @@
       padding:14px 16px;
       border-top:1px solid rgba(148,163,184,.14);
       color:rgba(253,164,175,.95);
-      font-weight:900;
+      font-weight:950;
     }
     .error small{
       display:block;
       margin-top:6px;
       color:rgba(167,176,192,.95);
-      font-weight:700;
+      font-weight:750;
       line-height:1.3;
     }
 
-    @media (max-width: 1100px){
-      .stat{ grid-column: span 6; }
-      .body{ grid-template-columns: 1fr; }
+    /* Presentation mode */
+    .present .hint,
+    .present #detailTableCard,
+    .present #rollupsCard{
+      display:none;
+    }
+    .present .main{
+      grid-template-columns: 1fr;
+    }
+    .present .story{
+      grid-template-columns: 1fr 1fr;
+    }
+
+    @media (max-width: 1320px){
+      .filters{
+        grid-template-columns: 1fr 1fr 1fr 1fr;
+      }
+    }
+    @media (max-width: 980px){
+      .story{ grid-template-columns: 1fr; }
+      .main{ grid-template-columns: 1fr; }
+      .kpi{ grid-column: span 6; }
       table{ min-width: 980px; }
     }
-    @media (max-width: 860px){
-      .input, select{ min-width: 100%; }
-      .filters{ flex: 1 1 100%; }
-      .stat{ grid-column: span 12; }
-      .chips{ gap:10px; }
+    @media (max-width: 640px){
+      .kpi{ grid-column: span 12; }
+      .filters{ grid-template-columns: 1fr; }
     }
   </style>
 </head>
 
 <body>
   <div class="wrap">
-    <div class="card" role="region" aria-label="Payroll dashboard admin view">
+    <div class="shell" id="shell">
 
       <div class="sticky">
-        <div class="top">
+        <div class="hdr">
           <div>
-            <h1 class="title">Payroll Dashboard</h1>
-            <p class="sub">Admin view • Rollups for <b>Hours</b> + <b>Gross Earnings (EARN)</b>. Taxes/Deductions shown as separate totals.</p>
+            <h1 class="title">Payroll Analytics</h1>
+            <p class="sub">Meeting view • Story-first rollups for <b>Hours</b> + <b>Gross (EARN)</b>. Other register types shown as totals.</p>
           </div>
 
-          <div class="actions">
-            <button class="btn ghost" id="copyLink" type="button" title="Copy a shareable link (keeps current filters)">Copy Link</button>
+          <div class="actions" style="display:flex; gap:10px; flex-wrap:wrap;">
+            <div class="tog" id="presentToggle" title="Presentation mode hides the table + rollups">
+              <span>Presentation</span>
+              <span class="sw" aria-hidden="true"></span>
+            </div>
+            <button class="btn ghost" id="copyLink" type="button">Copy Link</button>
             <button class="btn" id="downloadCsv" type="button">Download CSV</button>
           </div>
         </div>
 
-        <div class="bar">
+        <div class="toolbar">
           <div class="filters">
             <input id="q" class="input" type="search" placeholder="Search employee, dept, location, code…" />
 
@@ -473,196 +589,240 @@
               <option value="NET">NET (Net Pay)</option>
             </select>
 
-            <select id="employee">
-              <option value="">All Employees</option>
-            </select>
-
-            <select id="department">
-              <option value="">All Departments</option>
-            </select>
-
-            <select id="location">
-              <option value="">All Locations</option>
-            </select>
-
-            <select id="typecode">
-              <option value="">All Codes</option>
-            </select>
+            <select id="employee"><option value="">All Employees</option></select>
+            <select id="department"><option value="">All Departments</option></select>
+            <select id="location"><option value="">All Locations</option></select>
+            <select id="typecode"><option value="">All Codes</option></select>
           </div>
 
-          <div class="actions">
-            <button class="btn ghost" id="reset" type="button">Reset</button>
-          </div>
-        </div>
-
-        <div class="chips" aria-label="Quick views">
-          <div class="chipRow">
-            <div class="chip active" data-view="detail"><span class="dot"></span>Detail</div>
-            <div class="chip" data-view="employee"><span class="dot"></span>By Employee</div>
-            <div class="chip" data-view="department"><span class="dot"></span>By Department</div>
-            <div class="chip" data-view="location"><span class="dot"></span>By Location</div>
-            <div class="chip" data-view="typecode"><span class="dot"></span>By Code</div>
-          </div>
-
-          <div class="chipRow">
-            <select id="rollMetric" title="Rollup metric">
-              <option value="amount">Rollup: $ Amount</option>
-              <option value="hours">Rollup: Hours</option>
-              <option value="both">Rollup: Both</option>
-            </select>
-
-            <select id="topN" title="How many rollup rows to show">
-              <option value="10">Top 10</option>
-              <option value="25" selected>Top 25</option>
-              <option value="50">Top 50</option>
-            </select>
-
-            <div class="tog" id="earnOnlyToggle" title="Show EARN lines only in the detail table (cards still show totals by register type)">
+          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+            <div class="tog" id="earnOnlyToggle" title="Show EARN lines only in the detail table">
               <span>Table: EARN only</span>
               <span class="sw" aria-hidden="true"></span>
             </div>
-          </div>
-        </div>
-
-        <div class="stats" aria-label="Summary">
-          <div class="stat">
-            <div class="left">
-              <div class="k">Employees</div>
-              <div class="v" id="mEmp">0</div>
-              <div class="s">Unique (in view)</div>
-            </div>
-            <span class="dotLg a" aria-hidden="true"></span>
-          </div>
-
-          <div class="stat">
-            <div class="left">
-              <div class="k">Hours Worked</div>
-              <div class="v" id="mHours">0.00</div>
-              <div class="s">EARN subset (in view)</div>
-            </div>
-            <span class="dotLg g" aria-hidden="true"></span>
-          </div>
-
-          <div class="stat">
-            <div class="left">
-              <div class="k">Gross Earnings</div>
-              <div class="v" id="mGross">$0.00</div>
-              <div class="s">EARN amount (in view)</div>
-            </div>
-            <span class="dotLg g" aria-hidden="true"></span>
-          </div>
-
-          <div class="stat">
-            <div class="left">
-              <div class="k">Avg $ / Hour</div>
-              <div class="v" id="mRate">$0.00</div>
-              <div class="s">Gross ÷ Hours (EARN)</div>
-            </div>
-            <span class="dotLg" aria-hidden="true"></span>
-          </div>
-
-          <div class="stat">
-            <div class="left">
-              <div class="k">Deductions</div>
-              <div class="v" id="mDeduct">$0.00</div>
-              <div class="s">DDUCT amount (in view)</div>
-            </div>
-            <span class="dotLg a" aria-hidden="true"></span>
-          </div>
-
-          <div class="stat">
-            <div class="left">
-              <div class="k">EE Taxes</div>
-              <div class="v" id="mEETax">$0.00</div>
-              <div class="s">EETAX amount (in view)</div>
-            </div>
-            <span class="dotLg" aria-hidden="true"></span>
-          </div>
-
-          <div class="stat">
-            <div class="left">
-              <div class="k">ER Taxes</div>
-              <div class="v" id="mERTax">$0.00</div>
-              <div class="s">ERTAX amount (in view)</div>
-            </div>
-            <span class="dotLg v" aria-hidden="true"></span>
-          </div>
-
-          <div class="stat">
-            <div class="left">
-              <div class="k">Net Pay</div>
-              <div class="v" id="mNet">$0.00</div>
-              <div class="s">NET amount (in view)</div>
-            </div>
-            <span class="dotLg v" aria-hidden="true"></span>
-          </div>
-
-          <div class="stat">
-            <div class="left">
-              <div class="k">Top Employee</div>
-              <div class="v" id="mTopEmp">—</div>
-              <div class="s" id="mTopEmpSub">—</div>
-            </div>
-            <span class="dotLg r" aria-hidden="true"></span>
-          </div>
-
-          <div class="stat">
-            <div class="left">
-              <div class="k">Departments</div>
-              <div class="v" id="mDepts">0</div>
-              <div class="s">Unique (in view)</div>
-            </div>
-            <span class="dotLg a" aria-hidden="true"></span>
-          </div>
-
-          <div class="stat">
-            <div class="left">
-              <div class="k">Locations</div>
-              <div class="v" id="mLocs">0</div>
-              <div class="s">Unique (in view)</div>
-            </div>
-            <span class="dotLg a" aria-hidden="true"></span>
-          </div>
-
-          <div class="stat">
-            <div class="left">
-              <div class="k">Lines</div>
-              <div class="v" id="mLines">0</div>
-              <div class="s">Visible (in view)</div>
-            </div>
-            <span class="dotLg" aria-hidden="true"></span>
+            <button class="btn ghost" id="reset" type="button">Reset</button>
           </div>
         </div>
 
         <div class="status">
           <div id="status">Loading…</div>
-          <div id="hint2" style="color:rgba(167,176,192,.9);"></div>
+          <div id="hint2"></div>
         </div>
       </div>
 
-      <div class="body">
-        <div class="panel" id="rollupPanel">
-          <div class="ph">
-            <b id="rollupTitle">Rollups</b>
-            <span class="tiny" id="rollupMeta">—</span>
+      <!-- STORY FIRST -->
+      <div class="story">
+
+        <div class="card">
+          <div class="cardH">
+            <b>Headline KPIs</b>
+            <span class="tiny" id="headlineMeta">—</span>
           </div>
-          <div class="pc">
+          <div class="cardC">
+            <div class="kpis">
+              <div class="kpi">
+                <div class="left">
+                  <div class="k">Hours (EARN)</div>
+                  <div class="v" id="mHours">0.00</div>
+                  <div class="s">Hours worked in view</div>
+                </div>
+                <span class="dotLg g"></span>
+              </div>
+              <div class="kpi">
+                <div class="left">
+                  <div class="k">Gross (EARN)</div>
+                  <div class="v" id="mGross">$0.00</div>
+                  <div class="s">Gross earnings in view</div>
+                </div>
+                <span class="dotLg g"></span>
+              </div>
+              <div class="kpi">
+                <div class="left">
+                  <div class="k">$ / Hour</div>
+                  <div class="v" id="mRate">$0.00</div>
+                  <div class="s">Gross ÷ Hours</div>
+                </div>
+                <span class="dotLg"></span>
+              </div>
+              <div class="kpi">
+                <div class="left">
+                  <div class="k">Employees</div>
+                  <div class="v" id="mEmp">0</div>
+                  <div class="s">Unique in view</div>
+                </div>
+                <span class="dotLg a"></span>
+              </div>
+
+              <div class="kpi">
+                <div class="left">
+                  <div class="k">Deductions</div>
+                  <div class="v" id="mDeduct">$0.00</div>
+                  <div class="s">DDUCT total</div>
+                </div>
+                <span class="dotLg a"></span>
+              </div>
+              <div class="kpi">
+                <div class="left">
+                  <div class="k">EE Taxes</div>
+                  <div class="v" id="mEETax">$0.00</div>
+                  <div class="s">EETAX total</div>
+                </div>
+                <span class="dotLg"></span>
+              </div>
+              <div class="kpi">
+                <div class="left">
+                  <div class="k">ER Taxes</div>
+                  <div class="v" id="mERTax">$0.00</div>
+                  <div class="s">ERTAX total</div>
+                </div>
+                <span class="dotLg v"></span>
+              </div>
+              <div class="kpi">
+                <div class="left">
+                  <div class="k">Net Pay</div>
+                  <div class="v" id="mNet">$0.00</div>
+                  <div class="s">NET total</div>
+                </div>
+                <span class="dotLg v"></span>
+              </div>
+
+              <div class="kpi">
+                <div class="left">
+                  <div class="k">Top Employee</div>
+                  <div class="v" id="mTopEmp">—</div>
+                  <div class="s" id="mTopEmpSub">—</div>
+                </div>
+                <span class="dotLg r"></span>
+              </div>
+              <div class="kpi">
+                <div class="left">
+                  <div class="k">Departments</div>
+                  <div class="v" id="mDepts">0</div>
+                  <div class="s">Unique</div>
+                </div>
+                <span class="dotLg a"></span>
+              </div>
+              <div class="kpi">
+                <div class="left">
+                  <div class="k">Locations</div>
+                  <div class="v" id="mLocs">0</div>
+                  <div class="s">Unique</div>
+                </div>
+                <span class="dotLg a"></span>
+              </div>
+              <div class="kpi">
+                <div class="left">
+                  <div class="k">Lines</div>
+                  <div class="v" id="mLines">0</div>
+                  <div class="s">Visible</div>
+                </div>
+                <span class="dotLg"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="cardH">
+            <b>Pay Period Story</b>
+            <span class="tiny">Selected vs Baseline + Trend</span>
+          </div>
+          <div class="cardC">
+            <div class="compareGrid">
+              <div class="compareTop">
+                <div>
+                  <div class="compareTitle" id="ppCompareTitle">Select a Pay Period</div>
+                  <div class="compareSub" id="ppCompareSub">Choose a pay period above to show deltas vs previous/custom baseline.</div>
+                </div>
+
+                <div class="compareControls">
+                  <select id="compareMode" title="Compare selected pay period to…">
+                    <option value="prev" selected>Compare to: Previous Period</option>
+                    <option value="custom">Compare to: Custom Period</option>
+                  </select>
+                  <select id="comparePeriod" title="Custom baseline pay period" style="display:none;">
+                    <option value="">Select baseline pay period…</option>
+                  </select>
+                  <select id="trendN" title="Trend window">
+                    <option value="6">Trend: 6</option>
+                    <option value="8" selected>Trend: 8</option>
+                    <option value="12">Trend: 12</option>
+                    <option value="18">Trend: 18</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="deltas" id="ppDeltaLine">—</div>
+
+              <div>
+                <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center;">
+                  <b style="font-size:12px; letter-spacing:.2px; text-transform:uppercase; color:rgba(203,213,225,.92);">Trend — Hours (EARN)</b>
+                  <span class="tiny" style="color:var(--muted); font-weight:900;">Respects filters except Pay Period • last <span id="trendNLabel">8</span> periods</span>
+                </div>
+                <canvas id="trendHours" class="trendCanvas" height="92"></canvas>
+                <div class="trendMeta">
+                  <span><b>Hours change:</b> <span id="trendHoursLabel">—</span></span>
+                  <span><b>Gross change:</b> <span id="trendGrossLabel">—</span></span>
+                </div>
+              </div>
+
+              <div>
+                <b style="font-size:12px; letter-spacing:.2px; text-transform:uppercase; color:rgba(203,213,225,.92);">Trend — Gross (EARN)</b>
+                <canvas id="trendGross" class="trendCanvas" height="92" style="margin-top:8px;"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- DETAILS + ROLLUPS -->
+      <div class="main">
+        <div class="card" id="rollupsCard">
+          <div class="cardH">
+            <div class="tabs" aria-label="Quick views">
+              <div class="chip active" data-view="detail"><span class="dot"></span>Rollups</div>
+              <div class="chip" data-view="employee"><span class="dot"></span>By Employee</div>
+              <div class="chip" data-view="department"><span class="dot"></span>By Department</div>
+              <div class="chip" data-view="location"><span class="dot"></span>By Location</div>
+              <div class="chip" data-view="typecode"><span class="dot"></span>By Code</div>
+            </div>
+
+            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+              <select id="rollMetric" title="Rollup metric">
+                <option value="amount">Rollup: $ Amount</option>
+                <option value="hours">Rollup: Hours</option>
+                <option value="both">Rollup: Both</option>
+              </select>
+              <select id="topN" title="Top N">
+                <option value="10">Top 10</option>
+                <option value="25" selected>Top 25</option>
+                <option value="50">Top 50</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="cardC" style="padding:12px; overflow:auto; min-height:0;">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+              <b id="rollupTitle" style="font-size:12px; letter-spacing:.22px; text-transform:uppercase; color:rgba(203,213,225,.92);">Rollups</b>
+              <span class="tiny" id="rollupMeta" style="color:var(--muted); font-weight:900;">—</span>
+            </div>
             <div class="list" id="rollupList"></div>
           </div>
         </div>
 
-        <div class="panel">
-          <div class="ph">
+        <div class="card" id="detailTableCard">
+          <div class="cardH">
             <b id="detailTitle">Detail Lines</b>
             <span class="tiny" id="detailMeta">—</span>
           </div>
 
           <div class="pin" aria-label="Pinned totals">
             <div class="left">
-              <div class="kpi"><small>EARN Hours</small> <b id="pinHours">0.00</b></div>
-              <div class="kpi"><small>EARN Gross</small> <b id="pinGross">$0.00</b></div>
-              <div class="kpi"><small>Avg $/Hr</small> <b id="pinRate">$0.00</b></div>
-              <div class="kpi"><small>Lines</small> <b id="pinLines">0</b></div>
+              <div class="pillKpi"><small>EARN Hours</small> <b id="pinHours">0.00</b></div>
+              <div class="pillKpi"><small>EARN Gross</small> <b id="pinGross">$0.00</b></div>
+              <div class="pillKpi"><small>Avg $/Hr</small> <b id="pinRate">$0.00</b></div>
+              <div class="pillKpi"><small>Lines</small> <b id="pinLines">0</b></div>
             </div>
             <div class="right" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
               <button class="btn small ghost" id="clearDrill" type="button" style="display:none;">Clear Drill</button>
@@ -670,7 +830,7 @@
             </div>
           </div>
 
-          <div class="table-wrap" id="tableWrap">
+          <div class="tableWrap" id="tableWrap">
             <table aria-label="Payroll detail table">
               <thead>
                 <tr>
@@ -695,10 +855,11 @@
       </div>
 
       <div class="hint">
-        Summary math is based on the current filtered view. <b>Hours Worked</b> + <b>Gross Earnings</b> are calculated from <b>EARN</b> rows only.
-        Taxes/Deductions/Net are displayed as separate totals (not mixed into gross math).
-        <br><br>
-        <b>Pro tips:</b> Click any rollup row to drill in automatically. Click table headers to sort. Use “Copy Link” to share the exact filtered view.
+        <b>Math:</b> Hours + Gross are computed from <b>EARN</b> rows only. Other register types shown as separate totals.
+        <br>
+        <b>Trend:</b> respects all filters except Pay Period (so you can see movement across periods).
+        <br>
+        <b>Drill:</b> click any rollup row to drill down; “Copy Link” shares exact state.
       </div>
 
       <div id="error" class="error" style="display:none;"></div>
@@ -725,7 +886,7 @@
         ])
       ];
 
-      const HEADERS = implies = [
+      const HEADERS = [
         "Department Desc","Location Desc","clientcode",
         "EE Code","EE Name",
         "Typecode","Typedesc",
@@ -737,6 +898,9 @@
        * DOM
        **********************/
       const els = {
+        shell: document.getElementById("shell"),
+        presentToggle: document.getElementById("presentToggle"),
+
         q: document.getElementById("q"),
         payPeriod: document.getElementById("payPeriod"),
         registerType: document.getElementById("registerType"),
@@ -744,9 +908,11 @@
         department: document.getElementById("department"),
         location: document.getElementById("location"),
         typecode: document.getElementById("typecode"),
+
         reset: document.getElementById("reset"),
         downloadCsv: document.getElementById("downloadCsv"),
         copyLink: document.getElementById("copyLink"),
+
         rollMetric: document.getElementById("rollMetric"),
         topN: document.getElementById("topN"),
         earnOnlyToggle: document.getElementById("earnOnlyToggle"),
@@ -758,6 +924,8 @@
         hint2: document.getElementById("hint2"),
         tbody: document.getElementById("tbody"),
         error: document.getElementById("error"),
+
+        headlineMeta: document.getElementById("headlineMeta"),
 
         mEmp: document.getElementById("mEmp"),
         mDepts: document.getElementById("mDepts"),
@@ -782,9 +950,22 @@
         rollupTitle: document.getElementById("rollupTitle"),
         rollupMeta: document.getElementById("rollupMeta"),
         rollupList: document.getElementById("rollupList"),
+
         detailMeta: document.getElementById("detailMeta"),
         detailTitle: document.getElementById("detailTitle"),
-        chips: Array.from(document.querySelectorAll(".chip"))
+        chips: Array.from(document.querySelectorAll(".chip")),
+
+        compareMode: document.getElementById("compareMode"),
+        comparePeriod: document.getElementById("comparePeriod"),
+        trendN: document.getElementById("trendN"),
+        ppDeltaLine: document.getElementById("ppDeltaLine"),
+        ppCompareTitle: document.getElementById("ppCompareTitle"),
+        ppCompareSub: document.getElementById("ppCompareSub"),
+        trendHours: document.getElementById("trendHours"),
+        trendGross: document.getElementById("trendGross"),
+        trendNLabel: document.getElementById("trendNLabel"),
+        trendHoursLabel: document.getElementById("trendHoursLabel"),
+        trendGrossLabel: document.getElementById("trendGrossLabel")
       };
 
       /**********************
@@ -794,11 +975,14 @@
       let VIEW = [];
       let activeView = "detail";
       let earnOnlyTable = false;
+      let presentMode = false;
 
       let drill = null;
-
       let sortKey = "";
       let sortDir = "desc";
+
+      let PERIODS = [];
+      let PERIOD_INDEX = new Map();
 
       /**********************
        * UTILS
@@ -841,6 +1025,12 @@
         const str = abs.toLocaleString(undefined,{ minimumFractionDigits:2, maximumFractionDigits:2 });
         return (v < 0) ? `-$${str}` : `$${str}`;
       }
+      function fmtPct(n){
+        const v = Number(n);
+        if(!isFinite(v)) return "0.0%";
+        const sign = v > 0 ? "+" : "";
+        return `${sign}${v.toFixed(1)}%`;
+      }
       function setError(msg, detail){
         els.error.style.display = "block";
         els.error.innerHTML = `${msg}<small>${detail || ""}</small>`;
@@ -850,6 +1040,31 @@
       function uniq(arr){
         return Array.from(new Set(arr.filter(Boolean))).sort((a,b)=> a.localeCompare(b));
       }
+
+      function parseDateLoose(s){
+        const t = String(s||"").trim();
+        if(!t) return NaN;
+        let ms = Date.parse(t);
+        if(isFinite(ms)) return ms;
+
+        const m = t.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
+        if(m){
+          const mm = parseInt(m[1],10);
+          const dd = parseInt(m[2],10);
+          let yy = parseInt(m[3],10);
+          if(yy < 100) yy = 2000 + yy;
+          return new Date(Date.UTC(yy, mm-1, dd)).getTime();
+        }
+        const m2 = t.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
+        if(m2){
+          const yy = parseInt(m2[1],10);
+          const mm = parseInt(m2[2],10);
+          const dd = parseInt(m2[3],10);
+          return new Date(Date.UTC(yy, mm-1, dd)).getTime();
+        }
+        return NaN;
+      }
+
       function labelPeriod(r){
         const s = (r["Pay Period Start"]||"").trim();
         const e = (r["Pay Period End"]||"").trim();
@@ -926,6 +1141,17 @@
         return rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "EARN");
       }
 
+      function delta(a, b){
+        const d = a - b;
+        const pct = b ? (d / b) * 100 : (a ? 100 : 0);
+        return { d, pct };
+      }
+      function deltaClass(v){
+        if(v > 0) return "deltaUp";
+        if(v < 0) return "deltaDown";
+        return "deltaFlat";
+      }
+
       /**********************
        * CSV PARSER
        **********************/
@@ -974,6 +1200,8 @@
             obj[h] = (idx != null && idx < r.length) ? r[idx] : "";
           });
           obj.__pp = "";
+          obj.__ppStartMs = NaN;
+          obj.__ppEndMs = NaN;
           obj.__amt = 0;
           obj.__hrs = 0;
           obj.__wgs = 0;
@@ -1003,8 +1231,29 @@
       }
 
       /**********************
-       * FILTER LISTS
+       * FILTER LISTS + PERIODS
        **********************/
+      function computePeriods(){
+        const m = new Map();
+        for(const r of RAW){
+          const pp = r.__pp;
+          if(!pp) continue;
+          const startMs = isFinite(r.__ppStartMs) ? r.__ppStartMs : parseDateLoose(r["Pay Period Start"]);
+          const endMs = isFinite(r.__ppEndMs) ? r.__ppEndMs : parseDateLoose(r["Pay Period End"]);
+          const cur = m.get(pp) || { pp, startMs, endMs };
+          if(isFinite(startMs) && (!isFinite(cur.startMs) || startMs < cur.startMs)) cur.startMs = startMs;
+          if(isFinite(endMs) && (!isFinite(cur.endMs) || endMs > cur.endMs)) cur.endMs = endMs;
+          m.set(pp, cur);
+        }
+        PERIODS = Array.from(m.values()).sort((a,b)=>{
+          const av = isFinite(a.startMs) ? a.startMs : -Infinity;
+          const bv = isFinite(b.startMs) ? b.startMs : -Infinity;
+          return bv - av;
+        });
+        PERIOD_INDEX = new Map();
+        PERIODS.forEach((p, idx)=> PERIOD_INDEX.set(p.pp, idx));
+      }
+
       function buildFilters(){
         const emps = uniq(RAW.map(r => (r["EE Name"]||"").trim()));
         els.employee.innerHTML = ['<option value="">All Employees</option>', ...emps.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`)].join("");
@@ -1018,14 +1267,19 @@
         const codes = uniq(RAW.map(r => (r["Typecode"]||"").trim()));
         els.typecode.innerHTML = ['<option value="">All Codes</option>', ...codes.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`)].join("");
 
-        const periods = uniq(RAW.map(r => r.__pp));
+        computePeriods();
+
+        const periods = PERIODS.map(p => p.pp);
         els.payPeriod.innerHTML = ['<option value="">All Pay Periods</option>', ...periods.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`)].join("");
+        els.comparePeriod.innerHTML = ['<option value="">Select baseline pay period…</option>', ...periods.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`)].join("");
       }
 
       /**********************
-       * APPLY + METRICS + RENDER
+       * FILTERING
        **********************/
-      function apply(){
+      function filterRows(opts){
+        const ignorePayPeriod = !!(opts && opts.ignorePayPeriod);
+
         const q = (els.q.value || "").trim().toLowerCase();
         const pp = (els.payPeriod.value || "").trim();
         const rt = (els.registerType.value || "").trim().toUpperCase();
@@ -1034,8 +1288,8 @@
         const loc = (els.location.value || "").trim();
         const code = (els.typecode.value || "").trim();
 
-        VIEW = RAW.filter(r=>{
-          if(pp && r.__pp !== pp) return false;
+        return RAW.filter(r=>{
+          if(!ignorePayPeriod && pp && r.__pp !== pp) return false;
           if(rt && String(r["Register Type"]||"").toUpperCase() !== rt) return false;
 
           if(emp && (r["EE Name"]||"").trim() !== emp) return false;
@@ -1061,39 +1315,217 @@
           }
           return true;
         });
+      }
 
+      function apply(){
+        VIEW = filterRows({ ignorePayPeriod:false });
         render();
       }
 
+      function computeEarnKpis(rows){
+        const earnRows = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "EARN");
+        const hours = earnRows.reduce((s,r)=> s + r.__hrs, 0);
+        const gross = earnRows.reduce((s,r)=> s + r.__amt, 0);
+        const rate = hours ? (gross / hours) : 0;
+        return { hours, gross, rate, lines: rows.length };
+      }
+
+      function resolveBaselinePeriod(selectedPp){
+        if(!selectedPp) return "";
+        const mode = String(els.compareMode.value || "prev");
+        if(mode === "custom"){
+          const custom = String(els.comparePeriod.value || "").trim();
+          return custom && custom !== selectedPp ? custom : "";
+        }
+        const idx = PERIOD_INDEX.get(selectedPp);
+        if(idx == null) return "";
+        const prev = PERIODS[idx + 1];
+        return prev ? prev.pp : "";
+      }
+
+      function buildPeriodSeries(rowsIgnoringPayPeriod){
+        const agg = new Map();
+        for(const r of rowsIgnoringPayPeriod){
+          const pp = r.__pp;
+          if(!pp) continue;
+          if(String(r["Register Type"]||"").toUpperCase() !== "EARN") continue;
+          const cur = agg.get(pp) || { hours:0, gross:0 };
+          cur.hours += r.__hrs;
+          cur.gross += r.__amt;
+          agg.set(pp, cur);
+        }
+
+        const n = Math.max(3, parseInt(els.trendN.value || "8", 10) || 8);
+        const ordered = PERIODS
+          .filter(p => agg.has(p.pp))
+          .slice(0, n)
+          .map(p => ({ pp: p.pp, ...agg.get(p.pp) }));
+
+        return ordered.reverse(); // oldest -> newest
+      }
+
+      function drawMiniLine(canvas, points){
+        const ctx = canvas.getContext("2d");
+        const dpr = Math.max(1, window.devicePixelRatio || 1);
+        const cssW = canvas.clientWidth || canvas.width;
+        const cssH = canvas.height;
+
+        canvas.width = Math.floor(cssW * dpr);
+        canvas.height = Math.floor(cssH * dpr);
+        ctx.setTransform(dpr,0,0,dpr,0,0);
+
+        const w = cssW;
+        const h = cssH;
+
+        ctx.clearRect(0,0,w,h);
+
+        ctx.strokeStyle = "rgba(148,163,184,.16)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(0.5,0.5,w-1,h-1);
+
+        if(!points.length){
+          ctx.fillStyle = "rgba(167,176,192,.85)";
+          ctx.font = "900 12px Inter, system-ui, sans-serif";
+          ctx.fillText("No trend data for current filters.", 12, 24);
+          return;
+        }
+
+        const padX = 12;
+        const padY = 12;
+
+        const minY = Math.min(...points);
+        const maxY = Math.max(...points);
+        const spanY = (maxY - minY) || 1;
+
+        const xFor = (i)=>{
+          if(points.length === 1) return padX;
+          return padX + (i * (w - padX*2)) / (points.length - 1);
+        };
+        const yFor = (v)=>{
+          const t = (v - minY) / spanY;
+          return (h - padY) - t * (h - padY*2);
+        };
+
+        ctx.beginPath();
+        ctx.moveTo(xFor(0), h - padY);
+        for(let i=0;i<points.length;i++){
+          ctx.lineTo(xFor(i), yFor(points[i]));
+        }
+        ctx.lineTo(xFor(points.length-1), h - padY);
+        ctx.closePath();
+        ctx.fillStyle = "rgba(56,189,248,.08)";
+        ctx.fill();
+
+        ctx.beginPath();
+        for(let i=0;i<points.length;i++){
+          const x = xFor(i);
+          const y = yFor(points[i]);
+          if(i === 0) ctx.moveTo(x,y);
+          else ctx.lineTo(x,y);
+        }
+        ctx.strokeStyle = "rgba(56,189,248,.88)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        const lx = xFor(points.length-1);
+        const ly = yFor(points[points.length-1]);
+        ctx.beginPath();
+        ctx.arc(lx, ly, 4, 0, Math.PI*2);
+        ctx.fillStyle = "rgba(34,197,94,.95)";
+        ctx.fill();
+      }
+
+      function renderComparisonAndTrend(){
+        const selectedPp = String(els.payPeriod.value || "").trim();
+        const mode = String(els.compareMode.value || "prev");
+        els.comparePeriod.style.display = (mode === "custom") ? "inline-block" : "none";
+
+        const baseRows = filterRows({ ignorePayPeriod:true });
+        const series = buildPeriodSeries(baseRows);
+
+        const n = Math.max(3, parseInt(els.trendN.value || "8", 10) || 8);
+        els.trendNLabel.textContent = String(n);
+
+        const hoursPts = series.map(p => p.hours);
+        const grossPts = series.map(p => p.gross);
+
+        drawMiniLine(els.trendHours, hoursPts);
+        drawMiniLine(els.trendGross, grossPts);
+
+        if(series.length){
+          const first = series[0];
+          const last = series[series.length-1];
+          const dh = delta(last.hours, first.hours);
+          const dg = delta(last.gross, first.gross);
+
+          els.trendHoursLabel.innerHTML = `<span class="${deltaClass(dh.d)}">${fmtPct(dh.pct)}</span> (${fmtNum(first.hours)} → ${fmtNum(last.hours)})`;
+          els.trendGrossLabel.innerHTML = `<span class="${deltaClass(dg.d)}">${fmtPct(dg.pct)}</span> (${fmtUSD(first.gross)} → ${fmtUSD(last.gross)})`;
+        } else {
+          els.trendHoursLabel.textContent = "—";
+          els.trendGrossLabel.textContent = "—";
+        }
+
+        if(!selectedPp){
+          els.ppCompareTitle.textContent = "Select a Pay Period";
+          els.ppCompareSub.textContent = "Choose a pay period above to show deltas vs previous/custom baseline.";
+          els.ppDeltaLine.textContent = "—";
+          return;
+        }
+
+        const baselinePp = resolveBaselinePeriod(selectedPp);
+
+        const selectedRows = baseRows.filter(r => r.__pp === selectedPp);
+        const selected = computeEarnKpis(selectedRows);
+
+        if(!baselinePp){
+          els.ppCompareTitle.textContent = `Selected: ${selectedPp}`;
+          els.ppCompareSub.textContent = `EARN • ${fmtNum(selected.hours)} hrs • ${fmtUSD(selected.gross)} gross • ${fmtUSD(selected.rate)}/hr`;
+          els.ppDeltaLine.textContent = "No baseline available (choose custom baseline or ensure previous period exists).";
+          return;
+        }
+
+        const baselineRows = baseRows.filter(r => r.__pp === baselinePp);
+        const baseline = computeEarnKpis(baselineRows);
+
+        const dh = delta(selected.hours, baseline.hours);
+        const dg = delta(selected.gross, baseline.gross);
+        const dr = delta(selected.rate, baseline.rate);
+
+        els.ppCompareTitle.textContent = "Selected vs Baseline";
+        els.ppCompareSub.innerHTML =
+          `Selected: <b>${esc(selectedPp)}</b> • ${fmtNum(selected.hours)} hrs • ${fmtUSD(selected.gross)} gross • ${fmtUSD(selected.rate)}/hr
+           <span style="opacity:.55;"> | </span>
+           Baseline: <b>${esc(baselinePp)}</b> • ${fmtNum(baseline.hours)} hrs • ${fmtUSD(baseline.gross)} gross • ${fmtUSD(baseline.rate)}/hr`;
+
+        els.ppDeltaLine.innerHTML =
+          `<span><b>Δ Hours:</b> <span class="${deltaClass(dh.d)}">${dh.d >= 0 ? "+" : ""}${fmtNum(dh.d)} (${fmtPct(dh.pct)})</span></span>
+           <span><b>Δ Gross:</b> <span class="${deltaClass(dg.d)}">${dg.d >= 0 ? "+" : ""}${fmtUSD(dg.d)} (${fmtPct(dg.pct)})</span></span>
+           <span><b>Δ $/Hr:</b> <span class="${deltaClass(dr.d)}">${dr.d >= 0 ? "+" : ""}${fmtUSD(dr.d)} (${fmtPct(dr.pct)})</span></span>`;
+      }
+
+      /**********************
+       * RENDER
+       **********************/
       function render(){
         clearError();
 
         const rows = VIEW;
-
-        const earnRowsForMetrics = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "EARN");
+        const earnRows = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "EARN");
 
         const uniqueEmployees = new Set(rows.map(r => (r["EE Name"]||"").trim()).filter(Boolean));
         const uniqueDepts = new Set(rows.map(r => (r["Department Desc"]||"").trim()).filter(Boolean));
         const uniqueLocs  = new Set(rows.map(r => (r["Location Desc"]||"").trim()).filter(Boolean));
 
-        const hoursEarn = earnRowsForMetrics.reduce((s,r)=> s + r.__hrs, 0);
-        const grossEarn = earnRowsForMetrics.reduce((s,r)=> s + r.__amt, 0);
-
-        const deduct = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "DDUCT")
-          .reduce((s,r)=> s + r.__amt, 0);
-
-        const eeTax = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "EETAX")
-          .reduce((s,r)=> s + r.__amt, 0);
-
-        const erTax = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "ERTAX")
-          .reduce((s,r)=> s + r.__amt, 0);
-
-        const net = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "NET")
-          .reduce((s,r)=> s + r.__amt, 0);
-
+        const hoursEarn = earnRows.reduce((s,r)=> s + r.__hrs, 0);
+        const grossEarn = earnRows.reduce((s,r)=> s + r.__amt, 0);
         const rate = hoursEarn ? (grossEarn / hoursEarn) : 0;
 
-        const empEarnAgg = groupAgg(earnRowsForMetrics, r => (r["EE Name"]||"").trim());
+        const deduct = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "DDUCT").reduce((s,r)=> s + r.__amt, 0);
+        const eeTax = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "EETAX").reduce((s,r)=> s + r.__amt, 0);
+        const erTax = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "ERTAX").reduce((s,r)=> s + r.__amt, 0);
+        const net = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "NET").reduce((s,r)=> s + r.__amt, 0);
+
+        const empEarnAgg = groupAgg(earnRows, r => (r["EE Name"]||"").trim());
         const topEmp = topN(empEarnAgg, 1, "amount")[0];
 
         els.mEmp.textContent = uniqueEmployees.size.toLocaleString();
@@ -1123,6 +1555,9 @@
         els.pinRate.textContent = fmtUSD(rate);
         els.pinLines.textContent = rows.length.toLocaleString();
 
+        const pp = (els.payPeriod.value || "").trim();
+        els.headlineMeta.textContent = pp ? `Pay Period: ${pp}` : "All Pay Periods";
+
         els.status.textContent = rows.length ? "" : "No matching rows.";
         els.hint2.textContent = rows.length
           ? `View: ${activeView.toUpperCase()} • Rollup: ${els.rollMetric.value.toUpperCase()} • Top ${els.topN.value}`
@@ -1130,6 +1565,7 @@
 
         els.detailMeta.textContent = rows.length ? `${rows.length.toLocaleString()} lines` : "—";
 
+        renderComparisonAndTrend();
         renderRollup(rows);
         renderTable(rows);
         updateSortIndicators();
@@ -1148,7 +1584,7 @@
         if(view === "department") return "By Department";
         if(view === "location") return "By Location";
         if(view === "typecode") return "By Code";
-        return "Top Employees";
+        return "Rollups";
       }
 
       function rollSubLabel(view, key){
@@ -1165,44 +1601,38 @@
         els.rollupTitle.textContent = rollTitle(view);
 
         const baseRows = rowsForRollups(rows);
-        const keyFn = rollKeyFn(view);
-        const agg = groupAgg(baseRows, keyFn);
+        const agg = groupAgg(baseRows, rollKeyFn(view));
 
         els.rollupMeta.textContent = `${agg.size.toLocaleString()} groups`;
 
         if(!agg.size){
-          const note = isRegisterTypeAll()
-            ? "No EARN rows in view."
-            : "No rollups.";
-          els.rollupList.innerHTML = `<div style="color:rgba(167,176,192,.95);font-weight:800;">${esc(note)}</div>`;
+          const note = isRegisterTypeAll() ? "No EARN rows in view." : "No rollups.";
+          els.rollupList.innerHTML = `<div style="color:rgba(167,176,192,.95);font-weight:900;">${esc(note)}</div>`;
           return;
         }
 
-        const metricMode = els.rollMetric.value; // amount | hours | both
+        const metricMode = els.rollMetric.value;
         const primary = (metricMode === "hours") ? "hours" : "amount";
         const limit = Math.max(5, parseInt(els.topN.value || "25", 10) || 25);
 
         const items = topN(agg, limit, primary);
-
         const denom = Array.from(agg.values()).reduce((s,v)=> s + (primary === "hours" ? v.hours : v.amount), 0) || 1;
 
         els.rollupList.innerHTML = items.map(({k,v})=>{
           const primaryVal = (primary === "hours") ? v.hours : v.amount;
           const pct = Math.round((primaryVal/denom)*1000)/10;
           const v1 = (primary === "hours") ? `${fmtNum(v.hours)} hrs` : `${fmtUSD(v.amount)}`;
-
           let v2 = `${pct}%`;
           if(metricMode === "both"){
             v2 = (primary === "hours") ? `${fmtUSD(v.amount)}` : `${fmtNum(v.hours)} hrs`;
           }
-
           const sub = rollSubLabel(view, k);
-          const codeDesc = (view === "typecode") ? `${k} — ${sub}` : k;
+          const label = (view === "typecode") ? `${k} — ${sub}` : k;
 
           return `
-            <div class="row" data-drill-kind="${esc(view)}" data-drill-value="${esc(k)}" title="Click to drill into ${esc(codeDesc)}">
+            <div class="row" data-drill-kind="${esc(view)}" data-drill-value="${esc(k)}" title="Click to drill into ${esc(label)}">
               <div style="min-width:0;">
-                <div class="name">${esc(codeDesc)}</div>
+                <div class="name">${esc(label)}</div>
                 <div class="subn">${esc(metricMode === "both" ? "Hours + Amount" : (primary === "hours" ? "Share of hours" : "Share of amount"))}</div>
               </div>
               <div class="right">
@@ -1215,9 +1645,7 @@
 
         Array.from(els.rollupList.querySelectorAll(".row")).forEach(el=>{
           el.addEventListener("click", ()=>{
-            const kind = el.getAttribute("data-drill-kind");
-            const value = el.getAttribute("data-drill-value");
-            setDrill(kind, value);
+            setDrill(el.getAttribute("data-drill-kind"), el.getAttribute("data-drill-value"));
           });
         });
       }
@@ -1227,8 +1655,7 @@
         if(key === "Amount") return r.__amt;
         if(key === "Hours/Units") return r.__hrs;
         if(key === "Wages") return r.__wgs;
-        const v = (r[key] ?? "");
-        return String(v).toLowerCase();
+        return String((r[key] ?? "")).toLowerCase();
       }
 
       function getSortedRows(rows){
@@ -1244,7 +1671,6 @@
             if(av === bv) return a.i - b.i;
             return (av > bv ? 1 : -1) * dir;
           }
-
           if(av === bv) return a.i - b.i;
           return (av > bv ? 1 : -1) * dir;
         }).map(x=>x.r);
@@ -1252,22 +1678,20 @@
 
       function renderTable(rows){
         let tableRows = rows;
-
         if(earnOnlyTable){
           tableRows = tableRows.filter(r => String(r["Register Type"]||"").toUpperCase() === "EARN");
         }
-
         tableRows = getSortedRows(tableRows);
 
         if(!tableRows.length){
-          els.tbody.innerHTML = `<tr><td colspan="10" style="padding:14px;color:rgba(167,176,192,.95);font-weight:800;">No rows found.</td></tr>`;
+          els.tbody.innerHTML = `<tr><td colspan="10" style="padding:14px;color:rgba(167,176,192,.95);font-weight:900;">No rows found.</td></tr>`;
           return;
         }
 
         const limit = 1400;
         const slice = tableRows.slice(0, limit);
 
-        els.tbody.innerHTML = slice.map(r => {
+        els.tbody.innerHTML = slice.map(r=>{
           const rt = String(r["Register Type"]||"").toUpperCase();
           const code = (r["Typecode"]||"").trim();
           const desc = (r["Typedesc"]||"").trim();
@@ -1290,7 +1714,7 @@
         if(tableRows.length > limit){
           const extra = tableRows.length - limit;
           els.tbody.insertAdjacentHTML("beforeend",
-            `<tr><td colspan="10" style="padding:12px;color:rgba(167,176,192,.95);font-weight:800;">
+            `<tr><td colspan="10" style="padding:12px;color:rgba(167,176,192,.95);font-weight:900;">
               Showing first ${limit.toLocaleString()} rows. ${extra.toLocaleString()} more available in CSV download.
             </td></tr>`
           );
@@ -1299,11 +1723,7 @@
 
       function updateSortIndicators(){
         const ids = ["s_EEName","s_Dept","s_Loc","s_Reg","s_Code","s_Desc","s_PP","s_Hours","s_Amt","s_Wages"];
-        ids.forEach(id=>{
-          const el = document.getElementById(id);
-          if(el) el.textContent = "";
-        });
-
+        ids.forEach(id=>{ const el = document.getElementById(id); if(el) el.textContent = ""; });
         if(!sortKey) return;
 
         const arrow = sortDir === "asc" ? "▲" : "▼";
@@ -1334,8 +1754,15 @@
         writeQS();
       }
 
+      function togglePresent(){
+        presentMode = !presentMode;
+        els.presentToggle.classList.toggle("on", presentMode);
+        els.shell.classList.toggle("present", presentMode);
+        writeQS();
+      }
+
       /**********************
-       * EXPORT (Admin)
+       * EXPORT
        **********************/
       const EXPORT_HEADERS = [
         "Department Desc","Location Desc","clientcode","EE Code","EE Name",
@@ -1363,7 +1790,7 @@
       }
 
       /**********************
-       * SHAREABLE LINK (filters in querystring)
+       * SHARE LINK (querystring)
        **********************/
       function readQS(){
         const p = new URLSearchParams(location.search);
@@ -1380,10 +1807,14 @@
           rollMetric: get("rollMetric") || "amount",
           topN: get("topN") || "25",
           earnOnly: get("earnOnly") || "",
+          present: get("present") || "",
           drillKind: get("drillKind") || "",
           drillValue: get("drillValue") || "",
           sortKey: get("sortKey") || "",
-          sortDir: get("sortDir") || ""
+          sortDir: get("sortDir") || "",
+          compareMode: get("compareMode") || "prev",
+          comparePeriod: get("comparePeriod") || "",
+          trendN: get("trendN") || "8"
         };
       }
 
@@ -1404,10 +1835,15 @@
         if(els.topN.value && els.topN.value !== "25") set("topN", els.topN.value);
 
         if(earnOnlyTable) set("earnOnly", "1");
+        if(presentMode) set("present", "1");
         if(drill){ set("drillKind", drill.kind); set("drillValue", drill.value); }
 
         if(sortKey) set("sortKey", sortKey);
         if(sortDir && sortDir !== "desc") set("sortDir", sortDir);
+
+        if(els.compareMode.value && els.compareMode.value !== "prev") set("compareMode", els.compareMode.value);
+        if(els.comparePeriod.value) set("comparePeriod", els.comparePeriod.value);
+        if(els.trendN.value && els.trendN.value !== "8") set("trendN", els.trendN.value);
 
         const newUrl = `${location.pathname}${p.toString() ? ("?"+p.toString()) : ""}`;
         history.replaceState(null, "", newUrl);
@@ -1433,13 +1869,21 @@
       els.q.addEventListener("input", debounce(onChange, 220));
       els.payPeriod.addEventListener("change", onChange);
       els.registerType.addEventListener("change", onChange);
-      els.employee.addEventListener("change", ()=>{ drill = null; els.clearDrill.style.display="none"; els.detailTitle.textContent="Detail Lines"; onChange(); });
-      els.department.addEventListener("change", ()=>{ drill = null; els.clearDrill.style.display="none"; els.detailTitle.textContent="Detail Lines"; onChange(); });
-      els.location.addEventListener("change", ()=>{ drill = null; els.clearDrill.style.display="none"; els.detailTitle.textContent="Detail Lines"; onChange(); });
-      els.typecode.addEventListener("change", ()=>{ drill = null; els.clearDrill.style.display="none"; els.detailTitle.textContent="Detail Lines"; onChange(); });
+
+      els.employee.addEventListener("change", ()=>{ drill=null; els.clearDrill.style.display="none"; els.detailTitle.textContent="Detail Lines"; onChange(); });
+      els.department.addEventListener("change", ()=>{ drill=null; els.clearDrill.style.display="none"; els.detailTitle.textContent="Detail Lines"; onChange(); });
+      els.location.addEventListener("change", ()=>{ drill=null; els.clearDrill.style.display="none"; els.detailTitle.textContent="Detail Lines"; onChange(); });
+      els.typecode.addEventListener("change", ()=>{ drill=null; els.clearDrill.style.display="none"; els.detailTitle.textContent="Detail Lines"; onChange(); });
 
       els.rollMetric.addEventListener("change", ()=>{ renderRollup(VIEW); writeQS(); });
       els.topN.addEventListener("change", ()=>{ renderRollup(VIEW); writeQS(); });
+
+      els.compareMode.addEventListener("change", ()=>{ render(); writeQS(); });
+      els.comparePeriod.addEventListener("change", ()=>{ render(); writeQS(); });
+      els.trendN.addEventListener("change", ()=>{ render(); writeQS(); });
+
+      els.presentToggle.addEventListener("click", togglePresent);
+      els.earnOnlyToggle.addEventListener("click", toggleEarnOnly);
 
       els.reset.addEventListener("click", ()=>{
         els.q.value = "";
@@ -1450,12 +1894,21 @@
         els.location.value = "";
         els.typecode.value = "";
 
+        els.compareMode.value = "prev";
+        els.comparePeriod.value = "";
+        els.comparePeriod.style.display = "none";
+        els.trendN.value = "8";
+
         drill = null;
         els.clearDrill.style.display = "none";
         els.detailTitle.textContent = "Detail Lines";
 
         earnOnlyTable = false;
         els.earnOnlyToggle.classList.remove("on");
+
+        presentMode = false;
+        els.presentToggle.classList.remove("on");
+        els.shell.classList.remove("present");
 
         sortKey = "Amount";
         sortDir = "desc";
@@ -1468,7 +1921,7 @@
 
       els.downloadCsv.addEventListener("click", ()=>{
         const rows = VIEW.length ? VIEW : RAW;
-        downloadBlob(`payroll_admin_${new Date().toISOString().slice(0,10)}.csv`, toCSV(rows));
+        downloadBlob(`payroll_meeting_${new Date().toISOString().slice(0,10)}.csv`, toCSV(rows));
       });
 
       els.copyLink.addEventListener("click", copyShareLink);
@@ -1480,16 +1933,8 @@
         });
       });
 
-      els.earnOnlyToggle.addEventListener("click", toggleEarnOnly);
-
-      els.clearDrill.addEventListener("click", ()=>{
-        clearDrill();
-        writeQS();
-      });
-
-      els.scrollTop.addEventListener("click", ()=>{
-        els.tableWrap.scrollTo({ top: 0, behavior: "smooth" });
-      });
+      els.clearDrill.addEventListener("click", ()=>{ clearDrill(); writeQS(); });
+      els.scrollTop.addEventListener("click", ()=>{ els.tableWrap.scrollTo({ top: 0, behavior: "smooth" }); });
 
       Array.from(document.querySelectorAll("thead th[data-k]")).forEach(th=>{
         th.addEventListener("click", ()=>{
@@ -1509,6 +1954,8 @@
         });
       });
 
+      window.addEventListener("resize", debounce(()=> renderComparisonAndTrend(), 120));
+
       /**********************
        * LOAD
        **********************/
@@ -1519,6 +1966,8 @@
 
           RAW = data.map(r=>{
             r.__pp = labelPeriod(r);
+            r.__ppStartMs = parseDateLoose(r["Pay Period Start"]);
+            r.__ppEndMs = parseDateLoose(r["Pay Period End"]);
             r.__amt = parseMoney(r["Amount"]);
             r.__hrs = parseNumber(r["Hours/Units"]);
             r.__wgs = parseMoney(r["Wages"]);
@@ -1526,7 +1975,6 @@
           });
 
           VIEW = RAW.slice();
-
           buildFilters();
 
           const qs = readQS();
@@ -1546,6 +1994,12 @@
             els.earnOnlyToggle.classList.add("on");
           }
 
+          if(qs.present === "1"){
+            presentMode = true;
+            els.presentToggle.classList.add("on");
+            els.shell.classList.add("present");
+          }
+
           if(qs.sortKey){
             sortKey = qs.sortKey;
             sortDir = qs.sortDir || "desc";
@@ -1562,13 +2016,19 @@
             els.detailTitle.textContent = `Detail Lines (Drill: ${qs.drillKind})`;
           }
 
+          if(qs.compareMode) els.compareMode.value = qs.compareMode;
+          if(qs.comparePeriod) els.comparePeriod.value = qs.comparePeriod;
+          if(qs.trendN) els.trendN.value = qs.trendN;
+
+          els.comparePeriod.style.display = (els.compareMode.value === "custom") ? "inline-block" : "none";
+
           const employees = new Set(RAW.map(r => (r["EE Name"]||"").trim()).filter(Boolean)).size;
           els.status.textContent = `Loaded ${RAW.length.toLocaleString()} lines • ${employees.toLocaleString()} employees`;
           apply();
         } catch(err){
           console.error(err);
           els.status.textContent = "";
-          els.tbody.innerHTML = `<tr><td colspan="10" style="padding:14px;color:rgba(167,176,192,.95);font-weight:800;">Unable to load payroll.</td></tr>`;
+          els.tbody.innerHTML = `<tr><td colspan="10" style="padding:14px;color:rgba(167,176,192,.95);font-weight:900;">Unable to load payroll.</td></tr>`;
           setError("Payroll report unavailable.", "Confirm the sheet is published and accessible.");
         }
       })();
