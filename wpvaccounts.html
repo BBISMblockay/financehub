@@ -3,28 +3,35 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>WPV — Invoice Dashboard (Google Sheets)</title>
+  <title>WPV — Accounts Receivable (Wave Sync)</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
   <style>
-    :root{ color-scheme: light; }
+    :root { color-scheme: light; }
     body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji","Segoe UI Emoji"; }
     .mono { font-variant-numeric: tabular-nums; }
     .hairline { border-color: rgba(15,23,42,.10); }
     .soft { box-shadow: 0 1px 0 rgba(15,23,42,.04); }
-    .soft2 { box-shadow: 0 10px 20px rgba(15,23,42,.06); }
+    .soft2 { box-shadow: 0 10px 24px rgba(15,23,42,.08); }
     .scrollbar::-webkit-scrollbar{ height:10px; width:10px; }
     .scrollbar::-webkit-scrollbar-thumb{ background: rgba(15,23,42,.22); border-radius: 999px; }
     .scrollbar::-webkit-scrollbar-track{ background: transparent; }
-    dialog::backdrop { background: rgba(2,6,23,.40); }
-    .pill { border: 1px solid rgba(15,23,42,.10); }
+    dialog::backdrop { background: rgba(2,6,23,.45); }
+    .pill { border: 1px solid rgba(15,23,42,.12); }
     .kbd { font-size: 11px; border:1px solid rgba(15,23,42,.12); background: rgba(15,23,42,.03); padding: 2px 6px; border-radius: 8px; }
+    .chip { border:1px solid rgba(15,23,42,.12); background: #fff; }
+    .btn { border: 1px solid rgba(15,23,42,.14); background:#fff; }
+    .btn:hover { background: rgba(15,23,42,.03); }
 
+    /* Statement print: ONLY statement area prints */
     @media print {
       .no-print { display: none !important; }
-      body { background: #fff !important; }
+      body { background:#fff !important; }
+      #statementPrintArea { display:block !important; }
+      #statementPrintArea * { visibility: visible !important; }
+      #statementPrintArea { position: absolute; left: 0; top: 0; width: 100%; }
       .print-card { box-shadow: none !important; }
       .print-border { border: 1px solid #e5e7eb !important; }
       a { color: #111827 !important; text-decoration: none !important; }
@@ -32,267 +39,425 @@
   </style>
 </head>
 
-<body class="bg-white text-slate-900">
-  <div class="max-w-[1550px] mx-auto px-4 sm:px-6 py-6">
-    <!-- Header -->
-    <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 border-b hairline pb-4">
-      <div>
-        <div class="text-xs tracking-widest uppercase text-slate-500">WPV • Accounts Receivable</div>
-        <h1 class="text-2xl font-semibold leading-tight">Invoice Activity Dashboard</h1>
-        <div class="text-sm text-slate-600 mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span>Source: Google Sheets (published CSV)</span>
-          <span class="text-slate-300">•</span>
-          <span>Last refresh:</span>
-          <span class="mono" id="lastRefresh">—</span>
-          <span class="no-print text-slate-300">•</span>
-          <button id="refreshBtn" class="no-print underline underline-offset-4 hover:text-slate-900">Refresh</button>
-          <span class="no-print text-slate-300">•</span>
-          <span class="no-print text-xs text-slate-500">Tip: <span class="kbd">/</span> search, <span class="kbd">Esc</span> clear</span>
+<body class="bg-slate-50 text-slate-900">
+  <!-- Top bar -->
+  <div class="sticky top-0 z-40 bg-white border-b hairline">
+    <div class="max-w-[1680px] mx-auto px-4 sm:px-6 py-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+      <div class="flex items-start gap-3">
+        <div class="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-semibold">WPV</div>
+        <div>
+          <div class="text-xs tracking-widest uppercase text-slate-500">Accounts Receivable • Wave-linked</div>
+          <div class="text-xl font-semibold leading-tight">Invoice Command Center</div>
+          <div class="text-xs text-slate-500 mt-1">
+            Source: Google Sheets (published CSV) • Last refresh: <span class="mono" id="lastRefresh">—</span>
+            <span class="no-print">• <button id="refreshBtn" class="underline underline-offset-4 hover:text-slate-900">Refresh</button></span>
+            <span class="no-print text-slate-300">•</span>
+            <span class="no-print">Tip: <span class="kbd">/</span> search • <span class="kbd">Esc</span> clear</span>
+          </div>
         </div>
       </div>
 
       <div class="no-print flex flex-wrap items-center gap-2">
-        <button id="goHomeBtn" class="px-3 py-2 text-sm border hairline rounded-lg hover:bg-slate-50">All Customers</button>
-        <button id="printBtn" class="px-3 py-2 text-sm border hairline rounded-lg hover:bg-slate-50">Print</button>
-      </div>
-    </div>
-
-    <!-- Global KPIs -->
-    <div class="grid grid-cols-1 md:grid-cols-5 gap-3 mt-5">
-      <div class="p-4 border hairline rounded-xl soft">
-        <div class="text-xs uppercase tracking-wider text-slate-500">As Of</div>
-        <div class="mt-2 flex items-center gap-2">
-          <input id="asOfDate" type="date" class="w-full px-3 py-2 border hairline rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-200" />
+        <div class="flex items-center gap-2">
+          <div class="text-xs uppercase tracking-wider text-slate-500">As Of</div>
+          <input id="asOfDate" type="date" class="px-3 py-2 text-sm rounded-lg border hairline bg-white focus:outline-none focus:ring-2 focus:ring-slate-200" />
         </div>
-        <div class="text-xs text-slate-500 mt-2">Aging buckets match Wave: bucket by Due Date, including credits.</div>
-      </div>
-      <div class="p-4 border hairline rounded-xl soft">
-        <div class="text-xs uppercase tracking-wider text-slate-500">Total Outstanding</div>
-        <div class="text-2xl font-semibold mono mt-1" id="gOutstanding">—</div>
-        <div class="text-xs text-slate-500 mt-2" id="gMeta1">—</div>
-      </div>
-      <div class="p-4 border hairline rounded-xl soft">
-        <div class="text-xs uppercase tracking-wider text-slate-500">Overdue</div>
-        <div class="text-2xl font-semibold mono mt-1" id="gOverdue">—</div>
-        <div class="text-xs text-slate-500 mt-2">Includes overdue credits (negative due)</div>
-      </div>
-      <div class="p-4 border hairline rounded-xl soft">
-        <div class="text-xs uppercase tracking-wider text-slate-500">Not Yet Due</div>
-        <div class="text-2xl font-semibold mono mt-1" id="gNotYet">—</div>
-        <div class="text-xs text-slate-500 mt-2">Includes not-yet-due credits if any</div>
-      </div>
-      <div class="p-4 border hairline rounded-xl soft">
-        <div class="text-xs uppercase tracking-wider text-slate-500">Credits / Overpayments</div>
-        <div class="text-2xl font-semibold mono mt-1" id="gCredits">—</div>
-        <div class="text-xs text-slate-500 mt-2">Sum of negative open items</div>
+
+        <div class="h-8 w-px bg-slate-200 mx-1"></div>
+
+        <button id="execTabBtn" class="px-3 py-2 text-sm rounded-lg btn font-medium">Executive</button>
+        <button id="opsTabBtn" class="px-3 py-2 text-sm rounded-lg btn font-medium">Operator</button>
+
+        <div class="h-8 w-px bg-slate-200 mx-1"></div>
+
+        <button id="homeBtn" class="px-3 py-2 text-sm rounded-lg btn">All Customers</button>
       </div>
     </div>
+  </div>
 
-    <!-- Filters -->
-    <div class="no-print grid grid-cols-1 md:grid-cols-12 gap-3 mt-5">
-      <div class="md:col-span-4">
-        <label class="text-xs text-slate-500 uppercase tracking-wider">Customer</label>
-        <input id="qCustomer" type="text" placeholder="Search customer name…" class="mt-1 w-full px-3 py-2 border hairline rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-200" />
-      </div>
-
-      <div class="md:col-span-3">
-        <label class="text-xs text-slate-500 uppercase tracking-wider">Status</label>
-        <select id="qStatus" class="mt-1 w-full px-3 py-2 border hairline rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-slate-200">
-          <option value="">All</option>
-          <option value="overdue">Overdue (as-of)</option>
-          <option value="notyet">Not yet due (as-of)</option>
-          <option value="credit">Credits (negative due)</option>
-          <option value="paid">Paid (status)</option>
-          <option value="draft">Draft</option>
-          <option value="void">Void</option>
-        </select>
-      </div>
-
-      <div class="md:col-span-2">
-        <label class="text-xs text-slate-500 uppercase tracking-wider">From</label>
-        <input id="qFrom" type="date" class="mt-1 w-full px-3 py-2 border hairline rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-200" />
-      </div>
-
-      <div class="md:col-span-2">
-        <label class="text-xs text-slate-500 uppercase tracking-wider">To</label>
-        <input id="qTo" type="date" class="mt-1 w-full px-3 py-2 border hairline rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-200" />
-      </div>
-
-      <div class="md:col-span-1 flex items-end">
-        <button id="clearBtn" class="w-full px-3 py-2 text-sm border hairline rounded-lg hover:bg-slate-50">Clear</button>
-      </div>
-    </div>
-
-    <!-- Main -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4 mt-6">
-      <!-- Customers -->
-      <div class="lg:col-span-4 border hairline rounded-xl soft2 overflow-hidden">
-        <div class="px-4 py-3 border-b hairline bg-white">
-          <div class="flex items-center justify-between">
+  <div class="max-w-[1680px] mx-auto px-4 sm:px-6 py-6">
+    <!-- Executive KPIs (better design) -->
+    <section id="execPanel" class="mb-6">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div class="lg:col-span-8 bg-white border hairline rounded-2xl soft2 overflow-hidden">
+          <div class="px-5 py-4 border-b hairline flex items-center justify-between">
             <div>
-              <div class="text-sm font-semibold">Customers</div>
-              <div class="text-xs text-slate-500" id="customersMeta">—</div>
+              <div class="text-xs uppercase tracking-wider text-slate-500">Portfolio Snapshot</div>
+              <div class="text-lg font-semibold">AR Health</div>
             </div>
-            <div class="text-xs text-slate-500">Sorted by overdue → outstanding</div>
+            <div class="text-xs text-slate-500">Wave-matching bucket math (by Due Date)</div>
+          </div>
+
+          <div class="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="rounded-2xl border hairline p-4">
+              <div class="text-xs uppercase tracking-wider text-slate-500">Outstanding</div>
+              <div class="mt-1 flex items-end justify-between gap-3">
+                <div class="text-3xl font-semibold mono" id="gOutstanding">—</div>
+                <div class="text-xs text-slate-500 text-right" id="gMeta1">—</div>
+              </div>
+              <div class="mt-3 grid grid-cols-2 gap-3">
+                <div class="p-3 rounded-xl bg-slate-50 border hairline">
+                  <div class="text-xs uppercase tracking-wider text-slate-500">Overdue</div>
+                  <div class="text-lg font-semibold mono mt-1" id="gOverdue">—</div>
+                </div>
+                <div class="p-3 rounded-xl bg-slate-50 border hairline">
+                  <div class="text-xs uppercase tracking-wider text-slate-500">Not Yet Due</div>
+                  <div class="text-lg font-semibold mono mt-1" id="gNotYet">—</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="rounded-2xl border hairline p-4">
+              <div class="text-xs uppercase tracking-wider text-slate-500">Aging (Overdue)</div>
+              <div class="mt-2 grid grid-cols-5 gap-2">
+                <div class="p-3 rounded-xl bg-white border hairline">
+                  <div class="text-[11px] uppercase tracking-wider text-slate-500">0–30</div>
+                  <div class="text-sm font-semibold mono mt-1" id="gAge0_30">—</div>
+                </div>
+                <div class="p-3 rounded-xl bg-white border hairline">
+                  <div class="text-[11px] uppercase tracking-wider text-slate-500">31–60</div>
+                  <div class="text-sm font-semibold mono mt-1" id="gAge31_60">—</div>
+                </div>
+                <div class="p-3 rounded-xl bg-white border hairline">
+                  <div class="text-[11px] uppercase tracking-wider text-slate-500">61–90</div>
+                  <div class="text-sm font-semibold mono mt-1" id="gAge61_90">—</div>
+                </div>
+                <div class="p-3 rounded-xl bg-white border hairline">
+                  <div class="text-[11px] uppercase tracking-wider text-slate-500">91–120</div>
+                  <div class="text-sm font-semibold mono mt-1" id="gAge91_120">—</div>
+                </div>
+                <div class="p-3 rounded-xl bg-white border hairline">
+                  <div class="text-[11px] uppercase tracking-wider text-slate-500">120+</div>
+                  <div class="text-sm font-semibold mono mt-1" id="gAge120p">—</div>
+                </div>
+              </div>
+              <div class="mt-3 flex items-center justify-between text-xs text-slate-500">
+                <div>Credits (open items): <span class="mono font-semibold" id="gCredits">—</span></div>
+                <div>90+ exposure: <span class="mono font-semibold" id="gAge90p">—</span></div>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div class="px-4 py-3 border-b hairline bg-white">
-          <div class="grid grid-cols-3 gap-2 text-xs">
-            <button id="sortOverdueBtn" class="pill rounded-lg px-2 py-2 hover:bg-slate-50 text-left">
-              <div class="uppercase tracking-wider text-slate-500">Sort</div>
-              <div class="font-semibold">Overdue</div>
-            </button>
-            <button id="sortOutstandingBtn" class="pill rounded-lg px-2 py-2 hover:bg-slate-50 text-left">
-              <div class="uppercase tracking-wider text-slate-500">Sort</div>
-              <div class="font-semibold">Outstanding</div>
-            </button>
-            <button id="sortNameBtn" class="pill rounded-lg px-2 py-2 hover:bg-slate-50 text-left">
-              <div class="uppercase tracking-wider text-slate-500">Sort</div>
-              <div class="font-semibold">Name</div>
-            </button>
+        <!-- Executive actions / notes -->
+        <div class="lg:col-span-4 bg-white border hairline rounded-2xl soft2 overflow-hidden">
+          <div class="px-5 py-4 border-b hairline">
+            <div class="text-xs uppercase tracking-wider text-slate-500">Executive Actions</div>
+            <div class="text-lg font-semibold">Focus List</div>
+          </div>
+          <div class="p-5">
+            <div class="text-xs text-slate-500 mb-2">Top overdue customers by $</div>
+            <div id="execTopOverdue" class="space-y-2"></div>
+            <div class="mt-4 pt-4 border-t hairline">
+              <div class="text-xs text-slate-500 mb-2">Operator exports</div>
+              <div class="flex flex-wrap gap-2">
+                <button id="exportOpenItemsBtn" class="px-3 py-2 text-sm rounded-lg btn">Export Open Items CSV</button>
+                <button id="exportOverdueBtn" class="px-3 py-2 text-sm rounded-lg btn">Export Overdue CSV</button>
+              </div>
+              <div class="text-xs text-slate-500 mt-2">Exports are “operator-friendly”: one row per invoice (not line item).</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Operator panel -->
+    <section id="opsPanel" class="hidden mb-6">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <div class="lg:col-span-8 bg-white border hairline rounded-2xl soft2 overflow-hidden">
+          <div class="px-5 py-4 border-b hairline flex items-center justify-between">
+            <div>
+              <div class="text-xs uppercase tracking-wider text-slate-500">Operator</div>
+              <div class="text-lg font-semibold">Exceptions & Validation</div>
+            </div>
+            <div class="text-xs text-slate-500">Built for close + reconciliation workflows</div>
+          </div>
+          <div class="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="rounded-xl border hairline p-4">
+              <div class="text-xs uppercase tracking-wider text-slate-500">Missing Due Date</div>
+              <div class="text-sm text-slate-700 mt-2" id="opsMissingDue">—</div>
+              <div class="text-xs text-slate-500 mt-2">We fall back to Invoice Date for aging when Due Date is missing.</div>
+            </div>
+            <div class="rounded-xl border hairline p-4">
+              <div class="text-xs uppercase tracking-wider text-slate-500">Zero Due (Paid/Settled)</div>
+              <div class="text-sm text-slate-700 mt-2" id="opsZeroDue">—</div>
+              <div class="text-xs text-slate-500 mt-2">Open-item engine uses Due ≠ 0, not status labels.</div>
+            </div>
+            <div class="rounded-xl border hairline p-4">
+              <div class="text-xs uppercase tracking-wider text-slate-500">Potential Duplicates</div>
+              <div class="text-sm text-slate-700 mt-2" id="opsDupes">—</div>
+              <div class="text-xs text-slate-500 mt-2">Invoices with same # but conflicting Due totals.</div>
+            </div>
+            <div class="rounded-xl border hairline p-4">
+              <div class="text-xs uppercase tracking-wider text-slate-500">Workflow</div>
+              <ol class="mt-2 text-sm text-slate-700 list-decimal ml-5 space-y-1">
+                <li>Pick customer → open statement</li>
+                <li>Verify credits + aging buckets</li>
+                <li>Open PDF directly from Sheet link</li>
+                <li>Export open items / overdue for booking splits</li>
+              </ol>
+            </div>
           </div>
         </div>
 
-        <div class="max-h-[690px] overflow-auto scrollbar">
+        <div class="lg:col-span-4 bg-white border hairline rounded-2xl soft2 overflow-hidden">
+          <div class="px-5 py-4 border-b hairline">
+            <div class="text-xs uppercase tracking-wider text-slate-500">Operator Exports</div>
+            <div class="text-lg font-semibold">Reports</div>
+          </div>
+          <div class="p-5 space-y-3">
+            <button id="exportLineItemsBtn" class="w-full px-3 py-2 text-sm rounded-lg btn text-left">
+              <div class="font-medium">Export Line Items CSV</div>
+              <div class="text-xs text-slate-500 mt-1">One row per invoice line item (for validation + splits)</div>
+            </button>
+            <button id="exportAgingByCustomerBtn" class="w-full px-3 py-2 text-sm rounded-lg btn text-left">
+              <div class="font-medium">Export Aging by Customer CSV</div>
+              <div class="text-xs text-slate-500 mt-1">0–30/31–60/61–90/91–120/120+ per customer</div>
+            </button>
+            <button id="exportCreditsBtn" class="w-full px-3 py-2 text-sm rounded-lg btn text-left">
+              <div class="font-medium">Export Credits CSV</div>
+              <div class="text-xs text-slate-500 mt-1">Negative open items for review</div>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Search + filters -->
+    <div class="no-print bg-white border hairline rounded-2xl soft2 p-4 mb-4">
+      <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+        <div class="md:col-span-4">
+          <label class="text-xs text-slate-500 uppercase tracking-wider">Customer</label>
+          <input id="qCustomer" type="text" placeholder="Search customer name…" class="mt-1 w-full px-3 py-2 border hairline rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-200 bg-white" />
+        </div>
+
+        <div class="md:col-span-3">
+          <label class="text-xs text-slate-500 uppercase tracking-wider">View</label>
+          <select id="qView" class="mt-1 w-full px-3 py-2 border hairline rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-slate-200">
+            <option value="">All</option>
+            <option value="overdue">Overdue (as-of)</option>
+            <option value="notyet">Not yet due (as-of)</option>
+            <option value="credit">Credits (negative due)</option>
+            <option value="open">Open items only (Due ≠ 0)</option>
+            <option value="paid">Paid (status)</option>
+            <option value="draft">Draft</option>
+            <option value="void">Void</option>
+          </select>
+        </div>
+
+        <div class="md:col-span-2">
+          <label class="text-xs text-slate-500 uppercase tracking-wider">From</label>
+          <input id="qFrom" type="date" class="mt-1 w-full px-3 py-2 border hairline rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-200 bg-white" />
+        </div>
+
+        <div class="md:col-span-2">
+          <label class="text-xs text-slate-500 uppercase tracking-wider">To</label>
+          <input id="qTo" type="date" class="mt-1 w-full px-3 py-2 border hairline rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-200 bg-white" />
+        </div>
+
+        <div class="md:col-span-1 flex items-end">
+          <button id="clearBtn" class="w-full px-3 py-2 text-sm rounded-lg btn">Clear</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main workspace -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+      <!-- Customers list -->
+      <div class="lg:col-span-4 bg-white border hairline rounded-2xl soft2 overflow-hidden">
+        <div class="px-5 py-4 border-b hairline flex items-center justify-between">
+          <div>
+            <div class="text-xs uppercase tracking-wider text-slate-500">Customers</div>
+            <div class="text-lg font-semibold">AR by Counterparty</div>
+            <div class="text-xs text-slate-500 mt-1" id="customersMeta">—</div>
+          </div>
+          <div class="no-print flex items-center gap-2">
+            <button id="sortOverdueBtn" class="px-3 py-2 text-sm rounded-lg btn">Overdue</button>
+            <button id="sortOutstandingBtn" class="px-3 py-2 text-sm rounded-lg btn">Outstanding</button>
+            <button id="sortNameBtn" class="px-3 py-2 text-sm rounded-lg btn">Name</button>
+          </div>
+        </div>
+
+        <div class="max-h-[720px] overflow-auto scrollbar">
           <table class="w-full text-sm">
             <thead class="sticky top-0 bg-white border-b hairline">
               <tr class="text-xs uppercase tracking-wider text-slate-500">
-                <th class="text-left px-4 py-2">Customer</th>
-                <th class="text-right px-4 py-2">Overdue</th>
-                <th class="text-right px-4 py-2">Outstanding</th>
+                <th class="text-left px-5 py-2">Customer</th>
+                <th class="text-right px-5 py-2">Overdue</th>
+                <th class="text-right px-5 py-2">Outstanding</th>
+                <th class="text-right px-5 py-2">90+</th>
               </tr>
             </thead>
             <tbody id="customersTbody" class="divide-y hairline">
-              <tr><td class="px-4 py-4 text-slate-500" colspan="3">Loading…</td></tr>
+              <tr><td class="px-5 py-4 text-slate-500" colspan="4">Loading…</td></tr>
             </tbody>
           </table>
         </div>
       </div>
 
-      <!-- Statement -->
-      <div class="lg:col-span-8 border hairline rounded-xl soft2 overflow-hidden print-card print-border">
-        <div class="px-5 py-4 border-b hairline bg-white">
-          <div class="flex flex-col gap-1">
-            <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2">
-              <div>
-                <div class="text-xs uppercase tracking-wider text-slate-500">Statement</div>
-                <div class="text-lg font-semibold" id="stmtTitle">Select a customer</div>
-                <div class="text-xs text-slate-500 mt-1" id="stmtSub">—</div>
+      <!-- Statement + PDF viewer -->
+      <div class="lg:col-span-8 space-y-4">
+        <!-- Statement card -->
+        <div class="bg-white border hairline rounded-2xl soft2 overflow-hidden print-card print-border" id="statementCard">
+          <div class="px-6 py-5 border-b hairline flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+            <div>
+              <div class="text-xs uppercase tracking-wider text-slate-500">Statement</div>
+              <div class="text-2xl font-semibold" id="stmtTitle">Select a customer</div>
+              <div class="text-sm text-slate-600 mt-1" id="stmtSub">—</div>
+              <div class="text-xs text-slate-500 mt-2">As of <span class="mono" id="stmtAsOf">—</span> • Currency: <span class="mono" id="stmtCurrency">—</span></div>
+            </div>
+
+            <div class="no-print flex flex-wrap items-center gap-2">
+              <button id="statementPrintBtn" class="px-3 py-2 text-sm rounded-lg btn font-medium" disabled>Print Statement</button>
+              <button id="openAllPdfsBtn" class="px-3 py-2 text-sm rounded-lg btn" disabled>Open PDFs</button>
+              <button id="exportCustomerBtn" class="px-3 py-2 text-sm rounded-lg btn" disabled>Export CSV</button>
+              <button id="copyLinkBtn" class="px-3 py-2 text-sm rounded-lg btn" disabled>Copy Link</button>
+              <select id="stmtMode" class="px-3 py-2 text-sm rounded-lg border hairline bg-white focus:outline-none focus:ring-2 focus:ring-slate-200">
+                <option value="open">Open items (Due ≠ 0)</option>
+                <option value="all">All items</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Statement KPIs (pro) -->
+          <div id="stmtSummary" class="px-6 py-5 border-b hairline hidden">
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
+              <div class="rounded-2xl border hairline p-4 bg-white">
+                <div class="text-xs uppercase tracking-wider text-slate-500">Overdue</div>
+                <div class="text-2xl font-semibold mono mt-1" id="sOverdue">—</div>
+                <div class="text-xs text-slate-500 mt-1">Due Date &lt; As Of</div>
               </div>
-              <div class="text-sm text-slate-600">
-                <span class="mono" id="stmtCurrency">—</span> • As of <span class="mono" id="stmtAsOf">—</span>
+              <div class="rounded-2xl border hairline p-4 bg-white">
+                <div class="text-xs uppercase tracking-wider text-slate-500">Not Yet Due</div>
+                <div class="text-2xl font-semibold mono mt-1" id="sNotYet">—</div>
+                <div class="text-xs text-slate-500 mt-1">Due Date ≥ As Of</div>
+              </div>
+              <div class="rounded-2xl border hairline p-4 bg-white">
+                <div class="text-xs uppercase tracking-wider text-slate-500">Credits</div>
+                <div class="text-2xl font-semibold mono mt-1" id="sCredits">—</div>
+                <div class="text-xs text-slate-500 mt-1">Negative open items</div>
+              </div>
+              <div class="rounded-2xl border hairline p-4 bg-slate-50">
+                <div class="text-xs uppercase tracking-wider text-slate-500">Outstanding</div>
+                <div class="text-3xl font-semibold mono mt-1" id="sOutstanding">—</div>
+                <div class="text-xs text-slate-500 mt-1" id="sExplain">—</div>
               </div>
             </div>
 
-            <div class="no-print flex flex-wrap items-center gap-2 mt-3">
-              <button id="exportCustomerBtn" class="px-3 py-2 text-sm border hairline rounded-lg hover:bg-slate-50 disabled:opacity-40" disabled>Export CSV</button>
-              <button id="copyLinkBtn" class="px-3 py-2 text-sm border hairline rounded-lg hover:bg-slate-50 disabled:opacity-40" disabled>Copy Link</button>
-              <div class="ml-auto flex items-center gap-2">
-                <label class="text-xs text-slate-500 uppercase tracking-wider">Show</label>
-                <select id="viewMode" class="px-3 py-2 text-sm border hairline rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-slate-200">
-                  <option value="open">Open items only (Due ≠ 0)</option>
-                  <option value="all">All rows</option>
-                </select>
+            <!-- Aging breakdown -->
+            <div class="mt-4 rounded-2xl border hairline overflow-hidden">
+              <div class="px-4 py-3 bg-white border-b hairline flex items-center justify-between">
+                <div>
+                  <div class="text-xs uppercase tracking-wider text-slate-500">Aging (Overdue)</div>
+                  <div class="text-sm font-semibold">0–30 / 31–60 / 61–90 / 91–120 / 120+</div>
+                </div>
+                <div class="text-xs text-slate-500">Includes credits in the bucket they fall into</div>
               </div>
+              <div class="grid grid-cols-2 md:grid-cols-5 gap-0">
+                <div class="p-4 border-t hairline">
+                  <div class="text-[11px] uppercase tracking-wider text-slate-500">0–30</div>
+                  <div class="text-lg font-semibold mono mt-1" id="sa0_30">—</div>
+                </div>
+                <div class="p-4 border-t hairline md:border-l hairline">
+                  <div class="text-[11px] uppercase tracking-wider text-slate-500">31–60</div>
+                  <div class="text-lg font-semibold mono mt-1" id="sa31_60">—</div>
+                </div>
+                <div class="p-4 border-t hairline md:border-l hairline">
+                  <div class="text-[11px] uppercase tracking-wider text-slate-500">61–90</div>
+                  <div class="text-lg font-semibold mono mt-1" id="sa61_90">—</div>
+                </div>
+                <div class="p-4 border-t hairline md:border-l hairline">
+                  <div class="text-[11px] uppercase tracking-wider text-slate-500">91–120</div>
+                  <div class="text-lg font-semibold mono mt-1" id="sa91_120">—</div>
+                </div>
+                <div class="p-4 border-t hairline md:border-l hairline">
+                  <div class="text-[11px] uppercase tracking-wider text-slate-500">120+</div>
+                  <div class="text-lg font-semibold mono mt-1" id="sa120p">—</div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Statement table -->
+          <div class="p-6">
+            <div class="overflow-auto scrollbar border hairline rounded-xl">
+              <table class="w-full text-sm">
+                <thead class="bg-white border-b hairline">
+                  <tr class="text-xs uppercase tracking-wider text-slate-500">
+                    <th class="text-left px-4 py-2">Invoice</th>
+                    <th class="text-left px-4 py-2">Invoice Date</th>
+                    <th class="text-left px-4 py-2">Due Date</th>
+                    <th class="text-left px-4 py-2">Type</th>
+                    <th class="text-right px-4 py-2">Total</th>
+                    <th class="text-right px-4 py-2">Paid</th>
+                    <th class="text-right px-4 py-2">Due</th>
+                    <th class="text-right px-4 py-2 no-print">PDF</th>
+                  </tr>
+                </thead>
+                <tbody id="stmtTbody" class="divide-y hairline">
+                  <tr><td class="px-4 py-6 text-slate-500" colspan="8">Select a customer on the left.</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="text-xs text-slate-500 mt-3">
+              PDF uses the exact link from Google Sheets column “PDF Download Link” (no URL generation).
             </div>
           </div>
         </div>
 
-        <div id="statementSummary" class="px-5 py-4 border-b hairline bg-white hidden">
-          <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-            <div class="p-3 border hairline rounded-lg">
-              <div class="text-xs uppercase tracking-wider text-slate-500">Overdue</div>
-              <div class="text-lg font-semibold mono mt-1" id="sumOverdue">—</div>
-              <div class="text-xs text-slate-500 mt-1">Sum of open items where Due Date &lt; As Of (includes credits)</div>
+        <!-- PDF Viewer card -->
+        <div class="bg-white border hairline rounded-2xl soft2 overflow-hidden">
+          <div class="px-6 py-4 border-b hairline flex items-center justify-between">
+            <div>
+              <div class="text-xs uppercase tracking-wider text-slate-500">Invoice PDF</div>
+              <div class="text-lg font-semibold" id="pdfTitle">Select an invoice row</div>
+              <div class="text-xs text-slate-500 mt-1" id="pdfSub">Viewer uses the sheet-provided link.</div>
             </div>
-            <div class="p-3 border hairline rounded-lg">
-              <div class="text-xs uppercase tracking-wider text-slate-500">Not yet due</div>
-              <div class="text-lg font-semibold mono mt-1" id="sumNotYet">—</div>
-              <div class="text-xs text-slate-500 mt-1">Sum of open items where Due Date ≥ As Of</div>
-            </div>
-            <div class="p-3 border hairline rounded-lg">
-              <div class="text-xs uppercase tracking-wider text-slate-500">Credits / Overpayments</div>
-              <div class="text-lg font-semibold mono mt-1" id="sumCredits">—</div>
-              <div class="text-xs text-slate-500 mt-1">Sum of negative open items</div>
-            </div>
-            <div class="p-3 border hairline rounded-lg bg-slate-50">
-              <div class="text-xs uppercase tracking-wider text-slate-500">Outstanding balance</div>
-              <div class="text-xl font-semibold mono mt-1" id="sumOutstanding">—</div>
-              <div class="text-xs text-slate-500 mt-1" id="sumExplain">—</div>
+            <div class="no-print flex items-center gap-2">
+              <button id="pdfOpenBtn" class="px-3 py-2 text-sm rounded-lg btn" disabled>Open in New Tab</button>
+              <button id="pdfDownloadBtn" class="px-3 py-2 text-sm rounded-lg btn" disabled>Download</button>
+              <button id="pdfClearBtn" class="px-3 py-2 text-sm rounded-lg btn" disabled>Clear</button>
             </div>
           </div>
-
-          <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div class="p-3 border hairline rounded-lg">
-              <div class="text-xs uppercase tracking-wider text-slate-500 mb-2">Exceptions</div>
-              <div class="text-xs text-slate-500 mb-2">Missing/invalid due date (falls back to Invoice Date)</div>
-              <div id="exceptionsBox" class="text-sm text-slate-700">—</div>
-            </div>
-            <div class="p-3 border hairline rounded-lg">
-              <div class="text-xs uppercase tracking-wider text-slate-500 mb-2">Collections Queue</div>
-              <div class="text-xs text-slate-500 mb-2">Top overdue balances (open items)</div>
-              <div id="collectionsQueue" class="space-y-2"></div>
-            </div>
+          <div class="bg-slate-50">
+            <iframe id="pdfFrame" title="Invoice PDF" class="w-full h-[680px] bg-white" src="about:blank"></iframe>
           </div>
         </div>
 
-        <div class="p-5">
-          <div class="overflow-auto scrollbar border hairline rounded-lg">
-            <table class="w-full text-sm">
-              <thead class="bg-white border-b hairline">
-                <tr class="text-xs uppercase tracking-wider text-slate-500">
-                  <th class="text-left px-3 py-2">Invoice #</th>
-                  <th class="text-left px-3 py-2">Invoice date</th>
-                  <th class="text-left px-3 py-2">Due date</th>
-                  <th class="text-left px-3 py-2">Type</th>
-                  <th class="text-right px-3 py-2">Total</th>
-                  <th class="text-right px-3 py-2">Paid</th>
-                  <th class="text-right px-3 py-2">Due</th>
-                  <th class="text-right px-3 py-2 no-print">Links</th>
-                </tr>
-              </thead>
-              <tbody id="statementTbody" class="divide-y hairline">
-                <tr>
-                  <td class="px-3 py-8 text-slate-500" colspan="8">Choose a customer on the left.</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div class="text-xs text-slate-500 mt-3">
-            This replicates Wave statement aging: bucket open items by Due Date and include negative credits in the bucket they belong to. :contentReference[oaicite:1]{index=1}
-          </div>
-        </div>
       </div>
     </div>
   </div>
 
-  <!-- Invoice detail modal -->
-  <dialog id="invModal" class="rounded-xl w-[min(980px,calc(100vw-24px))] border hairline p-0">
-    <div class="p-4 border-b hairline flex items-start justify-between gap-4 bg-white">
+  <!-- Print-only isolated statement area -->
+  <div id="statementPrintArea" class="hidden">
+    <!-- We clone the statementCard into here on print -->
+  </div>
+
+  <!-- Line item modal (operator validation) -->
+  <dialog id="invModal" class="rounded-2xl w-[min(1100px,calc(100vw-24px))] border hairline p-0 overflow-hidden">
+    <div class="px-5 py-4 border-b hairline bg-white flex items-start justify-between gap-4">
       <div>
         <div class="text-xs uppercase tracking-wider text-slate-500">Invoice Detail</div>
         <div class="text-lg font-semibold mono" id="modalInvTitle">—</div>
         <div class="text-xs text-slate-500 mt-1" id="modalInvMeta">—</div>
       </div>
       <div class="flex items-center gap-2">
-        <button id="modalOpenPdf" class="px-3 py-2 text-sm border hairline rounded-lg hover:bg-slate-50">Open PDF</button>
-        <button id="modalClose" class="px-3 py-2 text-sm border hairline rounded-lg hover:bg-slate-50">Close</button>
+        <button id="modalOpenPdf" class="px-3 py-2 text-sm rounded-lg btn">Open PDF</button>
+        <button id="modalClose" class="px-3 py-2 text-sm rounded-lg btn">Close</button>
       </div>
     </div>
 
-    <div class="p-4 grid grid-cols-1 lg:grid-cols-12 gap-4 bg-white">
-      <div class="lg:col-span-7">
+    <div class="p-5 bg-white grid grid-cols-1 lg:grid-cols-12 gap-4">
+      <div class="lg:col-span-8">
         <div class="text-xs uppercase tracking-wider text-slate-500 mb-2">Line Items</div>
-        <div class="border hairline rounded-lg overflow-auto scrollbar max-h-[320px]">
+        <div class="border hairline rounded-xl overflow-auto scrollbar max-h-[340px]">
           <table class="w-full text-sm">
             <thead class="bg-white border-b hairline">
               <tr class="text-xs uppercase tracking-wider text-slate-500">
-                <th class="text-left px-3 py-2">Item</th>
-                <th class="text-right px-3 py-2">Unit</th>
-                <th class="text-right px-3 py-2">Qty</th>
-                <th class="text-right px-3 py-2">Total</th>
+                <th class="text-left px-4 py-2">Item</th>
+                <th class="text-right px-4 py-2">Unit</th>
+                <th class="text-right px-4 py-2">Qty</th>
+                <th class="text-right px-4 py-2">Line Total</th>
               </tr>
             </thead>
             <tbody id="modalItems" class="divide-y hairline"></tbody>
@@ -300,16 +465,16 @@
         </div>
       </div>
 
-      <div class="lg:col-span-5">
+      <div class="lg:col-span-4">
         <div class="text-xs uppercase tracking-wider text-slate-500 mb-2">Summary</div>
-        <div class="border hairline rounded-lg p-3 space-y-2">
+        <div class="border hairline rounded-xl p-4 space-y-2">
           <div class="flex items-center justify-between"><span class="text-slate-600">Invoice Total</span><span class="mono font-semibold" id="modalInvTotal">—</span></div>
           <div class="flex items-center justify-between"><span class="text-slate-600">Tax Total</span><span class="mono" id="modalTaxTotal">—</span></div>
           <div class="flex items-center justify-between"><span class="text-slate-600">Paid</span><span class="mono" id="modalPaid">—</span></div>
           <div class="flex items-center justify-between"><span class="text-slate-600">Balance Due</span><span class="mono font-semibold" id="modalDue">—</span></div>
-          <div class="pt-2 border-t hairline"></div>
+          <div class="pt-3 border-t hairline"></div>
           <div class="text-xs uppercase tracking-wider text-slate-500">Memo</div>
-          <pre id="modalMemo" class="text-xs whitespace-pre-wrap bg-slate-50 border hairline rounded-lg p-2 max-h-[220px] overflow-auto scrollbar"></pre>
+          <pre id="modalMemo" class="text-xs whitespace-pre-wrap bg-slate-50 border hairline rounded-lg p-3 max-h-[220px] overflow-auto scrollbar"></pre>
         </div>
       </div>
     </div>
@@ -328,13 +493,14 @@
     let invoices = [];
     let selectedCustomer = null;
     let customerSort = "overdue"; // overdue | outstanding | name
+    let lastSelectedPdfUrl = null;
 
     const $ = (id) => document.getElementById(id);
     const fmtUSD = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
     const fmtNum = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
     // =======================
-    // HELPERS
+    // Helpers
     // =======================
     function safeNum(v){
       if (v === null || v === undefined) return 0;
@@ -346,6 +512,10 @@
       if(!v) return null;
       const d = new Date(v);
       return isNaN(d.getTime()) ? null : d;
+    }
+    function daysBetween(a, b){
+      const ms = a.getTime() - b.getTime();
+      return Math.floor(ms / (1000*60*60*24));
     }
     function slugify(s){
       return String(s || "").trim().toLowerCase()
@@ -373,12 +543,18 @@
     }
     function escapeAttr(s){ return escapeHtml(s).replaceAll("`","&#096;"); }
 
-    function isCredit(inv){ return safeNum(inv.due) < 0; }
     function isVoid(inv){ return normalizeStatus(inv.status) === "void"; }
+    function isCredit(inv){ return safeNum(inv.due) < 0; }
+    function isOpenItem(inv){ return !isVoid(inv) && Math.abs(safeNum(inv.due)) > 0.00001; }
 
-    // "Open item" in Wave aging = non-zero due.
-    function isOpenItem(inv){
-      return !isVoid(inv) && Math.abs(safeNum(inv.due)) > 0.00001;
+    function getAsOf(){
+      const v = $("asOfDate").value;
+      const d = v ? parseDate(v) : new Date();
+      d.setHours(0,0,0,0);
+      return d;
+    }
+    function getEffectiveDueDate(inv){
+      return parseDate(inv.dueDate) || parseDate(inv.invoiceDate) || null;
     }
 
     function displayType(inv){
@@ -399,26 +575,16 @@
       return `<span class="${base} bg-white text-slate-700">INVOICE</span>`;
     }
 
-    function getAsOf(){
-      const v = $("asOfDate").value;
-      const d = v ? parseDate(v) : new Date();
-      d.setHours(0,0,0,0);
-      return d;
-    }
-
+    // =======================
+    // Filtering
+    // =======================
     function getFilters(){
       return {
         customer: $("qCustomer").value.trim().toLowerCase(),
-        status: $("qStatus").value.trim().toLowerCase(),
+        view: $("qView").value.trim().toLowerCase(),
         from: $("qFrom").value ? parseDate($("qFrom").value) : null,
         to: $("qTo").value ? parseDate($("qTo").value) : null
       };
-    }
-
-    function getEffectiveDueDate(inv){
-      // Wave uses due date; if missing, you still need a stable aging behavior.
-      // We'll fall back to invoice date.
-      return parseDate(inv.dueDate) || parseDate(inv.invoiceDate) || null;
     }
 
     function invoicePasses(inv, f){
@@ -427,23 +593,24 @@
         if(!cn.includes(f.customer)) return false;
       }
 
-      // Status filter options include "overdue"/"notyet" based on as-of.
-      if(f.status){
+      if(f.view){
         const asOf = getAsOf();
         const dueDt = getEffectiveDueDate(inv);
 
-        if(f.status === "credit"){
+        if(f.view === "credit"){
           if(!isCredit(inv)) return false;
-        } else if(f.status === "overdue"){
+        } else if(f.view === "overdue"){
           if(!isOpenItem(inv)) return false;
           if(!dueDt) return false;
           if(!(dueDt < asOf)) return false;
-        } else if(f.status === "notyet"){
+        } else if(f.view === "notyet"){
           if(!isOpenItem(inv)) return false;
-          if(!dueDt) return true; // no due date -> treat as not-yet due rather than losing it
+          if(!dueDt) return true;
           if(!(dueDt >= asOf)) return false;
+        } else if(f.view === "open"){
+          if(!isOpenItem(inv)) return false;
         } else {
-          if(normalizeStatus(inv.status) !== f.status) return false;
+          if(normalizeStatus(inv.status) !== f.view) return false;
         }
       }
 
@@ -454,53 +621,64 @@
     }
 
     // =======================
-    // WAVE-STYLE AGING BUCKETS (NO ALLOCATION)
+    // Wave math + aging
     // =======================
     function computeWaveBuckets(invList){
       const asOf = getAsOf();
-
-      let overdue = 0;
-      let notYet = 0;
-      let credits = 0;
-      let outstanding = 0;
-
+      let overdue = 0, notYet = 0, credits = 0, outstanding = 0;
       let missingDueCount = 0;
-
       for(const inv of invList){
         if(!isOpenItem(inv)) continue;
-
         const due = safeNum(inv.due);
         outstanding += due;
-        if(due < 0) credits += due; // negative
+        if(due < 0) credits += due;
 
         const dueDt = getEffectiveDueDate(inv);
         if(!dueDt){
           missingDueCount += 1;
-          // treat as not-yet due when unknown
           notYet += due;
           continue;
         }
-
-        if(dueDt < asOf) overdue += due;   // includes negative credits if their due date is before asOf
+        if(dueDt < asOf) overdue += due;
         else notYet += due;
       }
-
       return { overdue, notYet, credits, outstanding, missingDueCount };
     }
 
+    function computeAgingBuckets(invList){
+      const asOf = getAsOf();
+      const b = { a0_30:0, a31_60:0, a61_90:0, a91_120:0, a120p:0, total:0, a90p:0 };
+      for(const inv of invList){
+        if(!isOpenItem(inv)) continue;
+        const dueDt = getEffectiveDueDate(inv);
+        if(!dueDt || !(dueDt < asOf)) continue;
+        const amt = safeNum(inv.due);
+        const days = daysBetween(asOf, dueDt);
+        if(days <= 30) b.a0_30 += amt;
+        else if(days <= 60) b.a31_60 += amt;
+        else if(days <= 90) b.a61_90 += amt;
+        else if(days <= 120) b.a91_120 += amt;
+        else b.a120p += amt;
+
+        if(days >= 90) b.a90p += amt;
+        b.total += amt;
+      }
+      return b;
+    }
+
     // =======================
-    // LOAD + BUILD
+    // Load/build from CSV
     // =======================
     async function loadCSV(){
       const url = CSV_URL + (CSV_URL.includes("?") ? "&" : "?") + "t=" + Date.now();
-      $("customersTbody").innerHTML = `<tr><td class="px-4 py-4 text-slate-500" colspan="3">Loading…</td></tr>`;
-      $("statementTbody").innerHTML = `<tr><td class="px-3 py-8 text-slate-500" colspan="8">Choose a customer on the left.</td></tr>`;
-      $("statementSummary").classList.add("hidden");
+      $("customersTbody").innerHTML = `<tr><td class="px-5 py-4 text-slate-500" colspan="4">Loading…</td></tr>`;
+      $("stmtTbody").innerHTML = `<tr><td class="px-4 py-6 text-slate-500" colspan="8">Select a customer on the left.</td></tr>`;
       selectedCustomer = null;
+      disableStatementActions(true);
+      clearPdfViewer();
 
       const res = await fetch(url, { cache: "no-store" });
       const text = await res.text();
-
       const parsed = Papa.parse(text, { header: true, skipEmptyLines: true });
       rawRows = (parsed.data || []).filter(r => Object.keys(r).some(k => String(r[k]||"").trim() !== ""));
       $("lastRefresh").textContent = new Date().toLocaleString();
@@ -508,6 +686,7 @@
       buildModels();
       applyFiltersAndRender();
       routeFromHash();
+      computeOperatorSignals();
     }
 
     function buildModels(){
@@ -531,20 +710,17 @@
             due: safeNum(r["Invoice Due"]),
             status: normalizeStatus(r["Status"]),
             memo: String(r["Memo"] || "").replace(/^"|"$/g, ""),
+            pdfLink: String(r["PDF Download Link"] || "").trim(), // Column P / named header
             customerLink: String(r["Readonly (Customer) Link"] || "").trim(),
-            pdfLink: String(r["PDF Download Link"] || "").trim(),
             items: []
           });
         }
 
         const inv = byInv.get(invNo);
-
-        // stable totals
         inv.invoiceTotal = Math.max(inv.invoiceTotal, safeNum(r["Invoice Total"]));
         inv.taxTotal = Math.max(inv.taxTotal, safeNum(r["Invoice Tax Total"]));
         inv.paid = Math.max(inv.paid, safeNum(r["Invoice Paid"]));
 
-        // keep most meaningful due value if duplicates exist
         const d = safeNum(r["Invoice Due"]);
         if(Math.abs(d) > Math.abs(inv.due)) inv.due = d;
 
@@ -554,6 +730,7 @@
           quantity: safeNum(r["Quantity"]),
           description: String(r["Description"] || "").replace(/^"|"$/g, "").trim(),
           itemTotal: safeNum(r["Item Total"]),
+          taxesAmount: safeNum(r["Taxes Amount"]),
           itemTotalWithTaxes: safeNum(r["Item Total with Taxes"])
         });
       }
@@ -562,19 +739,28 @@
     }
 
     // =======================
-    // RENDER
+    // Render
     // =======================
     function applyFiltersAndRender(){
       const f = getFilters();
       const filtered = invoices.filter(inv => invoicePasses(inv, f));
 
-      renderGlobalKPIs(filtered);
+      renderExecutive(filtered);
       renderCustomers(filtered);
-      if(selectedCustomer) renderStatement(selectedCustomer, filtered);
-      else $("stmtSub").textContent = "—";
+
+      if(selectedCustomer){
+        renderStatement(selectedCustomer, filtered);
+      } else {
+        $("stmtTitle").textContent = "Select a customer";
+        $("stmtSub").textContent = "—";
+        $("stmtAsOf").textContent = "—";
+        $("stmtCurrency").textContent = "—";
+        $("stmtSummary").classList.add("hidden");
+      }
     }
 
-    function renderGlobalKPIs(invList){
+    function renderExecutive(invList){
+      // group by customer
       const byCust = new Map();
       for(const inv of invList){
         const cust = inv.customerName || "(Unspecified)";
@@ -588,14 +774,50 @@
         totOutstanding += b.outstanding;
         totOverdue += b.overdue;
         totNotYet += b.notYet;
-        totCredits += b.credits; // negative
+        totCredits += b.credits;
       }
+
+      const aging = computeAgingBuckets(invList);
 
       $("gOutstanding").textContent = fmtUSD.format(totOutstanding);
       $("gOverdue").textContent = fmtUSD.format(totOverdue);
       $("gNotYet").textContent = fmtUSD.format(totNotYet);
       $("gCredits").textContent = fmtUSD.format(totCredits);
       $("gMeta1").textContent = `${byCust.size} customers • ${invList.length} invoices (filtered)`;
+
+      $("gAge0_30").textContent = fmtUSD.format(aging.a0_30);
+      $("gAge31_60").textContent = fmtUSD.format(aging.a31_60);
+      $("gAge61_90").textContent = fmtUSD.format(aging.a61_90);
+      $("gAge91_120").textContent = fmtUSD.format(aging.a91_120);
+      $("gAge120p").textContent = fmtUSD.format(aging.a120p);
+      $("gAge90p").textContent = fmtUSD.format(aging.a90p);
+
+      // exec top overdue customers
+      const top = Array.from(byCust.entries()).map(([name, list])=>{
+        const b = computeWaveBuckets(list);
+        return { name, overdue: b.overdue, outstanding: b.outstanding };
+      }).filter(x => x.overdue > 0).sort((a,b)=> b.overdue - a.overdue).slice(0, 8);
+
+      $("execTopOverdue").innerHTML = top.length ? top.map(x => `
+        <button class="w-full text-left p-3 rounded-xl border hairline hover:bg-slate-50" data-exec-cust="${escapeAttr(x.name)}">
+          <div class="flex items-center justify-between">
+            <div class="font-medium">${escapeHtml(x.name)}</div>
+            <div class="mono font-semibold">${fmtUSD.format(x.overdue)}</div>
+          </div>
+          <div class="text-xs text-slate-500 mt-1">Outstanding: <span class="mono">${fmtUSD.format(x.outstanding)}</span></div>
+        </button>
+      `).join("") : `<div class="text-sm text-slate-500">No overdue customers in current filter.</div>`;
+
+      document.querySelectorAll("button[data-exec-cust]").forEach(btn=>{
+        btn.addEventListener("click", ()=>{
+          const name = btn.getAttribute("data-exec-cust");
+          selectedCustomer = name;
+          location.hash = `#/customer/${encodeURIComponent(slugify(name))}`;
+          applyFiltersAndRender();
+          // ensure statement visible to user
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        });
+      });
     }
 
     function renderCustomers(invList){
@@ -606,38 +828,40 @@
         byCust.get(cust).push(inv);
       }
 
-      const rows = Array.from(byCust.entries()).map(([customerName, list])=>{
+      const rows = Array.from(byCust.entries()).map(([name, list])=>{
         const b = computeWaveBuckets(list);
-        return { customerName, overdue: b.overdue, outstanding: b.outstanding };
+        const aging = computeAgingBuckets(list);
+        return { name, overdue: b.overdue, outstanding: b.outstanding, ninetyPlus: aging.a90p };
       });
 
       if(customerSort === "name"){
-        rows.sort((a,b)=> a.customerName.localeCompare(b.customerName));
+        rows.sort((a,b)=> a.name.localeCompare(b.name));
       } else if(customerSort === "outstanding"){
-        rows.sort((a,b)=> (b.outstanding - a.outstanding) || (b.overdue - a.overdue) || a.customerName.localeCompare(b.customerName));
+        rows.sort((a,b)=> (b.outstanding - a.outstanding) || (b.overdue - a.overdue) || a.name.localeCompare(b.name));
       } else {
-        rows.sort((a,b)=> (b.overdue - a.overdue) || (b.outstanding - a.outstanding) || a.customerName.localeCompare(b.customerName));
+        rows.sort((a,b)=> (b.overdue - a.overdue) || (b.outstanding - a.outstanding) || a.name.localeCompare(b.name));
       }
 
       $("customersMeta").textContent = `${rows.length} customers • ${invList.length} invoices (filtered)`;
 
       if(!rows.length){
-        $("customersTbody").innerHTML = `<tr><td class="px-4 py-4 text-slate-500" colspan="3">No customers match filters.</td></tr>`;
+        $("customersTbody").innerHTML = `<tr><td class="px-5 py-4 text-slate-500" colspan="4">No customers match filters.</td></tr>`;
         return;
       }
 
-      $("customersTbody").innerHTML = rows.map(c => {
-        const isActive = selectedCustomer && selectedCustomer === c.customerName;
+      $("customersTbody").innerHTML = rows.map(r => {
+        const isActive = selectedCustomer && selectedCustomer === r.name;
         return `
-          <tr class="cursor-pointer ${isActive ? "bg-slate-50" : "hover:bg-slate-50"}" data-customer="${encodeURIComponent(c.customerName)}">
-            <td class="px-4 py-3"><div class="font-medium">${escapeHtml(c.customerName)}</div></td>
-            <td class="px-4 py-3 text-right mono">${fmtUSD.format(c.overdue)}</td>
-            <td class="px-4 py-3 text-right mono font-semibold">${fmtUSD.format(c.outstanding)}</td>
+          <tr class="cursor-pointer ${isActive ? "bg-slate-50" : "hover:bg-slate-50"}" data-customer="${encodeURIComponent(r.name)}">
+            <td class="px-5 py-3 font-medium">${escapeHtml(r.name)}</td>
+            <td class="px-5 py-3 text-right mono">${fmtUSD.format(r.overdue)}</td>
+            <td class="px-5 py-3 text-right mono font-semibold">${fmtUSD.format(r.outstanding)}</td>
+            <td class="px-5 py-3 text-right mono">${fmtUSD.format(r.ninetyPlus)}</td>
           </tr>
         `;
       }).join("");
 
-      $("customersTbody").querySelectorAll("tr[data-customer]").forEach(tr=>{
+      document.querySelectorAll("tr[data-customer]").forEach(tr=>{
         tr.addEventListener("click", ()=>{
           const name = decodeURIComponent(tr.getAttribute("data-customer"));
           selectedCustomer = name;
@@ -647,157 +871,137 @@
       });
     }
 
+    function disableStatementActions(disabled){
+      $("statementPrintBtn").disabled = disabled;
+      $("openAllPdfsBtn").disabled = disabled;
+      $("exportCustomerBtn").disabled = disabled;
+      $("copyLinkBtn").disabled = disabled;
+    }
+
     function renderStatement(customerName, invList){
       let custInvoices = invList
         .filter(inv => (inv.customerName || "(Unspecified)") === customerName)
         .filter(inv => !isVoid(inv));
 
-      const mode = $("viewMode").value || "open";
+      const mode = $("stmtMode").value || "open";
       if(mode === "open"){
-        custInvoices = custInvoices.filter(inv => isOpenItem(inv)); // Due != 0
-      }
-
-      // sort newest first for table
-      const tableInvoices = [...custInvoices].sort((a,b)=>{
-        const ad = parseDate(a.invoiceDate) || new Date(0);
-        const bd = parseDate(b.invoiceDate) || new Date(0);
-        return bd - ad;
-      });
-
-      const currencies = new Set(custInvoices.map(x => (x.currency || "USD").toUpperCase()));
-      $("stmtCurrency").textContent = (currencies.size === 1) ? Array.from(currencies)[0] : "MIXED";
-      $("stmtAsOf").textContent = getAsOf().toLocaleDateString();
-      $("stmtTitle").textContent = customerName;
-      $("stmtSub").textContent = `${tableInvoices.length} invoices shown • Click a row for details`;
-
-      $("exportCustomerBtn").disabled = false;
-      $("copyLinkBtn").disabled = false;
-      $("statementSummary").classList.remove("hidden");
-
-      const b = computeWaveBuckets(custInvoices);
-      $("sumOverdue").textContent = fmtUSD.format(b.overdue);
-      $("sumNotYet").textContent = fmtUSD.format(b.notYet);
-      $("sumCredits").textContent = fmtUSD.format(b.credits);
-      $("sumOutstanding").textContent = fmtUSD.format(b.outstanding);
-      $("sumExplain").textContent = `Overdue ${fmtUSD.format(b.overdue)} + Not yet due ${fmtUSD.format(b.notYet)} = ${fmtUSD.format(b.outstanding)}`;
-
-      // Exceptions
-      $("exceptionsBox").innerHTML = b.missingDueCount
-        ? `<div><span class="mono font-semibold">${b.missingDueCount}</span> open items missing Due Date (used Invoice Date instead).</div>`
-        : `<div class="text-slate-500">No exceptions.</div>`;
-
-      // Collections queue
-      renderCollectionsQueue(custInvoices);
-
-      if(!tableInvoices.length){
-        $("statementTbody").innerHTML = `<tr><td class="px-3 py-8 text-slate-500" colspan="8">No invoices for this customer under current filters.</td></tr>`;
-        return;
+        custInvoices = custInvoices.filter(inv => isOpenItem(inv));
       }
 
       const asOf = getAsOf();
+      const currencies = new Set(custInvoices.map(x => (x.currency || "USD").toUpperCase()));
+      $("stmtCurrency").textContent = (currencies.size === 1) ? Array.from(currencies)[0] : "MIXED";
+      $("stmtAsOf").textContent = asOf.toLocaleDateString();
+      $("stmtTitle").textContent = customerName;
+      $("stmtSub").textContent = `${custInvoices.length} items (${mode === "open" ? "open only" : "all"})`;
 
-      $("statementTbody").innerHTML = tableInvoices.map(inv => {
+      $("stmtSummary").classList.remove("hidden");
+      disableStatementActions(false);
+
+      const b = computeWaveBuckets(custInvoices);
+      $("sOverdue").textContent = fmtUSD.format(b.overdue);
+      $("sNotYet").textContent = fmtUSD.format(b.notYet);
+      $("sCredits").textContent = fmtUSD.format(b.credits);
+      $("sOutstanding").textContent = fmtUSD.format(b.outstanding);
+      $("sExplain").textContent = `Overdue + Not yet due = Outstanding`;
+
+      const aging = computeAgingBuckets(custInvoices);
+      $("sa0_30").textContent = fmtUSD.format(aging.a0_30);
+      $("sa31_60").textContent = fmtUSD.format(aging.a31_60);
+      $("sa61_90").textContent = fmtUSD.format(aging.a61_90);
+      $("sa91_120").textContent = fmtUSD.format(aging.a91_120);
+      $("sa120p").textContent = fmtUSD.format(aging.a120p);
+
+      // Table sort: show overdue first, then by due date ascending (better operator flow)
+      const sorted = [...custInvoices].sort((a,b)=>{
+        const ad = getEffectiveDueDate(a) || new Date(0);
+        const bd = getEffectiveDueDate(b) || new Date(0);
+        const aOver = (getEffectiveDueDate(a) && getEffectiveDueDate(a) < asOf) ? 1 : 0;
+        const bOver = (getEffectiveDueDate(b) && getEffectiveDueDate(b) < asOf) ? 1 : 0;
+        if(aOver !== bOver) return bOver - aOver;
+        return ad - bd;
+      });
+
+      if(!sorted.length){
+        $("stmtTbody").innerHTML = `<tr><td class="px-4 py-6 text-slate-500" colspan="8">No items for this customer in current view.</td></tr>`;
+        return;
+      }
+
+      $("stmtTbody").innerHTML = sorted.map(inv => {
         const invDate = inv.invoiceDate || "—";
         const dueDate = inv.dueDate || "—";
+        const due = safeNum(inv.due);
         const total = safeNum(inv.invoiceTotal);
         const paid = safeNum(inv.paid);
-        const due = safeNum(inv.due);
+
         const isCred = due < 0;
-
-        const totalCell = total < 0
-          ? `<span class="mono">(${fmtUSD.format(Math.abs(total))})</span>`
-          : `<span class="mono">${fmtUSD.format(total)}</span>`;
-
-        const dueCell = isCred
-          ? `<span class="mono font-semibold">(${fmtUSD.format(Math.abs(due))})</span>`
-          : `<span class="mono font-semibold">${fmtUSD.format(due)}</span>`;
-
         const dueDt = getEffectiveDueDate(inv);
-        const overdueFlag = (isOpenItem(inv) && dueDt && dueDt < asOf)
-          ? `<div class="text-xs text-red-700 mt-0.5">Overdue (as-of)</div>`
-          : ``;
+        const overdueFlag = (isOpenItem(inv) && dueDt && dueDt < asOf) ? `<span class="ml-2 text-[11px] uppercase tracking-wider text-red-700">Overdue</span>` : "";
 
-        const links = `
-          <div class="flex items-center justify-end gap-2">
-            ${inv.customerLink ? `<a class="underline underline-offset-4 hover:text-slate-900" target="_blank" rel="noopener" href="${escapeAttr(inv.customerLink)}">Customer</a>` : `<span class="text-slate-400">—</span>`}
-            ${inv.pdfLink ? `<a class="underline underline-offset-4 hover:text-slate-900" target="_blank" rel="noopener" href="${escapeAttr(inv.pdfLink)}">PDF</a>` : ``}
-          </div>
-        `;
+        const totalCell = total < 0 ? `(${fmtUSD.format(Math.abs(total))})` : fmtUSD.format(total);
+        const dueCell = isCred ? `(${fmtUSD.format(Math.abs(due))})` : fmtUSD.format(due);
 
-        const rowAccent = isCred ? "bg-slate-50/40" : "";
-        const invLabel = isCred ? `Credit ${escapeHtml(inv.invoiceNumber)}` : `Invoice ${escapeHtml(inv.invoiceNumber)}`;
+        const pdf = (inv.pdfLink || "").trim();
+        const pdfLink = pdf ? `<a class="underline underline-offset-4 hover:text-slate-900" href="${escapeAttr(pdf)}" target="_blank" rel="noopener">PDF</a>` : `<span class="text-slate-400">—</span>`;
 
         return `
-          <tr class="cursor-pointer hover:bg-slate-50 ${rowAccent}" data-inv="${escapeAttr(inv.invoiceNumber)}">
-            <td class="px-3 py-3">
-              <div class="font-medium mono">${invLabel}</div>
+          <tr class="hover:bg-slate-50 cursor-pointer" data-inv="${escapeAttr(inv.invoiceNumber)}">
+            <td class="px-4 py-3">
+              <div class="font-medium mono">${isCred ? `Credit ${escapeHtml(inv.invoiceNumber)}` : `Invoice ${escapeHtml(inv.invoiceNumber)}`}${overdueFlag}</div>
               <div class="text-xs text-slate-500">${escapeHtml(inv.poNumber || "")}</div>
             </td>
-            <td class="px-3 py-3 mono">${escapeHtml(invDate)}</td>
-            <td class="px-3 py-3 mono">${escapeHtml(dueDate)}${overdueFlag}</td>
-            <td class="px-3 py-3">${typeBadge(inv)}</td>
-            <td class="px-3 py-3 text-right">${totalCell}</td>
-            <td class="px-3 py-3 text-right mono">${fmtUSD.format(paid)}</td>
-            <td class="px-3 py-3 text-right">${dueCell}</td>
-            <td class="px-3 py-3 text-right no-print">${links}</td>
+            <td class="px-4 py-3 mono">${escapeHtml(invDate)}</td>
+            <td class="px-4 py-3 mono">${escapeHtml(dueDate)}</td>
+            <td class="px-4 py-3">${typeBadge(inv)}</td>
+            <td class="px-4 py-3 text-right mono">${escapeHtml(totalCell)}</td>
+            <td class="px-4 py-3 text-right mono">${fmtUSD.format(paid)}</td>
+            <td class="px-4 py-3 text-right mono font-semibold">${escapeHtml(dueCell)}</td>
+            <td class="px-4 py-3 text-right no-print">${pdfLink}</td>
           </tr>
         `;
       }).join("");
 
-      $("statementTbody").querySelectorAll("tr[data-inv]").forEach(tr=>{
+      // bind row click -> open modal + set PDF viewer
+      document.querySelectorAll("#stmtTbody tr[data-inv]").forEach(tr=>{
         tr.addEventListener("click", ()=>{
           const invNo = tr.getAttribute("data-inv");
-          const inv = custInvoices.find(x => String(x.invoiceNumber) === String(invNo));
-          if(inv) openInvoiceModal(inv);
+          const inv = sorted.find(x => String(x.invoiceNumber) === String(invNo));
+          if(inv) {
+            openInvoiceModal(inv);
+            setPdfViewer(inv);
+          }
         });
       });
     }
 
-    function renderCollectionsQueue(custInvoices){
-      const asOf = getAsOf();
-      const rows = custInvoices
-        .filter(inv => isOpenItem(inv))
-        .filter(inv => safeNum(inv.due) > 0) // only positive balances for collections
-        .map(inv => {
-          const dueDt = getEffectiveDueDate(inv);
-          const overdue = dueDt ? (dueDt < asOf) : false;
-          return {
-            invoiceNumber: inv.invoiceNumber,
-            due: safeNum(inv.due),
-            dueDate: inv.dueDate || inv.invoiceDate || "",
-            overdue
-          };
-        })
-        .filter(x => x.overdue)
-        .sort((a,b)=> b.due - a.due)
-        .slice(0, 6);
+    function setPdfViewer(inv){
+      const url = (inv.pdfLink || "").trim();
+      lastSelectedPdfUrl = url || null;
 
-      if(!rows.length){
-        $("collectionsQueue").innerHTML = `<div class="text-sm text-slate-500">No overdue open invoices in this view.</div>`;
+      if(!url){
+        clearPdfViewer();
+        $("pdfTitle").textContent = "No PDF link for this invoice";
+        $("pdfSub").textContent = "Add PDF Download Link in the sheet to enable viewing.";
         return;
       }
 
-      $("collectionsQueue").innerHTML = rows.map(x => `
-        <button class="w-full text-left p-2 rounded-lg border hairline hover:bg-slate-50" data-jump-inv="${escapeAttr(x.invoiceNumber)}">
-          <div class="flex items-center justify-between">
-            <div class="font-medium mono">Invoice ${escapeHtml(x.invoiceNumber)}</div>
-            <div class="mono font-semibold">${fmtUSD.format(x.due)}</div>
-          </div>
-          <div class="text-xs text-slate-500 mt-1">Due ${escapeHtml(x.dueDate)}</div>
-        </button>
-      `).join("");
+      $("pdfTitle").textContent = `Invoice PDF • #${inv.invoiceNumber}`;
+      $("pdfSub").textContent = "Embedded viewer (uses sheet link). If your PDF host blocks embedding, use Open/Download.";
 
-      $("collectionsQueue").querySelectorAll("button[data-jump-inv]").forEach(btn=>{
-        btn.addEventListener("click", ()=>{
-          const invNo = btn.getAttribute("data-jump-inv");
-          const row = document.querySelector(`tr[data-inv="${CSS.escape(invNo)}"]`);
-          if(row){
-            row.scrollIntoView({ behavior: "smooth", block: "center" });
-            row.classList.add("bg-yellow-50");
-            setTimeout(()=> row.classList.remove("bg-yellow-50"), 900);
-          }
-        });
-      });
+      $("pdfFrame").src = url;
+      $("pdfOpenBtn").disabled = false;
+      $("pdfDownloadBtn").disabled = false;
+      $("pdfClearBtn").disabled = false;
+    }
+
+    function clearPdfViewer(){
+      lastSelectedPdfUrl = null;
+      $("pdfFrame").src = "about:blank";
+      $("pdfTitle").textContent = "Select an invoice row";
+      $("pdfSub").textContent = "Viewer uses the sheet-provided link.";
+      $("pdfOpenBtn").disabled = true;
+      $("pdfDownloadBtn").disabled = true;
+      $("pdfClearBtn").disabled = true;
     }
 
     function openInvoiceModal(inv){
@@ -811,55 +1015,221 @@
 
       $("modalItems").innerHTML = (inv.items || []).map(it => `
         <tr>
-          <td class="px-3 py-2">
+          <td class="px-4 py-2">
             <div class="font-medium">${escapeHtml(it.itemName || "—")}</div>
             ${it.description ? `<div class="text-xs text-slate-500">${escapeHtml(it.description)}</div>` : ``}
           </td>
-          <td class="px-3 py-2 text-right mono">${fmtNum.format(safeNum(it.unitPrice))}</td>
-          <td class="px-3 py-2 text-right mono">${fmtNum.format(safeNum(it.quantity))}</td>
-          <td class="px-3 py-2 text-right mono font-semibold">${fmtUSD.format(safeNum(it.itemTotal || it.itemTotalWithTaxes || 0))}</td>
+          <td class="px-4 py-2 text-right mono">${fmtNum.format(safeNum(it.unitPrice))}</td>
+          <td class="px-4 py-2 text-right mono">${fmtNum.format(safeNum(it.quantity))}</td>
+          <td class="px-4 py-2 text-right mono font-semibold">${fmtUSD.format(safeNum(it.itemTotal || it.itemTotalWithTaxes || 0))}</td>
         </tr>
-      `).join("") || `<tr><td class="px-3 py-4 text-slate-500" colspan="4">No line items.</td></tr>`;
+      `).join("") || `<tr><td class="px-4 py-4 text-slate-500" colspan="4">No line items.</td></tr>`;
 
-      $("modalOpenPdf").onclick = ()=>{ if(inv.pdfLink) window.open(inv.pdfLink, "_blank", "noopener"); };
+      $("modalOpenPdf").onclick = ()=> {
+        const url = (inv.pdfLink || "").trim();
+        if(url) window.open(url, "_blank", "noopener");
+      };
 
       const dlg = $("invModal");
       if(typeof dlg.showModal === "function") dlg.showModal();
       else alert("Your browser doesn't support dialogs.");
     }
 
-    function exportCustomerCSV(){
-      if(!selectedCustomer) return;
-      const f = getFilters();
+    // =======================
+    // Operator signals
+    // =======================
+    function computeOperatorSignals(){
+      const missingDue = invoices.filter(inv => isOpenItem(inv) && !getEffectiveDueDate(inv)).length;
+      const zeroDue = invoices.filter(inv => !isVoid(inv) && Math.abs(safeNum(inv.due)) <= 0.00001).length;
 
-      const custInvoices = invoices
-        .filter(inv => invoicePasses(inv, f))
-        .filter(inv => (inv.customerName || "(Unspecified)") === selectedCustomer)
-        .filter(inv => !isVoid(inv));
-
-      const rows = [];
-      rows.push(["Customer Name","Invoice Number","Invoice Date","Due Date","Type","Status","Invoice Total","Invoice Due","Invoice Paid","PO Number","PDF Link","Customer Link"]);
-      for(const inv of custInvoices){
-        rows.push([
-          inv.customerName, inv.invoiceNumber, inv.invoiceDate, inv.dueDate,
-          displayType(inv), normalizeStatus(inv.status),
-          safeNum(inv.invoiceTotal), safeNum(inv.due), safeNum(inv.paid),
-          inv.poNumber, inv.pdfLink, inv.customerLink
-        ]);
+      // Potential duplicates: same invoice # with multiple rows is expected, but conflicting due totals are not.
+      // We approximate conflict by looking at raw rows per invoice # and checking the distinct Invoice Due values.
+      const byInv = new Map();
+      for(const r of rawRows){
+        const invNo = String(r["Invoice Number"] || "").trim();
+        if(!invNo) continue;
+        const due = safeNum(r["Invoice Due"]);
+        if(!byInv.has(invNo)) byInv.set(invNo, new Set());
+        byInv.get(invNo).add(String(due));
+      }
+      let dupeConflicts = 0;
+      for(const [, set] of byInv.entries()){
+        if(set.size > 2) dupeConflicts += 1; // lenient threshold
       }
 
+      $("opsMissingDue").textContent = `${missingDue} open items missing Due Date`;
+      $("opsZeroDue").textContent = `${zeroDue} items where Due = 0`;
+      $("opsDupes").textContent = `${dupeConflicts} invoices with conflicting Due values`;
+    }
+
+    // =======================
+    // Statement print (vendor-only)
+    // =======================
+    function printStatementOnly(){
+      if(!selectedCustomer) return;
+
+      // Clone only statementCard into print area
+      const area = $("statementPrintArea");
+      area.innerHTML = "";
+      const clone = $("statementCard").cloneNode(true);
+
+      // Remove viewer-only buttons and keep a clean statement header
+      // Also remove PDF viewer and other UI not needed.
+      // Hide iframe, keep links in table.
+      const toRemoveSelectors = [
+        "#pdfFrame", "#pdfOpenBtn", "#pdfDownloadBtn", "#pdfClearBtn"
+      ];
+      toRemoveSelectors.forEach(sel=>{
+        const el = clone.querySelector(sel);
+        if(el) el.remove();
+      });
+
+      // Ensure summary is visible
+      const sum = clone.querySelector("#stmtSummary");
+      if(sum) sum.classList.remove("hidden");
+
+      // Remove no-print controls in cloned area (they won't print anyway, but keep clean)
+      clone.querySelectorAll(".no-print").forEach(n => n.remove());
+
+      area.appendChild(clone);
+
+      // Print
+      window.print();
+
+      // Cleanup after
+      setTimeout(()=>{ area.innerHTML = ""; }, 200);
+    }
+
+    // =======================
+    // Exports (operator-grade)
+    // =======================
+    function downloadCSV(filename, rows){
       const csv = rows.map(r => r.map(v => `"${String(v ?? "").replace(/"/g,'""')}"`).join(",")).join("\n");
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `WPV_Statement_${slugify(selectedCustomer)}.csv`;
+      a.download = filename;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
     }
 
+    function exportOpenItemsCSV(){
+      const asOf = getAsOf();
+      const rows = [["Customer Name","Invoice Number","Invoice Date","Due Date","Status","Type","Invoice Total","Invoice Due","Currency","PO Number","PDF Download Link"]];
+      const list = invoices.filter(inv => isOpenItem(inv)).sort((a,b)=>{
+        const ad = getEffectiveDueDate(a) || new Date(0);
+        const bd = getEffectiveDueDate(b) || new Date(0);
+        return ad - bd;
+      });
+      for(const inv of list){
+        rows.push([
+          inv.customerName, inv.invoiceNumber, inv.invoiceDate, inv.dueDate, normalizeStatus(inv.status),
+          displayType(inv), safeNum(inv.invoiceTotal), safeNum(inv.due), inv.currency, inv.poNumber, inv.pdfLink
+        ]);
+      }
+      downloadCSV(`WPV_Open_Items_${asOf.toISOString().slice(0,10)}.csv`, rows);
+    }
+
+    function exportOverdueCSV(){
+      const asOf = getAsOf();
+      const rows = [["Customer Name","Invoice Number","Invoice Date","Due Date","Days Past Due","Invoice Due","Currency","PDF Download Link"]];
+      const list = invoices.filter(inv => isOpenItem(inv)).map(inv=>{
+        const dd = getEffectiveDueDate(inv);
+        const overdue = dd ? (dd < asOf) : false;
+        const days = dd ? daysBetween(asOf, dd) : "";
+        return { inv, overdue, days };
+      }).filter(x => x.overdue).sort((a,b)=> safeNum(b.inv.due) - safeNum(a.inv.due));
+      for(const x of list){
+        rows.push([
+          x.inv.customerName, x.inv.invoiceNumber, x.inv.invoiceDate, x.inv.dueDate, x.days,
+          safeNum(x.inv.due), x.inv.currency, x.inv.pdfLink
+        ]);
+      }
+      downloadCSV(`WPV_Overdue_${asOf.toISOString().slice(0,10)}.csv`, rows);
+    }
+
+    function exportCreditsCSV(){
+      const asOf = getAsOf();
+      const rows = [["Customer Name","Invoice Number","Invoice Date","Due Date","Invoice Due (negative)","Status","PDF Download Link"]];
+      const list = invoices.filter(inv => isOpenItem(inv) && safeNum(inv.due) < 0).sort((a,b)=> Math.abs(safeNum(b.due)) - Math.abs(safeNum(a.due)));
+      for(const inv of list){
+        rows.push([inv.customerName, inv.invoiceNumber, inv.invoiceDate, inv.dueDate, safeNum(inv.due), normalizeStatus(inv.status), inv.pdfLink]);
+      }
+      downloadCSV(`WPV_Credits_${asOf.toISOString().slice(0,10)}.csv`, rows);
+    }
+
+    function exportLineItemsCSV(){
+      const asOf = getAsOf();
+      const rows = [["Customer Name","Invoice Number","Invoice Date","Due Date","Status","Type","Invoice Due","Item Name","Unit Price","Quantity","Description","Item Total","Item Total w/ Taxes","PDF Download Link"]];
+      // one row per item line (operator validation)
+      for(const inv of invoices){
+        for(const it of (inv.items || [])){
+          rows.push([
+            inv.customerName, inv.invoiceNumber, inv.invoiceDate, inv.dueDate, normalizeStatus(inv.status), displayType(inv),
+            safeNum(inv.due),
+            it.itemName, safeNum(it.unitPrice), safeNum(it.quantity), it.description,
+            safeNum(it.itemTotal), safeNum(it.itemTotalWithTaxes),
+            inv.pdfLink
+          ]);
+        }
+      }
+      downloadCSV(`WPV_Line_Items_${asOf.toISOString().slice(0,10)}.csv`, rows);
+    }
+
+    function exportAgingByCustomerCSV(){
+      const asOf = getAsOf();
+      const byCust = new Map();
+      for(const inv of invoices){
+        const cust = inv.customerName || "(Unspecified)";
+        if(!byCust.has(cust)) byCust.set(cust, []);
+        byCust.get(cust).push(inv);
+      }
+      const rows = [["Customer Name","Outstanding","Overdue","Not Yet Due","0-30","31-60","61-90","91-120","120+","90+","Credits (open)"]];
+      for(const [cust, list] of byCust.entries()){
+        const wave = computeWaveBuckets(list);
+        const aging = computeAgingBuckets(list);
+        rows.push([
+          cust,
+          wave.outstanding,
+          wave.overdue,
+          wave.notYet,
+          aging.a0_30,
+          aging.a31_60,
+          aging.a61_90,
+          aging.a91_120,
+          aging.a120p,
+          aging.a90p,
+          wave.credits
+        ]);
+      }
+      downloadCSV(`WPV_Aging_By_Customer_${asOf.toISOString().slice(0,10)}.csv`, rows);
+    }
+
+    function exportCustomerCSV(){
+      if(!selectedCustomer) return;
+      const asOf = getAsOf();
+      const mode = $("stmtMode").value || "open";
+      let cust = invoices.filter(inv => (inv.customerName || "(Unspecified)") === selectedCustomer).filter(inv => !isVoid(inv));
+      if(mode === "open") cust = cust.filter(inv => isOpenItem(inv));
+
+      const rows = [["Customer Name","Invoice Number","Invoice Date","Due Date","Status","Type","Invoice Total","Invoice Paid","Invoice Due","Currency","PO Number","PDF Download Link"]];
+      for(const inv of cust){
+        rows.push([
+          inv.customerName, inv.invoiceNumber, inv.invoiceDate, inv.dueDate,
+          normalizeStatus(inv.status), displayType(inv),
+          safeNum(inv.invoiceTotal), safeNum(inv.paid), safeNum(inv.due),
+          inv.currency, inv.poNumber, inv.pdfLink
+        ]);
+      }
+      downloadCSV(`WPV_Statement_${slugify(selectedCustomer)}_${asOf.toISOString().slice(0,10)}.csv`, rows);
+    }
+
+    // =======================
+    // Customer deep link
+    // =======================
     async function copyDeepLink(){
       if(!selectedCustomer) return;
       const s = slugify(selectedCustomer);
@@ -877,7 +1247,6 @@
       const h = location.hash || "";
       const m = h.match(/^#\/customer\/(.+)$/);
       if(!m) return;
-
       const slug = decodeURIComponent(m[1] || "");
       const candidates = new Set(invoices.map(i => i.customerName || "(Unspecified)"));
       let found = null;
@@ -890,47 +1259,119 @@
       }
     }
 
+    // =======================
+    // Open PDFs (exact sheet links)
+    // =======================
+    function openAllPdfsForCustomer(){
+      if(!selectedCustomer) return;
+      const mode = $("stmtMode").value || "open";
+      let cust = invoices.filter(inv => (inv.customerName || "(Unspecified)") === selectedCustomer).filter(inv => !isVoid(inv));
+      if(mode === "open") cust = cust.filter(inv => isOpenItem(inv));
+
+      const links = Array.from(new Set(cust.map(x => (x.pdfLink || "").trim()).filter(Boolean)));
+      if(!links.length){ alert("No PDF links found for this customer."); return; }
+
+      // Pop-up limits: open 10 max
+      links.slice(0, 10).forEach(url => window.open(url, "_blank", "noopener"));
+      if(links.length > 10) alert(`Opened first 10 PDFs. ${links.length-10} more links exist (popup limits).`);
+    }
+
+    // =======================
+    // UI
+    // =======================
     function clearFilters(){
       $("qCustomer").value = "";
-      $("qStatus").value = "";
+      $("qView").value = "";
       $("qFrom").value = "";
       $("qTo").value = "";
       applyFiltersAndRender();
     }
 
+    function setTab(tab){
+      if(tab === "exec"){
+        $("execPanel").classList.remove("hidden");
+        $("opsPanel").classList.add("hidden");
+      } else {
+        $("execPanel").classList.add("hidden");
+        $("opsPanel").classList.remove("hidden");
+      }
+    }
+
     // =======================
-    // EVENTS
+    // Init
+    // =======================
+    (function initAsOf(){
+      const d = new Date();
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth()+1).padStart(2,"0");
+      const dd = String(d.getDate()).padStart(2,"0");
+      $("asOfDate").value = `${yyyy}-${mm}-${dd}`;
+    })();
+
+    // =======================
+    // Events
     // =======================
     window.addEventListener("hashchange", routeFromHash);
+
     $("refreshBtn").addEventListener("click", loadCSV);
-    $("clearBtn").addEventListener("click", clearFilters);
-
-    $("qCustomer").addEventListener("input", applyFiltersAndRender);
-    $("qStatus").addEventListener("change", applyFiltersAndRender);
-    $("qFrom").addEventListener("change", applyFiltersAndRender);
-    $("qTo").addEventListener("change", applyFiltersAndRender);
-    $("viewMode").addEventListener("change", ()=>{ if(selectedCustomer) applyFiltersAndRender(); });
-
-    $("asOfDate").addEventListener("change", applyFiltersAndRender);
-
-    $("goHomeBtn").addEventListener("click", ()=>{
+    $("homeBtn").addEventListener("click", ()=>{
       selectedCustomer = null;
       location.hash = "";
       $("stmtTitle").textContent = "Select a customer";
       $("stmtSub").textContent = "—";
-      $("stmtCurrency").textContent = "—";
       $("stmtAsOf").textContent = "—";
-      $("exportCustomerBtn").disabled = true;
-      $("copyLinkBtn").disabled = true;
-      $("statementSummary").classList.add("hidden");
-      $("statementTbody").innerHTML = `<tr><td class="px-3 py-8 text-slate-500" colspan="8">Choose a customer on the left.</td></tr>`;
+      $("stmtCurrency").textContent = "—";
+      $("stmtSummary").classList.add("hidden");
+      $("stmtTbody").innerHTML = `<tr><td class="px-4 py-6 text-slate-500" colspan="8">Select a customer on the left.</td></tr>`;
+      disableStatementActions(true);
+      clearPdfViewer();
       applyFiltersAndRender();
     });
 
-    $("printBtn").addEventListener("click", ()=> window.print());
+    $("execTabBtn").addEventListener("click", ()=> setTab("exec"));
+    $("opsTabBtn").addEventListener("click", ()=> setTab("ops"));
+
+    $("qCustomer").addEventListener("input", applyFiltersAndRender);
+    $("qView").addEventListener("change", applyFiltersAndRender);
+    $("qFrom").addEventListener("change", applyFiltersAndRender);
+    $("qTo").addEventListener("change", applyFiltersAndRender);
+    $("asOfDate").addEventListener("change", applyFiltersAndRender);
+    $("stmtMode").addEventListener("change", ()=> { if(selectedCustomer) applyFiltersAndRender(); });
+
+    $("clearBtn").addEventListener("click", clearFilters);
+
+    $("sortOverdueBtn").addEventListener("click", ()=>{ customerSort = "overdue"; applyFiltersAndRender(); });
+    $("sortOutstandingBtn").addEventListener("click", ()=>{ customerSort = "outstanding"; applyFiltersAndRender(); });
+    $("sortNameBtn").addEventListener("click", ()=>{ customerSort = "name"; applyFiltersAndRender(); });
+
+    $("statementPrintBtn").addEventListener("click", printStatementOnly);
+    $("openAllPdfsBtn").addEventListener("click", openAllPdfsForCustomer);
     $("exportCustomerBtn").addEventListener("click", exportCustomerCSV);
     $("copyLinkBtn").addEventListener("click", copyDeepLink);
 
+    // PDF viewer buttons
+    $("pdfOpenBtn").addEventListener("click", ()=>{
+      if(lastSelectedPdfUrl) window.open(lastSelectedPdfUrl, "_blank", "noopener");
+    });
+    $("pdfDownloadBtn").addEventListener("click", ()=>{
+      if(!lastSelectedPdfUrl) return;
+      const a = document.createElement("a");
+      a.href = lastSelectedPdfUrl;
+      a.download = "";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    });
+    $("pdfClearBtn").addEventListener("click", clearPdfViewer);
+
+    // Operator exports
+    $("exportOpenItemsBtn").addEventListener("click", exportOpenItemsCSV);
+    $("exportOverdueBtn").addEventListener("click", exportOverdueCSV);
+    $("exportLineItemsBtn").addEventListener("click", exportLineItemsCSV);
+    $("exportAgingByCustomerBtn").addEventListener("click", exportAgingByCustomerCSV);
+    $("exportCreditsBtn").addEventListener("click", exportCreditsCSV);
+
+    // modal
     $("modalClose").addEventListener("click", ()=> $("invModal").close());
     $("invModal").addEventListener("click", (e)=>{
       const r = $("invModal").getBoundingClientRect();
@@ -938,10 +1379,7 @@
       if(!inDialog) $("invModal").close();
     });
 
-    $("sortOverdueBtn").addEventListener("click", ()=>{ customerSort = "overdue"; applyFiltersAndRender(); });
-    $("sortOutstandingBtn").addEventListener("click", ()=>{ customerSort = "outstanding"; applyFiltersAndRender(); });
-    $("sortNameBtn").addEventListener("click", ()=>{ customerSort = "name"; applyFiltersAndRender(); });
-
+    // keyboard
     window.addEventListener("keydown", (e)=>{
       if(e.key === "/"){
         e.preventDefault();
@@ -954,21 +1392,13 @@
       }
     });
 
-    // =======================
-    // INIT
-    // =======================
-    // Default As-Of to today (local)
-    (function initAsOf(){
-      const d = new Date();
-      const yyyy = d.getFullYear();
-      const mm = String(d.getMonth()+1).padStart(2,"0");
-      const dd = String(d.getDate()).padStart(2,"0");
-      $("asOfDate").value = `${yyyy}-${mm}-${dd}`;
-    })();
+    // Start in exec tab
+    setTab("exec");
 
+    // Load
     loadCSV().catch(err=>{
       console.error(err);
-      $("customersTbody").innerHTML = `<tr><td class="px-4 py-4 text-red-700" colspan="3">Failed to load CSV. Check publish permissions.</td></tr>`;
+      $("customersTbody").innerHTML = `<tr><td class="px-5 py-4 text-red-700" colspan="4">Failed to load CSV. Check publish permissions.</td></tr>`;
     });
   </script>
 </body>
