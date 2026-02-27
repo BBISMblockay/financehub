@@ -445,7 +445,7 @@
 
       <!-- Modal -->
       <div id="modal" class="fixed inset-0 hidden">
-        <div class="absolute inset-0 bg-black/40"></div>
+        <div class="absolute inset-0 bg-black/40" data-modal-overlay="1"></div>
         <div class="absolute inset-x-0 top-10 mx-auto max-w-6xl px-4">
           <div class="rounded-xl bg-white border border-slate-200 shadow-soft overflow-hidden">
             <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200">
@@ -461,16 +461,15 @@
 
   <script>
     /******************************************************************
-     * Reload/dupe fix:
-     * - Uses LOAD_SEQ "version token" so stale async loads can't write into state.
-     * - Disables Reload while loading.
-     * - Hard resets arrays on load (replace, never append).
-     * - Dedupes inventory rows within a load using a stable business key.
+     * FIXED: Sold 30d double counting
+     * - Inventory CSV "Location" can be Shopify inventory sub-location
+     * - Sales summary is SKU-level per store/tab, so it must NOT multiply
      *
-     * Upgrade:
-     * - PO Strategy: Replenish / Growth / Hybrid
-     * - Lightweight tags (drivers) per SKU/company key stored in localStorage
-     * - Suggested PO incorporates safety stock + uplift logic (without breaking existing flow)
+     * Changes:
+     * - Treat tab label as `location`, store CSV location as `inv_location`
+     * - Collapse inventory rows within a tab by SKU key: sum on-hand/value
+     * - KPI Sold30: unique per source_id+SKU in Location View (safety net)
+     * - Load safety: AbortController + try/finally + no re-entry
      ******************************************************************/
 
     // ==== Workbook ID (inventory workbook) ====
@@ -493,13 +492,11 @@
         gid: 1737418391,
         sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQNcbG_a-H8vmNF7Qm3S_n5a3MTuMZvsicODjImal2jylO74gB--3Mpgv9cCPG37WG4HFvshUrIfDdM/pub?gid=343232419&single=true&output=csv"
       },
-       {
+      {
         label: "Cooperstown",
         gid: 1924417187,
         sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTZDCPonNizaXhEklZp8ovhc_Iti725FpgZzyeu_rovAceUq9obq_AKvo0a7u-5SotcJh4xi-FC3FAv/pub?gid=965359182&single=true&output=csv"
-      },
-
-      
+      }
     ];
 
     const MAX_LOCATIONS = 20;
@@ -519,7 +516,7 @@
 
     // ==== Expected Better Reports headers (inventory CSV) ====
     const H = {
-      location: "Location",
+      location: "Location", // NOTE: Shopify inventory location (sub-location) in many exports
       shop_domain: "Shop MyShopify Domain",
       sku: "Variant SKU",
       barcode: "Variant Barcode",
@@ -562,18 +559,18 @@
     let SUGGEST_ENABLED = false;
 
     // Columns
-    const COLS_KEY = "silo_inv_cols_v4_growth";
+    const COLS_KEY = "silo_inv_cols_v5_growth";
     let VISIBLE = null;
 
-    // === Load protection (prevents dupes on rapid reload) ===
+    // Load protection
     let LOAD_SEQ = 0;
     let IS_LOADING = false;
+    let ACTIVE_ABORT = null;
 
     // === PO Strategy state ===
     let STRATEGY = "replenish"; // replenish | growth | hybrid
 
     // === Lightweight tags (drivers) stored in localStorage ===
-    // { [rowKey]: { driver: "hero"|"new"|..., pct_override: number|null, updated_at: iso } }
     const TAGS_KEY = "silo_growth_tags_v1";
 
     function loadTags(){
@@ -608,7 +605,8 @@
       { key: "_select", label: "", default: true },
       { key: "image", label: "Image", default: true },
       { key: "source", label: "Source", default: false },
-      { key: "location", label: "Location", default: true },
+      { key: "location", label: "Location", default: true }, // tab label
+      { key: "inv_location", label: "Inv Location", default: false }, // optional debug
       { key: "sku", label: "SKU", default: true },
       { key: "barcode", label: "Barcode", default: false },
       { key: "product", label: "Product", default: true },
@@ -655,7 +653,7 @@
     ];
 
     // Draft
-    const DRAFT_KEY = "silo_po_draft_v4_growth";
+    const DRAFT_KEY = "silo_po_draft_v5_growth";
     function loadDraft(){ try{ return JSON.parse(localStorage.getItem(DRAFT_KEY) || "[]"); } catch(e){ return []; } }
     function saveDraft(lines){ localStorage.setItem(DRAFT_KEY, JSON.stringify(lines)); }
 
@@ -724,7 +722,6 @@
         return `<span class="badge border-slate-200 bg-white text-slate-500">—</span>`;
       }
 
-      // Slight styling by driver
       const base = "badge border-slate-200 bg-white text-slate-800";
       const cls =
         driver === "hero" ? "border-emerald-200 bg-emerald-50 text-emerald-900" :
@@ -838,6 +835,11 @@
       tr.innerHTML = "";
       const cols = currentCols();
 
+      // ensure Location is always visible in Location view (prevents confusing "dupes")
+      if (MODE === "location"){
+        VISIBLE["location"] = true;
+      }
+
       for (const c of cols){
         if (!VISIBLE[c.key]) continue;
 
@@ -880,14 +882,14 @@
     }
 
     // Fetch helper
-    async function fetchCsvObjects(url){
-      const res = await fetch(url, { cache: "no-store" });
+    async function fetchCsvObjects(url, signal){
+      const res = await fetch(url, { cache: "no-store", signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const text = await res.text();
       return rowsToObjects(text);
     }
 
-    // Build sales map by SKU (per location)
+    // Build sales map by SKU (per store/tab)
     function buildSalesMap(salesRows){
       const m = new Map();
       for (const r of salesRows){
@@ -930,7 +932,6 @@
 
       const tags = [];
 
-      // Growth driver tag (if present)
       const t = getTag(rowKeyFor(row));
       if (t && t.driver && t.driver !== "none"){
         tags.push({ t: driverLabel(t.driver).toUpperCase(), cls:"border-slate-200 bg-white text-slate-800" });
@@ -957,22 +958,71 @@
       return tags.slice(0,2).map(x => `<span class="badge ${x.cls}">${escapeHtml(x.t)}</span>`).join(" ");
     }
 
-    // Deduplicate location rows within a load using stable key
-    function dedupeLocationRows(rows){
-      const m = new Map();
+    // Collapse inventory rows within a tab by SKU key:
+    // - sums avail_qty + inv_value
+    // - keeps sales fields NOT multiplied (uses first non-zero or max)
+    // - keeps latest last_sold
+    function collapseLocationRows(rows){
+      const byKey = new Map();
+
+      const keyFor = (r) => {
+        const sku = norm(r.sku);
+        if (sku) return `SKU::${r.source_id}::${sku}`;
+        const bc = norm(r.barcode);
+        if (bc) return `BC::${r.source_id}::${bc}`;
+        const prod = norm(r.product);
+        const varr = norm(r.variant);
+        return `PV::${r.source_id}::${prod}::${varr}`;
+      };
+
       for (const r of rows){
-        const key = [
-          norm(r.source_id),
-          norm(r.location),
-          norm(r.sku),
-          norm(r.barcode),
-          norm(r.product),
-          norm(r.variant)
-        ].join("||");
-        // keep the latest occurrence (overwrite)
-        m.set(key, r);
+        const k = keyFor(r);
+
+        if (!byKey.has(k)){
+          byKey.set(k, {
+            ...r,
+            inv_locations: new Set(r.inv_location ? [r.inv_location] : [])
+          });
+          continue;
+        }
+
+        const agg = byKey.get(k);
+
+        agg.avail_qty += num(r.avail_qty);
+        agg.inv_value += num(r.inv_value);
+
+        if (r.inv_location) agg.inv_locations.add(r.inv_location);
+
+        // sales metrics should not sum across inv-locations: keep max as safety
+        agg.qty_7d = Math.max(num(agg.qty_7d), num(r.qty_7d));
+        agg.sold_30 = Math.max(num(agg.sold_30), num(r.sold_30));
+        agg.qty_90d = Math.max(num(agg.qty_90d), num(r.qty_90d));
+        agg.qty_120d = Math.max(num(agg.qty_120d), num(r.qty_120d));
+
+        agg.avg_day = Math.max(num(agg.avg_day), num(r.avg_day));
+        agg.avg_day_90 = Math.max(num(agg.avg_day_90), num(r.avg_day_90));
+        agg.avg_day_120 = Math.max(num(agg.avg_day_120), num(r.avg_day_120));
+
+        // recompute days_oos from summed avail + chosen avg_day
+        const avg = num(agg.avg_day);
+        agg.days_oos = (avg > 0) ? (num(agg.avail_qty) / avg) : 0;
+
+        const msA = agg.last_sold_ms || null;
+        const msB = r.last_sold_ms || null;
+        if (msB && (!msA || msB > msA)){
+          agg.last_sold_ms = msB;
+          agg.last_sold_date = r.last_sold_date || agg.last_sold_date || "";
+        }
       }
-      return [...m.values()];
+
+      const out = [];
+      for (const v of byKey.values()){
+        v.inv_locations_count = v.inv_locations.size;
+        v.inv_location = v.inv_locations.size ? [...v.inv_locations].slice(0,3).join(", ") + (v.inv_locations.size > 3 ? ` (+${v.inv_locations.size-3})` : "") : "";
+        delete v.inv_locations;
+        out.push(v);
+      }
+      return out;
     }
 
     // Company aggregation (SKU > Barcode > Product+Variant fallback)
@@ -1090,14 +1140,48 @@
       btn.textContent = on ? "Loading…" : "Reload";
     }
 
+    function countLooseDupes(rows){
+      // loose duplicates: same source + sku (or fallback key) appearing multiple times pre-collapse
+      const m = new Map();
+      const keyFor = (r) => {
+        const sku = norm(r.sku);
+        if (sku) return `SKU::${r.source_id}::${sku}`;
+        const bc = norm(r.barcode);
+        if (bc) return `BC::${r.source_id}::${bc}`;
+        const prod = norm(r.product);
+        const varr = norm(r.variant);
+        return `PV::${r.source_id}::${prod}::${varr}`;
+      };
+      for (const r of rows){
+        const k = keyFor(r);
+        m.set(k, (m.get(k) || 0) + 1);
+      }
+      let dupGroups = 0;
+      let extraRows = 0;
+      for (const c of m.values()){
+        if (c > 1){
+          dupGroups++;
+          extraRows += (c - 1);
+        }
+      }
+      return { dupGroups, extraRows };
+    }
+
     // Load all tabs (inventory + optional sales summary merge)
     async function loadAll(){
-      const mySeq = ++LOAD_SEQ;
-      setLoadingUI(true);
+      if (IS_LOADING) return;
 
+      const mySeq = ++LOAD_SEQ;
+
+      if (ACTIVE_ABORT){
+        try{ ACTIVE_ABORT.abort(); }catch(e){}
+      }
+      ACTIVE_ABORT = new AbortController();
+      const { signal } = ACTIVE_ABORT;
+
+      setLoadingUI(true);
       setStatus("Loading…");
 
-      // hard reset state (replace, never append)
       RAW = [];
       COMPANY = [];
       VIEW = [];
@@ -1105,181 +1189,197 @@
       LAST_SUGGEST = new Map();
       SUGGEST_ENABLED = false;
       PAGE = 1;
+
       renderLocationDropdown();
 
       const results = [];
       let tmpRows = [];
 
-      for (const src of SOURCES){
-        if (mySeq !== LOAD_SEQ) return;
-
-        try{
-          const invParsed = await fetchCsvObjects(src.csv_url);
+      try{
+        for (const src of SOURCES){
           if (mySeq !== LOAD_SEQ) return;
 
-          const invHeaders = new Set(invParsed.headers);
+          try{
+            const invParsed = await fetchCsvObjects(src.csv_url, signal);
+            if (mySeq !== LOAD_SEQ) return;
 
-          let salesMap = new Map();
-          let salesCount = 0;
-          let salesWarn = "";
+            const invHeaders = new Set(invParsed.headers);
 
-          if (src.sales_csv){
-            try{
-              const salesParsed = await fetchCsvObjects(src.sales_csv);
-              if (mySeq !== LOAD_SEQ) return;
+            let salesMap = new Map();
+            let salesCount = 0;
+            let salesWarn = "";
 
-              salesCount = salesParsed.rows.length;
-              const salesHeaders = new Set(salesParsed.headers);
+            if (src.sales_csv){
+              try{
+                const salesParsed = await fetchCsvObjects(src.sales_csv, signal);
+                if (mySeq !== LOAD_SEQ) return;
 
-              const need = [SH.sku, SH.qty_30d, SH.avg_day_30, SH.last_sold_date];
-              const miss = need.filter(k => !salesHeaders.has(k));
-              if (miss.length){
-                salesWarn = `sales_summary missing: ${miss.join(" | ")}`;
-              } else {
-                salesMap = buildSalesMap(salesParsed.rows);
+                salesCount = salesParsed.rows.length;
+                const salesHeaders = new Set(salesParsed.headers);
+
+                const need = [SH.sku, SH.qty_30d, SH.avg_day_30, SH.last_sold_date];
+                const miss = need.filter(k => !salesHeaders.has(k));
+                if (miss.length){
+                  salesWarn = `sales_summary missing: ${miss.join(" | ")}`;
+                } else {
+                  salesMap = buildSalesMap(salesParsed.rows);
+                }
+              } catch(e){
+                salesWarn = (e && e.name === "AbortError") ? "aborted" : `sales_summary failed: ${e.message || String(e)}`;
               }
-            } catch(e){
-              salesWarn = `sales_summary failed: ${e.message || String(e)}`;
             }
+
+            const required = [H.sku, H.avail_qty, H.inv_value];
+            const missing = required.filter(k => !invHeaders.has(k));
+            if (missing.length){
+              results.push({ source: src, warning: `Missing inventory columns: ${missing.join(" | ")}` });
+            } else {
+              results.push({ source: src, ok: invParsed.rows.length, sales_ok: salesCount, sales_warn: salesWarn });
+            }
+
+            const mapped = invParsed.rows.map((o, idx) => {
+              const shopDomain = norm(o[H.shop_domain]);
+
+              const invLocation = norm(o[H.location]); // Shopify inventory location (sub-location)
+              const location = src.location_label;     // YOUR location dimension = tab label
+
+              const sku = norm(o[H.sku]);
+              const product = norm(o[H.product]);
+              const variant = norm(o[H.variant]);
+              const barcode = norm(o[H.barcode]);
+
+              const avail = num(o[H.avail_qty]);
+              const invValue = num(o[H.inv_value]);
+              const img = norm(o[H.img]);
+
+              const invSold30 = num(o[H.sold_30]);
+              const invAvgDay = num(o[H.avg_day]);
+              const invDaysOos = num(o[H.days_oos]);
+
+              const s = sku ? salesMap.get(sku) : null;
+
+              const qty7 = s ? s.qty_7d : 0;
+              const qty30 = s ? s.qty_30d : invSold30;
+              const qty90 = s ? s.qty_90d : 0;
+              const qty120 = s ? s.qty_120d : 0;
+
+              const avg30 = s ? s.avg_day_30 : invAvgDay;
+              const avg90 = s ? s.avg_day_90 : (qty90 ? qty90/90 : 0);
+              const avg120 = s ? s.avg_day_120 : (qty120 ? qty120/120 : 0);
+
+              const daysOos = (avg30 > 0) ? (avail / avg30) : (invDaysOos || 0);
+
+              const lastSold = s ? (s.last_sold_date || "") : "";
+              const lastSoldMs = s ? (s.last_sold_ms || null) : null;
+
+              const prodName = (s && s.product_name) ? s.product_name : product;
+              const prodType = (s && s.product_type) ? s.product_type : "";
+              const vendor = (s && s.vendor) ? s.vendor : "";
+
+              const rid = `${src.source_id}::${location}::${sku || barcode || product || "row"}::${variant || ""}::${idx}`;
+
+              return {
+                _id: rid,
+                source_id: src.source_id,
+                source_label: src.location_label,
+                gid: src.gid,
+
+                shop_domain: shopDomain,
+                location,
+                inv_location: invLocation,
+
+                sku,
+                barcode,
+
+                product: prodName,
+                variant,
+
+                product_type: prodType,
+                vendor,
+
+                avail_qty: avail,
+                inv_value: invValue,
+
+                qty_7d: qty7,
+                sold_30: qty30,
+                qty_90d: qty90,
+                qty_120d: qty120,
+
+                avg_day: avg30,
+                avg_day_90: avg90,
+                avg_day_120: avg120,
+
+                days_oos: daysOos,
+
+                last_sold_date: lastSold,
+                last_sold_ms: lastSoldMs,
+
+                _inv_sold30: invSold30,
+                _inv_avgday: invAvgDay,
+                _inv_daysoos: invDaysOos,
+
+                image_url: img,
+                _raw: o
+              };
+            });
+
+            tmpRows.push(...mapped);
+
+          } catch(err){
+            if (err && err.name === "AbortError") return;
+            results.push({ source: src, error: err.message || String(err) });
           }
+        }
 
-          const required = [H.sku, H.avail_qty, H.inv_value];
-          const missing = required.filter(k => !invHeaders.has(k));
-          if (missing.length){
-            results.push({ source: src, warning: `Missing inventory columns: ${missing.join(" | ")}` });
-          } else {
-            results.push({ source: src, ok: invParsed.rows.length, sales_ok: salesCount, sales_warn: salesWarn });
-          }
+        if (mySeq !== LOAD_SEQ) return;
 
-          const mapped = invParsed.rows.map((o, idx) => {
-            const shopDomain = norm(o[H.shop_domain]);
-            const location = norm(o[H.location]) || src.location_label;
+        const dupStats = countLooseDupes(tmpRows);
 
-            const sku = norm(o[H.sku]);
-            const product = norm(o[H.product]);
-            const variant = norm(o[H.variant]);
-            const barcode = norm(o[H.barcode]);
+        tmpRows = collapseLocationRows(tmpRows);
 
-            const avail = num(o[H.avail_qty]);
-            const invValue = num(o[H.inv_value]);
-            const img = norm(o[H.img]);
+        RAW = tmpRows;
+        COMPANY = buildCompanyAgg(RAW);
 
-            const invSold30 = num(o[H.sold_30]);
-            const invAvgDay = num(o[H.avg_day]);
-            const invDaysOos = num(o[H.days_oos]);
+        applyFilters();
 
-            const s = sku ? salesMap.get(sku) : null;
+        const warn = results.filter(r => r.warning).length;
+        const bad = results.filter(r => r.error).length;
 
-            const qty7 = s ? s.qty_7d : 0;
-            const qty30 = s ? s.qty_30d : invSold30;
-            const qty90 = s ? s.qty_90d : 0;
-            const qty120 = s ? s.qty_120d : 0;
+        let msg = `Loaded <b>${RAW.length.toLocaleString()}</b> location-rows from <b>${SOURCES.length}</b> tab(s).`;
 
-            const avg30 = s ? s.avg_day_30 : invAvgDay;
-            const avg90 = s ? s.avg_day_90 : (qty90 ? qty90/90 : 0);
-            const avg120 = s ? s.avg_day_120 : (qty120 ? qty120/120 : 0);
+        const salesGood = results.filter(r => r.sales_ok && !r.sales_warn).length;
+        const salesAny = results.filter(r => r.sales_ok).length;
+        if (salesAny){
+          msg += ` <span class="text-slate-600">Sales summaries: <b>${salesGood}</b> ok / <b>${salesAny}</b> present.</span>`;
+        }
+        if (warn) msg += ` <span class="text-amber-700 font-semibold">${warn} tab(s) missing inventory columns.</span>`;
+        if (bad) msg += ` <span class="text-rose-700 font-semibold">${bad} tab(s) failed.</span>`;
 
-            const daysOos = (avg30 > 0) ? (avail / avg30) : (invDaysOos || 0);
+        if (dupStats.dupGroups){
+          msg += ` <span class="text-slate-600">Collapsed <b>${dupStats.extraRows.toLocaleString()}</b> extra inv-rows across <b>${dupStats.dupGroups.toLocaleString()}</b> duplicate SKU groups (inv sub-locations).</span>`;
+        }
 
-            const lastSold = s ? (s.last_sold_date || "") : "";
-            const lastSoldMs = s ? (s.last_sold_ms || null) : null;
+        if (warn || bad || salesAny){
+          const detail = results.map(r => {
+            const name = escapeHtml(r.source.location_label);
+            const gid = escapeHtml(String(r.source.gid));
+            if (r.error) return `<div class="mono text-xs text-rose-700">• ${name} (gid ${gid}) — ERROR: ${escapeHtml(r.error)}</div>`;
+            if (r.warning) return `<div class="mono text-xs text-amber-700">• ${name} (gid ${gid}) — WARN: ${escapeHtml(r.warning)}</div>`;
+            const salesLine = (r.sales_ok || r.sales_warn) ? ` • sales=${(r.sales_ok||0).toLocaleString()}${r.sales_warn ? ` <span class="text-amber-700">(${escapeHtml(r.sales_warn)})</span>` : ""}` : "";
+            return `<div class="mono text-xs text-slate-600">• ${name} (gid ${gid}) — ${(r.ok||0).toLocaleString()} inv rows${salesLine}</div>`;
+          }).join("");
+          msg += `<div class="mt-2">${detail}</div>`;
+        }
 
-            const prodName = (s && s.product_name) ? s.product_name : product;
-            const prodType = (s && s.product_type) ? s.product_type : "";
-            const vendor = (s && s.vendor) ? s.vendor : "";
+        msg += `<div class="mt-2 text-xs text-slate-600">Strategy: <b>${escapeHtml(STRATEGY.toUpperCase())}</b> • Tags stored locally (${Object.keys(loadTags()).length} tagged items)</div>`;
 
-            const rid = `${src.source_id}::${location}::${sku || barcode || product || "row"}::${variant || ""}::${idx}`;
+        setStatus(msg);
 
-            return {
-              _id: rid,
-              source_id: src.source_id,
-              source_label: src.location_label,
-              gid: src.gid,
-
-              shop_domain: shopDomain,
-              location,
-
-              sku,
-              barcode,
-
-              product: prodName,
-              variant,
-
-              product_type: prodType,
-              vendor,
-
-              avail_qty: avail,
-              inv_value: invValue,
-
-              qty_7d: qty7,
-              sold_30: qty30,
-              qty_90d: qty90,
-              qty_120d: qty120,
-
-              avg_day: avg30,
-              avg_day_90: avg90,
-              avg_day_120: avg120,
-
-              days_oos: daysOos,
-
-              last_sold_date: lastSold,
-              last_sold_ms: lastSoldMs,
-
-              _inv_sold30: invSold30,
-              _inv_avgday: invAvgDay,
-              _inv_daysoos: invDaysOos,
-
-              image_url: img,
-              _raw: o
-            };
-          });
-
-          tmpRows.push(...mapped);
-
-        } catch(err){
-          results.push({ source: src, error: err.message || String(err) });
+      } finally {
+        if (mySeq === LOAD_SEQ){
+          setLoadingUI(false);
         }
       }
-
-      if (mySeq !== LOAD_SEQ) return;
-
-      tmpRows = dedupeLocationRows(tmpRows);
-
-      RAW = tmpRows;
-      COMPANY = buildCompanyAgg(RAW);
-
-      applyFilters();
-
-      const warn = results.filter(r => r.warning).length;
-      const bad = results.filter(r => r.error).length;
-
-      let msg = `Loaded <b>${RAW.length.toLocaleString()}</b> location-rows from <b>${SOURCES.length}</b> tab(s).`;
-
-      const salesGood = results.filter(r => r.sales_ok && !r.sales_warn).length;
-      const salesAny = results.filter(r => r.sales_ok).length;
-      if (salesAny){
-        msg += ` <span class="text-slate-600">Sales summaries: <b>${salesGood}</b> ok / <b>${salesAny}</b> present.</span>`;
-      }
-      if (warn) msg += ` <span class="text-amber-700 font-semibold">${warn} tab(s) missing inventory columns.</span>`;
-      if (bad) msg += ` <span class="text-rose-700 font-semibold">${bad} tab(s) failed.</span>`;
-
-      if (warn || bad || salesAny){
-        const detail = results.map(r => {
-          const name = escapeHtml(r.source.location_label);
-          const gid = escapeHtml(String(r.source.gid));
-          if (r.error) return `<div class="mono text-xs text-rose-700">• ${name} (gid ${gid}) — ERROR: ${escapeHtml(r.error)}</div>`;
-          if (r.warning) return `<div class="mono text-xs text-amber-700">• ${name} (gid ${gid}) — WARN: ${escapeHtml(r.warning)}</div>`;
-          const salesLine = (r.sales_ok || r.sales_warn) ? ` • sales=${(r.sales_ok||0).toLocaleString()}${r.sales_warn ? ` <span class="text-amber-700">(${escapeHtml(r.sales_warn)})</span>` : ""}` : "";
-          return `<div class="mono text-xs text-slate-600">• ${name} (gid ${gid}) — ${(r.ok||0).toLocaleString()} inv rows${salesLine}</div>`;
-        }).join("");
-        msg += `<div class="mt-2">${detail}</div>`;
-      }
-
-      // strategy line
-      msg += `<div class="mt-2 text-xs text-slate-600">Strategy: <b>${escapeHtml(STRATEGY.toUpperCase())}</b> • Tags stored locally (${Object.keys(loadTags()).length} tagged items)</div>`;
-
-      setStatus(msg);
-      setLoadingUI(false);
     }
 
     // Filters/sort
@@ -1374,16 +1474,12 @@
       return { targetCover, safetyDays, minReorder, defaultGrowthPct, seedAvgDay };
     }
 
-    // Determine growth factor for a row based on strategy + tag
     function growthFactorForRow(row, defaultGrowthPct){
       const tag = getTag(rowKeyFor(row));
       const driver = tag?.driver || "none";
 
-      // base default growth
       let pct = defaultGrowthPct;
 
-      // driver-specific default bumps (if no override) — simple + opinionated
-      // you can tune these anytime without changing data sources
       const driverDefaults = {
         core: 0,
         hero: Math.max(defaultGrowthPct, 30),
@@ -1401,35 +1497,27 @@
         pct = driverDefaults[driver] ?? defaultGrowthPct;
       }
 
-      // Strategy gate:
-      // - replenish: no uplift
-      // - growth: uplift always (even if not tagged) using defaultGrowthPct
-      // - hybrid: uplift only if tagged (driver != none)
       if (STRATEGY === "replenish") return 1.0;
       if (STRATEGY === "growth"){
         const p = (tag && driver !== "none") ? pct : defaultGrowthPct;
         return 1.0 + Math.max(0, p)/100;
       }
-      // hybrid
       if (!tag || driver === "none") return 1.0;
       return 1.0 + Math.max(0, pct)/100;
     }
 
     function effectiveAvgDay(row, seedAvgDay){
-      // Use avg_day, but if it’s effectively zero and we have recent 7d, use that as a hint.
       const avg30 = num(row.avg_day);
       if (avg30 > 0) return avg30;
 
       const sold7 = num(row.qty_7d);
       if (sold7 > 0) return sold7 / 7;
 
-      // If tagged as new/launch or similar, seed it so we can create inventory intentionally
       const tag = getTag(rowKeyFor(row));
       const driver = tag?.driver || "none";
       if (driver === "new" || driver === "hero" || driver === "influencer" || driver === "promo"){
         return Math.max(0, seedAvgDay);
       }
-
       return 0;
     }
 
@@ -1465,7 +1553,7 @@
       el("kSelected").textContent = String(SELECTED.size);
     }
 
-    // KPIs
+    // KPIs (sold_30 protected in location mode)
     function updateKPIs(){
       const rows = VIEW.length;
       let units = 0, retail = 0, sold30 = 0;
@@ -1473,6 +1561,7 @@
       let daysSum = 0, daysCount = 0;
 
       const riskThr = num(el("numRiskDays").value || 14);
+      const soldSeen = new Set(); // (source_id + sku) safety net for sold sums
 
       for (const r of VIEW){
         const u = num(r.avail_qty);
@@ -1482,7 +1571,22 @@
 
         units += u;
         retail += v;
-        sold30 += s;
+
+        if (MODE === "location"){
+          const sku = norm(r.sku);
+          if (sku){
+            const k = `${r.source_id}::${sku}`;
+            if (!soldSeen.has(k)){
+              soldSeen.add(k);
+              sold30 += s;
+            }
+          } else {
+            // no SKU fallback: include as-is
+            sold30 += s;
+          }
+        } else {
+          sold30 += s;
+        }
 
         if (d > 0){
           daysSum += d; daysCount++;
@@ -1561,6 +1665,8 @@
             tds.push(`<td class="px-3 py-2 ${align} text-xs text-slate-600">${escapeHtml(r.source_label || "—")}</td>`);
           } else if (c.key === "location"){
             tds.push(`<td class="px-3 py-2 ${align} text-xs">${escapeHtml(r.location || r.source_label || "—")}</td>`);
+          } else if (c.key === "inv_location"){
+            tds.push(`<td class="px-3 py-2 ${align} text-xs text-slate-600">${escapeHtml(r.inv_location || "—")}</td>`);
           } else if (c.key === "sku"){
             tds.push(`<td class="px-3 py-2 ${align} mono text-xs font-semibold">${escapeHtml(r.sku || "—")}</td>`);
           } else if (c.key === "barcode"){
@@ -1673,6 +1779,7 @@
                 ${driverBadgeForRow(row)}
                 ${row.product_type ? `<span class="badge border-slate-200 bg-slate-50 text-slate-700">${escapeHtml(row.product_type)}</span>` : ""}
                 ${row.vendor ? `<span class="badge border-slate-200 bg-white text-slate-700">Vendor: ${escapeHtml(row.vendor)}</span>` : ""}
+                ${row.inv_location ? `<span class="badge border-slate-200 bg-white text-slate-700">Inv locations: ${escapeHtml(row.inv_location)}</span>` : ""}
                 ${seasonalRatio !== null ? `<span class="badge border-slate-200 bg-white text-slate-700">Seasonality (30/90): ${seasonalRatio.toFixed(2)}x</span>` : ""}
                 ${staleDays !== null ? `<span class="badge border-slate-200 bg-white text-slate-700">Days since sold: ${staleDays.toFixed(0)}</span>` : ""}
               </div>
@@ -1902,6 +2009,9 @@
             VISIBLE[key] = !!e.target.checked;
             VISIBLE["_details"] = true;
             VISIBLE["image"] = true;
+
+            if (MODE === "location") VISIBLE["location"] = true;
+
             saveVisible(VISIBLE);
             render();
           });
@@ -1914,6 +2024,7 @@
           currentCols().forEach(c => VISIBLE[c.key] = !!c.default);
           VISIBLE["_details"] = true;
           VISIBLE["image"] = true;
+          if (MODE === "location") VISIBLE["location"] = true;
           saveVisible(VISIBLE);
           render();
           closeModal();
@@ -1922,6 +2033,7 @@
           currentCols().forEach(c => VISIBLE[c.key] = true);
           VISIBLE["_details"] = true;
           VISIBLE["image"] = true;
+          if (MODE === "location") VISIBLE["location"] = true;
           saveVisible(VISIBLE);
           render();
           closeModal();
@@ -1994,7 +2106,6 @@
             last_sold_date: r.last_sold_date || "",
             mode_added_from: MODE,
 
-            // new metadata (does not break old exports)
             strategy: STRATEGY,
             driver,
             driver_pct: driverPct
@@ -2087,6 +2198,7 @@
           variant: r.variant,
           source: MODE === "location" ? r.source_label : "",
           location: MODE === "location" ? r.location : "",
+          inv_location: MODE === "location" ? (r.inv_location || "") : "",
           locations_count: MODE === "company" ? r.locations_count : "",
           avail_qty: r.avail_qty,
           inv_value_msrp: r.inv_value,
@@ -2129,6 +2241,7 @@
           variant: r.variant,
           source: MODE === "location" ? r.source_label : "",
           location: MODE === "location" ? r.location : "",
+          inv_location: MODE === "location" ? (r.inv_location || "") : "",
           locations_count: MODE === "company" ? r.locations_count : "",
           avail_qty: r.avail_qty,
           inv_value_msrp: r.inv_value,
@@ -2174,7 +2287,6 @@
       el("btnStratGrowth").classList.toggle("active", STRATEGY === "growth");
       el("btnStratHybrid").classList.toggle("active", STRATEGY === "hybrid");
 
-      // If suggestions are enabled, recompute live
       if (SUGGEST_ENABLED) computeSuggestions();
       render();
     }
@@ -2291,7 +2403,6 @@
       const driver = el("selDriver").value;
       const pct = el("numDriverPct").value;
       applyTagToSelected(driver, pct);
-      // keep input but clear pct after apply (less accidental reuse)
       el("numDriverPct").value = "";
     });
 
@@ -2326,7 +2437,9 @@
     });
 
     el("btnCloseModal").addEventListener("click", closeModal);
-    el("modal").addEventListener("click", (e) => { if (e.target === el("modal")) closeModal(); });
+    el("modal").addEventListener("click", (e) => {
+      if (e.target && e.target.getAttribute && e.target.getAttribute("data-modal-overlay") === "1") closeModal();
+    });
 
     // Strategy buttons
     el("btnStratRepl").addEventListener("click", () => setStrategy("replenish"));
