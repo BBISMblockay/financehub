@@ -11,677 +11,655 @@
 
   <style>
     .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
-    .scrollbar::-webkit-scrollbar { height: 10px; width: 10px; }
-    .scrollbar::-webkit-scrollbar-thumb { background: rgba(148,163,184,.85); border-radius: 999px; }
+    .scrollbar::-webkit-scrollbar { height: 8px; width: 8px; }
+    .scrollbar::-webkit-scrollbar-thumb { background: rgba(148,163,184,.42); border-radius: 999px; }
     .scrollbar::-webkit-scrollbar-track { background: transparent; }
-    dialog::backdrop { background: rgba(15, 23, 42, 0.55); }
-    dialog { border: 0; background: transparent; }
 
     :root[data-theme="light"]{
-      --bg: #f6f7fb;
-      --panel: #ffffff;
-      --panel2: #f8fafc;
-      --panel3: #f1f5f9;
-      --border: rgba(15,23,42,.10);
-      --text: rgba(15,23,42,.92);
-      --muted: rgba(15,23,42,.68);
-      --muted2: rgba(15,23,42,.48);
-      --shadow1: 0 1px 2px rgba(2,6,23,.05);
-      --shadow2: 0 8px 18px rgba(2,6,23,.08);
-      --ring: rgba(37,99,235,.18);
-      --accent: #1d4ed8;
-      --danger: #b91c1c;
+      --bg: #f5f7fb;
+      --bg2: #eef2f8;
+      --panel: rgba(255,255,255,.82);
+      --panel-solid: #ffffff;
+      --panel-soft: #f8fafc;
+      --border: rgba(15,23,42,.08);
+      --border-strong: rgba(15,23,42,.12);
+      --text: rgba(15,23,42,.94);
+      --muted: rgba(15,23,42,.62);
+      --muted2: rgba(15,23,42,.46);
+      --accent: #2563eb;
+      --accent-soft: rgba(37,99,235,.10);
+      --good: #15803d;
       --warn: #b45309;
-      --good: #166534;
+      --danger: #dc2626;
+      --shadow-sm: 0 1px 2px rgba(15,23,42,.04);
+      --shadow-md: 0 12px 36px rgba(15,23,42,.08);
+      --ring: rgba(37,99,235,.12);
     }
 
     :root[data-theme="dark"]{
-      --bg: #070b18;
-      --panel: #0b1226;
-      --panel2: #0a1022;
-      --panel3: #0f172a;
-      --border: rgba(255,255,255,.12);
-      --text: rgba(255,255,255,.92);
-      --muted: rgba(255,255,255,.74);
-      --muted2: rgba(255,255,255,.54);
-      --shadow1: 0 1px 2px rgba(0,0,0,.55);
-      --shadow2: 0 10px 22px rgba(0,0,0,.50);
-      --ring: rgba(56,189,248,.18);
+      --bg: #0a1020;
+      --bg2: #0d1529;
+      --panel: rgba(15,23,42,.76);
+      --panel-solid: #0f172a;
+      --panel-soft: #111b31;
+      --border: rgba(255,255,255,.10);
+      --border-strong: rgba(255,255,255,.16);
+      --text: rgba(255,255,255,.94);
+      --muted: rgba(255,255,255,.68);
+      --muted2: rgba(255,255,255,.48);
       --accent: #60a5fa;
-      --danger: #fb7185;
+      --accent-soft: rgba(96,165,250,.14);
+      --good: #4ade80;
       --warn: #fbbf24;
-      --good: #22c55e;
+      --danger: #fb7185;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,.28);
+      --shadow-md: 0 14px 42px rgba(0,0,0,.32);
+      --ring: rgba(96,165,250,.16);
     }
 
+    * { box-sizing: border-box; }
     html, body {
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       letter-spacing: -0.01em;
-    }
-
-    body.themeable {
-      background: var(--bg);
+      background:
+        radial-gradient(1200px 500px at 10% -10%, color-mix(in oklab, var(--accent) 10%, transparent), transparent 60%),
+        linear-gradient(180deg, var(--bg2), var(--bg));
       color: var(--text);
     }
 
-    .app-shell{
-      min-height: 100vh;
-      display: grid;
-      grid-template-columns: 292px 1fr;
-    }
-    @media (max-width: 1024px){
-      .app-shell{ grid-template-columns: 1fr; }
+    body.themeable { min-height: 100vh; }
+
+    .shell {
+      max-width: 1540px;
+      margin: 0 auto;
+      padding: 20px;
     }
 
-    .sidebar{
-      position: sticky;
-      top: 0;
-      align-self: start;
-      height: 100vh;
-      padding: 16px;
-      border-right: 1px solid var(--border);
+    .glass {
       background: var(--panel);
-      box-shadow: var(--shadow1);
-    }
-    @media (max-width: 1024px){
-      .sidebar{
-        position: relative;
-        height: auto;
-        border-right: 0;
-        border-bottom: 1px solid var(--border);
-      }
-    }
-
-    .main { padding: 16px; }
-    .container { max-width: 1440px; margin: 0 auto; }
-
-    .card{
-      background: var(--panel);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
       border: 1px solid var(--border);
-      border-radius: 12px;
-      box-shadow: var(--shadow1);
+      box-shadow: var(--shadow-sm);
     }
 
-    .btn{
-      display:inline-flex; align-items:center; justify-content:center;
-      height: 38px;
-      padding: 0 .9rem;
-      border-radius: 10px;
-      border: 1px solid var(--border);
+    .card {
       background: var(--panel);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .card-solid {
+      background: var(--panel-solid);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .toolbar {
+      border-radius: 22px;
+      padding: 14px;
+    }
+
+    .section-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .14em;
+      color: var(--muted2);
       font-weight: 800;
-      font-size: .875rem;
-      transition: background .12s ease, box-shadow .12s ease, transform .08s ease;
-      white-space: nowrap;
-      user-select: none;
-      cursor: pointer;
-    }
-    .btn:hover{ background: var(--panel2); box-shadow: var(--shadow2); }
-    .btn:active{ transform: translateY(1px); }
-    .btn:focus{ outline:none; box-shadow: 0 0 0 4px var(--ring); }
-
-    .btn-primary{
-      background: var(--accent);
-      color: #fff;
-      border-color: color-mix(in oklab, var(--accent) 80%, #000);
-      box-shadow: 0 6px 14px color-mix(in oklab, var(--accent) 18%, transparent);
-    }
-    .btn-primary:hover{ background: color-mix(in oklab, var(--accent) 90%, #000); }
-
-    :root[data-theme="dark"] .btn-primary{
-      color: #071122;
-      background: color-mix(in oklab, var(--accent) 86%, white);
-      border-color: color-mix(in oklab, var(--accent) 80%, white);
     }
 
-    .btn-ghost{
-      background: transparent;
-      border-color: color-mix(in oklab, var(--border) 70%, transparent);
-      box-shadow: none;
-    }
-    .btn-ghost:hover{ background: var(--panel2); box-shadow: none; }
-
-    .btn-danger{
-      background: color-mix(in oklab, var(--danger) 10%, var(--panel));
-      color: var(--danger);
-      border-color: color-mix(in oklab, var(--danger) 35%, var(--border));
+    .headline {
+      font-size: 28px;
+      line-height: 1.05;
+      letter-spacing: -0.04em;
+      font-weight: 800;
+      margin: 0;
     }
 
-    .field,
-    .select,
-    .textarea {
-      width: 100%;
-      border-radius: 10px;
+    .subtle {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .btn {
+      appearance: none;
       border: 1px solid var(--border);
-      background: var(--panel);
+      background: rgba(255,255,255,.32);
       color: var(--text);
-      font-size: .92rem;
+      height: 40px;
+      padding: 0 14px;
+      border-radius: 12px;
+      font-size: 14px;
       font-weight: 700;
+      cursor: pointer;
+      transition: .14s ease;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      white-space: nowrap;
+    }
+    .btn:hover {
+      border-color: var(--border-strong);
+      background: var(--panel-soft);
+      transform: translateY(-1px);
+    }
+    .btn:focus {
+      outline: none;
+      box-shadow: 0 0 0 4px var(--ring);
+    }
+    .btn-primary {
+      background: var(--text);
+      color: #fff;
+      border-color: transparent;
+      box-shadow: var(--shadow-sm);
+    }
+    :root[data-theme="dark"] .btn-primary {
+      background: color-mix(in oklab, var(--accent) 80%, white);
+      color: #08111f;
+    }
+    .btn-primary:hover { filter: brightness(.98); }
+    .btn-danger {
+      color: var(--danger);
+      border-color: color-mix(in oklab, var(--danger) 26%, var(--border));
+      background: transparent;
     }
 
-    .field, .select { height: 40px; padding: 0 .85rem; }
-    .textarea { min-height: 90px; padding: .75rem .85rem; resize: vertical; }
-
-    .field:focus,
-    .select:focus,
-    .textarea:focus{
-      outline:none;
+    .field, .select, .textarea {
+      width: 100%;
+      border: 1px solid var(--border);
+      background: color-mix(in oklab, var(--panel-solid) 90%, transparent);
+      color: var(--text);
+      border-radius: 14px;
+      font-size: 14px;
+      font-weight: 600;
+      transition: .14s ease;
+    }
+    .field, .select {
+      height: 42px;
+      padding: 0 13px;
+    }
+    .textarea {
+      min-height: 110px;
+      padding: 12px 13px;
+      resize: vertical;
+    }
+    .field:focus, .select:focus, .textarea:focus {
+      outline: none;
+      border-color: color-mix(in oklab, var(--accent) 28%, var(--border));
       box-shadow: 0 0 0 4px var(--ring);
     }
 
-    .pill{
-      display:inline-flex;
-      align-items:center;
-      gap:.45rem;
-      padding:.22rem .65rem;
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      height: 32px;
+      padding: 0 12px;
       border-radius: 999px;
       border: 1px solid var(--border);
-      background: var(--panel2);
-      font-size:.72rem;
-      font-weight: 900;
-      letter-spacing:.02em;
       color: var(--muted);
-      white-space: nowrap;
+      font-size: 12px;
+      font-weight: 700;
+      background: rgba(255,255,255,.24);
     }
 
-    .dot{ width:.44rem; height:.44rem; border-radius:999px; display:inline-block; }
-    .pill-danger{ color: var(--danger); border-color: color-mix(in oklab, var(--danger) 30%, var(--border)); }
-    .pill-warn{ color: var(--warn); border-color: color-mix(in oklab, var(--warn) 30%, var(--border)); }
-    .pill-good{ color: var(--good); border-color: color-mix(in oklab, var(--good) 30%, var(--border)); }
-
-    .section-title{
-      font-size: .72rem;
-      letter-spacing: .14em;
-      text-transform: uppercase;
-      color: var(--muted2);
-      font-weight: 900;
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      display: inline-block;
+      background: var(--accent);
     }
 
-    .muted{ color: var(--muted); }
-    .muted2{ color: var(--muted2); }
-
-    .divider{ height: 1px; background: var(--border); width: 100%; }
-
-    .kbd{
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      font-size: 11px;
-      padding: 2px 6px;
-      border-radius: 8px;
+    .metric {
+      padding: 18px 18px 16px;
+      border-radius: 18px;
+      background: color-mix(in oklab, var(--panel-solid) 92%, transparent);
       border: 1px solid var(--border);
-      background: var(--panel2);
+    }
+    .metric .label {
+      font-size: 12px;
       color: var(--muted);
-      font-weight: 900;
+      font-weight: 700;
+    }
+    .metric .value {
+      font-size: 28px;
+      line-height: 1.05;
+      letter-spacing: -0.04em;
+      font-weight: 800;
+      margin-top: 10px;
+    }
+    .metric .sub {
+      font-size: 12px;
+      color: var(--muted2);
+      margin-top: 7px;
+      line-height: 1.45;
     }
 
-    .table{
+    .table-wrap {
+      overflow: auto;
+      border-radius: 18px;
+      border: 1px solid var(--border);
+      background: color-mix(in oklab, var(--panel-solid) 94%, transparent);
+    }
+    table {
       width: 100%;
       border-collapse: separate;
       border-spacing: 0;
-      overflow: hidden;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      background: var(--panel);
+      min-width: 980px;
     }
-    .table thead th{
-      font-size: .68rem;
-      letter-spacing: .14em;
+    thead th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      background: color-mix(in oklab, var(--panel-soft) 92%, transparent);
+      color: var(--muted2);
+      font-size: 11px;
       text-transform: uppercase;
-      color: var(--muted2);
-      background: var(--panel2);
-      border-bottom: 1px solid var(--border);
-      padding: .75rem .85rem;
-      white-space: nowrap;
-      font-weight: 900;
+      letter-spacing: .12em;
+      font-weight: 800;
       text-align: left;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
     }
-    .table tbody td{
-      padding: .75rem .85rem;
-      border-bottom: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+    tbody td {
+      padding: 15px 16px;
+      border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
       vertical-align: top;
+      font-size: 14px;
     }
-    .table tbody tr:hover td{ background: var(--panel2); }
-    .table tbody tr:last-child td{ border-bottom: 0; }
+    tbody tr:hover td {
+      background: color-mix(in oklab, var(--panel-soft) 62%, transparent);
+    }
+    tbody tr:last-child td { border-bottom: 0; }
 
-    .metric{
-      padding: 14px;
-      min-height: 108px;
-      display:flex;
-      flex-direction:column;
-      justify-content:space-between;
-    }
-    .metric .label{
-      font-size: .78rem;
-      color: var(--muted);
-      font-weight: 900;
-      display:flex;
-      align-items:center;
-      gap:.45rem;
-    }
-    .metric .value{
-      font-size: 1.72rem;
-      font-weight: 950;
-      line-height: 1.04;
-      letter-spacing: -0.03em;
-      margin-top: 8px;
-    }
-    .metric .sub{
-      font-size: .76rem;
+    .empty-state {
+      padding: 30px 18px;
+      text-align: center;
       color: var(--muted2);
-      margin-top: 6px;
-      line-height: 1.25;
+      font-size: 14px;
+      font-weight: 600;
     }
 
-    .status{
-      border-radius: 10px;
-      padding: .75rem .9rem;
+    .status {
+      border-radius: 14px;
+      padding: 13px 14px;
       border: 1px solid var(--border);
-      background: var(--panel2);
-      font-size: .88rem;
-      font-weight: 700;
+      background: color-mix(in oklab, var(--panel-soft) 92%, transparent);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
     }
 
-    .drawer{
+    .drawer {
       position: fixed;
       inset: 0;
       pointer-events: none;
       z-index: 60;
     }
-    .drawer.open{ pointer-events: auto; }
-    .drawer .overlay{
+    .drawer.open { pointer-events: auto; }
+    .drawer .overlay {
       position: absolute;
       inset: 0;
-      background: rgba(2,6,23,.55);
+      background: rgba(2,6,23,.46);
       opacity: 0;
       transition: opacity .16s ease;
     }
-    .drawer.open .overlay{ opacity: 1; }
-    .drawer .panel{
+    .drawer.open .overlay { opacity: 1; }
+    .drawer .panel {
       position: absolute;
-      top: 0;
-      right: 0;
-      width: min(700px, calc(100vw - 24px));
-      height: 100%;
-      background: var(--panel);
-      border-left: 1px solid var(--border);
-      box-shadow: var(--shadow2);
-      transform: translateX(14px);
-      opacity: 0;
-      transition: transform .16s ease, opacity .16s ease;
-      display:flex;
-      flex-direction: column;
-    }
-    .drawer.open .panel{ transform: translateX(0); opacity: 1; }
-
-    .history-item{
+      top: 14px;
+      right: 14px;
+      bottom: 14px;
+      width: min(720px, calc(100vw - 28px));
+      background: var(--panel-solid);
       border: 1px solid var(--border);
-      background: var(--panel2);
-      border-radius: 12px;
-      padding: 12px;
+      border-radius: 22px;
+      box-shadow: var(--shadow-md);
+      transform: translateX(12px);
+      opacity: 0;
+      transition: .16s ease;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .drawer.open .panel {
+      transform: translateX(0);
+      opacity: 1;
     }
 
-    .empty-state{
-      padding: 1rem;
-      border: 1px dashed var(--border);
-      border-radius: 12px;
-      color: var(--muted2);
-      background: var(--panel2);
-      text-align: center;
-      font-weight: 700;
+    .history-item {
+      border: 1px solid var(--border);
+      background: color-mix(in oklab, var(--panel-soft) 92%, transparent);
+      border-radius: 16px;
+      padding: 14px;
     }
 
-    @media (max-width: 768px){
-      .mobile-stack{ grid-template-columns: 1fr !important; }
-      .hide-mobile{ display:none; }
+    .sticky-side {
+      position: sticky;
+      top: 20px;
+    }
+
+    .toolbar-grid {
+      display: grid;
+      grid-template-columns: 1.1fr 1.1fr 1.3fr 1fr 1.5fr auto auto auto;
+      gap: 10px;
+      align-items: end;
+    }
+
+    .layout-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .header-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-bottom: 18px;
+    }
+
+    .topbar {
+      border-radius: 22px;
+      padding: 14px 16px;
+      margin-bottom: 18px;
+    }
+
+    .topbar-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+
+    .summary-list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .summary-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 0;
+      border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+    }
+    .summary-row:last-child { border-bottom: 0; }
+
+    @media (max-width: 1220px) {
+      .toolbar-grid {
+        grid-template-columns: repeat(4, minmax(0,1fr));
+      }
+      .layout-grid {
+        grid-template-columns: 1fr;
+      }
+      .sticky-side {
+        position: static;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .shell { padding: 14px; }
+      .toolbar-grid { grid-template-columns: 1fr; }
+      .headline { font-size: 24px; }
+      .metric .value { font-size: 24px; }
+      .drawer .panel {
+        top: 8px;
+        right: 8px;
+        bottom: 8px;
+        width: calc(100vw - 16px);
+      }
     }
   </style>
 </head>
 <body class="themeable">
-  <div id="authBar" style="position:fixed; top:14px; right:16px; z-index:9999;" class="flex items-center gap-3 text-sm">
-    <span id="authEmail" class="text-slate-600"></span>
-    <button id="logoutBtn" class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-800 hover:bg-slate-50">
-      Logout
-    </button>
-  </div>
+  <div class="shell">
+    <div class="topbar glass">
+      <div class="topbar-row">
+        <div class="flex items-center gap-3 flex-wrap">
+          <div class="pill"><span class="dot"></span>Silo ERP</div>
+          <div class="pill" id="statusPill"><span class="dot"></span>Ready</div>
+          <div class="pill" id="selectionPill">Selection: All</div>
+        </div>
 
-  <div class="app-shell">
-    <aside class="sidebar">
-      <div class="flex items-start justify-between gap-3">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span id="authEmail" class="text-sm" style="color: var(--muted);"></span>
+          <button id="themeBtn" class="btn"><span id="themeLabel">Light</span></button>
+          <button id="logoutBtn" class="btn">Logout</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="header-row">
+      <div>
+        <div class="section-label">Revenue Planning</div>
+        <h1 class="headline mt-2">Projections</h1>
+        <div class="subtle mt-2">
+          Daily projected units and sales by location, built for fast editing, importing, reporting, and audit review.
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 flex-wrap">
+        <button id="reloadBtn" class="btn">Reload</button>
+        <button id="downloadTemplateBtn" class="btn">Template</button>
+        <button id="exportBtn" class="btn">Export CSV</button>
+        <label for="importFile" class="btn">Import CSV</label>
+        <input id="importFile" type="file" accept=".csv,text/csv" class="hidden" />
+        <button id="newProjectionBtn" class="btn btn-primary">New projection</button>
+      </div>
+    </div>
+
+    <div class="card toolbar p-4">
+      <div class="toolbar-grid">
         <div>
-          <div class="flex items-center gap-2 flex-wrap">
-            <span class="pill"><span class="dot" style="background: var(--accent)"></span>Silo ERP</span>
-            <span class="pill">Revenue Projections</span>
-          </div>
-          <h1 class="mt-2 text-lg font-semibold tracking-tight">Projection Planner</h1>
-          <p class="mt-1 text-xs muted2">
-            Manage daily forecast rows by location, import/export updates, and review audit history.
-          </p>
+          <label class="section-label mb-2 block">Date from</label>
+          <input id="filterDateFrom" type="date" class="field" />
         </div>
-
-        <button id="themeBtn" class="btn btn-ghost" title="Toggle theme">
-          Theme <span id="themeLabel" class="ml-2 font-extrabold">Light</span>
-        </button>
+        <div>
+          <label class="section-label mb-2 block">Date to</label>
+          <input id="filterDateTo" type="date" class="field" />
+        </div>
+        <div>
+          <label class="section-label mb-2 block">Location</label>
+          <select id="filterLocation" class="select">
+            <option value="">All locations</option>
+          </select>
+        </div>
+        <div>
+          <label class="section-label mb-2 block">Source</label>
+          <select id="filterSource" class="select">
+            <option value="">All sources</option>
+          </select>
+        </div>
+        <div>
+          <label class="section-label mb-2 block">Search</label>
+          <input id="filterSearch" type="text" class="field" placeholder="Notes or location" />
+        </div>
+        <button id="thisMonthBtn" class="btn">This month</button>
+        <button id="next30Btn" class="btn">Next 30 days</button>
+        <button id="clearFiltersBtn" class="btn">Clear</button>
       </div>
+    </div>
 
-      <div class="mt-4 card p-4">
-        <div class="flex items-center justify-between gap-3">
+    <div class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div class="metric card">
+        <div class="label">Filtered projections</div>
+        <div id="kpiRows" class="mono value">—</div>
+        <div id="kpiRowsSub" class="sub">Matching current filters</div>
+      </div>
+      <div class="metric card">
+        <div class="label">Projected units</div>
+        <div id="kpiUnits" class="mono value">—</div>
+        <div id="kpiUnitsSub" class="sub">Sum of filtered units</div>
+      </div>
+      <div class="metric card">
+        <div class="label">Projected sales</div>
+        <div id="kpiSales" class="mono value">—</div>
+        <div id="kpiSalesSub" class="sub">Sum of filtered sales</div>
+      </div>
+      <div class="metric card">
+        <div class="label">Active locations</div>
+        <div id="kpiLocations" class="mono value">—</div>
+        <div id="kpiLocationsSub" class="sub">Distinct locations in view</div>
+      </div>
+    </div>
+
+    <div class="layout-grid mt-4">
+      <section class="card p-4">
+        <div class="flex items-start justify-between gap-4 flex-wrap mb-4">
           <div>
-            <div class="section-title">Actions</div>
-            <div class="mt-1 text-sm font-extrabold muted">Projection tools</div>
+            <div class="section-label">Projection table</div>
+            <div class="mt-2" style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em;">Revenue rows</div>
+            <div class="subtle mt-1">Table-first workflow with edit and audit actions on each row.</div>
           </div>
-          <div class="kbd">P</div>
-        </div>
-
-        <div class="mt-4 flex flex-col gap-2">
-          <button id="newProjectionBtn" class="btn btn-primary w-full">New projection</button>
-          <button id="reloadBtn" class="btn w-full">Reload data</button>
-          <button id="exportBtn" class="btn w-full">Export filtered CSV</button>
-          <button id="downloadTemplateBtn" class="btn w-full">Download import template</button>
-          <label for="importFile" class="btn w-full cursor-pointer">Import CSV</label>
-          <input id="importFile" type="file" accept=".csv,text/csv" class="hidden" />
-          <button id="openHistoryDrawerBtn" class="btn w-full">Audit history</button>
-        </div>
-
-        <div class="mt-4 divider"></div>
-
-        <div class="mt-3 flex items-center justify-between gap-2 text-xs muted2">
-          <span>Updated</span>
-          <span id="lastUpdated" class="mono">—</span>
-        </div>
-      </div>
-
-      <div class="mt-4 card p-4">
-        <div class="flex items-center justify-between gap-3">
-          <div>
-            <div class="section-title">Import notes</div>
-            <div class="mt-1 text-sm font-extrabold muted">Accepted headers</div>
-          </div>
-          <div class="kbd">CSV</div>
-        </div>
-
-        <div class="mt-3 text-xs muted leading-6">
-          projection_date<br>
-          location_name or location_code<br>
-          projected_units<br>
-          projected_sales<br>
-          notes<br>
-          source
-        </div>
-
-        <div class="mt-3 text-xs muted2">
-          Existing rows update by <span class="mono">projection_date + location</span>. New rows insert automatically.
-        </div>
-      </div>
-
-      <div class="mt-4 card p-4">
-        <div class="flex items-center justify-between gap-3">
-          <div>
-            <div class="section-title">Filters</div>
-            <div class="mt-1 text-sm font-extrabold muted">Quick reset</div>
+          <div class="text-sm" style="color: var(--muted);">
+            Rows loaded: <span id="tableCount" class="mono">0</span> · Updated <span id="lastUpdated" class="mono">—</span>
           </div>
         </div>
 
-        <div class="mt-3 flex flex-col gap-2">
-          <button id="thisMonthBtn" class="btn w-full">This month</button>
-          <button id="next30Btn" class="btn w-full">Next 30 days</button>
-          <button id="clearFiltersBtn" class="btn w-full">Clear filters</button>
+        <div class="table-wrap scrollbar">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Location</th>
+                <th class="text-right">Units</th>
+                <th class="text-right">Sales</th>
+                <th>Source</th>
+                <th>Notes</th>
+                <th>Updated</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="projectionTableBody">
+              <tr><td colspan="8" class="empty-state">Loading…</td></tr>
+            </tbody>
+          </table>
         </div>
-      </div>
+      </section>
 
-      <div class="mt-4 card p-4">
-        <div class="section-title">Shortcuts</div>
-        <div class="mt-3 grid grid-cols-1 gap-2 text-xs muted2">
-          <div class="flex items-center justify-between gap-2"><span>Reload</span><span class="kbd">⌘/Ctrl + K</span></div>
-          <div class="flex items-center justify-between gap-2"><span>New row</span><span class="kbd">N</span></div>
-          <div class="flex items-center justify-between gap-2"><span>Theme</span><span class="kbd">T</span></div>
-          <div class="flex items-center justify-between gap-2"><span>History</span><span class="kbd">H</span></div>
-          <div class="flex items-center justify-between gap-2"><span>Save</span><span class="kbd">S</span></div>
+      <aside class="sticky-side flex flex-col gap-4">
+        <div class="card p-5">
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div class="section-label">Edit projection</div>
+              <div class="mt-2" style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em;">Create or adjust</div>
+              <div class="subtle mt-1">One active row per date and location.</div>
+            </div>
+            <div class="pill" id="editingPill">Mode: New</div>
+          </div>
+
+          <div class="mt-4 space-y-3">
+            <div>
+              <label class="section-label mb-2 block">Projection date</label>
+              <input id="formProjectionDate" type="date" class="field" />
+            </div>
+
+            <div>
+              <label class="section-label mb-2 block">Location</label>
+              <select id="formLocation" class="select">
+                <option value="">Select location</option>
+              </select>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="section-label mb-2 block">Projected units</label>
+                <input id="formProjectedUnits" type="number" min="0" step="1" class="field mono" placeholder="0" />
+              </div>
+              <div>
+                <label class="section-label mb-2 block">Projected sales</label>
+                <input id="formProjectedSales" type="number" min="0" step="0.01" class="field mono" placeholder="0.00" />
+              </div>
+            </div>
+
+            <div>
+              <label class="section-label mb-2 block">Source</label>
+              <input id="formSource" type="text" class="field" placeholder="manual, import, forecast_model" />
+            </div>
+
+            <div>
+              <label class="section-label mb-2 block">Notes</label>
+              <textarea id="formNotes" class="textarea" placeholder="Context, assumptions, promo timing, overrides, commentary"></textarea>
+            </div>
+          </div>
+
+          <div class="mt-4 flex flex-wrap gap-2">
+            <button id="saveProjectionBtn" class="btn btn-primary">Save projection</button>
+            <button id="clearFormBtn" class="btn">Clear</button>
+            <button id="deleteProjectionBtn" class="btn btn-danger hidden">Delete</button>
+            <button id="viewSelectedHistoryBtn" class="btn">Audit selected</button>
+          </div>
         </div>
-      </div>
-    </aside>
 
-    <main class="main">
-      <div class="container space-y-4">
-        <div class="grid grid-cols-1 gap-4 lg:grid-cols-12">
-          <section class="lg:col-span-8 space-y-4">
-            <div class="card p-5">
-              <div class="flex items-start justify-between gap-4 flex-wrap">
-                <div>
-                  <div class="section-title">Snapshot</div>
-                  <h2 class="mt-2 text-xl font-semibold tracking-tight">Revenue forecast workspace</h2>
-                  <p class="mt-2 text-sm muted">
-                    Maintain projected units and sales by day and location, then filter or export the working view.
-                  </p>
-                </div>
-                <div class="flex flex-wrap items-center gap-2">
-                  <span id="statusPill" class="pill"><span class="dot" style="background: var(--accent)"></span>Status: —</span>
-                  <span id="selectionPill" class="pill"><span class="dot" style="background: var(--accent)"></span>Selection: All</span>
-                </div>
-              </div>
-
-              <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <div class="card metric">
-                  <div class="label">
-                    <span class="pill"><span class="dot" style="background: var(--accent)"></span>Rows</span>
-                    Filtered projections
-                  </div>
-                  <div>
-                    <div id="kpiRows" class="mono value">—</div>
-                    <div id="kpiRowsSub" class="sub">Matching current filter view</div>
-                  </div>
-                </div>
-
-                <div class="card metric">
-                  <div class="label">
-                    <span class="pill pill-good"><span class="dot" style="background: var(--good)"></span>Units</span>
-                    Projected units
-                  </div>
-                  <div>
-                    <div id="kpiUnits" class="mono value">—</div>
-                    <div id="kpiUnitsSub" class="sub">Sum of filtered units</div>
-                  </div>
-                </div>
-
-                <div class="card metric">
-                  <div class="label">
-                    <span class="pill pill-good"><span class="dot" style="background: var(--good)"></span>Sales</span>
-                    Projected sales
-                  </div>
-                  <div>
-                    <div id="kpiSales" class="mono value">—</div>
-                    <div id="kpiSalesSub" class="sub">Sum of filtered projected sales</div>
-                  </div>
-                </div>
-
-                <div class="card metric">
-                  <div class="label">
-                    <span class="pill"><span class="dot" style="background: var(--accent)"></span>Locations</span>
-                    Active in view
-                  </div>
-                  <div>
-                    <div id="kpiLocations" class="mono value">—</div>
-                    <div id="kpiLocationsSub" class="sub">Distinct filtered locations</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="card p-5">
-              <div class="flex items-start justify-between gap-3 flex-wrap">
-                <div>
-                  <div class="section-title">Filters</div>
-                  <h3 class="mt-2 text-lg font-semibold">Reporting controls</h3>
-                  <p class="mt-1 text-sm muted">Filter the table, KPI tiles, and export output.</p>
-                </div>
-                <button id="applyFiltersBtn" class="btn btn-primary">Apply filters</button>
-              </div>
-
-              <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5 mobile-stack">
-                <div>
-                  <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Date from</label>
-                  <input id="filterDateFrom" type="date" class="field" />
-                </div>
-                <div>
-                  <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Date to</label>
-                  <input id="filterDateTo" type="date" class="field" />
-                </div>
-                <div>
-                  <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Location</label>
-                  <select id="filterLocation" class="select">
-                    <option value="">All locations</option>
-                  </select>
-                </div>
-                <div>
-                  <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Source</label>
-                  <select id="filterSource" class="select">
-                    <option value="">All sources</option>
-                  </select>
-                </div>
-                <div>
-                  <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Search notes</label>
-                  <input id="filterSearch" type="text" class="field" placeholder="Search notes or location" />
-                </div>
-              </div>
-            </div>
-
-            <div class="card p-5">
-              <div class="flex items-start justify-between gap-3 flex-wrap">
-                <div>
-                  <div class="section-title">Projection entry</div>
-                  <h3 class="mt-2 text-lg font-semibold">Create or adjust projection</h3>
-                  <p class="mt-1 text-sm muted">Save will insert a new row or update the existing row for that date and location.</p>
-                </div>
-                <div class="flex items-center gap-2 flex-wrap">
-                  <span id="editingPill" class="pill"><span class="dot" style="background: var(--accent)"></span>Mode: New</span>
-                  <button id="clearFormBtn" class="btn">Clear form</button>
-                </div>
-              </div>
-
-              <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4 mobile-stack">
-                <div>
-                  <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Projection date</label>
-                  <input id="formProjectionDate" type="date" class="field" />
-                </div>
-                <div>
-                  <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Location</label>
-                  <select id="formLocation" class="select">
-                    <option value="">Select location</option>
-                  </select>
-                </div>
-                <div>
-                  <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Projected units</label>
-                  <input id="formProjectedUnits" type="number" min="0" step="1" class="field mono" placeholder="0" />
-                </div>
-                <div>
-                  <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Projected sales</label>
-                  <input id="formProjectedSales" type="number" min="0" step="0.01" class="field mono" placeholder="0.00" />
-                </div>
-              </div>
-
-              <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 mobile-stack">
-                <div>
-                  <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Source</label>
-                  <input id="formSource" type="text" class="field" placeholder="manual, import, forecast_model" />
-                </div>
-                <div>
-                  <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Notes</label>
-                  <textarea id="formNotes" class="textarea" placeholder="Context, assumptions, overrides, promo timing, etc."></textarea>
-                </div>
-              </div>
-
-              <div class="mt-4 flex items-center gap-2 flex-wrap">
-                <button id="saveProjectionBtn" class="btn btn-primary">Save projection</button>
-                <button id="deleteProjectionBtn" class="btn btn-danger hidden">Delete current row</button>
-                <button id="viewSelectedHistoryBtn" class="btn">View selected history</button>
-                <span class="text-xs muted2">Audit trail writes automatically on insert, update, and delete.</span>
-              </div>
-            </div>
-
-            <div class="card p-5">
-              <div class="flex items-start justify-between gap-3 flex-wrap">
-                <div>
-                  <div class="section-title">Data</div>
-                  <h3 class="mt-2 text-lg font-semibold">Projection table</h3>
-                  <p class="mt-1 text-sm muted">Edit a row to load it into the form. Export respects current filters.</p>
-                </div>
-                <div class="text-xs muted2">
-                  Rows loaded: <span id="tableCount" class="mono">0</span>
-                </div>
-              </div>
-
-              <div class="mt-4 overflow-x-auto scrollbar">
-                <table class="table min-w-full text-sm">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Location</th>
-                      <th class="text-right">Units</th>
-                      <th class="text-right">Sales</th>
-                      <th>Source</th>
-                      <th>Notes</th>
-                      <th>Updated</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody id="projectionTableBody">
-                    <tr><td colspan="8" class="muted2">Loading…</td></tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </section>
-
-          <aside class="lg:col-span-4 space-y-4">
-            <div class="card p-5">
-              <div class="section-title">Reporting</div>
-              <h3 class="mt-2 text-lg font-semibold">Location summary</h3>
-              <p class="mt-1 text-sm muted">Current filtered totals by location.</p>
-              <div id="locationSummary" class="mt-4 space-y-2">
-                <div class="text-sm muted2">Loading…</div>
-              </div>
-            </div>
-
-            <div class="card p-5">
-              <div class="section-title">Quality</div>
-              <h3 class="mt-2 text-lg font-semibold">Data health</h3>
-              <p class="mt-1 text-sm muted">Checks across current filters and form state.</p>
-              <div id="healthSummary" class="mt-4 space-y-2">
-                <div class="status">Waiting for data…</div>
-              </div>
-            </div>
-
-            <div class="card p-5">
-              <div class="section-title">Import results</div>
-              <h3 class="mt-2 text-lg font-semibold">Last import</h3>
-              <p class="mt-1 text-sm muted">Summary of the most recent CSV upload.</p>
-              <div id="importSummary" class="mt-4">
-                <div class="empty-state">No import run yet.</div>
-              </div>
-            </div>
-          </aside>
+        <div class="card p-5">
+          <div class="section-label">Location summary</div>
+          <div class="mt-2" style="font-size: 18px; font-weight: 700; letter-spacing: -0.03em;">Filtered totals</div>
+          <div class="summary-list mt-4" id="locationSummary">
+            <div class="empty-state">Loading…</div>
+          </div>
         </div>
-      </div>
-    </main>
+
+        <div class="card p-5">
+          <div class="section-label">Data health</div>
+          <div class="mt-2" style="font-size: 18px; font-weight: 700; letter-spacing: -0.03em;">Checks</div>
+          <div class="mt-4 space-y-2" id="healthSummary">
+            <div class="status">Waiting for data…</div>
+          </div>
+        </div>
+
+        <div class="card p-5">
+          <div class="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div class="section-label">Audit + import</div>
+              <div class="mt-2" style="font-size: 18px; font-weight: 700; letter-spacing: -0.03em;">Recent tools</div>
+            </div>
+            <button id="openHistoryDrawerBtn" class="btn">Open audit</button>
+          </div>
+
+          <div class="mt-4" id="importSummary">
+            <div class="empty-state">No import run yet.</div>
+          </div>
+        </div>
+      </aside>
+    </div>
   </div>
 
   <div id="historyDrawer" class="drawer" aria-hidden="true">
     <div class="overlay" id="historyOverlay"></div>
     <div class="panel">
-      <div class="p-5 border-b" style="border-color: var(--border);">
-        <div class="flex items-start justify-between gap-3">
+      <div class="p-5" style="border-bottom: 1px solid var(--border);">
+        <div class="flex items-start justify-between gap-3 flex-wrap">
           <div>
-            <div class="section-title">Audit</div>
-            <h3 class="mt-2 text-lg font-semibold">Projection history</h3>
-            <p id="historySubtitle" class="mt-1 text-sm muted">Most recent changes across revenue projections.</p>
+            <div class="section-label">Audit history</div>
+            <div class="mt-2" style="font-size: 24px; font-weight: 800; letter-spacing: -0.04em;">Projection changes</div>
+            <div id="historySubtitle" class="subtle mt-2">Most recent changes across revenue projections.</div>
           </div>
           <button id="closeHistoryDrawerBtn" class="btn">Close</button>
         </div>
 
-        <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3 mobile-stack">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5">
           <div>
-            <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Date from</label>
+            <label class="section-label mb-2 block">Date from</label>
             <input id="historyDateFrom" type="date" class="field" />
           </div>
           <div>
-            <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Date to</label>
+            <label class="section-label mb-2 block">Date to</label>
             <input id="historyDateTo" type="date" class="field" />
           </div>
           <div class="flex items-end">
@@ -690,15 +668,9 @@
         </div>
       </div>
 
-      <div class="p-5 overflow-y-auto scrollbar" style="flex: 1;">
+      <div class="p-5 overflow-y-auto scrollbar" style="flex:1;">
         <div id="historyList" class="space-y-3">
-          <div class="text-sm muted2">Loading…</div>
-        </div>
-      </div>
-
-      <div class="p-5 border-t" style="border-color: var(--border); background: var(--panel2);">
-        <div class="text-xs muted2">
-          History is pulled from <span class="mono">revenue_projection_history</span>.
+          <div class="empty-state">Loading…</div>
         </div>
       </div>
     </div>
@@ -709,14 +681,13 @@
     let supabaseClient = null;
 
     const state = {
-      themeKey: "silo_projections_theme_v1",
+      themeKey: "silo_projections_theme_v2",
       locations: [],
       projections: [],
       filtered: [],
       history: [],
       selectedProjection: null,
-      importResult: null,
-      loading: false
+      importResult: null
     };
 
     const el = (id) => document.getElementById(id);
@@ -738,8 +709,6 @@
     const thisMonthBtn = el("thisMonthBtn");
     const next30Btn = el("next30Btn");
     const clearFiltersBtn = el("clearFiltersBtn");
-    const applyFiltersBtn = el("applyFiltersBtn");
-
     const filterDateFrom = el("filterDateFrom");
     const filterDateTo = el("filterDateTo");
     const filterLocation = el("filterLocation");
@@ -812,14 +781,6 @@
       if (!s) return 0;
       const n = Number(s);
       return Number.isFinite(n) ? n : 0;
-    }
-
-    function fmtDate(value) {
-      if (!value) return "—";
-      const d = new Date(value + "T00:00:00");
-      return Number.isNaN(d.getTime())
-        ? String(value)
-        : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
     }
 
     function fmtDateTime(value) {
@@ -899,22 +860,19 @@
     }
 
     function setStatus(text, tone = "neutral") {
-      if (!statusPill) return;
-      const cls = tone === "danger" ? "pill pill-danger" : (tone === "warn" ? "pill pill-warn" : (tone === "good" ? "pill pill-good" : "pill"));
-      const dot = tone === "danger" ? "var(--danger)" : (tone === "warn" ? "var(--warn)" : (tone === "good" ? "var(--good)" : "var(--accent)"));
-      statusPill.className = cls;
-      statusPill.innerHTML = `<span class="dot" style="background:${dot}"></span>Status: ${escapeHtml(text)}`;
+      const dot = tone === "danger"
+        ? "var(--danger)"
+        : tone === "warn"
+          ? "var(--warn)"
+          : tone === "good"
+            ? "var(--good)"
+            : "var(--accent)";
+      statusPill.innerHTML = `<span class="dot" style="background:${dot}"></span>${escapeHtml(text)}`;
     }
 
     function setEditingMode(isEdit) {
-      if (!editingPill) return;
-      editingPill.innerHTML = `<span class="dot" style="background: var(--accent)"></span>Mode: ${isEdit ? "Edit" : "New"}`;
+      editingPill.textContent = `Mode: ${isEdit ? "Edit" : "New"}`;
       deleteProjectionBtn.classList.toggle("hidden", !isEdit);
-    }
-
-    function getSelectedLocationObject() {
-      const locId = String(formLocation.value || "");
-      return state.locations.find(l => String(l.id) === locId) || null;
     }
 
     function populateLocationSelects() {
@@ -956,7 +914,6 @@
       }
 
       supabaseClient = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
-
       const { data, error } = await supabaseClient.auth.getSession();
       if (error) console.warn("getSession error:", error);
 
@@ -966,7 +923,6 @@
       }
 
       authEmail.textContent = data.session.user?.email || "Signed in";
-
       logoutBtn.addEventListener("click", async () => {
         try { await supabaseClient.auth.signOut(); } catch (e) { console.warn("signOut error:", e); }
         window.location.href = "/financehub/pages/login.html";
@@ -1057,7 +1013,6 @@
           ].map(v => String(v || "").toLowerCase()).join(" ");
           if (!hay.includes(f.search)) return false;
         }
-
         return true;
       });
 
@@ -1066,7 +1021,6 @@
       renderLocationSummary();
       renderHealthSummary();
       renderSelectionPill();
-
       setText("tableCount", String(state.filtered.length));
       setText("lastUpdated", new Date().toLocaleString());
     }
@@ -1079,8 +1033,7 @@
       if (f.locationId) bits.push(getLocationNameById(f.locationId));
       if (f.source) bits.push(`Source ${f.source}`);
       if (f.search) bits.push(`Search "${f.search}"`);
-
-      selectionPill.innerHTML = `<span class="dot" style="background: var(--accent)"></span>Selection: ${escapeHtml(bits.length ? bits.join(" • ") : "All")}`;
+      selectionPill.textContent = `Selection: ${bits.length ? bits.join(" • ") : "All"}`;
     }
 
     function renderKpis() {
@@ -1101,8 +1054,6 @@
     }
 
     function renderLocationSummary() {
-      if (!locationSummary) return;
-
       if (!state.filtered.length) {
         locationSummary.innerHTML = `<div class="empty-state">No filtered projections yet.</div>`;
         return;
@@ -1127,27 +1078,24 @@
       }
 
       const items = Array.from(map.values()).sort((a, b) => (b.projected_sales - a.projected_sales) || a.location_name.localeCompare(b.location_name));
-
       locationSummary.innerHTML = items.map(item => `
-        <div class="flex items-start justify-between gap-3 p-3 rounded-xl" style="border:1px solid var(--border); background: var(--panel2);">
-          <div class="min-w-0">
-            <div class="font-black">${escapeHtml(item.location_name)}</div>
-            <div class="text-xs muted2 mt-1">${fmtInt(item.rows)} row(s) in current view</div>
+        <div class="summary-row">
+          <div>
+            <div style="font-size:14px; font-weight:700;">${escapeHtml(item.location_name)}</div>
+            <div style="font-size:12px; color: var(--muted2); margin-top: 4px;">${fmtInt(item.rows)} row(s) in current view</div>
           </div>
-          <div class="text-right">
-            <div class="mono font-black">${fmtMoney(item.projected_sales)}</div>
-            <div class="text-xs muted2">${fmtInt(item.projected_units)} units</div>
+          <div style="text-align:right;">
+            <div class="mono" style="font-size:14px; font-weight:700;">${fmtMoney(item.projected_sales)}</div>
+            <div style="font-size:12px; color: var(--muted2); margin-top: 4px;">${fmtInt(item.projected_units)} units</div>
           </div>
         </div>
       `).join("");
     }
 
     function renderHealthSummary() {
-      if (!healthSummary) return;
-
       const messages = [];
-      if (!state.locations.length) messages.push({ tone: "danger", text: "No active locations loaded." });
-      if (!state.projections.length) messages.push({ tone: "warn", text: "No projection rows loaded yet." });
+      if (!state.locations.length) messages.push("No active locations loaded.");
+      if (!state.projections.length) messages.push("No projection rows loaded yet.");
 
       const invalidRows = state.filtered.filter(r =>
         !r.projection_date ||
@@ -1155,29 +1103,20 @@
         toNumber(r.projected_units) < 0 ||
         toNumber(r.projected_sales) < 0
       );
-      if (invalidRows.length) messages.push({ tone: "danger", text: `${fmtInt(invalidRows.length)} filtered row(s) look invalid.` });
+      if (invalidRows.length) messages.push(`${fmtInt(invalidRows.length)} filtered row(s) look invalid.`);
 
       const missingNotes = state.filtered.filter(r => !String(r.notes || "").trim()).length;
-      if (state.filtered.length && missingNotes > 0) {
-        messages.push({ tone: "warn", text: `${fmtInt(missingNotes)} filtered row(s) have no notes.` });
-      }
+      if (state.filtered.length && missingNotes > 0) messages.push(`${fmtInt(missingNotes)} filtered row(s) have no notes.`);
 
       const zeroSales = state.filtered.filter(r => toNumber(r.projected_sales) === 0).length;
-      if (state.filtered.length && zeroSales > 0) {
-        messages.push({ tone: "warn", text: `${fmtInt(zeroSales)} filtered row(s) have zero projected sales.` });
-      }
+      if (state.filtered.length && zeroSales > 0) messages.push(`${fmtInt(zeroSales)} filtered row(s) have zero projected sales.`);
 
-      if (!messages.length) messages.push({ tone: "good", text: "Current filtered data looks clean." });
+      if (!messages.length) messages.push("Current filtered data looks clean.");
 
-      healthSummary.innerHTML = messages.map(msg => {
-        const borderColor = msg.tone === "danger" ? "var(--danger)" : (msg.tone === "warn" ? "var(--warn)" : "var(--good)");
-        return `<div class="status" style="border-color: color-mix(in oklab, ${borderColor} 30%, var(--border));">${escapeHtml(msg.text)}</div>`;
-      }).join("");
+      healthSummary.innerHTML = messages.map(msg => `<div class="status">${escapeHtml(msg)}</div>`).join("");
     }
 
     function renderProjectionTable() {
-      if (!projectionTableBody) return;
-
       const rows = state.filtered.slice().sort((a, b) => {
         const d = String(a.projection_date || "").localeCompare(String(b.projection_date || ""));
         if (d !== 0) return d;
@@ -1185,7 +1124,7 @@
       });
 
       if (!rows.length) {
-        projectionTableBody.innerHTML = `<tr><td colspan="8"><div class="empty-state">No projections match the current filter.</div></td></tr>`;
+        projectionTableBody.innerHTML = `<tr><td colspan="8" class="empty-state">No projections match the current filter.</td></tr>`;
         return;
       }
 
@@ -1193,22 +1132,20 @@
         <tr data-id="${escapeHtml(String(row.id))}">
           <td class="mono">${escapeHtml(String(row.projection_date || ""))}</td>
           <td>
-            <div style="font-weight:900;">${escapeHtml(row.location_name || "Unknown")}</div>
-            <div class="text-xs muted2">${escapeHtml(row.location_code || "")}</div>
+            <div style="font-weight:700;">${escapeHtml(row.location_name || "Unknown")}</div>
+            <div style="font-size:12px; color: var(--muted2); margin-top: 4px;">${escapeHtml(row.location_code || "")}</div>
           </td>
-          <td class="text-right mono">${fmtInt(row.projected_units)}</td>
-          <td class="text-right mono">${fmtMoney2(row.projected_sales)}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(row.projected_units)}</td>
+          <td class="mono" style="text-align:right;">${fmtMoney2(row.projected_sales)}</td>
           <td>${escapeHtml(row.source || "—")}</td>
-          <td style="max-width: 340px;">
+          <td style="max-width: 360px;">
             <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(row.notes || "—")}</div>
           </td>
+          <td><div class="mono">${escapeHtml(fmtDateTime(row.updated_at))}</div></td>
           <td>
-            <div class="mono">${escapeHtml(fmtDateTime(row.updated_at))}</div>
-          </td>
-          <td>
-            <div class="flex items-center gap-2 flex-wrap">
-              <button class="btn btn-ghost" data-action="edit" data-id="${escapeHtml(String(row.id))}">Edit</button>
-              <button class="btn btn-ghost" data-action="history" data-id="${escapeHtml(String(row.id))}">History</button>
+            <div class="flex items-center gap-2">
+              <button class="btn" data-action="edit" data-id="${escapeHtml(String(row.id))}">Edit</button>
+              <button class="btn" data-action="history" data-id="${escapeHtml(String(row.id))}">Audit</button>
             </div>
           </td>
         </tr>
@@ -1279,12 +1216,9 @@
 
       try {
         const payload = v.payload;
-
         const { data, error } = await supabaseClient
           .from("revenue_projections")
-          .upsert([payload], {
-            onConflict: "projection_date,location_id"
-          })
+          .upsert([payload], { onConflict: "projection_date,location_id" })
           .select(`
             id,
             projection_date,
@@ -1319,8 +1253,9 @@
         };
 
         const idx = state.projections.findIndex(r => String(r.id) === String(mapped.id));
-        if (idx >= 0) state.projections[idx] = mapped;
-        else {
+        if (idx >= 0) {
+          state.projections[idx] = mapped;
+        } else {
           const priorIdx = state.projections.findIndex(r =>
             String(r.projection_date) === String(mapped.projection_date) &&
             String(r.location_id) === String(mapped.location_id)
@@ -1371,7 +1306,7 @@
         setStatus(`Delete failed: ${e.message || e}`, "danger");
       } finally {
         deleteProjectionBtn.disabled = false;
-        deleteProjectionBtn.textContent = "Delete current row";
+        deleteProjectionBtn.textContent = "Delete";
       }
     }
 
@@ -1394,8 +1329,6 @@
     }
 
     function renderHistoryList(projectionId = null) {
-      if (!historyList) return;
-
       if (!state.history.length) {
         historyList.innerHTML = `<div class="empty-state">No audit history found for this view.</div>`;
         historySubtitle.textContent = projectionId
@@ -1420,23 +1353,23 @@
                   <span class="pill" style="border-color: color-mix(in oklab, ${tone} 30%, var(--border)); color:${tone};">
                     <span class="dot" style="background:${tone}"></span>${escapeHtml(item.action_type)}
                   </span>
-                  <span class="mono">${escapeHtml(String(item.projection_date || ""))}</span>
-                  <span class="pill"><span class="dot" style="background: var(--accent)"></span>${escapeHtml(locName)}</span>
+                  <span class="pill">${escapeHtml(String(item.projection_date || ""))}</span>
+                  <span class="pill">${escapeHtml(locName)}</span>
                 </div>
-                <div class="mt-2 text-sm muted">
+                <div class="mt-3 subtle">
                   Units <span class="mono">${fmtInt(item.projected_units)}</span> ·
                   Sales <span class="mono">${fmtMoney2(item.projected_sales)}</span> ·
                   Source <span class="mono">${escapeHtml(item.source || "—")}</span>
                 </div>
-                <div class="mt-1 text-xs muted2">
+                <div class="mt-1" style="font-size:12px; color: var(--muted2);">
                   Changed ${escapeHtml(fmtDateTime(item.changed_at))}
                 </div>
               </div>
-              <div class="text-right text-xs muted2">
+              <div style="font-size:12px; color: var(--muted2);">
                 Projection ID: <span class="mono">${escapeHtml(String(item.revenue_projection_id || "—"))}</span>
               </div>
             </div>
-            <div class="mt-3 text-sm">${escapeHtml(item.notes || "No notes")}</div>
+            <div class="mt-3" style="font-size:14px;">${escapeHtml(item.notes || "No notes")}</div>
           </div>
         `;
       }).join("");
@@ -1478,19 +1411,17 @@
         return;
       }
 
-      const lines = [
-        [
-          "projection_date",
-          "location_id",
-          "location_code",
-          "location_name",
-          "projected_units",
-          "projected_sales",
-          "source",
-          "notes",
-          "updated_at"
-        ].join(",")
-      ];
+      const lines = [[
+        "projection_date",
+        "location_id",
+        "location_code",
+        "location_name",
+        "projected_units",
+        "projected_sales",
+        "source",
+        "notes",
+        "updated_at"
+      ].join(",")];
 
       rows.forEach(r => {
         lines.push([
@@ -1535,7 +1466,7 @@
       setStatus("Import template downloaded.", "good");
     }
 
-    function resolveLocationFromImport(raw, headerIndex, row) {
+    function resolveLocationFromImport(headerIndex, row) {
       const locIdIdx = findHeader(headerIndex, ["location_id"]);
       const locCodeIdx = findHeader(headerIndex, ["location_code", "store_code", "code"]);
       const locNameIdx = findHeader(headerIndex, ["location_name", "location", "store", "store_name"]);
@@ -1583,13 +1514,7 @@
         return;
       }
 
-      const result = {
-        total: 0,
-        prepared: 0,
-        skipped: 0,
-        errors: []
-      };
-
+      const result = { total: 0, prepared: 0, skipped: 0, errors: [] };
       const payload = [];
       const seen = new Set();
 
@@ -1598,8 +1523,7 @@
         if (!row || row.every(c => String(c || "").trim() === "")) continue;
 
         result.total += 1;
-
-        const loc = resolveLocationFromImport(file, headerIndex, row);
+        const loc = resolveLocationFromImport(headerIndex, row);
         const projection_date = String(row[dateIdx] || "").trim();
         const projected_units = Math.round(toNumber(row[unitsIdx]));
         const projected_sales = Number(toNumber(row[salesIdx]).toFixed(2));
@@ -1679,9 +1603,9 @@
           <div class="status">Prepared: <span class="mono">${fmtInt(x.prepared)}</span></div>
           <div class="status">Skipped: <span class="mono">${fmtInt(x.skipped)}</span></div>
           ${x.errors.length ? `
-            <div class="status" style="border-color: color-mix(in oklab, var(--warn) 30%, var(--border));">
-              <div class="font-black mb-2">Issues</div>
-              <div class="text-xs muted leading-6">${x.errors.slice(0, 8).map(escapeHtml).join("<br>")}</div>
+            <div class="status">
+              <div style="font-weight:700; margin-bottom:8px;">Issues</div>
+              <div style="font-size:12px; color: var(--muted); line-height:1.6;">${x.errors.slice(0, 8).map(escapeHtml).join("<br>")}</div>
             </div>
           ` : ""}
         </div>
@@ -1718,16 +1642,6 @@
         formProjectionDate.focus();
       });
 
-      applyFiltersBtn.addEventListener("click", applyFilters);
-      clearFiltersBtn.addEventListener("click", () => {
-        filterDateFrom.value = "";
-        filterDateTo.value = "";
-        filterLocation.value = "";
-        filterSource.value = "";
-        filterSearch.value = "";
-        applyFilters();
-      });
-
       thisMonthBtn.addEventListener("click", () => {
         filterDateFrom.value = firstDayOfMonthIso();
         const base = new Date();
@@ -1739,6 +1653,15 @@
       next30Btn.addEventListener("click", () => {
         filterDateFrom.value = todayIso();
         filterDateTo.value = addDaysIso(todayIso(), 30);
+        applyFilters();
+      });
+
+      clearFiltersBtn.addEventListener("click", () => {
+        filterDateFrom.value = "";
+        filterDateTo.value = "";
+        filterLocation.value = "";
+        filterSource.value = "";
+        filterSearch.value = "";
         applyFilters();
       });
 
@@ -1845,7 +1768,6 @@
     async function boot() {
       const ok = await authGuard();
       if (!ok) return;
-
       bindEvents();
       applyTheme(localStorage.getItem(state.themeKey) || "light");
       clearForm(true);
