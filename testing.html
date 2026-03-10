@@ -71,7 +71,7 @@
     body.themeable { min-height: 100vh; }
 
     .shell {
-      max-width: 1540px;
+      max-width: 1580px;
       margin: 0 auto;
       padding: 20px;
     }
@@ -88,13 +88,6 @@
       background: var(--panel);
       backdrop-filter: blur(18px);
       -webkit-backdrop-filter: blur(18px);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      box-shadow: var(--shadow-sm);
-    }
-
-    .card-solid {
-      background: var(--panel-solid);
       border: 1px solid var(--border);
       border-radius: 20px;
       box-shadow: var(--shadow-sm);
@@ -243,22 +236,24 @@
       line-height: 1.45;
     }
 
-    .table-wrap {
+    .matrix-wrap {
       overflow: auto;
       border-radius: 18px;
       border: 1px solid var(--border);
       background: color-mix(in oklab, var(--panel-solid) 94%, transparent);
     }
-    table {
+
+    .matrix-table {
       width: 100%;
       border-collapse: separate;
       border-spacing: 0;
-      min-width: 980px;
+      min-width: 1080px;
     }
-    thead th {
+
+    .matrix-table thead th {
       position: sticky;
       top: 0;
-      z-index: 1;
+      z-index: 3;
       background: color-mix(in oklab, var(--panel-soft) 92%, transparent);
       color: var(--muted2);
       font-size: 11px;
@@ -270,16 +265,53 @@
       border-bottom: 1px solid var(--border);
       white-space: nowrap;
     }
-    tbody td {
-      padding: 15px 16px;
+
+    .matrix-table tbody td {
+      padding: 14px 16px;
       border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
-      vertical-align: top;
+      vertical-align: middle;
       font-size: 14px;
+      white-space: nowrap;
     }
-    tbody tr:hover td {
+
+    .matrix-table tbody tr:hover td {
       background: color-mix(in oklab, var(--panel-soft) 62%, transparent);
     }
-    tbody tr:last-child td { border-bottom: 0; }
+
+    .matrix-table tbody tr:last-child td { border-bottom: 0; }
+
+    .sticky-col {
+      position: sticky;
+      left: 0;
+      z-index: 2;
+      background: color-mix(in oklab, var(--panel-solid) 96%, transparent);
+      box-shadow: 1px 0 0 0 var(--border);
+    }
+
+    .sticky-col-top {
+      z-index: 4 !important;
+      left: 0;
+    }
+
+    .total-col {
+      background: color-mix(in oklab, var(--accent-soft) 42%, var(--panel-soft));
+      font-weight: 700;
+    }
+
+    .matrix-value {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .mini-link {
+      color: var(--muted2);
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .mini-link:hover { color: var(--text); }
 
     .empty-state {
       padding: 30px 18px;
@@ -450,7 +482,7 @@
         <div class="section-label">Revenue Planning</div>
         <h1 class="headline mt-2">Projections</h1>
         <div class="subtle mt-2">
-          Daily projected units and sales by location, built for fast editing, importing, reporting, and audit review.
+          Dates down the left, locations across the top, with clean matrix-style planning and quick edit access.
         </div>
       </div>
 
@@ -513,9 +545,9 @@
         <div id="kpiSalesSub" class="sub">Sum of filtered sales</div>
       </div>
       <div class="metric card">
-        <div class="label">Active locations</div>
+        <div class="label">Locations shown</div>
         <div id="kpiLocations" class="mono value">—</div>
-        <div id="kpiLocationsSub" class="sub">Distinct locations in view</div>
+        <div id="kpiLocationsSub" class="sub">Distinct locations in matrix</div>
       </div>
     </div>
 
@@ -523,31 +555,22 @@
       <section class="card p-4">
         <div class="flex items-start justify-between gap-4 flex-wrap mb-4">
           <div>
-            <div class="section-label">Projection table</div>
-            <div class="mt-2" style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em;">Revenue rows</div>
-            <div class="subtle mt-1">Table-first workflow with edit and audit actions on each row.</div>
+            <div class="section-label">Matrix view</div>
+            <div class="mt-2" style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em;">Projected sales by date and location</div>
+            <div class="subtle mt-1">Power BI-style transpose view. Click any value to load that row into the editor.</div>
           </div>
           <div class="text-sm" style="color: var(--muted);">
-            Rows loaded: <span id="tableCount" class="mono">0</span> · Updated <span id="lastUpdated" class="mono">—</span>
+            Dates shown: <span id="tableCount" class="mono">0</span> · Updated <span id="lastUpdated" class="mono">—</span>
           </div>
         </div>
 
-        <div class="table-wrap scrollbar">
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Location</th>
-                <th class="text-right">Units</th>
-                <th class="text-right">Sales</th>
-                <th>Source</th>
-                <th>Notes</th>
-                <th>Updated</th>
-                <th>Actions</th>
-              </tr>
+        <div class="matrix-wrap scrollbar">
+          <table class="matrix-table">
+            <thead id="projectionMatrixHead">
+              <tr><th class="sticky-col sticky-col-top">Date</th><th>Total</th></tr>
             </thead>
             <tbody id="projectionTableBody">
-              <tr><td colspan="8" class="empty-state">Loading…</td></tr>
+              <tr><td colspan="2" class="empty-state">Loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -609,7 +632,7 @@
 
         <div class="card p-5">
           <div class="section-label">Location summary</div>
-          <div class="mt-2" style="font-size: 18px; font-weight: 700; letter-spacing: -0.03em;">Filtered totals</div>
+          <div class="mt-2" style="font-size: 18px; font-weight: 700; letter-spacing: -0.03em;">Column totals</div>
           <div class="summary-list mt-4" id="locationSummary">
             <div class="empty-state">Loading…</div>
           </div>
@@ -681,7 +704,7 @@
     let supabaseClient = null;
 
     const state = {
-      themeKey: "silo_projections_theme_v2",
+      themeKey: "silo_projections_theme_v3",
       locations: [],
       projections: [],
       filtered: [],
@@ -726,6 +749,7 @@
     const deleteProjectionBtn = el("deleteProjectionBtn");
     const viewSelectedHistoryBtn = el("viewSelectedHistoryBtn");
 
+    const projectionMatrixHead = el("projectionMatrixHead");
     const projectionTableBody = el("projectionTableBody");
     const statusPill = el("statusPill");
     const editingPill = el("editingPill");
@@ -774,6 +798,12 @@
       return Number.isFinite(Number(n))
         ? Number(n).toLocaleString(undefined, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 })
         : "—";
+    }
+
+    function fmtShortDate(iso) {
+      if (!iso) return "—";
+      const d = new Date(iso + "T00:00:00");
+      return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleDateString(undefined, { month: "numeric", day: "numeric", year: "numeric" });
     }
 
     function toNumber(v) {
@@ -906,6 +936,35 @@
       return loc?.location_code || "";
     }
 
+    function getMatrixLocationOrder() {
+      const f = getFilters();
+      if (f.locationId) {
+        const loc = state.locations.find(l => String(l.id) === f.locationId);
+        return loc ? [loc] : [];
+      }
+      return state.locations
+        .filter(loc => state.filtered.some(r => String(r.location_id) === String(loc.id)))
+        .slice()
+        .sort((a, b) => String(a.location_name || "").localeCompare(String(b.location_name || "")));
+    }
+
+    function getMatrixDates() {
+      return Array.from(new Set(state.filtered.map(r => String(r.projection_date || "")).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+    }
+
+    function buildMatrixData() {
+      const locations = getMatrixLocationOrder();
+      const dates = getMatrixDates();
+      const cellMap = new Map();
+
+      for (const row of state.filtered) {
+        const key = `${row.projection_date}||${row.location_id}`;
+        cellMap.set(key, row);
+      }
+
+      return { locations, dates, cellMap };
+    }
+
     async function authGuard() {
       if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
         console.error("Missing SUPABASE_URL / SUPABASE_ANON_KEY in config.js");
@@ -1016,12 +1075,12 @@
         return true;
       });
 
-      renderProjectionTable();
+      renderProjectionMatrix();
       renderKpis();
       renderLocationSummary();
       renderHealthSummary();
       renderSelectionPill();
-      setText("tableCount", String(state.filtered.length));
+      setText("tableCount", String(getMatrixDates().length));
       setText("lastUpdated", new Date().toLocaleString());
     }
 
@@ -1047,9 +1106,9 @@
       setText("kpiSales", fmtMoney(totalSales));
       setText("kpiLocations", fmtInt(locationCount));
 
-      setText("kpiRowsSub", rows.length ? `Filtered down from ${fmtInt(state.projections.length)} total rows` : "No rows in current view");
-      setText("kpiUnitsSub", rows.length ? `Average ${fmtNum(totalUnits / Math.max(rows.length, 1), 1)} units per row` : "No rows in current view");
-      setText("kpiSalesSub", rows.length ? `Average ${fmtMoney(totalSales / Math.max(rows.length, 1))} per row` : "No rows in current view");
+      setText("kpiRowsSub", rows.length ? `Across ${fmtInt(getMatrixDates().length)} date row(s)` : "No rows in current view");
+      setText("kpiUnitsSub", rows.length ? `Average ${fmtNum(totalUnits / Math.max(rows.length, 1), 1)} units per cell` : "No rows in current view");
+      setText("kpiSalesSub", rows.length ? `Average ${fmtMoney(totalSales / Math.max(rows.length, 1))} per cell` : "No rows in current view");
       setText("kpiLocationsSub", rows.length ? `${fmtInt(locationCount)} distinct locations represented` : "No rows in current view");
     }
 
@@ -1082,7 +1141,7 @@
         <div class="summary-row">
           <div>
             <div style="font-size:14px; font-weight:700;">${escapeHtml(item.location_name)}</div>
-            <div style="font-size:12px; color: var(--muted2); margin-top: 4px;">${fmtInt(item.rows)} row(s) in current view</div>
+            <div style="font-size:12px; color: var(--muted2); margin-top: 4px;">${fmtInt(item.rows)} day(s) with projections</div>
           </div>
           <div style="text-align:right;">
             <div class="mono" style="font-size:14px; font-weight:700;">${fmtMoney(item.projected_sales)}</div>
@@ -1116,40 +1175,61 @@
       healthSummary.innerHTML = messages.map(msg => `<div class="status">${escapeHtml(msg)}</div>`).join("");
     }
 
-    function renderProjectionTable() {
-      const rows = state.filtered.slice().sort((a, b) => {
-        const d = String(a.projection_date || "").localeCompare(String(b.projection_date || ""));
-        if (d !== 0) return d;
-        return String(a.location_name || "").localeCompare(String(b.location_name || ""));
-      });
+    function renderProjectionMatrix() {
+      const { locations, dates, cellMap } = buildMatrixData();
 
-      if (!rows.length) {
-        projectionTableBody.innerHTML = `<tr><td colspan="8" class="empty-state">No projections match the current filter.</td></tr>`;
+      if (!dates.length || !locations.length) {
+        projectionMatrixHead.innerHTML = `
+          <tr>
+            <th class="sticky-col sticky-col-top">Date</th>
+            <th>Total</th>
+          </tr>
+        `;
+        projectionTableBody.innerHTML = `<tr><td colspan="2" class="empty-state">No projections match the current filter.</td></tr>`;
         return;
       }
 
-      projectionTableBody.innerHTML = rows.map(row => `
-        <tr data-id="${escapeHtml(String(row.id))}">
-          <td class="mono">${escapeHtml(String(row.projection_date || ""))}</td>
-          <td>
-            <div style="font-weight:700;">${escapeHtml(row.location_name || "Unknown")}</div>
-            <div style="font-size:12px; color: var(--muted2); margin-top: 4px;">${escapeHtml(row.location_code || "")}</div>
-          </td>
-          <td class="mono" style="text-align:right;">${fmtInt(row.projected_units)}</td>
-          <td class="mono" style="text-align:right;">${fmtMoney2(row.projected_sales)}</td>
-          <td>${escapeHtml(row.source || "—")}</td>
-          <td style="max-width: 360px;">
-            <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(row.notes || "—")}</div>
-          </td>
-          <td><div class="mono">${escapeHtml(fmtDateTime(row.updated_at))}</div></td>
-          <td>
-            <div class="flex items-center gap-2">
-              <button class="btn" data-action="edit" data-id="${escapeHtml(String(row.id))}">Edit</button>
-              <button class="btn" data-action="history" data-id="${escapeHtml(String(row.id))}">Audit</button>
-            </div>
-          </td>
+      projectionMatrixHead.innerHTML = `
+        <tr>
+          <th class="sticky-col sticky-col-top">Date</th>
+          ${locations.map(loc => `<th>${escapeHtml(loc.location_name)}</th>`).join("")}
+          <th class="total-col">Total</th>
         </tr>
-      `).join("");
+      `;
+
+      projectionTableBody.innerHTML = dates.map(date => {
+        let rowTotal = 0;
+
+        const cells = locations.map(loc => {
+          const row = cellMap.get(`${date}||${loc.id}`);
+          const sales = row ? toNumber(row.projected_sales) : 0;
+          rowTotal += sales;
+
+          if (!row) {
+            return `<td class="mono" style="color: var(--muted2);">—</td>`;
+          }
+
+          return `
+            <td class="mono">
+              <div class="matrix-value">
+                <span>${fmtMoney2(sales)}</span>
+                <a href="#" class="mini-link" data-action="edit-cell" data-id="${escapeHtml(String(row.id))}">Edit</a>
+              </div>
+            </td>
+          `;
+        }).join("");
+
+        return `
+          <tr>
+            <td class="sticky-col">
+              <div style="font-weight:700;">${escapeHtml(fmtShortDate(date))}</div>
+              <div style="font-size:12px; color: var(--muted2); margin-top: 4px;" class="mono">${escapeHtml(date)}</div>
+            </td>
+            ${cells}
+            <td class="mono total-col">${fmtMoney2(rowTotal)}</td>
+          </tr>
+        `;
+      }).join("");
     }
 
     function clearForm(resetDate = false) {
@@ -1676,14 +1756,20 @@
       viewSelectedHistoryBtn.addEventListener("click", openSelectedHistory);
 
       projectionTableBody.addEventListener("click", (e) => {
-        const btn = e.target.closest("button[data-action]");
+        const btn = e.target.closest("[data-action]");
         if (!btn) return;
+
         const action = btn.getAttribute("data-action");
         const id = btn.getAttribute("data-id");
         if (!id) return;
 
-        if (action === "edit") loadProjectionIntoForm(id);
-        if (action === "history") {
+        if (action === "edit-cell") {
+          e.preventDefault();
+          loadProjectionIntoForm(id);
+        }
+
+        if (action === "history-cell") {
+          e.preventDefault();
           const row = state.projections.find(r => String(r.id) === String(id));
           if (row) {
             state.selectedProjection = row;
