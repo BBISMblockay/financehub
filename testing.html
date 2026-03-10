@@ -313,6 +313,68 @@
     }
     .mini-link:hover { color: var(--text); }
 
+    .cell-note-wrap{
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .cell-note-flag{
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: color-mix(in oklab, var(--panel-soft) 92%, transparent);
+      color: var(--muted2);
+      font-size: 11px;
+      font-weight: 800;
+      line-height: 1;
+      cursor: help;
+      flex: 0 0 auto;
+    }
+
+    .cell-tooltip{
+      position: absolute;
+      left: 0;
+      top: calc(100% + 8px);
+      z-index: 20;
+      min-width: 220px;
+      max-width: 320px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--panel-solid);
+      color: var(--text);
+      box-shadow: var(--shadow-md);
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: normal;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(4px);
+      transition: .12s ease;
+    }
+
+    .cell-note-wrap:hover .cell-tooltip{
+      opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0);
+    }
+
+    .cell-tooltip-label{
+      display: block;
+      margin-bottom: 6px;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .12em;
+      color: var(--muted2);
+      font-weight: 800;
+    }
+
     .empty-state {
       padding: 30px 18px;
       text-align: center;
@@ -557,7 +619,7 @@
           <div>
             <div class="section-label">Matrix view</div>
             <div class="mt-2" style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em;">Projected sales by date and location</div>
-            <div class="subtle mt-1">Power BI-style transpose view. Click any value to load that row into the editor.</div>
+            <div class="subtle mt-1">Power BI-style transpose view. Hover the info icon to see notes. Click Edit to load the cell into the editor.</div>
           </div>
           <div class="text-sm" style="color: var(--muted);">
             Dates shown: <span id="tableCount" class="mono">0</span> · Updated <span id="lastUpdated" class="mono">—</span>
@@ -704,7 +766,7 @@
     let supabaseClient = null;
 
     const state = {
-      themeKey: "silo_projections_theme_v3",
+      themeKey: "silo_projections_theme_v4",
       locations: [],
       projections: [],
       filtered: [],
@@ -1209,10 +1271,22 @@
             return `<td class="mono" style="color: var(--muted2);">—</td>`;
           }
 
+          const noteText = String(row.notes || "").trim();
+          const hasNote = noteText.length > 0;
+
           return `
             <td class="mono">
               <div class="matrix-value">
-                <span>${fmtMoney2(sales)}</span>
+                <div class="cell-note-wrap">
+                  <span>${fmtMoney2(sales)}</span>
+                  ${hasNote ? `
+                    <span class="cell-note-flag">i</span>
+                    <div class="cell-tooltip">
+                      <span class="cell-tooltip-label">Notes</span>
+                      ${escapeHtml(noteText)}
+                    </div>
+                  ` : ``}
+                </div>
                 <a href="#" class="mini-link" data-action="edit-cell" data-id="${escapeHtml(String(row.id))}">Edit</a>
               </div>
             </td>
@@ -1766,16 +1840,6 @@
         if (action === "edit-cell") {
           e.preventDefault();
           loadProjectionIntoForm(id);
-        }
-
-        if (action === "history-cell") {
-          e.preventDefault();
-          const row = state.projections.find(r => String(r.id) === String(id));
-          if (row) {
-            state.selectedProjection = row;
-            setEditingMode(true);
-          }
-          openSelectedHistory();
         }
       });
 
