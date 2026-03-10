@@ -1089,7 +1089,8 @@
           )
         `)
         .eq("scenario", "active")
-        .order("projection_date", { ascending: true });
+        .order("projection_date", { ascending: true })
+        .range(0, 5000);
 
       if (error) throw error;
 
