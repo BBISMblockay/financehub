@@ -1,1934 +1,1858 @@
-<!DOCTYPE html>
-<html lang="en" class="h-full">
+<!doctype html>
+<html lang="en" data-theme="light">
 <head>
-  <meta charset="utf-8" />
+  <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Silo ERP — Inventory Workboard (Multi-Location)</title>
+  <title>Silo ERP — Revenue Projections</title>
 
-  <!-- Inter -->
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
-  <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/financehub/pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 
   <style>
-    :root{ color-scheme: light; }
-    body{ font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
-    .mono{ font-variant-numeric: tabular-nums; font-feature-settings:"tnum" 1; }
-    .stickyHead thead th{ position: sticky; top: 0; z-index: 20; }
-    .thin-scroll::-webkit-scrollbar{ height: 10px; width: 10px; }
-    .thin-scroll::-webkit-scrollbar-thumb{ background: rgba(15,23,42,.18); border-radius: 999px; }
-    .thin-scroll::-webkit-scrollbar-track{ background: rgba(15,23,42,.06); }
+    .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+    .scrollbar::-webkit-scrollbar { height: 10px; width: 10px; }
+    .scrollbar::-webkit-scrollbar-thumb { background: rgba(148,163,184,.85); border-radius: 999px; }
+    .scrollbar::-webkit-scrollbar-track { background: transparent; }
+    dialog::backdrop { background: rgba(15, 23, 42, 0.55); }
+    dialog { border: 0; background: transparent; }
 
-    .shadow-soft{ box-shadow: 0 10px 30px rgba(2,6,23,.08); }
-    .chip{ border: 1px solid rgba(15,23,42,.14); background: white; }
-    .chip:hover{ background: rgba(15,23,42,.03); }
-    .seg{ border: 1px solid rgba(15,23,42,.14); background: #fff; }
-    .seg button{ padding: 8px 10px; font-size: 12px; font-weight: 800; border-radius: 10px; }
-    .seg button.active{ background: #0f172a; color: #fff; }
-    .seg button:not(.active):hover{ background: rgba(15,23,42,.03); }
+    :root[data-theme="light"]{
+      --bg: #f6f7fb;
+      --panel: #ffffff;
+      --panel2: #f8fafc;
+      --panel3: #f1f5f9;
+      --border: rgba(15,23,42,.10);
+      --text: rgba(15,23,42,.92);
+      --muted: rgba(15,23,42,.68);
+      --muted2: rgba(15,23,42,.48);
+      --shadow1: 0 1px 2px rgba(2,6,23,.05);
+      --shadow2: 0 8px 18px rgba(2,6,23,.08);
+      --ring: rgba(37,99,235,.18);
+      --accent: #1d4ed8;
+      --danger: #b91c1c;
+      --warn: #b45309;
+      --good: #166534;
+    }
 
-    .kbd{ border:1px solid rgba(15,23,42,.18); background:rgba(15,23,42,.03); border-bottom-width:2px; border-radius:8px; padding:2px 6px; font-size:11px; }
-    .btn{ border:1px solid rgba(15,23,42,.14); background:#fff; }
-    .btn:hover{ background: rgba(15,23,42,.03); }
-    .btn-dark{ background:#0f172a; color:#fff; border:1px solid #0f172a; }
-    .btn-dark:hover{ background:#0b1220; }
-    .pill{ border:1px solid rgba(15,23,42,.14); background:#fff; border-radius:999px; }
-    .pill:hover{ background: rgba(15,23,42,.03); }
+    :root[data-theme="dark"]{
+      --bg: #070b18;
+      --panel: #0b1226;
+      --panel2: #0a1022;
+      --panel3: #0f172a;
+      --border: rgba(255,255,255,.12);
+      --text: rgba(255,255,255,.92);
+      --muted: rgba(255,255,255,.74);
+      --muted2: rgba(255,255,255,.54);
+      --shadow1: 0 1px 2px rgba(0,0,0,.55);
+      --shadow2: 0 10px 22px rgba(0,0,0,.50);
+      --ring: rgba(56,189,248,.18);
+      --accent: #60a5fa;
+      --danger: #fb7185;
+      --warn: #fbbf24;
+      --good: #22c55e;
+    }
 
-    .badge{
-      display:inline-flex; align-items:center; gap:.35rem;
-      border:1px solid rgba(15,23,42,.14);
-      background:#fff; border-radius:999px;
-      padding:2px 8px; font-size:11px; font-weight:800;
+    html, body {
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      letter-spacing: -0.01em;
+    }
+
+    body.themeable {
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .app-shell{
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 292px 1fr;
+    }
+    @media (max-width: 1024px){
+      .app-shell{ grid-template-columns: 1fr; }
+    }
+
+    .sidebar{
+      position: sticky;
+      top: 0;
+      align-self: start;
+      height: 100vh;
+      padding: 16px;
+      border-right: 1px solid var(--border);
+      background: var(--panel);
+      box-shadow: var(--shadow1);
+    }
+    @media (max-width: 1024px){
+      .sidebar{
+        position: relative;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+      }
+    }
+
+    .main { padding: 16px; }
+    .container { max-width: 1440px; margin: 0 auto; }
+
+    .card{
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: var(--shadow1);
+    }
+
+    .btn{
+      display:inline-flex; align-items:center; justify-content:center;
+      height: 38px;
+      padding: 0 .9rem;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      font-weight: 800;
+      font-size: .875rem;
+      transition: background .12s ease, box-shadow .12s ease, transform .08s ease;
+      white-space: nowrap;
+      user-select: none;
+      cursor: pointer;
+    }
+    .btn:hover{ background: var(--panel2); box-shadow: var(--shadow2); }
+    .btn:active{ transform: translateY(1px); }
+    .btn:focus{ outline:none; box-shadow: 0 0 0 4px var(--ring); }
+
+    .btn-primary{
+      background: var(--accent);
+      color: #fff;
+      border-color: color-mix(in oklab, var(--accent) 80%, #000);
+      box-shadow: 0 6px 14px color-mix(in oklab, var(--accent) 18%, transparent);
+    }
+    .btn-primary:hover{ background: color-mix(in oklab, var(--accent) 90%, #000); }
+
+    :root[data-theme="dark"] .btn-primary{
+      color: #071122;
+      background: color-mix(in oklab, var(--accent) 86%, white);
+      border-color: color-mix(in oklab, var(--accent) 80%, white);
+    }
+
+    .btn-ghost{
+      background: transparent;
+      border-color: color-mix(in oklab, var(--border) 70%, transparent);
+      box-shadow: none;
+    }
+    .btn-ghost:hover{ background: var(--panel2); box-shadow: none; }
+
+    .btn-danger{
+      background: color-mix(in oklab, var(--danger) 10%, var(--panel));
+      color: var(--danger);
+      border-color: color-mix(in oklab, var(--danger) 35%, var(--border));
+    }
+
+    .field,
+    .select,
+    .textarea {
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      font-size: .92rem;
+      font-weight: 700;
+    }
+
+    .field, .select { height: 40px; padding: 0 .85rem; }
+    .textarea { min-height: 90px; padding: .75rem .85rem; resize: vertical; }
+
+    .field:focus,
+    .select:focus,
+    .textarea:focus{
+      outline:none;
+      box-shadow: 0 0 0 4px var(--ring);
+    }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:.45rem;
+      padding:.22rem .65rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--panel2);
+      font-size:.72rem;
+      font-weight: 900;
+      letter-spacing:.02em;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .dot{ width:.44rem; height:.44rem; border-radius:999px; display:inline-block; }
+    .pill-danger{ color: var(--danger); border-color: color-mix(in oklab, var(--danger) 30%, var(--border)); }
+    .pill-warn{ color: var(--warn); border-color: color-mix(in oklab, var(--warn) 30%, var(--border)); }
+    .pill-good{ color: var(--good); border-color: color-mix(in oklab, var(--good) 30%, var(--border)); }
+
+    .section-title{
+      font-size: .72rem;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--muted2);
+      font-weight: 900;
+    }
+
+    .muted{ color: var(--muted); }
+    .muted2{ color: var(--muted2); }
+
+    .divider{ height: 1px; background: var(--border); width: 100%; }
+
+    .kbd{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel2);
+      color: var(--muted);
+      font-weight: 900;
+    }
+
+    .table{
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      overflow: hidden;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+    }
+    .table thead th{
+      font-size: .68rem;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--muted2);
+      background: var(--panel2);
+      border-bottom: 1px solid var(--border);
+      padding: .75rem .85rem;
+      white-space: nowrap;
+      font-weight: 900;
+      text-align: left;
+    }
+    .table tbody td{
+      padding: .75rem .85rem;
+      border-bottom: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
+      vertical-align: top;
+    }
+    .table tbody tr:hover td{ background: var(--panel2); }
+    .table tbody tr:last-child td{ border-bottom: 0; }
+
+    .metric{
+      padding: 14px;
+      min-height: 108px;
+      display:flex;
+      flex-direction:column;
+      justify-content:space-between;
+    }
+    .metric .label{
+      font-size: .78rem;
+      color: var(--muted);
+      font-weight: 900;
+      display:flex;
+      align-items:center;
+      gap:.45rem;
+    }
+    .metric .value{
+      font-size: 1.72rem;
+      font-weight: 950;
+      line-height: 1.04;
+      letter-spacing: -0.03em;
+      margin-top: 8px;
+    }
+    .metric .sub{
+      font-size: .76rem;
+      color: var(--muted2);
+      margin-top: 6px;
+      line-height: 1.25;
+    }
+
+    .status{
+      border-radius: 10px;
+      padding: .75rem .9rem;
+      border: 1px solid var(--border);
+      background: var(--panel2);
+      font-size: .88rem;
+      font-weight: 700;
+    }
+
+    .drawer{
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 60;
+    }
+    .drawer.open{ pointer-events: auto; }
+    .drawer .overlay{
+      position: absolute;
+      inset: 0;
+      background: rgba(2,6,23,.55);
+      opacity: 0;
+      transition: opacity .16s ease;
+    }
+    .drawer.open .overlay{ opacity: 1; }
+    .drawer .panel{
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: min(700px, calc(100vw - 24px));
+      height: 100%;
+      background: var(--panel);
+      border-left: 1px solid var(--border);
+      box-shadow: var(--shadow2);
+      transform: translateX(14px);
+      opacity: 0;
+      transition: transform .16s ease, opacity .16s ease;
+      display:flex;
+      flex-direction: column;
+    }
+    .drawer.open .panel{ transform: translateX(0); opacity: 1; }
+
+    .history-item{
+      border: 1px solid var(--border);
+      background: var(--panel2);
+      border-radius: 12px;
+      padding: 12px;
+    }
+
+    .empty-state{
+      padding: 1rem;
+      border: 1px dashed var(--border);
+      border-radius: 12px;
+      color: var(--muted2);
+      background: var(--panel2);
+      text-align: center;
+      font-weight: 700;
+    }
+
+    @media (max-width: 768px){
+      .mobile-stack{ grid-template-columns: 1fr !important; }
+      .hide-mobile{ display:none; }
     }
   </style>
 </head>
+<body class="themeable">
+  <div id="authBar" style="position:fixed; top:14px; right:16px; z-index:9999;" class="flex items-center gap-3 text-sm">
+    <span id="authEmail" class="text-slate-600"></span>
+    <button id="logoutBtn" class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-800 hover:bg-slate-50">
+      Logout
+    </button>
+  </div>
 
-<body class="h-full bg-white text-slate-900">
-  <div class="min-h-full">
-    <!-- Top bar -->
-    <header class="border-b border-slate-200 bg-white">
-      <div class="mx-auto max-w-[1580px] px-4 py-4 flex items-center justify-between gap-3">
-        <div class="flex items-center gap-3 min-w-0">
-          <div class="h-9 w-9 rounded-xl border border-slate-200 grid place-items-center shrink-0">
-            <span class="text-sm font-extrabold">S</span>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="pill"><span class="dot" style="background: var(--accent)"></span>Silo ERP</span>
+            <span class="pill">Revenue Projections</span>
           </div>
-          <div class="min-w-0">
-            <div class="text-sm font-semibold truncate">Silo ERP — Inventory Workboard</div>
-            <div class="text-xs text-slate-500 truncate">
-              Multi-tab Google Sheet → CSV → Sales summary merge • Location + Company aggregation • export • PO draft • allocation prep
-            </div>
-          </div>
+          <h1 class="mt-2 text-lg font-semibold tracking-tight">Projection Planner</h1>
+          <p class="mt-1 text-xs muted2">
+            Manage daily forecast rows by location, import/export updates, and review audit history.
+          </p>
         </div>
 
-        <div class="flex items-center gap-2 shrink-0">
-          <button id="btnReload" class="rounded-lg px-3 py-2 text-sm font-medium btn">Reload</button>
-          <button id="btnColumns" class="rounded-lg px-3 py-2 text-sm font-medium btn">Columns</button>
-          <button id="btnExportFiltered" class="rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Export CSV</button>
+        <button id="themeBtn" class="btn btn-ghost" title="Toggle theme">
+          Theme <span id="themeLabel" class="ml-2 font-extrabold">Light</span>
+        </button>
+      </div>
+
+      <div class="mt-4 card p-4">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div class="section-title">Actions</div>
+            <div class="mt-1 text-sm font-extrabold muted">Projection tools</div>
+          </div>
+          <div class="kbd">P</div>
+        </div>
+
+        <div class="mt-4 flex flex-col gap-2">
+          <button id="newProjectionBtn" class="btn btn-primary w-full">New projection</button>
+          <button id="reloadBtn" class="btn w-full">Reload data</button>
+          <button id="exportBtn" class="btn w-full">Export filtered CSV</button>
+          <button id="downloadTemplateBtn" class="btn w-full">Download import template</button>
+          <label for="importFile" class="btn w-full cursor-pointer">Import CSV</label>
+          <input id="importFile" type="file" accept=".csv,text/csv" class="hidden" />
+          <button id="openHistoryDrawerBtn" class="btn w-full">Audit history</button>
+        </div>
+
+        <div class="mt-4 divider"></div>
+
+        <div class="mt-3 flex items-center justify-between gap-2 text-xs muted2">
+          <span>Updated</span>
+          <span id="lastUpdated" class="mono">—</span>
         </div>
       </div>
-    </header>
 
-    <main class="mx-auto max-w-[1580px] px-4 py-5 space-y-4">
-      <!-- Controls -->
-      <section class="rounded-xl border border-slate-200 bg-white p-3">
-        <div class="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-3">
-          <div class="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
-            <!-- View mode toggle -->
-            <div class="seg rounded-xl p-1 flex items-center gap-1">
-              <button id="btnModeLocation" class="active" type="button">Location View</button>
-              <button id="btnModeCompany" type="button">Company View</button>
-            </div>
-
-            <div class="w-full lg:w-[360px]">
-              <div class="relative">
-                <input id="txtSearch" type="text" placeholder="Search SKU, product, barcode… (Enter)"
-                  class="w-full rounded-lg border border-slate-200 pl-9 pr-3 py-2 text-sm" />
-                <svg class="absolute left-3 top-2.5 h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none">
-                  <path d="M21 21l-4.3-4.3m1.8-5.2a7 7 0 11-14 0 7 7 0 0114 0z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-              </div>
-            </div>
-
-            <div class="w-full lg:w-[360px]">
-              <select id="selLocation" class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                <option value="__ALL__">All locations (loaded)</option>
-              </select>
-            </div>
-
-            <button id="btnMoreFilters" class="rounded-lg px-3 py-2 text-sm font-medium btn shrink-0">
-              Filters
-            </button>
-
-            <div class="hidden lg:flex items-center gap-2 pl-1">
-              <button data-chip="oos7" class="pill px-3 py-1.5 text-xs font-semibold">≤ 7 days</button>
-              <button data-chip="oos14" class="pill px-3 py-1.5 text-xs font-semibold">≤ 14 days</button>
-              <button data-chip="low10" class="pill px-3 py-1.5 text-xs font-semibold">Qty ≤ 10</button>
-              <button data-chip="clear" class="pill px-3 py-1.5 text-xs font-semibold">Clear</button>
-            </div>
+      <div class="mt-4 card p-4">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div class="section-title">Import notes</div>
+            <div class="mt-1 text-sm font-extrabold muted">Accepted headers</div>
           </div>
+          <div class="kbd">CSV</div>
+        </div>
 
-          <div class="flex items-center gap-2">
-            <select id="selSort" class="rounded-lg border border-slate-200 px-3 py-2 text-sm">
-              <option value="days_asc">Days to OOS (asc)</option>
-              <option value="days_desc">Days to OOS (desc)</option>
-              <option value="qty_asc">Avail Qty (asc)</option>
-              <option value="qty_desc">Avail Qty (desc)</option>
-              <option value="sold30_desc">Sold 30d (desc)</option>
-              <option value="sold90_desc">Sold 90d (desc)</option>
-              <option value="value_desc">Retail Value (desc)</option>
-              <option value="risk_value_desc">Retail Risk (≤14d + value)</option>
-              <option value="stale_desc">Stale (last sold oldest)</option>
-              <option value="sku_asc">SKU (A→Z)</option>
-            </select>
+        <div class="mt-3 text-xs muted leading-6">
+          projection_date<br>
+          location_name or location_code<br>
+          projected_units<br>
+          projected_sales<br>
+          notes<br>
+          source
+        </div>
 
-            <button id="btnSuggestPO" class="rounded-lg px-3 py-2 text-sm font-semibold btn">
-              Suggest PO
-            </button>
+        <div class="mt-3 text-xs muted2">
+          Existing rows update by <span class="mono">projection_date + location</span>. New rows insert automatically.
+        </div>
+      </div>
 
-            <button id="btnAddSelectedToDraft" class="rounded-lg px-3 py-2 text-sm font-semibold btn-dark">
-              Add → Draft
-            </button>
+      <div class="mt-4 card p-4">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div class="section-title">Filters</div>
+            <div class="mt-1 text-sm font-extrabold muted">Quick reset</div>
           </div>
         </div>
 
-        <!-- Filter drawer -->
-        <div id="filterDrawer" class="hidden mt-3 border-t border-slate-200 pt-3">
-          <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-            <div class="md:col-span-3">
-              <label class="block text-xs font-semibold text-slate-700 mb-1">Max Days To OOS</label>
-              <input id="numMaxDays" type="number" min="0" step="1" placeholder="ex: 30"
-                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
-            </div>
+        <div class="mt-3 flex flex-col gap-2">
+          <button id="thisMonthBtn" class="btn w-full">This month</button>
+          <button id="next30Btn" class="btn w-full">Next 30 days</button>
+          <button id="clearFiltersBtn" class="btn w-full">Clear filters</button>
+        </div>
+      </div>
 
-            <div class="md:col-span-3">
-              <label class="block text-xs font-semibold text-slate-700 mb-1">Max Available Qty</label>
-              <input id="numMaxQty" type="number" min="0" step="1" placeholder="ex: 10"
-                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
-            </div>
+      <div class="mt-4 card p-4">
+        <div class="section-title">Shortcuts</div>
+        <div class="mt-3 grid grid-cols-1 gap-2 text-xs muted2">
+          <div class="flex items-center justify-between gap-2"><span>Reload</span><span class="kbd">⌘/Ctrl + K</span></div>
+          <div class="flex items-center justify-between gap-2"><span>New row</span><span class="kbd">N</span></div>
+          <div class="flex items-center justify-between gap-2"><span>Theme</span><span class="kbd">T</span></div>
+          <div class="flex items-center justify-between gap-2"><span>History</span><span class="kbd">H</span></div>
+          <div class="flex items-center justify-between gap-2"><span>Save</span><span class="kbd">S</span></div>
+        </div>
+      </div>
+    </aside>
 
-            <div class="md:col-span-3">
-              <label class="block text-xs font-semibold text-slate-700 mb-1">Min Sold 30d</label>
-              <input id="numMinSold30" type="number" min="0" step="1" placeholder="ex: 5"
-                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
-            </div>
+    <main class="main">
+      <div class="container space-y-4">
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-12">
+          <section class="lg:col-span-8 space-y-4">
+            <div class="card p-5">
+              <div class="flex items-start justify-between gap-4 flex-wrap">
+                <div>
+                  <div class="section-title">Snapshot</div>
+                  <h2 class="mt-2 text-xl font-semibold tracking-tight">Revenue forecast workspace</h2>
+                  <p class="mt-2 text-sm muted">
+                    Maintain projected units and sales by day and location, then filter or export the working view.
+                  </p>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                  <span id="statusPill" class="pill"><span class="dot" style="background: var(--accent)"></span>Status: —</span>
+                  <span id="selectionPill" class="pill"><span class="dot" style="background: var(--accent)"></span>Selection: All</span>
+                </div>
+              </div>
 
-            <div class="md:col-span-3 flex gap-2">
-              <button id="btnApply" class="w-full rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Apply</button>
-              <button id="btnClear" class="w-full rounded-lg px-3 py-2 text-sm font-medium btn">Reset</button>
-            </div>
-          </div>
+              <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                <div class="card metric">
+                  <div class="label">
+                    <span class="pill"><span class="dot" style="background: var(--accent)"></span>Rows</span>
+                    Filtered projections
+                  </div>
+                  <div>
+                    <div id="kpiRows" class="mono value">—</div>
+                    <div id="kpiRowsSub" class="sub">Matching current filter view</div>
+                  </div>
+                </div>
 
-          <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3">
-            <div class="md:col-span-3">
-              <label class="block text-xs font-semibold text-slate-700 mb-1">PO: Target Days Cover</label>
-              <input id="numTargetCover" type="number" min="1" step="1" value="45"
-                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
-            </div>
-            <div class="md:col-span-3">
-              <label class="block text-xs font-semibold text-slate-700 mb-1">PO: Min Reorder Qty</label>
-              <input id="numMinReorder" type="number" min="0" step="1" value="0"
-                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
-            </div>
+                <div class="card metric">
+                  <div class="label">
+                    <span class="pill pill-good"><span class="dot" style="background: var(--good)"></span>Units</span>
+                    Projected units
+                  </div>
+                  <div>
+                    <div id="kpiUnits" class="mono value">—</div>
+                    <div id="kpiUnitsSub" class="sub">Sum of filtered units</div>
+                  </div>
+                </div>
 
-            <div class="md:col-span-3">
-              <label class="block text-xs font-semibold text-slate-700 mb-1">KPI: Risk threshold (days)</label>
-              <input id="numRiskDays" type="number" min="1" step="1" value="14"
-                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
-            </div>
+                <div class="card metric">
+                  <div class="label">
+                    <span class="pill pill-good"><span class="dot" style="background: var(--good)"></span>Sales</span>
+                    Projected sales
+                  </div>
+                  <div>
+                    <div id="kpiSales" class="mono value">—</div>
+                    <div id="kpiSalesSub" class="sub">Sum of filtered projected sales</div>
+                  </div>
+                </div>
 
-            <div class="md:col-span-3 text-xs text-slate-600 flex items-end">
-              <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 w-full">
-                <div class="font-semibold text-slate-800">Sales merge</div>
-                <div class="mt-1 leading-relaxed">
-                  Each location can optionally define a <span class="kbd">sales_summary CSV</span> (5K rows) to override sold/velocity and add 7/30/90/120 + last sold.
+                <div class="card metric">
+                  <div class="label">
+                    <span class="pill"><span class="dot" style="background: var(--accent)"></span>Locations</span>
+                    Active in view
+                  </div>
+                  <div>
+                    <div id="kpiLocations" class="mono value">—</div>
+                    <div id="kpiLocationsSub" class="sub">Distinct filtered locations</div>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3">
-            <div class="md:col-span-6">
-              <label class="block text-xs font-semibold text-slate-700 mb-1">Company aggregation key (for blanks)</label>
-              <div class="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 leading-relaxed">
-                Company View groups by <b>SKU</b> when present. If SKU is blank it falls back to <b>Barcode</b>, then <b>Product+Variant</b>.
-                This prevents “Company KPI drops” caused by blank SKUs.
+            <div class="card p-5">
+              <div class="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <div class="section-title">Filters</div>
+                  <h3 class="mt-2 text-lg font-semibold">Reporting controls</h3>
+                  <p class="mt-1 text-sm muted">Filter the table, KPI tiles, and export output.</p>
+                </div>
+                <button id="applyFiltersBtn" class="btn btn-primary">Apply filters</button>
               </div>
-            </div>
-            <div class="md:col-span-6">
-              <label class="block text-xs font-semibold text-slate-700 mb-1">Suggestion behavior</label>
-              <div class="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 leading-relaxed">
-                After you run <b>Suggest PO</b> once, suggestions stay “live” and update automatically as you change filters, sort, or switch modes.
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
 
-      <!-- KPIs -->
-      <section class="grid grid-cols-1 lg:grid-cols-12 gap-3">
-        <div class="lg:col-span-8 rounded-xl border border-slate-200 bg-white p-4">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <div class="text-sm font-semibold">KPI Snapshot</div>
-              <div id="statusLine" class="text-xs text-slate-600 mt-1">—</div>
-              <div id="modeLine" class="text-xs text-slate-500 mt-1 mono">Mode: Location View</div>
-              <div id="kpiNote" class="text-[11px] text-slate-500 mt-1 leading-relaxed">
-                Note: <b>Rows</b> differs by mode (Location rows vs Company unique items). <b>Units/Value</b> align by definition; <b>Sold/Avg/Days</b> are driven by <b>sales_summary</b> when available (fallback to inventory report metrics).
-              </div>
-            </div>
-            <div class="flex items-center gap-2">
-              <button id="btnExportSelected" class="rounded-lg px-3 py-2 text-sm font-medium btn">Export Selected</button>
-              <button id="btnClearSelection" class="rounded-lg px-3 py-2 text-sm font-medium btn">Clear Selection</button>
-            </div>
-          </div>
-
-          <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div class="rounded-lg bg-slate-50 border border-slate-200 p-3">
-              <div class="text-xs text-slate-500">Rows (filtered)</div>
-              <div id="kRows" class="text-lg font-bold mono">0</div>
-            </div>
-            <div class="rounded-lg bg-slate-50 border border-slate-200 p-3">
-              <div class="text-xs text-slate-500">Units on hand</div>
-              <div id="kUnits" class="text-lg font-bold mono">0</div>
-            </div>
-            <div class="rounded-lg bg-slate-50 border border-slate-200 p-3">
-              <div class="text-xs text-slate-500">Retail value on hand (MSRP)</div>
-              <div id="kRetailValue" class="text-lg font-bold mono">$0</div>
-            </div>
-            <div class="rounded-lg bg-slate-50 border border-slate-200 p-3">
-              <div class="text-xs text-slate-500">Stockout risk (≤ threshold)</div>
-              <div id="kRiskCount" class="text-lg font-bold mono">0</div>
-            </div>
-          </div>
-
-          <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div class="rounded-lg bg-white border border-slate-200 p-3">
-              <div class="text-xs text-slate-500">Sold 30d (sum)</div>
-              <div id="kSold30" class="text-lg font-bold mono">0</div>
-            </div>
-            <div class="rounded-lg bg-white border border-slate-200 p-3">
-              <div class="text-xs text-slate-500">Avg days to OOS (nonzero)</div>
-              <div id="kAvgDays" class="text-lg font-bold mono">—</div>
-            </div>
-            <div class="rounded-lg bg-white border border-slate-200 p-3">
-              <div class="text-xs text-slate-500">Retail at risk (≤ threshold)</div>
-              <div id="kRiskRetail" class="text-lg font-bold mono">$0</div>
-            </div>
-            <div class="rounded-lg bg-white border border-slate-200 p-3">
-              <div class="text-xs text-slate-500">Selected rows</div>
-              <div id="kSelected" class="text-lg font-bold mono">0</div>
-            </div>
-          </div>
-
-          <div class="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-            <span class="font-semibold">Tip:</span>
-            Drill into SKU details to see location demand share for transfers/allocation.
-          </div>
-        </div>
-
-        <!-- Draft -->
-        <div class="lg:col-span-4 rounded-xl border border-slate-200 bg-white p-4">
-          <div class="flex items-center justify-between">
-            <div class="text-sm font-semibold">PO Draft</div>
-            <div class="text-xs text-slate-500 mono">localStorage</div>
-          </div>
-          <div class="text-xs text-slate-600 mt-1">
-            Draft lines are SKU-level. Quantity defaults to suggested PO when available.
-          </div>
-
-          <div class="mt-3 grid grid-cols-1 gap-2">
-            <div>
-              <label class="block text-xs font-semibold text-slate-700 mb-1">PO Name / Batch</label>
-              <input id="txtPoName" type="text" placeholder="ex: PO-2026-02-17 Company"
-                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-            </div>
-
-            <div class="grid grid-cols-2 gap-2">
-              <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Vendor (optional)</label>
-                <input id="txtVendor" type="text" placeholder="ex: Factory A"
-                  class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-              </div>
-              <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">ETA (optional)</label>
-                <input id="txtEta" type="date"
-                  class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+              <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5 mobile-stack">
+                <div>
+                  <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Date from</label>
+                  <input id="filterDateFrom" type="date" class="field" />
+                </div>
+                <div>
+                  <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Date to</label>
+                  <input id="filterDateTo" type="date" class="field" />
+                </div>
+                <div>
+                  <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Location</label>
+                  <select id="filterLocation" class="select">
+                    <option value="">All locations</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Source</label>
+                  <select id="filterSource" class="select">
+                    <option value="">All sources</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Search notes</label>
+                  <input id="filterSearch" type="text" class="field" placeholder="Search notes or location" />
+                </div>
               </div>
             </div>
 
-            <div class="flex gap-2">
-              <button id="btnViewDraft" class="w-full rounded-lg px-3 py-2 text-sm font-semibold btn">View Draft</button>
-              <button id="btnExportDraft" class="w-full rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Export Draft</button>
+            <div class="card p-5">
+              <div class="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <div class="section-title">Projection entry</div>
+                  <h3 class="mt-2 text-lg font-semibold">Create or adjust projection</h3>
+                  <p class="mt-1 text-sm muted">Save will insert a new row or update the existing row for that date and location.</p>
+                </div>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span id="editingPill" class="pill"><span class="dot" style="background: var(--accent)"></span>Mode: New</span>
+                  <button id="clearFormBtn" class="btn">Clear form</button>
+                </div>
+              </div>
+
+              <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4 mobile-stack">
+                <div>
+                  <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Projection date</label>
+                  <input id="formProjectionDate" type="date" class="field" />
+                </div>
+                <div>
+                  <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Location</label>
+                  <select id="formLocation" class="select">
+                    <option value="">Select location</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Projected units</label>
+                  <input id="formProjectedUnits" type="number" min="0" step="1" class="field mono" placeholder="0" />
+                </div>
+                <div>
+                  <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Projected sales</label>
+                  <input id="formProjectedSales" type="number" min="0" step="0.01" class="field mono" placeholder="0.00" />
+                </div>
+              </div>
+
+              <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 mobile-stack">
+                <div>
+                  <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Source</label>
+                  <input id="formSource" type="text" class="field" placeholder="manual, import, forecast_model" />
+                </div>
+                <div>
+                  <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Notes</label>
+                  <textarea id="formNotes" class="textarea" placeholder="Context, assumptions, overrides, promo timing, etc."></textarea>
+                </div>
+              </div>
+
+              <div class="mt-4 flex items-center gap-2 flex-wrap">
+                <button id="saveProjectionBtn" class="btn btn-primary">Save projection</button>
+                <button id="deleteProjectionBtn" class="btn btn-danger hidden">Delete current row</button>
+                <button id="viewSelectedHistoryBtn" class="btn">View selected history</button>
+                <span class="text-xs muted2">Audit trail writes automatically on insert, update, and delete.</span>
+              </div>
             </div>
 
-            <button id="btnClearDraft" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Clear Draft</button>
+            <div class="card p-5">
+              <div class="flex items-start justify-between gap-3 flex-wrap">
+                <div>
+                  <div class="section-title">Data</div>
+                  <h3 class="mt-2 text-lg font-semibold">Projection table</h3>
+                  <p class="mt-1 text-sm muted">Edit a row to load it into the form. Export respects current filters.</p>
+                </div>
+                <div class="text-xs muted2">
+                  Rows loaded: <span id="tableCount" class="mono">0</span>
+                </div>
+              </div>
 
-            <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <div class="text-xs font-semibold text-slate-700">Draft peek</div>
-              <pre id="draftPeek" class="mt-2 text-xs text-slate-700 max-h-44 overflow-auto thin-scroll">Draft empty.</pre>
+              <div class="mt-4 overflow-x-auto scrollbar">
+                <table class="table min-w-full text-sm">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Location</th>
+                      <th class="text-right">Units</th>
+                      <th class="text-right">Sales</th>
+                      <th>Source</th>
+                      <th>Notes</th>
+                      <th>Updated</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="projectionTableBody">
+                    <tr><td colspan="8" class="muted2">Loading…</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+
+          <aside class="lg:col-span-4 space-y-4">
+            <div class="card p-5">
+              <div class="section-title">Reporting</div>
+              <h3 class="mt-2 text-lg font-semibold">Location summary</h3>
+              <p class="mt-1 text-sm muted">Current filtered totals by location.</p>
+              <div id="locationSummary" class="mt-4 space-y-2">
+                <div class="text-sm muted2">Loading…</div>
+              </div>
             </div>
 
-            <div class="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 leading-relaxed">
-              <div class="font-semibold text-slate-800 mb-1"></div>
-             
+            <div class="card p-5">
+              <div class="section-title">Quality</div>
+              <h3 class="mt-2 text-lg font-semibold">Data health</h3>
+              <p class="mt-1 text-sm muted">Checks across current filters and form state.</p>
+              <div id="healthSummary" class="mt-4 space-y-2">
+                <div class="status">Waiting for data…</div>
+              </div>
             </div>
-          </div>
-        </div>
-      </section>
 
-      <!-- Table -->
-      <section class="rounded-xl border border-slate-200 bg-white overflow-hidden">
-        <div class="overflow-auto thin-scroll">
-          <table class="min-w-[1700px] w-full text-sm stickyHead">
-            <thead class="bg-slate-50 border-b border-slate-200">
-              <tr id="theadRow"></tr>
-            </thead>
-            <tbody id="tbody" class="divide-y divide-slate-100"></tbody>
-          </table>
-        </div>
-
-        <div class="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-200 bg-white">
-          <div class="text-xs text-slate-600"><span id="pagerInfo">—</span></div>
-          <div class="flex items-center gap-2">
-            <button id="btnPrev" class="rounded-lg px-3 py-2 text-sm font-medium btn">Prev</button>
-            <button id="btnNext" class="rounded-lg px-3 py-2 text-sm font-medium btn">Next</button>
-          </div>
-        </div>
-      </section>
-
-      <!-- Modal -->
-      <div id="modal" class="fixed inset-0 hidden">
-        <div class="absolute inset-0 bg-black/40"></div>
-        <div class="absolute inset-x-0 top-10 mx-auto max-w-6xl px-4">
-          <div class="rounded-xl bg-white border border-slate-200 shadow-soft overflow-hidden">
-            <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-              <div class="text-sm font-semibold" id="modalTitle">Modal</div>
-              <button id="btnCloseModal" class="rounded-lg px-3 py-1.5 text-sm font-medium btn">Close</button>
+            <div class="card p-5">
+              <div class="section-title">Import results</div>
+              <h3 class="mt-2 text-lg font-semibold">Last import</h3>
+              <p class="mt-1 text-sm muted">Summary of the most recent CSV upload.</p>
+              <div id="importSummary" class="mt-4">
+                <div class="empty-state">No import run yet.</div>
+              </div>
             </div>
-            <div id="modalBody" class="p-4 text-sm"></div>
-          </div>
+          </aside>
         </div>
       </div>
     </main>
   </div>
 
+  <div id="historyDrawer" class="drawer" aria-hidden="true">
+    <div class="overlay" id="historyOverlay"></div>
+    <div class="panel">
+      <div class="p-5 border-b" style="border-color: var(--border);">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="section-title">Audit</div>
+            <h3 class="mt-2 text-lg font-semibold">Projection history</h3>
+            <p id="historySubtitle" class="mt-1 text-sm muted">Most recent changes across revenue projections.</p>
+          </div>
+          <button id="closeHistoryDrawerBtn" class="btn">Close</button>
+        </div>
+
+        <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3 mobile-stack">
+          <div>
+            <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Date from</label>
+            <input id="historyDateFrom" type="date" class="field" />
+          </div>
+          <div>
+            <label class="block text-xs font-black uppercase tracking-wide muted2 mb-2">Date to</label>
+            <input id="historyDateTo" type="date" class="field" />
+          </div>
+          <div class="flex items-end">
+            <button id="reloadHistoryBtn" class="btn btn-primary w-full">Reload history</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-5 overflow-y-auto scrollbar" style="flex: 1;">
+        <div id="historyList" class="space-y-3">
+          <div class="text-sm muted2">Loading…</div>
+        </div>
+      </div>
+
+      <div class="p-5 border-t" style="border-color: var(--border); background: var(--panel2);">
+        <div class="text-xs muted2">
+          History is pulled from <span class="mono">revenue_projection_history</span>.
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
-    /******************************************************************
-     * Silo ERP — Inventory Workboard (multi-location) + Sales Summary Merge
-     *
-     * Reload safety + dedupe added:
-     * - AbortController + sequence gating ensures rapid reloads never append/duplicate
-     * - Per-location inventory rows are deduped (same SKU/barcode/product/variant) to avoid
-     *   repeated lines from Better Reports exports (or accidental repeated tab rows)
-     ******************************************************************/
+    const cfg = window.__SILO_CONFIG__ || {};
+    let supabaseClient = null;
 
-    // ==== Workbook ID (inventory workbook) ====
-    const SHEET_ID = "1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0";
-
-    // ==== Up to 20 locations ====
-    const SHEET_TABS = [
-      {
-        label: "Online",
-        gid: 0,
-        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRRZETeD2kKpL4vMvXnn4Z-xyb6M_oQ6u9cOSJts_YTLnGXrvMPhlhe0XQuL5VAYLlGlxSvQdUfxycp/pub?gid=481096073&single=true&output=csv"
-      },
-      {
-        label: "Scottsdale",
-        gid: 1686608564,
-        sales_csv: ""
-      },
-    ];
-
-    const MAX_LOCATIONS = 20;
-    if (SHEET_TABS.length > MAX_LOCATIONS) SHEET_TABS.length = MAX_LOCATIONS;
-
-    function gidToCsvUrl(gid){
-      return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${encodeURIComponent(gid)}`;
-    }
-
-    const SOURCES = SHEET_TABS.map(t => ({
-      source_id: t.label.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"") || `gid_${t.gid}`,
-      location_label: t.label,
-      gid: t.gid,
-      csv_url: gidToCsvUrl(t.gid),
-      sales_csv: (t.sales_csv || "").trim()
-    }));
-
-    // ==== Expected Better Reports headers (inventory CSV) ====
-    const H = {
-      location: "Location",
-      shop_domain: "Shop MyShopify Domain",
-      sku: "Variant SKU",
-      barcode: "Variant Barcode",
-      product: "Product title",
-      variant: "Variant title",
-      avail_qty: "Total available quantity",
-      inv_value: "Total available inventory value",
-      sold_30: "SUM Variant Quantity sold over the last 30 days",
-      avg_day: "SUM Variant Average quantity sold per day",
-      days_oos: "SUM Variant Estimated days before out of stock",
-      img: "Product Image url"
+    const state = {
+      themeKey: "silo_projections_theme_v1",
+      locations: [],
+      projections: [],
+      filtered: [],
+      history: [],
+      selectedProjection: null,
+      importResult: null,
+      loading: false
     };
 
-    // ==== Sales summary headers (sales_summary CSV) ====
-    const SH = {
-      sku: "SKU",
-      product_name: "Product name",
-      product_type: "Product type",
-      vendor: "Vendor (original)",
-      qty_7d: "qty_7d",
-      qty_30d: "qty_30d",
-      qty_90d: "qty_90d",
-      qty_120d: "qty_120d",
-      avg_day_30: "avg_day_30",
-      avg_day_90: "avg_day_90",
-      avg_day_120: "avg_day_120",
-      last_sold_date: "last_sold_date"
-    };
-
-    // ==== State ====
-    let MODE = "location";
-    let RAW = [];
-    let COMPANY = [];
-    let VIEW = [];
-    let PAGE = 1;
-    const PAGE_SIZE = 50;
-
-    const SELECTED = new Set();
-    let LAST_SUGGEST = new Map();
-    let SUGGEST_ENABLED = false;
-
-    // Columns
-    const COLS_KEY = "silo_inv_cols_v3_salesmerge";
-    let VISIBLE = null;
-
-    // === Reload safety (prevents “double up” on rapid reload) ===
-    let ACTIVE_CONTROLLER = null;
-    let LOAD_SEQ = 0;
-    function startNewLoad(){
-      try{ ACTIVE_CONTROLLER?.abort(); }catch(e){}
-      ACTIVE_CONTROLLER = new AbortController();
-      const seq = ++LOAD_SEQ;
-      return { seq, signal: ACTIVE_CONTROLLER.signal };
-    }
-
-    // Location table columns
-    const COLS_LOCATION = [
-      { key: "_select", label: "", default: true },
-      { key: "image", label: "Image", default: true },
-      { key: "source", label: "Source", default: false },
-      { key: "location", label: "Location", default: true },
-      { key: "sku", label: "SKU", default: true },
-      { key: "barcode", label: "Barcode", default: false },
-      { key: "product", label: "Product", default: true },
-      { key: "variant", label: "Variant", default: false },
-
-      { key: "avail_qty", label: "Avail Qty", align: "right", default: true },
-      { key: "inv_value", label: "Retail Value (MSRP)", align: "right", default: true },
-
-      { key: "qty_7d", label: "Sold 7d", align: "right", default: false },
-      { key: "sold_30", label: "Sold 30d", align: "right", default: true },
-      { key: "qty_90d", label: "Sold 90d", align: "right", default: false },
-      { key: "qty_120d", label: "Sold 120d", align: "right", default: false },
-
-      { key: "avg_day", label: "Avg/Day (30)", align: "right", default: true },
-      { key: "days_oos", label: "Days to OOS", align: "right", default: true },
-      { key: "last_sold_date", label: "Last Sold", default: true },
-      { key: "planner_flag", label: "Planner", default: true },
-
-      { key: "risk_flag", label: "Risk", default: true },
-      { key: "suggested_po", label: "Suggested PO", align: "right", default: true },
-      { key: "_details", label: "", default: true }
-    ];
-
-    // Company columns
-    const COLS_COMPANY = [
-      { key: "_select", label: "", default: true },
-      { key: "image", label: "Image", default: true },
-      { key: "sku", label: "SKU", default: true },
-      { key: "barcode", label: "Barcode", default: false },
-      { key: "product", label: "Product", default: true },
-      { key: "variant", label: "Variant", default: false },
-
-      { key: "locations_count", label: "Locations", align: "right", default: true },
-      { key: "avail_qty", label: "On Hand (Total)", align: "right", default: true },
-      { key: "inv_value", label: "Retail Value (MSRP)", align: "right", default: true },
-
-      { key: "qty_7d", label: "Sold 7d (Total)", align: "right", default: false },
-      { key: "sold_30", label: "Sold 30d (Total)", align: "right", default: true },
-      { key: "qty_90d", label: "Sold 90d (Total)", align: "right", default: false },
-      { key: "qty_120d", label: "Sold 120d (Total)", align: "right", default: false },
-
-      { key: "avg_day", label: "Avg/Day (30, Total)", align: "right", default: true },
-      { key: "days_oos", label: "Days to OOS (Company)", align: "right", default: true },
-      { key: "last_sold_date", label: "Last Sold (latest)", default: true },
-      { key: "planner_flag", label: "Planner", default: true },
-
-      { key: "risk_flag", label: "Risk", default: true },
-      { key: "suggested_po", label: "Suggested PO (Company)", align: "right", default: true },
-      { key: "_details", label: "", default: true }
-    ];
-
-    // Draft
-    const DRAFT_KEY = "silo_po_draft_v3_salesmerge";
-    function loadDraft(){ try{ return JSON.parse(localStorage.getItem(DRAFT_KEY) || "[]"); } catch(e){ return []; } }
-    function saveDraft(lines){ localStorage.setItem(DRAFT_KEY, JSON.stringify(lines)); }
-
-    // DOM helper
     const el = (id) => document.getElementById(id);
+    const setText = (id, text) => { const n = el(id); if (n) n.textContent = text; };
+    const setHtml = (id, html) => { const n = el(id); if (n) n.innerHTML = html; };
 
-    // Utils
-    function norm(s){ return (s ?? "").toString().replace(/\u00A0/g," ").trim(); }
-    function num(v){
-      const x = parseFloat((v ?? "").toString().replace(/[^0-9.\-]/g,""));
-      return Number.isFinite(x) ? x : 0;
-    }
-    function money(v){
-      const n = num(v);
-      return n.toLocaleString(undefined,{style:"currency", currency:"USD", maximumFractionDigits:0});
-    }
-    function escapeHtml(str){
-      return (str ?? "").toString().replace(/[&<>"']/g, (m) => ({
-        "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;"
-      }[m]));
-    }
-    function safeId(str){
-      return (str || "").toString().toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"");
+    const themeBtn = el("themeBtn");
+    const themeLabel = el("themeLabel");
+    const logoutBtn = el("logoutBtn");
+    const authEmail = el("authEmail");
+
+    const reloadBtn = el("reloadBtn");
+    const newProjectionBtn = el("newProjectionBtn");
+    const exportBtn = el("exportBtn");
+    const downloadTemplateBtn = el("downloadTemplateBtn");
+    const importFile = el("importFile");
+    const openHistoryDrawerBtn = el("openHistoryDrawerBtn");
+
+    const thisMonthBtn = el("thisMonthBtn");
+    const next30Btn = el("next30Btn");
+    const clearFiltersBtn = el("clearFiltersBtn");
+    const applyFiltersBtn = el("applyFiltersBtn");
+
+    const filterDateFrom = el("filterDateFrom");
+    const filterDateTo = el("filterDateTo");
+    const filterLocation = el("filterLocation");
+    const filterSource = el("filterSource");
+    const filterSearch = el("filterSearch");
+
+    const formProjectionDate = el("formProjectionDate");
+    const formLocation = el("formLocation");
+    const formProjectedUnits = el("formProjectedUnits");
+    const formProjectedSales = el("formProjectedSales");
+    const formSource = el("formSource");
+    const formNotes = el("formNotes");
+    const saveProjectionBtn = el("saveProjectionBtn");
+    const clearFormBtn = el("clearFormBtn");
+    const deleteProjectionBtn = el("deleteProjectionBtn");
+    const viewSelectedHistoryBtn = el("viewSelectedHistoryBtn");
+
+    const projectionTableBody = el("projectionTableBody");
+    const statusPill = el("statusPill");
+    const editingPill = el("editingPill");
+    const selectionPill = el("selectionPill");
+    const locationSummary = el("locationSummary");
+    const healthSummary = el("healthSummary");
+    const importSummary = el("importSummary");
+
+    const historyDrawer = el("historyDrawer");
+    const historyOverlay = el("historyOverlay");
+    const closeHistoryDrawerBtn = el("closeHistoryDrawerBtn");
+    const historyList = el("historyList");
+    const historySubtitle = el("historySubtitle");
+    const historyDateFrom = el("historyDateFrom");
+    const historyDateTo = el("historyDateTo");
+    const reloadHistoryBtn = el("reloadHistoryBtn");
+
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replaceAll("&","&amp;")
+        .replaceAll("<","&lt;")
+        .replaceAll(">","&gt;")
+        .replaceAll('"',"&quot;")
+        .replaceAll("'","&#039;");
     }
 
-    function parseDateLoose(s){
-      const t = Date.parse((s||"").toString().trim());
-      return Number.isFinite(t) ? t : null;
-    }
-    function daysSince(ms){
-      if (!ms) return null;
-      return (Date.now() - ms) / (1000*60*60*24);
+    function safeLower(s) { return String(s ?? "").trim().toLowerCase(); }
+
+    function fmtInt(n) {
+      return Number.isFinite(Number(n)) ? Math.round(Number(n)).toLocaleString() : "—";
     }
 
-    // CSV parsing
-    function parseCSV(text){
+    function fmtNum(n, digits = 1) {
+      return Number.isFinite(Number(n))
+        ? Number(n).toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })
+        : "—";
+    }
+
+    function fmtMoney(n) {
+      return Number.isFinite(Number(n))
+        ? Number(n).toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 })
+        : "—";
+    }
+
+    function fmtMoney2(n) {
+      return Number.isFinite(Number(n))
+        ? Number(n).toLocaleString(undefined, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        : "—";
+    }
+
+    function toNumber(v) {
+      const s = String(v ?? "").trim().replace(/[$,]/g, "");
+      if (!s) return 0;
+      const n = Number(s);
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function fmtDate(value) {
+      if (!value) return "—";
+      const d = new Date(value + "T00:00:00");
+      return Number.isNaN(d.getTime())
+        ? String(value)
+        : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+    }
+
+    function fmtDateTime(value) {
+      if (!value) return "—";
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString();
+    }
+
+    function todayIso() {
+      const d = new Date();
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    }
+
+    function firstDayOfMonthIso(date = new Date()) {
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-01`;
+    }
+
+    function addDaysIso(baseIso, days) {
+      const d = new Date(baseIso + "T00:00:00");
+      d.setDate(d.getDate() + days);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    }
+
+    function csvEscape(value) {
+      const s = String(value ?? "");
+      if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+      return s;
+    }
+
+    function parseCsv(text) {
       const rows = [];
-      let i = 0, field = "", row = [], inQuotes = false;
-      while (i < text.length){
-        const c = text[i], n = text[i+1];
-        if (inQuotes){
-          if (c === '"' && n === '"'){ field += '"'; i += 2; continue; }
-          if (c === '"'){ inQuotes = false; i++; continue; }
-          field += c; i++; continue;
-        } else {
-          if (c === '"'){ inQuotes = true; i++; continue; }
-          if (c === ','){ row.push(field); field = ""; i++; continue; }
-          if (c === '\r'){ i++; continue; }
-          if (c === '\n'){ row.push(field); rows.push(row); field = ""; row = []; i++; continue; }
-          field += c; i++; continue;
+      let row = [];
+      let cur = "";
+      let inQuotes = false;
+
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i], next = text[i + 1];
+        if (inQuotes) {
+          if (ch === '"' && next === '"') { cur += '"'; i++; }
+          else if (ch === '"') inQuotes = false;
+          else cur += ch;
+          continue;
         }
+        if (ch === '"') { inQuotes = true; continue; }
+        if (ch === ",") { row.push(cur); cur = ""; continue; }
+        if (ch === "\r") continue;
+        if (ch === "\n") { row.push(cur); rows.push(row); row = []; cur = ""; continue; }
+        cur += ch;
       }
-      row.push(field); rows.push(row);
+      row.push(cur);
+      rows.push(row);
+      while (rows.length && rows[rows.length - 1].every(c => String(c ?? "").trim() === "")) rows.pop();
       return rows;
     }
 
-    function rowsToObjects(csvText){
-      const grid = parseCSV(csvText).filter(r => r.some(c => norm(c) !== ""));
-      if (!grid.length) return { headers: [], rows: [] };
-      const headers = grid[0].map(h => norm(h));
-      const rows = grid.slice(1).map(r => {
-        const o = {};
-        headers.forEach((h, idx) => o[h] = r[idx] ?? "");
-        return o;
+    function buildHeaderIndex(headerRow) {
+      const idx = new Map();
+      headerRow.forEach((h, i) => idx.set(safeLower(h), i));
+      return idx;
+    }
+
+    function findHeader(headerIndex, aliases) {
+      for (const a of aliases) {
+        const key = safeLower(a);
+        if (headerIndex.has(key)) return headerIndex.get(key);
+      }
+      for (const [k, i] of headerIndex.entries()) {
+        for (const a of aliases) {
+          const needle = safeLower(a);
+          if (needle && k.includes(needle)) return i;
+        }
+      }
+      return null;
+    }
+
+    function setStatus(text, tone = "neutral") {
+      if (!statusPill) return;
+      const cls = tone === "danger" ? "pill pill-danger" : (tone === "warn" ? "pill pill-warn" : (tone === "good" ? "pill pill-good" : "pill"));
+      const dot = tone === "danger" ? "var(--danger)" : (tone === "warn" ? "var(--warn)" : (tone === "good" ? "var(--good)" : "var(--accent)"));
+      statusPill.className = cls;
+      statusPill.innerHTML = `<span class="dot" style="background:${dot}"></span>Status: ${escapeHtml(text)}`;
+    }
+
+    function setEditingMode(isEdit) {
+      if (!editingPill) return;
+      editingPill.innerHTML = `<span class="dot" style="background: var(--accent)"></span>Mode: ${isEdit ? "Edit" : "New"}`;
+      deleteProjectionBtn.classList.toggle("hidden", !isEdit);
+    }
+
+    function getSelectedLocationObject() {
+      const locId = String(formLocation.value || "");
+      return state.locations.find(l => String(l.id) === locId) || null;
+    }
+
+    function populateLocationSelects() {
+      const options = state.locations
+        .slice()
+        .sort((a, b) => String(a.location_name || "").localeCompare(String(b.location_name || "")))
+        .map(loc => `<option value="${escapeHtml(String(loc.id))}">${escapeHtml(loc.location_name)}${loc.location_code ? ` (${escapeHtml(loc.location_code)})` : ""}</option>`)
+        .join("");
+
+      formLocation.innerHTML = `<option value="">Select location</option>${options}`;
+      filterLocation.innerHTML = `<option value="">All locations</option>${options}`;
+    }
+
+    function populateSourceFilter() {
+      const sources = Array.from(new Set(
+        state.projections.map(r => String(r.source || "").trim()).filter(Boolean)
+      )).sort((a, b) => a.localeCompare(b));
+
+      const current = filterSource.value;
+      filterSource.innerHTML = `<option value="">All sources</option>` + sources.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
+      if (sources.includes(current)) filterSource.value = current;
+    }
+
+    function getLocationNameById(id) {
+      const loc = state.locations.find(l => String(l.id) === String(id));
+      return loc?.location_name || "Unknown";
+    }
+
+    function getLocationCodeById(id) {
+      const loc = state.locations.find(l => String(l.id) === String(id));
+      return loc?.location_code || "";
+    }
+
+    async function authGuard() {
+      if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
+        console.error("Missing SUPABASE_URL / SUPABASE_ANON_KEY in config.js");
+        setStatus("Missing config.js Supabase keys", "danger");
+        return false;
+      }
+
+      supabaseClient = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+
+      const { data, error } = await supabaseClient.auth.getSession();
+      if (error) console.warn("getSession error:", error);
+
+      if (!data?.session) {
+        window.location.href = "/financehub/pages/login.html";
+        return false;
+      }
+
+      authEmail.textContent = data.session.user?.email || "Signed in";
+
+      logoutBtn.addEventListener("click", async () => {
+        try { await supabaseClient.auth.signOut(); } catch (e) { console.warn("signOut error:", e); }
+        window.location.href = "/financehub/pages/login.html";
       });
-      return { headers, rows };
+
+      return true;
     }
 
-    function toCSV(objects, headers){
-      const esc = (v) => {
-        const s = (v ?? "").toString();
-        if (/[,"\n]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
-        return s;
-      };
-      const head = headers.map(esc).join(",");
-      const lines = objects.map(o => headers.map(h => esc(o[h])).join(","));
-      return [head, ...lines].join("\n");
+    async function loadLocations() {
+      const { data, error } = await supabaseClient
+        .from("locations")
+        .select("id, location_code, location_name, domain, store_type, is_active")
+        .eq("is_active", true)
+        .order("location_name", { ascending: true });
+
+      if (error) throw error;
+      state.locations = data || [];
+      populateLocationSelects();
     }
 
-    function download(name, content, mime="text/csv"){
-      const blob = new Blob([content], {type: mime});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = name;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    }
-
-    // Modal
-    function openModal(title, html){
-      el("modalTitle").textContent = title;
-      el("modalBody").innerHTML = html;
-      el("modal").classList.remove("hidden");
-    }
-    function closeModal(){ el("modal").classList.add("hidden"); }
-
-    // Column persistence
-    function loadVisible(){
-      try{
-        const raw = localStorage.getItem(COLS_KEY);
-        if (!raw) return null;
-        const parsed = JSON.parse(raw);
-        if (!parsed || typeof parsed !== "object") return null;
-        return parsed;
-      }catch(e){ return null; }
-    }
-    function saveVisible(map){ localStorage.setItem(COLS_KEY, JSON.stringify(map)); }
-
-    function initVisible(){
-      VISIBLE = loadVisible();
-      if (!VISIBLE){
-        VISIBLE = {};
-        [...COLS_LOCATION, ...COLS_COMPANY].forEach(c => {
-          if (!(c.key in VISIBLE)) VISIBLE[c.key] = !!c.default;
-        });
-      }
-      VISIBLE["_details"] = true;
-      VISIBLE["image"] = true;
-      saveVisible(VISIBLE);
-    }
-
-    function currentCols(){ return MODE === "company" ? COLS_COMPANY : COLS_LOCATION; }
-    function setStatus(html){ el("statusLine").innerHTML = html; }
-
-    // Header render
-    function renderThead(){
-      const tr = el("theadRow");
-      tr.innerHTML = "";
-      const cols = currentCols();
-
-      for (const c of cols){
-        if (!VISIBLE[c.key]) continue;
-
-        if (c.key === "_select"){
-          tr.innerHTML += `
-            <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600 w-10">
-              <input id="chkAll" type="checkbox" class="h-4 w-4 align-middle" />
-            </th>`;
-          continue;
-        }
-        const align = c.align === "right" ? "text-right" : "text-left";
-        tr.innerHTML += `<th class="px-3 py-2 ${align} text-xs font-semibold text-slate-600">${escapeHtml(c.label)}</th>`;
-      }
-
-      const chkAll = document.getElementById("chkAll");
-      if (chkAll){
-        chkAll.addEventListener("change", (e) => {
-          const on = e.target.checked;
-          const start = (PAGE - 1) * PAGE_SIZE;
-          const slice = VIEW.slice(start, start + PAGE_SIZE);
-          slice.forEach(r => toggleSelect(r._id, on));
-          render();
-        });
-      }
-    }
-
-    // Location dropdown
-    function renderLocationDropdown(){
-      const sel = el("selLocation");
-      const current = sel.value || "__ALL__";
-      sel.innerHTML = `<option value="__ALL__">All locations (loaded)</option>`;
-      SOURCES.forEach(s => {
-        const opt = document.createElement("option");
-        opt.value = s.source_id;
-        opt.textContent = s.location_label;
-        sel.appendChild(opt);
-      });
-      if ([...sel.options].some(o => o.value === current)) sel.value = current;
-      else sel.value = "__ALL__";
-    }
-
-    // Fetch helper (now supports abort signal)
-    async function fetchCsvObjects(url, signal){
-      const res = await fetch(url, { cache: "no-store", signal });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const text = await res.text();
-      return rowsToObjects(text);
-    }
-
-    // Build sales map by SKU (per location)
-    function buildSalesMap(salesRows){
-      const m = new Map();
-      for (const r of salesRows){
-        const sku = norm(r[SH.sku] || r["sku"] || r["SKU"] || "");
-        if (!sku) continue;
-
-        const last = norm(r[SH.last_sold_date]);
-        const lastMs = parseDateLoose(last);
-
-        m.set(sku, {
-          sku,
-          product_name: norm(r[SH.product_name]),
-          product_type: norm(r[SH.product_type]),
-          vendor: norm(r[SH.vendor]),
-          qty_7d: num(r[SH.qty_7d]),
-          qty_30d: num(r[SH.qty_30d]),
-          qty_90d: num(r[SH.qty_90d]),
-          qty_120d: num(r[SH.qty_120d]),
-          avg_day_30: num(r[SH.avg_day_30]),
-          avg_day_90: num(r[SH.avg_day_90]),
-          avg_day_120: num(r[SH.avg_day_120]),
-          last_sold_date: last,
-          last_sold_ms: lastMs
-        });
-      }
-      return m;
-    }
-
-    // Planner flags
-    function plannerBadge(row){
-      const avg30 = num(row.avg_day);
-      const days = num(row.days_oos);
-      const onhand = num(row.avail_qty);
-
-      const lastMs = row.last_sold_ms || null;
-      const staleDays = lastMs ? daysSince(lastMs) : null;
-
-      const avg90 = num(row.avg_day_90);
-      const seasonalRatio = (avg90 > 0) ? (avg30 / avg90) : null;
-
-      const tags = [];
-
-      if (avg30 <= 0 && onhand > 0){
-        tags.push({ t:"NO DEMAND", cls:"border-slate-200 bg-white text-slate-600" });
-      } else if (days > 0 && days <= 14){
-        tags.push({ t:"BUY NOW", cls:"border-amber-200 bg-amber-50 text-amber-900" });
-      } else if (days > 0 && days <= 30){
-        tags.push({ t:"WATCH", cls:"border-amber-200 bg-white text-amber-800" });
-      }
-
-      if (staleDays !== null && staleDays >= 90 && avg30 <= 0){
-        tags.push({ t:"STALE", cls:"border-rose-200 bg-rose-50 text-rose-900" });
-      }
-
-      if (seasonalRatio !== null){
-        if (seasonalRatio >= 1.35) tags.push({ t:"SPIKING", cls:"border-emerald-200 bg-emerald-50 text-emerald-900" });
-        else if (seasonalRatio <= 0.75) tags.push({ t:"COOLING", cls:"border-slate-200 bg-slate-50 text-slate-700" });
-      }
-
-      if (!tags.length) return `<span class="badge border-slate-200 bg-white text-slate-600">OK</span>`;
-      return tags.slice(0,2).map(x => `<span class="badge ${x.cls}">${escapeHtml(x.t)}</span>`).join(" ");
-    }
-
-    // === Dedupe location-rows within a single location load ===
-    // Goal: prevent duplicate lines caused by exports or repeated report rows.
-    // Strategy:
-    // - Merge on a stable signature per location (source+location+sku|barcode|product|variant)
-    // - Sum: on-hand + retail value
-    // - Max: sales windows + avg/day (because sales_summary already aggregates by SKU)
-    // - Recompute days_oos from merged avail_qty and avg_day
-    function dedupeLocationRows(rows){
-      const m = new Map();
-      const keyOf = (r) => {
-        const src = r.source_id || "";
-        const loc = norm(r.location || r.source_label || "");
-        const sku = norm(r.sku);
-        const bc  = norm(r.barcode);
-        const prod = norm(r.product);
-        const varr = norm(r.variant);
-        // prefer SKU, else barcode, else product+variant
-        const ident = sku ? `SKU:${sku}` : (bc ? `BC:${bc}` : `PV:${prod}::${varr}`);
-        return `${src}||${loc}||${ident}||${varr}`;
-      };
-
-      for (const r of rows){
-        const k = keyOf(r);
-        if (!m.has(k)){
-          m.set(k, r);
-          continue;
-        }
-        const a = m.get(k);
-
-        // on-hand / retail should add
-        a.avail_qty += num(r.avail_qty);
-        a.inv_value += num(r.inv_value);
-
-        // sales windows should NOT add (avoid double counting); take max
-        a.qty_7d   = Math.max(num(a.qty_7d),   num(r.qty_7d));
-        a.sold_30  = Math.max(num(a.sold_30),  num(r.sold_30));
-        a.qty_90d  = Math.max(num(a.qty_90d),  num(r.qty_90d));
-        a.qty_120d = Math.max(num(a.qty_120d), num(r.qty_120d));
-
-        // avg/day also take max (best proxy), then recompute days_oos from merged on-hand
-        a.avg_day     = Math.max(num(a.avg_day),     num(r.avg_day));
-        a.avg_day_90  = Math.max(num(a.avg_day_90),  num(r.avg_day_90));
-        a.avg_day_120 = Math.max(num(a.avg_day_120), num(r.avg_day_120));
-        a.days_oos = (num(a.avg_day) > 0) ? (num(a.avail_qty) / num(a.avg_day)) : 0;
-
-        // last sold: keep latest
-        const ams = a.last_sold_ms || null;
-        const rms = r.last_sold_ms || null;
-        if (rms && (!ams || rms > ams)){
-          a.last_sold_ms = rms;
-          a.last_sold_date = r.last_sold_date || a.last_sold_date || "";
-        }
-
-        // keep an image if missing
-        if (!a.image_url && r.image_url) a.image_url = r.image_url;
-
-        // prefer non-empty descriptive text
-        if (!a.product && r.product) a.product = r.product;
-        if (!a.variant && r.variant) a.variant = r.variant;
-        if (!a.sku && r.sku) a.sku = r.sku;
-        if (!a.barcode && r.barcode) a.barcode = r.barcode;
-
-        // preserve inv debug fields (max)
-        a._inv_sold30 = Math.max(num(a._inv_sold30), num(r._inv_sold30));
-        a._inv_avgday = Math.max(num(a._inv_avgday), num(r._inv_avgday));
-        a._inv_daysoos = Math.max(num(a._inv_daysoos), num(r._inv_daysoos));
-      }
-
-      return [...m.values()];
-    }
-
-    // Company aggregation
-    function buildCompanyAgg(rows){
-      const byKey = new Map();
-
-      const keyFor = (r) => {
-        const sku = norm(r.sku);
-        if (sku) return `SKU::${sku}`;
-        const bc = norm(r.barcode);
-        if (bc) return `BC::${bc}`;
-        const prod = norm(r.product);
-        const varr = norm(r.variant);
-        if (prod || varr) return `PV::${prod}::${varr}`;
-        return `ROW::${r._id}`;
-      };
-
-      for (const r of rows){
-        const key = keyFor(r);
-
-        if (!byKey.has(key)){
-          byKey.set(key, {
-            _id: `COMPANY::${key}`,
-            key,
-            sku: norm(r.sku),
-            barcode: norm(r.barcode),
-            product: r.product,
-            variant: r.variant || "",
-            image_url: r.image_url || "",
-            avail_qty: 0,
-            inv_value: 0,
-            qty_7d: 0,
-            sold_30: 0,
-            qty_90d: 0,
-            qty_120d: 0,
-            avg_day: 0,
-            avg_day_90: 0,
-            avg_day_120: 0,
-            days_oos: 0,
-            last_sold_ms: null,
-            last_sold_date: "",
-            locations_count: 0,
-            locations: []
-          });
-        }
-
-        const agg = byKey.get(key);
-
-        agg.avail_qty += num(r.avail_qty);
-        agg.inv_value += num(r.inv_value);
-
-        agg.qty_7d += num(r.qty_7d);
-        agg.sold_30 += num(r.sold_30);
-        agg.qty_90d += num(r.qty_90d);
-        agg.qty_120d += num(r.qty_120d);
-
-        const ms = r.last_sold_ms || null;
-        if (ms && (!agg.last_sold_ms || ms > agg.last_sold_ms)){
-          agg.last_sold_ms = ms;
-          agg.last_sold_date = r.last_sold_date || "";
-        }
-
-        agg.locations.push({
-          location: r.location || r.source_label,
-          source_label: r.source_label,
-          source_id: r.source_id,
-          avail_qty: num(r.avail_qty),
-          sold_30: num(r.sold_30),
-          qty_7d: num(r.qty_7d),
-          qty_90d: num(r.qty_90d),
-          qty_120d: num(r.qty_120d),
-          avg_day: num(r.avg_day),
-          avg_day_90: num(r.avg_day_90),
-          avg_day_120: num(r.avg_day_120),
-          inv_value: num(r.inv_value),
-          days_oos: num(r.days_oos),
-          last_sold_date: r.last_sold_date || "",
-          last_sold_ms: r.last_sold_ms || null
-        });
-
-        if (!agg.image_url && r.image_url) agg.image_url = r.image_url;
-        if (!agg.product && r.product) agg.product = r.product;
-        if (!agg.variant && r.variant) agg.variant = r.variant;
-        if (!agg.sku && r.sku) agg.sku = r.sku;
-        if (!agg.barcode && r.barcode) agg.barcode = r.barcode;
-      }
-
-      const out = [];
-      for (const agg of byKey.values()){
-        const locSet = new Set(agg.locations.map(x => `${x.source_id}::${x.location}`));
-        agg.locations_count = locSet.size;
-
-        agg.avg_day = agg.sold_30 / 30;
-        agg.avg_day_90 = agg.qty_90d / 90;
-        agg.avg_day_120 = agg.qty_120d / 120;
-
-        agg.days_oos = (agg.avg_day > 0) ? (agg.avail_qty / agg.avg_day) : 0;
-
-        out.push(agg);
-      }
-      return out;
-    }
-
-    // Load all tabs (inventory + optional sales summary merge)
-    async function loadAll(){
-      const { seq, signal } = startNewLoad();
-
-      setStatus("Loading…");
-
-      RAW = [];
-      COMPANY = [];
-      VIEW = [];
-      SELECTED.clear();
-      LAST_SUGGEST = new Map();
-      SUGGEST_ENABLED = false;
-      PAGE = 1;
-
-      renderLocationDropdown();
-
-      const results = [];
-      let totalInvMapped = 0;
-      let totalInvAfterDedupe = 0;
-
-      for (const src of SOURCES){
-        try{
-          if (seq !== LOAD_SEQ) return;
-          if (signal.aborted) return;
-
-          // inventory CSV
-          const invParsed = await fetchCsvObjects(src.csv_url, signal);
-          const invHeaders = new Set(invParsed.headers);
-
-          // Optional sales summary CSV
-          let salesMap = new Map();
-          let salesCount = 0;
-          let salesWarn = "";
-
-          if (src.sales_csv){
-            try{
-              const salesParsed = await fetchCsvObjects(src.sales_csv, signal);
-              salesCount = salesParsed.rows.length;
-              const salesHeaders = new Set(salesParsed.headers);
-
-              const need = [SH.sku, SH.qty_30d, SH.avg_day_30, SH.last_sold_date];
-              const miss = need.filter(k => !salesHeaders.has(k));
-              if (miss.length){
-                salesWarn = `sales_summary missing: ${miss.join(" | ")}`;
-              } else {
-                salesMap = buildSalesMap(salesParsed.rows);
-              }
-            } catch(e){
-              // abort is expected during reload spam
-              if (signal.aborted) return;
-              salesWarn = `sales_summary failed: ${e.message || String(e)}`;
-            }
-          }
-
-          const required = [H.sku, H.avail_qty, H.inv_value];
-          const missing = required.filter(k => !invHeaders.has(k));
-          if (missing.length){
-            results.push({ source: src, warning: `Missing inventory columns: ${missing.join(" | ")}` });
-          } else {
-            results.push({ source: src, ok: invParsed.rows.length, sales_ok: salesCount, sales_warn: salesWarn });
-          }
-
-          const mapped = invParsed.rows.map((o, idx) => {
-            const shopDomain = norm(o[H.shop_domain]);
-            const location = norm(o[H.location]) || src.location_label;
-
-            const sku = norm(o[H.sku]);
-            const product = norm(o[H.product]);
-            const variant = norm(o[H.variant]);
-            const barcode = norm(o[H.barcode]);
-
-            const avail = num(o[H.avail_qty]);
-            const invValue = num(o[H.inv_value]);
-            const img = norm(o[H.img]);
-
-            const invSold30 = num(o[H.sold_30]);
-            const invAvgDay = num(o[H.avg_day]);
-            const invDaysOos = num(o[H.days_oos]);
-
-            const s = sku ? salesMap.get(sku) : null;
-
-            const qty7 = s ? s.qty_7d : 0;
-            const qty30 = s ? s.qty_30d : invSold30;
-            const qty90 = s ? s.qty_90d : 0;
-            const qty120 = s ? s.qty_120d : 0;
-
-            const avg30 = s ? s.avg_day_30 : invAvgDay;
-            const avg90 = s ? s.avg_day_90 : (qty90 ? qty90/90 : 0);
-            const avg120 = s ? s.avg_day_120 : (qty120 ? qty120/120 : 0);
-
-            const daysOos = (avg30 > 0) ? (avail / avg30) : (invDaysOos || 0);
-
-            const lastSold = s ? (s.last_sold_date || "") : "";
-            const lastSoldMs = s ? (s.last_sold_ms || null) : null;
-
-            const prodName = (s && s.product_name) ? s.product_name : product;
-            const prodType = (s && s.product_type) ? s.product_type : "";
-            const vendor = (s && s.vendor) ? s.vendor : "";
-
-            const rid = `${src.source_id}::${location}::${sku || barcode || product || "row"}::${variant || ""}::${idx}`;
-
-            return {
-              _id: rid,
-              source_id: src.source_id,
-              source_label: src.location_label,
-              gid: src.gid,
-
-              shop_domain: shopDomain,
-              location,
-
-              sku,
-              barcode,
-
-              product: prodName,
-              variant,
-
-              product_type: prodType,
-              vendor,
-
-              avail_qty: avail,
-              inv_value: invValue,
-
-              qty_7d: qty7,
-              sold_30: qty30,
-              qty_90d: qty90,
-              qty_120d: qty120,
-
-              avg_day: avg30,
-              avg_day_90: avg90,
-              avg_day_120: avg120,
-
-              days_oos: daysOos,
-
-              last_sold_date: lastSold,
-              last_sold_ms: lastSoldMs,
-
-              _inv_sold30: invSold30,
-              _inv_avgday: invAvgDay,
-              _inv_daysoos: invDaysOos,
-
-              image_url: img,
-              _raw: o
-            };
-          });
-
-          totalInvMapped += mapped.length;
-
-          // Dedupe within this location load before adding to RAW
-          const deduped = dedupeLocationRows(mapped);
-          totalInvAfterDedupe += deduped.length;
-
-          if (seq !== LOAD_SEQ) return;
-          if (signal.aborted) return;
-
-          RAW.push(...deduped);
-
-        } catch(err){
-          if (signal.aborted) return;
-          // AbortError is expected during reload spam
-          if ((err && err.name === "AbortError") || /aborted/i.test(String(err))) return;
-          results.push({ source: src, error: err.message || String(err) });
-        }
-      }
-
-      if (seq !== LOAD_SEQ) return;
-      if (signal.aborted) return;
-
-      COMPANY = buildCompanyAgg(RAW);
+    async function loadProjections() {
+      const { data, error } = await supabaseClient
+        .from("revenue_projections")
+        .select(`
+          id,
+          projection_date,
+          location_id,
+          projected_units,
+          projected_sales,
+          notes,
+          source,
+          scenario,
+          created_at,
+          updated_at,
+          created_by,
+          updated_by,
+          locations (
+            id,
+            location_name,
+            location_code,
+            domain,
+            store_type
+          )
+        `)
+        .eq("scenario", "active")
+        .order("projection_date", { ascending: true });
+
+      if (error) throw error;
+
+      state.projections = (data || []).map(row => ({
+        ...row,
+        location_name: row.locations?.location_name || getLocationNameById(row.location_id),
+        location_code: row.locations?.location_code || getLocationCodeById(row.location_id),
+        domain: row.locations?.domain || "",
+        store_type: row.locations?.store_type || ""
+      }));
+
+      populateSourceFilter();
       applyFilters();
-
-      const warn = results.filter(r => r.warning).length;
-      const bad = results.filter(r => r.error).length;
-
-      let msg = `Loaded <b>${RAW.length.toLocaleString()}</b> location-rows from <b>${SOURCES.length}</b> tab(s).`;
-      if (totalInvMapped !== totalInvAfterDedupe){
-        const removed = totalInvMapped - totalInvAfterDedupe;
-        msg += ` <span class="text-slate-600">De-duped <b>${removed.toLocaleString()}</b> duplicate row(s) within exports.</span>`;
-      }
-
-      const salesGood = results.filter(r => r.sales_ok && !r.sales_warn).length;
-      const salesAny = results.filter(r => r.sales_ok).length;
-      if (salesAny){
-        msg += ` <span class="text-slate-600">Sales summaries: <b>${salesGood}</b> ok / <b>${salesAny}</b> present.</span>`;
-      }
-      if (warn) msg += ` <span class="text-amber-700 font-semibold">${warn} tab(s) missing inventory columns.</span>`;
-      if (bad) msg += ` <span class="text-rose-700 font-semibold">${bad} tab(s) failed.</span>`;
-
-      if (warn || bad || salesAny){
-        const detail = results.map(r => {
-          const name = escapeHtml(r.source.location_label);
-          const gid = escapeHtml(String(r.source.gid));
-          if (r.error) return `<div class="mono text-xs text-rose-700">• ${name} (gid ${gid}) — ERROR: ${escapeHtml(r.error)}</div>`;
-          if (r.warning) return `<div class="mono text-xs text-amber-700">• ${name} (gid ${gid}) — WARN: ${escapeHtml(r.warning)}</div>`;
-          const salesLine = (r.sales_ok || r.sales_warn) ? ` • sales=${(r.sales_ok||0).toLocaleString()}${r.sales_warn ? ` <span class="text-amber-700">(${escapeHtml(r.sales_warn)})</span>` : ""}` : "";
-          return `<div class="mono text-xs text-slate-600">• ${name} (gid ${gid}) — ${(r.ok||0).toLocaleString()} inv rows${salesLine}</div>`;
-        }).join("");
-        msg += `<div class="mt-2">${detail}</div>`;
-      }
-
-      setStatus(msg);
     }
 
-    // Filters/sort
-    function applyFilters(){
-      const sourceFilter = el("selLocation").value;
-      const q = norm(el("txtSearch").value).toLowerCase();
-      const maxDays = el("numMaxDays").value === "" ? null : num(el("numMaxDays").value);
-      const maxQty = el("numMaxQty").value === "" ? null : num(el("numMaxQty").value);
-      const minSold30 = el("numMinSold30").value === "" ? null : num(el("numMinSold30").value);
-      const sort = el("selSort").value;
+    function getFilters() {
+      return {
+        dateFrom: String(filterDateFrom.value || "").trim(),
+        dateTo: String(filterDateTo.value || "").trim(),
+        locationId: String(filterLocation.value || "").trim(),
+        source: String(filterSource.value || "").trim().toLowerCase(),
+        search: String(filterSearch.value || "").trim().toLowerCase()
+      };
+    }
 
-      const base = (MODE === "company") ? COMPANY : RAW;
+    function applyFilters() {
+      const f = getFilters();
 
-      VIEW = base.filter(r => {
-        if (sourceFilter !== "__ALL__"){
-          if (MODE === "location"){
-            if (r.source_id !== sourceFilter) return false;
-          } else {
-            const has = (r.locations || []).some(x => x.source_id === sourceFilter);
-            if (!has) return false;
-          }
+      state.filtered = state.projections.filter(row => {
+        if (f.dateFrom && String(row.projection_date || "") < f.dateFrom) return false;
+        if (f.dateTo && String(row.projection_date || "") > f.dateTo) return false;
+        if (f.locationId && String(row.location_id) !== f.locationId) return false;
+        if (f.source && safeLower(row.source) !== f.source) return false;
+
+        if (f.search) {
+          const hay = [
+            row.projection_date,
+            row.location_name,
+            row.location_code,
+            row.notes,
+            row.source
+          ].map(v => String(v || "").toLowerCase()).join(" ");
+          if (!hay.includes(f.search)) return false;
         }
 
-        if (q){
-          const hay = `${r.sku||""} ${r.product||""} ${r.variant||""} ${r.barcode||""}`.toLowerCase();
-          if (!hay.includes(q)) return false;
-        }
-
-        if (maxDays !== null){
-          const d = num(r.days_oos);
-          if (d > 0 && d > maxDays) return false;
-        }
-        if (maxQty !== null){
-          if (num(r.avail_qty) > maxQty) return false;
-        }
-        if (minSold30 !== null){
-          if (num(r.sold_30) < minSold30) return false;
-        }
         return true;
       });
 
-      VIEW.sort((a,b) => {
-        const ad = num(a.days_oos), bd = num(b.days_oos);
-        const aq = num(a.avail_qty), bq = num(b.avail_qty);
-        const as = num(a.sold_30), bs = num(b.sold_30);
-        const a90 = num(a.qty_90d), b90 = num(b.qty_90d);
-        const av = num(a.inv_value), bv = num(b.inv_value);
+      renderProjectionTable();
+      renderKpis();
+      renderLocationSummary();
+      renderHealthSummary();
+      renderSelectionPill();
 
-        const aSt = a.last_sold_ms ? a.last_sold_ms : 0;
-        const bSt = b.last_sold_ms ? b.last_sold_ms : 0;
-
-        switch(sort){
-          case "days_asc": return (ad || 999999) - (bd || 999999);
-          case "days_desc": return (bd || 0) - (ad || 0);
-          case "qty_asc": return aq - bq;
-          case "qty_desc": return bq - aq;
-          case "sold30_desc": return bs - as;
-          case "sold90_desc": return b90 - a90;
-          case "value_desc": return bv - av;
-          case "risk_value_desc": {
-            const thr = num(el("numRiskDays").value || 14);
-            const aRisk = (ad > 0 && ad <= thr) ? 1 : 0;
-            const bRisk = (bd > 0 && bd <= thr) ? 1 : 0;
-            if (aRisk !== bRisk) return bRisk - aRisk;
-            return bv - av;
-          }
-          case "stale_desc": {
-            if (!aSt && !bSt) return 0;
-            if (!aSt) return 1;
-            if (!bSt) return -1;
-            return aSt - bSt;
-          }
-          case "sku_asc": return (a.sku || "").localeCompare(b.sku || "");
-          default: return 0;
-        }
-      });
-
-      PAGE = 1;
-
-      if (SUGGEST_ENABLED) computeSuggestions();
-      render();
+      setText("tableCount", String(state.filtered.length));
+      setText("lastUpdated", new Date().toLocaleString());
     }
 
-    // Suggest PO logic
-    function suggestPOQty(row, targetDaysCover, minReorder){
-      const avg = num(row.avg_day);
-      if (avg <= 0) return 0;
-      const targetUnits = targetDaysCover * avg;
-      const needed = Math.max(Math.ceil(targetUnits - num(row.avail_qty)), 0);
-      if (needed < (minReorder || 0)) return 0;
-      return needed;
+    function renderSelectionPill() {
+      const f = getFilters();
+      const bits = [];
+      if (f.dateFrom) bits.push(`From ${f.dateFrom}`);
+      if (f.dateTo) bits.push(`To ${f.dateTo}`);
+      if (f.locationId) bits.push(getLocationNameById(f.locationId));
+      if (f.source) bits.push(`Source ${f.source}`);
+      if (f.search) bits.push(`Search "${f.search}"`);
+
+      selectionPill.innerHTML = `<span class="dot" style="background: var(--accent)"></span>Selection: ${escapeHtml(bits.length ? bits.join(" • ") : "All")}`;
     }
 
-    function computeSuggestions(){
-      const target = num(el("numTargetCover").value || 45);
-      const minR = num(el("numMinReorder").value || 0);
-      LAST_SUGGEST = new Map();
-      for (const r of VIEW){
-        LAST_SUGGEST.set(r._id, suggestPOQty(r, target, minR));
-      }
-      render();
+    function renderKpis() {
+      const rows = state.filtered;
+      const totalUnits = rows.reduce((s, r) => s + toNumber(r.projected_units), 0);
+      const totalSales = rows.reduce((s, r) => s + toNumber(r.projected_sales), 0);
+      const locationCount = new Set(rows.map(r => String(r.location_id))).size;
+
+      setText("kpiRows", fmtInt(rows.length));
+      setText("kpiUnits", fmtInt(totalUnits));
+      setText("kpiSales", fmtMoney(totalSales));
+      setText("kpiLocations", fmtInt(locationCount));
+
+      setText("kpiRowsSub", rows.length ? `Filtered down from ${fmtInt(state.projections.length)} total rows` : "No rows in current view");
+      setText("kpiUnitsSub", rows.length ? `Average ${fmtNum(totalUnits / Math.max(rows.length, 1), 1)} units per row` : "No rows in current view");
+      setText("kpiSalesSub", rows.length ? `Average ${fmtMoney(totalSales / Math.max(rows.length, 1))} per row` : "No rows in current view");
+      setText("kpiLocationsSub", rows.length ? `${fmtInt(locationCount)} distinct locations represented` : "No rows in current view");
     }
 
-    // Selection
-    function toggleSelect(id, on){
-      if (on) SELECTED.add(id);
-      else SELECTED.delete(id);
-      el("kSelected").textContent = String(SELECTED.size);
-    }
+    function renderLocationSummary() {
+      if (!locationSummary) return;
 
-    // KPIs
-    function updateKPIs(){
-      const rows = VIEW.length;
-      let units = 0, retail = 0, sold30 = 0;
-      let riskCount = 0, riskRetail = 0;
-      let daysSum = 0, daysCount = 0;
-
-      const riskThr = num(el("numRiskDays").value || 14);
-
-      for (const r of VIEW){
-        const u = num(r.avail_qty);
-        const v = num(r.inv_value);
-        const s = num(r.sold_30);
-        const d = num(r.days_oos);
-
-        units += u;
-        retail += v;
-        sold30 += s;
-
-        if (d > 0){
-          daysSum += d; daysCount++;
-          if (d <= riskThr){
-            riskCount++;
-            riskRetail += v;
-          }
-        }
-      }
-
-      el("kRows").textContent = rows.toLocaleString();
-      el("kUnits").textContent = units.toLocaleString();
-      el("kRetailValue").textContent = money(retail);
-      el("kSold30").textContent = sold30.toLocaleString();
-      el("kRiskCount").textContent = riskCount.toLocaleString();
-      el("kRiskRetail").textContent = money(riskRetail);
-      el("kAvgDays").textContent = daysCount ? (daysSum / daysCount).toFixed(1) : "—";
-      el("kSelected").textContent = String(SELECTED.size);
-    }
-
-    // Render table
-    function render(){
-      renderThead();
-      updateKPIs();
-      updateDraftPeek();
-
-      const total = VIEW.length;
-      const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-      PAGE = Math.min(PAGE, pages);
-      const start = (PAGE - 1) * PAGE_SIZE;
-      const slice = VIEW.slice(start, start + PAGE_SIZE);
-
-      el("pagerInfo").textContent = `Page ${PAGE} of ${pages} • Showing ${slice.length} of ${total.toLocaleString()} filtered rows`;
-
-      const chkAll = document.getElementById("chkAll");
-      if (chkAll) chkAll.checked = slice.length > 0 && slice.every(r => SELECTED.has(r._id));
-
-      const riskThr = num(el("numRiskDays").value || 14);
-      const cols = currentCols();
-      const tbody = el("tbody");
-
-      tbody.innerHTML = slice.map(r => {
-        const checked = SELECTED.has(r._id);
-        const sug = LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : null;
-
-        const days = num(r.days_oos);
-        const rowTint =
-          (days > 0 && days <= 7) ? "bg-rose-50" :
-          (days > 0 && days <= riskThr) ? "bg-amber-50" : "";
-
-        const riskBadge = (days > 0 && days <= riskThr)
-          ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border border-amber-200 bg-amber-50 text-amber-800">RISK</span>`
-          : `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border border-slate-200 bg-white text-slate-500">OK</span>`;
-
-        const thumb = r.image_url
-          ? `<button data-img="${escapeHtml(r.image_url)}" class="flex items-center gap-2">
-               <img src="${escapeHtml(r.image_url)}" alt="" class="h-9 w-9 rounded-md border border-slate-200 object-cover bg-white" loading="lazy" />
-             </button>`
-          : `<div class="h-9 w-9 rounded-md border border-slate-200 bg-slate-50 grid place-items-center text-[10px] text-slate-400">—</div>`;
-
-        const detailsBtn = `<button data-details="${escapeHtml(r._id)}" class="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold hover:bg-slate-50">Details</button>`;
-        const planner = plannerBadge(r);
-        const lastSoldTxt = r.last_sold_date ? escapeHtml(r.last_sold_date) : "—";
-
-        const tds = [];
-        for (const c of cols){
-          if (!VISIBLE[c.key]) continue;
-          const align = c.align === "right" ? "text-right" : "text-left";
-
-          if (c.key === "_select"){
-            tds.push(`<td class="px-3 py-2"><input data-rowchk="1" data-id="${escapeHtml(r._id)}" type="checkbox" class="h-4 w-4" ${checked ? "checked" : ""}/></td>`);
-          } else if (c.key === "image"){
-            tds.push(`<td class="px-3 py-2 ${align}">${thumb}</td>`);
-          } else if (c.key === "source"){
-            tds.push(`<td class="px-3 py-2 ${align} text-xs text-slate-600">${escapeHtml(r.source_label || "—")}</td>`);
-          } else if (c.key === "location"){
-            tds.push(`<td class="px-3 py-2 ${align} text-xs">${escapeHtml(r.location || r.source_label || "—")}</td>`);
-          } else if (c.key === "sku"){
-            tds.push(`<td class="px-3 py-2 ${align} mono text-xs font-semibold">${escapeHtml(r.sku || "—")}</td>`);
-          } else if (c.key === "barcode"){
-            tds.push(`<td class="px-3 py-2 ${align} mono text-xs">${escapeHtml(r.barcode || "—")}</td>`);
-          } else if (c.key === "product"){
-            tds.push(`<td class="px-3 py-2 ${align} text-xs">${escapeHtml(r.product || "—")}</td>`);
-          } else if (c.key === "variant"){
-            tds.push(`<td class="px-3 py-2 ${align} text-xs text-slate-600">${escapeHtml(r.variant || "—")}</td>`);
-          } else if (c.key === "locations_count"){
-            tds.push(`<td class="px-3 py-2 ${align} mono">${num(r.locations_count).toLocaleString()}</td>`);
-          } else if (c.key === "avail_qty"){
-            tds.push(`<td class="px-3 py-2 ${align} mono font-semibold">${num(r.avail_qty).toLocaleString()}</td>`);
-          } else if (c.key === "inv_value"){
-            tds.push(`<td class="px-3 py-2 ${align} mono">${money(r.inv_value)}</td>`);
-          } else if (c.key === "qty_7d"){
-            tds.push(`<td class="px-3 py-2 ${align} mono">${num(r.qty_7d).toLocaleString()}</td>`);
-          } else if (c.key === "sold_30"){
-            tds.push(`<td class="px-3 py-2 ${align} mono">${num(r.sold_30).toLocaleString()}</td>`);
-          } else if (c.key === "qty_90d"){
-            tds.push(`<td class="px-3 py-2 ${align} mono">${num(r.qty_90d).toLocaleString()}</td>`);
-          } else if (c.key === "qty_120d"){
-            tds.push(`<td class="px-3 py-2 ${align} mono">${num(r.qty_120d).toLocaleString()}</td>`);
-          } else if (c.key === "avg_day"){
-            tds.push(`<td class="px-3 py-2 ${align} mono">${num(r.avg_day).toFixed(2)}</td>`);
-          } else if (c.key === "days_oos"){
-            tds.push(`<td class="px-3 py-2 ${align} mono">${days ? days.toFixed(0) : "—"}</td>`);
-          } else if (c.key === "last_sold_date"){
-            tds.push(`<td class="px-3 py-2 ${align} text-xs mono">${lastSoldTxt}</td>`);
-          } else if (c.key === "planner_flag"){
-            tds.push(`<td class="px-3 py-2 ${align}">${planner}</td>`);
-          } else if (c.key === "risk_flag"){
-            tds.push(`<td class="px-3 py-2 ${align}">${riskBadge}</td>`);
-          } else if (c.key === "suggested_po"){
-            const v = (sug === null ? "—" : num(sug).toLocaleString());
-            tds.push(`<td class="px-3 py-2 ${align} mono font-semibold">${v}</td>`);
-          } else if (c.key === "_details"){
-            tds.push(`<td class="px-3 py-2 ${align}">${detailsBtn}</td>`);
-          }
-        }
-
-        return `<tr class="${rowTint}">${tds.join("")}</tr>`;
-      }).join("");
-
-      document.querySelectorAll('input[data-rowchk="1"]').forEach(chk => {
-        chk.addEventListener("change", (e) => {
-          const id = e.target.getAttribute("data-id");
-          toggleSelect(id, e.target.checked);
-          updateKPIs();
-        });
-      });
-
-      document.querySelectorAll('button[data-img]').forEach(btn => {
-        btn.addEventListener("click", () => {
-          const url = btn.getAttribute("data-img");
-          openModal("Product Image", `
-            <div class="flex flex-col gap-3">
-              <div class="text-xs text-slate-600 mono break-all">${escapeHtml(url)}</div>
-              <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <img src="${escapeHtml(url)}" alt="" class="w-full max-h-[70vh] object-contain rounded-lg bg-white" />
-              </div>
-            </div>
-          `);
-        });
-      });
-
-      document.querySelectorAll('button[data-details]').forEach(btn => {
-        btn.addEventListener("click", () => {
-          const id = btn.getAttribute("data-details");
-          if (MODE === "company"){
-            const row = COMPANY.find(x => x._id === id);
-            if (row) openCompanyDetails(row);
-          } else {
-            const row = RAW.find(x => x._id === id);
-            if (row) openLocationDetails(row);
-          }
-        });
-      });
-    }
-
-    function openLocationDetails(row){
-      const seasonalRatio = (num(row.avg_day_90) > 0) ? (num(row.avg_day) / num(row.avg_day_90)) : null;
-      const staleDays = row.last_sold_ms ? daysSince(row.last_sold_ms) : null;
-
-      openModal("Location SKU Details", `
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
-          <div class="md:col-span-4">
-            <div class="rounded-xl border border-slate-200 bg-white p-3">
-              <div class="text-xs text-slate-500">Image</div>
-              <div class="mt-2">
-                ${row.image_url
-                  ? `<img src="${escapeHtml(row.image_url)}" class="w-full max-h-64 object-contain rounded-lg border border-slate-200 bg-white" />`
-                  : `<div class="h-40 rounded-lg border border-slate-200 bg-slate-50 grid place-items-center text-slate-400">No image</div>`}
-              </div>
-            </div>
-          </div>
-
-          <div class="md:col-span-8">
-            <div class="rounded-xl border border-slate-200 bg-white p-3">
-              <div class="text-sm font-semibold">${escapeHtml(row.product || "—")}</div>
-              <div class="text-xs text-slate-600 mt-1">${escapeHtml(row.variant || "")}</div>
-
-              <div class="mt-2 flex flex-wrap gap-2">
-                ${plannerBadge(row)}
-                ${row.product_type ? `<span class="badge border-slate-200 bg-slate-50 text-slate-700">${escapeHtml(row.product_type)}</span>` : ""}
-                ${row.vendor ? `<span class="badge border-slate-200 bg-white text-slate-700">Vendor: ${escapeHtml(row.vendor)}</span>` : ""}
-                ${seasonalRatio !== null ? `<span class="badge border-slate-200 bg-white text-slate-700">Seasonality (30/90): ${seasonalRatio.toFixed(2)}x</span>` : ""}
-                ${staleDays !== null ? `<span class="badge border-slate-200 bg-white text-slate-700">Days since sold: ${staleDays.toFixed(0)}</span>` : ""}
-              </div>
-
-              <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Source</div>
-                  <div class="font-semibold">${escapeHtml(row.source_label || "—")}</div>
-                </div>
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Location</div>
-                  <div class="font-semibold">${escapeHtml(row.location || "—")}</div>
-                </div>
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">SKU</div>
-                  <div class="mono font-semibold">${escapeHtml(row.sku || "—")}</div>
-                </div>
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Barcode</div>
-                  <div class="mono font-semibold">${escapeHtml(row.barcode || "—")}</div>
-                </div>
-              </div>
-
-              <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
-                <div class="rounded-lg bg-white border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">On hand</div>
-                  <div class="mono font-semibold">${num(row.avail_qty).toLocaleString()}</div>
-                </div>
-                <div class="rounded-lg bg-white border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Retail value</div>
-                  <div class="mono font-semibold">${money(row.inv_value)}</div>
-                </div>
-                <div class="rounded-lg bg-white border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Avg/Day (30)</div>
-                  <div class="mono font-semibold">${num(row.avg_day).toFixed(2)}</div>
-                </div>
-                <div class="rounded-lg bg-white border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Days to OOS</div>
-                  <div class="mono font-semibold">${num(row.days_oos) ? num(row.days_oos).toFixed(0) : "—"}</div>
-                </div>
-              </div>
-
-              <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Sold 7d</div>
-                  <div class="mono font-semibold">${num(row.qty_7d).toLocaleString()}</div>
-                </div>
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Sold 30d</div>
-                  <div class="mono font-semibold">${num(row.sold_30).toLocaleString()}</div>
-                </div>
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Sold 90d</div>
-                  <div class="mono font-semibold">${num(row.qty_90d).toLocaleString()}</div>
-                </div>
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Last sold</div>
-                  <div class="mono font-semibold">${escapeHtml(row.last_sold_date || "—")}</div>
-                </div>
-              </div>
-
-              <div class="mt-3 text-xs text-slate-600 mono">
-                gid=${escapeHtml(String(row.gid))} • source_id=${escapeHtml(row.source_id)}
-              </div>
-            </div>
-          </div>
-        </div>
-      `);
-    }
-
-    function openCompanyDetails(row){
-      const lines = (row.locations || []).slice().sort((a,b) => num(b.avg_day) - num(a.avg_day));
-      const totalAvg = num(row.avg_day) || 0;
-
-      openModal("Company SKU Breakdown", `
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
-          <div class="md:col-span-4">
-            <div class="rounded-xl border border-slate-200 bg-white p-3">
-              <div class="text-xs text-slate-500">Image</div>
-              <div class="mt-2">
-                ${row.image_url
-                  ? `<img src="${escapeHtml(row.image_url)}" class="w-full max-h-64 object-contain rounded-lg border border-slate-200 bg-white" />`
-                  : `<div class="h-40 rounded-lg border border-slate-200 bg-slate-50 grid place-items-center text-slate-400">No image</div>`}
-              </div>
-            </div>
-          </div>
-
-          <div class="md:col-span-8">
-            <div class="rounded-xl border border-slate-200 bg-white p-3">
-              <div class="text-sm font-semibold">${escapeHtml(row.product || "—")}</div>
-              <div class="text-xs text-slate-600 mt-1">
-                <span class="mono">SKU: ${escapeHtml(row.sku || "—")}</span>
-                <span class="mx-2 text-slate-300">•</span>
-                <span class="mono">Barcode: ${escapeHtml(row.barcode || "—")}</span>
-              </div>
-              <div class="text-xs text-slate-500 mt-1">Group key: <span class="mono">${escapeHtml(row.key || "")}</span></div>
-
-              <div class="mt-2 flex flex-wrap gap-2">
-                ${plannerBadge(row)}
-                ${row.last_sold_date ? `<span class="badge border-slate-200 bg-white text-slate-700">Last sold: ${escapeHtml(row.last_sold_date)}</span>` : ""}
-              </div>
-
-              <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Total On Hand</div>
-                  <div class="mono font-semibold">${num(row.avail_qty).toLocaleString()}</div>
-                </div>
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Retail Value</div>
-                  <div class="mono font-semibold">${money(row.inv_value)}</div>
-                </div>
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Avg/Day (30, Total)</div>
-                  <div class="mono font-semibold">${num(row.avg_day).toFixed(2)}</div>
-                </div>
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Company Days to OOS</div>
-                  <div class="mono font-semibold">${num(row.days_oos) ? num(row.days_oos).toFixed(0) : "—"}</div>
-                </div>
-              </div>
-
-              <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
-                <div class="rounded-lg bg-white border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Sold 7d</div>
-                  <div class="mono font-semibold">${num(row.qty_7d).toLocaleString()}</div>
-                </div>
-                <div class="rounded-lg bg-white border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Sold 30d</div>
-                  <div class="mono font-semibold">${num(row.sold_30).toLocaleString()}</div>
-                </div>
-                <div class="rounded-lg bg-white border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Sold 90d</div>
-                  <div class="mono font-semibold">${num(row.qty_90d).toLocaleString()}</div>
-                </div>
-                <div class="rounded-lg bg-white border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Sold 120d</div>
-                  <div class="mono font-semibold">${num(row.qty_120d).toLocaleString()}</div>
-                </div>
-              </div>
-
-              <div class="mt-4 rounded-xl border border-slate-200 overflow-hidden">
-                <div class="px-3 py-2 bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-700">
-                  By Location (demand share = avg/day ÷ company avg/day)
-                </div>
-                <div class="max-h-[45vh] overflow-auto thin-scroll">
-                  <table class="min-w-full text-xs">
-                    <thead class="bg-white border-b border-slate-200">
-                      <tr>
-                        <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">Location</th>
-                        <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">On hand</th>
-                        <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Avg/Day</th>
-                        <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Sold 30d</th>
-                        <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Retail</th>
-                        <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Demand share</th>
-                      </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                      ${lines.map(l => {
-                        const share = totalAvg > 0 ? (num(l.avg_day) / totalAvg) : 0;
-                        return `
-                          <tr>
-                            <td class="px-3 py-2">${escapeHtml(l.location || l.source_label || "—")}</td>
-                            <td class="px-3 py-2 text-right mono">${num(l.avail_qty).toLocaleString()}</td>
-                            <td class="px-3 py-2 text-right mono">${num(l.avg_day).toFixed(2)}</td>
-                            <td class="px-3 py-2 text-right mono">${num(l.sold_30).toLocaleString()}</td>
-                            <td class="px-3 py-2 text-right mono">${money(l.inv_value)}</td>
-                            <td class="px-3 py-2 text-right mono">${(share*100).toFixed(1)}%</td>
-                          </tr>`;
-                      }).join("")}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div class="mt-3 text-xs text-slate-600">
-                Allocation v1 (next): <b>Suggested PO × demand share</b> per location, with rounding + min constraints + transfer exceptions.
-              </div>
-            </div>
-          </div>
-        </div>
-      `);
-    }
-
-    // Columns modal
-    function openColumns(){
-      const cols = currentCols().filter(c => c.key !== "_select" && c.key !== "_details" && c.key !== "image");
-      const rows = cols.map(c => `
-        <label class="flex items-center justify-between gap-3 px-3 py-2 border border-slate-200 rounded-lg hover:bg-slate-50">
-          <div class="text-sm font-semibold text-slate-800">${escapeHtml(c.label || c.key)}</div>
-          <input type="checkbox" data-col="${escapeHtml(c.key)}" class="h-4 w-4" ${VISIBLE[c.key] ? "checked" : ""}/>
-        </label>
-      `).join("");
-
-      openModal("Columns", `
-        <div class="text-xs text-slate-600 mb-3">Toggle columns for the current mode. Image + Details are always on.</div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">${rows}</div>
-        <div class="mt-3 flex gap-2">
-          <button id="btnColsDefault" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Reset Defaults</button>
-          <button id="btnColsAll" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Show All</button>
-        </div>
-      `);
-
-      setTimeout(() => {
-        document.querySelectorAll("input[data-col]").forEach(chk => {
-          chk.addEventListener("change", (e) => {
-            const key = e.target.getAttribute("data-col");
-            VISIBLE[key] = !!e.target.checked;
-            VISIBLE["_details"] = true;
-            VISIBLE["image"] = true;
-            saveVisible(VISIBLE);
-            render();
-          });
-        });
-
-        const d = document.getElementById("btnColsDefault");
-        const a = document.getElementById("btnColsAll");
-
-        if (d) d.onclick = () => {
-          currentCols().forEach(c => VISIBLE[c.key] = !!c.default);
-          VISIBLE["_details"] = true;
-          VISIBLE["image"] = true;
-          saveVisible(VISIBLE);
-          render();
-          closeModal();
-        };
-        if (a) a.onclick = () => {
-          currentCols().forEach(c => VISIBLE[c.key] = true);
-          VISIBLE["_details"] = true;
-          VISIBLE["image"] = true;
-          saveVisible(VISIBLE);
-          render();
-          closeModal();
-        };
-      }, 0);
-    }
-
-    // Chips
-    function applyChip(kind){
-      if (kind === "oos7"){ el("numMaxDays").value = 7; el("numMaxQty").value = ""; }
-      else if (kind === "oos14"){ el("numMaxDays").value = 14; el("numMaxQty").value = ""; }
-      else if (kind === "low10"){ el("numMaxQty").value = 10; el("numMaxDays").value = ""; }
-      else if (kind === "clear"){
-        el("numMaxDays").value = "";
-        el("numMaxQty").value = "";
-        el("numMinSold30").value = "";
-        el("txtSearch").value = "";
-        el("selLocation").value = "__ALL__";
-      }
-      applyFilters();
-    }
-
-    // Draft
-    function updateDraftPeek(){
-      const lines = loadDraft();
-      if (!lines.length){ el("draftPeek").textContent = "Draft empty."; return; }
-      const peek = lines.slice(0, 14).map(l => `${l.sku || "—"} | qty ${num(l.qty)}${l.mode_added_from ? " | " + l.mode_added_from : ""}`).join("\n");
-      el("draftPeek").textContent = (lines.length > 14 ? peek + `\n… +${lines.length-14} more` : peek);
-    }
-
-    function addSelectedToDraft(){
-      if (!SELECTED.size){
-        openModal("Nothing selected", `<div class="text-slate-700">Select rows to add to a draft PO.</div>`);
+      if (!state.filtered.length) {
+        locationSummary.innerHTML = `<div class="empty-state">No filtered projections yet.</div>`;
         return;
       }
 
-      const poName = norm(el("txtPoName").value) || "PO Draft";
-      const vendor = norm(el("txtVendor").value);
-      const eta = norm(el("txtEta").value);
-
-      const target = num(el("numTargetCover").value || 45);
-      const minR = num(el("numMinReorder").value || 0);
-
-      const lines = loadDraft();
-      const index = new Map();
-      lines.forEach((l, idx) => index.set(l.sku, idx));
-
-      const selectedRows = VIEW.filter(r => SELECTED.has(r._id));
-      for (const r of selectedRows){
-        const skuKey = norm(r.sku) || norm(r.barcode) || norm(r.product) || r._id;
-        const qty = (LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : suggestPOQty(r, target, minR)) || 0;
-
-        if (index.has(skuKey)){
-          const i = index.get(skuKey);
-          lines[i].qty = num(lines[i].qty) + qty;
-        } else {
-          lines.push({
-            po_name: poName, vendor, eta,
-            sku: skuKey,
-            product: r.product || "",
-            qty,
-            retail_value_on_hand: num(r.inv_value),
-            avg_day_30: num(r.avg_day),
-            days_oos: num(r.days_oos),
-            sold_30: num(r.sold_30),
-            sold_90: num(r.qty_90d),
-            last_sold_date: r.last_sold_date || "",
-            mode_added_from: MODE
+      const map = new Map();
+      for (const row of state.filtered) {
+        const key = String(row.location_id);
+        if (!map.has(key)) {
+          map.set(key, {
+            location_id: row.location_id,
+            location_name: row.location_name || getLocationNameById(row.location_id),
+            projected_units: 0,
+            projected_sales: 0,
+            rows: 0
           });
-          index.set(skuKey, lines.length - 1);
         }
+        const x = map.get(key);
+        x.projected_units += toNumber(row.projected_units);
+        x.projected_sales += toNumber(row.projected_sales);
+        x.rows += 1;
       }
 
-      saveDraft(lines);
-      updateDraftPeek();
+      const items = Array.from(map.values()).sort((a, b) => (b.projected_sales - a.projected_sales) || a.location_name.localeCompare(b.location_name));
 
-      openModal("Added to PO Draft", `
-        <div class="text-slate-800">
-          Added <b>${SELECTED.size}</b> row(s) to draft.
-          <div class="mt-2 text-xs text-slate-600">Run <b>Suggest PO</b> then add selected for fastest flow.</div>
+      locationSummary.innerHTML = items.map(item => `
+        <div class="flex items-start justify-between gap-3 p-3 rounded-xl" style="border:1px solid var(--border); background: var(--panel2);">
+          <div class="min-w-0">
+            <div class="font-black">${escapeHtml(item.location_name)}</div>
+            <div class="text-xs muted2 mt-1">${fmtInt(item.rows)} row(s) in current view</div>
+          </div>
+          <div class="text-right">
+            <div class="mono font-black">${fmtMoney(item.projected_sales)}</div>
+            <div class="text-xs muted2">${fmtInt(item.projected_units)} units</div>
+          </div>
         </div>
-      `);
+      `).join("");
     }
 
-    function exportDraft(){
-      const lines = loadDraft();
-      if (!lines.length){ openModal("Draft is empty", `<div class="text-slate-700">Nothing to export yet.</div>`); return; }
-      const out = lines.map(l => ({
-        po_name: l.po_name, vendor: l.vendor, eta: l.eta,
-        sku: l.sku, product: l.product, qty: l.qty,
-        avg_day_30: l.avg_day_30, days_oos: l.days_oos,
-        sold_30: l.sold_30, sold_90: l.sold_90,
-        last_sold_date: l.last_sold_date,
-        retail_value_on_hand: l.retail_value_on_hand,
-        mode_added_from: l.mode_added_from
-      }));
-      download(`silo_po_draft_${safeId(lines[0].po_name || "draft")}.csv`, toCSV(out, Object.keys(out[0])));
+    function renderHealthSummary() {
+      if (!healthSummary) return;
+
+      const messages = [];
+      if (!state.locations.length) messages.push({ tone: "danger", text: "No active locations loaded." });
+      if (!state.projections.length) messages.push({ tone: "warn", text: "No projection rows loaded yet." });
+
+      const invalidRows = state.filtered.filter(r =>
+        !r.projection_date ||
+        !String(r.location_id || "").trim() ||
+        toNumber(r.projected_units) < 0 ||
+        toNumber(r.projected_sales) < 0
+      );
+      if (invalidRows.length) messages.push({ tone: "danger", text: `${fmtInt(invalidRows.length)} filtered row(s) look invalid.` });
+
+      const missingNotes = state.filtered.filter(r => !String(r.notes || "").trim()).length;
+      if (state.filtered.length && missingNotes > 0) {
+        messages.push({ tone: "warn", text: `${fmtInt(missingNotes)} filtered row(s) have no notes.` });
+      }
+
+      const zeroSales = state.filtered.filter(r => toNumber(r.projected_sales) === 0).length;
+      if (state.filtered.length && zeroSales > 0) {
+        messages.push({ tone: "warn", text: `${fmtInt(zeroSales)} filtered row(s) have zero projected sales.` });
+      }
+
+      if (!messages.length) messages.push({ tone: "good", text: "Current filtered data looks clean." });
+
+      healthSummary.innerHTML = messages.map(msg => {
+        const borderColor = msg.tone === "danger" ? "var(--danger)" : (msg.tone === "warn" ? "var(--warn)" : "var(--good)");
+        return `<div class="status" style="border-color: color-mix(in oklab, ${borderColor} 30%, var(--border));">${escapeHtml(msg.text)}</div>`;
+      }).join("");
     }
 
-    function viewDraft(){
-      const lines = loadDraft();
-      if (!lines.length){ openModal("PO Draft", `<div class="text-slate-700">Draft empty.</div>`); return; }
-      openModal("PO Draft", `
-        <div class="text-xs text-slate-600 mb-2">Lines: <b>${lines.length}</b></div>
-        <div class="overflow-auto max-h-[65vh] border border-slate-200 rounded-lg thin-scroll">
-          <table class="min-w-full text-sm">
-            <thead class="bg-slate-50 border-b border-slate-200">
-              <tr>
-                <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">SKU / Key</th>
-                <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">Product</th>
-                <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Qty</th>
-                <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Sold 30d</th>
-                <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">Mode</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-              ${lines.map(l => `
-                <tr>
-                  <td class="px-3 py-2 mono font-semibold">${escapeHtml(l.sku)}</td>
-                  <td class="px-3 py-2">${escapeHtml(l.product || "")}</td>
-                  <td class="px-3 py-2 text-right mono font-semibold">${num(l.qty).toLocaleString()}</td>
-                  <td class="px-3 py-2 text-right mono">${num(l.sold_30).toLocaleString()}</td>
-                  <td class="px-3 py-2 text-xs text-slate-600">${escapeHtml(l.mode_added_from || "")}</td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
+    function renderProjectionTable() {
+      if (!projectionTableBody) return;
+
+      const rows = state.filtered.slice().sort((a, b) => {
+        const d = String(a.projection_date || "").localeCompare(String(b.projection_date || ""));
+        if (d !== 0) return d;
+        return String(a.location_name || "").localeCompare(String(b.location_name || ""));
+      });
+
+      if (!rows.length) {
+        projectionTableBody.innerHTML = `<tr><td colspan="8"><div class="empty-state">No projections match the current filter.</div></td></tr>`;
+        return;
+      }
+
+      projectionTableBody.innerHTML = rows.map(row => `
+        <tr data-id="${escapeHtml(String(row.id))}">
+          <td class="mono">${escapeHtml(String(row.projection_date || ""))}</td>
+          <td>
+            <div style="font-weight:900;">${escapeHtml(row.location_name || "Unknown")}</div>
+            <div class="text-xs muted2">${escapeHtml(row.location_code || "")}</div>
+          </td>
+          <td class="text-right mono">${fmtInt(row.projected_units)}</td>
+          <td class="text-right mono">${fmtMoney2(row.projected_sales)}</td>
+          <td>${escapeHtml(row.source || "—")}</td>
+          <td style="max-width: 340px;">
+            <div style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(row.notes || "—")}</div>
+          </td>
+          <td>
+            <div class="mono">${escapeHtml(fmtDateTime(row.updated_at))}</div>
+          </td>
+          <td>
+            <div class="flex items-center gap-2 flex-wrap">
+              <button class="btn btn-ghost" data-action="edit" data-id="${escapeHtml(String(row.id))}">Edit</button>
+              <button class="btn btn-ghost" data-action="history" data-id="${escapeHtml(String(row.id))}">History</button>
+            </div>
+          </td>
+        </tr>
+      `).join("");
+    }
+
+    function clearForm(resetDate = false) {
+      state.selectedProjection = null;
+      if (resetDate || !formProjectionDate.value) formProjectionDate.value = todayIso();
+      formLocation.value = "";
+      formProjectedUnits.value = "";
+      formProjectedSales.value = "";
+      formSource.value = "manual";
+      formNotes.value = "";
+      setEditingMode(false);
+    }
+
+    function loadProjectionIntoForm(id) {
+      const row = state.projections.find(r => String(r.id) === String(id));
+      if (!row) return;
+
+      state.selectedProjection = row;
+      formProjectionDate.value = row.projection_date || "";
+      formLocation.value = String(row.location_id || "");
+      formProjectedUnits.value = toNumber(row.projected_units);
+      formProjectedSales.value = Number(toNumber(row.projected_sales)).toFixed(2);
+      formSource.value = row.source || "manual";
+      formNotes.value = row.notes || "";
+      setEditingMode(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function validateForm() {
+      const errors = [];
+      if (!formProjectionDate.value) errors.push("Projection date is required.");
+      if (!formLocation.value) errors.push("Location is required.");
+
+      const units = toNumber(formProjectedUnits.value);
+      const sales = toNumber(formProjectedSales.value);
+
+      if (units < 0) errors.push("Projected units cannot be negative.");
+      if (sales < 0) errors.push("Projected sales cannot be negative.");
+
+      return {
+        ok: errors.length === 0,
+        errors,
+        payload: {
+          projection_date: formProjectionDate.value,
+          location_id: Number(formLocation.value),
+          projected_units: Math.round(units),
+          projected_sales: Number(sales.toFixed(2)),
+          notes: String(formNotes.value || "").trim() || null,
+          source: String(formSource.value || "").trim() || "manual",
+          scenario: "active"
+        }
+      };
+    }
+
+    async function saveProjection() {
+      const v = validateForm();
+      if (!v.ok) {
+        setStatus(v.errors.join(" "), "danger");
+        return;
+      }
+
+      saveProjectionBtn.disabled = true;
+      saveProjectionBtn.textContent = "Saving…";
+
+      try {
+        const payload = v.payload;
+
+        const { data, error } = await supabaseClient
+          .from("revenue_projections")
+          .upsert([payload], {
+            onConflict: "projection_date,location_id"
+          })
+          .select(`
+            id,
+            projection_date,
+            location_id,
+            projected_units,
+            projected_sales,
+            notes,
+            source,
+            scenario,
+            created_at,
+            updated_at,
+            created_by,
+            updated_by,
+            locations (
+              id,
+              location_name,
+              location_code,
+              domain,
+              store_type
+            )
+          `)
+          .single();
+
+        if (error) throw error;
+
+        const mapped = {
+          ...data,
+          location_name: data.locations?.location_name || getLocationNameById(data.location_id),
+          location_code: data.locations?.location_code || getLocationCodeById(data.location_id),
+          domain: data.locations?.domain || "",
+          store_type: data.locations?.store_type || ""
+        };
+
+        const idx = state.projections.findIndex(r => String(r.id) === String(mapped.id));
+        if (idx >= 0) state.projections[idx] = mapped;
+        else {
+          const priorIdx = state.projections.findIndex(r =>
+            String(r.projection_date) === String(mapped.projection_date) &&
+            String(r.location_id) === String(mapped.location_id)
+          );
+          if (priorIdx >= 0) state.projections[priorIdx] = mapped;
+          else state.projections.push(mapped);
+        }
+
+        populateSourceFilter();
+        applyFilters();
+        loadProjectionIntoForm(mapped.id);
+        setStatus("Projection saved.", "good");
+      } catch (e) {
+        console.error(e);
+        setStatus(`Save failed: ${e.message || e}`, "danger");
+      } finally {
+        saveProjectionBtn.disabled = false;
+        saveProjectionBtn.textContent = "Save projection";
+      }
+    }
+
+    async function deleteSelectedProjection() {
+      if (!state.selectedProjection?.id) {
+        setStatus("Select a row before deleting.", "warn");
+        return;
+      }
+
+      const ok = window.confirm(`Delete projection for ${state.selectedProjection.location_name} on ${state.selectedProjection.projection_date}?`);
+      if (!ok) return;
+
+      deleteProjectionBtn.disabled = true;
+      deleteProjectionBtn.textContent = "Deleting…";
+
+      try {
+        const { error } = await supabaseClient
+          .from("revenue_projections")
+          .delete()
+          .eq("id", state.selectedProjection.id);
+
+        if (error) throw error;
+
+        state.projections = state.projections.filter(r => String(r.id) !== String(state.selectedProjection.id));
+        applyFilters();
+        clearForm(true);
+        setStatus("Projection deleted.", "good");
+      } catch (e) {
+        console.error(e);
+        setStatus(`Delete failed: ${e.message || e}`, "danger");
+      } finally {
+        deleteProjectionBtn.disabled = false;
+        deleteProjectionBtn.textContent = "Delete current row";
+      }
+    }
+
+    async function loadHistory({ projectionId = null } = {}) {
+      let query = supabaseClient
+        .from("revenue_projection_history")
+        .select("history_id, revenue_projection_id, action_type, changed_at, changed_by, projection_date, location_id, projected_units, projected_sales, notes, source, scenario, original_created_at, original_updated_at, original_created_by, original_updated_by")
+        .order("changed_at", { ascending: false })
+        .limit(200);
+
+      if (projectionId) query = query.eq("revenue_projection_id", projectionId);
+      if (historyDateFrom.value) query = query.gte("projection_date", historyDateFrom.value);
+      if (historyDateTo.value) query = query.lte("projection_date", historyDateTo.value);
+
+      const { data, error } = await query;
+      if (error) throw error;
+
+      state.history = data || [];
+      renderHistoryList(projectionId);
+    }
+
+    function renderHistoryList(projectionId = null) {
+      if (!historyList) return;
+
+      if (!state.history.length) {
+        historyList.innerHTML = `<div class="empty-state">No audit history found for this view.</div>`;
+        historySubtitle.textContent = projectionId
+          ? "No history found for the selected projection."
+          : "Most recent changes across revenue projections.";
+        return;
+      }
+
+      historySubtitle.textContent = projectionId
+        ? "Showing history for the selected projection."
+        : "Most recent changes across revenue projections.";
+
+      historyList.innerHTML = state.history.map(item => {
+        const tone = item.action_type === "DELETE" ? "var(--danger)" : (item.action_type === "UPDATE" ? "var(--warn)" : "var(--good)");
+        const locName = getLocationNameById(item.location_id);
+
+        return `
+          <div class="history-item">
+            <div class="flex items-start justify-between gap-3 flex-wrap">
+              <div>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="pill" style="border-color: color-mix(in oklab, ${tone} 30%, var(--border)); color:${tone};">
+                    <span class="dot" style="background:${tone}"></span>${escapeHtml(item.action_type)}
+                  </span>
+                  <span class="mono">${escapeHtml(String(item.projection_date || ""))}</span>
+                  <span class="pill"><span class="dot" style="background: var(--accent)"></span>${escapeHtml(locName)}</span>
+                </div>
+                <div class="mt-2 text-sm muted">
+                  Units <span class="mono">${fmtInt(item.projected_units)}</span> ·
+                  Sales <span class="mono">${fmtMoney2(item.projected_sales)}</span> ·
+                  Source <span class="mono">${escapeHtml(item.source || "—")}</span>
+                </div>
+                <div class="mt-1 text-xs muted2">
+                  Changed ${escapeHtml(fmtDateTime(item.changed_at))}
+                </div>
+              </div>
+              <div class="text-right text-xs muted2">
+                Projection ID: <span class="mono">${escapeHtml(String(item.revenue_projection_id || "—"))}</span>
+              </div>
+            </div>
+            <div class="mt-3 text-sm">${escapeHtml(item.notes || "No notes")}</div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function openHistoryDrawer() {
+      historyDrawer.classList.add("open");
+      historyDrawer.setAttribute("aria-hidden", "false");
+    }
+
+    function closeHistoryDrawer() {
+      historyDrawer.classList.remove("open");
+      historyDrawer.setAttribute("aria-hidden", "true");
+    }
+
+    async function openSelectedHistory() {
+      if (!state.selectedProjection?.id) {
+        setStatus("Select a row first to view row-level history.", "warn");
+        return;
+      }
+      openHistoryDrawer();
+      try {
+        await loadHistory({ projectionId: state.selectedProjection.id });
+      } catch (e) {
+        console.error(e);
+        setStatus(`History load failed: ${e.message || e}`, "danger");
+      }
+    }
+
+    function exportFilteredCsv() {
+      const rows = state.filtered.slice().sort((a, b) => {
+        const d = String(a.projection_date || "").localeCompare(String(b.projection_date || ""));
+        if (d !== 0) return d;
+        return String(a.location_name || "").localeCompare(String(b.location_name || ""));
+      });
+
+      if (!rows.length) {
+        setStatus("No filtered rows to export.", "warn");
+        return;
+      }
+
+      const lines = [
+        [
+          "projection_date",
+          "location_id",
+          "location_code",
+          "location_name",
+          "projected_units",
+          "projected_sales",
+          "source",
+          "notes",
+          "updated_at"
+        ].join(",")
+      ];
+
+      rows.forEach(r => {
+        lines.push([
+          csvEscape(r.projection_date),
+          csvEscape(r.location_id),
+          csvEscape(r.location_code || ""),
+          csvEscape(r.location_name || ""),
+          csvEscape(r.projected_units),
+          csvEscape(Number(toNumber(r.projected_sales)).toFixed(2)),
+          csvEscape(r.source || ""),
+          csvEscape(r.notes || ""),
+          csvEscape(r.updated_at || "")
+        ].join(","));
+      });
+
+      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `silo_revenue_projections_${todayIso()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      setStatus(`Exported ${rows.length} row(s).`, "good");
+    }
+
+    function downloadTemplateCsv() {
+      const lines = [
+        "projection_date,location_name,projected_units,projected_sales,source,notes",
+        `${todayIso()},Online,100,5000.00,manual,Promo week example`,
+        `${addDaysIso(todayIso(), 1)},Scottsdale,65,3200.00,manual,Normal daily pace`
+      ];
+
+      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `silo_projections_import_template_${todayIso()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+
+      setStatus("Import template downloaded.", "good");
+    }
+
+    function resolveLocationFromImport(raw, headerIndex, row) {
+      const locIdIdx = findHeader(headerIndex, ["location_id"]);
+      const locCodeIdx = findHeader(headerIndex, ["location_code", "store_code", "code"]);
+      const locNameIdx = findHeader(headerIndex, ["location_name", "location", "store", "store_name"]);
+
+      const rawId = locIdIdx !== null ? String(row[locIdIdx] || "").trim() : "";
+      const rawCode = locCodeIdx !== null ? String(row[locCodeIdx] || "").trim().toLowerCase() : "";
+      const rawName = locNameIdx !== null ? String(row[locNameIdx] || "").trim().toLowerCase() : "";
+
+      if (rawId) {
+        const hit = state.locations.find(l => String(l.id) === rawId);
+        if (hit) return hit;
+      }
+      if (rawCode) {
+        const hit = state.locations.find(l => safeLower(l.location_code) === rawCode);
+        if (hit) return hit;
+      }
+      if (rawName) {
+        const hit = state.locations.find(l => safeLower(l.location_name) === rawName);
+        if (hit) return hit;
+      }
+      return null;
+    }
+
+    async function importCsvFile(file) {
+      if (!file) return;
+
+      const text = await file.text();
+      const table = parseCsv(text);
+      if (!table.length || table.length < 2) {
+        setStatus("Import file is empty.", "danger");
+        return;
+      }
+
+      const header = table[0];
+      const headerIndex = buildHeaderIndex(header);
+
+      const dateIdx = findHeader(headerIndex, ["projection_date", "date"]);
+      const unitsIdx = findHeader(headerIndex, ["projected_units", "units"]);
+      const salesIdx = findHeader(headerIndex, ["projected_sales", "sales", "projected_revenue"]);
+      const sourceIdx = findHeader(headerIndex, ["source"]);
+      const notesIdx = findHeader(headerIndex, ["notes", "note"]);
+
+      if (dateIdx === null || unitsIdx === null || salesIdx === null) {
+        setStatus("Import CSV must include projection_date, projected_units, and projected_sales.", "danger");
+        return;
+      }
+
+      const result = {
+        total: 0,
+        prepared: 0,
+        skipped: 0,
+        errors: []
+      };
+
+      const payload = [];
+      const seen = new Set();
+
+      for (let i = 1; i < table.length; i++) {
+        const row = table[i];
+        if (!row || row.every(c => String(c || "").trim() === "")) continue;
+
+        result.total += 1;
+
+        const loc = resolveLocationFromImport(file, headerIndex, row);
+        const projection_date = String(row[dateIdx] || "").trim();
+        const projected_units = Math.round(toNumber(row[unitsIdx]));
+        const projected_sales = Number(toNumber(row[salesIdx]).toFixed(2));
+        const source = sourceIdx !== null ? (String(row[sourceIdx] || "").trim() || "import") : "import";
+        const notes = notesIdx !== null ? (String(row[notesIdx] || "").trim() || null) : null;
+
+        if (!loc) {
+          result.skipped += 1;
+          result.errors.push(`Row ${i + 1}: location not found.`);
+          continue;
+        }
+        if (!projection_date) {
+          result.skipped += 1;
+          result.errors.push(`Row ${i + 1}: missing projection_date.`);
+          continue;
+        }
+
+        const key = `${projection_date}||${loc.id}`;
+        if (seen.has(key)) {
+          result.skipped += 1;
+          result.errors.push(`Row ${i + 1}: duplicate date/location inside file.`);
+          continue;
+        }
+        seen.add(key);
+
+        payload.push({
+          projection_date,
+          location_id: Number(loc.id),
+          projected_units: Math.max(0, projected_units),
+          projected_sales: Math.max(0, projected_sales),
+          notes,
+          source,
+          scenario: "active"
+        });
+        result.prepared += 1;
+      }
+
+      if (!payload.length) {
+        state.importResult = result;
+        renderImportSummary();
+        setStatus("No valid import rows found.", "warn");
+        return;
+      }
+
+      try {
+        const { error } = await supabaseClient
+          .from("revenue_projections")
+          .upsert(payload, { onConflict: "projection_date,location_id" });
+
+        if (error) throw error;
+
+        state.importResult = result;
+        renderImportSummary();
+        setStatus(`Imported ${result.prepared} row(s).`, "good");
+        await loadProjections();
+      } catch (e) {
+        console.error(e);
+        result.errors.push(e.message || String(e));
+        state.importResult = result;
+        renderImportSummary();
+        setStatus(`Import failed: ${e.message || e}`, "danger");
+      } finally {
+        importFile.value = "";
+      }
+    }
+
+    function renderImportSummary() {
+      const x = state.importResult;
+      if (!x) {
+        importSummary.innerHTML = `<div class="empty-state">No import run yet.</div>`;
+        return;
+      }
+
+      importSummary.innerHTML = `
+        <div class="space-y-2">
+          <div class="status">Rows in file: <span class="mono">${fmtInt(x.total)}</span></div>
+          <div class="status">Prepared: <span class="mono">${fmtInt(x.prepared)}</span></div>
+          <div class="status">Skipped: <span class="mono">${fmtInt(x.skipped)}</span></div>
+          ${x.errors.length ? `
+            <div class="status" style="border-color: color-mix(in oklab, var(--warn) 30%, var(--border));">
+              <div class="font-black mb-2">Issues</div>
+              <div class="text-xs muted leading-6">${x.errors.slice(0, 8).map(escapeHtml).join("<br>")}</div>
+            </div>
+          ` : ""}
         </div>
-      `);
+      `;
     }
 
-    // Export filtered/selected
-    function exportFiltered(){
-      if (!VIEW.length){ openModal("Export", `<div class="text-slate-700">No rows to export.</div>`); return; }
-      const out = VIEW.map(r => ({
-        mode: MODE,
-        sku: r.sku,
-        barcode: r.barcode,
-        product: r.product,
-        variant: r.variant,
-        source: MODE === "location" ? r.source_label : "",
-        location: MODE === "location" ? r.location : "",
-        locations_count: MODE === "company" ? r.locations_count : "",
-        avail_qty: r.avail_qty,
-        inv_value_msrp: r.inv_value,
-        qty_7d: r.qty_7d,
-        qty_30d: r.sold_30,
-        qty_90d: r.qty_90d,
-        qty_120d: r.qty_120d,
-        avg_day_30: r.avg_day,
-        days_oos: r.days_oos,
-        last_sold_date: r.last_sold_date,
-        suggested_po: (LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : "")
-      }));
-      download(`silo_inventory_${MODE}_filtered_${new Date().toISOString().slice(0,10)}.csv`, toCSV(out, Object.keys(out[0])));
+    async function loadEverything() {
+      setStatus("Loading…");
+      try {
+        await loadLocations();
+        await loadProjections();
+        setStatus("Ready.", "good");
+      } catch (e) {
+        console.error(e);
+        setStatus(`Load failed: ${e.message || e}`, "danger");
+      }
     }
 
-    function exportSelected(){
-      const selected = VIEW.filter(r => SELECTED.has(r._id));
-      if (!selected.length){ openModal("Export", `<div class="text-slate-700">No selected rows.</div>`); return; }
-      const out = selected.map(r => ({
-        mode: MODE,
-        sku: r.sku,
-        barcode: r.barcode,
-        product: r.product,
-        variant: r.variant,
-        source: MODE === "location" ? r.source_label : "",
-        location: MODE === "location" ? r.location : "",
-        locations_count: MODE === "company" ? r.locations_count : "",
-        avail_qty: r.avail_qty,
-        inv_value_msrp: r.inv_value,
-        qty_7d: r.qty_7d,
-        qty_30d: r.sold_30,
-        qty_90d: r.qty_90d,
-        qty_120d: r.qty_120d,
-        avg_day_30: r.avg_day,
-        days_oos: r.days_oos,
-        last_sold_date: r.last_sold_date,
-        suggested_po: (LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : "")
-      }));
-      download(`silo_inventory_${MODE}_selected_${new Date().toISOString().slice(0,10)}.csv`, toCSV(out, Object.keys(out[0])));
+    function applyTheme(theme) {
+      document.documentElement.setAttribute("data-theme", theme);
+      themeLabel.textContent = theme[0].toUpperCase() + theme.slice(1);
+      localStorage.setItem(state.themeKey, theme);
     }
 
-    // Mode switching
-    function setMode(next){
-      MODE = next;
-      SELECTED.clear();
-      LAST_SUGGEST = new Map();
-      PAGE = 1;
+    function bindEvents() {
+      themeBtn.addEventListener("click", () => {
+        const cur = document.documentElement.getAttribute("data-theme") || "light";
+        applyTheme(cur === "dark" ? "light" : "dark");
+      });
 
-      el("btnModeLocation").classList.toggle("active", MODE === "location");
-      el("btnModeCompany").classList.toggle("active", MODE === "company");
-      el("modeLine").textContent = `Mode: ${MODE === "company" ? "Company View" : "Location View"}`;
+      reloadBtn.addEventListener("click", loadEverything);
+      newProjectionBtn.addEventListener("click", () => {
+        clearForm(true);
+        formProjectionDate.focus();
+      });
 
-      renderThead();
-      applyFilters();
+      applyFiltersBtn.addEventListener("click", applyFilters);
+      clearFiltersBtn.addEventListener("click", () => {
+        filterDateFrom.value = "";
+        filterDateTo.value = "";
+        filterLocation.value = "";
+        filterSource.value = "";
+        filterSearch.value = "";
+        applyFilters();
+      });
+
+      thisMonthBtn.addEventListener("click", () => {
+        filterDateFrom.value = firstDayOfMonthIso();
+        const base = new Date();
+        const end = new Date(base.getFullYear(), base.getMonth() + 1, 0);
+        filterDateTo.value = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, "0")}-${String(end.getDate()).padStart(2, "0")}`;
+        applyFilters();
+      });
+
+      next30Btn.addEventListener("click", () => {
+        filterDateFrom.value = todayIso();
+        filterDateTo.value = addDaysIso(todayIso(), 30);
+        applyFilters();
+      });
+
+      [filterDateFrom, filterDateTo, filterLocation, filterSource].forEach(node => {
+        node.addEventListener("change", applyFilters);
+      });
+      filterSearch.addEventListener("input", applyFilters);
+
+      clearFormBtn.addEventListener("click", () => clearForm(true));
+      saveProjectionBtn.addEventListener("click", saveProjection);
+      deleteProjectionBtn.addEventListener("click", deleteSelectedProjection);
+      viewSelectedHistoryBtn.addEventListener("click", openSelectedHistory);
+
+      projectionTableBody.addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-action]");
+        if (!btn) return;
+        const action = btn.getAttribute("data-action");
+        const id = btn.getAttribute("data-id");
+        if (!id) return;
+
+        if (action === "edit") loadProjectionIntoForm(id);
+        if (action === "history") {
+          const row = state.projections.find(r => String(r.id) === String(id));
+          if (row) {
+            state.selectedProjection = row;
+            setEditingMode(true);
+          }
+          openSelectedHistory();
+        }
+      });
+
+      exportBtn.addEventListener("click", exportFilteredCsv);
+      downloadTemplateBtn.addEventListener("click", downloadTemplateCsv);
+      importFile.addEventListener("change", async () => {
+        const file = importFile.files?.[0];
+        if (file) await importCsvFile(file);
+      });
+
+      openHistoryDrawerBtn.addEventListener("click", async () => {
+        openHistoryDrawer();
+        try {
+          await loadHistory();
+        } catch (e) {
+          console.error(e);
+          setStatus(`History load failed: ${e.message || e}`, "danger");
+        }
+      });
+
+      closeHistoryDrawerBtn.addEventListener("click", closeHistoryDrawer);
+      historyOverlay.addEventListener("click", closeHistoryDrawer);
+      reloadHistoryBtn.addEventListener("click", async () => {
+        try {
+          await loadHistory(state.selectedProjection?.id ? { projectionId: state.selectedProjection.id } : {});
+        } catch (e) {
+          console.error(e);
+          setStatus(`History load failed: ${e.message || e}`, "danger");
+        }
+      });
+
+      window.addEventListener("keydown", async (e) => {
+        const key = String(e.key || "").toLowerCase();
+        const tag = String(e.target?.tagName || "").toLowerCase();
+        const inInput = ["input", "textarea", "select"].includes(tag);
+
+        if ((e.ctrlKey || e.metaKey) && key === "k") {
+          e.preventDefault();
+          await loadEverything();
+          return;
+        }
+
+        if ((e.ctrlKey || e.metaKey) && key === "s") {
+          e.preventDefault();
+          await saveProjection();
+          return;
+        }
+
+        if (!inInput && key === "t") {
+          e.preventDefault();
+          const cur = document.documentElement.getAttribute("data-theme") || "light";
+          applyTheme(cur === "dark" ? "light" : "dark");
+          return;
+        }
+
+        if (!inInput && key === "n") {
+          e.preventDefault();
+          clearForm(true);
+          formProjectionDate.focus();
+          return;
+        }
+
+        if (!inInput && key === "h") {
+          e.preventDefault();
+          openHistoryDrawer();
+          try { await loadHistory(); } catch (err) { console.error(err); }
+          return;
+        }
+
+        if (key === "escape" && historyDrawer.classList.contains("open")) {
+          closeHistoryDrawer();
+        }
+      });
     }
 
-    // Events
-    el("btnReload").addEventListener("click", loadAll);
-    el("btnColumns").addEventListener("click", openColumns);
-    el("btnExportFiltered").addEventListener("click", exportFiltered);
+    async function boot() {
+      const ok = await authGuard();
+      if (!ok) return;
 
-    el("btnModeLocation").addEventListener("click", () => setMode("location"));
-    el("btnModeCompany").addEventListener("click", () => setMode("company"));
+      bindEvents();
+      applyTheme(localStorage.getItem(state.themeKey) || "light");
+      clearForm(true);
+      await loadEverything();
+    }
 
-    el("btnMoreFilters").addEventListener("click", () => el("filterDrawer").classList.toggle("hidden"));
-    el("btnApply").addEventListener("click", applyFilters);
-    el("btnClear").addEventListener("click", () => {
-      el("numMaxDays").value = "";
-      el("numMaxQty").value = "";
-      el("numMinSold30").value = "";
-      applyFilters();
-    });
-
-    el("selLocation").addEventListener("change", applyFilters);
-    el("selSort").addEventListener("change", applyFilters);
-    el("numRiskDays").addEventListener("change", applyFilters);
-    el("txtSearch").addEventListener("keydown", (e) => { if (e.key === "Enter") applyFilters(); });
-
-    document.querySelectorAll("button[data-chip]").forEach(b => {
-      b.addEventListener("click", () => applyChip(b.getAttribute("data-chip")));
-    });
-
-    el("btnPrev").addEventListener("click", () => { PAGE = Math.max(1, PAGE - 1); render(); });
-    el("btnNext").addEventListener("click", () => {
-      const pages = Math.max(1, Math.ceil(VIEW.length / PAGE_SIZE));
-      PAGE = Math.min(pages, PAGE + 1);
-      render();
-    });
-
-    el("btnSuggestPO").addEventListener("click", () => {
-      SUGGEST_ENABLED = true;
-      computeSuggestions();
-    });
-
-    el("btnAddSelectedToDraft").addEventListener("click", addSelectedToDraft);
-    el("btnExportDraft").addEventListener("click", exportDraft);
-    el("btnViewDraft").addEventListener("click", viewDraft);
-    el("btnClearDraft").addEventListener("click", () => { saveDraft([]); updateDraftPeek(); });
-
-    el("btnExportSelected").addEventListener("click", exportSelected);
-    el("btnClearSelection").addEventListener("click", () => {
-      SELECTED.clear();
-      el("kSelected").textContent = "0";
-      render();
-    });
-
-    el("btnCloseModal").addEventListener("click", closeModal);
-    el("modal").addEventListener("click", (e) => { if (e.target === el("modal")) closeModal(); });
-
-    // Init
-    initVisible();
-    renderThead();
-    renderLocationDropdown();
-    updateDraftPeek();
-    loadAll();
+    boot();
   </script>
 </body>
 </html>
