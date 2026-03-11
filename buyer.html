@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Silo ERP — Product Builder</title>
+  <title>Silo ERP — Product Buyer</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="/financehub/pages/config.js"></script>
@@ -56,20 +56,11 @@
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
       letter-spacing: -0.01em;
     }
+    body.themeable { background: var(--bg); color: var(--text); }
 
-    body.themeable{
-      background: var(--bg);
-      color: var(--text);
-    }
-
-    .app-shell{
-      min-height: 100vh;
-      display: grid;
-      grid-template-columns: 1fr;
-    }
-
+    .app-shell{ min-height: 100vh; display: grid; grid-template-columns: 1fr; }
     .main{ padding: 16px; }
-    .container{ max-width: 1760px; margin: 0 auto; }
+    .container{ max-width: 1840px; margin: 0 auto; }
 
     .card{
       background: var(--panel);
@@ -182,9 +173,7 @@
       background: var(--panel);
     }
     .table thead th{
-      position: sticky;
-      top: 0;
-      z-index: 5;
+      position: sticky; top: 0; z-index: 5;
       font-size: .68rem;
       letter-spacing: .14em;
       text-transform: uppercase;
@@ -221,18 +210,8 @@
       border-color: color-mix(in oklab, var(--accent) 80%, #000);
     }
 
-    .sticky-tray{
-      position: sticky;
-      bottom: 12px;
-      z-index: 20;
-    }
-
-    .right-col{
-      position: sticky;
-      top: 16px;
-      align-self: start;
-    }
-
+    .sticky-tray{ position: sticky; bottom: 12px; z-index: 20; }
+    .right-col{ position: sticky; top: 16px; align-self: start; }
     .soft-panel{
       background: var(--panel2);
       border: 1px solid var(--border);
@@ -244,6 +223,16 @@
     .confidence-low{ color: var(--danger); }
 
     .hidden-x{ display:none !important; }
+    .text-right{ text-align: right; }
+
+    .curve-badge{
+      display:inline-flex; align-items:center; gap:.35rem;
+      padding:.18rem .55rem;
+      border:1px solid var(--border);
+      border-radius:999px;
+      font-size:11px; font-weight:900;
+      background:var(--panel2); color:var(--muted);
+    }
   </style>
 </head>
 
@@ -266,14 +255,14 @@
             <div>
               <div class="flex items-center gap-2 flex-wrap">
                 <span class="pill"><span class="dot" style="background: var(--accent)"></span>Silo ERP</span>
-                <span class="pill">Product Builder</span>
-                <span class="pill">New Product Planning Only</span>
+                <span class="pill">Product Buyer</span>
+                <span class="pill">Buyer Co-Pilot</span>
               </div>
-              <h1 class="mt-3 text-2xl font-semibold tracking-tight">Style-first product planning</h1>
-              <p class="mt-2 text-sm muted max-w-4xl">
-                Uses imported <b>revenue_projections</b> as top-down context only. Recommendations are driven by
-                <b>category 120-day history</b>, <b>comparable-title signals</b>, growth/newness settings, launch/rollout multipliers,
-                MOQ / minimum run logic, and buyer override.
+              <h1 class="mt-3 text-2xl font-semibold tracking-tight">Human-led product planning with system guardrails</h1>
+              <p class="mt-2 text-sm muted max-w-5xl">
+                This version is built to <b>guide</b> the buyer, not replace the buyer. It recommends total style units from
+                category 120-day demand, comparable-title demand, growth and launch settings, then spreads sizes from
+                historical variant mix. Final approved units remain human-controlled.
               </p>
             </div>
 
@@ -339,7 +328,7 @@
 
             <section id="builderPanel" class="card overflow-hidden">
               <div class="overflow-auto scrollbar">
-                <table class="table min-w-[2300px] text-sm">
+                <table class="table min-w-[2550px] text-sm">
                   <thead>
                     <tr>
                       <th><input id="checkAllStyles" type="checkbox" /></th>
@@ -347,16 +336,16 @@
                       <th>Category</th>
                       <th>Comparable Title</th>
                       <th>Family</th>
-                      <th>Spread</th>
-                      <th>Plan Mode</th>
+                      <th>Curve Source</th>
                       <th class="text-right">Weeks</th>
-                      <th class="text-right">Run Count</th>
                       <th class="text-right">Hist / Wk</th>
                       <th class="text-right">Comp / Wk</th>
-                      <th>Confidence</th>
                       <th class="text-right">System Units</th>
                       <th class="text-right">Buyer Units</th>
                       <th class="text-right">Final Units</th>
+                      <th>Confidence</th>
+                      <th>Launch / Rollout</th>
+                      <th>Overrides</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
@@ -367,14 +356,15 @@
 
             <section id="outputPanel" class="card overflow-hidden hidden-x">
               <div class="overflow-auto scrollbar">
-                <table class="table min-w-[1500px] text-sm">
+                <table class="table min-w-[1700px] text-sm">
                   <thead>
                     <tr>
                       <th>Product Title</th>
                       <th>Category</th>
-                      <th>Spread</th>
+                      <th>Curve Source</th>
                       <th class="text-right">Final Style Units</th>
                       <th>Size Output</th>
+                      <th>System vs Buyer</th>
                       <th>Math Note</th>
                     </tr>
                   </thead>
@@ -424,8 +414,8 @@
                 </div>
 
                 <div class="mt-3 text-sm muted">
-                  Current top-down context is imported from <span class="kbd">revenue_projections</span>.
-                  This is <b>not</b> a full automated forecast engine. It standardizes new buys without blindly replaying stale inventory.
+                  Current top-down context is imported from <span class="kbd">revenue_projections</span>. This page
+                  recommends, but the buyer still approves. Override behavior is visible instead of hidden.
                 </div>
 
                 <div id="trustMathBox" class="mt-4 soft-panel p-4 text-sm muted">
@@ -438,8 +428,9 @@
                 <div class="mt-3 text-sm muted space-y-3">
                   <p><b>Base anchor:</b> category 120-day units / week.</p>
                   <p><b>Check fit:</b> comparable-title weekly signal.</p>
-                  <p><b>Bias intentionally:</b> growth uplift, new-category uplift, launch multiplier, rollout multiplier, reserve stock.</p>
-                  <p><b>Protect the buy:</b> minimum runs prevent silly tiny orders.</p>
+                  <p><b>Choose total units first:</b> system recommendation vs buyer approval.</p>
+                  <p><b>Spread sizes second:</b> category / comparable / blended variant history.</p>
+                  <p><b>Keep MOQ hidden:</b> minimum floors protect buys without forcing run language on the buyer.</p>
                 </div>
               </section>
 
@@ -473,15 +464,15 @@
                     <input id="defaultWeeks" type="number" min="1" step="1" class="input mt-2 mono" value="8" />
                   </div>
                   <div>
-                    <label class="section-title">Adult min runs</label>
+                    <label class="section-title">Adult min floor</label>
                     <input id="adultMinRuns" type="number" min="1" step="1" class="input mt-2 mono" value="6" />
                   </div>
                   <div>
-                    <label class="section-title">Youth min runs</label>
+                    <label class="section-title">Youth min floor</label>
                     <input id="youthMinRuns" type="number" min="1" step="1" class="input mt-2 mono" value="4" />
                   </div>
                   <div>
-                    <label class="section-title">Cap min runs</label>
+                    <label class="section-title">Cap min floor</label>
                     <input id="capMinRuns" type="number" min="1" step="1" class="input mt-2 mono" value="8" />
                   </div>
                 </div>
@@ -533,7 +524,7 @@
     </main>
   </div>
 
-  <dialog id="draftDialog" class="w-[min(1200px,calc(100vw-24px))] rounded-2xl p-0 shadow-xl">
+  <dialog id="draftDialog" class="w-[min(1280px,calc(100vw-24px))] rounded-2xl p-0 shadow-xl">
     <div class="card overflow-hidden" style="box-shadow: var(--shadow2); border-radius: 14px;">
       <div class="flex items-start justify-between gap-3 border-b p-4" style="border-color: var(--border);">
         <div>
@@ -548,7 +539,7 @@
             <tr>
               <th>Style</th>
               <th>Category</th>
-              <th>Spread</th>
+              <th>Curve Source</th>
               <th>Size</th>
               <th class="text-right">Qty</th>
               <th>Math Note</th>
@@ -561,7 +552,7 @@
   </dialog>
 
   <script>
-    // ====== Auth guard + logout (same pattern as executive) ======
+    // ====== Auth guard + logout ======
     const cfg = window.__SILO_CONFIG__ || {};
     let supabaseClient = null;
 
@@ -586,18 +577,15 @@
         const btn = document.getElementById("logoutBtn");
         if (btn) {
           btn.addEventListener("click", async () => {
-            try {
-              await supabaseClient.auth.signOut();
-            } catch (e) {
-              console.warn("signOut error:", e);
-            }
+            try { await supabaseClient.auth.signOut(); }
+            catch (e) { console.warn("signOut error:", e); }
             window.location.href = "/financehub/pages/login.html";
           });
         }
       })();
     }
 
-    // ====== Required sources wired like executive ======
+    // ====== Required sources ======
     const SHEET_ID = "1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0";
 
     const LOCATIONS = [
@@ -643,45 +631,37 @@
         label: "Adult Standard",
         family: "adult",
         run: [
-          { size: "S", qty: 1 },
-          { size: "M", qty: 2 },
-          { size: "L", qty: 2 },
-          { size: "XL", qty: 2 },
-          { size: "2XL", qty: 1 },
-          { size: "3XL", qty: 1 }
+          { size: "S", qty: 1 }, { size: "M", qty: 2 }, { size: "L", qty: 2 },
+          { size: "XL", qty: 2 }, { size: "2XL", qty: 1 }, { size: "3XL", qty: 1 }
         ]
       },
       youth_standard: {
         label: "Youth Standard",
         family: "youth",
         run: [
-          { size: "YS", qty: 1 },
-          { size: "YM", qty: 2 },
-          { size: "YL", qty: 2 },
-          { size: "YXL", qty: 1 }
+          { size: "YS", qty: 1 }, { size: "YM", qty: 2 }, { size: "YL", qty: 2 }, { size: "YXL", qty: 1 }
         ]
       },
       caps_fitted: {
         label: "Caps Fitted",
         family: "caps",
         run: [
-          { size: "SM/M", qty: 2 },
-          { size: "L/XL", qty: 2 }
+          { size: "SM/M", qty: 2 }, { size: "L/XL", qty: 2 }
         ]
       }
     };
 
     const FAMILY_DEFAULTS = {
-      adult: { spread: "adult_standard", runCount: 6, minRunKey: "adultMinRuns" },
-      youth: { spread: "youth_standard", runCount: 4, minRunKey: "youthMinRuns" },
-      caps: { spread: "caps_fitted", runCount: 8, minRunKey: "capMinRuns" }
+      adult: { spread: "adult_standard", minFloorKey: "adultMinRuns" },
+      youth: { spread: "youth_standard", minFloorKey: "youthMinRuns" },
+      caps: { spread: "caps_fitted", minFloorKey: "capMinRuns" }
     };
 
     const STORAGE_KEYS = {
-      styles: "silo_product_builder_styles_v2",
-      settings: "silo_product_builder_settings_v2",
-      draft: "silo_product_builder_draft_v2",
-      theme: "silo_product_builder_theme_v2"
+      styles: "silo_product_buyer_styles_v3",
+      settings: "silo_product_buyer_settings_v3",
+      draft: "silo_product_buyer_draft_v3",
+      theme: "silo_product_buyer_theme_v3"
     };
 
     const DEFAULT_SETTINGS = {
@@ -696,18 +676,8 @@
       capMinRuns: 8
     };
 
-    const LAUNCH_MULTIPLIERS = {
-      inline: 1.00,
-      capsule: 1.10,
-      event: 1.18,
-      keydrop: 1.25
-    };
-
-    const ROLLOUT_MULTIPLIERS = {
-      limited: 0.90,
-      standard: 1.00,
-      broad: 1.20
-    };
+    const LAUNCH_MULTIPLIERS = { inline: 1.00, capsule: 1.10, event: 1.18, keydrop: 1.25 };
+    const ROLLOUT_MULTIPLIERS = { limited: 0.90, standard: 1.00, broad: 1.20 };
 
     const el = (id) => document.getElementById(id);
     const setText = (id, text) => { const n = el(id); if (n) n.textContent = text; };
@@ -715,55 +685,55 @@
 
     const state = {
       inventoryRows: [],
-      categoryStats: new Map(),
-      comparableStats: new Map(),
-      categories: [],
-      comparableTitles: [],
       locations: [],
       projections: [],
+      categoryStats: new Map(),
+      comparableStats: new Map(),
+      sizeCurveCategory: new Map(),
+      sizeCurveComparable: new Map(),
+      categories: [],
+      comparableTitles: [],
       styles: [],
       filteredStyles: [],
       activeTab: "builder",
       selectedStyleId: null
     };
 
-    function fmtInt(n) {
-      return Number.isFinite(n) ? Math.round(n).toLocaleString() : "—";
-    }
-
-    function fmtNum(n, digits = 1) {
+    // ====== Utils ======
+    function fmtInt(n){ return Number.isFinite(n) ? Math.round(n).toLocaleString() : "—"; }
+    function fmtNum(n, digits = 1){
       return Number.isFinite(n)
-        ? n.toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: digits })
+        ? n.toLocaleString(undefined,{ maximumFractionDigits:digits, minimumFractionDigits:digits })
         : "—";
     }
-
-    function fmtMoney(n) {
+    function fmtMoney(n){
       return Number.isFinite(n)
-        ? n.toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 })
+        ? n.toLocaleString(undefined,{ style:"currency", currency:"USD", maximumFractionDigits:0 })
         : "—";
     }
-
-    function safeLower(s) { return String(s ?? "").trim().toLowerCase(); }
-
-    function toNumber(v) {
+    function safeLower(s){ return String(s ?? "").trim().toLowerCase(); }
+    function toNumber(v){
       const s = String(v ?? "").trim();
       if (!s) return 0;
       const cleaned = s.replace(/[$,]/g, "");
       const n = Number(cleaned);
       return Number.isFinite(n) ? n : 0;
     }
-
-    function normalizeKeyParts(parts) {
-      return parts.map(p => String(p ?? "").trim()).join("||").toLowerCase();
-    }
-
-    function escapeHtml(str) {
+    function normalizeKeyParts(parts){ return parts.map(p => String(p ?? "").trim()).join("||").toLowerCase(); }
+    function escapeHtml(str){
       return String(str ?? "")
         .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
         .replaceAll('"',"&quot;").replaceAll("'","&#039;");
     }
+    function saveJSON(key, value){ localStorage.setItem(key, JSON.stringify(value)); }
+    function loadJSON(key, fallback){
+      try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : fallback;
+      } catch { return fallback; }
+    }
 
-    function parseCsv(text) {
+    function parseCsv(text){
       const rows = [];
       let row = [];
       let cur = "";
@@ -788,19 +758,19 @@
       return rows;
     }
 
-    function buildHeaderIndex(headerRow) {
+    function buildHeaderIndex(headerRow){
       const idx = new Map();
       headerRow.forEach((h, i) => idx.set(safeLower(h), i));
       return idx;
     }
 
-    function findHeader(headerIndex, aliases, occurrence = 0) {
+    function findHeader(headerIndex, aliases){
       const hits = [];
       for (const a of aliases) {
         const key = safeLower(a);
         if (headerIndex.has(key)) hits.push(headerIndex.get(key));
       }
-      if (hits.length) return hits[Math.min(occurrence, hits.length - 1)];
+      if (hits.length) return hits[0];
 
       const aliasesLower = aliases.map(safeLower).filter(Boolean);
       for (const [k, i] of headerIndex.entries()) {
@@ -811,19 +781,19 @@
       return null;
     }
 
-    function mapHeaders(headerRow, mapping) {
+    function mapHeaders(headerRow, mapping){
       const headerIndex = buildHeaderIndex(headerRow);
       const out = {};
       const missing = [];
       for (const [key, aliases] of Object.entries(mapping)) {
-        const hit = findHeader(headerIndex, aliases, 0);
+        const hit = findHeader(headerIndex, aliases);
         if (hit !== null && hit !== undefined) out[key] = hit;
         else missing.push(key);
       }
       return { indices: out, missing };
     }
 
-    async function fetchText(url) {
+    async function fetchText(url){
       const u = new URL(url);
       u.searchParams.set("_ts", String(Date.now()));
       const res = await fetch(u.toString(), { cache: "no-store" });
@@ -831,48 +801,11 @@
       return await res.text();
     }
 
-    function inventoryUrlForGid(gid) {
+    function inventoryUrlForGid(gid){
       return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${encodeURIComponent(gid)}`;
     }
 
-    function spreadRunTotal(spreadKey) {
-      const spread = SPREADS[spreadKey];
-      return spread ? spread.run.reduce((s, r) => s + r.qty, 0) : 0;
-    }
-
-    function currentSettings() {
-      const stored = loadJSON(STORAGE_KEYS.settings, DEFAULT_SETTINGS);
-      return {
-        historicalWeight: toNumber(el("historicalWeight")?.value ?? stored.historicalWeight),
-        comparableWeight: toNumber(el("comparableWeight")?.value ?? stored.comparableWeight),
-        growthUplift: toNumber(el("growthUplift")?.value ?? stored.growthUplift),
-        newCategoryUplift: toNumber(el("newCategoryUplift")?.value ?? stored.newCategoryUplift),
-        reserveStockPct: toNumber(el("reserveStockPct")?.value ?? stored.reserveStockPct),
-        defaultWeeks: Math.max(1, toNumber(el("defaultWeeks")?.value ?? stored.defaultWeeks)),
-        adultMinRuns: Math.max(1, toNumber(el("adultMinRuns")?.value ?? stored.adultMinRuns)),
-        youthMinRuns: Math.max(1, toNumber(el("youthMinRuns")?.value ?? stored.youthMinRuns)),
-        capMinRuns: Math.max(1, toNumber(el("capMinRuns")?.value ?? stored.capMinRuns))
-      };
-    }
-
-    function saveSettings() {
-      saveJSON(STORAGE_KEYS.settings, currentSettings());
-    }
-
-    function saveJSON(key, value) {
-      localStorage.setItem(key, JSON.stringify(value));
-    }
-
-    function loadJSON(key, fallback) {
-      try {
-        const raw = localStorage.getItem(key);
-        return raw ? JSON.parse(raw) : fallback;
-      } catch {
-        return fallback;
-      }
-    }
-
-    function parseDateAny(raw) {
+    function parseDateAny(raw){
       if (!raw) return null;
       if (raw instanceof Date) return raw;
       const s = String(raw).trim();
@@ -896,7 +829,7 @@
       return x;
     }
 
-    function toDateInputValue(dateObj) {
+    function toDateInputValue(dateObj){
       if (!(dateObj instanceof Date)) return "";
       const y = dateObj.getFullYear();
       const m = String(dateObj.getMonth()+1).padStart(2, "0");
@@ -904,7 +837,7 @@
       return `${y}-${m}-${d}`;
     }
 
-    function applyQuickRange(days) {
+    function applyQuickRange(days){
       const end = new Date();
       const start = new Date();
       start.setDate(end.getDate() - Number(days) + 1);
@@ -912,62 +845,190 @@
       el("dateTo").value = toDateInputValue(end);
     }
 
-    function detectFamily(category, comparableTitle) {
+    function spreadRunTotal(spreadKey){
+      const spread = SPREADS[spreadKey];
+      return spread ? spread.run.reduce((s, r) => s + r.qty, 0) : 0;
+    }
+
+    function normalizeVariantToSize(variantTitle, family){
+      const raw = String(variantTitle || "").trim();
+      const upper = raw.toUpperCase();
+
+      if (!raw) return "UNKNOWN";
+
+      if (family === "caps") {
+        if (/SM\/M|S\/M|SM-M|SMALL\/MEDIUM/.test(upper)) return "SM/M";
+        if (/L\/XL|LARGE\/XL|LG\/XL/.test(upper)) return "L/XL";
+      }
+
+      if (family === "youth") {
+        if (/(^|[\s\-\/])YS($|[\s\-\/])|YOUTH SMALL/.test(upper)) return "YS";
+        if (/(^|[\s\-\/])YM($|[\s\-\/])|YOUTH MEDIUM/.test(upper)) return "YM";
+        if (/(^|[\s\-\/])YL($|[\s\-\/])|YOUTH LARGE/.test(upper)) return "YL";
+        if (/(^|[\s\-\/])YXL($|[\s\-\/])|YOUTH XL/.test(upper)) return "YXL";
+      }
+
+      if (/(^|[\s\-\/])3XL($|[\s\-\/])|XXXL/.test(upper)) return "3XL";
+      if (/(^|[\s\-\/])2XL($|[\s\-\/])|XXL/.test(upper)) return "2XL";
+      if (/(^|[\s\-\/])XL($|[\s\-\/])/.test(upper)) return "XL";
+      if (/(^|[\s\-\/])L($|[\s\-\/])| LARGE$|^LARGE /.test(upper)) return "L";
+      if (/(^|[\s\-\/])M($|[\s\-\/])| MEDIUM$|^MEDIUM /.test(upper)) return "M";
+      if (/(^|[\s\-\/])S($|[\s\-\/])| SMALL$|^SMALL /.test(upper)) return "S";
+
+      return raw;
+    }
+
+    function detectFamily(category, comparableTitle){
       const t = `${category || ""} ${comparableTitle || ""}`.toLowerCase();
       if (/cap|hat|snap|fitted/.test(t)) return "caps";
       if (/youth|kid|kids|ys|ym|yl|yxl/.test(t)) return "youth";
       return "adult";
     }
 
-    function defaultComparableForCategory(category) {
-      const matches = Array.from(state.comparableStats.values())
-        .filter(x => String(x.category || "").trim() === String(category || "").trim())
-        .sort((a,b) => b.qty_120d - a.qty_120d);
-      return matches[0]?.title || "";
-    }
-
-    function defaultSpreadForFamily(family) {
+    function defaultSpreadForFamily(family){
       return FAMILY_DEFAULTS[family]?.spread || "adult_standard";
     }
 
-    function defaultRunCountForFamily(family) {
-      return FAMILY_DEFAULTS[family]?.runCount || 1;
+    function defaultComparableForCategory(category){
+      const matches = Array.from(state.comparableStats.values())
+        .filter(x => String(x.category || "").trim() === String(category || "").trim())
+        .sort((a,b) => (b.qty_120d - a.qty_120d));
+      return matches[0]?.title || "";
     }
 
-    function normalizeWeights(historicalWeight, comparableWeight) {
+    function currentSettings(){
+      const stored = loadJSON(STORAGE_KEYS.settings, DEFAULT_SETTINGS);
+      return {
+        historicalWeight: toNumber(el("historicalWeight")?.value ?? stored.historicalWeight),
+        comparableWeight: toNumber(el("comparableWeight")?.value ?? stored.comparableWeight),
+        growthUplift: toNumber(el("growthUplift")?.value ?? stored.growthUplift),
+        newCategoryUplift: toNumber(el("newCategoryUplift")?.value ?? stored.newCategoryUplift),
+        reserveStockPct: toNumber(el("reserveStockPct")?.value ?? stored.reserveStockPct),
+        defaultWeeks: Math.max(1, toNumber(el("defaultWeeks")?.value ?? stored.defaultWeeks)),
+        adultMinRuns: Math.max(1, toNumber(el("adultMinRuns")?.value ?? stored.adultMinRuns)),
+        youthMinRuns: Math.max(1, toNumber(el("youthMinRuns")?.value ?? stored.youthMinRuns)),
+        capMinRuns: Math.max(1, toNumber(el("capMinRuns")?.value ?? stored.capMinRuns))
+      };
+    }
+
+    function saveSettings(){
+      saveJSON(STORAGE_KEYS.settings, currentSettings());
+    }
+
+    function normalizeWeights(historicalWeight, comparableWeight){
       const total = historicalWeight + comparableWeight;
       if (total <= 0) return { hist: 0.6, comp: 0.4 };
       return { hist: historicalWeight / total, comp: comparableWeight / total };
     }
 
-    function confidenceClass(level) {
-      if (level === "High") return "confidence-high";
-      if (level === "Medium") return "confidence-med";
-      return "confidence-low";
+    function getMinFloorUnitsForFamily(family, settings){
+      const spread = defaultSpreadForFamily(family);
+      const runUnits = spreadRunTotal(spread);
+      const key = FAMILY_DEFAULTS[family]?.minFloorKey;
+      const minPacks = Math.max(1, toNumber(settings[key] || 1));
+      return runUnits * minPacks;
     }
 
-    function inventoryScopeRows() {
+    function inventoryScopeRows(){
       const scope = el("inventoryScope").value || "__ALL__";
       if (scope === "__ALL__") return state.inventoryRows;
       return state.inventoryRows.filter(r => String(r.locationKey) === String(scope));
     }
 
-    function categoryWeeklySignal(category) {
+    function categoryWeeklySignal(category){
       const stat = state.categoryStats.get(String(category || "").trim().toLowerCase());
       return stat ? stat.weekly_120d : 0;
     }
 
-    function comparableWeeklySignal(title) {
+    function comparableWeeklySignal(title){
       const stat = state.comparableStats.get(String(title || "").trim().toLowerCase());
       return stat ? stat.weekly_120d : 0;
     }
 
-    function getMinRunsForFamily(family, settings) {
-      const key = FAMILY_DEFAULTS[family]?.minRunKey;
-      return Math.max(1, toNumber(settings[key] || 1));
+    function confidenceClass(level){
+      if (level === "High") return "confidence-high";
+      if (level === "Medium") return "confidence-med";
+      return "confidence-low";
     }
 
-    function recommendationForStyle(style) {
+    // ====== Curve logic ======
+    function curveFromMap(mapKey, sourceMap, family){
+      const row = sourceMap.get(String(mapKey || "").trim().toLowerCase());
+      if (row && row.curve && Object.keys(row.curve).length) return row.curve;
+
+      const spread = SPREADS[defaultSpreadForFamily(family)];
+      const fallback = {};
+      const total = spreadRunTotal(defaultSpreadForFamily(family));
+      spread.run.forEach(x => fallback[x.size] = total > 0 ? (x.qty / total) : 0);
+      return fallback;
+    }
+
+    function blendedCurve(category, comparableTitle, family){
+      const settings = currentSettings();
+      const weights = normalizeWeights(settings.historicalWeight, settings.comparableWeight);
+      const catCurve = curveFromMap(category, state.sizeCurveCategory, family);
+      const compCurve = curveFromMap(comparableTitle, state.sizeCurveComparable, family);
+      const keys = new Set([...Object.keys(catCurve || {}), ...Object.keys(compCurve || {})]);
+      const out = {};
+      let total = 0;
+
+      keys.forEach(k => {
+        out[k] = (toNumber(catCurve[k]) * weights.hist) + (toNumber(compCurve[k]) * weights.comp);
+        total += out[k];
+      });
+
+      if (total > 0) {
+        Object.keys(out).forEach(k => out[k] = out[k] / total);
+        return out;
+      }
+      return catCurve;
+    }
+
+    function selectedCurve(style){
+      if (style.curveSource === "category") {
+        return curveFromMap(style.category, state.sizeCurveCategory, style.family);
+      }
+      if (style.curveSource === "comparable") {
+        return curveFromMap(style.comparableTitle, state.sizeCurveComparable, style.family);
+      }
+      if (style.curveSource === "family_default") {
+        return curveFromMap("", new Map(), style.family);
+      }
+      return blendedCurve(style.category, style.comparableTitle, style.family);
+    }
+
+    function allocateSizes(totalUnits, curve){
+      const entries = Object.entries(curve || {}).filter(([,v]) => toNumber(v) > 0);
+      if (!entries.length || totalUnits <= 0) return [];
+
+      const base = entries.map(([size, pct]) => ({
+        size,
+        qtyFloat: totalUnits * pct,
+        qty: Math.floor(totalUnits * pct),
+        remainder: (totalUnits * pct) - Math.floor(totalUnits * pct)
+      }));
+
+      let used = base.reduce((s, x) => s + x.qty, 0);
+      let left = totalUnits - used;
+
+      base.sort((a,b) => b.remainder - a.remainder);
+
+      for (let i = 0; i < base.length && left > 0; i++, left--) {
+        base[i].qty += 1;
+      }
+
+      return base
+        .sort((a,b) => a.size.localeCompare(b.size, undefined, { numeric: true }))
+        .map(x => ({ size: x.size, qty: x.qty }));
+    }
+
+    function sizeOutputText(totalUnits, style){
+      const out = allocateSizes(totalUnits, selectedCurve(style));
+      return out.filter(x => x.qty > 0).map(x => `${x.size}:${x.qty}`).join(" • ");
+    }
+
+    // ====== Recommendation ======
+    function recommendationForStyle(style){
       const settings = currentSettings();
       const weights = normalizeWeights(settings.historicalWeight, settings.comparableWeight);
 
@@ -975,7 +1036,8 @@
       const compWk = comparableWeeklySignal(style.comparableTitle);
       const weightedWeekly = (histWk * weights.hist) + (compWk * weights.comp);
 
-      const demandWindowUnits = weightedWeekly * Math.max(1, style.weeks);
+      const weeks = Math.max(1, toNumber(style.weeks));
+      const demandWindowUnits = weightedWeekly * weeks;
 
       const growthPct = style.growthOverride === "" || style.growthOverride === null ? settings.growthUplift : toNumber(style.growthOverride);
       const reservePct = style.reserveOverride === "" || style.reserveOverride === null ? settings.reserveStockPct : toNumber(style.reserveOverride);
@@ -983,10 +1045,7 @@
 
       const launchMultiplier = LAUNCH_MULTIPLIERS[style.launchType] || 1;
       const rolloutMultiplier = ROLLOUT_MULTIPLIERS[style.rollout] || 1;
-
-      const runTotal = spreadRunTotal(style.spread);
-      const minRuns = getMinRunsForFamily(style.family, settings);
-      const runFloorUnits = runTotal * minRuns;
+      const minFloorUnits = getMinFloorUnitsForFamily(style.family, settings);
 
       const withGrowth = demandWindowUnits * (1 + growthPct / 100);
       const withNewCategory = withGrowth * (1 + newCategoryPct / 100);
@@ -994,30 +1053,34 @@
       const withRollout = withLaunch * rolloutMultiplier;
       const withReserve = withRollout * (1 + reservePct / 100);
 
-      const systemUnits = Math.max(Math.ceil(withReserve), runFloorUnits);
-
+      const systemUnits = Math.max(Math.ceil(withReserve), minFloorUnits);
       const buyerUnits = Math.max(0, toNumber(style.buyerUnits));
-      const runCountUnits = runTotal * Math.max(1, toNumber(style.runCount));
-
-      const finalUnits = style.planMode === "run_count"
-        ? Math.max(runCountUnits, runFloorUnits)
-        : Math.max(systemUnits, buyerUnits);
+      const finalUnits = Math.max(systemUnits, buyerUnits);
 
       let confidence = "Low";
       if (histWk > 8 && compWk > 4) confidence = "High";
       else if (histWk > 0 || compWk > 0) confidence = "Medium";
 
+      const overrideDelta = buyerUnits > 0 ? (buyerUnits - systemUnits) : 0;
+      const curveLabel =
+        style.curveSource === "category" ? "Category history" :
+        style.curveSource === "comparable" ? "Comparable history" :
+        style.curveSource === "family_default" ? "Family default" :
+        "Blended";
+
       const mathNote = [
         `category 120d / wk ${fmtNum(histWk,1)}`,
         `comparable / wk ${fmtNum(compWk,1)}`,
         `weighted / wk ${fmtNum(weightedWeekly,1)} (${Math.round(weights.hist*100)}% hist / ${Math.round(weights.comp*100)}% comp)`,
-        `weeks ${fmtInt(style.weeks)}`,
+        `weeks ${fmtInt(weeks)}`,
         `growth uplift ${fmtInt(growthPct)}%`,
         `new category uplift ${fmtInt(newCategoryPct)}%`,
-        `launch multiplier ${fmtNum(launchMultiplier,2)}x`,
-        `rollout multiplier ${fmtNum(rolloutMultiplier,2)}x`,
+        `launch ${fmtNum(launchMultiplier,2)}x`,
+        `rollout ${fmtNum(rolloutMultiplier,2)}x`,
         `reserve ${fmtInt(reservePct)}%`,
-        `run floor ${fmtInt(runFloorUnits)} (${fmtInt(minRuns)} run${minRuns === 1 ? "" : "s"} × ${fmtInt(runTotal)})`
+        `min floor ${fmtInt(minFloorUnits)}`,
+        `curve ${curveLabel}`,
+        buyerUnits > 0 ? `buyer override ${overrideDelta >= 0 ? "+" : ""}${fmtInt(overrideDelta)}` : `buyer override none`
       ].join(" • ");
 
       return {
@@ -1029,53 +1092,20 @@
         launchMultiplier,
         rolloutMultiplier,
         reservePct,
-        runTotal,
-        minRuns,
-        runFloorUnits,
         systemUnits,
         buyerUnits,
         finalUnits,
         confidence,
+        minFloorUnits,
+        curveLabel,
+        curve: selectedCurve(style),
+        overrideDelta,
         mathNote
       };
     }
 
-    function expandSizes(finalUnits, spreadKey) {
-      const spread = SPREADS[spreadKey];
-      if (!spread) return [];
-      const runTotal = spreadRunTotal(spreadKey);
-      if (!runTotal) return [];
-
-      const wholeRuns = Math.floor(finalUnits / runTotal);
-      let remainder = finalUnits - (wholeRuns * runTotal);
-
-      const out = spread.run.map(x => ({
-        size: x.size,
-        qty: x.qty * wholeRuns
-      }));
-
-      const sorted = spread.run.slice().sort((a,b) => b.qty - a.qty);
-
-      while (remainder > 0) {
-        for (const piece of sorted) {
-          const target = out.find(x => x.size === piece.size);
-          target.qty += 1;
-          remainder -= 1;
-          if (remainder <= 0) break;
-        }
-      }
-
-      return out;
-    }
-
-    function sizeOutputText(finalUnits, spreadKey) {
-      return expandSizes(finalUnits, spreadKey)
-        .filter(x => x.qty > 0)
-        .map(x => `${x.size}:${x.qty}`)
-        .join(" • ");
-    }
-
-    function newStyle() {
+    // ====== Style state ======
+    function newStyle(){
       const settings = currentSettings();
       const family = "adult";
       return {
@@ -1085,10 +1115,8 @@
         category: state.categories[0] || "",
         comparableTitle: "",
         family,
-        spread: defaultSpreadForFamily(family),
-        planMode: "system_total",
+        curveSource: "blended",
         weeks: settings.defaultWeeks,
-        runCount: defaultRunCountForFamily(family),
         buyerUnits: 0,
         launchType: "inline",
         rollout: "standard",
@@ -1097,591 +1125,33 @@
       };
     }
 
-    function saveStyles() {
-      saveJSON(STORAGE_KEYS.styles, state.styles);
-    }
-
-    function loadStyles() {
+    function saveStyles(){ saveJSON(STORAGE_KEYS.styles, state.styles); }
+    function loadStyles(){
       state.styles = loadJSON(STORAGE_KEYS.styles, []);
       if (!Array.isArray(state.styles)) state.styles = [];
     }
 
-    function updateProjectionNotes() {
-      const from = parseDateAny(el("dateFrom").value);
-      const to = parseDateAny(el("dateTo").value);
-      const locationId = el("projectionLocation").value || "__ALL__";
-
-      const filtered = (state.projections || []).filter(r => {
-        const d = parseDateAny(r.projection_date);
-        if (!d) return false;
-
-        if (from && startOfDay(d) < startOfDay(from)) return false;
-        if (to && startOfDay(d) > startOfDay(to)) return false;
-        if (locationId !== "__ALL__" && String(r.location_id) !== String(locationId)) return false;
-        return true;
+    function ensureStylesInitialized(){
+      loadStyles();
+      if (!state.styles.length) state.styles = [newStyle()];
+      state.styles.forEach(s => {
+        if (!s.family) s.family = detectFamily(s.category, s.comparableTitle);
+        if (!s.curveSource) s.curveSource = "blended";
+        if (!("buyerUnits" in s)) s.buyerUnits = 0;
+        if (!("weeks" in s)) s.weeks = currentSettings().defaultWeeks;
+        if (!s.launchType) s.launchType = "inline";
+        if (!s.rollout) s.rollout = "standard";
       });
-
-      const units = filtered.reduce((s, r) => s + toNumber(r.projected_units), 0);
-      const sales = filtered.reduce((s, r) => s + toNumber(r.projected_sales), 0);
-      const scenarios = Array.from(new Set(filtered.map(r => String(r.scenario || "").trim()).filter(Boolean)));
-      const notes = filtered.map(r => String(r.notes || "").trim()).filter(Boolean);
-      const source = filtered.map(r => String(r.source || "").trim()).find(Boolean) || "";
-
-      if (!filtered.length) {
-        setHtml("projectionNotes", `
-          <div>No matching projection rows found for this date/location filter.</div>
-          <div class="mt-2 muted2">The builder still works from category and comparable demand, but top-down projection context is blank.</div>
-        `);
-        setText("trustBadge", "Demand only mode");
-        return;
-      }
-
-      setHtml("projectionNotes", `
-        <div><b>${fmtInt(filtered.length)}</b> projection row(s) in current window.</div>
-        <div class="mt-1"><b>${fmtInt(units)}</b> projected units • <b>${fmtMoney(sales)}</b> projected sales.</div>
-        ${scenarios.length ? `<div class="mt-1">Scenario(s): <b>${escapeHtml(scenarios.join(", "))}</b></div>` : ""}
-        ${source ? `<div class="mt-1">Source: <b>${escapeHtml(source)}</b></div>` : ""}
-        ${notes.length ? `<div class="mt-2 muted2">${escapeHtml(notes[0])}</div>` : ""}
-      `);
-      setText("trustBadge", "Projection context loaded");
-    }
-
-    function renderSelectors() {
-      const projectionLocation = el("projectionLocation");
-      const inventoryScope = el("inventoryScope");
-
-      projectionLocation.innerHTML = `<option value="__ALL__">All active locations</option>` +
-        state.locations.map(l => `<option value="${escapeHtml(String(l.id))}">${escapeHtml(l.name)}</option>`).join("");
-
-      inventoryScope.innerHTML = `<option value="__ALL__">All loaded locations</option>` +
-        LOCATIONS.map(l => `<option value="${escapeHtml(l.key)}">${escapeHtml(l.label)}</option>`).join("");
-    }
-
-    function rebuildDemandStats() {
-      const rows = inventoryScopeRows();
-
-      state.categoryStats = new Map();
-      state.comparableStats = new Map();
-
-      for (const row of rows) {
-        const catKey = String(row.product_type || "Uncategorized").trim().toLowerCase();
-        const titleKey = String(row.product_title || "").trim().toLowerCase();
-
-        if (!state.categoryStats.has(catKey)) {
-          state.categoryStats.set(catKey, {
-            category: row.product_type || "Uncategorized",
-            qty_7d: 0,
-            qty_30d: 0,
-            qty_90d: 0,
-            qty_120d: 0
-          });
-        }
-
-        const cat = state.categoryStats.get(catKey);
-        cat.qty_7d += toNumber(row.qty_7d);
-        cat.qty_30d += toNumber(row.qty_30d);
-        cat.qty_90d += toNumber(row.qty_90d);
-        cat.qty_120d += toNumber(row.qty_120d);
-        cat.weekly_120d = cat.qty_120d / (120 / 7);
-
-        if (titleKey) {
-          if (!state.comparableStats.has(titleKey)) {
-            state.comparableStats.set(titleKey, {
-              title: row.product_title,
-              category: row.product_type || "Uncategorized",
-              qty_7d: 0,
-              qty_30d: 0,
-              qty_90d: 0,
-              qty_120d: 0
-            });
-          }
-
-          const comp = state.comparableStats.get(titleKey);
-          comp.qty_7d += toNumber(row.qty_7d);
-          comp.qty_30d += toNumber(row.qty_30d);
-          comp.qty_90d += toNumber(row.qty_90d);
-          comp.qty_120d += toNumber(row.qty_120d);
-          comp.weekly_120d = comp.qty_120d / (120 / 7);
-        }
-      }
-
-      state.categories = Array.from(state.categoryStats.values()).map(x => x.category).sort((a,b) => a.localeCompare(b));
-      state.comparableTitles = Array.from(state.comparableStats.values()).map(x => x.title).sort((a,b) => a.localeCompare(b));
-    }
-
-    function filterStyles() {
-      const q = String(el("searchInput").value || "").trim().toLowerCase();
-      state.filteredStyles = !q
-        ? state.styles.slice()
-        : state.styles.filter(s => {
-            const hay = `${s.productTitle} ${s.category} ${s.comparableTitle} ${s.family} ${s.spread}`.toLowerCase();
-            return hay.includes(q);
-          });
-    }
-
-    function renderBuilderTable() {
-      filterStyles();
-      const tbody = el("builderTableBody");
-
-      if (!state.filteredStyles.length) {
-        tbody.innerHTML = `
-          <tr>
-            <td colspan="16" class="text-center muted" style="padding: 48px 24px;">
-              No style rows yet. Add a style to begin planning.
-            </td>
-          </tr>
-        `;
-        return;
-      }
-
-      tbody.innerHTML = state.filteredStyles.map(style => {
-        const rec = recommendationForStyle(style);
-        const confidenceCls = confidenceClass(rec.confidence);
-
-        return `
-          <tr data-style-row="${escapeHtml(style.id)}">
-            <td>
-              <input type="checkbox" class="rowSelect" data-id="${escapeHtml(style.id)}" ${style.selected ? "checked" : ""} />
-            </td>
-
-            <td>
-              <div class="space-y-2">
-                <input type="text" class="input styleField" data-id="${escapeHtml(style.id)}" data-field="productTitle" value="${escapeHtml(style.productTitle)}" placeholder="New product title" />
-                <div class="grid grid-cols-2 gap-2">
-                  <select class="select styleField" data-id="${escapeHtml(style.id)}" data-field="launchType">
-                    <option value="inline" ${style.launchType === "inline" ? "selected" : ""}>Inline</option>
-                    <option value="capsule" ${style.launchType === "capsule" ? "selected" : ""}>Capsule</option>
-                    <option value="event" ${style.launchType === "event" ? "selected" : ""}>Event / Promo</option>
-                    <option value="keydrop" ${style.launchType === "keydrop" ? "selected" : ""}>Key Drop</option>
-                  </select>
-
-                  <select class="select styleField" data-id="${escapeHtml(style.id)}" data-field="rollout">
-                    <option value="limited" ${style.rollout === "limited" ? "selected" : ""}>Limited rollout</option>
-                    <option value="standard" ${style.rollout === "standard" ? "selected" : ""}>Standard rollout</option>
-                    <option value="broad" ${style.rollout === "broad" ? "selected" : ""}>Broad rollout</option>
-                  </select>
-                </div>
-              </div>
-            </td>
-
-            <td>
-              <select class="select styleField" data-id="${escapeHtml(style.id)}" data-field="category">
-                <option value="">Select category</option>
-                ${state.categories.map(cat => `<option value="${escapeHtml(cat)}" ${style.category === cat ? "selected" : ""}>${escapeHtml(cat)}</option>`).join("")}
-              </select>
-            </td>
-
-            <td>
-              <div class="space-y-2">
-                <select class="select styleField" data-id="${escapeHtml(style.id)}" data-field="comparableTitle">
-                  <option value="">Select comparable</option>
-                  ${state.comparableTitles.map(title => `<option value="${escapeHtml(title)}" ${style.comparableTitle === title ? "selected" : ""}>${escapeHtml(title)}</option>`).join("")}
-                </select>
-                <div class="grid grid-cols-2 gap-2">
-                  <input type="number" class="input mono styleField" data-id="${escapeHtml(style.id)}" data-field="growthOverride" value="${escapeHtml(String(style.growthOverride ?? ""))}" placeholder="Growth %" />
-                  <input type="number" class="input mono styleField" data-id="${escapeHtml(style.id)}" data-field="reserveOverride" value="${escapeHtml(String(style.reserveOverride ?? ""))}" placeholder="Reserve %" />
-                </div>
-              </div>
-            </td>
-
-            <td>
-              <select class="select styleField" data-id="${escapeHtml(style.id)}" data-field="family">
-                <option value="adult" ${style.family === "adult" ? "selected" : ""}>Adult Apparel</option>
-                <option value="youth" ${style.family === "youth" ? "selected" : ""}>Youth Apparel</option>
-                <option value="caps" ${style.family === "caps" ? "selected" : ""}>Caps</option>
-              </select>
-            </td>
-
-            <td>
-              <select class="select styleField" data-id="${escapeHtml(style.id)}" data-field="spread">
-                ${Object.entries(SPREADS)
-                  .filter(([,v]) => v.family === style.family)
-                  .map(([k, v]) => `<option value="${k}" ${style.spread === k ? "selected" : ""}>${escapeHtml(v.label)} (${fmtInt(spreadRunTotal(k))})</option>`)
-                  .join("")}
-              </select>
-            </td>
-
-            <td>
-              <select class="select styleField" data-id="${escapeHtml(style.id)}" data-field="planMode">
-                <option value="system_total" ${style.planMode === "system_total" ? "selected" : ""}>System Total</option>
-                <option value="run_count" ${style.planMode === "run_count" ? "selected" : ""}>Run Count</option>
-              </select>
-            </td>
-
-            <td class="text-right">
-              <input type="number" min="1" step="1" class="input mono text-right styleField" data-id="${escapeHtml(style.id)}" data-field="weeks" value="${fmtInt(style.weeks)}" />
-            </td>
-
-            <td class="text-right">
-              <input type="number" min="1" step="1" class="input mono text-right styleField" data-id="${escapeHtml(style.id)}" data-field="runCount" value="${fmtInt(style.runCount)}" />
-            </td>
-
-            <td class="text-right mono">${fmtNum(rec.histWk, 1)}</td>
-            <td class="text-right mono">${fmtNum(rec.compWk, 1)}</td>
-            <td><span class="${confidenceCls}" style="font-weight: 900;">${escapeHtml(rec.confidence)}</span></td>
-            <td class="text-right mono" style="font-weight: 900;">${fmtInt(rec.systemUnits)}</td>
-
-            <td class="text-right">
-              <input type="number" min="0" step="1" class="input mono text-right styleField" data-id="${escapeHtml(style.id)}" data-field="buyerUnits" value="${fmtInt(style.buyerUnits)}" />
-            </td>
-
-            <td class="text-right">
-              <div class="mono" style="font-weight: 900;">${fmtInt(rec.finalUnits)}</div>
-              <div class="text-xs muted2 mt-1">${escapeHtml(sizeOutputText(rec.finalUnits, style.spread) || "—")}</div>
-            </td>
-
-            <td>
-              <div class="flex flex-col gap-2">
-                <button class="btn btn-ghost inspectBtn" data-id="${escapeHtml(style.id)}">Math</button>
-                <button class="btn btn-ghost duplicateBtn" data-id="${escapeHtml(style.id)}">Duplicate</button>
-                <button class="btn btn-ghost deleteBtn" data-id="${escapeHtml(style.id)}">Delete</button>
-              </div>
-            </td>
-          </tr>
-        `;
-      }).join("");
-
-      bindStyleRowEvents();
-    }
-
-    function renderOutputTable() {
-      filterStyles();
-      const tbody = el("outputTableBody");
-
-      if (!state.filteredStyles.length) {
-        tbody.innerHTML = `
-          <tr>
-            <td colspan="6" class="text-center muted" style="padding: 48px 24px;">
-              No output yet.
-            </td>
-          </tr>
-        `;
-        return;
-      }
-
-      tbody.innerHTML = state.filteredStyles.map(style => {
-        const rec = recommendationForStyle(style);
-        const spreadLabel = SPREADS[style.spread]?.label || style.spread;
-        const sizeOutput = sizeOutputText(rec.finalUnits, style.spread);
-
-        return `
-          <tr>
-            <td>
-              <div style="font-weight: 900;">${escapeHtml(style.productTitle || "Untitled style")}</div>
-              <div class="text-xs muted2 mt-1">${escapeHtml(style.planMode === "run_count" ? "Run Count mode" : "System Total mode")}</div>
-            </td>
-            <td>${escapeHtml(style.category || "—")}</td>
-            <td>${escapeHtml(spreadLabel)}</td>
-            <td class="text-right mono" style="font-weight: 900;">${fmtInt(rec.finalUnits)}</td>
-            <td>${escapeHtml(sizeOutput || "—")}</td>
-            <td class="text-sm muted">${escapeHtml(rec.mathNote)}</td>
-          </tr>
-        `;
-      }).join("");
-    }
-
-    function renderSummaryTray() {
-      const selected = state.styles.filter(s => s.selected);
-      const systemUnits = selected.reduce((sum, s) => sum + recommendationForStyle(s).systemUnits, 0);
-      const finalUnits = selected.reduce((sum, s) => sum + recommendationForStyle(s).finalUnits, 0);
-
-      setText("traySelected", fmtInt(selected.length));
-      setText("traySystem", fmtInt(systemUnits));
-      setText("trayFinal", fmtInt(finalUnits));
-
-      const allVisibleSelected = state.filteredStyles.length > 0 && state.filteredStyles.every(s => s.selected);
-      el("checkAllStyles").checked = allVisibleSelected;
-    }
-
-    function renderTrustMathBox(styleId) {
-      const style = state.styles.find(s => s.id === styleId) || state.styles[0];
-      if (!style) {
-        setHtml("trustMathBox", "Select a style row to inspect the recommendation math.");
-        return;
-      }
-
-      state.selectedStyleId = style.id;
-      const rec = recommendationForStyle(style);
-
-      const systemModeText = style.planMode === "run_count"
-        ? `Run Count mode is active. Style units = spread run total <span class="kbd">${fmtInt(rec.runTotal)}</span> × run count <span class="kbd">${fmtInt(style.runCount)}</span>, then protected by minimum run logic.`
-        : `System Total mode is active. Final units come from the category/comparable demand model, then compare against run floor and buyer units.`
-
-      setHtml("trustMathBox", `
-        <div class="space-y-3">
-          <div>
-            <div style="font-weight: 900;">${escapeHtml(style.productTitle || "Untitled style")}</div>
-            <div class="text-xs muted2 mt-1">${escapeHtml(style.category || "No category")} • ${escapeHtml(SPREADS[style.spread]?.label || "No spread")}</div>
-          </div>
-
-          <div class="soft-panel p-3">
-            <div><b>Category 120d signal:</b> ${fmtNum(rec.histWk,1)} units / week</div>
-            <div class="mt-1"><b>Comparable signal:</b> ${fmtNum(rec.compWk,1)} units / week</div>
-            <div class="mt-1"><b>Weighted weekly demand:</b> ${fmtNum(rec.weightedWeekly,1)}</div>
-          </div>
-
-          <div class="soft-panel p-3">
-            <div><b>Growth uplift:</b> ${fmtInt(rec.growthPct)}%</div>
-            <div class="mt-1"><b>New category uplift:</b> ${fmtInt(rec.newCategoryPct)}%</div>
-            <div class="mt-1"><b>Launch multiplier:</b> ${fmtNum(rec.launchMultiplier,2)}x</div>
-            <div class="mt-1"><b>Rollout multiplier:</b> ${fmtNum(rec.rolloutMultiplier,2)}x</div>
-            <div class="mt-1"><b>Reserve:</b> ${fmtInt(rec.reservePct)}%</div>
-          </div>
-
-          <div class="soft-panel p-3">
-            <div><b>System units:</b> ${fmtInt(rec.systemUnits)}</div>
-            <div class="mt-1"><b>Buyer units:</b> ${fmtInt(rec.buyerUnits)}</div>
-            <div class="mt-1"><b>Run floor:</b> ${fmtInt(rec.runFloorUnits)} units (${fmtInt(rec.minRuns)} min runs × ${fmtInt(rec.runTotal)} run total)</div>
-            <div class="mt-1"><b>Final units:</b> ${fmtInt(rec.finalUnits)}</div>
-          </div>
-
-          <div class="text-xs muted">${systemModeText}</div>
-          <div class="text-xs muted2">${escapeHtml(rec.mathNote)}</div>
-        </div>
-      `);
-    }
-
-    function renderDraftPeek() {
-      const draft = loadJSON(STORAGE_KEYS.draft, []);
-      if (!draft.length) {
-        setText("draftPeek", "Draft empty.");
-        return;
-      }
-
-      const text = draft.slice(0, 14).map(line =>
-        `${line.style_title || "Untitled"} | ${line.size} | qty ${fmtInt(line.qty)}`
-      ).join("\n");
-
-      setText("draftPeek", draft.length > 14 ? `${text}\n… +${draft.length - 14} more` : text);
-    }
-
-    function renderAll() {
-      rebuildDemandStats();
-      renderBuilderTable();
-      renderOutputTable();
-      renderSummaryTray();
-      renderTrustMathBox(state.selectedStyleId);
-      renderDraftPeek();
-      updateProjectionNotes();
-    }
-
-    function bindStyleRowEvents() {
-      document.querySelectorAll(".styleField").forEach(node => {
-        node.addEventListener("change", onStyleFieldChange);
-        node.addEventListener("blur", onStyleFieldChange);
-        node.addEventListener("focus", () => {
-          const id = node.getAttribute("data-id");
-          renderTrustMathBox(id);
-        });
-      });
-
-      document.querySelectorAll(".rowSelect").forEach(node => {
-        node.addEventListener("change", () => {
-          const id = node.getAttribute("data-id");
-          const row = state.styles.find(s => s.id === id);
-          if (!row) return;
-          row.selected = !!node.checked;
-          saveStyles();
-          renderSummaryTray();
-        });
-      });
-
-      document.querySelectorAll(".inspectBtn").forEach(btn => {
-        btn.addEventListener("click", () => renderTrustMathBox(btn.getAttribute("data-id")));
-      });
-
-      document.querySelectorAll(".deleteBtn").forEach(btn => {
-        btn.addEventListener("click", () => {
-          const id = btn.getAttribute("data-id");
-          state.styles = state.styles.filter(s => s.id !== id);
-          saveStyles();
-          renderAll();
-        });
-      });
-
-      document.querySelectorAll(".duplicateBtn").forEach(btn => {
-        btn.addEventListener("click", () => {
-          const id = btn.getAttribute("data-id");
-          const src = state.styles.find(s => s.id === id);
-          if (!src) return;
-          const copy = JSON.parse(JSON.stringify(src));
-          copy.id = `sty_${Math.random().toString(36).slice(2)}_${Date.now()}`;
-          copy.selected = false;
-          copy.productTitle = copy.productTitle ? `${copy.productTitle} Copy` : "";
-          state.styles.unshift(copy);
-          saveStyles();
-          renderAll();
-        });
-      });
-    }
-
-    function onStyleFieldChange(e) {
-      const id = e.target.getAttribute("data-id");
-      const field = e.target.getAttribute("data-field");
-      const row = state.styles.find(s => s.id === id);
-      if (!row) return;
-
-      let value = e.target.value;
-
-      if (["weeks","runCount","buyerUnits"].includes(field)) value = Math.max(0, toNumber(value));
-      if (["growthOverride","reserveOverride"].includes(field)) value = String(value).trim();
-
-      row[field] = value;
-
-      if (field === "category") {
-        row.family = detectFamily(row.category, row.comparableTitle);
-        row.spread = defaultSpreadForFamily(row.family);
-        row.runCount = defaultRunCountForFamily(row.family);
-        if (!row.comparableTitle) row.comparableTitle = defaultComparableForCategory(row.category);
-      }
-
-      if (field === "family") {
-        row.spread = defaultSpreadForFamily(row.family);
-        row.runCount = defaultRunCountForFamily(row.family);
-      }
-
-      if (field === "comparableTitle" && (!row.category || row.family === "adult")) {
-        const guess = detectFamily(row.category, row.comparableTitle);
-        row.family = guess;
-        row.spread = defaultSpreadForFamily(guess);
-      }
-
       saveStyles();
-      renderAll();
     }
 
-    function addStyle() {
-      const row = newStyle();
-      row.comparableTitle = row.category ? defaultComparableForCategory(row.category) : "";
-      state.styles.unshift(row);
-      saveStyles();
-      renderAll();
-    }
-
-    function selectedStyles() {
-      return state.styles.filter(s => s.selected);
-    }
-
-    function exportStyles(rows) {
-      if (!rows.length) return;
-
-      const out = rows.map(style => {
-        const rec = recommendationForStyle(style);
-        return {
-          product_title: style.productTitle,
-          category: style.category,
-          comparable_title: style.comparableTitle,
-          family: style.family,
-          spread: SPREADS[style.spread]?.label || style.spread,
-          plan_mode: style.planMode,
-          weeks: style.weeks,
-          run_count: style.runCount,
-          hist_per_week: rec.histWk,
-          comp_per_week: rec.compWk,
-          confidence: rec.confidence,
-          system_units: rec.systemUnits,
-          buyer_units: rec.buyerUnits,
-          final_units: rec.finalUnits,
-          size_output: sizeOutputText(rec.finalUnits, style.spread),
-          math_note: rec.mathNote
-        };
-      });
-
-      downloadCsv(`product_builder_${new Date().toISOString().slice(0,10)}.csv`, out);
-    }
-
-    function downloadCsv(filename, rows) {
-      if (!rows.length) return;
-      const headers = Object.keys(rows[0]);
-      const esc = (v) => {
-        const s = String(v ?? "");
-        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-      };
-      const content = [
-        headers.map(esc).join(","),
-        ...rows.map(r => headers.map(h => esc(r[h])).join(","))
-      ].join("\n");
-
-      const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    }
-
-    function addSelectedToDraft() {
-      const selected = selectedStyles();
-      if (!selected.length) return;
-
-      const draft = loadJSON(STORAGE_KEYS.draft, []);
-      const draftName = String(el("draftName").value || "").trim() || "New Product Draft";
-      const vendor = String(el("draftVendor").value || "").trim();
-      const eta = String(el("draftEta").value || "").trim();
-
-      for (const style of selected) {
-        const rec = recommendationForStyle(style);
-        const sizes = expandSizes(rec.finalUnits, style.spread);
-
-        for (const line of sizes.filter(x => x.qty > 0)) {
-          draft.push({
-            draft_name: draftName,
-            vendor,
-            eta,
-            style_id: style.id,
-            style_title: style.productTitle,
-            category: style.category,
-            family: style.family,
-            spread: SPREADS[style.spread]?.label || style.spread,
-            size: line.size,
-            qty: line.qty,
-            plan_mode: style.planMode,
-            final_style_units: rec.finalUnits,
-            system_units: rec.systemUnits,
-            buyer_units: rec.buyerUnits,
-            comparable_title: style.comparableTitle,
-            math_note: rec.mathNote
-          });
-        }
-      }
-
-      saveJSON(STORAGE_KEYS.draft, draft);
-      renderDraftPeek();
-    }
-
-    function openDraftDialog() {
-      const draft = loadJSON(STORAGE_KEYS.draft, []);
-      const tbody = el("draftDialogBody");
-
-      tbody.innerHTML = draft.length
-        ? draft.map(line => `
-            <tr>
-              <td>${escapeHtml(line.style_title || "")}</td>
-              <td>${escapeHtml(line.category || "")}</td>
-              <td>${escapeHtml(line.spread || "")}</td>
-              <td class="mono">${escapeHtml(line.size || "")}</td>
-              <td class="text-right mono">${fmtInt(toNumber(line.qty))}</td>
-              <td class="text-sm muted">${escapeHtml(line.math_note || "")}</td>
-            </tr>
-          `).join("")
-        : `<tr><td colspan="6" class="text-center muted" style="padding: 36px 24px;">Draft empty.</td></tr>`;
-
-      const dialog = el("draftDialog");
-      if (typeof dialog.showModal === "function") dialog.showModal();
-      else dialog.setAttribute("open", "true");
-    }
-
-    async function loadSupabaseContext() {
+    // ====== Supabase ======
+    async function loadSupabaseContext(){
       if (!supabaseClient) return;
 
-      // locations
       try {
         const { data, error } = await supabaseClient.from("locations").select("*").order("id", { ascending: true });
         if (error) throw error;
-
         const rows = Array.isArray(data) ? data : [];
         state.locations = rows
           .filter(r => r.active === undefined || r.active === null || r.active === true)
@@ -1694,12 +1164,10 @@
         state.locations = [];
       }
 
-      // revenue projections
       try {
         const { data, error } = await supabaseClient
           .from("revenue_projections")
           .select("projection_date, location_id, projected_units, projected_sales, notes, source, scenario");
-
         if (error) throw error;
         state.projections = Array.isArray(data) ? data : [];
       } catch (e) {
@@ -1708,50 +1176,8 @@
       }
     }
 
-    async function loadInventoryAll() {
-      const allRows = [];
-
-      for (const loc of LOCATIONS) {
-        let inventoryRows = [];
-
-        try {
-          const invText = await fetchText(inventoryUrlForGid(loc.gid));
-          inventoryRows = parseInventoryCsv(invText, loc);
-        } catch (e) {
-          console.warn(`Inventory CSV failed for ${loc.label}:`, e);
-        }
-
-        let salesMap = new Map();
-        try {
-          const salesText = await fetchText(loc.sales_csv);
-          salesMap = parseSalesCsvToMap(salesText);
-        } catch (e) {
-          console.warn(`Sales summary failed for ${loc.label}:`, e);
-        }
-
-        for (const row of inventoryRows) {
-          if (row.sku && salesMap.has(row.sku)) {
-            const s = salesMap.get(row.sku);
-            row.product_title = s.product_name || row.product_title;
-            row.product_type = s.product_type || row.product_type;
-            row.vendor = s.vendor || row.vendor;
-            row.qty_7d = s.qty_7d;
-            row.qty_30d = s.qty_30d;
-            row.qty_90d = s.qty_90d;
-            row.qty_120d = s.qty_120d;
-            row.avg_day_30 = s.avg_day_30;
-            row.avg_day_90 = s.avg_day_90;
-            row.avg_day_120 = s.avg_day_120;
-            row.last_sold_date = s.last_sold_date || "";
-          }
-          allRows.push(row);
-        }
-      }
-
-      state.inventoryRows = allRows;
-    }
-
-    function parseInventoryCsv(csvText, loc) {
+    // ====== Inventory + sales-summary ======
+    function parseInventoryCsv(csvText, loc){
       const table = parseCsv(csvText);
       if (!table.length) return [];
 
@@ -1802,7 +1228,7 @@
       return Array.from(dedupe.values());
     }
 
-    function parseSalesCsvToMap(csvText) {
+    function parseSalesCsvToMap(csvText){
       const table = parseCsv(csvText);
       if (!table.length) return new Map();
 
@@ -1835,12 +1261,671 @@
       return map;
     }
 
-    function bindPageEvents() {
+    async function loadInventoryAll(){
+      const allRows = [];
+
+      for (const loc of LOCATIONS) {
+        let inventoryRows = [];
+        try {
+          const invText = await fetchText(inventoryUrlForGid(loc.gid));
+          inventoryRows = parseInventoryCsv(invText, loc);
+        } catch (e) {
+          console.warn(`Inventory CSV failed for ${loc.label}:`, e);
+        }
+
+        let salesMap = new Map();
+        try {
+          const salesText = await fetchText(loc.sales_csv);
+          salesMap = parseSalesCsvToMap(salesText);
+        } catch (e) {
+          console.warn(`Sales summary failed for ${loc.label}:`, e);
+        }
+
+        for (const row of inventoryRows) {
+          if (row.sku && salesMap.has(row.sku)) {
+            const s = salesMap.get(row.sku);
+            row.product_title = s.product_name || row.product_title;
+            row.product_type = s.product_type || row.product_type;
+            row.vendor = s.vendor || row.vendor;
+            row.qty_7d = s.qty_7d;
+            row.qty_30d = s.qty_30d;
+            row.qty_90d = s.qty_90d;
+            row.qty_120d = s.qty_120d;
+            row.avg_day_30 = s.avg_day_30;
+            row.avg_day_90 = s.avg_day_90;
+            row.avg_day_120 = s.avg_day_120;
+            row.last_sold_date = s.last_sold_date || "";
+          }
+          allRows.push(row);
+        }
+      }
+
+      state.inventoryRows = allRows;
+    }
+
+    // ====== Analytics ======
+    function renderSelectors(){
+      el("projectionLocation").innerHTML =
+        `<option value="__ALL__">All active locations</option>` +
+        state.locations.map(l => `<option value="${escapeHtml(String(l.id))}">${escapeHtml(l.name)}</option>`).join("");
+
+      el("inventoryScope").innerHTML =
+        `<option value="__ALL__">All loaded locations</option>` +
+        LOCATIONS.map(l => `<option value="${escapeHtml(l.key)}">${escapeHtml(l.label)}</option>`).join("");
+    }
+
+    function rebuildDemandStats(){
+      const rows = inventoryScopeRows();
+
+      state.categoryStats = new Map();
+      state.comparableStats = new Map();
+      state.sizeCurveCategory = new Map();
+      state.sizeCurveComparable = new Map();
+
+      for (const row of rows) {
+        const category = String(row.product_type || "Uncategorized").trim();
+        const categoryKey = category.toLowerCase();
+        const title = String(row.product_title || "").trim();
+        const titleKey = title.toLowerCase();
+        const family = detectFamily(category, title);
+        const size = normalizeVariantToSize(row.variant_title, family);
+
+        if (!state.categoryStats.has(categoryKey)) {
+          state.categoryStats.set(categoryKey, {
+            category,
+            qty_7d: 0, qty_30d: 0, qty_90d: 0, qty_120d: 0,
+            weekly_120d: 0
+          });
+        }
+        const cat = state.categoryStats.get(categoryKey);
+        cat.qty_7d += toNumber(row.qty_7d);
+        cat.qty_30d += toNumber(row.qty_30d);
+        cat.qty_90d += toNumber(row.qty_90d);
+        cat.qty_120d += toNumber(row.qty_120d);
+        cat.weekly_120d = cat.qty_120d / (120 / 7);
+
+        if (titleKey) {
+          if (!state.comparableStats.has(titleKey)) {
+            state.comparableStats.set(titleKey, {
+              title,
+              category,
+              qty_7d: 0, qty_30d: 0, qty_90d: 0, qty_120d: 0,
+              weekly_120d: 0
+            });
+          }
+          const comp = state.comparableStats.get(titleKey);
+          comp.qty_7d += toNumber(row.qty_7d);
+          comp.qty_30d += toNumber(row.qty_30d);
+          comp.qty_90d += toNumber(row.qty_90d);
+          comp.qty_120d += toNumber(row.qty_120d);
+          comp.weekly_120d = comp.qty_120d / (120 / 7);
+        }
+
+        if (!state.sizeCurveCategory.has(categoryKey)) {
+          state.sizeCurveCategory.set(categoryKey, { category, family, unitsBySize: {}, curve: {} });
+        }
+        const cCurve = state.sizeCurveCategory.get(categoryKey);
+        cCurve.unitsBySize[size] = (cCurve.unitsBySize[size] || 0) + toNumber(row.qty_120d);
+
+        if (titleKey) {
+          if (!state.sizeCurveComparable.has(titleKey)) {
+            state.sizeCurveComparable.set(titleKey, { title, family, unitsBySize: {}, curve: {} });
+          }
+          const tCurve = state.sizeCurveComparable.get(titleKey);
+          tCurve.unitsBySize[size] = (tCurve.unitsBySize[size] || 0) + toNumber(row.qty_120d);
+        }
+      }
+
+      for (const row of state.sizeCurveCategory.values()) {
+        const total = Object.values(row.unitsBySize).reduce((s, v) => s + toNumber(v), 0);
+        const out = {};
+        if (total > 0) {
+          Object.entries(row.unitsBySize).forEach(([k,v]) => out[k] = toNumber(v) / total);
+        }
+        row.curve = out;
+      }
+
+      for (const row of state.sizeCurveComparable.values()) {
+        const total = Object.values(row.unitsBySize).reduce((s, v) => s + toNumber(v), 0);
+        const out = {};
+        if (total > 0) {
+          Object.entries(row.unitsBySize).forEach(([k,v]) => out[k] = toNumber(v) / total);
+        }
+        row.curve = out;
+      }
+
+      state.categories = Array.from(state.categoryStats.values()).map(x => x.category).sort((a,b) => a.localeCompare(b));
+      state.comparableTitles = Array.from(state.comparableStats.values()).map(x => x.title).sort((a,b) => a.localeCompare(b));
+    }
+
+    function updateProjectionNotes(){
+      const from = parseDateAny(el("dateFrom").value);
+      const to = parseDateAny(el("dateTo").value);
+      const locationId = el("projectionLocation").value || "__ALL__";
+
+      const filtered = (state.projections || []).filter(r => {
+        const d = parseDateAny(r.projection_date);
+        if (!d) return false;
+        if (from && startOfDay(d) < startOfDay(from)) return false;
+        if (to && startOfDay(d) > startOfDay(to)) return false;
+        if (locationId !== "__ALL__" && String(r.location_id) !== String(locationId)) return false;
+        return true;
+      });
+
+      const units = filtered.reduce((s, r) => s + toNumber(r.projected_units), 0);
+      const sales = filtered.reduce((s, r) => s + toNumber(r.projected_sales), 0);
+      const scenarios = Array.from(new Set(filtered.map(r => String(r.scenario || "").trim()).filter(Boolean)));
+      const notes = filtered.map(r => String(r.notes || "").trim()).filter(Boolean);
+      const source = filtered.map(r => String(r.source || "").trim()).find(Boolean) || "";
+
+      if (!filtered.length) {
+        setHtml("projectionNotes", `
+          <div>No matching projection rows found for this date/location filter.</div>
+          <div class="mt-2 muted2">Builder still works from category + comparable demand, but top-down projection context is blank.</div>
+        `);
+        setText("trustBadge", "Demand only mode");
+        return;
+      }
+
+      setHtml("projectionNotes", `
+        <div><b>${fmtInt(filtered.length)}</b> projection row(s) in current window.</div>
+        <div class="mt-1"><b>${fmtInt(units)}</b> projected units • <b>${fmtMoney(sales)}</b> projected sales.</div>
+        ${scenarios.length ? `<div class="mt-1">Scenario(s): <b>${escapeHtml(scenarios.join(", "))}</b></div>` : ""}
+        ${source ? `<div class="mt-1">Source: <b>${escapeHtml(source)}</b></div>` : ""}
+        ${notes.length ? `<div class="mt-2 muted2">${escapeHtml(notes[0])}</div>` : ""}
+      `);
+      setText("trustBadge", "Projection context loaded");
+    }
+
+    // ====== Rendering ======
+    function filterStyles(){
+      const q = String(el("searchInput").value || "").trim().toLowerCase();
+      state.filteredStyles = !q
+        ? state.styles.slice()
+        : state.styles.filter(s => {
+            const hay = `${s.productTitle} ${s.category} ${s.comparableTitle} ${s.family} ${s.curveSource}`.toLowerCase();
+            return hay.includes(q);
+          });
+    }
+
+    function renderBuilderTable(){
+      filterStyles();
+      const tbody = el("builderTableBody");
+
+      if (!state.filteredStyles.length) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="16" class="text-center muted" style="padding: 48px 24px;">
+              No style rows yet. Add a style to begin planning.
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = state.filteredStyles.map(style => {
+        const rec = recommendationForStyle(style);
+        const confidenceCls = confidenceClass(rec.confidence);
+        const buyerDelta = rec.buyerUnits > 0 ? (rec.buyerUnits - rec.systemUnits) : 0;
+        const buyerDeltaTxt = rec.buyerUnits > 0 ? `${buyerDelta >= 0 ? "+" : ""}${fmtInt(buyerDelta)}` : "none";
+
+        return `
+          <tr data-style-row="${escapeHtml(style.id)}">
+            <td>
+              <input type="checkbox" class="rowSelect" data-id="${escapeHtml(style.id)}" ${style.selected ? "checked" : ""} />
+            </td>
+
+            <td>
+              <div class="space-y-2">
+                <input type="text" class="input styleField" data-id="${escapeHtml(style.id)}" data-field="productTitle" value="${escapeHtml(style.productTitle)}" placeholder="New product title" />
+              </div>
+            </td>
+
+            <td>
+              <select class="select styleField" data-id="${escapeHtml(style.id)}" data-field="category">
+                <option value="">Select category</option>
+                ${state.categories.map(cat => `<option value="${escapeHtml(cat)}" ${style.category === cat ? "selected" : ""}>${escapeHtml(cat)}</option>`).join("")}
+              </select>
+            </td>
+
+            <td>
+              <select class="select styleField" data-id="${escapeHtml(style.id)}" data-field="comparableTitle">
+                <option value="">Select comparable</option>
+                ${state.comparableTitles.map(title => `<option value="${escapeHtml(title)}" ${style.comparableTitle === title ? "selected" : ""}>${escapeHtml(title)}</option>`).join("")}
+              </select>
+            </td>
+
+            <td>
+              <select class="select styleField" data-id="${escapeHtml(style.id)}" data-field="family">
+                <option value="adult" ${style.family === "adult" ? "selected" : ""}>Adult Apparel</option>
+                <option value="youth" ${style.family === "youth" ? "selected" : ""}>Youth Apparel</option>
+                <option value="caps" ${style.family === "caps" ? "selected" : ""}>Caps</option>
+              </select>
+            </td>
+
+            <td>
+              <select class="select styleField" data-id="${escapeHtml(style.id)}" data-field="curveSource">
+                <option value="blended" ${style.curveSource === "blended" ? "selected" : ""}>Blended</option>
+                <option value="category" ${style.curveSource === "category" ? "selected" : ""}>Category history</option>
+                <option value="comparable" ${style.curveSource === "comparable" ? "selected" : ""}>Comparable history</option>
+                <option value="family_default" ${style.curveSource === "family_default" ? "selected" : ""}>Family default</option>
+              </select>
+            </td>
+
+            <td class="text-right">
+              <input type="number" min="1" step="1" class="input mono text-right styleField" data-id="${escapeHtml(style.id)}" data-field="weeks" value="${fmtInt(style.weeks)}" />
+            </td>
+
+            <td class="text-right mono">${fmtNum(rec.histWk, 1)}</td>
+            <td class="text-right mono">${fmtNum(rec.compWk, 1)}</td>
+            <td class="text-right mono" style="font-weight: 900;">${fmtInt(rec.systemUnits)}</td>
+
+            <td class="text-right">
+              <input type="number" min="0" step="1" class="input mono text-right styleField" data-id="${escapeHtml(style.id)}" data-field="buyerUnits" value="${fmtInt(style.buyerUnits)}" />
+            </td>
+
+            <td class="text-right">
+              <div class="mono" style="font-weight: 900;">${fmtInt(rec.finalUnits)}</div>
+              <div class="text-xs muted2 mt-1">${escapeHtml(sizeOutputText(rec.finalUnits, style) || "—")}</div>
+            </td>
+
+            <td><span class="${confidenceCls}" style="font-weight: 900;">${escapeHtml(rec.confidence)}</span></td>
+
+            <td>
+              <div class="space-y-2">
+                <select class="select styleField" data-id="${escapeHtml(style.id)}" data-field="launchType">
+                  <option value="inline" ${style.launchType === "inline" ? "selected" : ""}>Inline</option>
+                  <option value="capsule" ${style.launchType === "capsule" ? "selected" : ""}>Capsule</option>
+                  <option value="event" ${style.launchType === "event" ? "selected" : ""}>Event / Promo</option>
+                  <option value="keydrop" ${style.launchType === "keydrop" ? "selected" : ""}>Key Drop</option>
+                </select>
+                <select class="select styleField" data-id="${escapeHtml(style.id)}" data-field="rollout">
+                  <option value="limited" ${style.rollout === "limited" ? "selected" : ""}>Limited</option>
+                  <option value="standard" ${style.rollout === "standard" ? "selected" : ""}>Standard</option>
+                  <option value="broad" ${style.rollout === "broad" ? "selected" : ""}>Broad</option>
+                </select>
+              </div>
+            </td>
+
+            <td>
+              <div class="space-y-2">
+                <input type="number" class="input mono styleField" data-id="${escapeHtml(style.id)}" data-field="growthOverride" value="${escapeHtml(String(style.growthOverride ?? ""))}" placeholder="Growth %" />
+                <input type="number" class="input mono styleField" data-id="${escapeHtml(style.id)}" data-field="reserveOverride" value="${escapeHtml(String(style.reserveOverride ?? ""))}" placeholder="Reserve %" />
+                <div class="text-xs muted2">Override vs system: <b>${escapeHtml(buyerDeltaTxt)}</b></div>
+              </div>
+            </td>
+
+            <td>
+              <div class="flex flex-col gap-2">
+                <button class="btn btn-ghost inspectBtn" data-id="${escapeHtml(style.id)}">Math</button>
+                <button class="btn btn-ghost duplicateBtn" data-id="${escapeHtml(style.id)}">Duplicate</button>
+                <button class="btn btn-ghost deleteBtn" data-id="${escapeHtml(style.id)}">Delete</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join("");
+
+      bindStyleRowEvents();
+    }
+
+    function renderOutputTable(){
+      filterStyles();
+      const tbody = el("outputTableBody");
+
+      if (!state.filteredStyles.length) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="7" class="text-center muted" style="padding: 48px 24px;">
+              No output yet.
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = state.filteredStyles.map(style => {
+        const rec = recommendationForStyle(style);
+        const output = sizeOutputText(rec.finalUnits, style);
+        const compareText = rec.buyerUnits > 0
+          ? `System ${fmtInt(rec.systemUnits)} • Buyer ${fmtInt(rec.buyerUnits)} • Final ${fmtInt(rec.finalUnits)}`
+          : `System ${fmtInt(rec.systemUnits)} • Final ${fmtInt(rec.finalUnits)}`;
+
+        return `
+          <tr>
+            <td>
+              <div style="font-weight: 900;">${escapeHtml(style.productTitle || "Untitled style")}</div>
+              <div class="text-xs muted2 mt-1">${escapeHtml(style.family)} • ${escapeHtml(style.curveSource)}</div>
+            </td>
+            <td>${escapeHtml(style.category || "—")}</td>
+            <td>
+              <span class="curve-badge">${escapeHtml(rec.curveLabel)}</span>
+            </td>
+            <td class="text-right mono" style="font-weight: 900;">${fmtInt(rec.finalUnits)}</td>
+            <td>${escapeHtml(output || "—")}</td>
+            <td class="text-sm muted">${escapeHtml(compareText)}</td>
+            <td class="text-sm muted">${escapeHtml(rec.mathNote)}</td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function renderSummaryTray(){
+      const selected = state.styles.filter(s => s.selected);
+      const systemUnits = selected.reduce((sum, s) => sum + recommendationForStyle(s).systemUnits, 0);
+      const finalUnits = selected.reduce((sum, s) => sum + recommendationForStyle(s).finalUnits, 0);
+
+      setText("traySelected", fmtInt(selected.length));
+      setText("traySystem", fmtInt(systemUnits));
+      setText("trayFinal", fmtInt(finalUnits));
+
+      const allVisibleSelected = state.filteredStyles.length > 0 && state.filteredStyles.every(s => s.selected);
+      el("checkAllStyles").checked = allVisibleSelected;
+    }
+
+    function renderTrustMathBox(styleId){
+      const style = state.styles.find(s => s.id === styleId) || state.styles[0];
+      if (!style) {
+        setHtml("trustMathBox", "Select a style row to inspect the recommendation math.");
+        return;
+      }
+
+      state.selectedStyleId = style.id;
+      const rec = recommendationForStyle(style);
+      const output = allocateSizes(rec.finalUnits, rec.curve);
+
+      const overrideText = rec.buyerUnits > 0
+        ? `Buyer approved <span class="kbd">${fmtInt(rec.buyerUnits)}</span>, which is ${rec.overrideDelta >= 0 ? "above" : "below"} system by <span class="kbd">${fmtInt(Math.abs(rec.overrideDelta))}</span>.`
+        : `No buyer override entered yet. Final units follow system recommendation.`
+
+      setHtml("trustMathBox", `
+        <div class="space-y-3">
+          <div>
+            <div style="font-weight: 900;">${escapeHtml(style.productTitle || "Untitled style")}</div>
+            <div class="text-xs muted2 mt-1">${escapeHtml(style.category || "No category")} • ${escapeHtml(rec.curveLabel)}</div>
+          </div>
+
+          <div class="soft-panel p-3">
+            <div><b>Category 120d signal:</b> ${fmtNum(rec.histWk,1)} units / week</div>
+            <div class="mt-1"><b>Comparable signal:</b> ${fmtNum(rec.compWk,1)} units / week</div>
+            <div class="mt-1"><b>Weighted weekly demand:</b> ${fmtNum(rec.weightedWeekly,1)}</div>
+          </div>
+
+          <div class="soft-panel p-3">
+            <div><b>Growth uplift:</b> ${fmtInt(rec.growthPct)}%</div>
+            <div class="mt-1"><b>New category uplift:</b> ${fmtInt(rec.newCategoryPct)}%</div>
+            <div class="mt-1"><b>Launch multiplier:</b> ${fmtNum(rec.launchMultiplier,2)}x</div>
+            <div class="mt-1"><b>Rollout multiplier:</b> ${fmtNum(rec.rolloutMultiplier,2)}x</div>
+            <div class="mt-1"><b>Reserve:</b> ${fmtInt(rec.reservePct)}%</div>
+            <div class="mt-1"><b>Min floor units:</b> ${fmtInt(rec.minFloorUnits)}</div>
+          </div>
+
+          <div class="soft-panel p-3">
+            <div><b>System units:</b> ${fmtInt(rec.systemUnits)}</div>
+            <div class="mt-1"><b>Buyer units:</b> ${fmtInt(rec.buyerUnits)}</div>
+            <div class="mt-1"><b>Final approved units:</b> ${fmtInt(rec.finalUnits)}</div>
+            <div class="mt-2 text-xs muted">${overrideText}</div>
+          </div>
+
+          <div class="soft-panel p-3">
+            <div><b>Size allocation source:</b> ${escapeHtml(rec.curveLabel)}</div>
+            <div class="mt-2 text-xs muted">${output.filter(x => x.qty > 0).map(x => `${x.size}:${x.qty}`).join(" • ") || "—"}</div>
+          </div>
+
+          <div class="text-xs muted2">${escapeHtml(rec.mathNote)}</div>
+        </div>
+      `);
+    }
+
+    function renderDraftPeek(){
+      const draft = loadJSON(STORAGE_KEYS.draft, []);
+      if (!draft.length) {
+        setText("draftPeek", "Draft empty.");
+        return;
+      }
+
+      const text = draft.slice(0, 14).map(line =>
+        `${line.style_title || "Untitled"} | ${line.size} | qty ${fmtInt(line.qty)}`
+      ).join("\n");
+
+      setText("draftPeek", draft.length > 14 ? `${text}\n… +${draft.length - 14} more` : text);
+    }
+
+    function renderAll(){
+      rebuildDemandStats();
+      renderBuilderTable();
+      renderOutputTable();
+      renderSummaryTray();
+      renderTrustMathBox(state.selectedStyleId);
+      renderDraftPeek();
+      updateProjectionNotes();
+    }
+
+    // ====== Style row events ======
+    function bindStyleRowEvents(){
+      document.querySelectorAll(".styleField").forEach(node => {
+        node.addEventListener("change", onStyleFieldChange);
+        node.addEventListener("blur", onStyleFieldChange);
+        node.addEventListener("focus", () => {
+          const id = node.getAttribute("data-id");
+          renderTrustMathBox(id);
+        });
+      });
+
+      document.querySelectorAll(".rowSelect").forEach(node => {
+        node.addEventListener("change", () => {
+          const id = node.getAttribute("data-id");
+          const row = state.styles.find(s => s.id === id);
+          if (!row) return;
+          row.selected = !!node.checked;
+          saveStyles();
+          renderSummaryTray();
+        });
+      });
+
+      document.querySelectorAll(".inspectBtn").forEach(btn => {
+        btn.addEventListener("click", () => renderTrustMathBox(btn.getAttribute("data-id")));
+      });
+
+      document.querySelectorAll(".deleteBtn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const id = btn.getAttribute("data-id");
+          state.styles = state.styles.filter(s => s.id !== id);
+          saveStyles();
+          renderAll();
+        });
+      });
+
+      document.querySelectorAll(".duplicateBtn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const id = btn.getAttribute("data-id");
+          const src = state.styles.find(s => s.id === id);
+          if (!src) return;
+          const copy = JSON.parse(JSON.stringify(src));
+          copy.id = `sty_${Math.random().toString(36).slice(2)}_${Date.now()}`;
+          copy.selected = false;
+          copy.productTitle = copy.productTitle ? `${copy.productTitle} Copy` : "";
+          state.styles.unshift(copy);
+          saveStyles();
+          renderAll();
+        });
+      });
+    }
+
+    function onStyleFieldChange(e){
+      const id = e.target.getAttribute("data-id");
+      const field = e.target.getAttribute("data-field");
+      const row = state.styles.find(s => s.id === id);
+      if (!row) return;
+
+      let value = e.target.value;
+
+      if (["weeks", "buyerUnits"].includes(field)) value = Math.max(0, toNumber(value));
+      if (["growthOverride", "reserveOverride"].includes(field)) value = String(value).trim();
+
+      row[field] = value;
+
+      if (field === "category") {
+        row.family = detectFamily(row.category, row.comparableTitle);
+        if (!row.comparableTitle) row.comparableTitle = defaultComparableForCategory(row.category);
+      }
+
+      if (field === "family" && !["adult","youth","caps"].includes(row.family)) {
+        row.family = "adult";
+      }
+
+      if (field === "comparableTitle" && (!row.category || row.family === "adult")) {
+        row.family = detectFamily(row.category, row.comparableTitle);
+      }
+
+      saveStyles();
+      renderAll();
+    }
+
+    // ====== Add / export / draft ======
+    function addStyle(){
+      const row = newStyle();
+      row.comparableTitle = row.category ? defaultComparableForCategory(row.category) : "";
+      state.styles.unshift(row);
+      saveStyles();
+      renderAll();
+    }
+
+    function selectedStyles(){ return state.styles.filter(s => s.selected); }
+
+    function exportStyles(rows){
+      if (!rows.length) return;
+
+      const out = rows.map(style => {
+        const rec = recommendationForStyle(style);
+        return {
+          product_title: style.productTitle,
+          category: style.category,
+          comparable_title: style.comparableTitle,
+          family: style.family,
+          curve_source: rec.curveLabel,
+          weeks: style.weeks,
+          hist_per_week: rec.histWk,
+          comp_per_week: rec.compWk,
+          confidence: rec.confidence,
+          system_units: rec.systemUnits,
+          buyer_units: rec.buyerUnits,
+          final_units: rec.finalUnits,
+          launch_type: style.launchType,
+          rollout: style.rollout,
+          size_output: sizeOutputText(rec.finalUnits, style),
+          math_note: rec.mathNote
+        };
+      });
+
+      downloadCsv(`product_buyer_${new Date().toISOString().slice(0,10)}.csv`, out);
+    }
+
+    function downloadCsv(filename, rows){
+      if (!rows.length) return;
+      const headers = Object.keys(rows[0]);
+      const esc = (v) => {
+        const s = String(v ?? "");
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      const content = [
+        headers.map(esc).join(","),
+        ...rows.map(r => headers.map(h => esc(r[h])).join(","))
+      ].join("\n");
+
+      const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function addSelectedToDraft(){
+      const selected = selectedStyles();
+      if (!selected.length) return;
+
+      const draft = loadJSON(STORAGE_KEYS.draft, []);
+      const draftName = String(el("draftName").value || "").trim() || "New Product Draft";
+      const vendor = String(el("draftVendor").value || "").trim();
+      const eta = String(el("draftEta").value || "").trim();
+
+      for (const style of selected) {
+        const rec = recommendationForStyle(style);
+        const sizes = allocateSizes(rec.finalUnits, rec.curve);
+
+        for (const line of sizes.filter(x => x.qty > 0)) {
+          draft.push({
+            draft_name: draftName,
+            vendor,
+            eta,
+            style_id: style.id,
+            style_title: style.productTitle,
+            category: style.category,
+            family: style.family,
+            curve_source: rec.curveLabel,
+            size: line.size,
+            qty: line.qty,
+            system_units: rec.systemUnits,
+            buyer_units: rec.buyerUnits,
+            final_style_units: rec.finalUnits,
+            comparable_title: style.comparableTitle,
+            launch_type: style.launchType,
+            rollout: style.rollout,
+            math_note: rec.mathNote
+          });
+        }
+      }
+
+      saveJSON(STORAGE_KEYS.draft, draft);
+      renderDraftPeek();
+    }
+
+    function openDraftDialog(){
+      const draft = loadJSON(STORAGE_KEYS.draft, []);
+      const tbody = el("draftDialogBody");
+
+      tbody.innerHTML = draft.length
+        ? draft.map(line => `
+            <tr>
+              <td>${escapeHtml(line.style_title || "")}</td>
+              <td>${escapeHtml(line.category || "")}</td>
+              <td>${escapeHtml(line.curve_source || "")}</td>
+              <td class="mono">${escapeHtml(line.size || "")}</td>
+              <td class="text-right mono">${fmtInt(toNumber(line.qty))}</td>
+              <td class="text-sm muted">${escapeHtml(line.math_note || "")}</td>
+            </tr>
+          `).join("")
+        : `<tr><td colspan="6" class="text-center muted" style="padding: 36px 24px;">Draft empty.</td></tr>`;
+
+      const dialog = el("draftDialog");
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "true");
+    }
+
+    // ====== UI ======
+    function hydrateControlsFromSettings(){
+      const settings = loadJSON(STORAGE_KEYS.settings, DEFAULT_SETTINGS);
+      el("historicalWeight").value = settings.historicalWeight;
+      el("comparableWeight").value = settings.comparableWeight;
+      el("growthUplift").value = settings.growthUplift;
+      el("newCategoryUplift").value = settings.newCategoryUplift;
+      el("reserveStockPct").value = settings.reserveStockPct;
+      el("defaultWeeks").value = settings.defaultWeeks;
+      el("adultMinRuns").value = settings.adultMinRuns;
+      el("youthMinRuns").value = settings.youthMinRuns;
+      el("capMinRuns").value = settings.capMinRuns;
+    }
+
+    function bindPageEvents(){
       const themeBtn = el("themeBtn");
       const themeLabel = el("themeLabel");
       const savedTheme = localStorage.getItem(STORAGE_KEYS.theme) || "light";
 
-      function applyTheme(theme) {
+      function applyTheme(theme){
         document.documentElement.setAttribute("data-theme", theme);
         themeLabel.textContent = theme[0].toUpperCase() + theme.slice(1);
         localStorage.setItem(STORAGE_KEYS.theme, theme);
@@ -1850,7 +1935,6 @@
         const cur = document.documentElement.getAttribute("data-theme") || "light";
         applyTheme(cur === "dark" ? "light" : "dark");
       });
-
       applyTheme(savedTheme);
 
       el("reloadBtn").addEventListener("click", boot);
@@ -1926,7 +2010,7 @@
       el("viewDraftBtn").addEventListener("click", openDraftDialog);
       el("exportDraftBtn").addEventListener("click", () => {
         const draft = loadJSON(STORAGE_KEYS.draft, []);
-        if (draft.length) downloadCsv(`product_builder_draft_${new Date().toISOString().slice(0,10)}.csv`, draft);
+        if (draft.length) downloadCsv(`product_buyer_draft_${new Date().toISOString().slice(0,10)}.csv`, draft);
       });
       el("clearDraftBtn").addEventListener("click", () => {
         saveJSON(STORAGE_KEYS.draft, []);
@@ -1936,29 +2020,8 @@
       el("closeDraftDialogBtn").addEventListener("click", () => el("draftDialog").close());
     }
 
-    function hydrateControlsFromSettings() {
-      const settings = loadJSON(STORAGE_KEYS.settings, DEFAULT_SETTINGS);
-
-      el("historicalWeight").value = settings.historicalWeight;
-      el("comparableWeight").value = settings.comparableWeight;
-      el("growthUplift").value = settings.growthUplift;
-      el("newCategoryUplift").value = settings.newCategoryUplift;
-      el("reserveStockPct").value = settings.reserveStockPct;
-      el("defaultWeeks").value = settings.defaultWeeks;
-      el("adultMinRuns").value = settings.adultMinRuns;
-      el("youthMinRuns").value = settings.youthMinRuns;
-      el("capMinRuns").value = settings.capMinRuns;
-    }
-
-    function ensureStylesInitialized() {
-      loadStyles();
-      if (!state.styles.length) state.styles = [newStyle()];
-      saveStyles();
-    }
-
-    async function boot() {
+    async function boot(){
       setText("trustBadge", "Loading…");
-
       hydrateControlsFromSettings();
 
       if (!el("dateFrom").value || !el("dateTo").value) {
@@ -1968,7 +2031,6 @@
       await loadSupabaseContext();
       renderSelectors();
       await loadInventoryAll();
-
       ensureStylesInitialized();
       renderAll();
     }
