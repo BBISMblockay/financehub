@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Silo ERP — Revenue Projections</title>
+  <title>Silo ERP — Demand Planner</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="/financehub/pages/config.js"></script>
@@ -71,7 +71,7 @@
     body.themeable { min-height: 100vh; }
 
     .shell {
-      max-width: 1580px;
+      max-width: 1680px;
       margin: 0 auto;
       padding: 20px;
     }
@@ -91,11 +91,6 @@
       border: 1px solid var(--border);
       border-radius: 20px;
       box-shadow: var(--shadow-sm);
-    }
-
-    .toolbar {
-      border-radius: 22px;
-      padding: 14px;
     }
 
     .section-label {
@@ -151,13 +146,11 @@
       background: var(--text);
       color: #fff;
       border-color: transparent;
-      box-shadow: var(--shadow-sm);
     }
     :root[data-theme="dark"] .btn-primary {
       background: color-mix(in oklab, var(--accent) 80%, white);
       color: #08111f;
     }
-    .btn-primary:hover { filter: brightness(.98); }
     .btn-danger {
       color: var(--danger);
       border-color: color-mix(in oklab, var(--danger) 26%, var(--border));
@@ -174,15 +167,8 @@
       font-weight: 600;
       transition: .14s ease;
     }
-    .field, .select {
-      height: 42px;
-      padding: 0 13px;
-    }
-    .textarea {
-      min-height: 110px;
-      padding: 12px 13px;
-      resize: vertical;
-    }
+    .field, .select { height: 42px; padding: 0 13px; }
+    .textarea { min-height: 96px; padding: 12px 13px; resize: vertical; }
     .field:focus, .select:focus, .textarea:focus {
       outline: none;
       border-color: color-mix(in oklab, var(--accent) 28%, var(--border));
@@ -236,24 +222,22 @@
       line-height: 1.45;
     }
 
-    .matrix-wrap {
+    .table-wrap {
       overflow: auto;
       border-radius: 18px;
       border: 1px solid var(--border);
       background: color-mix(in oklab, var(--panel-solid) 94%, transparent);
     }
-
-    .matrix-table {
+    table {
       width: 100%;
       border-collapse: separate;
       border-spacing: 0;
-      min-width: 1080px;
+      min-width: 1280px;
     }
-
-    .matrix-table thead th {
+    thead th {
       position: sticky;
       top: 0;
-      z-index: 3;
+      z-index: 1;
       background: color-mix(in oklab, var(--panel-soft) 92%, transparent);
       color: var(--muted2);
       font-size: 11px;
@@ -265,122 +249,28 @@
       border-bottom: 1px solid var(--border);
       white-space: nowrap;
     }
-
-    .matrix-table tbody td {
+    tbody td {
       padding: 14px 16px;
       border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
       vertical-align: middle;
       font-size: 14px;
       white-space: nowrap;
     }
-
-    .matrix-table tbody tr:hover td {
+    tbody tr:hover td {
       background: color-mix(in oklab, var(--panel-soft) 62%, transparent);
     }
+    tbody tr:last-child td { border-bottom: 0; }
 
-    .matrix-table tbody tr:last-child td { border-bottom: 0; }
-
-    .sticky-col {
-      position: sticky;
-      left: 0;
-      z-index: 2;
-      background: color-mix(in oklab, var(--panel-solid) 96%, transparent);
-      box-shadow: 1px 0 0 0 var(--border);
-    }
-
-    .sticky-col-top {
-      z-index: 4 !important;
-      left: 0;
-    }
-
-    .total-col {
-      background: color-mix(in oklab, var(--accent-soft) 42%, var(--panel-soft));
-      font-weight: 700;
-    }
-
-    .matrix-value {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .mini-link {
-      color: var(--muted2);
-      font-size: 12px;
-      font-weight: 700;
-      cursor: pointer;
-      text-decoration: none;
-    }
-    .mini-link:hover { color: var(--text); }
-
-    .cell-note-wrap{
-      position: relative;
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .cell-note-flag{
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 18px;
-      height: 18px;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      background: color-mix(in oklab, var(--panel-soft) 92%, transparent);
-      color: var(--muted2);
-      font-size: 11px;
-      font-weight: 800;
-      line-height: 1;
-      cursor: help;
-      flex: 0 0 auto;
-    }
-
-    .cell-tooltip{
-      position: absolute;
-      left: 0;
-      top: calc(100% + 8px);
-      z-index: 20;
-      min-width: 220px;
-      max-width: 320px;
-      padding: 10px 12px;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      background: var(--panel-solid);
-      color: var(--text);
-      box-shadow: var(--shadow-md);
-      font-size: 12px;
-      line-height: 1.5;
-      white-space: normal;
-      opacity: 0;
-      pointer-events: none;
-      transform: translateY(4px);
-      transition: .12s ease;
-    }
-
-    .cell-note-wrap:hover .cell-tooltip{
-      opacity: 1;
-      pointer-events: auto;
-      transform: translateY(0);
-    }
-
-    .cell-tooltip-label{
-      display: block;
-      margin-bottom: 6px;
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: .12em;
-      color: var(--muted2);
-      font-weight: 800;
-    }
-
-    .empty-state {
-      padding: 30px 18px;
-      text-align: center;
-      color: var(--muted2);
-      font-size: 14px;
-      font-weight: 600;
+    .badge {
+      display:inline-flex;
+      align-items:center;
+      gap:.35rem;
+      border:1px solid var(--border);
+      background: color-mix(in oklab, var(--panel-soft) 90%, transparent);
+      border-radius:999px;
+      padding:2px 8px;
+      font-size:11px;
+      font-weight:800;
     }
 
     .status {
@@ -393,96 +283,38 @@
       color: var(--text);
     }
 
-    .drawer {
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      z-index: 60;
-    }
-    .drawer.open { pointer-events: auto; }
-    .drawer .overlay {
-      position: absolute;
-      inset: 0;
-      background: rgba(2,6,23,.46);
-      opacity: 0;
-      transition: opacity .16s ease;
-    }
-    .drawer.open .overlay { opacity: 1; }
-    .drawer .panel {
-      position: absolute;
-      top: 14px;
-      right: 14px;
-      bottom: 14px;
-      width: min(720px, calc(100vw - 28px));
-      background: var(--panel-solid);
-      border: 1px solid var(--border);
-      border-radius: 22px;
-      box-shadow: var(--shadow-md);
-      transform: translateX(12px);
-      opacity: 0;
-      transition: .16s ease;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-    }
-    .drawer.open .panel {
-      transform: translateX(0);
-      opacity: 1;
-    }
-
-    .history-item {
-      border: 1px solid var(--border);
-      background: color-mix(in oklab, var(--panel-soft) 92%, transparent);
-      border-radius: 16px;
-      padding: 14px;
-    }
-
-    .sticky-side {
-      position: sticky;
-      top: 20px;
-    }
-
-    .toolbar-grid {
-      display: grid;
-      grid-template-columns: 1.1fr 1.1fr 1.3fr 1fr 1.5fr auto auto auto;
-      gap: 10px;
-      align-items: end;
-    }
-
-    .layout-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 360px;
-      gap: 18px;
-      align-items: start;
-    }
-
-    .header-row {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 16px;
-      flex-wrap: wrap;
-      margin-bottom: 18px;
-    }
-
     .topbar {
       border-radius: 22px;
       padding: 14px 16px;
       margin-bottom: 18px;
     }
 
-    .topbar-row {
+    .topbar-row,
+    .header-row {
       display: flex;
-      align-items: center;
+      align-items: flex-start;
       justify-content: space-between;
-      gap: 14px;
+      gap: 16px;
       flex-wrap: wrap;
     }
 
-    .summary-list {
-      display: flex;
-      flex-direction: column;
+    .toolbar-grid {
+      display: grid;
+      grid-template-columns: 1.1fr 1.1fr 1.3fr 1.3fr 1fr 1fr auto auto auto;
       gap: 10px;
+      align-items: end;
+    }
+
+    .layout-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 380px;
+      gap: 18px;
+      align-items: start;
+    }
+
+    .sticky-side {
+      position: sticky;
+      top: 20px;
     }
 
     .summary-row {
@@ -495,29 +327,25 @@
     }
     .summary-row:last-child { border-bottom: 0; }
 
-    @media (max-width: 1220px) {
-      .toolbar-grid {
-        grid-template-columns: repeat(4, minmax(0,1fr));
-      }
-      .layout-grid {
-        grid-template-columns: 1fr;
-      }
-      .sticky-side {
-        position: static;
-      }
+    .empty-state {
+      padding: 30px 18px;
+      text-align: center;
+      color: var(--muted2);
+      font-size: 14px;
+      font-weight: 600;
     }
 
-    @media (max-width: 760px) {
+    @media (max-width: 1320px) {
+      .toolbar-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
+      .layout-grid { grid-template-columns: 1fr; }
+      .sticky-side { position: static; }
+    }
+
+    @media (max-width: 780px) {
       .shell { padding: 14px; }
       .toolbar-grid { grid-template-columns: 1fr; }
       .headline { font-size: 24px; }
       .metric .value { font-size: 24px; }
-      .drawer .panel {
-        top: 8px;
-        right: 8px;
-        bottom: 8px;
-        width: calc(100vw - 16px);
-      }
     }
   </style>
 </head>
@@ -528,7 +356,6 @@
         <div class="flex items-center gap-3 flex-wrap">
           <div class="pill"><span class="dot"></span>Silo ERP</div>
           <div class="pill" id="statusPill"><span class="dot"></span>Ready</div>
-          <div class="pill" id="selectionPill">Selection: All</div>
         </div>
 
         <div class="flex items-center gap-2 flex-wrap">
@@ -541,222 +368,254 @@
 
     <div class="header-row">
       <div>
-        <div class="section-label">Revenue Planning</div>
-        <h1 class="headline mt-2">Projections</h1>
+        <div class="section-label">Mixed Planning</div>
+        <h1 class="headline mt-2">Demand Planner</h1>
         <div class="subtle mt-2">
+          Top-down projection meets bottom-up inventory, SKU mix, category needs, and tagged product strategy.
         </div>
       </div>
 
       <div class="flex items-center gap-2 flex-wrap">
         <button id="reloadBtn" class="btn">Reload</button>
-        <button id="downloadTemplateBtn" class="btn">Template</button>
+        <button id="suggestBtn" class="btn btn-primary">Refresh Plan</button>
         <button id="exportBtn" class="btn">Export CSV</button>
-        <label for="importFile" class="btn">Import CSV</label>
-        <input id="importFile" type="file" accept=".csv,text/csv" class="hidden" />
-        <button id="newProjectionBtn" class="btn btn-primary">New projection</button>
+        <button id="addSelectedToDraftBtn" class="btn">Add Selected → Draft</button>
       </div>
     </div>
 
-    <div class="card toolbar p-4">
+    <div class="card p-4">
       <div class="toolbar-grid">
         <div>
           <label class="section-label mb-2 block">Date from</label>
-          <input id="filterDateFrom" type="date" class="field" />
+          <input id="dateFrom" type="date" class="field" />
         </div>
         <div>
           <label class="section-label mb-2 block">Date to</label>
-          <input id="filterDateTo" type="date" class="field" />
+          <input id="dateTo" type="date" class="field" />
         </div>
         <div>
-          <label class="section-label mb-2 block">Location</label>
-          <select id="filterLocation" class="select">
-            <option value="">All locations</option>
+          <label class="section-label mb-2 block">Projection location</label>
+          <select id="projectionLocation" class="select">
+            <option value="">Select location</option>
           </select>
         </div>
         <div>
-          <label class="section-label mb-2 block">Source</label>
-          <select id="filterSource" class="select">
-            <option value="">All sources</option>
+          <label class="section-label mb-2 block">Inventory source</label>
+          <select id="inventorySource" class="select">
+            <option value="">Select source</option>
           </select>
+        </div>
+        <div>
+          <label class="section-label mb-2 block">Mix basis</label>
+          <select id="mixBasis" class="select">
+            <option value="qty_30d">30 day units</option>
+            <option value="qty_90d">90 day units</option>
+            <option value="qty_120d">120 day units</option>
+            <option value="qty_7d">7 day units</option>
+          </select>
+        </div>
+        <div>
+          <label class="section-label mb-2 block">Strategy</label>
+          <select id="strategy" class="select">
+            <option value="replenish">Replenish</option>
+            <option value="growth">Growth</option>
+            <option value="hybrid">Hybrid</option>
+          </select>
+        </div>
+        <div>
+          <label class="section-label mb-2 block">Safety days</label>
+          <input id="safetyDays" type="number" min="0" step="1" value="7" class="field mono" />
+        </div>
+        <div>
+          <label class="section-label mb-2 block">Growth %</label>
+          <input id="defaultGrowthPct" type="number" min="0" step="1" value="20" class="field mono" />
         </div>
         <div>
           <label class="section-label mb-2 block">Search</label>
-          <input id="filterSearch" type="text" class="field" placeholder="Notes or location" />
+          <input id="searchBox" type="text" placeholder="SKU, product, category…" class="field" />
         </div>
+      </div>
+
+      <div class="toolbar-grid mt-3" style="grid-template-columns: 1fr 1fr 1fr 1fr 1fr auto auto auto auto;">
+        <div>
+          <label class="section-label mb-2 block">Seed avg/day for new</label>
+          <input id="seedAvgDay" type="number" min="0" step="0.01" value="0.25" class="field mono" />
+        </div>
+        <div>
+          <label class="section-label mb-2 block">Min reorder</label>
+          <input id="minReorder" type="number" min="0" step="1" value="0" class="field mono" />
+        </div>
+        <div>
+          <label class="section-label mb-2 block">Risk days</label>
+          <input id="riskDays" type="number" min="1" step="1" value="14" class="field mono" />
+        </div>
+        <div>
+          <label class="section-label mb-2 block">Tag selected as</label>
+          <select id="driverTag" class="select">
+            <option value="none">None</option>
+            <option value="core">Core Restock</option>
+            <option value="hero">Hero SKU</option>
+            <option value="new">New Product</option>
+            <option value="influencer">Influencer Push</option>
+            <option value="wholesale">Wholesale Push</option>
+            <option value="promo">Promo / Event Spike</option>
+            <option value="seasonal">Seasonal Bet</option>
+          </select>
+        </div>
+        <div>
+          <label class="section-label mb-2 block">Tag uplift override %</label>
+          <input id="driverPct" type="number" min="0" step="1" placeholder="optional" class="field mono" />
+        </div>
+        <button id="applyTagBtn" class="btn">Apply Tag</button>
+        <button id="clearTagBtn" class="btn">Clear Tags</button>
         <button id="thisMonthBtn" class="btn">This month</button>
-        <button id="next30Btn" class="btn">Next 30 days</button>
-        <button id="clearFiltersBtn" class="btn">Clear</button>
+        <button id="next30Btn" class="btn">Next 30</button>
       </div>
     </div>
 
-    <div class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+    <div class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4">
       <div class="metric card">
-        <div class="label">Filtered projections</div>
-        <div id="kpiRows" class="mono value">—</div>
-        <div id="kpiRowsSub" class="sub">Matching current filters</div>
+        <div class="label">Projected sales</div>
+        <div id="kProjectedSales" class="mono value">$0</div>
+        <div class="sub">Selected projection window</div>
       </div>
       <div class="metric card">
         <div class="label">Projected units</div>
-        <div id="kpiUnits" class="mono value">—</div>
-        <div id="kpiUnitsSub" class="sub">Sum of filtered units</div>
+        <div id="kProjectedUnits" class="mono value">0</div>
+        <div id="kProjectedUnitsSub" class="sub">Uses explicit units or sales → unit estimate</div>
       </div>
       <div class="metric card">
-        <div class="label">Projected sales</div>
-        <div id="kpiSales" class="mono value">—</div>
-        <div id="kpiSalesSub" class="sub">Sum of filtered sales</div>
+        <div class="label">On hand units</div>
+        <div id="kOnHand" class="mono value">0</div>
+        <div class="sub">Current source inventory rows</div>
       </div>
       <div class="metric card">
-        <div class="label">Locations shown</div>
-        <div id="kpiLocations" class="mono value">—</div>
-        <div id="kpiLocationsSub" class="sub">Distinct locations in matrix</div>
+        <div class="label">Rows needing action</div>
+        <div id="kNeedAction" class="mono value">0</div>
+        <div class="sub">Restock / new intro / watch</div>
+      </div>
+      <div class="metric card">
+        <div class="label">Recommended buy units</div>
+        <div id="kRecommendedBuy" class="mono value">0</div>
+        <div class="sub">Planner output</div>
+      </div>
+      <div class="metric card">
+        <div class="label">Categories affected</div>
+        <div id="kCategories" class="mono value">0</div>
+        <div class="sub">Grouped demand view</div>
       </div>
     </div>
 
     <div class="layout-grid mt-4">
-      <section class="card p-4">
-        <div class="flex items-start justify-between gap-4 flex-wrap mb-4">
-          <div>
-            <div class="section-label">Matrix view</div>
-            <div class="mt-2" style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em;">Projected sales by date and location</div>
-            <div class="subtle mt-1">Hover the info icon to see notes. Click Edit to load the cell into the editor.</div>
+      <section class="space-y-4">
+        <div class="card p-4">
+          <div class="flex items-start justify-between gap-4 flex-wrap mb-4">
+            <div>
+              <div class="section-label">Category summary</div>
+              <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Need by category</div>
+              <div class="subtle mt-1">Category totals using current mix basis and tagged strategy logic.</div>
+            </div>
           </div>
-          <div class="text-sm" style="color: var(--muted);">
-            Dates shown: <span id="tableCount" class="mono">0</span> · Updated <span id="lastUpdated" class="mono">—</span>
+
+          <div class="table-wrap scrollbar">
+            <table>
+              <thead>
+                <tr>
+                  <th>Category</th>
+                  <th class="text-right">Rows</th>
+                  <th class="text-right">On Hand</th>
+                  <th class="text-right">Projected Demand</th>
+                  <th class="text-right">Ending Units</th>
+                  <th class="text-right">Recommended Buy</th>
+                  <th>Summary</th>
+                </tr>
+              </thead>
+              <tbody id="categoryBody">
+                <tr><td colspan="7" class="empty-state">Load data to see category planning.</td></tr>
+              </tbody>
+            </table>
           </div>
         </div>
 
-        <div class="matrix-wrap scrollbar">
-          <table class="matrix-table">
-            <thead id="projectionMatrixHead">
-              <tr><th class="sticky-col sticky-col-top">Date</th><th>Total</th></tr>
-            </thead>
-            <tbody id="projectionTableBody">
-              <tr><td colspan="2" class="empty-state">Loading…</td></tr>
-            </tbody>
-          </table>
+        <div class="card p-4">
+          <div class="flex items-start justify-between gap-4 flex-wrap mb-4">
+            <div>
+              <div class="section-label">SKU planner</div>
+              <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Mixed restock and new product plan</div>
+              <div class="subtle mt-1">Top-down allocation meets velocity, tags, current on hand, and intro logic.</div>
+            </div>
+          </div>
+
+          <div class="table-wrap scrollbar">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:42px;"><input id="selectAll" type="checkbox" /></th>
+                  <th>SKU</th>
+                  <th>Product</th>
+                  <th>Category</th>
+                  <th>Driver</th>
+                  <th class="text-right">Mix %</th>
+                  <th class="text-right">Recent Units</th>
+                  <th class="text-right">On Hand</th>
+                  <th class="text-right">Avg/Day</th>
+                  <th class="text-right">Days OOS</th>
+                  <th class="text-right">Proj Demand</th>
+                  <th class="text-right">Ending</th>
+                  <th class="text-right">Rec Buy</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="skuBody">
+                <tr><td colspan="14" class="empty-state">Load data to see SKU planning.</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 
       <aside class="sticky-side flex flex-col gap-4">
         <div class="card p-5">
-          <div class="flex items-center justify-between gap-3 flex-wrap">
-            <div>
-              <div class="section-label">Edit projection</div>
-              <div class="mt-2" style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em;">Create or adjust</div>
-              <div class="subtle mt-1">One active row per date and location.</div>
-            </div>
-            <div class="pill" id="editingPill">Mode: New</div>
-          </div>
-
-          <div class="mt-4 space-y-3">
-            <div>
-              <label class="section-label mb-2 block">Projection date</label>
-              <input id="formProjectionDate" type="date" class="field" />
-            </div>
-
-            <div>
-              <label class="section-label mb-2 block">Location</label>
-              <select id="formLocation" class="select">
-                <option value="">Select location</option>
-              </select>
-            </div>
-
-            <div class="grid grid-cols-2 gap-3">
-              <div>
-                <label class="section-label mb-2 block">Projected units</label>
-                <input id="formProjectedUnits" type="number" min="0" step="1" class="field mono" placeholder="0" />
-              </div>
-              <div>
-                <label class="section-label mb-2 block">Projected sales</label>
-                <input id="formProjectedSales" type="number" min="0" step="0.01" class="field mono" placeholder="0.00" />
-              </div>
-            </div>
-
-            <div>
-              <label class="section-label mb-2 block">Source</label>
-              <input id="formSource" type="text" class="field" placeholder="manual, import, forecast_model" />
-            </div>
-
-            <div>
-              <label class="section-label mb-2 block">Notes</label>
-              <textarea id="formNotes" class="textarea" placeholder="Context, assumptions, promo timing, overrides, commentary"></textarea>
-            </div>
-          </div>
-
-          <div class="mt-4 flex flex-wrap gap-2">
-            <button id="saveProjectionBtn" class="btn btn-primary">Save projection</button>
-            <button id="clearFormBtn" class="btn">Clear</button>
-            <button id="deleteProjectionBtn" class="btn btn-danger hidden">Delete</button>
-            <button id="viewSelectedHistoryBtn" class="btn">Audit selected</button>
+          <div class="section-label">Projection notes</div>
+          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Context</div>
+          <div id="projectionNotes" class="mt-4 space-y-2">
+            <div class="empty-state">No projection notes loaded.</div>
           </div>
         </div>
 
         <div class="card p-5">
-          <div class="section-label">Location summary</div>
-          <div class="mt-2" style="font-size: 18px; font-weight: 700; letter-spacing: -0.03em;">Column totals</div>
-          <div class="summary-list mt-4" id="locationSummary">
-            <div class="empty-state">Loading…</div>
+          <div class="section-label">Planner assumptions</div>
+          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Math</div>
+          <div id="assumptionBox" class="mt-4 space-y-2">
+            <div class="status">Waiting for plan run…</div>
           </div>
         </div>
 
         <div class="card p-5">
-          <div class="section-label">Data health</div>
-          <div class="mt-2" style="font-size: 18px; font-weight: 700; letter-spacing: -0.03em;">Checks</div>
-          <div class="mt-4 space-y-2" id="healthSummary">
-            <div class="status">Waiting for data…</div>
+          <div class="section-label">PO draft</div>
+          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Local draft</div>
+          <div class="mt-3">
+            <label class="section-label mb-2 block">PO name</label>
+            <input id="poName" type="text" class="field" placeholder="ex: DEMAND-APR-LOCATION" />
           </div>
-        </div>
-
-        <div class="card p-5">
-          <div class="flex items-center justify-between gap-3 flex-wrap">
-            <div>
-              <div class="section-label">Audit + import</div>
-              <div class="mt-2" style="font-size: 18px; font-weight: 700; letter-spacing: -0.03em;">Recent tools</div>
-            </div>
-            <button id="openHistoryDrawerBtn" class="btn">Open audit</button>
+          <div class="mt-3">
+            <label class="section-label mb-2 block">Vendor</label>
+            <input id="poVendor" type="text" class="field" placeholder="optional" />
           </div>
-
-          <div class="mt-4" id="importSummary">
-            <div class="empty-state">No import run yet.</div>
+          <div class="mt-3">
+            <label class="section-label mb-2 block">ETA</label>
+            <input id="poEta" type="date" class="field mono" />
           </div>
+          <div class="mt-3 flex gap-2">
+            <button id="viewDraftBtn" class="btn">View Draft</button>
+            <button id="exportDraftBtn" class="btn">Export Draft</button>
+          </div>
+          <div class="mt-3">
+            <button id="clearDraftBtn" class="btn btn-danger">Clear Draft</button>
+          </div>
+          <pre id="draftPeek" class="mt-4 status scrollbar" style="max-height:220px; overflow:auto;">Draft empty.</pre>
         </div>
       </aside>
-    </div>
-  </div>
-
-  <div id="historyDrawer" class="drawer" aria-hidden="true">
-    <div class="overlay" id="historyOverlay"></div>
-    <div class="panel">
-      <div class="p-5" style="border-bottom: 1px solid var(--border);">
-        <div class="flex items-start justify-between gap-3 flex-wrap">
-          <div>
-            <div class="section-label">Audit history</div>
-            <div class="mt-2" style="font-size: 24px; font-weight: 800; letter-spacing: -0.04em;">Projection changes</div>
-            <div id="historySubtitle" class="subtle mt-2">Most recent changes across revenue projections.</div>
-          </div>
-          <button id="closeHistoryDrawerBtn" class="btn">Close</button>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5">
-          <div>
-            <label class="section-label mb-2 block">Date from</label>
-            <input id="historyDateFrom" type="date" class="field" />
-          </div>
-          <div>
-            <label class="section-label mb-2 block">Date to</label>
-            <input id="historyDateTo" type="date" class="field" />
-          </div>
-          <div class="flex items-end">
-            <button id="reloadHistoryBtn" class="btn btn-primary w-full">Reload history</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="p-5 overflow-y-auto scrollbar" style="flex:1;">
-        <div id="historyList" class="space-y-3">
-          <div class="empty-state">Loading…</div>
-        </div>
-      </div>
     </div>
   </div>
 
@@ -764,1164 +623,963 @@
     const cfg = window.__SILO_CONFIG__ || {};
     let supabaseClient = null;
 
+    const SHEET_ID = "1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0";
+    const SHEET_TABS = [
+      {
+        label: "Online",
+        gid: 0,
+        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRRZETeD2kKpL4vMvXnn4Z-xyb6M_oQ6u9cOSJts_YTLnGXrvMPhlhe0XQuL5VAYLlGlxSvQdUfxycp/pub?gid=481096073&single=true&output=csv"
+      },
+      {
+        label: "Atlanta",
+        gid: 186382360,
+        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTrGtyPQZ9UZY0xn1vk49Aapc5PVpWTMfCctjyNH8K3rLrjUifqaxqZPC5vpA91FTdFm_yNdNhaThxY/pub?gid=1350148138&single=true&output=csv"
+      },
+      {
+        label: "Scottsdale",
+        gid: 1686608564,
+        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRisfYgm-JqLdAW4GrAl_K3dNPJxadE5VaQ7Fzju8vaWv9zEyXGJk6d5ZfM6owfhvHHz_Q-B36FuUqo/pub?gid=1328363473&single=true&output=csv"
+      },
+      {
+        label: "Field of Dreams",
+        gid: 1737418391,
+        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQNcbG_a-H8vmNF7Qm3S_n5a3MTuMZvsicODjImal2jylO74gB--3Mpgv9cCPG37WG4HFvshUrIfDdM/pub?gid=343232419&single=true&output=csv"
+      },
+      {
+        label: "Cooperstown",
+        gid: 1924417187,
+        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTZDCPonNizaXhEklZp8ovhc_Iti725FpgZzyeu_rovAceUq9obq_AKvo0a7u-5SotcJh4xi-FC3FAv/pub?gid=965359182&single=true&output=csv"
+      }
+    ];
+
+    const H = {
+      location: "Location",
+      shop_domain: "Shop MyShopify Domain",
+      sku: "Variant SKU",
+      barcode: "Variant Barcode",
+      product: "Product title",
+      variant: "Variant title",
+      avail_qty: "Total available quantity",
+      inv_value: "Total available inventory value",
+      sold_30: "SUM Variant Quantity sold over the last 30 days",
+      avg_day: "SUM Variant Average quantity sold per day",
+      days_oos: "SUM Variant Estimated days before out of stock",
+      img: "Product Image url"
+    };
+
+    const SH = {
+      sku: "SKU",
+      product_name: "Product name",
+      product_type: "Product type",
+      vendor: "Vendor (original)",
+      qty_7d: "qty_7d",
+      qty_30d: "qty_30d",
+      qty_90d: "qty_90d",
+      qty_120d: "qty_120d",
+      avg_day_30: "avg_day_30",
+      avg_day_90: "avg_day_90",
+      avg_day_120: "avg_day_120",
+      last_sold_date: "last_sold_date"
+    };
+
+    const TAGS_KEY = "silo_growth_tags_v1";
+    const DRAFT_KEY = "silo_po_draft_v5_growth";
+
     const state = {
-      themeKey: "silo_projections_theme_v4",
       locations: [],
-      projections: [],
-      filtered: [],
-      history: [],
-      selectedProjection: null,
-      importResult: null
+      projectionRows: [],
+      inventoryRows: [],
+      plannerRows: [],
+      categoryRows: [],
+      selected: new Set(),
+      activeThemeKey: "silo_demand_planner_theme_v1"
     };
 
     const el = (id) => document.getElementById(id);
     const setText = (id, text) => { const n = el(id); if (n) n.textContent = text; };
     const setHtml = (id, html) => { const n = el(id); if (n) n.innerHTML = html; };
 
-    const themeBtn = el("themeBtn");
-    const themeLabel = el("themeLabel");
-    const logoutBtn = el("logoutBtn");
-    const authEmail = el("authEmail");
-
-    const reloadBtn = el("reloadBtn");
-    const newProjectionBtn = el("newProjectionBtn");
-    const exportBtn = el("exportBtn");
-    const downloadTemplateBtn = el("downloadTemplateBtn");
-    const importFile = el("importFile");
-    const openHistoryDrawerBtn = el("openHistoryDrawerBtn");
-
-    const thisMonthBtn = el("thisMonthBtn");
-    const next30Btn = el("next30Btn");
-    const clearFiltersBtn = el("clearFiltersBtn");
-    const filterDateFrom = el("filterDateFrom");
-    const filterDateTo = el("filterDateTo");
-    const filterLocation = el("filterLocation");
-    const filterSource = el("filterSource");
-    const filterSearch = el("filterSearch");
-
-    const formProjectionDate = el("formProjectionDate");
-    const formLocation = el("formLocation");
-    const formProjectedUnits = el("formProjectedUnits");
-    const formProjectedSales = el("formProjectedSales");
-    const formSource = el("formSource");
-    const formNotes = el("formNotes");
-    const saveProjectionBtn = el("saveProjectionBtn");
-    const clearFormBtn = el("clearFormBtn");
-    const deleteProjectionBtn = el("deleteProjectionBtn");
-    const viewSelectedHistoryBtn = el("viewSelectedHistoryBtn");
-
-    const projectionMatrixHead = el("projectionMatrixHead");
-    const projectionTableBody = el("projectionTableBody");
-    const statusPill = el("statusPill");
-    const editingPill = el("editingPill");
-    const selectionPill = el("selectionPill");
-    const locationSummary = el("locationSummary");
-    const healthSummary = el("healthSummary");
-    const importSummary = el("importSummary");
-
-    const historyDrawer = el("historyDrawer");
-    const historyOverlay = el("historyOverlay");
-    const closeHistoryDrawerBtn = el("closeHistoryDrawerBtn");
-    const historyList = el("historyList");
-    const historySubtitle = el("historySubtitle");
-    const historyDateFrom = el("historyDateFrom");
-    const historyDateTo = el("historyDateTo");
-    const reloadHistoryBtn = el("reloadHistoryBtn");
-
-    function escapeHtml(str) {
-      return String(str ?? "")
-        .replaceAll("&","&amp;")
-        .replaceAll("<","&lt;")
-        .replaceAll(">","&gt;")
-        .replaceAll('"',"&quot;")
-        .replaceAll("'","&#039;");
+    function norm(s){ return String(s ?? "").replace(/\u00A0/g," ").trim(); }
+    function safeLower(s){ return norm(s).toLowerCase(); }
+    function num(v){
+      const x = parseFloat(String(v ?? "").replace(/[^0-9.\-]/g,""));
+      return Number.isFinite(x) ? x : 0;
     }
-
-    function safeLower(s) { return String(s ?? "").trim().toLowerCase(); }
-
-    function fmtInt(n) {
-      return Number.isFinite(Number(n)) ? Math.round(Number(n)).toLocaleString() : "—";
-    }
-
-    function fmtNum(n, digits = 1) {
+    function fmtInt(n){ return Number.isFinite(Number(n)) ? Math.round(Number(n)).toLocaleString() : "0"; }
+    function fmtMoney(n){
       return Number.isFinite(Number(n))
-        ? Number(n).toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })
-        : "—";
+        ? Number(n).toLocaleString(undefined,{style:"currency", currency:"USD", minimumFractionDigits:2, maximumFractionDigits:2})
+        : "$0.00";
     }
-
-    function fmtMoney(n) {
-      return Number.isFinite(Number(n))
-        ? Number(n).toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 })
-        : "—";
+    function fmtPct(n){
+      return Number.isFinite(Number(n)) ? `${(Number(n) * 100).toFixed(1)}%` : "0.0%";
     }
-
-    function fmtMoney2(n) {
-      return Number.isFinite(Number(n))
-        ? Number(n).toLocaleString(undefined, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 })
-        : "—";
+    function escapeHtml(str){
+      return String(str ?? "").replace(/[&<>"']/g, (m) => ({
+        "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;"
+      }[m]));
     }
-
-    function fmtShortDate(iso) {
-      if (!iso) return "—";
-      const d = new Date(iso + "T00:00:00");
-      return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleDateString(undefined, { month: "numeric", day: "numeric", year: "numeric" });
-    }
-
-    function toNumber(v) {
-      const s = String(v ?? "").trim().replace(/[$,]/g, "");
-      if (!s) return 0;
-      const n = Number(s);
-      return Number.isFinite(n) ? n : 0;
-    }
-
-    function fmtDateTime(value) {
-      if (!value) return "—";
-      const d = new Date(value);
-      return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleString();
-    }
-
-    function todayIso() {
+    function todayIso(){
       const d = new Date();
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      return `${y}-${m}-${day}`;
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
     }
-
-    function firstDayOfMonthIso(date = new Date()) {
-      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-01`;
-    }
-
-    function addDaysIso(baseIso, days) {
+    function addDaysIso(baseIso, days){
       const d = new Date(baseIso + "T00:00:00");
       d.setDate(d.getDate() + days);
-      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
     }
-
-    function csvEscape(value) {
+    function firstDayOfMonthIso(date = new Date()){
+      return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-01`;
+    }
+    function gidToCsvUrl(gid){
+      return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${encodeURIComponent(gid)}`;
+    }
+    function daysBetweenInclusive(a, b){
+      const d1 = new Date(a + "T00:00:00");
+      const d2 = new Date(b + "T00:00:00");
+      return Math.max(1, Math.floor((d2 - d1) / 86400000) + 1);
+    }
+    function csvEscape(value){
       const s = String(value ?? "");
-      if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+      if (/[",\n]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
       return s;
     }
 
-    function parseCsv(text) {
+    function parseCSV(text){
       const rows = [];
-      let row = [];
-      let cur = "";
-      let inQuotes = false;
-
-      for (let i = 0; i < text.length; i++) {
-        const ch = text[i], next = text[i + 1];
-        if (inQuotes) {
-          if (ch === '"' && next === '"') { cur += '"'; i++; }
-          else if (ch === '"') inQuotes = false;
-          else cur += ch;
-          continue;
+      let i = 0, field = "", row = [], inQuotes = false;
+      while (i < text.length){
+        const c = text[i], n = text[i+1];
+        if (inQuotes){
+          if (c === '"' && n === '"'){ field += '"'; i += 2; continue; }
+          if (c === '"'){ inQuotes = false; i++; continue; }
+          field += c; i++; continue;
+        } else {
+          if (c === '"'){ inQuotes = true; i++; continue; }
+          if (c === ','){ row.push(field); field = ""; i++; continue; }
+          if (c === '\r'){ i++; continue; }
+          if (c === '\n'){ row.push(field); rows.push(row); field = ""; row = []; i++; continue; }
+          field += c; i++; continue;
         }
-        if (ch === '"') { inQuotes = true; continue; }
-        if (ch === ",") { row.push(cur); cur = ""; continue; }
-        if (ch === "\r") continue;
-        if (ch === "\n") { row.push(cur); rows.push(row); row = []; cur = ""; continue; }
-        cur += ch;
       }
-      row.push(cur);
-      rows.push(row);
-      while (rows.length && rows[rows.length - 1].every(c => String(c ?? "").trim() === "")) rows.pop();
+      row.push(field); rows.push(row);
       return rows;
     }
 
-    function buildHeaderIndex(headerRow) {
-      const idx = new Map();
-      headerRow.forEach((h, i) => idx.set(safeLower(h), i));
-      return idx;
+    function rowsToObjects(csvText){
+      const grid = parseCSV(csvText).filter(r => r.some(c => norm(c) !== ""));
+      if (!grid.length) return { headers: [], rows: [] };
+      const headers = grid[0].map(h => norm(h));
+      const rows = grid.slice(1).map(r => {
+        const o = {};
+        headers.forEach((h, idx) => o[h] = r[idx] ?? "");
+        return o;
+      });
+      return { headers, rows };
     }
 
-    function findHeader(headerIndex, aliases) {
-      for (const a of aliases) {
-        const key = safeLower(a);
-        if (headerIndex.has(key)) return headerIndex.get(key);
+    async function fetchCsvObjects(url){
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const txt = await res.text();
+      return rowsToObjects(txt);
+    }
+
+    function loadTags(){
+      try {
+        const raw = localStorage.getItem(TAGS_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        return (parsed && typeof parsed === "object") ? parsed : {};
+      } catch(e){ return {}; }
+    }
+
+    function saveTags(obj){
+      localStorage.setItem(TAGS_KEY, JSON.stringify(obj || {}));
+    }
+
+    function rowKeyFor(r){
+      const sku = norm(r.sku);
+      if (sku) return `SKU::${sku}`;
+      const bc = norm(r.barcode);
+      if (bc) return `BC::${bc}`;
+      return `PV::${norm(r.product)}::${norm(r.variant)}`;
+    }
+
+    function getTag(row){
+      const tags = loadTags();
+      return tags[rowKeyFor(row)] || null;
+    }
+
+    function setTag(row, driver, pctOverride){
+      const tags = loadTags();
+      tags[rowKeyFor(row)] = {
+        driver: driver || "none",
+        pct_override: (pctOverride === null || pctOverride === undefined || pctOverride === "") ? null : Number(pctOverride),
+        updated_at: new Date().toISOString()
+      };
+      saveTags(tags);
+    }
+
+    function driverLabel(code){
+      switch(code){
+        case "core": return "Core";
+        case "hero": return "Hero";
+        case "new": return "New";
+        case "influencer": return "Influencer";
+        case "wholesale": return "Wholesale";
+        case "promo": return "Promo";
+        case "seasonal": return "Seasonal";
+        default: return "—";
       }
-      for (const [k, i] of headerIndex.entries()) {
-        for (const a of aliases) {
-          const needle = safeLower(a);
-          if (needle && k.includes(needle)) return i;
-        }
-      }
-      return null;
     }
 
-    function setStatus(text, tone = "neutral") {
-      const dot = tone === "danger"
-        ? "var(--danger)"
-        : tone === "warn"
-          ? "var(--warn)"
-          : tone === "good"
-            ? "var(--good)"
-            : "var(--accent)";
-      statusPill.innerHTML = `<span class="dot" style="background:${dot}"></span>${escapeHtml(text)}`;
+    function driverBadge(row){
+      const tag = getTag(row);
+      const driver = tag?.driver || "none";
+      const pct = (tag && tag.pct_override !== null && Number.isFinite(Number(tag.pct_override))) ? Number(tag.pct_override) : null;
+      if (driver === "none") return `<span class="badge">—</span>`;
+      return `<span class="badge">${escapeHtml(driverLabel(driver))}${pct !== null ? ` • +${pct}%` : ""}</span>`;
     }
 
-    function setEditingMode(isEdit) {
-      editingPill.textContent = `Mode: ${isEdit ? "Edit" : "New"}`;
-      deleteProjectionBtn.classList.toggle("hidden", !isEdit);
+    function getStrategyInputs(){
+      return {
+        strategy: el("strategy").value,
+        defaultGrowthPct: num(el("defaultGrowthPct").value || 0),
+        safetyDays: num(el("safetyDays").value || 0),
+        seedAvgDay: num(el("seedAvgDay").value || 0),
+        minReorder: num(el("minReorder").value || 0),
+        mixBasis: el("mixBasis").value,
+        riskDays: num(el("riskDays").value || 14)
+      };
     }
 
-    function populateLocationSelects() {
-      const options = state.locations
-        .slice()
-        .sort((a, b) => String(a.location_name || "").localeCompare(String(b.location_name || "")))
-        .map(loc => `<option value="${escapeHtml(String(loc.id))}">${escapeHtml(loc.location_name)}${loc.location_code ? ` (${escapeHtml(loc.location_code)})` : ""}</option>`)
-        .join("");
+    function growthFactorForRow(row, defaultGrowthPct, strategy){
+      const tag = getTag(row);
+      const driver = tag?.driver || "none";
 
-      formLocation.innerHTML = `<option value="">Select location</option>${options}`;
-      filterLocation.innerHTML = `<option value="">All locations</option>${options}`;
-    }
+      let pct = defaultGrowthPct;
+      const driverDefaults = {
+        core: 0,
+        hero: Math.max(defaultGrowthPct, 30),
+        new: Math.max(defaultGrowthPct, 50),
+        influencer: Math.max(defaultGrowthPct, 40),
+        wholesale: Math.max(defaultGrowthPct, 25),
+        promo: Math.max(defaultGrowthPct, 35),
+        seasonal: Math.max(defaultGrowthPct, 20),
+        none: 0
+      };
 
-    function populateSourceFilter() {
-      const sources = Array.from(new Set(
-        state.projections.map(r => String(r.source || "").trim()).filter(Boolean)
-      )).sort((a, b) => a.localeCompare(b));
-
-      const current = filterSource.value;
-      filterSource.innerHTML = `<option value="">All sources</option>` + sources.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
-      if (sources.includes(current)) filterSource.value = current;
-    }
-
-    function getLocationNameById(id) {
-      const loc = state.locations.find(l => String(l.id) === String(id));
-      return loc?.location_name || "Unknown";
-    }
-
-    function getLocationCodeById(id) {
-      const loc = state.locations.find(l => String(l.id) === String(id));
-      return loc?.location_code || "";
-    }
-
-    function getMatrixLocationOrder() {
-      const f = getFilters();
-      if (f.locationId) {
-        const loc = state.locations.find(l => String(l.id) === f.locationId);
-        return loc ? [loc] : [];
-      }
-      return state.locations
-        .filter(loc => state.filtered.some(r => String(r.location_id) === String(loc.id)))
-        .slice()
-        .sort((a, b) => String(a.location_name || "").localeCompare(String(b.location_name || "")));
-    }
-
-    function getMatrixDates() {
-      return Array.from(new Set(state.filtered.map(r => String(r.projection_date || "")).filter(Boolean))).sort((a, b) => a.localeCompare(b));
-    }
-
-    function buildMatrixData() {
-      const locations = getMatrixLocationOrder();
-      const dates = getMatrixDates();
-      const cellMap = new Map();
-
-      for (const row of state.filtered) {
-        const key = `${row.projection_date}||${row.location_id}`;
-        cellMap.set(key, row);
+      if (tag && tag.pct_override !== null && Number.isFinite(Number(tag.pct_override))){
+        pct = Number(tag.pct_override);
+      } else if (driver !== "none"){
+        pct = driverDefaults[driver] ?? defaultGrowthPct;
       }
 
-      return { locations, dates, cellMap };
+      if (strategy === "replenish") return 1.0;
+      if (strategy === "growth"){
+        const p = (driver !== "none") ? pct : defaultGrowthPct;
+        return 1 + Math.max(0, p) / 100;
+      }
+      if (strategy === "hybrid"){
+        if (driver === "none") return 1.0;
+        return 1 + Math.max(0, pct) / 100;
+      }
+      return 1.0;
     }
 
-    async function authGuard() {
-      if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
-        console.error("Missing SUPABASE_URL / SUPABASE_ANON_KEY in config.js");
-        setStatus("Missing config.js Supabase keys", "danger");
+    function effectiveAvgDay(row, mixBasis, seedAvgDay){
+      const byBasis = {
+        qty_7d: num(row.qty_7d) / 7,
+        qty_30d: num(row.qty_30d) / 30,
+        qty_90d: num(row.qty_90d) / 90,
+        qty_120d: num(row.qty_120d) / 120
+      };
+      const avg = byBasis[mixBasis] || 0;
+      if (avg > 0) return avg;
+      const tag = getTag(row);
+      if (tag?.driver === "new" || tag?.driver === "hero" || tag?.driver === "promo" || tag?.driver === "influencer"){
+        return Math.max(0, seedAvgDay);
+      }
+      return 0;
+    }
+
+    function classifyAction(row, recBuy, projectedEnding, riskDays){
+      const tag = getTag(row);
+      const driver = tag?.driver || "none";
+      const hasHistory = num(row.qty_30d) > 0 || num(row.qty_90d) > 0 || num(row.qty_120d) > 0;
+      const daysOos = num(row.days_oos);
+
+      if (driver === "new" && !hasHistory) return "New Intro";
+      if (projectedEnding < 0 && recBuy > 0) return "Short";
+      if (recBuy > 0 && hasHistory) return "Restock";
+      if (recBuy > 0 && !hasHistory) return "Seed New";
+      if (daysOos > 0 && daysOos <= riskDays) return "Watch";
+      return "OK";
+    }
+
+    async function authGuard(){
+      if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY){
+        setHtml("assumptionBox", `<div class="status">Missing Supabase config.</div>`);
         return false;
       }
 
       supabaseClient = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
-      const { data, error } = await supabaseClient.auth.getSession();
-      if (error) console.warn("getSession error:", error);
+      const { data } = await supabaseClient.auth.getSession();
 
-      if (!data?.session) {
+      if (!data?.session){
         window.location.href = "/financehub/pages/login.html";
         return false;
       }
 
-      authEmail.textContent = data.session.user?.email || "Signed in";
-      logoutBtn.addEventListener("click", async () => {
-        try { await supabaseClient.auth.signOut(); } catch (e) { console.warn("signOut error:", e); }
+      setText("authEmail", data.session.user?.email || "Signed in");
+      el("logoutBtn").addEventListener("click", async () => {
+        try { await supabaseClient.auth.signOut(); } catch(e){}
         window.location.href = "/financehub/pages/login.html";
       });
 
       return true;
     }
 
-    async function loadLocations() {
+    async function loadLocations(){
       const { data, error } = await supabaseClient
         .from("locations")
-        .select("id, location_code, location_name, domain, store_type, is_active")
+        .select("id, location_code, location_name, is_active")
         .eq("is_active", true)
         .order("location_name", { ascending: true });
 
       if (error) throw error;
       state.locations = data || [];
-      populateLocationSelects();
+
+      const options = state.locations.map(loc =>
+        `<option value="${escapeHtml(String(loc.id))}">${escapeHtml(loc.location_name)}${loc.location_code ? ` (${escapeHtml(loc.location_code)})` : ""}</option>`
+      ).join("");
+
+      el("projectionLocation").innerHTML = `<option value="">Select location</option>${options}`;
+
+      const invOptions = SHEET_TABS.map(src =>
+        `<option value="${escapeHtml(src.label)}">${escapeHtml(src.label)}</option>`
+      ).join("");
+      el("inventorySource").innerHTML = `<option value="">Select source</option>${invOptions}`;
     }
 
-    async function loadProjections() {
+    async function loadProjectionRows(){
+      const locationId = el("projectionLocation").value;
+      const dateFrom = el("dateFrom").value;
+      const dateTo = el("dateTo").value;
+
+      if (!locationId || !dateFrom || !dateTo){
+        state.projectionRows = [];
+        return;
+      }
+
       const { data, error } = await supabaseClient
         .from("revenue_projections")
-        .select(`
-          id,
-          projection_date,
-          location_id,
-          projected_units,
-          projected_sales,
-          notes,
-          source,
-          scenario,
-          created_at,
-          updated_at,
-          created_by,
-          updated_by,
-          locations (
-            id,
-            location_name,
-            location_code,
-            domain,
-            store_type
-          )
-        `)
+        .select("id, projection_date, location_id, projected_units, projected_sales, notes, source, scenario")
         .eq("scenario", "active")
-        .order("projection_date", { ascending: true })
-        .range(0, 5000);
+        .eq("location_id", Number(locationId))
+        .gte("projection_date", dateFrom)
+        .lte("projection_date", dateTo)
+        .order("projection_date", { ascending: true });
 
       if (error) throw error;
-
-      state.projections = (data || []).map(row => ({
-        ...row,
-        location_name: row.locations?.location_name || getLocationNameById(row.location_id),
-        location_code: row.locations?.location_code || getLocationCodeById(row.location_id),
-        domain: row.locations?.domain || "",
-        store_type: row.locations?.store_type || ""
-      }));
-
-      populateSourceFilter();
-      applyFilters();
+      state.projectionRows = data || [];
     }
 
-    function getFilters() {
-      return {
-        dateFrom: String(filterDateFrom.value || "").trim(),
-        dateTo: String(filterDateTo.value || "").trim(),
-        locationId: String(filterLocation.value || "").trim(),
-        source: String(filterSource.value || "").trim().toLowerCase(),
-        search: String(filterSearch.value || "").trim().toLowerCase()
-      };
+    function buildSalesMap(rows){
+      const map = new Map();
+      for (const r of rows){
+        const sku = norm(r[SH.sku]);
+        if (!sku) continue;
+        map.set(sku, {
+          qty_7d: num(r[SH.qty_7d]),
+          qty_30d: num(r[SH.qty_30d]),
+          qty_90d: num(r[SH.qty_90d]),
+          qty_120d: num(r[SH.qty_120d]),
+          avg_day_30: num(r[SH.avg_day_30]),
+          avg_day_90: num(r[SH.avg_day_90]),
+          avg_day_120: num(r[SH.avg_day_120]),
+          product_name: norm(r[SH.product_name]),
+          product_type: norm(r[SH.product_type]),
+          vendor: norm(r[SH.vendor]),
+          last_sold_date: norm(r[SH.last_sold_date])
+        });
+      }
+      return map;
     }
 
-    function applyFilters() {
-      const f = getFilters();
+    function collapseInventoryRows(rows){
+      const byKey = new Map();
 
-      state.filtered = state.projections.filter(row => {
-        if (f.dateFrom && String(row.projection_date || "") < f.dateFrom) return false;
-        if (f.dateTo && String(row.projection_date || "") > f.dateTo) return false;
-        if (f.locationId && String(row.location_id) !== f.locationId) return false;
-        if (f.source && safeLower(row.source) !== f.source) return false;
+      function keyFor(r){
+        const sku = norm(r.sku);
+        if (sku) return `SKU::${sku}`;
+        const bc = norm(r.barcode);
+        if (bc) return `BC::${bc}`;
+        return `PV::${norm(r.product)}::${norm(r.variant)}`;
+      }
 
-        if (f.search) {
-          const hay = [
-            row.projection_date,
-            row.location_name,
-            row.location_code,
-            row.notes,
-            row.source
-          ].map(v => String(v || "").toLowerCase()).join(" ");
-          if (!hay.includes(f.search)) return false;
+      for (const r of rows){
+        const k = keyFor(r);
+        if (!byKey.has(k)){
+          byKey.set(k, { ...r });
+          continue;
         }
-        return true;
-      });
 
-      renderProjectionMatrix();
-      renderKpis();
-      renderLocationSummary();
-      renderHealthSummary();
-      renderSelectionPill();
-      setText("tableCount", String(getMatrixDates().length));
-      setText("lastUpdated", new Date().toLocaleString());
+        const agg = byKey.get(k);
+        agg.avail_qty += num(r.avail_qty);
+        agg.inv_value += num(r.inv_value);
+
+        agg.qty_7d = Math.max(num(agg.qty_7d), num(r.qty_7d));
+        agg.qty_30d = Math.max(num(agg.qty_30d), num(r.qty_30d));
+        agg.qty_90d = Math.max(num(agg.qty_90d), num(r.qty_90d));
+        agg.qty_120d = Math.max(num(agg.qty_120d), num(r.qty_120d));
+
+        agg.avg_day = Math.max(num(agg.avg_day), num(r.avg_day));
+        agg.avg_day_90 = Math.max(num(agg.avg_day_90), num(r.avg_day_90));
+        agg.avg_day_120 = Math.max(num(agg.avg_day_120), num(r.avg_day_120));
+
+        if (!agg.product && r.product) agg.product = r.product;
+        if (!agg.variant && r.variant) agg.variant = r.variant;
+        if (!agg.product_type && r.product_type) agg.product_type = r.product_type;
+        if (!agg.vendor && r.vendor) agg.vendor = r.vendor;
+        if (!agg.image_url && r.image_url) agg.image_url = r.image_url;
+      }
+
+      for (const agg of byKey.values()){
+        const avg = num(agg.avg_day);
+        agg.days_oos = avg > 0 ? (num(agg.avail_qty) / avg) : 0;
+      }
+
+      return Array.from(byKey.values());
     }
 
-    function renderSelectionPill() {
-      const f = getFilters();
-      const bits = [];
-      if (f.dateFrom) bits.push(`From ${f.dateFrom}`);
-      if (f.dateTo) bits.push(`To ${f.dateTo}`);
-      if (f.locationId) bits.push(getLocationNameById(f.locationId));
-      if (f.source) bits.push(`Source ${f.source}`);
-      if (f.search) bits.push(`Search "${f.search}"`);
-      selectionPill.textContent = `Selection: ${bits.length ? bits.join(" • ") : "All"}`;
-    }
-
-    function renderKpis() {
-      const rows = state.filtered;
-      const totalUnits = rows.reduce((s, r) => s + toNumber(r.projected_units), 0);
-      const totalSales = rows.reduce((s, r) => s + toNumber(r.projected_sales), 0);
-      const locationCount = new Set(rows.map(r => String(r.location_id))).size;
-
-      setText("kpiRows", fmtInt(rows.length));
-      setText("kpiUnits", fmtInt(totalUnits));
-      setText("kpiSales", fmtMoney(totalSales));
-      setText("kpiLocations", fmtInt(locationCount));
-
-      setText("kpiRowsSub", rows.length ? `Across ${fmtInt(getMatrixDates().length)} date row(s)` : "No rows in current view");
-      setText("kpiUnitsSub", rows.length ? `Average ${fmtNum(totalUnits / Math.max(rows.length, 1), 1)} units per cell` : "No rows in current view");
-      setText("kpiSalesSub", rows.length ? `Average ${fmtMoney(totalSales / Math.max(rows.length, 1))} per cell` : "No rows in current view");
-      setText("kpiLocationsSub", rows.length ? `${fmtInt(locationCount)} distinct locations represented` : "No rows in current view");
-    }
-
-    function renderLocationSummary() {
-      if (!state.filtered.length) {
-        locationSummary.innerHTML = `<div class="empty-state">No filtered projections yet.</div>`;
+    async function loadInventoryRows(){
+      const sourceLabel = el("inventorySource").value;
+      if (!sourceLabel){
+        state.inventoryRows = [];
         return;
       }
 
-      const map = new Map();
-      for (const row of state.filtered) {
-        const key = String(row.location_id);
-        if (!map.has(key)) {
-          map.set(key, {
-            location_id: row.location_id,
-            location_name: row.location_name || getLocationNameById(row.location_id),
-            projected_units: 0,
-            projected_sales: 0,
-            rows: 0
+      const src = SHEET_TABS.find(x => x.label === sourceLabel);
+      if (!src){
+        state.inventoryRows = [];
+        return;
+      }
+
+      const inv = await fetchCsvObjects(gidToCsvUrl(src.gid));
+      let salesMap = new Map();
+
+      if (src.sales_csv){
+        try {
+          const sales = await fetchCsvObjects(src.sales_csv);
+          salesMap = buildSalesMap(sales.rows);
+        } catch(e){}
+      }
+
+      const mapped = inv.rows.map((o, idx) => {
+        const sku = norm(o[H.sku]);
+        const s = sku ? salesMap.get(sku) : null;
+
+        return {
+          _id: `${safeLower(sourceLabel)}::${sku || norm(o[H.barcode]) || idx}`,
+          source_label: sourceLabel,
+          sku,
+          barcode: norm(o[H.barcode]),
+          product: s?.product_name || norm(o[H.product]),
+          variant: norm(o[H.variant]),
+          product_type: s?.product_type || "",
+          vendor: s?.vendor || "",
+          avail_qty: num(o[H.avail_qty]),
+          inv_value: num(o[H.inv_value]),
+          qty_7d: s ? s.qty_7d : 0,
+          qty_30d: s ? s.qty_30d : num(o[H.sold_30]),
+          qty_90d: s ? s.qty_90d : 0,
+          qty_120d: s ? s.qty_120d : 0,
+          avg_day: s ? s.avg_day_30 : num(o[H.avg_day]),
+          avg_day_90: s ? s.avg_day_90 : 0,
+          avg_day_120: s ? s.avg_day_120 : 0,
+          days_oos: num(o[H.days_oos]),
+          last_sold_date: s?.last_sold_date || "",
+          image_url: norm(o[H.img])
+        };
+      });
+
+      state.inventoryRows = collapseInventoryRows(mapped);
+    }
+
+    function computePlanner(){
+      const search = safeLower(el("searchBox").value);
+      const {
+        strategy,
+        defaultGrowthPct,
+        safetyDays,
+        seedAvgDay,
+        minReorder,
+        mixBasis,
+        riskDays
+      } = getStrategyInputs();
+
+      const projectionRows = state.projectionRows || [];
+      const inventoryRows = state.inventoryRows || [];
+      const dateFrom = el("dateFrom").value;
+      const dateTo = el("dateTo").value;
+      const periodDays = (dateFrom && dateTo) ? daysBetweenInclusive(dateFrom, dateTo) : 30;
+
+      const totalProjectedSales = projectionRows.reduce((s, r) => s + num(r.projected_sales), 0);
+      const totalProjectedUnits = projectionRows.reduce((s, r) => s + num(r.projected_units), 0);
+
+      const rowsWithUnitValue = inventoryRows.filter(r => num(r.avail_qty) > 0 && num(r.inv_value) > 0);
+      const weightedMsrpPerUnit = rowsWithUnitValue.length
+        ? rowsWithUnitValue.reduce((s, r) => s + num(r.inv_value), 0) / rowsWithUnitValue.reduce((s, r) => s + num(r.avail_qty), 0)
+        : 1;
+
+      const demandUnits = totalProjectedUnits > 0
+        ? totalProjectedUnits
+        : (weightedMsrpPerUnit > 0 ? totalProjectedSales / weightedMsrpPerUnit : 0);
+
+      const recentTotal = inventoryRows.reduce((s, r) => s + num(r[mixBasis] || 0), 0);
+
+      const plannerRows = inventoryRows.map(r => {
+        const recentUnits = num(r[mixBasis] || 0);
+        const mixPct = recentTotal > 0 ? recentUnits / recentTotal : 0;
+        const growthFactor = growthFactorForRow(r, defaultGrowthPct, strategy);
+        const projectedDemandUnits = mixPct * demandUnits * growthFactor;
+        const effAvgDay = effectiveAvgDay(r, mixBasis, seedAvgDay);
+        const safetyUnits = effAvgDay * safetyDays;
+        const endingUnits = num(r.avail_qty) - projectedDemandUnits;
+        let recBuy = Math.max(0, Math.ceil(projectedDemandUnits + safetyUnits - num(r.avail_qty)));
+        if (recBuy < minReorder) recBuy = 0;
+
+        const category = norm(r.product_type) || "Uncategorized";
+        const action = classifyAction(r, recBuy, endingUnits, riskDays);
+
+        return {
+          ...r,
+          category,
+          mixPct,
+          recentUnits,
+          growthFactor,
+          projectedDemandUnits,
+          projectedAvgDay: periodDays > 0 ? projectedDemandUnits / periodDays : 0,
+          endingUnits,
+          recommendedBuy: recBuy,
+          action,
+          tag: getTag(r)
+        };
+      }).filter(r => {
+        if (!search) return true;
+        const hay = `${r.sku} ${r.product} ${r.variant} ${r.category} ${r.vendor}`.toLowerCase();
+        return hay.includes(search);
+      }).sort((a, b) => {
+        if (num(b.recommendedBuy) !== num(a.recommendedBuy)) return num(b.recommendedBuy) - num(a.recommendedBuy);
+        return num(b.projectedDemandUnits) - num(a.projectedDemandUnits);
+      });
+
+      const byCat = new Map();
+      for (const r of plannerRows){
+        if (!byCat.has(r.category)){
+          byCat.set(r.category, {
+            category: r.category,
+            rows: 0,
+            onHand: 0,
+            projectedDemand: 0,
+            endingUnits: 0,
+            recommendedBuy: 0,
+            needAction: 0
           });
         }
-        const x = map.get(key);
-        x.projected_units += toNumber(row.projected_units);
-        x.projected_sales += toNumber(row.projected_sales);
-        x.rows += 1;
+        const c = byCat.get(r.category);
+        c.rows += 1;
+        c.onHand += num(r.avail_qty);
+        c.projectedDemand += num(r.projectedDemandUnits);
+        c.endingUnits += num(r.endingUnits);
+        c.recommendedBuy += num(r.recommendedBuy);
+        if (r.action !== "OK") c.needAction += 1;
       }
 
-      const items = Array.from(map.values()).sort((a, b) => (b.projected_sales - a.projected_sales) || a.location_name.localeCompare(b.location_name));
-      locationSummary.innerHTML = items.map(item => `
-        <div class="summary-row">
-          <div>
-            <div style="font-size:14px; font-weight:700;">${escapeHtml(item.location_name)}</div>
-            <div style="font-size:12px; color: var(--muted2); margin-top: 4px;">${fmtInt(item.rows)} day(s) with projections</div>
-          </div>
-          <div style="text-align:right;">
-            <div class="mono" style="font-size:14px; font-weight:700;">${fmtMoney(item.projected_sales)}</div>
-            <div style="font-size:12px; color: var(--muted2); margin-top: 4px;">${fmtInt(item.projected_units)} units</div>
-          </div>
+      state.plannerRows = plannerRows;
+      state.categoryRows = Array.from(byCat.values()).sort((a, b) => b.recommendedBuy - a.recommendedBuy);
+
+      renderKpis(totalProjectedSales, demandUnits, weightedMsrpPerUnit);
+      renderProjectionNotes(projectionRows);
+      renderAssumptions({
+        strategy,
+        mixBasis,
+        periodDays,
+        weightedMsrpPerUnit,
+        explicitUnits: totalProjectedUnits,
+        usedUnits: demandUnits,
+        totalProjectedSales
+      });
+      renderCategoryTable();
+      renderSkuTable();
+      updateDraftPeek();
+      setHtml("statusPill", `<span class="dot"></span>Plan refreshed`);
+    }
+
+    function renderKpis(totalProjectedSales, demandUnits){
+      const needAction = state.plannerRows.filter(r => r.action !== "OK").length;
+      const recommendedBuy = state.plannerRows.reduce((s, r) => s + num(r.recommendedBuy), 0);
+      const onHand = state.plannerRows.reduce((s, r) => s + num(r.avail_qty), 0);
+
+      setText("kProjectedSales", fmtMoney(totalProjectedSales));
+      setText("kProjectedUnits", fmtInt(demandUnits));
+      setText("kProjectedUnitsSub", state.projectionRows.some(r => num(r.projected_units) > 0)
+        ? "Using explicit projected units from projections table"
+        : "Estimated from projected sales ÷ current blended unit value");
+      setText("kOnHand", fmtInt(onHand));
+      setText("kNeedAction", fmtInt(needAction));
+      setText("kRecommendedBuy", fmtInt(recommendedBuy));
+      setText("kCategories", fmtInt(state.categoryRows.length));
+    }
+
+    function renderProjectionNotes(rows){
+      if (!rows.length){
+        setHtml("projectionNotes", `<div class="empty-state">No projection notes loaded.</div>`);
+        return;
+      }
+
+      const notes = rows.filter(r => norm(r.notes)).map(r => `
+        <div class="status">
+          <div style="font-weight:700;" class="mono">${escapeHtml(r.projection_date)}</div>
+          <div style="margin-top:6px;">${escapeHtml(r.notes)}</div>
         </div>
-      `).join("");
+      `);
+
+      setHtml("projectionNotes", notes.length ? notes.join("") : `<div class="empty-state">No notes on current projection rows.</div>`);
     }
 
-    function renderHealthSummary() {
-      const messages = [];
-      if (!state.locations.length) messages.push("No active locations loaded.");
-      if (!state.projections.length) messages.push("No projection rows loaded yet.");
+    function renderAssumptions(ctx){
+      const mixLabel = {
+        qty_7d: "7 day units",
+        qty_30d: "30 day units",
+        qty_90d: "90 day units",
+        qty_120d: "120 day units"
+      }[ctx.mixBasis] || ctx.mixBasis;
 
-      const invalidRows = state.filtered.filter(r =>
-        !r.projection_date ||
-        !String(r.location_id || "").trim() ||
-        toNumber(r.projected_units) < 0 ||
-        toNumber(r.projected_sales) < 0
-      );
-      if (invalidRows.length) messages.push(`${fmtInt(invalidRows.length)} filtered row(s) look invalid.`);
-
-      const missingNotes = state.filtered.filter(r => !String(r.notes || "").trim()).length;
-      if (state.filtered.length && missingNotes > 0) messages.push(`${fmtInt(missingNotes)} filtered row(s) have no notes.`);
-
-      const zeroSales = state.filtered.filter(r => toNumber(r.projected_sales) === 0).length;
-      if (state.filtered.length && zeroSales > 0) messages.push(`${fmtInt(zeroSales)} filtered row(s) have zero projected sales.`);
-
-      if (!messages.length) messages.push("Current filtered data looks clean.");
-
-      healthSummary.innerHTML = messages.map(msg => `<div class="status">${escapeHtml(msg)}</div>`).join("");
+      setHtml("assumptionBox", `
+        <div class="status">Strategy: <b>${escapeHtml(ctx.strategy)}</b></div>
+        <div class="status">Mix basis: <b>${escapeHtml(mixLabel)}</b></div>
+        <div class="status">Window days: <b class="mono">${fmtInt(ctx.periodDays)}</b></div>
+        <div class="status">Projection sales: <b class="mono">${fmtMoney(ctx.totalProjectedSales)}</b></div>
+        <div class="status">Explicit projected units: <b class="mono">${fmtInt(ctx.explicitUnits)}</b></div>
+        <div class="status">Units used by planner: <b class="mono">${fmtInt(ctx.usedUnits)}</b></div>
+        <div class="status">Blended current unit value: <b class="mono">${fmtMoney(ctx.weightedMsrpPerUnit)}</b></div>
+      `);
     }
 
-    function renderProjectionMatrix() {
-      const { locations, dates, cellMap } = buildMatrixData();
-
-      if (!dates.length || !locations.length) {
-        projectionMatrixHead.innerHTML = `
-          <tr>
-            <th class="sticky-col sticky-col-top">Date</th>
-            <th>Total</th>
-          </tr>
-        `;
-        projectionTableBody.innerHTML = `<tr><td colspan="2" class="empty-state">No projections match the current filter.</td></tr>`;
+    function renderCategoryTable(){
+      if (!state.categoryRows.length){
+        setHtml("categoryBody", `<tr><td colspan="7" class="empty-state">No category plan rows.</td></tr>`);
         return;
       }
 
-      projectionMatrixHead.innerHTML = `
+      setHtml("categoryBody", state.categoryRows.map(c => `
         <tr>
-          <th class="sticky-col sticky-col-top">Date</th>
-          ${locations.map(loc => `<th>${escapeHtml(loc.location_name)}</th>`).join("")}
-          <th class="total-col">Total</th>
+          <td style="font-weight:700;">${escapeHtml(c.category)}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(c.rows)}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(c.onHand)}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(c.projectedDemand)}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(c.endingUnits)}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(c.recommendedBuy)}</td>
+          <td>${c.needAction > 0 ? `<span class="badge">${fmtInt(c.needAction)} row(s) need action</span>` : `<span class="badge">Stable</span>`}</td>
         </tr>
-      `;
-
-      projectionTableBody.innerHTML = dates.map(date => {
-        let rowTotal = 0;
-
-        const cells = locations.map(loc => {
-          const row = cellMap.get(`${date}||${loc.id}`);
-          const sales = row ? toNumber(row.projected_sales) : 0;
-          rowTotal += sales;
-
-          if (!row) {
-            return `<td class="mono" style="color: var(--muted2);">—</td>`;
-          }
-
-          const noteText = String(row.notes || "").trim();
-          const hasNote = noteText.length > 0;
-
-          return `
-            <td class="mono">
-              <div class="matrix-value">
-                <div class="cell-note-wrap">
-                  <span>${fmtMoney2(sales)}</span>
-                  ${hasNote ? `
-                    <span class="cell-note-flag">i</span>
-                    <div class="cell-tooltip">
-                      <span class="cell-tooltip-label">Notes</span>
-                      ${escapeHtml(noteText)}
-                    </div>
-                  ` : ``}
-                </div>
-                <a href="#" class="mini-link" data-action="edit-cell" data-id="${escapeHtml(String(row.id))}">Edit</a>
-              </div>
-            </td>
-          `;
-        }).join("");
-
-        return `
-          <tr>
-            <td class="sticky-col">
-              <div style="font-weight:700;">${escapeHtml(fmtShortDate(date))}</div>
-              <div style="font-size:12px; color: var(--muted2); margin-top: 4px;" class="mono">${escapeHtml(date)}</div>
-            </td>
-            ${cells}
-            <td class="mono total-col">${fmtMoney2(rowTotal)}</td>
-          </tr>
-        `;
-      }).join("");
+      `).join(""));
     }
 
-    function clearForm(resetDate = false) {
-      state.selectedProjection = null;
-      if (resetDate || !formProjectionDate.value) formProjectionDate.value = todayIso();
-      formLocation.value = "";
-      formProjectedUnits.value = "";
-      formProjectedSales.value = "";
-      formSource.value = "manual";
-      formNotes.value = "";
-      setEditingMode(false);
+    function actionBadge(action){
+      if (action === "Restock") return `<span class="badge" style="border-color: color-mix(in oklab, var(--good) 30%, var(--border)); color: var(--good);">Restock</span>`;
+      if (action === "New Intro" || action === "Seed New") return `<span class="badge" style="border-color: color-mix(in oklab, var(--accent) 30%, var(--border)); color: var(--accent);">${escapeHtml(action)}</span>`;
+      if (action === "Short" || action === "Watch") return `<span class="badge" style="border-color: color-mix(in oklab, var(--warn) 30%, var(--border)); color: var(--warn);">${escapeHtml(action)}</span>`;
+      return `<span class="badge">OK</span>`;
     }
 
-    function loadProjectionIntoForm(id) {
-      const row = state.projections.find(r => String(r.id) === String(id));
-      if (!row) return;
-
-      state.selectedProjection = row;
-      formProjectionDate.value = row.projection_date || "";
-      formLocation.value = String(row.location_id || "");
-      formProjectedUnits.value = toNumber(row.projected_units);
-      formProjectedSales.value = Number(toNumber(row.projected_sales)).toFixed(2);
-      formSource.value = row.source || "manual";
-      formNotes.value = row.notes || "";
-      setEditingMode(true);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    }
-
-    function validateForm() {
-      const errors = [];
-      if (!formProjectionDate.value) errors.push("Projection date is required.");
-      if (!formLocation.value) errors.push("Location is required.");
-
-      const units = toNumber(formProjectedUnits.value);
-      const sales = toNumber(formProjectedSales.value);
-
-      if (units < 0) errors.push("Projected units cannot be negative.");
-      if (sales < 0) errors.push("Projected sales cannot be negative.");
-
-      return {
-        ok: errors.length === 0,
-        errors,
-        payload: {
-          projection_date: formProjectionDate.value,
-          location_id: Number(formLocation.value),
-          projected_units: Math.round(units),
-          projected_sales: Number(sales.toFixed(2)),
-          notes: String(formNotes.value || "").trim() || null,
-          source: String(formSource.value || "").trim() || "manual",
-          scenario: "active"
-        }
-      };
-    }
-
-    async function saveProjection() {
-      const v = validateForm();
-      if (!v.ok) {
-        setStatus(v.errors.join(" "), "danger");
+    function renderSkuTable(){
+      if (!state.plannerRows.length){
+        setHtml("skuBody", `<tr><td colspan="14" class="empty-state">No planner rows.</td></tr>`);
         return;
       }
 
-      saveProjectionBtn.disabled = true;
-      saveProjectionBtn.textContent = "Saving…";
+      setHtml("skuBody", state.plannerRows.map(r => `
+        <tr>
+          <td><input type="checkbox" data-row-id="${escapeHtml(r._id)}" ${state.selected.has(r._id) ? "checked" : ""} /></td>
+          <td class="mono" style="font-weight:700;">${escapeHtml(r.sku || "—")}</td>
+          <td>${escapeHtml(r.product || "—")}</td>
+          <td>${escapeHtml(r.category)}</td>
+          <td>${driverBadge(r)}</td>
+          <td class="mono" style="text-align:right;">${fmtPct(r.mixPct)}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(r.recentUnits)}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(r.avail_qty)}</td>
+          <td class="mono" style="text-align:right;">${Number(r.projectedAvgDay || 0).toFixed(2)}</td>
+          <td class="mono" style="text-align:right;">${num(r.days_oos) ? Number(r.days_oos).toFixed(0) : "—"}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(r.projectedDemandUnits)}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(r.endingUnits)}</td>
+          <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(r.recommendedBuy)}</td>
+          <td>${actionBadge(r.action)}</td>
+        </tr>
+      `).join(""));
 
-      try {
-        const payload = v.payload;
-        const { data, error } = await supabaseClient
-          .from("revenue_projections")
-          .upsert([payload], { onConflict: "projection_date,location_id" })
-          .select(`
-            id,
-            projection_date,
-            location_id,
-            projected_units,
-            projected_sales,
-            notes,
-            source,
-            scenario,
-            created_at,
-            updated_at,
-            created_by,
-            updated_by,
-            locations (
-              id,
-              location_name,
-              location_code,
-              domain,
-              store_type
-            )
-          `)
-          .single();
-
-        if (error) throw error;
-
-        const mapped = {
-          ...data,
-          location_name: data.locations?.location_name || getLocationNameById(data.location_id),
-          location_code: data.locations?.location_code || getLocationCodeById(data.location_id),
-          domain: data.locations?.domain || "",
-          store_type: data.locations?.store_type || ""
-        };
-
-        const idx = state.projections.findIndex(r => String(r.id) === String(mapped.id));
-        if (idx >= 0) {
-          state.projections[idx] = mapped;
-        } else {
-          const priorIdx = state.projections.findIndex(r =>
-            String(r.projection_date) === String(mapped.projection_date) &&
-            String(r.location_id) === String(mapped.location_id)
-          );
-          if (priorIdx >= 0) state.projections[priorIdx] = mapped;
-          else state.projections.push(mapped);
-        }
-
-        populateSourceFilter();
-        applyFilters();
-        loadProjectionIntoForm(mapped.id);
-        setStatus("Projection saved.", "good");
-      } catch (e) {
-        console.error(e);
-        setStatus(`Save failed: ${e.message || e}`, "danger");
-      } finally {
-        saveProjectionBtn.disabled = false;
-        saveProjectionBtn.textContent = "Save projection";
-      }
-    }
-
-    async function deleteSelectedProjection() {
-      if (!state.selectedProjection?.id) {
-        setStatus("Select a row before deleting.", "warn");
-        return;
-      }
-
-      const ok = window.confirm(`Delete projection for ${state.selectedProjection.location_name} on ${state.selectedProjection.projection_date}?`);
-      if (!ok) return;
-
-      deleteProjectionBtn.disabled = true;
-      deleteProjectionBtn.textContent = "Deleting…";
-
-      try {
-        const { error } = await supabaseClient
-          .from("revenue_projections")
-          .delete()
-          .eq("id", state.selectedProjection.id);
-
-        if (error) throw error;
-
-        state.projections = state.projections.filter(r => String(r.id) !== String(state.selectedProjection.id));
-        applyFilters();
-        clearForm(true);
-        setStatus("Projection deleted.", "good");
-      } catch (e) {
-        console.error(e);
-        setStatus(`Delete failed: ${e.message || e}`, "danger");
-      } finally {
-        deleteProjectionBtn.disabled = false;
-        deleteProjectionBtn.textContent = "Delete";
-      }
-    }
-
-    async function loadHistory({ projectionId = null } = {}) {
-      let query = supabaseClient
-        .from("revenue_projection_history")
-        .select("history_id, revenue_projection_id, action_type, changed_at, changed_by, projection_date, location_id, projected_units, projected_sales, notes, source, scenario, original_created_at, original_updated_at, original_created_by, original_updated_by")
-        .order("changed_at", { ascending: false })
-        .limit(200);
-
-      if (projectionId) query = query.eq("revenue_projection_id", projectionId);
-      if (historyDateFrom.value) query = query.gte("projection_date", historyDateFrom.value);
-      if (historyDateTo.value) query = query.lte("projection_date", historyDateTo.value);
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      state.history = data || [];
-      renderHistoryList(projectionId);
-    }
-
-    function renderHistoryList(projectionId = null) {
-      if (!state.history.length) {
-        historyList.innerHTML = `<div class="empty-state">No audit history found for this view.</div>`;
-        historySubtitle.textContent = projectionId
-          ? "No history found for the selected projection."
-          : "Most recent changes across revenue projections.";
-        return;
-      }
-
-      historySubtitle.textContent = projectionId
-        ? "Showing history for the selected projection."
-        : "Most recent changes across revenue projections.";
-
-      historyList.innerHTML = state.history.map(item => {
-        const tone = item.action_type === "DELETE" ? "var(--danger)" : (item.action_type === "UPDATE" ? "var(--warn)" : "var(--good)");
-        const locName = getLocationNameById(item.location_id);
-
-        return `
-          <div class="history-item">
-            <div class="flex items-start justify-between gap-3 flex-wrap">
-              <div>
-                <div class="flex items-center gap-2 flex-wrap">
-                  <span class="pill" style="border-color: color-mix(in oklab, ${tone} 30%, var(--border)); color:${tone};">
-                    <span class="dot" style="background:${tone}"></span>${escapeHtml(item.action_type)}
-                  </span>
-                  <span class="pill">${escapeHtml(String(item.projection_date || ""))}</span>
-                  <span class="pill">${escapeHtml(locName)}</span>
-                </div>
-                <div class="mt-3 subtle">
-                  Units <span class="mono">${fmtInt(item.projected_units)}</span> ·
-                  Sales <span class="mono">${fmtMoney2(item.projected_sales)}</span> ·
-                  Source <span class="mono">${escapeHtml(item.source || "—")}</span>
-                </div>
-                <div class="mt-1" style="font-size:12px; color: var(--muted2);">
-                  Changed ${escapeHtml(fmtDateTime(item.changed_at))}
-                </div>
-              </div>
-              <div style="font-size:12px; color: var(--muted2);">
-                Projection ID: <span class="mono">${escapeHtml(String(item.revenue_projection_id || "—"))}</span>
-              </div>
-            </div>
-            <div class="mt-3" style="font-size:14px;">${escapeHtml(item.notes || "No notes")}</div>
-          </div>
-        `;
-      }).join("");
-    }
-
-    function openHistoryDrawer() {
-      historyDrawer.classList.add("open");
-      historyDrawer.setAttribute("aria-hidden", "false");
-    }
-
-    function closeHistoryDrawer() {
-      historyDrawer.classList.remove("open");
-      historyDrawer.setAttribute("aria-hidden", "true");
-    }
-
-    async function openSelectedHistory() {
-      if (!state.selectedProjection?.id) {
-        setStatus("Select a row first to view row-level history.", "warn");
-        return;
-      }
-      openHistoryDrawer();
-      try {
-        await loadHistory({ projectionId: state.selectedProjection.id });
-      } catch (e) {
-        console.error(e);
-        setStatus(`History load failed: ${e.message || e}`, "danger");
-      }
-    }
-
-    function exportFilteredCsv() {
-      const rows = state.filtered.slice().sort((a, b) => {
-        const d = String(a.projection_date || "").localeCompare(String(b.projection_date || ""));
-        if (d !== 0) return d;
-        return String(a.location_name || "").localeCompare(String(b.location_name || ""));
+      document.querySelectorAll('input[data-row-id]').forEach(chk => {
+        chk.addEventListener("change", (e) => {
+          const id = e.target.getAttribute("data-row-id");
+          if (e.target.checked) state.selected.add(id);
+          else state.selected.delete(id);
+          syncSelectAll();
+        });
       });
 
-      if (!rows.length) {
-        setStatus("No filtered rows to export.", "warn");
-        return;
-      }
-
-      const lines = [[
-        "projection_date",
-        "location_id",
-        "location_code",
-        "location_name",
-        "projected_units",
-        "projected_sales",
-        "source",
-        "notes",
-        "updated_at"
-      ].join(",")];
-
-      rows.forEach(r => {
-        lines.push([
-          csvEscape(r.projection_date),
-          csvEscape(r.location_id),
-          csvEscape(r.location_code || ""),
-          csvEscape(r.location_name || ""),
-          csvEscape(r.projected_units),
-          csvEscape(Number(toNumber(r.projected_sales)).toFixed(2)),
-          csvEscape(r.source || ""),
-          csvEscape(r.notes || ""),
-          csvEscape(r.updated_at || "")
-        ].join(","));
-      });
-
-      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `silo_revenue_projections_${todayIso()}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-
-      setStatus(`Exported ${rows.length} row(s).`, "good");
+      syncSelectAll();
     }
 
-    function downloadTemplateCsv() {
-      const lines = [
-        "projection_date,location_name,projected_units,projected_sales,source,notes",
-        `${todayIso()},Online,100,5000.00,manual,Promo week example`,
-        `${addDaysIso(todayIso(), 1)},Scottsdale,65,3200.00,manual,Normal daily pace`
+    function syncSelectAll(){
+      const all = state.plannerRows.map(r => r._id);
+      const on = all.length > 0 && all.every(id => state.selected.has(id));
+      el("selectAll").checked = on;
+    }
+
+    function exportPlannerCsv(){
+      if (!state.plannerRows.length) return;
+
+      const headers = [
+        "sku","product","category","driver","mix_pct","recent_units","on_hand","current_days_oos",
+        "projected_demand_units","projected_ending_units","recommended_buy","action","qty_7d","qty_30d","qty_90d","qty_120d"
       ];
 
-      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+      const rows = state.plannerRows.map(r => ({
+        sku: r.sku,
+        product: r.product,
+        category: r.category,
+        driver: getTag(r)?.driver || "",
+        mix_pct: (r.mixPct * 100).toFixed(2),
+        recent_units: r.recentUnits,
+        on_hand: r.avail_qty,
+        current_days_oos: r.days_oos ? Number(r.days_oos).toFixed(2) : "",
+        projected_demand_units: Number(r.projectedDemandUnits).toFixed(2),
+        projected_ending_units: Number(r.endingUnits).toFixed(2),
+        recommended_buy: r.recommendedBuy,
+        action: r.action,
+        qty_7d: r.qty_7d,
+        qty_30d: r.qty_30d,
+        qty_90d: r.qty_90d,
+        qty_120d: r.qty_120d
+      }));
+
+      const csv = [headers.join(",")].concat(
+        rows.map(o => headers.map(h => csvEscape(o[h])).join(","))
+      ).join("\n");
+
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `silo_projections_import_template_${todayIso()}.csv`;
+      a.download = `silo_demand_planner_${todayIso()}.csv`;
       document.body.appendChild(a);
       a.click();
       a.remove();
-
-      setStatus("Import template downloaded.", "good");
     }
 
-    function resolveLocationFromImport(headerIndex, row) {
-      const locIdIdx = findHeader(headerIndex, ["location_id"]);
-      const locCodeIdx = findHeader(headerIndex, ["location_code", "store_code", "code"]);
-      const locNameIdx = findHeader(headerIndex, ["location_name", "location", "store", "store_name"]);
-
-      const rawId = locIdIdx !== null ? String(row[locIdIdx] || "").trim() : "";
-      const rawCode = locCodeIdx !== null ? String(row[locCodeIdx] || "").trim().toLowerCase() : "";
-      const rawName = locNameIdx !== null ? String(row[locNameIdx] || "").trim().toLowerCase() : "";
-
-      if (rawId) {
-        const hit = state.locations.find(l => String(l.id) === rawId);
-        if (hit) return hit;
-      }
-      if (rawCode) {
-        const hit = state.locations.find(l => safeLower(l.location_code) === rawCode);
-        if (hit) return hit;
-      }
-      if (rawName) {
-        const hit = state.locations.find(l => safeLower(l.location_name) === rawName);
-        if (hit) return hit;
-      }
-      return null;
+    function loadDraft(){
+      try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "[]"); }
+      catch(e){ return []; }
     }
 
-    async function importCsvFile(file) {
-      if (!file) return;
+    function saveDraft(lines){
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(lines));
+    }
 
-      const text = await file.text();
-      const table = parseCsv(text);
-      if (!table.length || table.length < 2) {
-        setStatus("Import file is empty.", "danger");
+    function updateDraftPeek(){
+      const lines = loadDraft();
+      if (!lines.length){
+        el("draftPeek").textContent = "Draft empty.";
         return;
       }
+      const peek = lines.slice(0, 14).map(l =>
+        `${l.sku || "—"} | qty ${num(l.qty)}${l.driver ? " | " + l.driver : ""}`
+      ).join("\n");
+      el("draftPeek").textContent = lines.length > 14 ? `${peek}\n… +${lines.length - 14} more` : peek;
+    }
 
-      const header = table[0];
-      const headerIndex = buildHeaderIndex(header);
+    function addSelectedToDraft(){
+      const selectedRows = state.plannerRows.filter(r => state.selected.has(r._id));
+      if (!selectedRows.length) return;
 
-      const dateIdx = findHeader(headerIndex, ["projection_date", "date"]);
-      const unitsIdx = findHeader(headerIndex, ["projected_units", "units"]);
-      const salesIdx = findHeader(headerIndex, ["projected_sales", "sales", "projected_revenue"]);
-      const sourceIdx = findHeader(headerIndex, ["source"]);
-      const notesIdx = findHeader(headerIndex, ["notes", "note"]);
+      const lines = loadDraft();
+      const index = new Map();
+      lines.forEach((l, idx) => index.set(l.sku, idx));
 
-      if (dateIdx === null || unitsIdx === null || salesIdx === null) {
-        setStatus("Import CSV must include projection_date, projected_units, and projected_sales.", "danger");
-        return;
-      }
+      const poName = norm(el("poName").value) || "Demand Planner Draft";
+      const vendor = norm(el("poVendor").value);
+      const eta = norm(el("poEta").value);
 
-      const result = { total: 0, prepared: 0, skipped: 0, errors: [] };
-      const payload = [];
-      const seen = new Set();
+      for (const r of selectedRows){
+        const sku = norm(r.sku) || norm(r.barcode) || norm(r.product) || r._id;
+        const qty = num(r.recommendedBuy);
+        const tag = getTag(r);
+        const driver = tag?.driver || "none";
+        const driverPct = (tag && tag.pct_override !== null && Number.isFinite(Number(tag.pct_override))) ? Number(tag.pct_override) : "";
 
-      for (let i = 1; i < table.length; i++) {
-        const row = table[i];
-        if (!row || row.every(c => String(c || "").trim() === "")) continue;
-
-        result.total += 1;
-        const loc = resolveLocationFromImport(headerIndex, row);
-        const projection_date = String(row[dateIdx] || "").trim();
-        const projected_units = Math.round(toNumber(row[unitsIdx]));
-        const projected_sales = Number(toNumber(row[salesIdx]).toFixed(2));
-        const source = sourceIdx !== null ? (String(row[sourceIdx] || "").trim() || "import") : "import";
-        const notes = notesIdx !== null ? (String(row[notesIdx] || "").trim() || null) : null;
-
-        if (!loc) {
-          result.skipped += 1;
-          result.errors.push(`Row ${i + 1}: location not found.`);
-          continue;
+        if (index.has(sku)){
+          const i = index.get(sku);
+          lines[i].qty = num(lines[i].qty) + qty;
+        } else {
+          lines.push({
+            po_name: poName,
+            vendor,
+            eta,
+            sku,
+            product: r.product || "",
+            qty,
+            sold_30: r.qty_30d,
+            sold_90: r.qty_90d,
+            avg_day_30: r.avg_day,
+            days_oos: r.days_oos,
+            retail_value_on_hand: r.inv_value,
+            mode_added_from: "demand_planner",
+            strategy: el("strategy").value,
+            driver,
+            driver_pct: driverPct
+          });
+          index.set(sku, lines.length - 1);
         }
-        if (!projection_date) {
-          result.skipped += 1;
-          result.errors.push(`Row ${i + 1}: missing projection_date.`);
-          continue;
-        }
-
-        const key = `${projection_date}||${loc.id}`;
-        if (seen.has(key)) {
-          result.skipped += 1;
-          result.errors.push(`Row ${i + 1}: duplicate date/location inside file.`);
-          continue;
-        }
-        seen.add(key);
-
-        payload.push({
-          projection_date,
-          location_id: Number(loc.id),
-          projected_units: Math.max(0, projected_units),
-          projected_sales: Math.max(0, projected_sales),
-          notes,
-          source,
-          scenario: "active"
-        });
-        result.prepared += 1;
       }
 
-      if (!payload.length) {
-        state.importResult = result;
-        renderImportSummary();
-        setStatus("No valid import rows found.", "warn");
+      saveDraft(lines);
+      updateDraftPeek();
+      setHtml("statusPill", `<span class="dot"></span>Added ${selectedRows.length} row(s) to draft`);
+    }
+
+    function viewDraft(){
+      const lines = loadDraft();
+      if (!lines.length){
+        alert("Draft empty.");
         return;
       }
+      const preview = lines.map(l => `${l.sku} | qty ${l.qty} | ${l.product || ""}`).join("\n");
+      alert(preview);
+    }
 
-      try {
-        const { error } = await supabaseClient
-          .from("revenue_projections")
-          .upsert(payload, { onConflict: "projection_date,location_id" });
+    function exportDraft(){
+      const lines = loadDraft();
+      if (!lines.length) return;
 
-        if (error) throw error;
+      const headers = ["po_name","vendor","eta","sku","product","qty","sold_30","sold_90","avg_day_30","days_oos","retail_value_on_hand","mode_added_from","strategy","driver","driver_pct"];
+      const csv = [headers.join(",")].concat(
+        lines.map(o => headers.map(h => csvEscape(o[h])).join(","))
+      ).join("\n");
 
-        state.importResult = result;
-        renderImportSummary();
-        setStatus(`Imported ${result.prepared} row(s).`, "good");
-        await loadProjections();
-      } catch (e) {
-        console.error(e);
-        result.errors.push(e.message || String(e));
-        state.importResult = result;
-        renderImportSummary();
-        setStatus(`Import failed: ${e.message || e}`, "danger");
-      } finally {
-        importFile.value = "";
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `silo_draft_${todayIso()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+
+    function applyTagToSelected(clear = false){
+      const selectedRows = state.plannerRows.filter(r => state.selected.has(r._id));
+      if (!selectedRows.length) return;
+
+      const driver = clear ? "none" : el("driverTag").value;
+      const pct = clear ? "" : el("driverPct").value;
+
+      for (const r of selectedRows){
+        setTag(r, driver, pct);
       }
+
+      if (!clear) el("driverPct").value = "";
+      computePlanner();
     }
 
-    function renderImportSummary() {
-      const x = state.importResult;
-      if (!x) {
-        importSummary.innerHTML = `<div class="empty-state">No import run yet.</div>`;
-        return;
-      }
-
-      importSummary.innerHTML = `
-        <div class="space-y-2">
-          <div class="status">Rows in file: <span class="mono">${fmtInt(x.total)}</span></div>
-          <div class="status">Prepared: <span class="mono">${fmtInt(x.prepared)}</span></div>
-          <div class="status">Skipped: <span class="mono">${fmtInt(x.skipped)}</span></div>
-          ${x.errors.length ? `
-            <div class="status">
-              <div style="font-weight:700; margin-bottom:8px;">Issues</div>
-              <div style="font-size:12px; color: var(--muted); line-height:1.6;">${x.errors.slice(0, 8).map(escapeHtml).join("<br>")}</div>
-            </div>
-          ` : ""}
-        </div>
-      `;
+    async function refreshPlan(){
+      setHtml("statusPill", `<span class="dot"></span>Loading…`);
+      await loadProjectionRows();
+      await loadInventoryRows();
+      computePlanner();
     }
 
-    async function loadEverything() {
-      setStatus("Loading…");
-      try {
-        await loadLocations();
-        await loadProjections();
-        setStatus("Ready.", "good");
-      } catch (e) {
-        console.error(e);
-        setStatus(`Load failed: ${e.message || e}`, "danger");
-      }
-    }
-
-    function applyTheme(theme) {
-      document.documentElement.setAttribute("data-theme", theme);
-      themeLabel.textContent = theme[0].toUpperCase() + theme.slice(1);
-      localStorage.setItem(state.themeKey, theme);
-    }
-
-    function bindEvents() {
-      themeBtn.addEventListener("click", () => {
+    function bindEvents(){
+      el("themeBtn").addEventListener("click", () => {
         const cur = document.documentElement.getAttribute("data-theme") || "light";
-        applyTheme(cur === "dark" ? "light" : "dark");
+        const next = cur === "dark" ? "light" : "dark";
+        document.documentElement.setAttribute("data-theme", next);
+        el("themeLabel").textContent = next[0].toUpperCase() + next.slice(1);
+        localStorage.setItem(state.activeThemeKey, next);
       });
 
-      reloadBtn.addEventListener("click", loadEverything);
-      newProjectionBtn.addEventListener("click", () => {
-        clearForm(true);
-        formProjectionDate.focus();
-      });
+      el("reloadBtn").addEventListener("click", refreshPlan);
+      el("suggestBtn").addEventListener("click", refreshPlan);
+      el("exportBtn").addEventListener("click", exportPlannerCsv);
+      el("addSelectedToDraftBtn").addEventListener("click", addSelectedToDraft);
 
-      thisMonthBtn.addEventListener("click", () => {
-        filterDateFrom.value = firstDayOfMonthIso();
+      el("thisMonthBtn").addEventListener("click", () => {
+        el("dateFrom").value = firstDayOfMonthIso();
         const base = new Date();
         const end = new Date(base.getFullYear(), base.getMonth() + 1, 0);
-        filterDateTo.value = `${end.getFullYear()}-${String(end.getMonth() + 1).padStart(2, "0")}-${String(end.getDate()).padStart(2, "0")}`;
-        applyFilters();
+        el("dateTo").value = `${end.getFullYear()}-${String(end.getMonth()+1).padStart(2,"0")}-${String(end.getDate()).padStart(2,"0")}`;
       });
 
-      next30Btn.addEventListener("click", () => {
-        filterDateFrom.value = todayIso();
-        filterDateTo.value = addDaysIso(todayIso(), 30);
-        applyFilters();
+      el("next30Btn").addEventListener("click", () => {
+        el("dateFrom").value = todayIso();
+        el("dateTo").value = addDaysIso(todayIso(), 30);
       });
 
-      clearFiltersBtn.addEventListener("click", () => {
-        filterDateFrom.value = "";
-        filterDateTo.value = "";
-        filterLocation.value = "";
-        filterSource.value = "";
-        filterSearch.value = "";
-        applyFilters();
-      });
-
-      [filterDateFrom, filterDateTo, filterLocation, filterSource].forEach(node => {
-        node.addEventListener("change", applyFilters);
-      });
-      filterSearch.addEventListener("input", applyFilters);
-
-      clearFormBtn.addEventListener("click", () => clearForm(true));
-      saveProjectionBtn.addEventListener("click", saveProjection);
-      deleteProjectionBtn.addEventListener("click", deleteSelectedProjection);
-      viewSelectedHistoryBtn.addEventListener("click", openSelectedHistory);
-
-      projectionTableBody.addEventListener("click", (e) => {
-        const btn = e.target.closest("[data-action]");
-        if (!btn) return;
-
-        const action = btn.getAttribute("data-action");
-        const id = btn.getAttribute("data-id");
-        if (!id) return;
-
-        if (action === "edit-cell") {
-          e.preventDefault();
-          loadProjectionIntoForm(id);
+      el("selectAll").addEventListener("change", (e) => {
+        if (e.target.checked){
+          state.plannerRows.forEach(r => state.selected.add(r._id));
+        } else {
+          state.selected.clear();
         }
+        renderSkuTable();
       });
 
-      exportBtn.addEventListener("click", exportFilteredCsv);
-      downloadTemplateBtn.addEventListener("click", downloadTemplateCsv);
-      importFile.addEventListener("change", async () => {
-        const file = importFile.files?.[0];
-        if (file) await importCsvFile(file);
+      el("applyTagBtn").addEventListener("click", () => applyTagToSelected(false));
+      el("clearTagBtn").addEventListener("click", () => applyTagToSelected(true));
+
+      el("viewDraftBtn").addEventListener("click", viewDraft);
+      el("exportDraftBtn").addEventListener("click", exportDraft);
+      el("clearDraftBtn").addEventListener("click", () => {
+        saveDraft([]);
+        updateDraftPeek();
       });
 
-      openHistoryDrawerBtn.addEventListener("click", async () => {
-        openHistoryDrawer();
-        try {
-          await loadHistory();
-        } catch (e) {
-          console.error(e);
-          setStatus(`History load failed: ${e.message || e}`, "danger");
-        }
+      ["searchBox","mixBasis","strategy","defaultGrowthPct","safetyDays","seedAvgDay","minReorder","riskDays"].forEach(id => {
+        el(id).addEventListener("change", () => computePlanner());
+        el(id).addEventListener("input", () => {
+          if (id === "searchBox") computePlanner();
+        });
       });
 
-      closeHistoryDrawerBtn.addEventListener("click", closeHistoryDrawer);
-      historyOverlay.addEventListener("click", closeHistoryDrawer);
-      reloadHistoryBtn.addEventListener("click", async () => {
-        try {
-          await loadHistory(state.selectedProjection?.id ? { projectionId: state.selectedProjection.id } : {});
-        } catch (e) {
-          console.error(e);
-          setStatus(`History load failed: ${e.message || e}`, "danger");
-        }
+      ["dateFrom","dateTo","projectionLocation","inventorySource"].forEach(id => {
+        el(id).addEventListener("change", () => refreshPlan());
       });
 
       window.addEventListener("keydown", async (e) => {
         const key = String(e.key || "").toLowerCase();
-        const tag = String(e.target?.tagName || "").toLowerCase();
-        const inInput = ["input", "textarea", "select"].includes(tag);
-
-        if ((e.ctrlKey || e.metaKey) && key === "k") {
+        if ((e.ctrlKey || e.metaKey) && key === "k"){
           e.preventDefault();
-          await loadEverything();
-          return;
+          await refreshPlan();
         }
-
-        if ((e.ctrlKey || e.metaKey) && key === "s") {
+        if ((e.ctrlKey || e.metaKey) && key === "s"){
           e.preventDefault();
-          await saveProjection();
-          return;
-        }
-
-        if (!inInput && key === "t") {
-          e.preventDefault();
-          const cur = document.documentElement.getAttribute("data-theme") || "light";
-          applyTheme(cur === "dark" ? "light" : "dark");
-          return;
-        }
-
-        if (!inInput && key === "n") {
-          e.preventDefault();
-          clearForm(true);
-          formProjectionDate.focus();
-          return;
-        }
-
-        if (!inInput && key === "h") {
-          e.preventDefault();
-          openHistoryDrawer();
-          try { await loadHistory(); } catch (err) { console.error(err); }
-          return;
-        }
-
-        if (key === "escape" && historyDrawer.classList.contains("open")) {
-          closeHistoryDrawer();
+          addSelectedToDraft();
         }
       });
     }
 
-    async function boot() {
+    async function boot(){
       const ok = await authGuard();
       if (!ok) return;
+
+      const savedTheme = localStorage.getItem(state.activeThemeKey) || "light";
+      document.documentElement.setAttribute("data-theme", savedTheme);
+      el("themeLabel").textContent = savedTheme[0].toUpperCase() + savedTheme.slice(1);
+
+      el("dateFrom").value = todayIso();
+      el("dateTo").value = addDaysIso(todayIso(), 30);
+
+      await loadLocations();
       bindEvents();
-      applyTheme(localStorage.getItem(state.themeKey) || "light");
-      clearForm(true);
-      await loadEverything();
+      updateDraftPeek();
     }
 
     boot();
