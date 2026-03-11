@@ -1,0 +1,1934 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Silo ERP — PO Builder</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/financehub/pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+
+  <style>
+    .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+    .scrollbar::-webkit-scrollbar { height: 8px; width: 8px; }
+    .scrollbar::-webkit-scrollbar-thumb { background: rgba(148,163,184,.42); border-radius: 999px; }
+    .scrollbar::-webkit-scrollbar-track { background: transparent; }
+
+    :root[data-theme="light"]{
+      --bg: #f5f7fb;
+      --bg2: #eef2f8;
+      --panel: rgba(255,255,255,.84);
+      --panel-solid: #ffffff;
+      --panel-soft: #f8fafc;
+      --border: rgba(15,23,42,.08);
+      --border-strong: rgba(15,23,42,.12);
+      --text: rgba(15,23,42,.94);
+      --muted: rgba(15,23,42,.62);
+      --muted2: rgba(15,23,42,.46);
+      --accent: #2563eb;
+      --good: #15803d;
+      --warn: #b45309;
+      --danger: #dc2626;
+      --shadow-sm: 0 1px 2px rgba(15,23,42,.04);
+      --ring: rgba(37,99,235,.12);
+    }
+
+    :root[data-theme="dark"]{
+      --bg: #0a1020;
+      --bg2: #0d1529;
+      --panel: rgba(15,23,42,.78);
+      --panel-solid: #0f172a;
+      --panel-soft: #111b31;
+      --border: rgba(255,255,255,.10);
+      --border-strong: rgba(255,255,255,.16);
+      --text: rgba(255,255,255,.94);
+      --muted: rgba(255,255,255,.68);
+      --muted2: rgba(255,255,255,.48);
+      --accent: #60a5fa;
+      --good: #4ade80;
+      --warn: #fbbf24;
+      --danger: #fb7185;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,.28);
+      --ring: rgba(96,165,250,.16);
+    }
+
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: -0.01em;
+      background:
+        radial-gradient(1200px 500px at 10% -10%, color-mix(in oklab, var(--accent) 10%, transparent), transparent 60%),
+        linear-gradient(180deg, var(--bg2), var(--bg));
+      color: var(--text);
+    }
+
+    body.themeable { min-height: 100vh; }
+    .shell { max-width: 1780px; margin: 0 auto; padding: 20px; }
+
+    .card, .glass {
+      background: var(--panel);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow-sm);
+      border-radius: 20px;
+    }
+
+    .topbar { padding: 14px 16px; margin-bottom: 18px; }
+    .toolbar { padding: 14px 16px; }
+    .topbar-row, .header-row {
+      display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;
+    }
+
+    .section-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: .14em;
+      color: var(--muted2);
+      font-weight: 800;
+    }
+
+    .headline {
+      font-size: 28px;
+      line-height: 1.05;
+      letter-spacing: -0.04em;
+      font-weight: 800;
+      margin: 0;
+    }
+
+    .subtle {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .btn {
+      appearance:none;
+      border:1px solid var(--border);
+      background:rgba(255,255,255,.32);
+      color:var(--text);
+      height:40px;
+      padding:0 14px;
+      border-radius:12px;
+      font-size:14px;
+      font-weight:700;
+      cursor:pointer;
+      transition:.14s ease;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      gap:8px;
+      white-space:nowrap;
+    }
+    .btn:hover {
+      border-color:var(--border-strong);
+      background:var(--panel-soft);
+      transform:translateY(-1px);
+    }
+    .btn:focus {
+      outline:none;
+      box-shadow:0 0 0 4px var(--ring);
+    }
+    .btn-primary {
+      background:var(--text);
+      color:#fff;
+      border-color:transparent;
+    }
+    :root[data-theme="dark"] .btn-primary {
+      background: color-mix(in oklab, var(--accent) 80%, white);
+      color:#08111f;
+    }
+    .btn-danger {
+      color:var(--danger);
+      border-color: color-mix(in oklab, var(--danger) 26%, var(--border));
+      background:transparent;
+    }
+
+    .field, .select, .textarea {
+      width:100%;
+      border:1px solid var(--border);
+      background: color-mix(in oklab, var(--panel-solid) 90%, transparent);
+      color:var(--text);
+      border-radius:14px;
+      font-size:14px;
+      font-weight:600;
+      transition:.14s ease;
+    }
+    .field, .select { height:42px; padding:0 13px; }
+    .textarea { min-height:88px; padding:12px 13px; resize:vertical; }
+    .field:focus, .select:focus, .textarea:focus {
+      outline:none;
+      border-color: color-mix(in oklab, var(--accent) 28%, var(--border));
+      box-shadow:0 0 0 4px var(--ring);
+    }
+
+    .pill {
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      height:32px;
+      padding:0 12px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      color:var(--muted);
+      font-size:12px;
+      font-weight:700;
+      background:rgba(255,255,255,.24);
+    }
+    .dot {
+      width:8px;
+      height:8px;
+      border-radius:999px;
+      display:inline-block;
+      background:var(--accent);
+    }
+
+    .metric {
+      padding:18px 18px 16px;
+      border-radius:18px;
+      background: color-mix(in oklab, var(--panel-solid) 92%, transparent);
+      border:1px solid var(--border);
+    }
+    .metric .label {
+      font-size:12px;
+      color:var(--muted);
+      font-weight:700;
+    }
+    .metric .value {
+      font-size:28px;
+      line-height:1.05;
+      letter-spacing:-0.04em;
+      font-weight:800;
+      margin-top:10px;
+    }
+    .metric .sub {
+      font-size:12px;
+      color:var(--muted2);
+      margin-top:7px;
+      line-height:1.45;
+    }
+
+    .toolbar-grid {
+      display:grid;
+      grid-template-columns: 1.1fr 1.1fr 1.2fr 1.2fr 1fr 1fr 1fr auto auto;
+      gap:10px;
+      align-items:end;
+    }
+    .toolbar-grid-2 {
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr 1fr auto auto auto;
+      gap:10px;
+      align-items:end;
+    }
+
+    .seg {
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:4px;
+      border-radius:14px;
+      border:1px solid var(--border);
+      background: color-mix(in oklab, var(--panel-solid) 90%, transparent);
+    }
+    .seg button {
+      padding: 9px 12px;
+      border-radius: 10px;
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .seg button.active {
+      background: var(--text);
+      color: #fff;
+    }
+    :root[data-theme="dark"] .seg button.active {
+      background: color-mix(in oklab, var(--accent) 80%, white);
+      color:#08111f;
+    }
+
+    .layout-grid {
+      display:grid;
+      grid-template-columns:minmax(0,1fr) 420px;
+      gap:18px;
+      align-items:start;
+    }
+    .sticky-side { position: sticky; top: 20px; }
+
+    .table-wrap {
+      overflow:auto;
+      border-radius:18px;
+      border:1px solid var(--border);
+      background: color-mix(in oklab, var(--panel-solid) 94%, transparent);
+    }
+
+    table {
+      width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+      min-width:1700px;
+    }
+    thead th {
+      position:sticky;
+      top:0;
+      z-index:1;
+      background: color-mix(in oklab, var(--panel-soft) 92%, transparent);
+      color:var(--muted2);
+      font-size:11px;
+      text-transform:uppercase;
+      letter-spacing:.12em;
+      font-weight:800;
+      text-align:left;
+      padding:14px 16px;
+      border-bottom:1px solid var(--border);
+      white-space:nowrap;
+    }
+    tbody td {
+      padding:14px 16px;
+      border-bottom:1px solid color-mix(in oklab, var(--border) 60%, transparent);
+      vertical-align:middle;
+      font-size:14px;
+      white-space:nowrap;
+    }
+    tbody tr:hover td { background: color-mix(in oklab, var(--panel-soft) 62%, transparent); }
+    tbody tr:last-child td { border-bottom:0; }
+
+    .badge {
+      display:inline-flex;
+      align-items:center;
+      gap:.35rem;
+      border:1px solid var(--border);
+      background: color-mix(in oklab, var(--panel-soft) 90%, transparent);
+      border-radius:999px;
+      padding:2px 8px;
+      font-size:11px;
+      font-weight:800;
+    }
+
+    .status {
+      border-radius:14px;
+      padding:13px 14px;
+      border:1px solid var(--border);
+      background: color-mix(in oklab, var(--panel-soft) 92%, transparent);
+      font-size:13px;
+      font-weight:600;
+      color:var(--text);
+    }
+
+    .summary-row {
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+      padding:12px 0;
+      border-bottom:1px solid color-mix(in oklab, var(--border) 60%, transparent);
+    }
+    .summary-row:last-child { border-bottom:0; }
+
+    .empty-state {
+      padding:30px 18px;
+      text-align:center;
+      color:var(--muted2);
+      font-size:14px;
+      font-weight:600;
+    }
+
+    @media (max-width: 1520px){
+      .toolbar-grid, .toolbar-grid-2 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+      .layout-grid { grid-template-columns:1fr; }
+      .sticky-side { position:static; }
+    }
+
+    @media (max-width: 780px){
+      .shell { padding:14px; }
+      .toolbar-grid, .toolbar-grid-2 { grid-template-columns:1fr; }
+      .headline { font-size:24px; }
+      .metric .value { font-size:24px; }
+    }
+  </style>
+</head>
+<body class="themeable">
+  <div class="shell">
+    <div class="topbar glass">
+      <div class="topbar-row">
+        <div class="flex items-center gap-3 flex-wrap">
+          <div class="pill"><span class="dot"></span>Silo ERP</div>
+          <div class="pill" id="statusPill"><span class="dot"></span>Ready</div>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <span id="authEmail" class="text-sm" style="color: var(--muted);"></span>
+          <button id="themeBtn" class="btn"><span id="themeLabel">Light</span></button>
+          <button id="logoutBtn" class="btn">Logout</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="header-row">
+      <div>
+        <div class="section-label">Company Buying</div>
+        <h1 class="headline mt-2">PO Builder</h1>
+        <div class="subtle mt-2">
+          Company-level buying tool for restocks, growth bets, and brand-new product introductions.
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 flex-wrap">
+        <button id="reloadBtn" class="btn">Reload</button>
+        <button id="refreshBtn" class="btn btn-primary">Refresh Buy Plan</button>
+        <button id="exportBtn" class="btn">Export CSV</button>
+        <button id="addSelectedBtn" class="btn">Add Selected → Draft</button>
+      </div>
+    </div>
+
+    <div class="card toolbar">
+      <div class="toolbar-grid">
+        <div>
+          <label class="section-label mb-2 block">Date from</label>
+          <input id="dateFrom" type="date" class="field" />
+        </div>
+        <div>
+          <label class="section-label mb-2 block">Date to</label>
+          <input id="dateTo" type="date" class="field" />
+        </div>
+        <div>
+          <label class="section-label mb-2 block">Projection location</label>
+          <select id="projectionLocation" class="select">
+            <option value="">Select location</option>
+          </select>
+        </div>
+        <div>
+          <label class="section-label mb-2 block">Inventory sources</label>
+          <select id="inventoryScope" class="select">
+            <option value="ALL">All loaded sources</option>
+          </select>
+        </div>
+        <div>
+          <label class="section-label mb-2 block">Mix basis</label>
+          <select id="mixBasis" class="select">
+            <option value="qty_30d">30 day units</option>
+            <option value="qty_90d">90 day units</option>
+            <option value="qty_120d">120 day units</option>
+            <option value="qty_7d">7 day units</option>
+          </select>
+        </div>
+        <div>
+          <label class="section-label mb-2 block">Strategy</label>
+          <select id="strategy" class="select">
+            <option value="replenish">Replenish</option>
+            <option value="growth">Growth</option>
+            <option value="hybrid">Hybrid</option>
+          </select>
+        </div>
+        <div>
+          <label class="section-label mb-2 block">Search</label>
+          <input id="searchBox" type="text" class="field" placeholder="SKU, product, category..." />
+        </div>
+        <button id="thisMonthBtn" class="btn">This month</button>
+        <button id="next30Btn" class="btn">Next 30</button>
+      </div>
+
+      <div class="toolbar-grid-2 mt-3">
+        <div>
+          <label class="section-label mb-2 block">Safety days</label>
+          <input id="safetyDays" type="number" min="0" step="1" value="7" class="field mono" />
+        </div>
+        <div>
+          <label class="section-label mb-2 block">Default growth %</label>
+          <input id="defaultGrowthPct" type="number" min="0" step="1" value="20" class="field mono" />
+        </div>
+        <div>
+          <label class="section-label mb-2 block">Seed avg/day for new</label>
+          <input id="seedAvgDay" type="number" min="0" step="0.01" value="0.25" class="field mono" />
+        </div>
+        <div>
+          <label class="section-label mb-2 block">Min reorder</label>
+          <input id="minReorder" type="number" min="0" step="1" value="0" class="field mono" />
+        </div>
+        <div>
+          <label class="section-label mb-2 block">Risk days</label>
+          <input id="riskDays" type="number" min="1" step="1" value="14" class="field mono" />
+        </div>
+        <button id="applyTagBtn" class="btn">Apply Tag</button>
+        <button id="clearTagBtn" class="btn">Clear Tags</button>
+        <button id="recalcBtn" class="btn">Recalc</button>
+      </div>
+
+      <div class="mt-4 flex items-center gap-2 flex-wrap">
+        <div class="seg">
+          <button id="tabExistingBtn" class="active" type="button">Existing SKU Restock</button>
+          <button id="tabNewBtn" type="button">New Intro Calculator</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4">
+      <div class="metric card">
+        <div class="label">Projection sales</div>
+        <div id="kSales" class="mono value">$0</div>
+        <div class="sub">Top-down location plan</div>
+      </div>
+      <div class="metric card">
+        <div class="label">Projection units used</div>
+        <div id="kUnits" class="mono value">0</div>
+        <div id="kUnitsSub" class="sub">Explicit units or estimated fallback</div>
+      </div>
+      <div class="metric card">
+        <div class="label">Existing rec units</div>
+        <div id="kExistingRec" class="mono value">0</div>
+        <div class="sub">System recommended restock</div>
+      </div>
+      <div class="metric card">
+        <div class="label">New intro rec units</div>
+        <div id="kNewRec" class="mono value">0</div>
+        <div class="sub">System recommended intro buy</div>
+      </div>
+      <div class="metric card">
+        <div class="label">Final PO units</div>
+        <div id="kFinalPo" class="mono value">0</div>
+        <div class="sub">Override-aware total</div>
+      </div>
+      <div class="metric card">
+        <div class="label">Categories impacted</div>
+        <div id="kCats" class="mono value">0</div>
+        <div class="sub">Buying concentration</div>
+      </div>
+    </div>
+
+    <div class="layout-grid mt-4">
+      <section class="space-y-4">
+        <div id="existingSection" class="space-y-4">
+          <div class="card p-4">
+            <div class="flex items-start justify-between gap-4 flex-wrap mb-4">
+              <div>
+                <div class="section-label">Existing SKU buy view</div>
+                <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Restock by category</div>
+                <div class="subtle mt-1">Company-level rollup for items already in the ecosystem.</div>
+              </div>
+            </div>
+
+            <div class="table-wrap scrollbar">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Category</th>
+                    <th class="text-right">Rows</th>
+                    <th class="text-right">On Hand</th>
+                    <th class="text-right">Projected Demand</th>
+                    <th class="text-right">System Rec</th>
+                    <th class="text-right">Final PO</th>
+                    <th>Read</th>
+                  </tr>
+                </thead>
+                <tbody id="existingCategoryBody">
+                  <tr><td colspan="7" class="empty-state">Run the plan.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card p-4">
+            <div class="flex items-start justify-between gap-4 flex-wrap mb-4">
+              <div>
+                <div class="section-label">Existing SKU detail</div>
+                <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Company restock builder</div>
+                <div class="subtle mt-1">Use this for core reorders, growth bets, and tagged hero items.</div>
+              </div>
+            </div>
+
+            <div class="table-wrap scrollbar">
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width:42px;"><input id="selectAllExisting" type="checkbox" /></th>
+                    <th>SKU</th>
+                    <th>Product</th>
+                    <th>Category</th>
+                    <th>Buy Type</th>
+                    <th>Tier / Driver</th>
+                    <th class="text-right">Recent Units</th>
+                    <th class="text-right">Mix %</th>
+                    <th class="text-right">On Hand</th>
+                    <th class="text-right">Proj Demand</th>
+                    <th class="text-right">Ending</th>
+                    <th class="text-right">System Rec</th>
+                    <th class="text-right">Buyer Override</th>
+                    <th class="text-right">Final PO Qty</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody id="existingBody">
+                  <tr><td colspan="15" class="empty-state">Run the plan.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div id="newSection" class="space-y-4 hidden">
+          <div class="card p-4">
+            <div class="flex items-start justify-between gap-4 flex-wrap mb-4">
+              <div>
+                <div class="section-label">New intro setup</div>
+                <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Initial buy calculator</div>
+                <div class="subtle mt-1">For items with little or no history. Company buy first, allocation later.</div>
+              </div>
+              <button id="addNewRowBtn" class="btn btn-primary">Add New Item Row</button>
+            </div>
+
+            <div class="table-wrap scrollbar">
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width:42px;"><input id="selectAllNew" type="checkbox" /></th>
+                    <th>Product Name</th>
+                    <th>Category</th>
+                    <th>Comparable SKU</th>
+                    <th>Tier</th>
+                    <th>Launch Type</th>
+                    <th>Rollout</th>
+                    <th class="text-right">Intro Weeks</th>
+                    <th class="text-right">Benchmark Weekly Units</th>
+                    <th class="text-right">System Intro Qty</th>
+                    <th class="text-right">Buyer Override</th>
+                    <th class="text-right">Final PO Qty</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody id="newBody">
+                  <tr><td colspan="13" class="empty-state">Add new item rows to start intro planning.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="card p-4">
+            <div class="flex items-start justify-between gap-4 flex-wrap mb-4">
+              <div>
+                <div class="section-label">New intro summary</div>
+                <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Category intro totals</div>
+                <div class="subtle mt-1">Use comparable products and tier assumptions to guide initial purchase depth.</div>
+              </div>
+            </div>
+
+            <div class="table-wrap scrollbar">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Category</th>
+                    <th class="text-right">Rows</th>
+                    <th class="text-right">System Intro Qty</th>
+                    <th class="text-right">Final Intro Qty</th>
+                    <th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody id="newCategoryBody">
+                  <tr><td colspan="5" class="empty-state">No new item plan yet.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="sticky-side flex flex-col gap-4">
+        <div class="card p-5">
+          <div class="section-label">How to use</div>
+          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Workflow</div>
+          <div class="mt-4 space-y-2">
+            <div class="status">1. Set planning window and projection location</div>
+            <div class="status">2. Refresh to pull existing SKU demand</div>
+            <div class="status">3. Use Existing tab for restocks / growth</div>
+            <div class="status">4. Use New Intro tab for brand-new product buys</div>
+            <div class="status">5. Enter overrides where needed</div>
+            <div class="status">6. Add selected rows to draft</div>
+          </div>
+        </div>
+
+        <div class="card p-5">
+          <div class="section-label">Projection notes</div>
+          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Context</div>
+          <div id="projectionNotes" class="mt-4">
+            <div class="empty-state">No projection notes loaded.</div>
+          </div>
+        </div>
+
+        <div class="card p-5">
+          <div class="section-label">Source of units</div>
+          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Math</div>
+          <div id="mathBox" class="mt-4">
+            <div class="status">Waiting for plan run…</div>
+          </div>
+        </div>
+
+        <div class="card p-5">
+          <div class="section-label">PO draft</div>
+          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Draft controls</div>
+          <div class="mt-3">
+            <label class="section-label mb-2 block">PO name</label>
+            <input id="poName" type="text" class="field" placeholder="ex: PO-APRIL-COMPANY" />
+          </div>
+          <div class="mt-3">
+            <label class="section-label mb-2 block">Vendor</label>
+            <input id="poVendor" type="text" class="field" placeholder="optional" />
+          </div>
+          <div class="mt-3">
+            <label class="section-label mb-2 block">ETA</label>
+            <input id="poEta" type="date" class="field mono" />
+          </div>
+          <div class="mt-3 flex gap-2">
+            <button id="viewDraftBtn" class="btn">View Draft</button>
+            <button id="exportDraftBtn" class="btn">Export Draft</button>
+          </div>
+          <div class="mt-3">
+            <button id="clearDraftBtn" class="btn btn-danger">Clear Draft</button>
+          </div>
+          <pre id="draftPeek" class="mt-4 status scrollbar" style="max-height:220px; overflow:auto;">Draft empty.</pre>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    const cfg = window.__SILO_CONFIG__ || {};
+    let supabaseClient = null;
+
+    const SHEET_ID = "1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0";
+    const SHEET_TABS = [
+      { label: "Online", gid: 0, sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRRZETeD2kKpL4vMvXnn4Z-xyb6M_oQ6u9cOSJts_YTLnGXrvMPhlhe0XQuL5VAYLlGlxSvQdUfxycp/pub?gid=481096073&single=true&output=csv" },
+      { label: "Atlanta", gid: 186382360, sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTrGtyPQZ9UZY0xn1vk49Aapc5PVpWTMfCctjyNH8K3rLrjUifqaxqZPC5vpA91FTdFm_yNdNhaThxY/pub?gid=1350148138&single=true&output=csv" },
+      { label: "Scottsdale", gid: 1686608564, sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRisfYgm-JqLdAW4GrAl_K3dNPJxadE5VaQ7Fzju8vaWv9zEyXGJk6d5ZfM6owfhvHHz_Q-B36FuUqo/pub?gid=1328363473&single=true&output=csv" },
+      { label: "Field of Dreams", gid: 1737418391, sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQNcbG_a-H8vmNF7Qm3S_n5a3MTuMZvsicODjImal2jylO74gB--3Mpgv9cCPG37WG4HFvshUrIfDdM/pub?gid=343232419&single=true&output=csv" },
+      { label: "Cooperstown", gid: 1924417187, sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTZDCPonNizaXhEklZp8ovhc_Iti725FpgZzyeu_rovAceUq9obq_AKvo0a7u-5SotcJh4xi-FC3FAv/pub?gid=965359182&single=true&output=csv" }
+    ];
+
+    const H = {
+      sku: "Variant SKU",
+      barcode: "Variant Barcode",
+      product: "Product title",
+      variant: "Variant title",
+      avail_qty: "Total available quantity",
+      inv_value: "Total available inventory value",
+      sold_30: "SUM Variant Quantity sold over the last 30 days",
+      avg_day: "SUM Variant Average quantity sold per day",
+      days_oos: "SUM Variant Estimated days before out of stock"
+    };
+
+    const SH = {
+      sku: "SKU",
+      product_name: "Product name",
+      product_type: "Product type",
+      vendor: "Vendor (original)",
+      qty_7d: "qty_7d",
+      qty_30d: "qty_30d",
+      qty_90d: "qty_90d",
+      qty_120d: "qty_120d",
+      avg_day_30: "avg_day_30",
+      avg_day_90: "avg_day_90",
+      avg_day_120: "avg_day_120",
+      last_sold_date: "last_sold_date"
+    };
+
+    const TAGS_KEY = "silo_growth_tags_v1";
+    const EXISTING_OVERRIDES_KEY = "silo_po_builder_existing_overrides_v1";
+    const NEW_ITEMS_KEY = "silo_po_builder_new_items_v1";
+    const NEW_OVERRIDES_KEY = "silo_po_builder_new_overrides_v1";
+    const DRAFT_KEY = "silo_po_draft_v5_growth";
+
+    const state = {
+      locations: [],
+      projectionRows: [],
+      inventoryRows: [],
+      existingRows: [],
+      existingCategoryRows: [],
+      newRows: [],
+      newCategoryRows: [],
+      selectedExisting: new Set(),
+      selectedNew: new Set(),
+      activeTab: "existing",
+      themeKey: "silo_po_builder_theme_v1"
+    };
+
+    const el = (id) => document.getElementById(id);
+    const setText = (id, text) => { const n = el(id); if (n) n.textContent = text; };
+    const setHtml = (id, html) => { const n = el(id); if (n) n.innerHTML = html; };
+
+    function norm(s){ return String(s ?? "").replace(/\u00A0/g," ").trim(); }
+    function safeLower(s){ return norm(s).toLowerCase(); }
+    function num(v){
+      const x = parseFloat(String(v ?? "").replace(/[^0-9.\-]/g,""));
+      return Number.isFinite(x) ? x : 0;
+    }
+    function fmtInt(n){ return Number.isFinite(Number(n)) ? Math.round(Number(n)).toLocaleString() : "0"; }
+    function fmtMoney(n){
+      return Number.isFinite(Number(n))
+        ? Number(n).toLocaleString(undefined,{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:2})
+        : "$0.00";
+    }
+    function fmtPct(n){ return Number.isFinite(Number(n)) ? `${(Number(n)*100).toFixed(1)}%` : "0.0%"; }
+    function escapeHtml(str){
+      return String(str ?? "").replace(/[&<>"']/g, (m) => ({
+        "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;"
+      }[m]));
+    }
+    function todayIso(){
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    }
+    function addDaysIso(baseIso, days){
+      const d = new Date(baseIso + "T00:00:00");
+      d.setDate(d.getDate() + days);
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    }
+    function firstDayOfMonthIso(date = new Date()){
+      return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-01`;
+    }
+    function daysBetweenInclusive(a, b){
+      const d1 = new Date(a + "T00:00:00");
+      const d2 = new Date(b + "T00:00:00");
+      return Math.max(1, Math.floor((d2 - d1) / 86400000) + 1);
+    }
+    function gidToCsvUrl(gid){
+      return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${encodeURIComponent(gid)}`;
+    }
+    function csvEscape(value){
+      const s = String(value ?? "");
+      if (/[",\n]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
+      return s;
+    }
+
+    function parseCSV(text){
+      const rows = [];
+      let i = 0, field = "", row = [], inQuotes = false;
+      while (i < text.length){
+        const c = text[i], n = text[i+1];
+        if (inQuotes){
+          if (c === '"' && n === '"'){ field += '"'; i += 2; continue; }
+          if (c === '"'){ inQuotes = false; i++; continue; }
+          field += c; i++; continue;
+        } else {
+          if (c === '"'){ inQuotes = true; i++; continue; }
+          if (c === ','){ row.push(field); field = ""; i++; continue; }
+          if (c === '\r'){ i++; continue; }
+          if (c === '\n'){ row.push(field); rows.push(row); field = ""; row = []; i++; continue; }
+          field += c; i++; continue;
+        }
+      }
+      row.push(field); rows.push(row);
+      return rows;
+    }
+
+    function rowsToObjects(csvText){
+      const grid = parseCSV(csvText).filter(r => r.some(c => norm(c) !== ""));
+      if (!grid.length) return { headers: [], rows: [] };
+      const headers = grid[0].map(h => norm(h));
+      const rows = grid.slice(1).map(r => {
+        const o = {};
+        headers.forEach((h, idx) => o[h] = r[idx] ?? "");
+        return o;
+      });
+      return { headers, rows };
+    }
+
+    async function fetchCsvObjects(url){
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const txt = await res.text();
+      return rowsToObjects(txt);
+    }
+
+    function rowKeyFor(r){
+      const sku = norm(r.sku);
+      if (sku) return `SKU::${sku}`;
+      const bc = norm(r.barcode);
+      if (bc) return `BC::${bc}`;
+      return `PV::${norm(r.product)}::${norm(r.variant)}`;
+    }
+
+    function loadJson(key, fallback){
+      try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : fallback;
+      } catch(e){
+        return fallback;
+      }
+    }
+
+    function saveJson(key, value){
+      localStorage.setItem(key, JSON.stringify(value));
+    }
+
+    function loadTags(){ return loadJson(TAGS_KEY, {}); }
+    function saveTags(v){ saveJson(TAGS_KEY, v || {}); }
+
+    function getTag(row){
+      const tags = loadTags();
+      return tags[rowKeyFor(row)] || null;
+    }
+
+    function setTag(row, driver, pctOverride){
+      const tags = loadTags();
+      tags[rowKeyFor(row)] = {
+        driver: driver || "none",
+        pct_override: (pctOverride === null || pctOverride === undefined || pctOverride === "") ? null : Number(pctOverride),
+        updated_at: new Date().toISOString()
+      };
+      saveTags(tags);
+    }
+
+    function getExistingOverride(row){
+      const map = loadJson(EXISTING_OVERRIDES_KEY, {});
+      return map[rowKeyFor(row)] ?? "";
+    }
+
+    function setExistingOverride(row, value){
+      const map = loadJson(EXISTING_OVERRIDES_KEY, {});
+      map[rowKeyFor(row)] = value === "" ? "" : Number(value);
+      saveJson(EXISTING_OVERRIDES_KEY, map);
+    }
+
+    function loadNewItems(){
+      return loadJson(NEW_ITEMS_KEY, []);
+    }
+
+    function saveNewItems(items){
+      saveJson(NEW_ITEMS_KEY, items || []);
+    }
+
+    function getNewOverride(id){
+      const map = loadJson(NEW_OVERRIDES_KEY, {});
+      return map[id] ?? "";
+    }
+
+    function setNewOverride(id, value){
+      const map = loadJson(NEW_OVERRIDES_KEY, {});
+      map[id] = value === "" ? "" : Number(value);
+      saveJson(NEW_OVERRIDES_KEY, map);
+    }
+
+    function driverLabel(code){
+      switch(code){
+        case "core": return "Core";
+        case "hero": return "Hero";
+        case "new": return "New";
+        case "influencer": return "Influencer";
+        case "wholesale": return "Wholesale";
+        case "promo": return "Promo";
+        case "seasonal": return "Seasonal";
+        default: return "—";
+      }
+    }
+
+    function driverBadge(row){
+      const tag = getTag(row);
+      const driver = tag?.driver || "none";
+      const pct = (tag && tag.pct_override !== null && Number.isFinite(Number(tag.pct_override))) ? Number(tag.pct_override) : null;
+      if (driver === "none") return `<span class="badge">—</span>`;
+      return `<span class="badge">${escapeHtml(driverLabel(driver))}${pct !== null ? ` • +${pct}%` : ""}</span>`;
+    }
+
+    function getInputs(){
+      return {
+        mixBasis: el("mixBasis").value,
+        strategy: el("strategy").value,
+        safetyDays: num(el("safetyDays").value || 0),
+        defaultGrowthPct: num(el("defaultGrowthPct").value || 0),
+        seedAvgDay: num(el("seedAvgDay").value || 0),
+        minReorder: num(el("minReorder").value || 0),
+        riskDays: num(el("riskDays").value || 14)
+      };
+    }
+
+    function buildSalesMap(rows){
+      const map = new Map();
+      for (const r of rows){
+        const sku = norm(r[SH.sku]);
+        if (!sku) continue;
+        map.set(sku, {
+          qty_7d: num(r[SH.qty_7d]),
+          qty_30d: num(r[SH.qty_30d]),
+          qty_90d: num(r[SH.qty_90d]),
+          qty_120d: num(r[SH.qty_120d]),
+          avg_day_30: num(r[SH.avg_day_30]),
+          avg_day_90: num(r[SH.avg_day_90]),
+          avg_day_120: num(r[SH.avg_day_120]),
+          product_name: norm(r[SH.product_name]),
+          product_type: norm(r[SH.product_type]),
+          vendor: norm(r[SH.vendor]),
+          last_sold_date: norm(r[SH.last_sold_date])
+        });
+      }
+      return map;
+    }
+
+    function collapseInventoryRows(rows){
+      const byKey = new Map();
+      for (const r of rows){
+        const k = rowKeyFor(r);
+        if (!byKey.has(k)){
+          byKey.set(k, { ...r });
+          continue;
+        }
+        const agg = byKey.get(k);
+        agg.avail_qty += num(r.avail_qty);
+        agg.inv_value += num(r.inv_value);
+        agg.qty_7d = Math.max(num(agg.qty_7d), num(r.qty_7d));
+        agg.qty_30d = Math.max(num(agg.qty_30d), num(r.qty_30d));
+        agg.qty_90d = Math.max(num(agg.qty_90d), num(r.qty_90d));
+        agg.qty_120d = Math.max(num(agg.qty_120d), num(r.qty_120d));
+        agg.avg_day = Math.max(num(agg.avg_day), num(r.avg_day));
+        agg.avg_day_90 = Math.max(num(agg.avg_day_90), num(r.avg_day_90));
+        agg.avg_day_120 = Math.max(num(agg.avg_day_120), num(r.avg_day_120));
+        if (!agg.product && r.product) agg.product = r.product;
+        if (!agg.variant && r.variant) agg.variant = r.variant;
+        if (!agg.product_type && r.product_type) agg.product_type = r.product_type;
+        if (!agg.vendor && r.vendor) agg.vendor = r.vendor;
+      }
+      for (const agg of byKey.values()){
+        agg.days_oos = num(agg.avg_day) > 0 ? num(agg.avail_qty) / num(agg.avg_day) : 0;
+      }
+      return Array.from(byKey.values());
+    }
+
+    function growthFactorForRow(row, defaultGrowthPct, strategy){
+      const tag = getTag(row);
+      const driver = tag?.driver || "none";
+      let pct = defaultGrowthPct;
+      const driverDefaults = {
+        core: 0,
+        hero: Math.max(defaultGrowthPct, 30),
+        new: Math.max(defaultGrowthPct, 50),
+        influencer: Math.max(defaultGrowthPct, 40),
+        wholesale: Math.max(defaultGrowthPct, 25),
+        promo: Math.max(defaultGrowthPct, 35),
+        seasonal: Math.max(defaultGrowthPct, 20),
+        none: 0
+      };
+
+      if (tag && tag.pct_override !== null && Number.isFinite(Number(tag.pct_override))){
+        pct = Number(tag.pct_override);
+      } else if (driver !== "none"){
+        pct = driverDefaults[driver] ?? defaultGrowthPct;
+      }
+
+      if (strategy === "replenish") return 1;
+      if (strategy === "growth"){
+        const p = driver !== "none" ? pct : defaultGrowthPct;
+        return 1 + Math.max(0, p) / 100;
+      }
+      if (strategy === "hybrid"){
+        if (driver === "none") return 1;
+        return 1 + Math.max(0, pct) / 100;
+      }
+      return 1;
+    }
+
+    function effectiveAvgDay(row, mixBasis, seedAvgDay){
+      const byBasis = {
+        qty_7d: num(row.qty_7d) / 7,
+        qty_30d: num(row.qty_30d) / 30,
+        qty_90d: num(row.qty_90d) / 90,
+        qty_120d: num(row.qty_120d) / 120
+      };
+      const avg = byBasis[mixBasis] || 0;
+      if (avg > 0) return avg;
+      const tag = getTag(row);
+      if (tag?.driver === "new" || tag?.driver === "hero" || tag?.driver === "promo" || tag?.driver === "influencer"){
+        return Math.max(0, seedAvgDay);
+      }
+      return 0;
+    }
+
+    function classifyExistingBuyType(row, recommendedBuy, projectedEnding, riskDays){
+      const tag = getTag(row);
+      const driver = tag?.driver || "none";
+      if (driver !== "none" && driver !== "core" && recommendedBuy > 0) return "Growth";
+      if (recommendedBuy > 0) return "Restock";
+      if (num(row.days_oos) > 0 && num(row.days_oos) <= riskDays) return "Watch";
+      return "Hold";
+    }
+
+    function tierMultiplier(tier){
+      switch (safeLower(tier)) {
+        case "hero": return 1.50;
+        case "core": return 1.00;
+        case "test": return 0.60;
+        case "seasonal": return 0.85;
+        default: return 1.00;
+      }
+    }
+
+    function launchMultiplier(type){
+      switch (safeLower(type)) {
+        case "soft": return 0.75;
+        case "promo": return 1.25;
+        case "wholesale": return 1.15;
+        case "standard": return 1.00;
+        default: return 1.00;
+      }
+    }
+
+    function rolloutMultiplier(scope){
+      switch (safeLower(scope)) {
+        case "online only": return 0.60;
+        case "limited": return 0.85;
+        case "full": return 1.00;
+        case "full fleet": return 1.10;
+        default: return 1.00;
+      }
+    }
+
+    async function authGuard(){
+      if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) return false;
+      supabaseClient = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+      const { data } = await supabaseClient.auth.getSession();
+      if (!data?.session){
+        window.location.href = "/financehub/pages/login.html";
+        return false;
+      }
+      setText("authEmail", data.session.user?.email || "Signed in");
+      el("logoutBtn").addEventListener("click", async () => {
+        try { await supabaseClient.auth.signOut(); } catch(e){}
+        window.location.href = "/financehub/pages/login.html";
+      });
+      return true;
+    }
+
+    async function loadLocations(){
+      const { data, error } = await supabaseClient
+        .from("locations")
+        .select("id, location_code, location_name, is_active")
+        .eq("is_active", true)
+        .order("location_name", { ascending: true });
+
+      if (error) throw error;
+      state.locations = data || [];
+
+      el("projectionLocation").innerHTML = `<option value="">Select location</option>` +
+        state.locations.map(loc =>
+          `<option value="${escapeHtml(String(loc.id))}">${escapeHtml(loc.location_name)}${loc.location_code ? ` (${escapeHtml(loc.location_code)})` : ""}</option>`
+        ).join("");
+
+      el("inventoryScope").innerHTML = `<option value="ALL">All loaded sources</option>` +
+        SHEET_TABS.map(src => `<option value="${escapeHtml(src.label)}">${escapeHtml(src.label)}</option>`).join("");
+    }
+
+    async function loadProjectionRows(){
+      const locationId = el("projectionLocation").value;
+      const dateFrom = el("dateFrom").value;
+      const dateTo = el("dateTo").value;
+
+      if (!locationId || !dateFrom || !dateTo){
+        state.projectionRows = [];
+        return;
+      }
+
+      const { data, error } = await supabaseClient
+        .from("revenue_projections")
+        .select("id, projection_date, location_id, projected_units, projected_sales, notes, source, scenario")
+        .eq("scenario", "active")
+        .eq("location_id", Number(locationId))
+        .gte("projection_date", dateFrom)
+        .lte("projection_date", dateTo)
+        .order("projection_date", { ascending: true });
+
+      if (error) throw error;
+      state.projectionRows = data || [];
+    }
+
+    async function loadInventoryRows(){
+      const scope = el("inventoryScope").value;
+      const activeTabs = scope === "ALL"
+        ? SHEET_TABS
+        : SHEET_TABS.filter(x => x.label === scope);
+
+      let allRows = [];
+
+      for (const src of activeTabs){
+        const inv = await fetchCsvObjects(gidToCsvUrl(src.gid));
+        let salesMap = new Map();
+
+        if (src.sales_csv){
+          try {
+            const sales = await fetchCsvObjects(src.sales_csv);
+            salesMap = buildSalesMap(sales.rows);
+          } catch(e){}
+        }
+
+        const mapped = inv.rows.map((o, idx) => {
+          const sku = norm(o[H.sku]);
+          const s = sku ? salesMap.get(sku) : null;
+          return {
+            _id: `${safeLower(src.label)}::${sku || norm(o[H.barcode]) || idx}`,
+            source_label: src.label,
+            sku,
+            barcode: norm(o[H.barcode]),
+            product: s?.product_name || norm(o[H.product]),
+            variant: norm(o[H.variant]),
+            product_type: s?.product_type || "",
+            vendor: s?.vendor || "",
+            avail_qty: num(o[H.avail_qty]),
+            inv_value: num(o[H.inv_value]),
+            qty_7d: s ? s.qty_7d : 0,
+            qty_30d: s ? s.qty_30d : num(o[H.sold_30]),
+            qty_90d: s ? s.qty_90d : 0,
+            qty_120d: s ? s.qty_120d : 0,
+            avg_day: s ? s.avg_day_30 : num(o[H.avg_day]),
+            avg_day_90: s ? s.avg_day_90 : 0,
+            avg_day_120: s ? s.avg_day_120 : 0,
+            days_oos: num(o[H.days_oos])
+          };
+        });
+
+        allRows.push(...mapped);
+      }
+
+      state.inventoryRows = collapseInventoryRows(allRows);
+    }
+
+    function computeExistingPlan(){
+      const search = safeLower(el("searchBox").value);
+      const {
+        mixBasis,
+        strategy,
+        safetyDays,
+        defaultGrowthPct,
+        seedAvgDay,
+        minReorder,
+        riskDays
+      } = getInputs();
+
+      const projectionRows = state.projectionRows || [];
+      const inventoryRows = state.inventoryRows || [];
+      const dateFrom = el("dateFrom").value;
+      const dateTo = el("dateTo").value;
+      const periodDays = (dateFrom && dateTo) ? daysBetweenInclusive(dateFrom, dateTo) : 30;
+
+      const totalProjectedSales = projectionRows.reduce((s, r) => s + num(r.projected_sales), 0);
+      const explicitProjectedUnits = projectionRows.reduce((s, r) => s + num(r.projected_units), 0);
+
+      const rowsWithUnitValue = inventoryRows.filter(r => num(r.avail_qty) > 0 && num(r.inv_value) > 0);
+      const blendedUnitValue = rowsWithUnitValue.length
+        ? rowsWithUnitValue.reduce((s, r) => s + num(r.inv_value), 0) / rowsWithUnitValue.reduce((s, r) => s + num(r.avail_qty), 0)
+        : 1;
+
+      const projectedUnitsUsed = explicitProjectedUnits > 0
+        ? explicitProjectedUnits
+        : (blendedUnitValue > 0 ? totalProjectedSales / blendedUnitValue : 0);
+
+      const recentTotal = inventoryRows.reduce((s, r) => s + num(r[mixBasis] || 0), 0);
+
+      const rows = inventoryRows.map(r => {
+        const recentUnits = num(r[mixBasis] || 0);
+        const mixPct = recentTotal > 0 ? recentUnits / recentTotal : 0;
+        const effAvgDay = effectiveAvgDay(r, mixBasis, seedAvgDay);
+        const growthFactor = growthFactorForRow(r, defaultGrowthPct, strategy);
+
+        const projectedDemandUnits = mixPct * projectedUnitsUsed * growthFactor;
+        const safetyUnits = effAvgDay * safetyDays;
+        const projectedEndingUnits = num(r.avail_qty) - projectedDemandUnits;
+
+        let systemRecommended = Math.max(0, Math.ceil(projectedDemandUnits + safetyUnits - num(r.avail_qty)));
+        if (systemRecommended < minReorder) systemRecommended = 0;
+
+        const buyerOverride = getExistingOverride(r);
+        const finalPoQty = buyerOverride === "" ? systemRecommended : Math.max(0, Math.round(Number(buyerOverride)));
+
+        const category = norm(r.product_type) || "Uncategorized";
+        const buyType = classifyExistingBuyType(r, systemRecommended, projectedEndingUnits, riskDays);
+        const plannerNote =
+          buyType === "Growth" ? "Tagged growth item." :
+          buyType === "Restock" ? "Velocity-backed reorder." :
+          buyType === "Watch" ? "Near risk threshold." :
+          "No immediate buy need.";
+
+        return {
+          ...r,
+          category,
+          recentUnits,
+          mixPct,
+          projectedDemandUnits,
+          projectedEndingUnits,
+          systemRecommended,
+          buyerOverride,
+          finalPoQty,
+          buyType,
+          plannerNote
+        };
+      }).filter(r => {
+        if (!search) return true;
+        const hay = `${r.sku} ${r.product} ${r.variant} ${r.category} ${r.vendor}`.toLowerCase();
+        return hay.includes(search);
+      }).sort((a,b) => {
+        if (num(b.finalPoQty) !== num(a.finalPoQty)) return num(b.finalPoQty) - num(a.finalPoQty);
+        if (num(b.systemRecommended) !== num(a.systemRecommended)) return num(b.systemRecommended) - num(a.systemRecommended);
+        return num(b.projectedDemandUnits) - num(a.projectedDemandUnits);
+      });
+
+      const byCat = new Map();
+      for (const r of rows){
+        if (!byCat.has(r.category)){
+          byCat.set(r.category, {
+            category: r.category,
+            rows: 0,
+            onHand: 0,
+            projectedDemand: 0,
+            systemRecommended: 0,
+            finalPoQty: 0,
+            needBuy: 0
+          });
+        }
+        const c = byCat.get(r.category);
+        c.rows += 1;
+        c.onHand += num(r.avail_qty);
+        c.projectedDemand += num(r.projectedDemandUnits);
+        c.systemRecommended += num(r.systemRecommended);
+        c.finalPoQty += num(r.finalPoQty);
+        if (num(r.finalPoQty) > 0 || num(r.systemRecommended) > 0) c.needBuy += 1;
+      }
+
+      state.existingRows = rows;
+      state.existingCategoryRows = Array.from(byCat.values()).sort((a,b) => b.finalPoQty - a.finalPoQty);
+
+      return { totalProjectedSales, projectedUnitsUsed, explicitProjectedUnits, blendedUnitValue };
+    }
+
+    function computeNewPlan(){
+      const items = loadNewItems();
+      const inventoryRows = state.inventoryRows || [];
+
+      const rows = items.map(item => {
+        const comparable = inventoryRows.find(r => norm(r.sku) === norm(item.comparable_sku));
+        const categoryRows = inventoryRows.filter(r => (norm(r.product_type) || "Uncategorized") === (norm(item.category) || "Uncategorized"));
+
+        let benchmarkWeeklyUnits = 0;
+        if (comparable){
+          benchmarkWeeklyUnits = num(comparable.qty_30d) / 4.2857;
+        } else if (categoryRows.length){
+          const avg30 = categoryRows.reduce((s, r) => s + num(r.qty_30d), 0) / categoryRows.length;
+          benchmarkWeeklyUnits = avg30 / 4.2857;
+        }
+
+        const systemIntroQty = Math.max(
+          0,
+          Math.ceil(
+            benchmarkWeeklyUnits *
+            num(item.intro_weeks || 6) *
+            tierMultiplier(item.tier) *
+            launchMultiplier(item.launch_type) *
+            rolloutMultiplier(item.rollout)
+          )
+        );
+
+        const buyerOverride = getNewOverride(item.id);
+        const finalPoQty = buyerOverride === "" ? systemIntroQty : Math.max(0, Math.round(Number(buyerOverride)));
+
+        return {
+          ...item,
+          benchmarkWeeklyUnits,
+          systemIntroQty,
+          buyerOverride,
+          finalPoQty
+        };
+      });
+
+      const byCat = new Map();
+      for (const r of rows){
+        const cat = norm(r.category) || "Uncategorized";
+        if (!byCat.has(cat)){
+          byCat.set(cat, { category: cat, rows: 0, systemIntroQty: 0, finalPoQty: 0 });
+        }
+        const c = byCat.get(cat);
+        c.rows += 1;
+        c.systemIntroQty += num(r.systemIntroQty);
+        c.finalPoQty += num(r.finalPoQty);
+      }
+
+      state.newRows = rows;
+      state.newCategoryRows = Array.from(byCat.values()).sort((a,b) => b.finalPoQty - a.finalPoQty);
+    }
+
+    function renderTopMetrics(ctx){
+      const existingRec = state.existingRows.reduce((s, r) => s + num(r.systemRecommended), 0);
+      const newRec = state.newRows.reduce((s, r) => s + num(r.systemIntroQty), 0);
+      const finalPo = state.existingRows.reduce((s, r) => s + num(r.finalPoQty), 0)
+        + state.newRows.reduce((s, r) => s + num(r.finalPoQty), 0);
+
+      const catSet = new Set([
+        ...state.existingCategoryRows.map(x => x.category),
+        ...state.newCategoryRows.map(x => x.category)
+      ]);
+
+      setText("kSales", fmtMoney(ctx.totalProjectedSales));
+      setText("kUnits", fmtInt(ctx.projectedUnitsUsed));
+      setText("kUnitsSub", ctx.explicitProjectedUnits > 0
+        ? "Using explicit projected units from projections"
+        : "Estimated from projected sales ÷ blended current unit value");
+      setText("kExistingRec", fmtInt(existingRec));
+      setText("kNewRec", fmtInt(newRec));
+      setText("kFinalPo", fmtInt(finalPo));
+      setText("kCats", fmtInt(catSet.size));
+    }
+
+    function renderProjectionNotes(rows){
+      if (!rows.length){
+        setHtml("projectionNotes", `<div class="empty-state">No projection notes loaded.</div>`);
+        return;
+      }
+      const notes = rows.filter(r => norm(r.notes)).map(r => `
+        <div class="status">
+          <div style="font-weight:700;" class="mono">${escapeHtml(r.projection_date)}</div>
+          <div style="margin-top:6px;">${escapeHtml(r.notes)}</div>
+        </div>
+      `);
+      setHtml("projectionNotes", notes.length ? notes.join("") : `<div class="empty-state">No notes on current projection rows.</div>`);
+    }
+
+    function renderMathBox(ctx){
+      const mixLabel = {
+        qty_7d: "7 day units",
+        qty_30d: "30 day units",
+        qty_90d: "90 day units",
+        qty_120d: "120 day units"
+      }[ctx.mixBasis] || ctx.mixBasis;
+
+      setHtml("mathBox", `
+        <div class="status">Projection sales: <b class="mono">${fmtMoney(ctx.totalProjectedSales)}</b></div>
+        <div class="status">Explicit projected units: <b class="mono">${fmtInt(ctx.explicitProjectedUnits)}</b></div>
+        <div class="status">Units used for existing SKU planner: <b class="mono">${fmtInt(ctx.projectedUnitsUsed)}</b></div>
+        <div class="status">Fallback blend if no units entered: <b class="mono">${fmtMoney(ctx.blendedUnitValue)}</b> per unit</div>
+        <div class="status">Mix basis: <b>${escapeHtml(mixLabel)}</b></div>
+        <div class="status">New intro engine: <b>benchmark weekly units × intro weeks × tier × launch × rollout</b></div>
+      `);
+    }
+
+    function existingTypeBadge(type){
+      if (type === "Restock") return `<span class="badge" style="border-color: color-mix(in oklab, var(--good) 30%, var(--border)); color: var(--good);">Restock</span>`;
+      if (type === "Growth") return `<span class="badge" style="border-color: color-mix(in oklab, var(--accent) 30%, var(--border)); color: var(--accent);">Growth</span>`;
+      if (type === "Watch") return `<span class="badge">Watch</span>`;
+      return `<span class="badge">Hold</span>`;
+    }
+
+    function renderExistingTables(){
+      if (!state.existingCategoryRows.length){
+        setHtml("existingCategoryBody", `<tr><td colspan="7" class="empty-state">No category rows.</td></tr>`);
+      } else {
+        setHtml("existingCategoryBody", state.existingCategoryRows.map(c => `
+          <tr>
+            <td style="font-weight:700;">${escapeHtml(c.category)}</td>
+            <td class="mono" style="text-align:right;">${fmtInt(c.rows)}</td>
+            <td class="mono" style="text-align:right;">${fmtInt(c.onHand)}</td>
+            <td class="mono" style="text-align:right;">${fmtInt(c.projectedDemand)}</td>
+            <td class="mono" style="text-align:right;">${fmtInt(c.systemRecommended)}</td>
+            <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(c.finalPoQty)}</td>
+            <td>${c.needBuy > 0 ? `<span class="badge">${fmtInt(c.needBuy)} buy row(s)</span>` : `<span class="badge">Stable</span>`}</td>
+          </tr>
+        `).join(""));
+      }
+
+      if (!state.existingRows.length){
+        setHtml("existingBody", `<tr><td colspan="15" class="empty-state">No existing SKU rows.</td></tr>`);
+        return;
+      }
+
+      setHtml("existingBody", state.existingRows.map(r => `
+        <tr>
+          <td><input type="checkbox" data-existing-id="${escapeHtml(r._id)}" ${state.selectedExisting.has(r._id) ? "checked" : ""} /></td>
+          <td class="mono" style="font-weight:700;">${escapeHtml(r.sku || "—")}</td>
+          <td>${escapeHtml(r.product || "—")}</td>
+          <td>${escapeHtml(r.category)}</td>
+          <td>${existingTypeBadge(r.buyType)}</td>
+          <td>${driverBadge(r)}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(r.recentUnits)}</td>
+          <td class="mono" style="text-align:right;">${fmtPct(r.mixPct)}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(r.avail_qty)}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(r.projectedDemandUnits)}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(r.projectedEndingUnits)}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(r.systemRecommended)}</td>
+          <td class="mono" style="text-align:right;">
+            <input type="number" min="0" step="1" class="field mono existing-override" data-override-id="${escapeHtml(r._id)}"
+              value="${r.buyerOverride === '' ? '' : escapeHtml(String(r.buyerOverride))}" style="width:96px;" />
+          </td>
+          <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(r.finalPoQty)}</td>
+          <td style="max-width:260px; white-space:normal; line-height:1.35;">${escapeHtml(r.plannerNote)}</td>
+        </tr>
+      `).join(""));
+
+      document.querySelectorAll('input[data-existing-id]').forEach(chk => {
+        chk.addEventListener("change", (e) => {
+          const id = e.target.getAttribute("data-existing-id");
+          if (e.target.checked) state.selectedExisting.add(id);
+          else state.selectedExisting.delete(id);
+          syncSelectAll();
+        });
+      });
+
+      document.querySelectorAll('.existing-override').forEach(inp => {
+        inp.addEventListener("change", (e) => {
+          const id = e.target.getAttribute("data-override-id");
+          const row = state.existingRows.find(x => x._id === id);
+          if (!row) return;
+          setExistingOverride(row, e.target.value);
+          recomputeAndRender();
+        });
+      });
+
+      syncSelectAll();
+    }
+
+    function renderNewTables(){
+      if (!state.newCategoryRows.length){
+        setHtml("newCategoryBody", `<tr><td colspan="5" class="empty-state">No new intro plan yet.</td></tr>`);
+      } else {
+        setHtml("newCategoryBody", state.newCategoryRows.map(c => `
+          <tr>
+            <td style="font-weight:700;">${escapeHtml(c.category)}</td>
+            <td class="mono" style="text-align:right;">${fmtInt(c.rows)}</td>
+            <td class="mono" style="text-align:right;">${fmtInt(c.systemIntroQty)}</td>
+            <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(c.finalPoQty)}</td>
+            <td><span class="badge">${fmtInt(c.rows)} intro row(s)</span></td>
+          </tr>
+        `).join(""));
+      }
+
+      if (!state.newRows.length){
+        setHtml("newBody", `<tr><td colspan="13" class="empty-state">Add new item rows to start intro planning.</td></tr>`);
+        return;
+      }
+
+      const comparableOptions = state.inventoryRows
+        .slice()
+        .sort((a,b) => String(a.sku || "").localeCompare(String(b.sku || "")))
+        .map(r => `<option value="${escapeHtml(r.sku || '')}">${escapeHtml(r.sku || '—')} — ${escapeHtml(r.product || '')}</option>`)
+        .join("");
+
+      setHtml("newBody", state.newRows.map(r => `
+        <tr>
+          <td><input type="checkbox" data-new-id="${escapeHtml(r.id)}" ${state.selectedNew.has(r.id) ? "checked" : ""} /></td>
+          <td><input type="text" class="field new-field" data-id="${escapeHtml(r.id)}" data-key="product_name" value="${escapeHtml(r.product_name || '')}" /></td>
+          <td><input type="text" class="field new-field" data-id="${escapeHtml(r.id)}" data-key="category" value="${escapeHtml(r.category || '')}" /></td>
+          <td>
+            <select class="select new-field" data-id="${escapeHtml(r.id)}" data-key="comparable_sku">
+              <option value="">None</option>
+              ${comparableOptions.replace(`value="${escapeHtml(r.comparable_sku || '')}"`, `value="${escapeHtml(r.comparable_sku || '')}" selected`)}
+            </select>
+          </td>
+          <td>
+            <select class="select new-field" data-id="${escapeHtml(r.id)}" data-key="tier">
+              <option value="core" ${safeLower(r.tier) === 'core' ? 'selected' : ''}>Core</option>
+              <option value="hero" ${safeLower(r.tier) === 'hero' ? 'selected' : ''}>Hero</option>
+              <option value="test" ${safeLower(r.tier) === 'test' ? 'selected' : ''}>Test</option>
+              <option value="seasonal" ${safeLower(r.tier) === 'seasonal' ? 'selected' : ''}>Seasonal</option>
+            </select>
+          </td>
+          <td>
+            <select class="select new-field" data-id="${escapeHtml(r.id)}" data-key="launch_type">
+              <option value="standard" ${safeLower(r.launch_type) === 'standard' ? 'selected' : ''}>Standard</option>
+              <option value="soft" ${safeLower(r.launch_type) === 'soft' ? 'selected' : ''}>Soft</option>
+              <option value="promo" ${safeLower(r.launch_type) === 'promo' ? 'selected' : ''}>Promo</option>
+              <option value="wholesale" ${safeLower(r.launch_type) === 'wholesale' ? 'selected' : ''}>Wholesale</option>
+            </select>
+          </td>
+          <td>
+            <select class="select new-field" data-id="${escapeHtml(r.id)}" data-key="rollout">
+              <option value="online only" ${safeLower(r.rollout) === 'online only' ? 'selected' : ''}>Online Only</option>
+              <option value="limited" ${safeLower(r.rollout) === 'limited' ? 'selected' : ''}>Limited</option>
+              <option value="full" ${safeLower(r.rollout) === 'full' ? 'selected' : ''}>Full</option>
+              <option value="full fleet" ${safeLower(r.rollout) === 'full fleet' ? 'selected' : ''}>Full Fleet</option>
+            </select>
+          </td>
+          <td class="mono" style="text-align:right;">
+            <input type="number" min="1" step="1" class="field mono new-field" data-id="${escapeHtml(r.id)}" data-key="intro_weeks"
+              value="${escapeHtml(String(r.intro_weeks || 6))}" style="width:92px;" />
+          </td>
+          <td class="mono" style="text-align:right;">${Number(r.benchmarkWeeklyUnits || 0).toFixed(1)}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(r.systemIntroQty)}</td>
+          <td class="mono" style="text-align:right;">
+            <input type="number" min="0" step="1" class="field mono new-override" data-id="${escapeHtml(r.id)}"
+              value="${r.buyerOverride === '' ? '' : escapeHtml(String(r.buyerOverride))}" style="width:96px;" />
+          </td>
+          <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(r.finalPoQty)}</td>
+          <td>
+            <textarea class="textarea new-field" data-id="${escapeHtml(r.id)}" data-key="notes" style="min-height:56px;">${escapeHtml(r.notes || '')}</textarea>
+          </td>
+        </tr>
+      `).join(""));
+
+      document.querySelectorAll('input[data-new-id]').forEach(chk => {
+        chk.addEventListener("change", (e) => {
+          const id = e.target.getAttribute("data-new-id");
+          if (e.target.checked) state.selectedNew.add(id);
+          else state.selectedNew.delete(id);
+          syncSelectAll();
+        });
+      });
+
+      document.querySelectorAll('.new-field').forEach(inp => {
+        inp.addEventListener("change", (e) => {
+          const id = e.target.getAttribute("data-id");
+          const key = e.target.getAttribute("data-key");
+          const items = loadNewItems();
+          const idx = items.findIndex(x => String(x.id) === String(id));
+          if (idx < 0) return;
+          items[idx][key] = e.target.value;
+          saveNewItems(items);
+          recomputeAndRender();
+        });
+      });
+
+      document.querySelectorAll('.new-override').forEach(inp => {
+        inp.addEventListener("change", (e) => {
+          const id = e.target.getAttribute("data-id");
+          setNewOverride(id, e.target.value);
+          recomputeAndRender();
+        });
+      });
+
+      syncSelectAll();
+    }
+
+    function syncSelectAll(){
+      const existingIds = state.existingRows.map(r => r._id);
+      const newIds = state.newRows.map(r => r.id);
+
+      el("selectAllExisting").checked = existingIds.length > 0 && existingIds.every(id => state.selectedExisting.has(id));
+      el("selectAllNew").checked = newIds.length > 0 && newIds.every(id => state.selectedNew.has(id));
+    }
+
+    function renderAll(ctx){
+      renderTopMetrics(ctx);
+      renderProjectionNotes(state.projectionRows);
+      renderMathBox(ctx);
+      renderExistingTables();
+      renderNewTables();
+      updateDraftPeek();
+      setHtml("statusPill", `<span class="dot"></span>Plan refreshed`);
+    }
+
+    function recomputeAndRender(){
+      const existingCtx = computeExistingPlan();
+      computeNewPlan();
+      renderAll(existingCtx);
+    }
+
+    function exportCsv(){
+      const existingHeaders = ["section","sku","product","category","buy_type","driver","recent_units","mix_pct","on_hand","projected_demand_units","projected_ending_units","system_recommended","buyer_override","final_po_qty","notes"];
+      const existingRows = state.existingRows.map(r => ({
+        section: "existing",
+        sku: r.sku,
+        product: r.product,
+        category: r.category,
+        buy_type: r.buyType,
+        driver: getTag(r)?.driver || "",
+        recent_units: r.recentUnits,
+        mix_pct: (r.mixPct * 100).toFixed(2),
+        on_hand: r.avail_qty,
+        projected_demand_units: Number(r.projectedDemandUnits).toFixed(2),
+        projected_ending_units: Number(r.projectedEndingUnits).toFixed(2),
+        system_recommended: r.systemRecommended,
+        buyer_override: r.buyerOverride === "" ? "" : r.buyerOverride,
+        final_po_qty: r.finalPoQty,
+        notes: r.plannerNote
+      }));
+
+      const newHeaders = ["section","product_name","category","comparable_sku","tier","launch_type","rollout","intro_weeks","benchmark_weekly_units","system_intro_qty","buyer_override","final_po_qty","notes"];
+      const newRows = state.newRows.map(r => ({
+        section: "new",
+        product_name: r.product_name,
+        category: r.category,
+        comparable_sku: r.comparable_sku,
+        tier: r.tier,
+        launch_type: r.launch_type,
+        rollout: r.rollout,
+        intro_weeks: r.intro_weeks,
+        benchmark_weekly_units: Number(r.benchmarkWeeklyUnits || 0).toFixed(2),
+        system_intro_qty: r.systemIntroQty,
+        buyer_override: r.buyerOverride === "" ? "" : r.buyerOverride,
+        final_po_qty: r.finalPoQty,
+        notes: r.notes || ""
+      }));
+
+      const lines = [];
+      lines.push(existingHeaders.join(","));
+      existingRows.forEach(o => lines.push(existingHeaders.map(h => csvEscape(o[h])).join(",")));
+      lines.push("");
+      lines.push(newHeaders.join(","));
+      newRows.forEach(o => lines.push(newHeaders.map(h => csvEscape(o[h])).join(",")));
+
+      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `silo_po_builder_${todayIso()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+
+    function loadDraft(){
+      try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "[]"); }
+      catch(e){ return []; }
+    }
+
+    function saveDraft(lines){
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(lines));
+    }
+
+    function updateDraftPeek(){
+      const lines = loadDraft();
+      if (!lines.length){
+        setText("draftPeek", "Draft empty.");
+        return;
+      }
+      const peek = lines.slice(0, 14).map(l => `${l.sku || l.product || "—"} | qty ${num(l.qty)}${l.driver ? " | " + l.driver : ""}`).join("\n");
+      setText("draftPeek", lines.length > 14 ? `${peek}\n… +${lines.length - 14} more` : peek);
+    }
+
+    function addSelectedToDraft(){
+      const lines = loadDraft();
+      const index = new Map();
+      lines.forEach((l, idx) => index.set(l.sku || l.product, idx));
+
+      const poName = norm(el("poName").value) || "PO Builder Draft";
+      const vendor = norm(el("poVendor").value);
+      const eta = norm(el("poEta").value);
+
+      const selectedExistingRows = state.existingRows.filter(r => state.selectedExisting.has(r._id));
+      for (const r of selectedExistingRows){
+        const sku = norm(r.sku) || norm(r.product) || r._id;
+        const qty = num(r.finalPoQty);
+        const tag = getTag(r);
+        const driver = tag?.driver || "none";
+        const driverPct = (tag && tag.pct_override !== null && Number.isFinite(Number(tag.pct_override))) ? Number(tag.pct_override) : "";
+
+        if (index.has(sku)){
+          const i = index.get(sku);
+          lines[i].qty = num(lines[i].qty) + qty;
+        } else {
+          lines.push({
+            po_name: poName,
+            vendor,
+            eta,
+            sku,
+            product: r.product || "",
+            qty,
+            sold_30: r.qty_30d,
+            sold_90: r.qty_90d,
+            avg_day_30: r.avg_day,
+            days_oos: r.days_oos,
+            retail_value_on_hand: r.inv_value,
+            mode_added_from: "po_builder_existing",
+            strategy: el("strategy").value,
+            driver,
+            driver_pct: driverPct
+          });
+          index.set(sku, lines.length - 1);
+        }
+      }
+
+      const selectedNewRows = state.newRows.filter(r => state.selectedNew.has(r.id));
+      for (const r of selectedNewRows){
+        const key = norm(r.product_name) || r.id;
+        const qty = num(r.finalPoQty);
+
+        if (index.has(key)){
+          const i = index.get(key);
+          lines[i].qty = num(lines[i].qty) + qty;
+        } else {
+          lines.push({
+            po_name: poName,
+            vendor,
+            eta,
+            sku: "",
+            product: r.product_name || "",
+            qty,
+            sold_30: "",
+            sold_90: "",
+            avg_day_30: "",
+            days_oos: "",
+            retail_value_on_hand: "",
+            mode_added_from: "po_builder_new_intro",
+            strategy: "new_intro",
+            driver: r.tier || "",
+            driver_pct: ""
+          });
+          index.set(key, lines.length - 1);
+        }
+      }
+
+      saveDraft(lines);
+      updateDraftPeek();
+      setHtml("statusPill", `<span class="dot"></span>Added selected rows to draft`);
+    }
+
+    function viewDraft(){
+      const lines = loadDraft();
+      if (!lines.length){ alert("Draft empty."); return; }
+      alert(lines.map(l => `${l.sku || l.product} | qty ${l.qty}`).join("\n"));
+    }
+
+    function exportDraft(){
+      const lines = loadDraft();
+      if (!lines.length) return;
+
+      const headers = ["po_name","vendor","eta","sku","product","qty","sold_30","sold_90","avg_day_30","days_oos","retail_value_on_hand","mode_added_from","strategy","driver","driver_pct"];
+      const csv = [headers.join(",")].concat(lines.map(o => headers.map(h => csvEscape(o[h])).join(","))).join("\n");
+
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `silo_po_draft_${todayIso()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+
+    function addNewItemRow(){
+      const items = loadNewItems();
+      items.push({
+        id: `NEW::${Date.now()}::${Math.random().toString(36).slice(2,8)}`,
+        product_name: "",
+        category: "",
+        comparable_sku: "",
+        tier: "core",
+        launch_type: "standard",
+        rollout: "full",
+        intro_weeks: 6,
+        notes: ""
+      });
+      saveNewItems(items);
+      recomputeAndRender();
+      setActiveTab("new");
+    }
+
+    function setActiveTab(tab){
+      state.activeTab = tab;
+      el("tabExistingBtn").classList.toggle("active", tab === "existing");
+      el("tabNewBtn").classList.toggle("active", tab === "new");
+      el("existingSection").classList.toggle("hidden", tab !== "existing");
+      el("newSection").classList.toggle("hidden", tab !== "new");
+    }
+
+    async function refreshAll(){
+      setHtml("statusPill", `<span class="dot"></span>Loading…`);
+      await loadProjectionRows();
+      await loadInventoryRows();
+      recomputeAndRender();
+    }
+
+    function bindEvents(){
+      el("themeBtn").addEventListener("click", () => {
+        const cur = document.documentElement.getAttribute("data-theme") || "light";
+        const next = cur === "dark" ? "light" : "dark";
+        document.documentElement.setAttribute("data-theme", next);
+        setText("themeLabel", next[0].toUpperCase() + next.slice(1));
+        localStorage.setItem(state.themeKey, next);
+      });
+
+      el("reloadBtn").addEventListener("click", refreshAll);
+      el("refreshBtn").addEventListener("click", refreshAll);
+      el("exportBtn").addEventListener("click", exportCsv);
+      el("addSelectedBtn").addEventListener("click", addSelectedToDraft);
+
+      el("thisMonthBtn").addEventListener("click", () => {
+        el("dateFrom").value = firstDayOfMonthIso();
+        const base = new Date();
+        const end = new Date(base.getFullYear(), base.getMonth() + 1, 0);
+        el("dateTo").value = `${end.getFullYear()}-${String(end.getMonth()+1).padStart(2,"0")}-${String(end.getDate()).padStart(2,"0")}`;
+      });
+
+      el("next30Btn").addEventListener("click", () => {
+        el("dateFrom").value = todayIso();
+        el("dateTo").value = addDaysIso(todayIso(), 30);
+      });
+
+      ["dateFrom","dateTo","projectionLocation","inventoryScope"].forEach(id => {
+        el(id).addEventListener("change", refreshAll);
+      });
+
+      ["mixBasis","strategy","searchBox","safetyDays","defaultGrowthPct","seedAvgDay","minReorder","riskDays"].forEach(id => {
+        el(id).addEventListener("change", recomputeAndRender);
+        el(id).addEventListener("input", () => {
+          if (id === "searchBox") recomputeAndRender();
+        });
+      });
+
+      el("applyTagBtn").addEventListener("click", () => {
+        const driver = prompt("Driver tag: core, hero, new, influencer, wholesale, promo, seasonal", "core");
+        if (!driver) return;
+        const pct = prompt("Optional uplift override %", "");
+
+        state.existingRows
+          .filter(r => state.selectedExisting.has(r._id))
+          .forEach(r => setTag(r, driver, pct));
+        recomputeAndRender();
+      });
+
+      el("clearTagBtn").addEventListener("click", () => {
+        state.existingRows
+          .filter(r => state.selectedExisting.has(r._id))
+          .forEach(r => setTag(r, "none", ""));
+        recomputeAndRender();
+      });
+
+      el("recalcBtn").addEventListener("click", recomputeAndRender);
+
+      el("tabExistingBtn").addEventListener("click", () => setActiveTab("existing"));
+      el("tabNewBtn").addEventListener("click", () => setActiveTab("new"));
+      el("addNewRowBtn").addEventListener("click", addNewItemRow);
+
+      el("selectAllExisting").addEventListener("change", (e) => {
+        if (e.target.checked) state.existingRows.forEach(r => state.selectedExisting.add(r._id));
+        else state.selectedExisting.clear();
+        renderExistingTables();
+      });
+
+      el("selectAllNew").addEventListener("change", (e) => {
+        if (e.target.checked) state.newRows.forEach(r => state.selectedNew.add(r.id));
+        else state.selectedNew.clear();
+        renderNewTables();
+      });
+
+      el("viewDraftBtn").addEventListener("click", viewDraft);
+      el("exportDraftBtn").addEventListener("click", exportDraft);
+      el("clearDraftBtn").addEventListener("click", () => {
+        saveDraft([]);
+        updateDraftPeek();
+      });
+
+      window.addEventListener("keydown", async (e) => {
+        const key = String(e.key || "").toLowerCase();
+        if ((e.ctrlKey || e.metaKey) && key === "k"){
+          e.preventDefault();
+          await refreshAll();
+        }
+        if ((e.ctrlKey || e.metaKey) && key === "s"){
+          e.preventDefault();
+          addSelectedToDraft();
+        }
+      });
+    }
+
+    async function boot(){
+      const ok = await authGuard();
+      if (!ok) return;
+
+      const savedTheme = localStorage.getItem(state.themeKey) || "light";
+      document.documentElement.setAttribute("data-theme", savedTheme);
+      setText("themeLabel", savedTheme[0].toUpperCase() + savedTheme.slice(1));
+
+      el("dateFrom").value = todayIso();
+      el("dateTo").value = addDaysIso(todayIso(), 30);
+
+      await loadLocations();
+      bindEvents();
+      updateDraftPeek();
+      setActiveTab("existing");
+    }
+
+    boot();
+  </script>
+</body>
+</html>
