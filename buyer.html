@@ -16,30 +16,33 @@
     .scrollbar::-webkit-scrollbar-track { background: transparent; }
 
     :root[data-theme="light"]{
-      --bg: #f5f7fb;
-      --bg2: #eef2f8;
-      --panel: rgba(255,255,255,.88);
+      --bg: #f6f8fb;
+      --bg2: #eef3f9;
+      --panel: rgba(255,255,255,.90);
       --panel-solid: #ffffff;
       --panel-soft: #f8fafc;
+      --panel-softer: #fbfcfe;
       --border: rgba(15,23,42,.08);
       --border-strong: rgba(15,23,42,.12);
-      --text: rgba(15,23,42,.94);
+      --text: rgba(15,23,42,.95);
       --muted: rgba(15,23,42,.62);
-      --muted2: rgba(15,23,42,.46);
+      --muted2: rgba(15,23,42,.44);
       --accent: #2563eb;
       --good: #15803d;
       --warn: #b45309;
       --danger: #dc2626;
       --shadow-sm: 0 1px 2px rgba(15,23,42,.04);
+      --shadow-md: 0 12px 30px rgba(15,23,42,.06);
       --ring: rgba(37,99,235,.12);
     }
 
     :root[data-theme="dark"]{
       --bg: #0a1020;
       --bg2: #0d1529;
-      --panel: rgba(15,23,42,.78);
+      --panel: rgba(15,23,42,.80);
       --panel-solid: #0f172a;
       --panel-soft: #111b31;
+      --panel-softer: #0e182d;
       --border: rgba(255,255,255,.10);
       --border-strong: rgba(255,255,255,.16);
       --text: rgba(255,255,255,.94);
@@ -50,22 +53,24 @@
       --warn: #fbbf24;
       --danger: #fb7185;
       --shadow-sm: 0 1px 2px rgba(0,0,0,.28);
+      --shadow-md: 0 14px 34px rgba(0,0,0,.26);
       --ring: rgba(96,165,250,.16);
     }
 
     * { box-sizing: border-box; }
+
     html, body {
       margin: 0;
       font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       letter-spacing: -0.01em;
       background:
-        radial-gradient(1200px 500px at 10% -10%, color-mix(in oklab, var(--accent) 10%, transparent), transparent 60%),
+        radial-gradient(1200px 500px at 10% -10%, color-mix(in oklab, var(--accent) 8%, transparent), transparent 60%),
         linear-gradient(180deg, var(--bg2), var(--bg));
       color: var(--text);
     }
 
     body.themeable { min-height: 100vh; }
-    .shell { max-width: 1640px; margin: 0 auto; padding: 18px; }
+    .shell { max-width: 1680px; margin: 0 auto; padding: 18px; }
 
     .card, .glass {
       background: var(--panel);
@@ -73,12 +78,12 @@
       -webkit-backdrop-filter: blur(18px);
       border: 1px solid var(--border);
       box-shadow: var(--shadow-sm);
-      border-radius: 20px;
+      border-radius: 22px;
     }
 
     .topbar, .toolbar { padding: 14px 16px; }
     .topbar { margin-bottom: 16px; }
-    .topbar-row, .header-row, .tray-row {
+    .topbar-row, .header-row, .tray-row, .section-row {
       display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap;
     }
 
@@ -91,8 +96,8 @@
     }
 
     .headline {
-      font-size: 28px;
-      line-height: 1.05;
+      font-size: 30px;
+      line-height: 1.02;
       letter-spacing: -0.04em;
       font-weight: 800;
       margin: 0;
@@ -107,7 +112,7 @@
     .btn {
       appearance:none;
       border:1px solid var(--border);
-      background:rgba(255,255,255,.32);
+      background:rgba(255,255,255,.30);
       color:var(--text);
       height:40px;
       padding:0 14px;
@@ -136,6 +141,7 @@
       color:#fff;
       border-color:transparent;
     }
+    .btn-primary:hover { opacity:.96; }
     :root[data-theme="dark"] .btn-primary {
       background: color-mix(in oklab, var(--accent) 80%, white);
       color:#08111f;
@@ -149,7 +155,7 @@
     .field, .select, .textarea {
       width:100%;
       border:1px solid var(--border);
-      background: color-mix(in oklab, var(--panel-solid) 90%, transparent);
+      background: color-mix(in oklab, var(--panel-solid) 92%, transparent);
       color:var(--text);
       border-radius:14px;
       font-size:14px;
@@ -157,7 +163,7 @@
       transition:.14s ease;
     }
     .field, .select { height:42px; padding:0 13px; }
-    .textarea { min-height:72px; padding:12px 13px; resize:vertical; }
+    .textarea { min-height:70px; padding:12px 13px; resize:vertical; }
     .field:focus, .select:focus, .textarea:focus {
       outline:none;
       border-color: color-mix(in oklab, var(--accent) 28%, var(--border));
@@ -168,8 +174,8 @@
       display:inline-flex;
       align-items:center;
       gap:8px;
-      height:32px;
-      padding:0 12px;
+      min-height:32px;
+      padding:6px 12px;
       border-radius:999px;
       border:1px solid var(--border);
       color:var(--muted);
@@ -213,7 +219,7 @@
 
     .toolbar-grid {
       display:grid;
-      grid-template-columns: 1fr 1fr 1.1fr 1.1fr 1fr auto auto;
+      grid-template-columns: 1fr 1fr 1.1fr 1.1fr 1fr auto auto auto;
       gap:10px;
       align-items:end;
     }
@@ -225,7 +231,7 @@
       padding:4px;
       border-radius:14px;
       border:1px solid var(--border);
-      background: color-mix(in oklab, var(--panel-solid) 90%, transparent);
+      background: color-mix(in oklab, var(--panel-solid) 92%, transparent);
     }
     .seg button {
       padding: 9px 12px;
@@ -248,7 +254,7 @@
 
     .layout-grid {
       display:grid;
-      grid-template-columns:minmax(0,1fr) 360px;
+      grid-template-columns:minmax(0,1fr) 380px;
       gap:16px;
       align-items:start;
     }
@@ -257,20 +263,20 @@
       overflow:auto;
       border-radius:18px;
       border:1px solid var(--border);
-      background: color-mix(in oklab, var(--panel-solid) 94%, transparent);
+      background: color-mix(in oklab, var(--panel-solid) 96%, transparent);
     }
 
     table {
       width:100%;
       border-collapse:separate;
       border-spacing:0;
-      min-width:1440px;
+      min-width:1560px;
     }
     thead th {
       position:sticky;
       top:0;
       z-index:1;
-      background: color-mix(in oklab, var(--panel-soft) 92%, transparent);
+      background: color-mix(in oklab, var(--panel-soft) 96%, transparent);
       color:var(--muted2);
       font-size:11px;
       text-transform:uppercase;
@@ -288,7 +294,7 @@
       font-size:14px;
       white-space:nowrap;
     }
-    tbody tr:hover td { background: color-mix(in oklab, var(--panel-soft) 62%, transparent); }
+    tbody tr:hover td { background: color-mix(in oklab, var(--panel-soft) 55%, transparent); }
     tbody tr:last-child td { border-bottom:0; }
 
     .badge {
@@ -349,12 +355,13 @@
       z-index: 20;
       margin-top: 16px;
       padding: 14px 16px;
+      box-shadow: var(--shadow-md);
     }
 
     details.settings {
       border: 1px solid var(--border);
       border-radius: 16px;
-      background: color-mix(in oklab, var(--panel-solid) 90%, transparent);
+      background: color-mix(in oklab, var(--panel-solid) 92%, transparent);
       padding: 0;
       overflow: hidden;
     }
@@ -377,7 +384,7 @@
       margin-top: 14px;
     }
 
-    @media (max-width: 1320px){
+    @media (max-width: 1380px){
       .toolbar-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
       .layout-grid { grid-template-columns: 1fr; }
       .sticky-side { position: static; }
@@ -413,7 +420,7 @@
         <div class="section-label">New Product Planning</div>
         <h1 class="headline mt-2">New Product Builder</h1>
         <div class="subtle mt-2">
-          Style-level planning for new clothing and caps. Restocks stay in inventory.html. This page helps you size new buys without ignoring historical category performance.
+          Smooth style-first flow for apparel and caps. Adds spreads automatically, leans on history where useful, and still lets growth-mode buys override old-category drag.
         </div>
       </div>
 
@@ -452,14 +459,14 @@
         </div>
         <button id="thisMonthBtn" class="btn">This month</button>
         <button id="next30Btn" class="btn">Next 30</button>
+        <button id="addStyleBtn" class="btn btn-primary">Add Style</button>
       </div>
 
       <div class="mt-4 flex items-center gap-2 flex-wrap">
         <div class="seg">
           <button id="tabStylesBtn" class="active" type="button">Style Builder</button>
-          <button id="tabSizesBtn" type="button">Size Output</button>
+          <button id="tabOutputBtn" type="button">Generated Output</button>
         </div>
-        <button id="addStyleBtn" class="btn btn-primary">Add Style</button>
       </div>
 
       <div class="mt-4">
@@ -477,36 +484,36 @@
                 </select>
               </div>
               <div>
-                <label class="section-label mb-2 block">Growth driver %</label>
-                <input id="growthDriverPct" type="number" min="0" step="1" value="20" class="field mono" />
-              </div>
-              <div>
-                <label class="section-label mb-2 block">Risk days reference</label>
-                <input id="riskDays" type="number" min="1" step="1" value="14" class="field mono" />
+                <label class="section-label mb-2 block">Growth mode uplift %</label>
+                <input id="growthDriverPct" type="number" min="0" step="1" value="25" class="field mono" />
               </div>
               <div>
                 <label class="section-label mb-2 block">New category uplift %</label>
-                <input id="newCategoryUpliftPct" type="number" min="0" step="1" value="25" class="field mono" />
-              </div>
-              <div>
-                <label class="section-label mb-2 block">New style floor units</label>
-                <input id="styleFloorUnits" type="number" min="0" step="1" value="24" class="field mono" />
-              </div>
-              <div>
-                <label class="section-label mb-2 block">Cap style floor units</label>
-                <input id="capFloorUnits" type="number" min="0" step="1" value="24" class="field mono" />
+                <input id="newCategoryUpliftPct" type="number" min="0" step="1" value="35" class="field mono" />
               </div>
               <div>
                 <label class="section-label mb-2 block">Historical weight %</label>
-                <input id="historicalWeightPct" type="number" min="0" max="100" step="1" value="65" class="field mono" />
+                <input id="historicalWeightPct" type="number" min="0" max="100" step="1" value="55" class="field mono" />
               </div>
               <div>
-                <label class="section-label mb-2 block">Growth weight %</label>
-                <input id="growthWeightPct" type="number" min="0" max="100" step="1" value="35" class="field mono" />
+                <label class="section-label mb-2 block">Comparable weight %</label>
+                <input id="comparableWeightPct" type="number" min="0" max="100" step="1" value="45" class="field mono" />
               </div>
               <div>
                 <label class="section-label mb-2 block">Reserve stock %</label>
                 <input id="reservePct" type="number" min="0" step="1" value="10" class="field mono" />
+              </div>
+              <div>
+                <label class="section-label mb-2 block">Adult min runs</label>
+                <input id="adultMinRuns" type="number" min="1" step="1" value="2" class="field mono" />
+              </div>
+              <div>
+                <label class="section-label mb-2 block">Youth min runs</label>
+                <input id="youthMinRuns" type="number" min="1" step="1" value="2" class="field mono" />
+              </div>
+              <div>
+                <label class="section-label mb-2 block">Caps min runs</label>
+                <input id="capMinRuns" type="number" min="1" step="1" value="1" class="field mono" />
               </div>
             </div>
           </div>
@@ -518,27 +525,27 @@
       <div class="metric card">
         <div class="label">Projected sales</div>
         <div id="kSales" class="mono value">$0</div>
-        <div class="sub">Location planning context</div>
+        <div class="sub">Location context</div>
       </div>
       <div class="metric card">
         <div class="label">Projected units</div>
         <div id="kUnits" class="mono value">0</div>
-        <div id="kUnitsSub" class="sub">Explicit units or fallback estimate</div>
+        <div id="kUnitsSub" class="sub">Explicit or fallback</div>
       </div>
       <div class="metric card">
         <div class="label">Styles planned</div>
         <div id="kStyles" class="mono value">0</div>
-        <div class="sub">Current builder rows</div>
+        <div class="sub">Builder rows</div>
       </div>
       <div class="metric card">
         <div class="label">System units</div>
         <div id="kSystemUnits" class="mono value">0</div>
-        <div class="sub">Before buyer overrides</div>
+        <div class="sub">Before overrides</div>
       </div>
       <div class="metric card">
         <div class="label">Final units</div>
         <div id="kFinalUnits" class="mono value">0</div>
-        <div class="sub">After buyer overrides</div>
+        <div class="sub">After overrides</div>
       </div>
     </div>
 
@@ -546,11 +553,11 @@
       <section>
         <div id="stylesSection" class="space-y-4">
           <div class="card p-4">
-            <div class="flex items-start justify-between gap-3 flex-wrap mb-4">
+            <div class="section-row mb-4">
               <div>
-                <div class="section-label">Style-level planning</div>
-                <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">New style builder</div>
-                <div class="subtle mt-1">Build by product title first. Then spread into sizes. Category comes from your inventory product_type history.</div>
+                <div class="section-label">Style builder</div>
+                <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Style-first planning</div>
+                <div class="subtle mt-1">Add a style, let it auto-pick a spread, decide whether you want system total units or run-count logic, then override if needed.</div>
               </div>
             </div>
 
@@ -561,34 +568,35 @@
                     <th style="width:42px;"><input id="selectAllStyles" type="checkbox" /></th>
                     <th>Product Title</th>
                     <th>Category</th>
-                    <th>Comparable Style</th>
-                    <th>Product Family</th>
-                    <th>Spread Template</th>
-                    <th>Launch Type</th>
-                    <th>Rollout</th>
+                    <th>Comparable Title</th>
+                    <th>Family</th>
+                    <th>Spread</th>
+                    <th>Plan Mode</th>
                     <th class="text-right">Weeks</th>
-                    <th class="text-right">Hist / wk</th>
-                    <th class="text-right">Growth Adj</th>
-                    <th class="text-right">System</th>
-                    <th class="text-right">Buyer</th>
-                    <th class="text-right">Final</th>
+                    <th class="text-right">Run Count</th>
+                    <th class="text-right">Hist / Wk</th>
+                    <th class="text-right">Comp / Wk</th>
+                    <th>Confidence</th>
+                    <th class="text-right">System Units</th>
+                    <th class="text-right">Buyer Units</th>
+                    <th class="text-right">Final Units</th>
                   </tr>
                 </thead>
                 <tbody id="stylesBody">
-                  <tr><td colspan="14" class="empty-state">Add a style row to begin.</td></tr>
+                  <tr><td colspan="15" class="empty-state">Add a style row to begin.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
         </div>
 
-        <div id="sizesSection" class="space-y-4 hidden">
+        <div id="outputSection" class="space-y-4 hidden">
           <div class="card p-4">
-            <div class="flex items-start justify-between gap-3 flex-wrap mb-4">
+            <div class="section-row mb-4">
               <div>
                 <div class="section-label">Generated output</div>
-                <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Size spread by style</div>
-                <div class="subtle mt-1">Final unit math broken into clothing or cap size outputs for PO drafting.</div>
+                <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Size-level PO output</div>
+                <div class="subtle mt-1">Final units rolled into adult, youth, or cap spreads with the math note shown next to each style.</div>
               </div>
             </div>
 
@@ -604,8 +612,8 @@
                     <th>Math Note</th>
                   </tr>
                 </thead>
-                <tbody id="sizesBody">
-                  <tr><td colspan="6" class="empty-state">No generated output yet.</td></tr>
+                <tbody id="outputBody">
+                  <tr><td colspan="6" class="empty-state">No output yet.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -630,19 +638,19 @@
       <aside class="sticky-side flex flex-col gap-4">
         <div class="card p-5">
           <div class="section-label">Trust & math</div>
-          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Why the builder picked this</div>
+          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Why the output moved</div>
           <div id="mathBox" class="mt-4 space-y-2">
             <div class="status">Waiting for refresh…</div>
           </div>
         </div>
 
         <div class="card p-5">
-          <div class="section-label">Mixed signals</div>
-          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">How to read them</div>
+          <div class="section-label">Read the signals</div>
+          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Guidance</div>
           <div class="mt-4 space-y-2">
-            <div class="status">Stable old inventory growing can still be good if new categories are outpacing the legacy base.</div>
-            <div class="status">This page biases toward new styles, but still benchmarks against historical category performance so you do not ignore what actually sells.</div>
-            <div class="status">Use inventory.html for true restocks. Use this page for new launches, category expansion, and growth bets.</div>
+            <div class="status">If old categories are stable but new categories are outperforming, this builder lets you lean more on comparable titles and growth multipliers without deleting history from the equation.</div>
+            <div class="status">If the system buy still looks too light, increase min runs or switch the style to run-count mode so it behaves like a real buyer workflow.</div>
+            <div class="status">Inventory.html should still own true restocks, transfers, and legacy SKU risk. This page is for newness and rollout depth.</div>
           </div>
         </div>
 
@@ -659,7 +667,7 @@
           <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Draft</div>
           <div class="mt-3">
             <label class="section-label mb-2 block">PO name</label>
-            <input id="poName" type="text" class="field" placeholder="ex: NEW-STYLES-APRIL" />
+            <input id="poName" type="text" class="field" placeholder="ex: NEW-APRIL-STYLES" />
           </div>
           <div class="mt-3">
             <label class="section-label mb-2 block">Vendor</label>
@@ -703,8 +711,7 @@
       avail_qty: "Total available quantity",
       inv_value: "Total available inventory value",
       sold_30: "SUM Variant Quantity sold over the last 30 days",
-      avg_day: "SUM Variant Average quantity sold per day",
-      days_oos: "SUM Variant Estimated days before out of stock"
+      avg_day: "SUM Variant Average quantity sold per day"
     };
 
     const SH = {
@@ -716,82 +723,85 @@
       qty_30d: "qty_30d",
       qty_90d: "qty_90d",
       qty_120d: "qty_120d",
-      avg_day_30: "avg_day_30",
-      avg_day_90: "avg_day_90",
-      avg_day_120: "avg_day_120",
-      last_sold_date: "last_sold_date"
+      avg_day_30: "avg_day_30"
     };
 
-    const STYLE_ITEMS_KEY = "silo_new_product_builder_styles_v1";
-    const STYLE_OVERRIDES_KEY = "silo_new_product_builder_style_overrides_v1";
+    const STYLE_ITEMS_KEY = "silo_new_product_builder_v2_styles";
+    const STYLE_OVERRIDES_KEY = "silo_new_product_builder_v2_overrides";
     const DRAFT_KEY = "silo_po_draft_v5_growth";
 
     const SPREAD_TEMPLATES = {
-      "tee-standard": {
-        label: "Clothing Standard",
-        family: "clothing",
+      "adult-standard-3xl": {
+        label: "Adult Standard 3XL",
+        family: "adult",
+        run_total: 16,
         sizes: [
-          { size: "XS", pct: 0.05 },
-          { size: "S", pct: 0.15 },
-          { size: "M", pct: 0.30 },
-          { size: "L", pct: 0.30 },
-          { size: "XL", pct: 0.15 },
-          { size: "2XL", pct: 0.05 }
+          { size: "S", qty: 2 },
+          { size: "M", qty: 4 },
+          { size: "L", qty: 4 },
+          { size: "XL", qty: 3 },
+          { size: "2XL", qty: 2 },
+          { size: "3XL", qty: 1 }
         ]
       },
-      "tee-extended": {
-        label: "Clothing Extended",
-        family: "clothing",
+      "adult-balanced-3xl": {
+        label: "Adult Balanced 3XL",
+        family: "adult",
+        run_total: 18,
         sizes: [
-          { size: "XS", pct: 0.04 },
-          { size: "S", pct: 0.14 },
-          { size: "M", pct: 0.28 },
-          { size: "L", pct: 0.28 },
-          { size: "XL", pct: 0.16 },
-          { size: "2XL", pct: 0.08 },
-          { size: "3XL", pct: 0.02 }
+          { size: "S", qty: 2 },
+          { size: "M", qty: 4 },
+          { size: "L", qty: 5 },
+          { size: "XL", qty: 4 },
+          { size: "2XL", qty: 2 },
+          { size: "3XL", qty: 1 }
         ]
       },
-      "hoodie-standard": {
-        label: "Hoodie / Fleece",
-        family: "clothing",
+      "adult-extended-3xl": {
+        label: "Adult Extended 3XL",
+        family: "adult",
+        run_total: 20,
         sizes: [
-          { size: "S", pct: 0.14 },
-          { size: "M", pct: 0.28 },
-          { size: "L", pct: 0.28 },
-          { size: "XL", pct: 0.18 },
-          { size: "2XL", pct: 0.09 },
-          { size: "3XL", pct: 0.03 }
+          { size: "XS", qty: 1 },
+          { size: "S", qty: 3 },
+          { size: "M", qty: 5 },
+          { size: "L", qty: 5 },
+          { size: "XL", qty: 3 },
+          { size: "2XL", qty: 2 },
+          { size: "3XL", qty: 1 }
         ]
       },
       "youth-standard": {
         label: "Youth Standard",
-        family: "clothing",
+        family: "youth",
+        run_total: 10,
         sizes: [
-          { size: "YS", pct: 0.15 },
-          { size: "YM", pct: 0.30 },
-          { size: "YL", pct: 0.30 },
-          { size: "YXL", pct: 0.25 }
+          { size: "YS", qty: 2 },
+          { size: "YM", qty: 3 },
+          { size: "YL", qty: 3 },
+          { size: "YXL", qty: 2 }
         ]
       },
-      "cap-standard": {
-        label: "Caps Standard",
+      "caps-osfa": {
+        label: "Caps OSFA",
         family: "caps",
+        run_total: 24,
         sizes: [
-          { size: "OSFA", pct: 1.00 }
+          { size: "OSFA", qty: 24 }
         ]
       },
-      "cap-fitted": {
+      "caps-fitted": {
         label: "Caps Fitted",
         family: "caps",
+        run_total: 25,
         sizes: [
-          { size: "6 7/8", pct: 0.08 },
-          { size: "7", pct: 0.17 },
-          { size: "7 1/8", pct: 0.24 },
-          { size: "7 1/4", pct: 0.24 },
-          { size: "7 3/8", pct: 0.15 },
-          { size: "7 1/2", pct: 0.08 },
-          { size: "7 5/8", pct: 0.04 }
+          { size: "6 7/8", qty: 2 },
+          { size: "7", qty: 4 },
+          { size: "7 1/8", qty: 6 },
+          { size: "7 1/4", qty: 6 },
+          { size: "7 3/8", qty: 4 },
+          { size: "7 1/2", qty: 2 },
+          { size: "7 5/8", qty: 1 }
         ]
       }
     };
@@ -800,18 +810,19 @@
       locations: [],
       projectionRows: [],
       inventoryRows: [],
+      categoryOptions: [],
+      comparableTitleOptions: [],
       styles: [],
-      generatedRows: [],
+      outputRows: [],
       selectedStyles: new Set(),
       activeTab: "styles",
-      themeKey: "silo_new_product_builder_theme_v1",
       metricsCtx: {
         totalProjectedSales: 0,
         projectedUnitsUsed: 0,
         explicitProjectedUnits: 0,
         blendedUnitValue: 0
       },
-      categoryOptions: []
+      themeKey: "silo_new_product_builder_v2_theme"
     };
 
     const el = (id) => document.getElementById(id);
@@ -917,10 +928,12 @@
 
     function loadStyles(){ return loadJson(STYLE_ITEMS_KEY, []); }
     function saveStyles(items){ saveJson(STYLE_ITEMS_KEY, items || []); }
+
     function getStyleOverride(id){
       const map = loadJson(STYLE_OVERRIDES_KEY, {});
       return map[id] ?? "";
     }
+
     function setStyleOverride(id, value){
       const map = loadJson(STYLE_OVERRIDES_KEY, {});
       map[id] = value === "" ? "" : Number(value);
@@ -931,6 +944,7 @@
       try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "[]"); }
       catch(e){ return []; }
     }
+
     function saveDraft(lines){
       localStorage.setItem(DRAFT_KEY, JSON.stringify(lines));
     }
@@ -948,8 +962,7 @@
           avg_day_30: num(r[SH.avg_day_30]),
           product_name: norm(r[SH.product_name]),
           product_type: norm(r[SH.product_type]),
-          vendor: norm(r[SH.vendor]),
-          last_sold_date: norm(r[SH.last_sold_date])
+          vendor: norm(r[SH.vendor])
         });
       }
       return map;
@@ -972,9 +985,7 @@
         agg.qty_120d = Math.max(num(agg.qty_120d), num(r.qty_120d));
         agg.avg_day = Math.max(num(agg.avg_day), num(r.avg_day));
         if (!agg.product && r.product) agg.product = r.product;
-        if (!agg.variant && r.variant) agg.variant = r.variant;
         if (!agg.product_type && r.product_type) agg.product_type = r.product_type;
-        if (!agg.vendor && r.vendor) agg.vendor = r.vendor;
       }
       return Array.from(byKey.values());
     }
@@ -984,47 +995,32 @@
         mixBasis: el("mixBasis").value,
         growthDriverPct: num(el("growthDriverPct").value || 0),
         newCategoryUpliftPct: num(el("newCategoryUpliftPct").value || 0),
-        styleFloorUnits: num(el("styleFloorUnits").value || 0),
-        capFloorUnits: num(el("capFloorUnits").value || 0),
         historicalWeightPct: num(el("historicalWeightPct").value || 0),
-        growthWeightPct: num(el("growthWeightPct").value || 0),
-        reservePct: num(el("reservePct").value || 0)
+        comparableWeightPct: num(el("comparableWeightPct").value || 0),
+        reservePct: num(el("reservePct").value || 0),
+        adultMinRuns: num(el("adultMinRuns").value || 1),
+        youthMinRuns: num(el("youthMinRuns").value || 1),
+        capMinRuns: num(el("capMinRuns").value || 1)
       };
-    }
-
-    function spreadFamilyFromTemplate(templateKey){
-      return SPREAD_TEMPLATES[templateKey]?.family || "clothing";
     }
 
     function familyFromCategory(category){
       const c = safeLower(category);
       if (c.includes("hat") || c.includes("cap")) return "caps";
-      return "clothing";
+      if (c.includes("youth")) return "youth";
+      return "adult";
     }
 
-    function defaultSpreadForCategory(category){
-      return familyFromCategory(category) === "caps" ? "cap-standard" : "tee-standard";
+    function defaultSpreadForFamily(family){
+      if (family === "caps") return "caps-osfa";
+      if (family === "youth") return "youth-standard";
+      return "adult-standard-3xl";
     }
 
-    function productFamilyOptions(family){
-      return family === "caps"
-        ? [
-            { value: "caps", label: "Caps" }
-          ]
-        : [
-            { value: "clothing", label: "Clothing" }
-          ];
-    }
-
-    function comparableByTitle(title){
-      const target = safeLower(title);
-      if (!target) return [];
-      return state.inventoryRows.filter(r => safeLower(r.product) === target);
-    }
-
-    function categoryRows(category){
-      const target = safeLower(category);
-      return state.inventoryRows.filter(r => safeLower(r.product_type || "uncategorized") === target);
+    function defaultRunCountForFamily(family, inputs){
+      if (family === "caps") return inputs.capMinRuns;
+      if (family === "youth") return inputs.youthMinRuns;
+      return inputs.adultMinRuns;
     }
 
     function mixUnitsForRow(r, mixBasis){
@@ -1034,101 +1030,109 @@
       return num(r.qty_30d);
     }
 
+    function weeklyUnitsFromPeriod(units, mixBasis){
+      if (mixBasis === "qty_7d") return units;
+      if (mixBasis === "qty_90d") return units / (90 / 7);
+      if (mixBasis === "qty_120d") return units / (120 / 7);
+      return units / (30 / 7);
+    }
+
     function categoryBenchmarkWeeklyUnits(category, mixBasis){
-      const rows = categoryRows(category);
+      const rows = state.inventoryRows.filter(r => safeLower(r.product_type) === safeLower(category));
       if (!rows.length) return 0;
       const total = rows.reduce((s, r) => s + mixUnitsForRow(r, mixBasis), 0);
-      const avgUnits = total / rows.length;
-      if (mixBasis === "qty_7d") return avgUnits;
-      if (mixBasis === "qty_90d") return avgUnits / (90 / 7);
-      if (mixBasis === "qty_120d") return avgUnits / (120 / 7);
-      return avgUnits / (30 / 7);
+      return weeklyUnitsFromPeriod(total / rows.length, mixBasis);
     }
 
     function comparableBenchmarkWeeklyUnits(comparableTitle, mixBasis){
-      const rows = comparableByTitle(comparableTitle);
+      const rows = state.inventoryRows.filter(r => safeLower(r.product) === safeLower(comparableTitle));
       if (!rows.length) return 0;
       const total = rows.reduce((s, r) => s + mixUnitsForRow(r, mixBasis), 0);
-      const avgUnits = total / rows.length;
-      if (mixBasis === "qty_7d") return avgUnits;
-      if (mixBasis === "qty_90d") return avgUnits / (90 / 7);
-      if (mixBasis === "qty_120d") return avgUnits / (120 / 7);
-      return avgUnits / (30 / 7);
+      return weeklyUnitsFromPeriod(total / rows.length, mixBasis);
     }
 
-    function growthMultiplier(style){
-      const launch = safeLower(style.launch_type);
-      if (launch === "hero") return 1.40;
-      if (launch === "promo") return 1.25;
-      if (launch === "test") return 0.70;
-      if (launch === "limited") return 0.85;
-      return 1.00;
+    function launchMultiplier(launchType){
+      const lt = safeLower(launchType);
+      if (lt === "hero") return 1.45;
+      if (lt === "promo") return 1.25;
+      if (lt === "test") return 0.75;
+      if (lt === "limited") return 0.90;
+      return 1.0;
     }
 
-    function rolloutMultiplier(style){
-      const rollout = safeLower(style.rollout);
-      if (rollout === "online only") return 0.60;
-      if (rollout === "limited doors") return 0.85;
-      if (rollout === "full fleet") return 1.10;
-      return 1.00;
+    function rolloutMultiplier(rollout){
+      const ro = safeLower(rollout);
+      if (ro === "online only") return 0.60;
+      if (ro === "limited doors") return 0.85;
+      if (ro === "full fleet") return 1.12;
+      return 1.0;
     }
 
-    function confidenceForStyle(style, histWeekly, compWeekly){
-      if (compWeekly > 0 && histWeekly > 0) return { label: "High", cls: "badge-good" };
-      if (compWeekly > 0 || histWeekly > 0) return { label: "Medium", cls: "badge-warn" };
+    function confidenceForStyle(histWeekly, compWeekly){
+      if (histWeekly > 0 && compWeekly > 0) return { label: "High", cls: "badge-good" };
+      if (histWeekly > 0 || compWeekly > 0) return { label: "Medium", cls: "badge-warn" };
       return { label: "Low", cls: "badge-danger" };
     }
 
     function computeStylePlan(style, inputs){
+      const family = style.product_family || familyFromCategory(style.category);
+      const spreadTemplate = style.spread_template || defaultSpreadForFamily(family);
+      const spread = SPREAD_TEMPLATES[spreadTemplate] || SPREAD_TEMPLATES["adult-standard-3xl"];
+
       const histWeekly = categoryBenchmarkWeeklyUnits(style.category, inputs.mixBasis);
       const compWeekly = comparableBenchmarkWeeklyUnits(style.comparable_title, inputs.mixBasis);
 
-      const histWeight = Math.max(0, Math.min(100, inputs.historicalWeightPct)) / 100;
-      const growthWeight = Math.max(0, Math.min(100, inputs.growthWeightPct)) / 100;
-      const normalizedGrowthWeight = (histWeight + growthWeight) === 0 ? 0 : growthWeight / (histWeight + growthWeight);
-      const normalizedHistWeight = (histWeight + growthWeight) === 0 ? 1 : histWeight / (histWeight + growthWeight);
+      const histWeight = Math.max(0, inputs.historicalWeightPct);
+      const compWeight = Math.max(0, inputs.comparableWeightPct);
+      const denom = Math.max(1, histWeight + compWeight);
 
-      const baseWeekly = (histWeekly * normalizedHistWeight) + (compWeekly * normalizedGrowthWeight);
-
-      const growthAdj = 1
-        + (inputs.growthDriverPct / 100)
-        + (style.is_new_category ? (inputs.newCategoryUpliftPct / 100) : 0);
-
-      const launchAdj = growthMultiplier(style);
-      const rolloutAdj = rolloutMultiplier(style);
+      const weightedWeekly = ((histWeekly * histWeight) + (compWeekly * compWeight)) / denom;
+      const growthAdj = 1 + (inputs.growthDriverPct / 100) + (style.is_new_category ? inputs.newCategoryUpliftPct / 100 : 0);
+      const launchAdj = launchMultiplier(style.launch_type);
+      const rolloutAdj = rolloutMultiplier(style.rollout);
       const reserveAdj = 1 + (inputs.reservePct / 100);
 
-      const rawSystem = baseWeekly
+      const systemFromHistory = Math.ceil(
+        weightedWeekly
         * num(style.intro_weeks || 6)
         * growthAdj
         * launchAdj
         * rolloutAdj
-        * reserveAdj;
+        * reserveAdj
+      );
 
-      const floor = spreadFamilyFromTemplate(style.spread_template) === "caps"
-        ? inputs.capFloorUnits
-        : inputs.styleFloorUnits;
+      const runCount = Math.max(1, num(style.run_count || defaultRunCountForFamily(family, inputs)));
+      const systemFromRuns = spread.run_total * runCount;
 
-      const systemUnits = Math.max(Math.ceil(rawSystem), floor);
+      const systemUnits = style.plan_mode === "runs"
+        ? systemFromRuns
+        : Math.max(systemFromHistory, systemFromRuns);
+
       const buyerUnits = getStyleOverride(style.id);
       const finalUnits = buyerUnits === "" ? systemUnits : Math.max(0, Math.round(Number(buyerUnits)));
-      const confidence = confidenceForStyle(style, histWeekly, compWeekly);
+      const confidence = confidenceForStyle(histWeekly, compWeekly);
 
       const mathNote = [
         `hist ${histWeekly.toFixed(1)}/wk`,
-        compWeekly > 0 ? `comp ${compWeekly.toFixed(1)}/wk` : `comp none`,
+        `comp ${compWeekly.toFixed(1)}/wk`,
+        `weighted ${weightedWeekly.toFixed(1)}/wk`,
         `growth ${growthAdj.toFixed(2)}x`,
         `launch ${launchAdj.toFixed(2)}x`,
         `rollout ${rolloutAdj.toFixed(2)}x`,
-        `reserve ${reserveAdj.toFixed(2)}x`
+        `reserve ${reserveAdj.toFixed(2)}x`,
+        `runs ${runCount} × ${spread.run_total}`
       ].join(" • ");
 
       return {
         ...style,
+        product_family: family,
+        spread_template: spreadTemplate,
+        run_count: runCount,
         histWeekly,
         compWeekly,
-        baseWeekly,
-        growthAdj,
+        weightedWeekly,
+        systemFromHistory,
+        systemFromRuns,
         systemUnits,
         buyerUnits,
         finalUnits,
@@ -1137,21 +1141,35 @@
       };
     }
 
-    function allocateSpread(totalUnits, templateKey){
-      const tpl = SPREAD_TEMPLATES[templateKey] || SPREAD_TEMPLATES["tee-standard"];
-      const sizes = tpl.sizes.map(x => ({ ...x, units: Math.floor(totalUnits * x.pct), raw: totalUnits * x.pct }));
-      let assigned = sizes.reduce((s, x) => s + x.units, 0);
+    function allocateSpreadFromRuns(runCount, templateKey){
+      const tpl = SPREAD_TEMPLATES[templateKey];
+      if (!tpl) return [];
+      return tpl.sizes.map(s => ({
+        size: s.size,
+        units: s.qty * runCount
+      }));
+    }
+
+    function allocateSpreadByTotal(totalUnits, templateKey){
+      const tpl = SPREAD_TEMPLATES[templateKey];
+      if (!tpl) return [];
+      const raw = tpl.sizes.map(s => ({
+        size: s.size,
+        raw: (s.qty / tpl.run_total) * totalUnits,
+        units: Math.floor((s.qty / tpl.run_total) * totalUnits)
+      }));
+      let assigned = raw.reduce((sum, x) => sum + x.units, 0);
       let remainder = totalUnits - assigned;
 
-      const ranked = sizes
-        .map((x, idx) => ({ idx, frac: x.raw - Math.floor(x.raw) }))
-        .sort((a,b) => b.frac - a.frac);
-
-      for (let i = 0; i < ranked.length && remainder > 0; i++, remainder--){
-        sizes[ranked[i].idx].units += 1;
+      raw.sort((a, b) => (b.raw - Math.floor(b.raw)) - (a.raw - Math.floor(a.raw)));
+      for (let i = 0; i < raw.length && remainder > 0; i++, remainder--){
+        raw[i].units += 1;
       }
 
-      return sizes.filter(x => x.units > 0);
+      return raw
+        .sort((a,b) => 0)
+        .filter(x => x.units > 0)
+        .map(x => ({ size: x.size, units: x.units }));
     }
 
     async function authGuard(){
@@ -1238,17 +1256,14 @@
             sku,
             barcode: norm(o[H.barcode]),
             product: s?.product_name || norm(o[H.product]),
-            variant: norm(o[H.variant]),
             product_type: s?.product_type || "",
-            vendor: s?.vendor || "",
             avail_qty: num(o[H.avail_qty]),
             inv_value: num(o[H.inv_value]),
             qty_7d: s ? s.qty_7d : 0,
             qty_30d: s ? s.qty_30d : num(o[H.sold_30]),
             qty_90d: s ? s.qty_90d : 0,
             qty_120d: s ? s.qty_120d : 0,
-            avg_day: s ? s.avg_day_30 : num(o[H.avg_day]),
-            last_sold_date: s?.last_sold_date || ""
+            avg_day: s ? s.avg_day_30 : num(o[H.avg_day])
           };
         });
 
@@ -1258,11 +1273,15 @@
       state.inventoryRows = collapseInventoryRows(allRows);
 
       const catSet = new Set();
+      const titleSet = new Set();
+
       state.inventoryRows.forEach(r => {
-        const c = norm(r.product_type);
-        if (c) catSet.add(c);
+        if (norm(r.product_type)) catSet.add(norm(r.product_type));
+        if (norm(r.product)) titleSet.add(norm(r.product));
       });
+
       state.categoryOptions = Array.from(catSet).sort((a,b) => a.localeCompare(b));
+      state.comparableTitleOptions = Array.from(titleSet).sort((a,b) => a.localeCompare(b));
 
       const totalProjectedSales = state.projectionRows.reduce((s, r) => s + num(r.projected_sales), 0);
       const explicitProjectedUnits = state.projectionRows.reduce((s, r) => s + num(r.projected_units), 0);
@@ -1281,25 +1300,26 @@
       const search = safeLower(el("searchBox").value);
       const inputs = getInputs();
 
-      const styles = loadStyles().map(style => computeStylePlan(style, inputs))
-        .filter(s => {
+      state.styles = loadStyles()
+        .map(style => computeStylePlan(style, inputs))
+        .filter(style => {
           if (!search) return true;
-          const hay = `${s.product_title} ${s.category} ${s.comparable_title}`.toLowerCase();
+          const hay = `${style.product_title} ${style.category} ${style.comparable_title}`.toLowerCase();
           return hay.includes(search);
         });
 
-      state.styles = styles;
+      state.outputRows = state.styles.map(style => {
+        const sizeRows = style.plan_mode === "runs"
+          ? allocateSpreadFromRuns(style.run_count, style.spread_template)
+          : allocateSpreadByTotal(style.finalUnits, style.spread_template);
 
-      state.generatedRows = styles.map(style => {
-        const spread = allocateSpread(style.finalUnits, style.spread_template);
-        const tpl = SPREAD_TEMPLATES[style.spread_template] || SPREAD_TEMPLATES["tee-standard"];
         return {
           styleId: style.id,
           productTitle: style.product_title,
           category: style.category,
-          spreadLabel: tpl.label,
+          spreadLabel: SPREAD_TEMPLATES[style.spread_template]?.label || style.spread_template,
           finalUnits: style.finalUnits,
-          sizes: spread,
+          sizes: sizeRows,
           mathNote: style.mathNote
         };
       });
@@ -1324,10 +1344,10 @@
       setHtml("mathBox", `
         <div class="status">Projected sales: <b class="mono">${fmtMoney(state.metricsCtx.totalProjectedSales)}</b></div>
         <div class="status">Explicit projected units: <b class="mono">${fmtInt(state.metricsCtx.explicitProjectedUnits)}</b></div>
-        <div class="status">Units used in context: <b class="mono">${fmtInt(state.metricsCtx.projectedUnitsUsed)}</b></div>
-        <div class="status">Fallback blended unit value: <b class="mono">${fmtMoney(state.metricsCtx.blendedUnitValue)}</b></div>
-        <div class="status">Style math = weighted historical category weekly units + comparable style weekly units, then growth/launch/rollout/reserve multipliers.</div>
-        <div class="status">Historical weight: <b>${inputs.historicalWeightPct}%</b> • Growth weight: <b>${inputs.growthWeightPct}%</b> • Reserve: <b>${inputs.reservePct}%</b></div>
+        <div class="status">Units context: <b class="mono">${fmtInt(state.metricsCtx.projectedUnitsUsed)}</b></div>
+        <div class="status">Historical + comparable blend: <b>${inputs.historicalWeightPct}%</b> historical, <b>${inputs.comparableWeightPct}%</b> comparable.</div>
+        <div class="status">Growth model: <b>base weekly × intro weeks × growth × launch × rollout × reserve</b>, then compared against minimum run logic.</div>
+        <div class="status">If a style still looks too small, use <b>run mode</b> and set the run count the way a buyer actually thinks.</div>
       `);
     }
 
@@ -1347,19 +1367,12 @@
 
     function renderStyles(){
       if (!state.styles.length){
-        setHtml("stylesBody", `<tr><td colspan="14" class="empty-state">Add a style row to begin.</td></tr>`);
+        setHtml("stylesBody", `<tr><td colspan="15" class="empty-state">Add a style row to begin.</td></tr>`);
         return;
       }
 
-      const categoryOptions = state.categoryOptions
-        .map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)
-        .join("");
-
-      const comparableTitles = Array.from(new Set(state.inventoryRows.map(r => norm(r.product)).filter(Boolean))).sort((a,b) => a.localeCompare(b));
-      const comparableOptions = comparableTitles
-        .map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`)
-        .join("");
-
+      const categoryOptions = state.categoryOptions.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
+      const comparableOptions = state.comparableTitleOptions.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join("");
       const spreadOptions = Object.entries(SPREAD_TEMPLATES).map(([k,v]) => `<option value="${escapeHtml(k)}">${escapeHtml(v.label)}</option>`).join("");
 
       setHtml("stylesBody", state.styles.map(s => `
@@ -1380,7 +1393,8 @@
           </td>
           <td>
             <select class="select style-field" data-id="${escapeHtml(s.id)}" data-key="product_family">
-              <option value="clothing" ${s.product_family === 'clothing' ? 'selected' : ''}>Clothing</option>
+              <option value="adult" ${s.product_family === 'adult' ? 'selected' : ''}>Adult</option>
+              <option value="youth" ${s.product_family === 'youth' ? 'selected' : ''}>Youth</option>
               <option value="caps" ${s.product_family === 'caps' ? 'selected' : ''}>Caps</option>
             </select>
           </td>
@@ -1390,30 +1404,22 @@
             </select>
           </td>
           <td>
-            <select class="select style-field" data-id="${escapeHtml(s.id)}" data-key="launch_type">
-              <option value="standard" ${safeLower(s.launch_type) === 'standard' ? 'selected' : ''}>Standard</option>
-              <option value="hero" ${safeLower(s.launch_type) === 'hero' ? 'selected' : ''}>Hero</option>
-              <option value="promo" ${safeLower(s.launch_type) === 'promo' ? 'selected' : ''}>Promo</option>
-              <option value="test" ${safeLower(s.launch_type) === 'test' ? 'selected' : ''}>Test</option>
-              <option value="limited" ${safeLower(s.launch_type) === 'limited' ? 'selected' : ''}>Limited</option>
-            </select>
-          </td>
-          <td>
-            <select class="select style-field" data-id="${escapeHtml(s.id)}" data-key="rollout">
-              <option value="full" ${safeLower(s.rollout) === 'full' ? 'selected' : ''}>Full</option>
-              <option value="online only" ${safeLower(s.rollout) === 'online only' ? 'selected' : ''}>Online Only</option>
-              <option value="limited doors" ${safeLower(s.rollout) === 'limited doors' ? 'selected' : ''}>Limited Doors</option>
-              <option value="full fleet" ${safeLower(s.rollout) === 'full fleet' ? 'selected' : ''}>Full Fleet</option>
+            <select class="select style-field" data-id="${escapeHtml(s.id)}" data-key="plan_mode">
+              <option value="system" ${safeLower(s.plan_mode) === 'system' ? 'selected' : ''}>System Total</option>
+              <option value="runs" ${safeLower(s.plan_mode) === 'runs' ? 'selected' : ''}>Run Count</option>
             </select>
           </td>
           <td class="mono" style="text-align:right;">
             <input type="number" min="1" step="1" class="field mono style-field" data-id="${escapeHtml(s.id)}" data-key="intro_weeks"
               value="${escapeHtml(String(s.intro_weeks || 6))}" style="width:90px;" />
           </td>
-          <td class="mono" style="text-align:right;">${s.histWeekly.toFixed(1)}</td>
-          <td>
-            <span class="badge ${escapeHtml(s.confidence.cls)}">${escapeHtml(s.confidence.label)}</span>
+          <td class="mono" style="text-align:right;">
+            <input type="number" min="1" step="1" class="field mono style-field" data-id="${escapeHtml(s.id)}" data-key="run_count"
+              value="${escapeHtml(String(s.run_count || 1))}" style="width:90px;" />
           </td>
+          <td class="mono" style="text-align:right;">${s.histWeekly.toFixed(1)}</td>
+          <td class="mono" style="text-align:right;">${s.compWeekly.toFixed(1)}</td>
+          <td><span class="badge ${escapeHtml(s.confidence.cls)}">${escapeHtml(s.confidence.label)}</span></td>
           <td class="mono" style="text-align:right;">${fmtInt(s.systemUnits)}</td>
           <td class="mono" style="text-align:right;">
             <input type="number" min="0" step="1" class="field mono style-override" data-id="${escapeHtml(s.id)}"
@@ -1439,14 +1445,19 @@
           const items = loadStyles();
           const idx = items.findIndex(x => String(x.id) === String(id));
           if (idx < 0) return;
+
           items[idx][key] = e.target.value;
 
-          if (key === "category" && !items[idx].spread_template){
-            items[idx].spread_template = defaultSpreadForCategory(e.target.value);
-            items[idx].product_family = familyFromCategory(e.target.value);
+          if (key === "category"){
+            const family = familyFromCategory(e.target.value);
+            items[idx].product_family = family;
+            items[idx].spread_template = defaultSpreadForFamily(family);
+            items[idx].run_count = defaultRunCountForFamily(family, getInputs());
           }
+
           if (key === "product_family"){
-            items[idx].spread_template = e.target.value === "caps" ? "cap-standard" : "tee-standard";
+            items[idx].spread_template = defaultSpreadForFamily(e.target.value);
+            items[idx].run_count = defaultRunCountForFamily(e.target.value, getInputs());
           }
 
           saveStyles(items);
@@ -1463,13 +1474,13 @@
       });
     }
 
-    function renderSizes(){
-      if (!state.generatedRows.length){
-        setHtml("sizesBody", `<tr><td colspan="6" class="empty-state">No generated output yet.</td></tr>`);
+    function renderOutput(){
+      if (!state.outputRows.length){
+        setHtml("outputBody", `<tr><td colspan="6" class="empty-state">No output yet.</td></tr>`);
         return;
       }
 
-      setHtml("sizesBody", state.generatedRows.map(r => `
+      setHtml("outputBody", state.outputRows.map(r => `
         <tr>
           <td style="font-weight:700;">${escapeHtml(r.productTitle || '—')}</td>
           <td>${escapeHtml(r.category || '—')}</td>
@@ -1478,7 +1489,7 @@
           <td style="max-width:360px; white-space:normal; line-height:1.35;">
             ${r.sizes.map(s => `<span class="badge">${escapeHtml(s.size)} ${fmtInt(s.units)}</span>`).join(" ")}
           </td>
-          <td style="max-width:360px; white-space:normal; line-height:1.35;">${escapeHtml(r.mathNote)}</td>
+          <td style="max-width:380px; white-space:normal; line-height:1.35;">${escapeHtml(r.mathNote)}</td>
         </tr>
       `).join(""));
     }
@@ -1498,7 +1509,7 @@
       renderMathBox();
       renderProjectionNotes();
       renderStyles();
-      renderSizes();
+      renderOutput();
       renderTray();
       updateDraftPeek();
       setHtml("statusPill", `<span class="dot"></span>Refreshed`);
@@ -1510,17 +1521,21 @@
     }
 
     function addStyle(){
+      const inputs = getInputs();
       const items = loadStyles();
+      const family = "adult";
       items.push({
         id: `STYLE::${Date.now()}::${Math.random().toString(36).slice(2,8)}`,
         product_title: "",
         category: "",
         comparable_title: "",
-        product_family: "clothing",
-        spread_template: "tee-standard",
+        product_family: family,
+        spread_template: defaultSpreadForFamily(family),
+        plan_mode: "system",
         launch_type: "standard",
         rollout: "full",
         intro_weeks: 6,
+        run_count: defaultRunCountForFamily(family, inputs),
         is_new_category: false
       });
       saveStyles(items);
@@ -1530,9 +1545,9 @@
     function setActiveTab(tab){
       state.activeTab = tab;
       el("tabStylesBtn").classList.toggle("active", tab === "styles");
-      el("tabSizesBtn").classList.toggle("active", tab === "sizes");
+      el("tabOutputBtn").classList.toggle("active", tab === "output");
       el("stylesSection").classList.toggle("hidden", tab !== "styles");
-      el("sizesSection").classList.toggle("hidden", tab !== "sizes");
+      el("outputSection").classList.toggle("hidden", tab !== "output");
     }
 
     async function refreshAll(){
@@ -1543,27 +1558,26 @@
     }
 
     function exportSelectedCsv(){
-      const headers = ["product_title","category","comparable_title","product_family","spread_template","launch_type","rollout","intro_weeks","hist_weekly_units","system_units","buyer_units","final_units","size_output"];
+      const headers = ["product_title","category","comparable_title","product_family","spread_template","plan_mode","intro_weeks","run_count","hist_weekly","comp_weekly","system_units","buyer_units","final_units","size_output"];
       const rows = state.styles
         .filter(s => state.selectedStyles.has(s.id))
         .map(s => {
-          const spread = allocateSpread(s.finalUnits, s.spread_template)
-            .map(x => `${x.size}:${x.units}`)
-            .join(" | ");
+          const sizeRows = state.outputRows.find(x => x.styleId === s.id)?.sizes || [];
           return {
             product_title: s.product_title,
             category: s.category,
             comparable_title: s.comparable_title,
             product_family: s.product_family,
             spread_template: s.spread_template,
-            launch_type: s.launch_type,
-            rollout: s.rollout,
+            plan_mode: s.plan_mode,
             intro_weeks: s.intro_weeks,
-            hist_weekly_units: s.histWeekly.toFixed(2),
+            run_count: s.run_count,
+            hist_weekly: s.histWeekly.toFixed(2),
+            comp_weekly: s.compWeekly.toFixed(2),
             system_units: s.systemUnits,
             buyer_units: s.buyerUnits === "" ? "" : s.buyerUnits,
             final_units: s.finalUnits,
-            size_output: spread
+            size_output: sizeRows.map(x => `${x.size}:${x.units}`).join(" | ")
           };
         });
 
@@ -1579,27 +1593,25 @@
     }
 
     function exportFullCsv(){
-      const headers = ["product_title","category","comparable_title","product_family","spread_template","launch_type","rollout","intro_weeks","hist_weekly_units","comp_weekly_units","system_units","buyer_units","final_units","math_note","size_output"];
+      const headers = ["product_title","category","comparable_title","product_family","spread_template","plan_mode","intro_weeks","run_count","hist_weekly","comp_weekly","system_units","buyer_units","final_units","math_note","size_output"];
       const rows = state.styles.map(s => {
-        const spread = allocateSpread(s.finalUnits, s.spread_template)
-          .map(x => `${x.size}:${x.units}`)
-          .join(" | ");
+        const sizeRows = state.outputRows.find(x => x.styleId === s.id)?.sizes || [];
         return {
           product_title: s.product_title,
           category: s.category,
           comparable_title: s.comparable_title,
           product_family: s.product_family,
           spread_template: s.spread_template,
-          launch_type: s.launch_type,
-          rollout: s.rollout,
+          plan_mode: s.plan_mode,
           intro_weeks: s.intro_weeks,
-          hist_weekly_units: s.histWeekly.toFixed(2),
-          comp_weekly_units: s.compWeekly.toFixed(2),
+          run_count: s.run_count,
+          hist_weekly: s.histWeekly.toFixed(2),
+          comp_weekly: s.compWeekly.toFixed(2),
           system_units: s.systemUnits,
           buyer_units: s.buyerUnits === "" ? "" : s.buyerUnits,
           final_units: s.finalUnits,
           math_note: s.mathNote,
-          size_output: spread
+          size_output: sizeRows.map(x => `${x.size}:${x.units}`).join(" | ")
         };
       });
 
@@ -1619,7 +1631,7 @@
         setText("draftPeek", "Draft empty.");
         return;
       }
-      const peek = lines.slice(0, 14).map(l => `${l.sku || l.product || "—"} | qty ${num(l.qty)}`).join("\n");
+      const peek = lines.slice(0, 14).map(l => `${l.product || l.sku || "—"} | qty ${num(l.qty)}`).join("\n");
       setText("draftPeek", lines.length > 14 ? `${peek}\n… +${lines.length - 14} more` : peek);
     }
 
@@ -1634,18 +1646,18 @@
 
       const selected = state.styles.filter(s => state.selectedStyles.has(s.id));
       for (const style of selected){
-        const spread = allocateSpread(style.finalUnits, style.spread_template);
-        for (const sizeRow of spread){
-          const skuKey = `${style.product_title} - ${sizeRow.size}`;
-          const key = `::${skuKey}`;
+        const sizeRows = state.outputRows.find(x => x.styleId === style.id)?.sizes || [];
+        for (const sizeRow of sizeRows){
+          const productKey = `${style.product_title} - ${sizeRow.size}`;
+          const key = `::${productKey}`;
           const payload = {
             po_name: poName,
             vendor,
             eta,
             sku: "",
-            product: skuKey,
+            product: productKey,
             qty: sizeRow.units,
-            mode_added_from: "new_product_builder"
+            mode_added_from: "new_product_builder_v2"
           };
 
           if (index.has(key)){
@@ -1675,7 +1687,6 @@
 
       const headers = ["po_name","vendor","eta","sku","product","qty","mode_added_from"];
       const csv = [headers.join(",")].concat(lines.map(o => headers.map(h => csvEscape(o[h])).join(","))).join("\n");
-
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
@@ -1716,7 +1727,7 @@
         el(id).addEventListener("change", refreshAll);
       });
 
-      ["mixBasis","growthDriverPct","riskDays","newCategoryUpliftPct","styleFloorUnits","capFloorUnits","historicalWeightPct","growthWeightPct","reservePct","searchBox"].forEach(id => {
+      ["mixBasis","growthDriverPct","newCategoryUpliftPct","historicalWeightPct","comparableWeightPct","reservePct","adultMinRuns","youthMinRuns","capMinRuns","searchBox"].forEach(id => {
         el(id).addEventListener("change", recomputeAndRender);
         el(id).addEventListener("input", () => {
           if (id === "searchBox") recomputeAndRender();
@@ -1725,7 +1736,7 @@
 
       el("addStyleBtn").addEventListener("click", addStyle);
       el("tabStylesBtn").addEventListener("click", () => setActiveTab("styles"));
-      el("tabSizesBtn").addEventListener("click", () => setActiveTab("sizes"));
+      el("tabOutputBtn").addEventListener("click", () => setActiveTab("output"));
 
       el("selectAllStyles").addEventListener("change", (e) => {
         if (e.target.checked) state.styles.forEach(s => state.selectedStyles.add(s.id));
