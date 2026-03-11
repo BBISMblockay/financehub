@@ -18,7 +18,7 @@
     :root[data-theme="light"]{
       --bg: #f5f7fb;
       --bg2: #eef2f8;
-      --panel: rgba(255,255,255,.84);
+      --panel: rgba(255,255,255,.86);
       --panel-solid: #ffffff;
       --panel-soft: #f8fafc;
       --border: rgba(15,23,42,.08);
@@ -65,8 +65,7 @@
     }
 
     body.themeable { min-height: 100vh; }
-    .shell { max-width: 1780px; margin: 0 auto; padding: 20px; }
-
+    .shell { max-width: 1560px; margin: 0 auto; padding: 18px; }
     .card, .glass {
       background: var(--panel);
       backdrop-filter: blur(18px);
@@ -76,10 +75,10 @@
       border-radius: 20px;
     }
 
-    .topbar { padding: 14px 16px; margin-bottom: 18px; }
-    .toolbar { padding: 14px 16px; }
-    .topbar-row, .header-row {
-      display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;
+    .topbar, .toolbar { padding: 14px 16px; }
+    .topbar { margin-bottom: 16px; }
+    .topbar-row, .header-row, .tray-row {
+      display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap;
     }
 
     .section-label {
@@ -157,7 +156,7 @@
       transition:.14s ease;
     }
     .field, .select { height:42px; padding:0 13px; }
-    .textarea { min-height:88px; padding:12px 13px; resize:vertical; }
+    .textarea { min-height:72px; padding:12px 13px; resize:vertical; }
     .field:focus, .select:focus, .textarea:focus {
       outline:none;
       border-color: color-mix(in oklab, var(--accent) 28%, var(--border));
@@ -177,6 +176,7 @@
       font-weight:700;
       background:rgba(255,255,255,.24);
     }
+
     .dot {
       width:8px;
       height:8px;
@@ -186,7 +186,7 @@
     }
 
     .metric {
-      padding:18px 18px 16px;
+      padding:16px;
       border-radius:18px;
       background: color-mix(in oklab, var(--panel-solid) 92%, transparent);
       border:1px solid var(--border);
@@ -197,7 +197,7 @@
       font-weight:700;
     }
     .metric .value {
-      font-size:28px;
+      font-size:26px;
       line-height:1.05;
       letter-spacing:-0.04em;
       font-weight:800;
@@ -212,13 +212,7 @@
 
     .toolbar-grid {
       display:grid;
-      grid-template-columns: 1.1fr 1.1fr 1.2fr 1.2fr 1fr 1fr 1fr auto auto;
-      gap:10px;
-      align-items:end;
-    }
-    .toolbar-grid-2 {
-      display:grid;
-      grid-template-columns: 1fr 1fr 1fr 1fr 1fr auto auto auto;
+      grid-template-columns: 1fr 1fr 1.2fr 1.1fr 1fr auto auto auto;
       gap:10px;
       align-items:end;
     }
@@ -253,11 +247,10 @@
 
     .layout-grid {
       display:grid;
-      grid-template-columns:minmax(0,1fr) 420px;
-      gap:18px;
+      grid-template-columns:minmax(0,1fr) 320px;
+      gap:16px;
       align-items:start;
     }
-    .sticky-side { position: sticky; top: 20px; }
 
     .table-wrap {
       overflow:auto;
@@ -270,7 +263,7 @@
       width:100%;
       border-collapse:separate;
       border-spacing:0;
-      min-width:1700px;
+      min-width:1280px;
     }
     thead th {
       position:sticky;
@@ -283,12 +276,12 @@
       letter-spacing:.12em;
       font-weight:800;
       text-align:left;
-      padding:14px 16px;
+      padding:14px 14px;
       border-bottom:1px solid var(--border);
       white-space:nowrap;
     }
     tbody td {
-      padding:14px 16px;
+      padding:14px 14px;
       border-bottom:1px solid color-mix(in oklab, var(--border) 60%, transparent);
       vertical-align:middle;
       font-size:14px;
@@ -309,25 +302,33 @@
       font-weight:800;
     }
 
+    .badge-good {
+      border-color: color-mix(in oklab, var(--good) 30%, var(--border));
+      color: var(--good);
+    }
+    .badge-warn {
+      border-color: color-mix(in oklab, var(--warn) 30%, var(--border));
+      color: var(--warn);
+    }
+    .badge-danger {
+      border-color: color-mix(in oklab, var(--danger) 30%, var(--border));
+      color: var(--danger);
+    }
+    .badge-accent {
+      border-color: color-mix(in oklab, var(--accent) 30%, var(--border));
+      color: var(--accent);
+    }
+
     .status {
       border-radius:14px;
-      padding:13px 14px;
+      padding:12px 13px;
       border:1px solid var(--border);
       background: color-mix(in oklab, var(--panel-soft) 92%, transparent);
       font-size:13px;
       font-weight:600;
       color:var(--text);
+      line-height: 1.4;
     }
-
-    .summary-row {
-      display:flex;
-      align-items:flex-start;
-      justify-content:space-between;
-      gap:12px;
-      padding:12px 0;
-      border-bottom:1px solid color-mix(in oklab, var(--border) 60%, transparent);
-    }
-    .summary-row:last-child { border-bottom:0; }
 
     .empty-state {
       padding:30px 18px;
@@ -337,17 +338,57 @@
       font-weight:600;
     }
 
-    @media (max-width: 1520px){
-      .toolbar-grid, .toolbar-grid-2 { grid-template-columns: repeat(3, minmax(0,1fr)); }
-      .layout-grid { grid-template-columns:1fr; }
-      .sticky-side { position:static; }
+    .sticky-side {
+      position: sticky;
+      top: 18px;
+    }
+
+    .summary-tray {
+      position: sticky;
+      bottom: 14px;
+      z-index: 20;
+      margin-top: 16px;
+      padding: 14px 16px;
+    }
+
+    details.settings {
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: color-mix(in oklab, var(--panel-solid) 90%, transparent);
+      padding: 0;
+      overflow: hidden;
+    }
+    details.settings summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 14px 16px;
+      font-weight: 800;
+      font-size: 14px;
+    }
+    details.settings summary::-webkit-details-marker { display:none; }
+    .settings-body {
+      padding: 0 16px 16px;
+      border-top: 1px solid var(--border);
+    }
+    .settings-grid {
+      display:grid;
+      grid-template-columns: repeat(3, minmax(0,1fr));
+      gap:10px;
+      margin-top: 14px;
+    }
+
+    @media (max-width: 1320px){
+      .toolbar-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
+      .layout-grid { grid-template-columns: 1fr; }
+      .sticky-side { position: static; }
+      .settings-grid { grid-template-columns: 1fr; }
     }
 
     @media (max-width: 780px){
-      .shell { padding:14px; }
-      .toolbar-grid, .toolbar-grid-2 { grid-template-columns:1fr; }
-      .headline { font-size:24px; }
-      .metric .value { font-size:24px; }
+      .shell { padding: 12px; }
+      .toolbar-grid { grid-template-columns: 1fr; }
+      .headline { font-size: 24px; }
+      .metric .value { font-size: 22px; }
     }
   </style>
 </head>
@@ -372,15 +413,14 @@
         <div class="section-label">Company Buying</div>
         <h1 class="headline mt-2">PO Builder</h1>
         <div class="subtle mt-2">
-          Company-level buying tool for restocks, growth bets, and brand-new product introductions.
+          Tighter buyer console for restocks, new introductions, and event exceptions — with visible confidence and proof.
         </div>
       </div>
 
       <div class="flex items-center gap-2 flex-wrap">
         <button id="reloadBtn" class="btn">Reload</button>
-        <button id="refreshBtn" class="btn btn-primary">Refresh Buy Plan</button>
+        <button id="refreshBtn" class="btn btn-primary">Refresh</button>
         <button id="exportBtn" class="btn">Export CSV</button>
-        <button id="addSelectedBtn" class="btn">Add Selected → Draft</button>
       </div>
     </div>
 
@@ -401,26 +441,9 @@
           </select>
         </div>
         <div>
-          <label class="section-label mb-2 block">Inventory sources</label>
+          <label class="section-label mb-2 block">Inventory scope</label>
           <select id="inventoryScope" class="select">
             <option value="ALL">All loaded sources</option>
-          </select>
-        </div>
-        <div>
-          <label class="section-label mb-2 block">Mix basis</label>
-          <select id="mixBasis" class="select">
-            <option value="qty_30d">30 day units</option>
-            <option value="qty_90d">90 day units</option>
-            <option value="qty_120d">120 day units</option>
-            <option value="qty_7d">7 day units</option>
-          </select>
-        </div>
-        <div>
-          <label class="section-label mb-2 block">Strategy</label>
-          <select id="strategy" class="select">
-            <option value="replenish">Replenish</option>
-            <option value="growth">Growth</option>
-            <option value="hybrid">Hybrid</option>
           </select>
         </div>
         <div>
@@ -429,84 +452,97 @@
         </div>
         <button id="thisMonthBtn" class="btn">This month</button>
         <button id="next30Btn" class="btn">Next 30</button>
-      </div>
-
-      <div class="toolbar-grid-2 mt-3">
-        <div>
-          <label class="section-label mb-2 block">Safety days</label>
-          <input id="safetyDays" type="number" min="0" step="1" value="7" class="field mono" />
-        </div>
-        <div>
-          <label class="section-label mb-2 block">Default growth %</label>
-          <input id="defaultGrowthPct" type="number" min="0" step="1" value="20" class="field mono" />
-        </div>
-        <div>
-          <label class="section-label mb-2 block">Seed avg/day for new</label>
-          <input id="seedAvgDay" type="number" min="0" step="0.01" value="0.25" class="field mono" />
-        </div>
-        <div>
-          <label class="section-label mb-2 block">Min reorder</label>
-          <input id="minReorder" type="number" min="0" step="1" value="0" class="field mono" />
-        </div>
-        <div>
-          <label class="section-label mb-2 block">Risk days</label>
-          <input id="riskDays" type="number" min="1" step="1" value="14" class="field mono" />
-        </div>
-        <button id="applyTagBtn" class="btn">Apply Tag</button>
-        <button id="clearTagBtn" class="btn">Clear Tags</button>
-        <button id="recalcBtn" class="btn">Recalc</button>
+        <button id="addNewRowBtn" class="btn">Add New Item</button>
       </div>
 
       <div class="mt-4 flex items-center gap-2 flex-wrap">
         <div class="seg">
-          <button id="tabExistingBtn" class="active" type="button">Existing SKU Restock</button>
-          <button id="tabNewBtn" type="button">New Intro Calculator</button>
+          <button id="tabRestockBtn" class="active" type="button">Restock</button>
+          <button id="tabNewBtn" type="button">New Intro</button>
+          <button id="tabEventBtn" type="button">Event / Promo</button>
         </div>
+      </div>
+
+      <div class="mt-4">
+        <details class="settings">
+          <summary>Planner settings</summary>
+          <div class="settings-body">
+            <div class="settings-grid">
+              <div>
+                <label class="section-label mb-2 block">Mix basis</label>
+                <select id="mixBasis" class="select">
+                  <option value="qty_30d">30 day units</option>
+                  <option value="qty_90d">90 day units</option>
+                  <option value="qty_120d">120 day units</option>
+                  <option value="qty_7d">7 day units</option>
+                </select>
+              </div>
+              <div>
+                <label class="section-label mb-2 block">Strategy</label>
+                <select id="strategy" class="select">
+                  <option value="replenish">Replenish</option>
+                  <option value="growth">Growth</option>
+                  <option value="hybrid">Hybrid</option>
+                </select>
+              </div>
+              <div>
+                <label class="section-label mb-2 block">Safety days</label>
+                <input id="safetyDays" type="number" min="0" step="1" value="7" class="field mono" />
+              </div>
+              <div>
+                <label class="section-label mb-2 block">Default growth %</label>
+                <input id="defaultGrowthPct" type="number" min="0" step="1" value="20" class="field mono" />
+              </div>
+              <div>
+                <label class="section-label mb-2 block">Seed avg/day for new</label>
+                <input id="seedAvgDay" type="number" min="0" step="0.01" value="0.25" class="field mono" />
+              </div>
+              <div>
+                <label class="section-label mb-2 block">Min reorder</label>
+                <input id="minReorder" type="number" min="0" step="1" value="0" class="field mono" />
+              </div>
+              <div>
+                <label class="section-label mb-2 block">Risk days</label>
+                <input id="riskDays" type="number" min="1" step="1" value="14" class="field mono" />
+              </div>
+            </div>
+          </div>
+        </details>
       </div>
     </div>
 
-    <div class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4">
+    <div class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
       <div class="metric card">
-        <div class="label">Projection sales</div>
+        <div class="label">Projected sales</div>
         <div id="kSales" class="mono value">$0</div>
-        <div class="sub">Top-down location plan</div>
+        <div class="sub">Top-down demand context</div>
       </div>
       <div class="metric card">
-        <div class="label">Projection units used</div>
+        <div class="label">Projected units used</div>
         <div id="kUnits" class="mono value">0</div>
-        <div id="kUnitsSub" class="sub">Explicit units or estimated fallback</div>
+        <div id="kUnitsSub" class="sub">Units source shown in proof panel</div>
       </div>
       <div class="metric card">
-        <div class="label">Existing rec units</div>
-        <div id="kExistingRec" class="mono value">0</div>
-        <div class="sub">System recommended restock</div>
+        <div class="label">System recommended</div>
+        <div id="kSystemRec" class="mono value">0</div>
+        <div class="sub">Current tab total</div>
       </div>
       <div class="metric card">
-        <div class="label">New intro rec units</div>
-        <div id="kNewRec" class="mono value">0</div>
-        <div class="sub">System recommended intro buy</div>
-      </div>
-      <div class="metric card">
-        <div class="label">Final PO units</div>
+        <div class="label">Final PO qty</div>
         <div id="kFinalPo" class="mono value">0</div>
         <div class="sub">Override-aware total</div>
-      </div>
-      <div class="metric card">
-        <div class="label">Categories impacted</div>
-        <div id="kCats" class="mono value">0</div>
-        <div class="sub">Buying concentration</div>
       </div>
     </div>
 
     <div class="layout-grid mt-4">
-      <section class="space-y-4">
-        <div id="existingSection" class="space-y-4">
+      <section>
+        <div id="restockSection" class="space-y-4">
           <div class="card p-4">
-            <div class="flex items-start justify-between gap-4 flex-wrap mb-4">
+            <div class="flex items-start justify-between gap-3 flex-wrap mb-4">
               <div>
-                <div class="section-label">Existing SKU buy view</div>
-                <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Restock by category</div>
-                <div class="subtle mt-1">Company-level rollup for items already in the ecosystem.</div>
+                <div class="section-label">Restock buying</div>
+                <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Existing SKU decisions</div>
+                <div class="subtle mt-1">Focused on what to reorder now and how strong the evidence is.</div>
               </div>
             </div>
 
@@ -514,54 +550,23 @@
               <table>
                 <thead>
                   <tr>
-                    <th>Category</th>
-                    <th class="text-right">Rows</th>
-                    <th class="text-right">On Hand</th>
-                    <th class="text-right">Projected Demand</th>
-                    <th class="text-right">System Rec</th>
-                    <th class="text-right">Final PO</th>
-                    <th>Read</th>
-                  </tr>
-                </thead>
-                <tbody id="existingCategoryBody">
-                  <tr><td colspan="7" class="empty-state">Run the plan.</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div class="card p-4">
-            <div class="flex items-start justify-between gap-4 flex-wrap mb-4">
-              <div>
-                <div class="section-label">Existing SKU detail</div>
-                <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Company restock builder</div>
-                <div class="subtle mt-1">Use this for core reorders, growth bets, and tagged hero items.</div>
-              </div>
-            </div>
-
-            <div class="table-wrap scrollbar">
-              <table>
-                <thead>
-                  <tr>
-                    <th style="width:42px;"><input id="selectAllExisting" type="checkbox" /></th>
+                    <th style="width:42px;"><input id="selectAllRestock" type="checkbox" /></th>
                     <th>SKU</th>
                     <th>Product</th>
                     <th>Category</th>
                     <th>Buy Type</th>
-                    <th>Tier / Driver</th>
-                    <th class="text-right">Recent Units</th>
-                    <th class="text-right">Mix %</th>
+                    <th>Confidence</th>
+                    <th>Proof</th>
                     <th class="text-right">On Hand</th>
+                    <th class="text-right">Recent</th>
                     <th class="text-right">Proj Demand</th>
-                    <th class="text-right">Ending</th>
-                    <th class="text-right">System Rec</th>
-                    <th class="text-right">Buyer Override</th>
-                    <th class="text-right">Final PO Qty</th>
-                    <th>Notes</th>
+                    <th class="text-right">System</th>
+                    <th class="text-right">Buyer</th>
+                    <th class="text-right">Final</th>
                   </tr>
                 </thead>
-                <tbody id="existingBody">
-                  <tr><td colspan="15" class="empty-state">Run the plan.</td></tr>
+                <tbody id="restockBody">
+                  <tr><td colspan="13" class="empty-state">Refresh to load restock recommendations.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -570,13 +575,12 @@
 
         <div id="newSection" class="space-y-4 hidden">
           <div class="card p-4">
-            <div class="flex items-start justify-between gap-4 flex-wrap mb-4">
+            <div class="flex items-start justify-between gap-3 flex-wrap mb-4">
               <div>
-                <div class="section-label">New intro setup</div>
+                <div class="section-label">New intro</div>
                 <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Initial buy calculator</div>
-                <div class="subtle mt-1">For items with little or no history. Company buy first, allocation later.</div>
+                <div class="subtle mt-1">For brand-new items using comparable SKU/category benchmarks.</div>
               </div>
-              <button id="addNewRowBtn" class="btn btn-primary">Add New Item Row</button>
             </div>
 
             <div class="table-wrap scrollbar">
@@ -584,51 +588,73 @@
                 <thead>
                   <tr>
                     <th style="width:42px;"><input id="selectAllNew" type="checkbox" /></th>
-                    <th>Product Name</th>
+                    <th>Product</th>
                     <th>Category</th>
-                    <th>Comparable SKU</th>
+                    <th>Comparable</th>
                     <th>Tier</th>
-                    <th>Launch Type</th>
+                    <th>Launch</th>
                     <th>Rollout</th>
-                    <th class="text-right">Intro Weeks</th>
-                    <th class="text-right">Benchmark Weekly Units</th>
-                    <th class="text-right">System Intro Qty</th>
-                    <th class="text-right">Buyer Override</th>
-                    <th class="text-right">Final PO Qty</th>
-                    <th>Notes</th>
+                    <th class="text-right">Weeks</th>
+                    <th class="text-right">Benchmark / wk</th>
+                    <th class="text-right">System</th>
+                    <th class="text-right">Buyer</th>
+                    <th class="text-right">Final</th>
                   </tr>
                 </thead>
                 <tbody id="newBody">
-                  <tr><td colspan="13" class="empty-state">Add new item rows to start intro planning.</td></tr>
+                  <tr><td colspan="12" class="empty-state">Add a new item row to begin.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
+        </div>
 
+        <div id="eventSection" class="space-y-4 hidden">
           <div class="card p-4">
-            <div class="flex items-start justify-between gap-4 flex-wrap mb-4">
+            <div class="flex items-start justify-between gap-3 flex-wrap mb-4">
               <div>
-                <div class="section-label">New intro summary</div>
-                <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Category intro totals</div>
-                <div class="subtle mt-1">Use comparable products and tier assumptions to guide initial purchase depth.</div>
+                <div class="section-label">Event / promo</div>
+                <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Exception buying</div>
+                <div class="subtle mt-1">For event-specific or promo-specific buys like MLB at Field of Dreams.</div>
               </div>
+              <button id="addEventRowBtn" class="btn btn-primary">Add Event Row</button>
             </div>
 
             <div class="table-wrap scrollbar">
               <table>
                 <thead>
                   <tr>
-                    <th>Category</th>
-                    <th class="text-right">Rows</th>
-                    <th class="text-right">System Intro Qty</th>
-                    <th class="text-right">Final Intro Qty</th>
-                    <th>Notes</th>
+                    <th style="width:42px;"><input id="selectAllEvent" type="checkbox" /></th>
+                    <th>Event</th>
+                    <th>Location</th>
+                    <th>SKU / Category</th>
+                    <th>Mode</th>
+                    <th class="text-right">Fixed Units</th>
+                    <th class="text-right">Uplift %</th>
+                    <th class="text-right">System</th>
+                    <th class="text-right">Buyer</th>
+                    <th class="text-right">Final</th>
+                    <th>Note</th>
                   </tr>
                 </thead>
-                <tbody id="newCategoryBody">
-                  <tr><td colspan="5" class="empty-state">No new item plan yet.</td></tr>
+                <tbody id="eventBody">
+                  <tr><td colspan="11" class="empty-state">Add an event override row to begin.</td></tr>
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="summary-tray glass">
+          <div class="tray-row">
+            <div class="flex items-center gap-3 flex-wrap">
+              <div class="pill">Selected lines: <span id="traySelected" class="mono">0</span></div>
+              <div class="pill">System qty: <span id="traySystem" class="mono">0</span></div>
+              <div class="pill">Final qty: <span id="trayFinal" class="mono">0</span></div>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <button id="addSelectedBtn" class="btn btn-primary">Add Selected → Draft</button>
+              <button id="exportSelectedBtn" class="btn">Export Selected</button>
             </div>
           </div>
         </div>
@@ -636,15 +662,12 @@
 
       <aside class="sticky-side flex flex-col gap-4">
         <div class="card p-5">
-          <div class="section-label">How to use</div>
-          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Workflow</div>
-          <div class="mt-4 space-y-2">
-            <div class="status">1. Set planning window and projection location</div>
-            <div class="status">2. Refresh to pull existing SKU demand</div>
-            <div class="status">3. Use Existing tab for restocks / growth</div>
-            <div class="status">4. Use New Intro tab for brand-new product buys</div>
-            <div class="status">5. Enter overrides where needed</div>
-            <div class="status">6. Add selected rows to draft</div>
+          <div class="section-label">Proof panel</div>
+          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">How to trust the output</div>
+          <div id="proofBox" class="mt-4 space-y-2">
+            <div class="status">Projected sales and projected units are shown separately.</div>
+            <div class="status">If projected units are missing, units are estimated from projected sales ÷ blended unit value.</div>
+            <div class="status">Confidence badges summarize history strength and stock pressure.</div>
           </div>
         </div>
 
@@ -657,19 +680,11 @@
         </div>
 
         <div class="card p-5">
-          <div class="section-label">Source of units</div>
-          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Math</div>
-          <div id="mathBox" class="mt-4">
-            <div class="status">Waiting for plan run…</div>
-          </div>
-        </div>
-
-        <div class="card p-5">
           <div class="section-label">PO draft</div>
-          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Draft controls</div>
+          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Draft</div>
           <div class="mt-3">
             <label class="section-label mb-2 block">PO name</label>
-            <input id="poName" type="text" class="field" placeholder="ex: PO-APRIL-COMPANY" />
+            <input id="poName" type="text" class="field" placeholder="ex: APRIL-COMPANY-BUY" />
           </div>
           <div class="mt-3">
             <label class="section-label mb-2 block">Vendor</label>
@@ -733,23 +748,31 @@
     };
 
     const TAGS_KEY = "silo_growth_tags_v1";
-    const EXISTING_OVERRIDES_KEY = "silo_po_builder_existing_overrides_v1";
-    const NEW_ITEMS_KEY = "silo_po_builder_new_items_v1";
-    const NEW_OVERRIDES_KEY = "silo_po_builder_new_overrides_v1";
+    const EXISTING_OVERRIDES_KEY = "silo_po_builder__existing_overrides_v1";
+    const NEW_ITEMS_KEY = "silo_po_builder__new_items_v1";
+    const NEW_OVERRIDES_KEY = "silo_po_builder__new_overrides_v1";
+    const EVENT_ITEMS_KEY = "silo_po_builder__event_items_v1";
+    const EVENT_OVERRIDES_KEY = "silo_po_builder__event_overrides_v1";
     const DRAFT_KEY = "silo_po_draft_v5_growth";
 
     const state = {
       locations: [],
       projectionRows: [],
       inventoryRows: [],
-      existingRows: [],
-      existingCategoryRows: [],
+      restockRows: [],
       newRows: [],
-      newCategoryRows: [],
-      selectedExisting: new Set(),
+      eventRows: [],
+      selectedRestock: new Set(),
       selectedNew: new Set(),
-      activeTab: "existing",
-      themeKey: "silo_po_builder_theme_v1"
+      selectedEvent: new Set(),
+      activeTab: "restock",
+      themeKey: "silo_po_builder__theme_v1",
+      metricsCtx: {
+        totalProjectedSales: 0,
+        projectedUnitsUsed: 0,
+        explicitProjectedUnits: 0,
+        blendedUnitValue: 0
+      }
     };
 
     const el = (id) => document.getElementById(id);
@@ -768,7 +791,7 @@
         ? Number(n).toLocaleString(undefined,{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:2})
         : "$0.00";
     }
-    function fmtPct(n){ return Number.isFinite(Number(n)) ? `${(Number(n)*100).toFixed(1)}%` : "0.0%"; }
+    function fmtPct(n){ return Number.isFinite(Number(n)) ? `${(Number(n) * 100).toFixed(1)}%` : "0.0%"; }
     function escapeHtml(str){
       return String(str ?? "").replace(/[&<>"']/g, (m) => ({
         "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;"
@@ -798,6 +821,17 @@
       const s = String(value ?? "");
       if (/[",\n]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
       return s;
+    }
+    function loadJson(key, fallback){
+      try {
+        const raw = localStorage.getItem(key);
+        return raw ? JSON.parse(raw) : fallback;
+      } catch(e){
+        return fallback;
+      }
+    }
+    function saveJson(key, value){
+      localStorage.setItem(key, JSON.stringify(value));
     }
 
     function parseCSV(text){
@@ -848,27 +882,12 @@
       return `PV::${norm(r.product)}::${norm(r.variant)}`;
     }
 
-    function loadJson(key, fallback){
-      try {
-        const raw = localStorage.getItem(key);
-        return raw ? JSON.parse(raw) : fallback;
-      } catch(e){
-        return fallback;
-      }
-    }
-
-    function saveJson(key, value){
-      localStorage.setItem(key, JSON.stringify(value));
-    }
-
     function loadTags(){ return loadJson(TAGS_KEY, {}); }
     function saveTags(v){ saveJson(TAGS_KEY, v || {}); }
-
     function getTag(row){
       const tags = loadTags();
       return tags[rowKeyFor(row)] || null;
     }
-
     function setTag(row, driver, pctOverride){
       const tags = loadTags();
       tags[rowKeyFor(row)] = {
@@ -883,30 +902,34 @@
       const map = loadJson(EXISTING_OVERRIDES_KEY, {});
       return map[rowKeyFor(row)] ?? "";
     }
-
     function setExistingOverride(row, value){
       const map = loadJson(EXISTING_OVERRIDES_KEY, {});
       map[rowKeyFor(row)] = value === "" ? "" : Number(value);
       saveJson(EXISTING_OVERRIDES_KEY, map);
     }
 
-    function loadNewItems(){
-      return loadJson(NEW_ITEMS_KEY, []);
-    }
-
-    function saveNewItems(items){
-      saveJson(NEW_ITEMS_KEY, items || []);
-    }
-
+    function loadNewItems(){ return loadJson(NEW_ITEMS_KEY, []); }
+    function saveNewItems(items){ saveJson(NEW_ITEMS_KEY, items || []); }
     function getNewOverride(id){
       const map = loadJson(NEW_OVERRIDES_KEY, {});
       return map[id] ?? "";
     }
-
     function setNewOverride(id, value){
       const map = loadJson(NEW_OVERRIDES_KEY, {});
       map[id] = value === "" ? "" : Number(value);
       saveJson(NEW_OVERRIDES_KEY, map);
+    }
+
+    function loadEventItems(){ return loadJson(EVENT_ITEMS_KEY, []); }
+    function saveEventItems(items){ saveJson(EVENT_ITEMS_KEY, items || []); }
+    function getEventOverride(id){
+      const map = loadJson(EVENT_OVERRIDES_KEY, {});
+      return map[id] ?? "";
+    }
+    function setEventOverride(id, value){
+      const map = loadJson(EVENT_OVERRIDES_KEY, {});
+      map[id] = value === "" ? "" : Number(value);
+      saveJson(EVENT_OVERRIDES_KEY, map);
     }
 
     function driverLabel(code){
@@ -927,7 +950,7 @@
       const driver = tag?.driver || "none";
       const pct = (tag && tag.pct_override !== null && Number.isFinite(Number(tag.pct_override))) ? Number(tag.pct_override) : null;
       if (driver === "none") return `<span class="badge">—</span>`;
-      return `<span class="badge">${escapeHtml(driverLabel(driver))}${pct !== null ? ` • +${pct}%` : ""}</span>`;
+      return `<span class="badge badge-accent">${escapeHtml(driverLabel(driver))}${pct !== null ? ` • +${pct}%` : ""}</span>`;
     }
 
     function getInputs(){
@@ -980,8 +1003,6 @@
         agg.qty_90d = Math.max(num(agg.qty_90d), num(r.qty_90d));
         agg.qty_120d = Math.max(num(agg.qty_120d), num(r.qty_120d));
         agg.avg_day = Math.max(num(agg.avg_day), num(r.avg_day));
-        agg.avg_day_90 = Math.max(num(agg.avg_day_90), num(r.avg_day_90));
-        agg.avg_day_120 = Math.max(num(agg.avg_day_120), num(r.avg_day_120));
         if (!agg.product && r.product) agg.product = r.product;
         if (!agg.variant && r.variant) agg.variant = r.variant;
         if (!agg.product_type && r.product_type) agg.product_type = r.product_type;
@@ -1042,13 +1063,38 @@
       return 0;
     }
 
-    function classifyExistingBuyType(row, recommendedBuy, projectedEnding, riskDays){
-      const tag = getTag(row);
-      const driver = tag?.driver || "none";
-      if (driver !== "none" && driver !== "core" && recommendedBuy > 0) return "Growth";
-      if (recommendedBuy > 0) return "Restock";
-      if (num(row.days_oos) > 0 && num(row.days_oos) <= riskDays) return "Watch";
-      return "Hold";
+    function confidenceForRestock(row, systemQty){
+      const sold30 = num(row.qty_30d);
+      const sold90 = num(row.qty_90d);
+      const avg = num(row.avg_day);
+      const onHand = num(row.avail_qty);
+      const days = num(row.days_oos);
+
+      let score = 0;
+      if (sold30 >= 20) score += 2;
+      else if (sold30 >= 8) score += 1;
+
+      if (sold90 >= 40) score += 2;
+      else if (sold90 >= 15) score += 1;
+
+      if (avg > 0) score += 1;
+      if (days > 0 && days <= 14) score += 2;
+      else if (days > 0 && days <= 30) score += 1;
+
+      if (systemQty > 0 && onHand <= sold30) score += 1;
+
+      if (score >= 6) return { label: "High", cls: "badge-good" };
+      if (score >= 3) return { label: "Medium", cls: "badge-warn" };
+      return { label: "Low", cls: "badge" };
+    }
+
+    function proofTextForRestock(row, projectedDemandUnits){
+      const bits = [];
+      if (num(row.qty_30d) > 0) bits.push(`${fmtInt(row.qty_30d)} sold 30d`);
+      if (num(row.days_oos) > 0) bits.push(`${num(row.days_oos).toFixed(0)} days OOS`);
+      if (num(projectedDemandUnits) > 0) bits.push(`${fmtInt(projectedDemandUnits)} proj units`);
+      if (num(row.avail_qty) > 0) bits.push(`${fmtInt(row.avail_qty)} on hand`);
+      return bits.join(" • ") || "Low signal";
     }
 
     function tierMultiplier(tier){
@@ -1141,9 +1187,7 @@
 
     async function loadInventoryRows(){
       const scope = el("inventoryScope").value;
-      const activeTabs = scope === "ALL"
-        ? SHEET_TABS
-        : SHEET_TABS.filter(x => x.label === scope);
+      const activeTabs = scope === "ALL" ? SHEET_TABS : SHEET_TABS.filter(x => x.label === scope);
 
       let allRows = [];
 
@@ -1177,8 +1221,6 @@
             qty_90d: s ? s.qty_90d : 0,
             qty_120d: s ? s.qty_120d : 0,
             avg_day: s ? s.avg_day_30 : num(o[H.avg_day]),
-            avg_day_90: s ? s.avg_day_90 : 0,
-            avg_day_120: s ? s.avg_day_120 : 0,
             days_oos: num(o[H.days_oos])
           };
         });
@@ -1189,7 +1231,7 @@
       state.inventoryRows = collapseInventoryRows(allRows);
     }
 
-    function computeExistingPlan(){
+    function computeRestockRows(){
       const search = safeLower(el("searchBox").value);
       const {
         mixBasis,
@@ -1219,6 +1261,8 @@
         ? explicitProjectedUnits
         : (blendedUnitValue > 0 ? totalProjectedSales / blendedUnitValue : 0);
 
+      state.metricsCtx = { totalProjectedSales, projectedUnitsUsed, explicitProjectedUnits, blendedUnitValue };
+
       const recentTotal = inventoryRows.reduce((s, r) => s + num(r[mixBasis] || 0), 0);
 
       const rows = inventoryRows.map(r => {
@@ -1226,77 +1270,54 @@
         const mixPct = recentTotal > 0 ? recentUnits / recentTotal : 0;
         const effAvgDay = effectiveAvgDay(r, mixBasis, seedAvgDay);
         const growthFactor = growthFactorForRow(r, defaultGrowthPct, strategy);
-
         const projectedDemandUnits = mixPct * projectedUnitsUsed * growthFactor;
         const safetyUnits = effAvgDay * safetyDays;
         const projectedEndingUnits = num(r.avail_qty) - projectedDemandUnits;
 
-        let systemRecommended = Math.max(0, Math.ceil(projectedDemandUnits + safetyUnits - num(r.avail_qty)));
-        if (systemRecommended < minReorder) systemRecommended = 0;
+        let systemQty = Math.max(0, Math.ceil(projectedDemandUnits + safetyUnits - num(r.avail_qty)));
+        if (systemQty < minReorder) systemQty = 0;
 
-        const buyerOverride = getExistingOverride(r);
-        const finalPoQty = buyerOverride === "" ? systemRecommended : Math.max(0, Math.round(Number(buyerOverride)));
+        const buyerQty = getExistingOverride(r);
+        const finalQty = buyerQty === "" ? systemQty : Math.max(0, Math.round(Number(buyerQty)));
 
-        const category = norm(r.product_type) || "Uncategorized";
-        const buyType = classifyExistingBuyType(r, systemRecommended, projectedEndingUnits, riskDays);
-        const plannerNote =
-          buyType === "Growth" ? "Tagged growth item." :
-          buyType === "Restock" ? "Velocity-backed reorder." :
-          buyType === "Watch" ? "Near risk threshold." :
-          "No immediate buy need.";
+        const tag = getTag(r);
+        const driver = tag?.driver || "none";
+        let buyType = "Hold";
+        if (driver !== "none" && driver !== "core" && systemQty > 0) buyType = "Growth";
+        else if (systemQty > 0) buyType = "Restock";
+        else if (num(r.days_oos) > 0 && num(r.days_oos) <= riskDays) buyType = "Watch";
+
+        const confidence = confidenceForRestock(r, systemQty);
+        const proof = proofTextForRestock(r, projectedDemandUnits);
 
         return {
           ...r,
-          category,
+          category: norm(r.product_type) || "Uncategorized",
           recentUnits,
           mixPct,
           projectedDemandUnits,
           projectedEndingUnits,
-          systemRecommended,
-          buyerOverride,
-          finalPoQty,
+          systemQty,
+          buyerQty,
+          finalQty,
           buyType,
-          plannerNote
+          confidence,
+          proof
         };
       }).filter(r => {
         if (!search) return true;
         const hay = `${r.sku} ${r.product} ${r.variant} ${r.category} ${r.vendor}`.toLowerCase();
         return hay.includes(search);
-      }).sort((a,b) => {
-        if (num(b.finalPoQty) !== num(a.finalPoQty)) return num(b.finalPoQty) - num(a.finalPoQty);
-        if (num(b.systemRecommended) !== num(a.systemRecommended)) return num(b.systemRecommended) - num(a.systemRecommended);
+      }).sort((a, b) => {
+        if (num(b.finalQty) !== num(a.finalQty)) return num(b.finalQty) - num(a.finalQty);
+        if (num(b.systemQty) !== num(a.systemQty)) return num(b.systemQty) - num(a.systemQty);
         return num(b.projectedDemandUnits) - num(a.projectedDemandUnits);
       });
 
-      const byCat = new Map();
-      for (const r of rows){
-        if (!byCat.has(r.category)){
-          byCat.set(r.category, {
-            category: r.category,
-            rows: 0,
-            onHand: 0,
-            projectedDemand: 0,
-            systemRecommended: 0,
-            finalPoQty: 0,
-            needBuy: 0
-          });
-        }
-        const c = byCat.get(r.category);
-        c.rows += 1;
-        c.onHand += num(r.avail_qty);
-        c.projectedDemand += num(r.projectedDemandUnits);
-        c.systemRecommended += num(r.systemRecommended);
-        c.finalPoQty += num(r.finalPoQty);
-        if (num(r.finalPoQty) > 0 || num(r.systemRecommended) > 0) c.needBuy += 1;
-      }
-
-      state.existingRows = rows;
-      state.existingCategoryRows = Array.from(byCat.values()).sort((a,b) => b.finalPoQty - a.finalPoQty);
-
-      return { totalProjectedSales, projectedUnitsUsed, explicitProjectedUnits, blendedUnitValue };
+      state.restockRows = rows;
     }
 
-    function computeNewPlan(){
+    function computeNewRows(){
       const items = loadNewItems();
       const inventoryRows = state.inventoryRows || [];
 
@@ -1312,7 +1333,7 @@
           benchmarkWeeklyUnits = avg30 / 4.2857;
         }
 
-        const systemIntroQty = Math.max(
+        const systemQty = Math.max(
           0,
           Math.ceil(
             benchmarkWeeklyUnits *
@@ -1323,62 +1344,75 @@
           )
         );
 
-        const buyerOverride = getNewOverride(item.id);
-        const finalPoQty = buyerOverride === "" ? systemIntroQty : Math.max(0, Math.round(Number(buyerOverride)));
+        const buyerQty = getNewOverride(item.id);
+        const finalQty = buyerQty === "" ? systemQty : Math.max(0, Math.round(Number(buyerQty)));
 
         return {
           ...item,
           benchmarkWeeklyUnits,
-          systemIntroQty,
-          buyerOverride,
-          finalPoQty
+          systemQty,
+          buyerQty,
+          finalQty
         };
       });
 
-      const byCat = new Map();
-      for (const r of rows){
-        const cat = norm(r.category) || "Uncategorized";
-        if (!byCat.has(cat)){
-          byCat.set(cat, { category: cat, rows: 0, systemIntroQty: 0, finalPoQty: 0 });
-        }
-        const c = byCat.get(cat);
-        c.rows += 1;
-        c.systemIntroQty += num(r.systemIntroQty);
-        c.finalPoQty += num(r.finalPoQty);
-      }
-
       state.newRows = rows;
-      state.newCategoryRows = Array.from(byCat.values()).sort((a,b) => b.finalPoQty - a.finalPoQty);
     }
 
-    function renderTopMetrics(ctx){
-      const existingRec = state.existingRows.reduce((s, r) => s + num(r.systemRecommended), 0);
-      const newRec = state.newRows.reduce((s, r) => s + num(r.systemIntroQty), 0);
-      const finalPo = state.existingRows.reduce((s, r) => s + num(r.finalPoQty), 0)
-        + state.newRows.reduce((s, r) => s + num(r.finalPoQty), 0);
+    function computeEventRows(){
+      const items = loadEventItems();
+      const rows = items.map(item => {
+        const fixedUnits = num(item.fixed_units);
+        const upliftPct = num(item.uplift_pct);
+        const systemQty = item.mode === "fixed" ? fixedUnits : Math.ceil((fixedUnits || 0) * (1 + upliftPct / 100));
+        const buyerQty = getEventOverride(item.id);
+        const finalQty = buyerQty === "" ? systemQty : Math.max(0, Math.round(Number(buyerQty)));
 
-      const catSet = new Set([
-        ...state.existingCategoryRows.map(x => x.category),
-        ...state.newCategoryRows.map(x => x.category)
-      ]);
+        return {
+          ...item,
+          systemQty,
+          buyerQty,
+          finalQty
+        };
+      });
 
-      setText("kSales", fmtMoney(ctx.totalProjectedSales));
-      setText("kUnits", fmtInt(ctx.projectedUnitsUsed));
-      setText("kUnitsSub", ctx.explicitProjectedUnits > 0
+      state.eventRows = rows;
+    }
+
+    function renderTopMetrics(){
+      const activeRows = state.activeTab === "restock"
+        ? state.restockRows
+        : state.activeTab === "new"
+          ? state.newRows
+          : state.eventRows;
+
+      const systemRec = activeRows.reduce((s, r) => s + num(r.systemQty), 0);
+      const finalPo = activeRows.reduce((s, r) => s + num(r.finalQty), 0);
+
+      setText("kSales", fmtMoney(state.metricsCtx.totalProjectedSales));
+      setText("kUnits", fmtInt(state.metricsCtx.projectedUnitsUsed));
+      setText("kUnitsSub", state.metricsCtx.explicitProjectedUnits > 0
         ? "Using explicit projected units from projections"
         : "Estimated from projected sales ÷ blended current unit value");
-      setText("kExistingRec", fmtInt(existingRec));
-      setText("kNewRec", fmtInt(newRec));
+      setText("kSystemRec", fmtInt(systemRec));
       setText("kFinalPo", fmtInt(finalPo));
-      setText("kCats", fmtInt(catSet.size));
     }
 
-    function renderProjectionNotes(rows){
-      if (!rows.length){
+    function renderProofBox(){
+      setHtml("proofBox", `
+        <div class="status">Projected sales: <b class="mono">${fmtMoney(state.metricsCtx.totalProjectedSales)}</b></div>
+        <div class="status">Explicit projected units: <b class="mono">${fmtInt(state.metricsCtx.explicitProjectedUnits)}</b></div>
+        <div class="status">Units used in model: <b class="mono">${fmtInt(state.metricsCtx.projectedUnitsUsed)}</b></div>
+        <div class="status">Fallback blended unit value: <b class="mono">${fmtMoney(state.metricsCtx.blendedUnitValue)}</b></div>
+      `);
+    }
+
+    function renderProjectionNotes(){
+      if (!state.projectionRows.length){
         setHtml("projectionNotes", `<div class="empty-state">No projection notes loaded.</div>`);
         return;
       }
-      const notes = rows.filter(r => norm(r.notes)).map(r => `
+      const notes = state.projectionRows.filter(r => norm(r.notes)).map(r => `
         <div class="status">
           <div style="font-weight:700;" class="mono">${escapeHtml(r.projection_date)}</div>
           <div style="margin-top:6px;">${escapeHtml(r.notes)}</div>
@@ -1387,115 +1421,63 @@
       setHtml("projectionNotes", notes.length ? notes.join("") : `<div class="empty-state">No notes on current projection rows.</div>`);
     }
 
-    function renderMathBox(ctx){
-      const mixLabel = {
-        qty_7d: "7 day units",
-        qty_30d: "30 day units",
-        qty_90d: "90 day units",
-        qty_120d: "120 day units"
-      }[ctx.mixBasis] || ctx.mixBasis;
-
-      setHtml("mathBox", `
-        <div class="status">Projection sales: <b class="mono">${fmtMoney(ctx.totalProjectedSales)}</b></div>
-        <div class="status">Explicit projected units: <b class="mono">${fmtInt(ctx.explicitProjectedUnits)}</b></div>
-        <div class="status">Units used for existing SKU planner: <b class="mono">${fmtInt(ctx.projectedUnitsUsed)}</b></div>
-        <div class="status">Fallback blend if no units entered: <b class="mono">${fmtMoney(ctx.blendedUnitValue)}</b> per unit</div>
-        <div class="status">Mix basis: <b>${escapeHtml(mixLabel)}</b></div>
-        <div class="status">New intro engine: <b>benchmark weekly units × intro weeks × tier × launch × rollout</b></div>
-      `);
-    }
-
-    function existingTypeBadge(type){
-      if (type === "Restock") return `<span class="badge" style="border-color: color-mix(in oklab, var(--good) 30%, var(--border)); color: var(--good);">Restock</span>`;
-      if (type === "Growth") return `<span class="badge" style="border-color: color-mix(in oklab, var(--accent) 30%, var(--border)); color: var(--accent);">Growth</span>`;
-      if (type === "Watch") return `<span class="badge">Watch</span>`;
+    function restockTypeBadge(type){
+      if (type === "Restock") return `<span class="badge badge-good">Restock</span>`;
+      if (type === "Growth") return `<span class="badge badge-accent">Growth</span>`;
+      if (type === "Watch") return `<span class="badge badge-warn">Watch</span>`;
       return `<span class="badge">Hold</span>`;
     }
 
-    function renderExistingTables(){
-      if (!state.existingCategoryRows.length){
-        setHtml("existingCategoryBody", `<tr><td colspan="7" class="empty-state">No category rows.</td></tr>`);
-      } else {
-        setHtml("existingCategoryBody", state.existingCategoryRows.map(c => `
-          <tr>
-            <td style="font-weight:700;">${escapeHtml(c.category)}</td>
-            <td class="mono" style="text-align:right;">${fmtInt(c.rows)}</td>
-            <td class="mono" style="text-align:right;">${fmtInt(c.onHand)}</td>
-            <td class="mono" style="text-align:right;">${fmtInt(c.projectedDemand)}</td>
-            <td class="mono" style="text-align:right;">${fmtInt(c.systemRecommended)}</td>
-            <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(c.finalPoQty)}</td>
-            <td>${c.needBuy > 0 ? `<span class="badge">${fmtInt(c.needBuy)} buy row(s)</span>` : `<span class="badge">Stable</span>`}</td>
-          </tr>
-        `).join(""));
-      }
-
-      if (!state.existingRows.length){
-        setHtml("existingBody", `<tr><td colspan="15" class="empty-state">No existing SKU rows.</td></tr>`);
+    function renderRestock(){
+      if (!state.restockRows.length){
+        setHtml("restockBody", `<tr><td colspan="13" class="empty-state">No restock rows.</td></tr>`);
         return;
       }
 
-      setHtml("existingBody", state.existingRows.map(r => `
+      setHtml("restockBody", state.restockRows.map(r => `
         <tr>
-          <td><input type="checkbox" data-existing-id="${escapeHtml(r._id)}" ${state.selectedExisting.has(r._id) ? "checked" : ""} /></td>
+          <td><input type="checkbox" data-restock-id="${escapeHtml(r._id)}" ${state.selectedRestock.has(r._id) ? "checked" : ""} /></td>
           <td class="mono" style="font-weight:700;">${escapeHtml(r.sku || "—")}</td>
           <td>${escapeHtml(r.product || "—")}</td>
           <td>${escapeHtml(r.category)}</td>
-          <td>${existingTypeBadge(r.buyType)}</td>
-          <td>${driverBadge(r)}</td>
-          <td class="mono" style="text-align:right;">${fmtInt(r.recentUnits)}</td>
-          <td class="mono" style="text-align:right;">${fmtPct(r.mixPct)}</td>
+          <td>${restockTypeBadge(r.buyType)}</td>
+          <td><span class="badge ${escapeHtml(r.confidence.cls)}">${escapeHtml(r.confidence.label)}</span></td>
+          <td style="max-width:280px; white-space:normal; line-height:1.35;">${escapeHtml(r.proof)}</td>
           <td class="mono" style="text-align:right;">${fmtInt(r.avail_qty)}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(r.recentUnits)}</td>
           <td class="mono" style="text-align:right;">${fmtInt(r.projectedDemandUnits)}</td>
-          <td class="mono" style="text-align:right;">${fmtInt(r.projectedEndingUnits)}</td>
-          <td class="mono" style="text-align:right;">${fmtInt(r.systemRecommended)}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(r.systemQty)}</td>
           <td class="mono" style="text-align:right;">
-            <input type="number" min="0" step="1" class="field mono existing-override" data-override-id="${escapeHtml(r._id)}"
-              value="${r.buyerOverride === '' ? '' : escapeHtml(String(r.buyerOverride))}" style="width:96px;" />
+            <input type="number" min="0" step="1" class="field mono restock-override" data-id="${escapeHtml(r._id)}"
+              value="${r.buyerQty === '' ? '' : escapeHtml(String(r.buyerQty))}" style="width:90px;" />
           </td>
-          <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(r.finalPoQty)}</td>
-          <td style="max-width:260px; white-space:normal; line-height:1.35;">${escapeHtml(r.plannerNote)}</td>
+          <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(r.finalQty)}</td>
         </tr>
       `).join(""));
 
-      document.querySelectorAll('input[data-existing-id]').forEach(chk => {
+      document.querySelectorAll('input[data-restock-id]').forEach(chk => {
         chk.addEventListener("change", (e) => {
-          const id = e.target.getAttribute("data-existing-id");
-          if (e.target.checked) state.selectedExisting.add(id);
-          else state.selectedExisting.delete(id);
-          syncSelectAll();
+          const id = e.target.getAttribute("data-restock-id");
+          if (e.target.checked) state.selectedRestock.add(id);
+          else state.selectedRestock.delete(id);
+          renderTray();
         });
       });
 
-      document.querySelectorAll('.existing-override').forEach(inp => {
+      document.querySelectorAll('.restock-override').forEach(inp => {
         inp.addEventListener("change", (e) => {
-          const id = e.target.getAttribute("data-override-id");
-          const row = state.existingRows.find(x => x._id === id);
+          const id = e.target.getAttribute("data-id");
+          const row = state.restockRows.find(x => x._id === id);
           if (!row) return;
           setExistingOverride(row, e.target.value);
           recomputeAndRender();
         });
       });
-
-      syncSelectAll();
     }
 
-    function renderNewTables(){
-      if (!state.newCategoryRows.length){
-        setHtml("newCategoryBody", `<tr><td colspan="5" class="empty-state">No new intro plan yet.</td></tr>`);
-      } else {
-        setHtml("newCategoryBody", state.newCategoryRows.map(c => `
-          <tr>
-            <td style="font-weight:700;">${escapeHtml(c.category)}</td>
-            <td class="mono" style="text-align:right;">${fmtInt(c.rows)}</td>
-            <td class="mono" style="text-align:right;">${fmtInt(c.systemIntroQty)}</td>
-            <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(c.finalPoQty)}</td>
-            <td><span class="badge">${fmtInt(c.rows)} intro row(s)</span></td>
-          </tr>
-        `).join(""));
-      }
-
+    function renderNew(){
       if (!state.newRows.length){
-        setHtml("newBody", `<tr><td colspan="13" class="empty-state">Add new item rows to start intro planning.</td></tr>`);
+        setHtml("newBody", `<tr><td colspan="12" class="empty-state">Add a new item row to begin.</td></tr>`);
         return;
       }
 
@@ -1529,7 +1511,6 @@
               <option value="standard" ${safeLower(r.launch_type) === 'standard' ? 'selected' : ''}>Standard</option>
               <option value="soft" ${safeLower(r.launch_type) === 'soft' ? 'selected' : ''}>Soft</option>
               <option value="promo" ${safeLower(r.launch_type) === 'promo' ? 'selected' : ''}>Promo</option>
-              <option value="wholesale" ${safeLower(r.launch_type) === 'wholesale' ? 'selected' : ''}>Wholesale</option>
             </select>
           </td>
           <td>
@@ -1537,23 +1518,19 @@
               <option value="online only" ${safeLower(r.rollout) === 'online only' ? 'selected' : ''}>Online Only</option>
               <option value="limited" ${safeLower(r.rollout) === 'limited' ? 'selected' : ''}>Limited</option>
               <option value="full" ${safeLower(r.rollout) === 'full' ? 'selected' : ''}>Full</option>
-              <option value="full fleet" ${safeLower(r.rollout) === 'full fleet' ? 'selected' : ''}>Full Fleet</option>
             </select>
           </td>
           <td class="mono" style="text-align:right;">
             <input type="number" min="1" step="1" class="field mono new-field" data-id="${escapeHtml(r.id)}" data-key="intro_weeks"
-              value="${escapeHtml(String(r.intro_weeks || 6))}" style="width:92px;" />
+              value="${escapeHtml(String(r.intro_weeks || 6))}" style="width:90px;" />
           </td>
           <td class="mono" style="text-align:right;">${Number(r.benchmarkWeeklyUnits || 0).toFixed(1)}</td>
-          <td class="mono" style="text-align:right;">${fmtInt(r.systemIntroQty)}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(r.systemQty)}</td>
           <td class="mono" style="text-align:right;">
             <input type="number" min="0" step="1" class="field mono new-override" data-id="${escapeHtml(r.id)}"
-              value="${r.buyerOverride === '' ? '' : escapeHtml(String(r.buyerOverride))}" style="width:96px;" />
+              value="${r.buyerQty === '' ? '' : escapeHtml(String(r.buyerQty))}" style="width:90px;" />
           </td>
-          <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(r.finalPoQty)}</td>
-          <td>
-            <textarea class="textarea new-field" data-id="${escapeHtml(r.id)}" data-key="notes" style="min-height:56px;">${escapeHtml(r.notes || '')}</textarea>
-          </td>
+          <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(r.finalQty)}</td>
         </tr>
       `).join(""));
 
@@ -1562,7 +1539,7 @@
           const id = e.target.getAttribute("data-new-id");
           if (e.target.checked) state.selectedNew.add(id);
           else state.selectedNew.delete(id);
-          syncSelectAll();
+          renderTray();
         });
       });
 
@@ -1586,82 +1563,281 @@
           recomputeAndRender();
         });
       });
-
-      syncSelectAll();
     }
 
-    function syncSelectAll(){
-      const existingIds = state.existingRows.map(r => r._id);
-      const newIds = state.newRows.map(r => r.id);
+    function renderEvent(){
+      if (!state.eventRows.length){
+        setHtml("eventBody", `<tr><td colspan="11" class="empty-state">Add an event override row to begin.</td></tr>`);
+        return;
+      }
 
-      el("selectAllExisting").checked = existingIds.length > 0 && existingIds.every(id => state.selectedExisting.has(id));
-      el("selectAllNew").checked = newIds.length > 0 && newIds.every(id => state.selectedNew.has(id));
+      setHtml("eventBody", state.eventRows.map(r => `
+        <tr>
+          <td><input type="checkbox" data-event-id="${escapeHtml(r.id)}" ${state.selectedEvent.has(r.id) ? "checked" : ""} /></td>
+          <td><input type="text" class="field event-field" data-id="${escapeHtml(r.id)}" data-key="event_name" value="${escapeHtml(r.event_name || '')}" /></td>
+          <td><input type="text" class="field event-field" data-id="${escapeHtml(r.id)}" data-key="location" value="${escapeHtml(r.location || '')}" /></td>
+          <td><input type="text" class="field event-field" data-id="${escapeHtml(r.id)}" data-key="target" value="${escapeHtml(r.target || '')}" /></td>
+          <td>
+            <select class="select event-field" data-id="${escapeHtml(r.id)}" data-key="mode">
+              <option value="fixed" ${safeLower(r.mode) === 'fixed' ? 'selected' : ''}>Fixed</option>
+              <option value="uplift" ${safeLower(r.mode) === 'uplift' ? 'selected' : ''}>Uplift</option>
+            </select>
+          </td>
+          <td class="mono" style="text-align:right;">
+            <input type="number" min="0" step="1" class="field mono event-field" data-id="${escapeHtml(r.id)}" data-key="fixed_units"
+              value="${escapeHtml(String(r.fixed_units || 0))}" style="width:90px;" />
+          </td>
+          <td class="mono" style="text-align:right;">
+            <input type="number" min="0" step="1" class="field mono event-field" data-id="${escapeHtml(r.id)}" data-key="uplift_pct"
+              value="${escapeHtml(String(r.uplift_pct || 0))}" style="width:90px;" />
+          </td>
+          <td class="mono" style="text-align:right;">${fmtInt(r.systemQty)}</td>
+          <td class="mono" style="text-align:right;">
+            <input type="number" min="0" step="1" class="field mono event-override" data-id="${escapeHtml(r.id)}"
+              value="${r.buyerQty === '' ? '' : escapeHtml(String(r.buyerQty))}" style="width:90px;" />
+          </td>
+          <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(r.finalQty)}</td>
+          <td><textarea class="textarea event-field" data-id="${escapeHtml(r.id)}" data-key="note" style="min-height:56px;">${escapeHtml(r.note || '')}</textarea></td>
+        </tr>
+      `).join(""));
+
+      document.querySelectorAll('input[data-event-id]').forEach(chk => {
+        chk.addEventListener("change", (e) => {
+          const id = e.target.getAttribute("data-event-id");
+          if (e.target.checked) state.selectedEvent.add(id);
+          else state.selectedEvent.delete(id);
+          renderTray();
+        });
+      });
+
+      document.querySelectorAll('.event-field').forEach(inp => {
+        inp.addEventListener("change", (e) => {
+          const id = e.target.getAttribute("data-id");
+          const key = e.target.getAttribute("data-key");
+          const items = loadEventItems();
+          const idx = items.findIndex(x => String(x.id) === String(id));
+          if (idx < 0) return;
+          items[idx][key] = e.target.value;
+          saveEventItems(items);
+          recomputeAndRender();
+        });
+      });
+
+      document.querySelectorAll('.event-override').forEach(inp => {
+        inp.addEventListener("change", (e) => {
+          const id = e.target.getAttribute("data-id");
+          setEventOverride(id, e.target.value);
+          recomputeAndRender();
+        });
+      });
     }
 
-    function renderAll(ctx){
-      renderTopMetrics(ctx);
-      renderProjectionNotes(state.projectionRows);
-      renderMathBox(ctx);
-      renderExistingTables();
-      renderNewTables();
+    function renderTray(){
+      let selected = 0, system = 0, final = 0;
+
+      if (state.activeTab === "restock"){
+        const rows = state.restockRows.filter(r => state.selectedRestock.has(r._id));
+        selected = rows.length;
+        system = rows.reduce((s, r) => s + num(r.systemQty), 0);
+        final = rows.reduce((s, r) => s + num(r.finalQty), 0);
+      } else if (state.activeTab === "new"){
+        const rows = state.newRows.filter(r => state.selectedNew.has(r.id));
+        selected = rows.length;
+        system = rows.reduce((s, r) => s + num(r.systemQty), 0);
+        final = rows.reduce((s, r) => s + num(r.finalQty), 0);
+      } else {
+        const rows = state.eventRows.filter(r => state.selectedEvent.has(r.id));
+        selected = rows.length;
+        system = rows.reduce((s, r) => s + num(r.systemQty), 0);
+        final = rows.reduce((s, r) => s + num(r.finalQty), 0);
+      }
+
+      setText("traySelected", fmtInt(selected));
+      setText("traySystem", fmtInt(system));
+      setText("trayFinal", fmtInt(final));
+    }
+
+    function renderAll(){
+      renderTopMetrics();
+      renderProofBox();
+      renderProjectionNotes();
+      renderRestock();
+      renderNew();
+      renderEvent();
+      renderTray();
       updateDraftPeek();
-      setHtml("statusPill", `<span class="dot"></span>Plan refreshed`);
+      setHtml("statusPill", `<span class="dot"></span>Refreshed`);
     }
 
     function recomputeAndRender(){
-      const existingCtx = computeExistingPlan();
-      computeNewPlan();
-      renderAll(existingCtx);
+      computeRestockRows();
+      computeNewRows();
+      computeEventRows();
+      renderAll();
     }
 
-    function exportCsv(){
-      const existingHeaders = ["section","sku","product","category","buy_type","driver","recent_units","mix_pct","on_hand","projected_demand_units","projected_ending_units","system_recommended","buyer_override","final_po_qty","notes"];
-      const existingRows = state.existingRows.map(r => ({
-        section: "existing",
-        sku: r.sku,
-        product: r.product,
-        category: r.category,
-        buy_type: r.buyType,
-        driver: getTag(r)?.driver || "",
-        recent_units: r.recentUnits,
-        mix_pct: (r.mixPct * 100).toFixed(2),
-        on_hand: r.avail_qty,
-        projected_demand_units: Number(r.projectedDemandUnits).toFixed(2),
-        projected_ending_units: Number(r.projectedEndingUnits).toFixed(2),
-        system_recommended: r.systemRecommended,
-        buyer_override: r.buyerOverride === "" ? "" : r.buyerOverride,
-        final_po_qty: r.finalPoQty,
-        notes: r.plannerNote
-      }));
+    function addNewItemRow(){
+      const items = loadNewItems();
+      items.push({
+        id: `NEW::${Date.now()}::${Math.random().toString(36).slice(2,8)}`,
+        product_name: "",
+        category: "",
+        comparable_sku: "",
+        tier: "core",
+        launch_type: "standard",
+        rollout: "full",
+        intro_weeks: 6
+      });
+      saveNewItems(items);
+      recomputeAndRender();
+      setActiveTab("new");
+    }
 
-      const newHeaders = ["section","product_name","category","comparable_sku","tier","launch_type","rollout","intro_weeks","benchmark_weekly_units","system_intro_qty","buyer_override","final_po_qty","notes"];
-      const newRows = state.newRows.map(r => ({
-        section: "new",
-        product_name: r.product_name,
-        category: r.category,
-        comparable_sku: r.comparable_sku,
-        tier: r.tier,
-        launch_type: r.launch_type,
-        rollout: r.rollout,
-        intro_weeks: r.intro_weeks,
-        benchmark_weekly_units: Number(r.benchmarkWeeklyUnits || 0).toFixed(2),
-        system_intro_qty: r.systemIntroQty,
-        buyer_override: r.buyerOverride === "" ? "" : r.buyerOverride,
-        final_po_qty: r.finalPoQty,
-        notes: r.notes || ""
-      }));
+    function addEventRow(){
+      const items = loadEventItems();
+      items.push({
+        id: `EVENT::${Date.now()}::${Math.random().toString(36).slice(2,8)}`,
+        event_name: "",
+        location: "",
+        target: "",
+        mode: "fixed",
+        fixed_units: 0,
+        uplift_pct: 0,
+        note: ""
+      });
+      saveEventItems(items);
+      recomputeAndRender();
+      setActiveTab("event");
+    }
 
-      const lines = [];
-      lines.push(existingHeaders.join(","));
-      existingRows.forEach(o => lines.push(existingHeaders.map(h => csvEscape(o[h])).join(",")));
-      lines.push("");
-      lines.push(newHeaders.join(","));
-      newRows.forEach(o => lines.push(newHeaders.map(h => csvEscape(o[h])).join(",")));
+    function setActiveTab(tab){
+      state.activeTab = tab;
+      el("tabRestockBtn").classList.toggle("active", tab === "restock");
+      el("tabNewBtn").classList.toggle("active", tab === "new");
+      el("tabEventBtn").classList.toggle("active", tab === "event");
 
-      const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+      el("restockSection").classList.toggle("hidden", tab !== "restock");
+      el("newSection").classList.toggle("hidden", tab !== "new");
+      el("eventSection").classList.toggle("hidden", tab !== "event");
+      renderTray();
+      renderTopMetrics();
+    }
+
+    async function refreshAll(){
+      setHtml("statusPill", `<span class="dot"></span>Loading…`);
+      await loadProjectionRows();
+      await loadInventoryRows();
+      recomputeAndRender();
+    }
+
+    function exportSelectedCsv(){
+      let headers = [], rows = [];
+
+      if (state.activeTab === "restock"){
+        headers = ["section","sku","product","category","buy_type","confidence","proof","on_hand","recent_units","projected_demand","system_qty","buyer_qty","final_qty"];
+        rows = state.restockRows
+          .filter(r => state.selectedRestock.has(r._id))
+          .map(r => ({
+            section: "restock",
+            sku: r.sku,
+            product: r.product,
+            category: r.category,
+            buy_type: r.buyType,
+            confidence: r.confidence.label,
+            proof: r.proof,
+            on_hand: r.avail_qty,
+            recent_units: r.recentUnits,
+            projected_demand: Number(r.projectedDemandUnits).toFixed(2),
+            system_qty: r.systemQty,
+            buyer_qty: r.buyerQty === "" ? "" : r.buyerQty,
+            final_qty: r.finalQty
+          }));
+      } else if (state.activeTab === "new"){
+        headers = ["section","product_name","category","comparable_sku","tier","launch_type","rollout","intro_weeks","benchmark_weekly_units","system_qty","buyer_qty","final_qty"];
+        rows = state.newRows
+          .filter(r => state.selectedNew.has(r.id))
+          .map(r => ({
+            section: "new",
+            product_name: r.product_name,
+            category: r.category,
+            comparable_sku: r.comparable_sku,
+            tier: r.tier,
+            launch_type: r.launch_type,
+            rollout: r.rollout,
+            intro_weeks: r.intro_weeks,
+            benchmark_weekly_units: Number(r.benchmarkWeeklyUnits || 0).toFixed(2),
+            system_qty: r.systemQty,
+            buyer_qty: r.buyerQty === "" ? "" : r.buyerQty,
+            final_qty: r.finalQty
+          }));
+      } else {
+        headers = ["section","event_name","location","target","mode","fixed_units","uplift_pct","system_qty","buyer_qty","final_qty","note"];
+        rows = state.eventRows
+          .filter(r => state.selectedEvent.has(r.id))
+          .map(r => ({
+            section: "event",
+            event_name: r.event_name,
+            location: r.location,
+            target: r.target,
+            mode: r.mode,
+            fixed_units: r.fixed_units,
+            uplift_pct: r.uplift_pct,
+            system_qty: r.systemQty,
+            buyer_qty: r.buyerQty === "" ? "" : r.buyerQty,
+            final_qty: r.finalQty,
+            note: r.note
+          }));
+      }
+
+      if (!rows.length) return;
+
+      const csv = [headers.join(",")].concat(rows.map(o => headers.map(h => csvEscape(o[h])).join(","))).join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `silo_po_builder_${todayIso()}.csv`;
+      a.download = `silo_po_builder_selected_${todayIso()}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    }
+
+    function exportFullCsv(){
+      const headers = ["section","name","category","target","system_qty","final_qty","note"];
+      const rows = [
+        ...state.restockRows.map(r => ({
+          section: "restock",
+          name: r.product || r.sku,
+          category: r.category,
+          target: r.sku,
+          system_qty: r.systemQty,
+          final_qty: r.finalQty,
+          note: r.proof
+        })),
+        ...state.newRows.map(r => ({
+          section: "new",
+          name: r.product_name,
+          category: r.category,
+          target: r.comparable_sku,
+          system_qty: r.systemQty,
+          final_qty: r.finalQty,
+          note: ""
+        })),
+        ...state.eventRows.map(r => ({
+          section: "event",
+          name: r.event_name,
+          category: "",
+          target: r.target,
+          system_qty: r.systemQty,
+          final_qty: r.finalQty,
+          note: r.note || ""
+        }))
+      ];
+
+      const csv = [headers.join(",")].concat(rows.map(o => headers.map(h => csvEscape(o[h])).join(","))).join("\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `silo_po_builder__${todayIso()}.csv`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1682,81 +1858,64 @@
         setText("draftPeek", "Draft empty.");
         return;
       }
-      const peek = lines.slice(0, 14).map(l => `${l.sku || l.product || "—"} | qty ${num(l.qty)}${l.driver ? " | " + l.driver : ""}`).join("\n");
+      const peek = lines.slice(0, 14).map(l => `${l.sku || l.product || "—"} | qty ${num(l.qty)}`).join("\n");
       setText("draftPeek", lines.length > 14 ? `${peek}\n… +${lines.length - 14} more` : peek);
     }
 
     function addSelectedToDraft(){
       const lines = loadDraft();
       const index = new Map();
-      lines.forEach((l, idx) => index.set(l.sku || l.product, idx));
+      lines.forEach((l, idx) => index.set(`${l.sku || ""}::${l.product || ""}`, idx));
 
-      const poName = norm(el("poName").value) || "PO Builder Draft";
+      const poName = norm(el("poName").value) || "PO Builder  Draft";
       const vendor = norm(el("poVendor").value);
       const eta = norm(el("poEta").value);
 
-      const selectedExistingRows = state.existingRows.filter(r => state.selectedExisting.has(r._id));
-      for (const r of selectedExistingRows){
-        const sku = norm(r.sku) || norm(r.product) || r._id;
-        const qty = num(r.finalPoQty);
-        const tag = getTag(r);
-        const driver = tag?.driver || "none";
-        const driverPct = (tag && tag.pct_override !== null && Number.isFinite(Number(tag.pct_override))) ? Number(tag.pct_override) : "";
-
-        if (index.has(sku)){
-          const i = index.get(sku);
-          lines[i].qty = num(lines[i].qty) + qty;
-        } else {
-          lines.push({
-            po_name: poName,
-            vendor,
-            eta,
-            sku,
-            product: r.product || "",
-            qty,
-            sold_30: r.qty_30d,
-            sold_90: r.qty_90d,
-            avg_day_30: r.avg_day,
-            days_oos: r.days_oos,
-            retail_value_on_hand: r.inv_value,
-            mode_added_from: "po_builder_existing",
-            strategy: el("strategy").value,
-            driver,
-            driver_pct: driverPct
-          });
-          index.set(sku, lines.length - 1);
-        }
-      }
-
-      const selectedNewRows = state.newRows.filter(r => state.selectedNew.has(r.id));
-      for (const r of selectedNewRows){
-        const key = norm(r.product_name) || r.id;
-        const qty = num(r.finalPoQty);
-
+      const pushLine = (key, payload) => {
         if (index.has(key)){
           const i = index.get(key);
-          lines[i].qty = num(lines[i].qty) + qty;
+          lines[i].qty = num(lines[i].qty) + num(payload.qty);
         } else {
-          lines.push({
-            po_name: poName,
-            vendor,
-            eta,
-            sku: "",
-            product: r.product_name || "",
-            qty,
-            sold_30: "",
-            sold_90: "",
-            avg_day_30: "",
-            days_oos: "",
-            retail_value_on_hand: "",
-            mode_added_from: "po_builder_new_intro",
-            strategy: "new_intro",
-            driver: r.tier || "",
-            driver_pct: ""
-          });
+          lines.push(payload);
           index.set(key, lines.length - 1);
         }
-      }
+      };
+
+      state.restockRows.filter(r => state.selectedRestock.has(r._id)).forEach(r => {
+        pushLine(`${r.sku || ""}::${r.product || ""}`, {
+          po_name: poName,
+          vendor,
+          eta,
+          sku: r.sku || "",
+          product: r.product || "",
+          qty: r.finalQty,
+          mode_added_from: "po_builder__restock"
+        });
+      });
+
+      state.newRows.filter(r => state.selectedNew.has(r.id)).forEach(r => {
+        pushLine(`::${r.product_name || ""}`, {
+          po_name: poName,
+          vendor,
+          eta,
+          sku: "",
+          product: r.product_name || "",
+          qty: r.finalQty,
+          mode_added_from: "po_builder__new"
+        });
+      });
+
+      state.eventRows.filter(r => state.selectedEvent.has(r.id)).forEach(r => {
+        pushLine(`EVENT::${r.event_name || ""}`, {
+          po_name: poName,
+          vendor,
+          eta,
+          sku: "",
+          product: r.event_name || "",
+          qty: r.finalQty,
+          mode_added_from: "po_builder__event"
+        });
+      });
 
       saveDraft(lines);
       updateDraftPeek();
@@ -1773,7 +1932,7 @@
       const lines = loadDraft();
       if (!lines.length) return;
 
-      const headers = ["po_name","vendor","eta","sku","product","qty","sold_30","sold_90","avg_day_30","days_oos","retail_value_on_hand","mode_added_from","strategy","driver","driver_pct"];
+      const headers = ["po_name","vendor","eta","sku","product","qty","mode_added_from"];
       const csv = [headers.join(",")].concat(lines.map(o => headers.map(h => csvEscape(o[h])).join(","))).join("\n");
 
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -1783,39 +1942,6 @@
       document.body.appendChild(a);
       a.click();
       a.remove();
-    }
-
-    function addNewItemRow(){
-      const items = loadNewItems();
-      items.push({
-        id: `NEW::${Date.now()}::${Math.random().toString(36).slice(2,8)}`,
-        product_name: "",
-        category: "",
-        comparable_sku: "",
-        tier: "core",
-        launch_type: "standard",
-        rollout: "full",
-        intro_weeks: 6,
-        notes: ""
-      });
-      saveNewItems(items);
-      recomputeAndRender();
-      setActiveTab("new");
-    }
-
-    function setActiveTab(tab){
-      state.activeTab = tab;
-      el("tabExistingBtn").classList.toggle("active", tab === "existing");
-      el("tabNewBtn").classList.toggle("active", tab === "new");
-      el("existingSection").classList.toggle("hidden", tab !== "existing");
-      el("newSection").classList.toggle("hidden", tab !== "new");
-    }
-
-    async function refreshAll(){
-      setHtml("statusPill", `<span class="dot"></span>Loading…`);
-      await loadProjectionRows();
-      await loadInventoryRows();
-      recomputeAndRender();
     }
 
     function bindEvents(){
@@ -1829,7 +1955,8 @@
 
       el("reloadBtn").addEventListener("click", refreshAll);
       el("refreshBtn").addEventListener("click", refreshAll);
-      el("exportBtn").addEventListener("click", exportCsv);
+      el("exportBtn").addEventListener("click", exportFullCsv);
+      el("exportSelectedBtn").addEventListener("click", exportSelectedCsv);
       el("addSelectedBtn").addEventListener("click", addSelectedToDraft);
 
       el("thisMonthBtn").addEventListener("click", () => {
@@ -1855,40 +1982,32 @@
         });
       });
 
-      el("applyTagBtn").addEventListener("click", () => {
-        const driver = prompt("Driver tag: core, hero, new, influencer, wholesale, promo, seasonal", "core");
-        if (!driver) return;
-        const pct = prompt("Optional uplift override %", "");
-
-        state.existingRows
-          .filter(r => state.selectedExisting.has(r._id))
-          .forEach(r => setTag(r, driver, pct));
-        recomputeAndRender();
-      });
-
-      el("clearTagBtn").addEventListener("click", () => {
-        state.existingRows
-          .filter(r => state.selectedExisting.has(r._id))
-          .forEach(r => setTag(r, "none", ""));
-        recomputeAndRender();
-      });
-
-      el("recalcBtn").addEventListener("click", recomputeAndRender);
-
-      el("tabExistingBtn").addEventListener("click", () => setActiveTab("existing"));
-      el("tabNewBtn").addEventListener("click", () => setActiveTab("new"));
       el("addNewRowBtn").addEventListener("click", addNewItemRow);
+      el("addEventRowBtn").addEventListener("click", addEventRow);
 
-      el("selectAllExisting").addEventListener("change", (e) => {
-        if (e.target.checked) state.existingRows.forEach(r => state.selectedExisting.add(r._id));
-        else state.selectedExisting.clear();
-        renderExistingTables();
+      el("tabRestockBtn").addEventListener("click", () => setActiveTab("restock"));
+      el("tabNewBtn").addEventListener("click", () => setActiveTab("new"));
+      el("tabEventBtn").addEventListener("click", () => setActiveTab("event"));
+
+      el("selectAllRestock").addEventListener("change", (e) => {
+        if (e.target.checked) state.restockRows.forEach(r => state.selectedRestock.add(r._id));
+        else state.selectedRestock.clear();
+        renderRestock();
+        renderTray();
       });
 
       el("selectAllNew").addEventListener("change", (e) => {
         if (e.target.checked) state.newRows.forEach(r => state.selectedNew.add(r.id));
         else state.selectedNew.clear();
-        renderNewTables();
+        renderNew();
+        renderTray();
+      });
+
+      el("selectAllEvent").addEventListener("change", (e) => {
+        if (e.target.checked) state.eventRows.forEach(r => state.selectedEvent.add(r.id));
+        else state.selectedEvent.clear();
+        renderEvent();
+        renderTray();
       });
 
       el("viewDraftBtn").addEventListener("click", viewDraft);
@@ -1912,6 +2031,7 @@
     }
 
     async function boot(){
+      if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) return;
       const ok = await authGuard();
       if (!ok) return;
 
@@ -1925,7 +2045,7 @@
       await loadLocations();
       bindEvents();
       updateDraftPeek();
-      setActiveTab("existing");
+      setActiveTab("restock");
     }
 
     boot();
