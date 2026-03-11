@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Silo ERP — PO Builder</title>
+  <title>Silo ERP — New Product Builder</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="/financehub/pages/config.js"></script>
@@ -18,7 +18,7 @@
     :root[data-theme="light"]{
       --bg: #f5f7fb;
       --bg2: #eef2f8;
-      --panel: rgba(255,255,255,.86);
+      --panel: rgba(255,255,255,.88);
       --panel-solid: #ffffff;
       --panel-soft: #f8fafc;
       --border: rgba(15,23,42,.08);
@@ -65,7 +65,8 @@
     }
 
     body.themeable { min-height: 100vh; }
-    .shell { max-width: 1560px; margin: 0 auto; padding: 18px; }
+    .shell { max-width: 1640px; margin: 0 auto; padding: 18px; }
+
     .card, .glass {
       background: var(--panel);
       backdrop-filter: blur(18px);
@@ -212,7 +213,7 @@
 
     .toolbar-grid {
       display:grid;
-      grid-template-columns: 1fr 1fr 1.2fr 1.1fr 1fr auto auto auto;
+      grid-template-columns: 1fr 1fr 1.1fr 1.1fr 1fr auto auto;
       gap:10px;
       align-items:end;
     }
@@ -247,7 +248,7 @@
 
     .layout-grid {
       display:grid;
-      grid-template-columns:minmax(0,1fr) 320px;
+      grid-template-columns:minmax(0,1fr) 360px;
       gap:16px;
       align-items:start;
     }
@@ -263,7 +264,7 @@
       width:100%;
       border-collapse:separate;
       border-spacing:0;
-      min-width:1280px;
+      min-width:1440px;
     }
     thead th {
       position:sticky;
@@ -301,7 +302,6 @@
       font-size:11px;
       font-weight:800;
     }
-
     .badge-good {
       border-color: color-mix(in oklab, var(--good) 30%, var(--border));
       color: var(--good);
@@ -327,7 +327,7 @@
       font-size:13px;
       font-weight:600;
       color:var(--text);
-      line-height: 1.4;
+      line-height: 1.45;
     }
 
     .empty-state {
@@ -410,17 +410,17 @@
 
     <div class="header-row">
       <div>
-        <div class="section-label">Company Buying</div>
-        <h1 class="headline mt-2">PO Builder</h1>
+        <div class="section-label">New Product Planning</div>
+        <h1 class="headline mt-2">New Product Builder</h1>
         <div class="subtle mt-2">
-          Tighter buyer console for restocks, new introductions, and event exceptions — with visible confidence and proof.
+          Style-level planning for new clothing and caps. Restocks stay in inventory.html. This page helps you size new buys without ignoring historical category performance.
         </div>
       </div>
 
       <div class="flex items-center gap-2 flex-wrap">
         <button id="reloadBtn" class="btn">Reload</button>
         <button id="refreshBtn" class="btn btn-primary">Refresh</button>
-        <button id="exportBtn" class="btn">Export CSV</button>
+        <button id="exportBtn" class="btn">Export Full CSV</button>
       </div>
     </div>
 
@@ -448,19 +448,18 @@
         </div>
         <div>
           <label class="section-label mb-2 block">Search</label>
-          <input id="searchBox" type="text" class="field" placeholder="SKU, product, category..." />
+          <input id="searchBox" type="text" class="field" placeholder="Product title or category..." />
         </div>
         <button id="thisMonthBtn" class="btn">This month</button>
         <button id="next30Btn" class="btn">Next 30</button>
-        <button id="addNewRowBtn" class="btn">Add New Item</button>
       </div>
 
       <div class="mt-4 flex items-center gap-2 flex-wrap">
         <div class="seg">
-          <button id="tabRestockBtn" class="active" type="button">Restock</button>
-          <button id="tabNewBtn" type="button">New Intro</button>
-          <button id="tabEventBtn" type="button">Event / Promo</button>
+          <button id="tabStylesBtn" class="active" type="button">Style Builder</button>
+          <button id="tabSizesBtn" type="button">Size Output</button>
         </div>
+        <button id="addStyleBtn" class="btn btn-primary">Add Style</button>
       </div>
 
       <div class="mt-4">
@@ -478,32 +477,36 @@
                 </select>
               </div>
               <div>
-                <label class="section-label mb-2 block">Strategy</label>
-                <select id="strategy" class="select">
-                  <option value="replenish">Replenish</option>
-                  <option value="growth">Growth</option>
-                  <option value="hybrid">Hybrid</option>
-                </select>
+                <label class="section-label mb-2 block">Growth driver %</label>
+                <input id="growthDriverPct" type="number" min="0" step="1" value="20" class="field mono" />
               </div>
               <div>
-                <label class="section-label mb-2 block">Safety days</label>
-                <input id="safetyDays" type="number" min="0" step="1" value="7" class="field mono" />
-              </div>
-              <div>
-                <label class="section-label mb-2 block">Default growth %</label>
-                <input id="defaultGrowthPct" type="number" min="0" step="1" value="20" class="field mono" />
-              </div>
-              <div>
-                <label class="section-label mb-2 block">Seed avg/day for new</label>
-                <input id="seedAvgDay" type="number" min="0" step="0.01" value="0.25" class="field mono" />
-              </div>
-              <div>
-                <label class="section-label mb-2 block">Min reorder</label>
-                <input id="minReorder" type="number" min="0" step="1" value="0" class="field mono" />
-              </div>
-              <div>
-                <label class="section-label mb-2 block">Risk days</label>
+                <label class="section-label mb-2 block">Risk days reference</label>
                 <input id="riskDays" type="number" min="1" step="1" value="14" class="field mono" />
+              </div>
+              <div>
+                <label class="section-label mb-2 block">New category uplift %</label>
+                <input id="newCategoryUpliftPct" type="number" min="0" step="1" value="25" class="field mono" />
+              </div>
+              <div>
+                <label class="section-label mb-2 block">New style floor units</label>
+                <input id="styleFloorUnits" type="number" min="0" step="1" value="24" class="field mono" />
+              </div>
+              <div>
+                <label class="section-label mb-2 block">Cap style floor units</label>
+                <input id="capFloorUnits" type="number" min="0" step="1" value="24" class="field mono" />
+              </div>
+              <div>
+                <label class="section-label mb-2 block">Historical weight %</label>
+                <input id="historicalWeightPct" type="number" min="0" max="100" step="1" value="65" class="field mono" />
+              </div>
+              <div>
+                <label class="section-label mb-2 block">Growth weight %</label>
+                <input id="growthWeightPct" type="number" min="0" max="100" step="1" value="35" class="field mono" />
+              </div>
+              <div>
+                <label class="section-label mb-2 block">Reserve stock %</label>
+                <input id="reservePct" type="number" min="0" step="1" value="10" class="field mono" />
               </div>
             </div>
           </div>
@@ -511,38 +514,43 @@
       </div>
     </div>
 
-    <div class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+    <div class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
       <div class="metric card">
         <div class="label">Projected sales</div>
         <div id="kSales" class="mono value">$0</div>
-        <div class="sub">Top-down demand context</div>
+        <div class="sub">Location planning context</div>
       </div>
       <div class="metric card">
-        <div class="label">Projected units used</div>
+        <div class="label">Projected units</div>
         <div id="kUnits" class="mono value">0</div>
-        <div id="kUnitsSub" class="sub">Units source shown in proof panel</div>
+        <div id="kUnitsSub" class="sub">Explicit units or fallback estimate</div>
       </div>
       <div class="metric card">
-        <div class="label">System recommended</div>
-        <div id="kSystemRec" class="mono value">0</div>
-        <div class="sub">Current tab total</div>
+        <div class="label">Styles planned</div>
+        <div id="kStyles" class="mono value">0</div>
+        <div class="sub">Current builder rows</div>
       </div>
       <div class="metric card">
-        <div class="label">Final PO qty</div>
-        <div id="kFinalPo" class="mono value">0</div>
-        <div class="sub">Override-aware total</div>
+        <div class="label">System units</div>
+        <div id="kSystemUnits" class="mono value">0</div>
+        <div class="sub">Before buyer overrides</div>
+      </div>
+      <div class="metric card">
+        <div class="label">Final units</div>
+        <div id="kFinalUnits" class="mono value">0</div>
+        <div class="sub">After buyer overrides</div>
       </div>
     </div>
 
     <div class="layout-grid mt-4">
       <section>
-        <div id="restockSection" class="space-y-4">
+        <div id="stylesSection" class="space-y-4">
           <div class="card p-4">
             <div class="flex items-start justify-between gap-3 flex-wrap mb-4">
               <div>
-                <div class="section-label">Restock buying</div>
-                <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Existing SKU decisions</div>
-                <div class="subtle mt-1">Focused on what to reorder now and how strong the evidence is.</div>
+                <div class="section-label">Style-level planning</div>
+                <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">New style builder</div>
+                <div class="subtle mt-1">Build by product title first. Then spread into sizes. Category comes from your inventory product_type history.</div>
               </div>
             </div>
 
@@ -550,95 +558,54 @@
               <table>
                 <thead>
                   <tr>
-                    <th style="width:42px;"><input id="selectAllRestock" type="checkbox" /></th>
-                    <th>SKU</th>
-                    <th>Product</th>
+                    <th style="width:42px;"><input id="selectAllStyles" type="checkbox" /></th>
+                    <th>Product Title</th>
                     <th>Category</th>
-                    <th>Buy Type</th>
-                    <th>Confidence</th>
-                    <th>Proof</th>
-                    <th class="text-right">On Hand</th>
-                    <th class="text-right">Recent</th>
-                    <th class="text-right">Proj Demand</th>
-                    <th class="text-right">System</th>
-                    <th class="text-right">Buyer</th>
-                    <th class="text-right">Final</th>
-                  </tr>
-                </thead>
-                <tbody id="restockBody">
-                  <tr><td colspan="13" class="empty-state">Refresh to load restock recommendations.</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <div id="newSection" class="space-y-4 hidden">
-          <div class="card p-4">
-            <div class="flex items-start justify-between gap-3 flex-wrap mb-4">
-              <div>
-                <div class="section-label">New intro</div>
-                <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Initial buy calculator</div>
-                <div class="subtle mt-1">For brand-new items using comparable SKU/category benchmarks.</div>
-              </div>
-            </div>
-
-            <div class="table-wrap scrollbar">
-              <table>
-                <thead>
-                  <tr>
-                    <th style="width:42px;"><input id="selectAllNew" type="checkbox" /></th>
-                    <th>Product</th>
-                    <th>Category</th>
-                    <th>Comparable</th>
-                    <th>Tier</th>
-                    <th>Launch</th>
+                    <th>Comparable Style</th>
+                    <th>Product Family</th>
+                    <th>Spread Template</th>
+                    <th>Launch Type</th>
                     <th>Rollout</th>
                     <th class="text-right">Weeks</th>
-                    <th class="text-right">Benchmark / wk</th>
+                    <th class="text-right">Hist / wk</th>
+                    <th class="text-right">Growth Adj</th>
                     <th class="text-right">System</th>
                     <th class="text-right">Buyer</th>
                     <th class="text-right">Final</th>
                   </tr>
                 </thead>
-                <tbody id="newBody">
-                  <tr><td colspan="12" class="empty-state">Add a new item row to begin.</td></tr>
+                <tbody id="stylesBody">
+                  <tr><td colspan="14" class="empty-state">Add a style row to begin.</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
         </div>
 
-        <div id="eventSection" class="space-y-4 hidden">
+        <div id="sizesSection" class="space-y-4 hidden">
           <div class="card p-4">
             <div class="flex items-start justify-between gap-3 flex-wrap mb-4">
               <div>
-                <div class="section-label">Event / promo</div>
-                <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Exception buying</div>
-                <div class="subtle mt-1">For event-specific or promo-specific buys like MLB at Field of Dreams.</div>
+                <div class="section-label">Generated output</div>
+                <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Size spread by style</div>
+                <div class="subtle mt-1">Final unit math broken into clothing or cap size outputs for PO drafting.</div>
               </div>
-              <button id="addEventRowBtn" class="btn btn-primary">Add Event Row</button>
             </div>
 
             <div class="table-wrap scrollbar">
               <table>
                 <thead>
                   <tr>
-                    <th style="width:42px;"><input id="selectAllEvent" type="checkbox" /></th>
-                    <th>Event</th>
-                    <th>Location</th>
-                    <th>SKU / Category</th>
-                    <th>Mode</th>
-                    <th class="text-right">Fixed Units</th>
-                    <th class="text-right">Uplift %</th>
-                    <th class="text-right">System</th>
-                    <th class="text-right">Buyer</th>
-                    <th class="text-right">Final</th>
-                    <th>Note</th>
+                    <th>Product Title</th>
+                    <th>Category</th>
+                    <th>Spread</th>
+                    <th class="text-right">Final Style Units</th>
+                    <th>Size Output</th>
+                    <th>Math Note</th>
                   </tr>
                 </thead>
-                <tbody id="eventBody">
-                  <tr><td colspan="11" class="empty-state">Add an event override row to begin.</td></tr>
+                <tbody id="sizesBody">
+                  <tr><td colspan="6" class="empty-state">No generated output yet.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -648,9 +615,9 @@
         <div class="summary-tray glass">
           <div class="tray-row">
             <div class="flex items-center gap-3 flex-wrap">
-              <div class="pill">Selected lines: <span id="traySelected" class="mono">0</span></div>
-              <div class="pill">System qty: <span id="traySystem" class="mono">0</span></div>
-              <div class="pill">Final qty: <span id="trayFinal" class="mono">0</span></div>
+              <div class="pill">Selected styles: <span id="traySelected" class="mono">0</span></div>
+              <div class="pill">System units: <span id="traySystem" class="mono">0</span></div>
+              <div class="pill">Final units: <span id="trayFinal" class="mono">0</span></div>
             </div>
             <div class="flex items-center gap-2 flex-wrap">
               <button id="addSelectedBtn" class="btn btn-primary">Add Selected → Draft</button>
@@ -662,12 +629,20 @@
 
       <aside class="sticky-side flex flex-col gap-4">
         <div class="card p-5">
-          <div class="section-label">Proof panel</div>
-          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">How to trust the output</div>
-          <div id="proofBox" class="mt-4 space-y-2">
-            <div class="status">Projected sales and projected units are shown separately.</div>
-            <div class="status">If projected units are missing, units are estimated from projected sales ÷ blended unit value.</div>
-            <div class="status">Confidence badges summarize history strength and stock pressure.</div>
+          <div class="section-label">Trust & math</div>
+          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Why the builder picked this</div>
+          <div id="mathBox" class="mt-4 space-y-2">
+            <div class="status">Waiting for refresh…</div>
+          </div>
+        </div>
+
+        <div class="card p-5">
+          <div class="section-label">Mixed signals</div>
+          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">How to read them</div>
+          <div class="mt-4 space-y-2">
+            <div class="status">Stable old inventory growing can still be good if new categories are outpacing the legacy base.</div>
+            <div class="status">This page biases toward new styles, but still benchmarks against historical category performance so you do not ignore what actually sells.</div>
+            <div class="status">Use inventory.html for true restocks. Use this page for new launches, category expansion, and growth bets.</div>
           </div>
         </div>
 
@@ -684,7 +659,7 @@
           <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Draft</div>
           <div class="mt-3">
             <label class="section-label mb-2 block">PO name</label>
-            <input id="poName" type="text" class="field" placeholder="ex: APRIL-COMPANY-BUY" />
+            <input id="poName" type="text" class="field" placeholder="ex: NEW-STYLES-APRIL" />
           </div>
           <div class="mt-3">
             <label class="section-label mb-2 block">Vendor</label>
@@ -747,32 +722,96 @@
       last_sold_date: "last_sold_date"
     };
 
-    const TAGS_KEY = "silo_growth_tags_v1";
-    const EXISTING_OVERRIDES_KEY = "silo_po_builder__existing_overrides_v1";
-    const NEW_ITEMS_KEY = "silo_po_builder__new_items_v1";
-    const NEW_OVERRIDES_KEY = "silo_po_builder__new_overrides_v1";
-    const EVENT_ITEMS_KEY = "silo_po_builder__event_items_v1";
-    const EVENT_OVERRIDES_KEY = "silo_po_builder__event_overrides_v1";
+    const STYLE_ITEMS_KEY = "silo_new_product_builder_styles_v1";
+    const STYLE_OVERRIDES_KEY = "silo_new_product_builder_style_overrides_v1";
     const DRAFT_KEY = "silo_po_draft_v5_growth";
+
+    const SPREAD_TEMPLATES = {
+      "tee-standard": {
+        label: "Clothing Standard",
+        family: "clothing",
+        sizes: [
+          { size: "XS", pct: 0.05 },
+          { size: "S", pct: 0.15 },
+          { size: "M", pct: 0.30 },
+          { size: "L", pct: 0.30 },
+          { size: "XL", pct: 0.15 },
+          { size: "2XL", pct: 0.05 }
+        ]
+      },
+      "tee-extended": {
+        label: "Clothing Extended",
+        family: "clothing",
+        sizes: [
+          { size: "XS", pct: 0.04 },
+          { size: "S", pct: 0.14 },
+          { size: "M", pct: 0.28 },
+          { size: "L", pct: 0.28 },
+          { size: "XL", pct: 0.16 },
+          { size: "2XL", pct: 0.08 },
+          { size: "3XL", pct: 0.02 }
+        ]
+      },
+      "hoodie-standard": {
+        label: "Hoodie / Fleece",
+        family: "clothing",
+        sizes: [
+          { size: "S", pct: 0.14 },
+          { size: "M", pct: 0.28 },
+          { size: "L", pct: 0.28 },
+          { size: "XL", pct: 0.18 },
+          { size: "2XL", pct: 0.09 },
+          { size: "3XL", pct: 0.03 }
+        ]
+      },
+      "youth-standard": {
+        label: "Youth Standard",
+        family: "clothing",
+        sizes: [
+          { size: "YS", pct: 0.15 },
+          { size: "YM", pct: 0.30 },
+          { size: "YL", pct: 0.30 },
+          { size: "YXL", pct: 0.25 }
+        ]
+      },
+      "cap-standard": {
+        label: "Caps Standard",
+        family: "caps",
+        sizes: [
+          { size: "OSFA", pct: 1.00 }
+        ]
+      },
+      "cap-fitted": {
+        label: "Caps Fitted",
+        family: "caps",
+        sizes: [
+          { size: "6 7/8", pct: 0.08 },
+          { size: "7", pct: 0.17 },
+          { size: "7 1/8", pct: 0.24 },
+          { size: "7 1/4", pct: 0.24 },
+          { size: "7 3/8", pct: 0.15 },
+          { size: "7 1/2", pct: 0.08 },
+          { size: "7 5/8", pct: 0.04 }
+        ]
+      }
+    };
 
     const state = {
       locations: [],
       projectionRows: [],
       inventoryRows: [],
-      restockRows: [],
-      newRows: [],
-      eventRows: [],
-      selectedRestock: new Set(),
-      selectedNew: new Set(),
-      selectedEvent: new Set(),
-      activeTab: "restock",
-      themeKey: "silo_po_builder__theme_v1",
+      styles: [],
+      generatedRows: [],
+      selectedStyles: new Set(),
+      activeTab: "styles",
+      themeKey: "silo_new_product_builder_theme_v1",
       metricsCtx: {
         totalProjectedSales: 0,
         projectedUnitsUsed: 0,
         explicitProjectedUnits: 0,
         blendedUnitValue: 0
-      }
+      },
+      categoryOptions: []
     };
 
     const el = (id) => document.getElementById(id);
@@ -791,7 +830,6 @@
         ? Number(n).toLocaleString(undefined,{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:2})
         : "$0.00";
     }
-    function fmtPct(n){ return Number.isFinite(Number(n)) ? `${(Number(n) * 100).toFixed(1)}%` : "0.0%"; }
     function escapeHtml(str){
       return String(str ?? "").replace(/[&<>"']/g, (m) => ({
         "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;"
@@ -808,11 +846,6 @@
     }
     function firstDayOfMonthIso(date = new Date()){
       return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-01`;
-    }
-    function daysBetweenInclusive(a, b){
-      const d1 = new Date(a + "T00:00:00");
-      const d2 = new Date(b + "T00:00:00");
-      return Math.max(1, Math.floor((d2 - d1) / 86400000) + 1);
     }
     function gidToCsvUrl(gid){
       return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${encodeURIComponent(gid)}`;
@@ -882,87 +915,24 @@
       return `PV::${norm(r.product)}::${norm(r.variant)}`;
     }
 
-    function loadTags(){ return loadJson(TAGS_KEY, {}); }
-    function saveTags(v){ saveJson(TAGS_KEY, v || {}); }
-    function getTag(row){
-      const tags = loadTags();
-      return tags[rowKeyFor(row)] || null;
-    }
-    function setTag(row, driver, pctOverride){
-      const tags = loadTags();
-      tags[rowKeyFor(row)] = {
-        driver: driver || "none",
-        pct_override: (pctOverride === null || pctOverride === undefined || pctOverride === "") ? null : Number(pctOverride),
-        updated_at: new Date().toISOString()
-      };
-      saveTags(tags);
-    }
-
-    function getExistingOverride(row){
-      const map = loadJson(EXISTING_OVERRIDES_KEY, {});
-      return map[rowKeyFor(row)] ?? "";
-    }
-    function setExistingOverride(row, value){
-      const map = loadJson(EXISTING_OVERRIDES_KEY, {});
-      map[rowKeyFor(row)] = value === "" ? "" : Number(value);
-      saveJson(EXISTING_OVERRIDES_KEY, map);
-    }
-
-    function loadNewItems(){ return loadJson(NEW_ITEMS_KEY, []); }
-    function saveNewItems(items){ saveJson(NEW_ITEMS_KEY, items || []); }
-    function getNewOverride(id){
-      const map = loadJson(NEW_OVERRIDES_KEY, {});
+    function loadStyles(){ return loadJson(STYLE_ITEMS_KEY, []); }
+    function saveStyles(items){ saveJson(STYLE_ITEMS_KEY, items || []); }
+    function getStyleOverride(id){
+      const map = loadJson(STYLE_OVERRIDES_KEY, {});
       return map[id] ?? "";
     }
-    function setNewOverride(id, value){
-      const map = loadJson(NEW_OVERRIDES_KEY, {});
+    function setStyleOverride(id, value){
+      const map = loadJson(STYLE_OVERRIDES_KEY, {});
       map[id] = value === "" ? "" : Number(value);
-      saveJson(NEW_OVERRIDES_KEY, map);
+      saveJson(STYLE_OVERRIDES_KEY, map);
     }
 
-    function loadEventItems(){ return loadJson(EVENT_ITEMS_KEY, []); }
-    function saveEventItems(items){ saveJson(EVENT_ITEMS_KEY, items || []); }
-    function getEventOverride(id){
-      const map = loadJson(EVENT_OVERRIDES_KEY, {});
-      return map[id] ?? "";
+    function loadDraft(){
+      try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "[]"); }
+      catch(e){ return []; }
     }
-    function setEventOverride(id, value){
-      const map = loadJson(EVENT_OVERRIDES_KEY, {});
-      map[id] = value === "" ? "" : Number(value);
-      saveJson(EVENT_OVERRIDES_KEY, map);
-    }
-
-    function driverLabel(code){
-      switch(code){
-        case "core": return "Core";
-        case "hero": return "Hero";
-        case "new": return "New";
-        case "influencer": return "Influencer";
-        case "wholesale": return "Wholesale";
-        case "promo": return "Promo";
-        case "seasonal": return "Seasonal";
-        default: return "—";
-      }
-    }
-
-    function driverBadge(row){
-      const tag = getTag(row);
-      const driver = tag?.driver || "none";
-      const pct = (tag && tag.pct_override !== null && Number.isFinite(Number(tag.pct_override))) ? Number(tag.pct_override) : null;
-      if (driver === "none") return `<span class="badge">—</span>`;
-      return `<span class="badge badge-accent">${escapeHtml(driverLabel(driver))}${pct !== null ? ` • +${pct}%` : ""}</span>`;
-    }
-
-    function getInputs(){
-      return {
-        mixBasis: el("mixBasis").value,
-        strategy: el("strategy").value,
-        safetyDays: num(el("safetyDays").value || 0),
-        defaultGrowthPct: num(el("defaultGrowthPct").value || 0),
-        seedAvgDay: num(el("seedAvgDay").value || 0),
-        minReorder: num(el("minReorder").value || 0),
-        riskDays: num(el("riskDays").value || 14)
-      };
+    function saveDraft(lines){
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(lines));
     }
 
     function buildSalesMap(rows){
@@ -976,8 +946,6 @@
           qty_90d: num(r[SH.qty_90d]),
           qty_120d: num(r[SH.qty_120d]),
           avg_day_30: num(r[SH.avg_day_30]),
-          avg_day_90: num(r[SH.avg_day_90]),
-          avg_day_120: num(r[SH.avg_day_120]),
           product_name: norm(r[SH.product_name]),
           product_type: norm(r[SH.product_type]),
           vendor: norm(r[SH.vendor]),
@@ -1008,123 +976,182 @@
         if (!agg.product_type && r.product_type) agg.product_type = r.product_type;
         if (!agg.vendor && r.vendor) agg.vendor = r.vendor;
       }
-      for (const agg of byKey.values()){
-        agg.days_oos = num(agg.avg_day) > 0 ? num(agg.avail_qty) / num(agg.avg_day) : 0;
-      }
       return Array.from(byKey.values());
     }
 
-    function growthFactorForRow(row, defaultGrowthPct, strategy){
-      const tag = getTag(row);
-      const driver = tag?.driver || "none";
-      let pct = defaultGrowthPct;
-      const driverDefaults = {
-        core: 0,
-        hero: Math.max(defaultGrowthPct, 30),
-        new: Math.max(defaultGrowthPct, 50),
-        influencer: Math.max(defaultGrowthPct, 40),
-        wholesale: Math.max(defaultGrowthPct, 25),
-        promo: Math.max(defaultGrowthPct, 35),
-        seasonal: Math.max(defaultGrowthPct, 20),
-        none: 0
+    function getInputs(){
+      return {
+        mixBasis: el("mixBasis").value,
+        growthDriverPct: num(el("growthDriverPct").value || 0),
+        newCategoryUpliftPct: num(el("newCategoryUpliftPct").value || 0),
+        styleFloorUnits: num(el("styleFloorUnits").value || 0),
+        capFloorUnits: num(el("capFloorUnits").value || 0),
+        historicalWeightPct: num(el("historicalWeightPct").value || 0),
+        growthWeightPct: num(el("growthWeightPct").value || 0),
+        reservePct: num(el("reservePct").value || 0)
       };
-
-      if (tag && tag.pct_override !== null && Number.isFinite(Number(tag.pct_override))){
-        pct = Number(tag.pct_override);
-      } else if (driver !== "none"){
-        pct = driverDefaults[driver] ?? defaultGrowthPct;
-      }
-
-      if (strategy === "replenish") return 1;
-      if (strategy === "growth"){
-        const p = driver !== "none" ? pct : defaultGrowthPct;
-        return 1 + Math.max(0, p) / 100;
-      }
-      if (strategy === "hybrid"){
-        if (driver === "none") return 1;
-        return 1 + Math.max(0, pct) / 100;
-      }
-      return 1;
     }
 
-    function effectiveAvgDay(row, mixBasis, seedAvgDay){
-      const byBasis = {
-        qty_7d: num(row.qty_7d) / 7,
-        qty_30d: num(row.qty_30d) / 30,
-        qty_90d: num(row.qty_90d) / 90,
-        qty_120d: num(row.qty_120d) / 120
+    function spreadFamilyFromTemplate(templateKey){
+      return SPREAD_TEMPLATES[templateKey]?.family || "clothing";
+    }
+
+    function familyFromCategory(category){
+      const c = safeLower(category);
+      if (c.includes("hat") || c.includes("cap")) return "caps";
+      return "clothing";
+    }
+
+    function defaultSpreadForCategory(category){
+      return familyFromCategory(category) === "caps" ? "cap-standard" : "tee-standard";
+    }
+
+    function productFamilyOptions(family){
+      return family === "caps"
+        ? [
+            { value: "caps", label: "Caps" }
+          ]
+        : [
+            { value: "clothing", label: "Clothing" }
+          ];
+    }
+
+    function comparableByTitle(title){
+      const target = safeLower(title);
+      if (!target) return [];
+      return state.inventoryRows.filter(r => safeLower(r.product) === target);
+    }
+
+    function categoryRows(category){
+      const target = safeLower(category);
+      return state.inventoryRows.filter(r => safeLower(r.product_type || "uncategorized") === target);
+    }
+
+    function mixUnitsForRow(r, mixBasis){
+      if (mixBasis === "qty_7d") return num(r.qty_7d);
+      if (mixBasis === "qty_90d") return num(r.qty_90d);
+      if (mixBasis === "qty_120d") return num(r.qty_120d);
+      return num(r.qty_30d);
+    }
+
+    function categoryBenchmarkWeeklyUnits(category, mixBasis){
+      const rows = categoryRows(category);
+      if (!rows.length) return 0;
+      const total = rows.reduce((s, r) => s + mixUnitsForRow(r, mixBasis), 0);
+      const avgUnits = total / rows.length;
+      if (mixBasis === "qty_7d") return avgUnits;
+      if (mixBasis === "qty_90d") return avgUnits / (90 / 7);
+      if (mixBasis === "qty_120d") return avgUnits / (120 / 7);
+      return avgUnits / (30 / 7);
+    }
+
+    function comparableBenchmarkWeeklyUnits(comparableTitle, mixBasis){
+      const rows = comparableByTitle(comparableTitle);
+      if (!rows.length) return 0;
+      const total = rows.reduce((s, r) => s + mixUnitsForRow(r, mixBasis), 0);
+      const avgUnits = total / rows.length;
+      if (mixBasis === "qty_7d") return avgUnits;
+      if (mixBasis === "qty_90d") return avgUnits / (90 / 7);
+      if (mixBasis === "qty_120d") return avgUnits / (120 / 7);
+      return avgUnits / (30 / 7);
+    }
+
+    function growthMultiplier(style){
+      const launch = safeLower(style.launch_type);
+      if (launch === "hero") return 1.40;
+      if (launch === "promo") return 1.25;
+      if (launch === "test") return 0.70;
+      if (launch === "limited") return 0.85;
+      return 1.00;
+    }
+
+    function rolloutMultiplier(style){
+      const rollout = safeLower(style.rollout);
+      if (rollout === "online only") return 0.60;
+      if (rollout === "limited doors") return 0.85;
+      if (rollout === "full fleet") return 1.10;
+      return 1.00;
+    }
+
+    function confidenceForStyle(style, histWeekly, compWeekly){
+      if (compWeekly > 0 && histWeekly > 0) return { label: "High", cls: "badge-good" };
+      if (compWeekly > 0 || histWeekly > 0) return { label: "Medium", cls: "badge-warn" };
+      return { label: "Low", cls: "badge-danger" };
+    }
+
+    function computeStylePlan(style, inputs){
+      const histWeekly = categoryBenchmarkWeeklyUnits(style.category, inputs.mixBasis);
+      const compWeekly = comparableBenchmarkWeeklyUnits(style.comparable_title, inputs.mixBasis);
+
+      const histWeight = Math.max(0, Math.min(100, inputs.historicalWeightPct)) / 100;
+      const growthWeight = Math.max(0, Math.min(100, inputs.growthWeightPct)) / 100;
+      const normalizedGrowthWeight = (histWeight + growthWeight) === 0 ? 0 : growthWeight / (histWeight + growthWeight);
+      const normalizedHistWeight = (histWeight + growthWeight) === 0 ? 1 : histWeight / (histWeight + growthWeight);
+
+      const baseWeekly = (histWeekly * normalizedHistWeight) + (compWeekly * normalizedGrowthWeight);
+
+      const growthAdj = 1
+        + (inputs.growthDriverPct / 100)
+        + (style.is_new_category ? (inputs.newCategoryUpliftPct / 100) : 0);
+
+      const launchAdj = growthMultiplier(style);
+      const rolloutAdj = rolloutMultiplier(style);
+      const reserveAdj = 1 + (inputs.reservePct / 100);
+
+      const rawSystem = baseWeekly
+        * num(style.intro_weeks || 6)
+        * growthAdj
+        * launchAdj
+        * rolloutAdj
+        * reserveAdj;
+
+      const floor = spreadFamilyFromTemplate(style.spread_template) === "caps"
+        ? inputs.capFloorUnits
+        : inputs.styleFloorUnits;
+
+      const systemUnits = Math.max(Math.ceil(rawSystem), floor);
+      const buyerUnits = getStyleOverride(style.id);
+      const finalUnits = buyerUnits === "" ? systemUnits : Math.max(0, Math.round(Number(buyerUnits)));
+      const confidence = confidenceForStyle(style, histWeekly, compWeekly);
+
+      const mathNote = [
+        `hist ${histWeekly.toFixed(1)}/wk`,
+        compWeekly > 0 ? `comp ${compWeekly.toFixed(1)}/wk` : `comp none`,
+        `growth ${growthAdj.toFixed(2)}x`,
+        `launch ${launchAdj.toFixed(2)}x`,
+        `rollout ${rolloutAdj.toFixed(2)}x`,
+        `reserve ${reserveAdj.toFixed(2)}x`
+      ].join(" • ");
+
+      return {
+        ...style,
+        histWeekly,
+        compWeekly,
+        baseWeekly,
+        growthAdj,
+        systemUnits,
+        buyerUnits,
+        finalUnits,
+        confidence,
+        mathNote
       };
-      const avg = byBasis[mixBasis] || 0;
-      if (avg > 0) return avg;
-      const tag = getTag(row);
-      if (tag?.driver === "new" || tag?.driver === "hero" || tag?.driver === "promo" || tag?.driver === "influencer"){
-        return Math.max(0, seedAvgDay);
+    }
+
+    function allocateSpread(totalUnits, templateKey){
+      const tpl = SPREAD_TEMPLATES[templateKey] || SPREAD_TEMPLATES["tee-standard"];
+      const sizes = tpl.sizes.map(x => ({ ...x, units: Math.floor(totalUnits * x.pct), raw: totalUnits * x.pct }));
+      let assigned = sizes.reduce((s, x) => s + x.units, 0);
+      let remainder = totalUnits - assigned;
+
+      const ranked = sizes
+        .map((x, idx) => ({ idx, frac: x.raw - Math.floor(x.raw) }))
+        .sort((a,b) => b.frac - a.frac);
+
+      for (let i = 0; i < ranked.length && remainder > 0; i++, remainder--){
+        sizes[ranked[i].idx].units += 1;
       }
-      return 0;
-    }
 
-    function confidenceForRestock(row, systemQty){
-      const sold30 = num(row.qty_30d);
-      const sold90 = num(row.qty_90d);
-      const avg = num(row.avg_day);
-      const onHand = num(row.avail_qty);
-      const days = num(row.days_oos);
-
-      let score = 0;
-      if (sold30 >= 20) score += 2;
-      else if (sold30 >= 8) score += 1;
-
-      if (sold90 >= 40) score += 2;
-      else if (sold90 >= 15) score += 1;
-
-      if (avg > 0) score += 1;
-      if (days > 0 && days <= 14) score += 2;
-      else if (days > 0 && days <= 30) score += 1;
-
-      if (systemQty > 0 && onHand <= sold30) score += 1;
-
-      if (score >= 6) return { label: "High", cls: "badge-good" };
-      if (score >= 3) return { label: "Medium", cls: "badge-warn" };
-      return { label: "Low", cls: "badge" };
-    }
-
-    function proofTextForRestock(row, projectedDemandUnits){
-      const bits = [];
-      if (num(row.qty_30d) > 0) bits.push(`${fmtInt(row.qty_30d)} sold 30d`);
-      if (num(row.days_oos) > 0) bits.push(`${num(row.days_oos).toFixed(0)} days OOS`);
-      if (num(projectedDemandUnits) > 0) bits.push(`${fmtInt(projectedDemandUnits)} proj units`);
-      if (num(row.avail_qty) > 0) bits.push(`${fmtInt(row.avail_qty)} on hand`);
-      return bits.join(" • ") || "Low signal";
-    }
-
-    function tierMultiplier(tier){
-      switch (safeLower(tier)) {
-        case "hero": return 1.50;
-        case "core": return 1.00;
-        case "test": return 0.60;
-        case "seasonal": return 0.85;
-        default: return 1.00;
-      }
-    }
-
-    function launchMultiplier(type){
-      switch (safeLower(type)) {
-        case "soft": return 0.75;
-        case "promo": return 1.25;
-        case "wholesale": return 1.15;
-        case "standard": return 1.00;
-        default: return 1.00;
-      }
-    }
-
-    function rolloutMultiplier(scope){
-      switch (safeLower(scope)) {
-        case "online only": return 0.60;
-        case "limited": return 0.85;
-        case "full": return 1.00;
-        case "full fleet": return 1.10;
-        default: return 1.00;
-      }
+      return sizes.filter(x => x.units > 0);
     }
 
     async function authGuard(){
@@ -1206,7 +1233,7 @@
           const sku = norm(o[H.sku]);
           const s = sku ? salesMap.get(sku) : null;
           return {
-            _id: `${safeLower(src.label)}::${sku || norm(o[H.barcode]) || idx}`,
+            _id: `${safeLower(src.label)}::${sku || idx}`,
             source_label: src.label,
             sku,
             barcode: norm(o[H.barcode]),
@@ -1221,7 +1248,7 @@
             qty_90d: s ? s.qty_90d : 0,
             qty_120d: s ? s.qty_120d : 0,
             avg_day: s ? s.avg_day_30 : num(o[H.avg_day]),
-            days_oos: num(o[H.days_oos])
+            last_sold_date: s?.last_sold_date || ""
           };
         });
 
@@ -1229,181 +1256,78 @@
       }
 
       state.inventoryRows = collapseInventoryRows(allRows);
-    }
 
-    function computeRestockRows(){
-      const search = safeLower(el("searchBox").value);
-      const {
-        mixBasis,
-        strategy,
-        safetyDays,
-        defaultGrowthPct,
-        seedAvgDay,
-        minReorder,
-        riskDays
-      } = getInputs();
+      const catSet = new Set();
+      state.inventoryRows.forEach(r => {
+        const c = norm(r.product_type);
+        if (c) catSet.add(c);
+      });
+      state.categoryOptions = Array.from(catSet).sort((a,b) => a.localeCompare(b));
 
-      const projectionRows = state.projectionRows || [];
-      const inventoryRows = state.inventoryRows || [];
-      const dateFrom = el("dateFrom").value;
-      const dateTo = el("dateTo").value;
-      const periodDays = (dateFrom && dateTo) ? daysBetweenInclusive(dateFrom, dateTo) : 30;
-
-      const totalProjectedSales = projectionRows.reduce((s, r) => s + num(r.projected_sales), 0);
-      const explicitProjectedUnits = projectionRows.reduce((s, r) => s + num(r.projected_units), 0);
-
-      const rowsWithUnitValue = inventoryRows.filter(r => num(r.avail_qty) > 0 && num(r.inv_value) > 0);
+      const totalProjectedSales = state.projectionRows.reduce((s, r) => s + num(r.projected_sales), 0);
+      const explicitProjectedUnits = state.projectionRows.reduce((s, r) => s + num(r.projected_units), 0);
+      const rowsWithUnitValue = state.inventoryRows.filter(r => num(r.avail_qty) > 0 && num(r.inv_value) > 0);
       const blendedUnitValue = rowsWithUnitValue.length
         ? rowsWithUnitValue.reduce((s, r) => s + num(r.inv_value), 0) / rowsWithUnitValue.reduce((s, r) => s + num(r.avail_qty), 0)
         : 1;
-
       const projectedUnitsUsed = explicitProjectedUnits > 0
         ? explicitProjectedUnits
         : (blendedUnitValue > 0 ? totalProjectedSales / blendedUnitValue : 0);
 
       state.metricsCtx = { totalProjectedSales, projectedUnitsUsed, explicitProjectedUnits, blendedUnitValue };
-
-      const recentTotal = inventoryRows.reduce((s, r) => s + num(r[mixBasis] || 0), 0);
-
-      const rows = inventoryRows.map(r => {
-        const recentUnits = num(r[mixBasis] || 0);
-        const mixPct = recentTotal > 0 ? recentUnits / recentTotal : 0;
-        const effAvgDay = effectiveAvgDay(r, mixBasis, seedAvgDay);
-        const growthFactor = growthFactorForRow(r, defaultGrowthPct, strategy);
-        const projectedDemandUnits = mixPct * projectedUnitsUsed * growthFactor;
-        const safetyUnits = effAvgDay * safetyDays;
-        const projectedEndingUnits = num(r.avail_qty) - projectedDemandUnits;
-
-        let systemQty = Math.max(0, Math.ceil(projectedDemandUnits + safetyUnits - num(r.avail_qty)));
-        if (systemQty < minReorder) systemQty = 0;
-
-        const buyerQty = getExistingOverride(r);
-        const finalQty = buyerQty === "" ? systemQty : Math.max(0, Math.round(Number(buyerQty)));
-
-        const tag = getTag(r);
-        const driver = tag?.driver || "none";
-        let buyType = "Hold";
-        if (driver !== "none" && driver !== "core" && systemQty > 0) buyType = "Growth";
-        else if (systemQty > 0) buyType = "Restock";
-        else if (num(r.days_oos) > 0 && num(r.days_oos) <= riskDays) buyType = "Watch";
-
-        const confidence = confidenceForRestock(r, systemQty);
-        const proof = proofTextForRestock(r, projectedDemandUnits);
-
-        return {
-          ...r,
-          category: norm(r.product_type) || "Uncategorized",
-          recentUnits,
-          mixPct,
-          projectedDemandUnits,
-          projectedEndingUnits,
-          systemQty,
-          buyerQty,
-          finalQty,
-          buyType,
-          confidence,
-          proof
-        };
-      }).filter(r => {
-        if (!search) return true;
-        const hay = `${r.sku} ${r.product} ${r.variant} ${r.category} ${r.vendor}`.toLowerCase();
-        return hay.includes(search);
-      }).sort((a, b) => {
-        if (num(b.finalQty) !== num(a.finalQty)) return num(b.finalQty) - num(a.finalQty);
-        if (num(b.systemQty) !== num(a.systemQty)) return num(b.systemQty) - num(a.systemQty);
-        return num(b.projectedDemandUnits) - num(a.projectedDemandUnits);
-      });
-
-      state.restockRows = rows;
     }
 
-    function computeNewRows(){
-      const items = loadNewItems();
-      const inventoryRows = state.inventoryRows || [];
+    function computePlans(){
+      const search = safeLower(el("searchBox").value);
+      const inputs = getInputs();
 
-      const rows = items.map(item => {
-        const comparable = inventoryRows.find(r => norm(r.sku) === norm(item.comparable_sku));
-        const categoryRows = inventoryRows.filter(r => (norm(r.product_type) || "Uncategorized") === (norm(item.category) || "Uncategorized"));
+      const styles = loadStyles().map(style => computeStylePlan(style, inputs))
+        .filter(s => {
+          if (!search) return true;
+          const hay = `${s.product_title} ${s.category} ${s.comparable_title}`.toLowerCase();
+          return hay.includes(search);
+        });
 
-        let benchmarkWeeklyUnits = 0;
-        if (comparable){
-          benchmarkWeeklyUnits = num(comparable.qty_30d) / 4.2857;
-        } else if (categoryRows.length){
-          const avg30 = categoryRows.reduce((s, r) => s + num(r.qty_30d), 0) / categoryRows.length;
-          benchmarkWeeklyUnits = avg30 / 4.2857;
-        }
+      state.styles = styles;
 
-        const systemQty = Math.max(
-          0,
-          Math.ceil(
-            benchmarkWeeklyUnits *
-            num(item.intro_weeks || 6) *
-            tierMultiplier(item.tier) *
-            launchMultiplier(item.launch_type) *
-            rolloutMultiplier(item.rollout)
-          )
-        );
-
-        const buyerQty = getNewOverride(item.id);
-        const finalQty = buyerQty === "" ? systemQty : Math.max(0, Math.round(Number(buyerQty)));
-
+      state.generatedRows = styles.map(style => {
+        const spread = allocateSpread(style.finalUnits, style.spread_template);
+        const tpl = SPREAD_TEMPLATES[style.spread_template] || SPREAD_TEMPLATES["tee-standard"];
         return {
-          ...item,
-          benchmarkWeeklyUnits,
-          systemQty,
-          buyerQty,
-          finalQty
+          styleId: style.id,
+          productTitle: style.product_title,
+          category: style.category,
+          spreadLabel: tpl.label,
+          finalUnits: style.finalUnits,
+          sizes: spread,
+          mathNote: style.mathNote
         };
       });
-
-      state.newRows = rows;
-    }
-
-    function computeEventRows(){
-      const items = loadEventItems();
-      const rows = items.map(item => {
-        const fixedUnits = num(item.fixed_units);
-        const upliftPct = num(item.uplift_pct);
-        const systemQty = item.mode === "fixed" ? fixedUnits : Math.ceil((fixedUnits || 0) * (1 + upliftPct / 100));
-        const buyerQty = getEventOverride(item.id);
-        const finalQty = buyerQty === "" ? systemQty : Math.max(0, Math.round(Number(buyerQty)));
-
-        return {
-          ...item,
-          systemQty,
-          buyerQty,
-          finalQty
-        };
-      });
-
-      state.eventRows = rows;
     }
 
     function renderTopMetrics(){
-      const activeRows = state.activeTab === "restock"
-        ? state.restockRows
-        : state.activeTab === "new"
-          ? state.newRows
-          : state.eventRows;
-
-      const systemRec = activeRows.reduce((s, r) => s + num(r.systemQty), 0);
-      const finalPo = activeRows.reduce((s, r) => s + num(r.finalQty), 0);
+      const systemUnits = state.styles.reduce((s, x) => s + num(x.systemUnits), 0);
+      const finalUnits = state.styles.reduce((s, x) => s + num(x.finalUnits), 0);
 
       setText("kSales", fmtMoney(state.metricsCtx.totalProjectedSales));
       setText("kUnits", fmtInt(state.metricsCtx.projectedUnitsUsed));
       setText("kUnitsSub", state.metricsCtx.explicitProjectedUnits > 0
         ? "Using explicit projected units from projections"
         : "Estimated from projected sales ÷ blended current unit value");
-      setText("kSystemRec", fmtInt(systemRec));
-      setText("kFinalPo", fmtInt(finalPo));
+      setText("kStyles", fmtInt(state.styles.length));
+      setText("kSystemUnits", fmtInt(systemUnits));
+      setText("kFinalUnits", fmtInt(finalUnits));
     }
 
-    function renderProofBox(){
-      setHtml("proofBox", `
+    function renderMathBox(){
+      const inputs = getInputs();
+      setHtml("mathBox", `
         <div class="status">Projected sales: <b class="mono">${fmtMoney(state.metricsCtx.totalProjectedSales)}</b></div>
         <div class="status">Explicit projected units: <b class="mono">${fmtInt(state.metricsCtx.explicitProjectedUnits)}</b></div>
-        <div class="status">Units used in model: <b class="mono">${fmtInt(state.metricsCtx.projectedUnitsUsed)}</b></div>
+        <div class="status">Units used in context: <b class="mono">${fmtInt(state.metricsCtx.projectedUnitsUsed)}</b></div>
         <div class="status">Fallback blended unit value: <b class="mono">${fmtMoney(state.metricsCtx.blendedUnitValue)}</b></div>
+        <div class="status">Style math = weighted historical category weekly units + comparable style weekly units, then growth/launch/rollout/reserve multipliers.</div>
+        <div class="status">Historical weight: <b>${inputs.historicalWeightPct}%</b> • Growth weight: <b>${inputs.growthWeightPct}%</b> • Reserve: <b>${inputs.reservePct}%</b></div>
       `);
     }
 
@@ -1421,306 +1345,194 @@
       setHtml("projectionNotes", notes.length ? notes.join("") : `<div class="empty-state">No notes on current projection rows.</div>`);
     }
 
-    function restockTypeBadge(type){
-      if (type === "Restock") return `<span class="badge badge-good">Restock</span>`;
-      if (type === "Growth") return `<span class="badge badge-accent">Growth</span>`;
-      if (type === "Watch") return `<span class="badge badge-warn">Watch</span>`;
-      return `<span class="badge">Hold</span>`;
-    }
-
-    function renderRestock(){
-      if (!state.restockRows.length){
-        setHtml("restockBody", `<tr><td colspan="13" class="empty-state">No restock rows.</td></tr>`);
+    function renderStyles(){
+      if (!state.styles.length){
+        setHtml("stylesBody", `<tr><td colspan="14" class="empty-state">Add a style row to begin.</td></tr>`);
         return;
       }
 
-      setHtml("restockBody", state.restockRows.map(r => `
-        <tr>
-          <td><input type="checkbox" data-restock-id="${escapeHtml(r._id)}" ${state.selectedRestock.has(r._id) ? "checked" : ""} /></td>
-          <td class="mono" style="font-weight:700;">${escapeHtml(r.sku || "—")}</td>
-          <td>${escapeHtml(r.product || "—")}</td>
-          <td>${escapeHtml(r.category)}</td>
-          <td>${restockTypeBadge(r.buyType)}</td>
-          <td><span class="badge ${escapeHtml(r.confidence.cls)}">${escapeHtml(r.confidence.label)}</span></td>
-          <td style="max-width:280px; white-space:normal; line-height:1.35;">${escapeHtml(r.proof)}</td>
-          <td class="mono" style="text-align:right;">${fmtInt(r.avail_qty)}</td>
-          <td class="mono" style="text-align:right;">${fmtInt(r.recentUnits)}</td>
-          <td class="mono" style="text-align:right;">${fmtInt(r.projectedDemandUnits)}</td>
-          <td class="mono" style="text-align:right;">${fmtInt(r.systemQty)}</td>
-          <td class="mono" style="text-align:right;">
-            <input type="number" min="0" step="1" class="field mono restock-override" data-id="${escapeHtml(r._id)}"
-              value="${r.buyerQty === '' ? '' : escapeHtml(String(r.buyerQty))}" style="width:90px;" />
-          </td>
-          <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(r.finalQty)}</td>
-        </tr>
-      `).join(""));
-
-      document.querySelectorAll('input[data-restock-id]').forEach(chk => {
-        chk.addEventListener("change", (e) => {
-          const id = e.target.getAttribute("data-restock-id");
-          if (e.target.checked) state.selectedRestock.add(id);
-          else state.selectedRestock.delete(id);
-          renderTray();
-        });
-      });
-
-      document.querySelectorAll('.restock-override').forEach(inp => {
-        inp.addEventListener("change", (e) => {
-          const id = e.target.getAttribute("data-id");
-          const row = state.restockRows.find(x => x._id === id);
-          if (!row) return;
-          setExistingOverride(row, e.target.value);
-          recomputeAndRender();
-        });
-      });
-    }
-
-    function renderNew(){
-      if (!state.newRows.length){
-        setHtml("newBody", `<tr><td colspan="12" class="empty-state">Add a new item row to begin.</td></tr>`);
-        return;
-      }
-
-      const comparableOptions = state.inventoryRows
-        .slice()
-        .sort((a,b) => String(a.sku || "").localeCompare(String(b.sku || "")))
-        .map(r => `<option value="${escapeHtml(r.sku || '')}">${escapeHtml(r.sku || '—')} — ${escapeHtml(r.product || '')}</option>`)
+      const categoryOptions = state.categoryOptions
+        .map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)
         .join("");
 
-      setHtml("newBody", state.newRows.map(r => `
+      const comparableTitles = Array.from(new Set(state.inventoryRows.map(r => norm(r.product)).filter(Boolean))).sort((a,b) => a.localeCompare(b));
+      const comparableOptions = comparableTitles
+        .map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`)
+        .join("");
+
+      const spreadOptions = Object.entries(SPREAD_TEMPLATES).map(([k,v]) => `<option value="${escapeHtml(k)}">${escapeHtml(v.label)}</option>`).join("");
+
+      setHtml("stylesBody", state.styles.map(s => `
         <tr>
-          <td><input type="checkbox" data-new-id="${escapeHtml(r.id)}" ${state.selectedNew.has(r.id) ? "checked" : ""} /></td>
-          <td><input type="text" class="field new-field" data-id="${escapeHtml(r.id)}" data-key="product_name" value="${escapeHtml(r.product_name || '')}" /></td>
-          <td><input type="text" class="field new-field" data-id="${escapeHtml(r.id)}" data-key="category" value="${escapeHtml(r.category || '')}" /></td>
+          <td><input type="checkbox" data-style-id="${escapeHtml(s.id)}" ${state.selectedStyles.has(s.id) ? "checked" : ""} /></td>
+          <td><input type="text" class="field style-field" data-id="${escapeHtml(s.id)}" data-key="product_title" value="${escapeHtml(s.product_title || '')}" /></td>
           <td>
-            <select class="select new-field" data-id="${escapeHtml(r.id)}" data-key="comparable_sku">
+            <select class="select style-field" data-id="${escapeHtml(s.id)}" data-key="category">
+              <option value="">Select category</option>
+              ${categoryOptions.replace(`value="${escapeHtml(s.category || '')}"`, `value="${escapeHtml(s.category || '')}" selected`)}
+            </select>
+          </td>
+          <td>
+            <select class="select style-field" data-id="${escapeHtml(s.id)}" data-key="comparable_title">
               <option value="">None</option>
-              ${comparableOptions.replace(`value="${escapeHtml(r.comparable_sku || '')}"`, `value="${escapeHtml(r.comparable_sku || '')}" selected`)}
+              ${comparableOptions.replace(`value="${escapeHtml(s.comparable_title || '')}"`, `value="${escapeHtml(s.comparable_title || '')}" selected`)}
             </select>
           </td>
           <td>
-            <select class="select new-field" data-id="${escapeHtml(r.id)}" data-key="tier">
-              <option value="core" ${safeLower(r.tier) === 'core' ? 'selected' : ''}>Core</option>
-              <option value="hero" ${safeLower(r.tier) === 'hero' ? 'selected' : ''}>Hero</option>
-              <option value="test" ${safeLower(r.tier) === 'test' ? 'selected' : ''}>Test</option>
-              <option value="seasonal" ${safeLower(r.tier) === 'seasonal' ? 'selected' : ''}>Seasonal</option>
+            <select class="select style-field" data-id="${escapeHtml(s.id)}" data-key="product_family">
+              <option value="clothing" ${s.product_family === 'clothing' ? 'selected' : ''}>Clothing</option>
+              <option value="caps" ${s.product_family === 'caps' ? 'selected' : ''}>Caps</option>
             </select>
           </td>
           <td>
-            <select class="select new-field" data-id="${escapeHtml(r.id)}" data-key="launch_type">
-              <option value="standard" ${safeLower(r.launch_type) === 'standard' ? 'selected' : ''}>Standard</option>
-              <option value="soft" ${safeLower(r.launch_type) === 'soft' ? 'selected' : ''}>Soft</option>
-              <option value="promo" ${safeLower(r.launch_type) === 'promo' ? 'selected' : ''}>Promo</option>
+            <select class="select style-field" data-id="${escapeHtml(s.id)}" data-key="spread_template">
+              ${spreadOptions.replace(`value="${escapeHtml(s.spread_template || '')}"`, `value="${escapeHtml(s.spread_template || '')}" selected`)}
             </select>
           </td>
           <td>
-            <select class="select new-field" data-id="${escapeHtml(r.id)}" data-key="rollout">
-              <option value="online only" ${safeLower(r.rollout) === 'online only' ? 'selected' : ''}>Online Only</option>
-              <option value="limited" ${safeLower(r.rollout) === 'limited' ? 'selected' : ''}>Limited</option>
-              <option value="full" ${safeLower(r.rollout) === 'full' ? 'selected' : ''}>Full</option>
+            <select class="select style-field" data-id="${escapeHtml(s.id)}" data-key="launch_type">
+              <option value="standard" ${safeLower(s.launch_type) === 'standard' ? 'selected' : ''}>Standard</option>
+              <option value="hero" ${safeLower(s.launch_type) === 'hero' ? 'selected' : ''}>Hero</option>
+              <option value="promo" ${safeLower(s.launch_type) === 'promo' ? 'selected' : ''}>Promo</option>
+              <option value="test" ${safeLower(s.launch_type) === 'test' ? 'selected' : ''}>Test</option>
+              <option value="limited" ${safeLower(s.launch_type) === 'limited' ? 'selected' : ''}>Limited</option>
+            </select>
+          </td>
+          <td>
+            <select class="select style-field" data-id="${escapeHtml(s.id)}" data-key="rollout">
+              <option value="full" ${safeLower(s.rollout) === 'full' ? 'selected' : ''}>Full</option>
+              <option value="online only" ${safeLower(s.rollout) === 'online only' ? 'selected' : ''}>Online Only</option>
+              <option value="limited doors" ${safeLower(s.rollout) === 'limited doors' ? 'selected' : ''}>Limited Doors</option>
+              <option value="full fleet" ${safeLower(s.rollout) === 'full fleet' ? 'selected' : ''}>Full Fleet</option>
             </select>
           </td>
           <td class="mono" style="text-align:right;">
-            <input type="number" min="1" step="1" class="field mono new-field" data-id="${escapeHtml(r.id)}" data-key="intro_weeks"
-              value="${escapeHtml(String(r.intro_weeks || 6))}" style="width:90px;" />
+            <input type="number" min="1" step="1" class="field mono style-field" data-id="${escapeHtml(s.id)}" data-key="intro_weeks"
+              value="${escapeHtml(String(s.intro_weeks || 6))}" style="width:90px;" />
           </td>
-          <td class="mono" style="text-align:right;">${Number(r.benchmarkWeeklyUnits || 0).toFixed(1)}</td>
-          <td class="mono" style="text-align:right;">${fmtInt(r.systemQty)}</td>
+          <td class="mono" style="text-align:right;">${s.histWeekly.toFixed(1)}</td>
+          <td>
+            <span class="badge ${escapeHtml(s.confidence.cls)}">${escapeHtml(s.confidence.label)}</span>
+          </td>
+          <td class="mono" style="text-align:right;">${fmtInt(s.systemUnits)}</td>
           <td class="mono" style="text-align:right;">
-            <input type="number" min="0" step="1" class="field mono new-override" data-id="${escapeHtml(r.id)}"
-              value="${r.buyerQty === '' ? '' : escapeHtml(String(r.buyerQty))}" style="width:90px;" />
+            <input type="number" min="0" step="1" class="field mono style-override" data-id="${escapeHtml(s.id)}"
+              value="${s.buyerUnits === '' ? '' : escapeHtml(String(s.buyerUnits))}" style="width:90px;" />
           </td>
-          <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(r.finalQty)}</td>
+          <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(s.finalUnits)}</td>
         </tr>
       `).join(""));
 
-      document.querySelectorAll('input[data-new-id]').forEach(chk => {
+      document.querySelectorAll('input[data-style-id]').forEach(chk => {
         chk.addEventListener("change", (e) => {
-          const id = e.target.getAttribute("data-new-id");
-          if (e.target.checked) state.selectedNew.add(id);
-          else state.selectedNew.delete(id);
+          const id = e.target.getAttribute("data-style-id");
+          if (e.target.checked) state.selectedStyles.add(id);
+          else state.selectedStyles.delete(id);
           renderTray();
         });
       });
 
-      document.querySelectorAll('.new-field').forEach(inp => {
+      document.querySelectorAll('.style-field').forEach(inp => {
         inp.addEventListener("change", (e) => {
           const id = e.target.getAttribute("data-id");
           const key = e.target.getAttribute("data-key");
-          const items = loadNewItems();
+          const items = loadStyles();
           const idx = items.findIndex(x => String(x.id) === String(id));
           if (idx < 0) return;
           items[idx][key] = e.target.value;
-          saveNewItems(items);
+
+          if (key === "category" && !items[idx].spread_template){
+            items[idx].spread_template = defaultSpreadForCategory(e.target.value);
+            items[idx].product_family = familyFromCategory(e.target.value);
+          }
+          if (key === "product_family"){
+            items[idx].spread_template = e.target.value === "caps" ? "cap-standard" : "tee-standard";
+          }
+
+          saveStyles(items);
           recomputeAndRender();
         });
       });
 
-      document.querySelectorAll('.new-override').forEach(inp => {
+      document.querySelectorAll('.style-override').forEach(inp => {
         inp.addEventListener("change", (e) => {
           const id = e.target.getAttribute("data-id");
-          setNewOverride(id, e.target.value);
+          setStyleOverride(id, e.target.value);
           recomputeAndRender();
         });
       });
     }
 
-    function renderEvent(){
-      if (!state.eventRows.length){
-        setHtml("eventBody", `<tr><td colspan="11" class="empty-state">Add an event override row to begin.</td></tr>`);
+    function renderSizes(){
+      if (!state.generatedRows.length){
+        setHtml("sizesBody", `<tr><td colspan="6" class="empty-state">No generated output yet.</td></tr>`);
         return;
       }
 
-      setHtml("eventBody", state.eventRows.map(r => `
+      setHtml("sizesBody", state.generatedRows.map(r => `
         <tr>
-          <td><input type="checkbox" data-event-id="${escapeHtml(r.id)}" ${state.selectedEvent.has(r.id) ? "checked" : ""} /></td>
-          <td><input type="text" class="field event-field" data-id="${escapeHtml(r.id)}" data-key="event_name" value="${escapeHtml(r.event_name || '')}" /></td>
-          <td><input type="text" class="field event-field" data-id="${escapeHtml(r.id)}" data-key="location" value="${escapeHtml(r.location || '')}" /></td>
-          <td><input type="text" class="field event-field" data-id="${escapeHtml(r.id)}" data-key="target" value="${escapeHtml(r.target || '')}" /></td>
-          <td>
-            <select class="select event-field" data-id="${escapeHtml(r.id)}" data-key="mode">
-              <option value="fixed" ${safeLower(r.mode) === 'fixed' ? 'selected' : ''}>Fixed</option>
-              <option value="uplift" ${safeLower(r.mode) === 'uplift' ? 'selected' : ''}>Uplift</option>
-            </select>
+          <td style="font-weight:700;">${escapeHtml(r.productTitle || '—')}</td>
+          <td>${escapeHtml(r.category || '—')}</td>
+          <td>${escapeHtml(r.spreadLabel)}</td>
+          <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(r.finalUnits)}</td>
+          <td style="max-width:360px; white-space:normal; line-height:1.35;">
+            ${r.sizes.map(s => `<span class="badge">${escapeHtml(s.size)} ${fmtInt(s.units)}</span>`).join(" ")}
           </td>
-          <td class="mono" style="text-align:right;">
-            <input type="number" min="0" step="1" class="field mono event-field" data-id="${escapeHtml(r.id)}" data-key="fixed_units"
-              value="${escapeHtml(String(r.fixed_units || 0))}" style="width:90px;" />
-          </td>
-          <td class="mono" style="text-align:right;">
-            <input type="number" min="0" step="1" class="field mono event-field" data-id="${escapeHtml(r.id)}" data-key="uplift_pct"
-              value="${escapeHtml(String(r.uplift_pct || 0))}" style="width:90px;" />
-          </td>
-          <td class="mono" style="text-align:right;">${fmtInt(r.systemQty)}</td>
-          <td class="mono" style="text-align:right;">
-            <input type="number" min="0" step="1" class="field mono event-override" data-id="${escapeHtml(r.id)}"
-              value="${r.buyerQty === '' ? '' : escapeHtml(String(r.buyerQty))}" style="width:90px;" />
-          </td>
-          <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(r.finalQty)}</td>
-          <td><textarea class="textarea event-field" data-id="${escapeHtml(r.id)}" data-key="note" style="min-height:56px;">${escapeHtml(r.note || '')}</textarea></td>
+          <td style="max-width:360px; white-space:normal; line-height:1.35;">${escapeHtml(r.mathNote)}</td>
         </tr>
       `).join(""));
-
-      document.querySelectorAll('input[data-event-id]').forEach(chk => {
-        chk.addEventListener("change", (e) => {
-          const id = e.target.getAttribute("data-event-id");
-          if (e.target.checked) state.selectedEvent.add(id);
-          else state.selectedEvent.delete(id);
-          renderTray();
-        });
-      });
-
-      document.querySelectorAll('.event-field').forEach(inp => {
-        inp.addEventListener("change", (e) => {
-          const id = e.target.getAttribute("data-id");
-          const key = e.target.getAttribute("data-key");
-          const items = loadEventItems();
-          const idx = items.findIndex(x => String(x.id) === String(id));
-          if (idx < 0) return;
-          items[idx][key] = e.target.value;
-          saveEventItems(items);
-          recomputeAndRender();
-        });
-      });
-
-      document.querySelectorAll('.event-override').forEach(inp => {
-        inp.addEventListener("change", (e) => {
-          const id = e.target.getAttribute("data-id");
-          setEventOverride(id, e.target.value);
-          recomputeAndRender();
-        });
-      });
     }
 
     function renderTray(){
-      let selected = 0, system = 0, final = 0;
+      const selectedRows = state.styles.filter(s => state.selectedStyles.has(s.id));
+      const system = selectedRows.reduce((sum, s) => sum + num(s.systemUnits), 0);
+      const final = selectedRows.reduce((sum, s) => sum + num(s.finalUnits), 0);
 
-      if (state.activeTab === "restock"){
-        const rows = state.restockRows.filter(r => state.selectedRestock.has(r._id));
-        selected = rows.length;
-        system = rows.reduce((s, r) => s + num(r.systemQty), 0);
-        final = rows.reduce((s, r) => s + num(r.finalQty), 0);
-      } else if (state.activeTab === "new"){
-        const rows = state.newRows.filter(r => state.selectedNew.has(r.id));
-        selected = rows.length;
-        system = rows.reduce((s, r) => s + num(r.systemQty), 0);
-        final = rows.reduce((s, r) => s + num(r.finalQty), 0);
-      } else {
-        const rows = state.eventRows.filter(r => state.selectedEvent.has(r.id));
-        selected = rows.length;
-        system = rows.reduce((s, r) => s + num(r.systemQty), 0);
-        final = rows.reduce((s, r) => s + num(r.finalQty), 0);
-      }
-
-      setText("traySelected", fmtInt(selected));
+      setText("traySelected", fmtInt(selectedRows.length));
       setText("traySystem", fmtInt(system));
       setText("trayFinal", fmtInt(final));
     }
 
     function renderAll(){
       renderTopMetrics();
-      renderProofBox();
+      renderMathBox();
       renderProjectionNotes();
-      renderRestock();
-      renderNew();
-      renderEvent();
+      renderStyles();
+      renderSizes();
       renderTray();
       updateDraftPeek();
       setHtml("statusPill", `<span class="dot"></span>Refreshed`);
     }
 
     function recomputeAndRender(){
-      computeRestockRows();
-      computeNewRows();
-      computeEventRows();
+      computePlans();
       renderAll();
     }
 
-    function addNewItemRow(){
-      const items = loadNewItems();
+    function addStyle(){
+      const items = loadStyles();
       items.push({
-        id: `NEW::${Date.now()}::${Math.random().toString(36).slice(2,8)}`,
-        product_name: "",
+        id: `STYLE::${Date.now()}::${Math.random().toString(36).slice(2,8)}`,
+        product_title: "",
         category: "",
-        comparable_sku: "",
-        tier: "core",
+        comparable_title: "",
+        product_family: "clothing",
+        spread_template: "tee-standard",
         launch_type: "standard",
         rollout: "full",
-        intro_weeks: 6
+        intro_weeks: 6,
+        is_new_category: false
       });
-      saveNewItems(items);
+      saveStyles(items);
       recomputeAndRender();
-      setActiveTab("new");
-    }
-
-    function addEventRow(){
-      const items = loadEventItems();
-      items.push({
-        id: `EVENT::${Date.now()}::${Math.random().toString(36).slice(2,8)}`,
-        event_name: "",
-        location: "",
-        target: "",
-        mode: "fixed",
-        fixed_units: 0,
-        uplift_pct: 0,
-        note: ""
-      });
-      saveEventItems(items);
-      recomputeAndRender();
-      setActiveTab("event");
     }
 
     function setActiveTab(tab){
       state.activeTab = tab;
-      el("tabRestockBtn").classList.toggle("active", tab === "restock");
-      el("tabNewBtn").classList.toggle("active", tab === "new");
-      el("tabEventBtn").classList.toggle("active", tab === "event");
-
-      el("restockSection").classList.toggle("hidden", tab !== "restock");
-      el("newSection").classList.toggle("hidden", tab !== "new");
-      el("eventSection").classList.toggle("hidden", tab !== "event");
-      renderTray();
-      renderTopMetrics();
+      el("tabStylesBtn").classList.toggle("active", tab === "styles");
+      el("tabSizesBtn").classList.toggle("active", tab === "sizes");
+      el("stylesSection").classList.toggle("hidden", tab !== "styles");
+      el("sizesSection").classList.toggle("hidden", tab !== "sizes");
     }
 
     async function refreshAll(){
@@ -1731,125 +1543,74 @@
     }
 
     function exportSelectedCsv(){
-      let headers = [], rows = [];
-
-      if (state.activeTab === "restock"){
-        headers = ["section","sku","product","category","buy_type","confidence","proof","on_hand","recent_units","projected_demand","system_qty","buyer_qty","final_qty"];
-        rows = state.restockRows
-          .filter(r => state.selectedRestock.has(r._id))
-          .map(r => ({
-            section: "restock",
-            sku: r.sku,
-            product: r.product,
-            category: r.category,
-            buy_type: r.buyType,
-            confidence: r.confidence.label,
-            proof: r.proof,
-            on_hand: r.avail_qty,
-            recent_units: r.recentUnits,
-            projected_demand: Number(r.projectedDemandUnits).toFixed(2),
-            system_qty: r.systemQty,
-            buyer_qty: r.buyerQty === "" ? "" : r.buyerQty,
-            final_qty: r.finalQty
-          }));
-      } else if (state.activeTab === "new"){
-        headers = ["section","product_name","category","comparable_sku","tier","launch_type","rollout","intro_weeks","benchmark_weekly_units","system_qty","buyer_qty","final_qty"];
-        rows = state.newRows
-          .filter(r => state.selectedNew.has(r.id))
-          .map(r => ({
-            section: "new",
-            product_name: r.product_name,
-            category: r.category,
-            comparable_sku: r.comparable_sku,
-            tier: r.tier,
-            launch_type: r.launch_type,
-            rollout: r.rollout,
-            intro_weeks: r.intro_weeks,
-            benchmark_weekly_units: Number(r.benchmarkWeeklyUnits || 0).toFixed(2),
-            system_qty: r.systemQty,
-            buyer_qty: r.buyerQty === "" ? "" : r.buyerQty,
-            final_qty: r.finalQty
-          }));
-      } else {
-        headers = ["section","event_name","location","target","mode","fixed_units","uplift_pct","system_qty","buyer_qty","final_qty","note"];
-        rows = state.eventRows
-          .filter(r => state.selectedEvent.has(r.id))
-          .map(r => ({
-            section: "event",
-            event_name: r.event_name,
-            location: r.location,
-            target: r.target,
-            mode: r.mode,
-            fixed_units: r.fixed_units,
-            uplift_pct: r.uplift_pct,
-            system_qty: r.systemQty,
-            buyer_qty: r.buyerQty === "" ? "" : r.buyerQty,
-            final_qty: r.finalQty,
-            note: r.note
-          }));
-      }
+      const headers = ["product_title","category","comparable_title","product_family","spread_template","launch_type","rollout","intro_weeks","hist_weekly_units","system_units","buyer_units","final_units","size_output"];
+      const rows = state.styles
+        .filter(s => state.selectedStyles.has(s.id))
+        .map(s => {
+          const spread = allocateSpread(s.finalUnits, s.spread_template)
+            .map(x => `${x.size}:${x.units}`)
+            .join(" | ");
+          return {
+            product_title: s.product_title,
+            category: s.category,
+            comparable_title: s.comparable_title,
+            product_family: s.product_family,
+            spread_template: s.spread_template,
+            launch_type: s.launch_type,
+            rollout: s.rollout,
+            intro_weeks: s.intro_weeks,
+            hist_weekly_units: s.histWeekly.toFixed(2),
+            system_units: s.systemUnits,
+            buyer_units: s.buyerUnits === "" ? "" : s.buyerUnits,
+            final_units: s.finalUnits,
+            size_output: spread
+          };
+        });
 
       if (!rows.length) return;
-
       const csv = [headers.join(",")].concat(rows.map(o => headers.map(h => csvEscape(o[h])).join(","))).join("\n");
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `silo_po_builder_selected_${todayIso()}.csv`;
+      a.download = `silo_new_product_builder_selected_${todayIso()}.csv`;
       document.body.appendChild(a);
       a.click();
       a.remove();
     }
 
     function exportFullCsv(){
-      const headers = ["section","name","category","target","system_qty","final_qty","note"];
-      const rows = [
-        ...state.restockRows.map(r => ({
-          section: "restock",
-          name: r.product || r.sku,
-          category: r.category,
-          target: r.sku,
-          system_qty: r.systemQty,
-          final_qty: r.finalQty,
-          note: r.proof
-        })),
-        ...state.newRows.map(r => ({
-          section: "new",
-          name: r.product_name,
-          category: r.category,
-          target: r.comparable_sku,
-          system_qty: r.systemQty,
-          final_qty: r.finalQty,
-          note: ""
-        })),
-        ...state.eventRows.map(r => ({
-          section: "event",
-          name: r.event_name,
-          category: "",
-          target: r.target,
-          system_qty: r.systemQty,
-          final_qty: r.finalQty,
-          note: r.note || ""
-        }))
-      ];
+      const headers = ["product_title","category","comparable_title","product_family","spread_template","launch_type","rollout","intro_weeks","hist_weekly_units","comp_weekly_units","system_units","buyer_units","final_units","math_note","size_output"];
+      const rows = state.styles.map(s => {
+        const spread = allocateSpread(s.finalUnits, s.spread_template)
+          .map(x => `${x.size}:${x.units}`)
+          .join(" | ");
+        return {
+          product_title: s.product_title,
+          category: s.category,
+          comparable_title: s.comparable_title,
+          product_family: s.product_family,
+          spread_template: s.spread_template,
+          launch_type: s.launch_type,
+          rollout: s.rollout,
+          intro_weeks: s.intro_weeks,
+          hist_weekly_units: s.histWeekly.toFixed(2),
+          comp_weekly_units: s.compWeekly.toFixed(2),
+          system_units: s.systemUnits,
+          buyer_units: s.buyerUnits === "" ? "" : s.buyerUnits,
+          final_units: s.finalUnits,
+          math_note: s.mathNote,
+          size_output: spread
+        };
+      });
 
       const csv = [headers.join(",")].concat(rows.map(o => headers.map(h => csvEscape(o[h])).join(","))).join("\n");
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `silo_po_builder__${todayIso()}.csv`;
+      a.download = `silo_new_product_builder_${todayIso()}.csv`;
       document.body.appendChild(a);
       a.click();
       a.remove();
-    }
-
-    function loadDraft(){
-      try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "[]"); }
-      catch(e){ return []; }
-    }
-
-    function saveDraft(lines){
-      localStorage.setItem(DRAFT_KEY, JSON.stringify(lines));
     }
 
     function updateDraftPeek(){
@@ -1867,65 +1628,45 @@
       const index = new Map();
       lines.forEach((l, idx) => index.set(`${l.sku || ""}::${l.product || ""}`, idx));
 
-      const poName = norm(el("poName").value) || "PO Builder  Draft";
+      const poName = norm(el("poName").value) || "NEW PRODUCT BUILDER DRAFT";
       const vendor = norm(el("poVendor").value);
       const eta = norm(el("poEta").value);
 
-      const pushLine = (key, payload) => {
-        if (index.has(key)){
-          const i = index.get(key);
-          lines[i].qty = num(lines[i].qty) + num(payload.qty);
-        } else {
-          lines.push(payload);
-          index.set(key, lines.length - 1);
+      const selected = state.styles.filter(s => state.selectedStyles.has(s.id));
+      for (const style of selected){
+        const spread = allocateSpread(style.finalUnits, style.spread_template);
+        for (const sizeRow of spread){
+          const skuKey = `${style.product_title} - ${sizeRow.size}`;
+          const key = `::${skuKey}`;
+          const payload = {
+            po_name: poName,
+            vendor,
+            eta,
+            sku: "",
+            product: skuKey,
+            qty: sizeRow.units,
+            mode_added_from: "new_product_builder"
+          };
+
+          if (index.has(key)){
+            const i = index.get(key);
+            lines[i].qty = num(lines[i].qty) + num(payload.qty);
+          } else {
+            lines.push(payload);
+            index.set(key, lines.length - 1);
+          }
         }
-      };
-
-      state.restockRows.filter(r => state.selectedRestock.has(r._id)).forEach(r => {
-        pushLine(`${r.sku || ""}::${r.product || ""}`, {
-          po_name: poName,
-          vendor,
-          eta,
-          sku: r.sku || "",
-          product: r.product || "",
-          qty: r.finalQty,
-          mode_added_from: "po_builder__restock"
-        });
-      });
-
-      state.newRows.filter(r => state.selectedNew.has(r.id)).forEach(r => {
-        pushLine(`::${r.product_name || ""}`, {
-          po_name: poName,
-          vendor,
-          eta,
-          sku: "",
-          product: r.product_name || "",
-          qty: r.finalQty,
-          mode_added_from: "po_builder__new"
-        });
-      });
-
-      state.eventRows.filter(r => state.selectedEvent.has(r.id)).forEach(r => {
-        pushLine(`EVENT::${r.event_name || ""}`, {
-          po_name: poName,
-          vendor,
-          eta,
-          sku: "",
-          product: r.event_name || "",
-          qty: r.finalQty,
-          mode_added_from: "po_builder__event"
-        });
-      });
+      }
 
       saveDraft(lines);
       updateDraftPeek();
-      setHtml("statusPill", `<span class="dot"></span>Added selected rows to draft`);
+      setHtml("statusPill", `<span class="dot"></span>Added selected styles to draft`);
     }
 
     function viewDraft(){
       const lines = loadDraft();
       if (!lines.length){ alert("Draft empty."); return; }
-      alert(lines.map(l => `${l.sku || l.product} | qty ${l.qty}`).join("\n"));
+      alert(lines.map(l => `${l.product || l.sku} | qty ${l.qty}`).join("\n"));
     }
 
     function exportDraft(){
@@ -1975,38 +1716,21 @@
         el(id).addEventListener("change", refreshAll);
       });
 
-      ["mixBasis","strategy","searchBox","safetyDays","defaultGrowthPct","seedAvgDay","minReorder","riskDays"].forEach(id => {
+      ["mixBasis","growthDriverPct","riskDays","newCategoryUpliftPct","styleFloorUnits","capFloorUnits","historicalWeightPct","growthWeightPct","reservePct","searchBox"].forEach(id => {
         el(id).addEventListener("change", recomputeAndRender);
         el(id).addEventListener("input", () => {
           if (id === "searchBox") recomputeAndRender();
         });
       });
 
-      el("addNewRowBtn").addEventListener("click", addNewItemRow);
-      el("addEventRowBtn").addEventListener("click", addEventRow);
+      el("addStyleBtn").addEventListener("click", addStyle);
+      el("tabStylesBtn").addEventListener("click", () => setActiveTab("styles"));
+      el("tabSizesBtn").addEventListener("click", () => setActiveTab("sizes"));
 
-      el("tabRestockBtn").addEventListener("click", () => setActiveTab("restock"));
-      el("tabNewBtn").addEventListener("click", () => setActiveTab("new"));
-      el("tabEventBtn").addEventListener("click", () => setActiveTab("event"));
-
-      el("selectAllRestock").addEventListener("change", (e) => {
-        if (e.target.checked) state.restockRows.forEach(r => state.selectedRestock.add(r._id));
-        else state.selectedRestock.clear();
-        renderRestock();
-        renderTray();
-      });
-
-      el("selectAllNew").addEventListener("change", (e) => {
-        if (e.target.checked) state.newRows.forEach(r => state.selectedNew.add(r.id));
-        else state.selectedNew.clear();
-        renderNew();
-        renderTray();
-      });
-
-      el("selectAllEvent").addEventListener("change", (e) => {
-        if (e.target.checked) state.eventRows.forEach(r => state.selectedEvent.add(r.id));
-        else state.selectedEvent.clear();
-        renderEvent();
+      el("selectAllStyles").addEventListener("change", (e) => {
+        if (e.target.checked) state.styles.forEach(s => state.selectedStyles.add(s.id));
+        else state.selectedStyles.clear();
+        renderStyles();
         renderTray();
       });
 
@@ -2045,7 +1769,7 @@
       await loadLocations();
       bindEvents();
       updateDraftPeek();
-      setActiveTab("restock");
+      setActiveTab("styles");
     }
 
     boot();
