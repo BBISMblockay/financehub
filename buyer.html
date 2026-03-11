@@ -1,698 +1,463 @@
-<!doctype html>
-<html lang="en" data-theme="light">
+<!DOCTYPE html>
+<html lang="en" class="h-full scroll-smooth">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Silo ERP — New Product Builder</title>
+  <title>Silo ERP — Product Builder</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="/financehub/pages/config.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 
   <style>
-    .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
-    .scrollbar::-webkit-scrollbar { height: 8px; width: 8px; }
-    .scrollbar::-webkit-scrollbar-thumb { background: rgba(148,163,184,.42); border-radius: 999px; }
-    .scrollbar::-webkit-scrollbar-track { background: transparent; }
-
-    :root[data-theme="light"]{
-      --bg: #f6f8fb;
-      --bg2: #eef3f9;
-      --panel: rgba(255,255,255,.90);
-      --panel-solid: #ffffff;
-      --panel-soft: #f8fafc;
-      --panel-softer: #fbfcfe;
-      --border: rgba(15,23,42,.08);
-      --border-strong: rgba(15,23,42,.12);
-      --text: rgba(15,23,42,.95);
-      --muted: rgba(15,23,42,.62);
-      --muted2: rgba(15,23,42,.44);
-      --accent: #2563eb;
-      --good: #15803d;
-      --warn: #b45309;
-      --danger: #dc2626;
-      --shadow-sm: 0 1px 2px rgba(15,23,42,.04);
-      --shadow-md: 0 12px 30px rgba(15,23,42,.06);
-      --ring: rgba(37,99,235,.12);
+    :root{
+      color-scheme: light;
+      --bg: #f8fafc;
+      --panel: rgba(255,255,255,.9);
+      --panel-2: #ffffff;
+      --line: rgba(15,23,42,.10);
+      --line-2: rgba(15,23,42,.07);
+      --text: #0f172a;
+      --muted: #64748b;
+      --muted-2: #94a3b8;
+      --chip: rgba(15,23,42,.03);
+      --chip-hover: rgba(15,23,42,.055);
+      --shadow: 0 18px 50px rgba(2,6,23,.08);
+      --accent: #0f172a;
+      --accent-2: #1e293b;
+      --good: #166534;
+      --good-bg: #f0fdf4;
+      --warn: #92400e;
+      --warn-bg: #fffbeb;
+      --soft: #f8fafc;
+      --soft-2: #f1f5f9;
+    }
+    .dark{
+      color-scheme: dark;
+      --bg: #020617;
+      --panel: rgba(15,23,42,.82);
+      --panel-2: #0f172a;
+      --line: rgba(148,163,184,.18);
+      --line-2: rgba(148,163,184,.12);
+      --text: #e5eefb;
+      --muted: #94a3b8;
+      --muted-2: #64748b;
+      --chip: rgba(148,163,184,.09);
+      --chip-hover: rgba(148,163,184,.14);
+      --shadow: 0 24px 60px rgba(0,0,0,.35);
+      --accent: #e2e8f0;
+      --accent-2: #cbd5e1;
+      --good: #86efac;
+      --good-bg: rgba(22,101,52,.18);
+      --warn: #fcd34d;
+      --warn-bg: rgba(146,64,14,.18);
+      --soft: rgba(148,163,184,.06);
+      --soft-2: rgba(148,163,184,.09);
     }
 
-    :root[data-theme="dark"]{
-      --bg: #0a1020;
-      --bg2: #0d1529;
-      --panel: rgba(15,23,42,.80);
-      --panel-solid: #0f172a;
-      --panel-soft: #111b31;
-      --panel-softer: #0e182d;
-      --border: rgba(255,255,255,.10);
-      --border-strong: rgba(255,255,255,.16);
-      --text: rgba(255,255,255,.94);
-      --muted: rgba(255,255,255,.68);
-      --muted2: rgba(255,255,255,.48);
-      --accent: #60a5fa;
-      --good: #4ade80;
-      --warn: #fbbf24;
-      --danger: #fb7185;
-      --shadow-sm: 0 1px 2px rgba(0,0,0,.28);
-      --shadow-md: 0 14px 34px rgba(0,0,0,.26);
-      --ring: rgba(96,165,250,.16);
-    }
-
-    * { box-sizing: border-box; }
-
-    html, body {
-      margin: 0;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      letter-spacing: -0.01em;
+    html, body { min-height: 100%; }
+    body{
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
       background:
-        radial-gradient(1200px 500px at 10% -10%, color-mix(in oklab, var(--accent) 8%, transparent), transparent 60%),
-        linear-gradient(180deg, var(--bg2), var(--bg));
+        radial-gradient(1200px 700px at 5% -10%, rgba(99,102,241,.12), transparent 45%),
+        radial-gradient(1000px 620px at 100% 0%, rgba(14,165,233,.10), transparent 38%),
+        var(--bg);
       color: var(--text);
     }
-
-    body.themeable { min-height: 100vh; }
-    .shell { max-width: 1680px; margin: 0 auto; padding: 18px; }
-
-    .card, .glass {
-      background: var(--panel);
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
-      border: 1px solid var(--border);
-      box-shadow: var(--shadow-sm);
-      border-radius: 22px;
+    .dark body{
+      background:
+        radial-gradient(1200px 700px at 5% -10%, rgba(99,102,241,.18), transparent 45%),
+        radial-gradient(1000px 620px at 100% 0%, rgba(14,165,233,.12), transparent 38%),
+        var(--bg);
     }
 
-    .topbar, .toolbar { padding: 14px 16px; }
-    .topbar { margin-bottom: 16px; }
-    .topbar-row, .header-row, .tray-row, .section-row {
-      display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap;
+    .mono{ font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+    .glass{ background: var(--panel); backdrop-filter: blur(18px); }
+    .panel{ background: var(--panel-2); border:1px solid var(--line); box-shadow: var(--shadow); }
+    .border-soft{ border-color: var(--line); }
+    .border-softer{ border-color: var(--line-2); }
+    .text-muted{ color: var(--muted); }
+    .text-muted-2{ color: var(--muted-2); }
+    .soft{ background: var(--soft); }
+    .soft-2{ background: var(--soft-2); }
+
+    .btn{ border:1px solid var(--line); background: var(--panel-2); transition: .18s ease; }
+    .btn:hover{ background: var(--chip-hover); }
+    .btn-dark{ border:1px solid var(--accent); background: var(--accent); color: var(--bg); transition:.18s ease; }
+    .btn-dark:hover{ opacity:.92; }
+    .btn-ghost{ background: transparent; border:1px solid transparent; }
+    .btn-ghost:hover{ background: var(--chip-hover); border-color: var(--line); }
+
+    .pill{ border:1px solid var(--line); background: var(--chip); }
+    .pill:hover{ background: var(--chip-hover); }
+
+    .seg{ border:1px solid var(--line); background: var(--panel-2); }
+    .seg button{ padding: 7px 11px; font-size: 12px; line-height:1; font-weight: 800; border-radius: 12px; transition:.18s ease; }
+    .seg button.active{ background: var(--accent); color: var(--bg); }
+    .seg button:not(.active):hover{ background: var(--chip-hover); }
+
+    .badge{
+      display:inline-flex; align-items:center; gap:.35rem;
+      border-radius:999px; padding: 3px 9px;
+      border:1px solid var(--line); background: var(--panel-2);
+      font-size:11px; font-weight:800;
     }
 
-    .section-label {
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: .14em;
-      color: var(--muted2);
-      font-weight: 800;
+    .kbd{
+      border:1px solid var(--line);
+      background: var(--chip);
+      border-bottom-width:2px;
+      border-radius:8px;
+      padding:2px 6px;
+      font-size:11px;
     }
 
-    .headline {
-      font-size: 30px;
-      line-height: 1.02;
-      letter-spacing: -0.04em;
-      font-weight: 800;
-      margin: 0;
-    }
-
-    .subtle {
-      color: var(--muted);
-      font-size: 14px;
-      line-height: 1.5;
-    }
-
-    .btn {
-      appearance:none;
-      border:1px solid var(--border);
-      background:rgba(255,255,255,.30);
-      color:var(--text);
-      height:40px;
-      padding:0 14px;
-      border-radius:12px;
-      font-size:14px;
-      font-weight:700;
-      cursor:pointer;
-      transition:.14s ease;
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      gap:8px;
-      white-space:nowrap;
-    }
-    .btn:hover {
-      border-color:var(--border-strong);
-      background:var(--panel-soft);
-      transform:translateY(-1px);
-    }
-    .btn:focus {
-      outline:none;
-      box-shadow:0 0 0 4px var(--ring);
-    }
-    .btn-primary {
-      background:var(--text);
-      color:#fff;
-      border-color:transparent;
-    }
-    .btn-primary:hover { opacity:.96; }
-    :root[data-theme="dark"] .btn-primary {
-      background: color-mix(in oklab, var(--accent) 80%, white);
-      color:#08111f;
-    }
-    .btn-danger {
-      color:var(--danger);
-      border-color: color-mix(in oklab, var(--danger) 26%, var(--border));
-      background:transparent;
-    }
-
-    .field, .select, .textarea {
+    .input, .select, .textarea{
       width:100%;
-      border:1px solid var(--border);
-      background: color-mix(in oklab, var(--panel-solid) 92%, transparent);
-      color:var(--text);
-      border-radius:14px;
-      font-size:14px;
-      font-weight:600;
-      transition:.14s ease;
-    }
-    .field, .select { height:42px; padding:0 13px; }
-    .textarea { min-height:70px; padding:12px 13px; resize:vertical; }
-    .field:focus, .select:focus, .textarea:focus {
-      outline:none;
-      border-color: color-mix(in oklab, var(--accent) 28%, var(--border));
-      box-shadow:0 0 0 4px var(--ring);
-    }
-
-    .pill {
-      display:inline-flex;
-      align-items:center;
-      gap:8px;
-      min-height:32px;
-      padding:6px 12px;
-      border-radius:999px;
-      border:1px solid var(--border);
-      color:var(--muted);
-      font-size:12px;
-      font-weight:700;
-      background:rgba(255,255,255,.24);
-    }
-
-    .dot {
-      width:8px;
-      height:8px;
-      border-radius:999px;
-      display:inline-block;
-      background:var(--accent);
-    }
-
-    .metric {
-      padding:16px;
-      border-radius:18px;
-      background: color-mix(in oklab, var(--panel-solid) 92%, transparent);
-      border:1px solid var(--border);
-    }
-    .metric .label {
-      font-size:12px;
-      color:var(--muted);
-      font-weight:700;
-    }
-    .metric .value {
-      font-size:26px;
-      line-height:1.05;
-      letter-spacing:-0.04em;
-      font-weight:800;
-      margin-top:10px;
-    }
-    .metric .sub {
-      font-size:12px;
-      color:var(--muted2);
-      margin-top:7px;
-      line-height:1.45;
-    }
-
-    .toolbar-grid {
-      display:grid;
-      grid-template-columns: 1fr 1fr 1.1fr 1.1fr 1fr auto auto auto;
-      gap:10px;
-      align-items:end;
-    }
-
-    .seg {
-      display:inline-flex;
-      align-items:center;
-      gap:6px;
-      padding:4px;
-      border-radius:14px;
-      border:1px solid var(--border);
-      background: color-mix(in oklab, var(--panel-solid) 92%, transparent);
-    }
-    .seg button {
-      padding: 9px 12px;
-      border-radius: 10px;
-      border: 0;
-      background: transparent;
-      color: var(--muted);
+      border:1px solid var(--line);
+      background: var(--panel-2);
+      color: var(--text);
+      border-radius: 14px;
+      padding: 10px 12px;
       font-size: 13px;
-      font-weight: 800;
-      cursor: pointer;
+      outline:none;
+      transition:.18s ease;
     }
-    .seg button.active {
-      background: var(--text);
-      color: #fff;
+    .input:focus, .select:focus, .textarea:focus{
+      border-color: rgba(59,130,246,.55);
+      box-shadow: 0 0 0 4px rgba(59,130,246,.10);
     }
-    :root[data-theme="dark"] .seg button.active {
-      background: color-mix(in oklab, var(--accent) 80%, white);
-      color:#08111f;
-    }
+    .textarea{ min-height: 100px; resize: vertical; }
 
-    .layout-grid {
-      display:grid;
-      grid-template-columns:minmax(0,1fr) 380px;
-      gap:16px;
-      align-items:start;
-    }
-
-    .table-wrap {
-      overflow:auto;
-      border-radius:18px;
-      border:1px solid var(--border);
-      background: color-mix(in oklab, var(--panel-solid) 96%, transparent);
-    }
-
-    table {
-      width:100%;
-      border-collapse:separate;
-      border-spacing:0;
-      min-width:1560px;
-    }
-    thead th {
-      position:sticky;
-      top:0;
-      z-index:1;
-      background: color-mix(in oklab, var(--panel-soft) 96%, transparent);
-      color:var(--muted2);
-      font-size:11px;
-      text-transform:uppercase;
-      letter-spacing:.12em;
-      font-weight:800;
-      text-align:left;
-      padding:14px 14px;
-      border-bottom:1px solid var(--border);
-      white-space:nowrap;
-    }
-    tbody td {
-      padding:14px 14px;
-      border-bottom:1px solid color-mix(in oklab, var(--border) 60%, transparent);
-      vertical-align:middle;
-      font-size:14px;
-      white-space:nowrap;
-    }
-    tbody tr:hover td { background: color-mix(in oklab, var(--panel-soft) 55%, transparent); }
-    tbody tr:last-child td { border-bottom:0; }
-
-    .badge {
-      display:inline-flex;
-      align-items:center;
-      gap:.35rem;
-      border:1px solid var(--border);
-      background: color-mix(in oklab, var(--panel-soft) 90%, transparent);
-      border-radius:999px;
-      padding:2px 8px;
-      font-size:11px;
-      font-weight:800;
-    }
-    .badge-good {
-      border-color: color-mix(in oklab, var(--good) 30%, var(--border));
-      color: var(--good);
-    }
-    .badge-warn {
-      border-color: color-mix(in oklab, var(--warn) 30%, var(--border));
-      color: var(--warn);
-    }
-    .badge-danger {
-      border-color: color-mix(in oklab, var(--danger) 30%, var(--border));
-      color: var(--danger);
-    }
-    .badge-accent {
-      border-color: color-mix(in oklab, var(--accent) 30%, var(--border));
-      color: var(--accent);
-    }
-
-    .status {
-      border-radius:14px;
-      padding:12px 13px;
-      border:1px solid var(--border);
-      background: color-mix(in oklab, var(--panel-soft) 92%, transparent);
-      font-size:13px;
-      font-weight:600;
-      color:var(--text);
-      line-height: 1.45;
-    }
-
-    .empty-state {
-      padding:30px 18px;
-      text-align:center;
-      color:var(--muted2);
-      font-size:14px;
-      font-weight:600;
-    }
-
-    .sticky-side {
+    .stickyHead thead th{
       position: sticky;
-      top: 18px;
+      top: 0;
+      z-index: 12;
+      backdrop-filter: blur(10px);
     }
 
-    .summary-tray {
-      position: sticky;
-      bottom: 14px;
-      z-index: 20;
-      margin-top: 16px;
-      padding: 14px 16px;
-      box-shadow: var(--shadow-md);
-    }
+    .thin-scroll::-webkit-scrollbar{ height:10px; width:10px; }
+    .thin-scroll::-webkit-scrollbar-thumb{ background: rgba(100,116,139,.35); border-radius: 999px; }
+    .thin-scroll::-webkit-scrollbar-track{ background: transparent; }
 
-    details.settings {
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      background: color-mix(in oklab, var(--panel-solid) 92%, transparent);
-      padding: 0;
-      overflow: hidden;
-    }
-    details.settings summary {
-      list-style: none;
-      cursor: pointer;
-      padding: 14px 16px;
-      font-weight: 800;
-      font-size: 14px;
-    }
-    details.settings summary::-webkit-details-marker { display:none; }
-    .settings-body {
-      padding: 0 16px 16px;
-      border-top: 1px solid var(--border);
-    }
-    .settings-grid {
-      display:grid;
-      grid-template-columns: repeat(3, minmax(0,1fr));
-      gap:10px;
-      margin-top: 14px;
-    }
-
-    @media (max-width: 1380px){
-      .toolbar-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
-      .layout-grid { grid-template-columns: 1fr; }
-      .sticky-side { position: static; }
-      .settings-grid { grid-template-columns: 1fr; }
-    }
-
-    @media (max-width: 780px){
-      .shell { padding: 12px; }
-      .toolbar-grid { grid-template-columns: 1fr; }
-      .headline { font-size: 24px; }
-      .metric .value { font-size: 22px; }
-    }
+    .table-wrap{ overflow:auto; }
+    .tab.active{ background: var(--accent); color: var(--bg); border-color: var(--accent); }
+    .tab{ border:1px solid var(--line); background: var(--panel-2); }
+    .summary-tray{ position: sticky; bottom: 14px; z-index: 40; }
+    .ring-good{ box-shadow: inset 0 0 0 1px rgba(22,101,52,.12); background: var(--good-bg); color: var(--good); }
+    .ring-warn{ box-shadow: inset 0 0 0 1px rgba(146,64,14,.14); background: var(--warn-bg); color: var(--warn); }
+    .mini{ font-size: 11px; }
+    .hide{ display:none !important; }
+    .right-rail{ position: sticky; top: 14px; }
+    .shadow-soft{ box-shadow: var(--shadow); }
   </style>
+
+  <script>
+    (() => {
+      const stored = localStorage.getItem("silo-theme");
+      if (stored === "dark") document.documentElement.classList.add("dark");
+    })();
+  </script>
 </head>
-<body class="themeable">
-  <div class="shell">
-    <div class="topbar glass">
-      <div class="topbar-row">
-        <div class="flex items-center gap-3 flex-wrap">
-          <div class="pill"><span class="dot"></span>Silo ERP</div>
-          <div class="pill" id="statusPill"><span class="dot"></span>Ready</div>
-        </div>
-        <div class="flex items-center gap-2 flex-wrap">
-          <span id="authEmail" class="text-sm" style="color: var(--muted);"></span>
-          <button id="themeBtn" class="btn"><span id="themeLabel">Light</span></button>
-          <button id="logoutBtn" class="btn">Logout</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="header-row">
-      <div>
-        <div class="section-label">New Product Planning</div>
-        <h1 class="headline mt-2">New Product Builder</h1>
-        <div class="subtle mt-2">
-          Smooth style-first flow for apparel and caps. Adds spreads automatically, leans on history where useful, and still lets growth-mode buys override old-category drag.
-        </div>
-      </div>
-
-      <div class="flex items-center gap-2 flex-wrap">
-        <button id="reloadBtn" class="btn">Reload</button>
-        <button id="refreshBtn" class="btn btn-primary">Refresh</button>
-        <button id="exportBtn" class="btn">Export Full CSV</button>
-      </div>
-    </div>
-
-    <div class="card toolbar">
-      <div class="toolbar-grid">
-        <div>
-          <label class="section-label mb-2 block">Date from</label>
-          <input id="dateFrom" type="date" class="field" />
-        </div>
-        <div>
-          <label class="section-label mb-2 block">Date to</label>
-          <input id="dateTo" type="date" class="field" />
-        </div>
-        <div>
-          <label class="section-label mb-2 block">Projection location</label>
-          <select id="projectionLocation" class="select">
-            <option value="">Select location</option>
-          </select>
-        </div>
-        <div>
-          <label class="section-label mb-2 block">Inventory scope</label>
-          <select id="inventoryScope" class="select">
-            <option value="ALL">All loaded sources</option>
-          </select>
-        </div>
-        <div>
-          <label class="section-label mb-2 block">Search</label>
-          <input id="searchBox" type="text" class="field" placeholder="Product title or category..." />
-        </div>
-        <button id="thisMonthBtn" class="btn">This month</button>
-        <button id="next30Btn" class="btn">Next 30</button>
-        <button id="addStyleBtn" class="btn btn-primary">Add Style</button>
-      </div>
-
-      <div class="mt-4 flex items-center gap-2 flex-wrap">
-        <div class="seg">
-          <button id="tabStylesBtn" class="active" type="button">Style Builder</button>
-          <button id="tabOutputBtn" type="button">Generated Output</button>
-        </div>
-      </div>
-
-      <div class="mt-4">
-        <details class="settings">
-          <summary>Planner settings</summary>
-          <div class="settings-body">
-            <div class="settings-grid">
-              <div>
-                <label class="section-label mb-2 block">Mix basis</label>
-                <select id="mixBasis" class="select">
-                  <option value="qty_30d">30 day units</option>
-                  <option value="qty_90d">90 day units</option>
-                  <option value="qty_120d">120 day units</option>
-                  <option value="qty_7d">7 day units</option>
-                </select>
-              </div>
-              <div>
-                <label class="section-label mb-2 block">Growth mode uplift %</label>
-                <input id="growthDriverPct" type="number" min="0" step="1" value="25" class="field mono" />
-              </div>
-              <div>
-                <label class="section-label mb-2 block">New category uplift %</label>
-                <input id="newCategoryUpliftPct" type="number" min="0" step="1" value="35" class="field mono" />
-              </div>
-              <div>
-                <label class="section-label mb-2 block">Historical weight %</label>
-                <input id="historicalWeightPct" type="number" min="0" max="100" step="1" value="55" class="field mono" />
-              </div>
-              <div>
-                <label class="section-label mb-2 block">Comparable weight %</label>
-                <input id="comparableWeightPct" type="number" min="0" max="100" step="1" value="45" class="field mono" />
-              </div>
-              <div>
-                <label class="section-label mb-2 block">Reserve stock %</label>
-                <input id="reservePct" type="number" min="0" step="1" value="10" class="field mono" />
-              </div>
-              <div>
-                <label class="section-label mb-2 block">Adult min runs</label>
-                <input id="adultMinRuns" type="number" min="1" step="1" value="2" class="field mono" />
-              </div>
-              <div>
-                <label class="section-label mb-2 block">Youth min runs</label>
-                <input id="youthMinRuns" type="number" min="1" step="1" value="2" class="field mono" />
-              </div>
-              <div>
-                <label class="section-label mb-2 block">Caps min runs</label>
-                <input id="capMinRuns" type="number" min="1" step="1" value="1" class="field mono" />
-              </div>
-            </div>
-          </div>
-        </details>
-      </div>
-    </div>
-
-    <div class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
-      <div class="metric card">
-        <div class="label">Projected sales</div>
-        <div id="kSales" class="mono value">$0</div>
-        <div class="sub">Location context</div>
-      </div>
-      <div class="metric card">
-        <div class="label">Projected units</div>
-        <div id="kUnits" class="mono value">0</div>
-        <div id="kUnitsSub" class="sub">Explicit or fallback</div>
-      </div>
-      <div class="metric card">
-        <div class="label">Styles planned</div>
-        <div id="kStyles" class="mono value">0</div>
-        <div class="sub">Builder rows</div>
-      </div>
-      <div class="metric card">
-        <div class="label">System units</div>
-        <div id="kSystemUnits" class="mono value">0</div>
-        <div class="sub">Before overrides</div>
-      </div>
-      <div class="metric card">
-        <div class="label">Final units</div>
-        <div id="kFinalUnits" class="mono value">0</div>
-        <div class="sub">After overrides</div>
-      </div>
-    </div>
-
-    <div class="layout-grid mt-4">
-      <section>
-        <div id="stylesSection" class="space-y-4">
-          <div class="card p-4">
-            <div class="section-row mb-4">
-              <div>
-                <div class="section-label">Style builder</div>
-                <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Style-first planning</div>
-                <div class="subtle mt-1">Add a style, let it auto-pick a spread, decide whether you want system total units or run-count logic, then override if needed.</div>
-              </div>
-            </div>
-
-            <div class="table-wrap scrollbar">
-              <table>
-                <thead>
-                  <tr>
-                    <th style="width:42px;"><input id="selectAllStyles" type="checkbox" /></th>
-                    <th>Product Title</th>
-                    <th>Category</th>
-                    <th>Comparable Title</th>
-                    <th>Family</th>
-                    <th>Spread</th>
-                    <th>Plan Mode</th>
-                    <th class="text-right">Weeks</th>
-                    <th class="text-right">Run Count</th>
-                    <th class="text-right">Hist / Wk</th>
-                    <th class="text-right">Comp / Wk</th>
-                    <th>Confidence</th>
-                    <th class="text-right">System Units</th>
-                    <th class="text-right">Buyer Units</th>
-                    <th class="text-right">Final Units</th>
-                  </tr>
-                </thead>
-                <tbody id="stylesBody">
-                  <tr><td colspan="15" class="empty-state">Add a style row to begin.</td></tr>
-                </tbody>
-              </table>
-            </div>
+<body class="h-full">
+  <div class="min-h-full">
+    <header class="sticky top-0 z-30 border-b border-soft glass">
+      <div class="mx-auto max-w-[1900px] px-4 py-3 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3 min-w-0">
+          <div class="h-10 w-10 rounded-2xl panel grid place-items-center text-sm font-extrabold shrink-0">S</div>
+          <div class="min-w-0">
+            <div class="text-sm font-semibold truncate">Silo ERP — Product Builder</div>
+            <div class="text-xs text-muted truncate">New product planning only • style-first buyer console • revenue projections as context, not a full forecast engine</div>
           </div>
         </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button id="btnTheme" class="btn rounded-xl px-3 py-2 text-sm font-semibold">Theme</button>
+          <button id="btnReload" class="btn rounded-xl px-3 py-2 text-sm font-semibold">Reload</button>
+          <button id="btnLogout" class="btn rounded-xl px-3 py-2 text-sm font-semibold">Logout</button>
+        </div>
+      </div>
+    </header>
 
-        <div id="outputSection" class="space-y-4 hidden">
-          <div class="card p-4">
-            <div class="section-row mb-4">
-              <div>
-                <div class="section-label">Generated output</div>
-                <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Size-level PO output</div>
-                <div class="subtle mt-1">Final units rolled into adult, youth, or cap spreads with the math note shown next to each style.</div>
+    <main class="mx-auto max-w-[1900px] px-4 py-4 space-y-4">
+      <section class="panel rounded-3xl p-3 md:p-4">
+        <div class="flex flex-col xl:flex-row xl:items-center gap-3">
+          <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2 flex-1">
+            <div>
+              <label class="block text-[11px] font-semibold text-muted mb-1">Date from</label>
+              <input id="dateFrom" type="date" class="input mono" />
+            </div>
+            <div>
+              <label class="block text-[11px] font-semibold text-muted mb-1">Date to</label>
+              <input id="dateTo" type="date" class="input mono" />
+            </div>
+            <div>
+              <label class="block text-[11px] font-semibold text-muted mb-1">Projection location</label>
+              <select id="selProjectionLocation" class="select"></select>
+            </div>
+            <div>
+              <label class="block text-[11px] font-semibold text-muted mb-1">Inventory scope</label>
+              <select id="selInventoryScope" class="select">
+                <option value="all">All loaded locations</option>
+              </select>
+            </div>
+            <div class="md:col-span-2 xl:col-span-2">
+              <label class="block text-[11px] font-semibold text-muted mb-1">Search</label>
+              <div class="relative">
+                <input id="txtSearch" type="text" class="input pl-10" placeholder="Search title, category, family, comparable…" />
+                <svg class="absolute left-3 top-3 h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none">
+                  <path d="M21 21l-4.3-4.3m1.8-5.2a7 7 0 11-14 0 7 7 0 0114 0z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
               </div>
             </div>
-
-            <div class="table-wrap scrollbar">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Product Title</th>
-                    <th>Category</th>
-                    <th>Spread</th>
-                    <th class="text-right">Final Style Units</th>
-                    <th>Size Output</th>
-                    <th>Math Note</th>
-                  </tr>
-                </thead>
-                <tbody id="outputBody">
-                  <tr><td colspan="6" class="empty-state">No output yet.</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        <div class="summary-tray glass">
-          <div class="tray-row">
-            <div class="flex items-center gap-3 flex-wrap">
-              <div class="pill">Selected styles: <span id="traySelected" class="mono">0</span></div>
-              <div class="pill">System units: <span id="traySystem" class="mono">0</span></div>
-              <div class="pill">Final units: <span id="trayFinal" class="mono">0</span></div>
-            </div>
-            <div class="flex items-center gap-2 flex-wrap">
-              <button id="addSelectedBtn" class="btn btn-primary">Add Selected → Draft</button>
-              <button id="exportSelectedBtn" class="btn">Export Selected</button>
+            <div class="md:col-span-2 xl:col-span-2 flex items-end gap-2 flex-wrap">
+              <button data-range="30" class="pill rounded-xl px-3 py-2 text-xs font-extrabold">30D</button>
+              <button data-range="90" class="pill rounded-xl px-3 py-2 text-xs font-extrabold">90D</button>
+              <button data-range="120" class="pill rounded-xl px-3 py-2 text-xs font-extrabold">120D</button>
+              <button data-range="365" class="pill rounded-xl px-3 py-2 text-xs font-extrabold">365D</button>
+              <button id="btnAddStyleTop" class="btn-dark rounded-xl px-3 py-2 text-sm font-semibold">Add Style</button>
             </div>
           </div>
         </div>
       </section>
 
-      <aside class="sticky-side flex flex-col gap-4">
-        <div class="card p-5">
-          <div class="section-label">Trust & math</div>
-          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Why the output moved</div>
-          <div id="mathBox" class="mt-4 space-y-2">
-            <div class="status">Waiting for refresh…</div>
+      <section class="grid grid-cols-1 2xl:grid-cols-12 gap-4 items-start">
+        <div class="2xl:col-span-9 space-y-4 min-w-0">
+          <section class="panel rounded-3xl overflow-hidden">
+            <div class="px-4 pt-4 pb-3 border-b border-softer flex items-center justify-between gap-3">
+              <div class="flex items-center gap-2 flex-wrap">
+                <button id="tabBuilder" class="tab active rounded-xl px-3 py-2 text-sm font-semibold">Style Builder</button>
+                <button id="tabOutput" class="tab rounded-xl px-3 py-2 text-sm font-semibold">Generated Output</button>
+              </div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <button id="btnExportAll" class="btn rounded-xl px-3 py-2 text-sm font-semibold">Export Full CSV</button>
+                <button id="btnExportSelectedTop" class="btn rounded-xl px-3 py-2 text-sm font-semibold">Export Selected</button>
+              </div>
+            </div>
+
+            <div id="builderView" class="p-0">
+              <div class="table-wrap thin-scroll">
+                <table class="min-w-[2200px] w-full text-sm stickyHead">
+                  <thead class="soft border-b border-softer">
+                    <tr>
+                      <th class="px-3 py-3 text-left text-xs font-semibold text-muted w-10"><input id="chkAll" type="checkbox" class="h-4 w-4"></th>
+                      <th class="px-3 py-3 text-left text-xs font-semibold text-muted min-w-[220px]">Product Title</th>
+                      <th class="px-3 py-3 text-left text-xs font-semibold text-muted min-w-[170px]">Category</th>
+                      <th class="px-3 py-3 text-left text-xs font-semibold text-muted min-w-[220px]">Comparable Title</th>
+                      <th class="px-3 py-3 text-left text-xs font-semibold text-muted min-w-[130px]">Family</th>
+                      <th class="px-3 py-3 text-left text-xs font-semibold text-muted min-w-[150px]">Spread</th>
+                      <th class="px-3 py-3 text-left text-xs font-semibold text-muted min-w-[130px]">Plan Mode</th>
+                      <th class="px-3 py-3 text-right text-xs font-semibold text-muted min-w-[84px]">Weeks</th>
+                      <th class="px-3 py-3 text-right text-xs font-semibold text-muted min-w-[90px]">Run Count</th>
+                      <th class="px-3 py-3 text-right text-xs font-semibold text-muted min-w-[90px]">Hist / Wk</th>
+                      <th class="px-3 py-3 text-right text-xs font-semibold text-muted min-w-[90px]">Comp / Wk</th>
+                      <th class="px-3 py-3 text-left text-xs font-semibold text-muted min-w-[110px]">Confidence</th>
+                      <th class="px-3 py-3 text-right text-xs font-semibold text-muted min-w-[105px]">System Units</th>
+                      <th class="px-3 py-3 text-right text-xs font-semibold text-muted min-w-[100px]">Buyer Units</th>
+                      <th class="px-3 py-3 text-right text-xs font-semibold text-muted min-w-[100px]">Final Units</th>
+                      <th class="px-3 py-3 text-left text-xs font-semibold text-muted min-w-[110px]">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="builderBody" class="divide-y border-softer"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div id="outputView" class="hide p-4">
+              <div class="rounded-2xl border border-soft overflow-hidden">
+                <div class="table-wrap thin-scroll">
+                  <table class="min-w-[1400px] w-full text-sm stickyHead">
+                    <thead class="soft border-b border-softer">
+                      <tr>
+                        <th class="px-3 py-3 text-left text-xs font-semibold text-muted">Product Title</th>
+                        <th class="px-3 py-3 text-left text-xs font-semibold text-muted">Category</th>
+                        <th class="px-3 py-3 text-left text-xs font-semibold text-muted">Spread</th>
+                        <th class="px-3 py-3 text-right text-xs font-semibold text-muted">Final Style Units</th>
+                        <th class="px-3 py-3 text-left text-xs font-semibold text-muted">Size Output</th>
+                        <th class="px-3 py-3 text-left text-xs font-semibold text-muted">Math Note</th>
+                      </tr>
+                    </thead>
+                    <tbody id="outputBody" class="divide-y border-softer"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <div class="summary-tray">
+            <section class="panel rounded-3xl px-4 py-3 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div class="grid grid-cols-3 gap-3 min-w-[320px]">
+                <div class="rounded-2xl soft p-3 border border-softer">
+                  <div class="mini text-muted">Selected styles</div>
+                  <div id="sumSelected" class="text-lg font-bold mono">0</div>
+                </div>
+                <div class="rounded-2xl soft p-3 border border-softer">
+                  <div class="mini text-muted">System units</div>
+                  <div id="sumSystem" class="text-lg font-bold mono">0</div>
+                </div>
+                <div class="rounded-2xl soft p-3 border border-softer">
+                  <div class="mini text-muted">Final units</div>
+                  <div id="sumFinal" class="text-lg font-bold mono">0</div>
+                </div>
+              </div>
+              <div class="flex items-center gap-2 flex-wrap justify-end">
+                <button id="btnAddStyleBottom" class="btn rounded-xl px-3 py-2 text-sm font-semibold">Add Style</button>
+                <button id="btnAddSelectedToDraft" class="btn-dark rounded-xl px-3 py-2 text-sm font-semibold">Add Selected to Draft</button>
+                <button id="btnExportSelected" class="btn rounded-xl px-3 py-2 text-sm font-semibold">Export Selected CSV</button>
+              </div>
+            </section>
           </div>
         </div>
 
-        <div class="card p-5">
-          <div class="section-label">Read the signals</div>
-          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Guidance</div>
-          <div class="mt-4 space-y-2">
-            <div class="status">If old categories are stable but new categories are outperforming, this builder lets you lean more on comparable titles and growth multipliers without deleting history from the equation.</div>
-            <div class="status">If the system buy still looks too light, increase min runs or switch the style to run-count mode so it behaves like a real buyer workflow.</div>
-            <div class="status">Inventory.html should still own true restocks, transfers, and legacy SKU risk. This page is for newness and rollout depth.</div>
-          </div>
-        </div>
+        <aside class="2xl:col-span-3 right-rail space-y-4">
+          <section class="panel rounded-3xl p-4">
+            <div class="flex items-center justify-between gap-2">
+              <div>
+                <div class="text-sm font-semibold">Trust & Math</div>
+                <div class="text-xs text-muted mt-1">Why the recommendation exists</div>
+              </div>
+              <span id="trustBadge" class="badge">Awaiting data</span>
+            </div>
+            <div class="mt-3 text-xs leading-relaxed text-muted">
+              Current top-down planning context is <b>imported revenue projections</b> from Supabase. This page does <b>not</b> pretend to be a fully automated forecast engine. It standardizes style launches using category history, comparable signals, buyer settings, launch bias, and run floors.
+            </div>
+            <div id="trustMathBox" class="mt-3 rounded-2xl soft p-3 border border-softer text-xs leading-relaxed">
+              Select a style row to inspect the calculation stack.
+            </div>
+          </section>
 
-        <div class="card p-5">
-          <div class="section-label">Projection notes</div>
-          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Context</div>
-          <div id="projectionNotes" class="mt-4">
-            <div class="empty-state">No projection notes loaded.</div>
-          </div>
-        </div>
+          <section class="panel rounded-3xl p-4">
+            <div class="text-sm font-semibold">Read the Signals</div>
+            <div class="mt-1 text-xs text-muted leading-relaxed">
+              Old inventory, too many weak choices, and stale categories can distort raw history. This model keeps 120-day category demand as the base anchor, but lets you rebalance toward comparable strength and growth/newness bias instead of blindly replaying the past.
+            </div>
+            <div class="mt-3 grid grid-cols-1 gap-2 text-xs">
+              <div class="rounded-2xl soft p-3 border border-softer">
+                <div class="font-semibold">Healthy use</div>
+                <div class="text-muted mt-1">Use historical weight for base demand truth, comparable weight for title fit, and growth uplift for intentional newness.</div>
+              </div>
+              <div class="rounded-2xl soft p-3 border border-softer">
+                <div class="font-semibold">Bad use</div>
+                <div class="text-muted mt-1">Do not assume a weak stale category deserves the same level of buy just because it existed before.</div>
+              </div>
+            </div>
+          </section>
 
-        <div class="card p-5">
-          <div class="section-label">PO draft</div>
-          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Draft</div>
-          <div class="mt-3">
-            <label class="section-label mb-2 block">PO name</label>
-            <input id="poName" type="text" class="field" placeholder="ex: NEW-APRIL-STYLES" />
-          </div>
-          <div class="mt-3">
-            <label class="section-label mb-2 block">Vendor</label>
-            <input id="poVendor" type="text" class="field" placeholder="optional" />
-          </div>
-          <div class="mt-3">
-            <label class="section-label mb-2 block">ETA</label>
-            <input id="poEta" type="date" class="field mono" />
-          </div>
-          <div class="mt-3 flex gap-2">
-            <button id="viewDraftBtn" class="btn">View Draft</button>
-            <button id="exportDraftBtn" class="btn">Export Draft</button>
-          </div>
-          <div class="mt-3">
-            <button id="clearDraftBtn" class="btn btn-danger">Clear Draft</button>
-          </div>
-          <pre id="draftPeek" class="mt-4 status scrollbar" style="max-height:220px; overflow:auto;">Draft empty.</pre>
+          <section class="panel rounded-3xl p-4 space-y-3">
+            <div>
+              <div class="text-sm font-semibold">Projection Notes</div>
+              <div id="projectionContext" class="text-xs text-muted mt-1 leading-relaxed">No projection context loaded yet.</div>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block mini font-semibold text-muted mb-1">Historical weight %</label>
+                <input id="setHistWeight" type="number" min="0" max="100" step="1" value="60" class="input mono">
+              </div>
+              <div>
+                <label class="block mini font-semibold text-muted mb-1">Comparable weight %</label>
+                <input id="setCompWeight" type="number" min="0" max="100" step="1" value="40" class="input mono">
+              </div>
+              <div>
+                <label class="block mini font-semibold text-muted mb-1">Growth uplift %</label>
+                <input id="setGrowthUplift" type="number" min="0" step="1" value="20" class="input mono">
+              </div>
+              <div>
+                <label class="block mini font-semibold text-muted mb-1">New category uplift %</label>
+                <input id="setNewCategoryUplift" type="number" min="0" step="1" value="15" class="input mono">
+              </div>
+              <div>
+                <label class="block mini font-semibold text-muted mb-1">Reserve stock %</label>
+                <input id="setReservePct" type="number" min="0" step="1" value="10" class="input mono">
+              </div>
+              <div>
+                <label class="block mini font-semibold text-muted mb-1">Default weeks</label>
+                <input id="setDefaultWeeks" type="number" min="1" step="1" value="8" class="input mono">
+              </div>
+              <div>
+                <label class="block mini font-semibold text-muted mb-1">Adult min runs</label>
+                <input id="setAdultMinRuns" type="number" min="1" step="1" value="6" class="input mono">
+              </div>
+              <div>
+                <label class="block mini font-semibold text-muted mb-1">Youth min runs</label>
+                <input id="setYouthMinRuns" type="number" min="1" step="1" value="4" class="input mono">
+              </div>
+              <div>
+                <label class="block mini font-semibold text-muted mb-1">Cap min runs</label>
+                <input id="setCapMinRuns" type="number" min="1" step="1" value="8" class="input mono">
+              </div>
+              <div>
+                <label class="block mini font-semibold text-muted mb-1">Default rollout</label>
+                <select id="setDefaultRollout" class="select">
+                  <option value="limited">Limited</option>
+                  <option value="core">Core</option>
+                  <option value="big">Big</option>
+                </select>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel rounded-3xl p-4 space-y-3">
+            <div class="flex items-center justify-between gap-2">
+              <div>
+                <div class="text-sm font-semibold">PO Draft</div>
+                <div class="text-xs text-muted mt-1">Size-expanded draft lines stored locally</div>
+              </div>
+              <span class="badge">localStorage</span>
+            </div>
+            <div>
+              <label class="block mini font-semibold text-muted mb-1">Draft / Batch name</label>
+              <input id="txtDraftName" type="text" class="input" placeholder="ex: FW26 Newness Drop 1">
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block mini font-semibold text-muted mb-1">Vendor</label>
+                <input id="txtDraftVendor" type="text" class="input" placeholder="optional">
+              </div>
+              <div>
+                <label class="block mini font-semibold text-muted mb-1">ETA</label>
+                <input id="txtDraftEta" type="date" class="input mono">
+              </div>
+            </div>
+            <div class="flex gap-2">
+              <button id="btnViewDraft" class="btn rounded-xl px-3 py-2 text-sm font-semibold w-full">View Draft</button>
+              <button id="btnExportDraft" class="btn-dark rounded-xl px-3 py-2 text-sm font-semibold w-full">Export Draft</button>
+            </div>
+            <button id="btnClearDraft" class="btn rounded-xl px-3 py-2 text-sm font-semibold w-full">Clear Draft</button>
+            <div class="rounded-2xl soft p-3 border border-softer">
+              <div class="mini font-semibold text-muted">Draft peek</div>
+              <pre id="draftPeek" class="mt-2 text-xs whitespace-pre-wrap break-words text-muted max-h-56 overflow-auto thin-scroll">Draft empty.</pre>
+            </div>
+          </section>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <div id="modal" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/50" data-modal-overlay="1"></div>
+    <div class="absolute inset-x-0 top-8 mx-auto max-w-5xl px-4">
+      <div class="panel rounded-3xl overflow-hidden">
+        <div class="px-4 py-3 border-b border-softer flex items-center justify-between gap-2">
+          <div id="modalTitle" class="text-sm font-semibold">Modal</div>
+          <button id="btnCloseModal" class="btn rounded-xl px-3 py-2 text-sm font-semibold">Close</button>
         </div>
-      </aside>
+        <div id="modalBody" class="p-4 max-h-[80vh] overflow-auto thin-scroll"></div>
+      </div>
     </div>
   </div>
 
   <script>
-    const cfg = window.__SILO_CONFIG__ || {};
-    let supabaseClient = null;
+    /******************************************************************
+     * Silo ERP — Product Builder
+     * New product planning only
+     * Style-first model using:
+     * - revenue_projections (planning context only)
+     * - locations (active dropdowns)
+     * - inventory + sales summary Google Sheet pattern from inventory.html
+     ******************************************************************/
 
     const SHEET_ID = "1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0";
     const SHEET_TABS = [
@@ -704,14 +469,15 @@
     ];
 
     const H = {
+      location: "Location",
+      shop_domain: "Shop MyShopify Domain",
       sku: "Variant SKU",
       barcode: "Variant Barcode",
       product: "Product title",
       variant: "Variant title",
       avail_qty: "Total available quantity",
       inv_value: "Total available inventory value",
-      sold_30: "SUM Variant Quantity sold over the last 30 days",
-      avg_day: "SUM Variant Average quantity sold per day"
+      img: "Product Image url"
     };
 
     const SH = {
@@ -723,159 +489,192 @@
       qty_30d: "qty_30d",
       qty_90d: "qty_90d",
       qty_120d: "qty_120d",
-      avg_day_30: "avg_day_30"
+      avg_day_30: "avg_day_30",
+      avg_day_90: "avg_day_90",
+      avg_day_120: "avg_day_120",
+      last_sold_date: "last_sold_date"
     };
 
-    const STYLE_ITEMS_KEY = "silo_new_product_builder_v2_styles";
-    const STYLE_OVERRIDES_KEY = "silo_new_product_builder_v2_overrides";
-    const DRAFT_KEY = "silo_po_draft_v5_growth";
+    const STORAGE = {
+      styles: "silo_product_builder_styles_v1",
+      settings: "silo_product_builder_settings_v1",
+      draft: "silo_product_builder_draft_v1"
+    };
+
+    const FAMILY_OPTIONS = [
+      { value: "adult", label: "Adult Apparel" },
+      { value: "youth", label: "Youth Apparel" },
+      { value: "caps", label: "Caps" }
+    ];
 
     const SPREAD_TEMPLATES = {
-      "adult-standard-3xl": {
-        label: "Adult Standard 3XL",
+      adult_standard: {
+        label: "Adult Standard",
         family: "adult",
-        run_total: 16,
         sizes: [
-          { size: "S", qty: 2 },
-          { size: "M", qty: 4 },
-          { size: "L", qty: 4 },
-          { size: "XL", qty: 3 },
-          { size: "2XL", qty: 2 },
-          { size: "3XL", qty: 1 }
+          { size: "S", units: 1 },
+          { size: "M", units: 2 },
+          { size: "L", units: 2 },
+          { size: "XL", units: 2 },
+          { size: "2XL", units: 1 },
+          { size: "3XL", units: 1 }
         ]
       },
-      "adult-balanced-3xl": {
-        label: "Adult Balanced 3XL",
-        family: "adult",
-        run_total: 18,
-        sizes: [
-          { size: "S", qty: 2 },
-          { size: "M", qty: 4 },
-          { size: "L", qty: 5 },
-          { size: "XL", qty: 4 },
-          { size: "2XL", qty: 2 },
-          { size: "3XL", qty: 1 }
-        ]
-      },
-      "adult-extended-3xl": {
-        label: "Adult Extended 3XL",
-        family: "adult",
-        run_total: 20,
-        sizes: [
-          { size: "XS", qty: 1 },
-          { size: "S", qty: 3 },
-          { size: "M", qty: 5 },
-          { size: "L", qty: 5 },
-          { size: "XL", qty: 3 },
-          { size: "2XL", qty: 2 },
-          { size: "3XL", qty: 1 }
-        ]
-      },
-      "youth-standard": {
+      youth_standard: {
         label: "Youth Standard",
         family: "youth",
-        run_total: 10,
         sizes: [
-          { size: "YS", qty: 2 },
-          { size: "YM", qty: 3 },
-          { size: "YL", qty: 3 },
-          { size: "YXL", qty: 2 }
+          { size: "YS", units: 1 },
+          { size: "YM", units: 2 },
+          { size: "YL", units: 2 },
+          { size: "YXL", units: 1 }
         ]
       },
-      "caps-osfa": {
-        label: "Caps OSFA",
-        family: "caps",
-        run_total: 24,
-        sizes: [
-          { size: "OSFA", qty: 24 }
-        ]
-      },
-      "caps-fitted": {
+      caps_fitted: {
         label: "Caps Fitted",
         family: "caps",
-        run_total: 25,
         sizes: [
-          { size: "6 7/8", qty: 2 },
-          { size: "7", qty: 4 },
-          { size: "7 1/8", qty: 6 },
-          { size: "7 1/4", qty: 6 },
-          { size: "7 3/8", qty: 4 },
-          { size: "7 1/2", qty: 2 },
-          { size: "7 5/8", qty: 1 }
+          { size: "SM/M", units: 2 },
+          { size: "L/XL", units: 2 }
         ]
       }
     };
 
-    const state = {
-      locations: [],
-      projectionRows: [],
-      inventoryRows: [],
-      categoryOptions: [],
-      comparableTitleOptions: [],
-      styles: [],
-      outputRows: [],
-      selectedStyles: new Set(),
-      activeTab: "styles",
-      metricsCtx: {
-        totalProjectedSales: 0,
-        projectedUnitsUsed: 0,
-        explicitProjectedUnits: 0,
-        blendedUnitValue: 0
-      },
-      themeKey: "silo_new_product_builder_v2_theme"
+    const FAMILY_DEFAULTS = {
+      adult: { spread: "adult_standard", run_count: 6, min_runs_key: "adultMinRuns" },
+      youth: { spread: "youth_standard", run_count: 4, min_runs_key: "youthMinRuns" },
+      caps: { spread: "caps_fitted", run_count: 8, min_runs_key: "capMinRuns" }
+    };
+
+    const LAUNCH_TYPES = {
+      inline: { label: "Inline", multiplier: 1.00 },
+      capsule: { label: "Capsule", multiplier: 1.12 },
+      key_drop: { label: "Key Drop", multiplier: 1.22 },
+      event: { label: "Event / Promo", multiplier: 1.18 }
+    };
+
+    const ROLLOUTS = {
+      limited: { label: "Limited rollout", multiplier: 0.90 },
+      core: { label: "Core rollout", multiplier: 1.00 },
+      big: { label: "Big rollout", multiplier: 1.20 }
+    };
+
+    const DEFAULT_SETTINGS = {
+      histWeight: 60,
+      compWeight: 40,
+      growthUplift: 20,
+      newCategoryUplift: 15,
+      reservePct: 10,
+      defaultWeeks: 8,
+      adultMinRuns: 6,
+      youthMinRuns: 4,
+      capMinRuns: 8,
+      defaultRollout: "limited"
     };
 
     const el = (id) => document.getElementById(id);
-    const setText = (id, text) => { const n = el(id); if (n) n.textContent = text; };
-    const setHtml = (id, html) => { const n = el(id); if (n) n.innerHTML = html; };
 
-    function norm(s){ return String(s ?? "").replace(/\u00A0/g," ").trim(); }
-    function safeLower(s){ return norm(s).toLowerCase(); }
-    function num(v){
-      const x = parseFloat(String(v ?? "").replace(/[^0-9.\-]/g,""));
-      return Number.isFinite(x) ? x : 0;
-    }
-    function fmtInt(n){ return Number.isFinite(Number(n)) ? Math.round(Number(n)).toLocaleString() : "0"; }
-    function fmtMoney(n){
-      return Number.isFinite(Number(n))
-        ? Number(n).toLocaleString(undefined,{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:2})
-        : "$0.00";
-    }
+    const state = {
+      supabase: null,
+      user: null,
+      inventoryRows: [],
+      categoryStats: new Map(),
+      comparableStats: new Map(),
+      categories: [],
+      titles: [],
+      locations: [],
+      projections: [],
+      projectionSummary: null,
+      styles: [],
+      selected: new Set(),
+      activeTab: "builder",
+      focusedStyleId: null,
+      loading: false,
+      loadSeq: 0,
+      aborter: null
+    };
+
+    function norm(s){ return (s ?? "").toString().replace(/\u00A0/g, " ").trim(); }
+    function num(v){ const x = parseFloat((v ?? "").toString().replace(/[^0-9.\-]/g, "")); return Number.isFinite(x) ? x : 0; }
+    function clamp(n, min, max){ return Math.max(min, Math.min(max, n)); }
+    function uid(){ return `sty_${Math.random().toString(36).slice(2,10)}_${Date.now().toString(36)}`; }
+    function money(v){ return num(v).toLocaleString(undefined, { style: "currency", currency: "USD", maximumFractionDigits: 0 }); }
     function escapeHtml(str){
-      return String(str ?? "").replace(/[&<>"']/g, (m) => ({
-        "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;"
+      return (str ?? "").toString().replace(/[&<>"']/g, m => ({
+        "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
       }[m]));
     }
-    function todayIso(){
-      const d = new Date();
-      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+    function safeId(str){ return (str || "").toString().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""); }
+    function formatDateInput(date){ return new Date(date.getTime() - (date.getTimezoneOffset() * 60000)).toISOString().slice(0,10); }
+    function parseDateLoose(s){ const t = Date.parse((s || "").toString().trim()); return Number.isFinite(t) ? t : null; }
+    function gidToCsvUrl(gid){ return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${encodeURIComponent(gid)}`; }
+    function toggleTheme(){
+      document.documentElement.classList.toggle("dark");
+      localStorage.setItem("silo-theme", document.documentElement.classList.contains("dark") ? "dark" : "light");
     }
-    function addDaysIso(baseIso, days){
-      const d = new Date(baseIso + "T00:00:00");
-      d.setDate(d.getDate() + days);
-      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-    }
-    function firstDayOfMonthIso(date = new Date()){
-      return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,"0")}-01`;
-    }
-    function gidToCsvUrl(gid){
-      return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${encodeURIComponent(gid)}`;
-    }
-    function csvEscape(value){
-      const s = String(value ?? "");
-      if (/[",\n]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
-      return s;
-    }
-    function loadJson(key, fallback){
-      try {
-        const raw = localStorage.getItem(key);
-        return raw ? JSON.parse(raw) : fallback;
-      } catch(e){
-        return fallback;
+
+    function getSettings(){
+      try{
+        return { ...DEFAULT_SETTINGS, ...(JSON.parse(localStorage.getItem(STORAGE.settings) || "{}") || {}) };
+      }catch(e){
+        return { ...DEFAULT_SETTINGS };
       }
     }
-    function saveJson(key, value){
-      localStorage.setItem(key, JSON.stringify(value));
+
+    function saveSettings(next){
+      localStorage.setItem(STORAGE.settings, JSON.stringify(next));
+    }
+
+    function loadStyles(){
+      try{
+        const raw = JSON.parse(localStorage.getItem(STORAGE.styles) || "[]");
+        return Array.isArray(raw) ? raw : [];
+      }catch(e){
+        return [];
+      }
+    }
+
+    function saveStyles(){
+      localStorage.setItem(STORAGE.styles, JSON.stringify(state.styles));
+    }
+
+    function loadDraft(){
+      try{ return JSON.parse(localStorage.getItem(STORAGE.draft) || "[]"); }
+      catch(e){ return []; }
+    }
+
+    function saveDraft(lines){
+      localStorage.setItem(STORAGE.draft, JSON.stringify(lines));
+    }
+
+    function csvDownload(name, content, mime="text/csv"){
+      const blob = new Blob([content], { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function toCSV(objects, headers){
+      const esc = (v) => {
+        const s = (v ?? "").toString();
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      };
+      return [headers.map(esc).join(","), ...objects.map(o => headers.map(h => esc(o[h])).join(","))].join("\n");
+    }
+
+    function openModal(title, html){
+      el("modalTitle").textContent = title;
+      el("modalBody").innerHTML = html;
+      el("modal").classList.remove("hidden");
+    }
+
+    function closeModal(){
+      el("modal").classList.add("hidden");
     }
 
     function parseCSV(text){
@@ -887,13 +686,12 @@
           if (c === '"' && n === '"'){ field += '"'; i += 2; continue; }
           if (c === '"'){ inQuotes = false; i++; continue; }
           field += c; i++; continue;
-        } else {
-          if (c === '"'){ inQuotes = true; i++; continue; }
-          if (c === ','){ row.push(field); field = ""; i++; continue; }
-          if (c === '\r'){ i++; continue; }
-          if (c === '\n'){ row.push(field); rows.push(row); field = ""; row = []; i++; continue; }
-          field += c; i++; continue;
         }
+        if (c === '"'){ inQuotes = true; i++; continue; }
+        if (c === ","){ row.push(field); field = ""; i++; continue; }
+        if (c === "\r"){ i++; continue; }
+        if (c === "\n"){ row.push(field); rows.push(row); row = []; field = ""; i++; continue; }
+        field += c; i++;
       }
       row.push(field); rows.push(row);
       return rows;
@@ -911,71 +709,98 @@
       return { headers, rows };
     }
 
-    async function fetchCsvObjects(url){
-      const res = await fetch(url, { cache: "no-store" });
+    function applyDefaultDates(days = 120){
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - days + 1);
+      el("dateTo").value = formatDateInput(end);
+      el("dateFrom").value = formatDateInput(start);
+    }
+
+    async function initAuth(){
+      const cfg = window.__SILO_CONFIG__ || {};
+      if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY){
+        throw new Error("Missing Supabase config in window.__SILO_CONFIG__.");
+      }
+
+      state.supabase = window.supabase.createClient(
+        cfg.SUPABASE_URL,
+        cfg.SUPABASE_ANON_KEY,
+        { auth: { persistSession: true, autoRefreshToken: true } }
+      );
+
+      const { data: { session } } = await state.supabase.auth.getSession();
+      if (!session?.user){
+        window.location.href = cfg.LOGIN_PATH || cfg.LOGIN_URL || "/financehub/pages/login.html";
+        return;
+      }
+
+      state.user = session.user;
+
+      state.supabase.auth.onAuthStateChange((_event, sess) => {
+        if (!sess?.user){
+          window.location.href = cfg.LOGIN_PATH || cfg.LOGIN_URL || "/financehub/pages/login.html";
+        }
+      });
+    }
+
+    async function logout(){
+      if (!state.supabase) return;
+      await state.supabase.auth.signOut();
+      const cfg = window.__SILO_CONFIG__ || {};
+      window.location.href = cfg.LOGIN_PATH || cfg.LOGIN_URL || "/financehub/pages/login.html";
+    }
+
+    async function fetchCsvObjects(url, signal){
+      const res = await fetch(url, { cache: "no-store", signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const txt = await res.text();
-      return rowsToObjects(txt);
+      return rowsToObjects(await res.text());
     }
 
-    function rowKeyFor(r){
-      const sku = norm(r.sku);
-      if (sku) return `SKU::${sku}`;
-      const bc = norm(r.barcode);
-      if (bc) return `BC::${bc}`;
-      return `PV::${norm(r.product)}::${norm(r.variant)}`;
-    }
-
-    function loadStyles(){ return loadJson(STYLE_ITEMS_KEY, []); }
-    function saveStyles(items){ saveJson(STYLE_ITEMS_KEY, items || []); }
-
-    function getStyleOverride(id){
-      const map = loadJson(STYLE_OVERRIDES_KEY, {});
-      return map[id] ?? "";
-    }
-
-    function setStyleOverride(id, value){
-      const map = loadJson(STYLE_OVERRIDES_KEY, {});
-      map[id] = value === "" ? "" : Number(value);
-      saveJson(STYLE_OVERRIDES_KEY, map);
-    }
-
-    function loadDraft(){
-      try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || "[]"); }
-      catch(e){ return []; }
-    }
-
-    function saveDraft(lines){
-      localStorage.setItem(DRAFT_KEY, JSON.stringify(lines));
-    }
-
-    function buildSalesMap(rows){
-      const map = new Map();
-      for (const r of rows){
-        const sku = norm(r[SH.sku]);
+    function buildSalesMap(salesRows){
+      const m = new Map();
+      for (const r of salesRows){
+        const sku = norm(r[SH.sku] || r.SKU || r.sku);
         if (!sku) continue;
-        map.set(sku, {
+        const last = norm(r[SH.last_sold_date]);
+        m.set(sku, {
+          sku,
+          product_name: norm(r[SH.product_name]),
+          product_type: norm(r[SH.product_type]),
+          vendor: norm(r[SH.vendor]),
           qty_7d: num(r[SH.qty_7d]),
           qty_30d: num(r[SH.qty_30d]),
           qty_90d: num(r[SH.qty_90d]),
           qty_120d: num(r[SH.qty_120d]),
           avg_day_30: num(r[SH.avg_day_30]),
-          product_name: norm(r[SH.product_name]),
-          product_type: norm(r[SH.product_type]),
-          vendor: norm(r[SH.vendor])
+          avg_day_90: num(r[SH.avg_day_90]),
+          avg_day_120: num(r[SH.avg_day_120]),
+          last_sold_date: last,
+          last_sold_ms: parseDateLoose(last)
         });
       }
-      return map;
+      return m;
     }
 
-    function collapseInventoryRows(rows){
+    function collapseLocationRows(rows){
       const byKey = new Map();
+
+      const keyFor = (r) => {
+        const sku = norm(r.sku);
+        if (sku) return `${r.source_id}::${sku}`;
+        const bc = norm(r.barcode);
+        if (bc) return `${r.source_id}::BC::${bc}`;
+        return `${r.source_id}::${norm(r.product)}::${norm(r.variant)}`;
+      };
+
       for (const r of rows){
-        const k = rowKeyFor(r);
+        const k = keyFor(r);
+
         if (!byKey.has(k)){
-          byKey.set(k, { ...r });
+          byKey.set(k, { ...r, inv_locations: new Set(r.inv_location ? [r.inv_location] : []) });
           continue;
         }
+
         const agg = byKey.get(k);
         agg.avail_qty += num(r.avail_qty);
         agg.inv_value += num(r.inv_value);
@@ -983,807 +808,1163 @@
         agg.qty_30d = Math.max(num(agg.qty_30d), num(r.qty_30d));
         agg.qty_90d = Math.max(num(agg.qty_90d), num(r.qty_90d));
         agg.qty_120d = Math.max(num(agg.qty_120d), num(r.qty_120d));
-        agg.avg_day = Math.max(num(agg.avg_day), num(r.avg_day));
-        if (!agg.product && r.product) agg.product = r.product;
-        if (!agg.product_type && r.product_type) agg.product_type = r.product_type;
+        agg.avg_day_30 = Math.max(num(agg.avg_day_30), num(r.avg_day_30));
+        agg.avg_day_90 = Math.max(num(agg.avg_day_90), num(r.avg_day_90));
+        agg.avg_day_120 = Math.max(num(agg.avg_day_120), num(r.avg_day_120));
+
+        if (r.inv_location) agg.inv_locations.add(r.inv_location);
+
+        if (r.last_sold_ms && (!agg.last_sold_ms || r.last_sold_ms > agg.last_sold_ms)){
+          agg.last_sold_ms = r.last_sold_ms;
+          agg.last_sold_date = r.last_sold_date;
+        }
       }
-      return Array.from(byKey.values());
+
+      return [...byKey.values()].map(v => {
+        v.inv_location = [...v.inv_locations].slice(0,3).join(", ");
+        delete v.inv_locations;
+        return v;
+      });
     }
 
-    function getInputs(){
-      return {
-        mixBasis: el("mixBasis").value,
-        growthDriverPct: num(el("growthDriverPct").value || 0),
-        newCategoryUpliftPct: num(el("newCategoryUpliftPct").value || 0),
-        historicalWeightPct: num(el("historicalWeightPct").value || 0),
-        comparableWeightPct: num(el("comparableWeightPct").value || 0),
-        reservePct: num(el("reservePct").value || 0),
-        adultMinRuns: num(el("adultMinRuns").value || 1),
-        youthMinRuns: num(el("youthMinRuns").value || 1),
-        capMinRuns: num(el("capMinRuns").value || 1)
+    function buildAnalytics(rows){
+      const catMap = new Map();
+      const titleMap = new Map();
+      const categories = new Set();
+      const titles = new Set();
+
+      for (const r of rows){
+        const cat = norm(r.product_type || "Uncategorized");
+        const title = norm(r.product || "Untitled");
+        categories.add(cat);
+        titles.add(title);
+
+        if (!catMap.has(cat)){
+          catMap.set(cat, {
+            category: cat,
+            units7: 0,
+            units30: 0,
+            units90: 0,
+            units120: 0,
+            titles: new Set(),
+            skuCount: 0
+          });
+        }
+
+        if (!titleMap.has(title)){
+          titleMap.set(title, {
+            title,
+            category: cat,
+            units7: 0,
+            units30: 0,
+            units90: 0,
+            units120: 0,
+            skuCount: 0
+          });
+        }
+
+        const c = catMap.get(cat);
+        c.units7 += num(r.qty_7d);
+        c.units30 += num(r.qty_30d);
+        c.units90 += num(r.qty_90d);
+        c.units120 += num(r.qty_120d);
+        c.titles.add(title);
+        c.skuCount += 1;
+
+        const t = titleMap.get(title);
+        t.units7 += num(r.qty_7d);
+        t.units30 += num(r.qty_30d);
+        t.units90 += num(r.qty_90d);
+        t.units120 += num(r.qty_120d);
+        t.skuCount += 1;
+      }
+
+      for (const c of catMap.values()){
+        c.hist_per_week_default = c.units120 / (120 / 7 || 1);
+        c.hist_per_week_30 = c.units30 / (30 / 7 || 1);
+        c.hist_per_week_90 = c.units90 / (90 / 7 || 1);
+        c.titleCount = c.titles.size;
+        c.avgTitleUnits120 = c.titleCount ? c.units120 / c.titleCount : 0;
+        delete c.titles;
+      }
+
+      for (const t of titleMap.values()){
+        t.comp_per_week_default = t.units120 / (120 / 7 || 1);
+        t.comp_per_week_30 = t.units30 / (30 / 7 || 1);
+        t.comp_per_week_90 = t.units90 / (90 / 7 || 1);
+      }
+
+      state.categoryStats = catMap;
+      state.comparableStats = titleMap;
+      state.categories = [...categories].sort((a,b) => a.localeCompare(b));
+      state.titles = [...titles].sort((a,b) => a.localeCompare(b));
+    }
+
+    async function loadLocationsAndProjections(){
+      const [locRes, projRes] = await Promise.all([
+        state.supabase.from("locations").select("*").eq("active", true).order("name", { ascending: true }),
+        state.supabase.from("revenue_projections").select("projection_date, location_id, projected_units, projected_sales, notes, source, scenario")
+      ]);
+
+      if (locRes.error) throw locRes.error;
+      if (projRes.error) throw projRes.error;
+
+      state.locations = Array.isArray(locRes.data) ? locRes.data : [];
+      state.projections = Array.isArray(projRes.data) ? projRes.data : [];
+
+      renderLocationSelectors();
+      summarizeProjections();
+    }
+
+    function renderLocationSelectors(){
+      const currentProj = el("selProjectionLocation").value || "__ALL__";
+      const currentScope = el("selInventoryScope").value || "all";
+
+      const locations = state.locations.map(l => ({
+        value: String(l.id),
+        label: l.name || l.label || l.location_name || `Location ${l.id}`
+      }));
+
+      el("selProjectionLocation").innerHTML =
+        `<option value="__ALL__">All active locations</option>` +
+        locations.map(l => `<option value="${escapeHtml(l.value)}">${escapeHtml(l.label)}</option>`).join("");
+
+      if ([...el("selProjectionLocation").options].some(o => o.value === currentProj)){
+        el("selProjectionLocation").value = currentProj;
+      }
+
+      const scopeOpts = [
+        { value: "all", label: "All loaded locations" },
+        ...SHEET_TABS.map(t => ({ value: safeId(t.label), label: t.label }))
+      ];
+
+      el("selInventoryScope").innerHTML = scopeOpts.map(o => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join("");
+
+      if ([...el("selInventoryScope").options].some(o => o.value === currentScope)){
+        el("selInventoryScope").value = currentScope;
+      }
+    }
+
+    function summarizeProjections(){
+      const fromMs = parseDateLoose(el("dateFrom").value);
+      const toMs = parseDateLoose(el("dateTo").value ? `${el("dateTo").value}T23:59:59` : "");
+      const loc = el("selProjectionLocation").value || "__ALL__";
+
+      const filtered = state.projections.filter(p => {
+        const d = parseDateLoose(p.projection_date);
+        if (fromMs && d && d < fromMs) return false;
+        if (toMs && d && d > toMs) return false;
+        if (loc !== "__ALL__" && String(p.location_id) !== String(loc)) return false;
+        return true;
+      });
+
+      const projectedUnits = filtered.reduce((s, r) => s + num(r.projected_units), 0);
+      const projectedSales = filtered.reduce((s, r) => s + num(r.projected_sales), 0);
+      const scenarioSet = new Set(filtered.map(r => norm(r.scenario)).filter(Boolean));
+      const note = filtered.find(r => norm(r.notes));
+      const source = filtered.find(r => norm(r.source));
+
+      state.projectionSummary = {
+        count: filtered.length,
+        projectedUnits,
+        projectedSales,
+        scenarios: [...scenarioSet],
+        note: note?.notes || "",
+        source: source?.source || ""
       };
+
+      const summary = state.projectionSummary;
+
+      el("projectionContext").innerHTML = filtered.length
+        ? `Using <b>${filtered.length}</b> projection row(s) as context for the selected window. <b>${projectedUnits.toLocaleString()}</b> projected units and <b>${money(projectedSales)}</b> projected sales${summary.scenarios.length ? ` across scenario(s): <b>${summary.scenarios.map(escapeHtml).join(", ")}</b>` : ""}.${summary.note ? `<div class="mt-2">Note: ${escapeHtml(summary.note)}</div>` : ""}${summary.source ? `<div class="mt-1 text-muted-2">Source: ${escapeHtml(summary.source)}</div>` : ""}`
+        : `No matching revenue projection rows found for the current date/location filter. The style model still works from category and comparable demand, but top-down context is blank.`;
+
+      el("trustBadge").textContent = filtered.length ? "Projection context loaded" : "Demand only mode";
     }
 
-    function familyFromCategory(category){
-      const c = safeLower(category);
-      if (c.includes("hat") || c.includes("cap")) return "caps";
-      if (c.includes("youth")) return "youth";
+    function loadInitialSettingsToUI(){
+      const s = getSettings();
+      el("setHistWeight").value = s.histWeight;
+      el("setCompWeight").value = s.compWeight;
+      el("setGrowthUplift").value = s.growthUplift;
+      el("setNewCategoryUplift").value = s.newCategoryUplift;
+      el("setReservePct").value = s.reservePct;
+      el("setDefaultWeeks").value = s.defaultWeeks;
+      el("setAdultMinRuns").value = s.adultMinRuns;
+      el("setYouthMinRuns").value = s.youthMinRuns;
+      el("setCapMinRuns").value = s.capMinRuns;
+      el("setDefaultRollout").value = s.defaultRollout;
+    }
+
+    function syncSettingsFromUI(){
+      const next = {
+        histWeight: clamp(num(el("setHistWeight").value), 0, 100),
+        compWeight: clamp(num(el("setCompWeight").value), 0, 100),
+        growthUplift: Math.max(0, num(el("setGrowthUplift").value)),
+        newCategoryUplift: Math.max(0, num(el("setNewCategoryUplift").value)),
+        reservePct: Math.max(0, num(el("setReservePct").value)),
+        defaultWeeks: Math.max(1, Math.round(num(el("setDefaultWeeks").value || 8))),
+        adultMinRuns: Math.max(1, Math.round(num(el("setAdultMinRuns").value || 6))),
+        youthMinRuns: Math.max(1, Math.round(num(el("setYouthMinRuns").value || 4))),
+        capMinRuns: Math.max(1, Math.round(num(el("setCapMinRuns").value || 8))),
+        defaultRollout: el("setDefaultRollout").value || "limited"
+      };
+
+      saveSettings(next);
+
+      const totalWeight = next.histWeight + next.compWeight;
+      if (totalWeight !== 100){
+        el("trustBadge").textContent = `Weights ${totalWeight}%`;
+      } else {
+        summarizeProjections();
+      }
+
+      recalcAllStyles();
+    }
+
+    function spreadRunTotal(spreadKey){
+      const t = SPREAD_TEMPLATES[spreadKey];
+      if (!t) return 0;
+      return t.sizes.reduce((s, r) => s + num(r.units), 0);
+    }
+
+    function sizeOutputFromUnits(finalUnits, spreadKey){
+      const t = SPREAD_TEMPLATES[spreadKey];
+      if (!t) return [];
+      const runTotal = spreadRunTotal(spreadKey);
+      if (!runTotal) return t.sizes.map(s => ({ size: s.size, units: 0 }));
+
+      const wholeRuns = Math.floor(finalUnits / runTotal);
+      let remainder = finalUnits - (wholeRuns * runTotal);
+
+      const out = t.sizes.map(s => ({ size: s.size, units: wholeRuns * s.units }));
+
+      while (remainder > 0){
+        const ordered = [...t.sizes].sort((a,b) => b.units - a.units);
+        for (const slot of ordered){
+          const idx = out.findIndex(x => x.size === slot.size);
+          out[idx].units += 1;
+          remainder -= 1;
+          if (remainder <= 0) break;
+        }
+      }
+
+      return out;
+    }
+
+    function sizeOutputText(finalUnits, spreadKey){
+      return sizeOutputFromUnits(finalUnits, spreadKey)
+        .filter(x => x.units > 0)
+        .map(x => `${x.size}:${x.units}`)
+        .join(" • ");
+    }
+
+    function detectFamily(category = "", comparableTitle = ""){
+      const text = `${category} ${comparableTitle}`.toLowerCase();
+      if (/cap|hat|fitted|snapback|dadhat/.test(text)) return "caps";
+      if (/youth|kids|kid|tee youth|ys|ym|yl|yxl/.test(text)) return "youth";
       return "adult";
     }
 
-    function defaultSpreadForFamily(family){
-      if (family === "caps") return "caps-osfa";
-      if (family === "youth") return "youth-standard";
-      return "adult-standard-3xl";
+    function defaultComparableForCategory(category){
+      const rows = [...state.comparableStats.values()].filter(r => norm(r.category) === norm(category));
+      rows.sort((a,b) => num(b.units120) - num(a.units120));
+      return rows[0]?.title || "";
     }
 
-    function defaultRunCountForFamily(family, inputs){
-      if (family === "caps") return inputs.capMinRuns;
-      if (family === "youth") return inputs.youthMinRuns;
-      return inputs.adultMinRuns;
-    }
-
-    function mixUnitsForRow(r, mixBasis){
-      if (mixBasis === "qty_7d") return num(r.qty_7d);
-      if (mixBasis === "qty_90d") return num(r.qty_90d);
-      if (mixBasis === "qty_120d") return num(r.qty_120d);
-      return num(r.qty_30d);
-    }
-
-    function weeklyUnitsFromPeriod(units, mixBasis){
-      if (mixBasis === "qty_7d") return units;
-      if (mixBasis === "qty_90d") return units / (90 / 7);
-      if (mixBasis === "qty_120d") return units / (120 / 7);
-      return units / (30 / 7);
-    }
-
-    function categoryBenchmarkWeeklyUnits(category, mixBasis){
-      const rows = state.inventoryRows.filter(r => safeLower(r.product_type) === safeLower(category));
-      if (!rows.length) return 0;
-      const total = rows.reduce((s, r) => s + mixUnitsForRow(r, mixBasis), 0);
-      return weeklyUnitsFromPeriod(total / rows.length, mixBasis);
-    }
-
-    function comparableBenchmarkWeeklyUnits(comparableTitle, mixBasis){
-      const rows = state.inventoryRows.filter(r => safeLower(r.product) === safeLower(comparableTitle));
-      if (!rows.length) return 0;
-      const total = rows.reduce((s, r) => s + mixUnitsForRow(r, mixBasis), 0);
-      return weeklyUnitsFromPeriod(total / rows.length, mixBasis);
-    }
-
-    function launchMultiplier(launchType){
-      const lt = safeLower(launchType);
-      if (lt === "hero") return 1.45;
-      if (lt === "promo") return 1.25;
-      if (lt === "test") return 0.75;
-      if (lt === "limited") return 0.90;
-      return 1.0;
-    }
-
-    function rolloutMultiplier(rollout){
-      const ro = safeLower(rollout);
-      if (ro === "online only") return 0.60;
-      if (ro === "limited doors") return 0.85;
-      if (ro === "full fleet") return 1.12;
-      return 1.0;
-    }
-
-    function confidenceForStyle(histWeekly, compWeekly){
-      if (histWeekly > 0 && compWeekly > 0) return { label: "High", cls: "badge-good" };
-      if (histWeekly > 0 || compWeekly > 0) return { label: "Medium", cls: "badge-warn" };
-      return { label: "Low", cls: "badge-danger" };
-    }
-
-    function computeStylePlan(style, inputs){
-      const family = style.product_family || familyFromCategory(style.category);
-      const spreadTemplate = style.spread_template || defaultSpreadForFamily(family);
-      const spread = SPREAD_TEMPLATES[spreadTemplate] || SPREAD_TEMPLATES["adult-standard-3xl"];
-
-      const histWeekly = categoryBenchmarkWeeklyUnits(style.category, inputs.mixBasis);
-      const compWeekly = comparableBenchmarkWeeklyUnits(style.comparable_title, inputs.mixBasis);
-
-      const histWeight = Math.max(0, inputs.historicalWeightPct);
-      const compWeight = Math.max(0, inputs.comparableWeightPct);
-      const denom = Math.max(1, histWeight + compWeight);
-
-      const weightedWeekly = ((histWeekly * histWeight) + (compWeekly * compWeight)) / denom;
-      const growthAdj = 1 + (inputs.growthDriverPct / 100) + (style.is_new_category ? inputs.newCategoryUpliftPct / 100 : 0);
-      const launchAdj = launchMultiplier(style.launch_type);
-      const rolloutAdj = rolloutMultiplier(style.rollout);
-      const reserveAdj = 1 + (inputs.reservePct / 100);
-
-      const systemFromHistory = Math.ceil(
-        weightedWeekly
-        * num(style.intro_weeks || 6)
-        * growthAdj
-        * launchAdj
-        * rolloutAdj
-        * reserveAdj
-      );
-
-      const runCount = Math.max(1, num(style.run_count || defaultRunCountForFamily(family, inputs)));
-      const systemFromRuns = spread.run_total * runCount;
-
-      const systemUnits = style.plan_mode === "runs"
-        ? systemFromRuns
-        : Math.max(systemFromHistory, systemFromRuns);
-
-      const buyerUnits = getStyleOverride(style.id);
-      const finalUnits = buyerUnits === "" ? systemUnits : Math.max(0, Math.round(Number(buyerUnits)));
-      const confidence = confidenceForStyle(histWeekly, compWeekly);
-
-      const mathNote = [
-        `hist ${histWeekly.toFixed(1)}/wk`,
-        `comp ${compWeekly.toFixed(1)}/wk`,
-        `weighted ${weightedWeekly.toFixed(1)}/wk`,
-        `growth ${growthAdj.toFixed(2)}x`,
-        `launch ${launchAdj.toFixed(2)}x`,
-        `rollout ${rolloutAdj.toFixed(2)}x`,
-        `reserve ${reserveAdj.toFixed(2)}x`,
-        `runs ${runCount} × ${spread.run_total}`
-      ].join(" • ");
-
+    function createBlankStyle(){
+      const settings = getSettings();
+      const family = "adult";
+      const defaults = FAMILY_DEFAULTS[family];
       return {
-        ...style,
-        product_family: family,
-        spread_template: spreadTemplate,
-        run_count: runCount,
-        histWeekly,
-        compWeekly,
-        weightedWeekly,
-        systemFromHistory,
-        systemFromRuns,
-        systemUnits,
-        buyerUnits,
-        finalUnits,
-        confidence,
-        mathNote
+        id: uid(),
+        selected: false,
+        title: "",
+        category: state.categories[0] || "",
+        comparable_title: "",
+        family,
+        spread: defaults.spread,
+        plan_mode: "system_total",
+        weeks: settings.defaultWeeks,
+        run_count: defaults.run_count,
+        buyer_units: 0,
+        launch_type: "inline",
+        rollout: settings.defaultRollout,
+        override_growth_pct: null,
+        override_reserve_pct: null,
+        notes: ""
       };
     }
 
-    function allocateSpreadFromRuns(runCount, templateKey){
-      const tpl = SPREAD_TEMPLATES[templateKey];
-      if (!tpl) return [];
-      return tpl.sizes.map(s => ({
-        size: s.size,
-        units: s.qty * runCount
-      }));
+    function ensureStyleShape(style){
+      const settings = getSettings();
+      const family = style.family && FAMILY_DEFAULTS[style.family] ? style.family : detectFamily(style.category, style.comparable_title);
+      const defaults = FAMILY_DEFAULTS[family];
+      return {
+        id: style.id || uid(),
+        selected: !!style.selected,
+        title: style.title || "",
+        category: style.category || state.categories[0] || "",
+        comparable_title: style.comparable_title || "",
+        family,
+        spread: style.spread || defaults.spread,
+        plan_mode: style.plan_mode || "system_total",
+        weeks: Math.max(1, Math.round(num(style.weeks || settings.defaultWeeks))),
+        run_count: Math.max(1, Math.round(num(style.run_count || defaults.run_count))),
+        buyer_units: Math.max(0, Math.round(num(style.buyer_units || 0))),
+        launch_type: style.launch_type || "inline",
+        rollout: style.rollout || settings.defaultRollout,
+        override_growth_pct: style.override_growth_pct === null || style.override_growth_pct === undefined || style.override_growth_pct === "" ? null : num(style.override_growth_pct),
+        override_reserve_pct: style.override_reserve_pct === null || style.override_reserve_pct === undefined || style.override_reserve_pct === "" ? null : num(style.override_reserve_pct),
+        notes: style.notes || ""
+      };
     }
 
-    function allocateSpreadByTotal(totalUnits, templateKey){
-      const tpl = SPREAD_TEMPLATES[templateKey];
-      if (!tpl) return [];
-      const raw = tpl.sizes.map(s => ({
-        size: s.size,
-        raw: (s.qty / tpl.run_total) * totalUnits,
-        units: Math.floor((s.qty / tpl.run_total) * totalUnits)
-      }));
-      let assigned = raw.reduce((sum, x) => sum + x.units, 0);
-      let remainder = totalUnits - assigned;
-
-      raw.sort((a, b) => (b.raw - Math.floor(b.raw)) - (a.raw - Math.floor(a.raw)));
-      for (let i = 0; i < raw.length && remainder > 0; i++, remainder--){
-        raw[i].units += 1;
-      }
-
-      return raw
-        .sort((a,b) => 0)
-        .filter(x => x.units > 0)
-        .map(x => ({ size: x.size, units: x.units }));
-    }
-
-    async function authGuard(){
-      if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) return false;
-      supabaseClient = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
-      const { data } = await supabaseClient.auth.getSession();
-      if (!data?.session){
-        window.location.href = "/financehub/pages/login.html";
-        return false;
-      }
-      setText("authEmail", data.session.user?.email || "Signed in");
-      el("logoutBtn").addEventListener("click", async () => {
-        try { await supabaseClient.auth.signOut(); } catch(e){}
-        window.location.href = "/financehub/pages/login.html";
-      });
-      return true;
-    }
-
-    async function loadLocations(){
-      const { data, error } = await supabaseClient
-        .from("locations")
-        .select("id, location_code, location_name, is_active")
-        .eq("is_active", true)
-        .order("location_name", { ascending: true });
-
-      if (error) throw error;
-      state.locations = data || [];
-
-      el("projectionLocation").innerHTML = `<option value="">Select location</option>` +
-        state.locations.map(loc =>
-          `<option value="${escapeHtml(String(loc.id))}">${escapeHtml(loc.location_name)}${loc.location_code ? ` (${escapeHtml(loc.location_code)})` : ""}</option>`
-        ).join("");
-
-      el("inventoryScope").innerHTML = `<option value="ALL">All loaded sources</option>` +
-        SHEET_TABS.map(src => `<option value="${escapeHtml(src.label)}">${escapeHtml(src.label)}</option>`).join("");
-    }
-
-    async function loadProjectionRows(){
-      const locationId = el("projectionLocation").value;
-      const dateFrom = el("dateFrom").value;
-      const dateTo = el("dateTo").value;
-
-      if (!locationId || !dateFrom || !dateTo){
-        state.projectionRows = [];
-        return;
-      }
-
-      const { data, error } = await supabaseClient
-        .from("revenue_projections")
-        .select("id, projection_date, location_id, projected_units, projected_sales, notes, source, scenario")
-        .eq("scenario", "active")
-        .eq("location_id", Number(locationId))
-        .gte("projection_date", dateFrom)
-        .lte("projection_date", dateTo)
-        .order("projection_date", { ascending: true });
-
-      if (error) throw error;
-      state.projectionRows = data || [];
-    }
-
-    async function loadInventoryRows(){
-      const scope = el("inventoryScope").value;
-      const activeTabs = scope === "ALL" ? SHEET_TABS : SHEET_TABS.filter(x => x.label === scope);
-
-      let allRows = [];
-
-      for (const src of activeTabs){
-        const inv = await fetchCsvObjects(gidToCsvUrl(src.gid));
-        let salesMap = new Map();
-
-        if (src.sales_csv){
-          try {
-            const sales = await fetchCsvObjects(src.sales_csv);
-            salesMap = buildSalesMap(sales.rows);
-          } catch(e){}
-        }
-
-        const mapped = inv.rows.map((o, idx) => {
-          const sku = norm(o[H.sku]);
-          const s = sku ? salesMap.get(sku) : null;
-          return {
-            _id: `${safeLower(src.label)}::${sku || idx}`,
-            source_label: src.label,
-            sku,
-            barcode: norm(o[H.barcode]),
-            product: s?.product_name || norm(o[H.product]),
-            product_type: s?.product_type || "",
-            avail_qty: num(o[H.avail_qty]),
-            inv_value: num(o[H.inv_value]),
-            qty_7d: s ? s.qty_7d : 0,
-            qty_30d: s ? s.qty_30d : num(o[H.sold_30]),
-            qty_90d: s ? s.qty_90d : 0,
-            qty_120d: s ? s.qty_120d : 0,
-            avg_day: s ? s.avg_day_30 : num(o[H.avg_day])
-          };
-        });
-
-        allRows.push(...mapped);
-      }
-
-      state.inventoryRows = collapseInventoryRows(allRows);
-
-      const catSet = new Set();
-      const titleSet = new Set();
-
-      state.inventoryRows.forEach(r => {
-        if (norm(r.product_type)) catSet.add(norm(r.product_type));
-        if (norm(r.product)) titleSet.add(norm(r.product));
-      });
-
-      state.categoryOptions = Array.from(catSet).sort((a,b) => a.localeCompare(b));
-      state.comparableTitleOptions = Array.from(titleSet).sort((a,b) => a.localeCompare(b));
-
-      const totalProjectedSales = state.projectionRows.reduce((s, r) => s + num(r.projected_sales), 0);
-      const explicitProjectedUnits = state.projectionRows.reduce((s, r) => s + num(r.projected_units), 0);
-      const rowsWithUnitValue = state.inventoryRows.filter(r => num(r.avail_qty) > 0 && num(r.inv_value) > 0);
-      const blendedUnitValue = rowsWithUnitValue.length
-        ? rowsWithUnitValue.reduce((s, r) => s + num(r.inv_value), 0) / rowsWithUnitValue.reduce((s, r) => s + num(r.avail_qty), 0)
-        : 1;
-      const projectedUnitsUsed = explicitProjectedUnits > 0
-        ? explicitProjectedUnits
-        : (blendedUnitValue > 0 ? totalProjectedSales / blendedUnitValue : 0);
-
-      state.metricsCtx = { totalProjectedSales, projectedUnitsUsed, explicitProjectedUnits, blendedUnitValue };
-    }
-
-    function computePlans(){
-      const search = safeLower(el("searchBox").value);
-      const inputs = getInputs();
-
-      state.styles = loadStyles()
-        .map(style => computeStylePlan(style, inputs))
-        .filter(style => {
-          if (!search) return true;
-          const hay = `${style.product_title} ${style.category} ${style.comparable_title}`.toLowerCase();
-          return hay.includes(search);
-        });
-
-      state.outputRows = state.styles.map(style => {
-        const sizeRows = style.plan_mode === "runs"
-          ? allocateSpreadFromRuns(style.run_count, style.spread_template)
-          : allocateSpreadByTotal(style.finalUnits, style.spread_template);
-
-        return {
-          styleId: style.id,
-          productTitle: style.product_title,
-          category: style.category,
-          spreadLabel: SPREAD_TEMPLATES[style.spread_template]?.label || style.spread_template,
-          finalUnits: style.finalUnits,
-          sizes: sizeRows,
-          mathNote: style.mathNote
-        };
+    function filteredStyles(){
+      const q = norm(el("txtSearch").value).toLowerCase();
+      if (!q) return state.styles;
+      return state.styles.filter(s => {
+        const hay = `${s.title} ${s.category} ${s.comparable_title} ${s.family} ${s.spread}`.toLowerCase();
+        return hay.includes(q);
       });
     }
 
-    function renderTopMetrics(){
-      const systemUnits = state.styles.reduce((s, x) => s + num(x.systemUnits), 0);
-      const finalUnits = state.styles.reduce((s, x) => s + num(x.finalUnits), 0);
-
-      setText("kSales", fmtMoney(state.metricsCtx.totalProjectedSales));
-      setText("kUnits", fmtInt(state.metricsCtx.projectedUnitsUsed));
-      setText("kUnitsSub", state.metricsCtx.explicitProjectedUnits > 0
-        ? "Using explicit projected units from projections"
-        : "Estimated from projected sales ÷ blended current unit value");
-      setText("kStyles", fmtInt(state.styles.length));
-      setText("kSystemUnits", fmtInt(systemUnits));
-      setText("kFinalUnits", fmtInt(finalUnits));
+    function getScopeRows(){
+      const scope = el("selInventoryScope").value || "all";
+      if (scope === "all") return state.inventoryRows;
+      return state.inventoryRows.filter(r => safeId(r.location || r.source_label || "") === scope);
     }
 
-    function renderMathBox(){
-      const inputs = getInputs();
-      setHtml("mathBox", `
-        <div class="status">Projected sales: <b class="mono">${fmtMoney(state.metricsCtx.totalProjectedSales)}</b></div>
-        <div class="status">Explicit projected units: <b class="mono">${fmtInt(state.metricsCtx.explicitProjectedUnits)}</b></div>
-        <div class="status">Units context: <b class="mono">${fmtInt(state.metricsCtx.projectedUnitsUsed)}</b></div>
-        <div class="status">Historical + comparable blend: <b>${inputs.historicalWeightPct}%</b> historical, <b>${inputs.comparableWeightPct}%</b> comparable.</div>
-        <div class="status">Growth model: <b>base weekly × intro weeks × growth × launch × rollout × reserve</b>, then compared against minimum run logic.</div>
-        <div class="status">If a style still looks too small, use <b>run mode</b> and set the run count the way a buyer actually thinks.</div>
-      `);
+    function baseHistPerWeek(category){
+      const stat = state.categoryStats.get(norm(category));
+      return stat ? num(stat.hist_per_week_default) : 0;
     }
 
-    function renderProjectionNotes(){
-      if (!state.projectionRows.length){
-        setHtml("projectionNotes", `<div class="empty-state">No projection notes loaded.</div>`);
-        return;
-      }
-      const notes = state.projectionRows.filter(r => norm(r.notes)).map(r => `
-        <div class="status">
-          <div style="font-weight:700;" class="mono">${escapeHtml(r.projection_date)}</div>
-          <div style="margin-top:6px;">${escapeHtml(r.notes)}</div>
-        </div>
-      `);
-      setHtml("projectionNotes", notes.length ? notes.join("") : `<div class="empty-state">No notes on current projection rows.</div>`);
+    function compPerWeek(title){
+      const stat = state.comparableStats.get(norm(title));
+      return stat ? num(stat.comp_per_week_default) : 0;
     }
 
-    function renderStyles(){
-      if (!state.styles.length){
-        setHtml("stylesBody", `<tr><td colspan="15" class="empty-state">Add a style row to begin.</td></tr>`);
-        return;
+    function confidenceLabel(category, comparable){
+      const hist = baseHistPerWeek(category);
+      const comp = compPerWeek(comparable);
+
+      if (hist > 8 && comp > 4) return "High";
+      if (hist > 0 || comp > 0) return "Medium";
+      return "Low";
+    }
+
+    function normalizeWeights(histWeight, compWeight){
+      const total = histWeight + compWeight;
+      if (total <= 0) return { hist: 0.6, comp: 0.4 };
+      return {
+        hist: histWeight / total,
+        comp: compWeight / total
+      };
+    }
+
+    function recalcStyle(style){
+      const settings = getSettings();
+      const weights = normalizeWeights(settings.histWeight, settings.compWeight);
+
+      if (!style.family || !FAMILY_DEFAULTS[style.family]){
+        style.family = detectFamily(style.category, style.comparable_title);
       }
 
-      const categoryOptions = state.categoryOptions.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
-      const comparableOptions = state.comparableTitleOptions.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join("");
-      const spreadOptions = Object.entries(SPREAD_TEMPLATES).map(([k,v]) => `<option value="${escapeHtml(k)}">${escapeHtml(v.label)}</option>`).join("");
-
-      setHtml("stylesBody", state.styles.map(s => `
-        <tr>
-          <td><input type="checkbox" data-style-id="${escapeHtml(s.id)}" ${state.selectedStyles.has(s.id) ? "checked" : ""} /></td>
-          <td><input type="text" class="field style-field" data-id="${escapeHtml(s.id)}" data-key="product_title" value="${escapeHtml(s.product_title || '')}" /></td>
-          <td>
-            <select class="select style-field" data-id="${escapeHtml(s.id)}" data-key="category">
-              <option value="">Select category</option>
-              ${categoryOptions.replace(`value="${escapeHtml(s.category || '')}"`, `value="${escapeHtml(s.category || '')}" selected`)}
-            </select>
-          </td>
-          <td>
-            <select class="select style-field" data-id="${escapeHtml(s.id)}" data-key="comparable_title">
-              <option value="">None</option>
-              ${comparableOptions.replace(`value="${escapeHtml(s.comparable_title || '')}"`, `value="${escapeHtml(s.comparable_title || '')}" selected`)}
-            </select>
-          </td>
-          <td>
-            <select class="select style-field" data-id="${escapeHtml(s.id)}" data-key="product_family">
-              <option value="adult" ${s.product_family === 'adult' ? 'selected' : ''}>Adult</option>
-              <option value="youth" ${s.product_family === 'youth' ? 'selected' : ''}>Youth</option>
-              <option value="caps" ${s.product_family === 'caps' ? 'selected' : ''}>Caps</option>
-            </select>
-          </td>
-          <td>
-            <select class="select style-field" data-id="${escapeHtml(s.id)}" data-key="spread_template">
-              ${spreadOptions.replace(`value="${escapeHtml(s.spread_template || '')}"`, `value="${escapeHtml(s.spread_template || '')}" selected`)}
-            </select>
-          </td>
-          <td>
-            <select class="select style-field" data-id="${escapeHtml(s.id)}" data-key="plan_mode">
-              <option value="system" ${safeLower(s.plan_mode) === 'system' ? 'selected' : ''}>System Total</option>
-              <option value="runs" ${safeLower(s.plan_mode) === 'runs' ? 'selected' : ''}>Run Count</option>
-            </select>
-          </td>
-          <td class="mono" style="text-align:right;">
-            <input type="number" min="1" step="1" class="field mono style-field" data-id="${escapeHtml(s.id)}" data-key="intro_weeks"
-              value="${escapeHtml(String(s.intro_weeks || 6))}" style="width:90px;" />
-          </td>
-          <td class="mono" style="text-align:right;">
-            <input type="number" min="1" step="1" class="field mono style-field" data-id="${escapeHtml(s.id)}" data-key="run_count"
-              value="${escapeHtml(String(s.run_count || 1))}" style="width:90px;" />
-          </td>
-          <td class="mono" style="text-align:right;">${s.histWeekly.toFixed(1)}</td>
-          <td class="mono" style="text-align:right;">${s.compWeekly.toFixed(1)}</td>
-          <td><span class="badge ${escapeHtml(s.confidence.cls)}">${escapeHtml(s.confidence.label)}</span></td>
-          <td class="mono" style="text-align:right;">${fmtInt(s.systemUnits)}</td>
-          <td class="mono" style="text-align:right;">
-            <input type="number" min="0" step="1" class="field mono style-override" data-id="${escapeHtml(s.id)}"
-              value="${s.buyerUnits === '' ? '' : escapeHtml(String(s.buyerUnits))}" style="width:90px;" />
-          </td>
-          <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(s.finalUnits)}</td>
-        </tr>
-      `).join(""));
-
-      document.querySelectorAll('input[data-style-id]').forEach(chk => {
-        chk.addEventListener("change", (e) => {
-          const id = e.target.getAttribute("data-style-id");
-          if (e.target.checked) state.selectedStyles.add(id);
-          else state.selectedStyles.delete(id);
-          renderTray();
-        });
-      });
-
-      document.querySelectorAll('.style-field').forEach(inp => {
-        inp.addEventListener("change", (e) => {
-          const id = e.target.getAttribute("data-id");
-          const key = e.target.getAttribute("data-key");
-          const items = loadStyles();
-          const idx = items.findIndex(x => String(x.id) === String(id));
-          if (idx < 0) return;
-
-          items[idx][key] = e.target.value;
-
-          if (key === "category"){
-            const family = familyFromCategory(e.target.value);
-            items[idx].product_family = family;
-            items[idx].spread_template = defaultSpreadForFamily(family);
-            items[idx].run_count = defaultRunCountForFamily(family, getInputs());
-          }
-
-          if (key === "product_family"){
-            items[idx].spread_template = defaultSpreadForFamily(e.target.value);
-            items[idx].run_count = defaultRunCountForFamily(e.target.value, getInputs());
-          }
-
-          saveStyles(items);
-          recomputeAndRender();
-        });
-      });
-
-      document.querySelectorAll('.style-override').forEach(inp => {
-        inp.addEventListener("change", (e) => {
-          const id = e.target.getAttribute("data-id");
-          setStyleOverride(id, e.target.value);
-          recomputeAndRender();
-        });
-      });
-    }
-
-    function renderOutput(){
-      if (!state.outputRows.length){
-        setHtml("outputBody", `<tr><td colspan="6" class="empty-state">No output yet.</td></tr>`);
-        return;
+      if (!style.spread || SPREAD_TEMPLATES[style.spread]?.family !== style.family){
+        style.spread = FAMILY_DEFAULTS[style.family].spread;
       }
 
-      setHtml("outputBody", state.outputRows.map(r => `
-        <tr>
-          <td style="font-weight:700;">${escapeHtml(r.productTitle || '—')}</td>
-          <td>${escapeHtml(r.category || '—')}</td>
-          <td>${escapeHtml(r.spreadLabel)}</td>
-          <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(r.finalUnits)}</td>
-          <td style="max-width:360px; white-space:normal; line-height:1.35;">
-            ${r.sizes.map(s => `<span class="badge">${escapeHtml(s.size)} ${fmtInt(s.units)}</span>`).join(" ")}
-          </td>
-          <td style="max-width:380px; white-space:normal; line-height:1.35;">${escapeHtml(r.mathNote)}</td>
-        </tr>
-      `).join(""));
+      const familyDefaults = FAMILY_DEFAULTS[style.family];
+      const minRuns = num(settings[familyDefaults.min_runs_key]);
+      const runTotal = spreadRunTotal(style.spread);
+
+      const histWk = baseHistPerWeek(style.category);
+      const compWk = compPerWeek(style.comparable_title);
+      const weightedWeekly = (histWk * weights.hist) + (compWk * weights.comp);
+
+      const launchMultiplier = LAUNCH_TYPES[style.launch_type]?.multiplier || 1;
+      const rolloutMultiplier = ROLLOUTS[style.rollout]?.multiplier || 1;
+      const growthUpliftPct = style.override_growth_pct === null ? settings.growthUplift : style.override_growth_pct;
+      const reservePct = style.override_reserve_pct === null ? settings.reservePct : style.override_reserve_pct;
+      const newCategoryUpliftPct = histWk <= 0 ? settings.newCategoryUplift : 0;
+
+      const demandWindowUnits = weightedWeekly * Math.max(1, num(style.weeks));
+      const afterGrowth = demandWindowUnits * (1 + (growthUpliftPct / 100));
+      const afterNewCategory = afterGrowth * (1 + (newCategoryUpliftPct / 100));
+      const afterLaunch = afterNewCategory * launchMultiplier;
+      const afterRollout = afterLaunch * rolloutMultiplier;
+      const afterReserve = afterRollout * (1 + (reservePct / 100));
+
+      const runFloorUnits = runTotal * minRuns;
+      const comparableShare = compWk > 0 && histWk > 0 ? (compWk / histWk) : (compWk > 0 ? 1 : 0);
+
+      let systemUnits = Math.max(Math.ceil(afterReserve), runFloorUnits);
+      if (!Number.isFinite(systemUnits) || systemUnits < 0) systemUnits = runFloorUnits;
+
+      const buyerUnits = Math.max(0, Math.round(num(style.buyer_units)));
+      const runCountUnits = runTotal * Math.max(1, Math.round(num(style.run_count)));
+      const finalUnits = style.plan_mode === "run_count"
+        ? Math.max(runCountUnits, runFloorUnits)
+        : Math.max(systemUnits, buyerUnits || 0);
+
+      const confidence = confidenceLabel(style.category, style.comparable_title);
+
+      const mathParts = [
+        `Category 120d / wk ${histWk.toFixed(1)}`,
+        `Comparable / wk ${compWk.toFixed(1)}`,
+        `Weighted / wk ${weightedWeekly.toFixed(1)} (${Math.round(weights.hist*100)}% hist / ${Math.round(weights.comp*100)}% comp)`,
+        `Weeks ${style.weeks}`,
+        `Growth ${growthUpliftPct}%`,
+        histWk <= 0 ? `New category uplift ${newCategoryUpliftPct}%` : `New category uplift 0%`,
+        `Launch ${launchMultiplier.toFixed(2)}x`,
+        `Rollout ${rolloutMultiplier.toFixed(2)}x`,
+        `Reserve ${reservePct}%`,
+        `Run floor ${runFloorUnits} (${minRuns} run${minRuns === 1 ? "" : "s"} × ${runTotal})`
+      ];
+
+      style._calc = {
+        histWk,
+        compWk,
+        weightedWeekly,
+        demandWindowUnits,
+        growthUpliftPct,
+        newCategoryUpliftPct,
+        launchMultiplier,
+        rolloutMultiplier,
+        reservePct,
+        runFloorUnits,
+        runTotal,
+        systemUnits,
+        buyerUnits,
+        finalUnits,
+        comparableShare,
+        confidence,
+        sizeOutput: sizeOutputFromUnits(finalUnits, style.spread),
+        sizeOutputText: sizeOutputText(finalUnits, style.spread),
+        mathNote: mathParts.join(" • ")
+      };
+
+      return style;
     }
 
-    function renderTray(){
-      const selectedRows = state.styles.filter(s => state.selectedStyles.has(s.id));
-      const system = selectedRows.reduce((sum, s) => sum + num(s.systemUnits), 0);
-      const final = selectedRows.reduce((sum, s) => sum + num(s.finalUnits), 0);
-
-      setText("traySelected", fmtInt(selectedRows.length));
-      setText("traySystem", fmtInt(system));
-      setText("trayFinal", fmtInt(final));
-    }
-
-    function renderAll(){
-      renderTopMetrics();
-      renderMathBox();
-      renderProjectionNotes();
-      renderStyles();
-      renderOutput();
-      renderTray();
-      updateDraftPeek();
-      setHtml("statusPill", `<span class="dot"></span>Refreshed`);
-    }
-
-    function recomputeAndRender(){
-      computePlans();
+    function recalcAllStyles(){
+      state.styles = state.styles.map(s => recalcStyle(ensureStyleShape(s)));
+      saveStyles();
       renderAll();
     }
 
-    function addStyle(){
-      const inputs = getInputs();
-      const items = loadStyles();
-      const family = "adult";
-      items.push({
-        id: `STYLE::${Date.now()}::${Math.random().toString(36).slice(2,8)}`,
-        product_title: "",
-        category: "",
-        comparable_title: "",
-        product_family: family,
-        spread_template: defaultSpreadForFamily(family),
-        plan_mode: "system",
-        launch_type: "standard",
-        rollout: "full",
-        intro_weeks: 6,
-        run_count: defaultRunCountForFamily(family, inputs),
-        is_new_category: false
+    function updateSelectedSetFromStyles(){
+      state.selected.clear();
+      state.styles.forEach(s => {
+        if (s.selected) state.selected.add(s.id);
       });
-      saveStyles(items);
-      recomputeAndRender();
     }
 
-    function setActiveTab(tab){
-      state.activeTab = tab;
-      el("tabStylesBtn").classList.toggle("active", tab === "styles");
-      el("tabOutputBtn").classList.toggle("active", tab === "output");
-      el("stylesSection").classList.toggle("hidden", tab !== "styles");
-      el("outputSection").classList.toggle("hidden", tab !== "output");
+    function addStyle(){
+      const style = createBlankStyle();
+      const familyDefaults = FAMILY_DEFAULTS[style.family];
+      if (!style.comparable_title && style.category){
+        style.comparable_title = defaultComparableForCategory(style.category);
+      }
+      style.run_count = familyDefaults.run_count;
+      state.styles.unshift(recalcStyle(style));
+      saveStyles();
+      renderAll();
     }
 
-    async function refreshAll(){
-      setHtml("statusPill", `<span class="dot"></span>Loading…`);
-      await loadProjectionRows();
-      await loadInventoryRows();
-      recomputeAndRender();
+    function removeStyle(id){
+      state.styles = state.styles.filter(s => s.id !== id);
+      state.selected.delete(id);
+      if (state.focusedStyleId === id) state.focusedStyleId = null;
+      saveStyles();
+      renderAll();
     }
 
-    function exportSelectedCsv(){
-      const headers = ["product_title","category","comparable_title","product_family","spread_template","plan_mode","intro_weeks","run_count","hist_weekly","comp_weekly","system_units","buyer_units","final_units","size_output"];
-      const rows = state.styles
-        .filter(s => state.selectedStyles.has(s.id))
-        .map(s => {
-          const sizeRows = state.outputRows.find(x => x.styleId === s.id)?.sizes || [];
-          return {
-            product_title: s.product_title,
-            category: s.category,
-            comparable_title: s.comparable_title,
-            product_family: s.product_family,
-            spread_template: s.spread_template,
-            plan_mode: s.plan_mode,
-            intro_weeks: s.intro_weeks,
-            run_count: s.run_count,
-            hist_weekly: s.histWeekly.toFixed(2),
-            comp_weekly: s.compWeekly.toFixed(2),
-            system_units: s.systemUnits,
-            buyer_units: s.buyerUnits === "" ? "" : s.buyerUnits,
-            final_units: s.finalUnits,
-            size_output: sizeRows.map(x => `${x.size}:${x.units}`).join(" | ")
-          };
+    function duplicateStyle(id){
+      const src = state.styles.find(s => s.id === id);
+      if (!src) return;
+      const clone = JSON.parse(JSON.stringify(src));
+      clone.id = uid();
+      clone.selected = false;
+      clone.title = clone.title ? `${clone.title} Copy` : "";
+      state.styles.unshift(recalcStyle(ensureStyleShape(clone)));
+      saveStyles();
+      renderAll();
+    }
+
+    function updateStyleField(id, field, value){
+      const style = state.styles.find(s => s.id === id);
+      if (!style) return;
+
+      if (field === "selected"){
+        style.selected = !!value;
+        if (style.selected) state.selected.add(id);
+        else state.selected.delete(id);
+        saveStyles();
+        renderSummary();
+        renderBuilderTable();
+        return;
+      }
+
+      if (field === "weeks" || field === "run_count" || field === "buyer_units"){
+        style[field] = Math.max(0, Math.round(num(value)));
+      } else if (field === "override_growth_pct" || field === "override_reserve_pct"){
+        style[field] = value === "" ? null : num(value);
+      } else {
+        style[field] = value;
+      }
+
+      if (field === "category"){
+        const detected = detectFamily(style.category, style.comparable_title);
+        style.family = detected;
+        style.spread = FAMILY_DEFAULTS[detected].spread;
+        style.run_count = FAMILY_DEFAULTS[detected].run_count;
+        if (!style.comparable_title) style.comparable_title = defaultComparableForCategory(style.category);
+      }
+
+      if (field === "family"){
+        style.spread = FAMILY_DEFAULTS[style.family].spread;
+        style.run_count = FAMILY_DEFAULTS[style.family].run_count;
+      }
+
+      if (field === "comparable_title"){
+        const detected = detectFamily(style.category, style.comparable_title);
+        if (!style.family || style.family === "adult"){
+          style.family = detected;
+          style.spread = FAMILY_DEFAULTS[detected].spread;
+        }
+      }
+
+      recalcStyle(style);
+      saveStyles();
+      renderAll();
+    }
+
+    function focusStyle(id){
+      state.focusedStyleId = id;
+      renderTrustBox();
+    }
+
+    function badgeForConfidence(conf){
+      if (conf === "High") return `<span class="badge ring-good">High</span>`;
+      if (conf === "Medium") return `<span class="badge">Medium</span>`;
+      return `<span class="badge ring-warn">Low</span>`;
+    }
+
+    function renderBuilderTable(){
+      const rows = filteredStyles();
+      const body = el("builderBody");
+
+      if (!rows.length){
+        body.innerHTML = `
+          <tr>
+            <td colspan="16" class="px-6 py-12 text-center">
+              <div class="text-sm font-semibold">No styles yet</div>
+              <div class="text-xs text-muted mt-1">Add a style row to begin planning at the product-title level, then output the size spread.</div>
+            </td>
+          </tr>`;
+        return;
+      }
+
+      body.innerHTML = rows.map(style => {
+        const c = style._calc || recalcStyle(style);
+        const isFocused = state.focusedStyleId === style.id;
+        return `
+          <tr class="${isFocused ? 'soft' : ''}">
+            <td class="px-3 py-3 align-top">
+              <input data-field="selected" data-id="${style.id}" type="checkbox" class="h-4 w-4 mt-2" ${style.selected ? "checked" : ""}>
+            </td>
+
+            <td class="px-3 py-3 align-top">
+              <div class="space-y-2">
+                <input data-field="title" data-id="${style.id}" class="input" placeholder="New product title" value="${escapeHtml(style.title)}">
+                <div class="grid grid-cols-2 gap-2">
+                  <select data-field="launch_type" data-id="${style.id}" class="select">
+                    ${Object.entries(LAUNCH_TYPES).map(([k,v]) => `<option value="${k}" ${style.launch_type === k ? "selected" : ""}>${escapeHtml(v.label)}</option>`).join("")}
+                  </select>
+                  <select data-field="rollout" data-id="${style.id}" class="select">
+                    ${Object.entries(ROLLOUTS).map(([k,v]) => `<option value="${k}" ${style.rollout === k ? "selected" : ""}>${escapeHtml(v.label)}</option>`).join("")}
+                  </select>
+                </div>
+              </div>
+            </td>
+
+            <td class="px-3 py-3 align-top">
+              <select data-field="category" data-id="${style.id}" class="select">
+                <option value="">Select category</option>
+                ${state.categories.map(cat => `<option value="${escapeHtml(cat)}" ${style.category === cat ? "selected" : ""}>${escapeHtml(cat)}</option>`).join("")}
+              </select>
+            </td>
+
+            <td class="px-3 py-3 align-top">
+              <div class="space-y-2">
+                <select data-field="comparable_title" data-id="${style.id}" class="select">
+                  <option value="">Select comparable</option>
+                  ${state.titles.map(t => `<option value="${escapeHtml(t)}" ${style.comparable_title === t ? "selected" : ""}>${escapeHtml(t)}</option>`).join("")}
+                </select>
+                <div class="grid grid-cols-2 gap-2">
+                  <input data-field="override_growth_pct" data-id="${style.id}" class="input mono" placeholder="Growth %" value="${style.override_growth_pct === null ? "" : escapeHtml(String(style.override_growth_pct))}">
+                  <input data-field="override_reserve_pct" data-id="${style.id}" class="input mono" placeholder="Reserve %" value="${style.override_reserve_pct === null ? "" : escapeHtml(String(style.override_reserve_pct))}">
+                </div>
+              </div>
+            </td>
+
+            <td class="px-3 py-3 align-top">
+              <select data-field="family" data-id="${style.id}" class="select">
+                ${FAMILY_OPTIONS.map(o => `<option value="${o.value}" ${style.family === o.value ? "selected" : ""}>${escapeHtml(o.label)}</option>`).join("")}
+              </select>
+            </td>
+
+            <td class="px-3 py-3 align-top">
+              <select data-field="spread" data-id="${style.id}" class="select">
+                ${Object.entries(SPREAD_TEMPLATES)
+                  .filter(([,tpl]) => tpl.family === style.family)
+                  .map(([k, tpl]) => `<option value="${k}" ${style.spread === k ? "selected" : ""}>${escapeHtml(tpl.label)} (${spreadRunTotal(k)})</option>`)
+                  .join("")}
+              </select>
+            </td>
+
+            <td class="px-3 py-3 align-top">
+              <select data-field="plan_mode" data-id="${style.id}" class="select">
+                <option value="system_total" ${style.plan_mode === "system_total" ? "selected" : ""}>System Total</option>
+                <option value="run_count" ${style.plan_mode === "run_count" ? "selected" : ""}>Run Count</option>
+              </select>
+            </td>
+
+            <td class="px-3 py-3 align-top text-right">
+              <input data-field="weeks" data-id="${style.id}" class="input mono text-right" type="number" min="1" step="1" value="${style.weeks}">
+            </td>
+
+            <td class="px-3 py-3 align-top text-right">
+              <input data-field="run_count" data-id="${style.id}" class="input mono text-right" type="number" min="1" step="1" value="${style.run_count}">
+            </td>
+
+            <td class="px-3 py-3 align-top text-right mono font-semibold">${c.histWk.toFixed(1)}</td>
+            <td class="px-3 py-3 align-top text-right mono font-semibold">${c.compWk.toFixed(1)}</td>
+            <td class="px-3 py-3 align-top">${badgeForConfidence(c.confidence)}</td>
+            <td class="px-3 py-3 align-top text-right mono font-bold">${c.systemUnits.toLocaleString()}</td>
+
+            <td class="px-3 py-3 align-top text-right">
+              <input data-field="buyer_units" data-id="${style.id}" class="input mono text-right" type="number" min="0" step="1" value="${style.buyer_units}">
+            </td>
+
+            <td class="px-3 py-3 align-top text-right">
+              <div class="mono text-base font-bold">${c.finalUnits.toLocaleString()}</div>
+              <div class="mini text-muted mt-1">${escapeHtml(c.sizeOutputText || "—")}</div>
+            </td>
+
+            <td class="px-3 py-3 align-top">
+              <div class="flex flex-col gap-2">
+                <button data-action="focus" data-id="${style.id}" class="btn rounded-xl px-3 py-2 text-xs font-semibold">Math</button>
+                <button data-action="duplicate" data-id="${style.id}" class="btn rounded-xl px-3 py-2 text-xs font-semibold">Duplicate</button>
+                <button data-action="delete" data-id="${style.id}" class="btn rounded-xl px-3 py-2 text-xs font-semibold">Delete</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join("");
+
+      bindBuilderEvents();
+    }
+
+    function renderOutputTable(){
+      const rows = filteredStyles();
+
+      el("outputBody").innerHTML = rows.length ? rows.map(style => {
+        const c = style._calc || recalcStyle(style);
+        return `
+          <tr>
+            <td class="px-3 py-3 align-top">
+              <div class="font-semibold">${escapeHtml(style.title || "Untitled style")}</div>
+              <div class="mini text-muted mt-1">${escapeHtml(style.plan_mode === "run_count" ? "Run Count mode" : "System Total mode")}</div>
+            </td>
+            <td class="px-3 py-3 align-top">${escapeHtml(style.category || "—")}</td>
+            <td class="px-3 py-3 align-top">${escapeHtml(SPREAD_TEMPLATES[style.spread]?.label || "—")} <span class="mini text-muted">(${c.runTotal})</span></td>
+            <td class="px-3 py-3 align-top text-right mono font-bold">${c.finalUnits.toLocaleString()}</td>
+            <td class="px-3 py-3 align-top">
+              <div class="text-sm">${escapeHtml(c.sizeOutputText || "—")}</div>
+            </td>
+            <td class="px-3 py-3 align-top text-xs leading-relaxed text-muted">${escapeHtml(c.mathNote)}</td>
+          </tr>
+        `;
+      }).join("") : `
+        <tr>
+          <td colspan="6" class="px-6 py-12 text-center">
+            <div class="text-sm font-semibold">No generated output yet</div>
+            <div class="text-xs text-muted mt-1">Add styles in the builder and the size-expanded output will render here.</div>
+          </td>
+        </tr>
+      `;
+    }
+
+    function renderSummary(){
+      const selectedRows = state.styles.filter(s => s.selected);
+      const systemUnits = selectedRows.reduce((s, r) => s + num(r._calc?.systemUnits), 0);
+      const finalUnits = selectedRows.reduce((s, r) => s + num(r._calc?.finalUnits), 0);
+
+      el("sumSelected").textContent = selectedRows.length.toLocaleString();
+      el("sumSystem").textContent = systemUnits.toLocaleString();
+      el("sumFinal").textContent = finalUnits.toLocaleString();
+
+      const allFiltered = filteredStyles();
+      el("chkAll").checked = allFiltered.length > 0 && allFiltered.every(s => s.selected);
+    }
+
+    function renderTrustBox(){
+      const focusId = state.focusedStyleId || state.styles[0]?.id;
+      const style = state.styles.find(s => s.id === focusId);
+
+      if (!style){
+        el("trustMathBox").innerHTML = "Select a style row to inspect the calculation stack.";
+        return;
+      }
+
+      const c = style._calc || recalcStyle(style);
+
+      const systemModeNote = style.plan_mode === "run_count"
+        ? `Run Count mode is active, so final units are <span class="kbd">${c.runTotal}</span> per run × <span class="kbd">${style.run_count}</span> run(s), then protected by the run floor.`
+        : `System Total mode is active, so final units start from the demand model, then respect run floor logic and buyer override if it is higher.`;
+
+      el("trustMathBox").innerHTML = `
+        <div class="space-y-3">
+          <div>
+            <div class="font-semibold">${escapeHtml(style.title || "Untitled style")}</div>
+            <div class="mini text-muted mt-1">${escapeHtml(style.category || "No category")} • ${escapeHtml(SPREAD_TEMPLATES[style.spread]?.label || "No spread")}</div>
+          </div>
+
+          <div class="rounded-2xl soft p-3 border border-softer">
+            <div><b>Category 120d signal:</b> ${c.histWk.toFixed(1)} units / week</div>
+            <div class="mt-1"><b>Comparable signal:</b> ${c.compWk.toFixed(1)} units / week</div>
+            <div class="mt-1"><b>Weighted weekly demand:</b> ${c.weightedWeekly.toFixed(1)}</div>
+            <div class="mt-1"><b>Comparable share / benchmark:</b> ${c.comparableShare.toFixed(2)}x</div>
+          </div>
+
+          <div class="rounded-2xl soft p-3 border border-softer">
+            <div><b>Growth uplift:</b> ${c.growthUpliftPct}%</div>
+            <div class="mt-1"><b>New category uplift:</b> ${c.newCategoryUpliftPct}%</div>
+            <div class="mt-1"><b>Launch multiplier:</b> ${c.launchMultiplier.toFixed(2)}x</div>
+            <div class="mt-1"><b>Rollout multiplier:</b> ${c.rolloutMultiplier.toFixed(2)}x</div>
+            <div class="mt-1"><b>Reserve multiplier:</b> ${(1 + (c.reservePct / 100)).toFixed(2)}x</div>
+          </div>
+
+          <div class="rounded-2xl soft p-3 border border-softer">
+            <div><b>System units:</b> ${c.systemUnits.toLocaleString()}</div>
+            <div class="mt-1"><b>Buyer units:</b> ${c.buyerUnits.toLocaleString()}</div>
+            <div class="mt-1"><b>Run floor logic:</b> ${c.runFloorUnits.toLocaleString()} units (${c.runTotal} per run × minimum run rule)</div>
+            <div class="mt-1"><b>Final units:</b> ${c.finalUnits.toLocaleString()}</div>
+          </div>
+
+          <div class="text-xs leading-relaxed text-muted">${systemModeNote}</div>
+          <div class="text-xs leading-relaxed text-muted">${escapeHtml(c.mathNote)}</div>
+        </div>
+      `;
+    }
+
+    function renderDraftPeek(){
+      const lines = loadDraft();
+      if (!lines.length){
+        el("draftPeek").textContent = "Draft empty.";
+        return;
+      }
+
+      const peek = lines.slice(0,14).map(l =>
+        `${l.product_title || l.style_title || "Untitled"} | ${l.size} | qty ${num(l.qty)}`
+      ).join("\n");
+
+      el("draftPeek").textContent = lines.length > 14 ? `${peek}\n… +${lines.length - 14} more` : peek;
+    }
+
+    function renderAll(){
+      updateSelectedSetFromStyles();
+      renderBuilderTable();
+      renderOutputTable();
+      renderSummary();
+      renderTrustBox();
+      renderDraftPeek();
+    }
+
+    function bindBuilderEvents(){
+      document.querySelectorAll("[data-field]").forEach(node => {
+        node.addEventListener("change", (e) => {
+          const id = e.target.getAttribute("data-id");
+          const field = e.target.getAttribute("data-field");
+          const value = e.target.type === "checkbox" ? e.target.checked : e.target.value;
+          updateStyleField(id, field, value);
         });
 
-      if (!rows.length) return;
-      const csv = [headers.join(",")].concat(rows.map(o => headers.map(h => csvEscape(o[h])).join(","))).join("\n");
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `silo_new_product_builder_selected_${todayIso()}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+        if (node.tagName === "INPUT" && node.type !== "checkbox"){
+          node.addEventListener("blur", (e) => {
+            const id = e.target.getAttribute("data-id");
+            const field = e.target.getAttribute("data-field");
+            updateStyleField(id, field, e.target.value);
+          });
+        }
+
+        node.addEventListener("focus", (e) => {
+          const id = e.target.getAttribute("data-id");
+          focusStyle(id);
+        });
+      });
+
+      document.querySelectorAll("[data-action]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const id = btn.getAttribute("data-id");
+          const action = btn.getAttribute("data-action");
+
+          if (action === "focus"){
+            focusStyle(id);
+            return;
+          }
+          if (action === "duplicate"){
+            duplicateStyle(id);
+            return;
+          }
+          if (action === "delete"){
+            removeStyle(id);
+          }
+        });
+      });
     }
 
-    function exportFullCsv(){
-      const headers = ["product_title","category","comparable_title","product_family","spread_template","plan_mode","intro_weeks","run_count","hist_weekly","comp_weekly","system_units","buyer_units","final_units","math_note","size_output"];
-      const rows = state.styles.map(s => {
-        const sizeRows = state.outputRows.find(x => x.styleId === s.id)?.sizes || [];
+    function setTab(tab){
+      state.activeTab = tab;
+      el("tabBuilder").classList.toggle("active", tab === "builder");
+      el("tabOutput").classList.toggle("active", tab === "output");
+      el("builderView").classList.toggle("hide", tab !== "builder");
+      el("outputView").classList.toggle("hide", tab !== "output");
+    }
+
+    function exportRows(rows){
+      if (!rows.length){
+        openModal("Export", `<div class="text-sm">No rows to export.</div>`);
+        return;
+      }
+
+      const out = rows.map(style => {
+        const c = style._calc || recalcStyle(style);
         return {
-          product_title: s.product_title,
-          category: s.category,
-          comparable_title: s.comparable_title,
-          product_family: s.product_family,
-          spread_template: s.spread_template,
-          plan_mode: s.plan_mode,
-          intro_weeks: s.intro_weeks,
-          run_count: s.run_count,
-          hist_weekly: s.histWeekly.toFixed(2),
-          comp_weekly: s.compWeekly.toFixed(2),
-          system_units: s.systemUnits,
-          buyer_units: s.buyerUnits === "" ? "" : s.buyerUnits,
-          final_units: s.finalUnits,
-          math_note: s.mathNote,
-          size_output: sizeRows.map(x => `${x.size}:${x.units}`).join(" | ")
+          product_title: style.title,
+          category: style.category,
+          comparable_title: style.comparable_title,
+          family: style.family,
+          spread: SPREAD_TEMPLATES[style.spread]?.label || style.spread,
+          plan_mode: style.plan_mode,
+          weeks: style.weeks,
+          run_count: style.run_count,
+          hist_per_week: c.histWk,
+          comp_per_week: c.compWk,
+          confidence: c.confidence,
+          system_units: c.systemUnits,
+          buyer_units: c.buyerUnits,
+          final_units: c.finalUnits,
+          launch_type: LAUNCH_TYPES[style.launch_type]?.label || style.launch_type,
+          rollout: ROLLOUTS[style.rollout]?.label || style.rollout,
+          size_output: c.sizeOutputText,
+          math_note: c.mathNote
         };
       });
 
-      const csv = [headers.join(",")].concat(rows.map(o => headers.map(h => csvEscape(o[h])).join(","))).join("\n");
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `silo_new_product_builder_${todayIso()}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      csvDownload(
+        `silo_product_builder_${new Date().toISOString().slice(0,10)}.csv`,
+        toCSV(out, Object.keys(out[0]))
+      );
     }
 
-    function updateDraftPeek(){
-      const lines = loadDraft();
-      if (!lines.length){
-        setText("draftPeek", "Draft empty.");
-        return;
-      }
-      const peek = lines.slice(0, 14).map(l => `${l.product || l.sku || "—"} | qty ${num(l.qty)}`).join("\n");
-      setText("draftPeek", lines.length > 14 ? `${peek}\n… +${lines.length - 14} more` : peek);
+    function exportSelectedRows(){
+      exportRows(state.styles.filter(s => s.selected));
     }
 
     function addSelectedToDraft(){
+      const selectedRows = state.styles.filter(s => s.selected);
+      if (!selectedRows.length){
+        openModal("Draft", `<div class="text-sm">Select style rows first.</div>`);
+        return;
+      }
+
+      const draftName = norm(el("txtDraftName").value) || "New Product Draft";
+      const vendor = norm(el("txtDraftVendor").value);
+      const eta = norm(el("txtDraftEta").value);
+
       const lines = loadDraft();
-      const index = new Map();
-      lines.forEach((l, idx) => index.set(`${l.sku || ""}::${l.product || ""}`, idx));
 
-      const poName = norm(el("poName").value) || "NEW PRODUCT BUILDER DRAFT";
-      const vendor = norm(el("poVendor").value);
-      const eta = norm(el("poEta").value);
+      for (const style of selectedRows){
+        const c = style._calc || recalcStyle(style);
+        const sizeLines = c.sizeOutput.filter(x => x.units > 0);
 
-      const selected = state.styles.filter(s => state.selectedStyles.has(s.id));
-      for (const style of selected){
-        const sizeRows = state.outputRows.find(x => x.styleId === style.id)?.sizes || [];
-        for (const sizeRow of sizeRows){
-          const productKey = `${style.product_title} - ${sizeRow.size}`;
-          const key = `::${productKey}`;
-          const payload = {
-            po_name: poName,
+        for (const line of sizeLines){
+          lines.push({
+            draft_name: draftName,
             vendor,
             eta,
-            sku: "",
-            product: productKey,
-            qty: sizeRow.units,
-            mode_added_from: "new_product_builder_v2"
-          };
-
-          if (index.has(key)){
-            const i = index.get(key);
-            lines[i].qty = num(lines[i].qty) + num(payload.qty);
-          } else {
-            lines.push(payload);
-            index.set(key, lines.length - 1);
-          }
+            style_id: style.id,
+            style_title: style.title,
+            product_title: style.title,
+            category: style.category,
+            family: style.family,
+            spread: SPREAD_TEMPLATES[style.spread]?.label || style.spread,
+            size: line.size,
+            qty: line.units,
+            final_style_units: c.finalUnits,
+            system_units: c.systemUnits,
+            buyer_units: c.buyerUnits,
+            plan_mode: style.plan_mode,
+            weeks: style.weeks,
+            launch_type: LAUNCH_TYPES[style.launch_type]?.label || style.launch_type,
+            rollout: ROLLOUTS[style.rollout]?.label || style.rollout,
+            comparable_title: style.comparable_title,
+            math_note: c.mathNote
+          });
         }
       }
 
       saveDraft(lines);
-      updateDraftPeek();
-      setHtml("statusPill", `<span class="dot"></span>Added selected styles to draft`);
+      renderDraftPeek();
+
+      openModal("Added to Draft", `
+        <div class="space-y-2 text-sm">
+          <div>Added <b>${selectedRows.length}</b> style row(s) into the draft as size-expanded lines.</div>
+          <div class="text-xs text-muted">Each selected style was expanded by spread into one line per size.</div>
+        </div>
+      `);
     }
 
     function viewDraft(){
       const lines = loadDraft();
-      if (!lines.length){ alert("Draft empty."); return; }
-      alert(lines.map(l => `${l.product || l.sku} | qty ${l.qty}`).join("\n"));
+      if (!lines.length){
+        openModal("PO Draft", `<div class="text-sm">Draft empty.</div>`);
+        return;
+      }
+
+      openModal("PO Draft", `
+        <div class="text-xs text-muted mb-3">Lines: <b>${lines.length}</b></div>
+        <div class="overflow-auto thin-scroll max-h-[70vh] border border-soft rounded-2xl">
+          <table class="min-w-full text-sm">
+            <thead class="soft border-b border-softer">
+              <tr>
+                <th class="px-3 py-2 text-left text-xs font-semibold text-muted">Style</th>
+                <th class="px-3 py-2 text-left text-xs font-semibold text-muted">Category</th>
+                <th class="px-3 py-2 text-left text-xs font-semibold text-muted">Size</th>
+                <th class="px-3 py-2 text-right text-xs font-semibold text-muted">Qty</th>
+                <th class="px-3 py-2 text-left text-xs font-semibold text-muted">Plan</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y border-softer">
+              ${lines.map(l => `
+                <tr>
+                  <td class="px-3 py-2">${escapeHtml(l.style_title || l.product_title || "")}</td>
+                  <td class="px-3 py-2">${escapeHtml(l.category || "")}</td>
+                  <td class="px-3 py-2 mono">${escapeHtml(l.size || "")}</td>
+                  <td class="px-3 py-2 text-right mono font-semibold">${num(l.qty).toLocaleString()}</td>
+                  <td class="px-3 py-2 text-xs text-muted">${escapeHtml(l.plan_mode || "")}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      `);
     }
 
     function exportDraft(){
       const lines = loadDraft();
-      if (!lines.length) return;
-
-      const headers = ["po_name","vendor","eta","sku","product","qty","mode_added_from"];
-      const csv = [headers.join(",")].concat(lines.map(o => headers.map(h => csvEscape(o[h])).join(","))).join("\n");
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = `silo_po_draft_${todayIso()}.csv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+      if (!lines.length){
+        openModal("Draft", `<div class="text-sm">Draft empty.</div>`);
+        return;
+      }
+      csvDownload(
+        `silo_product_draft_${new Date().toISOString().slice(0,10)}.csv`,
+        toCSV(lines, Object.keys(lines[0]))
+      );
     }
 
-    function bindEvents(){
-      el("themeBtn").addEventListener("click", () => {
-        const cur = document.documentElement.getAttribute("data-theme") || "light";
-        const next = cur === "dark" ? "light" : "dark";
-        document.documentElement.setAttribute("data-theme", next);
-        setText("themeLabel", next[0].toUpperCase() + next.slice(1));
-        localStorage.setItem(state.themeKey, next);
+    function clearDraft(){
+      saveDraft([]);
+      renderDraftPeek();
+    }
+
+    async function loadInventoryAndAnalytics(){
+      const mySeq = ++state.loadSeq;
+
+      if (state.aborter){
+        try{ state.aborter.abort(); }catch(e){}
+      }
+
+      state.aborter = new AbortController();
+      const { signal } = state.aborter;
+
+      state.loading = true;
+      el("btnReload").textContent = "Loading…";
+
+      try{
+        const rawRows = [];
+
+        for (const src of SHEET_TABS){
+          if (mySeq !== state.loadSeq) return;
+
+          const invParsed = await fetchCsvObjects(gidToCsvUrl(src.gid), signal);
+          let salesMap = new Map();
+
+          if (src.sales_csv){
+            try{
+              const salesParsed = await fetchCsvObjects(src.sales_csv, signal);
+              salesMap = buildSalesMap(salesParsed.rows);
+            } catch (e) {
+              salesMap = new Map();
+            }
+          }
+
+          const mapped = invParsed.rows.map((o, idx) => {
+            const sku = norm(o[H.sku]);
+            const sales = sku ? salesMap.get(sku) : null;
+
+            return {
+              _id: `${safeId(src.label)}_${idx}_${sku || norm(o[H.product])}`,
+              source_id: safeId(src.label),
+              source_label: src.label,
+              location: src.label,
+              inv_location: norm(o[H.location]),
+              shop_domain: norm(o[H.shop_domain]),
+              sku,
+              barcode: norm(o[H.barcode]),
+              product: sales?.product_name || norm(o[H.product]),
+              variant: norm(o[H.variant]),
+              product_type: sales?.product_type || "Uncategorized",
+              vendor: sales?.vendor || "",
+              avail_qty: num(o[H.avail_qty]),
+              inv_value: num(o[H.inv_value]),
+              qty_7d: sales?.qty_7d || 0,
+              qty_30d: sales?.qty_30d || 0,
+              qty_90d: sales?.qty_90d || 0,
+              qty_120d: sales?.qty_120d || 0,
+              avg_day_30: sales?.avg_day_30 || 0,
+              avg_day_90: sales?.avg_day_90 || 0,
+              avg_day_120: sales?.avg_day_120 || 0,
+              last_sold_date: sales?.last_sold_date || "",
+              last_sold_ms: sales?.last_sold_ms || null,
+              image_url: norm(o[H.img])
+            };
+          });
+
+          rawRows.push(...mapped);
+        }
+
+        if (mySeq !== state.loadSeq) return;
+
+        state.inventoryRows = collapseLocationRows(rawRows);
+        buildAnalytics(state.inventoryRows);
+        renderLocationSelectors();
+
+      } finally {
+        state.loading = false;
+        el("btnReload").textContent = "Reload";
+      }
+    }
+
+    async function reloadEverything(){
+      await Promise.all([
+        loadInventoryAndAnalytics(),
+        loadLocationsAndProjections()
+      ]);
+
+      state.styles = loadStyles().map(ensureStyleShape).map(recalcStyle);
+      if (!state.styles.length){
+        addStyle();
+      } else {
+        renderAll();
+      }
+    }
+
+    function bindTopEvents(){
+      el("btnTheme").addEventListener("click", toggleTheme);
+      el("btnLogout").addEventListener("click", logout);
+      el("btnReload").addEventListener("click", reloadEverything);
+
+      el("btnAddStyleTop").addEventListener("click", addStyle);
+      el("btnAddStyleBottom").addEventListener("click", addStyle);
+
+      el("tabBuilder").addEventListener("click", () => setTab("builder"));
+      el("tabOutput").addEventListener("click", () => setTab("output"));
+
+      el("btnExportAll").addEventListener("click", () => exportRows(filteredStyles()));
+      el("btnExportSelected").addEventListener("click", exportSelectedRows);
+      el("btnExportSelectedTop").addEventListener("click", exportSelectedRows);
+
+      el("btnAddSelectedToDraft").addEventListener("click", addSelectedToDraft);
+      el("btnViewDraft").addEventListener("click", viewDraft);
+      el("btnExportDraft").addEventListener("click", exportDraft);
+      el("btnClearDraft").addEventListener("click", clearDraft);
+
+      el("txtSearch").addEventListener("input", renderAll);
+
+      el("selProjectionLocation").addEventListener("change", () => {
+        summarizeProjections();
+        recalcAllStyles();
       });
 
-      el("reloadBtn").addEventListener("click", refreshAll);
-      el("refreshBtn").addEventListener("click", refreshAll);
-      el("exportBtn").addEventListener("click", exportFullCsv);
-      el("exportSelectedBtn").addEventListener("click", exportSelectedCsv);
-      el("addSelectedBtn").addEventListener("click", addSelectedToDraft);
-
-      el("thisMonthBtn").addEventListener("click", () => {
-        el("dateFrom").value = firstDayOfMonthIso();
-        const base = new Date();
-        const end = new Date(base.getFullYear(), base.getMonth() + 1, 0);
-        el("dateTo").value = `${end.getFullYear()}-${String(end.getMonth()+1).padStart(2,"0")}-${String(end.getDate()).padStart(2,"0")}`;
+      el("selInventoryScope").addEventListener("change", () => {
+        buildAnalytics(getScopeRows());
+        state.styles = state.styles.map(recalcStyle);
+        saveStyles();
+        renderAll();
       });
 
-      el("next30Btn").addEventListener("click", () => {
-        el("dateFrom").value = todayIso();
-        el("dateTo").value = addDaysIso(todayIso(), 30);
-      });
-
-      ["dateFrom","dateTo","projectionLocation","inventoryScope"].forEach(id => {
-        el(id).addEventListener("change", refreshAll);
-      });
-
-      ["mixBasis","growthDriverPct","newCategoryUpliftPct","historicalWeightPct","comparableWeightPct","reservePct","adultMinRuns","youthMinRuns","capMinRuns","searchBox"].forEach(id => {
-        el(id).addEventListener("change", recomputeAndRender);
-        el(id).addEventListener("input", () => {
-          if (id === "searchBox") recomputeAndRender();
+      ["dateFrom","dateTo"].forEach(id => {
+        el(id).addEventListener("change", () => {
+          summarizeProjections();
+          recalcAllStyles();
         });
       });
 
-      el("addStyleBtn").addEventListener("click", addStyle);
-      el("tabStylesBtn").addEventListener("click", () => setActiveTab("styles"));
-      el("tabOutputBtn").addEventListener("click", () => setActiveTab("output"));
-
-      el("selectAllStyles").addEventListener("change", (e) => {
-        if (e.target.checked) state.styles.forEach(s => state.selectedStyles.add(s.id));
-        else state.selectedStyles.clear();
-        renderStyles();
-        renderTray();
+      document.querySelectorAll("[data-range]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          applyDefaultDates(num(btn.getAttribute("data-range")));
+          summarizeProjections();
+          recalcAllStyles();
+        });
       });
 
-      el("viewDraftBtn").addEventListener("click", viewDraft);
-      el("exportDraftBtn").addEventListener("click", exportDraft);
-      el("clearDraftBtn").addEventListener("click", () => {
-        saveDraft([]);
-        updateDraftPeek();
+      [
+        "setHistWeight","setCompWeight","setGrowthUplift","setNewCategoryUplift",
+        "setReservePct","setDefaultWeeks","setAdultMinRuns","setYouthMinRuns","setCapMinRuns","setDefaultRollout"
+      ].forEach(id => {
+        el(id).addEventListener("change", syncSettingsFromUI);
       });
 
-      window.addEventListener("keydown", async (e) => {
-        const key = String(e.key || "").toLowerCase();
-        if ((e.ctrlKey || e.metaKey) && key === "k"){
-          e.preventDefault();
-          await refreshAll();
-        }
-        if ((e.ctrlKey || e.metaKey) && key === "s"){
-          e.preventDefault();
-          addSelectedToDraft();
+      el("chkAll").addEventListener("change", (e) => {
+        const on = e.target.checked;
+        filteredStyles().forEach(s => {
+          s.selected = on;
+          if (on) state.selected.add(s.id);
+          else state.selected.delete(s.id);
+        });
+        saveStyles();
+        renderAll();
+      });
+
+      el("btnCloseModal").addEventListener("click", closeModal);
+      el("modal").addEventListener("click", (e) => {
+        if (e.target && e.target.getAttribute && e.target.getAttribute("data-modal-overlay") === "1"){
+          closeModal();
         }
       });
     }
 
-    async function boot(){
-      if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) return;
-      const ok = await authGuard();
-      if (!ok) return;
+    async function init(){
+      applyDefaultDates(120);
+      loadInitialSettingsToUI();
+      bindTopEvents();
+      renderDraftPeek();
 
-      const savedTheme = localStorage.getItem(state.themeKey) || "light";
-      document.documentElement.setAttribute("data-theme", savedTheme);
-      setText("themeLabel", savedTheme[0].toUpperCase() + savedTheme.slice(1));
-
-      el("dateFrom").value = todayIso();
-      el("dateTo").value = addDaysIso(todayIso(), 30);
-
-      await loadLocations();
-      bindEvents();
-      updateDraftPeek();
-      setActiveTab("styles");
+      try{
+        await initAuth();
+        if (!state.user) return;
+        await reloadEverything();
+      } catch (err){
+        openModal("Load Error", `<div class="text-sm">${escapeHtml(err.message || String(err))}</div>`);
+      }
     }
 
-    boot();
+    init();
   </script>
 </body>
 </html>
