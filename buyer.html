@@ -56,11 +56,11 @@
       font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
       letter-spacing: -0.01em;
     }
-    body.themeable { background: var(--bg); color: var(--text); }
+    body.themeable{ background: var(--bg); color: var(--text); }
 
     .app-shell{ min-height: 100vh; display: grid; grid-template-columns: 1fr; }
     .main{ padding: 16px; }
-    .container{ max-width: 1840px; margin: 0 auto; }
+    .container{ max-width: 1880px; margin: 0 auto; }
 
     .card{
       background: var(--panel);
@@ -91,11 +91,6 @@
       box-shadow: 0 6px 14px color-mix(in oklab, var(--accent) 18%, transparent);
     }
     .btn-primary:hover{ background: color-mix(in oklab, var(--accent) 90%, #000); }
-    :root[data-theme="dark"] .btn-primary{
-      color: #071122;
-      background: color-mix(in oklab, var(--accent) 86%, white);
-      border-color: color-mix(in oklab, var(--accent) 80%, white);
-    }
 
     .btn-ghost{
       background: transparent;
@@ -138,9 +133,6 @@
       white-space: nowrap;
     }
     .dot{ width:.44rem; height:.44rem; border-radius:999px; display:inline-block; }
-    .pill-danger{ color: var(--danger); border-color: color-mix(in oklab, var(--danger) 30%, var(--border)); }
-    .pill-warn{ color: var(--warn); border-color: color-mix(in oklab, var(--warn) 30%, var(--border)); }
-    .pill-good{ color: var(--good); border-color: color-mix(in oklab, var(--good) 30%, var(--border)); }
 
     .section-title{
       font-size: .72rem;
@@ -173,7 +165,9 @@
       background: var(--panel);
     }
     .table thead th{
-      position: sticky; top: 0; z-index: 5;
+      position: sticky;
+      top: 0;
+      z-index: 5;
       font-size: .68rem;
       letter-spacing: .14em;
       text-transform: uppercase;
@@ -193,17 +187,6 @@
     .table tbody tr:hover td{ background: var(--panel2); }
     .table tbody tr:last-child td{ border-bottom: 0; }
 
-    .chip{
-      display:inline-flex; align-items:center;
-      padding: 3px 10px;
-      border-radius: 999px;
-      font-size: 12px;
-      font-weight: 900;
-      border: 1px solid var(--border);
-      background: var(--panel);
-      color: var(--muted);
-    }
-
     .tab-btn.active{
       background: var(--accent);
       color: #fff;
@@ -212,6 +195,7 @@
 
     .sticky-tray{ position: sticky; bottom: 12px; z-index: 20; }
     .right-col{ position: sticky; top: 16px; align-self: start; }
+
     .soft-panel{
       background: var(--panel2);
       border: 1px solid var(--border);
@@ -222,9 +206,6 @@
     .confidence-med{ color: var(--warn); }
     .confidence-low{ color: var(--danger); }
 
-    .hidden-x{ display:none !important; }
-    .text-right{ text-align: right; }
-
     .curve-badge{
       display:inline-flex; align-items:center; gap:.35rem;
       padding:.18rem .55rem;
@@ -233,6 +214,9 @@
       font-size:11px; font-weight:900;
       background:var(--panel2); color:var(--muted);
     }
+
+    .hidden-x{ display:none !important; }
+    .text-right{ text-align: right; }
   </style>
 </head>
 
@@ -258,11 +242,10 @@
                 <span class="pill">Product Buyer</span>
                 <span class="pill">Buyer Co-Pilot</span>
               </div>
-              <h1 class="mt-3 text-2xl font-semibold tracking-tight">Product planning with system guardrails</h1>
+              <h1 class="mt-3 text-2xl font-semibold tracking-tight">Product planning with historical curve sizing</h1>
               <p class="mt-2 text-sm muted max-w-5xl">
-                This version is built to <b>guide</b> It recommends total style units from
-                category 120-day demand, comparable-title demand, growth and launch settings, then spreads sizes from
-                historical variant mix. Final approved units remains controlled.
+                Recommend total style units from category + comparable demand, then allocate sizes from actual historical
+                SKU variant mix. Buyer still approves final units.
               </p>
             </div>
 
@@ -328,7 +311,7 @@
 
             <section id="builderPanel" class="card overflow-hidden">
               <div class="overflow-auto scrollbar">
-                <table class="table min-w-[2550px] text-sm">
+                <table class="table min-w-[2750px] text-sm">
                   <thead>
                     <tr>
                       <th><input id="checkAllStyles" type="checkbox" /></th>
@@ -336,7 +319,7 @@
                       <th>Category</th>
                       <th>Comparable Title</th>
                       <th>Family</th>
-                      <th>Curve Source</th>
+                      <th>Size Curve</th>
                       <th class="text-right">Weeks</th>
                       <th class="text-right">Hist / Wk</th>
                       <th class="text-right">Comp / Wk</th>
@@ -356,15 +339,16 @@
 
             <section id="outputPanel" class="card overflow-hidden hidden-x">
               <div class="overflow-auto scrollbar">
-                <table class="table min-w-[1700px] text-sm">
+                <table class="table min-w-[1800px] text-sm">
                   <thead>
                     <tr>
                       <th>Product Title</th>
                       <th>Category</th>
                       <th>Curve Source</th>
-                      <th class="text-right">Final Style Units</th>
+                      <th class="text-right">System Units</th>
+                      <th class="text-right">Buyer Units</th>
+                      <th class="text-right">Final Units</th>
                       <th>Size Output</th>
-                      <th>System vs Buyer</th>
                       <th>Math Note</th>
                     </tr>
                   </thead>
@@ -414,8 +398,8 @@
                 </div>
 
                 <div class="mt-3 text-sm muted">
-                  Current top-down context is imported from <span class="kbd">revenue_projections</span>. This page
-                  recommends, but the buyer still approves. Override behavior is visible instead of hidden.
+                  Current top-down context is imported from <span class="kbd">revenue_projections</span>.
+                  Recommendation suggests total units. Buyer approves final units. Size allocation comes from historical variant mix.
                 </div>
 
                 <div id="trustMathBox" class="mt-4 soft-panel p-4 text-sm muted">
@@ -426,11 +410,10 @@
               <section class="card p-5">
                 <div class="section-title">Read the signals</div>
                 <div class="mt-3 text-sm muted space-y-3">
-                  <p><b>Base anchor:</b> category 120-day units / week.</p>
-                  <p><b>Check fit:</b> comparable-title weekly signal.</p>
-                  <p><b>Choose total units first:</b> system recommendation vs buyer approval.</p>
-                  <p><b>Spread sizes second:</b> category / comparable / blended variant history.</p>
-                  <p><b>Keep MOQ hidden:</b> minimum floors protect buys without forcing run language on the buyer.</p>
+                  <p><b>Step 1:</b> system recommends total units from category + comparable demand.</p>
+                  <p><b>Step 2:</b> buyer approves final units.</p>
+                  <p><b>Step 3:</b> sizes allocate from category / comparable / blended curve.</p>
+                  <p><b>Step 4:</b> export or push to PO draft.</p>
                 </div>
               </section>
 
@@ -465,15 +448,15 @@
                   </div>
                   <div>
                     <label class="section-title">Adult min floor</label>
-                    <input id="adultMinRuns" type="number" min="1" step="1" class="input mt-2 mono" value="6" />
+                    <input id="adultMinFloor" type="number" min="1" step="1" class="input mt-2 mono" value="54" />
                   </div>
                   <div>
                     <label class="section-title">Youth min floor</label>
-                    <input id="youthMinRuns" type="number" min="1" step="1" class="input mt-2 mono" value="4" />
+                    <input id="youthMinFloor" type="number" min="1" step="1" class="input mt-2 mono" value="24" />
                   </div>
                   <div>
                     <label class="section-title">Cap min floor</label>
-                    <input id="capMinRuns" type="number" min="1" step="1" class="input mt-2 mono" value="8" />
+                    <input id="capMinFloor" type="number" min="1" step="1" class="input mt-2 mono" value="24" />
                   </div>
                 </div>
               </section>
@@ -552,7 +535,6 @@
   </dialog>
 
   <script>
-    // ====== Auth guard + logout ======
     const cfg = window.__SILO_CONFIG__ || {};
     let supabaseClient = null;
 
@@ -585,7 +567,6 @@
       })();
     }
 
-    // ====== Required sources ======
     const SHEET_ID = "1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0";
 
     const LOCATIONS = [
@@ -602,7 +583,6 @@
     ];
 
     const H = {
-      location: ["Location", "Store", "Shop", "Location name"],
       sku: ["Variant SKU", "SKU", "Variant sku", "variant_sku"],
       barcode: ["Variant Barcode", "Barcode", "UPC", "Variant barcode", "variant_barcode"],
       product_title: ["Product title", "Product Title", "Product", "Title", "product_title"],
@@ -626,42 +606,11 @@
       last_sold_date: ["last_sold_date", "Last sold date", "last sold", "Last Sold"]
     };
 
-    const SPREADS = {
-      adult_standard: {
-        label: "Adult Standard",
-        family: "adult",
-        run: [
-          { size: "S", qty: 1 }, { size: "M", qty: 2 }, { size: "L", qty: 2 },
-          { size: "XL", qty: 2 }, { size: "2XL", qty: 1 }, { size: "3XL", qty: 1 }
-        ]
-      },
-      youth_standard: {
-        label: "Youth Standard",
-        family: "youth",
-        run: [
-          { size: "YS", qty: 1 }, { size: "YM", qty: 2 }, { size: "YL", qty: 2 }, { size: "YXL", qty: 1 }
-        ]
-      },
-      caps_fitted: {
-        label: "Caps Fitted",
-        family: "caps",
-        run: [
-          { size: "SM/M", qty: 2 }, { size: "L/XL", qty: 2 }
-        ]
-      }
-    };
-
-    const FAMILY_DEFAULTS = {
-      adult: { spread: "adult_standard", minFloorKey: "adultMinRuns" },
-      youth: { spread: "youth_standard", minFloorKey: "youthMinRuns" },
-      caps: { spread: "caps_fitted", minFloorKey: "capMinRuns" }
-    };
-
     const STORAGE_KEYS = {
-      styles: "silo_product_buyer_styles_v3",
-      settings: "silo_product_buyer_settings_v3",
-      draft: "silo_product_buyer_draft_v3",
-      theme: "silo_product_buyer_theme_v3"
+      styles: "silo_product_buyer_styles_v4",
+      settings: "silo_product_buyer_settings_v4",
+      draft: "silo_product_buyer_draft_v4",
+      theme: "silo_product_buyer_theme_v4"
     };
 
     const DEFAULT_SETTINGS = {
@@ -671,9 +620,9 @@
       newCategoryUplift: 15,
       reserveStockPct: 10,
       defaultWeeks: 8,
-      adultMinRuns: 6,
-      youthMinRuns: 4,
-      capMinRuns: 8
+      adultMinFloor: 54,
+      youthMinFloor: 24,
+      capMinFloor: 24
     };
 
     const LAUNCH_MULTIPLIERS = { inline: 1.00, capsule: 1.10, event: 1.18, keydrop: 1.25 };
@@ -689,8 +638,8 @@
       projections: [],
       categoryStats: new Map(),
       comparableStats: new Map(),
-      sizeCurveCategory: new Map(),
-      sizeCurveComparable: new Map(),
+      categoryCurves: new Map(),
+      comparableCurves: new Map(),
       categories: [],
       comparableTitles: [],
       styles: [],
@@ -699,16 +648,15 @@
       selectedStyleId: null
     };
 
-    // ====== Utils ======
     function fmtInt(n){ return Number.isFinite(n) ? Math.round(n).toLocaleString() : "—"; }
     function fmtNum(n, digits = 1){
       return Number.isFinite(n)
-        ? n.toLocaleString(undefined,{ maximumFractionDigits:digits, minimumFractionDigits:digits })
+        ? n.toLocaleString(undefined, { maximumFractionDigits: digits, minimumFractionDigits: digits })
         : "—";
     }
     function fmtMoney(n){
       return Number.isFinite(n)
-        ? n.toLocaleString(undefined,{ style:"currency", currency:"USD", maximumFractionDigits:0 })
+        ? n.toLocaleString(undefined, { style:"currency", currency:"USD", maximumFractionDigits:0 })
         : "—";
     }
     function safeLower(s){ return String(s ?? "").trim().toLowerCase(); }
@@ -719,7 +667,6 @@
       const n = Number(cleaned);
       return Number.isFinite(n) ? n : 0;
     }
-    function normalizeKeyParts(parts){ return parts.map(p => String(p ?? "").trim()).join("||").toLowerCase(); }
     function escapeHtml(str){
       return String(str ?? "")
         .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
@@ -730,7 +677,9 @@
       try {
         const raw = localStorage.getItem(key);
         return raw ? JSON.parse(raw) : fallback;
-      } catch { return fallback; }
+      } catch {
+        return fallback;
+      }
     }
 
     function parseCsv(text){
@@ -784,13 +733,11 @@
     function mapHeaders(headerRow, mapping){
       const headerIndex = buildHeaderIndex(headerRow);
       const out = {};
-      const missing = [];
       for (const [key, aliases] of Object.entries(mapping)) {
         const hit = findHeader(headerIndex, aliases);
         if (hit !== null && hit !== undefined) out[key] = hit;
-        else missing.push(key);
       }
-      return { indices: out, missing };
+      return out;
     }
 
     async function fetchText(url){
@@ -845,9 +792,11 @@
       el("dateTo").value = toDateInputValue(end);
     }
 
-    function spreadRunTotal(spreadKey){
-      const spread = SPREADS[spreadKey];
-      return spread ? spread.run.reduce((s, r) => s + r.qty, 0) : 0;
+    function detectFamily(category, comparableTitle){
+      const t = `${category || ""} ${comparableTitle || ""}`.toLowerCase();
+      if (/cap|hat|snap|fitted/.test(t)) return "caps";
+      if (/youth|kid|kids|ys|ym|yl|yxl/.test(t)) return "youth";
+      return "adult";
     }
 
     function normalizeVariantToSize(variantTitle, family){
@@ -878,22 +827,23 @@
       return raw;
     }
 
-    function detectFamily(category, comparableTitle){
-      const t = `${category || ""} ${comparableTitle || ""}`.toLowerCase();
-      if (/cap|hat|snap|fitted/.test(t)) return "caps";
-      if (/youth|kid|kids|ys|ym|yl|yxl/.test(t)) return "youth";
-      return "adult";
+    function inferCategory(productTitle, variantTitle){
+      const t = `${productTitle || ""} ${variantTitle || ""}`.toLowerCase();
+
+      if (/cap|hat|dadhat|snapback|fitted/.test(t)) return "Caps";
+      if (/hood|hoodie|fleece/.test(t)) return "Hoodies";
+      if (/crewneck|sweatshirt/.test(t)) return "Crewnecks";
+      if (/tank/.test(t)) return "Tanks";
+      if (/long sleeve|ls tee|longsleeve/.test(t)) return "Long Sleeve";
+      if (/tee|t-shirt|shirt/.test(t)) return "Tees";
+      return "Uncategorized";
     }
 
-    function defaultSpreadForFamily(family){
-      return FAMILY_DEFAULTS[family]?.spread || "adult_standard";
-    }
-
-    function defaultComparableForCategory(category){
-      const matches = Array.from(state.comparableStats.values())
-        .filter(x => String(x.category || "").trim() === String(category || "").trim())
-        .sort((a,b) => (b.qty_120d - a.qty_120d));
-      return matches[0]?.title || "";
+    function curveSourceLabel(src){
+      if (src === "category") return "Category history";
+      if (src === "comparable") return "Comparable history";
+      if (src === "family_default") return "Family default";
+      return "Blended";
     }
 
     function currentSettings(){
@@ -905,9 +855,9 @@
         newCategoryUplift: toNumber(el("newCategoryUplift")?.value ?? stored.newCategoryUplift),
         reserveStockPct: toNumber(el("reserveStockPct")?.value ?? stored.reserveStockPct),
         defaultWeeks: Math.max(1, toNumber(el("defaultWeeks")?.value ?? stored.defaultWeeks)),
-        adultMinRuns: Math.max(1, toNumber(el("adultMinRuns")?.value ?? stored.adultMinRuns)),
-        youthMinRuns: Math.max(1, toNumber(el("youthMinRuns")?.value ?? stored.youthMinRuns)),
-        capMinRuns: Math.max(1, toNumber(el("capMinRuns")?.value ?? stored.capMinRuns))
+        adultMinFloor: Math.max(1, toNumber(el("adultMinFloor")?.value ?? stored.adultMinFloor)),
+        youthMinFloor: Math.max(1, toNumber(el("youthMinFloor")?.value ?? stored.youthMinFloor)),
+        capMinFloor: Math.max(1, toNumber(el("capMinFloor")?.value ?? stored.capMinFloor))
       };
     }
 
@@ -921,12 +871,10 @@
       return { hist: historicalWeight / total, comp: comparableWeight / total };
     }
 
-    function getMinFloorUnitsForFamily(family, settings){
-      const spread = defaultSpreadForFamily(family);
-      const runUnits = spreadRunTotal(spread);
-      const key = FAMILY_DEFAULTS[family]?.minFloorKey;
-      const minPacks = Math.max(1, toNumber(settings[key] || 1));
-      return runUnits * minPacks;
+    function getFamilyMinFloor(family, settings){
+      if (family === "youth") return settings.youthMinFloor;
+      if (family === "caps") return settings.capMinFloor;
+      return settings.adultMinFloor;
     }
 
     function inventoryScopeRows(){
@@ -935,217 +883,132 @@
       return state.inventoryRows.filter(r => String(r.locationKey) === String(scope));
     }
 
-    function categoryWeeklySignal(category){
-      const stat = state.categoryStats.get(String(category || "").trim().toLowerCase());
-      return stat ? stat.weekly_120d : 0;
-    }
+    function parseInventoryCsv(csvText, loc){
+      const table = parseCsv(csvText);
+      if (!table.length) return [];
 
-    function comparableWeeklySignal(title){
-      const stat = state.comparableStats.get(String(title || "").trim().toLowerCase());
-      return stat ? stat.weekly_120d : 0;
-    }
+      const header = table[0];
+      const idx = mapHeaders(header, H);
+      const rows = table.slice(1);
+      const dedupe = new Map();
 
-    function confidenceClass(level){
-      if (level === "High") return "confidence-high";
-      if (level === "Medium") return "confidence-med";
-      return "confidence-low";
-    }
+      for (const row of rows) {
+        const sku = idx.sku !== undefined ? String(row[idx.sku] ?? "").trim() : "";
+        const barcode = idx.barcode !== undefined ? String(row[idx.barcode] ?? "").trim() : "";
+        const product = idx.product_title !== undefined ? String(row[idx.product_title] ?? "").trim() : "";
+        const variant = idx.variant_title !== undefined ? String(row[idx.variant_title] ?? "").trim() : "";
+        const dedupeKey = `${loc.label}||${sku}||${barcode}||${product}||${variant}`.toLowerCase();
 
-    // ====== Curve logic ======
-    function curveFromMap(mapKey, sourceMap, family){
-      const row = sourceMap.get(String(mapKey || "").trim().toLowerCase());
-      if (row && row.curve && Object.keys(row.curve).length) return row.curve;
+        const item = {
+          location: loc.label,
+          locationKey: loc.key,
+          sku,
+          barcode,
+          product_title: product,
+          variant_title: variant,
+          product_type: inferCategory(product, variant),
+          vendor: "",
+          avail_qty: idx.avail_qty !== undefined ? toNumber(row[idx.avail_qty]) : 0,
+          inv_value: idx.inv_value !== undefined ? toNumber(row[idx.inv_value]) : 0,
+          qty_7d: 0,
+          qty_30d: 0,
+          qty_90d: 0,
+          qty_120d: 0,
+          avg_day_30: 0,
+          avg_day_90: 0,
+          avg_day_120: 0,
+          last_sold_date: ""
+        };
 
-      const spread = SPREADS[defaultSpreadForFamily(family)];
-      const fallback = {};
-      const total = spreadRunTotal(defaultSpreadForFamily(family));
-      spread.run.forEach(x => fallback[x.size] = total > 0 ? (x.qty / total) : 0);
-      return fallback;
-    }
-
-    function blendedCurve(category, comparableTitle, family){
-      const settings = currentSettings();
-      const weights = normalizeWeights(settings.historicalWeight, settings.comparableWeight);
-      const catCurve = curveFromMap(category, state.sizeCurveCategory, family);
-      const compCurve = curveFromMap(comparableTitle, state.sizeCurveComparable, family);
-      const keys = new Set([...Object.keys(catCurve || {}), ...Object.keys(compCurve || {})]);
-      const out = {};
-      let total = 0;
-
-      keys.forEach(k => {
-        out[k] = (toNumber(catCurve[k]) * weights.hist) + (toNumber(compCurve[k]) * weights.comp);
-        total += out[k];
-      });
-
-      if (total > 0) {
-        Object.keys(out).forEach(k => out[k] = out[k] / total);
-        return out;
-      }
-      return catCurve;
-    }
-
-    function selectedCurve(style){
-      if (style.curveSource === "category") {
-        return curveFromMap(style.category, state.sizeCurveCategory, style.family);
-      }
-      if (style.curveSource === "comparable") {
-        return curveFromMap(style.comparableTitle, state.sizeCurveComparable, style.family);
-      }
-      if (style.curveSource === "family_default") {
-        return curveFromMap("", new Map(), style.family);
-      }
-      return blendedCurve(style.category, style.comparableTitle, style.family);
-    }
-
-    function allocateSizes(totalUnits, curve){
-      const entries = Object.entries(curve || {}).filter(([,v]) => toNumber(v) > 0);
-      if (!entries.length || totalUnits <= 0) return [];
-
-      const base = entries.map(([size, pct]) => ({
-        size,
-        qtyFloat: totalUnits * pct,
-        qty: Math.floor(totalUnits * pct),
-        remainder: (totalUnits * pct) - Math.floor(totalUnits * pct)
-      }));
-
-      let used = base.reduce((s, x) => s + x.qty, 0);
-      let left = totalUnits - used;
-
-      base.sort((a,b) => b.remainder - a.remainder);
-
-      for (let i = 0; i < base.length && left > 0; i++, left--) {
-        base[i].qty += 1;
+        const existing = dedupe.get(dedupeKey);
+        if (!existing) {
+          dedupe.set(dedupeKey, item);
+        } else {
+          existing.avail_qty = Math.max(existing.avail_qty, item.avail_qty);
+          existing.inv_value = Math.max(existing.inv_value, item.inv_value);
+        }
       }
 
-      return base
-        .sort((a,b) => a.size.localeCompare(b.size, undefined, { numeric: true }))
-        .map(x => ({ size: x.size, qty: x.qty }));
+      return Array.from(dedupe.values());
     }
 
-    function sizeOutputText(totalUnits, style){
-      const out = allocateSizes(totalUnits, selectedCurve(style));
-      return out.filter(x => x.qty > 0).map(x => `${x.size}:${x.qty}`).join(" • ");
+    function parseSalesCsvToMap(csvText){
+      const table = parseCsv(csvText);
+      if (!table.length) return new Map();
+
+      const header = table[0];
+      const idx = mapHeaders(header, SH);
+      const rows = table.slice(1);
+      const map = new Map();
+
+      for (const row of rows) {
+        const sku = idx.sku !== undefined ? String(row[idx.sku] ?? "").trim() : "";
+        if (!sku) continue;
+
+        map.set(sku, {
+          sku,
+          product_name: idx.product_name !== undefined ? String(row[idx.product_name] ?? "").trim() : "",
+          product_type: idx.product_type !== undefined ? String(row[idx.product_type] ?? "").trim() : "",
+          vendor: idx.vendor !== undefined ? String(row[idx.vendor] ?? "").trim() : "",
+          qty_7d: idx.qty_7d !== undefined ? toNumber(row[idx.qty_7d]) : 0,
+          qty_30d: idx.qty_30d !== undefined ? toNumber(row[idx.qty_30d]) : 0,
+          qty_90d: idx.qty_90d !== undefined ? toNumber(row[idx.qty_90d]) : 0,
+          qty_120d: idx.qty_120d !== undefined ? toNumber(row[idx.qty_120d]) : 0,
+          avg_day_30: idx.avg_day_30 !== undefined ? toNumber(row[idx.avg_day_30]) : 0,
+          avg_day_90: idx.avg_day_90 !== undefined ? toNumber(row[idx.avg_day_90]) : 0,
+          avg_day_120: idx.avg_day_120 !== undefined ? toNumber(row[idx.avg_day_120]) : 0,
+          last_sold_date: idx.last_sold_date !== undefined ? String(row[idx.last_sold_date] ?? "").trim() : ""
+        });
+      }
+
+      return map;
     }
 
-    // ====== Recommendation ======
-    function recommendationForStyle(style){
-      const settings = currentSettings();
-      const weights = normalizeWeights(settings.historicalWeight, settings.comparableWeight);
+    async function loadInventoryAll(){
+      const allRows = [];
 
-      const histWk = categoryWeeklySignal(style.category);
-      const compWk = comparableWeeklySignal(style.comparableTitle);
-      const weightedWeekly = (histWk * weights.hist) + (compWk * weights.comp);
+      for (const loc of LOCATIONS) {
+        let inventoryRows = [];
+        let salesMap = new Map();
 
-      const weeks = Math.max(1, toNumber(style.weeks));
-      const demandWindowUnits = weightedWeekly * weeks;
+        try {
+          const invText = await fetchText(inventoryUrlForGid(loc.gid));
+          inventoryRows = parseInventoryCsv(invText, loc);
+        } catch (e) {
+          console.warn(`Inventory CSV failed for ${loc.label}:`, e);
+        }
 
-      const growthPct = style.growthOverride === "" || style.growthOverride === null ? settings.growthUplift : toNumber(style.growthOverride);
-      const reservePct = style.reserveOverride === "" || style.reserveOverride === null ? settings.reserveStockPct : toNumber(style.reserveOverride);
-      const newCategoryPct = histWk <= 0 ? settings.newCategoryUplift : 0;
+        try {
+          const salesText = await fetchText(loc.sales_csv);
+          salesMap = parseSalesCsvToMap(salesText);
+        } catch (e) {
+          console.warn(`Sales summary failed for ${loc.label}:`, e);
+        }
 
-      const launchMultiplier = LAUNCH_MULTIPLIERS[style.launchType] || 1;
-      const rolloutMultiplier = ROLLOUT_MULTIPLIERS[style.rollout] || 1;
-      const minFloorUnits = getMinFloorUnitsForFamily(style.family, settings);
+        for (const row of inventoryRows) {
+          if (row.sku && salesMap.has(row.sku)) {
+            const s = salesMap.get(row.sku);
+            row.product_title = s.product_name || row.product_title;
+            row.product_type = s.product_type || row.product_type || inferCategory(row.product_title, row.variant_title);
+            row.vendor = s.vendor || row.vendor;
+            row.qty_7d = s.qty_7d;
+            row.qty_30d = s.qty_30d;
+            row.qty_90d = s.qty_90d;
+            row.qty_120d = s.qty_120d;
+            row.avg_day_30 = s.avg_day_30;
+            row.avg_day_90 = s.avg_day_90;
+            row.avg_day_120 = s.avg_day_120;
+            row.last_sold_date = s.last_sold_date || "";
+          } else {
+            row.product_type = row.product_type || inferCategory(row.product_title, row.variant_title);
+          }
+          allRows.push(row);
+        }
+      }
 
-      const withGrowth = demandWindowUnits * (1 + growthPct / 100);
-      const withNewCategory = withGrowth * (1 + newCategoryPct / 100);
-      const withLaunch = withNewCategory * launchMultiplier;
-      const withRollout = withLaunch * rolloutMultiplier;
-      const withReserve = withRollout * (1 + reservePct / 100);
-
-      const systemUnits = Math.max(Math.ceil(withReserve), minFloorUnits);
-      const buyerUnits = Math.max(0, toNumber(style.buyerUnits));
-      const finalUnits = Math.max(systemUnits, buyerUnits);
-
-      let confidence = "Low";
-      if (histWk > 8 && compWk > 4) confidence = "High";
-      else if (histWk > 0 || compWk > 0) confidence = "Medium";
-
-      const overrideDelta = buyerUnits > 0 ? (buyerUnits - systemUnits) : 0;
-      const curveLabel =
-        style.curveSource === "category" ? "Category history" :
-        style.curveSource === "comparable" ? "Comparable history" :
-        style.curveSource === "family_default" ? "Family default" :
-        "Blended";
-
-      const mathNote = [
-        `category 120d / wk ${fmtNum(histWk,1)}`,
-        `comparable / wk ${fmtNum(compWk,1)}`,
-        `weighted / wk ${fmtNum(weightedWeekly,1)} (${Math.round(weights.hist*100)}% hist / ${Math.round(weights.comp*100)}% comp)`,
-        `weeks ${fmtInt(weeks)}`,
-        `growth uplift ${fmtInt(growthPct)}%`,
-        `new category uplift ${fmtInt(newCategoryPct)}%`,
-        `launch ${fmtNum(launchMultiplier,2)}x`,
-        `rollout ${fmtNum(rolloutMultiplier,2)}x`,
-        `reserve ${fmtInt(reservePct)}%`,
-        `min floor ${fmtInt(minFloorUnits)}`,
-        `curve ${curveLabel}`,
-        buyerUnits > 0 ? `buyer override ${overrideDelta >= 0 ? "+" : ""}${fmtInt(overrideDelta)}` : `buyer override none`
-      ].join(" • ");
-
-      return {
-        histWk,
-        compWk,
-        weightedWeekly,
-        growthPct,
-        newCategoryPct,
-        launchMultiplier,
-        rolloutMultiplier,
-        reservePct,
-        systemUnits,
-        buyerUnits,
-        finalUnits,
-        confidence,
-        minFloorUnits,
-        curveLabel,
-        curve: selectedCurve(style),
-        overrideDelta,
-        mathNote
-      };
+      state.inventoryRows = allRows;
     }
 
-    // ====== Style state ======
-    function newStyle(){
-      const settings = currentSettings();
-      const family = "adult";
-      return {
-        id: `sty_${Math.random().toString(36).slice(2)}_${Date.now()}`,
-        selected: false,
-        productTitle: "",
-        category: state.categories[0] || "",
-        comparableTitle: "",
-        family,
-        curveSource: "blended",
-        weeks: settings.defaultWeeks,
-        buyerUnits: 0,
-        launchType: "inline",
-        rollout: "standard",
-        growthOverride: "",
-        reserveOverride: ""
-      };
-    }
-
-    function saveStyles(){ saveJSON(STORAGE_KEYS.styles, state.styles); }
-    function loadStyles(){
-      state.styles = loadJSON(STORAGE_KEYS.styles, []);
-      if (!Array.isArray(state.styles)) state.styles = [];
-    }
-
-    function ensureStylesInitialized(){
-      loadStyles();
-      if (!state.styles.length) state.styles = [newStyle()];
-      state.styles.forEach(s => {
-        if (!s.family) s.family = detectFamily(s.category, s.comparableTitle);
-        if (!s.curveSource) s.curveSource = "blended";
-        if (!("buyerUnits" in s)) s.buyerUnits = 0;
-        if (!("weeks" in s)) s.weeks = currentSettings().defaultWeeks;
-        if (!s.launchType) s.launchType = "inline";
-        if (!s.rollout) s.rollout = "standard";
-      });
-      saveStyles();
-    }
-
-    // ====== Supabase ======
     async function loadSupabaseContext(){
       if (!supabaseClient) return;
 
@@ -1176,134 +1039,6 @@
       }
     }
 
-    // ====== Inventory + sales-summary ======
-    function parseInventoryCsv(csvText, loc){
-      const table = parseCsv(csvText);
-      if (!table.length) return [];
-
-      const header = table[0];
-      const { indices } = mapHeaders(header, H);
-      const rows = table.slice(1);
-
-      const dedupe = new Map();
-
-      for (const row of rows) {
-        const sku = indices.sku !== undefined ? String(row[indices.sku] ?? "").trim() : "";
-        const barcode = indices.barcode !== undefined ? String(row[indices.barcode] ?? "").trim() : "";
-        const product = indices.product_title !== undefined ? String(row[indices.product_title] ?? "").trim() : "";
-        const variant = indices.variant_title !== undefined ? String(row[indices.variant_title] ?? "").trim() : "";
-        const dedupeKey = normalizeKeyParts([loc.label, sku, barcode, product, variant]);
-
-        const item = {
-          location: loc.label,
-          locationKey: loc.key,
-          sku,
-          barcode,
-          product_title: product,
-          variant_title: variant,
-          product_type: "Uncategorized",
-          vendor: "",
-          avail_qty: indices.avail_qty !== undefined ? toNumber(row[indices.avail_qty]) : 0,
-          inv_value: indices.inv_value !== undefined ? toNumber(row[indices.inv_value]) : 0,
-          qty_7d: 0,
-          qty_30d: 0,
-          qty_90d: 0,
-          qty_120d: 0,
-          avg_day_30: 0,
-          avg_day_90: 0,
-          avg_day_120: 0,
-          last_sold_date: ""
-        };
-
-        const existing = dedupe.get(dedupeKey);
-        if (!existing) {
-          dedupe.set(dedupeKey, item);
-          continue;
-        }
-
-        existing.avail_qty = Math.max(existing.avail_qty, item.avail_qty);
-        existing.inv_value = Math.max(existing.inv_value, item.inv_value);
-      }
-
-      return Array.from(dedupe.values());
-    }
-
-    function parseSalesCsvToMap(csvText){
-      const table = parseCsv(csvText);
-      if (!table.length) return new Map();
-
-      const header = table[0];
-      const { indices } = mapHeaders(header, SH);
-      const rows = table.slice(1);
-
-      const map = new Map();
-
-      for (const row of rows) {
-        const sku = indices.sku !== undefined ? String(row[indices.sku] ?? "").trim() : "";
-        if (!sku) continue;
-
-        map.set(sku, {
-          sku,
-          product_name: indices.product_name !== undefined ? String(row[indices.product_name] ?? "").trim() : "",
-          product_type: indices.product_type !== undefined ? String(row[indices.product_type] ?? "").trim() : "Uncategorized",
-          vendor: indices.vendor !== undefined ? String(row[indices.vendor] ?? "").trim() : "",
-          qty_7d: indices.qty_7d !== undefined ? toNumber(row[indices.qty_7d]) : 0,
-          qty_30d: indices.qty_30d !== undefined ? toNumber(row[indices.qty_30d]) : 0,
-          qty_90d: indices.qty_90d !== undefined ? toNumber(row[indices.qty_90d]) : 0,
-          qty_120d: indices.qty_120d !== undefined ? toNumber(row[indices.qty_120d]) : 0,
-          avg_day_30: indices.avg_day_30 !== undefined ? toNumber(row[indices.avg_day_30]) : 0,
-          avg_day_90: indices.avg_day_90 !== undefined ? toNumber(row[indices.avg_day_90]) : 0,
-          avg_day_120: indices.avg_day_120 !== undefined ? toNumber(row[indices.avg_day_120]) : 0,
-          last_sold_date: indices.last_sold_date !== undefined ? String(row[indices.last_sold_date] ?? "").trim() : ""
-        });
-      }
-
-      return map;
-    }
-
-    async function loadInventoryAll(){
-      const allRows = [];
-
-      for (const loc of LOCATIONS) {
-        let inventoryRows = [];
-        try {
-          const invText = await fetchText(inventoryUrlForGid(loc.gid));
-          inventoryRows = parseInventoryCsv(invText, loc);
-        } catch (e) {
-          console.warn(`Inventory CSV failed for ${loc.label}:`, e);
-        }
-
-        let salesMap = new Map();
-        try {
-          const salesText = await fetchText(loc.sales_csv);
-          salesMap = parseSalesCsvToMap(salesText);
-        } catch (e) {
-          console.warn(`Sales summary failed for ${loc.label}:`, e);
-        }
-
-        for (const row of inventoryRows) {
-          if (row.sku && salesMap.has(row.sku)) {
-            const s = salesMap.get(row.sku);
-            row.product_title = s.product_name || row.product_title;
-            row.product_type = s.product_type || row.product_type;
-            row.vendor = s.vendor || row.vendor;
-            row.qty_7d = s.qty_7d;
-            row.qty_30d = s.qty_30d;
-            row.qty_90d = s.qty_90d;
-            row.qty_120d = s.qty_120d;
-            row.avg_day_30 = s.avg_day_30;
-            row.avg_day_90 = s.avg_day_90;
-            row.avg_day_120 = s.avg_day_120;
-            row.last_sold_date = s.last_sold_date || "";
-          }
-          allRows.push(row);
-        }
-      }
-
-      state.inventoryRows = allRows;
-    }
-
-    // ====== Analytics ======
     function renderSelectors(){
       el("projectionLocation").innerHTML =
         `<option value="__ALL__">All active locations</option>` +
@@ -1319,24 +1054,30 @@
 
       state.categoryStats = new Map();
       state.comparableStats = new Map();
-      state.sizeCurveCategory = new Map();
-      state.sizeCurveComparable = new Map();
+      state.categoryCurves = new Map();
+      state.comparableCurves = new Map();
 
       for (const row of rows) {
-        const category = String(row.product_type || "Uncategorized").trim();
+        const category = String(row.product_type || inferCategory(row.product_title, row.variant_title) || "Uncategorized").trim();
         const categoryKey = category.toLowerCase();
+
         const title = String(row.product_title || "").trim();
         const titleKey = title.toLowerCase();
+
         const family = detectFamily(category, title);
-        const size = normalizeVariantToSize(row.variant_title, family);
+        const sizeKey = normalizeVariantToSize(row.variant_title, family);
 
         if (!state.categoryStats.has(categoryKey)) {
           state.categoryStats.set(categoryKey, {
             category,
-            qty_7d: 0, qty_30d: 0, qty_90d: 0, qty_120d: 0,
+            qty_7d: 0,
+            qty_30d: 0,
+            qty_90d: 0,
+            qty_120d: 0,
             weekly_120d: 0
           });
         }
+
         const cat = state.categoryStats.get(categoryKey);
         cat.qty_7d += toNumber(row.qty_7d);
         cat.qty_30d += toNumber(row.qty_30d);
@@ -1349,10 +1090,14 @@
             state.comparableStats.set(titleKey, {
               title,
               category,
-              qty_7d: 0, qty_30d: 0, qty_90d: 0, qty_120d: 0,
+              qty_7d: 0,
+              qty_30d: 0,
+              qty_90d: 0,
+              qty_120d: 0,
               weekly_120d: 0
             });
           }
+
           const comp = state.comparableStats.get(titleKey);
           comp.qty_7d += toNumber(row.qty_7d);
           comp.qty_30d += toNumber(row.qty_30d);
@@ -1361,41 +1106,48 @@
           comp.weekly_120d = comp.qty_120d / (120 / 7);
         }
 
-        if (!state.sizeCurveCategory.has(categoryKey)) {
-          state.sizeCurveCategory.set(categoryKey, { category, family, unitsBySize: {}, curve: {} });
+        if (!state.categoryCurves.has(categoryKey)) {
+          state.categoryCurves.set(categoryKey, { family, unitsBySize: {}, curve: {} });
         }
-        const cCurve = state.sizeCurveCategory.get(categoryKey);
-        cCurve.unitsBySize[size] = (cCurve.unitsBySize[size] || 0) + toNumber(row.qty_120d);
+        const catCurve = state.categoryCurves.get(categoryKey);
+        catCurve.unitsBySize[sizeKey] = (catCurve.unitsBySize[sizeKey] || 0) + toNumber(row.qty_120d);
 
         if (titleKey) {
-          if (!state.sizeCurveComparable.has(titleKey)) {
-            state.sizeCurveComparable.set(titleKey, { title, family, unitsBySize: {}, curve: {} });
+          if (!state.comparableCurves.has(titleKey)) {
+            state.comparableCurves.set(titleKey, { family, unitsBySize: {}, curve: {} });
           }
-          const tCurve = state.sizeCurveComparable.get(titleKey);
-          tCurve.unitsBySize[size] = (tCurve.unitsBySize[size] || 0) + toNumber(row.qty_120d);
+          const compCurve = state.comparableCurves.get(titleKey);
+          compCurve.unitsBySize[sizeKey] = (compCurve.unitsBySize[sizeKey] || 0) + toNumber(row.qty_120d);
         }
       }
 
-      for (const row of state.sizeCurveCategory.values()) {
-        const total = Object.values(row.unitsBySize).reduce((s, v) => s + toNumber(v), 0);
+      for (const rec of state.categoryCurves.values()) {
+        const total = Object.values(rec.unitsBySize).reduce((s, v) => s + toNumber(v), 0);
         const out = {};
         if (total > 0) {
-          Object.entries(row.unitsBySize).forEach(([k,v]) => out[k] = toNumber(v) / total);
+          Object.entries(rec.unitsBySize).forEach(([k,v]) => out[k] = toNumber(v) / total);
         }
-        row.curve = out;
+        rec.curve = out;
       }
 
-      for (const row of state.sizeCurveComparable.values()) {
-        const total = Object.values(row.unitsBySize).reduce((s, v) => s + toNumber(v), 0);
+      for (const rec of state.comparableCurves.values()) {
+        const total = Object.values(rec.unitsBySize).reduce((s, v) => s + toNumber(v), 0);
         const out = {};
         if (total > 0) {
-          Object.entries(row.unitsBySize).forEach(([k,v]) => out[k] = toNumber(v) / total);
+          Object.entries(rec.unitsBySize).forEach(([k,v]) => out[k] = toNumber(v) / total);
         }
-        row.curve = out;
+        rec.curve = out;
       }
 
-      state.categories = Array.from(state.categoryStats.values()).map(x => x.category).sort((a,b) => a.localeCompare(b));
-      state.comparableTitles = Array.from(state.comparableStats.values()).map(x => x.title).sort((a,b) => a.localeCompare(b));
+      state.categories = Array.from(state.categoryStats.values())
+        .map(x => x.category)
+        .filter(Boolean)
+        .sort((a,b) => a.localeCompare(b));
+
+      state.comparableTitles = Array.from(state.comparableStats.values())
+        .map(x => x.title)
+        .filter(Boolean)
+        .sort((a,b) => a.localeCompare(b));
     }
 
     function updateProjectionNotes(){
@@ -1421,7 +1173,7 @@
       if (!filtered.length) {
         setHtml("projectionNotes", `
           <div>No matching projection rows found for this date/location filter.</div>
-          <div class="mt-2 muted2">Builder still works from category + comparable demand, but top-down projection context is blank.</div>
+          <div class="mt-2 muted2">Demand model still works, but top-down projection context is blank.</div>
         `);
         setText("trustBadge", "Demand only mode");
         return;
@@ -1437,7 +1189,249 @@
       setText("trustBadge", "Projection context loaded");
     }
 
-    // ====== Rendering ======
+    function currentSettings(){
+      const stored = loadJSON(STORAGE_KEYS.settings, DEFAULT_SETTINGS);
+      return {
+        historicalWeight: toNumber(el("historicalWeight")?.value ?? stored.historicalWeight),
+        comparableWeight: toNumber(el("comparableWeight")?.value ?? stored.comparableWeight),
+        growthUplift: toNumber(el("growthUplift")?.value ?? stored.growthUplift),
+        newCategoryUplift: toNumber(el("newCategoryUplift")?.value ?? stored.newCategoryUplift),
+        reserveStockPct: toNumber(el("reserveStockPct")?.value ?? stored.reserveStockPct),
+        defaultWeeks: Math.max(1, toNumber(el("defaultWeeks")?.value ?? stored.defaultWeeks)),
+        adultMinFloor: Math.max(1, toNumber(el("adultMinFloor")?.value ?? stored.adultMinFloor)),
+        youthMinFloor: Math.max(1, toNumber(el("youthMinFloor")?.value ?? stored.youthMinFloor)),
+        capMinFloor: Math.max(1, toNumber(el("capMinFloor")?.value ?? stored.capMinFloor))
+      };
+    }
+
+    function saveSettings(){
+      saveJSON(STORAGE_KEYS.settings, currentSettings());
+    }
+
+    function normalizeWeights(historicalWeight, comparableWeight){
+      const total = historicalWeight + comparableWeight;
+      if (total <= 0) return { hist: 0.6, comp: 0.4 };
+      return { hist: historicalWeight / total, comp: comparableWeight / total };
+    }
+
+    function getMinFloorUnits(family, settings){
+      if (family === "youth") return settings.youthMinFloor;
+      if (family === "caps") return settings.capMinFloor;
+      return settings.adultMinFloor;
+    }
+
+    function categoryWeeklySignal(category){
+      const row = state.categoryStats.get(String(category || "").trim().toLowerCase());
+      return row ? row.weekly_120d : 0;
+    }
+
+    function comparableWeeklySignal(title){
+      const row = state.comparableStats.get(String(title || "").trim().toLowerCase());
+      return row ? row.weekly_120d : 0;
+    }
+
+    function defaultFamilyCurve(family){
+      if (family === "youth") return { YS: 0.17, YM: 0.33, YL: 0.33, YXL: 0.17 };
+      if (family === "caps") return { "SM/M": 0.5, "L/XL": 0.5 };
+      return { S: 0.11, M: 0.25, L: 0.27, XL: 0.22, "2XL": 0.10, "3XL": 0.05 };
+    }
+
+    function getCurveFromSource(style){
+      const categoryKey = String(style.category || "").trim().toLowerCase();
+      const comparableKey = String(style.comparableTitle || "").trim().toLowerCase();
+
+      if (style.curveSource === "category") {
+        return state.categoryCurves.get(categoryKey)?.curve || defaultFamilyCurve(style.family);
+      }
+
+      if (style.curveSource === "comparable") {
+        return state.comparableCurves.get(comparableKey)?.curve || defaultFamilyCurve(style.family);
+      }
+
+      if (style.curveSource === "family_default") {
+        return defaultFamilyCurve(style.family);
+      }
+
+      const settings = currentSettings();
+      const weights = normalizeWeights(settings.historicalWeight, settings.comparableWeight);
+
+      const catCurve = state.categoryCurves.get(categoryKey)?.curve || defaultFamilyCurve(style.family);
+      const compCurve = state.comparableCurves.get(comparableKey)?.curve || defaultFamilyCurve(style.family);
+
+      const keys = new Set([...Object.keys(catCurve), ...Object.keys(compCurve)]);
+      const out = {};
+      let total = 0;
+
+      keys.forEach(k => {
+        out[k] = (toNumber(catCurve[k]) * weights.hist) + (toNumber(compCurve[k]) * weights.comp);
+        total += out[k];
+      });
+
+      if (total > 0) {
+        Object.keys(out).forEach(k => out[k] = out[k] / total);
+        return out;
+      }
+
+      return defaultFamilyCurve(style.family);
+    }
+
+    function allocateSizes(totalUnits, curve){
+      const entries = Object.entries(curve || {}).filter(([,v]) => toNumber(v) > 0);
+      if (!entries.length || totalUnits <= 0) return [];
+
+      const items = entries.map(([size, pct]) => ({
+        size,
+        raw: totalUnits * pct,
+        qty: Math.floor(totalUnits * pct),
+        rem: (totalUnits * pct) - Math.floor(totalUnits * pct)
+      }));
+
+      let assigned = items.reduce((s, x) => s + x.qty, 0);
+      let left = totalUnits - assigned;
+
+      items.sort((a,b) => b.rem - a.rem);
+      for (let i = 0; i < items.length && left > 0; i++, left--) {
+        items[i].qty += 1;
+      }
+
+      return items
+        .filter(x => x.qty > 0)
+        .sort((a,b) => a.size.localeCompare(b.size, undefined, { numeric: true }))
+        .map(x => ({ size: x.size, qty: x.qty }));
+    }
+
+    function sizeOutputText(totalUnits, style){
+      return allocateSizes(totalUnits, getCurveFromSource(style))
+        .map(x => `${x.size}:${x.qty}`)
+        .join(" • ");
+    }
+
+    function recommendationForStyle(style){
+      const settings = currentSettings();
+      const weights = normalizeWeights(settings.historicalWeight, settings.comparableWeight);
+
+      const histWk = categoryWeeklySignal(style.category);
+      const compWk = comparableWeeklySignal(style.comparableTitle);
+      const weightedWeekly = (histWk * weights.hist) + (compWk * weights.comp);
+
+      const growthPct = style.growthOverride === "" || style.growthOverride === null ? settings.growthUplift : toNumber(style.growthOverride);
+      const reservePct = style.reserveOverride === "" || style.reserveOverride === null ? settings.reserveStockPct : toNumber(style.reserveOverride);
+      const newCategoryPct = histWk <= 0 ? settings.newCategoryUplift : 0;
+      const launchMultiplier = LAUNCH_MULTIPLIERS[style.launchType] || 1;
+      const rolloutMultiplier = ROLLOUT_MULTIPLIERS[style.rollout] || 1;
+
+      const weeks = Math.max(1, toNumber(style.weeks));
+      const demandWindow = weightedWeekly * weeks;
+      const afterGrowth = demandWindow * (1 + growthPct / 100);
+      const afterNewCategory = afterGrowth * (1 + newCategoryPct / 100);
+      const afterLaunch = afterNewCategory * launchMultiplier;
+      const afterRollout = afterLaunch * rolloutMultiplier;
+      const afterReserve = afterRollout * (1 + reservePct / 100);
+
+      const minFloorUnits = getMinFloorUnits(style.family, settings);
+      const systemUnits = Math.max(Math.ceil(afterReserve), minFloorUnits);
+      const buyerUnits = Math.max(0, toNumber(style.buyerUnits));
+      const finalUnits = Math.max(systemUnits, buyerUnits);
+
+      let confidence = "Low";
+      if (histWk > 8 && compWk > 4) confidence = "High";
+      else if (histWk > 0 || compWk > 0) confidence = "Medium";
+
+      const curve = getCurveFromSource(style);
+      const curveLabel = curveSourceLabel(style.curveSource);
+      const overrideDelta = buyerUnits > 0 ? (buyerUnits - systemUnits) : 0;
+
+      const mathNote = [
+        `category 120d / wk ${fmtNum(histWk,1)}`,
+        `comparable / wk ${fmtNum(compWk,1)}`,
+        `weighted / wk ${fmtNum(weightedWeekly,1)} (${Math.round(weights.hist*100)}% hist / ${Math.round(weights.comp*100)}% comp)`,
+        `weeks ${fmtInt(weeks)}`,
+        `growth uplift ${fmtInt(growthPct)}%`,
+        `new category uplift ${fmtInt(newCategoryPct)}%`,
+        `launch ${fmtNum(launchMultiplier,2)}x`,
+        `rollout ${fmtNum(rolloutMultiplier,2)}x`,
+        `reserve ${fmtInt(reservePct)}%`,
+        `min floor ${fmtInt(minFloorUnits)}`,
+        `curve ${curveLabel}`,
+        buyerUnits > 0 ? `buyer override ${overrideDelta >= 0 ? "+" : ""}${fmtInt(overrideDelta)}` : `buyer override none`
+      ].join(" • ");
+
+      return {
+        histWk,
+        compWk,
+        weightedWeekly,
+        growthPct,
+        newCategoryPct,
+        launchMultiplier,
+        rolloutMultiplier,
+        reservePct,
+        systemUnits,
+        buyerUnits,
+        finalUnits,
+        confidence,
+        minFloorUnits,
+        curve,
+        curveLabel,
+        overrideDelta,
+        mathNote
+      };
+    }
+
+    function confidenceClass(level){
+      if (level === "High") return "confidence-high";
+      if (level === "Medium") return "confidence-med";
+      return "confidence-low";
+    }
+
+    function newStyle(){
+      const settings = currentSettings();
+      const category = state.categories[0] || "";
+      return {
+        id: `sty_${Math.random().toString(36).slice(2)}_${Date.now()}`,
+        selected: false,
+        productTitle: "",
+        category,
+        comparableTitle: defaultComparableForCategory(category),
+        family: detectFamily(category, ""),
+        curveSource: "blended",
+        weeks: settings.defaultWeeks,
+        buyerUnits: 0,
+        launchType: "inline",
+        rollout: "standard",
+        growthOverride: "",
+        reserveOverride: ""
+      };
+    }
+
+    function saveStyles(){ saveJSON(STORAGE_KEYS.styles, state.styles); }
+    function loadStyles(){
+      state.styles = loadJSON(STORAGE_KEYS.styles, []);
+      if (!Array.isArray(state.styles)) state.styles = [];
+    }
+
+    function defaultComparableForCategory(category){
+      const matches = Array.from(state.comparableStats.values())
+        .filter(x => String(x.category || "").trim() === String(category || "").trim())
+        .sort((a,b) => b.qty_120d - a.qty_120d);
+      return matches[0]?.title || "";
+    }
+
+    function ensureStylesInitialized(){
+      loadStyles();
+      if (!state.styles.length) {
+        state.styles = [newStyle()];
+      }
+      state.styles.forEach(s => {
+        if (!s.curveSource) s.curveSource = "blended";
+        if (!s.family) s.family = detectFamily(s.category, s.comparableTitle);
+        if (!("buyerUnits" in s)) s.buyerUnits = 0;
+        if (!("weeks" in s)) s.weeks = currentSettings().defaultWeeks;
+        if (!s.launchType) s.launchType = "inline";
+        if (!s.rollout) s.rollout = "standard";
+      });
+      saveStyles();
+    }
+
     function filterStyles(){
       const q = String(el("searchInput").value || "").trim().toLowerCase();
       state.filteredStyles = !q
@@ -1470,15 +1464,13 @@
         const buyerDeltaTxt = rec.buyerUnits > 0 ? `${buyerDelta >= 0 ? "+" : ""}${fmtInt(buyerDelta)}` : "none";
 
         return `
-          <tr data-style-row="${escapeHtml(style.id)}">
+          <tr>
             <td>
               <input type="checkbox" class="rowSelect" data-id="${escapeHtml(style.id)}" ${style.selected ? "checked" : ""} />
             </td>
 
             <td>
-              <div class="space-y-2">
-                <input type="text" class="input styleField" data-id="${escapeHtml(style.id)}" data-field="productTitle" value="${escapeHtml(style.productTitle)}" placeholder="New product title" />
-              </div>
+              <input type="text" class="input styleField" data-id="${escapeHtml(style.id)}" data-field="productTitle" value="${escapeHtml(style.productTitle)}" placeholder="New product title" />
             </td>
 
             <td>
@@ -1516,8 +1508,8 @@
               <input type="number" min="1" step="1" class="input mono text-right styleField" data-id="${escapeHtml(style.id)}" data-field="weeks" value="${fmtInt(style.weeks)}" />
             </td>
 
-            <td class="text-right mono">${fmtNum(rec.histWk, 1)}</td>
-            <td class="text-right mono">${fmtNum(rec.compWk, 1)}</td>
+            <td class="text-right mono">${fmtNum(rec.histWk,1)}</td>
+            <td class="text-right mono">${fmtNum(rec.compWk,1)}</td>
             <td class="text-right mono" style="font-weight: 900;">${fmtInt(rec.systemUnits)}</td>
 
             <td class="text-right">
@@ -1576,7 +1568,7 @@
       if (!state.filteredStyles.length) {
         tbody.innerHTML = `
           <tr>
-            <td colspan="7" class="text-center muted" style="padding: 48px 24px;">
+            <td colspan="8" class="text-center muted" style="padding: 48px 24px;">
               No output yet.
             </td>
           </tr>
@@ -1587,23 +1579,18 @@
       tbody.innerHTML = state.filteredStyles.map(style => {
         const rec = recommendationForStyle(style);
         const output = sizeOutputText(rec.finalUnits, style);
-        const compareText = rec.buyerUnits > 0
-          ? `System ${fmtInt(rec.systemUnits)} • Buyer ${fmtInt(rec.buyerUnits)} • Final ${fmtInt(rec.finalUnits)}`
-          : `System ${fmtInt(rec.systemUnits)} • Final ${fmtInt(rec.finalUnits)}`;
 
         return `
           <tr>
             <td>
               <div style="font-weight: 900;">${escapeHtml(style.productTitle || "Untitled style")}</div>
-              <div class="text-xs muted2 mt-1">${escapeHtml(style.family)} • ${escapeHtml(style.curveSource)}</div>
             </td>
             <td>${escapeHtml(style.category || "—")}</td>
-            <td>
-              <span class="curve-badge">${escapeHtml(rec.curveLabel)}</span>
-            </td>
+            <td><span class="curve-badge">${escapeHtml(rec.curveLabel)}</span></td>
+            <td class="text-right mono" style="font-weight: 900;">${fmtInt(rec.systemUnits)}</td>
+            <td class="text-right mono">${fmtInt(rec.buyerUnits)}</td>
             <td class="text-right mono" style="font-weight: 900;">${fmtInt(rec.finalUnits)}</td>
             <td>${escapeHtml(output || "—")}</td>
-            <td class="text-sm muted">${escapeHtml(compareText)}</td>
             <td class="text-sm muted">${escapeHtml(rec.mathNote)}</td>
           </tr>
         `;
@@ -1632,11 +1619,11 @@
 
       state.selectedStyleId = style.id;
       const rec = recommendationForStyle(style);
-      const output = allocateSizes(rec.finalUnits, rec.curve);
+      const sizes = allocateSizes(rec.finalUnits, rec.curve);
 
       const overrideText = rec.buyerUnits > 0
         ? `Buyer approved <span class="kbd">${fmtInt(rec.buyerUnits)}</span>, which is ${rec.overrideDelta >= 0 ? "above" : "below"} system by <span class="kbd">${fmtInt(Math.abs(rec.overrideDelta))}</span>.`
-        : `No buyer override entered yet. Final units follow system recommendation.`
+        : `No buyer override entered yet. Final units follow system recommendation.`;
 
       setHtml("trustMathBox", `
         <div class="space-y-3">
@@ -1668,8 +1655,8 @@
           </div>
 
           <div class="soft-panel p-3">
-            <div><b>Size allocation source:</b> ${escapeHtml(rec.curveLabel)}</div>
-            <div class="mt-2 text-xs muted">${output.filter(x => x.qty > 0).map(x => `${x.size}:${x.qty}`).join(" • ") || "—"}</div>
+            <div><b>Curve source:</b> ${escapeHtml(rec.curveLabel)}</div>
+            <div class="mt-2 text-xs muted">${sizes.map(x => `${x.size}:${x.qty}`).join(" • ") || "—"}</div>
           </div>
 
           <div class="text-xs muted2">${escapeHtml(rec.mathNote)}</div>
@@ -1701,7 +1688,6 @@
       updateProjectionNotes();
     }
 
-    // ====== Style row events ======
     function bindStyleRowEvents(){
       document.querySelectorAll(".styleField").forEach(node => {
         node.addEventListener("change", onStyleFieldChange);
@@ -1760,18 +1746,14 @@
 
       let value = e.target.value;
 
-      if (["weeks", "buyerUnits"].includes(field)) value = Math.max(0, toNumber(value));
-      if (["growthOverride", "reserveOverride"].includes(field)) value = String(value).trim();
+      if (["weeks","buyerUnits"].includes(field)) value = Math.max(0, toNumber(value));
+      if (["growthOverride","reserveOverride"].includes(field)) value = String(value).trim();
 
       row[field] = value;
 
       if (field === "category") {
         row.family = detectFamily(row.category, row.comparableTitle);
         if (!row.comparableTitle) row.comparableTitle = defaultComparableForCategory(row.category);
-      }
-
-      if (field === "family" && !["adult","youth","caps"].includes(row.family)) {
-        row.family = "adult";
       }
 
       if (field === "comparableTitle" && (!row.category || row.family === "adult")) {
@@ -1782,16 +1764,16 @@
       renderAll();
     }
 
-    // ====== Add / export / draft ======
     function addStyle(){
       const row = newStyle();
-      row.comparableTitle = row.category ? defaultComparableForCategory(row.category) : "";
       state.styles.unshift(row);
       saveStyles();
       renderAll();
     }
 
-    function selectedStyles(){ return state.styles.filter(s => s.selected); }
+    function selectedStyles(){
+      return state.styles.filter(s => s.selected);
+    }
 
     function exportStyles(rows){
       if (!rows.length) return;
@@ -1857,7 +1839,7 @@
         const rec = recommendationForStyle(style);
         const sizes = allocateSizes(rec.finalUnits, rec.curve);
 
-        for (const line of sizes.filter(x => x.qty > 0)) {
+        for (const line of sizes) {
           draft.push({
             draft_name: draftName,
             vendor,
@@ -1906,7 +1888,6 @@
       else dialog.setAttribute("open", "true");
     }
 
-    // ====== UI ======
     function hydrateControlsFromSettings(){
       const settings = loadJSON(STORAGE_KEYS.settings, DEFAULT_SETTINGS);
       el("historicalWeight").value = settings.historicalWeight;
@@ -1915,9 +1896,9 @@
       el("newCategoryUplift").value = settings.newCategoryUplift;
       el("reserveStockPct").value = settings.reserveStockPct;
       el("defaultWeeks").value = settings.defaultWeeks;
-      el("adultMinRuns").value = settings.adultMinRuns;
-      el("youthMinRuns").value = settings.youthMinRuns;
-      el("capMinRuns").value = settings.capMinRuns;
+      el("adultMinFloor").value = settings.adultMinFloor;
+      el("youthMinFloor").value = settings.youthMinFloor;
+      el("capMinFloor").value = settings.capMinFloor;
     }
 
     function bindPageEvents(){
@@ -1982,9 +1963,9 @@
         "newCategoryUplift",
         "reserveStockPct",
         "defaultWeeks",
-        "adultMinRuns",
-        "youthMinRuns",
-        "capMinRuns"
+        "adultMinFloor",
+        "youthMinFloor",
+        "capMinFloor"
       ].forEach(id => {
         el(id).addEventListener("change", () => {
           saveSettings();
