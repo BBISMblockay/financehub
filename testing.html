@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Silo ERP — Demand Planner</title>
+  <title>Silo ERP — Buyer Workbench</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="/financehub/pages/config.js"></script>
@@ -18,7 +18,7 @@
     :root[data-theme="light"]{
       --bg: #f5f7fb;
       --bg2: #eef2f8;
-      --panel: rgba(255,255,255,.82);
+      --panel: rgba(255,255,255,.84);
       --panel-solid: #ffffff;
       --panel-soft: #f8fafc;
       --border: rgba(15,23,42,.08);
@@ -27,19 +27,17 @@
       --muted: rgba(15,23,42,.62);
       --muted2: rgba(15,23,42,.46);
       --accent: #2563eb;
-      --accent-soft: rgba(37,99,235,.10);
       --good: #15803d;
       --warn: #b45309;
       --danger: #dc2626;
       --shadow-sm: 0 1px 2px rgba(15,23,42,.04);
-      --shadow-md: 0 12px 36px rgba(15,23,42,.08);
       --ring: rgba(37,99,235,.12);
     }
 
     :root[data-theme="dark"]{
       --bg: #0a1020;
       --bg2: #0d1529;
-      --panel: rgba(15,23,42,.76);
+      --panel: rgba(15,23,42,.78);
       --panel-solid: #0f172a;
       --panel-soft: #111b31;
       --border: rgba(255,255,255,.10);
@@ -48,12 +46,10 @@
       --muted: rgba(255,255,255,.68);
       --muted2: rgba(255,255,255,.48);
       --accent: #60a5fa;
-      --accent-soft: rgba(96,165,250,.14);
       --good: #4ade80;
       --warn: #fbbf24;
       --danger: #fb7185;
       --shadow-sm: 0 1px 2px rgba(0,0,0,.28);
-      --shadow-md: 0 14px 42px rgba(0,0,0,.32);
       --ring: rgba(96,165,250,.16);
     }
 
@@ -69,28 +65,21 @@
     }
 
     body.themeable { min-height: 100vh; }
+    .shell { max-width: 1720px; margin: 0 auto; padding: 20px; }
 
-    .shell {
-      max-width: 1680px;
-      margin: 0 auto;
-      padding: 20px;
-    }
-
-    .glass {
+    .glass, .card {
       background: var(--panel);
       backdrop-filter: blur(18px);
       -webkit-backdrop-filter: blur(18px);
       border: 1px solid var(--border);
       box-shadow: var(--shadow-sm);
-    }
-
-    .card {
-      background: var(--panel);
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
-      border: 1px solid var(--border);
       border-radius: 20px;
-      box-shadow: var(--shadow-sm);
+    }
+
+    .topbar, .toolbar { padding: 14px 16px; }
+    .topbar { margin-bottom: 18px; }
+    .header-row, .topbar-row {
+      display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap;
     }
 
     .section-label {
@@ -109,243 +98,103 @@
       margin: 0;
     }
 
-    .subtle {
-      color: var(--muted);
-      font-size: 14px;
-      line-height: 1.5;
-    }
+    .subtle { color: var(--muted); font-size: 14px; line-height: 1.5; }
 
     .btn {
-      appearance: none;
-      border: 1px solid var(--border);
-      background: rgba(255,255,255,.32);
-      color: var(--text);
-      height: 40px;
-      padding: 0 14px;
-      border-radius: 12px;
-      font-size: 14px;
-      font-weight: 700;
-      cursor: pointer;
-      transition: .14s ease;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      white-space: nowrap;
+      appearance:none; border:1px solid var(--border); background:rgba(255,255,255,.32);
+      color:var(--text); height:40px; padding:0 14px; border-radius:12px; font-size:14px;
+      font-weight:700; cursor:pointer; transition:.14s ease; display:inline-flex; align-items:center; justify-content:center; gap:8px;
+      white-space:nowrap;
     }
-    .btn:hover {
-      border-color: var(--border-strong);
-      background: var(--panel-soft);
-      transform: translateY(-1px);
-    }
-    .btn:focus {
-      outline: none;
-      box-shadow: 0 0 0 4px var(--ring);
-    }
-    .btn-primary {
-      background: var(--text);
-      color: #fff;
-      border-color: transparent;
-    }
-    :root[data-theme="dark"] .btn-primary {
-      background: color-mix(in oklab, var(--accent) 80%, white);
-      color: #08111f;
-    }
-    .btn-danger {
-      color: var(--danger);
-      border-color: color-mix(in oklab, var(--danger) 26%, var(--border));
-      background: transparent;
-    }
+    .btn:hover { border-color:var(--border-strong); background:var(--panel-soft); transform:translateY(-1px); }
+    .btn:focus { outline:none; box-shadow:0 0 0 4px var(--ring); }
+    .btn-primary { background:var(--text); color:#fff; border-color:transparent; }
+    :root[data-theme="dark"] .btn-primary { background: color-mix(in oklab, var(--accent) 80%, white); color:#08111f; }
+    .btn-danger { color:var(--danger); border-color: color-mix(in oklab, var(--danger) 26%, var(--border)); background:transparent; }
 
     .field, .select, .textarea {
-      width: 100%;
-      border: 1px solid var(--border);
-      background: color-mix(in oklab, var(--panel-solid) 90%, transparent);
-      color: var(--text);
-      border-radius: 14px;
-      font-size: 14px;
-      font-weight: 600;
-      transition: .14s ease;
+      width:100%; border:1px solid var(--border); background: color-mix(in oklab, var(--panel-solid) 90%, transparent);
+      color:var(--text); border-radius:14px; font-size:14px; font-weight:600; transition:.14s ease;
     }
-    .field, .select { height: 42px; padding: 0 13px; }
-    .textarea { min-height: 96px; padding: 12px 13px; resize: vertical; }
+    .field, .select { height:42px; padding:0 13px; }
+    .textarea { min-height:88px; padding:12px 13px; resize:vertical; }
     .field:focus, .select:focus, .textarea:focus {
-      outline: none;
-      border-color: color-mix(in oklab, var(--accent) 28%, var(--border));
-      box-shadow: 0 0 0 4px var(--ring);
+      outline:none; border-color: color-mix(in oklab, var(--accent) 28%, var(--border)); box-shadow:0 0 0 4px var(--ring);
     }
 
     .pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      height: 32px;
-      padding: 0 12px;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 700;
-      background: rgba(255,255,255,.24);
+      display:inline-flex; align-items:center; gap:8px; height:32px; padding:0 12px; border-radius:999px;
+      border:1px solid var(--border); color:var(--muted); font-size:12px; font-weight:700; background:rgba(255,255,255,.24);
     }
-
-    .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 999px;
-      display: inline-block;
-      background: var(--accent);
-    }
+    .dot { width:8px; height:8px; border-radius:999px; display:inline-block; background:var(--accent); }
 
     .metric {
-      padding: 18px 18px 16px;
-      border-radius: 18px;
-      background: color-mix(in oklab, var(--panel-solid) 92%, transparent);
-      border: 1px solid var(--border);
+      padding:18px 18px 16px; border-radius:18px; background: color-mix(in oklab, var(--panel-solid) 92%, transparent);
+      border:1px solid var(--border);
     }
-    .metric .label {
-      font-size: 12px;
-      color: var(--muted);
-      font-weight: 700;
-    }
-    .metric .value {
-      font-size: 28px;
-      line-height: 1.05;
-      letter-spacing: -0.04em;
-      font-weight: 800;
-      margin-top: 10px;
-    }
-    .metric .sub {
-      font-size: 12px;
-      color: var(--muted2);
-      margin-top: 7px;
-      line-height: 1.45;
-    }
+    .metric .label { font-size:12px; color:var(--muted); font-weight:700; }
+    .metric .value { font-size:28px; line-height:1.05; letter-spacing:-0.04em; font-weight:800; margin-top:10px; }
+    .metric .sub { font-size:12px; color:var(--muted2); margin-top:7px; line-height:1.45; }
 
     .table-wrap {
-      overflow: auto;
-      border-radius: 18px;
-      border: 1px solid var(--border);
+      overflow:auto; border-radius:18px; border:1px solid var(--border);
       background: color-mix(in oklab, var(--panel-solid) 94%, transparent);
     }
-    table {
-      width: 100%;
-      border-collapse: separate;
-      border-spacing: 0;
-      min-width: 1280px;
-    }
+    table { width:100%; border-collapse:separate; border-spacing:0; min-width:1680px; }
     thead th {
-      position: sticky;
-      top: 0;
-      z-index: 1;
-      background: color-mix(in oklab, var(--panel-soft) 92%, transparent);
-      color: var(--muted2);
-      font-size: 11px;
-      text-transform: uppercase;
-      letter-spacing: .12em;
-      font-weight: 800;
-      text-align: left;
-      padding: 14px 16px;
-      border-bottom: 1px solid var(--border);
-      white-space: nowrap;
+      position:sticky; top:0; z-index:1; background: color-mix(in oklab, var(--panel-soft) 92%, transparent);
+      color:var(--muted2); font-size:11px; text-transform:uppercase; letter-spacing:.12em; font-weight:800;
+      text-align:left; padding:14px 16px; border-bottom:1px solid var(--border); white-space:nowrap;
     }
     tbody td {
-      padding: 14px 16px;
-      border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
-      vertical-align: middle;
-      font-size: 14px;
-      white-space: nowrap;
+      padding:14px 16px; border-bottom:1px solid color-mix(in oklab, var(--border) 60%, transparent);
+      vertical-align:middle; font-size:14px; white-space:nowrap;
     }
-    tbody tr:hover td {
-      background: color-mix(in oklab, var(--panel-soft) 62%, transparent);
-    }
-    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr:hover td { background: color-mix(in oklab, var(--panel-soft) 62%, transparent); }
+    tbody tr:last-child td { border-bottom:0; }
 
     .badge {
-      display:inline-flex;
-      align-items:center;
-      gap:.35rem;
-      border:1px solid var(--border);
-      background: color-mix(in oklab, var(--panel-soft) 90%, transparent);
-      border-radius:999px;
-      padding:2px 8px;
-      font-size:11px;
-      font-weight:800;
+      display:inline-flex; align-items:center; gap:.35rem; border:1px solid var(--border);
+      background: color-mix(in oklab, var(--panel-soft) 90%, transparent); border-radius:999px;
+      padding:2px 8px; font-size:11px; font-weight:800;
     }
 
     .status {
-      border-radius: 14px;
-      padding: 13px 14px;
-      border: 1px solid var(--border);
-      background: color-mix(in oklab, var(--panel-soft) 92%, transparent);
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--text);
-    }
-
-    .topbar {
-      border-radius: 22px;
-      padding: 14px 16px;
-      margin-bottom: 18px;
-    }
-
-    .topbar-row,
-    .header-row {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 16px;
-      flex-wrap: wrap;
+      border-radius:14px; padding:13px 14px; border:1px solid var(--border);
+      background: color-mix(in oklab, var(--panel-soft) 92%, transparent); font-size:13px; font-weight:600; color:var(--text);
     }
 
     .toolbar-grid {
-      display: grid;
-      grid-template-columns: 1.1fr 1.1fr 1.3fr 1.3fr 1fr 1fr auto auto auto;
-      gap: 10px;
-      align-items: end;
+      display:grid;
+      grid-template-columns: 1fr 1fr 1.2fr 1.2fr 1fr 1fr 1fr auto auto;
+      gap:10px; align-items:end;
     }
-
-    .layout-grid {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) 380px;
-      gap: 18px;
-      align-items: start;
+    .toolbar-grid-2 {
+      display:grid;
+      grid-template-columns: 1fr 1fr 1fr 1fr 1fr auto auto auto;
+      gap:10px; align-items:end;
     }
-
-    .sticky-side {
-      position: sticky;
-      top: 20px;
-    }
-
+    .layout-grid { display:grid; grid-template-columns:minmax(0,1fr) 400px; gap:18px; align-items:start; }
+    .sticky-side { position:sticky; top:20px; }
     .summary-row {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 12px;
-      padding: 12px 0;
-      border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+      display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:12px 0;
+      border-bottom:1px solid color-mix(in oklab, var(--border) 60%, transparent);
     }
-    .summary-row:last-child { border-bottom: 0; }
+    .summary-row:last-child { border-bottom:0; }
 
-    .empty-state {
-      padding: 30px 18px;
-      text-align: center;
-      color: var(--muted2);
-      font-size: 14px;
-      font-weight: 600;
+    .empty-state { padding:30px 18px; text-align:center; color:var(--muted2); font-size:14px; font-weight:600; }
+
+    @media (max-width: 1480px){
+      .toolbar-grid, .toolbar-grid-2 { grid-template-columns: repeat(3, minmax(0,1fr)); }
+      .layout-grid { grid-template-columns:1fr; }
+      .sticky-side { position:static; }
     }
 
-    @media (max-width: 1320px) {
-      .toolbar-grid { grid-template-columns: repeat(3, minmax(0,1fr)); }
-      .layout-grid { grid-template-columns: 1fr; }
-      .sticky-side { position: static; }
-    }
-
-    @media (max-width: 780px) {
-      .shell { padding: 14px; }
-      .toolbar-grid { grid-template-columns: 1fr; }
-      .headline { font-size: 24px; }
-      .metric .value { font-size: 24px; }
+    @media (max-width: 780px){
+      .shell { padding:14px; }
+      .toolbar-grid, .toolbar-grid-2 { grid-template-columns:1fr; }
+      .headline { font-size:24px; }
+      .metric .value { font-size:24px; }
     }
   </style>
 </head>
@@ -357,7 +206,6 @@
           <div class="pill"><span class="dot"></span>Silo ERP</div>
           <div class="pill" id="statusPill"><span class="dot"></span>Ready</div>
         </div>
-
         <div class="flex items-center gap-2 flex-wrap">
           <span id="authEmail" class="text-sm" style="color: var(--muted);"></span>
           <button id="themeBtn" class="btn"><span id="themeLabel">Light</span></button>
@@ -368,22 +216,22 @@
 
     <div class="header-row">
       <div>
-        <div class="section-label">Mixed Planning</div>
-        <h1 class="headline mt-2">Demand Planner</h1>
+        <div class="section-label">Buying Workflow</div>
+        <h1 class="headline mt-2">Buyer Workbench</h1>
         <div class="subtle mt-2">
-          Top-down projection meets bottom-up inventory, SKU mix, category needs, and tagged product strategy.
+          Built for final purchase decisions across restocks, growth bets, and new product introductions.
         </div>
       </div>
 
       <div class="flex items-center gap-2 flex-wrap">
         <button id="reloadBtn" class="btn">Reload</button>
-        <button id="suggestBtn" class="btn btn-primary">Refresh Plan</button>
+        <button id="refreshPlanBtn" class="btn btn-primary">Refresh Buy Plan</button>
         <button id="exportBtn" class="btn">Export CSV</button>
-        <button id="addSelectedToDraftBtn" class="btn">Add Selected → Draft</button>
+        <button id="addSelectedBtn" class="btn">Add Selected → Draft</button>
       </div>
     </div>
 
-    <div class="card p-4">
+    <div class="card toolbar">
       <div class="toolbar-grid">
         <div>
           <label class="section-label mb-2 block">Date from</label>
@@ -423,20 +271,22 @@
           </select>
         </div>
         <div>
+          <label class="section-label mb-2 block">Search</label>
+          <input id="searchBox" type="text" class="field" placeholder="SKU, product, category..." />
+        </div>
+        <button id="thisMonthBtn" class="btn">This month</button>
+        <button id="next30Btn" class="btn">Next 30</button>
+      </div>
+
+      <div class="toolbar-grid-2 mt-3">
+        <div>
           <label class="section-label mb-2 block">Safety days</label>
           <input id="safetyDays" type="number" min="0" step="1" value="7" class="field mono" />
         </div>
         <div>
-          <label class="section-label mb-2 block">Growth %</label>
+          <label class="section-label mb-2 block">Default growth %</label>
           <input id="defaultGrowthPct" type="number" min="0" step="1" value="20" class="field mono" />
         </div>
-        <div>
-          <label class="section-label mb-2 block">Search</label>
-          <input id="searchBox" type="text" placeholder="SKU, product, category…" class="field" />
-        </div>
-      </div>
-
-      <div class="toolbar-grid mt-3" style="grid-template-columns: 1fr 1fr 1fr 1fr 1fr auto auto auto auto;">
         <div>
           <label class="section-label mb-2 block">Seed avg/day for new</label>
           <input id="seedAvgDay" type="number" min="0" step="0.01" value="0.25" class="field mono" />
@@ -449,60 +299,42 @@
           <label class="section-label mb-2 block">Risk days</label>
           <input id="riskDays" type="number" min="1" step="1" value="14" class="field mono" />
         </div>
-        <div>
-          <label class="section-label mb-2 block">Tag selected as</label>
-          <select id="driverTag" class="select">
-            <option value="none">None</option>
-            <option value="core">Core Restock</option>
-            <option value="hero">Hero SKU</option>
-            <option value="new">New Product</option>
-            <option value="influencer">Influencer Push</option>
-            <option value="wholesale">Wholesale Push</option>
-            <option value="promo">Promo / Event Spike</option>
-            <option value="seasonal">Seasonal Bet</option>
-          </select>
-        </div>
-        <div>
-          <label class="section-label mb-2 block">Tag uplift override %</label>
-          <input id="driverPct" type="number" min="0" step="1" placeholder="optional" class="field mono" />
-        </div>
         <button id="applyTagBtn" class="btn">Apply Tag</button>
         <button id="clearTagBtn" class="btn">Clear Tags</button>
-        <button id="thisMonthBtn" class="btn">This month</button>
-        <button id="next30Btn" class="btn">Next 30</button>
+        <button id="recalcBtn" class="btn">Recalc</button>
       </div>
     </div>
 
     <div class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4">
       <div class="metric card">
-        <div class="label">Projected sales</div>
-        <div id="kProjectedSales" class="mono value">$0</div>
-        <div class="sub">Selected projection window</div>
+        <div class="label">Projection sales</div>
+        <div id="kSales" class="mono value">$0</div>
+        <div class="sub">Top-down location plan</div>
       </div>
       <div class="metric card">
-        <div class="label">Projected units</div>
-        <div id="kProjectedUnits" class="mono value">0</div>
-        <div id="kProjectedUnitsSub" class="sub">Uses explicit units or sales → unit estimate</div>
+        <div class="label">Projection units used</div>
+        <div id="kUnits" class="mono value">0</div>
+        <div id="kUnitsSub" class="sub">Explicit units or estimated fallback</div>
       </div>
       <div class="metric card">
-        <div class="label">On hand units</div>
-        <div id="kOnHand" class="mono value">0</div>
-        <div class="sub">Current source inventory rows</div>
+        <div class="label">Rows needing buy</div>
+        <div id="kNeedBuy" class="mono value">0</div>
+        <div class="sub">Restock + new + growth</div>
       </div>
       <div class="metric card">
-        <div class="label">Rows needing action</div>
-        <div id="kNeedAction" class="mono value">0</div>
-        <div class="sub">Restock / new intro / watch</div>
+        <div class="label">Recommended units</div>
+        <div id="kRecommended" class="mono value">0</div>
+        <div class="sub">System recommendation</div>
       </div>
       <div class="metric card">
-        <div class="label">Recommended buy units</div>
-        <div id="kRecommendedBuy" class="mono value">0</div>
-        <div class="sub">Planner output</div>
+        <div class="label">Buyer final units</div>
+        <div id="kBuyerFinal" class="mono value">0</div>
+        <div class="sub">Override-aware total</div>
       </div>
       <div class="metric card">
-        <div class="label">Categories affected</div>
-        <div id="kCategories" class="mono value">0</div>
-        <div class="sub">Grouped demand view</div>
+        <div class="label">Categories impacted</div>
+        <div id="kCats" class="mono value">0</div>
+        <div class="sub">Buying concentration</div>
       </div>
     </div>
 
@@ -511,9 +343,9 @@
         <div class="card p-4">
           <div class="flex items-start justify-between gap-4 flex-wrap mb-4">
             <div>
-              <div class="section-label">Category summary</div>
-              <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Need by category</div>
-              <div class="subtle mt-1">Category totals using current mix basis and tagged strategy logic.</div>
+              <div class="section-label">Buyer summary</div>
+              <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Category buy view</div>
+              <div class="subtle mt-1">Use this to decide where the buy is concentrated before drilling into SKUs.</div>
             </div>
           </div>
 
@@ -525,13 +357,13 @@
                   <th class="text-right">Rows</th>
                   <th class="text-right">On Hand</th>
                   <th class="text-right">Projected Demand</th>
-                  <th class="text-right">Ending Units</th>
-                  <th class="text-right">Recommended Buy</th>
-                  <th>Summary</th>
+                  <th class="text-right">Recommended</th>
+                  <th class="text-right">Buyer Final</th>
+                  <th>Read</th>
                 </tr>
               </thead>
               <tbody id="categoryBody">
-                <tr><td colspan="7" class="empty-state">Load data to see category planning.</td></tr>
+                <tr><td colspan="7" class="empty-state">Run the buy plan.</td></tr>
               </tbody>
             </table>
           </div>
@@ -540,9 +372,9 @@
         <div class="card p-4">
           <div class="flex items-start justify-between gap-4 flex-wrap mb-4">
             <div>
-              <div class="section-label">SKU planner</div>
-              <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Mixed restock and new product plan</div>
-              <div class="subtle mt-1">Top-down allocation meets velocity, tags, current on hand, and intro logic.</div>
+              <div class="section-label">Final buy table</div>
+              <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">SKU buying decisions</div>
+              <div class="subtle mt-1">System rec + buyer override + final PO quantity.</div>
             </div>
           </div>
 
@@ -554,20 +386,21 @@
                   <th>SKU</th>
                   <th>Product</th>
                   <th>Category</th>
-                  <th>Driver</th>
-                  <th class="text-right">Mix %</th>
+                  <th>Buy Type</th>
+                  <th>Tier / Driver</th>
                   <th class="text-right">Recent Units</th>
+                  <th class="text-right">Mix %</th>
                   <th class="text-right">On Hand</th>
-                  <th class="text-right">Avg/Day</th>
-                  <th class="text-right">Days OOS</th>
                   <th class="text-right">Proj Demand</th>
                   <th class="text-right">Ending</th>
-                  <th class="text-right">Rec Buy</th>
-                  <th>Action</th>
+                  <th class="text-right">System Rec</th>
+                  <th class="text-right">Buyer Override</th>
+                  <th class="text-right">Final PO Qty</th>
+                  <th>Notes</th>
                 </tr>
               </thead>
-              <tbody id="skuBody">
-                <tr><td colspan="14" class="empty-state">Load data to see SKU planning.</td></tr>
+              <tbody id="buyerBody">
+                <tr><td colspan="15" class="empty-state">Run the buy plan.</td></tr>
               </tbody>
             </table>
           </div>
@@ -576,27 +409,40 @@
 
       <aside class="sticky-side flex flex-col gap-4">
         <div class="card p-5">
+          <div class="section-label">How to use</div>
+          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Buyer flow</div>
+          <div id="workflowBox" class="mt-4 space-y-2">
+            <div class="status">1. Select location and window</div>
+            <div class="status">2. Refresh buy plan</div>
+            <div class="status">3. Review category concentration</div>
+            <div class="status">4. Review SKU buy type: Restock / Growth / New</div>
+            <div class="status">5. Enter buyer overrides where needed</div>
+            <div class="status">6. Add selected rows to draft</div>
+          </div>
+        </div>
+
+        <div class="card p-5">
           <div class="section-label">Projection notes</div>
           <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Context</div>
-          <div id="projectionNotes" class="mt-4 space-y-2">
+          <div id="projectionNotes" class="mt-4">
             <div class="empty-state">No projection notes loaded.</div>
           </div>
         </div>
 
         <div class="card p-5">
-          <div class="section-label">Planner assumptions</div>
-          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Math</div>
-          <div id="assumptionBox" class="mt-4 space-y-2">
+          <div class="section-label">Planner math</div>
+          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Source of units</div>
+          <div id="mathBox" class="mt-4">
             <div class="status">Waiting for plan run…</div>
           </div>
         </div>
 
         <div class="card p-5">
           <div class="section-label">PO draft</div>
-          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Local draft</div>
+          <div class="mt-2" style="font-size:18px; font-weight:700; letter-spacing:-0.03em;">Draft controls</div>
           <div class="mt-3">
             <label class="section-label mb-2 block">PO name</label>
-            <input id="poName" type="text" class="field" placeholder="ex: DEMAND-APR-LOCATION" />
+            <input id="poName" type="text" class="field" placeholder="ex: BUYER-APRIL-1" />
           </div>
           <div class="mt-3">
             <label class="section-label mb-2 block">Vendor</label>
@@ -625,36 +471,14 @@
 
     const SHEET_ID = "1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0";
     const SHEET_TABS = [
-      {
-        label: "Online",
-        gid: 0,
-        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRRZETeD2kKpL4vMvXnn4Z-xyb6M_oQ6u9cOSJts_YTLnGXrvMPhlhe0XQuL5VAYLlGlxSvQdUfxycp/pub?gid=481096073&single=true&output=csv"
-      },
-      {
-        label: "Atlanta",
-        gid: 186382360,
-        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTrGtyPQZ9UZY0xn1vk49Aapc5PVpWTMfCctjyNH8K3rLrjUifqaxqZPC5vpA91FTdFm_yNdNhaThxY/pub?gid=1350148138&single=true&output=csv"
-      },
-      {
-        label: "Scottsdale",
-        gid: 1686608564,
-        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRisfYgm-JqLdAW4GrAl_K3dNPJxadE5VaQ7Fzju8vaWv9zEyXGJk6d5ZfM6owfhvHHz_Q-B36FuUqo/pub?gid=1328363473&single=true&output=csv"
-      },
-      {
-        label: "Field of Dreams",
-        gid: 1737418391,
-        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQNcbG_a-H8vmNF7Qm3S_n5a3MTuMZvsicODjImal2jylO74gB--3Mpgv9cCPG37WG4HFvshUrIfDdM/pub?gid=343232419&single=true&output=csv"
-      },
-      {
-        label: "Cooperstown",
-        gid: 1924417187,
-        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTZDCPonNizaXhEklZp8ovhc_Iti725FpgZzyeu_rovAceUq9obq_AKvo0a7u-5SotcJh4xi-FC3FAv/pub?gid=965359182&single=true&output=csv"
-      }
+      { label: "Online", gid: 0, sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRRZETeD2kKpL4vMvXnn4Z-xyb6M_oQ6u9cOSJts_YTLnGXrvMPhlhe0XQuL5VAYLlGlxSvQdUfxycp/pub?gid=481096073&single=true&output=csv" },
+      { label: "Atlanta", gid: 186382360, sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTrGtyPQZ9UZY0xn1vk49Aapc5PVpWTMfCctjyNH8K3rLrjUifqaxqZPC5vpA91FTdFm_yNdNhaThxY/pub?gid=1350148138&single=true&output=csv" },
+      { label: "Scottsdale", gid: 1686608564, sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRisfYgm-JqLdAW4GrAl_K3dNPJxadE5VaQ7Fzju8vaWv9zEyXGJk6d5ZfM6owfhvHHz_Q-B36FuUqo/pub?gid=1328363473&single=true&output=csv" },
+      { label: "Field of Dreams", gid: 1737418391, sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQNcbG_a-H8vmNF7Qm3S_n5a3MTuMZvsicODjImal2jylO74gB--3Mpgv9cCPG37WG4HFvshUrIfDdM/pub?gid=343232419&single=true&output=csv" },
+      { label: "Cooperstown", gid: 1924417187, sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTZDCPonNizaXhEklZp8ovhc_Iti725FpgZzyeu_rovAceUq9obq_AKvo0a7u-5SotcJh4xi-FC3FAv/pub?gid=965359182&single=true&output=csv" }
     ];
 
     const H = {
-      location: "Location",
-      shop_domain: "Shop MyShopify Domain",
       sku: "Variant SKU",
       barcode: "Variant Barcode",
       product: "Product title",
@@ -683,6 +507,7 @@
     };
 
     const TAGS_KEY = "silo_growth_tags_v1";
+    const BUYER_OVERRIDES_KEY = "silo_buyer_overrides_v1";
     const DRAFT_KEY = "silo_po_draft_v5_growth";
 
     const state = {
@@ -692,7 +517,7 @@
       plannerRows: [],
       categoryRows: [],
       selected: new Set(),
-      activeThemeKey: "silo_demand_planner_theme_v1"
+      themeKey: "silo_buyer_theme_v1"
     };
 
     const el = (id) => document.getElementById(id);
@@ -708,12 +533,10 @@
     function fmtInt(n){ return Number.isFinite(Number(n)) ? Math.round(Number(n)).toLocaleString() : "0"; }
     function fmtMoney(n){
       return Number.isFinite(Number(n))
-        ? Number(n).toLocaleString(undefined,{style:"currency", currency:"USD", minimumFractionDigits:2, maximumFractionDigits:2})
+        ? Number(n).toLocaleString(undefined,{style:"currency",currency:"USD",minimumFractionDigits:2,maximumFractionDigits:2})
         : "$0.00";
     }
-    function fmtPct(n){
-      return Number.isFinite(Number(n)) ? `${(Number(n) * 100).toFixed(1)}%` : "0.0%";
-    }
+    function fmtPct(n){ return Number.isFinite(Number(n)) ? `${(Number(n)*100).toFixed(1)}%` : "0.0%"; }
     function escapeHtml(str){
       return String(str ?? "").replace(/[&<>"']/g, (m) => ({
         "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;"
@@ -785,6 +608,14 @@
       return rowsToObjects(txt);
     }
 
+    function rowKeyFor(r){
+      const sku = norm(r.sku);
+      if (sku) return `SKU::${sku}`;
+      const bc = norm(r.barcode);
+      if (bc) return `BC::${bc}`;
+      return `PV::${norm(r.product)}::${norm(r.variant)}`;
+    }
+
     function loadTags(){
       try {
         const raw = localStorage.getItem(TAGS_KEY);
@@ -795,14 +626,6 @@
 
     function saveTags(obj){
       localStorage.setItem(TAGS_KEY, JSON.stringify(obj || {}));
-    }
-
-    function rowKeyFor(r){
-      const sku = norm(r.sku);
-      if (sku) return `SKU::${sku}`;
-      const bc = norm(r.barcode);
-      if (bc) return `BC::${bc}`;
-      return `PV::${norm(r.product)}::${norm(r.variant)}`;
     }
 
     function getTag(row){
@@ -820,6 +643,29 @@
       saveTags(tags);
     }
 
+    function loadBuyerOverrides(){
+      try {
+        const raw = localStorage.getItem(BUYER_OVERRIDES_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        return (parsed && typeof parsed === "object") ? parsed : {};
+      } catch(e){ return {}; }
+    }
+
+    function saveBuyerOverrides(obj){
+      localStorage.setItem(BUYER_OVERRIDES_KEY, JSON.stringify(obj || {}));
+    }
+
+    function getBuyerOverride(row){
+      const map = loadBuyerOverrides();
+      return map[rowKeyFor(row)] ?? "";
+    }
+
+    function setBuyerOverride(row, value){
+      const map = loadBuyerOverrides();
+      map[rowKeyFor(row)] = value === "" ? "" : Number(value);
+      saveBuyerOverrides(map);
+    }
+
     function driverLabel(code){
       switch(code){
         case "core": return "Core";
@@ -833,7 +679,7 @@
       }
     }
 
-    function driverBadge(row){
+    function badgeForDriver(row){
       const tag = getTag(row);
       const driver = tag?.driver || "none";
       const pct = (tag && tag.pct_override !== null && Number.isFinite(Number(tag.pct_override))) ? Number(tag.pct_override) : null;
@@ -844,145 +690,13 @@
     function getStrategyInputs(){
       return {
         strategy: el("strategy").value,
-        defaultGrowthPct: num(el("defaultGrowthPct").value || 0),
+        mixBasis: el("mixBasis").value,
         safetyDays: num(el("safetyDays").value || 0),
+        defaultGrowthPct: num(el("defaultGrowthPct").value || 0),
         seedAvgDay: num(el("seedAvgDay").value || 0),
         minReorder: num(el("minReorder").value || 0),
-        mixBasis: el("mixBasis").value,
         riskDays: num(el("riskDays").value || 14)
       };
-    }
-
-    function growthFactorForRow(row, defaultGrowthPct, strategy){
-      const tag = getTag(row);
-      const driver = tag?.driver || "none";
-
-      let pct = defaultGrowthPct;
-      const driverDefaults = {
-        core: 0,
-        hero: Math.max(defaultGrowthPct, 30),
-        new: Math.max(defaultGrowthPct, 50),
-        influencer: Math.max(defaultGrowthPct, 40),
-        wholesale: Math.max(defaultGrowthPct, 25),
-        promo: Math.max(defaultGrowthPct, 35),
-        seasonal: Math.max(defaultGrowthPct, 20),
-        none: 0
-      };
-
-      if (tag && tag.pct_override !== null && Number.isFinite(Number(tag.pct_override))){
-        pct = Number(tag.pct_override);
-      } else if (driver !== "none"){
-        pct = driverDefaults[driver] ?? defaultGrowthPct;
-      }
-
-      if (strategy === "replenish") return 1.0;
-      if (strategy === "growth"){
-        const p = (driver !== "none") ? pct : defaultGrowthPct;
-        return 1 + Math.max(0, p) / 100;
-      }
-      if (strategy === "hybrid"){
-        if (driver === "none") return 1.0;
-        return 1 + Math.max(0, pct) / 100;
-      }
-      return 1.0;
-    }
-
-    function effectiveAvgDay(row, mixBasis, seedAvgDay){
-      const byBasis = {
-        qty_7d: num(row.qty_7d) / 7,
-        qty_30d: num(row.qty_30d) / 30,
-        qty_90d: num(row.qty_90d) / 90,
-        qty_120d: num(row.qty_120d) / 120
-      };
-      const avg = byBasis[mixBasis] || 0;
-      if (avg > 0) return avg;
-      const tag = getTag(row);
-      if (tag?.driver === "new" || tag?.driver === "hero" || tag?.driver === "promo" || tag?.driver === "influencer"){
-        return Math.max(0, seedAvgDay);
-      }
-      return 0;
-    }
-
-    function classifyAction(row, recBuy, projectedEnding, riskDays){
-      const tag = getTag(row);
-      const driver = tag?.driver || "none";
-      const hasHistory = num(row.qty_30d) > 0 || num(row.qty_90d) > 0 || num(row.qty_120d) > 0;
-      const daysOos = num(row.days_oos);
-
-      if (driver === "new" && !hasHistory) return "New Intro";
-      if (projectedEnding < 0 && recBuy > 0) return "Short";
-      if (recBuy > 0 && hasHistory) return "Restock";
-      if (recBuy > 0 && !hasHistory) return "Seed New";
-      if (daysOos > 0 && daysOos <= riskDays) return "Watch";
-      return "OK";
-    }
-
-    async function authGuard(){
-      if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY){
-        setHtml("assumptionBox", `<div class="status">Missing Supabase config.</div>`);
-        return false;
-      }
-
-      supabaseClient = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
-      const { data } = await supabaseClient.auth.getSession();
-
-      if (!data?.session){
-        window.location.href = "/financehub/pages/login.html";
-        return false;
-      }
-
-      setText("authEmail", data.session.user?.email || "Signed in");
-      el("logoutBtn").addEventListener("click", async () => {
-        try { await supabaseClient.auth.signOut(); } catch(e){}
-        window.location.href = "/financehub/pages/login.html";
-      });
-
-      return true;
-    }
-
-    async function loadLocations(){
-      const { data, error } = await supabaseClient
-        .from("locations")
-        .select("id, location_code, location_name, is_active")
-        .eq("is_active", true)
-        .order("location_name", { ascending: true });
-
-      if (error) throw error;
-      state.locations = data || [];
-
-      const options = state.locations.map(loc =>
-        `<option value="${escapeHtml(String(loc.id))}">${escapeHtml(loc.location_name)}${loc.location_code ? ` (${escapeHtml(loc.location_code)})` : ""}</option>`
-      ).join("");
-
-      el("projectionLocation").innerHTML = `<option value="">Select location</option>${options}`;
-
-      const invOptions = SHEET_TABS.map(src =>
-        `<option value="${escapeHtml(src.label)}">${escapeHtml(src.label)}</option>`
-      ).join("");
-      el("inventorySource").innerHTML = `<option value="">Select source</option>${invOptions}`;
-    }
-
-    async function loadProjectionRows(){
-      const locationId = el("projectionLocation").value;
-      const dateFrom = el("dateFrom").value;
-      const dateTo = el("dateTo").value;
-
-      if (!locationId || !dateFrom || !dateTo){
-        state.projectionRows = [];
-        return;
-      }
-
-      const { data, error } = await supabaseClient
-        .from("revenue_projections")
-        .select("id, projection_date, location_id, projected_units, projected_sales, notes, source, scenario")
-        .eq("scenario", "active")
-        .eq("location_id", Number(locationId))
-        .gte("projection_date", dateFrom)
-        .lte("projection_date", dateTo)
-        .order("projection_date", { ascending: true });
-
-      if (error) throw error;
-      state.projectionRows = data || [];
     }
 
     function buildSalesMap(rows){
@@ -1009,48 +723,151 @@
 
     function collapseInventoryRows(rows){
       const byKey = new Map();
-
-      function keyFor(r){
-        const sku = norm(r.sku);
-        if (sku) return `SKU::${sku}`;
-        const bc = norm(r.barcode);
-        if (bc) return `BC::${bc}`;
-        return `PV::${norm(r.product)}::${norm(r.variant)}`;
-      }
-
       for (const r of rows){
-        const k = keyFor(r);
+        const k = rowKeyFor(r);
         if (!byKey.has(k)){
           byKey.set(k, { ...r });
           continue;
         }
-
         const agg = byKey.get(k);
         agg.avail_qty += num(r.avail_qty);
         agg.inv_value += num(r.inv_value);
-
         agg.qty_7d = Math.max(num(agg.qty_7d), num(r.qty_7d));
         agg.qty_30d = Math.max(num(agg.qty_30d), num(r.qty_30d));
         agg.qty_90d = Math.max(num(agg.qty_90d), num(r.qty_90d));
         agg.qty_120d = Math.max(num(agg.qty_120d), num(r.qty_120d));
-
         agg.avg_day = Math.max(num(agg.avg_day), num(r.avg_day));
         agg.avg_day_90 = Math.max(num(agg.avg_day_90), num(r.avg_day_90));
         agg.avg_day_120 = Math.max(num(agg.avg_day_120), num(r.avg_day_120));
-
         if (!agg.product && r.product) agg.product = r.product;
         if (!agg.variant && r.variant) agg.variant = r.variant;
         if (!agg.product_type && r.product_type) agg.product_type = r.product_type;
         if (!agg.vendor && r.vendor) agg.vendor = r.vendor;
-        if (!agg.image_url && r.image_url) agg.image_url = r.image_url;
       }
-
       for (const agg of byKey.values()){
-        const avg = num(agg.avg_day);
-        agg.days_oos = avg > 0 ? (num(agg.avail_qty) / avg) : 0;
+        agg.days_oos = num(agg.avg_day) > 0 ? num(agg.avail_qty) / num(agg.avg_day) : 0;
+      }
+      return Array.from(byKey.values());
+    }
+
+    function growthFactorForRow(row, defaultGrowthPct, strategy){
+      const tag = getTag(row);
+      const driver = tag?.driver || "none";
+      let pct = defaultGrowthPct;
+      const driverDefaults = {
+        core: 0,
+        hero: Math.max(defaultGrowthPct, 30),
+        new: Math.max(defaultGrowthPct, 50),
+        influencer: Math.max(defaultGrowthPct, 40),
+        wholesale: Math.max(defaultGrowthPct, 25),
+        promo: Math.max(defaultGrowthPct, 35),
+        seasonal: Math.max(defaultGrowthPct, 20),
+        none: 0
+      };
+
+      if (tag && tag.pct_override !== null && Number.isFinite(Number(tag.pct_override))){
+        pct = Number(tag.pct_override);
+      } else if (driver !== "none"){
+        pct = driverDefaults[driver] ?? defaultGrowthPct;
       }
 
-      return Array.from(byKey.values());
+      if (strategy === "replenish") return 1;
+      if (strategy === "growth"){
+        const p = driver !== "none" ? pct : defaultGrowthPct;
+        return 1 + Math.max(0, p) / 100;
+      }
+      if (strategy === "hybrid"){
+        if (driver === "none") return 1;
+        return 1 + Math.max(0, pct) / 100;
+      }
+      return 1;
+    }
+
+    function effectiveAvgDay(row, mixBasis, seedAvgDay){
+      const byBasis = {
+        qty_7d: num(row.qty_7d) / 7,
+        qty_30d: num(row.qty_30d) / 30,
+        qty_90d: num(row.qty_90d) / 90,
+        qty_120d: num(row.qty_120d) / 120
+      };
+      const avg = byBasis[mixBasis] || 0;
+      if (avg > 0) return avg;
+      const tag = getTag(row);
+      if (tag?.driver === "new" || tag?.driver === "hero" || tag?.driver === "promo" || tag?.driver === "influencer"){
+        return Math.max(0, seedAvgDay);
+      }
+      return 0;
+    }
+
+    function classifyBuyType(row, recommendedBuy, projectedEnding, riskDays){
+      const tag = getTag(row);
+      const driver = tag?.driver || "none";
+      const hasHistory = num(row.qty_30d) > 0 || num(row.qty_90d) > 0 || num(row.qty_120d) > 0;
+
+      if (driver === "new" && !hasHistory) return "New Intro";
+      if (driver !== "none" && driver !== "core" && recommendedBuy > 0) return "Growth";
+      if (projectedEnding < 0 && recommendedBuy > 0) return "Restock";
+      if (recommendedBuy > 0 && hasHistory) return "Restock";
+      if (num(row.days_oos) > 0 && num(row.days_oos) <= riskDays) return "Watch";
+      return "Hold";
+    }
+
+    async function authGuard(){
+      if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) return false;
+      supabaseClient = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+      const { data } = await supabaseClient.auth.getSession();
+      if (!data?.session){
+        window.location.href = "/financehub/pages/login.html";
+        return false;
+      }
+      setText("authEmail", data.session.user?.email || "Signed in");
+      el("logoutBtn").addEventListener("click", async () => {
+        try { await supabaseClient.auth.signOut(); } catch(e){}
+        window.location.href = "/financehub/pages/login.html";
+      });
+      return true;
+    }
+
+    async function loadLocations(){
+      const { data, error } = await supabaseClient
+        .from("locations")
+        .select("id, location_code, location_name, is_active")
+        .eq("is_active", true)
+        .order("location_name", { ascending: true });
+
+      if (error) throw error;
+      state.locations = data || [];
+
+      const options = state.locations.map(loc =>
+        `<option value="${escapeHtml(String(loc.id))}">${escapeHtml(loc.location_name)}${loc.location_code ? ` (${escapeHtml(loc.location_code)})` : ""}</option>`
+      ).join("");
+      el("projectionLocation").innerHTML = `<option value="">Select location</option>${options}`;
+
+      el("inventorySource").innerHTML = `<option value="">Select source</option>` +
+        SHEET_TABS.map(src => `<option value="${escapeHtml(src.label)}">${escapeHtml(src.label)}</option>`).join("");
+    }
+
+    async function loadProjectionRows(){
+      const locationId = el("projectionLocation").value;
+      const dateFrom = el("dateFrom").value;
+      const dateTo = el("dateTo").value;
+
+      if (!locationId || !dateFrom || !dateTo){
+        state.projectionRows = [];
+        return;
+      }
+
+      const { data, error } = await supabaseClient
+        .from("revenue_projections")
+        .select("id, projection_date, location_id, projected_units, projected_sales, notes, source, scenario")
+        .eq("scenario", "active")
+        .eq("location_id", Number(locationId))
+        .gte("projection_date", dateFrom)
+        .lte("projection_date", dateTo)
+        .order("projection_date", { ascending: true });
+
+      if (error) throw error;
+      state.projectionRows = data || [];
     }
 
     async function loadInventoryRows(){
@@ -1079,7 +896,6 @@
       const mapped = inv.rows.map((o, idx) => {
         const sku = norm(o[H.sku]);
         const s = sku ? salesMap.get(sku) : null;
-
         return {
           _id: `${safeLower(sourceLabel)}::${sku || norm(o[H.barcode]) || idx}`,
           source_label: sourceLabel,
@@ -1107,71 +923,86 @@
       state.inventoryRows = collapseInventoryRows(mapped);
     }
 
-    function computePlanner(){
+    function computeBuyerPlan(){
       const search = safeLower(el("searchBox").value);
       const {
         strategy,
-        defaultGrowthPct,
+        mixBasis,
         safetyDays,
+        defaultGrowthPct,
         seedAvgDay,
         minReorder,
-        mixBasis,
         riskDays
       } = getStrategyInputs();
 
       const projectionRows = state.projectionRows || [];
       const inventoryRows = state.inventoryRows || [];
+
       const dateFrom = el("dateFrom").value;
       const dateTo = el("dateTo").value;
       const periodDays = (dateFrom && dateTo) ? daysBetweenInclusive(dateFrom, dateTo) : 30;
 
       const totalProjectedSales = projectionRows.reduce((s, r) => s + num(r.projected_sales), 0);
-      const totalProjectedUnits = projectionRows.reduce((s, r) => s + num(r.projected_units), 0);
+      const explicitProjectedUnits = projectionRows.reduce((s, r) => s + num(r.projected_units), 0);
 
       const rowsWithUnitValue = inventoryRows.filter(r => num(r.avail_qty) > 0 && num(r.inv_value) > 0);
-      const weightedMsrpPerUnit = rowsWithUnitValue.length
+      const blendedUnitValue = rowsWithUnitValue.length
         ? rowsWithUnitValue.reduce((s, r) => s + num(r.inv_value), 0) / rowsWithUnitValue.reduce((s, r) => s + num(r.avail_qty), 0)
         : 1;
 
-      const demandUnits = totalProjectedUnits > 0
-        ? totalProjectedUnits
-        : (weightedMsrpPerUnit > 0 ? totalProjectedSales / weightedMsrpPerUnit : 0);
+      const projectedUnitsUsed = explicitProjectedUnits > 0
+        ? explicitProjectedUnits
+        : (blendedUnitValue > 0 ? totalProjectedSales / blendedUnitValue : 0);
 
       const recentTotal = inventoryRows.reduce((s, r) => s + num(r[mixBasis] || 0), 0);
 
       const plannerRows = inventoryRows.map(r => {
         const recentUnits = num(r[mixBasis] || 0);
         const mixPct = recentTotal > 0 ? recentUnits / recentTotal : 0;
-        const growthFactor = growthFactorForRow(r, defaultGrowthPct, strategy);
-        const projectedDemandUnits = mixPct * demandUnits * growthFactor;
         const effAvgDay = effectiveAvgDay(r, mixBasis, seedAvgDay);
+        const growthFactor = growthFactorForRow(r, defaultGrowthPct, strategy);
+
+        const projectedDemandUnits = mixPct * projectedUnitsUsed * growthFactor;
         const safetyUnits = effAvgDay * safetyDays;
-        const endingUnits = num(r.avail_qty) - projectedDemandUnits;
-        let recBuy = Math.max(0, Math.ceil(projectedDemandUnits + safetyUnits - num(r.avail_qty)));
-        if (recBuy < minReorder) recBuy = 0;
+        const projectedEndingUnits = num(r.avail_qty) - projectedDemandUnits;
+
+        let systemRecommended = Math.max(0, Math.ceil(projectedDemandUnits + safetyUnits - num(r.avail_qty)));
+        if (systemRecommended < minReorder) systemRecommended = 0;
+
+        const override = getBuyerOverride(r);
+        const buyerOverride = override === "" ? "" : Number(override);
+        const finalPoQty = buyerOverride === "" ? systemRecommended : Math.max(0, Math.round(buyerOverride));
 
         const category = norm(r.product_type) || "Uncategorized";
-        const action = classifyAction(r, recBuy, endingUnits, riskDays);
+        const buyType = classifyBuyType(r, systemRecommended, projectedEndingUnits, riskDays);
+        const plannerNote =
+          buyType === "New Intro" ? "No history, seeded intro logic." :
+          buyType === "Growth" ? "Tagged growth buy above normal." :
+          buyType === "Restock" ? "Velocity-backed reorder." :
+          buyType === "Watch" ? "Near risk threshold." :
+          "No immediate buy need.";
 
         return {
           ...r,
           category,
-          mixPct,
           recentUnits,
-          growthFactor,
+          mixPct,
           projectedDemandUnits,
+          projectedEndingUnits,
           projectedAvgDay: periodDays > 0 ? projectedDemandUnits / periodDays : 0,
-          endingUnits,
-          recommendedBuy: recBuy,
-          action,
-          tag: getTag(r)
+          systemRecommended,
+          buyerOverride,
+          finalPoQty,
+          buyType,
+          plannerNote
         };
       }).filter(r => {
         if (!search) return true;
         const hay = `${r.sku} ${r.product} ${r.variant} ${r.category} ${r.vendor}`.toLowerCase();
         return hay.includes(search);
       }).sort((a, b) => {
-        if (num(b.recommendedBuy) !== num(a.recommendedBuy)) return num(b.recommendedBuy) - num(a.recommendedBuy);
+        if (num(b.finalPoQty) !== num(a.finalPoQty)) return num(b.finalPoQty) - num(a.finalPoQty);
+        if (num(b.systemRecommended) !== num(a.systemRecommended)) return num(b.systemRecommended) - num(a.systemRecommended);
         return num(b.projectedDemandUnits) - num(a.projectedDemandUnits);
       });
 
@@ -1183,54 +1014,53 @@
             rows: 0,
             onHand: 0,
             projectedDemand: 0,
-            endingUnits: 0,
-            recommendedBuy: 0,
-            needAction: 0
+            recommended: 0,
+            buyerFinal: 0,
+            needBuy: 0
           });
         }
         const c = byCat.get(r.category);
         c.rows += 1;
         c.onHand += num(r.avail_qty);
         c.projectedDemand += num(r.projectedDemandUnits);
-        c.endingUnits += num(r.endingUnits);
-        c.recommendedBuy += num(r.recommendedBuy);
-        if (r.action !== "OK") c.needAction += 1;
+        c.recommended += num(r.systemRecommended);
+        c.buyerFinal += num(r.finalPoQty);
+        if (num(r.finalPoQty) > 0 || num(r.systemRecommended) > 0) c.needBuy += 1;
       }
 
       state.plannerRows = plannerRows;
-      state.categoryRows = Array.from(byCat.values()).sort((a, b) => b.recommendedBuy - a.recommendedBuy);
+      state.categoryRows = Array.from(byCat.values()).sort((a, b) => b.buyerFinal - a.buyerFinal);
 
-      renderKpis(totalProjectedSales, demandUnits, weightedMsrpPerUnit);
+      renderTopMetrics(totalProjectedSales, projectedUnitsUsed, explicitProjectedUnits, blendedUnitValue);
       renderProjectionNotes(projectionRows);
-      renderAssumptions({
-        strategy,
+      renderMathBox({
+        totalProjectedSales,
+        explicitProjectedUnits,
+        projectedUnitsUsed,
+        blendedUnitValue,
         mixBasis,
-        periodDays,
-        weightedMsrpPerUnit,
-        explicitUnits: totalProjectedUnits,
-        usedUnits: demandUnits,
-        totalProjectedSales
+        strategy
       });
       renderCategoryTable();
-      renderSkuTable();
+      renderBuyerTable();
       updateDraftPeek();
       setHtml("statusPill", `<span class="dot"></span>Plan refreshed`);
     }
 
-    function renderKpis(totalProjectedSales, demandUnits){
-      const needAction = state.plannerRows.filter(r => r.action !== "OK").length;
-      const recommendedBuy = state.plannerRows.reduce((s, r) => s + num(r.recommendedBuy), 0);
-      const onHand = state.plannerRows.reduce((s, r) => s + num(r.avail_qty), 0);
+    function renderTopMetrics(totalProjectedSales, projectedUnitsUsed, explicitProjectedUnits){
+      const needBuy = state.plannerRows.filter(r => num(r.systemRecommended) > 0 || num(r.finalPoQty) > 0).length;
+      const recommended = state.plannerRows.reduce((s, r) => s + num(r.systemRecommended), 0);
+      const buyerFinal = state.plannerRows.reduce((s, r) => s + num(r.finalPoQty), 0);
 
-      setText("kProjectedSales", fmtMoney(totalProjectedSales));
-      setText("kProjectedUnits", fmtInt(demandUnits));
-      setText("kProjectedUnitsSub", state.projectionRows.some(r => num(r.projected_units) > 0)
-        ? "Using explicit projected units from projections table"
-        : "Estimated from projected sales ÷ current blended unit value");
-      setText("kOnHand", fmtInt(onHand));
-      setText("kNeedAction", fmtInt(needAction));
-      setText("kRecommendedBuy", fmtInt(recommendedBuy));
-      setText("kCategories", fmtInt(state.categoryRows.length));
+      setText("kSales", fmtMoney(totalProjectedSales));
+      setText("kUnits", fmtInt(projectedUnitsUsed));
+      setText("kUnitsSub", explicitProjectedUnits > 0
+        ? "Using explicit projected units from projections"
+        : "Estimated from projected sales ÷ blended current unit value");
+      setText("kNeedBuy", fmtInt(needBuy));
+      setText("kRecommended", fmtInt(recommended));
+      setText("kBuyerFinal", fmtInt(buyerFinal));
+      setText("kCats", fmtInt(state.categoryRows.length));
     }
 
     function renderProjectionNotes(rows){
@@ -1238,18 +1068,16 @@
         setHtml("projectionNotes", `<div class="empty-state">No projection notes loaded.</div>`);
         return;
       }
-
       const notes = rows.filter(r => norm(r.notes)).map(r => `
         <div class="status">
           <div style="font-weight:700;" class="mono">${escapeHtml(r.projection_date)}</div>
           <div style="margin-top:6px;">${escapeHtml(r.notes)}</div>
         </div>
       `);
-
       setHtml("projectionNotes", notes.length ? notes.join("") : `<div class="empty-state">No notes on current projection rows.</div>`);
     }
 
-    function renderAssumptions(ctx){
+    function renderMathBox(ctx){
       const mixLabel = {
         qty_7d: "7 day units",
         qty_30d: "30 day units",
@@ -1257,20 +1085,19 @@
         qty_120d: "120 day units"
       }[ctx.mixBasis] || ctx.mixBasis;
 
-      setHtml("assumptionBox", `
-        <div class="status">Strategy: <b>${escapeHtml(ctx.strategy)}</b></div>
-        <div class="status">Mix basis: <b>${escapeHtml(mixLabel)}</b></div>
-        <div class="status">Window days: <b class="mono">${fmtInt(ctx.periodDays)}</b></div>
+      setHtml("mathBox", `
         <div class="status">Projection sales: <b class="mono">${fmtMoney(ctx.totalProjectedSales)}</b></div>
-        <div class="status">Explicit projected units: <b class="mono">${fmtInt(ctx.explicitUnits)}</b></div>
-        <div class="status">Units used by planner: <b class="mono">${fmtInt(ctx.usedUnits)}</b></div>
-        <div class="status">Blended current unit value: <b class="mono">${fmtMoney(ctx.weightedMsrpPerUnit)}</b></div>
+        <div class="status">Explicit projected units: <b class="mono">${fmtInt(ctx.explicitProjectedUnits)}</b></div>
+        <div class="status">Units used by buyer tool: <b class="mono">${fmtInt(ctx.projectedUnitsUsed)}</b></div>
+        <div class="status">Blend used if no units entered: <b class="mono">${fmtMoney(ctx.blendedUnitValue)}</b> per unit</div>
+        <div class="status">Mix basis: <b>${escapeHtml(mixLabel)}</b></div>
+        <div class="status">Strategy: <b>${escapeHtml(ctx.strategy)}</b></div>
       `);
     }
 
     function renderCategoryTable(){
       if (!state.categoryRows.length){
-        setHtml("categoryBody", `<tr><td colspan="7" class="empty-state">No category plan rows.</td></tr>`);
+        setHtml("categoryBody", `<tr><td colspan="7" class="empty-state">No category rows.</td></tr>`);
         return;
       }
 
@@ -1280,42 +1107,54 @@
           <td class="mono" style="text-align:right;">${fmtInt(c.rows)}</td>
           <td class="mono" style="text-align:right;">${fmtInt(c.onHand)}</td>
           <td class="mono" style="text-align:right;">${fmtInt(c.projectedDemand)}</td>
-          <td class="mono" style="text-align:right;">${fmtInt(c.endingUnits)}</td>
-          <td class="mono" style="text-align:right;">${fmtInt(c.recommendedBuy)}</td>
-          <td>${c.needAction > 0 ? `<span class="badge">${fmtInt(c.needAction)} row(s) need action</span>` : `<span class="badge">Stable</span>`}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(c.recommended)}</td>
+          <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(c.buyerFinal)}</td>
+          <td>${c.needBuy > 0 ? `<span class="badge">${fmtInt(c.needBuy)} buy row(s)</span>` : `<span class="badge">Stable</span>`}</td>
         </tr>
       `).join(""));
     }
 
-    function actionBadge(action){
-      if (action === "Restock") return `<span class="badge" style="border-color: color-mix(in oklab, var(--good) 30%, var(--border)); color: var(--good);">Restock</span>`;
-      if (action === "New Intro" || action === "Seed New") return `<span class="badge" style="border-color: color-mix(in oklab, var(--accent) 30%, var(--border)); color: var(--accent);">${escapeHtml(action)}</span>`;
-      if (action === "Short" || action === "Watch") return `<span class="badge" style="border-color: color-mix(in oklab, var(--warn) 30%, var(--border)); color: var(--warn);">${escapeHtml(action)}</span>`;
-      return `<span class="badge">OK</span>`;
+    function buyTypeBadge(type){
+      if (type === "Restock") return `<span class="badge" style="border-color: color-mix(in oklab, var(--good) 30%, var(--border)); color: var(--good);">Restock</span>`;
+      if (type === "Growth") return `<span class="badge" style="border-color: color-mix(in oklab, var(--accent) 30%, var(--border)); color: var(--accent);">Growth</span>`;
+      if (type === "New Intro") return `<span class="badge" style="border-color: color-mix(in oklab, var(--warn) 30%, var(--border)); color: var(--warn);">New Intro</span>`;
+      if (type === "Watch") return `<span class="badge">Watch</span>`;
+      return `<span class="badge">Hold</span>`;
     }
 
-    function renderSkuTable(){
+    function renderBuyerTable(){
       if (!state.plannerRows.length){
-        setHtml("skuBody", `<tr><td colspan="14" class="empty-state">No planner rows.</td></tr>`);
+        setHtml("buyerBody", `<tr><td colspan="15" class="empty-state">No planner rows.</td></tr>`);
         return;
       }
 
-      setHtml("skuBody", state.plannerRows.map(r => `
+      setHtml("buyerBody", state.plannerRows.map(r => `
         <tr>
           <td><input type="checkbox" data-row-id="${escapeHtml(r._id)}" ${state.selected.has(r._id) ? "checked" : ""} /></td>
           <td class="mono" style="font-weight:700;">${escapeHtml(r.sku || "—")}</td>
           <td>${escapeHtml(r.product || "—")}</td>
           <td>${escapeHtml(r.category)}</td>
-          <td>${driverBadge(r)}</td>
-          <td class="mono" style="text-align:right;">${fmtPct(r.mixPct)}</td>
+          <td>${buyTypeBadge(r.buyType)}</td>
+          <td>${badgeForDriver(r)}</td>
           <td class="mono" style="text-align:right;">${fmtInt(r.recentUnits)}</td>
+          <td class="mono" style="text-align:right;">${fmtPct(r.mixPct)}</td>
           <td class="mono" style="text-align:right;">${fmtInt(r.avail_qty)}</td>
-          <td class="mono" style="text-align:right;">${Number(r.projectedAvgDay || 0).toFixed(2)}</td>
-          <td class="mono" style="text-align:right;">${num(r.days_oos) ? Number(r.days_oos).toFixed(0) : "—"}</td>
           <td class="mono" style="text-align:right;">${fmtInt(r.projectedDemandUnits)}</td>
-          <td class="mono" style="text-align:right;">${fmtInt(r.endingUnits)}</td>
-          <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(r.recommendedBuy)}</td>
-          <td>${actionBadge(r.action)}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(r.projectedEndingUnits)}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(r.systemRecommended)}</td>
+          <td class="mono" style="text-align:right;">
+            <input
+              type="number"
+              min="0"
+              step="1"
+              class="field mono buyer-override"
+              data-override-id="${escapeHtml(r._id)}"
+              value="${r.buyerOverride === '' ? '' : escapeHtml(String(r.buyerOverride))}"
+              style="width:96px;"
+            />
+          </td>
+          <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(r.finalPoQty)}</td>
+          <td style="max-width:260px; white-space:normal; line-height:1.35;">${escapeHtml(r.plannerNote)}</td>
         </tr>
       `).join(""));
 
@@ -1328,50 +1167,54 @@
         });
       });
 
+      document.querySelectorAll('.buyer-override').forEach(inp => {
+        inp.addEventListener("change", (e) => {
+          const id = e.target.getAttribute("data-override-id");
+          const row = state.plannerRows.find(x => x._id === id);
+          if (!row) return;
+          setBuyerOverride(row, e.target.value);
+          computeBuyerPlan();
+        });
+      });
+
       syncSelectAll();
     }
 
     function syncSelectAll(){
       const all = state.plannerRows.map(r => r._id);
-      const on = all.length > 0 && all.every(id => state.selected.has(id));
-      el("selectAll").checked = on;
+      el("selectAll").checked = all.length > 0 && all.every(id => state.selected.has(id));
     }
 
-    function exportPlannerCsv(){
+    function exportBuyerCsv(){
       if (!state.plannerRows.length) return;
 
       const headers = [
-        "sku","product","category","driver","mix_pct","recent_units","on_hand","current_days_oos",
-        "projected_demand_units","projected_ending_units","recommended_buy","action","qty_7d","qty_30d","qty_90d","qty_120d"
+        "sku","product","category","buy_type","driver","recent_units","mix_pct","on_hand",
+        "projected_demand_units","projected_ending_units","system_recommended","buyer_override","final_po_qty","planner_note"
       ];
 
       const rows = state.plannerRows.map(r => ({
         sku: r.sku,
         product: r.product,
         category: r.category,
+        buy_type: r.buyType,
         driver: getTag(r)?.driver || "",
-        mix_pct: (r.mixPct * 100).toFixed(2),
         recent_units: r.recentUnits,
+        mix_pct: (r.mixPct * 100).toFixed(2),
         on_hand: r.avail_qty,
-        current_days_oos: r.days_oos ? Number(r.days_oos).toFixed(2) : "",
         projected_demand_units: Number(r.projectedDemandUnits).toFixed(2),
-        projected_ending_units: Number(r.endingUnits).toFixed(2),
-        recommended_buy: r.recommendedBuy,
-        action: r.action,
-        qty_7d: r.qty_7d,
-        qty_30d: r.qty_30d,
-        qty_90d: r.qty_90d,
-        qty_120d: r.qty_120d
+        projected_ending_units: Number(r.projectedEndingUnits).toFixed(2),
+        system_recommended: r.systemRecommended,
+        buyer_override: r.buyerOverride === "" ? "" : r.buyerOverride,
+        final_po_qty: r.finalPoQty,
+        planner_note: r.plannerNote
       }));
 
-      const csv = [headers.join(",")].concat(
-        rows.map(o => headers.map(h => csvEscape(o[h])).join(","))
-      ).join("\n");
-
+      const csv = [headers.join(",")].concat(rows.map(o => headers.map(h => csvEscape(o[h])).join(","))).join("\n");
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `silo_demand_planner_${todayIso()}.csv`;
+      a.download = `silo_buyer_workbench_${todayIso()}.csv`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1392,9 +1235,7 @@
         el("draftPeek").textContent = "Draft empty.";
         return;
       }
-      const peek = lines.slice(0, 14).map(l =>
-        `${l.sku || "—"} | qty ${num(l.qty)}${l.driver ? " | " + l.driver : ""}`
-      ).join("\n");
+      const peek = lines.slice(0, 14).map(l => `${l.sku || "—"} | qty ${num(l.qty)}${l.driver ? " | " + l.driver : ""}`).join("\n");
       el("draftPeek").textContent = lines.length > 14 ? `${peek}\n… +${lines.length - 14} more` : peek;
     }
 
@@ -1406,13 +1247,13 @@
       const index = new Map();
       lines.forEach((l, idx) => index.set(l.sku, idx));
 
-      const poName = norm(el("poName").value) || "Demand Planner Draft";
+      const poName = norm(el("poName").value) || "Buyer Workbench Draft";
       const vendor = norm(el("poVendor").value);
       const eta = norm(el("poEta").value);
 
       for (const r of selectedRows){
         const sku = norm(r.sku) || norm(r.barcode) || norm(r.product) || r._id;
-        const qty = num(r.recommendedBuy);
+        const qty = num(r.finalPoQty);
         const tag = getTag(r);
         const driver = tag?.driver || "none";
         const driverPct = (tag && tag.pct_override !== null && Number.isFinite(Number(tag.pct_override))) ? Number(tag.pct_override) : "";
@@ -1433,7 +1274,7 @@
             avg_day_30: r.avg_day,
             days_oos: r.days_oos,
             retail_value_on_hand: r.inv_value,
-            mode_added_from: "demand_planner",
+            mode_added_from: "buyer_workbench",
             strategy: el("strategy").value,
             driver,
             driver_pct: driverPct
@@ -1449,27 +1290,19 @@
 
     function viewDraft(){
       const lines = loadDraft();
-      if (!lines.length){
-        alert("Draft empty.");
-        return;
-      }
-      const preview = lines.map(l => `${l.sku} | qty ${l.qty} | ${l.product || ""}`).join("\n");
-      alert(preview);
+      if (!lines.length){ alert("Draft empty."); return; }
+      alert(lines.map(l => `${l.sku} | qty ${l.qty} | ${l.product || ""}`).join("\n"));
     }
 
     function exportDraft(){
       const lines = loadDraft();
       if (!lines.length) return;
-
       const headers = ["po_name","vendor","eta","sku","product","qty","sold_30","sold_90","avg_day_30","days_oos","retail_value_on_hand","mode_added_from","strategy","driver","driver_pct"];
-      const csv = [headers.join(",")].concat(
-        lines.map(o => headers.map(h => csvEscape(o[h])).join(","))
-      ).join("\n");
-
+      const csv = [headers.join(",")].concat(lines.map(o => headers.map(h => csvEscape(o[h])).join(","))).join("\n");
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `silo_draft_${todayIso()}.csv`;
+      a.download = `silo_buyer_draft_${todayIso()}.csv`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -1479,22 +1312,21 @@
       const selectedRows = state.plannerRows.filter(r => state.selected.has(r._id));
       if (!selectedRows.length) return;
 
-      const driver = clear ? "none" : el("driverTag").value;
-      const pct = clear ? "" : el("driverPct").value;
+      const driver = clear ? "none" : prompt("Driver tag: core, hero, new, influencer, wholesale, promo, seasonal", "core");
+      if (!clear && !driver) return;
+      const pct = clear ? "" : prompt("Optional uplift override %", "");
 
       for (const r of selectedRows){
-        setTag(r, driver, pct);
+        setTag(r, clear ? "none" : driver, clear ? "" : pct);
       }
-
-      if (!clear) el("driverPct").value = "";
-      computePlanner();
+      computeBuyerPlan();
     }
 
-    async function refreshPlan(){
+    async function refreshWorkbench(){
       setHtml("statusPill", `<span class="dot"></span>Loading…`);
       await loadProjectionRows();
       await loadInventoryRows();
-      computePlanner();
+      computeBuyerPlan();
     }
 
     function bindEvents(){
@@ -1503,13 +1335,13 @@
         const next = cur === "dark" ? "light" : "dark";
         document.documentElement.setAttribute("data-theme", next);
         el("themeLabel").textContent = next[0].toUpperCase() + next.slice(1);
-        localStorage.setItem(state.activeThemeKey, next);
+        localStorage.setItem(state.themeKey, next);
       });
 
-      el("reloadBtn").addEventListener("click", refreshPlan);
-      el("suggestBtn").addEventListener("click", refreshPlan);
-      el("exportBtn").addEventListener("click", exportPlannerCsv);
-      el("addSelectedToDraftBtn").addEventListener("click", addSelectedToDraft);
+      el("reloadBtn").addEventListener("click", refreshWorkbench);
+      el("refreshPlanBtn").addEventListener("click", refreshWorkbench);
+      el("exportBtn").addEventListener("click", exportBuyerCsv);
+      el("addSelectedBtn").addEventListener("click", addSelectedToDraft);
 
       el("thisMonthBtn").addEventListener("click", () => {
         el("dateFrom").value = firstDayOfMonthIso();
@@ -1523,17 +1355,26 @@
         el("dateTo").value = addDaysIso(todayIso(), 30);
       });
 
-      el("selectAll").addEventListener("change", (e) => {
-        if (e.target.checked){
-          state.plannerRows.forEach(r => state.selected.add(r._id));
-        } else {
-          state.selected.clear();
-        }
-        renderSkuTable();
-      });
-
       el("applyTagBtn").addEventListener("click", () => applyTagToSelected(false));
       el("clearTagBtn").addEventListener("click", () => applyTagToSelected(true));
+      el("recalcBtn").addEventListener("click", computeBuyerPlan);
+
+      ["dateFrom","dateTo","projectionLocation","inventorySource"].forEach(id => {
+        el(id).addEventListener("change", refreshWorkbench);
+      });
+
+      ["mixBasis","strategy","searchBox","safetyDays","defaultGrowthPct","seedAvgDay","minReorder","riskDays"].forEach(id => {
+        el(id).addEventListener("change", computeBuyerPlan);
+        el(id).addEventListener("input", () => {
+          if (id === "searchBox") computeBuyerPlan();
+        });
+      });
+
+      el("selectAll").addEventListener("change", (e) => {
+        if (e.target.checked) state.plannerRows.forEach(r => state.selected.add(r._id));
+        else state.selected.clear();
+        renderBuyerTable();
+      });
 
       el("viewDraftBtn").addEventListener("click", viewDraft);
       el("exportDraftBtn").addEventListener("click", exportDraft);
@@ -1542,22 +1383,11 @@
         updateDraftPeek();
       });
 
-      ["searchBox","mixBasis","strategy","defaultGrowthPct","safetyDays","seedAvgDay","minReorder","riskDays"].forEach(id => {
-        el(id).addEventListener("change", () => computePlanner());
-        el(id).addEventListener("input", () => {
-          if (id === "searchBox") computePlanner();
-        });
-      });
-
-      ["dateFrom","dateTo","projectionLocation","inventorySource"].forEach(id => {
-        el(id).addEventListener("change", () => refreshPlan());
-      });
-
       window.addEventListener("keydown", async (e) => {
         const key = String(e.key || "").toLowerCase();
         if ((e.ctrlKey || e.metaKey) && key === "k"){
           e.preventDefault();
-          await refreshPlan();
+          await refreshWorkbench();
         }
         if ((e.ctrlKey || e.metaKey) && key === "s"){
           e.preventDefault();
@@ -1570,7 +1400,7 @@
       const ok = await authGuard();
       if (!ok) return;
 
-      const savedTheme = localStorage.getItem(state.activeThemeKey) || "light";
+      const savedTheme = localStorage.getItem(state.themeKey) || "light";
       document.documentElement.setAttribute("data-theme", savedTheme);
       el("themeLabel").textContent = savedTheme[0].toUpperCase() + savedTheme.slice(1);
 
