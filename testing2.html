@@ -140,7 +140,7 @@
       overflow:auto; border-radius:18px; border:1px solid var(--border);
       background: color-mix(in oklab, var(--panel-solid) 94%, transparent);
     }
-    table { width:100%; border-collapse:separate; border-spacing:0; min-width:1680px; }
+    table { width:100%; border-collapse:separate; border-spacing:0; min-width:1760px; }
     thead th {
       position:sticky; top:0; z-index:1; background: color-mix(in oklab, var(--panel-soft) 92%, transparent);
       color:var(--muted2); font-size:11px; text-transform:uppercase; letter-spacing:.12em; font-weight:800;
@@ -219,7 +219,7 @@
         <div class="section-label">Buying Workflow</div>
         <h1 class="headline mt-2">Buyer Workbench</h1>
         <div class="subtle mt-2">
-          Built for final purchase decisions across restocks, growth bets, and new product introductions.
+          Net-buy planning anchored to hitting the projection, then allocating category need back down to SKUs.
         </div>
       </div>
 
@@ -317,9 +317,9 @@
         <div id="kUnitsSub" class="sub">Explicit units or estimated fallback</div>
       </div>
       <div class="metric card">
-        <div class="label">Rows needing buy</div>
+        <div class="label">Net units gap</div>
         <div id="kNeedBuy" class="mono value">0</div>
-        <div class="sub">Restock + new + growth</div>
+        <div class="sub">Projected demand minus on hand</div>
       </div>
       <div class="metric card">
         <div class="label">Recommended units</div>
@@ -345,7 +345,7 @@
             <div>
               <div class="section-label">Buyer summary</div>
               <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">Category buy view</div>
-              <div class="subtle mt-1">Use this to decide where the buy is concentrated before drilling into SKUs.</div>
+              <div class="subtle mt-1">This now anchors on category net need first, then allocates that need to SKU rows.</div>
             </div>
           </div>
 
@@ -357,13 +357,14 @@
                   <th class="text-right">Rows</th>
                   <th class="text-right">On Hand</th>
                   <th class="text-right">Projected Demand</th>
+                  <th class="text-right">Net Need</th>
                   <th class="text-right">Recommended</th>
                   <th class="text-right">Buyer Final</th>
                   <th>Read</th>
                 </tr>
               </thead>
               <tbody id="categoryBody">
-                <tr><td colspan="7" class="empty-state">Run the buy plan.</td></tr>
+                <tr><td colspan="8" class="empty-state">Run the buy plan.</td></tr>
               </tbody>
             </table>
           </div>
@@ -374,7 +375,7 @@
             <div>
               <div class="section-label">Final buy table</div>
               <div class="mt-2" style="font-size:20px; font-weight:700; letter-spacing:-0.03em;">SKU buying decisions</div>
-              <div class="subtle mt-1">System rec + buyer override + final PO quantity.</div>
+              <div class="subtle mt-1">Net buy by category, then spread across SKUs using intra-category mix.</div>
             </div>
           </div>
 
@@ -392,6 +393,7 @@
                   <th class="text-right">Mix %</th>
                   <th class="text-right">On Hand</th>
                   <th class="text-right">Proj Demand</th>
+                  <th class="text-right">Category Net Share</th>
                   <th class="text-right">Ending</th>
                   <th class="text-right">System Rec</th>
                   <th class="text-right">Buyer Override</th>
@@ -400,7 +402,7 @@
                 </tr>
               </thead>
               <tbody id="buyerBody">
-                <tr><td colspan="15" class="empty-state">Run the buy plan.</td></tr>
+                <tr><td colspan="16" class="empty-state">Run the buy plan.</td></tr>
               </tbody>
             </table>
           </div>
@@ -414,7 +416,7 @@
           <div id="workflowBox" class="mt-4 space-y-2">
             <div class="status">1. Select location and window</div>
             <div class="status">2. Refresh buy plan</div>
-            <div class="status">3. Review category concentration</div>
+            <div class="status">3. Review category net need</div>
             <div class="status">4. Review SKU buy type: Restock / Growth / New</div>
             <div class="status">5. Enter buyer overrides where needed</div>
             <div class="status">6. Add selected rows to draft</div>
@@ -804,7 +806,7 @@
       const driver = tag?.driver || "none";
       const hasHistory = num(row.qty_30d) > 0 || num(row.qty_90d) > 0 || num(row.qty_120d) > 0;
 
-      if (driver === "new" && !hasHistory) return "New Intro";
+      if (driver === "new" && !hasHistory && recommendedBuy > 0) return "New Intro";
       if (driver !== "none" && driver !== "core" && recommendedBuy > 0) return "Growth";
       if (projectedEnding < 0 && recommendedBuy > 0) return "Restock";
       if (recommendedBuy > 0 && hasHistory) return "Restock";
@@ -947,47 +949,136 @@
 
       const rowsWithUnitValue = inventoryRows.filter(r => num(r.avail_qty) > 0 && num(r.inv_value) > 0);
       const blendedUnitValue = rowsWithUnitValue.length
-        ? rowsWithUnitValue.reduce((s, r) => s + num(r.inv_value), 0) / rowsWithUnitValue.reduce((s, r) => s + num(r.avail_qty), 0)
+        ? rowsWithUnitValue.reduce((s, r) => s + num(r.inv_value), 0) / Math.max(1, rowsWithUnitValue.reduce((s, r) => s + num(r.avail_qty), 0))
         : 1;
 
-      const projectedUnitsUsed = explicitProjectedUnits > 0
+      const projectedUnitsUsedBase = explicitProjectedUnits > 0
         ? explicitProjectedUnits
         : (blendedUnitValue > 0 ? totalProjectedSales / blendedUnitValue : 0);
 
-      const recentTotal = inventoryRows.reduce((s, r) => s + num(r[mixBasis] || 0), 0);
+      const projectionGrowthMultiplier = strategy === "growth"
+        ? 1 + Math.max(0, defaultGrowthPct) / 100
+        : 1;
 
-      const plannerRows = inventoryRows.map(r => {
-        const recentUnits = num(r[mixBasis] || 0);
-        const mixPct = recentTotal > 0 ? recentUnits / recentTotal : 0;
+      const projectedUnitsUsed = projectedUnitsUsedBase * projectionGrowthMultiplier;
+
+      const enrichedRows = inventoryRows.map(r => {
+        const category = norm(r.product_type) || "Uncategorized";
+        const tag = getTag(r);
+        const driver = tag?.driver || "none";
+
+        let recentUnits = num(r[mixBasis] || 0);
+        if (recentUnits <= 0 && (driver === "new" || driver === "hero" || driver === "promo" || driver === "influencer")){
+          recentUnits = Math.max(0, seedAvgDay * periodDays);
+        }
+
         const effAvgDay = effectiveAvgDay(r, mixBasis, seedAvgDay);
         const growthFactor = growthFactorForRow(r, defaultGrowthPct, strategy);
 
-        const projectedDemandUnits = mixPct * projectedUnitsUsed * growthFactor;
-        const safetyUnits = effAvgDay * safetyDays;
+        let allocWeight = recentUnits;
+        if (strategy === "growth") {
+          allocWeight = recentUnits * growthFactor;
+        } else if (strategy === "hybrid" && driver !== "none") {
+          allocWeight = recentUnits * growthFactor;
+        }
+
+        if (allocWeight <= 0 && recentUnits > 0) allocWeight = recentUnits;
+
+        return {
+          ...r,
+          category,
+          recentUnits,
+          effAvgDay,
+          growthFactor,
+          allocWeight
+        };
+      });
+
+      const globalWeightTotal = enrichedRows.reduce((s, r) => s + num(r.allocWeight), 0);
+
+      const categorySeed = new Map();
+      for (const r of enrichedRows){
+        if (!categorySeed.has(r.category)){
+          categorySeed.set(r.category, {
+            category: r.category,
+            rows: [],
+            rowsCount: 0,
+            onHand: 0,
+            recentWeight: 0,
+            projectedDemand: 0,
+            netNeed: 0,
+            recommended: 0,
+            buyerFinal: 0,
+            needBuy: 0
+          });
+        }
+        const c = categorySeed.get(r.category);
+        c.rows.push(r);
+        c.rowsCount += 1;
+        c.onHand += num(r.avail_qty);
+        c.recentWeight += num(r.allocWeight);
+      }
+
+      for (const c of categorySeed.values()){
+        const categoryMixPct = globalWeightTotal > 0 ? c.recentWeight / globalWeightTotal : 0;
+        c.projectedDemand = categoryMixPct * projectedUnitsUsed;
+        c.netNeed = Math.max(0, c.projectedDemand - c.onHand);
+      }
+
+      const plannerRows = enrichedRows.map(r => {
+        const cat = categorySeed.get(r.category);
+        const categoryWeightTotal = Math.max(0, num(cat?.recentWeight));
+        const rowShareInCategory = categoryWeightTotal > 0 ? num(r.allocWeight) / categoryWeightTotal : 0;
+
+        const projectedDemandUnits = num(cat?.projectedDemand) * rowShareInCategory;
+        const categoryNetShareUnits = num(cat?.netNeed) * rowShareInCategory;
+        const safetyUnits = num(r.effAvgDay) * safetyDays;
         const projectedEndingUnits = num(r.avail_qty) - projectedDemandUnits;
 
-        let systemRecommended = Math.max(0, Math.ceil(projectedDemandUnits + safetyUnits - num(r.avail_qty)));
+        let systemRecommended = Math.max(0, Math.ceil(categoryNetShareUnits));
+
+        const tag = getTag(r);
+        const driver = tag?.driver || "none";
+        const hasHistory = num(r.qty_30d) > 0 || num(r.qty_90d) > 0 || num(r.qty_120d) > 0;
+
+        if (driver === "new" && !hasHistory && systemRecommended === 0) {
+          systemRecommended = Math.max(systemRecommended, Math.ceil(safetyUnits || (seedAvgDay * periodDays)));
+        }
+
+        if (driver !== "none" && strategy === "growth" && systemRecommended > 0) {
+          systemRecommended = Math.ceil(systemRecommended * Math.min(1.35, Math.max(1, r.growthFactor)));
+        }
+
+        if (driver !== "none" && strategy === "hybrid" && systemRecommended > 0) {
+          systemRecommended = Math.ceil(systemRecommended * Math.min(1.20, Math.max(1, r.growthFactor)));
+        }
+
         if (systemRecommended < minReorder) systemRecommended = 0;
 
         const override = getBuyerOverride(r);
         const buyerOverride = override === "" ? "" : Number(override);
         const finalPoQty = buyerOverride === "" ? systemRecommended : Math.max(0, Math.round(buyerOverride));
 
-        const category = norm(r.product_type) || "Uncategorized";
         const buyType = classifyBuyType(r, systemRecommended, projectedEndingUnits, riskDays);
-        const plannerNote =
-          buyType === "New Intro" ? "No history, seeded intro logic." :
-          buyType === "Growth" ? "Tagged growth buy above normal." :
-          buyType === "Restock" ? "Velocity-backed reorder." :
-          buyType === "Watch" ? "Near risk threshold." :
-          "No immediate buy need.";
+
+        let plannerNote = "";
+        if (buyType === "New Intro") {
+          plannerNote = "Seeded new-item buy. No history, so intro logic is used.";
+        } else if (buyType === "Growth") {
+          plannerNote = "Tagged growth row. Net need allocation adjusted toward this SKU.";
+        } else if (buyType === "Restock") {
+          plannerNote = "Net category need allocated to this SKU based on in-category mix.";
+        } else if (buyType === "Watch") {
+          plannerNote = "No immediate buy recommended, but inventory coverage is tightening.";
+        } else {
+          plannerNote = "Current on hand appears sufficient versus projected share of demand.";
+        }
 
         return {
           ...r,
-          category,
-          recentUnits,
-          mixPct,
+          mixPct: rowShareInCategory,
           projectedDemandUnits,
+          categoryNetShareUnits,
           projectedEndingUnits,
           projectedAvgDay: periodDays > 0 ? projectedDemandUnits / periodDays : 0,
           systemRecommended,
@@ -1006,40 +1097,39 @@
         return num(b.projectedDemandUnits) - num(a.projectedDemandUnits);
       });
 
-      const byCat = new Map();
-      for (const r of plannerRows){
-        if (!byCat.has(r.category)){
-          byCat.set(r.category, {
-            category: r.category,
-            rows: 0,
-            onHand: 0,
-            projectedDemand: 0,
-            recommended: 0,
-            buyerFinal: 0,
-            needBuy: 0
-          });
-        }
-        const c = byCat.get(r.category);
-        c.rows += 1;
-        c.onHand += num(r.avail_qty);
-        c.projectedDemand += num(r.projectedDemandUnits);
-        c.recommended += num(r.systemRecommended);
-        c.buyerFinal += num(r.finalPoQty);
-        if (num(r.finalPoQty) > 0 || num(r.systemRecommended) > 0) c.needBuy += 1;
-      }
+      const categoryRows = Array.from(categorySeed.values()).map(c => {
+        const catRows = plannerRows.filter(r => r.category === c.category);
+        const recommended = catRows.reduce((s, r) => s + num(r.systemRecommended), 0);
+        const buyerFinal = catRows.reduce((s, r) => s + num(r.finalPoQty), 0);
+        const needBuy = catRows.filter(r => num(r.finalPoQty) > 0 || num(r.systemRecommended) > 0).length;
+
+        return {
+          category: c.category,
+          rows: c.rowsCount,
+          onHand: c.onHand,
+          projectedDemand: c.projectedDemand,
+          netNeed: c.netNeed,
+          recommended,
+          buyerFinal,
+          needBuy
+        };
+      }).sort((a, b) => b.buyerFinal - a.buyerFinal || b.netNeed - a.netNeed);
 
       state.plannerRows = plannerRows;
-      state.categoryRows = Array.from(byCat.values()).sort((a, b) => b.buyerFinal - a.buyerFinal);
+      state.categoryRows = categoryRows;
 
-      renderTopMetrics(totalProjectedSales, projectedUnitsUsed, explicitProjectedUnits, blendedUnitValue);
+      renderTopMetrics(totalProjectedSales, projectedUnitsUsed, explicitProjectedUnits, categoryRows);
       renderProjectionNotes(projectionRows);
       renderMathBox({
         totalProjectedSales,
         explicitProjectedUnits,
+        projectedUnitsUsedBase,
         projectedUnitsUsed,
         blendedUnitValue,
         mixBasis,
-        strategy
+        strategy,
+        projectionGrowthMultiplier,
+        categoryRows
       });
       renderCategoryTable();
       renderBuyerTable();
@@ -1047,8 +1137,8 @@
       setHtml("statusPill", `<span class="dot"></span>Plan refreshed`);
     }
 
-    function renderTopMetrics(totalProjectedSales, projectedUnitsUsed, explicitProjectedUnits){
-      const needBuy = state.plannerRows.filter(r => num(r.systemRecommended) > 0 || num(r.finalPoQty) > 0).length;
+    function renderTopMetrics(totalProjectedSales, projectedUnitsUsed, explicitProjectedUnits, categoryRows){
+      const netUnitsGap = (categoryRows || []).reduce((s, r) => s + num(r.netNeed), 0);
       const recommended = state.plannerRows.reduce((s, r) => s + num(r.systemRecommended), 0);
       const buyerFinal = state.plannerRows.reduce((s, r) => s + num(r.finalPoQty), 0);
 
@@ -1057,7 +1147,7 @@
       setText("kUnitsSub", explicitProjectedUnits > 0
         ? "Using explicit projected units from projections"
         : "Estimated from projected sales ÷ blended current unit value");
-      setText("kNeedBuy", fmtInt(needBuy));
+      setText("kNeedBuy", fmtInt(netUnitsGap));
       setText("kRecommended", fmtInt(recommended));
       setText("kBuyerFinal", fmtInt(buyerFinal));
       setText("kCats", fmtInt(state.categoryRows.length));
@@ -1085,19 +1175,27 @@
         qty_120d: "120 day units"
       }[ctx.mixBasis] || ctx.mixBasis;
 
+      const totalOnHand = state.categoryRows.reduce((s, c) => s + num(c.onHand), 0);
+      const totalDemand = state.categoryRows.reduce((s, c) => s + num(c.projectedDemand), 0);
+      const totalNetNeed = state.categoryRows.reduce((s, c) => s + num(c.netNeed), 0);
+
       setHtml("mathBox", `
         <div class="status">Projection sales: <b class="mono">${fmtMoney(ctx.totalProjectedSales)}</b></div>
         <div class="status">Explicit projected units: <b class="mono">${fmtInt(ctx.explicitProjectedUnits)}</b></div>
+        <div class="status">Base units before strategy: <b class="mono">${fmtInt(ctx.projectedUnitsUsedBase)}</b></div>
         <div class="status">Units used by buyer tool: <b class="mono">${fmtInt(ctx.projectedUnitsUsed)}</b></div>
         <div class="status">Blend used if no units entered: <b class="mono">${fmtMoney(ctx.blendedUnitValue)}</b> per unit</div>
         <div class="status">Mix basis: <b>${escapeHtml(mixLabel)}</b></div>
-        <div class="status">Strategy: <b>${escapeHtml(ctx.strategy)}</b></div>
+        <div class="status">Strategy: <b>${escapeHtml(ctx.strategy)}</b>${ctx.projectionGrowthMultiplier !== 1 ? ` • total units uplift ${((ctx.projectionGrowthMultiplier - 1) * 100).toFixed(0)}%` : ""}</div>
+        <div class="status">Category on hand total: <b class="mono">${fmtInt(totalOnHand)}</b></div>
+        <div class="status">Category projected demand total: <b class="mono">${fmtInt(totalDemand)}</b></div>
+        <div class="status">Category net need total: <b class="mono">${fmtInt(totalNetNeed)}</b></div>
       `);
     }
 
     function renderCategoryTable(){
       if (!state.categoryRows.length){
-        setHtml("categoryBody", `<tr><td colspan="7" class="empty-state">No category rows.</td></tr>`);
+        setHtml("categoryBody", `<tr><td colspan="8" class="empty-state">No category rows.</td></tr>`);
         return;
       }
 
@@ -1107,6 +1205,7 @@
           <td class="mono" style="text-align:right;">${fmtInt(c.rows)}</td>
           <td class="mono" style="text-align:right;">${fmtInt(c.onHand)}</td>
           <td class="mono" style="text-align:right;">${fmtInt(c.projectedDemand)}</td>
+          <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(c.netNeed)}</td>
           <td class="mono" style="text-align:right;">${fmtInt(c.recommended)}</td>
           <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(c.buyerFinal)}</td>
           <td>${c.needBuy > 0 ? `<span class="badge">${fmtInt(c.needBuy)} buy row(s)</span>` : `<span class="badge">Stable</span>`}</td>
@@ -1124,7 +1223,7 @@
 
     function renderBuyerTable(){
       if (!state.plannerRows.length){
-        setHtml("buyerBody", `<tr><td colspan="15" class="empty-state">No planner rows.</td></tr>`);
+        setHtml("buyerBody", `<tr><td colspan="16" class="empty-state">No planner rows.</td></tr>`);
         return;
       }
 
@@ -1140,6 +1239,7 @@
           <td class="mono" style="text-align:right;">${fmtPct(r.mixPct)}</td>
           <td class="mono" style="text-align:right;">${fmtInt(r.avail_qty)}</td>
           <td class="mono" style="text-align:right;">${fmtInt(r.projectedDemandUnits)}</td>
+          <td class="mono" style="text-align:right;">${fmtInt(r.categoryNetShareUnits)}</td>
           <td class="mono" style="text-align:right;">${fmtInt(r.projectedEndingUnits)}</td>
           <td class="mono" style="text-align:right;">${fmtInt(r.systemRecommended)}</td>
           <td class="mono" style="text-align:right;">
@@ -1154,7 +1254,7 @@
             />
           </td>
           <td class="mono" style="text-align:right; font-weight:700;">${fmtInt(r.finalPoQty)}</td>
-          <td style="max-width:260px; white-space:normal; line-height:1.35;">${escapeHtml(r.plannerNote)}</td>
+          <td style="max-width:280px; white-space:normal; line-height:1.35;">${escapeHtml(r.plannerNote)}</td>
         </tr>
       `).join(""));
 
@@ -1190,7 +1290,8 @@
 
       const headers = [
         "sku","product","category","buy_type","driver","recent_units","mix_pct","on_hand",
-        "projected_demand_units","projected_ending_units","system_recommended","buyer_override","final_po_qty","planner_note"
+        "projected_demand_units","category_net_share_units","projected_ending_units",
+        "system_recommended","buyer_override","final_po_qty","planner_note"
       ];
 
       const rows = state.plannerRows.map(r => ({
@@ -1203,6 +1304,7 @@
         mix_pct: (r.mixPct * 100).toFixed(2),
         on_hand: r.avail_qty,
         projected_demand_units: Number(r.projectedDemandUnits).toFixed(2),
+        category_net_share_units: Number(r.categoryNetShareUnits).toFixed(2),
         projected_ending_units: Number(r.projectedEndingUnits).toFixed(2),
         system_recommended: r.systemRecommended,
         buyer_override: r.buyerOverride === "" ? "" : r.buyerOverride,
