@@ -1,0 +1,1002 @@
+<!-- file: recon.html -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>QBO P&L Detail Recon</title>
+
+  <!-- CDN deps (no build). If you need fully offline, I can inline/minify these. -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js"></script>
+
+  <style>
+    :root { --gap: 12px; --bd: #e5e7eb; --muted:#6b7280; --bg:#0b1020; --card:#0f172a; --txt:#e5e7eb; }
+    * { box-sizing: border-box; }
+    body { margin: 0; font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Arial; color: var(--txt); background: var(--bg); }
+    header { padding: 18px 16px; border-bottom: 1px solid rgba(255,255,255,.08); }
+    h1 { margin: 0 0 6px; font-size: 18px; }
+    .sub { color: var(--muted); font-size: 13px; }
+    main { padding: 16px; display: grid; gap: var(--gap); }
+    .grid { display: grid; grid-template-columns: 360px 1fr; gap: var(--gap); align-items: start; }
+    .card { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 14px; padding: 12px; }
+    .row { display: flex; gap: var(--gap); align-items: center; flex-wrap: wrap; }
+    label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+    input[type="text"], input[type="date"], select {
+      width: 100%; padding: 8px 10px; border-radius: 10px;
+      border: 1px solid rgba(255,255,255,.12); background: rgba(0,0,0,.15); color: var(--txt);
+      outline: none;
+    }
+    input[type="file"] { width: 100%; }
+    button {
+      padding: 9px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.14);
+      background: rgba(255,255,255,.06); color: var(--txt); cursor: pointer;
+    }
+    button:hover { background: rgba(255,255,255,.10); }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gap); }
+    .kpi { padding: 10px; border-radius: 14px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); }
+    .kpi .v { font-size: 18px; font-weight: 650; margin-top: 4px; }
+    .kpi .t { color: var(--muted); font-size: 12px; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 999px; border: 1px solid rgba(255,255,255,.10); background: rgba(255,255,255,.04); color: var(--muted); font-size: 12px; }
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); }
+    .small { font-size: 12px; color: var(--muted); }
+    .warn { color: #fbbf24; }
+    .bad { color: #f87171; }
+    .ok { color: #34d399; }
+
+    table { width: 100%; border-collapse: collapse; overflow: hidden; border-radius: 14px; border: 1px solid rgba(255,255,255,.08); }
+    th, td { padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,.06); vertical-align: top; }
+    th { text-align: left; position: sticky; top: 0; background: rgba(11,16,32,.95); backdrop-filter: blur(6px); z-index: 1; }
+    tbody tr:hover { background: rgba(255,255,255,.04); }
+    .right { text-align: right; font-variant-numeric: tabular-nums; }
+    .muted { color: var(--muted); }
+    .flags { display: flex; flex-wrap: wrap; gap: 6px; }
+    .flag { padding: 3px 7px; border-radius: 999px; font-size: 12px; border: 1px solid rgba(248,113,113,.25); background: rgba(248,113,113,.12); color: #fecaca; }
+    .flag.warn { border-color: rgba(251,191,36,.25); background: rgba(251,191,36,.12); color: #fde68a; }
+    .flag.ok { border-color: rgba(52,211,153,.25); background: rgba(52,211,153,.10); color: #a7f3d0; }
+    details summary { cursor: pointer; color: var(--muted); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; }
+  </style>
+</head>
+
+<body>
+<header>
+  <h1>QBO P&L Detail Recon</h1>
+  <div class="sub">Upload QBO P&L Detail (CSV/XLSX) → normalize → filter/sort → reconcile totals → export cleaned data.</div>
+</header>
+
+<main>
+  <div class="grid">
+    <section class="card">
+      <div style="display:grid; gap: var(--gap);">
+        <div>
+          <label>Upload QBO export (.csv or .xlsx)</label>
+          <input id="file" type="file" accept=".csv,.xlsx,.xls" />
+          <div id="fileHint" class="small" style="margin-top:6px;"></div>
+        </div>
+
+        <div class="row">
+          <button id="exportClean" disabled>Export cleaned CSV</button>
+          <button id="exportIssues" disabled>Export issues JSON</button>
+        </div>
+
+        <div class="split">
+          <div>
+            <label>Start date</label>
+            <input id="startDate" type="date" />
+          </div>
+          <div>
+            <label>End date</label>
+            <input id="endDate" type="date" />
+          </div>
+        </div>
+
+        <div>
+          <label>Search (name, memo, account, class, location)</label>
+          <input id="q" type="text" placeholder="e.g. Shopify, Embroidery, invoice 1046" />
+        </div>
+
+        <div class="split">
+          <div>
+            <label>Account</label>
+            <select id="accountFilter"></select>
+          </div>
+          <div>
+            <label>Class</label>
+            <select id="classFilter"></select>
+          </div>
+        </div>
+
+        <div class="split">
+          <div>
+            <label>Location</label>
+            <select id="locationFilter"></select>
+          </div>
+          <div>
+            <label>Transaction type</label>
+            <select id="typeFilter"></select>
+          </div>
+        </div>
+
+        <div class="row" style="justify-content: space-between;">
+          <label style="margin:0;">
+            <input id="includeTotals" type="checkbox" />
+            <span class="small">Include “Total for …” rows</span>
+          </label>
+          <label style="margin:0;">
+            <input id="onlyFlagged" type="checkbox" />
+            <span class="small">Only flagged rows</span>
+          </label>
+        </div>
+
+        <details>
+          <summary>Column mapping (auto-detected; adjust if needed)</summary>
+          <div id="mapping" style="display:grid; gap:10px; margin-top:10px;"></div>
+          <div class="small" style="margin-top:8px;">
+            Mapping is used to normalize headers like <span class="mono">Transaction date</span>, <span class="mono">Item split account</span>, <span class="mono">Amount</span>, etc.
+          </div>
+        </details>
+
+        <details>
+          <summary>Recon checks</summary>
+          <div class="small" style="margin-top:10px;">
+            <ul style="margin:0; padding-left: 18px;">
+              <li>Bad/missing dates, non-numeric amounts</li>
+              <li>Missing account/class/location</li>
+              <li>Computed subtotals by account vs “Total for …” lines (if present)</li>
+              <li>Running balance mismatch (if Balance exists)</li>
+            </ul>
+          </div>
+        </details>
+      </div>
+    </section>
+
+    <section style="display:grid; gap: var(--gap);">
+      <div class="kpis">
+        <div class="kpi">
+          <div class="t">Transactions</div>
+          <div id="kTxns" class="v">—</div>
+        </div>
+        <div class="kpi">
+          <div class="t">Net amount</div>
+          <div id="kNet" class="v">—</div>
+        </div>
+        <div class="kpi">
+          <div class="t">Flagged rows</div>
+          <div id="kFlags" class="v">—</div>
+        </div>
+        <div class="kpi">
+          <div class="t">Totals mismatches</div>
+          <div id="kTotals" class="v">—</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row" style="justify-content: space-between;">
+          <div class="pill">Summary</div>
+          <div id="summaryHint" class="small"></div>
+        </div>
+        <div id="summary" style="margin-top:10px; display:grid; gap:10px;"></div>
+      </div>
+
+      <div class="card">
+        <div class="row" style="justify-content: space-between;">
+          <div class="pill">Rows</div>
+          <div class="small muted" id="rowCount"></div>
+        </div>
+        <div style="margin-top:10px; overflow:auto; max-height: 60vh;">
+          <table>
+            <thead>
+              <tr>
+                <th style="min-width:115px;">Date</th>
+                <th style="min-width:120px;">Type</th>
+                <th style="min-width:70px;">Num</th>
+                <th style="min-width:180px;">Name</th>
+                <th style="min-width:140px;">Account</th>
+                <th style="min-width:140px;">Class</th>
+                <th style="min-width:140px;">Location</th>
+                <th style="min-width:280px;">Memo</th>
+                <th class="right" style="min-width:120px;">Amount</th>
+                <th class="right" style="min-width:120px;">Balance</th>
+                <th style="min-width:220px;">Flags</th>
+              </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row" style="justify-content: space-between;">
+          <div class="pill">Account recon</div>
+          <div class="small muted">Computed subtotals vs “Total for …” lines</div>
+        </div>
+        <div style="margin-top:10px; overflow:auto; max-height: 42vh;">
+          <table>
+            <thead>
+              <tr>
+                <th>Account / Group</th>
+                <th class="right">Computed</th>
+                <th class="right">QBO total</th>
+                <th class="right">Δ</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody id="reconBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+  /**
+   * QBO P&L Detail Recon
+   * - Parses CSV/XLSX
+   * - Normalizes headers & values
+   * - Filters/sorts
+   * - Flags issues
+   * - Reconciles totals rows vs computed subtotals
+   */
+
+  const STD_FIELDS = [
+    { key: "transactionDate", label: "Transaction date", candidates: ["transaction date", "date", "txn date"] },
+    { key: "transactionType", label: "Transaction type", candidates: ["transaction type", "type"] },
+    { key: "num", label: "Num", candidates: ["num", "number", "no.", "ref no"] },
+    { key: "name", label: "Name", candidates: ["name", "customer", "vendor", "payee"] },
+    { key: "location", label: "Location", candidates: ["location"] },
+    { key: "classFullName", label: "Class full name", candidates: ["class full name", "class", "class name"] },
+    { key: "memo", label: "Memo/Description", candidates: ["memo/description", "memo", "description"] },
+    { key: "itemSplitAccount", label: "Item split account", candidates: ["item split account", "split account", "account"] },
+    { key: "amount", label: "Amount", candidates: ["amount", "amt"] },
+    { key: "balance", label: "Balance", candidates: ["balance", "running balance"] },
+  ];
+
+  const state = {
+    rawRows: [],
+    normalizedRows: [],
+    totalsRows: [],
+    mapping: {},         // stdKey -> sourceHeader
+    headers: [],
+    filters: {
+      startDate: null,
+      endDate: null,
+      q: "",
+      account: "__ALL__",
+      classFullName: "__ALL__",
+      location: "__ALL__",
+      transactionType: "__ALL__",
+      includeTotals: false,
+      onlyFlagged: false,
+    },
+    recon: {
+      byGroup: [],        // { group, computed, qboTotal, delta, status }
+      mismatches: 0,
+    }
+  };
+
+  const $ = (id) => document.getElementById(id);
+
+  function normHeader(s) {
+    return String(s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  }
+
+  function detectMapping(headers) {
+    const hNorm = headers.map(h => ({ raw: h, norm: normHeader(h) }));
+    const mapping = {};
+
+    for (const f of STD_FIELDS) {
+      let found = null;
+      for (const c of f.candidates) {
+        const cNorm = normHeader(c);
+        const hit = hNorm.find(h => h.norm === cNorm);
+        if (hit) { found = hit.raw; break; }
+      }
+      if (!found) {
+        // fuzzy contains
+        for (const c of f.candidates) {
+          const cNorm = normHeader(c);
+          const hit = hNorm.find(h => h.norm.includes(cNorm) || cNorm.includes(h.norm));
+          if (hit) { found = hit.raw; break; }
+        }
+      }
+      mapping[f.key] = found || "";
+    }
+    return mapping;
+  }
+
+  function excelDateToISO(n) {
+    // Excel serial date: days since 1899-12-30 (with leap year bug baked-in)
+    const epoch = new Date(Date.UTC(1899, 11, 30));
+    const ms = epoch.getTime() + (Number(n) * 86400000);
+    const d = new Date(ms);
+    return isFinite(d) ? d.toISOString().slice(0, 10) : null;
+  }
+
+  function parseDateToISO(v) {
+    if (v == null || v === "") return null;
+
+    if (typeof v === "number" && isFinite(v)) {
+      const iso = excelDateToISO(v);
+      return iso;
+    }
+
+    const s = String(v).trim();
+    if (!s) return null;
+
+    // YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+    // MM/DD/YYYY or M/D/YYYY
+    const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (mdy) {
+      const mm = String(mdy[1]).padStart(2, "0");
+      const dd = String(mdy[2]).padStart(2, "0");
+      return `${mdy[3]}-${mm}-${dd}`;
+    }
+
+    // DD-MMM-YYYY (e.g., 01-Jan-2026)
+    const dmyMon = s.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
+    if (dmyMon) {
+      const monMap = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12 };
+      const mm = monMap[dmyMon[2].toLowerCase()];
+      if (mm) {
+        const dd = String(dmyMon[1]).padStart(2, "0");
+        return `${dmyMon[3]}-${String(mm).padStart(2,"0")}-${dd}`;
+      }
+    }
+
+    // Last resort: Date.parse
+    const t = Date.parse(s);
+    if (!Number.isNaN(t)) return new Date(t).toISOString().slice(0, 10);
+
+    return null;
+  }
+
+  function parseMoney(v) {
+    if (v == null || v === "") return null;
+    if (typeof v === "number" && isFinite(v)) return v;
+
+    let s = String(v).trim();
+    if (!s) return null;
+
+    // (1,234.56) => -1234.56
+    const negParens = /^\(.*\)$/.test(s);
+    s = s.replace(/[()]/g, "");
+    s = s.replace(/\$/g, "");
+    s = s.replace(/,/g, "");
+    s = s.replace(/\s+/g, "");
+
+    const n = Number(s);
+    if (!isFinite(n)) return null;
+    return negParens ? -n : n;
+  }
+
+  function isTotalsRow(obj) {
+    const memo = String(obj.memo ?? "").toLowerCase();
+    const name = String(obj.name ?? "").toLowerCase();
+    const acct = String(obj.itemSplitAccount ?? "").toLowerCase();
+
+    // QBO exports often place "Total for X" in left-most label column; we also check memo/name/acct.
+    const hay = `${memo} ${name} ${acct}`.trim();
+    return hay.includes("total for ");
+  }
+
+  function isSectionHeaderRow(rowObj, headers) {
+    // Heuristic: many blanks, one text cell, no date/type/amount
+    const values = headers.map(h => rowObj[h]).filter(v => v != null && String(v).trim() !== "");
+    if (values.length === 0) return true;
+    if (values.length === 1) return true;
+    return false;
+  }
+
+  function makeNormalizedRow(raw, idx) {
+    const get = (stdKey) => {
+      const src = state.mapping[stdKey];
+      return src ? raw[src] : "";
+    };
+
+    const dateISO = parseDateToISO(get("transactionDate"));
+    const amountNum = parseMoney(get("amount"));
+    const balanceNum = parseMoney(get("balance"));
+
+    const row = {
+      _idx: idx,
+      _raw: raw,
+
+      transactionDate: get("transactionDate"),
+      transactionType: String(get("transactionType") ?? "").trim(),
+      num: String(get("num") ?? "").trim(),
+      name: String(get("name") ?? "").trim(),
+      location: String(get("location") ?? "").trim(),
+      classFullName: String(get("classFullName") ?? "").trim(),
+      memo: String(get("memo") ?? "").trim(),
+      itemSplitAccount: String(get("itemSplitAccount") ?? "").trim(),
+
+      amount: get("amount"),
+      balance: get("balance"),
+
+      dateISO,
+      amountNum,
+      balanceNum,
+
+      rowKind: "transaction", // transaction | total | section
+      flags: [],
+    };
+
+    const headers = state.headers;
+
+    if (!dateISO && !row.transactionType && amountNum == null) {
+      if (isSectionHeaderRow(raw, headers)) row.rowKind = "section";
+    }
+
+    if (isTotalsRow(row)) row.rowKind = "total";
+
+    // Flags
+    if (row.rowKind === "transaction") {
+      if (!row.dateISO) row.flags.push({ type: "bad_date", level: "bad", msg: "Bad/missing date" });
+      if (row.amountNum == null) row.flags.push({ type: "bad_amount", level: "bad", msg: "Amount not numeric" });
+      if (!row.itemSplitAccount) row.flags.push({ type: "missing_account", level: "warn", msg: "Missing account" });
+      if (!row.classFullName) row.flags.push({ type: "missing_class", level: "warn", msg: "Missing class" });
+      if (!row.location) row.flags.push({ type: "missing_location", level: "warn", msg: "Missing location" });
+      if (!row.transactionType) row.flags.push({ type: "missing_type", level: "warn", msg: "Missing type" });
+    }
+
+    return row;
+  }
+
+  function buildSelectOptions(selectEl, values) {
+    const existing = new Set();
+    selectEl.innerHTML = "";
+
+    const add = (value, label) => {
+      if (existing.has(value)) return;
+      existing.add(value);
+      const opt = document.createElement("option");
+      opt.value = value;
+      opt.textContent = label;
+      selectEl.appendChild(opt);
+    };
+
+    add("__ALL__", "All");
+    for (const v of values) add(v, v);
+  }
+
+  function fmtMoney(n) {
+    if (n == null || !isFinite(n)) return "—";
+    return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function withinDate(iso, startISO, endISO) {
+    if (!iso) return false;
+    if (startISO && iso < startISO) return false;
+    if (endISO && iso > endISO) return false;
+    return true;
+  }
+
+  function computeRecon(normalizedRows) {
+    // group key for totals matching: best-effort using account label in the "Total for X" text
+    const computedByAccount = new Map();
+
+    for (const r of normalizedRows) {
+      if (r.rowKind !== "transaction") continue;
+      if (r.amountNum == null) continue;
+      const acct = r.itemSplitAccount || "(blank)";
+      computedByAccount.set(acct, (computedByAccount.get(acct) || 0) + r.amountNum);
+    }
+
+    const qboTotalsByLabel = new Map();
+    for (const r of normalizedRows) {
+      if (r.rowKind !== "total") continue;
+
+      // Attempt to pull label: find "Total for X" anywhere in fields
+      const hay = `${r.memo} ${r.name} ${r.itemSplitAccount} ${r.transactionType}`.trim();
+      const m = hay.match(/total for\s+([^\n\r]+)/i);
+      const label = m ? m[1].trim() : "(unlabeled total)";
+
+      const amt = r.amountNum;
+      if (amt == null) continue;
+      qboTotalsByLabel.set(label, amt);
+    }
+
+    // Best-effort: match label to an account name by contains/equals
+    const results = [];
+    const usedLabels = new Set();
+
+    for (const [acct, computed] of computedByAccount.entries()) {
+      let matchedLabel = null;
+      let qboTotal = null;
+
+      for (const [label, total] of qboTotalsByLabel.entries()) {
+        const a = acct.toLowerCase();
+        const l = label.toLowerCase();
+        const hit = (a === l) || a.includes(l) || l.includes(a);
+        if (hit) {
+          matchedLabel = label;
+          qboTotal = total;
+          usedLabels.add(label);
+          break;
+        }
+      }
+
+      const delta = (qboTotal == null) ? null : (computed - qboTotal);
+      const status =
+        qboTotal == null ? "no_qbo_total" :
+        Math.abs(delta) <= 0.01 ? "ok" :
+        Math.abs(delta) <= 1.00 ? "warn" : "bad";
+
+      results.push({
+        group: acct,
+        computed,
+        qboTotal,
+        delta,
+        status,
+        matchedLabel
+      });
+    }
+
+    // Include QBO totals that didn't match anything computed (common with section totals)
+    for (const [label, total] of qboTotalsByLabel.entries()) {
+      if (usedLabels.has(label)) continue;
+      results.push({ group: `QBO Total: ${label}`, computed: null, qboTotal: total, delta: null, status: "unmatched_total", matchedLabel: label });
+    }
+
+    results.sort((a, b) => {
+      const order = (s) => ({ bad:0, warn:1, ok:2, no_qbo_total:3, unmatched_total:4 }[s] ?? 9);
+      const d = order(a.status) - order(b.status);
+      if (d !== 0) return d;
+      return String(a.group).localeCompare(String(b.group));
+    });
+
+    const mismatches = results.filter(r => r.status === "bad" || r.status === "warn").length;
+    state.recon = { byGroup: results, mismatches };
+  }
+
+  function computeRunningBalanceFlags(rows) {
+    // If balance exists, compare against computed running sum in current row order
+    let running = 0;
+    let seenAnyBalance = false;
+
+    for (const r of rows) {
+      if (r.rowKind !== "transaction") continue;
+      if (r.amountNum == null) continue;
+
+      running += r.amountNum;
+
+      if (r.balanceNum != null) {
+        seenAnyBalance = true;
+        const delta = running - r.balanceNum;
+        if (Math.abs(delta) > 0.01) {
+          r.flags.push({ type: "balance_mismatch", level: Math.abs(delta) > 1 ? "bad" : "warn", msg: `Balance mismatch (Δ ${fmtMoney(delta)})` });
+        }
+      }
+    }
+
+    return seenAnyBalance;
+  }
+
+  function applyFilters() {
+    const f = state.filters;
+    const startISO = f.startDate ? f.startDate : null;
+    const endISO = f.endDate ? f.endDate : null;
+    const q = (f.q || "").trim().toLowerCase();
+
+    const filtered = state.normalizedRows.filter(r => {
+      if (!f.includeTotals && (r.rowKind === "total" || r.rowKind === "section")) return false;
+
+      if (r.rowKind === "transaction") {
+        if (startISO || endISO) {
+          if (!withinDate(r.dateISO, startISO, endISO)) return false;
+        }
+      }
+
+      if (f.account !== "__ALL__" && r.itemSplitAccount !== f.account) return false;
+      if (f.classFullName !== "__ALL__" && r.classFullName !== f.classFullName) return false;
+      if (f.location !== "__ALL__" && r.location !== f.location) return false;
+      if (f.transactionType !== "__ALL__" && r.transactionType !== f.transactionType) return false;
+
+      if (q) {
+        const hay = [
+          r.name, r.memo, r.itemSplitAccount, r.classFullName, r.location, r.transactionType, r.num
+        ].join(" ").toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+
+      if (f.onlyFlagged && (!r.flags || r.flags.length === 0)) return false;
+
+      return true;
+    });
+
+    render(filtered);
+  }
+
+  function renderKPIs(txns) {
+    const onlyTxns = state.normalizedRows.filter(r => r.rowKind === "transaction");
+    const net = onlyTxns.reduce((s, r) => s + (r.amountNum || 0), 0);
+    const flagged = onlyTxns.filter(r => r.flags.length > 0).length;
+
+    $("kTxns").textContent = String(onlyTxns.length);
+    $("kNet").textContent = fmtMoney(net);
+    $("kFlags").textContent = String(flagged);
+    $("kTotals").textContent = String(state.recon.mismatches);
+
+    const dates = onlyTxns.map(r => r.dateISO).filter(Boolean).sort();
+    const span = dates.length ? `${dates[0]} → ${dates[dates.length - 1]}` : "—";
+    $("summaryHint").textContent = `Date span: ${span}`;
+  }
+
+  function renderSummary() {
+    // Simple pivots: by account, by class, by location, by type
+    const txns = state.normalizedRows.filter(r => r.rowKind === "transaction" && r.amountNum != null);
+
+    const piv = (keyFn) => {
+      const m = new Map();
+      for (const r of txns) {
+        const k = keyFn(r) || "(blank)";
+        m.set(k, (m.get(k) || 0) + r.amountNum);
+      }
+      return [...m.entries()].sort((a,b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 12);
+    };
+
+    const blocks = [
+      { title: "Top accounts", rows: piv(r => r.itemSplitAccount) },
+      { title: "Top classes", rows: piv(r => r.classFullName) },
+      { title: "Top locations", rows: piv(r => r.location) },
+      { title: "Top transaction types", rows: piv(r => r.transactionType) },
+    ];
+
+    const host = $("summary");
+    host.innerHTML = "";
+
+    for (const b of blocks) {
+      const div = document.createElement("div");
+      div.className = "card";
+      div.style.background = "rgba(255,255,255,.03)";
+      div.innerHTML = `<div class="row" style="justify-content: space-between;">
+          <div class="pill">${escapeHtml(b.title)}</div>
+          <div class="small muted">Top 12 by absolute total</div>
+        </div>`;
+      const tbl = document.createElement("table");
+      tbl.style.marginTop = "10px";
+      tbl.innerHTML = `<thead><tr><th>Key</th><th class="right">Total</th></tr></thead><tbody></tbody>`;
+      const tb = tbl.querySelector("tbody");
+      for (const [k, v] of b.rows) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${escapeHtml(String(k))}</td><td class="right">${fmtMoney(v)}</td>`;
+        tb.appendChild(tr);
+      }
+      div.appendChild(tbl);
+      host.appendChild(div);
+    }
+  }
+
+  function renderRecon() {
+    const body = $("reconBody");
+    body.innerHTML = "";
+
+    for (const r of state.recon.byGroup) {
+      const tr = document.createElement("tr");
+      const statusBadge =
+        r.status === "ok" ? `<span class="flag ok">OK</span>` :
+        r.status === "warn" ? `<span class="flag warn">WARN</span>` :
+        r.status === "bad" ? `<span class="flag">BAD</span>` :
+        r.status === "no_qbo_total" ? `<span class="flag warn">No QBO total</span>` :
+        `<span class="flag warn">Unmatched total</span>`;
+
+      tr.innerHTML = `
+        <td>${escapeHtml(r.group)}${r.matchedLabel ? `<div class="small muted">Matched: ${escapeHtml(r.matchedLabel)}</div>` : ""}</td>
+        <td class="right">${r.computed == null ? "—" : fmtMoney(r.computed)}</td>
+        <td class="right">${r.qboTotal == null ? "—" : fmtMoney(r.qboTotal)}</td>
+        <td class="right">${r.delta == null ? "—" : fmtMoney(r.delta)}</td>
+        <td>${statusBadge}</td>
+      `;
+      body.appendChild(tr);
+    }
+  }
+
+  function render(rows) {
+    renderKPIs(rows);
+    renderSummary();
+    renderRecon();
+
+    $("rowCount").textContent = `${rows.length} rows shown`;
+
+    const tb = $("tbody");
+    tb.innerHTML = "";
+
+    for (const r of rows) {
+      const flagsHtml = (r.flags || []).length
+        ? `<div class="flags">${r.flags.map(f => {
+            const cls = f.level === "ok" ? "flag ok" : f.level === "warn" ? "flag warn" : "flag";
+            return `<span class="${cls}">${escapeHtml(f.msg)}</span>`;
+          }).join("")}</div>`
+        : `<span class="muted">—</span>`;
+
+      const dateCell = r.dateISO || (r.rowKind === "total" ? "TOTAL" : (r.rowKind === "section" ? "SECTION" : "—"));
+      const amt = r.amountNum == null ? "—" : fmtMoney(r.amountNum);
+      const bal = r.balanceNum == null ? "—" : fmtMoney(r.balanceNum);
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${escapeHtml(dateCell)}</td>
+        <td>${escapeHtml(r.transactionType || "—")}</td>
+        <td>${escapeHtml(r.num || "—")}</td>
+        <td>${escapeHtml(r.name || "—")}</td>
+        <td>${escapeHtml(r.itemSplitAccount || "—")}</td>
+        <td>${escapeHtml(r.classFullName || "—")}</td>
+        <td>${escapeHtml(r.location || "—")}</td>
+        <td>${escapeHtml(r.memo || "—")}</td>
+        <td class="right">${amt}</td>
+        <td class="right">${bal}</td>
+        <td>${flagsHtml}</td>
+      `;
+      tb.appendChild(tr);
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[c]));
+  }
+
+  function setFiltersFromUI() {
+    state.filters.startDate = $("startDate").value || null;
+    state.filters.endDate = $("endDate").value || null;
+    state.filters.q = $("q").value || "";
+    state.filters.account = $("accountFilter").value;
+    state.filters.classFullName = $("classFilter").value;
+    state.filters.location = $("locationFilter").value;
+    state.filters.transactionType = $("typeFilter").value;
+    state.filters.includeTotals = $("includeTotals").checked;
+    state.filters.onlyFlagged = $("onlyFlagged").checked;
+  }
+
+  function wireFilters() {
+    const ids = ["startDate","endDate","q","accountFilter","classFilter","locationFilter","typeFilter","includeTotals","onlyFlagged"];
+    for (const id of ids) {
+      $(id).addEventListener("input", () => {
+        setFiltersFromUI();
+        applyFilters();
+      });
+      $(id).addEventListener("change", () => {
+        setFiltersFromUI();
+        applyFilters();
+      });
+    }
+  }
+
+  function buildMappingUI(headers) {
+    const host = $("mapping");
+    host.innerHTML = "";
+
+    const makeSelect = (stdKey) => {
+      const sel = document.createElement("select");
+      const opt0 = document.createElement("option");
+      opt0.value = "";
+      opt0.textContent = "(not mapped)";
+      sel.appendChild(opt0);
+
+      for (const h of headers) {
+        const opt = document.createElement("option");
+        opt.value = h;
+        opt.textContent = h;
+        sel.appendChild(opt);
+      }
+
+      sel.value = state.mapping[stdKey] || "";
+      sel.addEventListener("change", () => {
+        state.mapping[stdKey] = sel.value;
+        rebuildNormalized();
+      });
+      return sel;
+    };
+
+    for (const f of STD_FIELDS) {
+      const wrap = document.createElement("div");
+      wrap.innerHTML = `<label>${escapeHtml(f.label)}</label>`;
+      wrap.appendChild(makeSelect(f.key));
+      host.appendChild(wrap);
+    }
+  }
+
+  function rebuildNormalized() {
+    state.normalizedRows = state.rawRows.map((r, idx) => makeNormalizedRow(r, idx));
+
+    // Balance flags should run after base flags
+    const hasBalance = computeRunningBalanceFlags(state.normalizedRows);
+
+    computeRecon(state.normalizedRows);
+
+    const txns = state.normalizedRows.filter(r => r.rowKind === "transaction");
+    const accounts = [...new Set(txns.map(r => r.itemSplitAccount).filter(Boolean))].sort();
+    const classes = [...new Set(txns.map(r => r.classFullName).filter(Boolean))].sort();
+    const locations = [...new Set(txns.map(r => r.location).filter(Boolean))].sort();
+    const types = [...new Set(txns.map(r => r.transactionType).filter(Boolean))].sort();
+
+    buildSelectOptions($("accountFilter"), accounts);
+    buildSelectOptions($("classFilter"), classes);
+    buildSelectOptions($("locationFilter"), locations);
+    buildSelectOptions($("typeFilter"), types);
+
+    // keep user selections if still valid
+    const keep = (selId, v) => {
+      const sel = $(selId);
+      if ([...sel.options].some(o => o.value === v)) sel.value = v;
+    };
+    keep("accountFilter", state.filters.account);
+    keep("classFilter", state.filters.classFullName);
+    keep("locationFilter", state.filters.location);
+    keep("typeFilter", state.filters.transactionType);
+
+    $("fileHint").innerHTML = hasBalance
+      ? `<span class="ok">Balance detected</span> — running-balance mismatches will be flagged.`
+      : `<span class="muted">No Balance detected</span> — running-balance checks skipped.`;
+
+    $("exportClean").disabled = txns.length === 0;
+    $("exportIssues").disabled = txns.length === 0;
+
+    applyFilters();
+  }
+
+  function exportCSV() {
+    const txns = state.normalizedRows.filter(r => r.rowKind === "transaction");
+
+    const out = txns.map(r => ({
+      transaction_date: r.dateISO || "",
+      transaction_type: r.transactionType || "",
+      num: r.num || "",
+      name: r.name || "",
+      location: r.location || "",
+      class_full_name: r.classFullName || "",
+      memo: r.memo || "",
+      item_split_account: r.itemSplitAccount || "",
+      amount: (r.amountNum == null ? "" : r.amountNum),
+      balance: (r.balanceNum == null ? "" : r.balanceNum),
+      flags: r.flags.map(f => f.type).join("|"),
+    }));
+
+    const csv = Papa.unparse(out, { quotes: true });
+    downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), "recon_cleaned.csv");
+  }
+
+  function exportIssuesJSON() {
+    const txns = state.normalizedRows.filter(r => r.rowKind === "transaction");
+    const issues = txns
+      .filter(r => r.flags.length > 0)
+      .map(r => ({
+        idx: r._idx,
+        dateISO: r.dateISO,
+        transactionType: r.transactionType,
+        num: r.num,
+        name: r.name,
+        account: r.itemSplitAccount,
+        classFullName: r.classFullName,
+        location: r.location,
+        amount: r.amountNum,
+        balance: r.balanceNum,
+        flags: r.flags,
+      }));
+
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      counts: {
+        transactions: txns.length,
+        flaggedTransactions: issues.length,
+        totalsMismatches: state.recon.mismatches,
+      },
+      recon: state.recon.byGroup,
+      issues,
+    };
+
+    downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" }), "recon_issues.json");
+  }
+
+  function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  async function parseFile(file) {
+    const name = file.name.toLowerCase();
+
+    if (name.endsWith(".csv")) {
+      return await new Promise((resolve, reject) => {
+        Papa.parse(file, {
+          header: true,
+          skipEmptyLines: true,
+          dynamicTyping: false,
+          complete: (res) => resolve(res.data),
+          error: reject,
+        });
+      });
+    }
+
+    if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const first = wb.SheetNames[0];
+      const ws = wb.Sheets[first];
+      // defval: keep empty strings so header detection is stable
+      return XLSX.utils.sheet_to_json(ws, { defval: "" });
+    }
+
+    throw new Error("Unsupported file type");
+  }
+
+  function getHeaders(rows) {
+    const set = new Set();
+    for (const r of rows) for (const k of Object.keys(r)) set.add(k);
+    return [...set];
+  }
+
+  function initEmptySelects() {
+    buildSelectOptions($("accountFilter"), []);
+    buildSelectOptions($("classFilter"), []);
+    buildSelectOptions($("locationFilter"), []);
+    buildSelectOptions($("typeFilter"), []);
+  }
+
+  function init() {
+    initEmptySelects();
+    wireFilters();
+
+    $("exportClean").addEventListener("click", exportCSV);
+    $("exportIssues").addEventListener("click", exportIssuesJSON);
+
+    $("file").addEventListener("change", async (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      $("fileHint").textContent = "Parsing…";
+      $("exportClean").disabled = true;
+      $("exportIssues").disabled = true;
+
+      try {
+        const rows = await parseFile(file);
+        if (!rows || rows.length === 0) throw new Error("No rows found");
+
+        state.rawRows = rows;
+        state.headers = getHeaders(rows);
+
+        state.mapping = detectMapping(state.headers);
+        buildMappingUI(state.headers);
+
+        // reset filters
+        $("startDate").value = "";
+        $("endDate").value = "";
+        $("q").value = "";
+        $("includeTotals").checked = false;
+        $("onlyFlagged").checked = false;
+
+        state.filters = {
+          startDate: null,
+          endDate: null,
+          q: "",
+          account: "__ALL__",
+          classFullName: "__ALL__",
+          location: "__ALL__",
+          transactionType: "__ALL__",
+          includeTotals: false,
+          onlyFlagged: false,
+        };
+
+        rebuildNormalized();
+        $("fileHint").innerHTML = `<span class="ok">Loaded</span> ${escapeHtml(file.name)} — ${rows.length.toLocaleString()} rows`;
+      } catch (err) {
+        console.error(err);
+        $("fileHint").innerHTML = `<span class="bad">Error:</span> ${escapeHtml(err.message || String(err))}`;
+      }
+    });
+  }
+
+  init();
+</script>
+</body>
+</html>
