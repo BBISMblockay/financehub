@@ -8,93 +8,117 @@
 
   <style>
     :root{
-      --bg:#ffffff;
+      --bg:#f8fafc;
       --card:#ffffff;
       --txt:#0f172a;
       --muted:#64748b;
       --bd:#e2e8f0;
       --bd2:#cbd5e1;
-      --shadow: 0 1px 2px rgba(15,23,42,.06);
+      --shadow: 0 1px 2px rgba(15,23,42,.06), 0 10px 20px rgba(15,23,42,.06);
       --ok:#16a34a;
       --warn:#d97706;
       --bad:#dc2626;
-      --pill:#f8fafc;
-      --rowHover:#f8fafc;
+      --pill:#f1f5f9;
+      --hover:#f1f5f9;
       --focus:#3b82f6;
       --gap:12px;
+      --radius:16px;
     }
     *{ box-sizing:border-box; }
     body{ margin:0; font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Arial; color:var(--txt); background:var(--bg); }
-    header{ padding:18px 16px; border-bottom:1px solid var(--bd); }
-    h1{ margin:0 0 6px; font-size:18px; }
-    .sub{ color:var(--muted); font-size:13px; }
-    main{ padding:16px; display:grid; gap:var(--gap); }
-    .grid{ display:grid; grid-template-columns: 380px 1fr; gap:var(--gap); align-items:start; }
+    header{
+      padding:14px 16px;
+      background:linear-gradient(#ffffff, #ffffff);
+      border-bottom:1px solid var(--bd);
+      position:sticky; top:0; z-index:10;
+    }
+    h1{ margin:0; font-size:16px; }
+    .sub{ margin-top:4px; color:var(--muted); font-size:12px; }
+    .shell{ display:grid; grid-template-columns: 360px 1fr; gap:var(--gap); padding:16px; align-items:start; }
     .card{
       background:var(--card);
       border:1px solid var(--bd);
-      border-radius:14px;
+      border-radius: var(--radius);
       padding:12px;
       box-shadow: var(--shadow);
     }
     .row{ display:flex; gap:var(--gap); align-items:center; flex-wrap:wrap; }
     label{ display:block; color:var(--muted); font-size:12px; margin-bottom:6px; }
     input[type="text"], input[type="date"], select{
-      width:100%; padding:9px 10px; border-radius:12px;
+      width:100%; padding:10px 10px; border-radius:14px;
       border:1px solid var(--bd2); background:#fff; color:var(--txt);
       outline:none;
     }
-    input[type="text"]:focus, input[type="date"]:focus, select:focus{
+    input:focus, select:focus{
       border-color: var(--focus);
       box-shadow: 0 0 0 3px rgba(59,130,246,.12);
     }
     input[type="file"]{ width:100%; }
     button{
-      padding:9px 12px; border-radius:12px; border:1px solid var(--bd2);
-      background:#fff; color:var(--txt); cursor:pointer; box-shadow: var(--shadow);
+      padding:10px 12px; border-radius:14px;
+      border:1px solid var(--bd2);
+      background:#fff; color:var(--txt);
+      cursor:pointer;
+      box-shadow: 0 1px 2px rgba(15,23,42,.06);
     }
     button:hover{ background:#f8fafc; }
     button:disabled{ opacity:.5; cursor:not-allowed; }
-    .kpis{ display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:var(--gap); }
-    .kpi{ padding:10px; border-radius:14px; background:#fff; border:1px solid var(--bd); box-shadow: var(--shadow); }
-    .kpi .v{ font-size:18px; font-weight:650; margin-top:4px; }
+    .kpis{ display:grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap:var(--gap); }
+    .kpi{ padding:12px; border-radius: var(--radius); background:#fff; border:1px solid var(--bd); box-shadow: var(--shadow); }
     .kpi .t{ color:var(--muted); font-size:12px; }
-    .pill{
-      display:inline-flex; align-items:center; gap:6px;
-      padding:4px 10px; border-radius:999px;
-      border:1px solid var(--bd); background:var(--pill);
-      color:var(--muted); font-size:12px;
-    }
-    .split{ display:grid; grid-template-columns:1fr 1fr; gap:var(--gap); }
-    .small{ font-size:12px; color:var(--muted); }
+    .kpi .v{ margin-top:6px; font-size:18px; font-weight:700; }
+    .pill{ display:inline-flex; align-items:center; gap:6px; padding:6px 10px; border-radius:999px; background:var(--pill); border:1px solid var(--bd); color:var(--muted); font-size:12px; }
+    .small{ color:var(--muted); font-size:12px; }
     .ok{ color:var(--ok); }
     .warn{ color:var(--warn); }
     .bad{ color:var(--bad); }
     .mono{ font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace; font-size:12px; }
     details summary{ cursor:pointer; color:var(--muted); }
+    .split{ display:grid; grid-template-columns:1fr 1fr; gap:var(--gap); }
 
-    table{ width:100%; border-collapse:collapse; border-radius:14px; overflow:hidden; border:1px solid var(--bd); }
-    th, td{ padding:8px 10px; border-bottom:1px solid var(--bd); vertical-align:top; }
-    th{ text-align:left; position:sticky; top:0; background:#fff; z-index:1; }
-    tbody tr:hover{ background:var(--rowHover); }
+    .tabs{ display:flex; gap:8px; flex-wrap:wrap; }
+    .tab{
+      padding:8px 10px; border-radius:999px;
+      border:1px solid var(--bd); background:#fff; color:var(--muted);
+      cursor:pointer;
+    }
+    .tab.active{ background:var(--pill); color:var(--txt); border-color: var(--bd2); }
+
+    table{ width:100%; border-collapse:collapse; border-radius: var(--radius); overflow:hidden; border:1px solid var(--bd); background:#fff; }
+    th, td{ padding:10px 10px; border-bottom:1px solid var(--bd); vertical-align:top; }
+    th{ text-align:left; position:sticky; top:0; background:#fff; z-index:1; color:var(--muted); font-size:12px; }
+    tbody tr:hover{ background:var(--hover); }
     .right{ text-align:right; font-variant-numeric: tabular-nums; }
     .flags{ display:flex; flex-wrap:wrap; gap:6px; }
-    .flag{
-      padding:3px 8px; border-radius:999px; font-size:12px;
-      border:1px solid rgba(220,38,38,.25);
-      background: rgba(220,38,38,.08);
-      color: var(--bad);
-      white-space:nowrap;
+    .flag{ padding:3px 8px; border-radius:999px; font-size:12px; border:1px solid rgba(220,38,38,.25); background: rgba(220,38,38,.08); color: var(--bad); white-space:nowrap; }
+    .flag.warn{ border-color: rgba(217,119,6,.25); background: rgba(217,119,6,.10); color: var(--warn); }
+    .flag.ok{ border-color: rgba(22,163,74,.25); background: rgba(22,163,74,.10); color: var(--ok); }
+
+    .panel{ display:none; }
+    .panel.active{ display:block; }
+
+    .tableWrap{ overflow:auto; max-height: 68vh; border-radius: var(--radius); }
+    .pager{ display:flex; gap:10px; align-items:center; justify-content:space-between; margin-top:10px; }
+    .pager .left, .pager .right{ display:flex; gap:8px; align-items:center; }
+
+    .drawerBack{
+      position:fixed; inset:0; background: rgba(15,23,42,.35);
+      display:none; align-items:stretch; justify-content:flex-end; z-index:50;
     }
-    .flag.warn{
-      border-color: rgba(217,119,6,.25);
-      background: rgba(217,119,6,.10);
-      color: var(--warn);
+    .drawerBack.open{ display:flex; }
+    .drawer{
+      width:min(560px, 92vw);
+      background:#fff;
+      border-left:1px solid var(--bd);
+      padding:14px;
+      box-shadow: var(--shadow);
+      overflow:auto;
     }
-    .flag.ok{
-      border-color: rgba(22,163,74,.25);
-      background: rgba(22,163,74,.10);
-      color: var(--ok);
+    .drawer h2{ margin:0 0 6px; font-size:14px; }
+    pre{
+      margin:10px 0 0; padding:10px; border-radius: 14px;
+      background:#0b1020; color:#e5e7eb; overflow:auto;
+      font-size:12px;
     }
   </style>
 
@@ -108,7 +132,6 @@
         document.head.appendChild(s);
       });
     }
-
     async function ensureLibs(){
       if(!window.Papa){
         const cdns=[
@@ -121,7 +144,6 @@
         }
         if(!ok) throw new Error("PapaParse failed to load. CSV parsing unavailable.");
       }
-
       if(!window.XLSX){
         const cdns=[
           "https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js",
@@ -137,128 +159,232 @@
 
 <body>
 <header>
-  <h1>QBO P&L Detail Recon</h1>
-  <div class="sub">Upload QBO P&amp;L Detail (CSV/XLSX) → normalize → backfill accounts → verify totals/categoricals → export.</div>
+  <div class="row" style="justify-content:space-between;">
+    <div>
+      <h1>QBO P&L Detail Recon</h1>
+      <div class="sub">Filters fixed + pagination + tabs + row inspector. Backfill accounts from section headers.</div>
+    </div>
+    <div class="tabs" id="tabs">
+      <button class="tab active" data-tab="summary">Summary</button>
+      <button class="tab" data-tab="transactions">Transactions</button>
+      <button class="tab" data-tab="issues">Issues</button>
+      <button class="tab" data-tab="recon">Recon</button>
+    </div>
+  </div>
 </header>
 
-<main>
-  <div class="grid">
-    <section class="card">
-      <div style="display:grid; gap: var(--gap);">
+<div class="shell">
+  <!-- Sidebar -->
+  <aside class="card">
+    <div style="display:grid; gap: var(--gap);">
+      <div>
+        <label>Upload QBO export (.csv or .xlsx)</label>
+        <input id="file" type="file" accept=".csv,.xlsx,.xls" />
+        <div id="libHint" class="small" style="margin-top:6px;"></div>
+        <div id="fileHint" class="small" style="margin-top:6px;"></div>
+      </div>
+
+      <div class="row">
+        <button id="exportClean" disabled>Export cleaned CSV</button>
+        <button id="exportIssues" disabled>Export issues JSON</button>
+      </div>
+
+      <div class="row" style="justify-content:space-between;">
+        <label style="margin:0;">
+          <input id="backfillAccounts" type="checkbox" checked />
+          <span class="small">Backfill missing accounts</span>
+        </label>
+        <label style="margin:0;">
+          <input id="onlyFlagged" type="checkbox" />
+          <span class="small">Only flagged</span>
+        </label>
+      </div>
+
+      <div class="split">
         <div>
-          <label>Upload QBO export (.csv or .xlsx)</label>
-          <input id="file" type="file" accept=".csv,.xlsx,.xls" />
-          <div id="libHint" class="small" style="margin-top:6px;"></div>
-          <div id="fileHint" class="small" style="margin-top:6px;"></div>
+          <label>Start date</label>
+          <input id="startDate" type="date" />
         </div>
-
-        <div class="row">
-          <button id="exportClean" disabled>Export cleaned CSV</button>
-          <button id="exportIssues" disabled>Export issues JSON</button>
-        </div>
-
-        <div class="row" style="justify-content: space-between;">
-          <label style="margin:0;">
-            <input id="backfillAccounts" type="checkbox" checked />
-            <span class="small">Backfill missing accounts from section headers</span>
-          </label>
-        </div>
-
-        <div class="split">
-          <div>
-            <label>Start date</label>
-            <input id="startDate" type="date" />
-          </div>
-          <div>
-            <label>End date</label>
-            <input id="endDate" type="date" />
-          </div>
-        </div>
-
         <div>
-          <label>Search (name, memo, account, class, location)</label>
-          <input id="q" type="text" placeholder="e.g. Shopify, Embroidery, invoice 1046" />
+          <label>End date</label>
+          <input id="endDate" type="date" />
         </div>
+      </div>
 
-        <div class="split">
-          <div>
-            <label>Account</label>
-            <select id="accountFilter"></select>
-          </div>
-          <div>
-            <label>Class</label>
-            <select id="classFilter"></select>
-          </div>
+      <div>
+        <label>Search</label>
+        <input id="q" type="text" placeholder="Shopify, Embroidery, invoice 1046…" />
+      </div>
+
+      <div class="split">
+        <div>
+          <label>Account</label>
+          <select id="accountFilter"></select>
         </div>
-
-        <div class="split">
-          <div>
-            <label>Location</label>
-            <select id="locationFilter"></select>
-          </div>
-          <div>
-            <label>Transaction type</label>
-            <select id="typeFilter"></select>
-          </div>
+        <div>
+          <label>Class</label>
+          <select id="classFilter"></select>
         </div>
+      </div>
 
-        <div class="row" style="justify-content: space-between;">
+      <div class="split">
+        <div>
+          <label>Location</label>
+          <select id="locationFilter"></select>
+        </div>
+        <div>
+          <label>Txn type</label>
+          <select id="typeFilter"></select>
+        </div>
+      </div>
+
+      <details>
+        <summary>Column mapping + label column</summary>
+        <div id="mapping" style="display:grid; gap:10px; margin-top:10px;"></div>
+        <div id="labelColHint" class="small" style="margin-top:8px;"></div>
+      </details>
+
+      <details>
+        <summary>Advanced</summary>
+        <div style="margin-top:10px; display:grid; gap:10px;">
           <label style="margin:0;">
             <input id="includeTotals" type="checkbox" />
-            <span class="small">Include “Total for …” rows</span>
+            <span class="small">Include totals/section rows</span>
           </label>
-          <label style="margin:0;">
-            <input id="onlyFlagged" type="checkbox" />
-            <span class="small">Only flagged rows</span>
-          </label>
-        </div>
 
-        <details>
-          <summary>Column mapping + label column</summary>
-          <div id="mapping" style="display:grid; gap:10px; margin-top:10px;"></div>
-          <div id="labelColHint" class="small" style="margin-top:8px;"></div>
-        </details>
+          <div class="split">
+            <div>
+              <label>Page size</label>
+              <select id="pageSize">
+                <option value="25">25</option>
+                <option value="50" selected>50</option>
+                <option value="100">100</option>
+                <option value="250">250</option>
+              </select>
+            </div>
+            <div>
+              <label>Sort</label>
+              <select id="sortBy">
+                <option value="date_desc" selected>Date ↓</option>
+                <option value="date_asc">Date ↑</option>
+                <option value="amount_desc">Amount ↓</option>
+                <option value="amount_asc">Amount ↑</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </details>
+    </div>
+  </aside>
+
+  <!-- Main -->
+  <main style="display:grid; gap: var(--gap);">
+    <section class="kpis">
+      <div class="kpi"><div class="t">Transactions</div><div id="kTxns" class="v">—</div></div>
+      <div class="kpi"><div class="t">Net amount</div><div id="kNet" class="v">—</div></div>
+      <div class="kpi"><div class="t">Flagged txns</div><div id="kFlags" class="v">—</div></div>
+      <div class="kpi"><div class="t">Account backfilled</div><div id="kFill" class="v">—</div></div>
+    </section>
+
+    <!-- Summary -->
+    <section class="card panel active" id="panel-summary">
+      <div class="row" style="justify-content:space-between;">
+        <div class="pill">Summary</div>
+        <div class="small" id="summaryHint"></div>
+      </div>
+      <div id="summaryGrid" style="margin-top:12px; display:grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap:12px;"></div>
+    </section>
+
+    <!-- Transactions -->
+    <section class="card panel" id="panel-transactions">
+      <div class="row" style="justify-content:space-between;">
+        <div class="pill">Transactions</div>
+        <div class="small" id="rowCount"></div>
+      </div>
+
+      <div class="tableWrap" style="margin-top:10px;">
+        <table>
+          <thead>
+            <tr>
+              <th style="min-width:120px;">Date</th>
+              <th style="min-width:110px;">Type</th>
+              <th style="min-width:70px;">Num</th>
+              <th style="min-width:170px;">Name</th>
+              <th style="min-width:180px;">Account</th>
+              <th style="min-width:140px;">Class</th>
+              <th style="min-width:140px;">Location</th>
+              <th class="right" style="min-width:120px;">Amount</th>
+              <th style="min-width:240px;">Flags</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+
+      <div class="pager">
+        <div class="left">
+          <button id="prevPage">Prev</button>
+          <button id="nextPage">Next</button>
+          <span class="small" id="pageInfo"></span>
+        </div>
+        <div class="right">
+          <span class="small">Tip: click a row to inspect details</span>
+        </div>
       </div>
     </section>
 
-    <section style="display:grid; gap: var(--gap);">
-      <div class="kpis">
-        <div class="kpi"><div class="t">Transactions</div><div id="kTxns" class="v">—</div></div>
-        <div class="kpi"><div class="t">Net amount</div><div id="kNet" class="v">—</div></div>
-        <div class="kpi"><div class="t">Flagged rows</div><div id="kFlags" class="v">—</div></div>
-        <div class="kpi"><div class="t">Account-filled</div><div id="kFill" class="v">—</div></div>
+    <!-- Issues -->
+    <section class="card panel" id="panel-issues">
+      <div class="row" style="justify-content:space-between;">
+        <div class="pill">Issues</div>
+        <div class="small">Grouped counts</div>
       </div>
-
-      <div class="card">
-        <div class="row" style="justify-content: space-between;">
-          <div class="pill">Rows</div>
-          <div class="small" id="rowCount"></div>
-        </div>
-
-        <div style="margin-top:10px; overflow:auto; max-height: 70vh;">
-          <table>
-            <thead>
-              <tr>
-                <th style="min-width:120px;">Date</th>
-                <th style="min-width:120px;">Type</th>
-                <th style="min-width:70px;">Num</th>
-                <th style="min-width:180px;">Name</th>
-                <th style="min-width:160px;">Account (filled)</th>
-                <th style="min-width:140px;">Class</th>
-                <th style="min-width:140px;">Location</th>
-                <th style="min-width:320px;">Memo</th>
-                <th class="right" style="min-width:120px;">Amount</th>
-                <th class="right" style="min-width:120px;">Balance</th>
-                <th style="min-width:240px;">Flags</th>
-              </tr>
-            </thead>
-            <tbody id="tbody"></tbody>
-          </table>
-        </div>
+      <div class="tableWrap" style="margin-top:10px; max-height: 68vh;">
+        <table>
+          <thead>
+            <tr>
+              <th>Issue</th>
+              <th class="right">Count</th>
+            </tr>
+          </thead>
+          <tbody id="issuesBody"></tbody>
+        </table>
       </div>
     </section>
+
+    <!-- Recon -->
+    <section class="card panel" id="panel-recon">
+      <div class="row" style="justify-content:space-between;">
+        <div class="pill">Recon</div>
+        <div class="small">Computed by account (transactions only)</div>
+      </div>
+      <div class="tableWrap" style="margin-top:10px; max-height: 68vh;">
+        <table>
+          <thead>
+            <tr>
+              <th>Account</th>
+              <th class="right">Total</th>
+              <th class="right">Count</th>
+            </tr>
+          </thead>
+          <tbody id="reconBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- Drawer -->
+<div class="drawerBack" id="drawerBack" role="dialog" aria-modal="true">
+  <div class="drawer">
+    <div class="row" style="justify-content:space-between;">
+      <h2>Row inspector</h2>
+      <button id="closeDrawer">Close</button>
+    </div>
+    <div class="small" id="drawerMeta"></div>
+    <pre id="drawerPre"></pre>
   </div>
-</main>
+</div>
 
 <script>
   const STD_FIELDS = [
@@ -276,10 +402,22 @@
 
   const state = {
     rawRows: [],
-    normalizedRows: [],
-    mapping: {},
     headers: [],
-    labelColumn: "", // detected “left label” column for section/account headers
+    mapping: {},
+    labelColumn: "",
+    normalized: [],      // full normalized rows (including section/total)
+    txns: [],            // transaction-only normalized rows
+    filtered: [],        // filtered txns for table/paging
+    issuesAgg: [],       // [{issue,count}]
+    reconAgg: [],        // [{account,total,count}]
+    stats: { filledAccounts: 0 },
+    ui: {
+      tab: "summary",
+      page: 1,
+      pageSize: 50,
+      sortBy: "date_desc",
+      debounce: null,
+    },
     filters: {
       startDate: null,
       endDate: null,
@@ -291,12 +429,14 @@
       includeTotals: false,
       onlyFlagged: false,
       backfillAccounts: true,
-    },
-    stats: { filledAccounts: 0 }
+    }
   };
 
   const $ = (id) => document.getElementById(id);
 
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[c]));
+  }
   function normHeader(s){ return String(s ?? "").trim().toLowerCase().replace(/\s+/g," "); }
 
   function detectMapping(headers){
@@ -320,45 +460,27 @@
     return mapping;
   }
 
-  function escapeHtml(s){
-    return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[c]));
-  }
-
   function excelDateToISO(n){
     const epoch = new Date(Date.UTC(1899, 11, 30));
     const ms = epoch.getTime() + (Number(n) * 86400000);
     const d = new Date(ms);
     return isFinite(d) ? d.toISOString().slice(0,10) : null;
   }
-
   function parseDateToISO(v){
     if(v == null || v === "") return null;
     if(typeof v === "number" && isFinite(v)) return excelDateToISO(v);
-
     const s = String(v).trim();
     if(!s) return null;
-
     if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-
     const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
     if(mdy) return `${mdy[3]}-${String(mdy[1]).padStart(2,"0")}-${String(mdy[2]).padStart(2,"0")}`;
-
-    const dmyMon = s.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
-    if(dmyMon){
-      const monMap = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12 };
-      const mm = monMap[dmyMon[2].toLowerCase()];
-      if(mm) return `${dmyMon[3]}-${String(mm).padStart(2,"0")}-${String(dmyMon[1]).padStart(2,"0")}`;
-    }
-
     const t = Date.parse(s);
     if(!Number.isNaN(t)) return new Date(t).toISOString().slice(0,10);
     return null;
   }
-
   function parseMoney(v){
     if(v == null || v === "") return null;
     if(typeof v === "number" && isFinite(v)) return v;
-
     let s = String(v).trim();
     if(!s) return null;
     const negParens = /^\(.*\)$/.test(s);
@@ -367,32 +489,28 @@
     if(!isFinite(n)) return null;
     return negParens ? -n : n;
   }
-
-  function isTotalsText(s){
-    return String(s ?? "").toLowerCase().includes("total for ");
+  function fmtMoney(n){
+    if(n == null || !isFinite(n)) return "—";
+    return n.toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 });
   }
 
+  function isTotalsText(s){ return String(s ?? "").toLowerCase().includes("total for "); }
+
   function pickLabelColumn(headers, rows, mapping){
-    // Choose a non-mapped column with lots of non-empty strings.
     const mapped = new Set(Object.values(mapping).filter(Boolean));
     const candidates = headers.filter(h => !mapped.has(h));
-
     if(candidates.length === 0) return "";
-
     const score = (h) => {
-      let nonEmpty = 0;
-      let looksLikeLabel = 0;
-      for(const r of rows.slice(0, Math.min(300, rows.length))){
-        const v = r[h];
-        const s = String(v ?? "").trim();
+      let nonEmpty=0, labelish=0;
+      for(const r of rows.slice(0, Math.min(400, rows.length))){
+        const s = String(r[h] ?? "").trim();
         if(!s) continue;
         nonEmpty++;
-        if(isTotalsText(s)) looksLikeLabel += 2;
-        if(s.length >= 3 && /[A-Za-z]/.test(s) && !/^\d+(\.\d+)?$/.test(s)) looksLikeLabel += 1;
+        if(isTotalsText(s)) labelish += 3;
+        if(/[A-Za-z]/.test(s) && s.length >= 3 && !/^\d+(\.\d+)?$/.test(s)) labelish += 1;
       }
-      return nonEmpty + looksLikeLabel;
+      return nonEmpty + labelish;
     };
-
     candidates.sort((a,b)=>score(b)-score(a));
     return candidates[0];
   }
@@ -402,72 +520,52 @@
     const amt = parseMoney(get("amount"));
     const type = String(get("transactionType") ?? "").trim();
     const label = labelCol ? String(raw[labelCol] ?? "").trim() : "";
-
-    // Totals rows often have "Total for X" in the label column (or sometimes elsewhere)
     const anyText = `${label} ${get("memo")} ${get("name")} ${get("itemSplitAccount")}`.trim();
     if(isTotalsText(anyText)) return "total";
-
-    // “Section/header” row: label present, but no transaction date and no amount/type
     if(label && !dateISO && (amt == null) && !type) return "section";
-
-    // Default
     return "transaction";
   }
 
-  function buildNormalizedRows(){
+  function buildNormalized(){
     const getFactory = (raw) => (stdKey) => {
       const src = state.mapping[stdKey];
       return src ? raw[src] : "";
     };
 
-    const rows = [];
-    let currentLabelPath = []; // track nested headers best-effort
-    let currentAccountLeaf = "";
-    let filledAccounts = 0;
+    let currentLeaf = "";
+    let currentPath = [];
+    let filled = 0;
 
+    const out = [];
     for(let i=0;i<state.rawRows.length;i++){
       const raw = state.rawRows[i];
       const get = getFactory(raw);
       const label = state.labelColumn ? String(raw[state.labelColumn] ?? "").trim() : "";
-
       const rowKind = classifyRow(raw, get, state.labelColumn);
 
-      if(rowKind === "section"){
-        // Update section context.
-        // Heuristic: treat each section label as a leaf; keep only last 2 levels to avoid runaway.
-        const clean = label;
-        if(clean){
-          currentLabelPath.push(clean);
-          if(currentLabelPath.length > 3) currentLabelPath = currentLabelPath.slice(-3);
-          currentAccountLeaf = clean;
-        }
+      if(rowKind === "section" && label){
+        currentPath.push(label);
+        if(currentPath.length > 3) currentPath = currentPath.slice(-3);
+        currentLeaf = label;
       }
 
       const dateISO = parseDateToISO(get("transactionDate"));
       const amountNum = parseMoney(get("amount"));
       const balanceNum = parseMoney(get("balance"));
 
-      let itemSplitAccount = String(get("itemSplitAccount") ?? "").trim();
-      const originalAccount = itemSplitAccount;
+      const originalAccount = String(get("itemSplitAccount") ?? "").trim();
+      let account = originalAccount;
 
-      // Backfill: if account blank on transaction row, set to current leaf header
-      const doBackfill = state.filters.backfillAccounts;
-      if(rowKind === "transaction" && doBackfill && !itemSplitAccount && currentAccountLeaf){
-        itemSplitAccount = currentAccountLeaf;
-        filledAccounts++;
-      }
-
-      // Totals: attach to current leaf if blank
-      let totalGroup = "";
-      if(rowKind === "total"){
-        totalGroup = currentAccountLeaf || label || "(unknown total group)";
+      if(rowKind === "transaction" && state.filters.backfillAccounts && !account && currentLeaf){
+        account = currentLeaf;
+        filled++;
       }
 
       const r = {
         _idx: i,
-        rowKind, // transaction | section | total
+        rowKind,
         label,
-
+        sectionPath: [...currentPath],
         transactionDate: get("transactionDate"),
         transactionType: String(get("transactionType") ?? "").trim(),
         num: String(get("num") ?? "").trim(),
@@ -475,52 +573,42 @@
         location: String(get("location") ?? "").trim(),
         classFullName: String(get("classFullName") ?? "").trim(),
         memo: String(get("memo") ?? "").trim(),
-
         itemSplitAccountOriginal: originalAccount,
-        itemSplitAccount,
-
-        amount: get("amount"),
-        balance: get("balance"),
-
-        dateISO,
+        itemSplitAccount: account,
         amountNum,
         balanceNum,
-
-        sectionPath: [...currentLabelPath],
-        totalGroup,
-
+        dateISO,
         flags: [],
+        _raw: raw,
       };
 
       if(rowKind === "transaction"){
-        if(!r.dateISO) r.flags.push({ level:"bad", msg:"Bad/missing date" });
-        if(r.amountNum == null) r.flags.push({ level:"bad", msg:"Amount not numeric" });
-        if(!r.itemSplitAccount) r.flags.push({ level:"warn", msg:"Missing account (even after backfill)" });
-        if(!r.classFullName) r.flags.push({ level:"warn", msg:"Missing class" });
-        if(!r.location) r.flags.push({ level:"warn", msg:"Missing location" });
-        if(!r.transactionType) r.flags.push({ level:"warn", msg:"Missing type" });
-        if(r.itemSplitAccount && !r.itemSplitAccountOriginal && doBackfill){
-          r.flags.push({ level:"ok", msg:"Account backfilled" });
+        if(!r.dateISO) r.flags.push({ type:"bad_date", level:"bad", msg:"Bad/missing date" });
+        if(r.amountNum == null) r.flags.push({ type:"bad_amount", level:"bad", msg:"Amount not numeric" });
+        if(!r.itemSplitAccount) r.flags.push({ type:"missing_account", level:"warn", msg:"Missing account" });
+        if(!r.classFullName) r.flags.push({ type:"missing_class", level:"warn", msg:"Missing class" });
+        if(!r.location) r.flags.push({ type:"missing_location", level:"warn", msg:"Missing location" });
+        if(!r.transactionType) r.flags.push({ type:"missing_type", level:"warn", msg:"Missing type" });
+        if(state.filters.backfillAccounts && !r.itemSplitAccountOriginal && r.itemSplitAccount){
+          r.flags.push({ type:"backfilled", level:"ok", msg:"Account backfilled" });
         }
       }
 
-      rows.push(r);
+      out.push(r);
     }
 
-    state.stats.filledAccounts = filledAccounts;
-    state.normalizedRows = rows;
+    state.stats.filledAccounts = filled;
+    state.normalized = out;
+    state.txns = out.filter(r => r.rowKind === "transaction");
   }
 
   function buildSelectOptions(selectEl, values){
+    const current = selectEl.value;
     selectEl.innerHTML = "";
     const add = (v,t) => { const o=document.createElement("option"); o.value=v; o.textContent=t; selectEl.appendChild(o); };
     add("__ALL__", "All");
     for(const v of values) add(v, v);
-  }
-
-  function fmtMoney(n){
-    if(n == null || !isFinite(n)) return "—";
-    return n.toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 });
+    if([...selectEl.options].some(o => o.value === current)) selectEl.value = current;
   }
 
   function withinDate(iso, startISO, endISO){
@@ -528,6 +616,318 @@
     if(startISO && iso < startISO) return false;
     if(endISO && iso > endISO) return false;
     return true;
+  }
+
+  function sortRows(rows){
+    const mode = state.ui.sortBy;
+    const cmp = {
+      date_desc: (a,b)=> String(b.dateISO||"").localeCompare(String(a.dateISO||"")),
+      date_asc: (a,b)=> String(a.dateISO||"").localeCompare(String(b.dateISO||"")),
+      amount_desc: (a,b)=> (Math.abs(b.amountNum||0)-Math.abs(a.amountNum||0)),
+      amount_asc: (a,b)=> (Math.abs(a.amountNum||0)-Math.abs(b.amountNum||0)),
+    }[mode] || ((a,b)=>0);
+    return [...rows].sort(cmp);
+  }
+
+  function applyFilters(){
+    const f = state.filters;
+    const startISO = f.startDate || null;
+    const endISO = f.endDate || null;
+    const q = (f.q || "").trim().toLowerCase();
+
+    let rows = state.txns.filter(r=>{
+      if((startISO || endISO) && !withinDate(r.dateISO, startISO, endISO)) return false;
+      if(f.account !== "__ALL__" && r.itemSplitAccount !== f.account) return false;
+      if(f.classFullName !== "__ALL__" && r.classFullName !== f.classFullName) return false;
+      if(f.location !== "__ALL__" && r.location !== f.location) return false;
+      if(f.transactionType !== "__ALL__" && r.transactionType !== f.transactionType) return false;
+      if(f.onlyFlagged && r.flags.length === 0) return false;
+
+      if(q){
+        const hay = [
+          r.name, r.memo, r.itemSplitAccount, r.classFullName, r.location, r.transactionType, r.num,
+          r.sectionPath.join(" > ")
+        ].join(" ").toLowerCase();
+        if(!hay.includes(q)) return false;
+      }
+      return true;
+    });
+
+    rows = sortRows(rows);
+    state.filtered = rows;
+
+    // reset page if out of range
+    const totalPages = Math.max(1, Math.ceil(rows.length / state.ui.pageSize));
+    if(state.ui.page > totalPages) state.ui.page = totalPages;
+    if(state.ui.page < 1) state.ui.page = 1;
+
+    renderAll();
+  }
+
+  function computeAggs(){
+    // Issues counts
+    const counts = new Map();
+    for(const r of state.txns){
+      for(const fl of r.flags){
+        const k = fl.type;
+        counts.set(k, (counts.get(k)||0)+1);
+      }
+    }
+    state.issuesAgg = [...counts.entries()]
+      .map(([issue,count])=>({issue,count}))
+      .sort((a,b)=>b.count-a.count);
+
+    // Recon by account
+    const m = new Map();
+    const c = new Map();
+    for(const r of state.txns){
+      if(r.amountNum == null) continue;
+      const acct = r.itemSplitAccount || "(blank)";
+      m.set(acct, (m.get(acct)||0) + r.amountNum);
+      c.set(acct, (c.get(acct)||0) + 1);
+    }
+    state.reconAgg = [...m.entries()]
+      .map(([account,total])=>({account,total,count:c.get(account)||0}))
+      .sort((a,b)=>Math.abs(b.total)-Math.abs(a.total));
+  }
+
+  function renderKPIs(){
+    const txns = state.txns;
+    const net = txns.reduce((s,r)=>s+(r.amountNum||0),0);
+    const flagged = txns.filter(r=>r.flags.length>0).length;
+
+    $("kTxns").textContent = String(txns.length);
+    $("kNet").textContent = fmtMoney(net);
+    $("kFlags").textContent = String(flagged);
+    $("kFill").textContent = String(state.stats.filledAccounts);
+
+    const dates = txns.map(r=>r.dateISO).filter(Boolean).sort();
+    $("summaryHint").textContent = dates.length ? `${dates[0]} → ${dates[dates.length-1]}` : "—";
+  }
+
+  function renderSummary(){
+    const txns = state.filtered.length ? state.filtered : state.txns;
+    const pivot = (keyFn) => {
+      const m = new Map();
+      for(const r of txns){
+        if(r.amountNum == null) continue;
+        const k = keyFn(r) || "(blank)";
+        m.set(k, (m.get(k)||0) + r.amountNum);
+      }
+      return [...m.entries()].sort((a,b)=>Math.abs(b[1])-Math.abs(a[1])).slice(0, 10);
+    };
+
+    const blocks = [
+      { title:"Top accounts", rows: pivot(r=>r.itemSplitAccount) },
+      { title:"Top classes", rows: pivot(r=>r.classFullName) },
+      { title:"Top locations", rows: pivot(r=>r.location) },
+      { title:"Top txn types", rows: pivot(r=>r.transactionType) },
+    ];
+
+    const host = $("summaryGrid");
+    host.innerHTML = "";
+    for(const b of blocks){
+      const card = document.createElement("div");
+      card.className = "card";
+      card.style.boxShadow = "none";
+      card.style.borderRadius = "14px";
+      card.innerHTML = `<div class="row" style="justify-content:space-between;">
+        <div class="pill">${escapeHtml(b.title)}</div>
+        <div class="small">Top 10</div>
+      </div>`;
+      const t = document.createElement("table");
+      t.style.marginTop = "10px";
+      t.innerHTML = `<thead><tr><th>Key</th><th class="right">Total</th></tr></thead><tbody></tbody>`;
+      const tb = t.querySelector("tbody");
+      for(const [k,v] of b.rows){
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${escapeHtml(String(k))}</td><td class="right">${fmtMoney(v)}</td>`;
+        tb.appendChild(tr);
+      }
+      card.appendChild(t);
+      host.appendChild(card);
+    }
+  }
+
+  function renderIssues(){
+    const tb = $("issuesBody");
+    tb.innerHTML = "";
+    for(const it of state.issuesAgg){
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${escapeHtml(it.issue)}</td><td class="right">${it.count.toLocaleString()}</td>`;
+      tb.appendChild(tr);
+    }
+  }
+
+  function renderRecon(){
+    const tb = $("reconBody");
+    tb.innerHTML = "";
+    for(const it of state.reconAgg.slice(0, 200)){
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td>${escapeHtml(it.account)}</td><td class="right">${fmtMoney(it.total)}</td><td class="right">${it.count.toLocaleString()}</td>`;
+      tb.appendChild(tr);
+    }
+  }
+
+  function renderTransactionsTable(){
+    const total = state.filtered.length;
+    const pageSize = state.ui.pageSize;
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const page = state.ui.page;
+
+    const start = (page - 1) * pageSize;
+    const end = Math.min(total, start + pageSize);
+    const slice = state.filtered.slice(start, end);
+
+    $("rowCount").textContent = `${total.toLocaleString()} match · showing ${start+1}-${end} (page ${page}/${totalPages})`;
+    $("pageInfo").textContent = `Page ${page} / ${totalPages}`;
+    $("prevPage").disabled = page <= 1;
+    $("nextPage").disabled = page >= totalPages;
+
+    const tb = $("tbody");
+    tb.innerHTML = "";
+
+    for(const r of slice){
+      const flagsHtml = r.flags.length
+        ? `<div class="flags">${r.flags.slice(0,4).map(f=>{
+            const cls = f.level==="ok" ? "flag ok" : f.level==="warn" ? "flag warn" : "flag";
+            return `<span class="${cls}">${escapeHtml(f.msg)}</span>`;
+          }).join("")}${r.flags.length>4 ? `<span class="flag warn">+${r.flags.length-4} more</span>` : ""}</div>`
+        : `<span class="small">—</span>`;
+
+      const tr = document.createElement("tr");
+      tr.style.cursor = "pointer";
+      tr.dataset.idx = String(r._idx);
+      tr.innerHTML = `
+        <td>${escapeHtml(r.dateISO || "—")}</td>
+        <td>${escapeHtml(r.transactionType || "—")}</td>
+        <td>${escapeHtml(r.num || "—")}</td>
+        <td>${escapeHtml(r.name || "—")}</td>
+        <td>${escapeHtml(r.itemSplitAccount || "—")}</td>
+        <td>${escapeHtml(r.classFullName || "—")}</td>
+        <td>${escapeHtml(r.location || "—")}</td>
+        <td class="right">${r.amountNum == null ? "—" : fmtMoney(r.amountNum)}</td>
+        <td>${flagsHtml}</td>
+      `;
+      tr.addEventListener("click", ()=>openDrawer(r));
+      tb.appendChild(tr);
+    }
+  }
+
+  function renderAll(){
+    renderKPIs();
+    renderSummary();
+    renderTransactionsTable();
+    computeAggs();
+    renderIssues();
+    renderRecon();
+  }
+
+  function openDrawer(r){
+    $("drawerBack").classList.add("open");
+    $("drawerMeta").innerHTML = `
+      <span class="pill">idx ${r._idx}</span>
+      <span class="pill">${escapeHtml(r.dateISO || "—")}</span>
+      <span class="pill">${escapeHtml(r.itemSplitAccount || "—")}</span>
+    `;
+    const payload = {
+      normalized: {
+        idx: r._idx,
+        dateISO: r.dateISO,
+        transactionType: r.transactionType,
+        num: r.num,
+        name: r.name,
+        accountOriginal: r.itemSplitAccountOriginal,
+        accountFilled: r.itemSplitAccount,
+        classFullName: r.classFullName,
+        location: r.location,
+        memo: r.memo,
+        sectionPath: r.sectionPath,
+        amountNum: r.amountNum,
+        balanceNum: r.balanceNum,
+        flags: r.flags,
+      },
+      raw: r._raw
+    };
+    $("drawerPre").textContent = JSON.stringify(payload, null, 2);
+  }
+  function closeDrawer(){ $("drawerBack").classList.remove("open"); }
+
+  function setTab(tab){
+    state.ui.tab = tab;
+    for(const b of document.querySelectorAll(".tab")){
+      b.classList.toggle("active", b.dataset.tab === tab);
+    }
+    for(const p of document.querySelectorAll(".panel")){
+      p.classList.toggle("active", p.id === `panel-${tab}`);
+    }
+  }
+
+  function buildMappingUI(){
+    const headers = state.headers;
+    const host = $("mapping");
+    host.innerHTML = "";
+
+    const makeSelect = (value, onChange) => {
+      const sel = document.createElement("select");
+      const opt0 = document.createElement("option");
+      opt0.value = "";
+      opt0.textContent = "(not mapped)";
+      sel.appendChild(opt0);
+      for(const h of headers){
+        const opt = document.createElement("option");
+        opt.value = h; opt.textContent = h;
+        sel.appendChild(opt);
+      }
+      sel.value = value || "";
+      sel.addEventListener("change", ()=>onChange(sel.value));
+      return sel;
+    };
+
+    for(const f of STD_FIELDS){
+      const wrap = document.createElement("div");
+      wrap.innerHTML = `<label>${escapeHtml(f.label)}</label>`;
+      wrap.appendChild(makeSelect(state.mapping[f.key], (v)=>{
+        state.mapping[f.key]=v;
+        rebuildDataOnly();
+      }));
+      host.appendChild(wrap);
+    }
+
+    const labelWrap = document.createElement("div");
+    labelWrap.innerHTML = `<label>Label column (section headers like “Embroidery Income”)</label>`;
+    labelWrap.appendChild(makeSelect(state.labelColumn, (v)=>{
+      state.labelColumn = v;
+      rebuildDataOnly();
+    }));
+    host.appendChild(labelWrap);
+
+    $("labelColHint").innerHTML =
+      state.labelColumn
+        ? `Label column: <span class="mono">${escapeHtml(state.labelColumn)}</span>`
+        : `<span class="warn">No label column detected</span>`;
+  }
+
+  function rebuildDataOnly(){
+    // Called only when parsing logic changes (mapping / backfill / label col)
+    buildNormalized();
+    buildFacetSelects();
+    state.ui.page = 1;
+    applyFilters();
+  }
+
+  function buildFacetSelects(){
+    const txns = state.txns;
+
+    const accounts = [...new Set(txns.map(r=>r.itemSplitAccount).filter(Boolean))].sort();
+    const classes = [...new Set(txns.map(r=>r.classFullName).filter(Boolean))].sort();
+    const locations = [...new Set(txns.map(r=>r.location).filter(Boolean))].sort();
+    const types = [...new Set(txns.map(r=>r.transactionType).filter(Boolean))].sort();
+
+    buildSelectOptions($("accountFilter"), accounts);
+    buildSelectOptions($("classFilter"), classes);
+    buildSelectOptions($("locationFilter"), locations);
+    buildSelectOptions($("typeFilter"), types);
   }
 
   function setFiltersFromUI(){
@@ -541,150 +941,14 @@
     state.filters.includeTotals = $("includeTotals").checked;
     state.filters.onlyFlagged = $("onlyFlagged").checked;
     state.filters.backfillAccounts = $("backfillAccounts").checked;
+
+    state.ui.pageSize = Number($("pageSize").value);
+    state.ui.sortBy = $("sortBy").value;
   }
 
-  function applyFilters(){
-    const f = state.filters;
-    const startISO = f.startDate || null;
-    const endISO = f.endDate || null;
-    const q = (f.q || "").trim().toLowerCase();
-
-    const filtered = state.normalizedRows.filter(r=>{
-      if(!f.includeTotals && (r.rowKind === "total" || r.rowKind === "section")) return false;
-
-      if(r.rowKind === "transaction" && (startISO || endISO)){
-        if(!withinDate(r.dateISO, startISO, endISO)) return false;
-      }
-
-      if(f.account !== "__ALL__" && r.itemSplitAccount !== f.account) return false;
-      if(f.classFullName !== "__ALL__" && r.classFullName !== f.classFullName) return false;
-      if(f.location !== "__ALL__" && r.location !== f.location) return false;
-      if(f.transactionType !== "__ALL__" && r.transactionType !== f.transactionType) return false;
-
-      if(q){
-        const hay = [
-          r.label, r.name, r.memo, r.itemSplitAccount, r.classFullName, r.location, r.transactionType, r.num,
-          (r.sectionPath || []).join(" > ")
-        ].join(" ").toLowerCase();
-        if(!hay.includes(q)) return false;
-      }
-
-      if(f.onlyFlagged && (!r.flags || r.flags.length === 0)) return false;
-      return true;
-    });
-
-    render(filtered);
-  }
-
-  function render(rows){
-    const txnsAll = state.normalizedRows.filter(r => r.rowKind === "transaction");
-    const net = txnsAll.reduce((s,r)=>s+(r.amountNum||0),0);
-    const flagged = txnsAll.filter(r => r.flags.length > 0).length;
-
-    $("kTxns").textContent = String(txnsAll.length);
-    $("kNet").textContent = fmtMoney(net);
-    $("kFlags").textContent = String(flagged);
-    $("kFill").textContent = String(state.stats.filledAccounts);
-
-    $("rowCount").textContent = `${rows.length} rows shown`;
-
-    const tb = $("tbody");
-    tb.innerHTML = "";
-
-    for(const r of rows){
-      const flagsHtml = (r.flags||[]).length
-        ? `<div class="flags">${r.flags.map(f=>{
-            const cls = f.level === "ok" ? "flag ok" : f.level === "warn" ? "flag warn" : "flag";
-            return `<span class="${cls}">${escapeHtml(f.msg)}</span>`;
-          }).join("")}</div>`
-        : `<span class="small">—</span>`;
-
-      const dateCell = r.dateISO || (r.rowKind === "total" ? "TOTAL" : (r.rowKind === "section" ? "SECTION" : "—"));
-      const acct = r.itemSplitAccount || "—";
-      const acctHint = r.itemSplitAccountOriginal ? "" : (r.itemSplitAccount ? " (filled)" : "");
-      const memo = r.memo || (r.label ? `[${r.label}]` : "—");
-
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${escapeHtml(dateCell)}</td>
-        <td>${escapeHtml(r.transactionType || "—")}</td>
-        <td>${escapeHtml(r.num || "—")}</td>
-        <td>${escapeHtml(r.name || "—")}</td>
-        <td>${escapeHtml(acct)}<div class="small">${escapeHtml(acctHint)}${r.sectionPath?.length ? " · " + escapeHtml(r.sectionPath.join(" > ")) : ""}</div></td>
-        <td>${escapeHtml(r.classFullName || "—")}</td>
-        <td>${escapeHtml(r.location || "—")}</td>
-        <td>${escapeHtml(memo)}</td>
-        <td class="right">${r.amountNum == null ? "—" : fmtMoney(r.amountNum)}</td>
-        <td class="right">${r.balanceNum == null ? "—" : fmtMoney(r.balanceNum)}</td>
-        <td>${flagsHtml}</td>
-      `;
-      tb.appendChild(tr);
-    }
-  }
-
-  function buildMappingUI(headers){
-    const host = $("mapping");
-    host.innerHTML = "";
-
-    const makeSelect = (value, onChange) => {
-      const sel = document.createElement("select");
-      const opt0 = document.createElement("option");
-      opt0.value = "";
-      opt0.textContent = "(not mapped)";
-      sel.appendChild(opt0);
-
-      for(const h of headers){
-        const opt=document.createElement("option");
-        opt.value=h; opt.textContent=h;
-        sel.appendChild(opt);
-      }
-      sel.value = value || "";
-      sel.addEventListener("change", ()=>onChange(sel.value));
-      return sel;
-    };
-
-    for(const f of STD_FIELDS){
-      const wrap=document.createElement("div");
-      wrap.innerHTML = `<label>${escapeHtml(f.label)}</label>`;
-      wrap.appendChild(makeSelect(state.mapping[f.key], (v)=>{
-        state.mapping[f.key]=v;
-        rebuildAll();
-      }));
-      host.appendChild(wrap);
-    }
-
-    const labelWrap = document.createElement("div");
-    labelWrap.innerHTML = `<label>Label column (section headers like “Embroidery Income”)</label>`;
-    labelWrap.appendChild(makeSelect(state.labelColumn, (v)=>{
-      state.labelColumn = v;
-      rebuildAll();
-    }));
-    host.appendChild(labelWrap);
-
-    $("labelColHint").innerHTML =
-      state.labelColumn
-        ? `Detected label column: <span class="mono">${escapeHtml(state.labelColumn)}</span>`
-        : `<span class="warn">No label column detected</span> — backfill may not work correctly.`;
-  }
-
-  function rebuildAll(){
-    buildNormalizedRows();
-
-    const txns = state.normalizedRows.filter(r => r.rowKind === "transaction");
-    const accounts = [...new Set(txns.map(r=>r.itemSplitAccount).filter(Boolean))].sort();
-    const classes = [...new Set(txns.map(r=>r.classFullName).filter(Boolean))].sort();
-    const locations = [...new Set(txns.map(r=>r.location).filter(Boolean))].sort();
-    const types = [...new Set(txns.map(r=>r.transactionType).filter(Boolean))].sort();
-
-    buildSelectOptions($("accountFilter"), accounts);
-    buildSelectOptions($("classFilter"), classes);
-    buildSelectOptions($("locationFilter"), locations);
-    buildSelectOptions($("typeFilter"), types);
-
-    $("exportClean").disabled = txns.length === 0;
-    $("exportIssues").disabled = txns.length === 0;
-
-    applyFilters();
+  function debounceApply(){
+    clearTimeout(state.ui.debounce);
+    state.ui.debounce = setTimeout(()=>{ setFiltersFromUI(); state.ui.page=1; applyFilters(); }, 120);
   }
 
   function downloadBlob(blob, filename){
@@ -698,8 +962,7 @@
   }
 
   function exportCSV(){
-    const txns = state.normalizedRows.filter(r => r.rowKind === "transaction");
-    const out = txns.map(r=>({
+    const out = state.txns.map(r=>({
       transaction_date: r.dateISO || "",
       transaction_type: r.transactionType || "",
       num: r.num || "",
@@ -707,22 +970,19 @@
       location: r.location || "",
       class_full_name: r.classFullName || "",
       memo: r.memo || "",
-      label: r.label || "",
-      section_path: (r.sectionPath || []).join(" > "),
+      section_path: r.sectionPath.join(" > "),
       item_split_account_original: r.itemSplitAccountOriginal || "",
       item_split_account_filled: r.itemSplitAccount || "",
       amount: (r.amountNum == null ? "" : r.amountNum),
       balance: (r.balanceNum == null ? "" : r.balanceNum),
-      flags: r.flags.map(f=>f.msg).join("|"),
+      flags: r.flags.map(f=>f.type).join("|"),
     }));
-
     const csv = window.Papa.unparse(out, { quotes:true });
     downloadBlob(new Blob([csv], { type:"text/csv;charset=utf-8" }), "recon_cleaned.csv");
   }
 
   function exportIssuesJSON(){
-    const txns = state.normalizedRows.filter(r => r.rowKind === "transaction");
-    const issues = txns.filter(r => r.flags.length > 0).map(r=>({
+    const issues = state.txns.filter(r=>r.flags.length>0).map(r=>({
       idx: r._idx,
       dateISO: r.dateISO,
       transactionType: r.transactionType,
@@ -733,27 +993,18 @@
       classFullName: r.classFullName,
       location: r.location,
       sectionPath: r.sectionPath,
-      label: r.label,
       amount: r.amountNum,
       balance: r.balanceNum,
       flags: r.flags,
+      raw: r._raw,
     }));
-
-    const payload = {
-      generatedAt: new Date().toISOString(),
-      labelColumn: state.labelColumn,
-      filledAccounts: state.stats.filledAccounts,
-      issues,
-    };
-
+    const payload = { generatedAt: new Date().toISOString(), issues, issuesAgg: state.issuesAgg, reconAgg: state.reconAgg };
     downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type:"application/json;charset=utf-8" }), "recon_issues.json");
   }
 
   async function parseFile(file){
     const name = file.name.toLowerCase();
-
     if(name.endsWith(".csv")){
-      if(!window.Papa) throw new Error("PapaParse not loaded; cannot parse CSV.");
       return await new Promise((resolve,reject)=>{
         window.Papa.parse(file,{
           header:true,
@@ -764,18 +1015,14 @@
         });
       });
     }
-
     if(name.endsWith(".xlsx") || name.endsWith(".xls")){
-      if(!window.XLSX){
-        throw new Error("XLSX library not loaded. XLSX parsing unavailable (network/CSP blocked). Export CSV from QBO or allow CDN access.");
-      }
+      if(!window.XLSX) throw new Error("XLSX library not loaded (network/CSP blocked). Export CSV from QBO or allow CDN.");
       const buf = await file.arrayBuffer();
       const wb = window.XLSX.read(buf, { type:"array" });
       const first = wb.SheetNames[0];
       const ws = wb.Sheets[first];
       return window.XLSX.utils.sheet_to_json(ws, { defval:"" });
     }
-
     throw new Error("Unsupported file type");
   }
 
@@ -786,38 +1033,78 @@
   }
 
   function initEmptySelects(){
-    buildSelectOptions($("accountFilter"), []);
-    buildSelectOptions($("classFilter"), []);
-    buildSelectOptions($("locationFilter"), []);
-    buildSelectOptions($("typeFilter"), []);
+    const selIds = ["accountFilter","classFilter","locationFilter","typeFilter"];
+    for(const id of selIds){
+      const sel = $(id);
+      sel.innerHTML = "";
+      const o = document.createElement("option");
+      o.value = "__ALL__"; o.textContent = "All";
+      sel.appendChild(o);
+    }
   }
 
-  function wireFilters(){
-    const ids = ["startDate","endDate","q","accountFilter","classFilter","locationFilter","typeFilter","includeTotals","onlyFlagged","backfillAccounts"];
-    for(const id of ids){
-      $(id).addEventListener("input", ()=>{ setFiltersFromUI(); rebuildAll(); });
-      $(id).addEventListener("change", ()=>{ setFiltersFromUI(); rebuildAll(); });
-    }
+  function wireUI(){
+    // Tabs
+    $("tabs").addEventListener("click", (e)=>{
+      const btn = e.target.closest(".tab");
+      if(!btn) return;
+      setTab(btn.dataset.tab);
+    });
+
+    // Drawer
+    $("closeDrawer").addEventListener("click", closeDrawer);
+    $("drawerBack").addEventListener("click", (e)=>{ if(e.target.id === "drawerBack") closeDrawer(); });
+
+    // Filters (NO rebuild here)
+    $("startDate").addEventListener("change", debounceApply);
+    $("endDate").addEventListener("change", debounceApply);
+    $("accountFilter").addEventListener("change", ()=>{ setFiltersFromUI(); state.ui.page=1; applyFilters(); });
+    $("classFilter").addEventListener("change", ()=>{ setFiltersFromUI(); state.ui.page=1; applyFilters(); });
+    $("locationFilter").addEventListener("change", ()=>{ setFiltersFromUI(); state.ui.page=1; applyFilters(); });
+    $("typeFilter").addEventListener("change", ()=>{ setFiltersFromUI(); state.ui.page=1; applyFilters(); });
+    $("onlyFlagged").addEventListener("change", ()=>{ setFiltersFromUI(); state.ui.page=1; applyFilters(); });
+    $("includeTotals").addEventListener("change", ()=>{ setFiltersFromUI(); state.ui.page=1; applyFilters(); });
+    $("pageSize").addEventListener("change", ()=>{ setFiltersFromUI(); state.ui.page=1; applyFilters(); });
+    $("sortBy").addEventListener("change", ()=>{ setFiltersFromUI(); state.ui.page=1; applyFilters(); });
+
+    // Search (debounced)
+    $("q").addEventListener("input", debounceApply);
+
+    // Backfill changes parsing => rebuild
+    $("backfillAccounts").addEventListener("change", ()=>{
+      setFiltersFromUI();
+      rebuildDataOnly();
+    });
+
+    // Pager
+    $("prevPage").addEventListener("click", ()=>{
+      state.ui.page = Math.max(1, state.ui.page - 1);
+      renderTransactionsTable();
+    });
+    $("nextPage").addEventListener("click", ()=>{
+      const totalPages = Math.max(1, Math.ceil(state.filtered.length / state.ui.pageSize));
+      state.ui.page = Math.min(totalPages, state.ui.page + 1);
+      renderTransactionsTable();
+    });
+
+    // Export
+    $("exportClean").addEventListener("click", exportCSV);
+    $("exportIssues").addEventListener("click", exportIssuesJSON);
   }
 
   async function init(){
     initEmptySelects();
-    wireFilters();
-
-    $("exportClean").addEventListener("click", exportCSV);
-    $("exportIssues").addEventListener("click", exportIssuesJSON);
+    wireUI();
 
     $("libHint").textContent = "Loading libraries…";
     try{
       await ensureLibs();
-      const papaOk = !!window.Papa;
-      const xlsxOk = !!window.XLSX;
       $("libHint").innerHTML =
-        `<span class="${papaOk ? "ok":"bad"}">Papa</span> `+
-        `<span class="${xlsxOk ? "ok":"warn"}">XLSX</span> `+
-        `<span class="small">(XLSX optional if you use CSV)</span>`;
+        `<span class="${window.Papa ? "ok":"bad"}">Papa</span> `+
+        `<span class="${window.XLSX ? "ok":"warn"}">XLSX</span> `+
+        `<span class="small">(XLSX optional if using CSV)</span>`;
     }catch(e){
-      $("libHint").innerHTML = `<span class="bad">Lib load error:</span> ${escapeHtml(e.message || String(e))}`;
+      $("libHint").innerHTML = `<span class="bad">Lib load error:</span> ${escapeHtml(e.message||String(e))}`;
     }
 
     $("file").addEventListener("change", async (e)=>{
@@ -834,38 +1121,34 @@
 
         state.rawRows = rows;
         state.headers = getHeaders(rows);
-
         state.mapping = detectMapping(state.headers);
         state.labelColumn = pickLabelColumn(state.headers, state.rawRows, state.mapping);
 
-        buildMappingUI(state.headers);
+        buildMappingUI();
 
-        // reset UI filters
+        // reset filters/ui state
+        state.ui.page = 1;
         $("startDate").value = "";
         $("endDate").value = "";
         $("q").value = "";
-        $("includeTotals").checked = false;
         $("onlyFlagged").checked = false;
+        $("includeTotals").checked = false;
         $("backfillAccounts").checked = true;
+        $("pageSize").value = "50";
+        $("sortBy").value = "date_desc";
 
-        state.filters = {
-          startDate: null,
-          endDate: null,
-          q: "",
-          account: "__ALL__",
-          classFullName: "__ALL__",
-          location: "__ALL__",
-          transactionType: "__ALL__",
-          includeTotals: false,
-          onlyFlagged: false,
-          backfillAccounts: true,
-        };
+        setFiltersFromUI();
 
-        rebuildAll();
-        $("fileHint").innerHTML = `<span class="ok">Loaded</span> ${escapeHtml(file.name)} — ${rows.length.toLocaleString()} rows`;
+        rebuildDataOnly(); // build normalized + facets + apply filters
+
+        $("exportClean").disabled = state.txns.length === 0;
+        $("exportIssues").disabled = state.txns.length === 0;
+
+        $("fileHint").innerHTML = `<span class="ok">Loaded</span> ${escapeHtml(file.name)} — ${rows.length.toLocaleString()} raw rows`;
+        setTab("summary");
       }catch(err){
         console.error(err);
-        $("fileHint").innerHTML = `<span class="bad">Error:</span> ${escapeHtml(err.message || String(err))}`;
+        $("fileHint").innerHTML = `<span class="bad">Error:</span> ${escapeHtml(err.message||String(err))}`;
       }
     });
   }
