@@ -7,89 +7,129 @@
   <title>QBO P&L Detail Recon</title>
 
   <style>
-    :root { --gap: 12px; --muted:#9ca3af; --bg:#0b1020; --txt:#e5e7eb; }
-    * { box-sizing: border-box; }
-    body { margin: 0; font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Arial; color: var(--txt); background: var(--bg); }
-    header { padding: 18px 16px; border-bottom: 1px solid rgba(255,255,255,.08); }
-    h1 { margin: 0 0 6px; font-size: 18px; }
-    .sub { color: var(--muted); font-size: 13px; }
-    main { padding: 16px; display: grid; gap: var(--gap); }
-    .grid { display: grid; grid-template-columns: 360px 1fr; gap: var(--gap); align-items: start; }
-    .card { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); border-radius: 14px; padding: 12px; }
-    .row { display: flex; gap: var(--gap); align-items: center; flex-wrap: wrap; }
-    label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
-    input[type="text"], input[type="date"], select {
-      width: 100%; padding: 8px 10px; border-radius: 10px;
-      border: 1px solid rgba(255,255,255,.12); background: rgba(0,0,0,.15); color: var(--txt);
-      outline: none;
+    :root{
+      --bg:#ffffff;
+      --card:#ffffff;
+      --txt:#0f172a;
+      --muted:#64748b;
+      --bd:#e2e8f0;
+      --bd2:#cbd5e1;
+      --shadow: 0 1px 2px rgba(15,23,42,.06);
+      --ok:#16a34a;
+      --warn:#d97706;
+      --bad:#dc2626;
+      --pill:#f8fafc;
+      --rowHover:#f8fafc;
+      --focus:#3b82f6;
+      --gap:12px;
     }
-    input[type="file"] { width: 100%; }
-    button {
-      padding: 9px 12px; border-radius: 12px; border: 1px solid rgba(255,255,255,.14);
-      background: rgba(255,255,255,.06); color: var(--txt); cursor: pointer;
+    *{ box-sizing:border-box; }
+    body{ margin:0; font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Arial; color:var(--txt); background:var(--bg); }
+    header{ padding:18px 16px; border-bottom:1px solid var(--bd); }
+    h1{ margin:0 0 6px; font-size:18px; }
+    .sub{ color:var(--muted); font-size:13px; }
+    main{ padding:16px; display:grid; gap:var(--gap); }
+    .grid{ display:grid; grid-template-columns: 380px 1fr; gap:var(--gap); align-items:start; }
+    .card{
+      background:var(--card);
+      border:1px solid var(--bd);
+      border-radius:14px;
+      padding:12px;
+      box-shadow: var(--shadow);
     }
-    button:hover { background: rgba(255,255,255,.10); }
-    button:disabled { opacity: .5; cursor: not-allowed; }
-    .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--gap); }
-    .kpi { padding: 10px; border-radius: 14px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08); }
-    .kpi .v { font-size: 18px; font-weight: 650; margin-top: 4px; }
-    .kpi .t { color: var(--muted); font-size: 12px; }
-    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 999px; border: 1px solid rgba(255,255,255,.10); background: rgba(255,255,255,.04); color: var(--muted); font-size: 12px; }
-    .split { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap); }
-    .small { font-size: 12px; color: var(--muted); }
-    .bad { color: #f87171; }
-    .ok { color: #34d399; }
-    table { width: 100%; border-collapse: collapse; overflow: hidden; border-radius: 14px; border: 1px solid rgba(255,255,255,.08); }
-    th, td { padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,.06); vertical-align: top; }
-    th { text-align: left; position: sticky; top: 0; background: rgba(11,16,32,.95); backdrop-filter: blur(6px); z-index: 1; }
-    tbody tr:hover { background: rgba(255,255,255,.04); }
-    .right { text-align: right; font-variant-numeric: tabular-nums; }
-    .muted { color: var(--muted); }
-    .flags { display: flex; flex-wrap: wrap; gap: 6px; }
-    .flag { padding: 3px 7px; border-radius: 999px; font-size: 12px; border: 1px solid rgba(248,113,113,.25); background: rgba(248,113,113,.12); color: #fecaca; }
-    .flag.warn { border-color: rgba(251,191,36,.25); background: rgba(251,191,36,.12); color: #fde68a; }
-    .flag.ok { border-color: rgba(52,211,153,.25); background: rgba(52,211,153,.10); color: #a7f3d0; }
-    details summary { cursor: pointer; color: var(--muted); }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-size: 12px; }
+    .row{ display:flex; gap:var(--gap); align-items:center; flex-wrap:wrap; }
+    label{ display:block; color:var(--muted); font-size:12px; margin-bottom:6px; }
+    input[type="text"], input[type="date"], select{
+      width:100%; padding:9px 10px; border-radius:12px;
+      border:1px solid var(--bd2); background:#fff; color:var(--txt);
+      outline:none;
+    }
+    input[type="text"]:focus, input[type="date"]:focus, select:focus{
+      border-color: var(--focus);
+      box-shadow: 0 0 0 3px rgba(59,130,246,.12);
+    }
+    input[type="file"]{ width:100%; }
+    button{
+      padding:9px 12px; border-radius:12px; border:1px solid var(--bd2);
+      background:#fff; color:var(--txt); cursor:pointer; box-shadow: var(--shadow);
+    }
+    button:hover{ background:#f8fafc; }
+    button:disabled{ opacity:.5; cursor:not-allowed; }
+    .kpis{ display:grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap:var(--gap); }
+    .kpi{ padding:10px; border-radius:14px; background:#fff; border:1px solid var(--bd); box-shadow: var(--shadow); }
+    .kpi .v{ font-size:18px; font-weight:650; margin-top:4px; }
+    .kpi .t{ color:var(--muted); font-size:12px; }
+    .pill{
+      display:inline-flex; align-items:center; gap:6px;
+      padding:4px 10px; border-radius:999px;
+      border:1px solid var(--bd); background:var(--pill);
+      color:var(--muted); font-size:12px;
+    }
+    .split{ display:grid; grid-template-columns:1fr 1fr; gap:var(--gap); }
+    .small{ font-size:12px; color:var(--muted); }
+    .ok{ color:var(--ok); }
+    .warn{ color:var(--warn); }
+    .bad{ color:var(--bad); }
+    .mono{ font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace; font-size:12px; }
+    details summary{ cursor:pointer; color:var(--muted); }
+
+    table{ width:100%; border-collapse:collapse; border-radius:14px; overflow:hidden; border:1px solid var(--bd); }
+    th, td{ padding:8px 10px; border-bottom:1px solid var(--bd); vertical-align:top; }
+    th{ text-align:left; position:sticky; top:0; background:#fff; z-index:1; }
+    tbody tr:hover{ background:var(--rowHover); }
+    .right{ text-align:right; font-variant-numeric: tabular-nums; }
+    .flags{ display:flex; flex-wrap:wrap; gap:6px; }
+    .flag{
+      padding:3px 8px; border-radius:999px; font-size:12px;
+      border:1px solid rgba(220,38,38,.25);
+      background: rgba(220,38,38,.08);
+      color: var(--bad);
+      white-space:nowrap;
+    }
+    .flag.warn{
+      border-color: rgba(217,119,6,.25);
+      background: rgba(217,119,6,.10);
+      color: var(--warn);
+    }
+    .flag.ok{
+      border-color: rgba(22,163,74,.25);
+      background: rgba(22,163,74,.10);
+      color: var(--ok);
+    }
   </style>
 
   <script>
-    // Robust loader for external libs (primary + fallback).
-    function loadScript(url) {
-      return new Promise((resolve, reject) => {
-        const s = document.createElement("script");
-        s.src = url;
-        s.async = true;
-        s.onload = resolve;
-        s.onerror = () => reject(new Error("Failed to load: " + url));
+    function loadScript(url){
+      return new Promise((resolve,reject)=>{
+        const s=document.createElement("script");
+        s.src=url; s.async=true;
+        s.onload=resolve;
+        s.onerror=()=>reject(new Error("Failed to load: "+url));
         document.head.appendChild(s);
       });
     }
 
-    async function ensureLibs() {
-      // PapaParse
-      if (!window.Papa) {
-        const papaCDNs = [
+    async function ensureLibs(){
+      if(!window.Papa){
+        const cdns=[
           "https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js",
-          "https://unpkg.com/papaparse@5.4.1/papaparse.min.js",
+          "https://unpkg.com/papaparse@5.4.1/papaparse.min.js"
         ];
-        let ok = false;
-        for (const u of papaCDNs) {
-          try { await loadScript(u); if (window.Papa) { ok = true; break; } } catch {}
+        let ok=false;
+        for(const u of cdns){
+          try{ await loadScript(u); if(window.Papa){ ok=true; break; } }catch{}
         }
-        if (!ok) throw new Error("PapaParse failed to load. CSV parsing unavailable.");
+        if(!ok) throw new Error("PapaParse failed to load. CSV parsing unavailable.");
       }
 
-      // SheetJS (XLSX)
-      if (!window.XLSX) {
-        const xlsxCDNs = [
+      if(!window.XLSX){
+        const cdns=[
           "https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js",
-          "https://unpkg.com/xlsx@0.19.3/dist/xlsx.full.min.js",
+          "https://unpkg.com/xlsx@0.19.3/dist/xlsx.full.min.js"
         ];
-        for (const u of xlsxCDNs) {
-          try { await loadScript(u); if (window.XLSX) break; } catch {}
+        for(const u of cdns){
+          try{ await loadScript(u); if(window.XLSX) break; }catch{}
         }
-        // It's OK if XLSX doesn't load; we will show an error only when user uploads XLSX.
       }
     }
   </script>
@@ -98,7 +138,7 @@
 <body>
 <header>
   <h1>QBO P&L Detail Recon</h1>
-  <div class="sub">Upload QBO P&L Detail (CSV/XLSX) → normalize → filter/sort → reconcile totals → export cleaned data.</div>
+  <div class="sub">Upload QBO P&amp;L Detail (CSV/XLSX) → normalize → backfill accounts → verify totals/categoricals → export.</div>
 </header>
 
 <main>
@@ -108,13 +148,20 @@
         <div>
           <label>Upload QBO export (.csv or .xlsx)</label>
           <input id="file" type="file" accept=".csv,.xlsx,.xls" />
-          <div id="fileHint" class="small" style="margin-top:6px;"></div>
           <div id="libHint" class="small" style="margin-top:6px;"></div>
+          <div id="fileHint" class="small" style="margin-top:6px;"></div>
         </div>
 
         <div class="row">
           <button id="exportClean" disabled>Export cleaned CSV</button>
           <button id="exportIssues" disabled>Export issues JSON</button>
+        </div>
+
+        <div class="row" style="justify-content: space-between;">
+          <label style="margin:0;">
+            <input id="backfillAccounts" type="checkbox" checked />
+            <span class="small">Backfill missing accounts from section headers</span>
+          </label>
         </div>
 
         <div class="split">
@@ -167,11 +214,9 @@
         </div>
 
         <details>
-          <summary>Column mapping (auto-detected; adjust if needed)</summary>
+          <summary>Column mapping + label column</summary>
           <div id="mapping" style="display:grid; gap:10px; margin-top:10px;"></div>
-          <div class="small" style="margin-top:8px;">
-            Mapping is used to normalize headers like <span class="mono">Transaction date</span>, <span class="mono">Item split account</span>, <span class="mono">Amount</span>, etc.
-          </div>
+          <div id="labelColHint" class="small" style="margin-top:8px;"></div>
         </details>
       </div>
     </section>
@@ -181,29 +226,30 @@
         <div class="kpi"><div class="t">Transactions</div><div id="kTxns" class="v">—</div></div>
         <div class="kpi"><div class="t">Net amount</div><div id="kNet" class="v">—</div></div>
         <div class="kpi"><div class="t">Flagged rows</div><div id="kFlags" class="v">—</div></div>
-        <div class="kpi"><div class="t">Totals mismatches</div><div id="kTotals" class="v">—</div></div>
+        <div class="kpi"><div class="t">Account-filled</div><div id="kFill" class="v">—</div></div>
       </div>
 
       <div class="card">
         <div class="row" style="justify-content: space-between;">
           <div class="pill">Rows</div>
-          <div class="small muted" id="rowCount"></div>
+          <div class="small" id="rowCount"></div>
         </div>
-        <div style="margin-top:10px; overflow:auto; max-height: 60vh;">
+
+        <div style="margin-top:10px; overflow:auto; max-height: 70vh;">
           <table>
             <thead>
               <tr>
-                <th style="min-width:115px;">Date</th>
+                <th style="min-width:120px;">Date</th>
                 <th style="min-width:120px;">Type</th>
                 <th style="min-width:70px;">Num</th>
                 <th style="min-width:180px;">Name</th>
-                <th style="min-width:140px;">Account</th>
+                <th style="min-width:160px;">Account (filled)</th>
                 <th style="min-width:140px;">Class</th>
                 <th style="min-width:140px;">Location</th>
-                <th style="min-width:280px;">Memo</th>
+                <th style="min-width:320px;">Memo</th>
                 <th class="right" style="min-width:120px;">Amount</th>
                 <th class="right" style="min-width:120px;">Balance</th>
-                <th style="min-width:220px;">Flags</th>
+                <th style="min-width:240px;">Flags</th>
               </tr>
             </thead>
             <tbody id="tbody"></tbody>
@@ -233,6 +279,7 @@
     normalizedRows: [],
     mapping: {},
     headers: [],
+    labelColumn: "", // detected “left label” column for section/account headers
     filters: {
       startDate: null,
       endDate: null,
@@ -243,27 +290,29 @@
       transactionType: "__ALL__",
       includeTotals: false,
       onlyFlagged: false,
+      backfillAccounts: true,
     },
+    stats: { filledAccounts: 0 }
   };
 
   const $ = (id) => document.getElementById(id);
 
-  function normHeader(s) { return String(s ?? "").trim().toLowerCase().replace(/\s+/g, " "); }
+  function normHeader(s){ return String(s ?? "").trim().toLowerCase().replace(/\s+/g," "); }
 
-  function detectMapping(headers) {
-    const hNorm = headers.map(h => ({ raw: h, norm: normHeader(h) }));
+  function detectMapping(headers){
+    const hNorm = headers.map(h => ({ raw:h, norm:normHeader(h) }));
     const mapping = {};
-    for (const f of STD_FIELDS) {
+    for(const f of STD_FIELDS){
       let found = null;
-      for (const c of f.candidates) {
+      for(const c of f.candidates){
         const hit = hNorm.find(h => h.norm === normHeader(c));
-        if (hit) { found = hit.raw; break; }
+        if(hit){ found = hit.raw; break; }
       }
-      if (!found) {
-        for (const c of f.candidates) {
+      if(!found){
+        for(const c of f.candidates){
           const cNorm = normHeader(c);
           const hit = hNorm.find(h => h.norm.includes(cNorm) || cNorm.includes(h.norm));
-          if (hit) { found = hit.raw; break; }
+          if(hit){ found = hit.raw; break; }
         }
       }
       mapping[f.key] = found || "";
@@ -271,167 +320,217 @@
     return mapping;
   }
 
-  function escapeHtml(s) {
+  function escapeHtml(s){
     return String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[c]));
   }
 
-  function excelDateToISO(n) {
+  function excelDateToISO(n){
     const epoch = new Date(Date.UTC(1899, 11, 30));
     const ms = epoch.getTime() + (Number(n) * 86400000);
     const d = new Date(ms);
-    return isFinite(d) ? d.toISOString().slice(0, 10) : null;
+    return isFinite(d) ? d.toISOString().slice(0,10) : null;
   }
 
-  function parseDateToISO(v) {
-    if (v == null || v === "") return null;
-    if (typeof v === "number" && isFinite(v)) return excelDateToISO(v);
+  function parseDateToISO(v){
+    if(v == null || v === "") return null;
+    if(typeof v === "number" && isFinite(v)) return excelDateToISO(v);
 
     const s = String(v).trim();
-    if (!s) return null;
+    if(!s) return null;
 
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+    if(/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
 
     const mdy = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (mdy) return `${mdy[3]}-${String(mdy[1]).padStart(2,"0")}-${String(mdy[2]).padStart(2,"0")}`;
+    if(mdy) return `${mdy[3]}-${String(mdy[1]).padStart(2,"0")}-${String(mdy[2]).padStart(2,"0")}`;
 
     const dmyMon = s.match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
-    if (dmyMon) {
+    if(dmyMon){
       const monMap = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12 };
       const mm = monMap[dmyMon[2].toLowerCase()];
-      if (mm) return `${dmyMon[3]}-${String(mm).padStart(2,"0")}-${String(dmyMon[1]).padStart(2,"0")}`;
+      if(mm) return `${dmyMon[3]}-${String(mm).padStart(2,"0")}-${String(dmyMon[1]).padStart(2,"0")}`;
     }
 
     const t = Date.parse(s);
-    if (!Number.isNaN(t)) return new Date(t).toISOString().slice(0, 10);
-
+    if(!Number.isNaN(t)) return new Date(t).toISOString().slice(0,10);
     return null;
   }
 
-  function parseMoney(v) {
-    if (v == null || v === "") return null;
-    if (typeof v === "number" && isFinite(v)) return v;
+  function parseMoney(v){
+    if(v == null || v === "") return null;
+    if(typeof v === "number" && isFinite(v)) return v;
 
     let s = String(v).trim();
-    if (!s) return null;
-
+    if(!s) return null;
     const negParens = /^\(.*\)$/.test(s);
-    s = s.replace(/[()]/g, "").replace(/\$/g, "").replace(/,/g, "").replace(/\s+/g, "");
+    s = s.replace(/[()]/g,"").replace(/\$/g,"").replace(/,/g,"").replace(/\s+/g,"");
     const n = Number(s);
-    if (!isFinite(n)) return null;
+    if(!isFinite(n)) return null;
     return negParens ? -n : n;
   }
 
-  function isTotalsRow(r) {
-    const hay = `${r.memo} ${r.name} ${r.itemSplitAccount} ${r.transactionType}`.toLowerCase();
-    return hay.includes("total for ");
+  function isTotalsText(s){
+    return String(s ?? "").toLowerCase().includes("total for ");
   }
 
-  function makeNormalizedRow(raw, idx) {
-    const get = (stdKey) => {
+  function pickLabelColumn(headers, rows, mapping){
+    // Choose a non-mapped column with lots of non-empty strings.
+    const mapped = new Set(Object.values(mapping).filter(Boolean));
+    const candidates = headers.filter(h => !mapped.has(h));
+
+    if(candidates.length === 0) return "";
+
+    const score = (h) => {
+      let nonEmpty = 0;
+      let looksLikeLabel = 0;
+      for(const r of rows.slice(0, Math.min(300, rows.length))){
+        const v = r[h];
+        const s = String(v ?? "").trim();
+        if(!s) continue;
+        nonEmpty++;
+        if(isTotalsText(s)) looksLikeLabel += 2;
+        if(s.length >= 3 && /[A-Za-z]/.test(s) && !/^\d+(\.\d+)?$/.test(s)) looksLikeLabel += 1;
+      }
+      return nonEmpty + looksLikeLabel;
+    };
+
+    candidates.sort((a,b)=>score(b)-score(a));
+    return candidates[0];
+  }
+
+  function classifyRow(raw, get, labelCol){
+    const dateISO = parseDateToISO(get("transactionDate"));
+    const amt = parseMoney(get("amount"));
+    const type = String(get("transactionType") ?? "").trim();
+    const label = labelCol ? String(raw[labelCol] ?? "").trim() : "";
+
+    // Totals rows often have "Total for X" in the label column (or sometimes elsewhere)
+    const anyText = `${label} ${get("memo")} ${get("name")} ${get("itemSplitAccount")}`.trim();
+    if(isTotalsText(anyText)) return "total";
+
+    // “Section/header” row: label present, but no transaction date and no amount/type
+    if(label && !dateISO && (amt == null) && !type) return "section";
+
+    // Default
+    return "transaction";
+  }
+
+  function buildNormalizedRows(){
+    const getFactory = (raw) => (stdKey) => {
       const src = state.mapping[stdKey];
       return src ? raw[src] : "";
     };
 
-    const row = {
-      _idx: idx,
-      transactionDate: get("transactionDate"),
-      transactionType: String(get("transactionType") ?? "").trim(),
-      num: String(get("num") ?? "").trim(),
-      name: String(get("name") ?? "").trim(),
-      location: String(get("location") ?? "").trim(),
-      classFullName: String(get("classFullName") ?? "").trim(),
-      memo: String(get("memo") ?? "").trim(),
-      itemSplitAccount: String(get("itemSplitAccount") ?? "").trim(),
-      amount: get("amount"),
-      balance: get("balance"),
-      dateISO: parseDateToISO(get("transactionDate")),
-      amountNum: parseMoney(get("amount")),
-      balanceNum: parseMoney(get("balance")),
-      rowKind: "transaction", // transaction | total
-      flags: [],
-    };
+    const rows = [];
+    let currentLabelPath = []; // track nested headers best-effort
+    let currentAccountLeaf = "";
+    let filledAccounts = 0;
 
-    if (isTotalsRow(row)) row.rowKind = "total";
+    for(let i=0;i<state.rawRows.length;i++){
+      const raw = state.rawRows[i];
+      const get = getFactory(raw);
+      const label = state.labelColumn ? String(raw[state.labelColumn] ?? "").trim() : "";
 
-    if (row.rowKind === "transaction") {
-      if (!row.dateISO) row.flags.push({ level: "bad", msg: "Bad/missing date" });
-      if (row.amountNum == null) row.flags.push({ level: "bad", msg: "Amount not numeric" });
-      if (!row.itemSplitAccount) row.flags.push({ level: "warn", msg: "Missing account" });
-      if (!row.classFullName) row.flags.push({ level: "warn", msg: "Missing class" });
-      if (!row.location) row.flags.push({ level: "warn", msg: "Missing location" });
-      if (!row.transactionType) row.flags.push({ level: "warn", msg: "Missing type" });
+      const rowKind = classifyRow(raw, get, state.labelColumn);
+
+      if(rowKind === "section"){
+        // Update section context.
+        // Heuristic: treat each section label as a leaf; keep only last 2 levels to avoid runaway.
+        const clean = label;
+        if(clean){
+          currentLabelPath.push(clean);
+          if(currentLabelPath.length > 3) currentLabelPath = currentLabelPath.slice(-3);
+          currentAccountLeaf = clean;
+        }
+      }
+
+      const dateISO = parseDateToISO(get("transactionDate"));
+      const amountNum = parseMoney(get("amount"));
+      const balanceNum = parseMoney(get("balance"));
+
+      let itemSplitAccount = String(get("itemSplitAccount") ?? "").trim();
+      const originalAccount = itemSplitAccount;
+
+      // Backfill: if account blank on transaction row, set to current leaf header
+      const doBackfill = state.filters.backfillAccounts;
+      if(rowKind === "transaction" && doBackfill && !itemSplitAccount && currentAccountLeaf){
+        itemSplitAccount = currentAccountLeaf;
+        filledAccounts++;
+      }
+
+      // Totals: attach to current leaf if blank
+      let totalGroup = "";
+      if(rowKind === "total"){
+        totalGroup = currentAccountLeaf || label || "(unknown total group)";
+      }
+
+      const r = {
+        _idx: i,
+        rowKind, // transaction | section | total
+        label,
+
+        transactionDate: get("transactionDate"),
+        transactionType: String(get("transactionType") ?? "").trim(),
+        num: String(get("num") ?? "").trim(),
+        name: String(get("name") ?? "").trim(),
+        location: String(get("location") ?? "").trim(),
+        classFullName: String(get("classFullName") ?? "").trim(),
+        memo: String(get("memo") ?? "").trim(),
+
+        itemSplitAccountOriginal: originalAccount,
+        itemSplitAccount,
+
+        amount: get("amount"),
+        balance: get("balance"),
+
+        dateISO,
+        amountNum,
+        balanceNum,
+
+        sectionPath: [...currentLabelPath],
+        totalGroup,
+
+        flags: [],
+      };
+
+      if(rowKind === "transaction"){
+        if(!r.dateISO) r.flags.push({ level:"bad", msg:"Bad/missing date" });
+        if(r.amountNum == null) r.flags.push({ level:"bad", msg:"Amount not numeric" });
+        if(!r.itemSplitAccount) r.flags.push({ level:"warn", msg:"Missing account (even after backfill)" });
+        if(!r.classFullName) r.flags.push({ level:"warn", msg:"Missing class" });
+        if(!r.location) r.flags.push({ level:"warn", msg:"Missing location" });
+        if(!r.transactionType) r.flags.push({ level:"warn", msg:"Missing type" });
+        if(r.itemSplitAccount && !r.itemSplitAccountOriginal && doBackfill){
+          r.flags.push({ level:"ok", msg:"Account backfilled" });
+        }
+      }
+
+      rows.push(r);
     }
 
-    return row;
+    state.stats.filledAccounts = filledAccounts;
+    state.normalizedRows = rows;
   }
 
-  function buildSelectOptions(selectEl, values) {
+  function buildSelectOptions(selectEl, values){
     selectEl.innerHTML = "";
-    const add = (v, t) => { const o = document.createElement("option"); o.value=v; o.textContent=t; selectEl.appendChild(o); };
+    const add = (v,t) => { const o=document.createElement("option"); o.value=v; o.textContent=t; selectEl.appendChild(o); };
     add("__ALL__", "All");
-    for (const v of values) add(v, v);
+    for(const v of values) add(v, v);
   }
 
-  function fmtMoney(n) {
-    if (n == null || !isFinite(n)) return "—";
-    return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  function fmtMoney(n){
+    if(n == null || !isFinite(n)) return "—";
+    return n.toLocaleString(undefined, { minimumFractionDigits:2, maximumFractionDigits:2 });
   }
 
-  function withinDate(iso, startISO, endISO) {
-    if (!iso) return false;
-    if (startISO && iso < startISO) return false;
-    if (endISO && iso > endISO) return false;
+  function withinDate(iso, startISO, endISO){
+    if(!iso) return false;
+    if(startISO && iso < startISO) return false;
+    if(endISO && iso > endISO) return false;
     return true;
   }
 
-  function render(rows) {
-    const txnsAll = state.normalizedRows.filter(r => r.rowKind === "transaction");
-    const net = txnsAll.reduce((s, r) => s + (r.amountNum || 0), 0);
-    const flagged = txnsAll.filter(r => r.flags.length > 0).length;
-
-    $("kTxns").textContent = String(txnsAll.length);
-    $("kNet").textContent = fmtMoney(net);
-    $("kFlags").textContent = String(flagged);
-
-    const totalsRows = state.normalizedRows.filter(r => r.rowKind === "total");
-    $("kTotals").textContent = String(totalsRows.length);
-
-    $("rowCount").textContent = `${rows.length} rows shown`;
-
-    const tb = $("tbody");
-    tb.innerHTML = "";
-
-    for (const r of rows) {
-      const flagsHtml = (r.flags || []).length
-        ? `<div class="flags">${r.flags.map(f => {
-            const cls = f.level === "ok" ? "flag ok" : f.level === "warn" ? "flag warn" : "flag";
-            return `<span class="${cls}">${escapeHtml(f.msg)}</span>`;
-          }).join("")}</div>`
-        : `<span class="muted">—</span>`;
-
-      const dateCell = r.dateISO || (r.rowKind === "total" ? "TOTAL" : "—");
-      const amt = r.amountNum == null ? "—" : fmtMoney(r.amountNum);
-      const bal = r.balanceNum == null ? "—" : fmtMoney(r.balanceNum);
-
-      const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${escapeHtml(dateCell)}</td>
-        <td>${escapeHtml(r.transactionType || "—")}</td>
-        <td>${escapeHtml(r.num || "—")}</td>
-        <td>${escapeHtml(r.name || "—")}</td>
-        <td>${escapeHtml(r.itemSplitAccount || "—")}</td>
-        <td>${escapeHtml(r.classFullName || "—")}</td>
-        <td>${escapeHtml(r.location || "—")}</td>
-        <td>${escapeHtml(r.memo || "—")}</td>
-        <td class="right">${amt}</td>
-        <td class="right">${bal}</td>
-        <td>${flagsHtml}</td>
-      `;
-      tb.appendChild(tr);
-    }
-  }
-
-  function setFiltersFromUI() {
+  function setFiltersFromUI(){
     state.filters.startDate = $("startDate").value || null;
     state.filters.endDate = $("endDate").value || null;
     state.filters.q = $("q").value || "";
@@ -441,80 +540,141 @@
     state.filters.transactionType = $("typeFilter").value;
     state.filters.includeTotals = $("includeTotals").checked;
     state.filters.onlyFlagged = $("onlyFlagged").checked;
+    state.filters.backfillAccounts = $("backfillAccounts").checked;
   }
 
-  function applyFilters() {
+  function applyFilters(){
     const f = state.filters;
-    const startISO = f.startDate ? f.startDate : null;
-    const endISO = f.endDate ? f.endDate : null;
+    const startISO = f.startDate || null;
+    const endISO = f.endDate || null;
     const q = (f.q || "").trim().toLowerCase();
 
-    const filtered = state.normalizedRows.filter(r => {
-      if (!f.includeTotals && r.rowKind === "total") return false;
+    const filtered = state.normalizedRows.filter(r=>{
+      if(!f.includeTotals && (r.rowKind === "total" || r.rowKind === "section")) return false;
 
-      if (r.rowKind === "transaction" && (startISO || endISO)) {
-        if (!withinDate(r.dateISO, startISO, endISO)) return false;
+      if(r.rowKind === "transaction" && (startISO || endISO)){
+        if(!withinDate(r.dateISO, startISO, endISO)) return false;
       }
 
-      if (f.account !== "__ALL__" && r.itemSplitAccount !== f.account) return false;
-      if (f.classFullName !== "__ALL__" && r.classFullName !== f.classFullName) return false;
-      if (f.location !== "__ALL__" && r.location !== f.location) return false;
-      if (f.transactionType !== "__ALL__" && r.transactionType !== f.transactionType) return false;
+      if(f.account !== "__ALL__" && r.itemSplitAccount !== f.account) return false;
+      if(f.classFullName !== "__ALL__" && r.classFullName !== f.classFullName) return false;
+      if(f.location !== "__ALL__" && r.location !== f.location) return false;
+      if(f.transactionType !== "__ALL__" && r.transactionType !== f.transactionType) return false;
 
-      if (q) {
-        const hay = [r.name, r.memo, r.itemSplitAccount, r.classFullName, r.location, r.transactionType, r.num].join(" ").toLowerCase();
-        if (!hay.includes(q)) return false;
+      if(q){
+        const hay = [
+          r.label, r.name, r.memo, r.itemSplitAccount, r.classFullName, r.location, r.transactionType, r.num,
+          (r.sectionPath || []).join(" > ")
+        ].join(" ").toLowerCase();
+        if(!hay.includes(q)) return false;
       }
 
-      if (f.onlyFlagged && (!r.flags || r.flags.length === 0)) return false;
+      if(f.onlyFlagged && (!r.flags || r.flags.length === 0)) return false;
       return true;
     });
 
     render(filtered);
   }
 
-  function buildMappingUI(headers) {
+  function render(rows){
+    const txnsAll = state.normalizedRows.filter(r => r.rowKind === "transaction");
+    const net = txnsAll.reduce((s,r)=>s+(r.amountNum||0),0);
+    const flagged = txnsAll.filter(r => r.flags.length > 0).length;
+
+    $("kTxns").textContent = String(txnsAll.length);
+    $("kNet").textContent = fmtMoney(net);
+    $("kFlags").textContent = String(flagged);
+    $("kFill").textContent = String(state.stats.filledAccounts);
+
+    $("rowCount").textContent = `${rows.length} rows shown`;
+
+    const tb = $("tbody");
+    tb.innerHTML = "";
+
+    for(const r of rows){
+      const flagsHtml = (r.flags||[]).length
+        ? `<div class="flags">${r.flags.map(f=>{
+            const cls = f.level === "ok" ? "flag ok" : f.level === "warn" ? "flag warn" : "flag";
+            return `<span class="${cls}">${escapeHtml(f.msg)}</span>`;
+          }).join("")}</div>`
+        : `<span class="small">—</span>`;
+
+      const dateCell = r.dateISO || (r.rowKind === "total" ? "TOTAL" : (r.rowKind === "section" ? "SECTION" : "—"));
+      const acct = r.itemSplitAccount || "—";
+      const acctHint = r.itemSplitAccountOriginal ? "" : (r.itemSplitAccount ? " (filled)" : "");
+      const memo = r.memo || (r.label ? `[${r.label}]` : "—");
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${escapeHtml(dateCell)}</td>
+        <td>${escapeHtml(r.transactionType || "—")}</td>
+        <td>${escapeHtml(r.num || "—")}</td>
+        <td>${escapeHtml(r.name || "—")}</td>
+        <td>${escapeHtml(acct)}<div class="small">${escapeHtml(acctHint)}${r.sectionPath?.length ? " · " + escapeHtml(r.sectionPath.join(" > ")) : ""}</div></td>
+        <td>${escapeHtml(r.classFullName || "—")}</td>
+        <td>${escapeHtml(r.location || "—")}</td>
+        <td>${escapeHtml(memo)}</td>
+        <td class="right">${r.amountNum == null ? "—" : fmtMoney(r.amountNum)}</td>
+        <td class="right">${r.balanceNum == null ? "—" : fmtMoney(r.balanceNum)}</td>
+        <td>${flagsHtml}</td>
+      `;
+      tb.appendChild(tr);
+    }
+  }
+
+  function buildMappingUI(headers){
     const host = $("mapping");
     host.innerHTML = "";
 
-    const makeSelect = (stdKey) => {
+    const makeSelect = (value, onChange) => {
       const sel = document.createElement("select");
       const opt0 = document.createElement("option");
       opt0.value = "";
       opt0.textContent = "(not mapped)";
       sel.appendChild(opt0);
 
-      for (const h of headers) {
-        const opt = document.createElement("option");
-        opt.value = h;
-        opt.textContent = h;
+      for(const h of headers){
+        const opt=document.createElement("option");
+        opt.value=h; opt.textContent=h;
         sel.appendChild(opt);
       }
-
-      sel.value = state.mapping[stdKey] || "";
-      sel.addEventListener("change", () => {
-        state.mapping[stdKey] = sel.value;
-        rebuildNormalized();
-      });
+      sel.value = value || "";
+      sel.addEventListener("change", ()=>onChange(sel.value));
       return sel;
     };
 
-    for (const f of STD_FIELDS) {
-      const wrap = document.createElement("div");
+    for(const f of STD_FIELDS){
+      const wrap=document.createElement("div");
       wrap.innerHTML = `<label>${escapeHtml(f.label)}</label>`;
-      wrap.appendChild(makeSelect(f.key));
+      wrap.appendChild(makeSelect(state.mapping[f.key], (v)=>{
+        state.mapping[f.key]=v;
+        rebuildAll();
+      }));
       host.appendChild(wrap);
     }
+
+    const labelWrap = document.createElement("div");
+    labelWrap.innerHTML = `<label>Label column (section headers like “Embroidery Income”)</label>`;
+    labelWrap.appendChild(makeSelect(state.labelColumn, (v)=>{
+      state.labelColumn = v;
+      rebuildAll();
+    }));
+    host.appendChild(labelWrap);
+
+    $("labelColHint").innerHTML =
+      state.labelColumn
+        ? `Detected label column: <span class="mono">${escapeHtml(state.labelColumn)}</span>`
+        : `<span class="warn">No label column detected</span> — backfill may not work correctly.`;
   }
 
-  function rebuildNormalized() {
-    state.normalizedRows = state.rawRows.map((r, idx) => makeNormalizedRow(r, idx));
+  function rebuildAll(){
+    buildNormalizedRows();
 
     const txns = state.normalizedRows.filter(r => r.rowKind === "transaction");
-    const accounts = [...new Set(txns.map(r => r.itemSplitAccount).filter(Boolean))].sort();
-    const classes = [...new Set(txns.map(r => r.classFullName).filter(Boolean))].sort();
-    const locations = [...new Set(txns.map(r => r.location).filter(Boolean))].sort();
-    const types = [...new Set(txns.map(r => r.transactionType).filter(Boolean))].sort();
+    const accounts = [...new Set(txns.map(r=>r.itemSplitAccount).filter(Boolean))].sort();
+    const classes = [...new Set(txns.map(r=>r.classFullName).filter(Boolean))].sort();
+    const locations = [...new Set(txns.map(r=>r.location).filter(Boolean))].sort();
+    const types = [...new Set(txns.map(r=>r.transactionType).filter(Boolean))].sort();
 
     buildSelectOptions($("accountFilter"), accounts);
     buildSelectOptions($("classFilter"), classes);
@@ -527,20 +687,19 @@
     applyFilters();
   }
 
-  function downloadBlob(blob, filename) {
+  function downloadBlob(blob, filename){
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
+    a.href=url; a.download=filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
   }
 
-  function exportCSV() {
+  function exportCSV(){
     const txns = state.normalizedRows.filter(r => r.rowKind === "transaction");
-    const out = txns.map(r => ({
+    const out = txns.map(r=>({
       transaction_date: r.dateISO || "",
       transaction_type: r.transactionType || "",
       num: r.num || "",
@@ -548,88 +707,100 @@
       location: r.location || "",
       class_full_name: r.classFullName || "",
       memo: r.memo || "",
-      item_split_account: r.itemSplitAccount || "",
+      label: r.label || "",
+      section_path: (r.sectionPath || []).join(" > "),
+      item_split_account_original: r.itemSplitAccountOriginal || "",
+      item_split_account_filled: r.itemSplitAccount || "",
       amount: (r.amountNum == null ? "" : r.amountNum),
       balance: (r.balanceNum == null ? "" : r.balanceNum),
-      flags: r.flags.map(f => f.msg).join("|"),
+      flags: r.flags.map(f=>f.msg).join("|"),
     }));
 
-    const csv = window.Papa.unparse(out, { quotes: true });
-    downloadBlob(new Blob([csv], { type: "text/csv;charset=utf-8" }), "recon_cleaned.csv");
+    const csv = window.Papa.unparse(out, { quotes:true });
+    downloadBlob(new Blob([csv], { type:"text/csv;charset=utf-8" }), "recon_cleaned.csv");
   }
 
-  function exportIssuesJSON() {
+  function exportIssuesJSON(){
     const txns = state.normalizedRows.filter(r => r.rowKind === "transaction");
-    const issues = txns.filter(r => r.flags.length > 0).map(r => ({
+    const issues = txns.filter(r => r.flags.length > 0).map(r=>({
       idx: r._idx,
       dateISO: r.dateISO,
       transactionType: r.transactionType,
       num: r.num,
       name: r.name,
-      account: r.itemSplitAccount,
+      accountOriginal: r.itemSplitAccountOriginal,
+      accountFilled: r.itemSplitAccount,
       classFullName: r.classFullName,
       location: r.location,
+      sectionPath: r.sectionPath,
+      label: r.label,
       amount: r.amountNum,
       balance: r.balanceNum,
       flags: r.flags,
     }));
 
-    const payload = { generatedAt: new Date().toISOString(), issues };
-    downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json;charset=utf-8" }), "recon_issues.json");
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      labelColumn: state.labelColumn,
+      filledAccounts: state.stats.filledAccounts,
+      issues,
+    };
+
+    downloadBlob(new Blob([JSON.stringify(payload, null, 2)], { type:"application/json;charset=utf-8" }), "recon_issues.json");
   }
 
-  async function parseFile(file) {
+  async function parseFile(file){
     const name = file.name.toLowerCase();
 
-    if (name.endsWith(".csv")) {
-      if (!window.Papa) throw new Error("PapaParse not loaded; cannot parse CSV.");
-      return await new Promise((resolve, reject) => {
-        window.Papa.parse(file, {
-          header: true,
-          skipEmptyLines: true,
-          dynamicTyping: false,
-          complete: (res) => resolve(res.data),
-          error: reject,
+    if(name.endsWith(".csv")){
+      if(!window.Papa) throw new Error("PapaParse not loaded; cannot parse CSV.");
+      return await new Promise((resolve,reject)=>{
+        window.Papa.parse(file,{
+          header:true,
+          skipEmptyLines:true,
+          dynamicTyping:false,
+          complete:(res)=>resolve(res.data),
+          error:reject,
         });
       });
     }
 
-    if (name.endsWith(".xlsx") || name.endsWith(".xls")) {
-      if (!window.XLSX) {
-        throw new Error("XLSX library not loaded. XLSX parsing unavailable (network/CSP likely blocked). Export CSV from QBO or allow CDN access.");
+    if(name.endsWith(".xlsx") || name.endsWith(".xls")){
+      if(!window.XLSX){
+        throw new Error("XLSX library not loaded. XLSX parsing unavailable (network/CSP blocked). Export CSV from QBO or allow CDN access.");
       }
       const buf = await file.arrayBuffer();
-      const wb = window.XLSX.read(buf, { type: "array" });
+      const wb = window.XLSX.read(buf, { type:"array" });
       const first = wb.SheetNames[0];
       const ws = wb.Sheets[first];
-      return window.XLSX.utils.sheet_to_json(ws, { defval: "" });
+      return window.XLSX.utils.sheet_to_json(ws, { defval:"" });
     }
 
     throw new Error("Unsupported file type");
   }
 
-  function getHeaders(rows) {
+  function getHeaders(rows){
     const set = new Set();
-    for (const r of rows) for (const k of Object.keys(r)) set.add(k);
+    for(const r of rows) for(const k of Object.keys(r)) set.add(k);
     return [...set];
   }
 
-  function initEmptySelects() {
+  function initEmptySelects(){
     buildSelectOptions($("accountFilter"), []);
     buildSelectOptions($("classFilter"), []);
     buildSelectOptions($("locationFilter"), []);
     buildSelectOptions($("typeFilter"), []);
   }
 
-  function wireFilters() {
-    const ids = ["startDate","endDate","q","accountFilter","classFilter","locationFilter","typeFilter","includeTotals","onlyFlagged"];
-    for (const id of ids) {
-      $(id).addEventListener("input", () => { setFiltersFromUI(); applyFilters(); });
-      $(id).addEventListener("change", () => { setFiltersFromUI(); applyFilters(); });
+  function wireFilters(){
+    const ids = ["startDate","endDate","q","accountFilter","classFilter","locationFilter","typeFilter","includeTotals","onlyFlagged","backfillAccounts"];
+    for(const id of ids){
+      $(id).addEventListener("input", ()=>{ setFiltersFromUI(); rebuildAll(); });
+      $(id).addEventListener("change", ()=>{ setFiltersFromUI(); rebuildAll(); });
     }
   }
 
-  async function init() {
+  async function init(){
     initEmptySelects();
     wireFilters();
 
@@ -637,42 +808,45 @@
     $("exportIssues").addEventListener("click", exportIssuesJSON);
 
     $("libHint").textContent = "Loading libraries…";
-    try {
+    try{
       await ensureLibs();
       const papaOk = !!window.Papa;
       const xlsxOk = !!window.XLSX;
       $("libHint").innerHTML =
-        `<span class="${papaOk ? "ok" : "bad"}">Papa</span> ` +
-        `<span class="${xlsxOk ? "ok" : "bad"}">XLSX</span> ` +
-        `<span class="muted">(XLSX optional if you use CSV)</span>`;
-    } catch (e) {
+        `<span class="${papaOk ? "ok":"bad"}">Papa</span> `+
+        `<span class="${xlsxOk ? "ok":"warn"}">XLSX</span> `+
+        `<span class="small">(XLSX optional if you use CSV)</span>`;
+    }catch(e){
       $("libHint").innerHTML = `<span class="bad">Lib load error:</span> ${escapeHtml(e.message || String(e))}`;
     }
 
-    $("file").addEventListener("change", async (e) => {
+    $("file").addEventListener("change", async (e)=>{
       const file = e.target.files?.[0];
-      if (!file) return;
+      if(!file) return;
 
       $("fileHint").textContent = "Parsing…";
       $("exportClean").disabled = true;
       $("exportIssues").disabled = true;
 
-      try {
+      try{
         const rows = await parseFile(file);
-        if (!rows || rows.length === 0) throw new Error("No rows found");
+        if(!rows || rows.length === 0) throw new Error("No rows found");
 
         state.rawRows = rows;
         state.headers = getHeaders(rows);
+
         state.mapping = detectMapping(state.headers);
+        state.labelColumn = pickLabelColumn(state.headers, state.rawRows, state.mapping);
 
         buildMappingUI(state.headers);
 
-        // reset filters
+        // reset UI filters
         $("startDate").value = "";
         $("endDate").value = "";
         $("q").value = "";
         $("includeTotals").checked = false;
         $("onlyFlagged").checked = false;
+        $("backfillAccounts").checked = true;
 
         state.filters = {
           startDate: null,
@@ -684,11 +858,12 @@
           transactionType: "__ALL__",
           includeTotals: false,
           onlyFlagged: false,
+          backfillAccounts: true,
         };
 
-        rebuildNormalized();
+        rebuildAll();
         $("fileHint").innerHTML = `<span class="ok">Loaded</span> ${escapeHtml(file.name)} — ${rows.length.toLocaleString()} rows`;
-      } catch (err) {
+      }catch(err){
         console.error(err);
         $("fileHint").innerHTML = `<span class="bad">Error:</span> ${escapeHtml(err.message || String(err))}`;
       }
