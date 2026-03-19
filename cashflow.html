@@ -1,0 +1,1716 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Transaction Organizer</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'sans-serif']
+          },
+          colors: {
+            bluex: '#2563eb',
+            greenx: '#16a34a',
+            redx: '#dc2626',
+            amberx: '#d97706',
+            purplex: '#7c3aed',
+            tealx: '#0f766e'
+          }
+        }
+      }
+    };
+  </script>
+
+  <style>
+    :root { color-scheme: light; }
+    body{
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(37,99,235,.08), transparent 30%),
+        radial-gradient(circle at top right, rgba(124,58,237,.06), transparent 24%),
+        linear-gradient(180deg, #f8fafc 0%, #f6f8fb 100%);
+      color:#0f172a;
+    }
+    .panel,.mini{background:#fff;border:1px solid #e2e8f0}
+    .panel{background:rgba(255,255,255,.94);border-radius:1.5rem;box-shadow:0 10px 30px rgba(15,23,42,.07)}
+    .mini{border-radius:1rem;box-shadow:0 4px 18px rgba(15,23,42,.05)}
+    .input{width:100%;padding:.8rem .95rem;border:1px solid #dbe3ee;border-radius:.95rem;background:#fff;outline:none;transition:.18s}
+    .input:focus{border-color:rgba(37,99,235,.42);box-shadow:0 0 0 4px rgba(37,99,235,.08)}
+    .label{font-size:.72rem;font-weight:700;letter-spacing:.02em;color:#475569;margin-bottom:.45rem;text-transform:uppercase}
+    .btn{border-radius:.95rem;padding:.82rem 1rem;font-weight:700;border:1px solid transparent;cursor:pointer;transition:.18s}
+    .btn:active{transform:translateY(1px)}
+    .btn-dark{background:#0f172a;color:#fff}.btn-dark:hover{background:#111827}
+    .btn-light{background:#fff;color:#0f172a;border-color:#dbe3ee}.btn-light:hover{background:#f8fafc}
+    .btn-blue{background:#2563eb;color:#fff}.btn-blue:hover{background:#1d4ed8}
+    .btn-red{background:#fff;color:#b91c1c;border-color:#fecaca}.btn-red:hover{background:#fff5f5}
+    .chip{display:inline-flex;align-items:center;gap:.45rem;padding:.35rem .7rem;border-radius:999px;font-size:.72rem;font-weight:700;background:#fff;border:1px solid #e2e8f0;color:#334155}
+    .mono{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+    .tab-btn.active{background:#0f172a;color:#fff;border-color:#0f172a;box-shadow:0 10px 20px rgba(15,23,42,.12)}
+    .scrollbar::-webkit-scrollbar{width:10px;height:10px}
+    .scrollbar::-webkit-scrollbar-thumb{background:rgba(148,163,184,.55);border-radius:999px;border:2px solid transparent;background-clip:padding-box}
+    .empty{padding:2rem 1rem;text-align:center;color:#94a3b8;font-size:.95rem}
+    canvas{max-width:100%}
+
+    .seg{display:inline-flex;border:1px solid #e2e8f0;border-radius:999px;overflow:hidden;background:#fff}
+    .seg button{padding:.45rem .8rem;font-weight:800;font-size:.75rem;color:#475569}
+    .seg button.active{background:#0f172a;color:#fff}
+    .rowbtn{padding:.38rem .6rem;border-radius:.7rem;border:1px solid #e2e8f0;background:#fff;font-weight:800;font-size:.75rem}
+    .rowbtn:hover{background:#f8fafc}
+
+    .grid-row{border-bottom:1px solid #f1f5f9}
+    .grid-row:hover{background:#fafcff}
+    .muted{color:#64748b}
+    .locked{opacity:.72}
+    .pill-lock{display:inline-flex;align-items:center;gap:.35rem;border:1px solid #e2e8f0;background:#f8fafc;border-radius:999px;padding:.2rem .55rem;font-size:.7rem;font-weight:800;color:#475569}
+  </style>
+</head>
+
+<body class="min-h-screen">
+  <div class="max-w-[1650px] mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+    <div class="panel p-5 sm:p-7">
+      <div class="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+        <div class="flex items-center gap-3 flex-wrap">
+          <div class="h-12 w-12 rounded-2xl bg-slate-900 text-white grid place-items-center">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M4 12h16M4 17h10"/>
+            </svg>
+          </div>
+          <div>
+            <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900">Transaction Organizer</h1>
+            <p class="text-sm sm:text-base text-slate-500 mt-1">Cash, planned items, liquidity, recurring forecast, and softer trend forecast in one treasury view.</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <button id="loadDataBtn" class="btn btn-dark">Load Data</button>
+          <button id="exportCashflowBtn" class="btn btn-light">Export Cashflow CSV</button>
+          <button id="exportTransactionsBtn" class="btn btn-light">Export Transactions CSV</button>
+        </div>
+      </div>
+
+      <div class="mt-6 grid grid-cols-1 xl:grid-cols-12 gap-4">
+        <div class="xl:col-span-5 panel p-4">
+          <div class="text-sm font-extrabold text-slate-900">Data Sources</div>
+          <div class="text-xs text-slate-500 mt-1 mb-4">Imported directly from CSV URLs. No backend required.</div>
+          <div class="grid gap-4">
+            <div><div class="label">Transactions CSV URL</div><input id="transactionsUrl" class="input" placeholder="https://..." /></div>
+            <div><div class="label">Planned Items CSV URL</div><input id="plannedUrl" class="input" placeholder="https://..." /></div>
+            <div><div class="label">Cash Accounts CSV URL</div><input id="cashAccountsUrl" class="input" placeholder="https://..." /></div>
+            <div><div class="label">Liquidity CSV URL</div><input id="liquidityUrl" class="input" placeholder="https://..." /></div>
+          </div>
+        </div>
+
+        <div class="xl:col-span-7 panel p-4">
+          <div class="text-sm font-extrabold text-slate-900">Controls</div>
+          <div class="text-xs text-slate-500 mt-1">Filters, timeline, and forecast settings.</div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4 mt-4">
+            <div class="xl:col-span-5"><div class="label">Search</div><input id="searchInput" class="input" placeholder="Search transactions, names, accounts, categories..." /></div>
+            <div class="xl:col-span-2"><div class="label">Start Date</div><input id="startDate" type="date" class="input" /></div>
+            <div class="xl:col-span-2"><div class="label">End Date</div><input id="endDate" type="date" class="input" /></div>
+            <div class="xl:col-span-3">
+              <div class="label">Type Filter</div>
+              <select id="typeFilter" class="input">
+                <option value="all">All</option>
+                <option value="actual">Actual Only</option>
+                <option value="planned">Planned Only</option>
+                <option value="forecast">Forecast Only</option>
+                <option value="cashin">Cash In Only</option>
+                <option value="cashout">Cash Out Only</option>
+              </select>
+            </div>
+
+            <div class="xl:col-span-2"><div class="label">Timeline</div>
+              <select id="timeline" class="input">
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+            <div class="xl:col-span-2"><div class="label">Forecast Mode</div>
+              <select id="forecastMode" class="input">
+                <option value="conservative">Conservative</option>
+                <option value="base" selected>Base</option>
+                <option value="aggressive">Aggressive</option>
+              </select>
+            </div>
+            <div class="xl:col-span-2"><div class="label">Horizon</div>
+              <select id="forecastHorizon" class="input">
+                <option value="30">30d</option>
+                <option value="60">60d</option>
+                <option value="90" selected>90d</option>
+              </select>
+            </div>
+            <div class="xl:col-span-2"><div class="label">Low Cash Threshold</div><input id="lowCashThreshold" class="input mono" inputmode="decimal" placeholder="0.00" /></div>
+
+            <div class="xl:col-span-12 flex flex-wrap items-end gap-3">
+              <label class="chip cursor-pointer"><input id="includePlanned" type="checkbox" class="accent-blue-600" checked />Include planned</label>
+              <label class="chip cursor-pointer"><input id="includeRecurringForecast" type="checkbox" class="accent-purple-600" checked />Include recurring forecast</label>
+              <label class="chip cursor-pointer"><input id="includeTrendForecast" type="checkbox" class="accent-teal-700" checked />Include trend forecast</label>
+              <label class="chip cursor-pointer"><input id="suppressForecastOnPlanned" type="checkbox" class="accent-slate-900" checked />Planned overrides forecast</label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 flex flex-wrap gap-2">
+        <button class="tab-btn active px-4 py-2.5 rounded-2xl text-sm font-bold border border-slate-200 bg-white text-slate-700" data-tab="cashflowTab">Cashflow</button>
+        <button class="tab-btn px-4 py-2.5 rounded-2xl text-sm font-bold border border-slate-200 bg-white text-slate-700" data-tab="plannedTab">Planned</button>
+        <button class="tab-btn px-4 py-2.5 rounded-2xl text-sm font-bold border border-slate-200 bg-white text-slate-700" data-tab="transactionsTab">Transactions</button>
+        <button class="tab-btn px-4 py-2.5 rounded-2xl text-sm font-bold border border-slate-200 bg-white text-slate-700" data-tab="treasuryTab">Treasury</button>
+      </div>
+    </div>
+
+    <div id="statusBar" class="mt-4 hidden"></div>
+
+    <section id="cashflowTab" class="tab-content mt-6">
+      <div id="kpiGrid" class="grid grid-cols-2 lg:grid-cols-4 xl:grid-cols-10 gap-4"></div>
+
+      <div class="grid grid-cols-1 2xl:grid-cols-12 gap-4 mt-4">
+        <div class="2xl:col-span-9 panel p-4 sm:p-5">
+          <div class="flex items-center justify-between gap-3 flex-wrap mb-3">
+            <div>
+              <h2 class="text-lg font-extrabold text-slate-900">Cashflow Trend</h2>
+              <p class="text-sm text-slate-500">Future balances include planned items plus recurring and trend forecast layers.</p>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap text-xs">
+              <span class="chip"><span class="inline-block h-2.5 w-2.5 rounded-full bg-greenx"></span> Inflows</span>
+              <span class="chip"><span class="inline-block h-2.5 w-2.5 rounded-full bg-redx"></span> Outflows</span>
+              <span class="chip"><span class="inline-block h-2.5 w-2.5 rounded-full bg-bluex"></span> Net</span>
+              <span class="chip"><span class="inline-block h-2.5 w-2.5 rounded-full bg-slate-900"></span> Ending Balance</span>
+            </div>
+          </div>
+          <div class="h-[360px] sm:h-[430px]"><canvas id="cashflowChart"></canvas></div>
+        </div>
+
+        <div class="2xl:col-span-3 flex flex-col gap-4">
+          <div class="panel p-4">
+            <div class="flex items-center justify-between mb-3">
+              <div><h3 class="font-extrabold text-slate-900">Upcoming Planned</h3><p class="text-sm text-slate-500">Next dated planned items.</p></div>
+              <span id="plannedPreviewCount" class="chip">0 items</span>
+            </div>
+            <div id="upcomingPlannedPanel" class="space-y-3 max-h-[250px] overflow-auto scrollbar"></div>
+          </div>
+
+          <div class="panel p-4">
+            <div class="flex items-center justify-between mb-3">
+              <div><h3 class="font-extrabold text-slate-900">Forecast Preview</h3><p class="text-sm text-slate-500">Recurring + trend output.</p></div>
+              <span id="forecastPreviewCount" class="chip">0 items</span>
+            </div>
+            <div id="forecastPreviewPanel" class="space-y-3 max-h-[250px] overflow-auto scrollbar"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 2xl:grid-cols-12 gap-4 mt-4">
+        <div class="2xl:col-span-8 panel p-4 sm:p-5">
+          <div class="flex items-center justify-between gap-3 flex-wrap mb-3">
+            <div>
+              <h2 class="text-lg font-extrabold text-slate-900">Cashflow Table</h2>
+              <p class="text-sm text-slate-500">Split by actual, planned, and forecast so future math is easier to read.</p>
+            </div>
+            <div id="cashflowTableMeta" class="text-sm text-slate-500"></div>
+          </div>
+
+          <div class="overflow-auto scrollbar">
+            <table class="min-w-[1350px] w-full text-sm">
+              <thead>
+                <tr class="text-left border-b border-slate-200">
+                  <th class="py-3 pr-4 font-bold text-slate-500">Period</th>
+                  <th class="py-3 pr-4 font-bold text-slate-500">Beginning</th>
+                  <th class="py-3 pr-4 font-bold text-slate-500">Actual In</th>
+                  <th class="py-3 pr-4 font-bold text-slate-500">Planned In</th>
+                  <th class="py-3 pr-4 font-bold text-slate-500">Forecast In</th>
+                  <th class="py-3 pr-4 font-bold text-slate-500">Actual Out</th>
+                  <th class="py-3 pr-4 font-bold text-slate-500">Planned Out</th>
+                  <th class="py-3 pr-4 font-bold text-slate-500">Forecast Out</th>
+                  <th class="py-3 pr-4 font-bold text-slate-500">Planned Net</th>
+                  <th class="py-3 pr-4 font-bold text-slate-500">Forecast Net</th>
+                  <th class="py-3 pr-4 font-bold text-slate-500">Net</th>
+                  <th class="py-3 pr-4 font-bold text-slate-500">Ending</th>
+                  <th class="py-3 pr-4 font-bold text-slate-500">Rows</th>
+                  <th class="py-3 font-bold text-slate-500">Status</th>
+                </tr>
+              </thead>
+              <tbody id="cashflowTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="2xl:col-span-4 panel p-4 sm:p-5">
+          <div class="mb-3">
+            <h2 class="text-lg font-extrabold text-slate-900">Category Movement</h2>
+            <p class="text-sm text-slate-500">Net movement by category across what is currently included.</p>
+          </div>
+          <div class="h-[320px]"><canvas id="categoryChart"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="plannedTab" class="tab-content mt-6 hidden">
+      <div class="grid grid-cols-1 xl:grid-cols-12 gap-4">
+        <div class="xl:col-span-5 panel p-4 sm:p-5">
+          <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
+            <div>
+              <h2 class="text-lg font-extrabold text-slate-900">Add Planned Item</h2>
+              <p class="text-sm text-slate-500">Manual planned items save locally in the browser.</p>
+            </div>
+            <button id="clearManualPlannedBtn" class="btn btn-red py-2 px-3 text-sm">Clear Manual Items</button>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div><div class="label">Date</div><input id="plannedFormDate" type="date" class="input" /></div>
+            <div><div class="label">Description</div><input id="plannedFormDescription" class="input" placeholder="Payroll, rent, AR collection..." /></div>
+            <div><div class="label">Category</div><input id="plannedFormCategory" class="input" placeholder="Operating, payroll, revenue..." /></div>
+            <div><div class="label">Account</div><input id="plannedFormAccount" class="input" placeholder="Operating Checking..." /></div>
+            <div><div class="label">Amount</div><input id="plannedFormAmount" class="input mono" inputmode="decimal" placeholder="-2500.00 or 12000.00" /></div>
+            <div><div class="label">Type</div><input id="plannedFormType" class="input" placeholder="Planned / Transfer" /></div>
+            <div class="md:col-span-2"><div class="label">Notes</div><input id="plannedFormNotes" class="input" placeholder="Optional notes" /></div>
+          </div>
+
+          <div class="mt-4"><button id="addPlannedItemBtn" class="btn btn-blue">Save Planned Item</button></div>
+
+          <div class="mt-5 mini p-4">
+            <h3 class="font-extrabold text-slate-900">Planned CSV Template</h3>
+            <p class="text-sm text-slate-500 mt-1">Required headers and example format.</p>
+            <div class="mt-3 rounded-2xl bg-slate-50 border border-slate-200 p-4 overflow-auto scrollbar">
+<pre class="text-xs sm:text-sm text-slate-700 whitespace-pre-wrap">Headers:
+Date,Description,Category,Account,Amount,Type,Notes
+
+Example:
+2026-03-31,Monthly Rent,Facilities,Operating Checking,-8500.00,Planned,Main office lease</pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="xl:col-span-7 flex flex-col gap-4">
+          <div class="panel p-4 sm:p-5">
+            <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
+              <div>
+                <h2 class="text-lg font-extrabold text-slate-900">Planned</h2>
+                <p class="text-sm text-slate-500">Use List view or Planning Grid (editable by day).</p>
+              </div>
+              <div class="flex items-center gap-3">
+                <div class="seg">
+                  <button id="plannedViewListBtn" class="active" type="button">List</button>
+                  <button id="plannedViewGridBtn" type="button">Planning Grid</button>
+                </div>
+                <div id="plannedCount" class="chip">0 items</div>
+              </div>
+            </div>
+
+            <!-- LIST VIEW (existing) -->
+            <div id="plannedListView">
+              <div class="hidden md:block overflow-auto scrollbar">
+                <table class="min-w-full text-sm">
+                  <thead>
+                    <tr class="text-left border-b border-slate-200">
+                      <th class="py-3 pr-4 font-bold text-slate-500">Date</th>
+                      <th class="py-3 pr-4 font-bold text-slate-500">Description</th>
+                      <th class="py-3 pr-4 font-bold text-slate-500">Category</th>
+                      <th class="py-3 pr-4 font-bold text-slate-500">Account</th>
+                      <th class="py-3 pr-4 font-bold text-slate-500">Amount</th>
+                      <th class="py-3 pr-4 font-bold text-slate-500">Type</th>
+                      <th class="py-3 pr-4 font-bold text-slate-500">Notes</th>
+                      <th class="py-3 font-bold text-slate-500">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody id="plannedTableBody"></tbody>
+                </table>
+              </div>
+              <div id="plannedCards" class="md:hidden space-y-3"></div>
+            </div>
+
+            <!-- GRID VIEW (new) -->
+            <div id="plannedGridView" class="hidden">
+              <div class="flex items-center justify-between gap-3 flex-wrap mb-3">
+                <div class="text-sm text-slate-500">
+                  Rows are days (Today → Horizon). Edit <span class="font-bold">manual</span> items inline. Sheet rows are locked.
+                </div>
+                <div class="flex items-center gap-2">
+                  <button id="expandAllDaysBtn" class="rowbtn" type="button">Expand all</button>
+                  <button id="collapseAllDaysBtn" class="rowbtn" type="button">Collapse all</button>
+                </div>
+              </div>
+
+              <div class="overflow-auto scrollbar">
+                <table class="min-w-[1050px] w-full text-sm">
+                  <thead>
+                    <tr class="text-left border-b border-slate-200">
+                      <th class="py-3 pr-4 font-bold text-slate-500">Day</th>
+                      <th class="py-3 pr-4 font-bold text-slate-500">Totals</th>
+                      <th class="py-3 pr-4 font-bold text-slate-500">Items</th>
+                      <th class="py-3 font-bold text-slate-500">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody id="plannedGridBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel p-4 sm:p-5">
+            <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
+              <div><h2 class="text-lg font-extrabold text-slate-900">Forecast Signals</h2><p class="text-sm text-slate-500">Recurring patterns + category trends used in forward periods.</p></div>
+              <div id="patternCount" class="chip">0 signals</div>
+            </div>
+
+            <div class="overflow-auto scrollbar">
+              <table class="min-w-full text-sm">
+                <thead>
+                  <tr class="text-left border-b border-slate-200">
+                    <th class="py-3 pr-4 font-bold text-slate-500">Type</th>
+                    <th class="py-3 pr-4 font-bold text-slate-500">Category</th>
+                    <th class="py-3 pr-4 font-bold text-slate-500">Cadence / Basis</th>
+                    <th class="py-3 pr-4 font-bold text-slate-500">Amount</th>
+                    <th class="py-3 pr-4 font-bold text-slate-500">Occurrences</th>
+                    <th class="py-3 pr-4 font-bold text-slate-500">Account</th>
+                    <th class="py-3 font-bold text-slate-500">Last Seen</th>
+                  </tr>
+                </thead>
+                <tbody id="patternTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <section id="transactionsTab" class="tab-content mt-6 hidden">
+      <div class="panel p-4 sm:p-5">
+        <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
+          <div><h2 class="text-lg font-extrabold text-slate-900">Actual Transactions</h2><p class="text-sm text-slate-500">Filtered actual transaction history only.</p></div>
+          <div id="transactionsMeta" class="chip">0 rows</div>
+        </div>
+
+        <div class="hidden md:block overflow-auto scrollbar">
+          <table class="min-w-full text-sm">
+            <thead>
+              <tr class="text-left border-b border-slate-200">
+                <th class="py-3 pr-4 font-bold text-slate-500">Date</th>
+                <th class="py-3 pr-4 font-bold text-slate-500">Transaction</th>
+                <th class="py-3 pr-4 font-bold text-slate-500">Name</th>
+                <th class="py-3 pr-4 font-bold text-slate-500">Account</th>
+                <th class="py-3 pr-4 font-bold text-slate-500">Category</th>
+                <th class="py-3 font-bold text-slate-500">Amount</th>
+              </tr>
+            </thead>
+            <tbody id="transactionsTableBody"></tbody>
+          </table>
+        </div>
+        <div id="transactionsCards" class="md:hidden space-y-3"></div>
+      </div>
+    </section>
+
+    <section id="treasuryTab" class="tab-content mt-6 hidden">
+      <div class="grid grid-cols-1 2xl:grid-cols-12 gap-4">
+        <div class="2xl:col-span-4 panel p-4 sm:p-5">
+          <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
+            <div><h2 class="text-lg font-extrabold text-slate-900">Cash Accounts</h2><p class="text-sm text-slate-500">Imported current cash balances.</p></div>
+            <div id="cashAccountsMeta" class="chip">0 accounts</div>
+          </div>
+
+          <div class="hidden md:block overflow-auto scrollbar">
+            <table class="min-w-full text-sm">
+              <thead>
+                <tr class="text-left border-b border-slate-200">
+                  <th class="py-3 pr-4 font-bold text-slate-500">Account</th>
+                  <th class="py-3 pr-4 font-bold text-slate-500">Balance</th>
+                  <th class="py-3 font-bold text-slate-500">Notes</th>
+                </tr>
+              </thead>
+              <tbody id="cashAccountsTableBody"></tbody>
+            </table>
+          </div>
+          <div id="cashAccountsCards" class="md:hidden space-y-3"></div>
+        </div>
+
+        <div class="2xl:col-span-4 panel p-4 sm:p-5">
+          <div class="mb-3"><h2 class="text-lg font-extrabold text-slate-900">Available Liquidity</h2><p class="text-sm text-slate-500">Availability by source.</p></div>
+          <div class="h-[320px]"><canvas id="liquidityChart"></canvas></div>
+        </div>
+
+        <div class="2xl:col-span-4 panel p-4 sm:p-5">
+          <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
+            <div><h2 class="text-lg font-extrabold text-slate-900">Liquidity Sources</h2><p class="text-sm text-slate-500">Limit, used, and available capacity.</p></div>
+            <div id="liquidityMeta" class="chip">0 sources</div>
+          </div>
+
+          <div class="hidden md:block overflow-auto scrollbar">
+            <table class="min-w-full text-sm">
+              <thead>
+                <tr class="text-left border-b border-slate-200">
+                  <th class="py-3 pr-4 font-bold text-slate-500">Source</th>
+                  <th class="py-3 pr-4 font-bold text-slate-500">Limit</th>
+                  <th class="py-3 pr-4 font-bold text-slate-500">Used</th>
+                  <th class="py-3 pr-4 font-bold text-slate-500">Available</th>
+                  <th class="py-3 font-bold text-slate-500">Notes</th>
+                </tr>
+              </thead>
+              <tbody id="liquidityTableBody"></tbody>
+            </table>
+          </div>
+          <div id="liquidityCards" class="md:hidden space-y-3"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const KEYS = {
+      transactionsUrl: 'to-transactions-url',
+      plannedUrl: 'to-planned-url',
+      cashAccountsUrl: 'to-cashaccounts-url',
+      liquidityUrl: 'to-liquidity-url',
+      lowCashThreshold: 'to-low-threshold',
+      manualPlannedItems: 'to-manual-planned-items',
+      suppressForecastOnPlanned: 'to-suppress-forecast-on-planned',
+      plannedViewMode: 'to-planned-view-mode',
+      plannedExpandedDays: 'to-planned-expanded-days'
+    };
+
+    const state = {
+      transactions: [],
+      plannedSheetItems: [],
+      manualPlannedItems: [],
+      cashAccounts: [],
+      liquidity: [],
+      recurringSignals: [],
+      trendSignals: [],
+      forecastItems: [],
+      charts: { cashflow:null, category:null, liquidity:null },
+      plannedViewMode: 'list',
+      plannedExpandedDays: new Set()
+    };
+
+    const els = {};
+    const fmt0 = new Intl.NumberFormat('en-US', { style:'currency', currency:'USD', maximumFractionDigits:0 });
+    const fmt2 = new Intl.NumberFormat('en-US', { style:'currency', currency:'USD', minimumFractionDigits:2, maximumFractionDigits:2 });
+
+    const $ = id => document.getElementById(id);
+    const txt = v => (v ?? '').toString().trim();
+    const money = v => fmt0.format(Number(v) || 0);
+    const money2 = v => fmt2.format(Number(v) || 0);
+    const sum = (arr, fn = x => x) => arr.reduce((a, x) => a + fn(x), 0);
+    const abs = Math.abs;
+
+    function initRefs() {
+      [
+        'transactionsUrl','plannedUrl','cashAccountsUrl','liquidityUrl','lowCashThreshold',
+        'searchInput','startDate','endDate','typeFilter','timeline','forecastMode','forecastHorizon',
+        'includePlanned','includeRecurringForecast','includeTrendForecast','suppressForecastOnPlanned',
+        'loadDataBtn','exportCashflowBtn','exportTransactionsBtn','statusBar','plannedFormDate',
+        'plannedFormDescription','plannedFormCategory','plannedFormAccount','plannedFormAmount',
+        'plannedFormType','plannedFormNotes','addPlannedItemBtn','clearManualPlannedBtn',
+        'plannedViewListBtn','plannedViewGridBtn','plannedListView','plannedGridView',
+        'plannedGridBody','expandAllDaysBtn','collapseAllDaysBtn'
+      ].forEach(id => els[id] = $(id));
+    }
+
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+    const normalizeKey = s => txt(s).toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const iso = d => d ? d.toISOString().slice(0,10) : '';
+    const todayUTC = () => { const n = new Date(); return new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate())); };
+    const addDays = (d, days) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + days));
+    const diffDays = (a, b) => Math.round((b - a) / 86400000);
+    const median = arr => {
+      const n = arr.filter(Number.isFinite).sort((a,b) => a - b);
+      if (!n.length) return 0;
+      const m = Math.floor(n.length / 2);
+      return n.length % 2 ? n[m] : (n[m - 1] + n[m]) / 2;
+    };
+    const startOfWeek = d => { const x = new Date(d); const day = x.getUTCDay(); x.setUTCDate(x.getUTCDate() + (day === 0 ? -6 : 1 - day)); return x; };
+    const startOfMonth = d => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+    const prettyDate = d => d ? new Intl.DateTimeFormat('en-US', { month:'short', day:'numeric', year:'numeric', timeZone:'UTC' }).format(d) : '—';
+
+    function parseAmount(value) {
+      if (value == null) return 0;
+      if (typeof value === 'number' && Number.isFinite(value)) return value;
+      let s = String(value).trim();
+      if (!s) return 0;
+      s = s.replace(/\(([^)]+)\)/g, '-$1').replace(/[,\s]/g, '').replace(/\$/g, '').replace(/^\+/, '');
+      const m = s.match(/-?\d*\.?\d+/);
+      const n = m ? Number(m[0]) : 0;
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function parseDate(v) {
+      if (!v) return null;
+      if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : new Date(Date.UTC(v.getUTCFullYear(), v.getUTCMonth(), v.getUTCDate()));
+      const s = String(v).trim();
+      if (!s) return null;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+        const [y,m,d] = s.split('-').map(Number);
+        return new Date(Date.UTC(y, m - 1, d));
+      }
+      if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(s)) {
+        let [m,d,y] = s.split('/').map(Number);
+        if (y < 100) y += 2000;
+        return new Date(Date.UTC(y, m - 1, d));
+      }
+      const d = new Date(s);
+      return Number.isNaN(d.getTime()) ? null : new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    }
+
+    function status(type, message) {
+      const map = {
+        success:'bg-emerald-50 border-emerald-200 text-emerald-800',
+        warn:'bg-amber-50 border-amber-200 text-amber-800',
+        error:'bg-red-50 border-red-200 text-red-800',
+        info:'bg-blue-50 border-blue-200 text-blue-800'
+      };
+      els.statusBar.className = 'mt-4';
+      els.statusBar.innerHTML = `<div class="panel !rounded-2xl border ${map[type] || map.info} px-4 py-3 text-sm font-semibold">${esc(message)}</div>`;
+      els.statusBar.classList.remove('hidden');
+    }
+
+    const clearStatus = () => { els.statusBar.classList.add('hidden'); els.statusBar.innerHTML = ''; };
+
+    function persist() {
+      localStorage.setItem(KEYS.transactionsUrl, els.transactionsUrl.value.trim());
+      localStorage.setItem(KEYS.plannedUrl, els.plannedUrl.value.trim());
+      localStorage.setItem(KEYS.cashAccountsUrl, els.cashAccountsUrl.value.trim());
+      localStorage.setItem(KEYS.liquidityUrl, els.liquidityUrl.value.trim());
+      localStorage.setItem(KEYS.lowCashThreshold, els.lowCashThreshold.value.trim());
+      localStorage.setItem(KEYS.manualPlannedItems, JSON.stringify(state.manualPlannedItems));
+      localStorage.setItem(KEYS.suppressForecastOnPlanned, JSON.stringify(els.suppressForecastOnPlanned.checked));
+      localStorage.setItem(KEYS.plannedViewMode, state.plannedViewMode);
+      localStorage.setItem(KEYS.plannedExpandedDays, JSON.stringify([...state.plannedExpandedDays]));
+    }
+
+    function restore() {
+      ['transactionsUrl','plannedUrl','cashAccountsUrl','liquidityUrl','lowCashThreshold'].forEach(k => els[k].value = localStorage.getItem(KEYS[k]) || '');
+      try { state.manualPlannedItems = JSON.parse(localStorage.getItem(KEYS.manualPlannedItems) || '[]') || []; } catch { state.manualPlannedItems = []; }
+      try { els.suppressForecastOnPlanned.checked = JSON.parse(localStorage.getItem(KEYS.suppressForecastOnPlanned) ?? 'true'); } catch { els.suppressForecastOnPlanned.checked = true; }
+      state.plannedViewMode = localStorage.getItem(KEYS.plannedViewMode) || 'list';
+      try {
+        const arr = JSON.parse(localStorage.getItem(KEYS.plannedExpandedDays) || '[]') || [];
+        state.plannedExpandedDays = new Set(arr);
+      } catch {
+        state.plannedExpandedDays = new Set();
+      }
+    }
+
+    function validateHeaders(rows, required) {
+      if (!rows?.length) return false;
+      const headers = Object.keys(rows[0] || {}).map(h => h.trim().toLowerCase());
+      return required.every(h => headers.includes(h.toLowerCase()));
+    }
+
+    function parseCsvFromUrl(url) {
+      return new Promise((resolve, reject) => {
+        if (!url) return resolve([]);
+        Papa.parse(url, {
+          download: true,
+          header: true,
+          skipEmptyLines: 'greedy',
+          complete: results => {
+            const serious = (results.errors || []).find(e => e.code !== 'UndetectableDelimiter');
+            if (serious) return reject(new Error(serious.message || 'CSV parse error'));
+            resolve(results.data || []);
+          },
+          error: reject
+        });
+      });
+    }
+
+    function normalizeRows(rows, type) {
+      const mappers = {
+        actual: (r,i) => {
+          const date = parseDate(r.Date);
+          return {
+            id:`actual-${i}`, sourceType:'actual', forecastKind:'', date, dateISO: iso(date),
+            transaction: txt(r.Transaction), description: txt(r.Transaction), name: txt(r.Name),
+            account: txt(r.Account), category: txt(r.Category), amount: parseAmount(r.Amount), notes:''
+          };
+        },
+        planned: (r,i) => {
+          const date = parseDate(r.Date);
+          return {
+            id:`planned-sheet-${i}`, sourceType:'planned', forecastKind:'', manual:false, date, dateISO: iso(date),
+            description: txt(r.Description), transaction: txt(r.Description), name: txt(r.Description),
+            account: txt(r.Account), category: txt(r.Category), amount: parseAmount(r.Amount),
+            type: txt(r.Type) || 'Planned', notes: txt(r.Notes)
+          };
+        },
+        manual: (r,i) => {
+          const date = parseDate(r.date);
+          return {
+            id:r.id || `manual-${i}`, sourceType:'planned', forecastKind:'', manual:true, date, dateISO: iso(date),
+            description: txt(r.description), transaction: txt(r.description), name: txt(r.description),
+            account: txt(r.account), category: txt(r.category), amount: parseAmount(r.amount),
+            type: txt(r.type) || 'Planned', notes: txt(r.notes)
+          };
+        },
+        cash: (r,i) => ({ id:`cash-${i}`, account: txt(r.Account), balance: parseAmount(r.Balance), notes: txt(r.Notes) }),
+        liquidity: (r,i) => {
+          const limit = parseAmount(r.Limit), used = parseAmount(r.Used);
+          return { id:`liq-${i}`, source: txt(r.Source), limit, used, available: txt(r.Available) ? parseAmount(r.Available) : limit - used, notes: txt(r.Notes) };
+        }
+      };
+      return rows.map(mappers[type]).filter(r => type === 'cash' ? r.account : type === 'liquidity' ? r.source : r.date);
+    }
+
+    const getAllPlannedItems = () => [...state.plannedSheetItems, ...normalizeRows(state.manualPlannedItems, 'manual')].sort((a,b) => a.date - b.date);
+    const getCashBalance = () => sum(state.cashAccounts, a => parseAmount(a.balance));
+    const searchable = item => [item.description, item.transaction, item.name, item.account, item.category, item.notes, item.type].join(' ').toLowerCase();
+
+    function filterRows(rows) {
+      const q = els.searchInput.value.trim().toLowerCase();
+      const start = parseDate(els.startDate.value);
+      const end = parseDate(els.endDate.value);
+      const type = els.typeFilter.value;
+
+      return rows
+        .filter(r => !start || r.date >= start)
+        .filter(r => !end || r.date <= end)
+        .filter(r => !q || searchable(r).includes(q))
+        .filter(r => {
+          if (type === 'all') return true;
+          if (type === 'actual') return r.sourceType === 'actual';
+          if (type === 'planned') return r.sourceType === 'planned';
+          if (type === 'forecast') return r.sourceType === 'forecast';
+          if (type === 'cashin') return r.amount > 0;
+          if (type === 'cashout') return r.amount < 0;
+          return true;
+        })
+        .sort((a,b) => a.date - b.date);
+    }
+
+    const getActualTransactionsFiltered = () => filterRows([...state.transactions]);
+    const getCombinedItems = () => filterRows([
+      ...state.transactions,
+      ...(els.includePlanned.checked ? getAllPlannedItems() : []),
+      ...(els.includeRecurringForecast.checked || els.includeTrendForecast.checked
+        ? state.forecastItems.filter(x =>
+            (x.forecastKind === 'recurring' && els.includeRecurringForecast.checked) ||
+            (x.forecastKind === 'trend' && els.includeTrendForecast.checked)
+          )
+        : [])
+    ]);
+
+    function detectCadence(gaps) {
+      const med = median(gaps);
+      if (!gaps.length) return null;
+      if (med >= 5 && med <= 9) return { label:'Weekly', days:7, minOccurrences:4, dateTolerance:5 };
+      if (med >= 11 && med <= 17) return { label:'Biweekly', days:14, minOccurrences:3, dateTolerance:8 };
+      if (med >= 25 && med <= 35) return { label:'Monthly', days:30, minOccurrences:3, dateTolerance:12 };
+      if (med >= 50 && med <= 66) return { label:'Bimonthly', days:60, minOccurrences:2, dateTolerance:15 };
+      return null;
+    }
+
+    function amountStable(amounts) {
+      const values = amounts.map(abs).filter(v => v > 0);
+      if (!values.length) return false;
+      const med = median(values);
+      return med > 0 && values.filter(v => abs(v - med) / med <= 0.35).length / values.length >= 0.66;
+    }
+
+    function getForecastLookbackDays() {
+      const horizon = Number(els.forecastHorizon.value || 90);
+      return Math.max(90, horizon);
+    }
+
+    function detectRecurringSignals(rows) {
+      const groups = new Map();
+
+      rows.forEach(t => {
+        const key = [normalizeKey(t.category || 'uncategorized'), normalizeKey(t.account || 'unknown account'), t.amount >= 0 ? 'in' : 'out'].join('||');
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(t);
+      });
+
+      const patterns = [];
+      groups.forEach(items => {
+        const sorted = [...items].sort((a,b) => a.date - b.date);
+        if (sorted.length < 2) return;
+        const cadence = detectCadence(sorted.slice(1).map((x,i) => diffDays(sorted[i].date, x.date)));
+        if (!cadence || sorted.length < cadence.minOccurrences || !amountStable(sorted.map(x => x.amount))) return;
+        const last = sorted.at(-1);
+        patterns.push({
+          signalType: 'Recurring',
+          category: last.category || 'Uncategorized',
+          account: last.account,
+          sign: last.amount >= 0 ? 1 : -1,
+          cadenceLabel: cadence.label,
+          cadenceDays: cadence.days,
+          dateTolerance: cadence.dateTolerance,
+          amount: median(sorted.map(x => abs(x.amount))),
+          occurrences: sorted.length,
+          lastSeen: last.date
+        });
+      });
+
+      return patterns.sort((a,b) => (b.occurrences - a.occurrences) || (abs(b.amount) - abs(a.amount)));
+    }
+
+    // Trend detection (still category+account based, as in your baseline)
+    function detectTrendSignals(rows, recurringSignals) {
+      const today = todayUTC();
+      const lookbackStart = addDays(today, -getForecastLookbackDays());
+      const recurringKeys = new Set(recurringSignals.map(x => `${normalizeKey(x.category)}||${normalizeKey(x.account)}||${x.sign > 0 ? 'in' : 'out'}`));
+
+      const recent = rows.filter(r => r.date >= lookbackStart);
+      const groups = new Map();
+
+      recent.forEach(t => {
+        const signKey = t.amount >= 0 ? 'in' : 'out';
+        const key = [normalizeKey(t.category || 'uncategorized'), normalizeKey(t.account || 'unknown account'), signKey].join('||');
+        if (recurringKeys.has(key)) return;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(t);
+      });
+
+      const signals = [];
+      groups.forEach(items => {
+        const sorted = [...items].sort((a,b) => a.date - b.date);
+        if (sorted.length < 4) return;
+        const totalAbs = sum(sorted, x => abs(x.amount));
+        if (totalAbs < 500) return;
+
+        const first = sorted[0].date;
+        const last = sorted.at(-1).date;
+        const spanDays = Math.max(14, diffDays(first, last) + 1);
+        const avgDaily = sum(sorted, x => x.amount) / spanDays;
+        if (abs(avgDaily) < 5) return;
+
+        const lastRow = sorted.at(-1);
+        signals.push({
+          signalType: 'Trend',
+          category: lastRow.category || 'Uncategorized',
+          account: lastRow.account,
+          sign: avgDaily >= 0 ? 1 : -1,
+          cadenceLabel: 'Recent Trend',
+          cadenceDays: 0,
+          dateTolerance: 0,
+          avgDaily,
+          amount: avgDaily,
+          occurrences: sorted.length,
+          lastSeen: lastRow.date
+        });
+      });
+
+      return signals.sort((a,b) => abs(b.avgDaily) - abs(a.avgDaily)).slice(0, 16);
+    }
+
+    function adjustedAmount(amount, mode) {
+      if (mode === 'base') return amount;
+      const positive = amount > 0;
+      return mode === 'conservative' ? (positive ? amount * 0.9 : amount * 1.1) : (positive ? amount * 1.1 : amount * 0.9);
+    }
+
+    function plannedConflictExists(pattern, date, amount, planned) {
+      const amountAbs = abs(amount);
+      return planned.some(p => {
+        if ((p.amount >= 0 ? 1 : -1) !== (amount >= 0 ? 1 : -1)) return false;
+        if (normalizeKey(p.account) !== normalizeKey(pattern.account) || normalizeKey(p.category) !== normalizeKey(pattern.category)) return false;
+        const plannedAbs = abs(p.amount);
+        const amountDiff = amountAbs ? abs(plannedAbs - amountAbs) / amountAbs : 1;
+        if (amountDiff > 0.2) return false;
+        return abs(diffDays(p.date, date)) <= (pattern.dateTolerance || 10);
+      });
+    }
+
+    function trendPeriodStart(date, timeline) {
+      if (timeline === 'daily') return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+      if (timeline === 'weekly') return startOfWeek(date);
+      return startOfMonth(date);
+    }
+
+    function nextPeriodStart(date, timeline) {
+      const d = trendPeriodStart(date, timeline);
+      if (timeline === 'daily') return addDays(d, 1);
+      if (timeline === 'weekly') return addDays(d, 7);
+      return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1));
+    }
+
+    function daysInPeriod(start, timeline) {
+      return diffDays(start, nextPeriodStart(start, timeline));
+    }
+
+    function generateRecurringForecastItems(signals, planned) {
+      const today = todayUTC();
+      const end = addDays(today, Number(els.forecastHorizon.value || 90));
+      const mode = els.forecastMode.value;
+      const out = [];
+
+      signals.forEach((p, idx) => {
+        let next = addDays(p.lastSeen, p.cadenceDays);
+        while (next <= end) {
+          if (next >= today) {
+            const amount = adjustedAmount(p.amount * p.sign, mode);
+            const blocked = els.suppressForecastOnPlanned.checked && plannedConflictExists(p, next, amount, planned);
+            if (!blocked) {
+              out.push({
+                id:`forecast-r-${idx}-${iso(next)}`,
+                sourceType:'forecast',
+                forecastKind:'recurring',
+                date:next,
+                dateISO:iso(next),
+                description:`${p.category} Recurring Forecast`,
+                transaction:`${p.category} Recurring Forecast`,
+                name:p.category,
+                account:p.account,
+                category:p.category,
+                amount,
+                type:'Forecast',
+                notes:p.cadenceLabel
+              });
+            }
+          }
+          next = addDays(next, p.cadenceDays);
+        }
+      });
+
+      return out;
+    }
+
+    function generateTrendForecastItems(signals, planned) {
+      const today = todayUTC();
+      const timeline = els.timeline.value;
+      const end = addDays(today, Number(els.forecastHorizon.value || 90));
+      const mode = els.forecastMode.value;
+      const out = [];
+
+      signals.forEach((s, idx) => {
+        let cursor = trendPeriodStart(today, timeline);
+        while (cursor <= end) {
+          const next = nextPeriodStart(cursor, timeline);
+          const periodDays = daysInPeriod(cursor, timeline);
+          const amount = adjustedAmount(s.avgDaily * periodDays, mode);
+          const itemDate = cursor < today ? today : cursor;
+          const blocked = els.suppressForecastOnPlanned.checked && plannedConflictExists({ ...s, dateTolerance: Math.max(4, periodDays / 2) }, itemDate, amount, planned);
+          if (!blocked && abs(amount) >= 20) {
+            out.push({
+              id:`forecast-t-${idx}-${iso(cursor)}`,
+              sourceType:'forecast',
+              forecastKind:'trend',
+              date:itemDate,
+              dateISO:iso(itemDate),
+              description:`${s.category} Trend Forecast`,
+              transaction:`${s.category} Trend Forecast`,
+              name:s.category,
+              account:s.account,
+              category:s.category,
+              amount,
+              type:'Forecast',
+              notes:`${timeline[0].toUpperCase() + timeline.slice(1)} Trend`
+            });
+          }
+          cursor = next;
+        }
+      });
+
+      return out;
+    }
+
+    function periodKey(date, timeline) {
+      if (timeline === 'daily') return iso(date);
+      if (timeline === 'weekly') return iso(startOfWeek(date));
+      return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2,'0')}`;
+    }
+
+    function periodLabel(key, timeline) {
+      if (timeline === 'daily') return prettyDate(parseDate(key));
+      if (timeline === 'weekly') return `Week of ${prettyDate(parseDate(key))}`;
+      const [y,m] = key.split('-').map(Number);
+      return new Intl.DateTimeFormat('en-US', { month:'long', year:'numeric', timeZone:'UTC' }).format(new Date(Date.UTC(y, m - 1, 1)));
+    }
+
+    function buildCashflowPeriods(items) {
+      const timeline = els.timeline.value;
+      const groups = new Map();
+
+      items.forEach(item => {
+        const key = periodKey(item.date, timeline);
+        if (!groups.has(key)) {
+          groups.set(key, {
+            key,
+            actualIn:0, plannedIn:0, forecastIn:0,
+            actualOut:0, plannedOut:0, forecastOut:0,
+            plannedNet:0, forecastNet:0, net:0, rows:0
+          });
+        }
+        const g = groups.get(key);
+        const src = item.sourceType;
+        const amt = item.amount;
+
+        if (src === 'actual') amt >= 0 ? g.actualIn += amt : g.actualOut += abs(amt);
+        if (src === 'planned') {
+          amt >= 0 ? g.plannedIn += amt : g.plannedOut += abs(amt);
+          g.plannedNet += amt;
+        }
+        if (src === 'forecast') {
+          amt >= 0 ? g.forecastIn += amt : g.forecastOut += abs(amt);
+          g.forecastNet += amt;
+        }
+
+        g.net += amt;
+        g.rows += 1;
+      });
+
+      let running = getCashBalance();
+      return [...groups.keys()].sort().map(key => {
+        const g = groups.get(key);
+        const beginning = running;
+        const ending = beginning + g.net;
+        running = ending;
+        return { ...g, label: periodLabel(key, timeline), beginning, ending };
+      });
+    }
+
+    const categoryMovement = items => [...items.reduce((m, x) => m.set(x.category || 'Uncategorized', (m.get(x.category || 'Uncategorized') || 0) + x.amount), new Map())]
+      .map(([category, amount]) => ({ category, amount }))
+      .sort((a,b) => abs(b.amount) - abs(a.amount)).slice(0, 8);
+
+    function computeKpis(items, periods) {
+      const cashBalance = getCashBalance();
+      const liquidity = sum(state.liquidity, x => x.available);
+      const cashIn = sum(items.filter(x => x.amount > 0), x => x.amount);
+      const cashOut = sum(items.filter(x => x.amount < 0), x => abs(x.amount));
+      const endingBalance = periods.at(-1)?.ending ?? cashBalance;
+      const coverage = endingBalance + liquidity;
+      const daily = [...items.reduce((m, x) => m.set(iso(x.date), (m.get(iso(x.date)) || 0) + x.amount), new Map()).values()].filter(v => v < 0);
+      const burn = daily.length ? abs(sum(daily) / daily.length) : 0;
+      const recurringRows = state.forecastItems.filter(x => x.forecastKind === 'recurring').length;
+      const trendRows = state.forecastItems.filter(x => x.forecastKind === 'trend').length;
+      return {
+        cashBalance, liquidity, coverage, cashIn, cashOut,
+        netCash: cashIn - cashOut, endingBalance,
+        runway: burn > 0 && coverage > 0 ? `${Math.round(coverage / burn)}d / ${((coverage / burn)/30).toFixed(1)}m` : '—',
+        plannedRows: getAllPlannedItems().length,
+        recurringRows,
+        trendRows
+      };
+    }
+
+    function destroyChart(name) {
+      if (state.charts[name]?.destroy) state.charts[name].destroy();
+    }
+
+    function makeChart(name, config) {
+      destroyChart(name);
+      state.charts[name] = new Chart($(name + 'Chart'), config);
+    }
+
+    function renderKpis(k) {
+      const cards = [
+        ['Cash Balance', money(k.cashBalance), 'text-slate-900'],
+        ['Liquidity', money(k.liquidity), 'text-purplex'],
+        ['Total Coverage', money(k.coverage), 'text-slate-900'],
+        ['Runway', k.runway, 'text-slate-900'],
+        ['Cash In', money(k.cashIn), 'text-greenx'],
+        ['Cash Out', money(k.cashOut), 'text-redx'],
+        ['Net Cash', money(k.netCash), 'text-bluex'],
+        ['Ending Balance', money(k.endingBalance), 'text-slate-900'],
+        ['Planned Rows', String(k.plannedRows), 'text-bluex'],
+        ['Forecast Rows', `${k.recurringRows + k.trendRows}`, 'text-tealx']
+      ];
+      $('kpiGrid').innerHTML = cards.map(([label, value, cls]) => `
+        <div class="mini p-4">
+          <div class="text-xs font-bold uppercase tracking-wide text-slate-500">${label}</div>
+          <div class="mt-2 text-2xl font-extrabold ${cls} mono">${value}</div>
+        </div>
+      `).join('');
+    }
+
+    function renderCashflowChart(periods) {
+      makeChart('cashflow', {
+        data: {
+          labels: periods.map(p => p.label),
+          datasets: [
+            { type:'bar', label:'Cash In', data:periods.map(p => p.actualIn + p.plannedIn + p.forecastIn), backgroundColor:'rgba(22,163,74,.85)', borderRadius:8, order:3 },
+            { type:'bar', label:'Cash Out', data:periods.map(p => -(p.actualOut + p.plannedOut + p.forecastOut)), backgroundColor:'rgba(220,38,38,.82)', borderRadius:8, order:3 },
+            { type:'line', label:'Net Cashflow', data:periods.map(p => p.net), borderColor:'rgba(37,99,235,1)', backgroundColor:'rgba(37,99,235,.08)', pointRadius:3, tension:.28, borderWidth:2.6, order:2 },
+            { type:'line', label:'Ending Balance', data:periods.map(p => p.ending), borderColor:'#0f172a', backgroundColor:'#0f172a', pointRadius:3, tension:.28, borderWidth:2.8, order:1 }
+          ]
+        },
+        options: {
+          maintainAspectRatio:false,
+          interaction:{ mode:'index', intersect:false },
+          plugins:{
+            legend:{ labels:{ usePointStyle:true, boxWidth:8, color:'#334155', font:{ weight:600 } } },
+            tooltip:{ callbacks:{ label: ctx => `${ctx.dataset.label}: ${money2(ctx.raw)}` } }
+          },
+          scales:{
+            x:{ grid:{ display:false }, ticks:{ color:'#64748b', maxRotation:0 } },
+            y:{ grid:{ color:'rgba(148,163,184,.14)' }, ticks:{ color:'#64748b', callback:v => money(v) } }
+          }
+        }
+      });
+    }
+
+    function renderCategoryChart(rows) {
+      makeChart('category', {
+        type:'bar',
+        data:{
+          labels: rows.map(r => r.category),
+          datasets:[{ label:'Net Movement', data:rows.map(r => r.amount), backgroundColor:rows.map(r => r.amount >= 0 ? 'rgba(22,163,74,.82)' : 'rgba(220,38,38,.82)'), borderRadius:10 }]
+        },
+        options:{
+          maintainAspectRatio:false, indexAxis:'y',
+          plugins:{ legend:{ display:false }, tooltip:{ callbacks:{ label: ctx => ` ${money2(ctx.raw)}` } } },
+          scales:{
+            x:{ grid:{ color:'rgba(148,163,184,.14)' }, ticks:{ color:'#64748b', callback:v => money(v) } },
+            y:{ grid:{ display:false }, ticks:{ color:'#475569' } }
+          }
+        }
+      });
+    }
+
+    function renderLiquidityChart(rows) {
+      makeChart('liquidity', {
+        type:'bar',
+        data:{ labels: rows.map(r => r.source), datasets:[{ label:'Available', data:rows.map(r => r.available), backgroundColor:'rgba(124,58,237,.82)', borderRadius:10 }] },
+        options:{
+          maintainAspectRatio:false,
+          plugins:{ legend:{ display:false }, tooltip:{ callbacks:{ label: ctx => ` ${money2(ctx.raw)}` } } },
+          scales:{
+            x:{ grid:{ display:false }, ticks:{ color:'#475569', maxRotation:0 } },
+            y:{ grid:{ color:'rgba(148,163,184,.14)' }, ticks:{ color:'#64748b', callback:v => money(v) } }
+          }
+        }
+      });
+    }
+
+    function renderCashflowTable(periods) {
+      const threshold = parseAmount(els.lowCashThreshold.value);
+      $('cashflowTableMeta').textContent = `${periods.length} periods`;
+      $('cashflowTableBody').innerHTML = periods.length ? periods.map(p => {
+        const low = p.ending < threshold;
+        return `
+          <tr class="border-b border-slate-100 ${low ? 'bg-amber-50/60' : ''}">
+            <td class="py-3 pr-4 font-semibold text-slate-900">${esc(p.label)}</td>
+            <td class="py-3 pr-4 mono text-slate-700">${money2(p.beginning)}</td>
+            <td class="py-3 pr-4 mono text-greenx">${money2(p.actualIn)}</td>
+            <td class="py-3 pr-4 mono text-bluex">${money2(p.plannedIn)}</td>
+            <td class="py-3 pr-4 mono text-tealx">${money2(p.forecastIn)}</td>
+            <td class="py-3 pr-4 mono text-redx">${money2(p.actualOut)}</td>
+            <td class="py-3 pr-4 mono text-bluex">${money2(p.plannedOut)}</td>
+            <td class="py-3 pr-4 mono text-tealx">${money2(p.forecastOut)}</td>
+            <td class="py-3 pr-4 mono font-semibold ${p.plannedNet >= 0 ? 'text-greenx' : 'text-redx'}">${money2(p.plannedNet)}</td>
+            <td class="py-3 pr-4 mono font-semibold ${p.forecastNet >= 0 ? 'text-greenx' : 'text-redx'}">${money2(p.forecastNet)}</td>
+            <td class="py-3 pr-4 mono font-semibold ${p.net >= 0 ? 'text-greenx' : 'text-redx'}">${money2(p.net)}</td>
+            <td class="py-3 pr-4 mono font-extrabold ${low ? 'text-amberx' : 'text-slate-900'}">${money2(p.ending)}</td>
+            <td class="py-3 pr-4 text-slate-600">${p.rows}</td>
+            <td class="py-3">${low ? `<span class="chip !border-amber-200 !bg-amber-100 !text-amber-800">Below threshold</span>` : `<span class="chip">Normal</span>`}</td>
+          </tr>`;
+      }).join('') : `<tr><td colspan="14" class="empty">No cashflow rows available.</td></tr>`;
+    }
+
+    function renderList(elId, rows, renderer, emptyText) {
+      $(elId).innerHTML = rows.length ? rows.map(renderer).join('') : `<div class="text-sm text-slate-400">${emptyText}</div>`;
+    }
+
+    function renderPreviewPanels() {
+      const planned = getAllPlannedItems().filter(x => x.date >= todayUTC()).slice(0, 8);
+      const forecast = [...state.forecastItems].slice(0, 8);
+      $('plannedPreviewCount').textContent = `${planned.length} items`;
+      $('forecastPreviewCount').textContent = `${forecast.length} items`;
+
+      const card = (item, color) => `
+        <div class="mini p-3">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="font-bold text-slate-900 truncate">${esc(item.description || item.transaction || 'Item')}</div>
+              <div class="text-sm text-slate-500 mt-1">${prettyDate(item.date)} · ${esc(item.notes || item.category || 'Uncategorized')}</div>
+            </div>
+            <div class="mono font-extrabold ${color}">${money2(item.amount)}</div>
+          </div>
+        </div>`;
+      renderList('upcomingPlannedPanel', planned, i => card(i, i.amount >= 0 ? 'text-greenx' : 'text-redx'), 'No upcoming planned items.');
+      renderList('forecastPreviewPanel', forecast, i => card(i, i.amount >= 0 ? 'text-greenx' : 'text-tealx'), 'No forecast items generated.');
+    }
+
+    function renderTableAndCards({ rows, tableId, cardsId, cols, cardBuilder, emptyCols, emptyText }) {
+      $(tableId).innerHTML = rows.length ? rows.map(cols).join('') : `<tr><td colspan="${emptyCols}" class="empty">${emptyText}</td></tr>`;
+      renderList(cardsId, rows, cardBuilder, emptyText);
+    }
+
+    // ---------- Planned: List view ----------
+    function renderPlannedList() {
+      const items = getAllPlannedItems();
+      $('plannedCount').textContent = `${items.length} items`;
+
+      renderTableAndCards({
+        rows: items,
+        tableId: 'plannedTableBody',
+        cardsId: 'plannedCards',
+        emptyCols: 8,
+        emptyText: 'No planned items available.',
+        cols: item => `
+          <tr class="border-b border-slate-100 ${item.manual ? '' : 'locked'}">
+            <td class="py-3 pr-4 text-slate-700">${prettyDate(item.date)}</td>
+            <td class="py-3 pr-4 font-semibold text-slate-900">${esc(item.description)}</td>
+            <td class="py-3 pr-4 text-slate-600">${esc(item.category)}</td>
+            <td class="py-3 pr-4 text-slate-600">${esc(item.account)}</td>
+            <td class="py-3 pr-4 mono font-bold ${item.amount >= 0 ? 'text-greenx' : 'text-redx'}">${money2(item.amount)}</td>
+            <td class="py-3 pr-4">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="chip">${esc(item.type || 'Planned')}</span>
+                ${item.manual ? '' : `<span class="pill-lock">🔒 Sheet</span>`}
+              </div>
+            </td>
+            <td class="py-3 pr-4 text-slate-500">${esc(item.notes || '')}</td>
+            <td class="py-3">${item.manual ? `<button class="btn btn-red py-2 px-3 text-xs" onclick="deleteManualPlannedItem('${item.id}')">Delete</button>` : `<span class="text-xs text-slate-400">Sheet</span>`}</td>
+          </tr>`,
+        cardBuilder: item => `
+          <div class="mini p-4 ${item.manual ? '' : 'locked'}">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="font-extrabold text-slate-900">${esc(item.description)}</div>
+                <div class="text-sm text-slate-500 mt-1">${prettyDate(item.date)} · ${esc(item.account || '—')}</div>
+                <div class="text-sm text-slate-500 mt-1">${esc(item.category || 'Uncategorized')}</div>
+                ${item.notes ? `<div class="text-sm text-slate-500 mt-2">${esc(item.notes)}</div>` : ''}
+                ${item.manual ? '' : `<div class="mt-2"><span class="pill-lock">🔒 Sheet</span></div>`}
+              </div>
+              <div class="text-right shrink-0">
+                <div class="mono font-extrabold ${item.amount >= 0 ? 'text-greenx' : 'text-redx'}">${money2(item.amount)}</div>
+                <div class="mt-2">${item.manual ? `<button class="btn btn-red py-2 px-3 text-xs" onclick="deleteManualPlannedItem('${item.id}')">Delete</button>` : `<span class="chip">Sheet</span>`}</div>
+              </div>
+            </div>
+          </div>`
+      });
+    }
+
+    // ---------- Planned: Grid view (editable by day) ----------
+    function horizonDays() {
+      return Number(els.forecastHorizon.value || 90);
+    }
+
+    function getDateRangeDays() {
+      const start = todayUTC();
+      const end = addDays(start, horizonDays());
+      const days = [];
+      let cur = new Date(start);
+      while (cur <= end) {
+        days.push(new Date(cur));
+        cur = addDays(cur, 1);
+      }
+      return days;
+    }
+
+    function groupPlannedByDay(allPlanned) {
+      const map = new Map();
+      for (const item of allPlanned) {
+        const key = iso(item.date);
+        if (!map.has(key)) map.set(key, []);
+        map.get(key).push(item);
+      }
+      for (const [k, arr] of map.entries()) {
+        arr.sort((a,b) => (a.manual === b.manual ? 0 : a.manual ? -1 : 1) || (abs(b.amount) - abs(a.amount)));
+        map.set(k, arr);
+      }
+      return map;
+    }
+
+    function setPlannedViewMode(mode) {
+      state.plannedViewMode = mode;
+      els.plannedViewListBtn.classList.toggle('active', mode === 'list');
+      els.plannedViewGridBtn.classList.toggle('active', mode === 'grid');
+      els.plannedListView.classList.toggle('hidden', mode !== 'list');
+      els.plannedGridView.classList.toggle('hidden', mode !== 'grid');
+      persist();
+    }
+
+    function toggleDayExpanded(dayISO) {
+      if (state.plannedExpandedDays.has(dayISO)) state.plannedExpandedDays.delete(dayISO);
+      else state.plannedExpandedDays.add(dayISO);
+      persist();
+      renderPlannedGrid();
+    }
+
+    function expandAllDays() {
+      const days = getDateRangeDays().map(d => iso(d));
+      state.plannedExpandedDays = new Set(days);
+      persist();
+      renderPlannedGrid();
+    }
+
+    function collapseAllDays() {
+      state.plannedExpandedDays = new Set();
+      persist();
+      renderPlannedGrid();
+    }
+
+    function createManualPlannedForDate(dayISO) {
+      const d = parseDate(dayISO);
+      const item = {
+        id:`manual-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+        date: dayISO,
+        description: '',
+        category: '',
+        account: '',
+        amount: '',
+        type: 'Planned',
+        notes: ''
+      };
+      state.manualPlannedItems.push(item);
+      persist();
+      refreshAll();
+      state.plannedExpandedDays.add(dayISO);
+      renderPlannedGrid();
+      status('success', `Added a new manual planned row for ${prettyDate(d)}.`);
+    }
+
+    function updateManualPlannedField(id, field, value) {
+      const idx = state.manualPlannedItems.findIndex(x => x.id === id);
+      if (idx < 0) return;
+      state.manualPlannedItems[idx] = { ...state.manualPlannedItems[idx], [field]: value };
+      persist();
+      refreshAll();
+    }
+
+    function renderPlannedGrid() {
+      const allPlanned = getAllPlannedItems();
+      $('plannedCount').textContent = `${allPlanned.length} items`;
+
+      const byDay = groupPlannedByDay(allPlanned);
+      const days = getDateRangeDays();
+
+      const rowsHtml = days.map(d => {
+        const dayISO = iso(d);
+        const items = byDay.get(dayISO) || [];
+        const total = sum(items, x => x.amount);
+        const inAmt = sum(items.filter(x => x.amount > 0), x => x.amount);
+        const outAmt = sum(items.filter(x => x.amount < 0), x => abs(x.amount));
+        const expanded = state.plannedExpandedDays.has(dayISO);
+
+        const totalsPills = `
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="chip"><span class="mono ${inAmt ? 'text-greenx' : 'text-slate-700'}">${money2(inAmt)}</span> <span class="muted">in</span></span>
+            <span class="chip"><span class="mono ${outAmt ? 'text-redx' : 'text-slate-700'}">${money2(outAmt)}</span> <span class="muted">out</span></span>
+            <span class="chip"><span class="mono font-extrabold ${total >= 0 ? 'text-greenx' : 'text-redx'}">${money2(total)}</span> <span class="muted">net</span></span>
+            <span class="chip">${items.length} items</span>
+          </div>
+        `;
+
+        const itemRows = items.length ? items.map(it => {
+          const isManual = !!it.manual;
+          const lock = isManual ? '' : `<span class="pill-lock" title="Imported from sheet (read-only)">🔒 Sheet</span>`;
+          const baseCls = isManual ? '' : 'opacity-75';
+          const disable = isManual ? '' : 'disabled';
+          const dVal = isManual ? esc(it.description) : esc(it.description);
+          const cVal = isManual ? esc(it.category) : esc(it.category);
+          const aVal = isManual ? esc(it.account) : esc(it.account);
+          const tVal = isManual ? esc(it.type || 'Planned') : esc(it.type || 'Planned');
+          const nVal = isManual ? esc(it.notes || '') : esc(it.notes || '');
+          const amt = Number(it.amount || 0);
+
+          return `
+            <tr class="border-b border-slate-100 ${baseCls}">
+              <td class="py-2 pr-3">
+                <div class="flex items-center gap-2">
+                  ${lock}
+                  <span class="text-xs text-slate-500">${isManual ? 'Manual' : 'Sheet'}</span>
+                </div>
+              </td>
+              <td class="py-2 pr-3">
+                <input class="input !py-2 !rounded-xl" value="${dVal}" ${disable}
+                  placeholder="Description"
+                  oninput="${isManual ? `window.__plannedEdit('${it.id}','description',this.value)` : ''}">
+              </td>
+              <td class="py-2 pr-3">
+                <input class="input !py-2 !rounded-xl" value="${cVal}" ${disable}
+                  placeholder="Category"
+                  oninput="${isManual ? `window.__plannedEdit('${it.id}','category',this.value)` : ''}">
+              </td>
+              <td class="py-2 pr-3">
+                <input class="input !py-2 !rounded-xl" value="${aVal}" ${disable}
+                  placeholder="Account"
+                  oninput="${isManual ? `window.__plannedEdit('${it.id}','account',this.value)` : ''}">
+              </td>
+              <td class="py-2 pr-3">
+                <input class="input mono !py-2 !rounded-xl" value="${isManual ? esc(String(state.manualPlannedItems.find(x => x.id===it.id)?.amount ?? '')) : esc(String(it.amount ?? ''))}" ${disable}
+                  placeholder="-8500.00"
+                  oninput="${isManual ? `window.__plannedEdit('${it.id}','amount',this.value)` : ''}">
+              </td>
+              <td class="py-2 pr-3">
+                <input class="input !py-2 !rounded-xl" value="${tVal}" ${disable}
+                  placeholder="Planned/Transfer"
+                  oninput="${isManual ? `window.__plannedEdit('${it.id}','type',this.value)` : ''}">
+              </td>
+              <td class="py-2 pr-3">
+                <input class="input !py-2 !rounded-xl" value="${nVal}" ${disable}
+                  placeholder="Notes"
+                  oninput="${isManual ? `window.__plannedEdit('${it.id}','notes',this.value)` : ''}">
+              </td>
+              <td class="py-2">
+                ${isManual ? `<button class="btn btn-red !py-2 !px-3 text-xs" onclick="deleteManualPlannedItem('${it.id}')">Delete</button>` : `<span class="text-xs text-slate-400">—</span>`}
+              </td>
+            </tr>
+          `;
+        }).join('') : `
+          <tr><td colspan="8" class="py-4 text-sm text-slate-400">No planned items for this day.</td></tr>
+        `;
+
+        const expandedBlock = expanded ? `
+          <tr>
+            <td colspan="4" class="pb-4">
+              <div class="mini p-3 mt-2">
+                <div class="flex items-center justify-between gap-3 flex-wrap">
+                  <div class="text-sm font-extrabold text-slate-900">Items for ${esc(prettyDate(d))}</div>
+                  <div class="flex items-center gap-2">
+                    <button class="btn btn-blue !py-2 !px-3 text-xs" onclick="window.__plannedAdd('${dayISO}')">Add manual row</button>
+                    <button class="btn btn-light !py-2 !px-3 text-xs" onclick="window.__plannedToggle('${dayISO}')">Collapse</button>
+                  </div>
+                </div>
+
+                <div class="overflow-auto scrollbar mt-3">
+                  <table class="min-w-[980px] w-full text-sm">
+                    <thead>
+                      <tr class="text-left border-b border-slate-200">
+                        <th class="py-2 pr-3 font-bold text-slate-500">Source</th>
+                        <th class="py-2 pr-3 font-bold text-slate-500">Description</th>
+                        <th class="py-2 pr-3 font-bold text-slate-500">Category</th>
+                        <th class="py-2 pr-3 font-bold text-slate-500">Account</th>
+                        <th class="py-2 pr-3 font-bold text-slate-500">Amount</th>
+                        <th class="py-2 pr-3 font-bold text-slate-500">Type</th>
+                        <th class="py-2 pr-3 font-bold text-slate-500">Notes</th>
+                        <th class="py-2 font-bold text-slate-500">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>${itemRows}</tbody>
+                  </table>
+                </div>
+              </div>
+            </td>
+          </tr>
+        ` : '';
+
+        return `
+          <tr class="grid-row">
+            <td class="py-3 pr-4 font-semibold text-slate-900">
+              <div class="flex items-center gap-2">
+                <button class="rowbtn" onclick="window.__plannedToggle('${dayISO}')" title="Expand/collapse">
+                  ${expanded ? '▾' : '▸'}
+                </button>
+                <div>
+                  <div>${esc(prettyDate(d))}</div>
+                  <div class="text-xs text-slate-500 mono">${dayISO}</div>
+                </div>
+              </div>
+            </td>
+            <td class="py-3 pr-4">${totalsPills}</td>
+            <td class="py-3 pr-4">
+              <div class="text-sm text-slate-600">
+                ${items.slice(0,2).map(x => `${esc(x.description || x.category || 'Item')} <span class="mono">${money2(x.amount)}</span>`).join('<br>') || `<span class="text-slate-400">—</span>`}
+                ${items.length > 2 ? `<div class="text-xs text-slate-500 mt-2">+${items.length - 2} more…</div>` : ''}
+              </div>
+            </td>
+            <td class="py-3">
+              <div class="flex items-center gap-2">
+                <button class="rowbtn" onclick="window.__plannedAdd('${dayISO}')">Add</button>
+                <button class="rowbtn" onclick="window.__plannedToggle('${dayISO}')">${expanded ? 'Collapse' : 'Edit'}</button>
+              </div>
+            </td>
+          </tr>
+          ${expandedBlock}
+        `;
+      }).join('');
+
+      els.plannedGridBody.innerHTML = rowsHtml || `<tr><td colspan="4" class="empty">No grid rows.</td></tr>`;
+    }
+
+    function renderTransactionsTab() {
+      const rows = getActualTransactionsFiltered();
+      $('transactionsMeta').textContent = `${rows.length} rows`;
+      renderTableAndCards({
+        rows,
+        tableId: 'transactionsTableBody',
+        cardsId: 'transactionsCards',
+        emptyCols: 6,
+        emptyText: 'No transactions found.',
+        cols: r => `
+          <tr class="border-b border-slate-100">
+            <td class="py-3 pr-4 text-slate-700">${prettyDate(r.date)}</td>
+            <td class="py-3 pr-4 font-semibold text-slate-900">${esc(r.transaction)}</td>
+            <td class="py-3 pr-4 text-slate-700">${esc(r.name)}</td>
+            <td class="py-3 pr-4 text-slate-700">${esc(r.account)}</td>
+            <td class="py-3 pr-4 text-slate-700">${esc(r.category)}</td>
+            <td class="py-3 mono font-extrabold ${r.amount >= 0 ? 'text-greenx' : 'text-redx'}">${money2(r.amount)}</td>
+          </tr>`,
+        cardBuilder: r => `
+          <div class="mini p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <div class="font-extrabold text-slate-900">${esc(r.transaction)}</div>
+                <div class="text-sm text-slate-500 mt-1">${prettyDate(r.date)}</div>
+                <div class="text-sm text-slate-500 mt-1">${esc(r.name || '—')}</div>
+                <div class="text-sm text-slate-500 mt-1">${esc(r.account || '—')} · ${esc(r.category || 'Uncategorized')}</div>
+              </div>
+              <div class="mono font-extrabold shrink-0 ${r.amount >= 0 ? 'text-greenx' : 'text-redx'}">${money2(r.amount)}</div>
+            </div>
+          </div>`
+      });
+    }
+
+    function renderTreasuryTab() {
+      $('cashAccountsMeta').textContent = `${state.cashAccounts.length} accounts`;
+      $('liquidityMeta').textContent = `${state.liquidity.length} sources`;
+
+      renderTableAndCards({
+        rows: state.cashAccounts,
+        tableId: 'cashAccountsTableBody',
+        cardsId: 'cashAccountsCards',
+        emptyCols: 3,
+        emptyText: 'No cash accounts available.',
+        cols: r => `
+          <tr class="border-b border-slate-100">
+            <td class="py-3 pr-4 font-semibold text-slate-900">${esc(r.account)}</td>
+            <td class="py-3 pr-4 mono font-extrabold text-slate-900">${money2(r.balance)}</td>
+            <td class="py-3 text-slate-500">${esc(r.notes || '')}</td>
+          </tr>`,
+        cardBuilder: r => `
+          <div class="mini p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div><div class="font-extrabold text-slate-900">${esc(r.account)}</div><div class="text-sm text-slate-500 mt-1">${esc(r.notes || '')}</div></div>
+              <div class="mono font-extrabold text-slate-900">${money2(r.balance)}</div>
+            </div>
+          </div>`
+      });
+
+      renderTableAndCards({
+        rows: state.liquidity,
+        tableId: 'liquidityTableBody',
+        cardsId: 'liquidityCards',
+        emptyCols: 5,
+        emptyText: 'No liquidity sources available.',
+        cols: r => `
+          <tr class="border-b border-slate-100">
+            <td class="py-3 pr-4 font-semibold text-slate-900">${esc(r.source)}</td>
+            <td class="py-3 pr-4 mono text-slate-700">${money2(r.limit)}</td>
+            <td class="py-3 pr-4 mono text-slate-700">${money2(r.used)}</td>
+            <td class="py-3 pr-4 mono font-extrabold text-purplex">${money2(r.available)}</td>
+            <td class="py-3 text-slate-500">${esc(r.notes || '')}</td>
+          </tr>`,
+        cardBuilder: r => `
+          <div class="mini p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="font-extrabold text-slate-900">${esc(r.source)}</div>
+                <div class="text-sm text-slate-500 mt-2">Limit: <span class="mono">${money2(r.limit)}</span></div>
+                <div class="text-sm text-slate-500 mt-1">Used: <span class="mono">${money2(r.used)}</span></div>
+                ${r.notes ? `<div class="text-sm text-slate-500 mt-2">${esc(r.notes)}</div>` : ''}
+              </div>
+              <div class="text-right">
+                <div class="text-xs font-bold uppercase tracking-wide text-slate-400">Available</div>
+                <div class="mono font-extrabold text-purplex mt-1">${money2(r.available)}</div>
+              </div>
+            </div>
+          </div>`
+      });
+
+      renderLiquidityChart(state.liquidity);
+    }
+
+    function refreshForecast() {
+      const planned = getAllPlannedItems();
+      state.recurringSignals = detectRecurringSignals(state.transactions);
+      state.trendSignals = detectTrendSignals(state.transactions, state.recurringSignals);
+      state.forecastItems = [
+        ...generateRecurringForecastItems(state.recurringSignals, planned),
+        ...generateTrendForecastItems(state.trendSignals, planned)
+      ].sort((a,b) => a.date - b.date);
+    }
+
+    function refreshAll() {
+      refreshForecast();
+      const combined = getCombinedItems();
+      const periods = buildCashflowPeriods(combined);
+      renderKpis(computeKpis(combined, periods));
+      renderCashflowChart(periods);
+      renderCashflowTable(periods);
+      renderCategoryChart(categoryMovement(combined));
+      renderPreviewPanels();
+      renderPlannedTab();
+      renderTransactionsTab();
+      renderTreasuryTab();
+    }
+
+    function renderPlannedTab() {
+      // view mode setup
+      setPlannedViewMode(state.plannedViewMode);
+      // render both; only one shown
+      renderPlannedList();
+      renderPlannedGrid();
+
+      const signals = [
+        ...state.recurringSignals.map(s => ({ ...s, showType:'Recurring', basis:s.cadenceLabel, showAmount:s.amount * s.sign })),
+        ...state.trendSignals.map(s => ({ ...s, showType:'Trend', basis:'Recent Avg / ' + els.timeline.value, showAmount:s.avgDaily }))
+      ];
+
+      $('patternCount').textContent = `${signals.length} signals`;
+      $('patternTableBody').innerHTML = signals.length ? signals.map(s => `
+        <tr class="border-b border-slate-100">
+          <td class="py-3 pr-4"><span class="chip">${esc(s.showType)}</span></td>
+          <td class="py-3 pr-4 font-semibold text-slate-900">${esc(s.category)}</td>
+          <td class="py-3 pr-4 text-slate-700">${esc(s.basis)}</td>
+          <td class="py-3 pr-4 mono font-semibold ${s.showAmount >= 0 ? 'text-greenx' : 'text-redx'}">${money2(s.showAmount)}</td>
+          <td class="py-3 pr-4 text-slate-700">${s.occurrences}</td>
+          <td class="py-3 pr-4 text-slate-700">${esc(s.account || '—')}</td>
+          <td class="py-3 text-slate-700">${prettyDate(s.lastSeen)}</td>
+        </tr>
+      `).join('') : `<tr><td colspan="7" class="empty">No forecast signals detected yet.</td></tr>`;
+    }
+
+    async function loadAllData() {
+      clearStatus();
+      persist();
+
+      try {
+        const [tRows, pRows, cRows, lRows] = await Promise.all([
+          parseCsvFromUrl(els.transactionsUrl.value.trim()),
+          parseCsvFromUrl(els.plannedUrl.value.trim()),
+          parseCsvFromUrl(els.cashAccountsUrl.value.trim()),
+          parseCsvFromUrl(els.liquidityUrl.value.trim())
+        ]);
+
+        const defs = [
+          ['transactionsUrl', tRows, ['Date','Transaction','Name','Account','Category','Amount'], v => state.transactions = normalizeRows(v, 'actual')],
+          ['plannedUrl', pRows, ['Date','Description','Category','Account','Amount','Type','Notes'], v => state.plannedSheetItems = normalizeRows(v, 'planned')],
+          ['cashAccountsUrl', cRows, ['Account','Balance','Notes'], v => state.cashAccounts = normalizeRows(v, 'cash')],
+          ['liquidityUrl', lRows, ['Source','Limit','Used','Available','Notes'], v => state.liquidity = normalizeRows(v, 'liquidity')]
+        ];
+
+        defs.forEach(([key, rows, req, apply]) => {
+          if (!els[key].value.trim()) return apply([]);
+          if (!validateHeaders(rows, req)) throw new Error(`${key.replace('Url','')} CSV requires: ${req.join(', ')}`);
+          apply(rows);
+        });
+
+        refreshAll();
+        status('success', `Loaded ${state.transactions.length} transactions, ${state.plannedSheetItems.length + state.manualPlannedItems.length} planned items, ${state.cashAccounts.length} cash accounts, and ${state.liquidity.length} liquidity sources.`);
+      } catch (err) {
+        status('error', err?.message || 'Unable to load data.');
+      }
+    }
+
+    function addManualPlannedItem() {
+      const item = {
+        id:`manual-${Date.now()}-${Math.random().toString(36).slice(2,8)}`,
+        date: els.plannedFormDate.value,
+        description: els.plannedFormDescription.value.trim(),
+        category: els.plannedFormCategory.value.trim(),
+        account: els.plannedFormAccount.value.trim(),
+        amount: els.plannedFormAmount.value.trim(),
+        type: els.plannedFormType.value.trim() || 'Planned',
+        notes: els.plannedFormNotes.value.trim()
+      };
+      if (!item.date || !item.description) return status('warn', 'Manual planned items need at least a date and description.');
+      state.manualPlannedItems.push(item);
+      persist();
+      ['plannedFormDate','plannedFormDescription','plannedFormCategory','plannedFormAccount','plannedFormAmount','plannedFormType','plannedFormNotes'].forEach(id => els[id].value = '');
+      refreshAll();
+      status('success', 'Manual planned item saved.');
+    }
+
+    window.deleteManualPlannedItem = id => {
+      state.manualPlannedItems = state.manualPlannedItems.filter(x => x.id !== id);
+      persist();
+      refreshAll();
+      status('success', 'Manual planned item deleted.');
+    };
+
+    function clearManualPlanned() {
+      state.manualPlannedItems = [];
+      persist();
+      refreshAll();
+      status('success', 'All manual planned items cleared.');
+    }
+
+    function exportCsv(name, rows) {
+      const blob = new Blob([Papa.unparse(rows)], { type:'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function exportTransactions() {
+      exportCsv('transaction-organizer-transactions.csv', getActualTransactionsFiltered().map(r => ({
+        Date:r.dateISO, Transaction:r.transaction, Name:r.name, Account:r.account, Category:r.category, Amount:Number(r.amount.toFixed(2))
+      })));
+    }
+
+    function exportCashflow() {
+      exportCsv('transaction-organizer-cashflow.csv', buildCashflowPeriods(getCombinedItems()).map(p => ({
+        Period:p.label,
+        Beginning:Number(p.beginning.toFixed(2)),
+        Actual_In:Number(p.actualIn.toFixed(2)),
+        Planned_In:Number(p.plannedIn.toFixed(2)),
+        Forecast_In:Number(p.forecastIn.toFixed(2)),
+        Actual_Out:Number(p.actualOut.toFixed(2)),
+        Planned_Out:Number(p.plannedOut.toFixed(2)),
+        Forecast_Out:Number(p.forecastOut.toFixed(2)),
+        Planned_Net:Number(p.plannedNet.toFixed(2)),
+        Forecast_Net:Number(p.forecastNet.toFixed(2)),
+        Net:Number(p.net.toFixed(2)),
+        Ending:Number(p.ending.toFixed(2)),
+        Rows:p.rows
+      })));
+    }
+
+    // wire safe global handlers for inline HTML events
+    window.__plannedToggle = (dayISO) => toggleDayExpanded(dayISO);
+    window.__plannedAdd = (dayISO) => createManualPlannedForDate(dayISO);
+    window.__plannedEdit = (id, field, value) => updateManualPlannedField(id, field, value);
+
+    function bind() {
+      els.loadDataBtn.addEventListener('click', loadAllData);
+      els.exportTransactionsBtn.addEventListener('click', exportTransactions);
+      els.exportCashflowBtn.addEventListener('click', exportCashflow);
+      els.addPlannedItemBtn.addEventListener('click', addManualPlannedItem);
+      els.clearManualPlannedBtn.addEventListener('click', clearManualPlanned);
+
+      els.plannedViewListBtn.addEventListener('click', () => { setPlannedViewMode('list'); refreshAll(); });
+      els.plannedViewGridBtn.addEventListener('click', () => { setPlannedViewMode('grid'); refreshAll(); });
+
+      els.expandAllDaysBtn.addEventListener('click', expandAllDays);
+      els.collapseAllDaysBtn.addEventListener('click', collapseAllDays);
+
+      [
+        els.searchInput, els.startDate, els.endDate, els.typeFilter, els.timeline, els.forecastMode,
+        els.forecastHorizon, els.includePlanned, els.includeRecurringForecast, els.includeTrendForecast,
+        els.suppressForecastOnPlanned, els.lowCashThreshold
+      ].forEach(el => ['input','change'].forEach(evt => el.addEventListener(evt, () => { persist(); refreshAll(); })));
+
+      [els.transactionsUrl, els.plannedUrl, els.cashAccountsUrl, els.liquidityUrl].forEach(el => {
+        el.addEventListener('change', persist);
+        el.addEventListener('blur', persist);
+      });
+
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(x => x.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(x => x.classList.add('hidden'));
+        btn.classList.add('active');
+        $(btn.dataset.tab).classList.remove('hidden');
+      }));
+    }
+
+    function bootstrap() {
+      initRefs();
+      restore();
+      bind();
+      // apply view mode immediately
+      setPlannedViewMode(state.plannedViewMode);
+      refreshAll();
+      if ([els.transactionsUrl, els.plannedUrl, els.cashAccountsUrl, els.liquidityUrl].some(x => x.value)) loadAllData();
+    }
+
+    window.addEventListener('DOMContentLoaded', bootstrap);
+  </script>
+</body>
+</html>
