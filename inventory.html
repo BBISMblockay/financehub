@@ -531,6 +531,7 @@
       sku: "Variant SKU",
       barcode: "Variant Barcode",
       product: "Product title",
+      product_type: "Product type",
       variant: "Variant title",
       avail_qty: "Total available quantity",
       inv_value: "Total available inventory value",
@@ -620,6 +621,7 @@
       { key: "sku", label: "SKU", default: true },
       { key: "barcode", label: "Barcode", default: false },
       { key: "product", label: "Product", default: true },
+      { key: "product_type", label: "Product type", default: false },
       { key: "variant", label: "Variant", default: false },
       { key: "driver", label: "Driver", default: true },
       { key: "avail_qty", label: "Avail Qty", align: "right", default: true },
@@ -644,6 +646,7 @@
       { key: "sku", label: "SKU", default: true },
       { key: "barcode", label: "Barcode", default: false },
       { key: "product", label: "Product", default: true },
+      { key: "product_type", label: "Product type", default: false },
       { key: "variant", label: "Variant", default: false },
       { key: "driver", label: "Driver", default: true },
       { key: "locations_count", label: "Locations", align: "right", default: true },
@@ -1060,6 +1063,7 @@
             sku: norm(r.sku),
             barcode: norm(r.barcode),
             product: r.product,
+            product_type: norm(r.product_type),
             variant: r.variant || "",
             image_url: r.image_url || "",
             avail_qty: 0,
@@ -1119,6 +1123,7 @@
 
         if (!agg.image_url && r.image_url) agg.image_url = r.image_url;
         if (!agg.product && r.product) agg.product = r.product;
+        if (!agg.product_type && r.product_type) agg.product_type = r.product_type;
         if (!agg.variant && r.variant) agg.variant = r.variant;
         if (!agg.sku && r.sku) agg.sku = r.sku;
         if (!agg.barcode && r.barcode) agg.barcode = r.barcode;
@@ -1255,8 +1260,10 @@
 
               const sku = norm(o[H.sku]);
               const product = norm(o[H.product]);
+              const invProductType = norm(o[H.product_type]);
               const variant = norm(o[H.variant]);
               const barcode = norm(o[H.barcode]);
+              
 
               const avail = num(o[H.avail_qty]);
               const invValue = num(o[H.inv_value]);
@@ -1283,7 +1290,7 @@
               const lastSoldMs = s ? (s.last_sold_ms || null) : null;
 
               const prodName = (s && s.product_name) ? s.product_name : product;
-              const prodType = (s && s.product_type) ? s.product_type : "";
+              const prodType = (s && s.product_type) ? s.product_type : invProductType;
               const vendor = (s && s.vendor) ? s.vendor : "";
 
               const rid = `${src.source_id}::${location}::${sku || barcode || product || "row"}::${variant || ""}::${idx}`;
@@ -1683,6 +1690,8 @@
             tds.push(`<td class="px-3 py-2 ${align} mono text-xs">${escapeHtml(r.barcode || "—")}</td>`);
           } else if (c.key === "product"){
             tds.push(`<td class="px-3 py-2 ${align} text-xs">${escapeHtml(r.product || "—")}</td>`);
+          } else if (c.key === "product_type"){
+            tds.push(`<td class="px-3 py-2 ${align} text-xs">${escapeHtml(r.product_type || "—")}</td>`);
           } else if (c.key === "variant"){
             tds.push(`<td class="px-3 py-2 ${align} text-xs text-slate-600">${escapeHtml(r.variant || "—")}</td>`);
           } else if (c.key === "driver"){
@@ -2205,6 +2214,7 @@
           sku: r.sku,
           barcode: r.barcode,
           product: r.product,
+          product_type: r.product_type,
           variant: r.variant,
           source: MODE === "location" ? r.source_label : "",
           location: MODE === "location" ? r.location : "",
