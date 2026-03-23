@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Silo ERP — Product Tags Upload</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="/financehub/pages/config.js"></script>
+
+  <style>
+    :root { color-scheme: light; }
+    body {
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+    .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+    .card {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 24px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+  </style>
+</head>
+<body class="min-h-screen">
+  <div class="max-w-6xl mx-auto px-4 py-8 md:px-6 md:py-10">
+    <div class="card p-6 md:p-8">
+      <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between mb-8">
+        <div>
+          <div class="text-sm font-medium text-slate-500 mb-2">Silo ERP</div>
+          <h1 class="text-2xl md:text-3xl font-semibold tracking-tight">Product Tags Uploader</h1>
+          <p class="text-slate-600 mt-2 max-w-2xl">
+            Upload a keep list CSV and fully replace the <span class="font-semibold">public.product_tags</span> table in Supabase.
+          </p>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          <div>Target table</div>
+          <div class="font-semibold text-slate-900">public.product_tags</div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-[420px,1fr] gap-6">
+        <div class="space-y-5">
+          <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <label class="block text-sm font-medium text-slate-700 mb-2">CSV file</label>
+            <input
+              id="csvFile"
+              type="file"
+              accept=".csv,text/csv"
+              class="block w-full rounded-xl border border-slate-300 bg-white px-3 py-3 text-sm text-slate-700"
+            />
+          </div>
+
+          <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            Uploading will remove all existing rows in <span class="font-semibold">product_tags</span> and replace them with the new CSV contents.
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              id="previewBtn"
+              class="inline-flex items-center justify-center rounded-2xl bg-slate-900 px-4 py-3 text-sm font-medium text-white hover:bg-slate-800"
+            >
+              Preview CSV
+            </button>
+
+            <button
+              id="uploadBtn"
+              disabled
+              class="inline-flex items-center justify-center rounded-2xl bg-emerald-600 px-4 py-3 text-sm font-medium text-white hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Upload & Replace
+            </button>
+          </div>
+
+          <div id="status" class="text-sm text-slate-600"></div>
+
+          <div class="rounded-2xl border border-slate-200 bg-white p-4">
+            <div class="text-sm font-semibold text-slate-900 mb-3">Preview Summary</div>
+            <div class="grid grid-cols-3 gap-3">
+              <div class="rounded-xl bg-slate-50 border border-slate-200 p-3">
+                <div class="text-xs uppercase tracking-wide text-slate-500">Rows</div>
+                <div id="rowCount" class="text-xl font-semibold text-slate-900 mono">0</div>
+              </div>
+              <div class="rounded-xl bg-slate-50 border border-slate-200 p-3">
+                <div class="text-xs uppercase tracking-wide text-slate-500">Headers</div>
+                <div id="headerCount" class="text-xl font-semibold text-slate-900 mono">0</div>
+              </div>
+              <div class="rounded-xl bg-slate-50 border border-slate-200 p-3">
+                <div class="text-xs uppercase tracking-wide text-slate-500">Valid</div>
+                <div id="validCount" class="text-xl font-semibold text-slate-900 mono">0</div>
+              </div>
+            </div>
+
+            <div class="mt-4">
+              <div class="text-xs uppercase tracking-wide text-slate-500 mb-2">Detected headers</div>
+              <div id="headersList" class="flex flex-wrap gap-2"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded-2xl border border-slate-200 overflow-hidden bg-white">
+          <div class="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-200">
+            <div>
+              <h2 class="text-sm font-semibold text-slate-900">CSV Preview</h2>
+              <p class="text-xs text-slate-500">Showing first 10 rows</p>
+            </div>
+          </div>
+
+          <div class="overflow-auto max-h-[700px]">
+            <table class="min-w-full text-sm">
+              <thead id="previewHead" class="bg-slate-100 text-slate-700 sticky top-0 z-10"></thead>
+              <tbody id="previewBody" class="divide-y divide-slate-200"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const config = window.__SILO_CONFIG__ || {};
+    const SUPABASE_URL = config.SUPABASE_URL || "";
+    const SUPABASE_ANON_KEY = config.SUPABASE_ANON_KEY || "";
+    const FUNCTION_NAME = "replace-product-tags";
+
+    const csvFile = document.getElementById("csvFile");
+    const previewBtn = document.getElementById("previewBtn");
+    const uploadBtn = document.getElementById("uploadBtn");
+    const statusEl = document.getElementById("status");
+    const rowCountEl = document.getElementById("rowCount");
+    const headerCountEl = document.getElementById("headerCount");
+    const validCountEl = document.getElementById("validCount");
+    const headersListEl = document.getElementById("headersList");
+    const previewHead = document.getElementById("previewHead");
+    const previewBody = document.getElementById("previewBody");
+
+    let parsedRows = [];
+    let parsedHeaders = [];
+
+    function setStatus(message, tone = "default") {
+      const tones = {
+        default: "text-slate-600",
+        success: "text-emerald-700",
+        error: "text-red-700",
+        warn: "text-amber-700"
+      };
+      statusEl.className = `text-sm ${tones[tone] || tones.default}`;
+      statusEl.textContent = message;
+    }
+
+    function resetPreview() {
+      parsedRows = [];
+      parsedHeaders = [];
+      previewHead.innerHTML = "";
+      previewBody.innerHTML = "";
+      headersListEl.innerHTML = "";
+      rowCountEl.textContent = "0";
+      headerCountEl.textContent = "0";
+      validCountEl.textContent = "0";
+      uploadBtn.disabled = true;
+    }
+
+    function renderHeaders(headers) {
+      headersListEl.innerHTML = "";
+      headers.forEach((header) => {
+        const chip = document.createElement("span");
+        chip.className = "inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-700";
+        chip.textContent = header === "" ? "(blank header → indicator_group)" : header;
+        headersListEl.appendChild(chip);
+      });
+    }
+
+    function renderPreview(headers, rows) {
+      previewHead.innerHTML = "";
+      previewBody.innerHTML = "";
+
+      const trHead = document.createElement("tr");
+      headers.forEach((header) => {
+        const th = document.createElement("th");
+        th.className = "px-3 py-2 text-left font-medium whitespace-nowrap";
+        th.textContent = header === "" ? "(blank)" : header;
+        trHead.appendChild(th);
+      });
+      previewHead.appendChild(trHead);
+
+      rows.slice(0, 10).forEach((row) => {
+        const tr = document.createElement("tr");
+        headers.forEach((header) => {
+          const td = document.createElement("td");
+          td.className = "px-3 py-2 whitespace-nowrap text-slate-700 align-top";
+          td.textContent = row[header] ?? "";
+          tr.appendChild(td);
+        });
+        previewBody.appendChild(tr);
+      });
+    }
+
+    function countValidRows(rows) {
+      return rows.filter((row) => {
+        const title = String(row["Product Title"] ?? row["product_title"] ?? "").trim();
+        return title.length > 0;
+      }).length;
+    }
+
+    function ensureConfig() {
+      if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+        setStatus("Missing Supabase config. Check /financehub/pages/config.js.", "error");
+        return false;
+      }
+      return true;
+    }
+
+    previewBtn.addEventListener("click", () => {
+      resetPreview();
+
+      if (!ensureConfig()) return;
+
+      const file = csvFile.files?.[0];
+      if (!file) {
+        setStatus("Choose a CSV first.", "warn");
+        return;
+      }
+
+      setStatus("Parsing CSV...");
+
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          parsedRows = Array.isArray(results.data) ? results.data : [];
+          parsedHeaders = Array.isArray(results.meta?.fields) ? results.meta.fields : [];
+
+          const validRows = countValidRows(parsedRows);
+
+          rowCountEl.textContent = String(parsedRows.length);
+          headerCountEl.textContent = String(parsedHeaders.length);
+          validCountEl.textContent = String(validRows);
+
+          renderHeaders(parsedHeaders);
+          renderPreview(parsedHeaders, parsedRows);
+
+          if (!parsedRows.length) {
+            setStatus("CSV parsed, but no rows were found.", "warn");
+            uploadBtn.disabled = true;
+            return;
+          }
+
+          if (!validRows) {
+            setStatus('No valid rows found. "Product Title" is required.', "error");
+            uploadBtn.disabled = true;
+            return;
+          }
+
+          uploadBtn.disabled = false;
+          setStatus(`CSV ready. ${validRows} valid rows found.`, "success");
+        },
+        error: (err) => {
+          setStatus(`CSV parse failed: ${err.message}`, "error");
+        }
+      });
+    });
+
+    uploadBtn.addEventListener("click", async () => {
+      if (!ensureConfig()) return;
+
+      if (!parsedRows.length) {
+        setStatus("Preview the CSV first.", "warn");
+        return;
+      }
+
+      uploadBtn.disabled = true;
+      setStatus("Uploading and replacing product_tags...");
+
+      try {
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/${FUNCTION_NAME}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
+          },
+          body: JSON.stringify({ rows: parsedRows })
+        });
+
+        const data = await res.json();
+
+        if (!res.ok) {
+          throw new Error(data?.error || "Upload failed.");
+        }
+
+        setStatus(`Success. Replaced product_tags with ${data.inserted} rows.`, "success");
+      } catch (err) {
+        setStatus(`Upload failed: ${err.message}`, "error");
+      } finally {
+        uploadBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
