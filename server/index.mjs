@@ -21,8 +21,8 @@ const {
   SHOPIFY_CONNECTIONS = "[]",
 
   // new silo supabase
-  SUPABASE_URL,
-  SUPABASE_SERVICE_ROLE_KEY,
+  SUPABASE_URL = "https://mkquclffrvlzyecnabyf.supabase.co",
+  SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1rcXVjbGZmcnZsenllY25hYnlmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MTM4OTgwMSwiZXhwIjoyMDg2OTY1ODAxfQ.JdJunk62zscrEQ_vOCNSeNB2kMtw320Lvq0DmWafNrQ",
 
   // sync behavior
   SHOPIFY_PULL_MODE = "created", // created | updated
