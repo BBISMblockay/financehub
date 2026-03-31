@@ -1,0 +1,1540 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Silo ERP — Product Tags Manager</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="/financehub/pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+
+  <style>
+    .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+    .scrollbar::-webkit-scrollbar { height: 10px; width: 10px; }
+    .scrollbar::-webkit-scrollbar-thumb { background: rgba(148,163,184,.72); border-radius: 999px; }
+    .scrollbar::-webkit-scrollbar-track { background: transparent; }
+    dialog::backdrop { background: rgba(15,23,42,.55); }
+    dialog { border: 0; background: transparent; }
+
+    :root[data-theme="light"]{
+      --bg: #f6f7fb;
+      --panel: #ffffff;
+      --panel2: #f8fafc;
+      --panel3: #f1f5f9;
+      --border: rgba(15,23,42,.10);
+      --text: rgba(15,23,42,.92);
+      --muted: rgba(15,23,42,.68);
+      --muted2: rgba(15,23,42,.48);
+      --shadow1: 0 1px 2px rgba(2,6,23,.05);
+      --shadow2: 0 8px 18px rgba(2,6,23,.08);
+      --ring: rgba(37,99,235,.18);
+      --accent: #1d4ed8;
+      --danger: #b91c1c;
+      --warn: #b45309;
+      --good: #166534;
+    }
+    :root[data-theme="dark"]{
+      --bg: #070b18;
+      --panel: #0b1226;
+      --panel2: #0a1022;
+      --panel3: #0f172a;
+      --border: rgba(255,255,255,.12);
+      --text: rgba(255,255,255,.92);
+      --muted: rgba(255,255,255,.74);
+      --muted2: rgba(255,255,255,.54);
+      --shadow1: 0 1px 2px rgba(0,0,0,.55);
+      --shadow2: 0 10px 22px rgba(0,0,0,.50);
+      --ring: rgba(56,189,248,.18);
+      --accent: #60a5fa;
+      --danger: #fb7185;
+      --warn: #fbbf24;
+      --good: #22c55e;
+    }
+
+    html, body {
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      letter-spacing: -0.01em;
+    }
+
+    body.themeable{
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .app-shell{
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 292px 1fr;
+    }
+    @media (max-width: 1100px){
+      .app-shell{ grid-template-columns: 1fr; }
+    }
+
+    .sidebar{
+      position: sticky;
+      top: 0;
+      align-self: start;
+      height: 100vh;
+      padding: 16px;
+      border-right: 1px solid var(--border);
+      background: var(--panel);
+      box-shadow: var(--shadow1);
+    }
+    @media (max-width: 1100px){
+      .sidebar{
+        position: relative;
+        height: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--border);
+      }
+    }
+
+    .main{ padding: 16px; }
+    .container{ max-width: 1600px; margin: 0 auto; }
+
+    .card{
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: var(--shadow1);
+    }
+
+    .btn{
+      display:inline-flex; align-items:center; justify-content:center;
+      height: 38px;
+      padding: 0 .9rem;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      font-weight: 800;
+      font-size: .875rem;
+      transition: background .12s ease, box-shadow .12s ease, transform .08s ease;
+      white-space: nowrap;
+      user-select: none;
+    }
+    .btn:hover{ background: var(--panel2); box-shadow: var(--shadow2); }
+    .btn:active{ transform: translateY(1px); }
+    .btn:focus{ outline:none; box-shadow: 0 0 0 4px var(--ring); }
+
+    .btn-primary{
+      background: var(--accent);
+      color: #fff;
+      border-color: color-mix(in oklab, var(--accent) 80%, #000);
+      box-shadow: 0 6px 14px color-mix(in oklab, var(--accent) 18%, transparent);
+    }
+    .btn-primary:hover{ background: color-mix(in oklab, var(--accent) 90%, #000); }
+    :root[data-theme="dark"] .btn-primary{
+      color: #071122;
+      background: color-mix(in oklab, var(--accent) 86%, white);
+      border-color: color-mix(in oklab, var(--accent) 80%, white);
+    }
+
+    .btn-danger{
+      background: color-mix(in oklab, var(--danger) 10%, var(--panel));
+      color: var(--danger);
+      border-color: color-mix(in oklab, var(--danger) 30%, var(--border));
+    }
+
+    .btn-ghost{
+      background: transparent;
+      border-color: color-mix(in oklab, var(--border) 70%, transparent);
+      box-shadow: none;
+    }
+    .btn-ghost:hover{ background: var(--panel2); box-shadow: none; }
+
+    .input, .select, .textarea{
+      width: 100%;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      font-size: .875rem;
+      font-weight: 700;
+    }
+    .input, .select{ height: 38px; padding: 0 .85rem; }
+    .textarea{ padding: .75rem .85rem; min-height: 96px; resize: vertical; }
+    .input:focus, .select:focus, .textarea:focus{
+      outline:none;
+      box-shadow: 0 0 0 4px var(--ring);
+    }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:.45rem;
+      padding:.22rem .65rem;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:var(--panel2);
+      font-size:.72rem;
+      font-weight:900;
+      letter-spacing:.02em;
+      color:var(--muted);
+      white-space:nowrap;
+    }
+    .pill-good{ color: var(--good); }
+    .pill-warn{ color: var(--warn); }
+    .pill-danger{ color: var(--danger); }
+    .dot{ width:.44rem; height:.44rem; border-radius:999px; display:inline-block; }
+
+    .section-title{
+      font-size: .72rem;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--muted2);
+      font-weight: 900;
+    }
+    .muted{ color: var(--muted); }
+    .muted2{ color: var(--muted2); }
+    .divider{ height:1px; background:var(--border); width:100%; }
+    .kbd{
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--panel2);
+      color: var(--muted);
+      font-weight: 900;
+    }
+
+    .table{
+      width:100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      overflow:hidden;
+      border-radius: 12px;
+      border:1px solid var(--border);
+      background:var(--panel);
+    }
+    .table thead th{
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      font-size:.68rem;
+      letter-spacing:.14em;
+      text-transform:uppercase;
+      color:var(--muted2);
+      background:var(--panel2);
+      border-bottom:1px solid var(--border);
+      padding:.75rem .75rem;
+      white-space:nowrap;
+      font-weight:900;
+      text-align:left;
+    }
+    .table tbody td{
+      padding:.7rem .75rem;
+      border-bottom:1px solid color-mix(in oklab, var(--border) 70%, transparent);
+      vertical-align: top;
+      font-size:.86rem;
+    }
+    .table tbody tr:hover td{ background: var(--panel2); }
+    .table tbody tr:last-child td{ border-bottom:0; }
+
+    .drawer{
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 60;
+    }
+    .drawer.open{ pointer-events: auto; }
+    .drawer .overlay{
+      position:absolute; inset:0; background:rgba(2,6,23,.55);
+      opacity:0; transition:opacity .16s ease;
+    }
+    .drawer.open .overlay{ opacity:1; }
+    .drawer .panel{
+      position:absolute;
+      top:0; right:0;
+      width:min(720px, calc(100vw - 24px));
+      height:100%;
+      background:var(--panel);
+      border-left:1px solid var(--border);
+      box-shadow:var(--shadow2);
+      transform: translateX(12px);
+      opacity:0;
+      transition: transform .16s ease, opacity .16s ease;
+      display:flex; flex-direction:column;
+    }
+    .drawer.open .panel{ transform: translateX(0); opacity:1; }
+
+    .status-success{ color: var(--good); }
+    .status-error{ color: var(--danger); }
+    .status-warn{ color: var(--warn); }
+    .status-default{ color: var(--muted); }
+
+    .chip{
+      display:inline-flex; align-items:center;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 900;
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--muted);
+    }
+
+    .line-clamp-2{
+      display:-webkit-box;
+      -webkit-line-clamp:2;
+      -webkit-box-orient:vertical;
+      overflow:hidden;
+    }
+  </style>
+</head>
+<body class="themeable">
+  <div id="authBar" style="position:fixed; top:14px; right:16px; z-index:9999;" class="flex items-center gap-3 text-sm">
+    <span id="authEmail" class="text-slate-600"></span>
+    <button id="logoutBtn" class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-800 hover:bg-slate-50">
+      Logout
+    </button>
+  </div>
+
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="pill"><span class="dot" style="background: var(--accent)"></span>Silo ERP</span>
+            <span class="pill">Product Tags</span>
+          </div>
+          <h1 class="mt-2 text-lg font-semibold tracking-tight">Product Tag Manager</h1>
+          <p class="mt-1 text-xs muted2">
+            Manage product tags directly in Supabase with search, filters, edit, delete, and import controls.
+          </p>
+        </div>
+
+        <button id="themeBtn" class="btn btn-ghost" title="Toggle theme">
+          Theme <span id="themeLabel" class="ml-2 font-extrabold">Light</span>
+        </button>
+      </div>
+
+      <div class="mt-4 card p-4">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div class="section-title">Actions</div>
+            <div class="mt-1 text-sm font-extrabold muted">Manager controls</div>
+          </div>
+          <div class="kbd">M</div>
+        </div>
+
+        <div class="mt-3 flex flex-col gap-2">
+          <button id="addRowBtn" class="btn btn-primary w-full">Add New Product Tag</button>
+          <button id="reloadBtn" class="btn w-full">Reload Table</button>
+          <button id="openImportBtn" class="btn w-full">CSV Import / Replace</button>
+          <button id="bulkDeleteBtn" class="btn btn-danger w-full">Delete Selected</button>
+        </div>
+
+        <div class="mt-4 divider"></div>
+
+        <div class="mt-3 flex items-center justify-between gap-2 text-xs muted2">
+          <span>Updated</span>
+          <span id="lastUpdated" class="mono">—</span>
+        </div>
+      </div>
+
+      <div class="mt-4 card p-4">
+        <div class="flex items-center justify-between gap-2">
+          <div>
+            <div class="section-title">Summary</div>
+            <div class="mt-1 text-sm font-extrabold muted">Live table metrics</div>
+          </div>
+          <div class="kbd">Q</div>
+        </div>
+
+        <div class="mt-3 grid grid-cols-2 gap-3">
+          <div class="rounded-xl border p-3" style="border-color: var(--border); background: var(--panel2);">
+            <div class="text-xs muted2 uppercase tracking-wide" style="font-weight:900;">Rows</div>
+            <div id="kpiTotalRows" class="mono text-2xl font-black mt-1">—</div>
+          </div>
+          <div class="rounded-xl border p-3" style="border-color: var(--border); background: var(--panel2);">
+            <div class="text-xs muted2 uppercase tracking-wide" style="font-weight:900;">Filtered</div>
+            <div id="kpiFilteredRows" class="mono text-2xl font-black mt-1">—</div>
+          </div>
+          <div class="rounded-xl border p-3" style="border-color: var(--border); background: var(--panel2);">
+            <div class="text-xs muted2 uppercase tracking-wide" style="font-weight:900;">Selected</div>
+            <div id="kpiSelectedRows" class="mono text-2xl font-black mt-1">0</div>
+          </div>
+          <div class="rounded-xl border p-3" style="border-color: var(--border); background: var(--panel2);">
+            <div class="text-xs muted2 uppercase tracking-wide" style="font-weight:900;">Inventory</div>
+            <div id="kpiInventory" class="mono text-2xl font-black mt-1">—</div>
+          </div>
+        </div>
+
+        <div class="mt-3 text-xs muted2">
+          Uses <span class="mono">public.product_tags</span> as the working source of truth.
+        </div>
+      </div>
+
+      <div class="mt-4 card p-4">
+        <div class="section-title">Filters</div>
+        <div class="mt-3 space-y-3">
+          <input id="searchInput" class="input" placeholder="Search title, tag, notes, type..." />
+
+          <select id="filterCategory" class="select">
+            <option value="">All categories</option>
+          </select>
+
+          <select id="filterCollection" class="select">
+            <option value="">All collections</option>
+          </select>
+
+          <select id="filterInlineFlag" class="select">
+            <option value="">All inline flags</option>
+          </select>
+
+          <select id="filterType" class="select">
+            <option value="">All types</option>
+          </select>
+
+          <select id="filterColor" class="select">
+            <option value="">All colors</option>
+          </select>
+
+          <select id="filterArtworkSide" class="select">
+            <option value="">All artwork sides</option>
+          </select>
+
+          <select id="filterIndicatorGroup" class="select">
+            <option value="">All indicator groups</option>
+          </select>
+
+          <select id="filterSubTag" class="select">
+            <option value="">All sub tags</option>
+          </select>
+
+          <select id="filterTag" class="select">
+            <option value="">All tags</option>
+          </select>
+        </div>
+
+        <div class="mt-3 flex gap-2">
+          <button id="clearFiltersBtn" class="btn w-full">Clear Filters</button>
+        </div>
+      </div>
+
+      <div class="mt-4 card p-4">
+        <div class="section-title">Shortcuts</div>
+        <div class="mt-3 grid grid-cols-1 gap-2 text-xs muted2">
+          <div class="flex items-center justify-between gap-2"><span>Reload</span><span class="kbd">Ctrl/Cmd + K</span></div>
+          <div class="flex items-center justify-between gap-2"><span>Add row</span><span class="kbd">A</span></div>
+          <div class="flex items-center justify-between gap-2"><span>Import</span><span class="kbd">I</span></div>
+          <div class="flex items-center justify-between gap-2"><span>Theme</span><span class="kbd">T</span></div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="container space-y-4">
+        <div class="grid grid-cols-1 gap-4 xl:grid-cols-12">
+          <section class="xl:col-span-12">
+            <div class="card p-5">
+              <div class="flex items-start justify-between gap-4 flex-wrap">
+                <div>
+                  <div class="section-title">Workspace</div>
+                  <h2 class="mt-2 text-xl font-semibold tracking-tight">Product tag library</h2>
+                  <p class="mt-2 text-sm muted max-w-3xl">
+                    Use this page to maintain product tag attributes directly in Supabase. Edit individual rows, add new rows, delete bad records, or do a full CSV replace when needed.
+                  </p>
+                </div>
+
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="pill"><span class="dot" style="background: var(--accent)"></span>Table <span class="mono">public.product_tags</span></span>
+                  <span id="statusPill" class="pill"><span class="dot" style="background: var(--accent)"></span>Status: Ready</span>
+                </div>
+              </div>
+
+              <div class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                <div class="rounded-xl border p-4" style="border-color: var(--border); background: var(--panel2);">
+                  <div class="section-title">Live rows</div>
+                  <div id="heroRows" class="mono text-2xl font-black mt-2">—</div>
+                  <div class="text-xs muted2 mt-1">Total records currently loaded</div>
+                </div>
+                <div class="rounded-xl border p-4" style="border-color: var(--border); background: var(--panel2);">
+                  <div class="section-title">Distinct categories</div>
+                  <div id="heroCategories" class="mono text-2xl font-black mt-2">—</div>
+                  <div class="text-xs muted2 mt-1">Unique product categories present</div>
+                </div>
+                <div class="rounded-xl border p-4" style="border-color: var(--border); background: var(--panel2);">
+                  <div class="section-title">Distinct tags</div>
+                  <div id="heroTags" class="mono text-2xl font-black mt-2">—</div>
+                  <div class="text-xs muted2 mt-1">Unique primary tag values present</div>
+                </div>
+                <div class="rounded-xl border p-4" style="border-color: var(--border); background: var(--panel2);">
+                  <div class="section-title">Filtered inventory</div>
+                  <div id="heroInventory" class="mono text-2xl font-black mt-2">—</div>
+                  <div class="text-xs muted2 mt-1">Sum of current inventory in filtered view</div>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div class="card overflow-hidden">
+          <div class="flex items-center justify-between gap-3 px-4 py-3" style="border-bottom: 1px solid var(--border); background: var(--panel2);">
+            <div>
+              <div class="text-sm font-semibold">Product tags table</div>
+              <div class="text-xs muted2">Select rows for bulk delete. Click edit on any row to update attributes.</div>
+            </div>
+            <div class="flex items-center gap-2 flex-wrap">
+              <button id="selectVisibleBtn" class="btn btn-ghost">Select Visible</button>
+              <button id="clearSelectionBtn" class="btn btn-ghost">Clear Selected</button>
+            </div>
+          </div>
+
+          <div class="overflow-auto max-h-[72vh] scrollbar">
+            <table class="table min-w-[1800px]">
+              <thead>
+                <tr>
+                  <th style="width:44px;"><input id="selectAllVisible" type="checkbox" /></th>
+                  <th>ID</th>
+                  <th>Product Title</th>
+                  <th>Category</th>
+                  <th>Collection</th>
+                  <th>Inline</th>
+                  <th>Type</th>
+                  <th>Color</th>
+                  <th>Artwork</th>
+                  <th>Tag</th>
+                  <th>Indicator Group</th>
+                  <th>Sub Tag</th>
+                  <th>Inventory</th>
+                  <th>Notes</th>
+                  <th>Uploaded</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="tableBody">
+                <tr><td colspan="16" class="muted2">Loading product tags…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <div id="editorDrawer" class="drawer" aria-hidden="true">
+    <div class="overlay" id="editorOverlay"></div>
+    <div class="panel">
+      <div class="p-5 border-b" style="border-color: var(--border);">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="section-title">Editor</div>
+            <h3 id="editorTitle" class="mt-2 text-lg font-semibold">Edit Product Tag</h3>
+            <p class="mt-1 text-sm muted">Update row attributes and save directly to Supabase.</p>
+          </div>
+          <button id="closeEditorBtn" class="btn">Close</button>
+        </div>
+      </div>
+
+      <div class="p-5 overflow-y-auto scrollbar" style="flex:1;">
+        <div class="grid grid-cols-1 gap-4">
+          <div>
+            <label class="text-xs section-title">Product Title</label>
+            <input id="f_product_title" class="input mt-2" />
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="text-xs section-title">Product Category</label>
+              <input id="f_product_category" class="input mt-2" list="dl_product_category" />
+            </div>
+            <div>
+              <label class="text-xs section-title">Collection</label>
+              <input id="f_collection" class="input mt-2" list="dl_collection" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="text-xs section-title">Inline Flag</label>
+              <input id="f_inline_flag" class="input mt-2" list="dl_inline_flag" />
+            </div>
+            <div>
+              <label class="text-xs section-title">Type</label>
+              <input id="f_type" class="input mt-2" list="dl_type" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="text-xs section-title">Primary Color</label>
+              <input id="f_primary_color" class="input mt-2" list="dl_primary_color" />
+            </div>
+            <div>
+              <label class="text-xs section-title">Artwork Side</label>
+              <input id="f_artwork_side" class="input mt-2" list="dl_artwork_side" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="text-xs section-title">Tag</label>
+              <input id="f_tag" class="input mt-2" list="dl_tag" />
+            </div>
+            <div>
+              <label class="text-xs section-title">Indicator Group</label>
+              <input id="f_indicator_group" class="input mt-2" list="dl_indicator_group" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="text-xs section-title">Sub Tag</label>
+              <input id="f_sub_tag" class="input mt-2" list="dl_sub_tag" />
+            </div>
+            <div>
+              <label class="text-xs section-title">Current Inventory</label>
+              <input id="f_current_inventory" class="input mt-2 mono" type="number" step="1" />
+            </div>
+          </div>
+
+          <div>
+            <label class="text-xs section-title">Product Title Key</label>
+            <input id="f_product_title_key" class="input mt-2 mono" />
+          </div>
+
+          <div>
+            <label class="text-xs section-title">Notes</label>
+            <textarea id="f_notes" class="textarea mt-2"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-5 border-t flex items-center justify-between gap-3 flex-wrap" style="border-color: var(--border); background: var(--panel2);">
+        <div id="editorMeta" class="text-xs muted2">—</div>
+        <div class="flex items-center gap-2">
+          <button id="deleteRowBtn" class="btn btn-danger">Delete Row</button>
+          <button id="saveRowBtn" class="btn btn-primary">Save Changes</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <dialog id="importDialog" class="w-[min(1100px,calc(100vw-24px))] rounded-2xl p-0 shadow-xl">
+    <div class="card overflow-hidden" style="box-shadow: var(--shadow2); border-radius: 14px;">
+      <div class="flex items-start justify-between gap-3 border-b p-4" style="border-color: var(--border);">
+        <div>
+          <div class="text-xs muted2 font-black">Silo ERP</div>
+          <div class="text-lg font-semibold">CSV Import / Replace</div>
+          <div class="mt-1 text-sm muted">Uses the existing replace function to wipe and reload <span class="mono">public.product_tags</span>.</div>
+        </div>
+        <button id="closeImportBtn" class="btn">Close</button>
+      </div>
+
+      <div class="p-4 grid grid-cols-1 lg:grid-cols-[380px,1fr] gap-4">
+        <div class="space-y-4">
+          <div class="rounded-2xl border p-4" style="border-color: var(--border); background: var(--panel2);">
+            <label class="block text-sm font-medium mb-2">CSV file</label>
+            <input id="csvFile" type="file" accept=".csv,text/csv" class="block w-full rounded-xl border px-3 py-3 text-sm" style="border-color: var(--border); background: var(--panel);" />
+          </div>
+
+          <div class="rounded-2xl border p-4 text-sm" style="border-color: color-mix(in oklab, var(--warn) 35%, var(--border)); background: color-mix(in oklab, var(--warn) 8%, var(--panel)); color: var(--warn);">
+            Uploading from this dialog will remove all existing rows in <span class="font-semibold">product_tags</span> and replace them with the CSV contents.
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button id="previewBtn" class="btn btn-primary">Preview CSV</button>
+            <button id="uploadBtn" disabled class="btn">Upload & Replace</button>
+          </div>
+
+          <div id="importStatus" class="text-sm muted">Choose a CSV to begin.</div>
+
+          <div class="rounded-2xl border p-4" style="border-color: var(--border); background: var(--panel);">
+            <div class="text-sm font-semibold mb-3">Preview Summary</div>
+            <div class="grid grid-cols-3 gap-3">
+              <div class="rounded-xl p-3" style="border:1px solid var(--border); background: var(--panel2);">
+                <div class="text-xs uppercase tracking-wide muted2">Rows</div>
+                <div id="rowCount" class="text-xl font-semibold mono">0</div>
+              </div>
+              <div class="rounded-xl p-3" style="border:1px solid var(--border); background: var(--panel2);">
+                <div class="text-xs uppercase tracking-wide muted2">Headers</div>
+                <div id="headerCount" class="text-xl font-semibold mono">0</div>
+              </div>
+              <div class="rounded-xl p-3" style="border:1px solid var(--border); background: var(--panel2);">
+                <div class="text-xs uppercase tracking-wide muted2">Valid</div>
+                <div id="validCount" class="text-xl font-semibold mono">0</div>
+              </div>
+            </div>
+
+            <div class="mt-4">
+              <div class="text-xs uppercase tracking-wide muted2 mb-2">Detected headers</div>
+              <div id="headersList" class="flex flex-wrap gap-2"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="rounded-2xl border overflow-hidden" style="border-color: var(--border); background: var(--panel);">
+          <div class="flex items-center justify-between px-4 py-3" style="background: var(--panel2); border-bottom:1px solid var(--border);">
+            <div>
+              <h2 class="text-sm font-semibold">CSV Preview</h2>
+              <p class="text-xs muted2">Showing first 10 rows</p>
+            </div>
+          </div>
+
+          <div class="overflow-auto max-h-[650px] scrollbar">
+            <table class="min-w-full text-sm">
+              <thead id="previewHead" class="bg-slate-100 text-slate-700 sticky top-0 z-10"></thead>
+              <tbody id="previewBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <datalist id="dl_product_category"></datalist>
+  <datalist id="dl_collection"></datalist>
+  <datalist id="dl_inline_flag"></datalist>
+  <datalist id="dl_type"></datalist>
+  <datalist id="dl_primary_color"></datalist>
+  <datalist id="dl_artwork_side"></datalist>
+  <datalist id="dl_tag"></datalist>
+  <datalist id="dl_indicator_group"></datalist>
+  <datalist id="dl_sub_tag"></datalist>
+
+  <script>
+    const cfg = window.__SILO_CONFIG__ || {};
+    const SUPABASE_URL = cfg.SUPABASE_URL || "";
+    const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || "";
+    const FUNCTION_NAME = "replace-product-tags";
+    const LOGIN_PATH = "/financehub/pages/login.html";
+    const THEME_KEY = "silo_product_tags_theme_v1";
+
+    const state = {
+      supabase: null,
+      session: null,
+      allRows: [],
+      filteredRows: [],
+      selectedIds: new Set(),
+      editingRow: null,
+      isNewRow: false,
+      parsedRows: [],
+      parsedHeaders: [],
+      lastFilterHash: ""
+    };
+
+    const el = (id) => document.getElementById(id);
+    const setText = (id, value) => { const n = el(id); if (n) n.textContent = value; };
+
+    const authEmail = el("authEmail");
+    const logoutBtn = el("logoutBtn");
+    const themeBtn = el("themeBtn");
+    const themeLabel = el("themeLabel");
+    const reloadBtn = el("reloadBtn");
+    const addRowBtn = el("addRowBtn");
+    const bulkDeleteBtn = el("bulkDeleteBtn");
+    const clearFiltersBtn = el("clearFiltersBtn");
+    const searchInput = el("searchInput");
+    const filterCategory = el("filterCategory");
+    const filterCollection = el("filterCollection");
+    const filterInlineFlag = el("filterInlineFlag");
+    const filterType = el("filterType");
+    const filterColor = el("filterColor");
+    const filterArtworkSide = el("filterArtworkSide");
+    const filterIndicatorGroup = el("filterIndicatorGroup");
+    const filterSubTag = el("filterSubTag");
+    const filterTag = el("filterTag");
+    const tableBody = el("tableBody");
+    const selectVisibleBtn = el("selectVisibleBtn");
+    const clearSelectionBtn = el("clearSelectionBtn");
+    const selectAllVisible = el("selectAllVisible");
+    const statusPill = el("statusPill");
+
+    const editorDrawer = el("editorDrawer");
+    const editorOverlay = el("editorOverlay");
+    const closeEditorBtn = el("closeEditorBtn");
+    const editorTitle = el("editorTitle");
+    const editorMeta = el("editorMeta");
+    const saveRowBtn = el("saveRowBtn");
+    const deleteRowBtn = el("deleteRowBtn");
+
+    const f_product_title = el("f_product_title");
+    const f_product_category = el("f_product_category");
+    const f_collection = el("f_collection");
+    const f_inline_flag = el("f_inline_flag");
+    const f_type = el("f_type");
+    const f_primary_color = el("f_primary_color");
+    const f_artwork_side = el("f_artwork_side");
+    const f_tag = el("f_tag");
+    const f_indicator_group = el("f_indicator_group");
+    const f_sub_tag = el("f_sub_tag");
+    const f_current_inventory = el("f_current_inventory");
+    const f_notes = el("f_notes");
+    const f_product_title_key = el("f_product_title_key");
+
+    const importDialog = el("importDialog");
+    const openImportBtn = el("openImportBtn");
+    const closeImportBtn = el("closeImportBtn");
+    const csvFile = el("csvFile");
+    const previewBtn = el("previewBtn");
+    const uploadBtn = el("uploadBtn");
+    const importStatus = el("importStatus");
+    const rowCount = el("rowCount");
+    const headerCount = el("headerCount");
+    const validCount = el("validCount");
+    const headersList = el("headersList");
+    const previewHead = el("previewHead");
+    const previewBody = el("previewBody");
+
+    function escapeHtml(str) {
+      return String(str ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function fmtInt(n) {
+      const x = Number(n || 0);
+      return Number.isFinite(x) ? Math.round(x).toLocaleString() : "0";
+    }
+
+    function fmtDate(ts) {
+      if (!ts) return "—";
+      const d = new Date(ts);
+      return Number.isNaN(d.getTime()) ? "—" : d.toLocaleString();
+    }
+
+    function safeLower(v) {
+      return String(v ?? "").trim().toLowerCase();
+    }
+
+    function normalizeTitleKey(v) {
+      return String(v ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/['"]/g, "")
+        .replace(/&/g, "and")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .replace(/-+/g, "-");
+    }
+
+    function toInt(v) {
+      const n = Number(String(v ?? "").replace(/,/g, "").trim());
+      return Number.isFinite(n) ? Math.round(n) : 0;
+    }
+
+    function setStatus(message, tone = "default") {
+      const toneMap = {
+        default: { cls: "pill", dot: "var(--accent)" },
+        success: { cls: "pill pill-good", dot: "var(--good)" },
+        error: { cls: "pill pill-danger", dot: "var(--danger)" },
+        warn: { cls: "pill pill-warn", dot: "var(--warn)" }
+      };
+      const t = toneMap[tone] || toneMap.default;
+      statusPill.className = t.cls;
+      statusPill.innerHTML = `<span class="dot" style="background:${t.dot}"></span>Status: ${escapeHtml(message)}`;
+    }
+
+    function setImportStatus(message, tone = "default") {
+      importStatus.className =
+        tone === "success" ? "text-sm status-success" :
+        tone === "error" ? "text-sm status-error" :
+        tone === "warn" ? "text-sm status-warn" :
+        "text-sm status-default";
+      importStatus.textContent = message;
+    }
+
+    function applyTheme(theme) {
+      document.documentElement.setAttribute("data-theme", theme);
+      themeLabel.textContent = theme[0].toUpperCase() + theme.slice(1);
+      localStorage.setItem(THEME_KEY, theme);
+    }
+
+    function openEditor() {
+      editorDrawer.classList.add("open");
+      editorDrawer.setAttribute("aria-hidden", "false");
+    }
+
+    function closeEditor() {
+      editorDrawer.classList.remove("open");
+      editorDrawer.setAttribute("aria-hidden", "true");
+      state.editingRow = null;
+      state.isNewRow = false;
+    }
+
+    function fillDatalist(id, values) {
+      const node = el(id);
+      if (!node) return;
+      node.innerHTML = "";
+      values.forEach(v => {
+        const option = document.createElement("option");
+        option.value = v;
+        node.appendChild(option);
+      });
+    }
+
+    function uniqueNonBlankValues(rows, key) {
+      return [...new Set(rows.map(r => String(r[key] ?? "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+    }
+
+    function fillSelect(node, values, firstLabel) {
+      if (!node) return;
+      const current = node.value;
+      node.innerHTML = `<option value="">${firstLabel}</option>`;
+      values.forEach(v => {
+        const option = document.createElement("option");
+        option.value = v;
+        option.textContent = v;
+        node.appendChild(option);
+      });
+      node.value = values.includes(current) ? current : "";
+    }
+
+    function refreshDropdownSources() {
+      const rows = state.allRows.slice();
+
+      const categories = uniqueNonBlankValues(rows, "product_category");
+      const collections = uniqueNonBlankValues(rows, "collection");
+      const inlineFlags = uniqueNonBlankValues(rows, "inline_flag");
+      const types = uniqueNonBlankValues(rows, "type");
+      const colors = uniqueNonBlankValues(rows, "primary_color");
+      const artworkSides = uniqueNonBlankValues(rows, "artwork_side");
+      const tags = uniqueNonBlankValues(rows, "tag");
+      const indicatorGroups = uniqueNonBlankValues(rows, "indicator_group");
+      const subTags = uniqueNonBlankValues(rows, "sub_tag");
+
+      fillSelect(filterCategory, categories, "All categories");
+      fillSelect(filterCollection, collections, "All collections");
+      fillSelect(filterInlineFlag, inlineFlags, "All inline flags");
+      fillSelect(filterType, types, "All types");
+      fillSelect(filterColor, colors, "All colors");
+      fillSelect(filterArtworkSide, artworkSides, "All artwork sides");
+      fillSelect(filterTag, tags, "All tags");
+      fillSelect(filterIndicatorGroup, indicatorGroups, "All indicator groups");
+      fillSelect(filterSubTag, subTags, "All sub tags");
+
+      fillDatalist("dl_product_category", categories);
+      fillDatalist("dl_collection", collections);
+      fillDatalist("dl_inline_flag", inlineFlags);
+      fillDatalist("dl_type", types);
+      fillDatalist("dl_primary_color", colors);
+      fillDatalist("dl_artwork_side", artworkSides);
+      fillDatalist("dl_tag", tags);
+      fillDatalist("dl_indicator_group", indicatorGroups);
+      fillDatalist("dl_sub_tag", subTags);
+
+      setText("heroCategories", fmtInt(categories.length));
+      setText("heroTags", fmtInt(tags.length));
+    }
+
+    function currentFilterValues() {
+      return {
+        search: safeLower(searchInput.value),
+        product_category: filterCategory.value,
+        collection: filterCollection.value,
+        inline_flag: filterInlineFlag.value,
+        type: filterType.value,
+        primary_color: filterColor.value,
+        artwork_side: filterArtworkSide.value,
+        indicator_group: filterIndicatorGroup.value,
+        sub_tag: filterSubTag.value,
+        tag: filterTag.value
+      };
+    }
+
+    function rowMatches(row, f) {
+      if (f.product_category && String(row.product_category || "") !== f.product_category) return false;
+      if (f.collection && String(row.collection || "") !== f.collection) return false;
+      if (f.inline_flag && String(row.inline_flag || "") !== f.inline_flag) return false;
+      if (f.type && String(row.type || "") !== f.type) return false;
+      if (f.primary_color && String(row.primary_color || "") !== f.primary_color) return false;
+      if (f.artwork_side && String(row.artwork_side || "") !== f.artwork_side) return false;
+      if (f.indicator_group && String(row.indicator_group || "") !== f.indicator_group) return false;
+      if (f.sub_tag && String(row.sub_tag || "") !== f.sub_tag) return false;
+      if (f.tag && String(row.tag || "") !== f.tag) return false;
+
+      if (f.search) {
+        const haystack = [
+          row.product_title,
+          row.product_category,
+          row.collection,
+          row.inline_flag,
+          row.type,
+          row.primary_color,
+          row.artwork_side,
+          row.tag,
+          row.indicator_group,
+          row.sub_tag,
+          row.notes,
+          row.product_title_key
+        ].map(v => String(v ?? "").toLowerCase()).join(" | ");
+
+        if (!haystack.includes(f.search)) return false;
+      }
+
+      return true;
+    }
+
+    function applyFilters() {
+      const filters = currentFilterValues();
+      state.filteredRows = state.allRows.filter(r => rowMatches(r, filters));
+      renderTable();
+      renderStats();
+    }
+
+    function renderStats() {
+      const totalRows = state.allRows.length;
+      const filteredRows = state.filteredRows.length;
+      const selectedRows = state.selectedIds.size;
+      const filteredInventory = state.filteredRows.reduce((sum, r) => sum + toInt(r.current_inventory), 0);
+
+      setText("kpiTotalRows", fmtInt(totalRows));
+      setText("kpiFilteredRows", fmtInt(filteredRows));
+      setText("kpiSelectedRows", fmtInt(selectedRows));
+      setText("kpiInventory", fmtInt(filteredInventory));
+
+      setText("heroRows", fmtInt(totalRows));
+      setText("heroInventory", fmtInt(filteredInventory));
+    }
+
+    function renderTable() {
+      tableBody.innerHTML = "";
+
+      if (!state.filteredRows.length) {
+        tableBody.innerHTML = `<tr><td colspan="16" class="muted2">No rows match the current filters.</td></tr>`;
+        return;
+      }
+
+      const fragment = document.createDocumentFragment();
+
+      state.filteredRows.forEach(row => {
+        const tr = document.createElement("tr");
+        const checked = state.selectedIds.has(row.id) ? "checked" : "";
+        const notesShort = String(row.notes || "").trim();
+        const uploaded = fmtDate(row.uploaded_at);
+
+        tr.innerHTML = `
+          <td><input type="checkbox" data-select-id="${escapeHtml(String(row.id))}" ${checked}></td>
+          <td class="mono">${escapeHtml(String(row.id ?? ""))}</td>
+          <td>
+            <div style="font-weight:900;">${escapeHtml(row.product_title || "")}</div>
+            <div class="text-xs muted2 mono">${escapeHtml(row.product_title_key || "")}</div>
+          </td>
+          <td>${escapeHtml(row.product_category || "—")}</td>
+          <td>${escapeHtml(row.collection || "—")}</td>
+          <td>${escapeHtml(row.inline_flag || "—")}</td>
+          <td>${escapeHtml(row.type || "—")}</td>
+          <td>${escapeHtml(row.primary_color || "—")}</td>
+          <td>${escapeHtml(row.artwork_side || "—")}</td>
+          <td>${escapeHtml(row.tag || "—")}</td>
+          <td>${escapeHtml(row.indicator_group || "—")}</td>
+          <td>${escapeHtml(row.sub_tag || "—")}</td>
+          <td class="mono">${fmtInt(row.current_inventory)}</td>
+          <td><div class="line-clamp-2 muted">${escapeHtml(notesShort || "—")}</div></td>
+          <td class="text-xs muted2">${escapeHtml(uploaded)}</td>
+          <td>
+            <div class="flex items-center gap-2">
+              <button class="btn btn-ghost" data-edit-id="${escapeHtml(String(row.id))}">Edit</button>
+            </div>
+          </td>
+        `;
+        fragment.appendChild(tr);
+      });
+
+      tableBody.appendChild(fragment);
+
+      tableBody.querySelectorAll("[data-select-id]").forEach(cb => {
+        cb.addEventListener("change", () => {
+          const id = Number(cb.getAttribute("data-select-id"));
+          if (cb.checked) state.selectedIds.add(id);
+          else state.selectedIds.delete(id);
+          renderStats();
+        });
+      });
+
+      tableBody.querySelectorAll("[data-edit-id]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const id = Number(btn.getAttribute("data-edit-id"));
+          const row = state.allRows.find(r => Number(r.id) === id);
+          if (row) openRowEditor(row, false);
+        });
+      });
+    }
+
+    function openRowEditor(row, isNew = false) {
+      state.editingRow = { ...row };
+      state.isNewRow = isNew;
+      editorTitle.textContent = isNew ? "Add Product Tag" : "Edit Product Tag";
+      deleteRowBtn.style.display = isNew ? "none" : "";
+      editorMeta.textContent = isNew
+        ? "Creating a new row in public.product_tags"
+        : `Editing row ID ${row.id} • uploaded ${fmtDate(row.uploaded_at)}`;
+
+      f_product_title.value = row.product_title || "";
+      f_product_category.value = row.product_category || "";
+      f_collection.value = row.collection || "";
+      f_inline_flag.value = row.inline_flag || "";
+      f_type.value = row.type || "";
+      f_primary_color.value = row.primary_color || "";
+      f_artwork_side.value = row.artwork_side || "";
+      f_tag.value = row.tag || "";
+      f_indicator_group.value = row.indicator_group || "";
+      f_sub_tag.value = row.sub_tag || "";
+      f_current_inventory.value = row.current_inventory ?? 0;
+      f_notes.value = row.notes || "";
+      f_product_title_key.value = row.product_title_key || normalizeTitleKey(row.product_title || "");
+
+      openEditor();
+    }
+
+    function collectEditorPayload() {
+      const productTitle = String(f_product_title.value || "").trim();
+      return {
+        product_title: productTitle,
+        product_category: String(f_product_category.value || "").trim() || null,
+        collection: String(f_collection.value || "").trim() || null,
+        inline_flag: String(f_inline_flag.value || "").trim() || null,
+        type: String(f_type.value || "").trim() || null,
+        primary_color: String(f_primary_color.value || "").trim() || null,
+        artwork_side: String(f_artwork_side.value || "").trim() || null,
+        tag: String(f_tag.value || "").trim() || null,
+        current_inventory: toInt(f_current_inventory.value),
+        notes: String(f_notes.value || "").trim() || null,
+        indicator_group: String(f_indicator_group.value || "").trim() || null,
+        sub_tag: String(f_sub_tag.value || "").trim() || null,
+        product_title_key: String(f_product_title_key.value || "").trim() || normalizeTitleKey(productTitle)
+      };
+    }
+
+    async function loadTable() {
+      if (!state.supabase) return;
+      setStatus("Loading…", "default");
+
+      const { data, error } = await state.supabase
+        .from("product_tags")
+        .select("*")
+        .order("product_title", { ascending: true });
+
+      if (error) {
+        console.error(error);
+        setStatus(`Load failed: ${error.message}`, "error");
+        tableBody.innerHTML = `<tr><td colspan="16" class="status-error">Load failed: ${escapeHtml(error.message)}</td></tr>`;
+        return;
+      }
+
+      state.allRows = Array.isArray(data) ? data : [];
+      state.filteredRows = state.allRows.slice();
+      refreshDropdownSources();
+      applyFilters();
+      setStatus("Loaded", "success");
+      setText("lastUpdated", new Date().toLocaleString());
+    }
+
+    async function saveEditorRow() {
+      if (!state.supabase || !state.editingRow) return;
+
+      const payload = collectEditorPayload();
+      if (!payload.product_title) {
+        alert("Product Title is required.");
+        return;
+      }
+
+      saveRowBtn.disabled = true;
+      setStatus(state.isNewRow ? "Creating row…" : "Saving changes…", "default");
+
+      try {
+        let result;
+
+        if (state.isNewRow) {
+          result = await state.supabase
+            .from("product_tags")
+            .insert([{
+              ...payload,
+              raw_row: {},
+              uploaded_at: new Date().toISOString()
+            }])
+            .select()
+            .single();
+        } else {
+          result = await state.supabase
+            .from("product_tags")
+            .update(payload)
+            .eq("id", state.editingRow.id)
+            .select()
+            .single();
+        }
+
+        if (result.error) throw result.error;
+
+        closeEditor();
+        await loadTable();
+        setStatus(state.isNewRow ? "Row created" : "Row saved", "success");
+      } catch (err) {
+        console.error(err);
+        alert(`Save failed: ${err.message || err}`);
+        setStatus(`Save failed: ${err.message || err}`, "error");
+      } finally {
+        saveRowBtn.disabled = false;
+      }
+    }
+
+    async function deleteCurrentRow() {
+      if (!state.supabase || !state.editingRow || state.isNewRow) return;
+      const ok = confirm(`Delete row ${state.editingRow.id}?\n\n${state.editingRow.product_title || ""}`);
+      if (!ok) return;
+
+      deleteRowBtn.disabled = true;
+      setStatus("Deleting row…", "warn");
+
+      try {
+        const { error } = await state.supabase
+          .from("product_tags")
+          .delete()
+          .eq("id", state.editingRow.id);
+
+        if (error) throw error;
+
+        state.selectedIds.delete(Number(state.editingRow.id));
+        closeEditor();
+        await loadTable();
+        setStatus("Row deleted", "success");
+      } catch (err) {
+        console.error(err);
+        alert(`Delete failed: ${err.message || err}`);
+        setStatus(`Delete failed: ${err.message || err}`, "error");
+      } finally {
+        deleteRowBtn.disabled = false;
+      }
+    }
+
+    async function bulkDeleteSelected() {
+      if (!state.supabase) return;
+      const ids = [...state.selectedIds].filter(Number.isFinite);
+      if (!ids.length) {
+        alert("No rows selected.");
+        return;
+      }
+
+      const ok = confirm(`Delete ${ids.length} selected row(s)? This cannot be undone.`);
+      if (!ok) return;
+
+      bulkDeleteBtn.disabled = true;
+      setStatus(`Deleting ${ids.length} row(s)…`, "warn");
+
+      try {
+        const { error } = await state.supabase
+          .from("product_tags")
+          .delete()
+          .in("id", ids);
+
+        if (error) throw error;
+
+        state.selectedIds.clear();
+        await loadTable();
+        setStatus(`Deleted ${ids.length} row(s)`, "success");
+      } catch (err) {
+        console.error(err);
+        alert(`Bulk delete failed: ${err.message || err}`);
+        setStatus(`Bulk delete failed: ${err.message || err}`, "error");
+      } finally {
+        bulkDeleteBtn.disabled = false;
+      }
+    }
+
+    function resetImportPreview() {
+      state.parsedRows = [];
+      state.parsedHeaders = [];
+      previewHead.innerHTML = "";
+      previewBody.innerHTML = "";
+      headersList.innerHTML = "";
+      rowCount.textContent = "0";
+      headerCount.textContent = "0";
+      validCount.textContent = "0";
+      uploadBtn.disabled = true;
+    }
+
+    function renderHeaders(headers) {
+      headersList.innerHTML = "";
+      headers.forEach(header => {
+        const chip = document.createElement("span");
+        chip.className = "chip";
+        chip.textContent = header === "" ? "(blank header → indicator_group)" : header;
+        headersList.appendChild(chip);
+      });
+    }
+
+    function renderPreview(headers, rows) {
+      previewHead.innerHTML = "";
+      previewBody.innerHTML = "";
+
+      const trHead = document.createElement("tr");
+      headers.forEach(header => {
+        const th = document.createElement("th");
+        th.className = "px-3 py-2 text-left font-medium whitespace-nowrap";
+        th.textContent = header === "" ? "(blank)" : header;
+        trHead.appendChild(th);
+      });
+      previewHead.appendChild(trHead);
+
+      rows.slice(0, 10).forEach(row => {
+        const tr = document.createElement("tr");
+        headers.forEach(header => {
+          const td = document.createElement("td");
+          td.className = "px-3 py-2 whitespace-nowrap align-top";
+          td.textContent = row[header] ?? "";
+          tr.appendChild(td);
+        });
+        previewBody.appendChild(tr);
+      });
+    }
+
+    function countValidRows(rows) {
+      return rows.filter(row => {
+        const title = String(row["Product Title"] ?? row["product_title"] ?? "").trim();
+        return title.length > 0;
+      }).length;
+    }
+
+    function ensureConfig() {
+      if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+        setImportStatus("Missing Supabase config. Check /financehub/pages/config.js.", "error");
+        return false;
+      }
+      return true;
+    }
+
+    async function uploadAndReplace() {
+      if (!ensureConfig()) return;
+      if (!state.parsedRows.length) {
+        setImportStatus("Preview the CSV first.", "warn");
+        return;
+      }
+
+      const ok = confirm("This will fully replace public.product_tags. Continue?");
+      if (!ok) return;
+
+      uploadBtn.disabled = true;
+      setImportStatus("Uploading and replacing product_tags…", "default");
+      setStatus("Running full replace…", "warn");
+
+      try {
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/${FUNCTION_NAME}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "apikey": SUPABASE_ANON_KEY,
+            "Authorization": `Bearer ${SUPABASE_ANON_KEY}`
+          },
+          body: JSON.stringify({ rows: state.parsedRows })
+        });
+
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data?.error || "Upload failed.");
+
+        setImportStatus(`Success. Replaced product_tags with ${data.inserted} rows.`, "success");
+        setStatus("Replace complete", "success");
+        await loadTable();
+      } catch (err) {
+        console.error(err);
+        setImportStatus(`Upload failed: ${err.message || err}`, "error");
+        setStatus(`Replace failed: ${err.message || err}`, "error");
+      } finally {
+        uploadBtn.disabled = false;
+      }
+    }
+
+    async function authGuard() {
+      if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+        document.body.innerHTML = `<div style="padding:24px;font-family:sans-serif;">Missing Supabase config in /financehub/pages/config.js</div>`;
+        return false;
+      }
+
+      state.supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      const { data, error } = await state.supabase.auth.getSession();
+
+      if (error) console.warn("getSession error:", error);
+
+      if (!data?.session) {
+        window.location.href = LOGIN_PATH;
+        return false;
+      }
+
+      state.session = data.session;
+      authEmail.textContent = data.session.user?.email || "Signed in";
+
+      logoutBtn.addEventListener("click", async () => {
+        try { await state.supabase.auth.signOut(); }
+        catch (e) { console.warn("signOut error:", e); }
+        window.location.href = LOGIN_PATH;
+      });
+
+      return true;
+    }
+
+    function initUi() {
+      applyTheme(localStorage.getItem(THEME_KEY) || "light");
+
+      themeBtn.addEventListener("click", () => {
+        const cur = document.documentElement.getAttribute("data-theme") || "light";
+        applyTheme(cur === "dark" ? "light" : "dark");
+      });
+
+      reloadBtn.addEventListener("click", loadTable);
+      addRowBtn.addEventListener("click", () => openRowEditor({
+        product_title: "",
+        product_category: "",
+        collection: "",
+        inline_flag: "",
+        type: "",
+        primary_color: "",
+        artwork_side: "",
+        tag: "",
+        current_inventory: 0,
+        notes: "",
+        indicator_group: "",
+        sub_tag: "",
+        product_title_key: ""
+      }, true));
+
+      bulkDeleteBtn.addEventListener("click", bulkDeleteSelected);
+
+      [searchInput, filterCategory, filterCollection, filterInlineFlag, filterType, filterColor, filterArtworkSide, filterIndicatorGroup, filterSubTag, filterTag]
+        .forEach(node => node.addEventListener("input", applyFilters));
+
+      clearFiltersBtn.addEventListener("click", () => {
+        searchInput.value = "";
+        filterCategory.value = "";
+        filterCollection.value = "";
+        filterInlineFlag.value = "";
+        filterType.value = "";
+        filterColor.value = "";
+        filterArtworkSide.value = "";
+        filterIndicatorGroup.value = "";
+        filterSubTag.value = "";
+        filterTag.value = "";
+        applyFilters();
+      });
+
+      selectVisibleBtn.addEventListener("click", () => {
+        state.filteredRows.forEach(r => state.selectedIds.add(Number(r.id)));
+        renderTable();
+        renderStats();
+      });
+
+      clearSelectionBtn.addEventListener("click", () => {
+        state.selectedIds.clear();
+        renderTable();
+        renderStats();
+      });
+
+      selectAllVisible.addEventListener("change", () => {
+        if (selectAllVisible.checked) {
+          state.filteredRows.forEach(r => state.selectedIds.add(Number(r.id)));
+        } else {
+          state.filteredRows.forEach(r => state.selectedIds.delete(Number(r.id)));
+        }
+        renderTable();
+        renderStats();
+      });
+
+      closeEditorBtn.addEventListener("click", closeEditor);
+      editorOverlay.addEventListener("click", closeEditor);
+      saveRowBtn.addEventListener("click", saveEditorRow);
+      deleteRowBtn.addEventListener("click", deleteCurrentRow);
+
+      f_product_title.addEventListener("input", () => {
+        if (!f_product_title_key.value || f_product_title_key.value === normalizeTitleKey(state.editingRow?.product_title || "")) {
+          f_product_title_key.value = normalizeTitleKey(f_product_title.value);
+        }
+      });
+
+      openImportBtn.addEventListener("click", () => {
+        importDialog.showModal();
+      });
+      closeImportBtn.addEventListener("click", () => importDialog.close());
+
+      previewBtn.addEventListener("click", () => {
+        resetImportPreview();
+
+        if (!ensureConfig()) return;
+
+        const file = csvFile.files?.[0];
+        if (!file) {
+          setImportStatus("Choose a CSV first.", "warn");
+          return;
+        }
+
+        setImportStatus("Parsing CSV…", "default");
+
+        Papa.parse(file, {
+          header: true,
+          skipEmptyLines: true,
+          complete: results => {
+            state.parsedRows = Array.isArray(results.data) ? results.data : [];
+            state.parsedHeaders = Array.isArray(results.meta?.fields) ? results.meta.fields : [];
+            const valid = countValidRows(state.parsedRows);
+
+            rowCount.textContent = String(state.parsedRows.length);
+            headerCount.textContent = String(state.parsedHeaders.length);
+            validCount.textContent = String(valid);
+
+            renderHeaders(state.parsedHeaders);
+            renderPreview(state.parsedHeaders, state.parsedRows);
+
+            if (!state.parsedRows.length) {
+              setImportStatus("CSV parsed, but no rows were found.", "warn");
+              uploadBtn.disabled = true;
+              return;
+            }
+
+            if (!valid) {
+              setImportStatus('No valid rows found. "Product Title" is required.', "error");
+              uploadBtn.disabled = true;
+              return;
+            }
+
+            uploadBtn.disabled = false;
+            setImportStatus(`CSV ready. ${valid} valid rows found.`, "success");
+          },
+          error: err => {
+            setImportStatus(`CSV parse failed: ${err.message}`, "error");
+          }
+        });
+      });
+
+      uploadBtn.addEventListener("click", uploadAndReplace);
+
+      window.addEventListener("keydown", e => {
+        const key = String(e.key || "").toLowerCase();
+        const tag = String(e.target?.tagName || "").toLowerCase();
+        const inInput = ["input", "textarea", "select"].includes(tag);
+        if (inInput) return;
+
+        if ((e.ctrlKey || e.metaKey) && key === "k") {
+          e.preventDefault();
+          loadTable();
+          return;
+        }
+        if (key === "a") {
+          e.preventDefault();
+          addRowBtn.click();
+          return;
+        }
+        if (key === "i") {
+          e.preventDefault();
+          openImportBtn.click();
+          return;
+        }
+        if (key === "t") {
+          e.preventDefault();
+          themeBtn.click();
+        }
+      });
+    }
+
+    (async function boot() {
+      const ok = await authGuard();
+      if (!ok) return;
+      initUi();
+      await loadTable();
+    })();
+  </script>
+</body>
+</html>
