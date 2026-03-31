@@ -71,9 +71,9 @@
     body.themeable { min-height: 100vh; }
 
     .shell {
-      max-width: 1580px;
+      max-width: 93%;
       margin: 0 auto;
-      padding: 20px;
+      padding: 10px;
     }
 
     .glass {
@@ -247,7 +247,7 @@
       width: 100%;
       border-collapse: separate;
       border-spacing: 0;
-      min-width: 1080px;
+      min-width: 1260px;
     }
 
     .matrix-table thead th {
@@ -293,6 +293,11 @@
       left: 0;
     }
 
+    .launch-col {
+      min-width: 260px;
+      white-space: normal !important;
+    }
+
     .total-col {
       background: color-mix(in oklab, var(--accent-soft) 42%, var(--panel-soft));
       font-weight: 700;
@@ -302,6 +307,7 @@
       display: inline-flex;
       align-items: center;
       gap: 8px;
+      flex-wrap: wrap;
     }
 
     .mini-link {
@@ -318,6 +324,7 @@
       display: inline-flex;
       align-items: center;
       gap: 8px;
+      max-width: 100%;
     }
 
     .cell-note-flag{
@@ -343,7 +350,7 @@
       top: calc(100% + 8px);
       z-index: 20;
       min-width: 220px;
-      max-width: 320px;
+      max-width: 360px;
       padding: 10px 12px;
       border-radius: 12px;
       border: 1px solid var(--border);
@@ -373,6 +380,61 @@
       letter-spacing: .12em;
       color: var(--muted2);
       font-weight: 800;
+    }
+
+    .launch-badge{
+      display:inline-flex;
+      align-items:center;
+      gap:6px;
+      padding:4px 8px;
+      border-radius:999px;
+      border:1px solid var(--border);
+      background:color-mix(in oklab, var(--accent-soft) 75%, transparent);
+      font-size:11px;
+      font-weight:800;
+      color:var(--text);
+      white-space:nowrap;
+    }
+
+    .launch-stack{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      min-width:0;
+    }
+
+    .launch-item{
+      border:1px solid var(--border);
+      background:color-mix(in oklab, var(--panel-soft) 92%, transparent);
+      border-radius:14px;
+      padding:10px 12px;
+    }
+
+    .launch-item-title{
+      font-size:13px;
+      font-weight:800;
+      line-height:1.35;
+      color:var(--text);
+    }
+
+    .launch-item-meta{
+      font-size:11px;
+      color:var(--muted2);
+      margin-top:4px;
+      line-height:1.45;
+    }
+
+    .calendar-box{
+      border:1px solid var(--border);
+      background:color-mix(in oklab, var(--panel-soft) 92%, transparent);
+      border-radius:16px;
+      padding:12px;
+    }
+
+    .calendar-helper{
+      font-size:12px;
+      color:var(--muted2);
+      line-height:1.55;
     }
 
     .empty-state {
@@ -444,14 +506,14 @@
 
     .toolbar-grid {
       display: grid;
-      grid-template-columns: 1.1fr 1.1fr 1.3fr 1fr 1.5fr auto auto auto;
+      grid-template-columns: 1.1fr 1.1fr 1.2fr 1fr 1fr 1.3fr auto auto auto;
       gap: 10px;
       align-items: end;
     }
 
     .layout-grid {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 360px;
+      grid-template-columns: minmax(0, 1fr) 380px;
       gap: 18px;
       align-items: start;
     }
@@ -495,9 +557,9 @@
     }
     .summary-row:last-child { border-bottom: 0; }
 
-    @media (max-width: 1220px) {
+    @media (max-width: 1320px) {
       .toolbar-grid {
-        grid-template-columns: repeat(4, minmax(0,1fr));
+        grid-template-columns: repeat(3, minmax(0,1fr));
       }
       .layout-grid {
         grid-template-columns: 1fr;
@@ -518,6 +580,7 @@
         bottom: 8px;
         width: calc(100vw - 16px);
       }
+      .launch-col { min-width: 220px; }
     }
   </style>
 </head>
@@ -544,6 +607,7 @@
         <div class="section-label">Revenue Planning</div>
         <h1 class="headline mt-2">Projections</h1>
         <div class="subtle mt-2">
+          Revenue plan tied to launch and marketing calendar context by date.
         </div>
       </div>
 
@@ -580,8 +644,14 @@
           </select>
         </div>
         <div>
+          <label class="section-label mb-2 block">Launch type</label>
+          <select id="filterLaunchType" class="select">
+            <option value="">All launch types</option>
+          </select>
+        </div>
+        <div>
           <label class="section-label mb-2 block">Search</label>
-          <input id="filterSearch" type="text" class="field" placeholder="Notes or location" />
+          <input id="filterSearch" type="text" class="field" placeholder="Notes, location, launch, designer" />
         </div>
         <button id="thisMonthBtn" class="btn">This month</button>
         <button id="next30Btn" class="btn">Next 30 days</button>
@@ -589,7 +659,7 @@
       </div>
     </div>
 
-    <div class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+    <div class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
       <div class="metric card">
         <div class="label">Filtered projections</div>
         <div id="kpiRows" class="mono value">—</div>
@@ -610,6 +680,11 @@
         <div id="kpiLocations" class="mono value">—</div>
         <div id="kpiLocationsSub" class="sub">Distinct locations in matrix</div>
       </div>
+      <div class="metric card">
+        <div class="label">Launch events in view</div>
+        <div id="kpiLaunchEvents" class="mono value">—</div>
+        <div id="kpiLaunchEventsSub" class="sub">Calendar events on visible dates</div>
+      </div>
     </div>
 
     <div class="layout-grid mt-4">
@@ -618,7 +693,7 @@
           <div>
             <div class="section-label">Matrix view</div>
             <div class="mt-2" style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em;">Projected sales by date and location</div>
-            <div class="subtle mt-1">Hover the info icon to see notes. Click Edit to load the cell into the editor.</div>
+            <div class="subtle mt-1">Launch calendar now sits inside the matrix so each row can be tied back to release and marketing activity.</div>
           </div>
           <div class="text-sm" style="color: var(--muted);">
             Dates shown: <span id="tableCount" class="mono">0</span> · Updated <span id="lastUpdated" class="mono">—</span>
@@ -628,10 +703,10 @@
         <div class="matrix-wrap scrollbar">
           <table class="matrix-table">
             <thead id="projectionMatrixHead">
-              <tr><th class="sticky-col sticky-col-top">Date</th><th>Total</th></tr>
+              <tr><th class="sticky-col sticky-col-top">Date</th><th class="launch-col">Launch / Marketing</th><th>Total</th></tr>
             </thead>
             <tbody id="projectionTableBody">
-              <tr><td colspan="2" class="empty-state">Loading…</td></tr>
+              <tr><td colspan="3" class="empty-state">Loading…</td></tr>
             </tbody>
           </table>
         </div>
@@ -677,6 +752,17 @@
               <input id="formSource" type="text" class="field" placeholder="manual, import, forecast_model" />
             </div>
 
+            <div class="calendar-box">
+              <div class="flex items-center justify-between gap-2 flex-wrap">
+                <div>
+                  <div class="section-label">Launch calendar tie-in</div>
+                  <div style="font-size:14px; font-weight:700; margin-top:4px;">Events on selected date</div>
+                </div>
+                <button id="appendCalendarToNotesBtn" type="button" class="btn">Use in notes</button>
+              </div>
+              <div id="calendarTieField" class="mt-3 calendar-helper">Choose a projection date to pull launch and marketing context.</div>
+            </div>
+
             <div>
               <label class="section-label mb-2 block">Notes</label>
               <textarea id="formNotes" class="textarea" placeholder="Context, assumptions, promo timing, overrides, commentary"></textarea>
@@ -695,6 +781,14 @@
           <div class="section-label">Location summary</div>
           <div class="mt-2" style="font-size: 18px; font-weight: 700; letter-spacing: -0.03em;">Column totals</div>
           <div class="summary-list mt-4" id="locationSummary">
+            <div class="empty-state">Loading…</div>
+          </div>
+        </div>
+
+        <div class="card p-5">
+          <div class="section-label">Launch summary</div>
+          <div class="mt-2" style="font-size: 18px; font-weight: 700; letter-spacing: -0.03em;">Calendar in range</div>
+          <div class="summary-list mt-4" id="launchSummary">
             <div class="empty-state">Loading…</div>
           </div>
         </div>
@@ -765,14 +859,23 @@
     let supabaseClient = null;
 
     const state = {
-      themeKey: "silo_projections_theme_v4",
+      themeKey: "silo_projections_theme_v5",
       locations: [],
       projections: [],
       filtered: [],
       history: [],
       selectedProjection: null,
-      importResult: null
+      importResult: null,
+      calendarEvents: [],
+      filteredCalendarEvents: [],
+      launchTypes: [],
+      launchSheetUrl: "https://docs.google.com/spreadsheets/d/1r2xGCz6hRDek7YHHzLCqV5BMyCVSTSh4A5FPOEvpQsc/edit#gid=0"
     };
+
+    const CALENDAR_SHEET_ID = "1r2xGCz6hRDek7YHHzLCqV5BMyCVSTSh4A5FPOEvpQsc";
+    const CALENDAR_GID = "0";
+    const CALENDAR_GVIZ = `https://docs.google.com/spreadsheets/d/${CALENDAR_SHEET_ID}/gviz/tq?gid=${CALENDAR_GID}&tqx=out:json`;
+    const CALENDAR_CSV = `https://docs.google.com/spreadsheets/d/${CALENDAR_SHEET_ID}/export?format=csv&gid=${CALENDAR_GID}`;
 
     const el = (id) => document.getElementById(id);
     const setText = (id, text) => { const n = el(id); if (n) n.textContent = text; };
@@ -797,6 +900,7 @@
     const filterDateTo = el("filterDateTo");
     const filterLocation = el("filterLocation");
     const filterSource = el("filterSource");
+    const filterLaunchType = el("filterLaunchType");
     const filterSearch = el("filterSearch");
 
     const formProjectionDate = el("formProjectionDate");
@@ -805,6 +909,8 @@
     const formProjectedSales = el("formProjectedSales");
     const formSource = el("formSource");
     const formNotes = el("formNotes");
+    const calendarTieField = el("calendarTieField");
+    const appendCalendarToNotesBtn = el("appendCalendarToNotesBtn");
     const saveProjectionBtn = el("saveProjectionBtn");
     const clearFormBtn = el("clearFormBtn");
     const deleteProjectionBtn = el("deleteProjectionBtn");
@@ -816,6 +922,7 @@
     const editingPill = el("editingPill");
     const selectionPill = el("selectionPill");
     const locationSummary = el("locationSummary");
+    const launchSummary = el("launchSummary");
     const healthSummary = el("healthSummary");
     const importSummary = el("importSummary");
 
@@ -950,6 +1057,91 @@
       return null;
     }
 
+    function parseGvizJson(text) {
+      const start = text.indexOf("{");
+      const end = text.lastIndexOf("}");
+      if (start === -1 || end === -1) return null;
+      try {
+        return JSON.parse(text.slice(start, end + 1));
+      } catch {
+        return null;
+      }
+    }
+
+    function parseSheetDate(value) {
+      if (!value) return null;
+      if (value instanceof Date) return value;
+      const s = String(value).trim();
+
+      const gvizMatch = s.match(/Date\((\d{4}),\s*(\d{1,2}),\s*(\d{1,2})/i);
+      if (gvizMatch) return new Date(+gvizMatch[1], +gvizMatch[2], +gvizMatch[3]);
+
+      const us = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+      if (us) {
+        const y = us[3].length === 2 ? (+us[3] + 2000) : +us[3];
+        return new Date(y, +us[1] - 1, +us[2]);
+      }
+
+      const iso = Date.parse(s);
+      if (!Number.isNaN(iso)) return new Date(iso);
+
+      return null;
+    }
+
+    function toIsoDate(value) {
+      const d = parseSheetDate(value);
+      if (!d || Number.isNaN(d.getTime())) return "";
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const day = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${day}`;
+    }
+
+    function calendarEventHasContent(e) {
+      return [
+        e.event,
+        e.type,
+        e.des,
+        e.assets,
+        e.details,
+        e.time,
+        e.tz,
+        e.img,
+        ...(Array.isArray(e.files) ? e.files : [])
+      ].some(v => String(v || "").trim().length > 0);
+    }
+
+    function shorten(str, max = 80) {
+      const s = String(str || "").trim();
+      return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+    }
+
+    function eventTypeClass(type) {
+      const t = safeLower(type);
+      if (t.includes("main")) return "main";
+      if (t.includes("filler")) return "filler";
+      return "other";
+    }
+
+    function formatCalendarEventLine(e) {
+      const bits = [];
+      if (e.type) bits.push(e.type);
+      if (e.des) bits.push(`Designer: ${e.des}`);
+      if (e.time) bits.push(`${e.time}${e.tz ? ` ${e.tz}` : ""}`);
+      return bits.join(" • ");
+    }
+
+    function formatCalendarEventForNotes(e) {
+      const title = e.event || "Untitled launch";
+      const detailBits = [];
+      if (e.type) detailBits.push(`Type: ${e.type}`);
+      if (e.des) detailBits.push(`Designer: ${e.des}`);
+      if (e.time) detailBits.push(`Time: ${e.time}${e.tz ? ` ${e.tz}` : ""}`);
+      if (e.assets) detailBits.push(`Assets: ${e.assets}`);
+      if (e.details) detailBits.push(`Details: ${e.details}`);
+      return `• ${title}${detailBits.length ? ` — ${detailBits.join(" | ")}` : ""}`;
+    }
+
     function setStatus(text, tone = "neutral") {
       const dot = tone === "danger"
         ? "var(--danger)"
@@ -985,6 +1177,17 @@
       const current = filterSource.value;
       filterSource.innerHTML = `<option value="">All sources</option>` + sources.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join("");
       if (sources.includes(current)) filterSource.value = current;
+    }
+
+    function populateLaunchTypeFilter() {
+      const types = Array.from(new Set(
+        state.calendarEvents.map(e => String(e.type || "").trim()).filter(Boolean)
+      )).sort((a, b) => a.localeCompare(b));
+
+      state.launchTypes = types;
+      const current = filterLaunchType.value;
+      filterLaunchType.innerHTML = `<option value="">All launch types</option>` + types.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join("");
+      if (types.includes(current)) filterLaunchType.value = current;
     }
 
     function getLocationNameById(id) {
@@ -1024,6 +1227,20 @@
       }
 
       return { locations, dates, cellMap };
+    }
+
+    function getCalendarEventsForDate(dateIso) {
+      return state.filteredCalendarEvents.filter(e => e.date_iso === dateIso);
+    }
+
+    function getCalendarSummaryByDate(dateIso) {
+      const events = getCalendarEventsForDate(dateIso);
+      return {
+        events,
+        count: events.length,
+        titles: events.map(e => e.event || "Untitled"),
+        noteText: events.map(formatCalendarEventForNotes).join("\n")
+      };
     }
 
     async function authGuard() {
@@ -1105,12 +1322,122 @@
       applyFilters();
     }
 
+    async function loadCalendarEvents() {
+      const cacheBust = `_=${Date.now()}`;
+      let events = [];
+
+      try {
+        const text = await (await fetch(`${CALENDAR_GVIZ}&${cacheBust}`, { cache: "no-store" })).text();
+        const json = parseGvizJson(text);
+        const cols = json?.table?.cols?.map(c => String(c.label || "").trim()) || [];
+        const rows = json?.table?.rows || [];
+
+        if (rows.length) {
+          const lowerCols = cols.map(c => c.toLowerCase());
+          const idx = (label) => lowerCols.indexOf(label.toLowerCase());
+          const fileIdx = cols.map((c, i) => /^file\s*\d+/i.test(c) ? i : -1).filter(i => i >= 0);
+          const cell = (arr, i) => {
+            const x = arr[i];
+            return x ? (x.v ?? x.f ?? "") : "";
+          };
+
+          const colMap = {
+            day: idx("Day"),
+            date: idx("Date"),
+            event: idx("Event"),
+            type: idx("Launch Type"),
+            des: idx("Designer"),
+            assets: idx("Design Assets Needed"),
+            details: idx("Details"),
+            time: idx("Time"),
+            tz: idx("Time Zone"),
+            img: idx("Launch img")
+          };
+
+          events = rows.map((r, ri) => {
+            const c = r.c || [];
+            const dateIso = toIsoDate(cell(c, colMap.date));
+            if (!dateIso) return null;
+
+            const item = {
+              id: btoa(unescape(encodeURIComponent(`${dateIso}|${cell(c, colMap.event)}|${ri}`))).replace(/=+$/,""),
+              day: String(cell(c, colMap.day) || "").trim(),
+              date_iso: dateIso,
+              event: String(cell(c, colMap.event) || "").trim(),
+              type: String(cell(c, colMap.type) || "").trim(),
+              des: String(cell(c, colMap.des) || "").trim(),
+              assets: String(cell(c, colMap.assets) || "").trim(),
+              details: String(cell(c, colMap.details) || "").trim(),
+              time: String(cell(c, colMap.time) || "").trim(),
+              tz: String(cell(c, colMap.tz) || "").trim(),
+              img: String(cell(c, colMap.img) || "").trim(),
+              files: fileIdx.map(i => String(cell(c, i) || "").trim()).filter(Boolean)
+            };
+
+            return calendarEventHasContent(item) ? item : null;
+          }).filter(Boolean);
+        }
+      } catch (err) {
+        console.warn("Calendar gviz load failed, falling back to CSV.", err);
+      }
+
+      if (!events.length) {
+        const text = await (await fetch(`${CALENDAR_CSV}&${cacheBust}`, { cache: "no-store" })).text();
+        const rows = parseCsv(text);
+        const headerRowIdx = (() => {
+          const need = ["day", "date", "event"];
+          const max = Math.min(8, rows.length);
+          for (let i = 0; i < max; i++) {
+            const r = (rows[i] || []).map(x => String(x || "").trim().toLowerCase());
+            if (need.every(k => r.includes(k))) return i;
+          }
+          return 0;
+        })();
+
+        const headers = rows[headerRowIdx] || [];
+        const hIdx = buildHeaderIndex(headers);
+        const fileIdx = headers.map((c, i) => /^file\s*\d+/i.test(String(c || "")) ? i : -1).filter(i => i >= 0);
+
+        events = rows.slice(headerRowIdx + 1).map((row, ri) => {
+          const dateIso = toIsoDate(row[findHeader(hIdx, ["date"])]);
+          if (!dateIso) return null;
+
+          const item = {
+            id: btoa(unescape(encodeURIComponent(`${dateIso}|${row[findHeader(hIdx, ["event"])] || ""}|${ri}`))).replace(/=+$/,""),
+            day: String(row[findHeader(hIdx, ["day"])] || "").trim(),
+            date_iso: dateIso,
+            event: String(row[findHeader(hIdx, ["event"])] || "").trim(),
+            type: String(row[findHeader(hIdx, ["launch type", "type"])] || "").trim(),
+            des: String(row[findHeader(hIdx, ["designer"])] || "").trim(),
+            assets: String(row[findHeader(hIdx, ["design assets needed", "assets"])] || "").trim(),
+            details: String(row[findHeader(hIdx, ["details"])] || "").trim(),
+            time: String(row[findHeader(hIdx, ["time"])] || "").trim(),
+            tz: String(row[findHeader(hIdx, ["time zone", "tz"])] || "").trim(),
+            img: String(row[findHeader(hIdx, ["launch img", "image"])] || "").trim(),
+            files: fileIdx.map(i => String(row[i] || "").trim()).filter(Boolean)
+          };
+
+          return calendarEventHasContent(item) ? item : null;
+        }).filter(Boolean);
+      }
+
+      state.calendarEvents = events.sort((a, b) => {
+        const d = String(a.date_iso || "").localeCompare(String(b.date_iso || ""));
+        if (d !== 0) return d;
+        return String(a.event || "").localeCompare(String(b.event || ""));
+      });
+
+      populateLaunchTypeFilter();
+      applyFilters();
+    }
+
     function getFilters() {
       return {
         dateFrom: String(filterDateFrom.value || "").trim(),
         dateTo: String(filterDateTo.value || "").trim(),
         locationId: String(filterLocation.value || "").trim(),
         source: String(filterSource.value || "").trim().toLowerCase(),
+        launchType: String(filterLaunchType.value || "").trim().toLowerCase(),
         search: String(filterSearch.value || "").trim().toLowerCase()
       };
     }
@@ -1118,30 +1445,68 @@
     function applyFilters() {
       const f = getFilters();
 
-      state.filtered = state.projections.filter(row => {
-        if (f.dateFrom && String(row.projection_date || "") < f.dateFrom) return false;
-        if (f.dateTo && String(row.projection_date || "") > f.dateTo) return false;
-        if (f.locationId && String(row.location_id) !== f.locationId) return false;
-        if (f.source && safeLower(row.source) !== f.source) return false;
+      state.filteredCalendarEvents = state.calendarEvents.filter(ev => {
+        if (f.dateFrom && String(ev.date_iso || "") < f.dateFrom) return false;
+        if (f.dateTo && String(ev.date_iso || "") > f.dateTo) return false;
+        if (f.launchType && safeLower(ev.type) !== f.launchType) return false;
 
         if (f.search) {
           const hay = [
-            row.projection_date,
-            row.location_name,
-            row.location_code,
-            row.notes,
-            row.source
+            ev.date_iso,
+            ev.event,
+            ev.type,
+            ev.des,
+            ev.assets,
+            ev.details,
+            ev.time,
+            ev.tz
           ].map(v => String(v || "").toLowerCase()).join(" ");
           if (!hay.includes(f.search)) return false;
         }
         return true;
       });
 
+      state.filtered = state.projections.filter(row => {
+        if (f.dateFrom && String(row.projection_date || "") < f.dateFrom) return false;
+        if (f.dateTo && String(row.projection_date || "") > f.dateTo) return false;
+        if (f.locationId && String(row.location_id) !== f.locationId) return false;
+        if (f.source && safeLower(row.source) !== f.source) return false;
+
+        const calendarOnDate = getCalendarEventsForDate(String(row.projection_date || ""));
+        if (f.launchType && !calendarOnDate.some(ev => safeLower(ev.type) === f.launchType)) return false;
+
+        if (f.search) {
+          const projectionHay = [
+            row.projection_date,
+            row.location_name,
+            row.location_code,
+            row.notes,
+            row.source
+          ].map(v => String(v || "").toLowerCase()).join(" ");
+
+          const calendarHay = calendarOnDate.map(ev => [
+            ev.event,
+            ev.type,
+            ev.des,
+            ev.assets,
+            ev.details,
+            ev.time,
+            ev.tz
+          ].join(" ")).join(" ").toLowerCase();
+
+          if (!(projectionHay + " " + calendarHay).includes(f.search)) return false;
+        }
+
+        return true;
+      });
+
       renderProjectionMatrix();
       renderKpis();
       renderLocationSummary();
+      renderLaunchSummary();
       renderHealthSummary();
       renderSelectionPill();
+      renderCalendarTieField();
       setText("tableCount", String(getMatrixDates().length));
       setText("lastUpdated", new Date().toLocaleString());
     }
@@ -1153,6 +1518,7 @@
       if (f.dateTo) bits.push(`To ${f.dateTo}`);
       if (f.locationId) bits.push(getLocationNameById(f.locationId));
       if (f.source) bits.push(`Source ${f.source}`);
+      if (f.launchType) bits.push(`Launch ${f.launchType}`);
       if (f.search) bits.push(`Search "${f.search}"`);
       selectionPill.textContent = `Selection: ${bits.length ? bits.join(" • ") : "All"}`;
     }
@@ -1162,16 +1528,20 @@
       const totalUnits = rows.reduce((s, r) => s + toNumber(r.projected_units), 0);
       const totalSales = rows.reduce((s, r) => s + toNumber(r.projected_sales), 0);
       const locationCount = new Set(rows.map(r => String(r.location_id))).size;
+      const visibleDates = new Set(rows.map(r => String(r.projection_date || "")).filter(Boolean));
+      const launchEventCount = state.filteredCalendarEvents.filter(ev => visibleDates.has(ev.date_iso)).length;
 
       setText("kpiRows", fmtInt(rows.length));
       setText("kpiUnits", fmtInt(totalUnits));
       setText("kpiSales", fmtMoney(totalSales));
       setText("kpiLocations", fmtInt(locationCount));
+      setText("kpiLaunchEvents", fmtInt(launchEventCount));
 
       setText("kpiRowsSub", rows.length ? `Across ${fmtInt(getMatrixDates().length)} date row(s)` : "No rows in current view");
       setText("kpiUnitsSub", rows.length ? `Average ${fmtNum(totalUnits / Math.max(rows.length, 1), 1)} units per cell` : "No rows in current view");
       setText("kpiSalesSub", rows.length ? `Average ${fmtMoney(totalSales / Math.max(rows.length, 1))} per cell` : "No rows in current view");
       setText("kpiLocationsSub", rows.length ? `${fmtInt(locationCount)} distinct locations represented` : "No rows in current view");
+      setText("kpiLaunchEventsSub", launchEventCount ? `Across ${fmtInt(visibleDates.size)} visible date row(s)` : "No launch events on visible dates");
     }
 
     function renderLocationSummary() {
@@ -1213,10 +1583,44 @@
       `).join("");
     }
 
+    function renderLaunchSummary() {
+      const visibleDates = new Set(state.filtered.map(r => String(r.projection_date || "")).filter(Boolean));
+      const inRange = state.filteredCalendarEvents.filter(ev => visibleDates.has(ev.date_iso));
+
+      if (!inRange.length) {
+        launchSummary.innerHTML = `<div class="empty-state">No launch events tied to the current projection view.</div>`;
+        return;
+      }
+
+      const byDate = new Map();
+      for (const ev of inRange) {
+        const key = ev.date_iso;
+        if (!byDate.has(key)) byDate.set(key, []);
+        byDate.get(key).push(ev);
+      }
+
+      const items = Array.from(byDate.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .slice(0, 8);
+
+      launchSummary.innerHTML = items.map(([date, events]) => `
+        <div class="summary-row">
+          <div>
+            <div style="font-size:14px; font-weight:700;">${escapeHtml(fmtShortDate(date))}</div>
+            <div style="font-size:12px; color: var(--muted2); margin-top: 4px;">${fmtInt(events.length)} event(s)</div>
+          </div>
+          <div style="text-align:right; max-width:180px;">
+            <div style="font-size:12px; color: var(--muted2); line-height:1.45;">${escapeHtml(shorten(events.map(e => e.event || "Untitled").join(" · "), 70))}</div>
+          </div>
+        </div>
+      `).join("");
+    }
+
     function renderHealthSummary() {
       const messages = [];
       if (!state.locations.length) messages.push("No active locations loaded.");
       if (!state.projections.length) messages.push("No projection rows loaded yet.");
+      if (!state.calendarEvents.length) messages.push("No launch calendar events loaded.");
 
       const invalidRows = state.filtered.filter(r =>
         !r.projection_date ||
@@ -1232,9 +1636,61 @@
       const zeroSales = state.filtered.filter(r => toNumber(r.projected_sales) === 0).length;
       if (state.filtered.length && zeroSales > 0) messages.push(`${fmtInt(zeroSales)} filtered row(s) have zero projected sales.`);
 
+      const visibleDates = new Set(state.filtered.map(r => String(r.projection_date || "")).filter(Boolean));
+      const datesWithoutCalendar = Array.from(visibleDates).filter(d => !state.filteredCalendarEvents.some(ev => ev.date_iso === d));
+      if (datesWithoutCalendar.length) messages.push(`${fmtInt(datesWithoutCalendar.length)} visible date row(s) have no launch calendar tie-in.`);
+
       if (!messages.length) messages.push("Current filtered data looks clean.");
 
       healthSummary.innerHTML = messages.map(msg => `<div class="status">${escapeHtml(msg)}</div>`).join("");
+    }
+
+    function renderLaunchCell(date) {
+      const summary = getCalendarSummaryByDate(date);
+      if (!summary.count) {
+        return `<td class="launch-col" style="color: var(--muted2);">—</td>`;
+      }
+
+      const preview = summary.events.slice(0, 2).map(ev => `
+        <div class="launch-item">
+          <div class="launch-item-title">${escapeHtml(shorten(ev.event || "Untitled launch", 72))}</div>
+          <div class="launch-item-meta">${escapeHtml(shorten(formatCalendarEventLine(ev), 96) || "Calendar event")}</div>
+        </div>
+      `).join("");
+
+      const hidden = summary.events.length > 2
+        ? `<div class="calendar-helper">+ ${escapeHtml(String(summary.events.length - 2))} more event(s)</div>`
+        : "";
+
+      const tooltip = summary.events.map(ev => {
+        const bits = [];
+        if (ev.type) bits.push(`Type: ${ev.type}`);
+        if (ev.des) bits.push(`Designer: ${ev.des}`);
+        if (ev.time) bits.push(`Time: ${ev.time}${ev.tz ? ` ${ev.tz}` : ""}`);
+        if (ev.assets) bits.push(`Assets: ${ev.assets}`);
+        if (ev.details) bits.push(`Details: ${ev.details}`);
+        return `<div style="margin-bottom:10px;"><strong>${escapeHtml(ev.event || "Untitled")}</strong><br>${escapeHtml(bits.join(" • ") || "No extra detail")}</div>`;
+      }).join("");
+
+      return `
+        <td class="launch-col">
+          <div class="cell-note-wrap" style="align-items:flex-start;">
+            <div class="launch-stack" style="width:100%;">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="launch-badge">${fmtInt(summary.count)} event(s)</span>
+                <a href="${escapeHtml(state.launchSheetUrl)}" target="_blank" rel="noopener" class="mini-link">Sheet</a>
+              </div>
+              ${preview}
+              ${hidden}
+            </div>
+            <span class="cell-note-flag">i</span>
+            <div class="cell-tooltip">
+              <span class="cell-tooltip-label">Launch calendar</span>
+              ${tooltip}
+            </div>
+          </div>
+        </td>
+      `;
     }
 
     function renderProjectionMatrix() {
@@ -1244,16 +1700,18 @@
         projectionMatrixHead.innerHTML = `
           <tr>
             <th class="sticky-col sticky-col-top">Date</th>
+            <th class="launch-col">Launch / Marketing</th>
             <th>Total</th>
           </tr>
         `;
-        projectionTableBody.innerHTML = `<tr><td colspan="2" class="empty-state">No projections match the current filter.</td></tr>`;
+        projectionTableBody.innerHTML = `<tr><td colspan="3" class="empty-state">No projections match the current filter.</td></tr>`;
         return;
       }
 
       projectionMatrixHead.innerHTML = `
         <tr>
           <th class="sticky-col sticky-col-top">Date</th>
+          <th class="launch-col">Launch / Marketing</th>
           ${locations.map(loc => `<th>${escapeHtml(loc.location_name)}</th>`).join("")}
           <th class="total-col">Total</th>
         </tr>
@@ -1261,6 +1719,8 @@
 
       projectionTableBody.innerHTML = dates.map(date => {
         let rowTotal = 0;
+
+        const launchCell = renderLaunchCell(date);
 
         const cells = locations.map(loc => {
           const row = cellMap.get(`${date}||${loc.id}`);
@@ -1273,17 +1733,19 @@
 
           const noteText = String(row.notes || "").trim();
           const hasNote = noteText.length > 0;
+          const launchSummary = getCalendarSummaryByDate(date);
+          const combinedTooltip = [noteText ? `Projection notes:\n${noteText}` : "", launchSummary.noteText ? `Launch context:\n${launchSummary.noteText}` : ""].filter(Boolean).join("\n\n");
 
           return `
             <td class="mono">
               <div class="matrix-value">
                 <div class="cell-note-wrap">
                   <span>${fmtMoney2(sales)}</span>
-                  ${hasNote ? `
+                  ${(hasNote || launchSummary.count) ? `
                     <span class="cell-note-flag">i</span>
                     <div class="cell-tooltip">
-                      <span class="cell-tooltip-label">Notes</span>
-                      ${escapeHtml(noteText)}
+                      <span class="cell-tooltip-label">Projection + launch note</span>
+                      ${escapeHtml(combinedTooltip || "No note")}
                     </div>
                   ` : ``}
                 </div>
@@ -1299,11 +1761,45 @@
               <div style="font-weight:700;">${escapeHtml(fmtShortDate(date))}</div>
               <div style="font-size:12px; color: var(--muted2); margin-top: 4px;" class="mono">${escapeHtml(date)}</div>
             </td>
+            ${launchCell}
             ${cells}
             <td class="mono total-col">${fmtMoney2(rowTotal)}</td>
           </tr>
         `;
       }).join("");
+    }
+
+    function renderCalendarTieField() {
+      const dateIso = String(formProjectionDate.value || "").trim();
+      if (!dateIso) {
+        calendarTieField.innerHTML = `Choose a projection date to pull launch and marketing context.`;
+        return;
+      }
+
+      const events = state.calendarEvents.filter(e => e.date_iso === dateIso);
+      if (!events.length) {
+        calendarTieField.innerHTML = `
+          <div class="calendar-helper">No launch calendar events found for ${escapeHtml(fmtShortDate(dateIso))}.</div>
+          <div class="calendar-helper" style="margin-top:8px;">You can still save the projection and add manual commentary in notes.</div>
+        `;
+        return;
+      }
+
+      calendarTieField.innerHTML = `
+        <div class="space-y-2">
+          ${events.map(ev => `
+            <div class="launch-item">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="launch-badge">${escapeHtml(ev.type || "Launch")}</span>
+                ${ev.des ? `<span class="calendar-helper">Designer: ${escapeHtml(ev.des)}</span>` : ``}
+              </div>
+              <div class="launch-item-title" style="margin-top:8px;">${escapeHtml(ev.event || "Untitled launch")}</div>
+              <div class="launch-item-meta">${escapeHtml(formatCalendarEventLine(ev) || ev.details || "Calendar event")}</div>
+              ${ev.details ? `<div class="calendar-helper" style="margin-top:6px;">${escapeHtml(shorten(ev.details, 180))}</div>` : ``}
+            </div>
+          `).join("")}
+        </div>
+      `;
     }
 
     function clearForm(resetDate = false) {
@@ -1314,6 +1810,7 @@
       formProjectedSales.value = "";
       formSource.value = "manual";
       formNotes.value = "";
+      renderCalendarTieField();
       setEditingMode(false);
     }
 
@@ -1328,8 +1825,34 @@
       formProjectedSales.value = Number(toNumber(row.projected_sales)).toFixed(2);
       formSource.value = row.source || "manual";
       formNotes.value = row.notes || "";
+      renderCalendarTieField();
       setEditingMode(true);
       window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function appendCalendarContextToNotes() {
+      const dateIso = String(formProjectionDate.value || "").trim();
+      if (!dateIso) {
+        setStatus("Choose a projection date first.", "warn");
+        return;
+      }
+
+      const events = state.calendarEvents.filter(e => e.date_iso === dateIso);
+      if (!events.length) {
+        setStatus("No launch calendar events found for the selected date.", "warn");
+        return;
+      }
+
+      const block = `Launch calendar tie-in (${dateIso})\n${events.map(formatCalendarEventForNotes).join("\n")}`;
+      const current = String(formNotes.value || "").trim();
+
+      if (current.includes(block)) {
+        setStatus("Launch context already added to notes.", "warn");
+        return;
+      }
+
+      formNotes.value = current ? `${current}\n\n${block}` : block;
+      setStatus("Launch context added to notes.", "good");
     }
 
     function validateForm() {
@@ -1574,10 +2097,13 @@
         "projected_sales",
         "source",
         "notes",
+        "launch_event_count",
+        "launch_events",
         "updated_at"
       ].join(",")];
 
       rows.forEach(r => {
+        const events = getCalendarEventsForDate(String(r.projection_date || ""));
         lines.push([
           csvEscape(r.projection_date),
           csvEscape(r.location_id),
@@ -1587,6 +2113,8 @@
           csvEscape(Number(toNumber(r.projected_sales)).toFixed(2)),
           csvEscape(r.source || ""),
           csvEscape(r.notes || ""),
+          csvEscape(events.length),
+          csvEscape(events.map(e => e.event || "Untitled").join(" | ")),
           csvEscape(r.updated_at || "")
         ].join(","));
       });
@@ -1770,7 +2298,10 @@
       setStatus("Loading…");
       try {
         await loadLocations();
-        await loadProjections();
+        await Promise.all([
+          loadProjections(),
+          loadCalendarEvents()
+        ]);
         setStatus("Ready.", "good");
       } catch (e) {
         console.error(e);
@@ -1815,14 +2346,18 @@
         filterDateTo.value = "";
         filterLocation.value = "";
         filterSource.value = "";
+        filterLaunchType.value = "";
         filterSearch.value = "";
         applyFilters();
       });
 
-      [filterDateFrom, filterDateTo, filterLocation, filterSource].forEach(node => {
+      [filterDateFrom, filterDateTo, filterLocation, filterSource, filterLaunchType].forEach(node => {
         node.addEventListener("change", applyFilters);
       });
       filterSearch.addEventListener("input", applyFilters);
+
+      formProjectionDate.addEventListener("change", renderCalendarTieField);
+      appendCalendarToNotesBtn.addEventListener("click", appendCalendarContextToNotes);
 
       clearFormBtn.addEventListener("click", () => clearForm(true));
       saveProjectionBtn.addEventListener("click", saveProjection);
