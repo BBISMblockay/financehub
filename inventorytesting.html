@@ -1,0 +1,2678 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Silo ERP — Inventory Workboard (Multi-Location)</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/financehub/pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+
+  <style>
+    :root{ color-scheme: light; }
+    body{ font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    .mono{ font-variant-numeric: tabular-nums; font-feature-settings:"tnum" 1; }
+    .stickyHead thead th{ position: sticky; top: 0; z-index: 20; }
+    .thin-scroll::-webkit-scrollbar{ height: 10px; width: 10px; }
+    .thin-scroll::-webkit-scrollbar-thumb{ background: rgba(15,23,42,.18); border-radius: 999px; }
+    .thin-scroll::-webkit-scrollbar-track{ background: rgba(15,23,42,.06); }
+
+    .shadow-soft{ box-shadow: 0 10px 30px rgba(2,6,23,.08); }
+    .chip{ border: 1px solid rgba(15,23,42,.14); background: white; }
+    .chip:hover{ background: rgba(15,23,42,.03); }
+    .seg{ border: 1px solid rgba(15,23,42,.14); background: #fff; }
+    .seg button{ padding: 8px 10px; font-size: 12px; font-weight: 800; border-radius: 10px; }
+    .seg button.active{ background: #0f172a; color: #fff; }
+    .seg button:not(.active):hover{ background: rgba(15,23,42,.03); }
+
+    .kbd{ border:1px solid rgba(15,23,42,.18); background:rgba(15,23,42,.03); border-bottom-width:2px; border-radius:8px; padding:2px 6px; font-size:11px; }
+    .btn{ border:1px solid rgba(15,23,42,.14); background:#fff; }
+    .btn:hover{ background: rgba(15,23,42,.03); }
+    .btn-dark{ background:#0f172a; color:#fff; border:1px solid #0f172a; }
+    .btn-dark:hover{ background:#0b1220; }
+    .pill{ border:1px solid rgba(15,23,42,.14); background:#fff; border-radius:999px; }
+    .pill:hover{ background: rgba(15,23,42,.03); }
+
+    .badge{
+      display:inline-flex; align-items:center; gap:.35rem;
+      border:1px solid rgba(15,23,42,.14);
+      background:#fff; border-radius:999px;
+      padding:2px 8px; font-size:11px; font-weight:800;
+    }
+  </style>
+</head>
+
+<body class="h-full bg-white text-slate-900">
+  <div class="min-h-full">
+    <header class="border-b border-slate-200 bg-white">
+      <div class="mx-auto max-w-[1900px] px-4 py-4 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3 min-w-0">
+          <div class="h-9 w-9 rounded-xl border border-slate-200 grid place-items-center shrink-0">
+            <span class="text-sm font-extrabold">S</span>
+          </div>
+          <div class="min-w-0">
+            <div class="text-sm font-semibold truncate">Silo ERP — Inventory Workboard</div>
+            <div class="text-xs text-slate-500 truncate">
+              Google Sheet → CSV → Sales summary merge + live Supabase product tags / attributes
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-2 shrink-0">
+          <span id="authEmail" class="hidden md:inline text-xs text-slate-500"></span>
+          <button id="btnReload" class="rounded-lg px-3 py-2 text-sm font-medium btn">Reload</button>
+          <button id="btnColumns" class="rounded-lg px-3 py-2 text-sm font-medium btn">Columns</button>
+          <button id="btnExportFiltered" class="rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Export CSV</button>
+          <button id="logoutBtn" class="rounded-lg px-3 py-2 text-sm font-medium btn">Logout</button>
+        </div>
+      </div>
+    </header>
+
+    <main class="mx-auto max-w-[1900px] px-4 py-5 space-y-4">
+      <section class="rounded-xl border border-slate-200 bg-white p-3">
+        <div class="flex flex-col lg:flex-row lg:items-center gap-2 lg:gap-3">
+          <div class="flex items-center gap-2 min-w-0 flex-1 flex-wrap">
+            <div class="seg rounded-xl p-1 flex items-center gap-1">
+              <button id="btnModeLocation" class="active" type="button">Location View</button>
+              <button id="btnModeCompany" type="button">Company View</button>
+            </div>
+
+            <div class="w-full lg:w-[360px]">
+              <div class="relative">
+                <input id="txtSearch" type="text" placeholder="Search SKU, product, barcode… (Enter)"
+                  class="w-full rounded-lg border border-slate-200 pl-9 pr-3 py-2 text-sm" />
+                <svg class="absolute left-3 top-2.5 h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none">
+                  <path d="M21 21l-4.3-4.3m1.8-5.2a7 7 0 11-14 0 7 7 0 0114 0z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+              </div>
+            </div>
+
+            <div class="w-full lg:w-[300px]">
+              <select id="selLocation" class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                <option value="__ALL__">All locations (loaded)</option>
+              </select>
+            </div>
+
+            <button id="btnMoreFilters" class="rounded-lg px-3 py-2 text-sm font-medium btn shrink-0">
+              Filters
+            </button>
+
+            <div class="hidden lg:flex items-center gap-2 pl-1">
+              <button data-chip="oos7" class="pill px-3 py-1.5 text-xs font-semibold">≤ 7 days</button>
+              <button data-chip="oos14" class="pill px-3 py-1.5 text-xs font-semibold">≤ 14 days</button>
+              <button data-chip="low10" class="pill px-3 py-1.5 text-xs font-semibold">Qty ≤ 10</button>
+              <button data-chip="clear" class="pill px-3 py-1.5 text-xs font-semibold">Clear</button>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 flex-wrap">
+            <select id="selSort" class="rounded-lg border border-slate-200 px-3 py-2 text-sm">
+              <option value="days_asc">Days to OOS (asc)</option>
+              <option value="days_desc">Days to OOS (desc)</option>
+              <option value="qty_asc">Avail Qty (asc)</option>
+              <option value="qty_desc">Avail Qty (desc)</option>
+              <option value="sold30_desc">Sold 30d (desc)</option>
+              <option value="sold90_desc">Sold 90d (desc)</option>
+              <option value="value_desc">Retail Value (desc)</option>
+              <option value="risk_value_desc">Retail Risk (≤14d + value)</option>
+              <option value="stale_desc">Stale (last sold oldest)</option>
+              <option value="sku_asc">SKU (A→Z)</option>
+            </select>
+
+            <button id="btnSuggestPO" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Suggest PO</button>
+            <button id="btnTagSelected" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Tag Selected</button>
+            <button id="btnAddSelectedToDraft" class="rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Add → Draft</button>
+          </div>
+        </div>
+
+        <div id="filterDrawer" class="hidden mt-3 border-t border-slate-200 pt-3">
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+            <div class="md:col-span-2">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Max Days To OOS</label>
+              <input id="numMaxDays" type="number" min="0" step="1" placeholder="ex: 30"
+                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+            </div>
+
+            <div class="md:col-span-2">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Max Available Qty</label>
+              <input id="numMaxQty" type="number" min="0" step="1" placeholder="ex: 10"
+                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+            </div>
+
+            <div class="md:col-span-2">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Min Sold 30d</label>
+              <input id="numMinSold30" type="number" min="0" step="1" placeholder="ex: 5"
+                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+            </div>
+
+            <div class="md:col-span-2">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Tag</label>
+              <select id="selTagFilter" class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                <option value="__ALL__">All tags</option>
+              </select>
+            </div>
+
+            <div class="md:col-span-2">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Sub Tag</label>
+              <select id="selSubTagFilter" class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                <option value="__ALL__">All sub tags</option>
+              </select>
+            </div>
+
+            <div class="md:col-span-2">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Indicator Group</label>
+              <select id="selIndicatorFilter" class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                <option value="__ALL__">All indicators</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3">
+            <div class="md:col-span-6">
+              <div class="rounded-lg border border-slate-200 bg-white p-3">
+                <div class="flex items-center justify-between gap-2">
+                  <div>
+                    <div class="text-xs font-semibold text-slate-800">PO Strategy</div>
+                    <div class="text-[11px] text-slate-500 mt-0.5">
+                      Replenishment keeps you in-stock. Growth adds intentional uplift based on live Supabase tag metadata.
+                    </div>
+                  </div>
+                  <div class="seg rounded-xl p-1 flex items-center gap-1">
+                    <button id="btnStratRepl" class="active" type="button">Replenish</button>
+                    <button id="btnStratGrowth" type="button">Growth</button>
+                    <button id="btnStratHybrid" type="button">Hybrid</button>
+                  </div>
+                </div>
+
+                <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3">
+                  <div class="md:col-span-4">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Target Days Cover</label>
+                    <input id="numTargetCover" type="number" min="1" step="1" value="45"
+                      class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+                  </div>
+                  <div class="md:col-span-4">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Safety Stock (days)</label>
+                    <input id="numSafetyDays" type="number" min="0" step="1" value="7"
+                      class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+                  </div>
+                  <div class="md:col-span-4">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Min Reorder Qty</label>
+                    <input id="numMinReorder" type="number" min="0" step="1" value="0"
+                      class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+                  </div>
+                </div>
+
+                <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3">
+                  <div class="md:col-span-4">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Growth uplift (default %)</label>
+                    <input id="numGrowthPct" type="number" min="0" step="1" value="20"
+                      class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+                  </div>
+                  <div class="md:col-span-4">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">New/Low-history seed avg/day</label>
+                    <input id="numSeedAvgDay" type="number" min="0" step="0.01" value="0.25"
+                      class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+                  </div>
+                  <div class="md:col-span-4">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">KPI: Risk threshold (days)</label>
+                    <input id="numRiskDays" type="number" min="1" step="1" value="14"
+                      class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+                  </div>
+                </div>
+
+                <div class="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700 leading-relaxed">
+                  <span class="font-semibold">How it works:</span>
+                  Suggested PO =
+                  <span class="kbd">(TargetCover + SafetyDays) × Avg/Day × GrowthFactor</span> minus On Hand.
+                  GrowthFactor is derived from live product tag metadata.
+                </div>
+              </div>
+            </div>
+
+            <div class="md:col-span-6">
+              <div class="rounded-lg border border-slate-200 bg-white p-3">
+                <div class="text-xs font-semibold text-slate-800">Supabase Product Tags</div>
+                <div class="text-[11px] text-slate-500 mt-0.5">
+                  Tagging writes directly to <span class="kbd">public.product_tags</span>. If a matching metadata row does not exist yet, the page creates one.
+                </div>
+
+                <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                  <div class="md:col-span-4">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Tag selected as…</label>
+                    <select id="selDriver" class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                      <option value="">Blank</option>
+                      <option value="core">Core</option>
+                      <option value="hero">Hero</option>
+                      <option value="new">New</option>
+                      <option value="influencer">Influencer</option>
+                      <option value="wholesale">Wholesale</option>
+                      <option value="promo">Promo</option>
+                      <option value="seasonal">Seasonal</option>
+                      <option value="hold">Hold</option>
+                      <option value="keep">Keep</option>
+                      <option value="review">Review</option>
+                    </select>
+                  </div>
+
+                  <div class="md:col-span-4">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Sub Tag</label>
+                    <input id="txtSupabaseSubTag" type="text" placeholder="optional"
+                      class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                  </div>
+
+                  <div class="md:col-span-3">
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">Indicator Group</label>
+                    <select id="selIndicatorGroup" class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                      <option value="">Blank</option>
+                      <option value="Situational">Situational</option>
+                      <option value="Brand Direction">Brand Direction</option>
+                      <option value="Urgency">Urgency</option>
+                      <option value="Growth">Growth</option>
+                      <option value="Planning">Planning</option>
+                    </select>
+                  </div>
+
+                  <div class="md:col-span-1 flex gap-2">
+                    <button id="btnApplyTag" class="w-full rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Apply</button>
+                  </div>
+                </div>
+
+                <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3">
+                  <div class="md:col-span-6">
+                    <div class="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 leading-relaxed">
+                      <div class="font-semibold text-slate-800 mb-1">Join behavior</div>
+                      Inventory rows first try <b>product_title_key</b>, then exact <b>product title</b> against Supabase tags.
+                    </div>
+                  </div>
+                  <div class="md:col-span-6">
+                    <div class="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 leading-relaxed">
+                      <div class="font-semibold text-slate-800 mb-1">Planner behavior</div>
+                      Driver badges and growth logic are derived from live tag / sub tag / indicator metadata instead of local browser storage.
+                    </div>
+                  </div>
+                </div>
+
+                <div class="mt-3 flex gap-2">
+                  <button id="btnClearTags" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Clear Selected Tag Fields</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3">
+            <div class="md:col-span-4 text-xs text-slate-600 flex items-end">
+              <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 w-full">
+                <div class="font-semibold text-slate-800">Sales merge</div>
+                <div class="mt-1 leading-relaxed">
+                  Each location can define a <span class="kbd">sales_summary CSV</span> to override velocity and add 7/30/90/120 + last sold.
+                </div>
+              </div>
+            </div>
+            <div class="md:col-span-4 text-xs text-slate-600 flex items-end">
+              <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 w-full">
+                <div class="font-semibold text-slate-800">Supabase metadata</div>
+                <div class="mt-1 leading-relaxed">
+                  Tags, collection, indicator group, and sub tag now come from <span class="kbd">public.product_tags</span>.
+                </div>
+              </div>
+            </div>
+            <div class="md:col-span-4 text-xs text-slate-600 flex items-end">
+              <div class="rounded-lg border border-slate-200 bg-white p-3 w-full leading-relaxed">
+                <div class="font-semibold text-slate-800 mb-1">Next step</div>
+                Move planner-only fields into a dedicated table later if you want more control than tag/sub-tag driven logic.
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid grid-cols-1 lg:grid-cols-12 gap-3">
+        <div class="lg:col-span-8 rounded-xl border border-slate-200 bg-white p-4">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="text-sm font-semibold">KPI Snapshot</div>
+              <div id="statusLine" class="text-xs text-slate-600 mt-1">—</div>
+              <div id="modeLine" class="text-xs text-slate-500 mt-1 mono">Mode: Location View</div>
+              <div id="kpiNote" class="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                Note: rows still come from Google Sheets. Product tags / attributes now come from Supabase.
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="btnExportSelected" class="rounded-lg px-3 py-2 text-sm font-medium btn">Export Selected</button>
+              <button id="btnClearSelection" class="rounded-lg px-3 py-2 text-sm font-medium btn">Clear Selection</button>
+            </div>
+          </div>
+
+          <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="rounded-lg bg-slate-50 border border-slate-200 p-3">
+              <div class="text-xs text-slate-500">Rows (filtered)</div>
+              <div id="kRows" class="text-lg font-bold mono">0</div>
+            </div>
+            <div class="rounded-lg bg-slate-50 border border-slate-200 p-3">
+              <div class="text-xs text-slate-500">Units on hand</div>
+              <div id="kUnits" class="text-lg font-bold mono">0</div>
+            </div>
+            <div class="rounded-lg bg-slate-50 border border-slate-200 p-3">
+              <div class="text-xs text-slate-500">Retail value on hand (MSRP)</div>
+              <div id="kRetailValue" class="text-lg font-bold mono">$0</div>
+            </div>
+            <div class="rounded-lg bg-slate-50 border border-slate-200 p-3">
+              <div class="text-xs text-slate-500">Stockout risk (≤ threshold)</div>
+              <div id="kRiskCount" class="text-lg font-bold mono">0</div>
+            </div>
+          </div>
+
+          <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="rounded-lg bg-white border border-slate-200 p-3">
+              <div class="text-xs text-slate-500">Sold 30d (sum)</div>
+              <div id="kSold30" class="text-lg font-bold mono">0</div>
+            </div>
+            <div class="rounded-lg bg-white border border-slate-200 p-3">
+              <div class="text-xs text-slate-500">Avg days to OOS (nonzero)</div>
+              <div id="kAvgDays" class="text-lg font-bold mono">—</div>
+            </div>
+            <div class="rounded-lg bg-white border border-slate-200 p-3">
+              <div class="text-xs text-slate-500">Retail at risk (≤ threshold)</div>
+              <div id="kRiskRetail" class="text-lg font-bold mono">$0</div>
+            </div>
+            <div class="rounded-lg bg-white border border-slate-200 p-3">
+              <div class="text-xs text-slate-500">Selected rows</div>
+              <div id="kSelected" class="text-lg font-bold mono">0</div>
+            </div>
+          </div>
+
+          <div class="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+            <span class="font-semibold">Planner tip:</span>
+            Use Company View to draft the buy, then drill into a SKU to see location demand share and attached metadata.
+          </div>
+        </div>
+
+        <div class="lg:col-span-4 rounded-xl border border-slate-200 bg-white p-4">
+          <div class="flex items-center justify-between">
+            <div class="text-sm font-semibold">PO Draft</div>
+            <div class="text-xs text-slate-500 mono">localStorage</div>
+          </div>
+          <div class="text-xs text-slate-600 mt-1">
+            Draft lines stay local. Suggested quantities still use live strategy + Supabase-enriched tag metadata.
+          </div>
+
+          <div class="mt-3 grid grid-cols-1 gap-2">
+            <div>
+              <label class="block text-xs font-semibold text-slate-700 mb-1">PO Name / Batch</label>
+              <input id="txtPoName" type="text" placeholder="ex: PO-2026-02-17 Company"
+                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">Vendor (optional)</label>
+                <input id="txtVendor" type="text" placeholder="ex: Factory A"
+                  class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">ETA (optional)</label>
+                <input id="txtEta" type="date"
+                  class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+              </div>
+            </div>
+
+            <div class="flex gap-2">
+              <button id="btnViewDraft" class="w-full rounded-lg px-3 py-2 text-sm font-semibold btn">View Draft</button>
+              <button id="btnExportDraft" class="w-full rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Export Draft</button>
+            </div>
+
+            <button id="btnClearDraft" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Clear Draft</button>
+
+            <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div class="text-xs font-semibold text-slate-700">Draft peek</div>
+              <pre id="draftPeek" class="mt-2 text-xs text-slate-700 max-h-44 overflow-auto thin-scroll">Draft empty.</pre>
+            </div>
+
+            <div class="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 leading-relaxed">
+              <div class="font-semibold text-slate-800 mb-1">Next enhancement</div>
+              Allocate company suggested PO to locations by demand share, then round + apply min transfer rules.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="rounded-xl border border-slate-200 bg-white overflow-hidden">
+        <div class="overflow-auto thin-scroll">
+          <table class="min-w-[2800px] w-full text-sm stickyHead">
+            <thead class="bg-slate-50 border-b border-slate-200">
+              <tr id="theadRow"></tr>
+            </thead>
+            <tbody id="tbody" class="divide-y divide-slate-100"></tbody>
+          </table>
+        </div>
+
+        <div class="flex items-center justify-between gap-3 px-4 py-3 border-t border-slate-200 bg-white">
+          <div class="text-xs text-slate-600"><span id="pagerInfo">—</span></div>
+          <div class="flex items-center gap-2">
+            <button id="btnPrev" class="rounded-lg px-3 py-2 text-sm font-medium btn">Prev</button>
+            <button id="btnNext" class="rounded-lg px-3 py-2 text-sm font-medium btn">Next</button>
+          </div>
+        </div>
+      </section>
+
+      <div id="modal" class="fixed inset-0 hidden">
+        <div class="absolute inset-0 bg-black/40" data-modal-overlay="1"></div>
+        <div class="absolute inset-x-0 top-10 mx-auto max-w-6xl px-4">
+          <div class="rounded-xl bg-white border border-slate-200 shadow-soft overflow-hidden">
+            <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+              <div class="text-sm font-semibold" id="modalTitle">Modal</div>
+              <button id="btnCloseModal" class="rounded-lg px-3 py-1.5 text-sm font-medium btn">Close</button>
+            </div>
+            <div id="modalBody" class="p-4 text-sm"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const cfg = window.__SILO_CONFIG__ || {};
+    const SUPABASE_URL = cfg.SUPABASE_URL || "";
+    const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || "";
+    const LOGIN_PATH = "/financehub/pages/login.html";
+    const PRODUCT_TAG_PAGE_SIZE = 1000;
+
+    let SUPABASE = null;
+    let SESSION = null;
+
+    const SHEET_ID = "1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0";
+
+    const SHEET_TABS = [
+      {
+        label: "Online",
+        gid: 0,
+        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRRZETeD2kKpL4vMvXnn4Z-xyb6M_oQ6u9cOSJts_YTLnGXrvMPhlhe0XQuL5VAYLlGlxSvQdUfxycp/pub?gid=481096073&single=true&output=csv"
+      },
+      {
+        label: "Atlanta",
+        gid: 186382360,
+        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTrGtyPQZ9UZY0xn1vk49Aapc5PVpWTMfCctjyNH8K3rLrjUifqaxqZPC5vpA91FTdFm_yNdNhaThxY/pub?gid=1350148138&single=true&output=csv"
+      },
+      {
+        label: "Scottsdale",
+        gid: 1686608564,
+        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRisfYgm-JqLdAW4GrAl_K3dNPJxadE5VaQ7Fzju8vaWv9zEyXGJk6d5ZfM6owfhvHHz_Q-B36FuUqo/pub?gid=1328363473&single=true&output=csv"
+      },
+      {
+        label: "St. Louis",
+        gid: 702923083,
+        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSvg4es9sqAsE6jzjea7Fw7vye8IoKH_UK8JJzGg8GXqtZFsvE2qBbvVp0ziSWibh6F1mB6QOy4Vr7h/pub?gid=1410428296&single=true&output=csv"
+      },
+      {
+        label: "Mission Viejo",
+        gid: 948572027,
+        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSrVrtbatItRNJttp-6kFQE1m7XEWbPpRo6zIAqS3GBmNMqtoHuUemQK8-TR8Ya3QIMRVpJ-4ZvpUtu/pub?gid=589960408&single=true&output=csv"
+      },
+      {
+        label: "Texas",
+        gid: 335482043,
+        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSN19QBHslssiO4QpVXHxqfScuKqc9Rd0gzwuOGhIMnDa9H2HxlL0QmTDMHbbEfsaOVUzMhqkUj7uUr/pub?gid=679482519&single=true&output=csv"
+      },
+      {
+        label: "Field of Dreams",
+        gid: 1737418391,
+        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQNcbG_a-H8vmNF7Qm3S_n5a3MTuMZvsicODjImal2jylO74gB--3Mpgv9cCPG37WG4HFvshUrIfDdM/pub?gid=343232419&single=true&output=csv"
+      },
+      {
+        label: "Cooperstown",
+        gid: 1924417187,
+        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTZDCPonNizaXhEklZp8ovhc_Iti725FpgZzyeu_rovAceUq9obq_AKvo0a7u-5SotcJh4xi-FC3FAv/pub?gid=965359182&single=true&output=csv"
+      }
+    ];
+
+    const MAX_LOCATIONS = 20;
+    if (SHEET_TABS.length > MAX_LOCATIONS) SHEET_TABS.length = MAX_LOCATIONS;
+
+    function gidToCsvUrl(gid){
+      return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${encodeURIComponent(gid)}`;
+    }
+
+    const SOURCES = SHEET_TABS.map(t => ({
+      source_id: t.label.toLowerCase().replace(/[^a-z0-9]+/g,"_").replace(/^_+|_+$/g,"") || `gid_${t.gid}`,
+      location_label: t.label,
+      gid: t.gid,
+      csv_url: gidToCsvUrl(t.gid),
+      sales_csv: (t.sales_csv || "").trim()
+    }));
+
+    const H = {
+      location: "Location",
+      shop_domain: "Shop MyShopify Domain",
+      sku: "Variant SKU",
+      barcode: "Variant Barcode",
+      product: "Product title",
+      product_type: "Product type",
+      variant: "Variant title",
+      avail_qty: "Total available quantity",
+      inv_value: "Total available inventory value",
+      sold_30: "SUM Variant Quantity sold over the last 30 days",
+      avg_day: "SUM Variant Average quantity sold per day",
+      days_oos: "SUM Variant Estimated days before out of stock",
+      img: "Product Image url"
+    };
+
+    const SH = {
+      sku: "SKU",
+      product_name: "Product name",
+      product_type: "Product type",
+      vendor: "Vendor (original)",
+      qty_7d: "qty_7d",
+      qty_30d: "qty_30d",
+      qty_90d: "qty_90d",
+      qty_120d: "qty_120d",
+      avg_day_30: "avg_day_30",
+      avg_day_90: "avg_day_90",
+      avg_day_120: "avg_day_120",
+      last_sold_date: "last_sold_date"
+    };
+
+    let MODE = "location";
+    let RAW = [];
+    let COMPANY = [];
+    let VIEW = [];
+    let PAGE = 1;
+    const PAGE_SIZE = 50;
+
+    const SELECTED = new Set();
+    let LAST_SUGGEST = new Map();
+    let SUGGEST_ENABLED = false;
+
+    const COLS_KEY = "silo_inv_cols_v6_supabase_tags";
+    let VISIBLE = null;
+
+    let LOAD_SEQ = 0;
+    let IS_LOADING = false;
+    let ACTIVE_ABORT = null;
+
+    let STRATEGY = "replenish";
+
+    let PRODUCT_TAG_ROWS = [];
+    let PRODUCT_TAGS_BY_ID = new Map();
+    let PRODUCT_TAGS_BY_TITLE_KEY = new Map();
+    let PRODUCT_TAGS_BY_EXACT_TITLE = new Map();
+
+    const DRAFT_KEY = "silo_po_draft_v6_supabase_tags";
+    function loadDraft(){ try{ return JSON.parse(localStorage.getItem(DRAFT_KEY) || "[]"); } catch(e){ return []; } }
+    function saveDraft(lines){ localStorage.setItem(DRAFT_KEY, JSON.stringify(lines)); }
+
+    const COLS_LOCATION = [
+      { key: "_select", label: "", default: true },
+      { key: "image", label: "Image", default: true },
+      { key: "source", label: "Source", default: false },
+      { key: "location", label: "Location", default: true },
+      { key: "inv_location", label: "Inv Location", default: false },
+      { key: "sku", label: "SKU", default: true },
+      { key: "barcode", label: "Barcode", default: false },
+      { key: "product", label: "Product", default: true },
+      { key: "product_type", label: "Product type", default: false },
+      { key: "variant", label: "Variant", default: false },
+      { key: "tag", label: "Tag", default: true },
+      { key: "sub_tag", label: "Sub Tag", default: true },
+      { key: "indicator_group", label: "Indicator", default: true },
+      { key: "collection", label: "Collection", default: false },
+      { key: "driver", label: "Driver", default: true },
+      { key: "avail_qty", label: "Avail Qty", align: "right", default: true },
+      { key: "inv_value", label: "Retail Value (MSRP)", align: "right", default: true },
+      { key: "qty_7d", label: "Sold 7d", align: "right", default: false },
+      { key: "sold_30", label: "Sold 30d", align: "right", default: true },
+      { key: "qty_90d", label: "Sold 90d", align: "right", default: false },
+      { key: "qty_120d", label: "Sold 120d", align: "right", default: false },
+      { key: "avg_day", label: "Avg/Day (30)", align: "right", default: true },
+      { key: "days_oos", label: "Days to OOS", align: "right", default: true },
+      { key: "last_sold_date", label: "Last Sold", default: true },
+      { key: "planner_flag", label: "Planner", default: true },
+      { key: "risk_flag", label: "Risk", default: true },
+      { key: "suggested_po", label: "Suggested PO", align: "right", default: true },
+      { key: "_details", label: "", default: true }
+    ];
+
+    const COLS_COMPANY = [
+      { key: "_select", label: "", default: true },
+      { key: "image", label: "Image", default: true },
+      { key: "sku", label: "SKU", default: true },
+      { key: "barcode", label: "Barcode", default: false },
+      { key: "product", label: "Product", default: true },
+      { key: "product_type", label: "Product type", default: false },
+      { key: "variant", label: "Variant", default: false },
+      { key: "tag", label: "Tag", default: true },
+      { key: "sub_tag", label: "Sub Tag", default: true },
+      { key: "indicator_group", label: "Indicator", default: true },
+      { key: "collection", label: "Collection", default: false },
+      { key: "driver", label: "Driver", default: true },
+      { key: "locations_count", label: "Locations", align: "right", default: true },
+      { key: "avail_qty", label: "On Hand (Total)", align: "right", default: true },
+      { key: "inv_value", label: "Retail Value (MSRP)", align: "right", default: true },
+      { key: "qty_7d", label: "Sold 7d (Total)", align: "right", default: false },
+      { key: "sold_30", label: "Sold 30d (Total)", align: "right", default: true },
+      { key: "qty_90d", label: "Sold 90d (Total)", align: "right", default: false },
+      { key: "qty_120d", label: "Sold 120d (Total)", align: "right", default: false },
+      { key: "avg_day", label: "Avg/Day (30, Total)", align: "right", default: true },
+      { key: "days_oos", label: "Days to OOS (Company)", align: "right", default: true },
+      { key: "last_sold_date", label: "Last Sold (latest)", default: true },
+      { key: "planner_flag", label: "Planner", default: true },
+      { key: "risk_flag", label: "Risk", default: true },
+      { key: "suggested_po", label: "Suggested PO (Company)", align: "right", default: true },
+      { key: "_details", label: "", default: true }
+    ];
+
+    const el = (id) => document.getElementById(id);
+
+    function norm(s){ return (s ?? "").toString().replace(/\u00A0/g," ").trim(); }
+    function num(v){
+      const x = parseFloat((v ?? "").toString().replace(/[^0-9.\-]/g,""));
+      return Number.isFinite(x) ? x : 0;
+    }
+    function money(v){
+      const n = num(v);
+      return n.toLocaleString(undefined,{style:"currency", currency:"USD", maximumFractionDigits:0});
+    }
+    function escapeHtml(str){
+      return (str ?? "").toString().replace(/[&<>"']/g, (m) => ({
+        "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#039;"
+      }[m]));
+    }
+    function safeId(str){
+      return (str || "").toString().toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"");
+    }
+    function parseDateLoose(s){
+      const t = Date.parse((s||"").toString().trim());
+      return Number.isFinite(t) ? t : null;
+    }
+    function daysSince(ms){
+      if (!ms) return null;
+      return (Date.now() - ms) / (1000*60*60*24);
+    }
+
+    function normalizeTitleKey(v){
+      return String(v ?? "")
+        .trim()
+        .toLowerCase()
+        .replace(/['"]/g, "")
+        .replace(/&/g, "and")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .replace(/-+/g, "-");
+    }
+
+    function authGuardError(msg){
+      document.body.innerHTML = `<div style="padding:24px;font-family:Inter,system-ui,sans-serif;">${escapeHtml(msg)}</div>`;
+    }
+
+    async function initAuth(){
+      if (!SUPABASE_URL || !SUPABASE_ANON_KEY){
+        authGuardError("Missing Supabase config in /financehub/pages/config.js");
+        return false;
+      }
+
+      SUPABASE = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      const { data, error } = await SUPABASE.auth.getSession();
+
+      if (error) console.warn(error);
+      if (!data?.session){
+        window.location.href = LOGIN_PATH;
+        return false;
+      }
+
+      SESSION = data.session;
+      el("authEmail").textContent = data.session.user?.email || "Signed in";
+
+      el("logoutBtn").addEventListener("click", async () => {
+        try { await SUPABASE.auth.signOut(); } catch(e){ console.warn(e); }
+        window.location.href = LOGIN_PATH;
+      });
+
+      return true;
+    }
+
+    function rowKeyFor(r){
+      const sku = norm(r.sku);
+      if (sku) return `SKU::${sku}`;
+      const bc = norm(r.barcode);
+      if (bc) return `BC::${bc}`;
+      const prod = normalizeTitleKey(r.product);
+      const varr = norm(r.variant);
+      if (prod || varr) return `PV::${prod}::${varr}`;
+      return `ROW::${r._id}`;
+    }
+
+    function deriveDriverCode(row){
+      const blob = [
+        row.tag || "",
+        row.sub_tag || "",
+        row.indicator_group || "",
+        row.notes || ""
+      ].join(" ").toLowerCase();
+
+      if (/\bwholesale\b/.test(blob)) return "wholesale";
+      if (/\binfluencer\b/.test(blob)) return "influencer";
+      if (/\bhero\b/.test(blob)) return "hero";
+      if (/\bnew\b|\blaunch\b/.test(blob)) return "new";
+      if (/\bpromo\b|\bevent\b|\bcampaign\b/.test(blob)) return "promo";
+      if (/\bseasonal\b|\bholiday\b|\bsummer\b|\bwinter\b|\bspring\b|\bfall\b|\bautumn\b/.test(blob)) return "seasonal";
+      if (/\bcore\b/.test(blob)) return "core";
+      return "none";
+    }
+
+    function metaPctOverride(row){
+      const text = String(row.notes || "");
+      const m = text.match(/\+?\s*(\d{1,3})\s*%/i);
+      return m ? Number(m[1]) : null;
+    }
+
+    function driverLabel(code){
+      switch(code){
+        case "core": return "Core";
+        case "hero": return "Hero";
+        case "new": return "New";
+        case "influencer": return "Influencer";
+        case "wholesale": return "Wholesale";
+        case "promo": return "Promo";
+        case "seasonal": return "Seasonal";
+        default: return "—";
+      }
+    }
+
+    function driverBadgeForRow(r){
+      const driver = deriveDriverCode(r);
+      const pct = metaPctOverride(r);
+
+      if (driver === "none"){
+        return `<span class="badge border-slate-200 bg-white text-slate-500">—</span>`;
+      }
+
+      const cls =
+        driver === "hero" ? "border-emerald-200 bg-emerald-50 text-emerald-900" :
+        driver === "new" ? "border-indigo-200 bg-indigo-50 text-indigo-900" :
+        driver === "influencer" ? "border-fuchsia-200 bg-fuchsia-50 text-fuchsia-900" :
+        driver === "promo" ? "border-amber-200 bg-amber-50 text-amber-900" :
+        driver === "wholesale" ? "border-sky-200 bg-sky-50 text-sky-900" :
+        driver === "seasonal" ? "border-orange-200 bg-orange-50 text-orange-900" :
+        "border-slate-200 bg-white text-slate-800";
+
+      const pctTxt = pct !== null ? ` • +${pct}%` : "";
+      return `<span class="badge ${cls}">${escapeHtml(driverLabel(driver))}${pctTxt}</span>`;
+    }
+
+    function loadVisible(){
+      try{
+        const raw = localStorage.getItem(COLS_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        return (parsed && typeof parsed === "object") ? parsed : null;
+      }catch(e){ return null; }
+    }
+
+    function saveVisible(map){ localStorage.setItem(COLS_KEY, JSON.stringify(map)); }
+
+    function initVisible(){
+      VISIBLE = loadVisible();
+      if (!VISIBLE){
+        VISIBLE = {};
+        [...COLS_LOCATION, ...COLS_COMPANY].forEach(c => {
+          if (!(c.key in VISIBLE)) VISIBLE[c.key] = !!c.default;
+        });
+      }
+      VISIBLE["_details"] = true;
+      VISIBLE["image"] = true;
+      saveVisible(VISIBLE);
+    }
+
+    function currentCols(){ return MODE === "company" ? COLS_COMPANY : COLS_LOCATION; }
+
+    function setStatus(html){ el("statusLine").innerHTML = html; }
+
+    function parseCSV(text){
+      const rows = [];
+      let i = 0, field = "", row = [], inQuotes = false;
+      while (i < text.length){
+        const c = text[i], n = text[i+1];
+        if (inQuotes){
+          if (c === '"' && n === '"'){ field += '"'; i += 2; continue; }
+          if (c === '"'){ inQuotes = false; i++; continue; }
+          field += c; i++; continue;
+        } else {
+          if (c === '"'){ inQuotes = true; i++; continue; }
+          if (c === ','){ row.push(field); field = ""; i++; continue; }
+          if (c === '\r'){ i++; continue; }
+          if (c === '\n'){ row.push(field); rows.push(row); field = ""; row = []; i++; continue; }
+          field += c; i++; continue;
+        }
+      }
+      row.push(field); rows.push(row);
+      return rows;
+    }
+
+    function rowsToObjects(csvText){
+      const grid = parseCSV(csvText).filter(r => r.some(c => norm(c) !== ""));
+      if (!grid.length) return { headers: [], rows: [] };
+      const headers = grid[0].map(h => norm(h));
+      const rows = grid.slice(1).map(r => {
+        const o = {};
+        headers.forEach((h, idx) => o[h] = r[idx] ?? "");
+        return o;
+      });
+      return { headers, rows };
+    }
+
+    function toCSV(objects, headers){
+      const esc = (v) => {
+        const s = (v ?? "").toString();
+        if (/[,"\n]/.test(s)) return `"${s.replace(/"/g,'""')}"`;
+        return s;
+      };
+      const head = headers.map(esc).join(",");
+      const lines = objects.map(o => headers.map(h => esc(o[h])).join(","));
+      return [head, ...lines].join("\n");
+    }
+
+    function download(name, content, mime="text/csv"){
+      const blob = new Blob([content], {type: mime});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function openModal(title, html){
+      el("modalTitle").textContent = title;
+      el("modalBody").innerHTML = html;
+      el("modal").classList.remove("hidden");
+    }
+    function closeModal(){ el("modal").classList.add("hidden"); }
+
+    async function fetchCsvObjects(url, signal){
+      const res = await fetch(url, { cache: "no-store", signal });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      return rowsToObjects(text);
+    }
+
+    function buildSalesMap(salesRows){
+      const m = new Map();
+      for (const r of salesRows){
+        const sku = norm(r[SH.sku] || r["sku"] || r["SKU"] || "");
+        if (!sku) continue;
+
+        const last = norm(r[SH.last_sold_date]);
+        const lastMs = parseDateLoose(last);
+
+        m.set(sku, {
+          sku,
+          product_name: norm(r[SH.product_name]),
+          product_type: norm(r[SH.product_type]),
+          vendor: norm(r[SH.vendor]),
+          qty_7d: num(r[SH.qty_7d]),
+          qty_30d: num(r[SH.qty_30d]),
+          qty_90d: num(r[SH.qty_90d]),
+          qty_120d: num(r[SH.qty_120d]),
+          avg_day_30: num(r[SH.avg_day_30]),
+          avg_day_90: num(r[SH.avg_day_90]),
+          avg_day_120: num(r[SH.avg_day_120]),
+          last_sold_date: last,
+          last_sold_ms: lastMs
+        });
+      }
+      return m;
+    }
+
+    async function loadProductTagsPaginated(){
+      const out = [];
+      let from = 0;
+
+      while (true){
+        const to = from + PRODUCT_TAG_PAGE_SIZE - 1;
+        const { data, error } = await SUPABASE
+          .from("product_tags")
+          .select("*")
+          .order("id", { ascending: true })
+          .range(from, to);
+
+        if (error) throw error;
+        if (!data || !data.length) break;
+
+        out.push(...data);
+        if (data.length < PRODUCT_TAG_PAGE_SIZE) break;
+        from += PRODUCT_TAG_PAGE_SIZE;
+      }
+
+      return out;
+    }
+
+    function rebuildProductTagLookups(){
+      PRODUCT_TAGS_BY_ID = new Map();
+      PRODUCT_TAGS_BY_TITLE_KEY = new Map();
+      PRODUCT_TAGS_BY_EXACT_TITLE = new Map();
+
+      for (const row of PRODUCT_TAG_ROWS){
+        PRODUCT_TAGS_BY_ID.set(Number(row.id), row);
+
+        const key = norm(row.product_title_key);
+        if (key && !PRODUCT_TAGS_BY_TITLE_KEY.has(key)){
+          PRODUCT_TAGS_BY_TITLE_KEY.set(key, row);
+        }
+
+        const exact = norm(row.product_title).toLowerCase();
+        if (exact && !PRODUCT_TAGS_BY_EXACT_TITLE.has(exact)){
+          PRODUCT_TAGS_BY_EXACT_TITLE.set(exact, row);
+        }
+      }
+    }
+
+    async function refreshProductTags(){
+      PRODUCT_TAG_ROWS = await loadProductTagsPaginated();
+      rebuildProductTagLookups();
+      renderTagFilterOptions();
+    }
+
+    function renderTagFilterOptions(){
+      const fill = (id, values, label) => {
+        const node = el(id);
+        const current = node.value || "__ALL__";
+        node.innerHTML = `<option value="__ALL__">${label}</option>`;
+        values.forEach(v => {
+          const opt = document.createElement("option");
+          opt.value = v;
+          opt.textContent = v;
+          node.appendChild(opt);
+        });
+        node.value = [...node.options].some(o => o.value === current) ? current : "__ALL__";
+      };
+
+      const uniq = (field) => [...new Set(PRODUCT_TAG_ROWS.map(r => norm(r[field])).filter(Boolean))].sort((a,b) => a.localeCompare(b));
+      fill("selTagFilter", uniq("tag"), "All tags");
+      fill("selSubTagFilter", uniq("sub_tag"), "All sub tags");
+      fill("selIndicatorFilter", uniq("indicator_group"), "All indicators");
+    }
+
+    function matchProductTag(row){
+      const titleKey = normalizeTitleKey(row.product);
+      if (titleKey && PRODUCT_TAGS_BY_TITLE_KEY.has(titleKey)) return PRODUCT_TAGS_BY_TITLE_KEY.get(titleKey);
+
+      const exact = norm(row.product).toLowerCase();
+      if (exact && PRODUCT_TAGS_BY_EXACT_TITLE.has(exact)) return PRODUCT_TAGS_BY_EXACT_TITLE.get(exact);
+
+      return null;
+    }
+
+    function enrichRowWithProductTag(row){
+      const match = matchProductTag(row);
+
+      row._product_tag_id = match ? Number(match.id) : null;
+      row.product_title_key = normalizeTitleKey(row.product || "");
+
+      row.tag = match?.tag || "";
+      row.sub_tag = match?.sub_tag || "";
+      row.indicator_group = match?.indicator_group || "";
+      row.collection = match?.collection || "";
+      row.inline_flag = match?.inline_flag || "";
+      row.primary_color = match?.primary_color || "";
+      row.artwork_side = match?.artwork_side || "";
+      row.notes = match?.notes || "";
+
+      return row;
+    }
+
+    function plannerBadge(row){
+      const avg30 = num(row.avg_day);
+      const days = num(row.days_oos);
+      const onhand = num(row.avail_qty);
+
+      const lastMs = row.last_sold_ms || null;
+      const staleDays = lastMs ? daysSince(lastMs) : null;
+
+      const avg90 = num(row.avg_day_90);
+      const seasonalRatio = (avg90 > 0) ? (avg30 / avg90) : null;
+
+      const tags = [];
+
+      if (row.tag){
+        tags.push({ t:(row.tag || "").toUpperCase(), cls:"border-slate-200 bg-white text-slate-800" });
+      }
+
+      const holdBlob = [row.tag,row.sub_tag,row.indicator_group,row.notes].join(" ").toLowerCase();
+      if (/\bhold\b/.test(holdBlob)){
+        tags.push({ t:"HOLD", cls:"border-rose-200 bg-rose-50 text-rose-900" });
+      }
+
+      if (avg30 <= 0 && onhand > 0){
+        tags.push({ t:"NO DEMAND", cls:"border-slate-200 bg-white text-slate-600" });
+      } else if (days > 0 && days <= 14){
+        tags.push({ t:"BUY NOW", cls:"border-amber-200 bg-amber-50 text-amber-900" });
+      } else if (days > 0 && days <= 30){
+        tags.push({ t:"WATCH", cls:"border-amber-200 bg-white text-amber-800" });
+      }
+
+      if (staleDays !== null && staleDays >= 90 && avg30 <= 0){
+        tags.push({ t:"STALE", cls:"border-rose-200 bg-rose-50 text-rose-900" });
+      }
+
+      if (seasonalRatio !== null){
+        if (seasonalRatio >= 1.35) tags.push({ t:"SPIKING", cls:"border-emerald-200 bg-emerald-50 text-emerald-900" });
+        else if (seasonalRatio <= 0.75) tags.push({ t:"COOLING", cls:"border-slate-200 bg-slate-50 text-slate-700" });
+      }
+
+      if (!tags.length) return `<span class="badge border-slate-200 bg-white text-slate-600">OK</span>`;
+      return tags.slice(0,2).map(x => `<span class="badge ${x.cls}">${escapeHtml(x.t)}</span>`).join(" ");
+    }
+
+    function collapseLocationRows(rows){
+      const byKey = new Map();
+
+      const keyFor = (r) => {
+        const sku = norm(r.sku);
+        if (sku) return `SKU::${r.source_id}::${sku}`;
+        const bc = norm(r.barcode);
+        if (bc) return `BC::${r.source_id}::${bc}`;
+        const prod = norm(r.product);
+        const varr = norm(r.variant);
+        return `PV::${r.source_id}::${prod}::${varr}`;
+      };
+
+      for (const r of rows){
+        const k = keyFor(r);
+
+        if (!byKey.has(k)){
+          byKey.set(k, {
+            ...r,
+            inv_locations: new Set(r.inv_location ? [r.inv_location] : [])
+          });
+          continue;
+        }
+
+        const agg = byKey.get(k);
+        agg.avail_qty += num(r.avail_qty);
+        agg.inv_value += num(r.inv_value);
+
+        if (r.inv_location) agg.inv_locations.add(r.inv_location);
+
+        agg.qty_7d = Math.max(num(agg.qty_7d), num(r.qty_7d));
+        agg.sold_30 = Math.max(num(agg.sold_30), num(r.sold_30));
+        agg.qty_90d = Math.max(num(agg.qty_90d), num(r.qty_90d));
+        agg.qty_120d = Math.max(num(agg.qty_120d), num(r.qty_120d));
+        agg.avg_day = Math.max(num(agg.avg_day), num(r.avg_day));
+        agg.avg_day_90 = Math.max(num(agg.avg_day_90), num(r.avg_day_90));
+        agg.avg_day_120 = Math.max(num(agg.avg_day_120), num(r.avg_day_120));
+
+        const avg = num(agg.avg_day);
+        agg.days_oos = (avg > 0) ? (num(agg.avail_qty) / avg) : 0;
+
+        const msA = agg.last_sold_ms || null;
+        const msB = r.last_sold_ms || null;
+        if (msB && (!msA || msB > msA)){
+          agg.last_sold_ms = msB;
+          agg.last_sold_date = r.last_sold_date || agg.last_sold_date || "";
+        }
+
+        if (!agg._product_tag_id && r._product_tag_id) agg._product_tag_id = r._product_tag_id;
+        if (!agg.tag && r.tag) agg.tag = r.tag;
+        if (!agg.sub_tag && r.sub_tag) agg.sub_tag = r.sub_tag;
+        if (!agg.indicator_group && r.indicator_group) agg.indicator_group = r.indicator_group;
+        if (!agg.collection && r.collection) agg.collection = r.collection;
+        if (!agg.inline_flag && r.inline_flag) agg.inline_flag = r.inline_flag;
+        if (!agg.primary_color && r.primary_color) agg.primary_color = r.primary_color;
+        if (!agg.artwork_side && r.artwork_side) agg.artwork_side = r.artwork_side;
+        if (!agg.notes && r.notes) agg.notes = r.notes;
+      }
+
+      const out = [];
+      for (const v of byKey.values()){
+        v.inv_locations_count = v.inv_locations.size;
+        v.inv_location = v.inv_locations.size ? [...v.inv_locations].slice(0,3).join(", ") + (v.inv_locations.size > 3 ? ` (+${v.inv_locations.size-3})` : "") : "";
+        delete v.inv_locations;
+        out.push(v);
+      }
+      return out;
+    }
+
+    function buildCompanyAgg(rows){
+      const byKey = new Map();
+
+      const keyFor = (r) => {
+        const sku = norm(r.sku);
+        if (sku) return `SKU::${sku}`;
+        const bc = norm(r.barcode);
+        if (bc) return `BC::${bc}`;
+        const prod = norm(r.product);
+        const varr = norm(r.variant);
+        if (prod || varr) return `PV::${prod}::${varr}`;
+        return `ROW::${r._id}`;
+      };
+
+      for (const r of rows){
+        const key = keyFor(r);
+
+        if (!byKey.has(key)){
+          byKey.set(key, {
+            _id: `COMPANY::${key}`,
+            key,
+            sku: norm(r.sku),
+            barcode: norm(r.barcode),
+            product: r.product,
+            product_type: norm(r.product_type),
+            variant: r.variant || "",
+            image_url: r.image_url || "",
+            avail_qty: 0,
+            inv_value: 0,
+            qty_7d: 0,
+            sold_30: 0,
+            qty_90d: 0,
+            qty_120d: 0,
+            avg_day: 0,
+            avg_day_90: 0,
+            avg_day_120: 0,
+            days_oos: 0,
+            last_sold_ms: null,
+            last_sold_date: "",
+            locations_count: 0,
+            locations: [],
+            _product_tag_id: r._product_tag_id || null,
+            tag: r.tag || "",
+            sub_tag: r.sub_tag || "",
+            indicator_group: r.indicator_group || "",
+            collection: r.collection || "",
+            inline_flag: r.inline_flag || "",
+            primary_color: r.primary_color || "",
+            artwork_side: r.artwork_side || "",
+            notes: r.notes || ""
+          });
+        }
+
+        const agg = byKey.get(key);
+
+        agg.avail_qty += num(r.avail_qty);
+        agg.inv_value += num(r.inv_value);
+        agg.qty_7d += num(r.qty_7d);
+        agg.sold_30 += num(r.sold_30);
+        agg.qty_90d += num(r.qty_90d);
+        agg.qty_120d += num(r.qty_120d);
+
+        const ms = r.last_sold_ms || null;
+        if (ms && (!agg.last_sold_ms || ms > agg.last_sold_ms)){
+          agg.last_sold_ms = ms;
+          agg.last_sold_date = r.last_sold_date || "";
+        }
+
+        agg.locations.push({
+          location: r.location || r.source_label,
+          source_label: r.source_label,
+          source_id: r.source_id,
+          avail_qty: num(r.avail_qty),
+          sold_30: num(r.sold_30),
+          qty_7d: num(r.qty_7d),
+          qty_90d: num(r.qty_90d),
+          qty_120d: num(r.qty_120d),
+          avg_day: num(r.avg_day),
+          avg_day_90: num(r.avg_day_90),
+          avg_day_120: num(r.avg_day_120),
+          inv_value: num(r.inv_value),
+          days_oos: num(r.days_oos),
+          last_sold_date: r.last_sold_date || "",
+          last_sold_ms: r.last_sold_ms || null
+        });
+
+        if (!agg.image_url && r.image_url) agg.image_url = r.image_url;
+        if (!agg.product && r.product) agg.product = r.product;
+        if (!agg.product_type && r.product_type) agg.product_type = r.product_type;
+        if (!agg.variant && r.variant) agg.variant = r.variant;
+        if (!agg.sku && r.sku) agg.sku = r.sku;
+        if (!agg.barcode && r.barcode) agg.barcode = r.barcode;
+      }
+
+      const out = [];
+      for (const agg of byKey.values()){
+        const locSet = new Set(agg.locations.map(x => `${x.source_id}::${x.location}`));
+        agg.locations_count = locSet.size;
+        agg.avg_day = agg.sold_30 / 30;
+        agg.avg_day_90 = agg.qty_90d / 90;
+        agg.avg_day_120 = agg.qty_120d / 120;
+        agg.days_oos = (agg.avg_day > 0) ? (agg.avail_qty / agg.avg_day) : 0;
+        out.push(agg);
+      }
+      return out;
+    }
+
+    function renderLocationDropdown(){
+      const sel = el("selLocation");
+      const current = sel.value || "__ALL__";
+      sel.innerHTML = `<option value="__ALL__">All locations (loaded)</option>`;
+      SOURCES.forEach(s => {
+        const opt = document.createElement("option");
+        opt.value = s.source_id;
+        opt.textContent = s.location_label;
+        sel.appendChild(opt);
+      });
+      if ([...sel.options].some(o => o.value === current)) sel.value = current;
+      else sel.value = "__ALL__";
+    }
+
+    function setLoadingUI(on){
+      IS_LOADING = on;
+      const btn = el("btnReload");
+      btn.disabled = on;
+      btn.classList.toggle("opacity-60", on);
+      btn.classList.toggle("cursor-not-allowed", on);
+      btn.textContent = on ? "Loading…" : "Reload";
+    }
+
+    function countLooseDupes(rows){
+      const m = new Map();
+      const keyFor = (r) => {
+        const sku = norm(r.sku);
+        if (sku) return `SKU::${r.source_id}::${sku}`;
+        const bc = norm(r.barcode);
+        if (bc) return `BC::${r.source_id}::${bc}`;
+        const prod = norm(r.product);
+        const varr = norm(r.variant);
+        return `PV::${r.source_id}::${prod}::${varr}`;
+      };
+      for (const r of rows){
+        const k = keyFor(r);
+        m.set(k, (m.get(k) || 0) + 1);
+      }
+      let dupGroups = 0;
+      let extraRows = 0;
+      for (const c of m.values()){
+        if (c > 1){
+          dupGroups++;
+          extraRows += (c - 1);
+        }
+      }
+      return { dupGroups, extraRows };
+    }
+
+    async function loadAll(){
+      if (IS_LOADING) return;
+
+      const mySeq = ++LOAD_SEQ;
+
+      if (ACTIVE_ABORT){
+        try{ ACTIVE_ABORT.abort(); }catch(e){}
+      }
+      ACTIVE_ABORT = new AbortController();
+      const { signal } = ACTIVE_ABORT;
+
+      setLoadingUI(true);
+      setStatus("Loading…");
+
+      RAW = [];
+      COMPANY = [];
+      VIEW = [];
+      SELECTED.clear();
+      LAST_SUGGEST = new Map();
+      SUGGEST_ENABLED = false;
+      PAGE = 1;
+
+      renderLocationDropdown();
+
+      const results = [];
+      let tmpRows = [];
+      let tagLoadWarning = "";
+
+      try{
+        try{
+          await refreshProductTags();
+        } catch(e){
+          console.error(e);
+          tagLoadWarning = `Supabase product_tags load failed: ${e.message || String(e)}`;
+        }
+
+        for (const src of SOURCES){
+          if (mySeq !== LOAD_SEQ) return;
+
+          try{
+            const invParsed = await fetchCsvObjects(src.csv_url, signal);
+            if (mySeq !== LOAD_SEQ) return;
+
+            const invHeaders = new Set(invParsed.headers);
+            let salesMap = new Map();
+            let salesCount = 0;
+            let salesWarn = "";
+
+            if (src.sales_csv){
+              try{
+                const salesParsed = await fetchCsvObjects(src.sales_csv, signal);
+                if (mySeq !== LOAD_SEQ) return;
+
+                salesCount = salesParsed.rows.length;
+                const salesHeaders = new Set(salesParsed.headers);
+                const need = [SH.sku, SH.qty_30d, SH.avg_day_30, SH.last_sold_date];
+                const miss = need.filter(k => !salesHeaders.has(k));
+                if (miss.length){
+                  salesWarn = `sales_summary missing: ${miss.join(" | ")}`;
+                } else {
+                  salesMap = buildSalesMap(salesParsed.rows);
+                }
+              } catch(e){
+                salesWarn = (e && e.name === "AbortError") ? "aborted" : `sales_summary failed: ${e.message || String(e)}`;
+              }
+            }
+
+            const required = [H.sku, H.avail_qty, H.inv_value];
+            const missing = required.filter(k => !invHeaders.has(k));
+            if (missing.length){
+              results.push({ source: src, warning: `Missing inventory columns: ${missing.join(" | ")}` });
+            } else {
+              results.push({ source: src, ok: invParsed.rows.length, sales_ok: salesCount, sales_warn: salesWarn });
+            }
+
+            const mapped = invParsed.rows.map((o, idx) => {
+              const shopDomain = norm(o[H.shop_domain]);
+              const invLocation = norm(o[H.location]);
+              const location = src.location_label;
+              const sku = norm(o[H.sku]);
+              const product = norm(o[H.product]);
+              const invProductType = norm(o[H.product_type]);
+              const variant = norm(o[H.variant]);
+              const barcode = norm(o[H.barcode]);
+              const avail = num(o[H.avail_qty]);
+              const invValue = num(o[H.inv_value]);
+              const img = norm(o[H.img]);
+
+              const invSold30 = num(o[H.sold_30]);
+              const invAvgDay = num(o[H.avg_day]);
+              const invDaysOos = num(o[H.days_oos]);
+
+              const s = sku ? salesMap.get(sku) : null;
+
+              const qty7 = s ? s.qty_7d : 0;
+              const qty30 = s ? s.qty_30d : invSold30;
+              const qty90 = s ? s.qty_90d : 0;
+              const qty120 = s ? s.qty_120d : 0;
+
+              const avg30 = s ? s.avg_day_30 : invAvgDay;
+              const avg90 = s ? s.avg_day_90 : (qty90 ? qty90/90 : 0);
+              const avg120 = s ? s.avg_day_120 : (qty120 ? qty120/120 : 0);
+
+              const daysOos = (avg30 > 0) ? (avail / avg30) : (invDaysOos || 0);
+              const lastSold = s ? (s.last_sold_date || "") : "";
+              const lastSoldMs = s ? (s.last_sold_ms || null) : null;
+
+              const prodName = (s && s.product_name) ? s.product_name : product;
+              const prodType = (s && s.product_type) ? s.product_type : invProductType;
+              const vendor = (s && s.vendor) ? s.vendor : "";
+
+              const rid = `${src.source_id}::${location}::${sku || barcode || product || "row"}::${variant || ""}::${idx}`;
+
+              const row = {
+                _id: rid,
+                source_id: src.source_id,
+                source_label: src.location_label,
+                gid: src.gid,
+                shop_domain: shopDomain,
+                location,
+                inv_location: invLocation,
+                sku,
+                barcode,
+                product: prodName,
+                variant,
+                product_type: prodType,
+                vendor,
+                avail_qty: avail,
+                inv_value: invValue,
+                qty_7d: qty7,
+                sold_30: qty30,
+                qty_90d: qty90,
+                qty_120d: qty120,
+                avg_day: avg30,
+                avg_day_90: avg90,
+                avg_day_120: avg120,
+                days_oos: daysOos,
+                last_sold_date: lastSold,
+                last_sold_ms: lastSoldMs,
+                _inv_sold30: invSold30,
+                _inv_avgday: invAvgDay,
+                _inv_daysoos: invDaysOos,
+                image_url: img,
+                _raw: o
+              };
+
+              return enrichRowWithProductTag(row);
+            });
+
+            tmpRows.push(...mapped);
+
+          } catch(err){
+            if (err && err.name === "AbortError") return;
+            results.push({ source: src, error: err.message || String(err) });
+          }
+        }
+
+        if (mySeq !== LOAD_SEQ) return;
+
+        const dupStats = countLooseDupes(tmpRows);
+        tmpRows = collapseLocationRows(tmpRows);
+        RAW = tmpRows;
+        COMPANY = buildCompanyAgg(RAW);
+
+        applyFilters();
+
+        const warn = results.filter(r => r.warning).length;
+        const bad = results.filter(r => r.error).length;
+
+        let msg = `Loaded <b>${RAW.length.toLocaleString()}</b> location-rows from <b>${SOURCES.length}</b> tab(s).`;
+
+        const salesGood = results.filter(r => r.sales_ok && !r.sales_warn).length;
+        const salesAny = results.filter(r => r.sales_ok).length;
+        if (salesAny){
+          msg += ` <span class="text-slate-600">Sales summaries: <b>${salesGood}</b> ok / <b>${salesAny}</b> present.</span>`;
+        }
+        if (warn) msg += ` <span class="text-amber-700 font-semibold">${warn} tab(s) missing inventory columns.</span>`;
+        if (bad) msg += ` <span class="text-rose-700 font-semibold">${bad} tab(s) failed.</span>`;
+        if (dupStats.dupGroups){
+          msg += ` <span class="text-slate-600">Collapsed <b>${dupStats.extraRows.toLocaleString()}</b> extra inv-rows across <b>${dupStats.dupGroups.toLocaleString()}</b> duplicate SKU groups.</span>`;
+        }
+        if (tagLoadWarning){
+          msg += ` <span class="text-amber-700 font-semibold">${escapeHtml(tagLoadWarning)}</span>`;
+        } else {
+          msg += ` <span class="text-slate-600">Supabase tags loaded: <b>${PRODUCT_TAG_ROWS.length.toLocaleString()}</b>.</span>`;
+        }
+
+        setStatus(msg);
+
+      } finally {
+        if (mySeq === LOAD_SEQ) setLoadingUI(false);
+      }
+    }
+
+    function currentFilters(){
+      return {
+        source: el("selLocation").value,
+        q: norm(el("txtSearch").value).toLowerCase(),
+        maxDays: el("numMaxDays").value === "" ? null : num(el("numMaxDays").value),
+        maxQty: el("numMaxQty").value === "" ? null : num(el("numMaxQty").value),
+        minSold30: el("numMinSold30").value === "" ? null : num(el("numMinSold30").value),
+        tag: el("selTagFilter").value,
+        subTag: el("selSubTagFilter").value,
+        indicator: el("selIndicatorFilter").value,
+        sort: el("selSort").value
+      };
+    }
+
+    function applyFilters(){
+      const { source, q, maxDays, maxQty, minSold30, tag, subTag, indicator, sort } = currentFilters();
+      const base = (MODE === "company") ? COMPANY : RAW;
+
+      VIEW = base.filter(r => {
+        if (source !== "__ALL__"){
+          if (MODE === "location"){
+            if (r.source_id !== source) return false;
+          } else {
+            const has = (r.locations || []).some(x => x.source_id === source);
+            if (!has) return false;
+          }
+        }
+
+        if (q){
+          const hay = `${r.sku||""} ${r.product||""} ${r.variant||""} ${r.barcode||""} ${r.tag||""} ${r.sub_tag||""} ${r.indicator_group||""} ${r.collection||""}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+
+        if (maxDays !== null){
+          const d = num(r.days_oos);
+          if (d > 0 && d > maxDays) return false;
+        }
+        if (maxQty !== null && num(r.avail_qty) > maxQty) return false;
+        if (minSold30 !== null && num(r.sold_30) < minSold30) return false;
+
+        if (tag !== "__ALL__" && norm(r.tag) !== tag) return false;
+        if (subTag !== "__ALL__" && norm(r.sub_tag) !== subTag) return false;
+        if (indicator !== "__ALL__" && norm(r.indicator_group) !== indicator) return false;
+
+        return true;
+      });
+
+      VIEW.sort((a,b) => {
+        const ad = num(a.days_oos), bd = num(b.days_oos);
+        const aq = num(a.avail_qty), bq = num(b.avail_qty);
+        const as = num(a.sold_30), bs = num(b.sold_30);
+        const a90 = num(a.qty_90d), b90 = num(b.qty_90d);
+        const av = num(a.inv_value), bv = num(b.inv_value);
+        const aSt = a.last_sold_ms ? a.last_sold_ms : 0;
+        const bSt = b.last_sold_ms ? b.last_sold_ms : 0;
+
+        switch(sort){
+          case "days_asc": return (ad || 999999) - (bd || 999999);
+          case "days_desc": return (bd || 0) - (ad || 0);
+          case "qty_asc": return aq - bq;
+          case "qty_desc": return bq - aq;
+          case "sold30_desc": return bs - as;
+          case "sold90_desc": return b90 - a90;
+          case "value_desc": return bv - av;
+          case "risk_value_desc": {
+            const thr = num(el("numRiskDays").value || 14);
+            const aRisk = (ad > 0 && ad <= thr) ? 1 : 0;
+            const bRisk = (bd > 0 && bd <= thr) ? 1 : 0;
+            if (aRisk !== bRisk) return bRisk - aRisk;
+            return bv - av;
+          }
+          case "stale_desc": {
+            if (!aSt && !bSt) return 0;
+            if (!aSt) return 1;
+            if (!bSt) return -1;
+            return aSt - bSt;
+          }
+          case "sku_asc": return (a.sku || "").localeCompare(b.sku || "");
+          default: return 0;
+        }
+      });
+
+      PAGE = 1;
+      if (SUGGEST_ENABLED) computeSuggestions();
+      render();
+    }
+
+    function getStrategyInputs(){
+      return {
+        targetCover: num(el("numTargetCover").value || 45),
+        safetyDays: num(el("numSafetyDays").value || 0),
+        minReorder: num(el("numMinReorder").value || 0),
+        defaultGrowthPct: num(el("numGrowthPct").value || 0),
+        seedAvgDay: num(el("numSeedAvgDay").value || 0)
+      };
+    }
+
+    function growthFactorForRow(row, defaultGrowthPct){
+      const driver = deriveDriverCode(row);
+      const pctOverride = metaPctOverride(row);
+
+      const driverDefaults = {
+        core: 0,
+        hero: Math.max(defaultGrowthPct, 30),
+        new: Math.max(defaultGrowthPct, 50),
+        influencer: Math.max(defaultGrowthPct, 40),
+        wholesale: Math.max(defaultGrowthPct, 25),
+        promo: Math.max(defaultGrowthPct, 35),
+        seasonal: Math.max(defaultGrowthPct, 20),
+        none: 0
+      };
+
+      let pct = pctOverride !== null ? pctOverride : (driverDefaults[driver] ?? defaultGrowthPct);
+
+      if (STRATEGY === "replenish") return 1.0;
+      if (STRATEGY === "growth"){
+        const p = driver !== "none" ? pct : defaultGrowthPct;
+        return 1.0 + Math.max(0, p)/100;
+      }
+      if (driver === "none") return 1.0;
+      return 1.0 + Math.max(0, pct)/100;
+    }
+
+    function effectiveAvgDay(row, seedAvgDay){
+      const avg30 = num(row.avg_day);
+      if (avg30 > 0) return avg30;
+
+      const sold7 = num(row.qty_7d);
+      if (sold7 > 0) return sold7 / 7;
+
+      const driver = deriveDriverCode(row);
+      if (["new","hero","influencer","promo"].includes(driver)){
+        return Math.max(0, seedAvgDay);
+      }
+      return 0;
+    }
+
+    function suggestPOQty(row, inputs){
+      const { targetCover, safetyDays, minReorder, defaultGrowthPct, seedAvgDay } = inputs;
+      const avg = effectiveAvgDay(row, seedAvgDay);
+      if (avg <= 0) return 0;
+
+      const factor = growthFactorForRow(row, defaultGrowthPct);
+      const coverDays = Math.max(0, targetCover) + Math.max(0, safetyDays);
+      const targetUnits = coverDays * avg * factor;
+      const needed = Math.max(Math.ceil(targetUnits - num(row.avail_qty)), 0);
+
+      if (needed < (minReorder || 0)) return 0;
+      return needed;
+    }
+
+    function computeSuggestions(){
+      const inputs = getStrategyInputs();
+      LAST_SUGGEST = new Map();
+      for (const r of VIEW){
+        LAST_SUGGEST.set(r._id, suggestPOQty(r, inputs));
+      }
+      render();
+    }
+
+    function toggleSelect(id, on){
+      if (on) SELECTED.add(id);
+      else SELECTED.delete(id);
+      el("kSelected").textContent = String(SELECTED.size);
+    }
+
+    function updateKPIs(){
+      const rows = VIEW.length;
+      let units = 0, retail = 0, sold30 = 0;
+      let riskCount = 0, riskRetail = 0;
+      let daysSum = 0, daysCount = 0;
+
+      const riskThr = num(el("numRiskDays").value || 14);
+      const soldSeen = new Set();
+
+      for (const r of VIEW){
+        const u = num(r.avail_qty);
+        const v = num(r.inv_value);
+        const s = num(r.sold_30);
+        const d = num(r.days_oos);
+
+        units += u;
+        retail += v;
+
+        if (MODE === "location"){
+          const sku = norm(r.sku);
+          if (sku){
+            const k = `${r.source_id}::${sku}`;
+            if (!soldSeen.has(k)){
+              soldSeen.add(k);
+              sold30 += s;
+            }
+          } else {
+            sold30 += s;
+          }
+        } else {
+          sold30 += s;
+        }
+
+        if (d > 0){
+          daysSum += d; daysCount++;
+          if (d <= riskThr){
+            riskCount++;
+            riskRetail += v;
+          }
+        }
+      }
+
+      el("kRows").textContent = rows.toLocaleString();
+      el("kUnits").textContent = units.toLocaleString();
+      el("kRetailValue").textContent = money(retail);
+      el("kSold30").textContent = sold30.toLocaleString();
+      el("kRiskCount").textContent = riskCount.toLocaleString();
+      el("kRiskRetail").textContent = money(riskRetail);
+      el("kAvgDays").textContent = daysCount ? (daysSum / daysCount).toFixed(1) : "—";
+      el("kSelected").textContent = String(SELECTED.size);
+    }
+
+    function renderThead(){
+      const tr = el("theadRow");
+      tr.innerHTML = "";
+      const cols = currentCols();
+
+      if (MODE === "location") VISIBLE["location"] = true;
+
+      for (const c of cols){
+        if (!VISIBLE[c.key]) continue;
+
+        if (c.key === "_select"){
+          tr.innerHTML += `
+            <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600 w-10">
+              <input id="chkAll" type="checkbox" class="h-4 w-4 align-middle" />
+            </th>`;
+          continue;
+        }
+        const align = c.align === "right" ? "text-right" : "text-left";
+        tr.innerHTML += `<th class="px-3 py-2 ${align} text-xs font-semibold text-slate-600">${escapeHtml(c.label)}</th>`;
+      }
+
+      const chkAll = document.getElementById("chkAll");
+      if (chkAll){
+        chkAll.addEventListener("change", (e) => {
+          const on = e.target.checked;
+          const start = (PAGE - 1) * PAGE_SIZE;
+          const slice = VIEW.slice(start, start + PAGE_SIZE);
+          slice.forEach(r => toggleSelect(r._id, on));
+          render();
+        });
+      }
+    }
+
+    function render(){
+      renderThead();
+      updateKPIs();
+      updateDraftPeek();
+
+      const total = VIEW.length;
+      const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+      PAGE = Math.min(PAGE, pages);
+      const start = (PAGE - 1) * PAGE_SIZE;
+      const slice = VIEW.slice(start, start + PAGE_SIZE);
+
+      el("pagerInfo").textContent = `Page ${PAGE} of ${pages} • Showing ${slice.length} of ${total.toLocaleString()} filtered rows`;
+
+      const chkAll = document.getElementById("chkAll");
+      if (chkAll) chkAll.checked = slice.length > 0 && slice.every(r => SELECTED.has(r._id));
+
+      const riskThr = num(el("numRiskDays").value || 14);
+      const cols = currentCols();
+      const tbody = el("tbody");
+
+      tbody.innerHTML = slice.map(r => {
+        const checked = SELECTED.has(r._id);
+        const sug = LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : null;
+        const days = num(r.days_oos);
+
+        const rowTint =
+          (days > 0 && days <= 7) ? "bg-rose-50" :
+          (days > 0 && days <= riskThr) ? "bg-amber-50" : "";
+
+        const riskBadge = (days > 0 && days <= riskThr)
+          ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border border-amber-200 bg-amber-50 text-amber-800">RISK</span>`
+          : `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border border-slate-200 bg-white text-slate-500">OK</span>`;
+
+        const thumb = r.image_url
+          ? `<button data-img="${escapeHtml(r.image_url)}" class="flex items-center gap-2">
+               <img src="${escapeHtml(r.image_url)}" alt="" class="h-9 w-9 rounded-md border border-slate-200 object-cover bg-white" loading="lazy" />
+             </button>`
+          : `<div class="h-9 w-9 rounded-md border border-slate-200 bg-slate-50 grid place-items-center text-[10px] text-slate-400">—</div>`;
+
+        const detailsBtn = `<button data-details="${escapeHtml(r._id)}" class="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold hover:bg-slate-50">Details</button>`;
+        const planner = plannerBadge(r);
+        const lastSoldTxt = r.last_sold_date ? escapeHtml(r.last_sold_date) : "—";
+        const driverBadge = driverBadgeForRow(r);
+
+        const tds = [];
+        for (const c of cols){
+          if (!VISIBLE[c.key]) continue;
+          const align = c.align === "right" ? "text-right" : "text-left";
+
+          if (c.key === "_select"){
+            tds.push(`<td class="px-3 py-2"><input data-rowchk="1" data-id="${escapeHtml(r._id)}" type="checkbox" class="h-4 w-4" ${checked ? "checked" : ""}/></td>`);
+          } else if (c.key === "image"){
+            tds.push(`<td class="px-3 py-2 ${align}">${thumb}</td>`);
+          } else if (c.key === "source"){
+            tds.push(`<td class="px-3 py-2 ${align} text-xs text-slate-600">${escapeHtml(r.source_label || "—")}</td>`);
+          } else if (c.key === "location"){
+            tds.push(`<td class="px-3 py-2 ${align} text-xs">${escapeHtml(r.location || r.source_label || "—")}</td>`);
+          } else if (c.key === "inv_location"){
+            tds.push(`<td class="px-3 py-2 ${align} text-xs text-slate-600">${escapeHtml(r.inv_location || "—")}</td>`);
+          } else if (c.key === "sku"){
+            tds.push(`<td class="px-3 py-2 ${align} mono text-xs font-semibold">${escapeHtml(r.sku || "—")}</td>`);
+          } else if (c.key === "barcode"){
+            tds.push(`<td class="px-3 py-2 ${align} mono text-xs">${escapeHtml(r.barcode || "—")}</td>`);
+          } else if (c.key === "product"){
+            tds.push(`<td class="px-3 py-2 ${align} text-xs">${escapeHtml(r.product || "—")}</td>`);
+          } else if (c.key === "product_type"){
+            tds.push(`<td class="px-3 py-2 ${align} text-xs">${escapeHtml(r.product_type || "—")}</td>`);
+          } else if (c.key === "variant"){
+            tds.push(`<td class="px-3 py-2 ${align} text-xs text-slate-600">${escapeHtml(r.variant || "—")}</td>`);
+          } else if (c.key === "tag"){
+            tds.push(`<td class="px-3 py-2 ${align} text-xs">${escapeHtml(r.tag || "—")}</td>`);
+          } else if (c.key === "sub_tag"){
+            tds.push(`<td class="px-3 py-2 ${align} text-xs">${escapeHtml(r.sub_tag || "—")}</td>`);
+          } else if (c.key === "indicator_group"){
+            tds.push(`<td class="px-3 py-2 ${align} text-xs">${escapeHtml(r.indicator_group || "—")}</td>`);
+          } else if (c.key === "collection"){
+            tds.push(`<td class="px-3 py-2 ${align} text-xs">${escapeHtml(r.collection || "—")}</td>`);
+          } else if (c.key === "driver"){
+            tds.push(`<td class="px-3 py-2 ${align}">${driverBadge}</td>`);
+          } else if (c.key === "locations_count"){
+            tds.push(`<td class="px-3 py-2 ${align} mono">${num(r.locations_count).toLocaleString()}</td>`);
+          } else if (c.key === "avail_qty"){
+            tds.push(`<td class="px-3 py-2 ${align} mono font-semibold">${num(r.avail_qty).toLocaleString()}</td>`);
+          } else if (c.key === "inv_value"){
+            tds.push(`<td class="px-3 py-2 ${align} mono">${money(r.inv_value)}</td>`);
+          } else if (c.key === "qty_7d"){
+            tds.push(`<td class="px-3 py-2 ${align} mono">${num(r.qty_7d).toLocaleString()}</td>`);
+          } else if (c.key === "sold_30"){
+            tds.push(`<td class="px-3 py-2 ${align} mono">${num(r.sold_30).toLocaleString()}</td>`);
+          } else if (c.key === "qty_90d"){
+            tds.push(`<td class="px-3 py-2 ${align} mono">${num(r.qty_90d).toLocaleString()}</td>`);
+          } else if (c.key === "qty_120d"){
+            tds.push(`<td class="px-3 py-2 ${align} mono">${num(r.qty_120d).toLocaleString()}</td>`);
+          } else if (c.key === "avg_day"){
+            tds.push(`<td class="px-3 py-2 ${align} mono">${num(r.avg_day).toFixed(2)}</td>`);
+          } else if (c.key === "days_oos"){
+            tds.push(`<td class="px-3 py-2 ${align} mono">${days ? days.toFixed(0) : "—"}</td>`);
+          } else if (c.key === "last_sold_date"){
+            tds.push(`<td class="px-3 py-2 ${align} text-xs mono">${lastSoldTxt}</td>`);
+          } else if (c.key === "planner_flag"){
+            tds.push(`<td class="px-3 py-2 ${align}">${planner}</td>`);
+          } else if (c.key === "risk_flag"){
+            tds.push(`<td class="px-3 py-2 ${align}">${riskBadge}</td>`);
+          } else if (c.key === "suggested_po"){
+            const v = (sug === null ? "—" : num(sug).toLocaleString());
+            tds.push(`<td class="px-3 py-2 ${align} mono font-semibold">${v}</td>`);
+          } else if (c.key === "_details"){
+            tds.push(`<td class="px-3 py-2 ${align}">${detailsBtn}</td>`);
+          }
+        }
+
+        return `<tr class="${rowTint}">${tds.join("")}</tr>`;
+      }).join("");
+
+      document.querySelectorAll('input[data-rowchk="1"]').forEach(chk => {
+        chk.addEventListener("change", (e) => {
+          const id = e.target.getAttribute("data-id");
+          toggleSelect(id, e.target.checked);
+          updateKPIs();
+        });
+      });
+
+      document.querySelectorAll('button[data-img]').forEach(btn => {
+        btn.addEventListener("click", () => {
+          const url = btn.getAttribute("data-img");
+          openModal("Product Image", `
+            <div class="flex flex-col gap-3">
+              <div class="text-xs text-slate-600 mono break-all">${escapeHtml(url)}</div>
+              <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <img src="${escapeHtml(url)}" alt="" class="w-full max-h-[70vh] object-contain rounded-lg bg-white" />
+              </div>
+            </div>
+          `);
+        });
+      });
+
+      document.querySelectorAll('button[data-details]').forEach(btn => {
+        btn.addEventListener("click", () => {
+          const id = btn.getAttribute("data-details");
+          if (MODE === "company"){
+            const row = COMPANY.find(x => x._id === id);
+            if (row) openCompanyDetails(row);
+          } else {
+            const row = RAW.find(x => x._id === id);
+            if (row) openLocationDetails(row);
+          }
+        });
+      });
+    }
+
+    function openLocationDetails(row){
+      const seasonalRatio = (num(row.avg_day_90) > 0) ? (num(row.avg_day) / num(row.avg_day_90)) : null;
+      const staleDays = row.last_sold_ms ? daysSince(row.last_sold_ms) : null;
+      const inputs = getStrategyInputs();
+      const gFactor = growthFactorForRow(row, inputs.defaultGrowthPct);
+      const effAvg = effectiveAvgDay(row, inputs.seedAvgDay);
+
+      openModal("Location SKU Details", `
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+          <div class="md:col-span-4">
+            <div class="rounded-xl border border-slate-200 bg-white p-3">
+              <div class="text-xs text-slate-500">Image</div>
+              <div class="mt-2">
+                ${row.image_url
+                  ? `<img src="${escapeHtml(row.image_url)}" class="w-full max-h-64 object-contain rounded-lg border border-slate-200 bg-white" />`
+                  : `<div class="h-40 rounded-lg border border-slate-200 bg-slate-50 grid place-items-center text-slate-400">No image</div>`}
+              </div>
+            </div>
+          </div>
+
+          <div class="md:col-span-8">
+            <div class="rounded-xl border border-slate-200 bg-white p-3">
+              <div class="text-sm font-semibold">${escapeHtml(row.product || "—")}</div>
+              <div class="text-xs text-slate-600 mt-1">${escapeHtml(row.variant || "")}</div>
+
+              <div class="mt-2 flex flex-wrap gap-2">
+                ${plannerBadge(row)}
+                ${driverBadgeForRow(row)}
+                ${row.tag ? `<span class="badge border-slate-200 bg-white text-slate-700">Tag: ${escapeHtml(row.tag)}</span>` : ""}
+                ${row.sub_tag ? `<span class="badge border-slate-200 bg-white text-slate-700">Sub: ${escapeHtml(row.sub_tag)}</span>` : ""}
+                ${row.indicator_group ? `<span class="badge border-slate-200 bg-white text-slate-700">Indicator: ${escapeHtml(row.indicator_group)}</span>` : ""}
+                ${row.collection ? `<span class="badge border-slate-200 bg-white text-slate-700">Collection: ${escapeHtml(row.collection)}</span>` : ""}
+                ${row.product_type ? `<span class="badge border-slate-200 bg-slate-50 text-slate-700">${escapeHtml(row.product_type)}</span>` : ""}
+                ${row.vendor ? `<span class="badge border-slate-200 bg-white text-slate-700">Vendor: ${escapeHtml(row.vendor)}</span>` : ""}
+                ${seasonalRatio !== null ? `<span class="badge border-slate-200 bg-white text-slate-700">Seasonality (30/90): ${seasonalRatio.toFixed(2)}x</span>` : ""}
+                ${staleDays !== null ? `<span class="badge border-slate-200 bg-white text-slate-700">Days since sold: ${staleDays.toFixed(0)}</span>` : ""}
+              </div>
+
+              <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Source</div>
+                  <div class="font-semibold">${escapeHtml(row.source_label || "—")}</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Location</div>
+                  <div class="font-semibold">${escapeHtml(row.location || "—")}</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">SKU</div>
+                  <div class="mono font-semibold">${escapeHtml(row.sku || "—")}</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Barcode</div>
+                  <div class="mono font-semibold">${escapeHtml(row.barcode || "—")}</div>
+                </div>
+              </div>
+
+              <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div class="rounded-lg bg-white border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">On hand</div>
+                  <div class="mono font-semibold">${num(row.avail_qty).toLocaleString()}</div>
+                </div>
+                <div class="rounded-lg bg-white border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Retail value</div>
+                  <div class="mono font-semibold">${money(row.inv_value)}</div>
+                </div>
+                <div class="rounded-lg bg-white border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Avg/Day (30)</div>
+                  <div class="mono font-semibold">${num(row.avg_day).toFixed(2)}</div>
+                </div>
+                <div class="rounded-lg bg-white border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Eff Avg/Day (used)</div>
+                  <div class="mono font-semibold">${effAvg.toFixed(2)}</div>
+                </div>
+              </div>
+
+              <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Strategy</div>
+                  <div class="mono font-semibold">${escapeHtml(STRATEGY)}</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Growth factor</div>
+                  <div class="mono font-semibold">${gFactor.toFixed(2)}x</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Target+Safety days</div>
+                  <div class="mono font-semibold">${(num(el("numTargetCover").value||0)+num(el("numSafetyDays").value||0)).toFixed(0)}</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Suggested PO</div>
+                  <div class="mono font-semibold">${(LAST_SUGGEST.get(row._id) ?? suggestPOQty(row, inputs)).toLocaleString()}</div>
+                </div>
+              </div>
+
+              <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Sold 7d</div>
+                  <div class="mono font-semibold">${num(row.qty_7d).toLocaleString()}</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Sold 30d</div>
+                  <div class="mono font-semibold">${num(row.sold_30).toLocaleString()}</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Sold 90d</div>
+                  <div class="mono font-semibold">${num(row.qty_90d).toLocaleString()}</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Last sold</div>
+                  <div class="mono font-semibold">${escapeHtml(row.last_sold_date || "—")}</div>
+                </div>
+              </div>
+
+              <div class="mt-3 text-xs text-slate-600 mono">
+                gid=${escapeHtml(String(row.gid))} • source_id=${escapeHtml(row.source_id)} • product_tag_id=${escapeHtml(String(row._product_tag_id || ""))}
+              </div>
+            </div>
+          </div>
+        </div>
+      `);
+    }
+
+    function openCompanyDetails(row){
+      const lines = (row.locations || []).slice().sort((a,b) => num(b.avg_day) - num(a.avg_day));
+      const totalAvg = num(row.avg_day) || 0;
+
+      openModal("Company SKU Breakdown", `
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
+          <div class="md:col-span-4">
+            <div class="rounded-xl border border-slate-200 bg-white p-3">
+              <div class="text-xs text-slate-500">Image</div>
+              <div class="mt-2">
+                ${row.image_url
+                  ? `<img src="${escapeHtml(row.image_url)}" class="w-full max-h-64 object-contain rounded-lg border border-slate-200 bg-white" />`
+                  : `<div class="h-40 rounded-lg border border-slate-200 bg-slate-50 grid place-items-center text-slate-400">No image</div>`}
+              </div>
+            </div>
+          </div>
+
+          <div class="md:col-span-8">
+            <div class="rounded-xl border border-slate-200 bg-white p-3">
+              <div class="text-sm font-semibold">${escapeHtml(row.product || "—")}</div>
+              <div class="text-xs text-slate-600 mt-1">
+                <span class="mono">SKU: ${escapeHtml(row.sku || "—")}</span>
+                <span class="mx-2 text-slate-300">•</span>
+                <span class="mono">Barcode: ${escapeHtml(row.barcode || "—")}</span>
+              </div>
+
+              <div class="mt-2 flex flex-wrap gap-2">
+                ${plannerBadge(row)}
+                ${driverBadgeForRow(row)}
+                ${row.tag ? `<span class="badge border-slate-200 bg-white text-slate-700">Tag: ${escapeHtml(row.tag)}</span>` : ""}
+                ${row.sub_tag ? `<span class="badge border-slate-200 bg-white text-slate-700">Sub: ${escapeHtml(row.sub_tag)}</span>` : ""}
+                ${row.indicator_group ? `<span class="badge border-slate-200 bg-white text-slate-700">Indicator: ${escapeHtml(row.indicator_group)}</span>` : ""}
+                ${row.collection ? `<span class="badge border-slate-200 bg-white text-slate-700">Collection: ${escapeHtml(row.collection)}</span>` : ""}
+              </div>
+
+              <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Total On Hand</div>
+                  <div class="mono font-semibold">${num(row.avail_qty).toLocaleString()}</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Retail Value</div>
+                  <div class="mono font-semibold">${money(row.inv_value)}</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Avg/Day (30, Total)</div>
+                  <div class="mono font-semibold">${num(row.avg_day).toFixed(2)}</div>
+                </div>
+                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
+                  <div class="text-[11px] text-slate-500">Company Days to OOS</div>
+                  <div class="mono font-semibold">${num(row.days_oos) ? num(row.days_oos).toFixed(0) : "—"}</div>
+                </div>
+              </div>
+
+              <div class="mt-4 rounded-xl border border-slate-200 overflow-hidden">
+                <div class="px-3 py-2 bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-700">
+                  By Location (demand share = avg/day ÷ company avg/day)
+                </div>
+                <div class="max-h-[45vh] overflow-auto thin-scroll">
+                  <table class="min-w-full text-xs">
+                    <thead class="bg-white border-b border-slate-200">
+                      <tr>
+                        <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">Location</th>
+                        <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">On hand</th>
+                        <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Avg/Day</th>
+                        <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Sold 30d</th>
+                        <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Retail</th>
+                        <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Demand share</th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                      ${lines.map(l => {
+                        const share = totalAvg > 0 ? (num(l.avg_day) / totalAvg) : 0;
+                        return `
+                          <tr>
+                            <td class="px-3 py-2">${escapeHtml(l.location || l.source_label || "—")}</td>
+                            <td class="px-3 py-2 text-right mono">${num(l.avail_qty).toLocaleString()}</td>
+                            <td class="px-3 py-2 text-right mono">${num(l.avg_day).toFixed(2)}</td>
+                            <td class="px-3 py-2 text-right mono">${num(l.sold_30).toLocaleString()}</td>
+                            <td class="px-3 py-2 text-right mono">${money(l.inv_value)}</td>
+                            <td class="px-3 py-2 text-right mono">${(share*100).toFixed(1)}%</td>
+                          </tr>`;
+                      }).join("")}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div class="mt-3 text-xs text-slate-600">
+                Allocation v1 (next): <b>Suggested PO × demand share</b> per location.
+              </div>
+            </div>
+          </div>
+        </div>
+      `);
+    }
+
+    function openColumns(){
+      const cols = currentCols().filter(c => c.key !== "_select" && c.key !== "_details" && c.key !== "image");
+      const rows = cols.map(c => `
+        <label class="flex items-center justify-between gap-3 px-3 py-2 border border-slate-200 rounded-lg hover:bg-slate-50">
+          <div class="text-sm font-semibold text-slate-800">${escapeHtml(c.label || c.key)}</div>
+          <input type="checkbox" data-col="${escapeHtml(c.key)}" class="h-4 w-4" ${VISIBLE[c.key] ? "checked" : ""}/>
+        </label>
+      `).join("");
+
+      openModal("Columns", `
+        <div class="text-xs text-slate-600 mb-3">Toggle columns for the current mode. Image + Details are always on.</div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">${rows}</div>
+        <div class="mt-3 flex gap-2">
+          <button id="btnColsDefault" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Reset Defaults</button>
+          <button id="btnColsAll" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Show All</button>
+        </div>
+      `);
+
+      setTimeout(() => {
+        document.querySelectorAll("input[data-col]").forEach(chk => {
+          chk.addEventListener("change", (e) => {
+            const key = e.target.getAttribute("data-col");
+            VISIBLE[key] = !!e.target.checked;
+            VISIBLE["_details"] = true;
+            VISIBLE["image"] = true;
+            if (MODE === "location") VISIBLE["location"] = true;
+            saveVisible(VISIBLE);
+            render();
+          });
+        });
+
+        const d = document.getElementById("btnColsDefault");
+        const a = document.getElementById("btnColsAll");
+
+        if (d) d.onclick = () => {
+          currentCols().forEach(c => VISIBLE[c.key] = !!c.default);
+          VISIBLE["_details"] = true;
+          VISIBLE["image"] = true;
+          if (MODE === "location") VISIBLE["location"] = true;
+          saveVisible(VISIBLE);
+          render();
+          closeModal();
+        };
+        if (a) a.onclick = () => {
+          currentCols().forEach(c => VISIBLE[c.key] = true);
+          VISIBLE["_details"] = true;
+          VISIBLE["image"] = true;
+          if (MODE === "location") VISIBLE["location"] = true;
+          saveVisible(VISIBLE);
+          render();
+          closeModal();
+        };
+      }, 0);
+    }
+
+    function applyChip(kind){
+      if (kind === "oos7"){ el("numMaxDays").value = 7; el("numMaxQty").value = ""; }
+      else if (kind === "oos14"){ el("numMaxDays").value = 14; el("numMaxQty").value = ""; }
+      else if (kind === "low10"){ el("numMaxQty").value = 10; el("numMaxDays").value = ""; }
+      else if (kind === "clear"){
+        el("numMaxDays").value = "";
+        el("numMaxQty").value = "";
+        el("numMinSold30").value = "";
+        el("txtSearch").value = "";
+        el("selLocation").value = "__ALL__";
+        el("selTagFilter").value = "__ALL__";
+        el("selSubTagFilter").value = "__ALL__";
+        el("selIndicatorFilter").value = "__ALL__";
+      }
+      applyFilters();
+    }
+
+    function updateDraftPeek(){
+      const lines = loadDraft();
+      if (!lines.length){ el("draftPeek").textContent = "Draft empty."; return; }
+      const peek = lines.slice(0, 14).map(l => `${l.sku || "—"} | qty ${num(l.qty)}${l.mode_added_from ? " | " + l.mode_added_from : ""}${l.driver ? " | " + l.driver : ""}`).join("\n");
+      el("draftPeek").textContent = (lines.length > 14 ? peek + `\n… +${lines.length-14} more` : peek);
+    }
+
+    function addSelectedToDraft(){
+      if (!SELECTED.size){
+        openModal("Nothing selected", `<div class="text-slate-700">Select rows to add to a draft PO.</div>`);
+        return;
+      }
+
+      const poName = norm(el("txtPoName").value) || "PO Draft";
+      const vendor = norm(el("txtVendor").value);
+      const eta = norm(el("txtEta").value);
+      const inputs = getStrategyInputs();
+
+      const lines = loadDraft();
+      const index = new Map();
+      lines.forEach((l, idx) => index.set(l.sku, idx));
+
+      const selectedRows = VIEW.filter(r => SELECTED.has(r._id));
+      for (const r of selectedRows){
+        const skuKey = norm(r.sku) || norm(r.barcode) || norm(r.product) || r._id;
+        const qty = (LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : suggestPOQty(r, inputs)) || 0;
+        const driver = deriveDriverCode(r);
+        const driverPct = metaPctOverride(r);
+
+        if (index.has(skuKey)){
+          const i = index.get(skuKey);
+          lines[i].qty = num(lines[i].qty) + qty;
+        } else {
+          lines.push({
+            po_name: poName, vendor, eta,
+            sku: skuKey,
+            product: r.product || "",
+            qty,
+            retail_value_on_hand: num(r.inv_value),
+            avg_day_30: num(r.avg_day),
+            days_oos: num(r.days_oos),
+            sold_30: num(r.sold_30),
+            sold_90: num(r.qty_90d),
+            last_sold_date: r.last_sold_date || "",
+            mode_added_from: MODE,
+            strategy: STRATEGY,
+            driver,
+            driver_pct: driverPct ?? "",
+            tag: r.tag || "",
+            sub_tag: r.sub_tag || "",
+            indicator_group: r.indicator_group || ""
+          });
+          index.set(skuKey, lines.length - 1);
+        }
+      }
+
+      saveDraft(lines);
+      updateDraftPeek();
+
+      openModal("Added to PO Draft", `
+        <div class="text-slate-800">
+          Added <b>${SELECTED.size}</b> row(s) to draft.
+          <div class="mt-2 text-xs text-slate-600">Strategy: <b>${escapeHtml(STRATEGY)}</b>.</div>
+        </div>
+      `);
+    }
+
+    function exportDraft(){
+      const lines = loadDraft();
+      if (!lines.length){ openModal("Draft is empty", `<div class="text-slate-700">Nothing to export yet.</div>`); return; }
+      const out = lines.map(l => ({
+        po_name: l.po_name, vendor: l.vendor, eta: l.eta,
+        sku: l.sku, product: l.product, qty: l.qty,
+        avg_day_30: l.avg_day_30, days_oos: l.days_oos,
+        sold_30: l.sold_30, sold_90: l.sold_90,
+        last_sold_date: l.last_sold_date,
+        retail_value_on_hand: l.retail_value_on_hand,
+        mode_added_from: l.mode_added_from,
+        strategy: l.strategy || "",
+        driver: l.driver || "",
+        driver_pct: l.driver_pct ?? "",
+        tag: l.tag || "",
+        sub_tag: l.sub_tag || "",
+        indicator_group: l.indicator_group || ""
+      }));
+      download(`silo_po_draft_${safeId(lines[0].po_name || "draft")}.csv`, toCSV(out, Object.keys(out[0])));
+    }
+
+    function viewDraft(){
+      const lines = loadDraft();
+      if (!lines.length){ openModal("PO Draft", `<div class="text-slate-700">Draft empty.</div>`); return; }
+      openModal("PO Draft", `
+        <div class="text-xs text-slate-600 mb-2">Lines: <b>${lines.length}</b></div>
+        <div class="overflow-auto max-h-[65vh] border border-slate-200 rounded-lg thin-scroll">
+          <table class="min-w-full text-sm">
+            <thead class="bg-slate-50 border-b border-slate-200">
+              <tr>
+                <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">SKU / Key</th>
+                <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">Product</th>
+                <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">Tag</th>
+                <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">Driver</th>
+                <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Qty</th>
+                <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Sold 30d</th>
+                <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">Mode</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              ${lines.map(l => `
+                <tr>
+                  <td class="px-3 py-2 mono font-semibold">${escapeHtml(l.sku)}</td>
+                  <td class="px-3 py-2">${escapeHtml(l.product || "")}</td>
+                  <td class="px-3 py-2 text-xs">${escapeHtml(l.tag || "—")}</td>
+                  <td class="px-3 py-2 text-xs">${escapeHtml(l.driver || "—")}${(l.driver_pct!=="" && l.driver_pct!==null && l.driver_pct!==undefined) ? ` <span class="text-slate-500">(+${escapeHtml(String(l.driver_pct))}%)</span>` : ""}</td>
+                  <td class="px-3 py-2 text-right mono font-semibold">${num(l.qty).toLocaleString()}</td>
+                  <td class="px-3 py-2 text-right mono">${num(l.sold_30).toLocaleString()}</td>
+                  <td class="px-3 py-2 text-xs text-slate-600">${escapeHtml(l.mode_added_from || "")}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+      `);
+    }
+
+    function exportFiltered(){
+      if (!VIEW.length){ openModal("Export", `<div class="text-slate-700">No rows to export.</div>`); return; }
+      const inputs = getStrategyInputs();
+      const out = VIEW.map(r => ({
+        mode: MODE,
+        strategy: STRATEGY,
+        tag: r.tag || "",
+        sub_tag: r.sub_tag || "",
+        indicator_group: r.indicator_group || "",
+        collection: r.collection || "",
+        driver: deriveDriverCode(r),
+        driver_pct: metaPctOverride(r) ?? "",
+        sku: r.sku,
+        barcode: r.barcode,
+        product: r.product,
+        product_type: r.product_type,
+        variant: r.variant,
+        source: MODE === "location" ? r.source_label : "",
+        location: MODE === "location" ? r.location : "",
+        inv_location: MODE === "location" ? (r.inv_location || "") : "",
+        locations_count: MODE === "company" ? r.locations_count : "",
+        avail_qty: r.avail_qty,
+        inv_value_msrp: r.inv_value,
+        qty_7d: r.qty_7d,
+        qty_30d: r.sold_30,
+        qty_90d: r.qty_90d,
+        qty_120d: r.qty_120d,
+        avg_day_30: r.avg_day,
+        days_oos: r.days_oos,
+        last_sold_date: r.last_sold_date,
+        target_cover_days: inputs.targetCover,
+        safety_days: inputs.safetyDays,
+        default_growth_pct: inputs.defaultGrowthPct,
+        seed_avg_day: inputs.seedAvgDay,
+        suggested_po: (LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : "")
+      }));
+      download(`silo_inventory_${MODE}_filtered_${new Date().toISOString().slice(0,10)}.csv`, toCSV(out, Object.keys(out[0])));
+    }
+
+    function exportSelected(){
+      const selected = VIEW.filter(r => SELECTED.has(r._id));
+      if (!selected.length){ openModal("Export", `<div class="text-slate-700">No selected rows.</div>`); return; }
+      const inputs = getStrategyInputs();
+      const out = selected.map(r => ({
+        mode: MODE,
+        strategy: STRATEGY,
+        tag: r.tag || "",
+        sub_tag: r.sub_tag || "",
+        indicator_group: r.indicator_group || "",
+        collection: r.collection || "",
+        driver: deriveDriverCode(r),
+        driver_pct: metaPctOverride(r) ?? "",
+        sku: r.sku,
+        barcode: r.barcode,
+        product: r.product,
+        variant: r.variant,
+        source: MODE === "location" ? r.source_label : "",
+        location: MODE === "location" ? r.location : "",
+        inv_location: MODE === "location" ? (r.inv_location || "") : "",
+        locations_count: MODE === "company" ? r.locations_count : "",
+        avail_qty: r.avail_qty,
+        inv_value_msrp: r.inv_value,
+        qty_7d: r.qty_7d,
+        qty_30d: r.sold_30,
+        qty_90d: r.qty_90d,
+        qty_120d: r.qty_120d,
+        avg_day_30: r.avg_day,
+        days_oos: r.days_oos,
+        last_sold_date: r.last_sold_date,
+        target_cover_days: inputs.targetCover,
+        safety_days: inputs.safetyDays,
+        default_growth_pct: inputs.defaultGrowthPct,
+        seed_avg_day: inputs.seedAvgDay,
+        suggested_po: (LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : "")
+      }));
+      download(`silo_inventory_${MODE}_selected_${new Date().toISOString().slice(0,10)}.csv`, toCSV(out, Object.keys(out[0])));
+    }
+
+    function setMode(next){
+      MODE = next;
+      SELECTED.clear();
+      LAST_SUGGEST = new Map();
+      PAGE = 1;
+
+      el("btnModeLocation").classList.toggle("active", MODE === "location");
+      el("btnModeCompany").classList.toggle("active", MODE === "company");
+      el("modeLine").textContent = `Mode: ${MODE === "company" ? "Company View" : "Location View"}`;
+
+      renderThead();
+      applyFilters();
+    }
+
+    function setStrategy(next){
+      STRATEGY = next;
+      el("btnStratRepl").classList.toggle("active", STRATEGY === "replenish");
+      el("btnStratGrowth").classList.toggle("active", STRATEGY === "growth");
+      el("btnStratHybrid").classList.toggle("active", STRATEGY === "hybrid");
+
+      if (SUGGEST_ENABLED) computeSuggestions();
+      render();
+    }
+
+    async function upsertProductTagForRow(row, { tag, sub_tag, indicator_group, clear = false }){
+      const title = norm(row.product);
+      const titleKey = normalizeTitleKey(title);
+      if (!title) return;
+
+      const existing = row._product_tag_id ? PRODUCT_TAGS_BY_ID.get(Number(row._product_tag_id)) : matchProductTag(row);
+
+      if (existing){
+        const payload = {
+          tag: clear ? null : (tag || null),
+          sub_tag: clear ? null : (sub_tag || null),
+          indicator_group: clear ? null : (indicator_group || null),
+          current_inventory: num(row.avail_qty),
+          product_category: row.product_type || existing.product_category || null
+        };
+
+        const { error } = await SUPABASE
+          .from("product_tags")
+          .update(payload)
+          .eq("id", existing.id);
+
+        if (error) throw error;
+      } else {
+        const payload = {
+          product_title: title,
+          product_title_key: titleKey || null,
+          product_category: row.product_type || null,
+          collection: null,
+          inline_flag: null,
+          type: null,
+          primary_color: null,
+          artwork_side: null,
+          tag: clear ? null : (tag || null),
+          current_inventory: num(row.avail_qty),
+          notes: null,
+          indicator_group: clear ? null : (indicator_group || null),
+          sub_tag: clear ? null : (sub_tag || null),
+          raw_row: {},
+          uploaded_at: new Date().toISOString()
+        };
+
+        const { error } = await SUPABASE
+          .from("product_tags")
+          .insert([payload]);
+
+        if (error) throw error;
+      }
+    }
+
+    async function applySupabaseTagToSelected({ tag, sub_tag, indicator_group, clear = false }){
+      const selectedRows = VIEW.filter(r => SELECTED.has(r._id));
+      if (!selectedRows.length){
+        openModal("Nothing selected", `<div class="text-slate-700">Select rows first.</div>`);
+        return;
+      }
+
+      try{
+        setStatus(`Saving ${selectedRows.length} selected row(s) to Supabase…`);
+        for (const row of selectedRows){
+          await upsertProductTagForRow(row, { tag, sub_tag, indicator_group, clear });
+        }
+
+        await refreshProductTags();
+
+        RAW = RAW.map(r => enrichRowWithProductTag(r));
+        RAW = collapseLocationRows(RAW);
+        COMPANY = buildCompanyAgg(RAW);
+
+        if (SUGGEST_ENABLED) computeSuggestions();
+        else {
+          applyFilters();
+          render();
+        }
+
+        setStatus(`Saved Supabase metadata for <b>${selectedRows.length}</b> row(s).`);
+      } catch(err){
+        console.error(err);
+        openModal("Save failed", `<div class="text-rose-700">${escapeHtml(err.message || String(err))}</div>`);
+      }
+    }
+
+    function openTagModal(){
+      if (!SELECTED.size){
+        openModal("Tag Selected", `<div class="text-slate-700">Select rows first, then tag them.</div>`);
+        return;
+      }
+
+      openModal("Tag Selected", `
+        <div class="text-slate-800">
+          You have <b>${SELECTED.size}</b> selected row(s).
+          <div class="mt-2 text-xs text-slate-600">This writes to <b>public.product_tags</b>.</div>
+
+          <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+            <div class="md:col-span-4">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Tag</label>
+              <select id="modalDriver" class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                <option value="">Blank</option>
+                <option value="core">Core</option>
+                <option value="hero">Hero</option>
+                <option value="new">New</option>
+                <option value="influencer">Influencer</option>
+                <option value="wholesale">Wholesale</option>
+                <option value="promo">Promo</option>
+                <option value="seasonal">Seasonal</option>
+                <option value="hold">Hold</option>
+                <option value="keep">Keep</option>
+                <option value="review">Review</option>
+              </select>
+            </div>
+
+            <div class="md:col-span-4">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Sub Tag</label>
+              <input id="modalSubTag" type="text" placeholder="optional"
+                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+            </div>
+
+            <div class="md:col-span-3">
+              <label class="block text-xs font-semibold text-slate-700 mb-1">Indicator Group</label>
+              <select id="modalIndicator" class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
+                <option value="">Blank</option>
+                <option value="Situational">Situational</option>
+                <option value="Brand Direction">Brand Direction</option>
+                <option value="Urgency">Urgency</option>
+                <option value="Growth">Growth</option>
+                <option value="Planning">Planning</option>
+              </select>
+            </div>
+
+            <div class="md:col-span-1">
+              <button id="modalApplyTag" class="w-full rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Apply</button>
+            </div>
+          </div>
+        </div>
+      `);
+
+      setTimeout(() => {
+        const btn = document.getElementById("modalApplyTag");
+        if (!btn) return;
+        btn.onclick = async () => {
+          const tag = document.getElementById("modalDriver").value;
+          const sub_tag = document.getElementById("modalSubTag").value;
+          const indicator_group = document.getElementById("modalIndicator").value;
+          closeModal();
+          await applySupabaseTagToSelected({ tag, sub_tag, indicator_group, clear: false });
+        };
+      }, 0);
+    }
+
+    el("btnReload").addEventListener("click", () => loadAll());
+    el("btnColumns").addEventListener("click", openColumns);
+    el("btnExportFiltered").addEventListener("click", exportFiltered);
+
+    el("btnModeLocation").addEventListener("click", () => setMode("location"));
+    el("btnModeCompany").addEventListener("click", () => setMode("company"));
+
+    el("btnMoreFilters").addEventListener("click", () => el("filterDrawer").classList.toggle("hidden"));
+    el("selLocation").addEventListener("change", applyFilters);
+    el("selSort").addEventListener("change", applyFilters);
+    el("selTagFilter").addEventListener("change", applyFilters);
+    el("selSubTagFilter").addEventListener("change", applyFilters);
+    el("selIndicatorFilter").addEventListener("change", applyFilters);
+
+    el("btnApply").addEventListener("click", applyFilters);
+    el("btnClear").addEventListener("click", () => {
+      el("numMaxDays").value = "";
+      el("numMaxQty").value = "";
+      el("numMinSold30").value = "";
+      el("txtSearch").value = "";
+      el("selTagFilter").value = "__ALL__";
+      el("selSubTagFilter").value = "__ALL__";
+      el("selIndicatorFilter").value = "__ALL__";
+      applyFilters();
+    });
+
+    el("numRiskDays").addEventListener("change", applyFilters);
+    el("numTargetCover").addEventListener("change", () => { if (SUGGEST_ENABLED) computeSuggestions(); });
+    el("numSafetyDays").addEventListener("change", () => { if (SUGGEST_ENABLED) computeSuggestions(); });
+    el("numMinReorder").addEventListener("change", () => { if (SUGGEST_ENABLED) computeSuggestions(); });
+    el("numGrowthPct").addEventListener("change", () => { if (SUGGEST_ENABLED) computeSuggestions(); });
+    el("numSeedAvgDay").addEventListener("change", () => { if (SUGGEST_ENABLED) computeSuggestions(); });
+
+    el("txtSearch").addEventListener("keydown", (e) => { if (e.key === "Enter") applyFilters(); });
+    document.querySelectorAll("button[data-chip]").forEach(b => {
+      b.addEventListener("click", () => applyChip(b.getAttribute("data-chip")));
+    });
+
+    el("btnPrev").addEventListener("click", () => { PAGE = Math.max(1, PAGE - 1); render(); });
+    el("btnNext").addEventListener("click", () => {
+      const pages = Math.max(1, Math.ceil(VIEW.length / PAGE_SIZE));
+      PAGE = Math.min(pages, PAGE + 1);
+      render();
+    });
+
+    el("btnSuggestPO").addEventListener("click", () => {
+      SUGGEST_ENABLED = true;
+      computeSuggestions();
+    });
+
+    el("btnTagSelected").addEventListener("click", openTagModal);
+
+    el("btnApplyTag").addEventListener("click", async () => {
+      await applySupabaseTagToSelected({
+        tag: el("selDriver").value,
+        sub_tag: el("txtSupabaseSubTag").value,
+        indicator_group: el("selIndicatorGroup").value,
+        clear: false
+      });
+      el("txtSupabaseSubTag").value = "";
+    });
+
+    el("btnClearTags").addEventListener("click", async () => {
+      if (!SELECTED.size){
+        openModal("Clear Selected Tag Fields", `<div class="text-slate-700">Select rows first.</div>`);
+        return;
+      }
+      openModal("Clear Selected Tag Fields?", `
+        <div class="text-slate-800">
+          This will blank out <b>tag</b>, <b>sub_tag</b>, and <b>indicator_group</b> for the selected matched product tag rows.
+          <div class="mt-3 flex gap-2">
+            <button id="btnConfirmClearTags" class="rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Clear Selected</button>
+            <button id="btnCancelClearTags" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Cancel</button>
+          </div>
+        </div>
+      `);
+      setTimeout(() => {
+        const c = document.getElementById("btnConfirmClearTags");
+        const x = document.getElementById("btnCancelClearTags");
+        if (c) c.onclick = async () => {
+          closeModal();
+          await applySupabaseTagToSelected({ tag: "", sub_tag: "", indicator_group: "", clear: true });
+        };
+        if (x) x.onclick = () => closeModal();
+      }, 0);
+    });
+
+    el("btnAddSelectedToDraft").addEventListener("click", addSelectedToDraft);
+    el("btnExportDraft").addEventListener("click", exportDraft);
+    el("btnViewDraft").addEventListener("click", viewDraft);
+    el("btnClearDraft").addEventListener("click", () => { saveDraft([]); updateDraftPeek(); });
+
+    el("btnExportSelected").addEventListener("click", exportSelected);
+    el("btnClearSelection").addEventListener("click", () => {
+      SELECTED.clear();
+      el("kSelected").textContent = "0";
+      render();
+    });
+
+    el("btnCloseModal").addEventListener("click", closeModal);
+    el("modal").addEventListener("click", (e) => {
+      if (e.target && e.target.getAttribute && e.target.getAttribute("data-modal-overlay") === "1") closeModal();
+    });
+
+    el("btnStratRepl").addEventListener("click", () => setStrategy("replenish"));
+    el("btnStratGrowth").addEventListener("click", () => setStrategy("growth"));
+    el("btnStratHybrid").addEventListener("click", () => setStrategy("hybrid"));
+
+    (async function boot(){
+      const ok = await initAuth();
+      if (!ok) return;
+
+      initVisible();
+      renderThead();
+      renderLocationDropdown();
+      updateDraftPeek();
+      await loadAll();
+    })();
+  </script>
+</body>
+</html>
