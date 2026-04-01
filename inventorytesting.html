@@ -807,8 +807,7 @@
       });
       const extra = lines.length > 8 ? `
 … +${lines.length - 8} more line(s)` : "";
-      node.textContent = [`${lines.length} line(s) • Total Qty ${totalQty.toLocaleString()}`, ...preview].join("
-") + extra;
+      node.textContent = [`${lines.length} line(s) • Total Qty ${totalQty.toLocaleString()}`, ...preview].join("\n") + extra;
     }
 
     function openColumnsModal(){
