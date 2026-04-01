@@ -772,12 +772,11 @@
       const cols = headers && headers.length ? headers : [...new Set(rows.flatMap(r => Object.keys(r || {})))];
       const esc = (v) => {
         const s = (v ?? "").toString();
-        return /[",
-]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+        return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
       };
-      return [cols.join(","), ...rows.map(r => cols.map(h => esc(r?.[h])).join(","))].join("
-");
+      return [cols.join(","), ...rows.map(r => cols.map(h => esc(r?.[h])).join(","))].join("\n");
     }
+
 
     function download(filename, content, mime = "text/csv;charset=utf-8;"){
       const blob = new Blob([content], { type: mime });
