@@ -173,6 +173,14 @@
           </div>
 
           <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3">
+            <div class="md:col-span-10"></div>
+            <div class="md:col-span-2 flex gap-2">
+              <button id="btnApply" class="w-full rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Apply</button>
+              <button id="btnClear" class="w-full rounded-lg px-3 py-2 text-sm font-medium btn">Reset</button>
+            </div>
+          </div>
+
+          <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3">
             <div class="md:col-span-6">
               <div class="rounded-lg border border-slate-200 bg-white p-3">
                 <div class="flex items-center justify-between gap-2">
@@ -282,49 +290,9 @@
                   </div>
                 </div>
 
-                <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3">
-                  <div class="md:col-span-6">
-                    <div class="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 leading-relaxed">
-                      <div class="font-semibold text-slate-800 mb-1">Join behavior</div>
-                      Inventory rows first try <b>product_title_key</b>, then exact <b>product title</b> against Supabase tags.
-                    </div>
-                  </div>
-                  <div class="md:col-span-6">
-                    <div class="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 leading-relaxed">
-                      <div class="font-semibold text-slate-800 mb-1">Planner behavior</div>
-                      Driver badges and growth logic are derived from live tag / sub tag / indicator metadata instead of local browser storage.
-                    </div>
-                  </div>
-                </div>
-
                 <div class="mt-3 flex gap-2">
                   <button id="btnClearTags" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Clear Selected Tag Fields</button>
                 </div>
-              </div>
-            </div>
-          </div>
-
-          <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3">
-            <div class="md:col-span-4 text-xs text-slate-600 flex items-end">
-              <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 w-full">
-                <div class="font-semibold text-slate-800">Sales merge</div>
-                <div class="mt-1 leading-relaxed">
-                  Each location can define a <span class="kbd">sales_summary CSV</span> to override velocity and add 7/30/90/120 + last sold.
-                </div>
-              </div>
-            </div>
-            <div class="md:col-span-4 text-xs text-slate-600 flex items-end">
-              <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 w-full">
-                <div class="font-semibold text-slate-800">Supabase metadata</div>
-                <div class="mt-1 leading-relaxed">
-                  Tags, collection, indicator group, and sub tag now come from <span class="kbd">public.product_tags</span>.
-                </div>
-              </div>
-            </div>
-            <div class="md:col-span-4 text-xs text-slate-600 flex items-end">
-              <div class="rounded-lg border border-slate-200 bg-white p-3 w-full leading-relaxed">
-                <div class="font-semibold text-slate-800 mb-1">Next step</div>
-                Move planner-only fields into a dedicated table later if you want more control than tag/sub-tag driven logic.
               </div>
             </div>
           </div>
@@ -385,11 +353,6 @@
               <div id="kSelected" class="text-lg font-bold mono">0</div>
             </div>
           </div>
-
-          <div class="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-            <span class="font-semibold">Planner tip:</span>
-            Use Company View to draft the buy, then drill into a SKU to see location demand share and attached metadata.
-          </div>
         </div>
 
         <div class="lg:col-span-4 rounded-xl border border-slate-200 bg-white p-4">
@@ -431,11 +394,6 @@
             <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
               <div class="text-xs font-semibold text-slate-700">Draft peek</div>
               <pre id="draftPeek" class="mt-2 text-xs text-slate-700 max-h-44 overflow-auto thin-scroll">Draft empty.</pre>
-            </div>
-
-            <div class="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-600 leading-relaxed">
-              <div class="font-semibold text-slate-800 mb-1">Next enhancement</div>
-              Allocate company suggested PO to locations by demand share, then round + apply min transfer rules.
             </div>
           </div>
         </div>
@@ -484,54 +442,19 @@
 
     let SUPABASE = null;
     let SESSION = null;
+    let APP_READY = false;
 
     const SHEET_ID = "1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0";
-
     const SHEET_TABS = [
-      {
-        label: "Online",
-        gid: 0,
-        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRRZETeD2kKpL4vMvXnn4Z-xyb6M_oQ6u9cOSJts_YTLnGXrvMPhlhe0XQuL5VAYLlGlxSvQdUfxycp/pub?gid=481096073&single=true&output=csv"
-      },
-      {
-        label: "Atlanta",
-        gid: 186382360,
-        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTrGtyPQZ9UZY0xn1vk49Aapc5PVpWTMfCctjyNH8K3rLrjUifqaxqZPC5vpA91FTdFm_yNdNhaThxY/pub?gid=1350148138&single=true&output=csv"
-      },
-      {
-        label: "Scottsdale",
-        gid: 1686608564,
-        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRisfYgm-JqLdAW4GrAl_K3dNPJxadE5VaQ7Fzju8vaWv9zEyXGJk6d5ZfM6owfhvHHz_Q-B36FuUqo/pub?gid=1328363473&single=true&output=csv"
-      },
-      {
-        label: "St. Louis",
-        gid: 702923083,
-        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSvg4es9sqAsE6jzjea7Fw7vye8IoKH_UK8JJzGg8GXqtZFsvE2qBbvVp0ziSWibh6F1mB6QOy4Vr7h/pub?gid=1410428296&single=true&output=csv"
-      },
-      {
-        label: "Mission Viejo",
-        gid: 948572027,
-        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSrVrtbatItRNJttp-6kFQE1m7XEWbPpRo6zIAqS3GBmNMqtoHuUemQK8-TR8Ya3QIMRVpJ-4ZvpUtu/pub?gid=589960408&single=true&output=csv"
-      },
-      {
-        label: "Texas",
-        gid: 335482043,
-        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSN19QBHslssiO4QpVXHxqfScuKqc9Rd0gzwuOGhIMnDa9H2HxlL0QmTDMHbbEfsaOVUzMhqkUj7uUr/pub?gid=679482519&single=true&output=csv"
-      },
-      {
-        label: "Field of Dreams",
-        gid: 1737418391,
-        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQNcbG_a-H8vmNF7Qm3S_n5a3MTuMZvsicODjImal2jylO74gB--3Mpgv9cCPG37WG4HFvshUrIfDdM/pub?gid=343232419&single=true&output=csv"
-      },
-      {
-        label: "Cooperstown",
-        gid: 1924417187,
-        sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTZDCPonNizaXhEklZp8ovhc_Iti725FpgZzyeu_rovAceUq9obq_AKvo0a7u-5SotcJh4xi-FC3FAv/pub?gid=965359182&single=true&output=csv"
-      }
+      { label: "Online", gid: 0, sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRRZETeD2kKpL4vMvXnn4Z-xyb6M_oQ6u9cOSJts_YTLnGXrvMPhlhe0XQuL5VAYLlGlxSvQdUfxycp/pub?gid=481096073&single=true&output=csv" },
+      { label: "Atlanta", gid: 186382360, sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTrGtyPQZ9UZY0xn1vk49Aapc5PVpWTMfCctjyNH8K3rLrjUifqaxqZPC5vpA91FTdFm_yNdNhaThxY/pub?gid=1350148138&single=true&output=csv" },
+      { label: "Scottsdale", gid: 1686608564, sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRisfYgm-JqLdAW4GrAl_K3dNPJxadE5VaQ7Fzju8vaWv9zEyXGJk6d5ZfM6owfhvHHz_Q-B36FuUqo/pub?gid=1328363473&single=true&output=csv" },
+      { label: "St. Louis", gid: 702923083, sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSvg4es9sqAsE6jzjea7Fw7vye8IoKH_UK8JJzGg8GXqtZFsvE2qBbvVp0ziSWibh6F1mB6QOy4Vr7h/pub?gid=1410428296&single=true&output=csv" },
+      { label: "Mission Viejo", gid: 948572027, sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSrVrtbatItRNJttp-6kFQE1m7XEWbPpRo6zIAqS3GBmNMqtoHuUemQK8-TR8Ya3QIMRVpJ-4ZvpUtu/pub?gid=589960408&single=true&output=csv" },
+      { label: "Texas", gid: 335482043, sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vSN19QBHslssiO4QpVXHxqfScuKqc9Rd0gzwuOGhIMnDa9H2HxlL0QmTDMHbbEfsaOVUzMhqkUj7uUr/pub?gid=679482519&single=true&output=csv" },
+      { label: "Field of Dreams", gid: 1737418391, sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQNcbG_a-H8vmNF7Qm3S_n5a3MTuMZvsicODjImal2jylO74gB--3Mpgv9cCPG37WG4HFvshUrIfDdM/pub?gid=343232419&single=true&output=csv" },
+      { label: "Cooperstown", gid: 1924417187, sales_csv: "https://docs.google.com/spreadsheets/d/e/2PACX-1vTZDCPonNizaXhEklZp8ovhc_Iti725FpgZzyeu_rovAceUq9obq_AKvo0a7u-5SotcJh4xi-FC3FAv/pub?gid=965359182&single=true&output=csv" }
     ];
-
-    const MAX_LOCATIONS = 20;
-    if (SHEET_TABS.length > MAX_LOCATIONS) SHEET_TABS.length = MAX_LOCATIONS;
 
     function gidToCsvUrl(gid){
       return `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid=${encodeURIComponent(gid)}`;
@@ -587,13 +510,12 @@
     let LAST_SUGGEST = new Map();
     let SUGGEST_ENABLED = false;
 
-    const COLS_KEY = "silo_inv_cols_v6_supabase_tags";
+    const COLS_KEY = "silo_inv_cols_v6_supabase_tags_fixed";
     let VISIBLE = null;
 
     let LOAD_SEQ = 0;
     let IS_LOADING = false;
     let ACTIVE_ABORT = null;
-
     let STRATEGY = "replenish";
 
     let PRODUCT_TAG_ROWS = [];
@@ -601,7 +523,7 @@
     let PRODUCT_TAGS_BY_TITLE_KEY = new Map();
     let PRODUCT_TAGS_BY_EXACT_TITLE = new Map();
 
-    const DRAFT_KEY = "silo_po_draft_v6_supabase_tags";
+    const DRAFT_KEY = "silo_po_draft_v6_supabase_tags_fixed";
     function loadDraft(){ try{ return JSON.parse(localStorage.getItem(DRAFT_KEY) || "[]"); } catch(e){ return []; } }
     function saveDraft(lines){ localStorage.setItem(DRAFT_KEY, JSON.stringify(lines)); }
 
@@ -692,7 +614,6 @@
       if (!ms) return null;
       return (Date.now() - ms) / (1000*60*60*24);
     }
-
     function normalizeTitleKey(v){
       return String(v ?? "")
         .trim()
@@ -704,20 +625,16 @@
         .replace(/-+/g, "-");
     }
 
-    function authGuardError(msg){
-      document.body.innerHTML = `<div style="padding:24px;font-family:Inter,system-ui,sans-serif;">${escapeHtml(msg)}</div>`;
-    }
-
     async function initAuth(){
       if (!SUPABASE_URL || !SUPABASE_ANON_KEY){
-        authGuardError("Missing Supabase config in /financehub/pages/config.js");
+        document.body.innerHTML = `<div style="padding:24px;font-family:Inter,system-ui,sans-serif;">Missing Supabase config in /financehub/pages/config.js</div>`;
         return false;
       }
 
       SUPABASE = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
       const { data, error } = await SUPABASE.auth.getSession();
-
       if (error) console.warn(error);
+
       if (!data?.session){
         window.location.href = LOGIN_PATH;
         return false;
@@ -725,12 +642,6 @@
 
       SESSION = data.session;
       el("authEmail").textContent = data.session.user?.email || "Signed in";
-
-      el("logoutBtn").addEventListener("click", async () => {
-        try { await SUPABASE.auth.signOut(); } catch(e){ console.warn(e); }
-        window.location.href = LOGIN_PATH;
-      });
-
       return true;
     }
 
@@ -746,13 +657,7 @@
     }
 
     function deriveDriverCode(row){
-      const blob = [
-        row.tag || "",
-        row.sub_tag || "",
-        row.indicator_group || "",
-        row.notes || ""
-      ].join(" ").toLowerCase();
-
+      const blob = [row.tag || "", row.sub_tag || "", row.indicator_group || "", row.notes || ""].join(" ").toLowerCase();
       if (/\bwholesale\b/.test(blob)) return "wholesale";
       if (/\binfluencer\b/.test(blob)) return "influencer";
       if (/\bhero\b/.test(blob)) return "hero";
@@ -785,11 +690,9 @@
     function driverBadgeForRow(r){
       const driver = deriveDriverCode(r);
       const pct = metaPctOverride(r);
-
       if (driver === "none"){
         return `<span class="badge border-slate-200 bg-white text-slate-500">—</span>`;
       }
-
       const cls =
         driver === "hero" ? "border-emerald-200 bg-emerald-50 text-emerald-900" :
         driver === "new" ? "border-indigo-200 bg-indigo-50 text-indigo-900" :
@@ -798,7 +701,6 @@
         driver === "wholesale" ? "border-sky-200 bg-sky-50 text-sky-900" :
         driver === "seasonal" ? "border-orange-200 bg-orange-50 text-orange-900" :
         "border-slate-200 bg-white text-slate-800";
-
       const pctTxt = pct !== null ? ` • +${pct}%` : "";
       return `<span class="badge ${cls}">${escapeHtml(driverLabel(driver))}${pctTxt}</span>`;
     }
@@ -819,7 +721,7 @@
       if (!VISIBLE){
         VISIBLE = {};
         [...COLS_LOCATION, ...COLS_COMPANY].forEach(c => {
-          if (!(c.key in VISIBLE)) VISIBLE[c.key] = !!c.default;
+          if (c && c.key) VISIBLE[c.key] = !!c.default;
         });
       }
       VISIBLE["_details"] = true;
@@ -828,7 +730,6 @@
     }
 
     function currentCols(){ return MODE === "company" ? COLS_COMPANY : COLS_LOCATION; }
-
     function setStatus(html){ el("statusLine").innerHTML = html; }
 
     function parseCSV(text){
@@ -930,6 +831,7 @@
     }
 
     async function loadProductTagsPaginated(){
+      if (!SUPABASE) throw new Error("Supabase client not initialized.");
       const out = [];
       let from = 0;
 
@@ -961,14 +863,10 @@
         PRODUCT_TAGS_BY_ID.set(Number(row.id), row);
 
         const key = norm(row.product_title_key);
-        if (key && !PRODUCT_TAGS_BY_TITLE_KEY.has(key)){
-          PRODUCT_TAGS_BY_TITLE_KEY.set(key, row);
-        }
+        if (key && !PRODUCT_TAGS_BY_TITLE_KEY.has(key)) PRODUCT_TAGS_BY_TITLE_KEY.set(key, row);
 
         const exact = norm(row.product_title).toLowerCase();
-        if (exact && !PRODUCT_TAGS_BY_EXACT_TITLE.has(exact)){
-          PRODUCT_TAGS_BY_EXACT_TITLE.set(exact, row);
-        }
+        if (exact && !PRODUCT_TAGS_BY_EXACT_TITLE.has(exact)) PRODUCT_TAGS_BY_EXACT_TITLE.set(exact, row);
       }
     }
 
@@ -981,6 +879,7 @@
     function renderTagFilterOptions(){
       const fill = (id, values, label) => {
         const node = el(id);
+        if (!node) return;
         const current = node.value || "__ALL__";
         node.innerHTML = `<option value="__ALL__">${label}</option>`;
         values.forEach(v => {
@@ -1010,10 +909,8 @@
 
     function enrichRowWithProductTag(row){
       const match = matchProductTag(row);
-
       row._product_tag_id = match ? Number(match.id) : null;
       row.product_title_key = normalizeTitleKey(row.product || "");
-
       row.tag = match?.tag || "";
       row.sub_tag = match?.sub_tag || "";
       row.indicator_group = match?.indicator_group || "";
@@ -1022,7 +919,6 @@
       row.primary_color = match?.primary_color || "";
       row.artwork_side = match?.artwork_side || "";
       row.notes = match?.notes || "";
-
       return row;
     }
 
@@ -1033,7 +929,6 @@
 
       const lastMs = row.last_sold_ms || null;
       const staleDays = lastMs ? daysSince(lastMs) : null;
-
       const avg90 = num(row.avg_day_90);
       const seasonalRatio = (avg90 > 0) ? (avg30 / avg90) : null;
 
@@ -1071,7 +966,6 @@
 
     function collapseLocationRows(rows){
       const byKey = new Map();
-
       const keyFor = (r) => {
         const sku = norm(r.sku);
         if (sku) return `SKU::${r.source_id}::${sku}`;
@@ -1086,17 +980,13 @@
         const k = keyFor(r);
 
         if (!byKey.has(k)){
-          byKey.set(k, {
-            ...r,
-            inv_locations: new Set(r.inv_location ? [r.inv_location] : [])
-          });
+          byKey.set(k, { ...r, inv_locations: new Set(r.inv_location ? [r.inv_location] : []) });
           continue;
         }
 
         const agg = byKey.get(k);
         agg.avail_qty += num(r.avail_qty);
         agg.inv_value += num(r.inv_value);
-
         if (r.inv_location) agg.inv_locations.add(r.inv_location);
 
         agg.qty_7d = Math.max(num(agg.qty_7d), num(r.qty_7d));
@@ -1122,9 +1012,6 @@
         if (!agg.sub_tag && r.sub_tag) agg.sub_tag = r.sub_tag;
         if (!agg.indicator_group && r.indicator_group) agg.indicator_group = r.indicator_group;
         if (!agg.collection && r.collection) agg.collection = r.collection;
-        if (!agg.inline_flag && r.inline_flag) agg.inline_flag = r.inline_flag;
-        if (!agg.primary_color && r.primary_color) agg.primary_color = r.primary_color;
-        if (!agg.artwork_side && r.artwork_side) agg.artwork_side = r.artwork_side;
         if (!agg.notes && r.notes) agg.notes = r.notes;
       }
 
@@ -1184,15 +1071,11 @@
             sub_tag: r.sub_tag || "",
             indicator_group: r.indicator_group || "",
             collection: r.collection || "",
-            inline_flag: r.inline_flag || "",
-            primary_color: r.primary_color || "",
-            artwork_side: r.artwork_side || "",
             notes: r.notes || ""
           });
         }
 
         const agg = byKey.get(key);
-
         agg.avail_qty += num(r.avail_qty);
         agg.inv_value += num(r.inv_value);
         agg.qty_7d += num(r.qty_7d);
@@ -1223,13 +1106,6 @@
           last_sold_date: r.last_sold_date || "",
           last_sold_ms: r.last_sold_ms || null
         });
-
-        if (!agg.image_url && r.image_url) agg.image_url = r.image_url;
-        if (!agg.product && r.product) agg.product = r.product;
-        if (!agg.product_type && r.product_type) agg.product_type = r.product_type;
-        if (!agg.variant && r.variant) agg.variant = r.variant;
-        if (!agg.sku && r.sku) agg.sku = r.sku;
-        if (!agg.barcode && r.barcode) agg.barcode = r.barcode;
       }
 
       const out = [];
@@ -1255,8 +1131,7 @@
         opt.textContent = s.location_label;
         sel.appendChild(opt);
       });
-      if ([...sel.options].some(o => o.value === current)) sel.value = current;
-      else sel.value = "__ALL__";
+      sel.value = [...sel.options].some(o => o.value === current) ? current : "__ALL__";
     }
 
     function setLoadingUI(on){
@@ -1283,25 +1158,19 @@
         const k = keyFor(r);
         m.set(k, (m.get(k) || 0) + 1);
       }
-      let dupGroups = 0;
-      let extraRows = 0;
+      let dupGroups = 0, extraRows = 0;
       for (const c of m.values()){
-        if (c > 1){
-          dupGroups++;
-          extraRows += (c - 1);
-        }
+        if (c > 1){ dupGroups++; extraRows += (c - 1); }
       }
       return { dupGroups, extraRows };
     }
 
     async function loadAll(){
+      if (!APP_READY || !SUPABASE) return;
       if (IS_LOADING) return;
 
       const mySeq = ++LOAD_SEQ;
-
-      if (ACTIVE_ABORT){
-        try{ ACTIVE_ABORT.abort(); }catch(e){}
-      }
+      if (ACTIVE_ABORT){ try{ ACTIVE_ABORT.abort(); }catch(e){} }
       ACTIVE_ABORT = new AbortController();
       const { signal } = ACTIVE_ABORT;
 
@@ -1346,16 +1215,12 @@
               try{
                 const salesParsed = await fetchCsvObjects(src.sales_csv, signal);
                 if (mySeq !== LOAD_SEQ) return;
-
                 salesCount = salesParsed.rows.length;
                 const salesHeaders = new Set(salesParsed.headers);
                 const need = [SH.sku, SH.qty_30d, SH.avg_day_30, SH.last_sold_date];
                 const miss = need.filter(k => !salesHeaders.has(k));
-                if (miss.length){
-                  salesWarn = `sales_summary missing: ${miss.join(" | ")}`;
-                } else {
-                  salesMap = buildSalesMap(salesParsed.rows);
-                }
+                if (miss.length) salesWarn = `sales_summary missing: ${miss.join(" | ")}`;
+                else salesMap = buildSalesMap(salesParsed.rows);
               } catch(e){
                 salesWarn = (e && e.name === "AbortError") ? "aborted" : `sales_summary failed: ${e.message || String(e)}`;
               }
@@ -1363,7 +1228,7 @@
 
             const required = [H.sku, H.avail_qty, H.inv_value];
             const missing = required.filter(k => !invHeaders.has(k));
-            if (missing.length){
+            if (missing.length) {
               results.push({ source: src, warning: `Missing inventory columns: ${missing.join(" | ")}` });
             } else {
               results.push({ source: src, ok: invParsed.rows.length, sales_ok: salesCount, sales_warn: salesWarn });
@@ -1392,22 +1257,19 @@
               const qty30 = s ? s.qty_30d : invSold30;
               const qty90 = s ? s.qty_90d : 0;
               const qty120 = s ? s.qty_120d : 0;
-
               const avg30 = s ? s.avg_day_30 : invAvgDay;
               const avg90 = s ? s.avg_day_90 : (qty90 ? qty90/90 : 0);
               const avg120 = s ? s.avg_day_120 : (qty120 ? qty120/120 : 0);
-
               const daysOos = (avg30 > 0) ? (avail / avg30) : (invDaysOos || 0);
               const lastSold = s ? (s.last_sold_date || "") : "";
               const lastSoldMs = s ? (s.last_sold_ms || null) : null;
-
               const prodName = (s && s.product_name) ? s.product_name : product;
               const prodType = (s && s.product_type) ? s.product_type : invProductType;
               const vendor = (s && s.vendor) ? s.vendor : "";
 
               const rid = `${src.source_id}::${location}::${sku || barcode || product || "row"}::${variant || ""}::${idx}`;
 
-              const row = {
+              return enrichRowWithProductTag({
                 _id: rid,
                 source_id: src.source_id,
                 source_label: src.location_label,
@@ -1433,14 +1295,9 @@
                 days_oos: daysOos,
                 last_sold_date: lastSold,
                 last_sold_ms: lastSoldMs,
-                _inv_sold30: invSold30,
-                _inv_avgday: invAvgDay,
-                _inv_daysoos: invDaysOos,
                 image_url: img,
-                _raw: o
-              };
-
-              return enrichRowWithProductTag(row);
+                notes: ""
+              });
             });
 
             tmpRows.push(...mapped);
@@ -1454,33 +1311,22 @@
         if (mySeq !== LOAD_SEQ) return;
 
         const dupStats = countLooseDupes(tmpRows);
-        tmpRows = collapseLocationRows(tmpRows);
-        RAW = tmpRows;
+        RAW = collapseLocationRows(tmpRows);
         COMPANY = buildCompanyAgg(RAW);
-
         applyFilters();
 
         const warn = results.filter(r => r.warning).length;
         const bad = results.filter(r => r.error).length;
 
         let msg = `Loaded <b>${RAW.length.toLocaleString()}</b> location-rows from <b>${SOURCES.length}</b> tab(s).`;
-
         const salesGood = results.filter(r => r.sales_ok && !r.sales_warn).length;
         const salesAny = results.filter(r => r.sales_ok).length;
-        if (salesAny){
-          msg += ` <span class="text-slate-600">Sales summaries: <b>${salesGood}</b> ok / <b>${salesAny}</b> present.</span>`;
-        }
+        if (salesAny) msg += ` <span class="text-slate-600">Sales summaries: <b>${salesGood}</b> ok / <b>${salesAny}</b> present.</span>`;
         if (warn) msg += ` <span class="text-amber-700 font-semibold">${warn} tab(s) missing inventory columns.</span>`;
         if (bad) msg += ` <span class="text-rose-700 font-semibold">${bad} tab(s) failed.</span>`;
-        if (dupStats.dupGroups){
-          msg += ` <span class="text-slate-600">Collapsed <b>${dupStats.extraRows.toLocaleString()}</b> extra inv-rows across <b>${dupStats.dupGroups.toLocaleString()}</b> duplicate SKU groups.</span>`;
-        }
-        if (tagLoadWarning){
-          msg += ` <span class="text-amber-700 font-semibold">${escapeHtml(tagLoadWarning)}</span>`;
-        } else {
-          msg += ` <span class="text-slate-600">Supabase tags loaded: <b>${PRODUCT_TAG_ROWS.length.toLocaleString()}</b>.</span>`;
-        }
-
+        if (dupStats.dupGroups) msg += ` <span class="text-slate-600">Collapsed <b>${dupStats.extraRows.toLocaleString()}</b> extra inv-rows across <b>${dupStats.dupGroups.toLocaleString()}</b> duplicate SKU groups.</span>`;
+        if (tagLoadWarning) msg += ` <span class="text-amber-700 font-semibold">${escapeHtml(tagLoadWarning)}</span>`;
+        else msg += ` <span class="text-slate-600">Supabase tags loaded: <b>${PRODUCT_TAG_ROWS.length.toLocaleString()}</b>.</span>`;
         setStatus(msg);
 
       } finally {
@@ -1504,7 +1350,7 @@
 
     function applyFilters(){
       const { source, q, maxDays, maxQty, minSold30, tag, subTag, indicator, sort } = currentFilters();
-      const base = (MODE === "company") ? COMPANY : RAW;
+      const base = MODE === "company" ? COMPANY : RAW;
 
       VIEW = base.filter(r => {
         if (source !== "__ALL__"){
@@ -1527,7 +1373,6 @@
         }
         if (maxQty !== null && num(r.avail_qty) > maxQty) return false;
         if (minSold30 !== null && num(r.sold_30) < minSold30) return false;
-
         if (tag !== "__ALL__" && norm(r.tag) !== tag) return false;
         if (subTag !== "__ALL__" && norm(r.sub_tag) !== subTag) return false;
         if (indicator !== "__ALL__" && norm(r.indicator_group) !== indicator) return false;
@@ -1588,7 +1433,6 @@
     function growthFactorForRow(row, defaultGrowthPct){
       const driver = deriveDriverCode(row);
       const pctOverride = metaPctOverride(row);
-
       const driverDefaults = {
         core: 0,
         hero: Math.max(defaultGrowthPct, 30),
@@ -1599,7 +1443,6 @@
         seasonal: Math.max(defaultGrowthPct, 20),
         none: 0
       };
-
       let pct = pctOverride !== null ? pctOverride : (driverDefaults[driver] ?? defaultGrowthPct);
 
       if (STRATEGY === "replenish") return 1.0;
@@ -1614,14 +1457,10 @@
     function effectiveAvgDay(row, seedAvgDay){
       const avg30 = num(row.avg_day);
       if (avg30 > 0) return avg30;
-
       const sold7 = num(row.qty_7d);
       if (sold7 > 0) return sold7 / 7;
-
       const driver = deriveDriverCode(row);
-      if (["new","hero","influencer","promo"].includes(driver)){
-        return Math.max(0, seedAvgDay);
-      }
+      if (["new","hero","influencer","promo"].includes(driver)) return Math.max(0, seedAvgDay);
       return 0;
     }
 
@@ -1629,12 +1468,10 @@
       const { targetCover, safetyDays, minReorder, defaultGrowthPct, seedAvgDay } = inputs;
       const avg = effectiveAvgDay(row, seedAvgDay);
       if (avg <= 0) return 0;
-
       const factor = growthFactorForRow(row, defaultGrowthPct);
       const coverDays = Math.max(0, targetCover) + Math.max(0, safetyDays);
       const targetUnits = coverDays * avg * factor;
       const needed = Math.max(Math.ceil(targetUnits - num(row.avail_qty)), 0);
-
       if (needed < (minReorder || 0)) return 0;
       return needed;
     }
@@ -1659,7 +1496,6 @@
       let units = 0, retail = 0, sold30 = 0;
       let riskCount = 0, riskRetail = 0;
       let daysSum = 0, daysCount = 0;
-
       const riskThr = num(el("numRiskDays").value || 14);
       const soldSeen = new Set();
 
@@ -1676,10 +1512,7 @@
           const sku = norm(r.sku);
           if (sku){
             const k = `${r.source_id}::${sku}`;
-            if (!soldSeen.has(k)){
-              soldSeen.add(k);
-              sold30 += s;
-            }
+            if (!soldSeen.has(k)){ soldSeen.add(k); sold30 += s; }
           } else {
             sold30 += s;
           }
@@ -1689,10 +1522,7 @@
 
         if (d > 0){
           daysSum += d; daysCount++;
-          if (d <= riskThr){
-            riskCount++;
-            riskRetail += v;
-          }
+          if (d <= riskThr){ riskCount++; riskRetail += v; }
         }
       }
 
@@ -1707,20 +1537,20 @@
     }
 
     function renderThead(){
+      if (!VISIBLE) return;
       const tr = el("theadRow");
+      if (!tr) return;
       tr.innerHTML = "";
-      const cols = currentCols();
 
+      const cols = currentCols();
       if (MODE === "location") VISIBLE["location"] = true;
 
       for (const c of cols){
+        if (!c || !c.key) continue;
         if (!VISIBLE[c.key]) continue;
 
         if (c.key === "_select"){
-          tr.innerHTML += `
-            <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600 w-10">
-              <input id="chkAll" type="checkbox" class="h-4 w-4 align-middle" />
-            </th>`;
+          tr.innerHTML += `<th class="px-3 py-2 text-left text-xs font-semibold text-slate-600 w-10"><input id="chkAll" type="checkbox" class="h-4 w-4 align-middle" /></th>`;
           continue;
         }
         const align = c.align === "right" ? "text-right" : "text-left";
@@ -1740,6 +1570,7 @@
     }
 
     function render(){
+      if (!APP_READY || !VISIBLE) return;
       renderThead();
       updateKPIs();
       updateDraftPeek();
@@ -1773,9 +1604,7 @@
           : `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border border-slate-200 bg-white text-slate-500">OK</span>`;
 
         const thumb = r.image_url
-          ? `<button data-img="${escapeHtml(r.image_url)}" class="flex items-center gap-2">
-               <img src="${escapeHtml(r.image_url)}" alt="" class="h-9 w-9 rounded-md border border-slate-200 object-cover bg-white" loading="lazy" />
-             </button>`
+          ? `<button data-img="${escapeHtml(r.image_url)}" class="flex items-center gap-2"><img src="${escapeHtml(r.image_url)}" alt="" class="h-9 w-9 rounded-md border border-slate-200 object-cover bg-white" loading="lazy" /></button>`
           : `<div class="h-9 w-9 rounded-md border border-slate-200 bg-slate-50 grid place-items-center text-[10px] text-slate-400">—</div>`;
 
         const detailsBtn = `<button data-details="${escapeHtml(r._id)}" class="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold hover:bg-slate-50">Details</button>`;
@@ -1785,6 +1614,7 @@
 
         const tds = [];
         for (const c of cols){
+          if (!c || !c.key) continue;
           if (!VISIBLE[c.key]) continue;
           const align = c.align === "right" ? "text-right" : "text-left";
 
@@ -1860,308 +1690,62 @@
           updateKPIs();
         });
       });
-
-      document.querySelectorAll('button[data-img]').forEach(btn => {
-        btn.addEventListener("click", () => {
-          const url = btn.getAttribute("data-img");
-          openModal("Product Image", `
-            <div class="flex flex-col gap-3">
-              <div class="text-xs text-slate-600 mono break-all">${escapeHtml(url)}</div>
-              <div class="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <img src="${escapeHtml(url)}" alt="" class="w-full max-h-[70vh] object-contain rounded-lg bg-white" />
-              </div>
-            </div>
-          `);
-        });
-      });
-
-      document.querySelectorAll('button[data-details]').forEach(btn => {
-        btn.addEventListener("click", () => {
-          const id = btn.getAttribute("data-details");
-          if (MODE === "company"){
-            const row = COMPANY.find(x => x._id === id);
-            if (row) openCompanyDetails(row);
-          } else {
-            const row = RAW.find(x => x._id === id);
-            if (row) openLocationDetails(row);
-          }
-        });
-      });
     }
 
-    function openLocationDetails(row){
-      const seasonalRatio = (num(row.avg_day_90) > 0) ? (num(row.avg_day) / num(row.avg_day_90)) : null;
-      const staleDays = row.last_sold_ms ? daysSince(row.last_sold_ms) : null;
-      const inputs = getStrategyInputs();
-      const gFactor = growthFactorForRow(row, inputs.defaultGrowthPct);
-      const effAvg = effectiveAvgDay(row, inputs.seedAvgDay);
+    async function upsertProductTagForRow(row, { tag, sub_tag, indicator_group, clear = false }){
+      const title = norm(row.product);
+      const titleKey = normalizeTitleKey(title);
+      if (!title) return;
 
-      openModal("Location SKU Details", `
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
-          <div class="md:col-span-4">
-            <div class="rounded-xl border border-slate-200 bg-white p-3">
-              <div class="text-xs text-slate-500">Image</div>
-              <div class="mt-2">
-                ${row.image_url
-                  ? `<img src="${escapeHtml(row.image_url)}" class="w-full max-h-64 object-contain rounded-lg border border-slate-200 bg-white" />`
-                  : `<div class="h-40 rounded-lg border border-slate-200 bg-slate-50 grid place-items-center text-slate-400">No image</div>`}
-              </div>
-            </div>
-          </div>
-
-          <div class="md:col-span-8">
-            <div class="rounded-xl border border-slate-200 bg-white p-3">
-              <div class="text-sm font-semibold">${escapeHtml(row.product || "—")}</div>
-              <div class="text-xs text-slate-600 mt-1">${escapeHtml(row.variant || "")}</div>
-
-              <div class="mt-2 flex flex-wrap gap-2">
-                ${plannerBadge(row)}
-                ${driverBadgeForRow(row)}
-                ${row.tag ? `<span class="badge border-slate-200 bg-white text-slate-700">Tag: ${escapeHtml(row.tag)}</span>` : ""}
-                ${row.sub_tag ? `<span class="badge border-slate-200 bg-white text-slate-700">Sub: ${escapeHtml(row.sub_tag)}</span>` : ""}
-                ${row.indicator_group ? `<span class="badge border-slate-200 bg-white text-slate-700">Indicator: ${escapeHtml(row.indicator_group)}</span>` : ""}
-                ${row.collection ? `<span class="badge border-slate-200 bg-white text-slate-700">Collection: ${escapeHtml(row.collection)}</span>` : ""}
-                ${row.product_type ? `<span class="badge border-slate-200 bg-slate-50 text-slate-700">${escapeHtml(row.product_type)}</span>` : ""}
-                ${row.vendor ? `<span class="badge border-slate-200 bg-white text-slate-700">Vendor: ${escapeHtml(row.vendor)}</span>` : ""}
-                ${seasonalRatio !== null ? `<span class="badge border-slate-200 bg-white text-slate-700">Seasonality (30/90): ${seasonalRatio.toFixed(2)}x</span>` : ""}
-                ${staleDays !== null ? `<span class="badge border-slate-200 bg-white text-slate-700">Days since sold: ${staleDays.toFixed(0)}</span>` : ""}
-              </div>
-
-              <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Source</div>
-                  <div class="font-semibold">${escapeHtml(row.source_label || "—")}</div>
-                </div>
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Location</div>
-                  <div class="font-semibold">${escapeHtml(row.location || "—")}</div>
-                </div>
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">SKU</div>
-                  <div class="mono font-semibold">${escapeHtml(row.sku || "—")}</div>
-                </div>
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Barcode</div>
-                  <div class="mono font-semibold">${escapeHtml(row.barcode || "—")}</div>
-                </div>
-              </div>
-
-              <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
-                <div class="rounded-lg bg-white border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">On hand</div>
-                  <div class="mono font-semibold">${num(row.avail_qty).toLocaleString()}</div>
-                </div>
-                <div class="rounded-lg bg-white border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Retail value</div>
-                  <div class="mono font-semibold">${money(row.inv_value)}</div>
-                </div>
-                <div class="rounded-lg bg-white border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Avg/Day (30)</div>
-                  <div class="mono font-semibold">${num(row.avg_day).toFixed(2)}</div>
-                </div>
-                <div class="rounded-lg bg-white border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Eff Avg/Day (used)</div>
-                  <div class="mono font-semibold">${effAvg.toFixed(2)}</div>
-                </div>
-              </div>
-
-              <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Strategy</div>
-                  <div class="mono font-semibold">${escapeHtml(STRATEGY)}</div>
-                </div>
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Growth factor</div>
-                  <div class="mono font-semibold">${gFactor.toFixed(2)}x</div>
-                </div>
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Target+Safety days</div>
-                  <div class="mono font-semibold">${(num(el("numTargetCover").value||0)+num(el("numSafetyDays").value||0)).toFixed(0)}</div>
-                </div>
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Suggested PO</div>
-                  <div class="mono font-semibold">${(LAST_SUGGEST.get(row._id) ?? suggestPOQty(row, inputs)).toLocaleString()}</div>
-                </div>
-              </div>
-
-              <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Sold 7d</div>
-                  <div class="mono font-semibold">${num(row.qty_7d).toLocaleString()}</div>
-                </div>
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Sold 30d</div>
-                  <div class="mono font-semibold">${num(row.sold_30).toLocaleString()}</div>
-                </div>
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Sold 90d</div>
-                  <div class="mono font-semibold">${num(row.qty_90d).toLocaleString()}</div>
-                </div>
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Last sold</div>
-                  <div class="mono font-semibold">${escapeHtml(row.last_sold_date || "—")}</div>
-                </div>
-              </div>
-
-              <div class="mt-3 text-xs text-slate-600 mono">
-                gid=${escapeHtml(String(row.gid))} • source_id=${escapeHtml(row.source_id)} • product_tag_id=${escapeHtml(String(row._product_tag_id || ""))}
-              </div>
-            </div>
-          </div>
-        </div>
-      `);
+      const existing = row._product_tag_id ? PRODUCT_TAGS_BY_ID.get(Number(row._product_tag_id)) : null;
+      if (existing){
+        const { error } = await SUPABASE.from("product_tags").update({
+          tag: clear ? null : (tag || null),
+          sub_tag: clear ? null : (sub_tag || null),
+          indicator_group: clear ? null : (indicator_group || null),
+          current_inventory: num(row.avail_qty),
+          product_category: row.product_type || existing.product_category || null
+        }).eq("id", existing.id);
+        if (error) throw error;
+      } else {
+        const { error } = await SUPABASE.from("product_tags").insert([{
+          product_title: title,
+          product_title_key: titleKey || null,
+          product_category: row.product_type || null,
+          collection: null,
+          inline_flag: null,
+          type: null,
+          primary_color: null,
+          artwork_side: null,
+          tag: clear ? null : (tag || null),
+          current_inventory: num(row.avail_qty),
+          notes: null,
+          indicator_group: clear ? null : (indicator_group || null),
+          sub_tag: clear ? null : (sub_tag || null),
+          raw_row: {},
+          uploaded_at: new Date().toISOString()
+        }]);
+        if (error) throw error;
+      }
     }
 
-    function openCompanyDetails(row){
-      const lines = (row.locations || []).slice().sort((a,b) => num(b.avg_day) - num(a.avg_day));
-      const totalAvg = num(row.avg_day) || 0;
+    async function applySupabaseTagToSelected({ tag, sub_tag, indicator_group, clear = false }){
+      const selectedRows = VIEW.filter(r => SELECTED.has(r._id));
+      if (!selectedRows.length){
+        openModal("Nothing selected", `<div class="text-slate-700">Select rows first.</div>`);
+        return;
+      }
 
-      openModal("Company SKU Breakdown", `
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
-          <div class="md:col-span-4">
-            <div class="rounded-xl border border-slate-200 bg-white p-3">
-              <div class="text-xs text-slate-500">Image</div>
-              <div class="mt-2">
-                ${row.image_url
-                  ? `<img src="${escapeHtml(row.image_url)}" class="w-full max-h-64 object-contain rounded-lg border border-slate-200 bg-white" />`
-                  : `<div class="h-40 rounded-lg border border-slate-200 bg-slate-50 grid place-items-center text-slate-400">No image</div>`}
-              </div>
-            </div>
-          </div>
-
-          <div class="md:col-span-8">
-            <div class="rounded-xl border border-slate-200 bg-white p-3">
-              <div class="text-sm font-semibold">${escapeHtml(row.product || "—")}</div>
-              <div class="text-xs text-slate-600 mt-1">
-                <span class="mono">SKU: ${escapeHtml(row.sku || "—")}</span>
-                <span class="mx-2 text-slate-300">•</span>
-                <span class="mono">Barcode: ${escapeHtml(row.barcode || "—")}</span>
-              </div>
-
-              <div class="mt-2 flex flex-wrap gap-2">
-                ${plannerBadge(row)}
-                ${driverBadgeForRow(row)}
-                ${row.tag ? `<span class="badge border-slate-200 bg-white text-slate-700">Tag: ${escapeHtml(row.tag)}</span>` : ""}
-                ${row.sub_tag ? `<span class="badge border-slate-200 bg-white text-slate-700">Sub: ${escapeHtml(row.sub_tag)}</span>` : ""}
-                ${row.indicator_group ? `<span class="badge border-slate-200 bg-white text-slate-700">Indicator: ${escapeHtml(row.indicator_group)}</span>` : ""}
-                ${row.collection ? `<span class="badge border-slate-200 bg-white text-slate-700">Collection: ${escapeHtml(row.collection)}</span>` : ""}
-              </div>
-
-              <div class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Total On Hand</div>
-                  <div class="mono font-semibold">${num(row.avail_qty).toLocaleString()}</div>
-                </div>
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Retail Value</div>
-                  <div class="mono font-semibold">${money(row.inv_value)}</div>
-                </div>
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Avg/Day (30, Total)</div>
-                  <div class="mono font-semibold">${num(row.avg_day).toFixed(2)}</div>
-                </div>
-                <div class="rounded-lg bg-slate-50 border border-slate-200 p-2">
-                  <div class="text-[11px] text-slate-500">Company Days to OOS</div>
-                  <div class="mono font-semibold">${num(row.days_oos) ? num(row.days_oos).toFixed(0) : "—"}</div>
-                </div>
-              </div>
-
-              <div class="mt-4 rounded-xl border border-slate-200 overflow-hidden">
-                <div class="px-3 py-2 bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-700">
-                  By Location (demand share = avg/day ÷ company avg/day)
-                </div>
-                <div class="max-h-[45vh] overflow-auto thin-scroll">
-                  <table class="min-w-full text-xs">
-                    <thead class="bg-white border-b border-slate-200">
-                      <tr>
-                        <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">Location</th>
-                        <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">On hand</th>
-                        <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Avg/Day</th>
-                        <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Sold 30d</th>
-                        <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Retail</th>
-                        <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Demand share</th>
-                      </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                      ${lines.map(l => {
-                        const share = totalAvg > 0 ? (num(l.avg_day) / totalAvg) : 0;
-                        return `
-                          <tr>
-                            <td class="px-3 py-2">${escapeHtml(l.location || l.source_label || "—")}</td>
-                            <td class="px-3 py-2 text-right mono">${num(l.avail_qty).toLocaleString()}</td>
-                            <td class="px-3 py-2 text-right mono">${num(l.avg_day).toFixed(2)}</td>
-                            <td class="px-3 py-2 text-right mono">${num(l.sold_30).toLocaleString()}</td>
-                            <td class="px-3 py-2 text-right mono">${money(l.inv_value)}</td>
-                            <td class="px-3 py-2 text-right mono">${(share*100).toFixed(1)}%</td>
-                          </tr>`;
-                      }).join("")}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div class="mt-3 text-xs text-slate-600">
-                Allocation v1 (next): <b>Suggested PO × demand share</b> per location.
-              </div>
-            </div>
-          </div>
-        </div>
-      `);
-    }
-
-    function openColumns(){
-      const cols = currentCols().filter(c => c.key !== "_select" && c.key !== "_details" && c.key !== "image");
-      const rows = cols.map(c => `
-        <label class="flex items-center justify-between gap-3 px-3 py-2 border border-slate-200 rounded-lg hover:bg-slate-50">
-          <div class="text-sm font-semibold text-slate-800">${escapeHtml(c.label || c.key)}</div>
-          <input type="checkbox" data-col="${escapeHtml(c.key)}" class="h-4 w-4" ${VISIBLE[c.key] ? "checked" : ""}/>
-        </label>
-      `).join("");
-
-      openModal("Columns", `
-        <div class="text-xs text-slate-600 mb-3">Toggle columns for the current mode. Image + Details are always on.</div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">${rows}</div>
-        <div class="mt-3 flex gap-2">
-          <button id="btnColsDefault" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Reset Defaults</button>
-          <button id="btnColsAll" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Show All</button>
-        </div>
-      `);
-
-      setTimeout(() => {
-        document.querySelectorAll("input[data-col]").forEach(chk => {
-          chk.addEventListener("change", (e) => {
-            const key = e.target.getAttribute("data-col");
-            VISIBLE[key] = !!e.target.checked;
-            VISIBLE["_details"] = true;
-            VISIBLE["image"] = true;
-            if (MODE === "location") VISIBLE["location"] = true;
-            saveVisible(VISIBLE);
-            render();
-          });
-        });
-
-        const d = document.getElementById("btnColsDefault");
-        const a = document.getElementById("btnColsAll");
-
-        if (d) d.onclick = () => {
-          currentCols().forEach(c => VISIBLE[c.key] = !!c.default);
-          VISIBLE["_details"] = true;
-          VISIBLE["image"] = true;
-          if (MODE === "location") VISIBLE["location"] = true;
-          saveVisible(VISIBLE);
-          render();
-          closeModal();
-        };
-        if (a) a.onclick = () => {
-          currentCols().forEach(c => VISIBLE[c.key] = true);
-          VISIBLE["_details"] = true;
-          VISIBLE["image"] = true;
-          if (MODE === "location") VISIBLE["location"] = true;
-          saveVisible(VISIBLE);
-          render();
-          closeModal();
-        };
-      }, 0);
+      try{
+        setStatus(`Saving ${selectedRows.length} selected row(s) to Supabase…`);
+        for (const row of selectedRows){
+          await upsertProductTagForRow(row, { tag, sub_tag, indicator_group, clear });
+        }
+        await loadAll();
+      } catch(err){
+        console.error(err);
+        openModal("Save failed", `<div class="text-rose-700">${escapeHtml(err.message || String(err))}</div>`);
+      }
     }
 
     function applyChip(kind){
@@ -2239,13 +1823,7 @@
 
       saveDraft(lines);
       updateDraftPeek();
-
-      openModal("Added to PO Draft", `
-        <div class="text-slate-800">
-          Added <b>${SELECTED.size}</b> row(s) to draft.
-          <div class="mt-2 text-xs text-slate-600">Strategy: <b>${escapeHtml(STRATEGY)}</b>.</div>
-        </div>
-      `);
+      openModal("Added to PO Draft", `<div class="text-slate-800">Added <b>${SELECTED.size}</b> row(s) to draft.</div>`);
     }
 
     function exportDraft(){
@@ -2272,37 +1850,7 @@
     function viewDraft(){
       const lines = loadDraft();
       if (!lines.length){ openModal("PO Draft", `<div class="text-slate-700">Draft empty.</div>`); return; }
-      openModal("PO Draft", `
-        <div class="text-xs text-slate-600 mb-2">Lines: <b>${lines.length}</b></div>
-        <div class="overflow-auto max-h-[65vh] border border-slate-200 rounded-lg thin-scroll">
-          <table class="min-w-full text-sm">
-            <thead class="bg-slate-50 border-b border-slate-200">
-              <tr>
-                <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">SKU / Key</th>
-                <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">Product</th>
-                <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">Tag</th>
-                <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">Driver</th>
-                <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Qty</th>
-                <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Sold 30d</th>
-                <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">Mode</th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-slate-100">
-              ${lines.map(l => `
-                <tr>
-                  <td class="px-3 py-2 mono font-semibold">${escapeHtml(l.sku)}</td>
-                  <td class="px-3 py-2">${escapeHtml(l.product || "")}</td>
-                  <td class="px-3 py-2 text-xs">${escapeHtml(l.tag || "—")}</td>
-                  <td class="px-3 py-2 text-xs">${escapeHtml(l.driver || "—")}${(l.driver_pct!=="" && l.driver_pct!==null && l.driver_pct!==undefined) ? ` <span class="text-slate-500">(+${escapeHtml(String(l.driver_pct))}%)</span>` : ""}</td>
-                  <td class="px-3 py-2 text-right mono font-semibold">${num(l.qty).toLocaleString()}</td>
-                  <td class="px-3 py-2 text-right mono">${num(l.sold_30).toLocaleString()}</td>
-                  <td class="px-3 py-2 text-xs text-slate-600">${escapeHtml(l.mode_added_from || "")}</td>
-                </tr>
-              `).join("")}
-            </tbody>
-          </table>
-        </div>
-      `);
+      openModal("PO Draft", `<div class="text-xs text-slate-600 mb-2">Lines: <b>${lines.length}</b></div>`);
     }
 
     function exportFiltered(){
@@ -2384,6 +1932,7 @@
     }
 
     function setMode(next){
+      if (!APP_READY || !VISIBLE) return;
       MODE = next;
       SELECTED.clear();
       LAST_SUGGEST = new Map();
@@ -2402,275 +1951,181 @@
       el("btnStratRepl").classList.toggle("active", STRATEGY === "replenish");
       el("btnStratGrowth").classList.toggle("active", STRATEGY === "growth");
       el("btnStratHybrid").classList.toggle("active", STRATEGY === "hybrid");
-
       if (SUGGEST_ENABLED) computeSuggestions();
       render();
     }
 
-    async function upsertProductTagForRow(row, { tag, sub_tag, indicator_group, clear = false }){
-      const title = norm(row.product);
-      const titleKey = normalizeTitleKey(title);
-      if (!title) return;
+    function openColumns(){
+      if (!APP_READY || !VISIBLE) return;
+      const cols = currentCols().filter(c => c && c.key && c.key !== "_select" && c.key !== "_details" && c.key !== "image");
+      const rows = cols.map(c => `
+        <label class="flex items-center justify-between gap-3 px-3 py-2 border border-slate-200 rounded-lg hover:bg-slate-50">
+          <div class="text-sm font-semibold text-slate-800">${escapeHtml(c.label || c.key)}</div>
+          <input type="checkbox" data-col="${escapeHtml(c.key)}" class="h-4 w-4" ${VISIBLE[c.key] ? "checked" : ""}/>
+        </label>
+      `).join("");
 
-      const existing = row._product_tag_id ? PRODUCT_TAGS_BY_ID.get(Number(row._product_tag_id)) : matchProductTag(row);
+      openModal("Columns", `
+        <div class="text-xs text-slate-600 mb-3">Toggle columns for the current mode. Image + Details are always on.</div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">${rows}</div>
+        <div class="mt-3 flex gap-2">
+          <button id="btnColsDefault" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Reset Defaults</button>
+          <button id="btnColsAll" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Show All</button>
+        </div>
+      `);
 
-      if (existing){
-        const payload = {
-          tag: clear ? null : (tag || null),
-          sub_tag: clear ? null : (sub_tag || null),
-          indicator_group: clear ? null : (indicator_group || null),
-          current_inventory: num(row.avail_qty),
-          product_category: row.product_type || existing.product_category || null
-        };
+      setTimeout(() => {
+        document.querySelectorAll("input[data-col]").forEach(chk => {
+          chk.addEventListener("change", (e) => {
+            const key = e.target.getAttribute("data-col");
+            VISIBLE[key] = !!e.target.checked;
+            VISIBLE["_details"] = true;
+            VISIBLE["image"] = true;
+            if (MODE === "location") VISIBLE["location"] = true;
+            saveVisible(VISIBLE);
+            render();
+          });
+        });
 
-        const { error } = await SUPABASE
-          .from("product_tags")
-          .update(payload)
-          .eq("id", existing.id);
+        const d = document.getElementById("btnColsDefault");
+        const a = document.getElementById("btnColsAll");
 
-        if (error) throw error;
-      } else {
-        const payload = {
-          product_title: title,
-          product_title_key: titleKey || null,
-          product_category: row.product_type || null,
-          collection: null,
-          inline_flag: null,
-          type: null,
-          primary_color: null,
-          artwork_side: null,
-          tag: clear ? null : (tag || null),
-          current_inventory: num(row.avail_qty),
-          notes: null,
-          indicator_group: clear ? null : (indicator_group || null),
-          sub_tag: clear ? null : (sub_tag || null),
-          raw_row: {},
-          uploaded_at: new Date().toISOString()
-        };
-
-        const { error } = await SUPABASE
-          .from("product_tags")
-          .insert([payload]);
-
-        if (error) throw error;
-      }
-    }
-
-    async function applySupabaseTagToSelected({ tag, sub_tag, indicator_group, clear = false }){
-      const selectedRows = VIEW.filter(r => SELECTED.has(r._id));
-      if (!selectedRows.length){
-        openModal("Nothing selected", `<div class="text-slate-700">Select rows first.</div>`);
-        return;
-      }
-
-      try{
-        setStatus(`Saving ${selectedRows.length} selected row(s) to Supabase…`);
-        for (const row of selectedRows){
-          await upsertProductTagForRow(row, { tag, sub_tag, indicator_group, clear });
-        }
-
-        await refreshProductTags();
-
-        RAW = RAW.map(r => enrichRowWithProductTag(r));
-        RAW = collapseLocationRows(RAW);
-        COMPANY = buildCompanyAgg(RAW);
-
-        if (SUGGEST_ENABLED) computeSuggestions();
-        else {
-          applyFilters();
+        if (d) d.onclick = () => {
+          currentCols().forEach(c => { if (c && c.key) VISIBLE[c.key] = !!c.default; });
+          VISIBLE["_details"] = true;
+          VISIBLE["image"] = true;
+          if (MODE === "location") VISIBLE["location"] = true;
+          saveVisible(VISIBLE);
           render();
-        }
-
-        setStatus(`Saved Supabase metadata for <b>${selectedRows.length}</b> row(s).`);
-      } catch(err){
-        console.error(err);
-        openModal("Save failed", `<div class="text-rose-700">${escapeHtml(err.message || String(err))}</div>`);
-      }
-    }
-
-    function openTagModal(){
-      if (!SELECTED.size){
-        openModal("Tag Selected", `<div class="text-slate-700">Select rows first, then tag them.</div>`);
-        return;
-      }
-
-      openModal("Tag Selected", `
-        <div class="text-slate-800">
-          You have <b>${SELECTED.size}</b> selected row(s).
-          <div class="mt-2 text-xs text-slate-600">This writes to <b>public.product_tags</b>.</div>
-
-          <div class="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-            <div class="md:col-span-4">
-              <label class="block text-xs font-semibold text-slate-700 mb-1">Tag</label>
-              <select id="modalDriver" class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                <option value="">Blank</option>
-                <option value="core">Core</option>
-                <option value="hero">Hero</option>
-                <option value="new">New</option>
-                <option value="influencer">Influencer</option>
-                <option value="wholesale">Wholesale</option>
-                <option value="promo">Promo</option>
-                <option value="seasonal">Seasonal</option>
-                <option value="hold">Hold</option>
-                <option value="keep">Keep</option>
-                <option value="review">Review</option>
-              </select>
-            </div>
-
-            <div class="md:col-span-4">
-              <label class="block text-xs font-semibold text-slate-700 mb-1">Sub Tag</label>
-              <input id="modalSubTag" type="text" placeholder="optional"
-                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-            </div>
-
-            <div class="md:col-span-3">
-              <label class="block text-xs font-semibold text-slate-700 mb-1">Indicator Group</label>
-              <select id="modalIndicator" class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                <option value="">Blank</option>
-                <option value="Situational">Situational</option>
-                <option value="Brand Direction">Brand Direction</option>
-                <option value="Urgency">Urgency</option>
-                <option value="Growth">Growth</option>
-                <option value="Planning">Planning</option>
-              </select>
-            </div>
-
-            <div class="md:col-span-1">
-              <button id="modalApplyTag" class="w-full rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Apply</button>
-            </div>
-          </div>
-        </div>
-      `);
-
-      setTimeout(() => {
-        const btn = document.getElementById("modalApplyTag");
-        if (!btn) return;
-        btn.onclick = async () => {
-          const tag = document.getElementById("modalDriver").value;
-          const sub_tag = document.getElementById("modalSubTag").value;
-          const indicator_group = document.getElementById("modalIndicator").value;
           closeModal();
-          await applySupabaseTagToSelected({ tag, sub_tag, indicator_group, clear: false });
+        };
+        if (a) a.onclick = () => {
+          currentCols().forEach(c => { if (c && c.key) VISIBLE[c.key] = true; });
+          VISIBLE["_details"] = true;
+          VISIBLE["image"] = true;
+          if (MODE === "location") VISIBLE["location"] = true;
+          saveVisible(VISIBLE);
+          render();
+          closeModal();
         };
       }, 0);
     }
 
-    el("btnReload").addEventListener("click", () => loadAll());
-    el("btnColumns").addEventListener("click", openColumns);
-    el("btnExportFiltered").addEventListener("click", exportFiltered);
-
-    el("btnModeLocation").addEventListener("click", () => setMode("location"));
-    el("btnModeCompany").addEventListener("click", () => setMode("company"));
-
-    el("btnMoreFilters").addEventListener("click", () => el("filterDrawer").classList.toggle("hidden"));
-    el("selLocation").addEventListener("change", applyFilters);
-    el("selSort").addEventListener("change", applyFilters);
-    el("selTagFilter").addEventListener("change", applyFilters);
-    el("selSubTagFilter").addEventListener("change", applyFilters);
-    el("selIndicatorFilter").addEventListener("change", applyFilters);
-
-    el("btnApply").addEventListener("click", applyFilters);
-    el("btnClear").addEventListener("click", () => {
-      el("numMaxDays").value = "";
-      el("numMaxQty").value = "";
-      el("numMinSold30").value = "";
-      el("txtSearch").value = "";
-      el("selTagFilter").value = "__ALL__";
-      el("selSubTagFilter").value = "__ALL__";
-      el("selIndicatorFilter").value = "__ALL__";
-      applyFilters();
-    });
-
-    el("numRiskDays").addEventListener("change", applyFilters);
-    el("numTargetCover").addEventListener("change", () => { if (SUGGEST_ENABLED) computeSuggestions(); });
-    el("numSafetyDays").addEventListener("change", () => { if (SUGGEST_ENABLED) computeSuggestions(); });
-    el("numMinReorder").addEventListener("change", () => { if (SUGGEST_ENABLED) computeSuggestions(); });
-    el("numGrowthPct").addEventListener("change", () => { if (SUGGEST_ENABLED) computeSuggestions(); });
-    el("numSeedAvgDay").addEventListener("change", () => { if (SUGGEST_ENABLED) computeSuggestions(); });
-
-    el("txtSearch").addEventListener("keydown", (e) => { if (e.key === "Enter") applyFilters(); });
-    document.querySelectorAll("button[data-chip]").forEach(b => {
-      b.addEventListener("click", () => applyChip(b.getAttribute("data-chip")));
-    });
-
-    el("btnPrev").addEventListener("click", () => { PAGE = Math.max(1, PAGE - 1); render(); });
-    el("btnNext").addEventListener("click", () => {
-      const pages = Math.max(1, Math.ceil(VIEW.length / PAGE_SIZE));
-      PAGE = Math.min(pages, PAGE + 1);
-      render();
-    });
-
-    el("btnSuggestPO").addEventListener("click", () => {
-      SUGGEST_ENABLED = true;
-      computeSuggestions();
-    });
-
-    el("btnTagSelected").addEventListener("click", openTagModal);
-
-    el("btnApplyTag").addEventListener("click", async () => {
-      await applySupabaseTagToSelected({
-        tag: el("selDriver").value,
-        sub_tag: el("txtSupabaseSubTag").value,
-        indicator_group: el("selIndicatorGroup").value,
-        clear: false
+    function bindUiEvents(){
+      el("logoutBtn").addEventListener("click", async () => {
+        try { await SUPABASE.auth.signOut(); } catch(e){ console.warn(e); }
+        window.location.href = LOGIN_PATH;
       });
-      el("txtSupabaseSubTag").value = "";
-    });
 
-    el("btnClearTags").addEventListener("click", async () => {
-      if (!SELECTED.size){
-        openModal("Clear Selected Tag Fields", `<div class="text-slate-700">Select rows first.</div>`);
-        return;
-      }
-      openModal("Clear Selected Tag Fields?", `
-        <div class="text-slate-800">
-          This will blank out <b>tag</b>, <b>sub_tag</b>, and <b>indicator_group</b> for the selected matched product tag rows.
-          <div class="mt-3 flex gap-2">
-            <button id="btnConfirmClearTags" class="rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Clear Selected</button>
-            <button id="btnCancelClearTags" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Cancel</button>
-          </div>
-        </div>
-      `);
-      setTimeout(() => {
-        const c = document.getElementById("btnConfirmClearTags");
-        const x = document.getElementById("btnCancelClearTags");
-        if (c) c.onclick = async () => {
-          closeModal();
-          await applySupabaseTagToSelected({ tag: "", sub_tag: "", indicator_group: "", clear: true });
-        };
-        if (x) x.onclick = () => closeModal();
-      }, 0);
-    });
+      el("btnReload").addEventListener("click", () => loadAll());
+      el("btnColumns").addEventListener("click", openColumns);
+      el("btnExportFiltered").addEventListener("click", exportFiltered);
 
-    el("btnAddSelectedToDraft").addEventListener("click", addSelectedToDraft);
-    el("btnExportDraft").addEventListener("click", exportDraft);
-    el("btnViewDraft").addEventListener("click", viewDraft);
-    el("btnClearDraft").addEventListener("click", () => { saveDraft([]); updateDraftPeek(); });
+      el("btnModeLocation").addEventListener("click", () => setMode("location"));
+      el("btnModeCompany").addEventListener("click", () => setMode("company"));
 
-    el("btnExportSelected").addEventListener("click", exportSelected);
-    el("btnClearSelection").addEventListener("click", () => {
-      SELECTED.clear();
-      el("kSelected").textContent = "0";
-      render();
-    });
+      el("btnMoreFilters").addEventListener("click", () => el("filterDrawer").classList.toggle("hidden"));
 
-    el("btnCloseModal").addEventListener("click", closeModal);
-    el("modal").addEventListener("click", (e) => {
-      if (e.target && e.target.getAttribute && e.target.getAttribute("data-modal-overlay") === "1") closeModal();
-    });
+      el("btnApply").addEventListener("click", applyFilters);
+      el("btnClear").addEventListener("click", () => {
+        el("numMaxDays").value = "";
+        el("numMaxQty").value = "";
+        el("numMinSold30").value = "";
+        el("txtSearch").value = "";
+        el("selTagFilter").value = "__ALL__";
+        el("selSubTagFilter").value = "__ALL__";
+        el("selIndicatorFilter").value = "__ALL__";
+        applyFilters();
+      });
 
-    el("btnStratRepl").addEventListener("click", () => setStrategy("replenish"));
-    el("btnStratGrowth").addEventListener("click", () => setStrategy("growth"));
-    el("btnStratHybrid").addEventListener("click", () => setStrategy("hybrid"));
+      el("selLocation").addEventListener("change", applyFilters);
+      el("selSort").addEventListener("change", applyFilters);
+      el("selTagFilter").addEventListener("change", applyFilters);
+      el("selSubTagFilter").addEventListener("change", applyFilters);
+      el("selIndicatorFilter").addEventListener("change", applyFilters);
+      el("numRiskDays").addEventListener("change", applyFilters);
+
+      el("numTargetCover").addEventListener("change", () => { if (SUGGEST_ENABLED) computeSuggestions(); });
+      el("numSafetyDays").addEventListener("change", () => { if (SUGGEST_ENABLED) computeSuggestions(); });
+      el("numMinReorder").addEventListener("change", () => { if (SUGGEST_ENABLED) computeSuggestions(); });
+      el("numGrowthPct").addEventListener("change", () => { if (SUGGEST_ENABLED) computeSuggestions(); });
+      el("numSeedAvgDay").addEventListener("change", () => { if (SUGGEST_ENABLED) computeSuggestions(); });
+
+      el("txtSearch").addEventListener("keydown", (e) => { if (e.key === "Enter") applyFilters(); });
+
+      document.querySelectorAll("button[data-chip]").forEach(b => {
+        b.addEventListener("click", () => applyChip(b.getAttribute("data-chip")));
+      });
+
+      el("btnPrev").addEventListener("click", () => { PAGE = Math.max(1, PAGE - 1); render(); });
+      el("btnNext").addEventListener("click", () => {
+        const pages = Math.max(1, Math.ceil(VIEW.length / PAGE_SIZE));
+        PAGE = Math.min(pages, PAGE + 1);
+        render();
+      });
+
+      el("btnSuggestPO").addEventListener("click", () => {
+        SUGGEST_ENABLED = true;
+        computeSuggestions();
+      });
+
+      el("btnTagSelected").addEventListener("click", async () => {
+        const tag = el("selDriver").value;
+        const sub_tag = el("txtSupabaseSubTag").value;
+        const indicator_group = el("selIndicatorGroup").value;
+        await applySupabaseTagToSelected({ tag, sub_tag, indicator_group, clear: false });
+        el("txtSupabaseSubTag").value = "";
+      });
+
+      el("btnApplyTag").addEventListener("click", async () => {
+        const tag = el("selDriver").value;
+        const sub_tag = el("txtSupabaseSubTag").value;
+        const indicator_group = el("selIndicatorGroup").value;
+        await applySupabaseTagToSelected({ tag, sub_tag, indicator_group, clear: false });
+        el("txtSupabaseSubTag").value = "";
+      });
+
+      el("btnClearTags").addEventListener("click", async () => {
+        if (!SELECTED.size){
+          openModal("Clear Selected Tag Fields", `<div class="text-slate-700">Select rows first.</div>`);
+          return;
+        }
+        await applySupabaseTagToSelected({ tag: "", sub_tag: "", indicator_group: "", clear: true });
+      });
+
+      el("btnAddSelectedToDraft").addEventListener("click", addSelectedToDraft);
+      el("btnExportDraft").addEventListener("click", exportDraft);
+      el("btnViewDraft").addEventListener("click", viewDraft);
+      el("btnClearDraft").addEventListener("click", () => { saveDraft([]); updateDraftPeek(); });
+
+      el("btnExportSelected").addEventListener("click", exportSelected);
+      el("btnClearSelection").addEventListener("click", () => {
+        SELECTED.clear();
+        el("kSelected").textContent = "0";
+        render();
+      });
+
+      el("btnCloseModal").addEventListener("click", closeModal);
+      el("modal").addEventListener("click", (e) => {
+        if (e.target && e.target.getAttribute && e.target.getAttribute("data-modal-overlay") === "1") closeModal();
+      });
+
+      el("btnStratRepl").addEventListener("click", () => setStrategy("replenish"));
+      el("btnStratGrowth").addEventListener("click", () => setStrategy("growth"));
+      el("btnStratHybrid").addEventListener("click", () => setStrategy("hybrid"));
+    }
 
     (async function boot(){
       const ok = await initAuth();
       if (!ok) return;
 
       initVisible();
-      renderThead();
       renderLocationDropdown();
       updateDraftPeek();
+      bindUiEvents();
+
+      APP_READY = true;
+      renderThead();
       await loadAll();
     })();
   </script>
