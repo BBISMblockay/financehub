@@ -5,544 +5,390 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Mailroom Inbox</title>
 
-  <!-- Font -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="/financehub/pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <style>
-    /* =========================
-       CLEAN B/W (NOT "SPACE APP")
-       ========================= */
     :root{
-      --bg:#ffffff;
-      --bg2:#f7f7f8;
+      --bg:#f4f6f8;
       --panel:#ffffff;
-      --panel2:#ffffff;
-
-      --text:#0f172a;       /* slate-900 */
-      --muted:#475569;      /* slate-600 */
-      --muted2:#64748b;     /* slate-500 */
-
-      --border:#e5e7eb;     /* gray-200 */
-      --border2:#d1d5db;    /* gray-300 */
-
-      --shadow: 0 1px 2px rgba(15, 23, 42, .06);
-      --shadow2: 0 6px 18px rgba(15, 23, 42, .08);
-
-      --r10:10px;
-      --r12:12px;
-      --r16:16px;
-
-      --focus: 0 0 0 3px rgba(15, 23, 42, .10);
-
-      /* Priority colors (still useful, but subtle) */
-      --p0:#ef4444;
-      --p1:#f59e0b;
-      --p2:#3b82f6;
-      --p3:#64748b;
-      --ok:#16a34a;
-
-      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      --panel-soft:#f8fafc;
+      --text:#0f172a;
+      --muted:#64748b;
+      --muted-2:#94a3b8;
+      --line:#e2e8f0;
+      --line-2:#cbd5e1;
+      --brand:#111827;
+      --brand-soft:#eef2f7;
+      --success:#166534;
+      --success-bg:#ecfdf3;
+      --warn:#92400e;
+      --warn-bg:#fff7ed;
+      --danger:#991b1b;
+      --danger-bg:#fef2f2;
+      --info:#1d4ed8;
+      --info-bg:#eff6ff;
+      --shadow:0 1px 2px rgba(15,23,42,.05),0 10px 30px rgba(15,23,42,.06);
+      --r:18px;
+      --r-sm:12px;
+      --focus:0 0 0 3px rgba(17,24,39,.10);
+      --mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;
     }
-
     *{box-sizing:border-box}
     html,body{height:100%}
     body{
       margin:0;
-      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      background:linear-gradient(180deg,#f8fafc 0%,#f4f6f8 100%);
+      color:var(--text);
       overflow:hidden;
     }
-    a{color:inherit}
-    .app{height:100%; display:grid; grid-template-rows: 60px 1fr;}
-
-    header{
-      display:flex; align-items:center; justify-content:space-between; gap:12px;
-      padding: 12px 16px;
-      border-bottom: 1px solid var(--border);
-      background: var(--panel);
+    button,input,select,textarea{font:inherit}
+    a{text-decoration:none;color:inherit}
+    .app{height:100%;display:grid;grid-template-rows:auto auto 1fr;gap:10px;padding:14px}
+    .topbar,.summary-strip,.workspace{min-width:0}
+    .topbar{
+      background:rgba(255,255,255,.82);
+      backdrop-filter:blur(10px);
+      border:1px solid rgba(226,232,240,.9);
+      border-radius:22px;
+      padding:14px 16px;
+      display:flex;align-items:center;justify-content:space-between;gap:14px;
+      box-shadow:var(--shadow);
     }
-    .brand{display:flex; align-items:center; gap:10px; min-width:240px}
-    .logo{
-      width:12px;height:12px;border-radius:3px;
-      background: #111827; /* simple black mark */
+    .brand{display:flex;align-items:center;gap:12px;min-width:0}
+    .mark{
+      width:38px;height:38px;border-radius:12px;background:#111827;color:#fff;
+      display:grid;place-items:center;font-weight:800;font-size:13px;letter-spacing:.04em;
+      box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);
     }
-    .brand h1{margin:0; font-size:14px; letter-spacing:.2px}
-    .brand .sub{margin-top:3px; font-size:12px; color: var(--muted2)}
-    .top-actions{
-      display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:flex-end;
+    .brand-copy{min-width:0}
+    .brand-copy h1{margin:0;font-size:16px;letter-spacing:.01em}
+    .brand-copy p{margin:3px 0 0;color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .top-actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+    .search{
+      min-width:320px;display:flex;align-items:center;gap:10px;padding:10px 12px;
+      border:1px solid var(--line);border-radius:14px;background:#fff;
     }
-
-    .input{
-      display:flex; align-items:center; gap:10px;
-      padding: 8px 10px;
-      border-radius: 10px;
-      background: var(--bg2);
-      border:1px solid var(--border);
-      min-width: 320px;
-    }
-    .input input{
-      width:100%;
-      border:none;
-      outline:none;
-      background: transparent;
-      color: var(--text);
-      font-size: 13px;
-    }
-    .input input::placeholder{color: rgba(15,23,42,.45)}
-    .kbd{
-      font-family: var(--mono);
-      font-size: 11px;
-      padding: 2px 6px;
-      border-radius: 7px;
-      border:1px solid var(--border);
-      color: var(--muted2);
-      background: #fff;
-    }
-
-    .pill{
-      display:inline-flex; align-items:center; gap:8px;
-      padding: 7px 10px;
-      border-radius: 999px;
-      background: #fff;
-      border:1px solid var(--border);
-      color: var(--muted);
-      font-size: 12px;
-      user-select:none;
-    }
+    .search input{border:none;outline:none;background:transparent;width:100%;font-size:13px;color:var(--text)}
+    .search input::placeholder{color:var(--muted-2)}
+    .kbd{font-family:var(--mono);font-size:11px;padding:2px 7px;border:1px solid var(--line);border-radius:8px;color:var(--muted)}
     .btn{
-      display:inline-flex; align-items:center; justify-content:center; gap:8px;
-      padding: 8px 10px;
-      border-radius: 10px;
-      background: #fff;
-      border:1px solid var(--border2);
-      color: var(--text);
-      font-weight: 650;
-      font-size: 12.5px;
-      cursor:pointer;
-      transition: background .12s ease, transform .08s ease, border-color .12s ease;
-      user-select:none;
+      border:1px solid var(--line-2);background:#fff;color:var(--text);border-radius:12px;padding:10px 12px;
+      font-size:12.5px;font-weight:700;cursor:pointer;transition:.14s ease;display:inline-flex;align-items:center;gap:8px;
     }
-    .btn:hover{ background: var(--bg2); }
-    .btn:active{ transform: translateY(1px); }
-    .btn.primary{
-      background: #111827;
-      color:#fff;
-      border-color:#111827;
-    }
-    .btn.danger{
-      background:#fff;
-      border-color: rgba(239,68,68,.35);
-      color: #991b1b;
-    }
-    .btn.ghost{
-      background: transparent;
-      border-color: var(--border);
-      color: var(--muted);
-    }
-    .btn:focus{outline:none; box-shadow: var(--focus)}
+    .btn:hover{transform:translateY(-1px);background:#f8fafc}
+    .btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+    .btn.soft{background:var(--brand-soft);border-color:#d9e2ef}
+    .btn.warn{background:var(--warn-bg);border-color:#fed7aa;color:var(--warn)}
+    .btn:focus,.field:focus,.field-inline:focus,.search:focus-within{outline:none;box-shadow:var(--focus)}
 
-    .main{
-      display:grid;
-      grid-template-columns: 310px minmax(460px, 1fr) 440px;
-      gap: 12px;
-      padding: 12px;
-      height: calc(100vh - 60px);
-      overflow:hidden;
-      background: var(--bg2);
+    .summary-strip{
+      display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:10px;align-items:stretch;
     }
-    .panel{
-      background: var(--panel);
-      border:1px solid var(--border);
-      border-radius: var(--r12);
-      box-shadow: var(--shadow);
-      overflow:hidden;
-      display:flex;
-      flex-direction:column;
-      min-height:0;
-    }
-    .panel .hd{
-      padding: 12px 12px 10px 12px;
-      border-bottom:1px solid var(--border);
-      display:flex; align-items:center; justify-content:space-between; gap:10px;
-      background:#fff;
-    }
-    .panel .hd h2{margin:0; font-size: 12.5px; letter-spacing:.2px; color: var(--muted)}
-    .panel .hd .meta{font-size:12px;color:var(--muted2)}
-    .panel .bd{padding: 12px; overflow:auto; min-height:0;}
-
-    /* Sidebar */
-    .section{margin-bottom: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--border);}
-    .section:last-child{border-bottom:none; margin-bottom:0; padding-bottom:0}
-    .label{font-size:12px;color:var(--muted2); margin: 0 0 8px 0}
-    .select, .text{
-      width:100%;
-      padding: 9px 10px;
-      border-radius: 10px;
-      background: #fff;
-      border:1px solid var(--border);
-      color: var(--text);
-      outline:none;
-      font-size: 13px;
-    }
-    .select:focus, .text:focus{box-shadow: var(--focus); border-color: rgba(15,23,42,.28)}
-    .row{display:grid; grid-template-columns: 1fr 1fr; gap:10px}
-
-    .chips{display:flex; flex-wrap:wrap; gap:8px}
-    .chip{
-      display:inline-flex; align-items:center; gap:8px;
-      padding: 7px 10px;
-      border-radius: 999px;
-      background: #fff;
-      border:1px solid var(--border);
-      font-size: 12px;
-      color: var(--muted);
-      cursor:pointer;
-      user-select:none;
-    }
-    .chip strong{color:var(--text); font-weight:750}
-    .chip.active{
-      border-color: rgba(15,23,42,.55);
-      background: rgba(15,23,42,.06);
-      color: var(--text);
-    }
-    .chip .dot{width:8px;height:8px;border-radius:99px;background:var(--p3)}
-    .dot.p0{background: var(--p0)}
-    .dot.p1{background: var(--p1)}
-    .dot.p2{background: var(--p2)}
-    .dot.p3{background: var(--p3)}
-
-    /* List header */
-    .list-tools{
-      display:flex; align-items:center; justify-content:space-between; gap:10px;
-      padding: 10px 12px;
-      border-bottom:1px solid var(--border);
-      background:#fff;
-    }
-    .seg{
-      display:flex; align-items:center;
-      border:1px solid var(--border);
-      border-radius: 10px;
-      overflow:hidden;
-      background:#fff;
-    }
-    .seg button{
-      padding: 7px 10px;
-      font-size: 12px;
-      background: transparent;
-      border:none;
-      color: var(--muted);
-      cursor:pointer;
-    }
-    .seg button.active{
-      background: rgba(15,23,42,.06);
-      color: var(--text);
-      font-weight: 700;
-    }
-    .seg button:focus{outline:none; box-shadow: var(--focus)}
-
-    /* List items */
-    .list{overflow:auto; min-height:0; background:#fff;}
-    .item{
-      padding: 12px;
-      border-bottom:1px solid var(--border);
-      display:grid;
-      grid-template-columns: 16px 1fr auto;
-      gap: 10px;
-      cursor:pointer;
-      transition: background .12s ease;
-      background:#fff;
-    }
-    .item:hover{ background: rgba(15,23,42,.03); }
-    .item.active{
-      background: rgba(15,23,42,.06);
-      outline: 1px solid rgba(15,23,42,.14);
-      outline-offset: -1px;
-    }
-    .item:last-child{border-bottom:none}
-    .flag{
-      margin-top: 4px;
-      width: 10px;height:10px;border-radius:99px;
-      background: rgba(15,23,42,.18);
-    }
-    .flag.unread{ background: #111827; }
-    .flag.done{ background: var(--ok); }
-    .flag.archived{ background: rgba(100,116,139,.85); }
-
-    .item-main{min-width:0;}
-    .topline{display:flex; align-items:center; gap:10px; min-width:0;}
-    .subject{
-      font-weight: 750;
-      font-size: 13.5px;
-      letter-spacing:.1px;
-      white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-    }
-
-    .badges{display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-top:6px;}
-    .badge{
-      font-size: 11px;
-      padding: 3px 8px;
-      border-radius: 999px;
-      border:1px solid var(--border);
-      color: var(--muted);
-      background: #fff;
-    }
-    .badge.p0{border-color: rgba(239,68,68,.35); color:#991b1b; background: rgba(239,68,68,.05)}
-    .badge.p1{border-color: rgba(245,158,11,.35); color:#92400e; background: rgba(245,158,11,.06)}
-    .badge.p2{border-color: rgba(59,130,246,.35); color:#1e40af; background: rgba(59,130,246,.06)}
-    .badge.p3{border-color: rgba(100,116,139,.35); color:#334155; background: rgba(100,116,139,.05)}
-
-    .meta-line{
-      margin-top: 8px;
-      color: var(--muted2);
-      font-size: 12px;
-      display:flex;
-      gap: 10px;
-      flex-wrap:wrap;
-    }
-    .meta-line .k{color: rgba(100,116,139,.85)}
-    .right-mini{
-      text-align:right;
-      display:flex;
-      flex-direction:column;
-      gap:6px;
-      align-items:flex-end;
-      margin-top: 2px;
-    }
-    .mini{
-      font-size:12px;
-      color: var(--muted2);
-    }
-    .att{
-      display:inline-flex; align-items:center; gap:6px;
-      font-size: 11px;
-      padding: 3px 8px;
-      border-radius: 999px;
-      background: rgba(15,23,42,.05);
-      border:1px solid var(--border);
-      color: var(--muted);
-    }
-
-    /* Detail panel */
-    .detail{overflow:auto; min-height:0; padding: 14px; background:#fff;}
-    .detail h3{margin:0 0 6px 0; font-size: 14px; letter-spacing:.2px;}
-    .detail .subline{
-      color: var(--muted2);
-      font-size: 12px;
-      display:flex;
-      flex-wrap:wrap;
-      gap:10px;
-      margin-bottom: 12px;
-    }
-    .detail .actions{display:flex; gap:8px; flex-wrap:wrap; margin: 8px 0 14px 0;}
     .card{
-      border:1px solid var(--border);
-      background:#fff;
-      border-radius: 12px;
-      padding: 12px;
-      margin-top: 10px;
-      box-shadow: var(--shadow);
+      background:rgba(255,255,255,.88);backdrop-filter:blur(10px);border:1px solid rgba(226,232,240,.95);
+      border-radius:20px;box-shadow:var(--shadow);min-width:0;
     }
-    .grid{display:grid; grid-template-columns: 1fr 1fr; gap: 10px;}
-    .field{
-      padding: 10px;
-      border-radius: 10px;
-      background: var(--bg2);
-      border:1px solid var(--border);
-      min-height: 48px;
+    .strip-card{padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:72px}
+    .strip-card.primary{background:linear-gradient(180deg,#ffffff 0%,#f8fafc 100%)}
+    .strip-copy{display:flex;flex-direction:column;gap:4px;min-width:0}
+    .strip-copy .eyebrow{margin:0}
+    .strip-copy .title{font-size:14px;font-weight:800;letter-spacing:.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .strip-copy .sub{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .strip-copy .meta-line{font-size:11px;color:var(--muted-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .mini-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+    .mini-tag{display:inline-flex;align-items:center;padding:6px 8px;border-radius:999px;border:1px solid var(--line);background:#fff;font-size:11px;color:var(--muted);font-weight:700}
+    .stat{padding:12px 14px;display:flex;flex-direction:column;gap:5px;justify-content:center;min-height:72px}
+    .stat .label{font-size:10px;text-transform:uppercase;letter-spacing:.13em;color:var(--muted);font-weight:800}
+    .stat .value{font-size:22px;font-weight:800;letter-spacing:-.02em;line-height:1}
+    .stat .sub{font-size:11px;color:var(--muted)}
+
+    .workspace{display:grid;grid-template-columns:330px minmax(420px,1fr) 500px;gap:12px;min-height:0}
+    .panel{display:flex;flex-direction:column;min-height:0}
+    .panel-hd{
+      padding:14px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:10px;
     }
-    .field .k{
-      font-size:11px;
-      color: var(--muted2);
-      margin-bottom: 6px;
-      text-transform:uppercase;
-      letter-spacing:.10em;
+    .panel-hd h3{margin:0;font-size:13px;letter-spacing:.02em}
+    .panel-hd .meta{font-size:12px;color:var(--muted)}
+    .panel-bd{padding:14px;overflow:auto;min-height:0}
+    .section{padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--line)}
+    .section:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
+    .section-title{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin:0 0 10px}
+    .field,.field-inline,textarea.field-inline{
+      width:100%;border:1px solid var(--line);background:#fff;border-radius:12px;padding:10px 12px;color:var(--text);font-size:13px;
     }
-    .field .v{
-      font-size: 13px;
-      color: var(--text);
-      word-break: break-word;
-      line-height: 1.35;
+    .field-inline{padding:9px 10px}
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .chips{display:flex;gap:8px;flex-wrap:wrap}
+    .chip{
+      padding:8px 10px;border-radius:999px;border:1px solid var(--line);background:#fff;color:var(--muted);
+      font-size:12px;font-weight:700;cursor:pointer;user-select:none;display:inline-flex;align-items:center;gap:8px;
+    }
+    .chip.active{background:#111827;color:#fff;border-color:#111827}
+    .dot{width:8px;height:8px;border-radius:999px;background:#cbd5e1}
+    .dot.p0{background:#ef4444}.dot.p1{background:#f59e0b}.dot.p2{background:#3b82f6}.dot.p3{background:#94a3b8}
+    .switch-row{display:flex;gap:8px;flex-wrap:wrap}
+
+    .list-head{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:10px}
+    .seg{display:flex;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:#fff}
+    .seg button{border:none;background:transparent;padding:8px 11px;font-size:12px;color:var(--muted);cursor:pointer}
+    .seg button.active{background:#111827;color:#fff;font-weight:800}
+    .queue{overflow:auto;min-height:0;padding:8px}
+    .item{
+      border:1px solid transparent;border-radius:18px;padding:14px;margin-bottom:8px;background:#fff;cursor:pointer;
+      display:grid;grid-template-columns:1fr auto;gap:10px;transition:.14s ease;
+    }
+    .item:hover{border-color:var(--line);transform:translateY(-1px)}
+    .item.active{border-color:#94a3b8;background:#f8fafc}
+    .item-top{display:flex;align-items:flex-start;gap:10px;min-width:0}
+    .status-pill{width:10px;height:10px;border-radius:999px;margin-top:5px;flex:0 0 auto;background:#cbd5e1}
+    .status-pill.unread{background:#111827}.status-pill.done{background:#16a34a}.status-pill.archived{background:#64748b}
+    .item-title{font-size:14px;font-weight:800;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .item-sub{margin-top:4px;font-size:12px;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap}
+    .badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+    .badge{padding:4px 8px;border-radius:999px;border:1px solid var(--line);background:#fff;font-size:11px;color:var(--muted);font-weight:700}
+    .badge.p0{background:var(--danger-bg);border-color:#fecaca;color:var(--danger)}
+    .badge.p1{background:var(--warn-bg);border-color:#fed7aa;color:var(--warn)}
+    .badge.p2{background:var(--info-bg);border-color:#bfdbfe;color:var(--info)}
+    .badge.success{background:var(--success-bg);border-color:#bbf7d0;color:var(--success)}
+    .item-right{text-align:right;display:flex;flex-direction:column;gap:8px;align-items:flex-end}
+    .mono{font-family:var(--mono)}
+    .empty{padding:28px 16px;text-align:center;color:var(--muted);font-size:13px}
+
+    .detail{padding:16px;overflow:auto;min-height:0}
+    .detail-top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:14px}
+    .detail-top h2{margin:0;font-size:20px;line-height:1.15}
+    .detail-sub{margin-top:8px;display:flex;gap:10px;flex-wrap:wrap;color:var(--muted);font-size:12px}
+    .actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+    .sheet-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .detail-card{border:1px solid var(--line);border-radius:16px;background:#fff;padding:12px}
+    .kv{border:1px solid var(--line);border-radius:12px;background:var(--panel-soft);padding:11px 12px;min-height:62px}
+    .kv .k{font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:var(--muted);font-weight:800;margin-bottom:6px}
+    .kv .v{font-size:13px;line-height:1.45;color:var(--text);word-break:break-word}
+    .full{grid-column:1/-1}
+    .links{display:flex;flex-direction:column;gap:8px}
+    .link-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 12px;border:1px solid var(--line);border-radius:12px;background:#fff}
+    .small{font-size:12px;color:var(--muted)}
+    .table-wrap{border:1px solid var(--line);border-radius:16px;overflow:auto;background:#fff}
+    table{width:100%;border-collapse:collapse;font-size:12.5px}
+    th,td{padding:10px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+    th{background:#f8fafc;color:var(--muted);font-size:11px;letter-spacing:.10em;text-transform:uppercase;position:sticky;top:0;z-index:1}
+    tr:last-child td{border-bottom:none}
+
+    #toast{
+      position:fixed;right:16px;bottom:16px;padding:10px 12px;background:#111827;color:#fff;border-radius:12px;
+      font-size:12px;opacity:0;pointer-events:none;transition:opacity .18s ease;z-index:9999;
+      box-shadow:0 10px 30px rgba(15,23,42,.2);
     }
 
-    .links{display:flex; flex-direction:column; gap:8px; margin-top: 10px;}
-    .link{
-      display:flex; align-items:center; justify-content:space-between;
-      gap: 10px;
-      padding: 10px;
-      border-radius: 10px;
-      background: #fff;
-      border:1px solid var(--border);
-      text-decoration:none;
-      transition: background .12s ease, border-color .12s ease;
+    @media (max-width:1500px){
+      .workspace{grid-template-columns:300px minmax(360px,1fr) 440px}
+      .summary-strip{grid-template-columns:repeat(3,minmax(0,1fr));}
     }
-    .link:hover{background: var(--bg2); border-color: var(--border2)}
-    .link .left{display:flex; flex-direction:column; gap:2px; min-width:0;}
-    .link .ttl{font-weight: 750; font-size: 12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-    .link .cap{font-size: 12px; color: var(--muted2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
-    .link .open{font-size: 12px; color: var(--muted);}
-
-    .small{font-size: 12px; color: var(--muted2); line-height: 1.45;}
-    .empty{padding: 16px; color: var(--muted2); font-size: 13px; text-align:center;}
-
-    /* Mobile */
-    @media (max-width: 1100px){
-      .main{grid-template-columns: 290px 1fr}
-      .panel.detailPanel{display:none}
-      .input{min-width: 240px}
-    }
-    @media (max-width: 860px){
+    @media (max-width:1180px){
       body{overflow:auto}
-      .app{overflow:visible}
-      .main{grid-template-columns: 1fr; height:auto; overflow:visible;}
-      .panel{min-height: 420px}
-      header{position:sticky; top:0; z-index:20}
-      .input{min-width: 0; width: 100%}
-      .brand{min-width: 0}
-      .top-actions{width:100%}
-      .panel.detailPanel{display:flex}
+      .app{height:auto}
+      .workspace{grid-template-columns:1fr;min-height:auto}
+      .panel{min-height:460px}
+      .summary-strip{grid-template-columns:1fr 1fr}
+      .search{min-width:0;width:100%}
+      .topbar{flex-direction:column;align-items:stretch}
+      .top-actions{justify-content:flex-start}
+    }
+    @media (max-width:700px){
+      .summary-strip{grid-template-columns:1fr}
+      .sheet-grid,.grid2{grid-template-columns:1fr}
     }
   </style>
 </head>
-
 <body>
-<div class="app">
-  <header>
-    <div class="brand">
-      <div class="logo" aria-hidden="true"></div>
-      <div>
-        <h1>Mailroom Inbox</h1>
-        <div class="sub" id="subStatus">Loading…</div>
+  <div class="app">
+    <section class="topbar">
+      <div class="brand">
+        <div class="mark">MR</div>
+        <div class="brand-copy">
+          <h1>Mailroom Inbox</h1>
+          <p id="subStatus">Loading submissions…</p>
+        </div>
       </div>
-    </div>
-
-    <div class="top-actions">
-      <div class="input" title="Search (press /)">
-        <span style="opacity:.65">🔎</span>
-        <input id="globalSearch" placeholder="Search subject, sender, notes, ID…" autocomplete="off" />
-        <span class="kbd">/</span>
-      </div>
-
-      <span class="pill" id="countsPill">—</span>
-      <button class="btn" id="btnOpenSheet">Open Sheet</button>
-      <button class="btn" id="btnRefresh">Refresh</button>
-      <button class="btn primary" id="btnAuto">Auto: ON</button>
-    </div>
-  </header>
-
-  <div class="main">
-    <!-- Sidebar -->
-    <section class="panel">
-      <div class="hd">
-        <h2>Filters</h2>
-        <div class="meta" id="filterMeta">—</div>
-      </div>
-
-      <div class="bd">
-        <div class="section">
-          <div class="label">View</div>
-          <div class="chips" id="viewChips">
-            <div class="chip active" data-view="open"><span class="dot p1"></span> <strong>Open</strong></div>
-            <div class="chip" data-view="all"><span class="dot"></span> All</div>
-            <div class="chip" data-view="done"><span class="dot" style="background:var(--ok)"></span> Done</div>
-            <div class="chip" data-view="archived"><span class="dot" style="background:var(--p3)"></span> Archived</div>
-          </div>
+      <div class="top-actions">
+        <div class="search" title="Search ( / )">
+          <span>🔎</span>
+          <input id="globalSearch" placeholder="Search subject, sender, notes, processed by, ID…" autocomplete="off" />
+          <span class="kbd">/</span>
         </div>
-
-        <div class="section">
-          <div class="label">Priority</div>
-          <div class="chips" id="priorityChips">
-            <div class="chip" data-priority="P0"><span class="dot p0"></span> P0</div>
-            <div class="chip" data-priority="P1"><span class="dot p1"></span> P1</div>
-            <div class="chip" data-priority="P2"><span class="dot p2"></span> P2</div>
-            <div class="chip" data-priority="P3"><span class="dot p3"></span> P3</div>
-          </div>
-          <div style="height:10px"></div>
-          <button class="btn ghost" id="btnClearPriority" style="width:100%">Clear priority filter</button>
-        </div>
-
-        <div class="section">
-          <div class="label">Document Type</div>
-          <select class="select" id="docType"></select>
-
-          <div style="height:10px"></div>
-          <div class="label">Send To</div>
-          <select class="select" id="sendTo"></select>
-        </div>
-
-        <div class="section">
-          <div class="label">Dates</div>
-          <div class="row">
-            <input class="text" id="fromDate" placeholder="From (YYYY-MM-DD)" />
-            <input class="text" id="toDate" placeholder="To (YYYY-MM-DD)" />
-          </div>
-          <div style="height:10px"></div>
-          <button class="btn ghost" id="btnClearDates" style="width:100%">Clear date filter</button>
-        </div>
-
-        <div class="section">
-          <div class="label">Quick</div>
-          <div class="chips" id="quickChips">
-            <div class="chip" data-quick="due"><span class="dot" style="background:var(--p1)"></span> Has due date</div>
-            <div class="chip" data-quick="attachments"><span class="dot" style="background:var(--p2)"></span> Has attachments</div>
-            <div class="chip" data-quick="unread"><span class="dot" style="background:#111827"></span> Unread</div>
-          </div>
-          <div style="height:10px"></div>
-          <button class="btn danger" id="btnResetAll" style="width:100%">Reset all</button>
-        </div>
-
-        <div class="small">
-          <div style="opacity:.9; font-weight:750; margin-bottom:6px; color:var(--text);">How this works</div>
-          <div>
-            This page reads your Google Sheet (Jotform submissions) and renders an inbox.
-            Status (Unread / Done / Archived) is stored in this browser via <span style="font-family:var(--mono)">localStorage</span>.
-            It does not write back to Sheets.
-          </div>
-        </div>
+        <button class="btn soft" id="btnOpenSheet">Open Sheet</button>
+        <button class="btn" id="btnRefresh">Refresh</button>
+        <button class="btn primary" id="btnSyncSupabase">Sync Supabase</button>
+        <button class="btn" id="btnAuto">Auto: ON</button>
       </div>
     </section>
 
-    <!-- List -->
-    <section class="panel">
-      <div class="list-tools">
-        <div class="seg" role="tablist" aria-label="Sort">
-          <button id="sortPriority" class="active" title="Sort by Priority then Received Date">Priority</button>
-          <button id="sortReceived" title="Sort by Received Date">Received</button>
-          <button id="sortSubmitted" title="Sort by Submission Date">Submitted</button>
+    <section class="summary-strip">
+      <div class="card strip-card primary">
+        <div class="strip-copy">
+          <div class="eyebrow">Mailroom</div>
+          <div class="title">Shared intake queue</div>
+          <div class="sub" id="subSummary">Jotform submissions, processing status, and audit trail in one place.</div>
+          <div class="meta-line" id="statSyncMeta">Supabase sync ready</div>
         </div>
-
-        <div class="pill" id="listMeta">—</div>
+        <div class="mini-actions">
+          <span class="mini-tag">Sheet</span>
+          <span class="mini-tag">Queue</span>
+          <span class="mini-tag">Supabase</span>
+        </div>
       </div>
-
-      <div class="list" id="list"></div>
-      <div class="empty" id="empty" style="display:none;">No items match your filters.</div>
+      <div class="card stat"><div class="label">Open</div><div class="value" id="statOpen">—</div><div class="sub">Active queue</div></div>
+      <div class="card stat"><div class="label">Unread</div><div class="value" id="statUnread">—</div><div class="sub">Needs review</div></div>
+      <div class="card stat"><div class="label">Due soon</div><div class="value" id="statDue">—</div><div class="sub">Next 3 days</div></div>
+      <div class="card stat"><div class="label">Attachments</div><div class="value" id="statAttachments">—</div><div class="sub">With PDFs</div></div>
+      <div class="card stat"><div class="label">Processed</div><div class="value" id="statProcessed">—</div><div class="sub">Completed</div></div>
     </section>
 
-    <!-- Detail -->
-    <section class="panel detailPanel">
-      <div class="hd">
-        <h2>Details</h2>
-        <div class="meta" id="detailMeta">—</div>
-      </div>
-      <div class="detail" id="detail">
-        <div class="empty">Select an item on the left.</div>
-      </div>
+    <section class="workspace">
+      <section class="card panel">
+        <div class="panel-hd">
+          <h3>Filters</h3>
+          <div class="meta" id="filterMeta">—</div>
+        </div>
+        <div class="panel-bd">
+          <div class="section">
+            <div class="section-title">View</div>
+            <div class="chips" id="viewChips">
+              <div class="chip active" data-view="open">Open</div>
+              <div class="chip" data-view="all">All</div>
+              <div class="chip" data-view="done">Done</div>
+              <div class="chip" data-view="archived">Archived</div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">Priority</div>
+            <div class="chips" id="priorityChips">
+              <div class="chip" data-priority="P0"><span class="dot p0"></span>P0</div>
+              <div class="chip" data-priority="P1"><span class="dot p1"></span>P1</div>
+              <div class="chip" data-priority="P2"><span class="dot p2"></span>P2</div>
+              <div class="chip" data-priority="P3"><span class="dot p3"></span>P3</div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">Assignment</div>
+            <select class="field" id="docType"></select>
+            <div style="height:10px"></div>
+            <select class="field" id="sendTo"></select>
+            <div style="height:10px"></div>
+            <select class="field" id="processedBy"></select>
+          </div>
+
+          <div class="section">
+            <div class="section-title">Date range</div>
+            <div class="grid2">
+              <input class="field-inline" id="fromDate" type="date" />
+              <input class="field-inline" id="toDate" type="date" />
+            </div>
+            <div style="height:10px"></div>
+            <div class="switch-row">
+              <button class="btn" id="btnDateReceived">Use received date</button>
+              <button class="btn" id="btnDateSubmitted">Use submission date</button>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">Quick filters</div>
+            <div class="chips" id="quickChips">
+              <div class="chip" data-quick="due">Has due date</div>
+              <div class="chip" data-quick="attachments">Has attachment</div>
+              <div class="chip" data-quick="unread">Unread</div>
+              <div class="chip" data-quick="processed">Processed</div>
+            </div>
+          </div>
+
+          <div class="section">
+            <div class="section-title">Supabase</div>
+            <div class="small">Set your project URL, anon key, and table name in <span class="mono">CONFIG</span>. Sync uses <span class="mono">submission_id</span> as the upsert key.</div>
+          </div>
+
+          <button class="btn warn" id="btnResetAll" style="width:100%">Reset all filters</button>
+        </div>
+      </section>
+
+      <section class="card panel">
+        <div class="list-head">
+          <div class="seg">
+            <button id="sortPriority" class="active">Priority</button>
+            <button id="sortReceived">Received</button>
+            <button id="sortSubmitted">Submitted</button>
+          </div>
+          <div class="small" id="listMeta">—</div>
+        </div>
+        <div class="queue" id="list"></div>
+        <div class="empty" id="empty" style="display:none">No items match your filters.</div>
+      </section>
+
+      <section class="card panel">
+        <div class="panel-hd">
+          <h3>Details</h3>
+          <div class="meta" id="detailMeta">—</div>
+        </div>
+        <div class="detail" id="detail">
+          <div class="empty">Select a submission.</div>
+        </div>
+      </section>
     </section>
   </div>
-</div>
+  <div id="toast"></div>
 
 <script>
-/**
- * =========================
- * CONFIG — EDIT THIS
- * =========================
- */
+const APPCFG = window.APP_CONFIG || window.CONFIG || {};
+const cfgPick = (...keys) => {
+  for (const key of keys){
+    const val = APPCFG?.[key] ?? window?.[key];
+    if (val !== undefined && val !== null && String(val).trim() !== '') return String(val).trim();
+  }
+  return '';
+};
+
 const CONFIG = {
-  SHEET_ID: "12cuw5LrkFvwjcR33m8zwiWIPEov6P6t72rMSIrKq-Ck",
-  GID: 0, // <-- change if needed
-  AUTO_REFRESH_MS: 60_000, // 60s
+  SHEET_ID: cfgPick('MAILROOM_SHEET_ID', 'MAILROOM_GOOGLE_SHEET_ID') || '12cuw5LrkFvwjcR33m8zwiWIPEov6P6t72rMSIrKq-Ck',
+  GID: Number(cfgPick('MAILROOM_GID')) || 0,
+  AUTO_REFRESH_MS: Number(cfgPick('MAILROOM_AUTO_REFRESH_MS')) || 60000,
+  SUPABASE_URL: cfgPick('SUPABASE_URL', 'VITE_SUPABASE_URL'),
+  SUPABASE_ANON_KEY: cfgPick('SUPABASE_ANON_KEY', 'SUPABASE_KEY', 'VITE_SUPABASE_ANON_KEY'),
+  SUPABASE_TABLE: cfgPick('MAILROOM_TABLE', 'SUPABASE_MAILROOM_TABLE') || 'mailroom_items',
+  ENABLE_SUPABASE_SYNC: cfgPick('MAILROOM_ENABLE_SUPABASE_SYNC') === '' ? true : /^(1|true|yes|on)$/i.test(cfgPick('MAILROOM_ENABLE_SUPABASE_SYNC')),
+};
+
+const LS_KEY = "mailroom_state_v2";
+const $ = (id)=>document.getElementById(id);
+let RAW = [];
+let FILTERED = [];
+let ACTIVE_ID = "";
+let SORT_MODE = "priority";
+let AUTO_ON = true;
+let AUTO_TIMER = null;
+let DATE_MODE = "received";
+let LAST_SYNC_AT = null;
+let STATE = loadState();
+let supabaseClient = null;
+
+const FILTERS = {
+  view: "open",
+  priorities: new Set(),
+  docType: "",
+  sendTo: "",
+  processedBy: "",
+  from: "",
+  to: "",
+  quickDue: false,
+  quickAttachments: false,
+  quickUnread: false,
+  quickProcessed: false,
+  q: ""
 };
 
 function gvizUrl(sheetId, gid){
@@ -551,654 +397,589 @@ function gvizUrl(sheetId, gid){
 function parseGViz(text){
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
-  if (start === -1 || end === -1) throw new Error("Unexpected gviz response");
+  if (start === -1 || end === -1) throw new Error("Unexpected Google Sheet response.");
   return JSON.parse(text.substring(start, end + 1));
 }
 function safe(v){ return (v === null || v === undefined) ? "" : String(v).trim(); }
+function nullish(v){ const x = safe(v); return x || null; }
+function escapeHtml(s){ return safe(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
 function toISODate(s){
   const x = safe(s);
   if (!x) return "";
-  const m1 = x.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (m1) return `${m1[1]}-${m1[2]}-${m1[3]}`;
-  const m2 = x.match(/^(\d{2})[-\/](\d{2})[-\/](\d{4})/);
-  if (m2) return `${m2[3]}-${m2[1]}-${m2[2]}`;
+  if (/^Date\(/.test(x)) return "";
+  const a = x.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (a) return `${a[1]}-${a[2]}-${a[3]}`;
+  const b = x.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})/);
+  if (b) return `${b[3]}-${String(b[1]).padStart(2,'0')}-${String(b[2]).padStart(2,'0')}`;
+  const c = new Date(x);
+  if (!isNaN(c.getTime())) {
+    return `${c.getFullYear()}-${String(c.getMonth()+1).padStart(2,'0')}-${String(c.getDate()).padStart(2,'0')}`;
+  }
   return "";
 }
 function fmtShortDate(s){
   const iso = toISODate(s);
-  if (!iso) return safe(s);
+  if (!iso) return safe(s) || "—";
   const [y,m,d] = iso.split("-");
-  return `${m}/${d}`;
+  return `${m}/${d}/${y.slice(2)}`;
+}
+function fmtFullDate(s){
+  const iso = toISODate(s);
+  if (!iso) return safe(s) || "—";
+  const d = new Date(iso + "T00:00:00");
+  return d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+}
+function daysUntil(s){
+  const iso = toISODate(s);
+  if (!iso) return null;
+  const now = new Date();
+  const base = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const due = new Date(iso + "T00:00:00");
+  return Math.round((due - base) / 86400000);
 }
 function parsePriority(p){
   const t = safe(p).toUpperCase();
-  if (t.startsWith("P0")) return {key:"P0", rank:0, cls:"p0", label:"P0"};
-  if (t.startsWith("P1")) return {key:"P1", rank:1, cls:"p1", label:"P1"};
-  if (t.startsWith("P2")) return {key:"P2", rank:2, cls:"p2", label:"P2"};
-  if (t.startsWith("P3")) return {key:"P3", rank:3, cls:"p3", label:"P3"};
-  return {key:"", rank:9, cls:"p3", label:"—"};
+  if (t.startsWith("P0")) return {key:"P0", rank:0, cls:"p0"};
+  if (t.startsWith("P1")) return {key:"P1", rank:1, cls:"p1"};
+  if (t.startsWith("P2")) return {key:"P2", rank:2, cls:"p2"};
+  if (t.startsWith("P3")) return {key:"P3", rank:3, cls:"p3"};
+  return {key:"", rank:9, cls:""};
 }
 function splitAttachmentUrls(cell){
   const raw = safe(cell);
   if (!raw) return [];
-  const matches = raw.match(/https?:\/\/[^\s"]+/g);
-  return matches ? matches : [];
+  return raw.match(/https?:\/\/[^\s"\]]+/g) || [];
 }
-
-const LS_KEY = "mailroom_state_v1";
 function loadState(){
-  try{ return JSON.parse(localStorage.getItem(LS_KEY) || "{}"); }catch{ return {}; }
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || "{}"); }
+  catch { return {}; }
 }
-function saveState(s){ localStorage.setItem(LS_KEY, JSON.stringify(s)); }
-function ensureItemState(state, id){
-  if (!state[id]) state[id] = { openedAt: 0, done: false, archived: false, pin: false, note:"" };
-  return state[id];
+function saveState(){ localStorage.setItem(LS_KEY, JSON.stringify(STATE)); }
+function ensureItemState(id){
+  if (!STATE[id]) STATE[id] = { openedAt:0, done:false, archived:false, localNote:"", synced:false, syncedAt:"" };
+  return STATE[id];
 }
-
-let RAW = [];
-let FILTERED = [];
-let ACTIVE_ID = "";
-let SORT_MODE = "priority";
-let AUTO_ON = true;
-let AUTO_TIMER = null;
-
-let STATE = loadState();
-
-const $ = (id)=>document.getElementById(id);
-const listEl = $("list");
-const emptyEl = $("empty");
-const detailEl = $("detail");
-const subStatusEl = $("subStatus");
-const countsPillEl = $("countsPill");
-const filterMetaEl = $("filterMeta");
-const listMetaEl = $("listMeta");
-const detailMetaEl = $("detailMeta");
-
-const FILTERS = {
-  view: "open",
-  priorities: new Set(),
-  docType: "",
-  sendTo: "",
-  from: "",
-  to: "",
-  quickDue: false,
-  quickAttachments: false,
-  quickUnread: false,
-  q: ""
-};
-
-function setActiveChip(containerId, predicate){
-  const el = $(containerId);
-  [...el.querySelectorAll(".chip")].forEach(ch=>{
-    const ok = predicate(ch);
-    ch.classList.toggle("active", ok);
-  });
+function setChipGroup(containerId, predicate){
+  [...$(containerId).querySelectorAll('.chip')].forEach(ch => ch.classList.toggle('active', predicate(ch)));
 }
 function buildSelectOptions(selectEl, values, placeholder){
-  const uniq = Array.from(new Set(values.map(v=>safe(v)).filter(Boolean))).sort((a,b)=>a.localeCompare(b));
-  selectEl.innerHTML = "";
-  const opt0 = document.createElement("option");
-  opt0.value = "";
-  opt0.textContent = placeholder;
-  selectEl.appendChild(opt0);
-  uniq.forEach(v=>{
-    const o = document.createElement("option");
-    o.value = v;
-    o.textContent = v;
-    selectEl.appendChild(o);
-  });
+  const uniq = [...new Set(values.map(safe).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  selectEl.innerHTML = `<option value="">${placeholder}</option>` + uniq.map(v => `<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+}
+function statusOf(item){
+  if (item.fileProcessed) return 'done';
+  const st = ensureItemState(item._id);
+  if (st.archived) return 'archived';
+  if (st.done) return 'done';
+  if (!st.openedAt) return 'unread';
+  return 'open';
+}
+function isUnread(item){ return statusOf(item) === 'unread'; }
+function isDone(item){ return statusOf(item) === 'done'; }
+function isArchived(item){ return statusOf(item) === 'archived'; }
+function displayStatus(item){
+  if (item.fileProcessed) return 'Processed';
+  const s = statusOf(item);
+  if (s === 'unread') return 'Unread';
+  if (s === 'archived') return 'Archived';
+  if (s === 'done') return 'Done';
+  return 'Open';
+}
+function rowHash(item){
+  const parts = [
+    item._id,item.submissionDate,item.documentType,item.receivedDate,item.sender,item.priorityRaw,
+    item.sendTo,item.dueDate,item.actionNeeded,item.subject,item.notes,item.upload,item.lastUpdate,
+    item.fileProcessedRaw,item.processedBy
+  ].join('||');
+  let h = 0;
+  for (let i=0;i<parts.length;i++) h = ((h<<5)-h) + parts.charCodeAt(i) | 0;
+  return String(h);
+}
+function currentDateForFilter(item){
+  return DATE_MODE === 'submitted'
+    ? (toISODate(item.submissionDate) || '')
+    : (toISODate(item.receivedDate) || toISODate(item.submissionDate) || '');
+}
+function initSupabase(){
+  if (!CONFIG.ENABLE_SUPABASE_SYNC) return null;
+  if (!CONFIG.SUPABASE_URL || CONFIG.SUPABASE_URL.includes('YOUR_PROJECT')) return null;
+  if (!CONFIG.SUPABASE_ANON_KEY || CONFIG.SUPABASE_ANON_KEY.includes('YOUR_SUPABASE')) return null;
+  if (!window.supabase) return null;
+  if (!supabaseClient) supabaseClient = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY);
+  return supabaseClient;
 }
 
 async function fetchSheet(){
-  const url = gvizUrl(CONFIG.SHEET_ID, CONFIG.GID);
-  const res = await fetch(url, { cache: "no-store" });
+  const res = await fetch(gvizUrl(CONFIG.SHEET_ID, CONFIG.GID), { cache:'no-store' });
   const txt = await res.text();
   const json = parseGViz(txt);
-
   const cols = json.table.cols.map(c => safe(c.label));
   const rows = json.table.rows || [];
 
-  const mapped = rows.map(r=>{
-    const cells = (r.c || []).map(c=>{
-      if (!c) return "";
-      return (c.f !== undefined && c.f !== null) ? c.f : c.v;
-    });
-
+  RAW = rows.map(r => {
+    const cells = (r.c || []).map(c => !c ? '' : (c.f !== undefined && c.f !== null ? c.f : c.v));
     const obj = {};
-    cols.forEach((k,i)=> obj[k] = cells[i] ?? "");
+    cols.forEach((k,i)=> obj[k] = cells[i] ?? '');
 
-    const submissionId = safe(obj["Submission ID"] || obj["SubmissionID"] || obj["ID"] || "");
-    const pr = parsePriority(obj["Priority"]);
-    const attachments = splitAttachmentUrls(obj["Upload Scanned Document (PDF)"]);
+    const pr = parsePriority(obj['Priority']);
+    const submissionId = safe(obj['Submission ID'] || obj['SubmissionID'] || obj['ID']);
+    const attachments = splitAttachmentUrls(obj['Upload Scanned Document (PDF)']);
+    const processedRaw = safe(obj['File Received & Processed']);
+    const fileProcessed = /^(yes|y|true|processed|done|complete|completed)$/i.test(processedRaw);
 
     return {
       _id: submissionId,
-      submissionDate: safe(obj["Submission Date"]),
-      documentType: safe(obj["Document Type"]),
-      receivedDate: safe(obj["Received Date"]),
-      sender: safe(obj["Received From (Sender)"]),
-      priorityRaw: safe(obj["Priority"]),
+      submissionDate: safe(obj['Submission Date']),
+      documentType: safe(obj['Document Type']),
+      receivedDate: safe(obj['Received Date']),
+      sender: safe(obj['Received From (Sender)']),
+      priorityRaw: safe(obj['Priority']),
       priority: pr,
-      sendTo: safe(obj["Send To (Notify Internally)"]),
-      dueDate: safe(obj["Due Date (if any)"]),
-      actionNeeded: safe(obj["Action Needed"]),
-      subject: safe(obj["Subject / What is this about?"]),
-      notes: safe(obj["Notes / Questions"]),
-      upload: safe(obj["Upload Scanned Document (PDF)"]),
+      sendTo: safe(obj['Send To (Notify Internally)']),
+      dueDate: safe(obj['Due Date (if any)']),
+      actionNeeded: safe(obj['Action Needed']),
+      subject: safe(obj['Subject / What is this about?']),
+      notes: safe(obj['Notes / Questions']),
+      upload: safe(obj['Upload Scanned Document (PDF)']),
       attachments,
-      submissionIP: safe(obj["Submission IP"]),
-      submissionURL: safe(obj["Submission URL"]),
-      editURL: safe(obj["Submission Edit URL"]),
-      lastUpdate: safe(obj["Last Update Date"]),
-      raw: obj
+      submissionIP: safe(obj['Submission IP']),
+      submissionURL: safe(obj['Submission URL']),
+      editURL: safe(obj['Submission Edit URL']),
+      lastUpdate: safe(obj['Last Update Date']),
+      fileProcessedRaw: processedRaw,
+      fileProcessed,
+      processedBy: safe(obj['Processed by:'] || obj['Processed by']),
+      rawSubmissionId: safe(obj['Submission ID']),
+      raw: obj,
     };
   }).filter(x => x._id);
 
-  RAW = mapped;
+  RAW.forEach(item => ensureItemState(item._id));
 
-  buildSelectOptions($("docType"), RAW.map(x=>x.documentType), "All document types");
-  buildSelectOptions($("sendTo"), RAW.map(x=>x.sendTo), "All send-to");
+  buildSelectOptions($('docType'), RAW.map(x=>x.documentType), 'All document types');
+  buildSelectOptions($('sendTo'), RAW.map(x=>x.sendTo), 'All internal recipients');
+  buildSelectOptions($('processedBy'), RAW.map(x=>x.processedBy), 'All processors');
 
-  subStatusEl.textContent = `Loaded ${RAW.length} items • Sheet ${CONFIG.SHEET_ID.slice(0,6)}… • gid=${CONFIG.GID}`;
+  $('subStatus').textContent = `Loaded ${RAW.length} submissions • Sheet ${CONFIG.SHEET_ID.slice(0,6)}… • gid=${CONFIG.GID}${CONFIG.SUPABASE_URL ? ' • Supabase ready' : ''}`;
+  if (ACTIVE_ID && !RAW.find(x => x._id === ACTIVE_ID)) ACTIVE_ID = '';
 
-  if (ACTIVE_ID && !RAW.find(x=>x._id === ACTIVE_ID)) ACTIVE_ID = "";
   applyFiltersAndRender();
-}
-
-function escapeHtml(s){
-  return safe(s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-}
-
-function isUnread(item){
-  const st = ensureItemState(STATE, item._id);
-  return !st.openedAt;
-}
-function isDone(item){
-  const st = ensureItemState(STATE, item._id);
-  return !!st.done;
-}
-function isArchived(item){
-  const st = ensureItemState(STATE, item._id);
-  return !!st.archived;
-}
-function itemStatusFlag(item){
-  if (isArchived(item)) return "archived";
-  if (isDone(item)) return "done";
-  if (isUnread(item)) return "unread";
-  return "";
 }
 
 function applyFiltersAndRender(){
   const q = FILTERS.q.trim().toLowerCase();
 
-  FILTERED = RAW.filter(item=>{
-    const done = isDone(item);
-    const arch = isArchived(item);
-    if (FILTERS.view === "open" && (done || arch)) return false;
-    if (FILTERS.view === "done" && !done) return false;
-    if (FILTERS.view === "archived" && !arch) return false;
+  FILTERED = RAW.filter(item => {
+    const status = statusOf(item);
+    if (FILTERS.view === 'open' && (status === 'done' || status === 'archived')) return false;
+    if (FILTERS.view === 'done' && status !== 'done') return false;
+    if (FILTERS.view === 'archived' && status !== 'archived') return false;
 
-    if (FILTERS.priorities.size){
-      if (!FILTERS.priorities.has(item.priority.key)) return false;
-    }
-
+    if (FILTERS.priorities.size && !FILTERS.priorities.has(item.priority.key)) return false;
     if (FILTERS.docType && item.documentType !== FILTERS.docType) return false;
     if (FILTERS.sendTo && item.sendTo !== FILTERS.sendTo) return false;
+    if (FILTERS.processedBy && item.processedBy !== FILTERS.processedBy) return false;
 
-    const from = FILTERS.from ? FILTERS.from : "";
-    const to = FILTERS.to ? FILTERS.to : "";
-    const recIso = toISODate(item.receivedDate) || toISODate(item.submissionDate) || "";
-    if (from && recIso && recIso < from) return false;
-    if (to && recIso && recIso > to) return false;
+    const dateVal = currentDateForFilter(item);
+    if (FILTERS.from && dateVal && dateVal < FILTERS.from) return false;
+    if (FILTERS.to && dateVal && dateVal > FILTERS.to) return false;
 
-    if (FILTERS.quickDue && !safe(item.dueDate)) return false;
-    if (FILTERS.quickAttachments && item.attachments.length === 0) return false;
-    if (FILTERS.quickUnread && !isUnread(item)) return false;
+    if (FILTERS.quickDue && !item.dueDate) return false;
+    if (FILTERS.quickAttachments && !item.attachments.length) return false;
+    if (FILTERS.quickUnread && status !== 'unread') return false;
+    if (FILTERS.quickProcessed && !item.fileProcessed) return false;
 
-    if (q){
+    if (q) {
       const hay = [
-        item._id, item.subject, item.sender, item.documentType, item.sendTo,
-        item.actionNeeded, item.notes, item.priorityRaw, item.receivedDate, item.submissionDate
-      ].map(s=>safe(s).toLowerCase()).join(" | ");
+        item._id,item.subject,item.sender,item.notes,item.documentType,item.sendTo,item.actionNeeded,
+        item.priorityRaw,item.processedBy,item.submissionIP,item.submissionURL,item.editURL,
+        item.fileProcessedRaw,item.lastUpdate,item.receivedDate,item.submissionDate
+      ].map(x => safe(x).toLowerCase()).join(' | ');
       if (!hay.includes(q)) return false;
     }
-
     return true;
   });
 
-  const byReceived = (a,b)=>{
-    const ar = toISODate(a.receivedDate) || toISODate(a.submissionDate) || "0000-00-00";
-    const br = toISODate(b.receivedDate) || toISODate(b.submissionDate) || "0000-00-00";
-    return br.localeCompare(ar);
-  };
-  const bySubmitted = (a,b)=>{
-    const ar = toISODate(a.submissionDate) || "0000-00-00";
-    const br = toISODate(b.submissionDate) || "0000-00-00";
-    return br.localeCompare(ar);
-  };
-  const byPriority = (a,b)=>{
-    const pr = a.priority.rank - b.priority.rank;
-    if (pr !== 0) return pr;
-    return byReceived(a,b);
-  };
+  const byReceived = (a,b)=> (toISODate(b.receivedDate) || toISODate(b.submissionDate) || '').localeCompare(toISODate(a.receivedDate) || toISODate(a.submissionDate) || '');
+  const bySubmitted = (a,b)=> (toISODate(b.submissionDate) || '').localeCompare(toISODate(a.submissionDate) || '');
+  const byPriority = (a,b)=> (a.priority.rank - b.priority.rank) || byReceived(a,b);
+  if (SORT_MODE === 'priority') FILTERED.sort(byPriority);
+  if (SORT_MODE === 'received') FILTERED.sort(byReceived);
+  if (SORT_MODE === 'submitted') FILTERED.sort(bySubmitted);
 
-  if (SORT_MODE === "priority") FILTERED.sort(byPriority);
-  if (SORT_MODE === "received") FILTERED.sort(byReceived);
-  if (SORT_MODE === "submitted") FILTERED.sort(bySubmitted);
-
-  renderCounts();
+  renderStats();
+  renderFilterMeta();
   renderList();
   renderDetail();
-  renderFilterMeta();
 }
 
-function renderCounts(){
-  const total = RAW.length;
-  const open = RAW.filter(x=>!isDone(x) && !isArchived(x)).length;
-  const unread = RAW.filter(x=>isUnread(x) && !isDone(x) && !isArchived(x)).length;
-  const p0 = RAW.filter(x=>x.priority.key==="P0" && !isDone(x) && !isArchived(x)).length;
-  countsPillEl.textContent = `Open ${open} • Unread ${unread} • P0 ${p0} • Total ${total}`;
+function renderStats(){
+  const open = RAW.filter(x => !isDone(x) && !isArchived(x)).length;
+  const unread = RAW.filter(x => isUnread(x)).length;
+  const dueSoon = RAW.filter(x => { const d = daysUntil(x.dueDate); return d !== null && d >= 0 && d <= 3; }).length;
+  const attachments = RAW.filter(x => x.attachments.length).length;
+  const processed = RAW.filter(x => x.fileProcessed).length;
+  $('statOpen').textContent = open;
+  $('statUnread').textContent = unread;
+  $('statDue').textContent = dueSoon;
+  $('statAttachments').textContent = attachments;
+  $('statProcessed').textContent = processed;
+  $('statSyncMeta').textContent = LAST_SYNC_AT ? `Last sync ${LAST_SYNC_AT}` : 'Supabase sync ready';
 }
+
 function renderFilterMeta(){
-  const parts = [];
-  parts.push(`View: ${FILTERS.view}`);
-  if (FILTERS.priorities.size) parts.push(`Priority: ${Array.from(FILTERS.priorities).join(",")}`);
-  if (FILTERS.docType) parts.push(`Type: ${FILTERS.docType}`);
-  if (FILTERS.sendTo) parts.push(`Send To: ${FILTERS.sendTo}`);
-  if (FILTERS.from || FILTERS.to) parts.push(`Dates: ${FILTERS.from || "…"} → ${FILTERS.to || "…"}`);
-  if (FILTERS.quickDue) parts.push(`Has due`);
-  if (FILTERS.quickAttachments) parts.push(`Has attachments`);
-  if (FILTERS.quickUnread) parts.push(`Unread only`);
-  if (FILTERS.q) parts.push(`Search`);
-  filterMetaEl.textContent = parts.join(" • ");
+  const tags = [`${FILTERED.length} shown`];
+  if (FILTERS.view !== 'open') tags.push(`view ${FILTERS.view}`);
+  if (FILTERS.priorities.size) tags.push(`priority ${[...FILTERS.priorities].join(', ')}`);
+  if (FILTERS.docType) tags.push(FILTERS.docType);
+  if (FILTERS.sendTo) tags.push(FILTERS.sendTo);
+  if (FILTERS.processedBy) tags.push(`processor ${FILTERS.processedBy}`);
+  if (FILTERS.from || FILTERS.to) tags.push(`${FILTERS.from || '…'} → ${FILTERS.to || '…'}`);
+  if (FILTERS.quickDue) tags.push('due only');
+  if (FILTERS.quickAttachments) tags.push('with PDFs');
+  if (FILTERS.quickUnread) tags.push('unread only');
+  if (FILTERS.quickProcessed) tags.push('processed only');
+  $('filterMeta').textContent = tags.join(' • ');
+  $('listMeta').textContent = `${FILTERED.length} shown • sort ${SORT_MODE}`;
 }
 
-function badgeHTML(item){
-  const p = item.priority;
-  const badges = [];
-  if (p.key) badges.push(`<span class="badge ${p.cls}">${p.key}</span>`);
-  if (item.documentType) badges.push(`<span class="badge">${escapeHtml(item.documentType)}</span>`);
-  if (item.sendTo) badges.push(`<span class="badge">${escapeHtml(item.sendTo)}</span>`);
-  return `<div class="badges">${badges.join("")}</div>`;
+function badgeHtml(item){
+  const out = [];
+  if (item.priority.key) out.push(`<span class="badge ${item.priority.cls}">${item.priority.key}</span>`);
+  if (item.documentType) out.push(`<span class="badge">${escapeHtml(item.documentType)}</span>`);
+  if (item.sendTo) out.push(`<span class="badge">${escapeHtml(item.sendTo)}</span>`);
+  if (item.fileProcessed) out.push(`<span class="badge success">Processed</span>`);
+  return out.join('');
 }
 
 function renderList(){
-  listEl.innerHTML = "";
-  emptyEl.style.display = FILTERED.length ? "none" : "block";
-  listMetaEl.textContent = `${FILTERED.length} shown`;
+  const list = $('list');
+  list.innerHTML = '';
+  $('empty').style.display = FILTERED.length ? 'none' : 'block';
 
-  FILTERED.forEach(item=>{
-    const active = (item._id === ACTIVE_ID);
-    const flag = itemStatusFlag(item);
-    const attCount = item.attachments.length;
-
-    const el = document.createElement("div");
-    el.className = `item ${active ? "active":""}`;
+  FILTERED.forEach(item => {
+    const due = daysUntil(item.dueDate);
+    const dueText = due === null ? '' : due < 0 ? `Past due ${Math.abs(due)}d` : due === 0 ? 'Due today' : `Due in ${due}d`;
+    const el = document.createElement('div');
+    el.className = `item ${item._id === ACTIVE_ID ? 'active' : ''}`;
     el.dataset.id = item._id;
     el.innerHTML = `
-      <div class="flag ${flag ? flag : ""}" title="${flag ? flag : "read"}"></div>
-      <div class="item-main">
-        <div class="topline">
-          <div class="subject" title="${escapeHtml(item.subject || "(no subject)")}">
-            ${escapeHtml(item.subject || "(no subject)")}
+      <div>
+        <div class="item-top">
+          <div class="status-pill ${statusOf(item)}"></div>
+          <div style="min-width:0">
+            <div class="item-title">${escapeHtml(item.subject || '(No subject)')}</div>
+            <div class="item-sub">
+              <span>From ${escapeHtml(item.sender || '—')}</span>
+              <span>${DATE_MODE === 'submitted' ? 'Submitted' : 'Received'} ${escapeHtml(fmtShortDate(DATE_MODE === 'submitted' ? item.submissionDate : (item.receivedDate || item.submissionDate)))}</span>
+              <span>${escapeHtml(item.actionNeeded || 'No action noted')}</span>
+            </div>
+            <div class="badges">${badgeHtml(item)}</div>
           </div>
         </div>
-        ${badgeHTML(item)}
-        <div class="meta-line">
-          <span><span class="k">From</span> ${escapeHtml(item.sender || "—")}</span>
-          <span><span class="k">Received</span> ${escapeHtml(fmtShortDate(item.receivedDate || item.submissionDate))}</span>
-          <span><span class="k">Action</span> ${escapeHtml(item.actionNeeded || "—")}</span>
-          ${item.dueDate ? `<span><span class="k">Due</span> ${escapeHtml(fmtShortDate(item.dueDate))}</span>` : ``}
-        </div>
       </div>
-      <div class="right-mini">
-        <div class="mini" style="font-family:var(--mono)">${escapeHtml(item._id)}</div>
-        ${attCount ? `<div class="att" title="Attachments">${attCount} file${attCount>1?"s":""}</div>` : `<div class="mini">—</div>`}
+      <div class="item-right">
+        <div class="small mono">${escapeHtml(item._id)}</div>
+        <div class="small">${item.attachments.length ? `${item.attachments.length} file${item.attachments.length>1?'s':''}` : 'No files'}</div>
+        <div class="small">${dueText || displayStatus(item)}</div>
       </div>
     `;
-    el.addEventListener("click", ()=> selectItem(item._id));
-    listEl.appendChild(el);
+    el.onclick = ()=> selectItem(item._id);
+    list.appendChild(el);
   });
 }
 
+function field(k,v, full=false){
+  return `<div class="kv ${full ? 'full' : ''}"><div class="k">${escapeHtml(k)}</div><div class="v">${escapeHtml(v || '—')}</div></div>`;
+}
+
 function renderDetail(){
-  const item = RAW.find(x=>x._id === ACTIVE_ID) || null;
-  if (!item){
-    detailEl.innerHTML = `<div class="empty">Select an item on the left.</div>`;
-    detailMetaEl.textContent = "—";
+  const item = RAW.find(x => x._id === ACTIVE_ID);
+  if (!item) {
+    $('detail').innerHTML = `<div class="empty">Select a submission.</div>`;
+    $('detailMeta').textContent = '—';
     return;
   }
 
-  const st = ensureItemState(STATE, item._id);
-  detailMetaEl.textContent = (isArchived(item) ? "Archived" : isDone(item) ? "Done" : isUnread(item) ? "Unread" : "Open");
+  const st = ensureItemState(item._id);
+  $('detailMeta').textContent = displayStatus(item);
 
-  const attachments = item.attachments;
-  const attLinks = attachments.length
-    ? attachments.map((u,idx)=>`
-        <a class="link" href="${escapeHtml(u)}" target="_blank" rel="noopener">
-          <div class="left">
-            <div class="ttl">Attachment ${idx+1}</div>
-            <div class="cap">${escapeHtml(u)}</div>
+  const attachmentLinks = item.attachments.length
+    ? item.attachments.map((u,i)=>`
+        <div class="link-row">
+          <div>
+            <div style="font-weight:800;font-size:12.5px">Attachment ${i+1}</div>
+            <div class="small">${escapeHtml(u)}</div>
           </div>
-          <div class="open">Open ↗</div>
-        </a>
-      `).join("")
-    : `<div class="small" style="margin-top:6px;">No attachments found in this row.</div>`;
+          <a class="btn" target="_blank" rel="noopener" href="${escapeHtml(u)}">Open ↗</a>
+        </div>`).join('')
+    : `<div class="small">No attachment URLs found in the PDF column.</div>`;
 
-  const inboxUrl = item.submissionURL || "";
-  const editUrl = item.editURL || "";
-
-  detailEl.innerHTML = `
-    <h3>${escapeHtml(item.subject || "(no subject)")}</h3>
-    <div class="subline">
-      <span><span class="k">From</span> ${escapeHtml(item.sender || "—")}</span>
-      <span><span class="k">Received</span> ${escapeHtml(item.receivedDate || item.submissionDate || "—")}</span>
-      <span><span class="k">Priority</span> ${escapeHtml(item.priorityRaw || "—")}</span>
-      <span><span class="k">Send To</span> ${escapeHtml(item.sendTo || "—")}</span>
-      ${item.dueDate ? `<span><span class="k">Due</span> ${escapeHtml(item.dueDate)}</span>` : ``}
-      <span><span class="k">ID</span> <span style="font-family:var(--mono)">${escapeHtml(item._id)}</span></span>
+  $('detail').innerHTML = `
+    <div class="detail-top">
+      <div>
+        <div class="eyebrow">Submission ${escapeHtml(item._id)}</div>
+        <h2>${escapeHtml(item.subject || '(No subject)')}</h2>
+        <div class="detail-sub">
+          <span>From ${escapeHtml(item.sender || '—')}</span>
+          <span>${escapeHtml(item.documentType || 'No doc type')}</span>
+          <span>${escapeHtml(item.priorityRaw || 'No priority')}</span>
+          <span>${escapeHtml(displayStatus(item))}</span>
+        </div>
+      </div>
+      <div class="small">Last update ${escapeHtml(fmtFullDate(item.lastUpdate || item.submissionDate))}</div>
     </div>
 
     <div class="actions">
-      <button class="btn primary" id="actDone">${isDone(item) ? "Mark Open" : "Mark Done"}</button>
-      <button class="btn" id="actArchive">${isArchived(item) ? "Unarchive" : "Archive"}</button>
-      <button class="btn ghost" id="actUnread">Mark Unread</button>
-      <button class="btn ghost" id="actCopy">Copy Summary</button>
-      ${editUrl ? `<a class="btn" href="${escapeHtml(editUrl)}" target="_blank" rel="noopener">Edit Submission ↗</a>` : ``}
-      ${inboxUrl ? `<a class="btn" href="${escapeHtml(inboxUrl)}" target="_blank" rel="noopener">Open in Jotform ↗</a>` : ``}
+      <button class="btn primary" id="actDone">${isDone(item) ? 'Mark Open' : 'Mark Done'}</button>
+      <button class="btn" id="actArchive">${isArchived(item) ? 'Unarchive' : 'Archive'}</button>
+      <button class="btn" id="actUnread">Mark Unread</button>
+      <button class="btn" id="actCopy">Copy Summary</button>
+      <button class="btn soft" id="actSyncOne">Sync This Row</button>
+      ${item.submissionURL ? `<a class="btn" target="_blank" rel="noopener" href="${escapeHtml(item.submissionURL)}">Open Submission ↗</a>` : ''}
+      ${item.editURL ? `<a class="btn" target="_blank" rel="noopener" href="${escapeHtml(item.editURL)}">Edit Submission ↗</a>` : ''}
     </div>
 
-    <div class="card">
-      <div class="grid">
-        <div class="field"><div class="k">Document type</div><div class="v">${escapeHtml(item.documentType || "—")}</div></div>
-        <div class="field"><div class="k">Action needed</div><div class="v">${escapeHtml(item.actionNeeded || "—")}</div></div>
-        <div class="field"><div class="k">Notes / questions</div><div class="v">${escapeHtml(item.notes || "—")}</div></div>
-        <div class="field">
-          <div class="k">Internal note (local only)</div>
-          <div class="v">
-            <textarea id="localNote"
-              style="width:100%; min-height:72px; background:#fff; border:1px solid var(--border); border-radius:10px; padding:10px; color:var(--text); outline:none; resize:vertical;"
-              placeholder="Saved only in this browser…">${escapeHtml(st.note || "")}</textarea>
-          </div>
-        </div>
+    <div class="detail-card">
+      <div class="section-title" style="margin-bottom:12px">Workflow</div>
+      <div class="sheet-grid">
+        ${field('Document Type', item.documentType)}
+        ${field('Priority', item.priorityRaw)}
+        ${field('Received Date', fmtFullDate(item.receivedDate))}
+        ${field('Submission Date', fmtFullDate(item.submissionDate))}
+        ${field('Received From (Sender)', item.sender)}
+        ${field('Send To (Notify Internally)', item.sendTo)}
+        ${field('Due Date (if any)', fmtFullDate(item.dueDate))}
+        ${field('Action Needed', item.actionNeeded)}
+        ${field('File Received & Processed', item.fileProcessedRaw || (item.fileProcessed ? 'Yes' : 'No'))}
+        ${field('Processed by', item.processedBy)}
+        ${field('Subject / What is this about?', item.subject, true)}
+        ${field('Notes / Questions', item.notes, true)}
       </div>
+    </div>
 
-      <div class="card" style="margin-top:12px; box-shadow:none; background:var(--bg2);">
-        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-          <div style="font-weight:800; letter-spacing:.2px;">Attachments</div>
-          <div class="small">${attachments.length ? `${attachments.length} file(s)` : "—"}</div>
-        </div>
-        <div class="links">${attLinks}</div>
+    <div class="detail-card" style="margin-top:12px">
+      <div class="section-title" style="margin-bottom:12px">Attachments & links</div>
+      <div class="links">
+        ${attachmentLinks}
+        ${item.upload ? `<div class="link-row"><div><div style="font-weight:800;font-size:12.5px">Raw upload field</div><div class="small">${escapeHtml(item.upload)}</div></div></div>` : ''}
+        ${item.submissionURL ? `<div class="link-row"><div><div style="font-weight:800;font-size:12.5px">Submission URL</div><div class="small">${escapeHtml(item.submissionURL)}</div></div><a class="btn" target="_blank" rel="noopener" href="${escapeHtml(item.submissionURL)}">Open ↗</a></div>` : ''}
+        ${item.editURL ? `<div class="link-row"><div><div style="font-weight:800;font-size:12.5px">Submission Edit URL</div><div class="small">${escapeHtml(item.editURL)}</div></div><a class="btn" target="_blank" rel="noopener" href="${escapeHtml(item.editURL)}">Open ↗</a></div>` : ''}
       </div>
+    </div>
 
-      <div class="card" style="margin-top:12px; box-shadow:none; background:var(--bg2);">
-        <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
-          <div style="font-weight:800; letter-spacing:.2px;">Audit</div>
-          <div class="small">From sheet row</div>
-        </div>
-        <div class="grid" style="margin-top:10px;">
-          <div class="field"><div class="k">Submission date</div><div class="v">${escapeHtml(item.submissionDate || "—")}</div></div>
-          <div class="field"><div class="k">Last update</div><div class="v">${escapeHtml(item.lastUpdate || "—")}</div></div>
-          <div class="field"><div class="k">Submission IP</div><div class="v">${escapeHtml(item.submissionIP || "—")}</div></div>
-          <div class="field"><div class="k">Subject</div><div class="v">${escapeHtml(item.subject || "—")}</div></div>
-        </div>
+    <div class="detail-card" style="margin-top:12px">
+      <div class="section-title" style="margin-bottom:12px">Audit</div>
+      <div class="sheet-grid">
+        ${field('Submission IP', item.submissionIP)}
+        ${field('Submission ID', item._id)}
+        ${field('Last Update Date', item.lastUpdate)}
+        ${field('Local browser note', st.localNote || '', true)}
+      </div>
+      <div style="margin-top:10px">
+        <textarea id="localNote" class="field-inline" style="min-height:86px;resize:vertical" placeholder="Local browser note…">${escapeHtml(st.localNote || '')}</textarea>
+      </div>
+    </div>
+
+    <div class="detail-card" style="margin-top:12px">
+      <div class="section-title" style="margin-bottom:12px">Raw row snapshot</div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Column</th><th>Value</th></tr></thead>
+          <tbody>
+            ${Object.entries(item.raw).map(([k,v])=>`<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`).join('')}
+          </tbody>
+        </table>
       </div>
     </div>
   `;
 
-  document.getElementById("actDone").onclick = ()=>{
-    const st2 = ensureItemState(STATE, item._id);
-    st2.done = !st2.done;
-    if (st2.done) st2.archived = false;
-    saveState(STATE);
-    applyFiltersAndRender();
+  $('actDone').onclick = () => {
+    const s = ensureItemState(item._id);
+    s.done = !s.done; if (s.done) s.archived = false;
+    saveState(); applyFiltersAndRender();
   };
-  document.getElementById("actArchive").onclick = ()=>{
-    const st2 = ensureItemState(STATE, item._id);
-    st2.archived = !st2.archived;
-    if (st2.archived) st2.done = false;
-    saveState(STATE);
-    applyFiltersAndRender();
+  $('actArchive').onclick = () => {
+    const s = ensureItemState(item._id);
+    s.archived = !s.archived; if (s.archived) s.done = false;
+    saveState(); applyFiltersAndRender();
   };
-  document.getElementById("actUnread").onclick = ()=>{
-    const st2 = ensureItemState(STATE, item._id);
-    st2.openedAt = 0;
-    saveState(STATE);
-    applyFiltersAndRender();
+  $('actUnread').onclick = () => {
+    const s = ensureItemState(item._id);
+    s.openedAt = 0;
+    saveState(); applyFiltersAndRender();
   };
-  document.getElementById("actCopy").onclick = async ()=>{
+  $('actCopy').onclick = async () => {
     const lines = [
-      `Mailroom: ${item.subject || "(no subject)"}`,
-      `From: ${item.sender || "—"}`,
-      `Priority: ${item.priorityRaw || "—"}`,
-      `Doc Type: ${item.documentType || "—"}`,
-      `Action: ${item.actionNeeded || "—"}`,
-      `Received: ${item.receivedDate || item.submissionDate || "—"}`,
-      `Due: ${item.dueDate || "—"}`,
-      `ID: ${item._id}`,
-      editUrl ? `Edit: ${editUrl}` : "",
-      inboxUrl ? `Jotform: ${inboxUrl}` : "",
-      item.attachments.length ? `Attachments:\n- ${item.attachments.join("\n- ")}` : "Attachments: —",
-    ].filter(Boolean).join("\n");
-    try{
-      await navigator.clipboard.writeText(lines);
-      toast("Copied to clipboard");
-    }catch{
-      toast("Couldn’t copy (browser permission)");
-    }
+      `Mailroom: ${item.subject || '(No subject)'}`,
+      `Submission ID: ${item._id}`,
+      `Document Type: ${item.documentType || '—'}`,
+      `Received Date: ${item.receivedDate || '—'}`,
+      `Received From: ${item.sender || '—'}`,
+      `Priority: ${item.priorityRaw || '—'}`,
+      `Send To: ${item.sendTo || '—'}`,
+      `Due Date: ${item.dueDate || '—'}`,
+      `Action Needed: ${item.actionNeeded || '—'}`,
+      `Processed: ${item.fileProcessedRaw || '—'}`,
+      `Processed By: ${item.processedBy || '—'}`,
+      `Notes: ${item.notes || '—'}`,
+      item.submissionURL ? `Submission URL: ${item.submissionURL}` : '',
+      item.editURL ? `Edit URL: ${item.editURL}` : ''
+    ].filter(Boolean).join('\n');
+    try { await navigator.clipboard.writeText(lines); toast('Copied summary'); }
+    catch { toast('Clipboard failed'); }
   };
-
-  const noteEl = document.getElementById("localNote");
-  noteEl.oninput = ()=>{
-    const st2 = ensureItemState(STATE, item._id);
-    st2.note = noteEl.value || "";
-    saveState(STATE);
+  $('actSyncOne').onclick = () => syncToSupabase([item]);
+  $('localNote').oninput = (e) => {
+    const s = ensureItemState(item._id);
+    s.localNote = e.target.value || '';
+    saveState();
   };
 }
 
 function selectItem(id){
   ACTIVE_ID = id;
-
-  const st = ensureItemState(STATE, id);
-  if (!st.openedAt) st.openedAt = Date.now();
-  saveState(STATE);
-
-  [...document.querySelectorAll(".item")].forEach(el=>{
-    el.classList.toggle("active", el.dataset.id === id);
-  });
-
+  const s = ensureItemState(id);
+  if (!s.openedAt) s.openedAt = Date.now();
+  saveState();
   renderList();
   renderDetail();
-}
-
-function wireUI(){
-  $("btnOpenSheet").onclick = ()=>{
-    const url = `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/edit#gid=${CONFIG.GID}`;
-    window.open(url, "_blank", "noopener");
-  };
-  $("btnRefresh").onclick = ()=> fetchSheet().catch(err=> toast("Refresh failed: " + err.message));
-  $("btnAuto").onclick = ()=>{
-    AUTO_ON = !AUTO_ON;
-    $("btnAuto").textContent = `Auto: ${AUTO_ON ? "ON" : "OFF"}`;
-    $("btnAuto").classList.toggle("primary", AUTO_ON);
-    if (AUTO_ON) startAuto(); else stopAuto();
-  };
-
-  window.addEventListener("keydown", (e)=>{
-    if (e.key === "/" && !["INPUT","TEXTAREA"].includes(document.activeElement.tagName)){
-      e.preventDefault();
-      $("globalSearch").focus();
-    }
-    if (e.key === "Escape"){
-      if (document.activeElement === $("globalSearch")){
-        $("globalSearch").blur();
-      } else {
-        ACTIVE_ID = "";
-        renderList();
-        renderDetail();
-      }
-    }
-    if ((e.key === "j" || e.key === "k") && !["INPUT","TEXTAREA"].includes(document.activeElement.tagName)){
-      e.preventDefault();
-      if (!FILTERED.length) return;
-      const idx0 = FILTERED.findIndex(x=>x._id===ACTIVE_ID);
-      const idx = Math.max(0, idx0 === -1 ? 0 : idx0);
-      const next = (e.key === "j") ? Math.min(FILTERED.length-1, idx+1) : Math.max(0, idx-1);
-      selectItem(FILTERED[next]._id);
-      const el = listEl.querySelector(`.item[data-id="${FILTERED[next]._id}"]`);
-      if (el) el.scrollIntoView({block:"nearest"});
-    }
-  });
-
-  $("globalSearch").addEventListener("input", (e)=>{
-    FILTERS.q = e.target.value || "";
-    applyFiltersAndRender();
-  });
-
-  $("viewChips").addEventListener("click", (e)=>{
-    const chip = e.target.closest(".chip");
-    if (!chip) return;
-    FILTERS.view = chip.dataset.view;
-    setActiveChip("viewChips", ch => ch.dataset.view === FILTERS.view);
-    applyFiltersAndRender();
-  });
-
-  $("priorityChips").addEventListener("click", (e)=>{
-    const chip = e.target.closest(".chip");
-    if (!chip) return;
-    const p = chip.dataset.priority;
-    if (FILTERS.priorities.has(p)) FILTERS.priorities.delete(p);
-    else FILTERS.priorities.add(p);
-    chip.classList.toggle("active", FILTERS.priorities.has(p));
-    applyFiltersAndRender();
-  });
-  $("btnClearPriority").onclick = ()=>{
-    FILTERS.priorities.clear();
-    [...$("priorityChips").querySelectorAll(".chip")].forEach(ch=>ch.classList.remove("active"));
-    applyFiltersAndRender();
-  };
-
-  $("docType").addEventListener("change", (e)=>{
-    FILTERS.docType = e.target.value || "";
-    applyFiltersAndRender();
-  });
-  $("sendTo").addEventListener("change", (e)=>{
-    FILTERS.sendTo = e.target.value || "";
-    applyFiltersAndRender();
-  });
-
-  $("fromDate").addEventListener("change", (e)=>{
-    FILTERS.from = safe(e.target.value);
-    applyFiltersAndRender();
-  });
-  $("toDate").addEventListener("change", (e)=>{
-    FILTERS.to = safe(e.target.value);
-    applyFiltersAndRender();
-  });
-  $("btnClearDates").onclick = ()=>{
-    FILTERS.from = ""; FILTERS.to = "";
-    $("fromDate").value = ""; $("toDate").value = "";
-    applyFiltersAndRender();
-  };
-
-  $("quickChips").addEventListener("click", (e)=>{
-    const chip = e.target.closest(".chip");
-    if (!chip) return;
-    const q = chip.dataset.quick;
-    if (q === "due") FILTERS.quickDue = !FILTERS.quickDue;
-    if (q === "attachments") FILTERS.quickAttachments = !FILTERS.quickAttachments;
-    if (q === "unread") FILTERS.quickUnread = !FILTERS.quickUnread;
-    chip.classList.toggle("active", (q==="due" ? FILTERS.quickDue : q==="attachments" ? FILTERS.quickAttachments : FILTERS.quickUnread));
-    applyFiltersAndRender();
-  });
-
-  $("btnResetAll").onclick = ()=>{
-    FILTERS.view = "open";
-    FILTERS.priorities.clear();
-    FILTERS.docType = "";
-    FILTERS.sendTo = "";
-    FILTERS.from = "";
-    FILTERS.to = "";
-    FILTERS.quickDue = false;
-    FILTERS.quickAttachments = false;
-    FILTERS.quickUnread = false;
-    FILTERS.q = "";
-
-    $("globalSearch").value = "";
-    $("fromDate").value = "";
-    $("toDate").value = "";
-    $("docType").value = "";
-    $("sendTo").value = "";
-
-    setActiveChip("viewChips", ch => ch.dataset.view === FILTERS.view);
-    [...$("priorityChips").querySelectorAll(".chip")].forEach(ch=>ch.classList.remove("active"));
-    [...$("quickChips").querySelectorAll(".chip")].forEach(ch=>ch.classList.remove("active"));
-
-    SORT_MODE = "priority";
-    setSortButtons();
-    applyFiltersAndRender();
-  };
-
-  $("sortPriority").onclick = ()=>{ SORT_MODE="priority"; setSortButtons(); applyFiltersAndRender(); };
-  $("sortReceived").onclick = ()=>{ SORT_MODE="received"; setSortButtons(); applyFiltersAndRender(); };
-  $("sortSubmitted").onclick = ()=>{ SORT_MODE="submitted"; setSortButtons(); applyFiltersAndRender(); };
+  const row = document.querySelector(`.item[data-id="${CSS.escape(id)}"]`);
+  if (row) row.scrollIntoView({block:'nearest'});
 }
 
 function setSortButtons(){
-  ["sortPriority","sortReceived","sortSubmitted"].forEach(id=>{
-    $(id).classList.toggle("active",
-      (id==="sortPriority" && SORT_MODE==="priority") ||
-      (id==="sortReceived" && SORT_MODE==="received") ||
-      (id==="sortSubmitted" && SORT_MODE==="submitted")
-    );
+  [['sortPriority','priority'],['sortReceived','received'],['sortSubmitted','submitted']].forEach(([id,val])=> $(id).classList.toggle('active', SORT_MODE === val));
+  $('btnDateReceived').classList.toggle('primary', DATE_MODE === 'received');
+  $('btnDateSubmitted').classList.toggle('primary', DATE_MODE === 'submitted');
+}
+
+function wireUI(){
+  $('btnOpenSheet').onclick = () => window.open(`https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/edit#gid=${CONFIG.GID}`, '_blank', 'noopener');
+  $('btnRefresh').onclick = ()=> fetchSheet().catch(err => toast(err.message));
+  $('btnSyncSupabase').onclick = ()=> syncToSupabase(RAW);
+  $('btnAuto').onclick = ()=> {
+    AUTO_ON = !AUTO_ON;
+    $('btnAuto').textContent = `Auto: ${AUTO_ON ? 'ON' : 'OFF'}`;
+    $('btnAuto').classList.toggle('primary', AUTO_ON);
+    if (AUTO_ON) startAuto(); else stopAuto();
+  };
+
+  window.addEventListener('keydown', e => {
+    if (e.key === '/' && !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) {
+      e.preventDefault(); $('globalSearch').focus();
+    }
+    if ((e.key === 'j' || e.key === 'k') && !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) {
+      e.preventDefault();
+      if (!FILTERED.length) return;
+      const idx = Math.max(0, FILTERED.findIndex(x => x._id === ACTIVE_ID));
+      const next = e.key === 'j' ? Math.min(FILTERED.length - 1, idx + 1) : Math.max(0, idx - 1);
+      selectItem(FILTERED[next]._id);
+    }
   });
+
+  $('globalSearch').oninput = e => { FILTERS.q = e.target.value || ''; applyFiltersAndRender(); };
+  $('viewChips').onclick = e => { const chip = e.target.closest('.chip'); if (!chip) return; FILTERS.view = chip.dataset.view; setChipGroup('viewChips', c => c.dataset.view === FILTERS.view); applyFiltersAndRender(); };
+  $('priorityChips').onclick = e => {
+    const chip = e.target.closest('.chip'); if (!chip) return;
+    const p = chip.dataset.priority;
+    if (FILTERS.priorities.has(p)) FILTERS.priorities.delete(p); else FILTERS.priorities.add(p);
+    chip.classList.toggle('active', FILTERS.priorities.has(p));
+    applyFiltersAndRender();
+  };
+  $('quickChips').onclick = e => {
+    const chip = e.target.closest('.chip'); if (!chip) return;
+    const q = chip.dataset.quick;
+    if (q === 'due') FILTERS.quickDue = !FILTERS.quickDue;
+    if (q === 'attachments') FILTERS.quickAttachments = !FILTERS.quickAttachments;
+    if (q === 'unread') FILTERS.quickUnread = !FILTERS.quickUnread;
+    if (q === 'processed') FILTERS.quickProcessed = !FILTERS.quickProcessed;
+    chip.classList.toggle('active', ({due:FILTERS.quickDue,attachments:FILTERS.quickAttachments,unread:FILTERS.quickUnread,processed:FILTERS.quickProcessed})[q]);
+    applyFiltersAndRender();
+  };
+
+  $('docType').onchange = e => { FILTERS.docType = e.target.value || ''; applyFiltersAndRender(); };
+  $('sendTo').onchange = e => { FILTERS.sendTo = e.target.value || ''; applyFiltersAndRender(); };
+  $('processedBy').onchange = e => { FILTERS.processedBy = e.target.value || ''; applyFiltersAndRender(); };
+  $('fromDate').onchange = e => { FILTERS.from = e.target.value || ''; applyFiltersAndRender(); };
+  $('toDate').onchange = e => { FILTERS.to = e.target.value || ''; applyFiltersAndRender(); };
+  $('btnDateReceived').onclick = ()=> { DATE_MODE = 'received'; setSortButtons(); applyFiltersAndRender(); };
+  $('btnDateSubmitted').onclick = ()=> { DATE_MODE = 'submitted'; setSortButtons(); applyFiltersAndRender(); };
+
+  $('sortPriority').onclick = ()=> { SORT_MODE = 'priority'; setSortButtons(); applyFiltersAndRender(); };
+  $('sortReceived').onclick = ()=> { SORT_MODE = 'received'; setSortButtons(); applyFiltersAndRender(); };
+  $('sortSubmitted').onclick = ()=> { SORT_MODE = 'submitted'; setSortButtons(); applyFiltersAndRender(); };
+
+  $('btnResetAll').onclick = ()=> {
+    FILTERS.view = 'open'; FILTERS.priorities.clear(); FILTERS.docType = ''; FILTERS.sendTo = ''; FILTERS.processedBy = '';
+    FILTERS.from = ''; FILTERS.to = ''; FILTERS.quickDue = false; FILTERS.quickAttachments = false; FILTERS.quickUnread = false; FILTERS.quickProcessed = false; FILTERS.q = '';
+    $('globalSearch').value = ''; $('docType').value = ''; $('sendTo').value = ''; $('processedBy').value = ''; $('fromDate').value = ''; $('toDate').value = '';
+    setChipGroup('viewChips', c => c.dataset.view === 'open');
+    [...$('priorityChips').querySelectorAll('.chip'), ...$('quickChips').querySelectorAll('.chip')].forEach(ch => ch.classList.remove('active'));
+    SORT_MODE = 'priority'; DATE_MODE = 'received'; setSortButtons(); applyFiltersAndRender();
+  };
 }
 
-function startAuto(){
-  stopAuto();
-  if (!AUTO_ON) return;
-  AUTO_TIMER = setInterval(()=> fetchSheet().catch(()=>{}), CONFIG.AUTO_REFRESH_MS);
-}
-function stopAuto(){
-  if (AUTO_TIMER) clearInterval(AUTO_TIMER);
-  AUTO_TIMER = null;
+async function syncToSupabase(items){
+  const client = initSupabase();
+  if (!client) { toast('Add Supabase URL + anon key in CONFIG first'); return; }
+  if (!items.length) { toast('Nothing to sync'); return; }
+
+  const rows = items.map(item => {
+    const st = ensureItemState(item._id);
+    return {
+      submission_id: item._id,
+      submission_date: nullish(toISODate(item.submissionDate) || item.submissionDate),
+      document_type: nullish(item.documentType),
+      received_date: nullish(toISODate(item.receivedDate) || item.receivedDate),
+      received_from_sender: nullish(item.sender),
+      priority: nullish(item.priorityRaw),
+      send_to_notify_internally: nullish(item.sendTo),
+      due_date: nullish(toISODate(item.dueDate) || item.dueDate),
+      action_needed: nullish(item.actionNeeded),
+      subject: nullish(item.subject),
+      notes_questions: nullish(item.notes),
+      upload_scanned_document_pdf: nullish(item.upload),
+      attachment_urls: item.attachments,
+      submission_ip: nullish(item.submissionIP),
+      submission_url: nullish(item.submissionURL),
+      submission_edit_url: nullish(item.editURL),
+      last_update_date: nullish(toISODate(item.lastUpdate) || item.lastUpdate),
+      file_received_processed: item.fileProcessed,
+      file_received_processed_raw: nullish(item.fileProcessedRaw),
+      processed_by: nullish(item.processedBy),
+      workflow_status: item.fileProcessed ? 'processed' : (st.archived ? 'archived' : st.done ? 'done' : st.openedAt ? 'open' : 'unread'),
+      local_note: nullish(st.localNote),
+      row_hash: rowHash(item),
+      synced_at: new Date().toISOString(),
+      raw_payload: item.raw,
+    };
+  });
+
+  const { error } = await client.from(CONFIG.SUPABASE_TABLE).upsert(rows, { onConflict:'submission_id' });
+  if (error) { toast(`Supabase sync failed: ${error.message}`); return; }
+
+  const stamp = new Date().toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+  LAST_SYNC_AT = stamp;
+  items.forEach(item => { const s = ensureItemState(item._id); s.synced = true; s.syncedAt = new Date().toISOString(); });
+  saveState();
+  renderStats();
+  toast(`Synced ${rows.length} row${rows.length > 1 ? 's' : ''} to Supabase`);
 }
 
-let toastTimer = null;
-function toast(msg){
-  let el = document.getElementById("toast");
-  if (!el){
-    el = document.createElement("div");
-    el.id="toast";
-    el.style.position="fixed";
-    el.style.right="14px";
-    el.style.bottom="14px";
-    el.style.padding="10px 12px";
-    el.style.borderRadius="10px";
-    el.style.border="1px solid var(--border)";
-    el.style.background="#fff";
-    el.style.color="var(--text)";
-    el.style.fontSize="12.5px";
-    el.style.boxShadow="var(--shadow2)";
-    el.style.maxWidth="360px";
-    el.style.zIndex="9999";
-    document.body.appendChild(el);
-  }
-  el.textContent = msg;
-  el.style.opacity = "1";
-  if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(()=>{ el.style.opacity = "0"; }, 1800);
-}
+function startAuto(){ stopAuto(); if (!AUTO_ON) return; AUTO_TIMER = setInterval(() => fetchSheet().catch(()=>{}), CONFIG.AUTO_REFRESH_MS); }
+function stopAuto(){ if (AUTO_TIMER) clearInterval(AUTO_TIMER); AUTO_TIMER = null; }
+function toast(msg){ const el = $('toast'); el.textContent = msg; el.style.opacity = '1'; clearTimeout(window.__toastTimer); window.__toastTimer = setTimeout(()=> el.style.opacity = '0', 1800); }
 
 (async function init(){
   wireUI();
   setSortButtons();
-  try{
+  try {
     await fetchSheet();
     startAuto();
-  }catch(err){
-    subStatusEl.textContent = "Could not load the sheet (is it public + correct gid?).";
-    toast("Load failed: " + err.message);
+  } catch (err) {
+    $('subStatus').textContent = 'Could not load the Google Sheet.';
+    toast(err.message || 'Load failed');
   }
 })();
 </script>
