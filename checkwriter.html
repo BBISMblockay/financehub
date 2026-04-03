@@ -62,6 +62,7 @@
     }
 
     * { box-sizing: border-box; }
+
     body {
       margin: 0;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
@@ -79,7 +80,13 @@
       gap: 12px;
       flex-wrap: wrap;
     }
-    header h1 { font-size: 16px; margin: 0; font-weight: 650; letter-spacing: .2px; }
+
+    header h1 {
+      font-size: 16px;
+      margin: 0;
+      font-weight: 650;
+      letter-spacing: .2px;
+    }
 
     .wrap {
       display: grid;
@@ -98,15 +105,34 @@
       box-shadow: 0 1px 2px rgba(0,0,0,.03);
       height: fit-content;
     }
-    .panel h2 { font-size: 14px; margin: 0 0 10px; }
-    .hint { font-size: 12px; color: #6b7280; margin-top: 8px; line-height: 1.35; }
+
+    .panel h2 {
+      font-size: 14px;
+      margin: 0 0 10px;
+    }
+
+    .hint {
+      font-size: 12px;
+      color: #6b7280;
+      margin-top: 8px;
+      line-height: 1.35;
+    }
 
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
     .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px; }
     .row4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px; }
 
-    label { font-size: 12px; color: #374151; display: block; margin-bottom: 6px; }
-    input[type="number"], input[type="file"], input[type="text"], select {
+    label {
+      font-size: 12px;
+      color: #374151;
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    input[type="number"],
+    input[type="file"],
+    input[type="text"],
+    select {
       width: 100%;
       border: 1px solid #d1d5db;
       border-radius: 10px;
@@ -117,6 +143,7 @@
     }
 
     .btns { display: flex; gap: 10px; flex-wrap: wrap; }
+
     button {
       border: 0;
       border-radius: 10px;
@@ -125,12 +152,19 @@
       font-weight: 650;
       font-size: 13px;
     }
+
     .primary { background: #2563eb; color: #fff; }
     .ghost { background: #eef2ff; color: #1e3a8a; }
     .danger { background: #fee2e2; color: #991b1b; }
 
-    .list { border-top: 1px solid #e5e7eb; margin-top: 12px; padding-top: 12px; }
+    .list {
+      border-top: 1px solid #e5e7eb;
+      margin-top: 12px;
+      padding-top: 12px;
+    }
+
     .checks { display: grid; gap: 10px; }
+
     .checkItem {
       border: 1px solid #e5e7eb;
       border-radius: 10px;
@@ -138,7 +172,11 @@
       cursor: pointer;
       background: #fafafa;
     }
-    .checkItem.active { outline: 2px solid #2563eb; background: #fff; }
+
+    .checkItem.active {
+      outline: 2px solid #2563eb;
+      background: #fff;
+    }
 
     .previewOuter {
       background: #fff;
@@ -157,13 +195,14 @@
       position: relative;
       overflow: hidden;
       margin: 0 auto;
+      display: block;
     }
 
     /* Regions */
     .check {
       position: absolute;
       left: calc(var(--check-x) + var(--off-x));
-      top:  calc(var(--check-y) + var(--off-y));
+      top: calc(var(--check-y) + var(--off-y));
       width: var(--check-w);
       height: var(--check-h);
       border: 1px solid rgba(0,0,0,.10);
@@ -177,15 +216,17 @@
       border-top: 1px dashed rgba(0,0,0,.18);
       overflow: hidden;
     }
+
     .v1 {
       left: calc(var(--v1-x) + var(--off-x));
-      top:  calc(var(--v1-y) + var(--off-y));
+      top: calc(var(--v1-y) + var(--off-y));
       width: var(--v1-w);
       height: var(--v1-h);
     }
+
     .v2 {
       left: calc(var(--v2-x) + var(--off-x));
-      top:  calc(var(--v2-y) + var(--off-y));
+      top: calc(var(--v2-y) + var(--off-y));
       width: var(--v2-w);
       height: var(--v2-h);
       border-bottom: 1px solid rgba(0,0,0,.06);
@@ -201,6 +242,7 @@
       opacity: 0;
       pointer-events: none;
     }
+
     .showTemplate .checkBg { opacity: 1; }
 
     .checkChrome {
@@ -219,6 +261,7 @@
       letter-spacing: .4px;
       opacity: .9;
     }
+
     .bankSub {
       position: absolute;
       left: 0.35in;
@@ -251,10 +294,10 @@
     .memo   { left: var(--memo-x);  top: var(--memo-y);  width: 4.9in; font-size: 10pt; }
     .chkno  { left: var(--chkno-x); top: var(--chkno-y); width: 1.15in; text-align: right; font-size: 10pt; }
 
-    .payeeLabel { left: var(--lbl-payee-x); top: var(--lbl-payee-y); }
+    .payeeLabel   { left: var(--lbl-payee-x); top: var(--lbl-payee-y); }
     .dollarsLabel { left: var(--lbl-dollars-x); top: var(--lbl-dollars-y); }
-    .memoLabel { left: var(--lbl-memo-x); top: var(--lbl-memo-y); }
-    .sigLabel { left: var(--lbl-sig-x); top: var(--lbl-sig-y); }
+    .memoLabel    { left: var(--lbl-memo-x); top: var(--lbl-memo-y); }
+    .sigLabel     { left: var(--lbl-sig-x); top: var(--lbl-sig-y); }
 
     .sigLine {
       position: absolute;
@@ -275,11 +318,19 @@
       place-items: center;
       overflow: hidden;
     }
-    .sigImg { max-width: 100%; max-height: 100%; object-fit: contain; filter: contrast(1.1); }
+
+    .sigImg {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      filter: contrast(1.1);
+      transform-origin: center center;
+    }
+
     .sigText {
       font-family: "Brush Script MT", "Segoe Script", "Lucida Handwriting", cursive;
       font-size: 22pt;
-      transform: translateY(2px);
+      transform-origin: center center;
       opacity: .9;
       white-space: nowrap;
     }
@@ -293,29 +344,55 @@
       opacity: 0;
       pointer-events: none;
     }
+
     .showTemplate .voucherBg { opacity: 1; }
 
     .voucherContent {
       position: absolute;
       left: var(--v-pad-x);
-      top:  var(--v-pad-y);
+      top: var(--v-pad-y);
       right: var(--v-pad-x);
       bottom: var(--v-pad-y);
       display: grid;
       grid-template-columns: 1fr 2.8in;
       gap: 0.25in;
+      min-height: 0;
     }
 
-    .vTitle { font-size: 10pt; font-weight: 800; opacity: .85; letter-spacing: .2px; margin-bottom: 0.08in; }
-    .vLabel { font-size: 8pt; opacity: .55; text-transform: uppercase; letter-spacing: .4px; margin-top: 0.12in; margin-bottom: 0.05in; }
-    .vText { font-size: 10pt; white-space: pre-wrap; line-height: 1.25; }
-    .vRight { border-left: 1px dashed rgba(0,0,0,.16); padding-left: 0.18in; min-width: 0; }
+    .vTitle {
+      font-size: 10pt;
+      font-weight: 800;
+      opacity: .85;
+      letter-spacing: .2px;
+      margin-bottom: 0.08in;
+    }
+
+    .vLabel {
+      font-size: 8pt;
+      opacity: .55;
+      text-transform: uppercase;
+      letter-spacing: .4px;
+      margin-top: 0.12in;
+      margin-bottom: 0.05in;
+    }
+
+    .vText {
+      font-size: 10pt;
+      white-space: pre-wrap;
+      line-height: 1.25;
+    }
+
+    .vRight {
+      border-left: 1px dashed rgba(0,0,0,.16);
+      padding-left: 0.18in;
+      min-width: 0;
+    }
 
     /* Window address cutout */
     .windowAddr {
       position: absolute;
       left: calc(var(--win-x) + var(--off-x));
-      top:  calc(var(--win-y) + var(--off-y));
+      top: calc(var(--win-y) + var(--off-y));
       width: var(--win-w);
       height: var(--win-h);
       overflow: hidden;
@@ -327,23 +404,51 @@
       background: rgba(255,255,255,.85);
       border: 1px solid rgba(0,0,0,.10);
     }
+
     .showTemplate .windowAddr { box-shadow: 0 1px 2px rgba(0,0,0,.06); }
 
     /* Markers (alignment) */
     .marker {
       position: absolute;
-      width: 0.25in; height: 0.25in;
+      width: 0.25in;
+      height: 0.25in;
       border-left: 1px solid rgba(220,38,38,.8);
       border-top: 1px solid rgba(220,38,38,.8);
       opacity: 0.9;
       display: none;
       pointer-events: none;
     }
+
     .showMarkers .marker { display: block; }
-    .m-check { left: calc(var(--check-x) + var(--off-x)); top: calc(var(--check-y) + var(--off-y)); }
-    .m-perf1 { left: 0; top: calc(var(--v1-y) + var(--off-y)); width: 100%; height: 0.01in; border: none; border-top: 2px solid rgba(220,38,38,.6); }
-    .m-perf2 { left: 0; top: calc(var(--v2-y) + var(--off-y)); width: 100%; height: 0.01in; border: none; border-top: 2px solid rgba(220,38,38,.6); }
-    .m-win { left: calc(var(--win-x) + var(--off-x)); top: calc(var(--win-y) + var(--off-y)); }
+
+    .m-check {
+      left: calc(var(--check-x) + var(--off-x));
+      top: calc(var(--check-y) + var(--off-y));
+    }
+
+    .m-perf1 {
+      left: 0;
+      top: calc(var(--v1-y) + var(--off-y));
+      width: 100%;
+      height: 0.01in;
+      border: none;
+      border-top: 2px solid rgba(220,38,38,.6);
+    }
+
+    .m-perf2 {
+      left: 0;
+      top: calc(var(--v2-y) + var(--off-y));
+      width: 100%;
+      height: 0.01in;
+      border: none;
+      border-top: 2px solid rgba(220,38,38,.6);
+    }
+
+    .m-win {
+      left: calc(var(--win-x) + var(--off-x));
+      top: calc(var(--win-y) + var(--off-y));
+    }
+
     .m-winBox {
       display: none;
       position: absolute;
@@ -354,19 +459,37 @@
       border: 2px solid rgba(220,38,38,.45);
       pointer-events: none;
     }
+
     .showMarkers .m-winBox { display: block; }
 
     /* Guides */
-    .guides .check, .guides .voucher, .guides .windowAddr { outline: 1px solid rgba(37,99,235,.25); outline-offset: -2px; }
-    .guides .f, .guides .label { background: rgba(255,255,0,.10); border-radius: 4px; }
+    .guides .check,
+    .guides .voucher,
+    .guides .windowAddr {
+      outline: 1px solid rgba(37,99,235,.25);
+      outline-offset: -2px;
+    }
+
+    .guides .f,
+    .guides .label {
+      background: rgba(255,255,0,.10);
+      border-radius: 4px;
+    }
 
     /* ===== Production mode: variables-only for security stock ===== */
     .production .checkBg,
-    .production .voucherBg { opacity: 0 !important; }
+    .production .voucherBg {
+      opacity: 0 !important;
+    }
+
     .production .bankName,
     .production .bankSub,
-    .production .label { display: none !important; }
+    .production .label {
+      display: none !important;
+    }
+
     .production .check { border-color: transparent; }
+
     .production .windowAddr {
       background: transparent;
       border-color: transparent;
@@ -374,23 +497,91 @@
     }
 
     /* PRINT */
-    @page { size: letter; margin: 0; }
+    @page {
+      size: letter;
+      margin: 0;
+    }
+
     #printRoot { display: none; }
 
     @media print {
-      html, body { margin: 0 !important; padding: 0 !important; width: 8.5in; height: 11in; }
-      body { background: #fff; }
-      header, .panel, .previewOuter { display: none !important; }
-      #printRoot { display: block !important; }
-      .page { border: 0; margin: 0; }
-      .printPage { page-break-after: always; }
-      .printPage:last-child { page-break-after: auto; }
+      html, body {
+        margin: 0 !important;
+        padding: 0 !important;
+        width: auto !important;
+        height: auto !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
+        background: #fff !important;
+        overflow: visible !important;
+      }
 
-      .checkBg, .voucherBg { opacity: 0 !important; }
-      .windowAddr { background: transparent; border-color: transparent; }
+      body {
+        background: #fff !important;
+      }
 
-      .printTemplate { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .printTemplate .checkBg, .printTemplate .voucherBg { opacity: 1 !important; }
+      header,
+      .wrap,
+      .panel,
+      .previewOuter {
+        display: none !important;
+      }
+
+      #printRoot {
+        display: block !important;
+        width: 8.5in !important;
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+
+      .printPage {
+        width: 8.5in !important;
+        height: 11in !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+        break-after: page;
+        page-break-after: always;
+        break-inside: avoid;
+        page-break-inside: avoid;
+        position: relative;
+      }
+
+      .printPage:last-child {
+        break-after: auto;
+        page-break-after: auto;
+      }
+
+      .page {
+        width: 8.5in !important;
+        height: 11in !important;
+        margin: 0 !important;
+        border: 0 !important;
+        overflow: hidden !important;
+        break-inside: avoid;
+        page-break-inside: avoid;
+      }
+
+      .checkBg,
+      .voucherBg {
+        opacity: 0 !important;
+      }
+
+      .windowAddr {
+        background: transparent !important;
+        border-color: transparent !important;
+        box-shadow: none !important;
+      }
+
+      .printTemplate {
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      .printTemplate .checkBg,
+      .printTemplate .voucherBg {
+        opacity: 1 !important;
+      }
     }
   </style>
 </head>
@@ -429,7 +620,7 @@
         </div>
       </div>
       <div class="hint">
-        Required: <b>date,payee,amount,memo,checkNo</b><br/>
+        Required: <b>date,payee,amount,memo,checkNo</b><br />
         Optional: <b>payeeAddress</b> (use <code>|</code> for new lines), <b>details</b> (use <code>|</code> for line items)
       </div>
     </div>
@@ -612,17 +803,6 @@
 <div id="printRoot" aria-hidden="true"></div>
 
 <script>
-  /**
-   * Plan (pseudocode)
-   * 1) Add outputMode: preview vs production
-   *    - preview: show labels/header/template as needed
-   *    - production: hide template-only elements, print variables only
-   * 2) Add alignment sheet printing:
-   *    - build a page containing ONLY perf markers + window box + origin crosshair
-   *    - print that page on plain paper, adjust global offsets, save
-   * 3) Keep CSV import, print single/all, signature storage, calibration storage
-   */
-
   const els = {
     csvFile: document.getElementById("csvFile"),
     delimiter: document.getElementById("delimiter"),
@@ -670,23 +850,15 @@
     printRoot: document.getElementById("printRoot"),
   };
 
-  /**
-   * @typedef {Object} CheckRow
-   * @property {string} date
-   * @property {string} payee
-   * @property {number} amount
-   * @property {string} memo
-   * @property {string} checkNo
-   * @property {string=} payeeAddress
-   * @property {string=} details
-   */
-
-  /** @type {CheckRow[]} */
   let checks = [];
   let activeIndex = -1;
 
-  /** @type {{mode:'image'|'typed'|'none', typed:string, imageDataUrl:string|null, scale:number}} */
-  let signature = { mode: "image", typed: "", imageDataUrl: null, scale: 1 };
+  let signature = {
+    mode: "image",
+    typed: "",
+    imageDataUrl: null,
+    scale: 1
+  };
 
   const CAL_FIELDS = [
     { key: "date", label: "Date", varX: "--date-x", varY: "--date-y" },
@@ -703,9 +875,7 @@
     { key: "window", label: "Window cutout position", varX: "--win-x", varY: "--win-y" },
   ];
 
-  /** @type {Record<string,{x:number,y:number}>} */
   let calibration = {};
-
   let alignPrintRequested = false;
 
   init();
@@ -727,7 +897,9 @@
 
   function wireEvents() {
     els.csvFile.addEventListener("change", onFile);
-    els.delimiter.addEventListener("change", () => { if (els.csvFile.files?.[0]) onFile(); });
+    els.delimiter.addEventListener("change", () => {
+      if (els.csvFile.files?.[0]) onFile();
+    });
 
     els.outputMode.addEventListener("change", () => {
       localStorage.setItem("check_printer_outputMode", els.outputMode.value);
@@ -752,12 +924,15 @@
       applyTemplateMode();
       renderScreenPreview();
     });
-    els.printBg.addEventListener("change", () => persistUiPrefs());
+
+    els.printBg.addEventListener("change", persistUiPrefs);
+
     els.guidesMode.addEventListener("change", () => {
       persistUiPrefs();
       applyGuidesMode();
       renderScreenPreview();
     });
+
     els.markersMode.addEventListener("change", () => {
       persistUiPrefs();
       applyMarkersMode();
@@ -768,6 +943,7 @@
       localStorage.setItem("check_printer_winMaxLines", els.winMaxLines.value);
       renderScreenPreview();
     });
+
     els.winIncludePayee.addEventListener("change", () => {
       localStorage.setItem("check_printer_winIncludePayee", els.winIncludePayee.value);
       renderScreenPreview();
@@ -779,9 +955,9 @@
     els.btnResetOffsets.addEventListener("click", resetOffsets);
 
     els.sigFile.addEventListener("change", onSigFile);
-    els.sigMode.addEventListener("change", () => signature.mode = els.sigMode.value);
-    els.sigTyped.addEventListener("input", () => signature.typed = els.sigTyped.value);
-    els.sigScale.addEventListener("input", () => signature.scale = Number(els.sigScale.value || 1));
+    els.sigMode.addEventListener("change", () => { signature.mode = els.sigMode.value; renderScreenPreview(); });
+    els.sigTyped.addEventListener("input", () => { signature.typed = els.sigTyped.value; renderScreenPreview(); });
+    els.sigScale.addEventListener("input", () => { signature.scale = Number(els.sigScale.value || 1); renderScreenPreview(); });
     els.btnSaveSig.addEventListener("click", () => { saveSignature(); renderScreenPreview(); });
     els.btnClearSig.addEventListener("click", clearSignature);
 
@@ -859,11 +1035,10 @@
       details: header.indexOf("details"),
     };
 
-    const required = ["date","payee","amount","memo","checkNo"];
+    const required = ["date", "payee", "amount", "memo", "checkNo"];
     const missing = required.filter(k => idx[k] < 0);
     if (missing.length) throw new Error(`CSV missing columns: ${missing.join(", ")}.`);
 
-    /** @type {CheckRow[]} */
     const out = [];
     for (let r = 1; r < rows.length; r++) {
       const row = rows[r];
@@ -871,7 +1046,10 @@
 
       const rawAmount = String(row[idx.amount] ?? "").replace(/[$,]/g, "").trim();
       const amount = Number(rawAmount);
-      if (!Number.isFinite(amount)) throw new Error(`Invalid amount on row ${r + 1}: "${row[idx.amount]}".`);
+
+      if (!Number.isFinite(amount)) {
+        throw new Error(`Invalid amount on row ${r + 1}: "${row[idx.amount]}".`);
+      }
 
       out.push({
         date: normalizeDate(String(row[idx.date] ?? "").trim()),
@@ -883,6 +1061,7 @@
         details: idx.details >= 0 ? String(row[idx.details] ?? "").trim() : "",
       });
     }
+
     return out;
   }
 
@@ -897,17 +1076,27 @@
       const next = text[i + 1];
 
       if (ch === '"') {
-        if (inQuotes && next === '"') { cell += '"'; i++; }
-        else { inQuotes = !inQuotes; }
+        if (inQuotes && next === '"') {
+          cell += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
         continue;
       }
 
-      if (!inQuotes && ch === delimiter) { row.push(cell); cell = ""; continue; }
+      if (!inQuotes && ch === delimiter) {
+        row.push(cell);
+        cell = "";
+        continue;
+      }
 
       if (!inQuotes && (ch === "\n" || ch === "\r")) {
         if (ch === "\r" && next === "\n") i++;
-        row.push(cell); rows.push(row);
-        row = []; cell = "";
+        row.push(cell);
+        rows.push(row);
+        row = [];
+        cell = "";
         continue;
       }
 
@@ -956,8 +1145,11 @@
 
   function renderScreenPreview() {
     els.screenPreview.innerHTML = "";
-    const c = checks[activeIndex];
-    els.screenPreview.appendChild(buildPageForCheck(c, { includeData: true, includeMarkers: els.markersMode.value === "on" }));
+    const c = checks[activeIndex] ?? null;
+    els.screenPreview.appendChild(buildPageForCheck(c, {
+      includeData: true,
+      includeMarkers: els.markersMode.value === "on"
+    }));
     syncCalInputsFromCss();
   }
 
@@ -976,11 +1168,11 @@
   function buildAlignmentPage() {
     const page = document.createElement("div");
     page.className = "page";
-
     page.appendChild(marker("marker m-check"));
     page.appendChild(marker("marker m-perf1"));
     page.appendChild(marker("marker m-perf2"));
     page.appendChild(marker("marker m-win"));
+
     const winBox = document.createElement("div");
     winBox.className = "m-winBox";
     page.appendChild(winBox);
@@ -997,6 +1189,7 @@
       page.appendChild(marker("marker m-perf1"));
       page.appendChild(marker("marker m-perf2"));
       page.appendChild(marker("marker m-win"));
+
       const winBox = document.createElement("div");
       winBox.className = "m-winBox";
       page.appendChild(winBox);
@@ -1004,8 +1197,10 @@
 
     const check = document.createElement("div");
     check.className = "check";
+
     const bg = document.createElement("div");
     bg.className = "checkBg";
+
     const chrome = document.createElement("div");
     chrome.className = "checkChrome";
 
@@ -1136,15 +1331,20 @@
     const out = [];
 
     if (includePayee && c.payee) out.push(c.payee.trim());
+
     for (const line of addrLines) {
       out.push(line);
       if (out.length >= maxLines) break;
     }
+
     return out.slice(0, maxLines).join("\n");
   }
 
   function splitLines(s) {
-    return String(s || "").split("\n").map(x => x.trim()).filter(Boolean);
+    return String(s || "")
+      .split("\n")
+      .map(x => x.trim())
+      .filter(Boolean);
   }
 
   function div(cls, text) {
@@ -1180,6 +1380,7 @@
 
     const t = (signature.typed || "").trim();
     if (!t) return null;
+
     const d = document.createElement("div");
     d.className = "sigText";
     d.style.transform = `translateY(2px) scale(${scale})`;
@@ -1200,21 +1401,35 @@
       return;
     }
 
-    const mode = els.printMode.value;
-
     if (!checks.length) {
-      els.printRoot.appendChild(wrapPrint(buildPageForCheck(null, { includeData: false, includeMarkers: els.markersMode.value === "on" })));
+      els.printRoot.appendChild(wrapPrint(
+        buildPageForCheck(null, {
+          includeData: false,
+          includeMarkers: els.markersMode.value === "on"
+        })
+      ));
       return;
     }
 
-    if (mode === "all") {
+    if (els.printMode.value === "all") {
       for (const c of checks) {
-        els.printRoot.appendChild(wrapPrint(buildPageForCheck(c, { includeData: true, includeMarkers: els.markersMode.value === "on" })));
+        els.printRoot.appendChild(wrapPrint(
+          buildPageForCheck(c, {
+            includeData: true,
+            includeMarkers: els.markersMode.value === "on"
+          })
+        ));
       }
-    } else {
-      const c = checks[activeIndex] ?? checks[0];
-      els.printRoot.appendChild(wrapPrint(buildPageForCheck(c, { includeData: true, includeMarkers: els.markersMode.value === "on" })));
+      return;
     }
+
+    const c = checks[activeIndex] ?? checks[0];
+    els.printRoot.appendChild(wrapPrint(
+      buildPageForCheck(c, {
+        includeData: true,
+        includeMarkers: els.markersMode.value === "on"
+      })
+    ));
   }
 
   function wrapPrint(page) {
@@ -1334,13 +1549,30 @@
     URL.revokeObjectURL(url);
   }
 
-  function formatMoney(n) { return Number(n).toFixed(2); }
-  function safeJsonParse(s) { try { return JSON.parse(s); } catch { return null; } }
-  function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
-  function clampInt(v, min, max) { return Math.max(min, Math.min(max, Math.trunc(v))); }
+  function formatMoney(n) {
+    return Number(n).toFixed(2);
+  }
+
+  function safeJsonParse(s) {
+    try { return JSON.parse(s); }
+    catch { return null; }
+  }
+
+  function clamp(v, min, max) {
+    return Math.max(min, Math.min(max, v));
+  }
+
+  function clampInt(v, min, max) {
+    return Math.max(min, Math.min(max, Math.trunc(v)));
+  }
+
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, m => ({
-      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+      "&":"&amp;",
+      "<":"&lt;",
+      ">":"&gt;",
+      '"':"&quot;",
+      "'":"&#39;"
     })[m]);
   }
 
@@ -1366,8 +1598,9 @@
       const h = Math.floor(num / 100);
       const r = num % 100;
       if (h) parts.push(`${ones[h]} Hundred`);
-      if (r >= 10 && r < 20) parts.push(teens[r - 10]);
-      else {
+      if (r >= 10 && r < 20) {
+        parts.push(teens[r - 10]);
+      } else {
         const t = Math.floor(r / 10);
         const o = r % 10;
         if (t) parts.push(tens[t]);
@@ -1378,7 +1611,10 @@
 
     const chunks = [];
     let x = n;
-    while (x > 0) { chunks.push(x % 1000); x = Math.floor(x / 1000); }
+    while (x > 0) {
+      chunks.push(x % 1000);
+      x = Math.floor(x / 1000);
+    }
 
     const words = [];
     for (let i = chunks.length - 1; i >= 0; i--) {
@@ -1388,10 +1624,9 @@
       const scale = scales[i];
       words.push(scale ? `${w} ${scale}` : w);
     }
+
     return words.join(" ").trim();
   }
-
-  /* ===== Calibration ===== */
 
   function buildCalibrationSelect() {
     els.calField.innerHTML = "";
@@ -1435,6 +1670,7 @@
 
   function applyCalibrationToCss(reset = false) {
     const root = document.documentElement;
+
     if (reset) {
       for (const f of CAL_FIELDS) {
         root.style.removeProperty(f.varX);
@@ -1442,6 +1678,7 @@
       }
       return;
     }
+
     for (const f of CAL_FIELDS) {
       const entry = calibration[f.key];
       if (!entry) continue;
