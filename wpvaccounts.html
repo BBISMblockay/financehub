@@ -7,233 +7,349 @@
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <style>
     :root { color-scheme: light; }
-    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Apple Color Emoji","Segoe UI Emoji"; }
-    .mono { font-variant-numeric: tabular-nums; }
-    .hairline { border-color: rgba(15,23,42,.10); }
-    .soft { box-shadow: 0 1px 0 rgba(15,23,42,.04); }
-    .soft2 { box-shadow: 0 10px 24px rgba(15,23,42,.08); }
+    html, body { height: 100%; }
+    body {
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(255,255,255,.95), rgba(245,247,251,.88) 38%, rgba(241,245,249,.98) 100%);
+      color: #0f172a;
+    }
+    .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+    .hairline { border-color: rgba(15,23,42,.08); }
+    .card {
+      background: rgba(255,255,255,.92);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(226,232,240,.95);
+      border-radius: 24px;
+      box-shadow:
+        0 1px 2px rgba(15,23,42,.04),
+        0 14px 34px rgba(15,23,42,.05);
+    }
+    .hero {
+      background:
+        linear-gradient(135deg, rgba(15,23,42,.99), rgba(30,41,59,.98) 58%, rgba(51,65,85,.96));
+      color: #fff;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 28px;
+      box-shadow:
+        0 18px 50px rgba(15,23,42,.18),
+        inset 0 1px 0 rgba(255,255,255,.08);
+    }
+    .hero-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.06);
+      color: rgba(255,255,255,.86);
+      border-radius: 999px;
+      padding: .45rem .75rem;
+      font-size: .74rem;
+      font-weight: 700;
+      letter-spacing: .02em;
+    }
+    .btn {
+      border: 1px solid rgba(15,23,42,.12);
+      background: #fff;
+      color: #0f172a;
+      border-radius: 16px;
+      padding: .8rem 1rem;
+      font-size: .92rem;
+      font-weight: 700;
+      transition: .18s ease;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: .45rem;
+      white-space: nowrap;
+    }
+    .btn:hover { transform: translateY(-1px); background: rgba(15,23,42,.03); }
+    .btn-primary {
+      background: #0f172a;
+      color: #fff;
+      border-color: #0f172a;
+      box-shadow: 0 10px 22px rgba(15,23,42,.15);
+    }
+    .btn-soft { background: #f8fafc; }
+    .input, .select {
+      width: 100%;
+      border-radius: 16px;
+      border: 1px solid #dbe2ea;
+      background: #fff;
+      padding: .82rem .95rem;
+      font-size: .92rem;
+      outline: none;
+      transition: .18s ease;
+      color: #0f172a;
+    }
+    .input:focus, .select:focus {
+      border-color: #0f172a;
+      box-shadow: 0 0 0 4px rgba(15,23,42,.08);
+    }
+    .segmented {
+      display: inline-flex;
+      gap: 4px;
+      padding: 4px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.08);
+    }
+    .segmented button {
+      border: 0;
+      background: transparent;
+      color: rgba(255,255,255,.72);
+      border-radius: 999px;
+      padding: .48rem .95rem;
+      font-size: .8rem;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .segmented button.active {
+      background: #fff;
+      color: #0f172a;
+    }
+    .kpi {
+      border: 1px solid #e5e7eb;
+      border-radius: 20px;
+      padding: 16px;
+      background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
+      min-height: 108px;
+    }
+    .kpi-label {
+      font-size: .68rem;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: #64748b;
+      font-weight: 800;
+    }
+    .kpi-value {
+      margin-top: 9px;
+      font-size: 1.58rem;
+      line-height: 1.02;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .kpi-sub {
+      margin-top: 6px;
+      font-size: .75rem;
+      color: #64748b;
+    }
+    .section-title { font-size: 1rem; font-weight: 800; color: #0f172a; }
+    .section-sub { margin-top: 2px; font-size: .82rem; color: #64748b; }
     .scrollbar::-webkit-scrollbar{ height:10px; width:10px; }
-    .scrollbar::-webkit-scrollbar-thumb{ background: rgba(15,23,42,.22); border-radius: 999px; }
+    .scrollbar::-webkit-scrollbar-thumb{ background: rgba(15,23,42,.20); border-radius: 999px; }
     .scrollbar::-webkit-scrollbar-track{ background: transparent; }
     dialog::backdrop { background: rgba(2,6,23,.45); }
-    .pill { border: 1px solid rgba(15,23,42,.12); }
-    .kbd { font-size: 11px; border:1px solid rgba(15,23,42,.12); background: rgba(15,23,42,.03); padding: 2px 6px; border-radius: 8px; }
-    .chip { border:1px solid rgba(15,23,42,.12); background: #fff; }
-    .btn { border: 1px solid rgba(15,23,42,.14); background:#fff; }
-    .btn:hover { background: rgba(15,23,42,.03); }
 
-    /* Statement print: ONLY statement area prints */
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid #e5e7eb;
+      border-radius: 18px;
+      background: #fff;
+    }
+    table { width: 100%; border-collapse: separate; border-spacing: 0; }
+    thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: #f8fafc;
+      color: #64748b;
+      font-size: .72rem;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      font-weight: 800;
+      padding: .82rem .85rem;
+      border-bottom: 1px solid #e5e7eb;
+      text-align: left;
+      white-space: nowrap;
+    }
+    tbody td {
+      padding: .82rem .85rem;
+      border-bottom: 1px solid #f1f5f9;
+      font-size: .89rem;
+      vertical-align: middle;
+      color: #0f172a;
+    }
+    tbody tr:hover td { background: #fafcff; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: .24rem .55rem;
+      font-size: .71rem;
+      font-weight: 700;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+    .badge-credit { background: #fff; color: #0f172a; border-color: #cbd5e1; }
+    .badge-draft { background: #f8fafc; color: #475569; border-color: #cbd5e1; }
+    .badge-paid { background: #0f172a; color: #fff; border-color: #0f172a; }
+    .badge-void { background: #fff; color: #94a3b8; border-color: #cbd5e1; }
+    .badge-invoice { background: #fff; color: #334155; border-color: #cbd5e1; }
+
+    .export-menu {
+      position: relative;
+    }
+    .export-panel {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 10px);
+      width: 280px;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 18px;
+      box-shadow: 0 18px 40px rgba(15,23,42,.10);
+      padding: 8px;
+      z-index: 30;
+      display: none;
+    }
+    .export-panel.open { display: block; }
+    .export-item {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      text-align: left;
+      padding: .72rem .78rem;
+      border-radius: 12px;
+      font-size: .88rem;
+      font-weight: 700;
+      color: #0f172a;
+      cursor: pointer;
+    }
+    .export-item:hover { background: #f8fafc; }
+    .export-label {
+      display: block;
+      font-size: .73rem;
+      color: #64748b;
+      font-weight: 600;
+      margin-top: 2px;
+    }
+
+    .customer-row.active td {
+      background: #f8fafc;
+    }
+
+    .mini-stat {
+      border: 1px solid #e5e7eb;
+      border-radius: 18px;
+      background: #fff;
+      padding: 12px;
+    }
+    .mini-stat .label {
+      font-size: .68rem;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: #64748b;
+      font-weight: 800;
+    }
+    .mini-stat .value {
+      margin-top: 8px;
+      font-size: 1.05rem;
+      font-weight: 800;
+      color: #0f172a;
+    }
+
     @media print {
       .no-print { display: none !important; }
       body { background:#fff !important; }
       #statementPrintArea { display:block !important; }
       #statementPrintArea * { visibility: visible !important; }
-      #statementPrintArea { position: absolute; left: 0; top: 0; width: 100%; }
-      .print-card { box-shadow: none !important; }
-      .print-border { border: 1px solid #e5e7eb !important; }
+      #statementPrintArea {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+      }
+      .card { box-shadow: none !important; backdrop-filter: none !important; }
       a { color: #111827 !important; text-decoration: none !important; }
+    }
+
+    @media (max-width: 1180px) {
+      .shell { padding: 14px; }
     }
   </style>
 </head>
 
-<body class="bg-slate-50 text-slate-900">
-  <!-- Top bar -->
-  <div class="sticky top-0 z-40 bg-white border-b hairline">
-    <div class="max-w-[1680px] mx-auto px-4 sm:px-6 py-4 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
-      <div class="flex items-start gap-3">
-        <div class="w-10 h-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-semibold">WPV</div>
-        <div>
-          <div class="text-xs tracking-widest uppercase text-slate-500">Accounts Receivable • Wave-linked</div>
-          <div class="text-xl font-semibold leading-tight">Invoice Command Center</div>
-          <div class="text-xs text-slate-500 mt-1">
-            Source: Google Sheets (published CSV) • Last refresh: <span class="mono" id="lastRefresh">—</span>
-            <span class="no-print">• <button id="refreshBtn" class="underline underline-offset-4 hover:text-slate-900">Refresh</button></span>
-            <span class="no-print text-slate-300">•</span>
-            <span class="no-print">Tip: <span class="kbd">/</span> search • <span class="kbd">Esc</span> clear</span>
+<body class="text-slate-900">
+  <div class="max-w-[1700px] mx-auto px-4 sm:px-6 py-5 space-y-5">
+
+    <div class="hero p-5 lg:p-6">
+      <div class="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+        <div class="space-y-3">
+          <div class="hero-chip">accounts receivable · wave-linked · operator ready</div>
+          <div>
+            <h1 class="text-3xl lg:text-4xl font-extrabold tracking-tight">Invoice Command Center</h1>
+            <p class="mt-2 max-w-3xl text-sm text-slate-200/80">
+              Customer AR, overdue exposure, statement printing, exact PDF links, and operator-grade exports from the Wave sync sheet.
+            </p>
+          </div>
+          <div class="text-xs text-slate-200/70">
+            Source: Google Sheets published CSV • Last refresh: <span class="mono" id="lastRefresh">—</span>
           </div>
         </div>
-      </div>
 
-      <div class="no-print flex flex-wrap items-center gap-2">
-        <div class="flex items-center gap-2">
-          <div class="text-xs uppercase tracking-wider text-slate-500">As Of</div>
-          <input id="asOfDate" type="date" class="px-3 py-2 text-sm rounded-lg border hairline bg-white focus:outline-none focus:ring-2 focus:ring-slate-200" />
+        <div class="flex flex-col gap-3 lg:flex-row lg:items-center">
+          <div class="segmented">
+            <button id="execTabBtn" class="active">Executive</button>
+            <button id="opsTabBtn">Operator</button>
+          </div>
+
+          <div class="export-menu no-print">
+            <button id="exportMenuBtn" class="btn">
+              Exports
+              <span aria-hidden="true">▾</span>
+            </button>
+            <div id="exportPanel" class="export-panel">
+              <button class="export-item" data-export="openItems">
+                Export open items
+                <span class="export-label">One row per open invoice</span>
+              </button>
+              <button class="export-item" data-export="overdue">
+                Export overdue
+                <span class="export-label">Overdue invoices only</span>
+              </button>
+              <button class="export-item" data-export="lineItems">
+                Export line items
+                <span class="export-label">Operator validation / splits</span>
+              </button>
+              <button class="export-item" data-export="agingByCustomer">
+                Export aging by customer
+                <span class="export-label">Customer bucket summary</span>
+              </button>
+              <button class="export-item" data-export="credits">
+                Export credits
+                <span class="export-label">Negative open items only</span>
+              </button>
+            </div>
+          </div>
+
+          <button id="refreshBtn" class="btn no-print">Refresh</button>
         </div>
-
-        <div class="h-8 w-px bg-slate-200 mx-1"></div>
-
-        <button id="execTabBtn" class="px-3 py-2 text-sm rounded-lg btn font-medium">Executive</button>
-        <button id="opsTabBtn" class="px-3 py-2 text-sm rounded-lg btn font-medium">Operator</button>
-
-        <div class="h-8 w-px bg-slate-200 mx-1"></div>
-
-        <button id="homeBtn" class="px-3 py-2 text-sm rounded-lg btn">All Customers</button>
       </div>
     </div>
-  </div>
 
-  <div class="max-w-[1680px] mx-auto px-4 sm:px-6 py-6">
-    <!-- Executive KPIs (better design) -->
-    <section id="execPanel" class="mb-6">
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <div class="lg:col-span-8 bg-white border hairline rounded-2xl soft2 overflow-hidden">
-          <div class="px-5 py-4 border-b hairline flex items-center justify-between">
-            <div>
-              <div class="text-xs uppercase tracking-wider text-slate-500">Portfolio Snapshot</div>
-              <div class="text-lg font-semibold">AR Health</div>
-            </div>
-            <div class="text-xs text-slate-500">Wave-matching bucket math (by Due Date)</div>
-          </div>
-
-          <div class="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div class="rounded-2xl border hairline p-4">
-              <div class="text-xs uppercase tracking-wider text-slate-500">Outstanding</div>
-              <div class="mt-1 flex items-end justify-between gap-3">
-                <div class="text-3xl font-semibold mono" id="gOutstanding">—</div>
-                <div class="text-xs text-slate-500 text-right" id="gMeta1">—</div>
-              </div>
-              <div class="mt-3 grid grid-cols-2 gap-3">
-                <div class="p-3 rounded-xl bg-slate-50 border hairline">
-                  <div class="text-xs uppercase tracking-wider text-slate-500">Overdue</div>
-                  <div class="text-lg font-semibold mono mt-1" id="gOverdue">—</div>
-                </div>
-                <div class="p-3 rounded-xl bg-slate-50 border hairline">
-                  <div class="text-xs uppercase tracking-wider text-slate-500">Not Yet Due</div>
-                  <div class="text-lg font-semibold mono mt-1" id="gNotYet">—</div>
-                </div>
-              </div>
-            </div>
-
-            <div class="rounded-2xl border hairline p-4">
-              <div class="text-xs uppercase tracking-wider text-slate-500">Aging (Overdue)</div>
-              <div class="mt-2 grid grid-cols-5 gap-2">
-                <div class="p-3 rounded-xl bg-white border hairline">
-                  <div class="text-[11px] uppercase tracking-wider text-slate-500">0–30</div>
-                  <div class="text-sm font-semibold mono mt-1" id="gAge0_30">—</div>
-                </div>
-                <div class="p-3 rounded-xl bg-white border hairline">
-                  <div class="text-[11px] uppercase tracking-wider text-slate-500">31–60</div>
-                  <div class="text-sm font-semibold mono mt-1" id="gAge31_60">—</div>
-                </div>
-                <div class="p-3 rounded-xl bg-white border hairline">
-                  <div class="text-[11px] uppercase tracking-wider text-slate-500">61–90</div>
-                  <div class="text-sm font-semibold mono mt-1" id="gAge61_90">—</div>
-                </div>
-                <div class="p-3 rounded-xl bg-white border hairline">
-                  <div class="text-[11px] uppercase tracking-wider text-slate-500">91–120</div>
-                  <div class="text-sm font-semibold mono mt-1" id="gAge91_120">—</div>
-                </div>
-                <div class="p-3 rounded-xl bg-white border hairline">
-                  <div class="text-[11px] uppercase tracking-wider text-slate-500">120+</div>
-                  <div class="text-sm font-semibold mono mt-1" id="gAge120p">—</div>
-                </div>
-              </div>
-              <div class="mt-3 flex items-center justify-between text-xs text-slate-500">
-                <div>Credits (open items): <span class="mono font-semibold" id="gCredits">—</span></div>
-                <div>90+ exposure: <span class="mono font-semibold" id="gAge90p">—</span></div>
-              </div>
-            </div>
-          </div>
+    <div class="card p-4 lg:p-5 no-print">
+      <div class="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        <div class="lg:col-span-2">
+          <label class="mb-2 block text-sm font-semibold text-slate-700">As of</label>
+          <input id="asOfDate" type="date" class="input" />
         </div>
 
-        <!-- Executive actions / notes -->
-        <div class="lg:col-span-4 bg-white border hairline rounded-2xl soft2 overflow-hidden">
-          <div class="px-5 py-4 border-b hairline">
-            <div class="text-xs uppercase tracking-wider text-slate-500">Executive Actions</div>
-            <div class="text-lg font-semibold">Focus List</div>
-          </div>
-          <div class="p-5">
-            <div class="text-xs text-slate-500 mb-2">Top overdue customers by $</div>
-            <div id="execTopOverdue" class="space-y-2"></div>
-            <div class="mt-4 pt-4 border-t hairline">
-              <div class="text-xs text-slate-500 mb-2">Operator exports</div>
-              <div class="flex flex-wrap gap-2">
-                <button id="exportOpenItemsBtn" class="px-3 py-2 text-sm rounded-lg btn">Export Open Items CSV</button>
-                <button id="exportOverdueBtn" class="px-3 py-2 text-sm rounded-lg btn">Export Overdue CSV</button>
-              </div>
-              <div class="text-xs text-slate-500 mt-2">Exports are “operator-friendly”: one row per invoice (not line item).</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Operator panel -->
-    <section id="opsPanel" class="hidden mb-6">
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <div class="lg:col-span-8 bg-white border hairline rounded-2xl soft2 overflow-hidden">
-          <div class="px-5 py-4 border-b hairline flex items-center justify-between">
-            <div>
-              <div class="text-xs uppercase tracking-wider text-slate-500">Operator</div>
-              <div class="text-lg font-semibold">Exceptions & Validation</div>
-            </div>
-            <div class="text-xs text-slate-500">Built for close + reconciliation workflows</div>
-          </div>
-          <div class="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div class="rounded-xl border hairline p-4">
-              <div class="text-xs uppercase tracking-wider text-slate-500">Missing Due Date</div>
-              <div class="text-sm text-slate-700 mt-2" id="opsMissingDue">—</div>
-              <div class="text-xs text-slate-500 mt-2">We fall back to Invoice Date for aging when Due Date is missing.</div>
-            </div>
-            <div class="rounded-xl border hairline p-4">
-              <div class="text-xs uppercase tracking-wider text-slate-500">Zero Due (Paid/Settled)</div>
-              <div class="text-sm text-slate-700 mt-2" id="opsZeroDue">—</div>
-              <div class="text-xs text-slate-500 mt-2">Open-item engine uses Due ≠ 0, not status labels.</div>
-            </div>
-            <div class="rounded-xl border hairline p-4">
-              <div class="text-xs uppercase tracking-wider text-slate-500">Potential Duplicates</div>
-              <div class="text-sm text-slate-700 mt-2" id="opsDupes">—</div>
-              <div class="text-xs text-slate-500 mt-2">Invoices with same # but conflicting Due totals.</div>
-            </div>
-            <div class="rounded-xl border hairline p-4">
-              <div class="text-xs uppercase tracking-wider text-slate-500">Workflow</div>
-              <ol class="mt-2 text-sm text-slate-700 list-decimal ml-5 space-y-1">
-                <li>Pick customer → open statement</li>
-                <li>Verify credits + aging buckets</li>
-                <li>Open PDF directly from Sheet link</li>
-                <li>Export open items / overdue for booking splits</li>
-              </ol>
-            </div>
-          </div>
+        <div class="lg:col-span-4">
+          <label class="mb-2 block text-sm font-semibold text-slate-700">Customer</label>
+          <input id="qCustomer" type="text" placeholder="Search customer name…" class="input" />
         </div>
 
-        <div class="lg:col-span-4 bg-white border hairline rounded-2xl soft2 overflow-hidden">
-          <div class="px-5 py-4 border-b hairline">
-            <div class="text-xs uppercase tracking-wider text-slate-500">Operator Exports</div>
-            <div class="text-lg font-semibold">Reports</div>
-          </div>
-          <div class="p-5 space-y-3">
-            <button id="exportLineItemsBtn" class="w-full px-3 py-2 text-sm rounded-lg btn text-left">
-              <div class="font-medium">Export Line Items CSV</div>
-              <div class="text-xs text-slate-500 mt-1">One row per invoice line item (for validation + splits)</div>
-            </button>
-            <button id="exportAgingByCustomerBtn" class="w-full px-3 py-2 text-sm rounded-lg btn text-left">
-              <div class="font-medium">Export Aging by Customer CSV</div>
-              <div class="text-xs text-slate-500 mt-1">0–30/31–60/61–90/91–120/120+ per customer</div>
-            </button>
-            <button id="exportCreditsBtn" class="w-full px-3 py-2 text-sm rounded-lg btn text-left">
-              <div class="font-medium">Export Credits CSV</div>
-              <div class="text-xs text-slate-500 mt-1">Negative open items for review</div>
-            </button>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- Search + filters -->
-    <div class="no-print bg-white border hairline rounded-2xl soft2 p-4 mb-4">
-      <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
-        <div class="md:col-span-4">
-          <label class="text-xs text-slate-500 uppercase tracking-wider">Customer</label>
-          <input id="qCustomer" type="text" placeholder="Search customer name…" class="mt-1 w-full px-3 py-2 border hairline rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-200 bg-white" />
-        </div>
-
-        <div class="md:col-span-3">
-          <label class="text-xs text-slate-500 uppercase tracking-wider">View</label>
-          <select id="qView" class="mt-1 w-full px-3 py-2 border hairline rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-slate-200">
+        <div class="lg:col-span-2">
+          <label class="mb-2 block text-sm font-semibold text-slate-700">View</label>
+          <select id="qView" class="select">
             <option value="">All</option>
             <option value="overdue">Overdue (as-of)</option>
             <option value="notyet">Not yet due (as-of)</option>
@@ -245,195 +361,255 @@
           </select>
         </div>
 
-        <div class="md:col-span-2">
-          <label class="text-xs text-slate-500 uppercase tracking-wider">From</label>
-          <input id="qFrom" type="date" class="mt-1 w-full px-3 py-2 border hairline rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-200 bg-white" />
+        <div class="lg:col-span-2">
+          <label class="mb-2 block text-sm font-semibold text-slate-700">From</label>
+          <input id="qFrom" type="date" class="input" />
         </div>
 
-        <div class="md:col-span-2">
-          <label class="text-xs text-slate-500 uppercase tracking-wider">To</label>
-          <input id="qTo" type="date" class="mt-1 w-full px-3 py-2 border hairline rounded-lg focus:outline-none focus:ring-2 focus:ring-slate-200 bg-white" />
+        <div class="lg:col-span-2">
+          <label class="mb-2 block text-sm font-semibold text-slate-700">To</label>
+          <input id="qTo" type="date" class="input" />
         </div>
 
-        <div class="md:col-span-1 flex items-end">
-          <button id="clearBtn" class="w-full px-3 py-2 text-sm rounded-lg btn">Clear</button>
+        <div class="lg:col-span-3">
+          <label class="mb-2 block text-sm font-semibold text-slate-700">Statement mode</label>
+          <select id="stmtMode" class="select">
+            <option value="open">Open items (Due ≠ 0)</option>
+            <option value="all">All items</option>
+          </select>
+        </div>
+
+        <div class="lg:col-span-3 flex items-end gap-3">
+          <button id="homeBtn" class="btn w-full">All Customers</button>
+          <button id="clearBtn" class="btn btn-soft w-full">Clear</button>
+        </div>
+
+        <div class="lg:col-span-6 flex items-end justify-start lg:justify-end">
+          <div class="text-xs text-slate-500">
+            Tip: <span class="mono">/</span> search • <span class="mono">Esc</span> clear
+          </div>
         </div>
       </div>
     </div>
 
-    <!-- Main workspace -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-      <!-- Customers list -->
-      <div class="lg:col-span-4 bg-white border hairline rounded-2xl soft2 overflow-hidden">
-        <div class="px-5 py-4 border-b hairline flex items-center justify-between">
-          <div>
-            <div class="text-xs uppercase tracking-wider text-slate-500">Customers</div>
-            <div class="text-lg font-semibold">AR by Counterparty</div>
-            <div class="text-xs text-slate-500 mt-1" id="customersMeta">—</div>
+    <section id="execPanel" class="space-y-4">
+      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4">
+        <div class="kpi"><div class="kpi-label">Outstanding</div><div id="gOutstanding" class="kpi-value mono">—</div><div id="gMeta1" class="kpi-sub">—</div></div>
+        <div class="kpi"><div class="kpi-label">Overdue</div><div id="gOverdue" class="kpi-value mono">—</div><div class="kpi-sub">Due date before as-of</div></div>
+        <div class="kpi"><div class="kpi-label">Not Yet Due</div><div id="gNotYet" class="kpi-value mono">—</div><div class="kpi-sub">Due date at/after as-of</div></div>
+        <div class="kpi"><div class="kpi-label">0–30</div><div id="gAge0_30" class="kpi-value mono">—</div><div class="kpi-sub">Overdue aging</div></div>
+        <div class="kpi"><div class="kpi-label">31–60</div><div id="gAge31_60" class="kpi-value mono">—</div><div class="kpi-sub">Overdue aging</div></div>
+        <div class="kpi"><div class="kpi-label">90+</div><div id="gAge90p" class="kpi-value mono">—</div><div class="kpi-sub">Late exposure</div></div>
+      </div>
+
+      <div class="grid grid-cols-1 xl:grid-cols-12 gap-4">
+        <div class="xl:col-span-8 card p-4 lg:p-5">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="section-title">Portfolio aging</div>
+              <div class="section-sub">Wave-style bucket math by effective due date.</div>
+            </div>
+            <div class="text-xs text-slate-500">Credits: <span class="mono font-semibold" id="gCredits">—</span></div>
           </div>
-          <div class="no-print flex items-center gap-2">
-            <button id="sortOverdueBtn" class="px-3 py-2 text-sm rounded-lg btn">Overdue</button>
-            <button id="sortOutstandingBtn" class="px-3 py-2 text-sm rounded-lg btn">Outstanding</button>
-            <button id="sortNameBtn" class="px-3 py-2 text-sm rounded-lg btn">Name</button>
+
+          <div class="mt-4 grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div class="mini-stat"><div class="label">0–30</div><div id="gAge0_30_b" class="value mono">—</div></div>
+            <div class="mini-stat"><div class="label">31–60</div><div id="gAge31_60_b" class="value mono">—</div></div>
+            <div class="mini-stat"><div class="label">61–90</div><div id="gAge61_90" class="value mono">—</div></div>
+            <div class="mini-stat"><div class="label">91–120</div><div id="gAge91_120" class="value mono">—</div></div>
+            <div class="mini-stat"><div class="label">120+</div><div id="gAge120p" class="value mono">—</div></div>
           </div>
         </div>
 
-        <div class="max-h-[720px] overflow-auto scrollbar">
-          <table class="w-full text-sm">
-            <thead class="sticky top-0 bg-white border-b hairline">
-              <tr class="text-xs uppercase tracking-wider text-slate-500">
-                <th class="text-left px-5 py-2">Customer</th>
-                <th class="text-right px-5 py-2">Overdue</th>
-                <th class="text-right px-5 py-2">Outstanding</th>
-                <th class="text-right px-5 py-2">90+</th>
+        <div class="xl:col-span-4 card p-4 lg:p-5">
+          <div class="section-title">Focus list</div>
+          <div class="section-sub">Top overdue customers by amount.</div>
+          <div id="execTopOverdue" class="mt-4 space-y-2"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="opsPanel" class="hidden space-y-4">
+      <div class="grid grid-cols-1 xl:grid-cols-12 gap-4">
+        <div class="xl:col-span-8 card p-4 lg:p-5">
+          <div class="section-title">Exceptions & validation</div>
+          <div class="section-sub">Built for close, cleanup, and reconciliation workflows.</div>
+          <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="mini-stat">
+              <div class="label">Missing Due Date</div>
+              <div id="opsMissingDue" class="value">—</div>
+              <div class="mt-2 text-xs text-slate-500">Falls back to invoice date for aging.</div>
+            </div>
+            <div class="mini-stat">
+              <div class="label">Zero Due</div>
+              <div id="opsZeroDue" class="value">—</div>
+              <div class="mt-2 text-xs text-slate-500">Open-item logic uses Due ≠ 0, not status labels.</div>
+            </div>
+            <div class="mini-stat">
+              <div class="label">Potential Duplicates</div>
+              <div id="opsDupes" class="value">—</div>
+              <div class="mt-2 text-xs text-slate-500">Same invoice with conflicting due totals.</div>
+            </div>
+            <div class="mini-stat">
+              <div class="label">Workflow</div>
+              <div class="mt-2 text-sm text-slate-700 space-y-1">
+                <div>1. Pick customer</div>
+                <div>2. Review statement + bucket mix</div>
+                <div>3. Open PDF directly from sheet link</div>
+                <div>4. Export open items / line items / credits</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="xl:col-span-4 card p-4 lg:p-5">
+          <div class="section-title">Operator report set</div>
+          <div class="section-sub">Quick outputs for booking and review.</div>
+          <div class="mt-4 space-y-3">
+            <button id="exportOpenItemsBtn" class="btn w-full justify-start">Export Open Items CSV</button>
+            <button id="exportOverdueBtn" class="btn w-full justify-start">Export Overdue CSV</button>
+            <button id="exportLineItemsBtn" class="btn w-full justify-start">Export Line Items CSV</button>
+            <button id="exportAgingByCustomerBtn" class="btn w-full justify-start">Export Aging by Customer CSV</button>
+            <button id="exportCreditsBtn" class="btn w-full justify-start">Export Credits CSV</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid grid-cols-1 xl:grid-cols-12 gap-4">
+      <div class="xl:col-span-4 card overflow-hidden">
+        <div class="px-5 py-4 border-b hairline flex items-start justify-between gap-3">
+          <div>
+            <div class="section-title">Customers</div>
+            <div class="section-sub">AR by counterparty.</div>
+            <div class="text-xs text-slate-500 mt-1" id="customersMeta">—</div>
+          </div>
+          <div class="no-print flex items-center gap-2">
+            <button id="sortOverdueBtn" class="btn text-xs px-3 py-2">Overdue</button>
+            <button id="sortOutstandingBtn" class="btn text-xs px-3 py-2">Outstanding</button>
+            <button id="sortNameBtn" class="btn text-xs px-3 py-2">Name</button>
+          </div>
+        </div>
+
+        <div class="max-h-[760px] overflow-auto scrollbar">
+          <table class="w-full">
+            <thead>
+              <tr>
+                <th class="text-left">Customer</th>
+                <th class="text-right">Overdue</th>
+                <th class="text-right">Outstanding</th>
+                <th class="text-right">90+</th>
               </tr>
             </thead>
-            <tbody id="customersTbody" class="divide-y hairline">
-              <tr><td class="px-5 py-4 text-slate-500" colspan="4">Loading…</td></tr>
+            <tbody id="customersTbody">
+              <tr><td class="text-slate-500" colspan="4">Loading…</td></tr>
             </tbody>
           </table>
         </div>
       </div>
 
-      <!-- Statement + PDF viewer -->
-      <div class="lg:col-span-8 space-y-4">
-        <!-- Statement card -->
-        <div class="bg-white border hairline rounded-2xl soft2 overflow-hidden print-card print-border" id="statementCard">
-          <div class="px-6 py-5 border-b hairline flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+      <div class="xl:col-span-8 space-y-4">
+        <div class="card overflow-hidden" id="statementCard">
+          <div class="px-6 py-5 border-b hairline flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
             <div>
               <div class="text-xs uppercase tracking-wider text-slate-500">Statement</div>
               <div class="text-2xl font-semibold" id="stmtTitle">Select a customer</div>
               <div class="text-sm text-slate-600 mt-1" id="stmtSub">—</div>
-              <div class="text-xs text-slate-500 mt-2">As of <span class="mono" id="stmtAsOf">—</span> • Currency: <span class="mono" id="stmtCurrency">—</span></div>
+              <div class="text-xs text-slate-500 mt-2">
+                As of <span class="mono" id="stmtAsOf">—</span> • Currency: <span class="mono" id="stmtCurrency">—</span>
+              </div>
             </div>
 
             <div class="no-print flex flex-wrap items-center gap-2">
-              <button id="statementPrintBtn" class="px-3 py-2 text-sm rounded-lg btn font-medium" disabled>Print Statement</button>
-              <button id="openAllPdfsBtn" class="px-3 py-2 text-sm rounded-lg btn" disabled>Open PDFs</button>
-              <button id="exportCustomerBtn" class="px-3 py-2 text-sm rounded-lg btn" disabled>Export CSV</button>
-              <button id="copyLinkBtn" class="px-3 py-2 text-sm rounded-lg btn" disabled>Copy Link</button>
-              <select id="stmtMode" class="px-3 py-2 text-sm rounded-lg border hairline bg-white focus:outline-none focus:ring-2 focus:ring-slate-200">
-                <option value="open">Open items (Due ≠ 0)</option>
-                <option value="all">All items</option>
-              </select>
+              <button id="statementPrintBtn" class="btn" disabled>Print Statement</button>
+              <button id="openAllPdfsBtn" class="btn" disabled>Open PDFs</button>
+              <button id="exportCustomerBtn" class="btn" disabled>Export CSV</button>
+              <button id="copyLinkBtn" class="btn" disabled>Copy Link</button>
             </div>
           </div>
 
-          <!-- Statement KPIs (pro) -->
           <div id="stmtSummary" class="px-6 py-5 border-b hairline hidden">
             <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-              <div class="rounded-2xl border hairline p-4 bg-white">
-                <div class="text-xs uppercase tracking-wider text-slate-500">Overdue</div>
-                <div class="text-2xl font-semibold mono mt-1" id="sOverdue">—</div>
-                <div class="text-xs text-slate-500 mt-1">Due Date &lt; As Of</div>
+              <div class="kpi">
+                <div class="kpi-label">Overdue</div>
+                <div class="kpi-value mono" id="sOverdue">—</div>
+                <div class="kpi-sub">Due date before as-of</div>
               </div>
-              <div class="rounded-2xl border hairline p-4 bg-white">
-                <div class="text-xs uppercase tracking-wider text-slate-500">Not Yet Due</div>
-                <div class="text-2xl font-semibold mono mt-1" id="sNotYet">—</div>
-                <div class="text-xs text-slate-500 mt-1">Due Date ≥ As Of</div>
+              <div class="kpi">
+                <div class="kpi-label">Not Yet Due</div>
+                <div class="kpi-value mono" id="sNotYet">—</div>
+                <div class="kpi-sub">Due date at/after as-of</div>
               </div>
-              <div class="rounded-2xl border hairline p-4 bg-white">
-                <div class="text-xs uppercase tracking-wider text-slate-500">Credits</div>
-                <div class="text-2xl font-semibold mono mt-1" id="sCredits">—</div>
-                <div class="text-xs text-slate-500 mt-1">Negative open items</div>
+              <div class="kpi">
+                <div class="kpi-label">Credits</div>
+                <div class="kpi-value mono" id="sCredits">—</div>
+                <div class="kpi-sub">Negative open items</div>
               </div>
-              <div class="rounded-2xl border hairline p-4 bg-slate-50">
-                <div class="text-xs uppercase tracking-wider text-slate-500">Outstanding</div>
-                <div class="text-3xl font-semibold mono mt-1" id="sOutstanding">—</div>
-                <div class="text-xs text-slate-500 mt-1" id="sExplain">—</div>
+              <div class="kpi">
+                <div class="kpi-label">Outstanding</div>
+                <div class="kpi-value mono" id="sOutstanding">—</div>
+                <div class="kpi-sub" id="sExplain">—</div>
               </div>
             </div>
 
-            <!-- Aging breakdown -->
-            <div class="mt-4 rounded-2xl border hairline overflow-hidden">
-              <div class="px-4 py-3 bg-white border-b hairline flex items-center justify-between">
-                <div>
-                  <div class="text-xs uppercase tracking-wider text-slate-500">Aging (Overdue)</div>
-                  <div class="text-sm font-semibold">0–30 / 31–60 / 61–90 / 91–120 / 120+</div>
-                </div>
-                <div class="text-xs text-slate-500">Includes credits in the bucket they fall into</div>
-              </div>
-              <div class="grid grid-cols-2 md:grid-cols-5 gap-0">
-                <div class="p-4 border-t hairline">
-                  <div class="text-[11px] uppercase tracking-wider text-slate-500">0–30</div>
-                  <div class="text-lg font-semibold mono mt-1" id="sa0_30">—</div>
-                </div>
-                <div class="p-4 border-t hairline md:border-l hairline">
-                  <div class="text-[11px] uppercase tracking-wider text-slate-500">31–60</div>
-                  <div class="text-lg font-semibold mono mt-1" id="sa31_60">—</div>
-                </div>
-                <div class="p-4 border-t hairline md:border-l hairline">
-                  <div class="text-[11px] uppercase tracking-wider text-slate-500">61–90</div>
-                  <div class="text-lg font-semibold mono mt-1" id="sa61_90">—</div>
-                </div>
-                <div class="p-4 border-t hairline md:border-l hairline">
-                  <div class="text-[11px] uppercase tracking-wider text-slate-500">91–120</div>
-                  <div class="text-lg font-semibold mono mt-1" id="sa91_120">—</div>
-                </div>
-                <div class="p-4 border-t hairline md:border-l hairline">
-                  <div class="text-[11px] uppercase tracking-wider text-slate-500">120+</div>
-                  <div class="text-lg font-semibold mono mt-1" id="sa120p">—</div>
-                </div>
-              </div>
+            <div class="mt-4 grid grid-cols-2 md:grid-cols-5 gap-3">
+              <div class="mini-stat"><div class="label">0–30</div><div id="sa0_30" class="value mono">—</div></div>
+              <div class="mini-stat"><div class="label">31–60</div><div id="sa31_60" class="value mono">—</div></div>
+              <div class="mini-stat"><div class="label">61–90</div><div id="sa61_90" class="value mono">—</div></div>
+              <div class="mini-stat"><div class="label">91–120</div><div id="sa91_120" class="value mono">—</div></div>
+              <div class="mini-stat"><div class="label">120+</div><div id="sa120p" class="value mono">—</div></div>
             </div>
           </div>
 
-          <!-- Statement table -->
           <div class="p-6">
-            <div class="overflow-auto scrollbar border hairline rounded-xl">
-              <table class="w-full text-sm">
-                <thead class="bg-white border-b hairline">
-                  <tr class="text-xs uppercase tracking-wider text-slate-500">
-                    <th class="text-left px-4 py-2">Invoice</th>
-                    <th class="text-left px-4 py-2">Invoice Date</th>
-                    <th class="text-left px-4 py-2">Due Date</th>
-                    <th class="text-left px-4 py-2">Type</th>
-                    <th class="text-right px-4 py-2">Total</th>
-                    <th class="text-right px-4 py-2">Paid</th>
-                    <th class="text-right px-4 py-2">Due</th>
-                    <th class="text-right px-4 py-2 no-print">PDF</th>
+            <div class="table-wrap scrollbar">
+              <table class="w-full">
+                <thead>
+                  <tr>
+                    <th>Invoice</th>
+                    <th>Invoice Date</th>
+                    <th>Due Date</th>
+                    <th>Type</th>
+                    <th class="text-right">Total</th>
+                    <th class="text-right">Paid</th>
+                    <th class="text-right">Due</th>
+                    <th class="text-right no-print">PDF</th>
                   </tr>
                 </thead>
-                <tbody id="stmtTbody" class="divide-y hairline">
-                  <tr><td class="px-4 py-6 text-slate-500" colspan="8">Select a customer on the left.</td></tr>
+                <tbody id="stmtTbody">
+                  <tr><td class="text-slate-500" colspan="8">Select a customer on the left.</td></tr>
                 </tbody>
               </table>
             </div>
             <div class="text-xs text-slate-500 mt-3">
-              PDF uses the exact link from Google Sheets column “PDF Download Link” (no URL generation).
+              PDF uses the exact sheet value from “PDF Download Link”.
             </div>
           </div>
         </div>
 
-        <!-- PDF Viewer card -->
-        <div class="bg-white border hairline rounded-2xl soft2 overflow-hidden">
-          <div class="px-6 py-4 border-b hairline flex items-center justify-between">
+        <div class="card overflow-hidden">
+          <div class="px-6 py-4 border-b hairline flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
             <div>
               <div class="text-xs uppercase tracking-wider text-slate-500">Invoice PDF</div>
               <div class="text-lg font-semibold" id="pdfTitle">Select an invoice row</div>
               <div class="text-xs text-slate-500 mt-1" id="pdfSub">Viewer uses the sheet-provided link.</div>
             </div>
             <div class="no-print flex items-center gap-2">
-              <button id="pdfOpenBtn" class="px-3 py-2 text-sm rounded-lg btn" disabled>Open in New Tab</button>
-              <button id="pdfDownloadBtn" class="px-3 py-2 text-sm rounded-lg btn" disabled>Download</button>
-              <button id="pdfClearBtn" class="px-3 py-2 text-sm rounded-lg btn" disabled>Clear</button>
+              <button id="pdfOpenBtn" class="btn" disabled>Open in New Tab</button>
+              <button id="pdfDownloadBtn" class="btn" disabled>Download</button>
+              <button id="pdfClearBtn" class="btn" disabled>Clear</button>
             </div>
           </div>
           <div class="bg-slate-50">
-            <iframe id="pdfFrame" title="Invoice PDF" class="w-full h-[680px] bg-white" src="about:blank"></iframe>
+            <iframe id="pdfFrame" title="Invoice PDF" class="w-full h-[700px] bg-white" src="about:blank"></iframe>
           </div>
         </div>
-
       </div>
     </div>
   </div>
 
-  <!-- Print-only isolated statement area -->
-  <div id="statementPrintArea" class="hidden">
-    <!-- We clone the statementCard into here on print -->
-  </div>
+  <div id="statementPrintArea" class="hidden"></div>
 
-  <!-- Line item modal (operator validation) -->
   <dialog id="invModal" class="rounded-2xl w-[min(1100px,calc(100vw-24px))] border hairline p-0 overflow-hidden">
     <div class="px-5 py-4 border-b hairline bg-white flex items-start justify-between gap-4">
       <div>
@@ -442,25 +618,25 @@
         <div class="text-xs text-slate-500 mt-1" id="modalInvMeta">—</div>
       </div>
       <div class="flex items-center gap-2">
-        <button id="modalOpenPdf" class="px-3 py-2 text-sm rounded-lg btn">Open PDF</button>
-        <button id="modalClose" class="px-3 py-2 text-sm rounded-lg btn">Close</button>
+        <button id="modalOpenPdf" class="btn">Open PDF</button>
+        <button id="modalClose" class="btn">Close</button>
       </div>
     </div>
 
     <div class="p-5 bg-white grid grid-cols-1 lg:grid-cols-12 gap-4">
       <div class="lg:col-span-8">
         <div class="text-xs uppercase tracking-wider text-slate-500 mb-2">Line Items</div>
-        <div class="border hairline rounded-xl overflow-auto scrollbar max-h-[340px]">
-          <table class="w-full text-sm">
-            <thead class="bg-white border-b hairline">
-              <tr class="text-xs uppercase tracking-wider text-slate-500">
-                <th class="text-left px-4 py-2">Item</th>
-                <th class="text-right px-4 py-2">Unit</th>
-                <th class="text-right px-4 py-2">Qty</th>
-                <th class="text-right px-4 py-2">Line Total</th>
+        <div class="table-wrap scrollbar max-h-[340px]">
+          <table class="w-full">
+            <thead>
+              <tr>
+                <th>Item</th>
+                <th class="text-right">Unit</th>
+                <th class="text-right">Qty</th>
+                <th class="text-right">Line Total</th>
               </tr>
             </thead>
-            <tbody id="modalItems" class="divide-y hairline"></tbody>
+            <tbody id="modalItems"></tbody>
           </table>
         </div>
       </div>
@@ -481,27 +657,18 @@
   </dialog>
 
   <script>
-    // =======================
-    // CONFIG
-    // =======================
     const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQL0P8YC860uTuZDDH7hNVq_jskY2tnH9OPeMu3kJSJ-UMCFbQqHKCTcqaevkqDd2ZbA-XnQ7pp-CsK/pub?gid=0&single=true&output=csv";
 
-    // =======================
-    // STATE
-    // =======================
     let rawRows = [];
     let invoices = [];
     let selectedCustomer = null;
-    let customerSort = "overdue"; // overdue | outstanding | name
+    let customerSort = "overdue";
     let lastSelectedPdfUrl = null;
 
     const $ = (id) => document.getElementById(id);
     const fmtUSD = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
     const fmtNum = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
 
-    // =======================
-    // Helpers
-    // =======================
     function safeNum(v){
       if (v === null || v === undefined) return 0;
       const s = String(v).replace(/[$,]/g, "").trim();
@@ -567,17 +734,13 @@
     }
     function typeBadge(inv){
       const t = displayType(inv);
-      const base = "inline-flex items-center px-2 py-0.5 rounded-md text-xs border hairline mono";
-      if(t === "CREDIT") return `<span class="${base} bg-white text-slate-900">CREDIT</span>`;
-      if(t === "DRAFT") return `<span class="${base} bg-slate-50 text-slate-700">DRAFT</span>`;
-      if(t === "PAID") return `<span class="${base} bg-slate-900 text-white border-slate-900">PAID</span>`;
-      if(t === "VOID") return `<span class="${base} bg-white text-slate-500">VOID</span>`;
-      return `<span class="${base} bg-white text-slate-700">INVOICE</span>`;
+      if(t === "CREDIT") return `<span class="badge badge-credit">CREDIT</span>`;
+      if(t === "DRAFT") return `<span class="badge badge-draft">DRAFT</span>`;
+      if(t === "PAID") return `<span class="badge badge-paid">PAID</span>`;
+      if(t === "VOID") return `<span class="badge badge-void">VOID</span>`;
+      return `<span class="badge badge-invoice">INVOICE</span>`;
     }
 
-    // =======================
-    // Filtering
-    // =======================
     function getFilters(){
       return {
         customer: $("qCustomer").value.trim().toLowerCase(),
@@ -620,9 +783,6 @@
       return true;
     }
 
-    // =======================
-    // Wave math + aging
-    // =======================
     function computeWaveBuckets(invList){
       const asOf = getAsOf();
       let overdue = 0, notYet = 0, credits = 0, outstanding = 0;
@@ -666,13 +826,10 @@
       return b;
     }
 
-    // =======================
-    // Load/build from CSV
-    // =======================
     async function loadCSV(){
       const url = CSV_URL + (CSV_URL.includes("?") ? "&" : "?") + "t=" + Date.now();
-      $("customersTbody").innerHTML = `<tr><td class="px-5 py-4 text-slate-500" colspan="4">Loading…</td></tr>`;
-      $("stmtTbody").innerHTML = `<tr><td class="px-4 py-6 text-slate-500" colspan="8">Select a customer on the left.</td></tr>`;
+      $("customersTbody").innerHTML = `<tr><td class="text-slate-500" colspan="4">Loading…</td></tr>`;
+      $("stmtTbody").innerHTML = `<tr><td class="text-slate-500" colspan="8">Select a customer on the left.</td></tr>`;
       selectedCustomer = null;
       disableStatementActions(true);
       clearPdfViewer();
@@ -710,7 +867,7 @@
             due: safeNum(r["Invoice Due"]),
             status: normalizeStatus(r["Status"]),
             memo: String(r["Memo"] || "").replace(/^"|"$/g, ""),
-            pdfLink: String(r["PDF Download Link"] || "").trim(), // Column P / named header
+            pdfLink: String(r["PDF Download Link"] || "").trim(),
             customerLink: String(r["Readonly (Customer) Link"] || "").trim(),
             items: []
           });
@@ -738,9 +895,6 @@
       invoices = Array.from(byInv.values());
     }
 
-    // =======================
-    // Render
-    // =======================
     function applyFiltersAndRender(){
       const f = getFilters();
       const filtered = invoices.filter(inv => invoicePasses(inv, f));
@@ -760,7 +914,6 @@
     }
 
     function renderExecutive(invList){
-      // group by customer
       const byCust = new Map();
       for(const inv of invList){
         const cust = inv.customerName || "(Unspecified)";
@@ -783,16 +936,17 @@
       $("gOverdue").textContent = fmtUSD.format(totOverdue);
       $("gNotYet").textContent = fmtUSD.format(totNotYet);
       $("gCredits").textContent = fmtUSD.format(totCredits);
-      $("gMeta1").textContent = `${byCust.size} customers • ${invList.length} invoices (filtered)`;
-
+      $("gMeta1").textContent = `${byCust.size} customers • ${invList.length} invoices`;
       $("gAge0_30").textContent = fmtUSD.format(aging.a0_30);
       $("gAge31_60").textContent = fmtUSD.format(aging.a31_60);
+      $("gAge90p").textContent = fmtUSD.format(aging.a90p);
+
+      $("gAge0_30_b").textContent = fmtUSD.format(aging.a0_30);
+      $("gAge31_60_b").textContent = fmtUSD.format(aging.a31_60);
       $("gAge61_90").textContent = fmtUSD.format(aging.a61_90);
       $("gAge91_120").textContent = fmtUSD.format(aging.a91_120);
       $("gAge120p").textContent = fmtUSD.format(aging.a120p);
-      $("gAge90p").textContent = fmtUSD.format(aging.a90p);
 
-      // exec top overdue customers
       const top = Array.from(byCust.entries()).map(([name, list])=>{
         const b = computeWaveBuckets(list);
         return { name, overdue: b.overdue, outstanding: b.outstanding };
@@ -800,8 +954,8 @@
 
       $("execTopOverdue").innerHTML = top.length ? top.map(x => `
         <button class="w-full text-left p-3 rounded-xl border hairline hover:bg-slate-50" data-exec-cust="${escapeAttr(x.name)}">
-          <div class="flex items-center justify-between">
-            <div class="font-medium">${escapeHtml(x.name)}</div>
+          <div class="flex items-center justify-between gap-3">
+            <div class="font-medium truncate">${escapeHtml(x.name)}</div>
             <div class="mono font-semibold">${fmtUSD.format(x.overdue)}</div>
           </div>
           <div class="text-xs text-slate-500 mt-1">Outstanding: <span class="mono">${fmtUSD.format(x.outstanding)}</span></div>
@@ -814,7 +968,6 @@
           selectedCustomer = name;
           location.hash = `#/customer/${encodeURIComponent(slugify(name))}`;
           applyFiltersAndRender();
-          // ensure statement visible to user
           window.scrollTo({ top: 0, behavior: "smooth" });
         });
       });
@@ -845,18 +998,20 @@
       $("customersMeta").textContent = `${rows.length} customers • ${invList.length} invoices (filtered)`;
 
       if(!rows.length){
-        $("customersTbody").innerHTML = `<tr><td class="px-5 py-4 text-slate-500" colspan="4">No customers match filters.</td></tr>`;
+        $("customersTbody").innerHTML = `<tr><td class="text-slate-500" colspan="4">No customers match filters.</td></tr>`;
         return;
       }
 
       $("customersTbody").innerHTML = rows.map(r => {
         const isActive = selectedCustomer && selectedCustomer === r.name;
         return `
-          <tr class="cursor-pointer ${isActive ? "bg-slate-50" : "hover:bg-slate-50"}" data-customer="${encodeURIComponent(r.name)}">
-            <td class="px-5 py-3 font-medium">${escapeHtml(r.name)}</td>
-            <td class="px-5 py-3 text-right mono">${fmtUSD.format(r.overdue)}</td>
-            <td class="px-5 py-3 text-right mono font-semibold">${fmtUSD.format(r.outstanding)}</td>
-            <td class="px-5 py-3 text-right mono">${fmtUSD.format(r.ninetyPlus)}</td>
+          <tr class="customer-row cursor-pointer ${isActive ? "active" : ""}" data-customer="${encodeURIComponent(r.name)}">
+            <td>
+              <div class="font-semibold">${escapeHtml(r.name)}</div>
+            </td>
+            <td class="text-right mono">${fmtUSD.format(r.overdue)}</td>
+            <td class="text-right mono font-semibold">${fmtUSD.format(r.outstanding)}</td>
+            <td class="text-right mono">${fmtUSD.format(r.ninetyPlus)}</td>
           </tr>
         `;
       }).join("");
@@ -912,7 +1067,6 @@
       $("sa91_120").textContent = fmtUSD.format(aging.a91_120);
       $("sa120p").textContent = fmtUSD.format(aging.a120p);
 
-      // Table sort: show overdue first, then by due date ascending (better operator flow)
       const sorted = [...custInvoices].sort((a,b)=>{
         const ad = getEffectiveDueDate(a) || new Date(0);
         const bd = getEffectiveDueDate(b) || new Date(0);
@@ -923,7 +1077,7 @@
       });
 
       if(!sorted.length){
-        $("stmtTbody").innerHTML = `<tr><td class="px-4 py-6 text-slate-500" colspan="8">No items for this customer in current view.</td></tr>`;
+        $("stmtTbody").innerHTML = `<tr><td class="text-slate-500" colspan="8">No items for this customer in current view.</td></tr>`;
         return;
       }
 
@@ -936,32 +1090,35 @@
 
         const isCred = due < 0;
         const dueDt = getEffectiveDueDate(inv);
-        const overdueFlag = (isOpenItem(inv) && dueDt && dueDt < asOf) ? `<span class="ml-2 text-[11px] uppercase tracking-wider text-red-700">Overdue</span>` : "";
+        const overdueFlag = (isOpenItem(inv) && dueDt && dueDt < asOf)
+          ? `<span class="ml-2 text-[11px] uppercase tracking-wider text-red-700">Overdue</span>`
+          : "";
 
         const totalCell = total < 0 ? `(${fmtUSD.format(Math.abs(total))})` : fmtUSD.format(total);
         const dueCell = isCred ? `(${fmtUSD.format(Math.abs(due))})` : fmtUSD.format(due);
 
         const pdf = (inv.pdfLink || "").trim();
-        const pdfLink = pdf ? `<a class="underline underline-offset-4 hover:text-slate-900" href="${escapeAttr(pdf)}" target="_blank" rel="noopener">PDF</a>` : `<span class="text-slate-400">—</span>`;
+        const pdfLink = pdf
+          ? `<a class="underline underline-offset-4 hover:text-slate-900" href="${escapeAttr(pdf)}" target="_blank" rel="noopener">PDF</a>`
+          : `<span class="text-slate-400">—</span>`;
 
         return `
-          <tr class="hover:bg-slate-50 cursor-pointer" data-inv="${escapeAttr(inv.invoiceNumber)}">
-            <td class="px-4 py-3">
+          <tr class="cursor-pointer" data-inv="${escapeAttr(inv.invoiceNumber)}">
+            <td>
               <div class="font-medium mono">${isCred ? `Credit ${escapeHtml(inv.invoiceNumber)}` : `Invoice ${escapeHtml(inv.invoiceNumber)}`}${overdueFlag}</div>
               <div class="text-xs text-slate-500">${escapeHtml(inv.poNumber || "")}</div>
             </td>
-            <td class="px-4 py-3 mono">${escapeHtml(invDate)}</td>
-            <td class="px-4 py-3 mono">${escapeHtml(dueDate)}</td>
-            <td class="px-4 py-3">${typeBadge(inv)}</td>
-            <td class="px-4 py-3 text-right mono">${escapeHtml(totalCell)}</td>
-            <td class="px-4 py-3 text-right mono">${fmtUSD.format(paid)}</td>
-            <td class="px-4 py-3 text-right mono font-semibold">${escapeHtml(dueCell)}</td>
-            <td class="px-4 py-3 text-right no-print">${pdfLink}</td>
+            <td class="mono">${escapeHtml(invDate)}</td>
+            <td class="mono">${escapeHtml(dueDate)}</td>
+            <td>${typeBadge(inv)}</td>
+            <td class="text-right mono">${escapeHtml(totalCell)}</td>
+            <td class="text-right mono">${fmtUSD.format(paid)}</td>
+            <td class="text-right mono font-semibold">${escapeHtml(dueCell)}</td>
+            <td class="text-right no-print">${pdfLink}</td>
           </tr>
         `;
       }).join("");
 
-      // bind row click -> open modal + set PDF viewer
       document.querySelectorAll("#stmtTbody tr[data-inv]").forEach(tr=>{
         tr.addEventListener("click", ()=>{
           const invNo = tr.getAttribute("data-inv");
@@ -986,8 +1143,7 @@
       }
 
       $("pdfTitle").textContent = `Invoice PDF • #${inv.invoiceNumber}`;
-      $("pdfSub").textContent = "Embedded viewer (uses sheet link). If your PDF host blocks embedding, use Open/Download.";
-
+      $("pdfSub").textContent = "Embedded viewer uses the sheet link. If embedding is blocked, use Open/Download.";
       $("pdfFrame").src = url;
       $("pdfOpenBtn").disabled = false;
       $("pdfDownloadBtn").disabled = false;
@@ -1015,15 +1171,15 @@
 
       $("modalItems").innerHTML = (inv.items || []).map(it => `
         <tr>
-          <td class="px-4 py-2">
+          <td>
             <div class="font-medium">${escapeHtml(it.itemName || "—")}</div>
             ${it.description ? `<div class="text-xs text-slate-500">${escapeHtml(it.description)}</div>` : ``}
           </td>
-          <td class="px-4 py-2 text-right mono">${fmtNum.format(safeNum(it.unitPrice))}</td>
-          <td class="px-4 py-2 text-right mono">${fmtNum.format(safeNum(it.quantity))}</td>
-          <td class="px-4 py-2 text-right mono font-semibold">${fmtUSD.format(safeNum(it.itemTotal || it.itemTotalWithTaxes || 0))}</td>
+          <td class="text-right mono">${fmtNum.format(safeNum(it.unitPrice))}</td>
+          <td class="text-right mono">${fmtNum.format(safeNum(it.quantity))}</td>
+          <td class="text-right mono font-semibold">${fmtUSD.format(safeNum(it.itemTotal || it.itemTotalWithTaxes || 0))}</td>
         </tr>
-      `).join("") || `<tr><td class="px-4 py-4 text-slate-500" colspan="4">No line items.</td></tr>`;
+      `).join("") || `<tr><td class="text-slate-500" colspan="4">No line items.</td></tr>`;
 
       $("modalOpenPdf").onclick = ()=> {
         const url = (inv.pdfLink || "").trim();
@@ -1035,15 +1191,10 @@
       else alert("Your browser doesn't support dialogs.");
     }
 
-    // =======================
-    // Operator signals
-    // =======================
     function computeOperatorSignals(){
       const missingDue = invoices.filter(inv => isOpenItem(inv) && !getEffectiveDueDate(inv)).length;
       const zeroDue = invoices.filter(inv => !isVoid(inv) && Math.abs(safeNum(inv.due)) <= 0.00001).length;
 
-      // Potential duplicates: same invoice # with multiple rows is expected, but conflicting due totals are not.
-      // We approximate conflict by looking at raw rows per invoice # and checking the distinct Invoice Due values.
       const byInv = new Map();
       for(const r of rawRows){
         const invNo = String(r["Invoice Number"] || "").trim();
@@ -1054,7 +1205,7 @@
       }
       let dupeConflicts = 0;
       for(const [, set] of byInv.entries()){
-        if(set.size > 2) dupeConflicts += 1; // lenient threshold
+        if(set.size > 2) dupeConflicts += 1;
       }
 
       $("opsMissingDue").textContent = `${missingDue} open items missing Due Date`;
@@ -1062,47 +1213,27 @@
       $("opsDupes").textContent = `${dupeConflicts} invoices with conflicting Due values`;
     }
 
-    // =======================
-    // Statement print (vendor-only)
-    // =======================
     function printStatementOnly(){
       if(!selectedCustomer) return;
-
-      // Clone only statementCard into print area
       const area = $("statementPrintArea");
       area.innerHTML = "";
       const clone = $("statementCard").cloneNode(true);
 
-      // Remove viewer-only buttons and keep a clean statement header
-      // Also remove PDF viewer and other UI not needed.
-      // Hide iframe, keep links in table.
-      const toRemoveSelectors = [
-        "#pdfFrame", "#pdfOpenBtn", "#pdfDownloadBtn", "#pdfClearBtn"
-      ];
-      toRemoveSelectors.forEach(sel=>{
+      ["#pdfFrame", "#pdfOpenBtn", "#pdfDownloadBtn", "#pdfClearBtn"].forEach(sel=>{
         const el = clone.querySelector(sel);
         if(el) el.remove();
       });
 
-      // Ensure summary is visible
       const sum = clone.querySelector("#stmtSummary");
       if(sum) sum.classList.remove("hidden");
 
-      // Remove no-print controls in cloned area (they won't print anyway, but keep clean)
       clone.querySelectorAll(".no-print").forEach(n => n.remove());
 
       area.appendChild(clone);
-
-      // Print
       window.print();
-
-      // Cleanup after
       setTimeout(()=>{ area.innerHTML = ""; }, 200);
     }
 
-    // =======================
-    // Exports (operator-grade)
-    // =======================
     function downloadCSV(filename, rows){
       const csv = rows.map(r => r.map(v => `"${String(v ?? "").replace(/"/g,'""')}"`).join(",")).join("\n");
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
@@ -1164,15 +1295,12 @@
     function exportLineItemsCSV(){
       const asOf = getAsOf();
       const rows = [["Customer Name","Invoice Number","Invoice Date","Due Date","Status","Type","Invoice Due","Item Name","Unit Price","Quantity","Description","Item Total","Item Total w/ Taxes","PDF Download Link"]];
-      // one row per item line (operator validation)
       for(const inv of invoices){
         for(const it of (inv.items || [])){
           rows.push([
             inv.customerName, inv.invoiceNumber, inv.invoiceDate, inv.dueDate, normalizeStatus(inv.status), displayType(inv),
-            safeNum(inv.due),
-            it.itemName, safeNum(it.unitPrice), safeNum(it.quantity), it.description,
-            safeNum(it.itemTotal), safeNum(it.itemTotalWithTaxes),
-            inv.pdfLink
+            safeNum(inv.due), it.itemName, safeNum(it.unitPrice), safeNum(it.quantity), it.description,
+            safeNum(it.itemTotal), safeNum(it.itemTotalWithTaxes), inv.pdfLink
           ]);
         }
       }
@@ -1227,9 +1355,6 @@
       downloadCSV(`WPV_Statement_${slugify(selectedCustomer)}_${asOf.toISOString().slice(0,10)}.csv`, rows);
     }
 
-    // =======================
-    // Customer deep link
-    // =======================
     async function copyDeepLink(){
       if(!selectedCustomer) return;
       const s = slugify(selectedCustomer);
@@ -1259,9 +1384,6 @@
       }
     }
 
-    // =======================
-    // Open PDFs (exact sheet links)
-    // =======================
     function openAllPdfsForCustomer(){
       if(!selectedCustomer) return;
       const mode = $("stmtMode").value || "open";
@@ -1271,14 +1393,10 @@
       const links = Array.from(new Set(cust.map(x => (x.pdfLink || "").trim()).filter(Boolean)));
       if(!links.length){ alert("No PDF links found for this customer."); return; }
 
-      // Pop-up limits: open 10 max
       links.slice(0, 10).forEach(url => window.open(url, "_blank", "noopener"));
-      if(links.length > 10) alert(`Opened first 10 PDFs. ${links.length-10} more links exist (popup limits).`);
+      if(links.length > 10) alert(`Opened first 10 PDFs. ${links.length-10} more links exist.`);
     }
 
-    // =======================
-    // UI
-    // =======================
     function clearFilters(){
       $("qCustomer").value = "";
       $("qView").value = "";
@@ -1288,18 +1406,32 @@
     }
 
     function setTab(tab){
+      const execBtn = $("execTabBtn");
+      const opsBtn = $("opsTabBtn");
+
       if(tab === "exec"){
         $("execPanel").classList.remove("hidden");
         $("opsPanel").classList.add("hidden");
+        execBtn.classList.add("active");
+        opsBtn.classList.remove("active");
       } else {
         $("execPanel").classList.add("hidden");
         $("opsPanel").classList.remove("hidden");
+        execBtn.classList.remove("active");
+        opsBtn.classList.add("active");
       }
     }
 
-    // =======================
-    // Init
-    // =======================
+    function runExport(type){
+      switch(type){
+        case "openItems": exportOpenItemsCSV(); break;
+        case "overdue": exportOverdueCSV(); break;
+        case "lineItems": exportLineItemsCSV(); break;
+        case "agingByCustomer": exportAgingByCustomerCSV(); break;
+        case "credits": exportCreditsCSV(); break;
+      }
+    }
+
     (function initAsOf(){
       const d = new Date();
       const yyyy = d.getFullYear();
@@ -1308,9 +1440,6 @@
       $("asOfDate").value = `${yyyy}-${mm}-${dd}`;
     })();
 
-    // =======================
-    // Events
-    // =======================
     window.addEventListener("hashchange", routeFromHash);
 
     $("refreshBtn").addEventListener("click", loadCSV);
@@ -1322,7 +1451,7 @@
       $("stmtAsOf").textContent = "—";
       $("stmtCurrency").textContent = "—";
       $("stmtSummary").classList.add("hidden");
-      $("stmtTbody").innerHTML = `<tr><td class="px-4 py-6 text-slate-500" colspan="8">Select a customer on the left.</td></tr>`;
+      $("stmtTbody").innerHTML = `<tr><td class="text-slate-500" colspan="8">Select a customer on the left.</td></tr>`;
       disableStatementActions(true);
       clearPdfViewer();
       applyFiltersAndRender();
@@ -1349,7 +1478,6 @@
     $("exportCustomerBtn").addEventListener("click", exportCustomerCSV);
     $("copyLinkBtn").addEventListener("click", copyDeepLink);
 
-    // PDF viewer buttons
     $("pdfOpenBtn").addEventListener("click", ()=>{
       if(lastSelectedPdfUrl) window.open(lastSelectedPdfUrl, "_blank", "noopener");
     });
@@ -1364,14 +1492,12 @@
     });
     $("pdfClearBtn").addEventListener("click", clearPdfViewer);
 
-    // Operator exports
     $("exportOpenItemsBtn").addEventListener("click", exportOpenItemsCSV);
     $("exportOverdueBtn").addEventListener("click", exportOverdueCSV);
     $("exportLineItemsBtn").addEventListener("click", exportLineItemsCSV);
     $("exportAgingByCustomerBtn").addEventListener("click", exportAgingByCustomerCSV);
     $("exportCreditsBtn").addEventListener("click", exportCreditsCSV);
 
-    // modal
     $("modalClose").addEventListener("click", ()=> $("invModal").close());
     $("invModal").addEventListener("click", (e)=>{
       const r = $("invModal").getBoundingClientRect();
@@ -1379,7 +1505,6 @@
       if(!inDialog) $("invModal").close();
     });
 
-    // keyboard
     window.addEventListener("keydown", (e)=>{
       if(e.key === "/"){
         e.preventDefault();
@@ -1392,13 +1517,27 @@
       }
     });
 
-    // Start in exec tab
+    $("exportMenuBtn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      $("exportPanel").classList.toggle("open");
+    });
+    document.querySelectorAll("[data-export]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        runExport(btn.getAttribute("data-export"));
+        $("exportPanel").classList.remove("open");
+      });
+    });
+    document.addEventListener("click", (e) => {
+      if (!$("exportPanel").contains(e.target) && e.target !== $("exportMenuBtn")) {
+        $("exportPanel").classList.remove("open");
+      }
+    });
+
     setTab("exec");
 
-    // Load
     loadCSV().catch(err=>{
       console.error(err);
-      $("customersTbody").innerHTML = `<tr><td class="px-5 py-4 text-red-700" colspan="4">Failed to load CSV. Check publish permissions.</td></tr>`;
+      $("customersTbody").innerHTML = `<tr><td class="text-red-700" colspan="4">Failed to load CSV. Check publish permissions.</td></tr>`;
     });
   </script>
 </body>
