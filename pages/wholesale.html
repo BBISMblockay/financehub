@@ -4,103 +4,158 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Statement Aging</title>
+
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
   <style>
     :root { color-scheme: light; }
     html, body { height: 100%; }
     body {
       font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f5f7fb;
+      background:
+        radial-gradient(circle at top left, rgba(255,255,255,.92), rgba(245,247,251,.86) 38%, rgba(241,245,249,.96) 100%);
       color: #0f172a;
     }
     .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
-    .shell { max-width: 1500px; margin: 0 auto; padding: 22px; }
+    .shell { max-width: 1540px; margin: 0 auto; padding: 22px; }
+
     .card {
-      background: #fff;
-      border: 1px solid #e5e7eb;
-      border-radius: 22px;
-      box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 10px 24px rgba(15,23,42,.04);
+      background: rgba(255,255,255,.90);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(226,232,240,.95);
+      border-radius: 24px;
+      box-shadow:
+        0 1px 2px rgba(15,23,42,.04),
+        0 10px 30px rgba(15,23,42,.05);
     }
+
+    .hero {
+      background:
+        linear-gradient(135deg, rgba(15,23,42,.98), rgba(30,41,59,.97) 55%, rgba(51,65,85,.96));
+      color: #fff;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 28px;
+      box-shadow:
+        0 18px 50px rgba(15,23,42,.18),
+        inset 0 1px 0 rgba(255,255,255,.08);
+    }
+
+    .hero-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.06);
+      color: rgba(255,255,255,.86);
+      border-radius: 999px;
+      padding: .45rem .75rem;
+      font-size: .74rem;
+      font-weight: 700;
+      letter-spacing: .02em;
+    }
+
     .input, .select {
       width: 100%;
-      border-radius: 14px;
-      border: 1px solid #d7dee8;
+      border-radius: 16px;
+      border: 1px solid #dbe2ea;
       background: #fff;
-      padding: .76rem .92rem;
+      padding: .82rem .95rem;
       font-size: .92rem;
       outline: none;
       transition: .18s ease;
+      color: #0f172a;
     }
     .input:focus, .select:focus {
       border-color: #0f172a;
-      box-shadow: 0 0 0 3px rgba(15,23,42,.08);
+      box-shadow: 0 0 0 4px rgba(15,23,42,.08);
     }
+
     .btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      border-radius: 14px;
-      padding: .78rem 1rem;
-      font-weight: 700;
+      gap: .5rem;
+      border-radius: 16px;
+      padding: .82rem 1rem;
+      font-weight: 800;
       font-size: .92rem;
       transition: .18s ease;
-      border: 1px solid #d7dee8;
+      border: 1px solid #dbe2ea;
       background: #fff;
       color: #0f172a;
+      white-space: nowrap;
     }
     .btn:hover { transform: translateY(-1px); }
-    .btn-primary { background: #0f172a; color: #fff; border-color: #0f172a; }
+    .btn-primary {
+      background: #0f172a;
+      color: #fff;
+      border-color: #0f172a;
+      box-shadow: 0 10px 22px rgba(15,23,42,.15);
+    }
+    .btn-soft { background: #f8fafc; color: #0f172a; }
+
     .segmented {
       display: inline-flex;
       gap: 4px;
       padding: 4px;
       border-radius: 999px;
-      border: 1px solid #e2e8f0;
-      background: #f8fafc;
+      border: 1px solid rgba(255,255,255,.10);
+      background: rgba(255,255,255,.08);
     }
     .segmented button {
       border: 0;
       background: transparent;
-      color: #475569;
+      color: rgba(255,255,255,.72);
       border-radius: 999px;
-      padding: .45rem .85rem;
+      padding: .48rem .9rem;
       font-size: .8rem;
-      font-weight: 700;
+      font-weight: 800;
       cursor: pointer;
     }
-    .segmented button.active { background: #0f172a; color: #fff; }
+    .segmented button.active {
+      background: #fff;
+      color: #0f172a;
+    }
+
     .kpi {
       border: 1px solid #e5e7eb;
-      border-radius: 18px;
-      padding: 14px 16px;
-      background: linear-gradient(180deg, #fff 0%, #fbfdff 100%);
-      min-height: 98px;
+      border-radius: 20px;
+      padding: 16px 16px 14px;
+      background: linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(248,250,252,1) 100%);
+      min-height: 104px;
     }
     .kpi-label {
-      font-size: .69rem;
+      font-size: .68rem;
       text-transform: uppercase;
-      letter-spacing: .06em;
+      letter-spacing: .08em;
       color: #64748b;
       font-weight: 800;
     }
     .kpi-value {
-      margin-top: 8px;
+      margin-top: 9px;
       font-size: 1.55rem;
-      line-height: 1.05;
+      line-height: 1.02;
       font-weight: 800;
       color: #0f172a;
     }
-    .kpi-sub { margin-top: 6px; font-size: .75rem; color: #64748b; }
+    .kpi-sub {
+      margin-top: 6px;
+      font-size: .75rem;
+      color: #64748b;
+    }
+
     .section-title { font-size: 1rem; font-weight: 800; color: #0f172a; }
     .section-sub { margin-top: 2px; font-size: .82rem; color: #64748b; }
+
     .mini-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
     .mini-card {
       border: 1px solid #e5e7eb;
-      border-radius: 16px;
+      border-radius: 18px;
       padding: 12px;
       background: #fff;
     }
@@ -117,15 +172,17 @@
       font-weight: 800;
       color: #0f172a;
     }
+
     .list-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      padding: 10px 0;
+      padding: 11px 0;
       border-bottom: 1px solid #eef2f7;
     }
     .list-row:last-child { border-bottom: 0; }
+
     .bar-track {
       height: 8px;
       border-radius: 999px;
@@ -137,12 +194,13 @@
       display: block;
       height: 100%;
       border-radius: 999px;
-      background: #0f172a;
+      background: linear-gradient(90deg, #0f172a, #334155);
     }
+
     .table-wrap {
       overflow: auto;
       border: 1px solid #e5e7eb;
-      border-radius: 18px;
+      border-radius: 20px;
       background: #fff;
     }
     table { width: 100%; border-collapse: separate; border-spacing: 0; }
@@ -171,6 +229,7 @@
     tbody tr:hover td { background: #fafcff; }
     .right { text-align: right; }
     .muted { color: #64748b; }
+
     .badge {
       display: inline-flex;
       align-items: center;
@@ -186,13 +245,54 @@
     .badge-closed { background: #f8fafc; color: #475569; border-color: #cbd5e1; }
     .badge-fulfilled { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
     .badge-unfulfilled { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+    .badge-terms { background: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
+    .badge-fallback { background: #f8fafc; color: #475569; border-color: #cbd5e1; }
+
     .w-customer { min-width: 220px; }
     .w-email { min-width: 180px; max-width: 240px; }
     .w-small { min-width: 84px; }
     .w-money { min-width: 112px; }
+
     details summary { list-style: none; cursor: pointer; }
     details summary::-webkit-details-marker { display: none; }
-    @media (max-width: 1100px) {
+
+    .export-menu { position: relative; }
+    .export-panel {
+      position: absolute;
+      right: 0;
+      top: calc(100% + 10px);
+      width: 270px;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 18px;
+      box-shadow: 0 18px 40px rgba(15,23,42,.10);
+      padding: 8px;
+      z-index: 30;
+      display: none;
+    }
+    .export-panel.open { display: block; }
+    .export-item {
+      width: 100%;
+      border: 0;
+      background: transparent;
+      text-align: left;
+      padding: .72rem .78rem;
+      border-radius: 12px;
+      font-size: .88rem;
+      font-weight: 700;
+      color: #0f172a;
+      cursor: pointer;
+    }
+    .export-item:hover { background: #f8fafc; }
+    .export-label {
+      display: block;
+      font-size: .73rem;
+      color: #64748b;
+      font-weight: 600;
+      margin-top: 2px;
+    }
+
+    @media (max-width: 1180px) {
       .shell { padding: 14px; }
       .mini-grid { grid-template-columns: 1fr; }
     }
@@ -201,63 +301,94 @@
 <body class="min-h-full">
   <div class="shell">
     <div class="space-y-5">
-      <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <div>
-          <h1 class="text-3xl font-extrabold tracking-tight text-slate-900">Statement aging</h1>
-          <p class="mt-2 max-w-3xl text-sm text-slate-600">Simple view of open customer balances and aging.</p>
-        </div>
-        <div class="segmented">
-          <button id="viewRollupBtn" class="active">Rollup</button>
-          <button id="viewOrdersBtn">Orders</button>
+
+      <div class="hero p-5 lg:p-6">
+        <div class="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+          <div class="space-y-3">
+            <div class="hero-chip">Accounts receivable · statement aging · terms-aware</div>
+            <div>
+              <h1 class="text-3xl lg:text-4xl font-extrabold tracking-tight">Statement Aging</h1>
+              <p class="mt-2 max-w-3xl text-sm text-slate-200/80">
+                Customer balances, order detail, terms-based due dates, and exportable AR views.
+              </p>
+            </div>
+          </div>
+
+          <div class="flex flex-col gap-3 lg:flex-row lg:items-center">
+            <div class="segmented">
+              <button id="viewRollupBtn" class="active">Rollup</button>
+              <button id="viewOrdersBtn">Orders</button>
+            </div>
+
+            <div class="export-menu">
+              <button id="exportMenuBtn" class="btn">
+                Export
+                <span aria-hidden="true">▾</span>
+              </button>
+              <div id="exportPanel" class="export-panel">
+                <button class="export-item" data-export="current">
+                  Export current view
+                  <span class="export-label">Rollup or orders based on active tab</span>
+                </button>
+                <button class="export-item" data-export="rollup">
+                  Export rollup
+                  <span class="export-label">Customer summary with aging</span>
+                </button>
+                <button class="export-item" data-export="orders">
+                  Export orders
+                  <span class="export-label">Detailed filtered order rows</span>
+                </button>
+                <button class="export-item" data-export="openOrders">
+                  Export open orders
+                  <span class="export-label">Only unpaid/open order rows</span>
+                </button>
+                <button class="export-item" data-export="agingSummary">
+                  Export aging summary
+                  <span class="export-label">Current, 1–30, 31–60, 61–90, 90+</span>
+                </button>
+                <button class="export-item" data-export="financialSummary">
+                  Export financial summary
+                  <span class="export-label">Paid, pending, authorized, open, etc.</span>
+                </button>
+                <button class="export-item" data-export="fulfillmentSummary">
+                  Export fulfillment summary
+                  <span class="export-label">Fulfilled vs unfulfilled</span>
+                </button>
+                <button class="export-item" data-export="termsSummary">
+                  Export terms summary
+                  <span class="export-label">Matched terms and fallback stats</span>
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
       <div class="card p-4 lg:p-5">
         <div class="grid grid-cols-1 gap-4 lg:grid-cols-12">
-          <div class="lg:col-span-3">
+          <div class="lg:col-span-2">
             <label class="mb-2 block text-sm font-semibold text-slate-700">As of</label>
             <input id="asOfDate" type="date" class="input" />
           </div>
-          <div class="lg:col-span-3">
+
+          <div class="lg:col-span-2">
             <label class="mb-2 block text-sm font-semibold text-slate-700">Date field</label>
             <select id="dateField" class="select">
               <option value="DAY Order Date">DAY Order Date</option>
               <option value="auto">Auto detect</option>
             </select>
           </div>
-          <div class="lg:col-span-3 flex items-end gap-3">
-            <button id="refreshBtn" class="btn btn-primary w-full">Refresh</button>
-          </div>
-          <div class="lg:col-span-3 flex items-end gap-3">
-            <button id="exportBtn" class="btn w-full">Export rollup</button>
-          </div>
-          <div id="statusText" class="lg:col-span-12 text-xs text-slate-500">Waiting for data.</div>
-        </div>
-      </div>
 
-      <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <div class="kpi"><div class="kpi-label">Sales</div><div id="kpiNetSales" class="kpi-value mono">$0.00</div><div class="kpi-sub">Filtered sales</div></div>
-        <div class="kpi"><div class="kpi-label">Open</div><div id="kpiOpenBalance" class="kpi-value mono">$0.00</div><div class="kpi-sub">Current balance</div></div>
-        <div class="kpi"><div class="kpi-label">Paid</div><div id="kpiPaidSales" class="kpi-value mono">$0.00</div><div class="kpi-sub">Settled rows</div></div>
-        <div class="kpi"><div class="kpi-label">Customers</div><div id="kpiCustomers" class="kpi-value mono">0</div><div class="kpi-sub">With open balance</div></div>
-        <div class="kpi"><div class="kpi-label">0–30</div><div id="kpi0to30" class="kpi-value mono">$0.00</div><div class="kpi-sub">Recent aging</div></div>
-        <div class="kpi"><div class="kpi-label">31+</div><div id="kpi31plus" class="kpi-value mono">$0.00</div><div class="kpi-sub">Older aging</div></div>
-      </div>
-
-      <div class="card p-4 lg:p-5">
-        <div class="grid grid-cols-1 gap-4 lg:grid-cols-12">
-          <div class="lg:col-span-4">
-            <label class="mb-2 block text-sm font-semibold text-slate-700">Search</label>
-            <input id="searchInput" class="input" placeholder="Customer, email, order..." />
-          </div>
           <div class="lg:col-span-2">
             <label class="mb-2 block text-sm font-semibold text-slate-700">Start</label>
             <input id="startDate" type="date" class="input" />
           </div>
+
           <div class="lg:col-span-2">
             <label class="mb-2 block text-sm font-semibold text-slate-700">End</label>
             <input id="endDate" type="date" class="input" />
           </div>
+
           <div class="lg:col-span-2">
             <label class="mb-2 block text-sm font-semibold text-slate-700">Status</label>
             <select id="financialFilter" class="select">
@@ -269,22 +400,59 @@
               <option value="voided">Voided only</option>
             </select>
           </div>
+
           <div class="lg:col-span-2">
             <label class="mb-2 block text-sm font-semibold text-slate-700">Aging</label>
             <select id="agingFilter" class="select">
               <option value="">All</option>
-              <option value="0-30">0–30</option>
+              <option value="current">Current</option>
+              <option value="1-30">1–30</option>
               <option value="31-60">31–60</option>
               <option value="61-90">61–90</option>
               <option value="90+">90+</option>
               <option value="paid">Paid</option>
             </select>
           </div>
+
+          <div class="lg:col-span-4">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Search</label>
+            <input id="searchInput" class="input" placeholder="Customer, email, order, tag..." />
+          </div>
+
+          <div class="lg:col-span-2">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Terms source</label>
+            <select id="agingMode" class="select">
+              <option value="terms">Terms-based</option>
+              <option value="order">Order-date only</option>
+            </select>
+          </div>
+
+          <div class="lg:col-span-2 flex items-end gap-3">
+            <button id="refreshBtn" class="btn btn-primary w-full">Refresh data</button>
+          </div>
+
+          <div class="lg:col-span-2 flex items-end gap-3">
+            <button id="clearFiltersBtn" class="btn btn-soft w-full">Clear</button>
+          </div>
+
+          <div id="statusText" class="lg:col-span-4 flex items-end text-xs text-slate-500">
+            Waiting for data.
+          </div>
         </div>
+      </div>
+
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
+        <div class="kpi"><div class="kpi-label">Sales</div><div id="kpiNetSales" class="kpi-value mono">$0.00</div><div class="kpi-sub">Filtered sales</div></div>
+        <div class="kpi"><div class="kpi-label">Open</div><div id="kpiOpenBalance" class="kpi-value mono">$0.00</div><div class="kpi-sub">Current balance</div></div>
+        <div class="kpi"><div class="kpi-label">Current</div><div id="kpiCurrent" class="kpi-value mono">$0.00</div><div class="kpi-sub">Not yet due</div></div>
+        <div class="kpi"><div class="kpi-label">1–30</div><div id="kpi1to30" class="kpi-value mono">$0.00</div><div class="kpi-sub">Past due</div></div>
+        <div class="kpi"><div class="kpi-label">31+</div><div id="kpi31plus" class="kpi-value mono">$0.00</div><div class="kpi-sub">Older aging</div></div>
+        <div class="kpi"><div class="kpi-label">Terms matched</div><div id="kpiTermsMatched" class="kpi-value mono">0%</div><div class="kpi-sub">Email or customer match</div></div>
       </div>
 
       <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
         <div class="xl:col-span-9 space-y-5">
+
           <div class="card p-4 lg:p-5">
             <div class="flex items-start justify-between gap-3">
               <div>
@@ -293,7 +461,8 @@
               </div>
               <div class="text-xs text-slate-500"><span id="rowCount">0</span> rows</div>
             </div>
-            <div class="mt-4 table-wrap max-h-[700px]">
+
+            <div class="mt-4 table-wrap max-h-[720px]">
               <table>
                 <thead id="mainHead"></thead>
                 <tbody id="mainBody"></tbody>
@@ -305,10 +474,11 @@
             <summary class="flex items-center justify-between gap-3">
               <div>
                 <div class="section-title">Order detail</div>
-                <div class="section-sub">Underlying rows.</div>
+                <div class="section-sub">Underlying rows, due dates, terms, and matching source.</div>
               </div>
               <div class="text-xs font-bold text-slate-500">Expand</div>
             </summary>
+
             <div class="mt-4 table-wrap max-h-[520px]">
               <table>
                 <thead id="detailHead"></thead>
@@ -326,7 +496,7 @@
 
           <div class="card p-4 lg:p-5">
             <div class="section-title">Top open</div>
-            <div class="section-sub">Largest balances.</div>
+            <div class="section-sub">Largest balances in current filter.</div>
             <div id="topCustomers" class="mt-4"></div>
           </div>
 
@@ -345,6 +515,8 @@
       'https://docs.google.com/spreadsheets/d/e/2PACX-1vStgtzXpQpW_9oWh4QC2NOoO7F9L0fJLM7EDP7To0DyDp0TWaFk4V9YUxJVs9NRRv_7-bof9I-Gcc2J/pub?gid=801564681&single=true&output=csv'
     ];
 
+    const TERMS_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vStgtzXpQpW_9oWh4QC2NOoO7F9L0fJLM7EDP7To0DyDp0TWaFk4V9YUxJVs9NRRv_7-bof9I-Gcc2J/pub?gid=814012167&single=true&output=csv';
+
     const SAMPLE_ROWS = [
       {"DAY Order Date":"Mar 1, 2024","Customer Full name 🔗":"Colorado Springs Scheels","Customer Email 🔗":"orderss@scheels.com","Customer tags":"Wholesale","Order name":"#3384","Order Fulfillment status":"fulfilled","Order Financial status":"paid","Order Total quantity":"24","Total gross sales":"$372.00","Total discounts":"$48.24","Total refunds":"$0.00","Total shipping":"$0.00","Total taxes":"$0.00","Total sales":"$323.76"},
       {"DAY Order Date":"Mar 5, 2024","Customer Full name 🔗":"Ballparks of America","Customer Email 🔗":"","Customer tags":"Wholesale","Order name":"#3385","Order Fulfillment status":"fulfilled","Order Financial status":"paid","Order Total quantity":"286","Total gross sales":"$7,192.52","Total discounts":"$0.00","Total refunds":"$0.00","Total shipping":"$0.00","Total taxes":"$0.00","Total sales":"$7,192.52"},
@@ -352,21 +524,51 @@
       {"DAY Order Date":"Sep 15, 2023","Customer Full name 🔗":"Late Balance Co","Customer Email 🔗":"late@example.com","Customer tags":"Wholesale","Order name":"#4120","Order Fulfillment status":"fulfilled","Order Financial status":"pending","Order Total quantity":"15","Total gross sales":"$1,820.00","Total discounts":"$0.00","Total refunds":"$0.00","Total shipping":"$0.00","Total taxes":"$0.00","Total sales":"$1,820.00"}
     ];
 
-    const state = { rows: [], filteredRows: [], customerRollup: [], view: 'rollup' };
+    const SAMPLE_TERMS = [
+      { Customer: 'USA Baseball', Email: 'carringtonaustin@usabaseball.com', 'Term Days': '30' },
+      { Customer: 'Hub City Spartanburgers', Email: '', 'Term Days': '30' },
+      { Customer: 'Salt Lake Bees Ballpark', Email: '', 'Term Days': '30' },
+      { Customer: 'Baseball Monkey', Email: '', 'Term Days': '30' },
+      { Customer: 'Seattle Mariners', Email: '', 'Term Days': '30' },
+      { Customer: 'Rochester Red Wings', Email: '', 'Term Days': '30' },
+      { Customer: 'Columbus Clingstones', Email: '', 'Term Days': '30' },
+      { Customer: 'Philadelphia Phillies', Email: '', 'Term Days': '30' },
+      { Customer: 'Richmond Flying Squirrels', Email: '', 'Term Days': '30' },
+      { Customer: 'Ballparks of America', Email: '', 'Term Days': '30' },
+      { Customer: 'Home Run Sports', Email: 'tonycarnelos@homerunsports.com', 'Term Days': '30' }
+    ];
+
+    const state = {
+      rows: [],
+      filteredRows: [],
+      customerRollup: [],
+      view: 'rollup',
+      termsRows: [],
+      termsByEmail: new Map(),
+      termsByCustomer: new Map(),
+      termsMeta: { loaded: false, usingSample: false }
+    };
 
     const els = {
       asOfDate: document.getElementById('asOfDate'),
       dateField: document.getElementById('dateField'),
       refreshBtn: document.getElementById('refreshBtn'),
-      exportBtn: document.getElementById('exportBtn'),
+      clearFiltersBtn: document.getElementById('clearFiltersBtn'),
+      agingMode: document.getElementById('agingMode'),
       statusText: document.getElementById('statusText'),
+
       viewRollupBtn: document.getElementById('viewRollupBtn'),
       viewOrdersBtn: document.getElementById('viewOrdersBtn'),
+
+      exportMenuBtn: document.getElementById('exportMenuBtn'),
+      exportPanel: document.getElementById('exportPanel'),
+
       searchInput: document.getElementById('searchInput'),
       startDate: document.getElementById('startDate'),
       endDate: document.getElementById('endDate'),
       financialFilter: document.getElementById('financialFilter'),
       agingFilter: document.getElementById('agingFilter'),
+
       rowCount: document.getElementById('rowCount'),
       mainTableTitle: document.getElementById('mainTableTitle'),
       mainTableSub: document.getElementById('mainTableSub'),
@@ -377,12 +579,13 @@
       companySummary: document.getElementById('companySummary'),
       topCustomers: document.getElementById('topCustomers'),
       agingCards: document.getElementById('agingCards'),
+
       kpiNetSales: document.getElementById('kpiNetSales'),
       kpiOpenBalance: document.getElementById('kpiOpenBalance'),
-      kpiPaidSales: document.getElementById('kpiPaidSales'),
-      kpiCustomers: document.getElementById('kpiCustomers'),
-      kpi0to30: document.getElementById('kpi0to30'),
-      kpi31plus: document.getElementById('kpi31plus')
+      kpiCurrent: document.getElementById('kpiCurrent'),
+      kpi1to30: document.getElementById('kpi1to30'),
+      kpi31plus: document.getElementById('kpi31plus'),
+      kpiTermsMatched: document.getElementById('kpiTermsMatched')
     };
 
     function init() {
@@ -396,18 +599,59 @@
 
     function wireEvents() {
       els.refreshBtn.addEventListener('click', loadData);
-      els.exportBtn.addEventListener('click', exportRollup);
+      els.clearFiltersBtn.addEventListener('click', clearFilters);
+
       els.viewRollupBtn.addEventListener('click', () => setView('rollup'));
       els.viewOrdersBtn.addEventListener('click', () => setView('orders'));
-      [els.asOfDate, els.dateField, els.searchInput, els.startDate, els.endDate, els.financialFilter, els.agingFilter].forEach(el => {
+
+      [
+        els.asOfDate,
+        els.dateField,
+        els.searchInput,
+        els.startDate,
+        els.endDate,
+        els.financialFilter,
+        els.agingFilter,
+        els.agingMode
+      ].forEach(el => {
         el.addEventListener('input', refreshAll);
         el.addEventListener('change', refreshAll);
       });
+
+      els.exportMenuBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        els.exportPanel.classList.toggle('open');
+      });
+
+      document.querySelectorAll('[data-export]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const type = btn.getAttribute('data-export');
+          runExport(type);
+          els.exportPanel.classList.remove('open');
+        });
+      });
+
+      document.addEventListener('click', (e) => {
+        if (!els.exportPanel.contains(e.target) && e.target !== els.exportMenuBtn) {
+          els.exportPanel.classList.remove('open');
+        }
+      });
+    }
+
+    function clearFilters() {
+      els.searchInput.value = '';
+      els.startDate.value = '';
+      els.endDate.value = new Date().toISOString().slice(0, 10);
+      els.financialFilter.value = '';
+      els.agingFilter.value = '';
+      els.agingMode.value = 'terms';
+      refreshAll();
+      setStatus('Filters cleared.');
     }
 
     function setStatus(message, isError = false) {
       els.statusText.textContent = message;
-      els.statusText.className = `text-xs ${isError ? 'text-red-600' : 'text-slate-500'}`;
+      els.statusText.className = `lg:col-span-4 flex items-end text-xs ${isError ? 'text-red-600' : 'text-slate-500'}`;
     }
 
     function setView(view) {
@@ -439,12 +683,56 @@
       return null;
     }
 
-    function stripTime(date) { return new Date(date.getFullYear(), date.getMonth(), date.getDate()); }
-    function formatMoney(value) { return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value || 0); }
-    function formatNumber(value) { return new Intl.NumberFormat('en-US').format(value || 0); }
-    function formatShortDate(value) { return value ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(value) : '—'; }
-    function escapeHtml(str) { return String(str ?? '').replace(/[&<>"']/g, m => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[m])); }
-    function normalizeStatus(v) { return String(v || '').trim().toLowerCase(); }
+    function addDays(date, days) {
+      if (!date) return null;
+      const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+      d.setDate(d.getDate() + days);
+      return d;
+    }
+
+    function diffDays(a, b) {
+      return Math.floor((stripTime(a) - stripTime(b)) / 86400000);
+    }
+
+    function stripTime(date) {
+      return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    }
+
+    function formatMoney(value) {
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value || 0);
+    }
+
+    function formatNumber(value) {
+      return new Intl.NumberFormat('en-US').format(value || 0);
+    }
+
+    function formatShortDate(value) {
+      return value ? new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(value) : '—';
+    }
+
+    function escapeHtml(str) {
+      return String(str ?? '').replace(/[&<>"']/g, m => ({
+        '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+      }[m]));
+    }
+
+    function normalizeStatus(v) {
+      return String(v || '').trim().toLowerCase();
+    }
+
+    function normalizeEmail(v) {
+      return String(v || '').trim().toLowerCase();
+    }
+
+    function normalizeCustomerName(v) {
+      return String(v || '')
+        .trim()
+        .toLowerCase()
+        .replace(/&/g, 'and')
+        .replace(/[^\w\s]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
 
     function detectDateKey(row) {
       const keys = Object.keys(row || {});
@@ -453,17 +741,36 @@
       return keys.find(k => /date/i.test(k)) || null;
     }
 
-    function agingBucket(days, openAmount) {
+    function detectTermsColumns(row) {
+      const keys = Object.keys(row || {});
+      const findKey = (patterns) => {
+        for (const k of keys) {
+          const lk = k.toLowerCase().trim();
+          if (patterns.some(p => lk === p || lk.includes(p))) return k;
+        }
+        return null;
+      };
+
+      return {
+        customer: findKey(['customer', 'customer name']),
+        email: findKey(['email', 'customer email']),
+        termDays: findKey(['term days', 'terms days', 'term', 'net days'])
+      };
+    }
+
+    function agingBucket(daysPastDue, openAmount) {
       if (openAmount <= 0) return 'paid';
-      if (days <= 30) return '0-30';
-      if (days <= 60) return '31-60';
-      if (days <= 90) return '61-90';
+      if (daysPastDue <= 0) return 'current';
+      if (daysPastDue <= 30) return '1-30';
+      if (daysPastDue <= 60) return '31-60';
+      if (daysPastDue <= 90) return '61-90';
       return '90+';
     }
 
     function normalizeRow(row, sourceIndex) {
       const dateKey = els.dateField.value === 'auto' ? detectDateKey(row) : els.dateField.value;
       const orderDate = parseDateFlex(row[dateKey]);
+
       const gross = cleanNumber(row['Total gross sales']);
       const discounts = cleanNumber(row['Total discounts']);
       const refunds = cleanNumber(row['Total refunds']);
@@ -471,11 +778,16 @@
       const taxes = cleanNumber(row['Total taxes']);
       const sales = cleanNumber(row['Total sales']);
       const quantity = cleanInt(row['Order Total quantity']);
+
       const financialStatus = normalizeStatus(row['Order Financial status']);
       const fulfillment = normalizeStatus(row['Order Fulfillment status']);
+
       const customer = String(row['Customer Full name 🔗'] || row['Customer Full name'] || 'Unknown Customer').trim() || 'Unknown Customer';
       const email = String(row['Customer Email 🔗'] || row['Customer Email'] || '').trim();
-      const tags = String(row['Customer tags'] || '').split(',').map(v => v.trim()).filter(Boolean);
+      const tags = String(row['Customer tags'] || '')
+        .split(',')
+        .map(v => v.trim())
+        .filter(Boolean);
 
       const openStatuses = new Set(['pending','authorized','partially_paid','partially paid','due','unpaid','open']);
       const paidStatuses = new Set(['paid','partially_refunded','partially refunded']);
@@ -495,6 +807,8 @@
         orderDate,
         customer,
         email,
+        customerNorm: normalizeCustomerName(customer),
+        emailNorm: normalizeEmail(email),
         tags,
         tagsLabel: tags.join(', '),
         orderName: String(row['Order name'] || '').trim(),
@@ -510,9 +824,83 @@
         sales,
         openAmount,
         paidAmount: settlementClass === 'paid' ? Math.max(0, sales) : 0,
-        ageDays: 0,
-        agingBucket: 'paid'
+
+        termDays: 0,
+        matchedBy: 'default',
+        dueDate: orderDate,
+        daysPastDue: 0,
+        agingBucket: 'paid',
+        agingBasis: 'order_date'
       };
+    }
+
+    function normalizeTermsRows(rows) {
+      if (!rows.length) return [];
+      const cols = detectTermsColumns(rows[0]);
+
+      return rows
+        .map(row => {
+          const customer = String(row[cols.customer] || '').trim();
+          const email = String(row[cols.email] || '').trim();
+          const termDays = cleanInt(row[cols.termDays]);
+          return {
+            customer,
+            email,
+            customerNorm: normalizeCustomerName(customer),
+            emailNorm: normalizeEmail(email),
+            termDays
+          };
+        })
+        .filter(r => (r.customerNorm || r.emailNorm) && Number.isFinite(r.termDays));
+    }
+
+    function buildTermsIndexes(rows) {
+      const byEmail = new Map();
+      const byCustomer = new Map();
+
+      rows.forEach(r => {
+        if (r.emailNorm && !byEmail.has(r.emailNorm)) byEmail.set(r.emailNorm, r);
+        if (r.customerNorm && !byCustomer.has(r.customerNorm)) byCustomer.set(r.customerNorm, r);
+      });
+
+      state.termsRows = rows;
+      state.termsByEmail = byEmail;
+      state.termsByCustomer = byCustomer;
+    }
+
+    function applyTermsToRows() {
+      const agingMode = els.agingMode.value;
+      const asOf = parseDateFlex(els.asOfDate.value) || new Date();
+
+      state.rows.forEach(r => {
+        let match = null;
+        let matchedBy = 'default';
+
+        if (state.termsByEmail.has(r.emailNorm)) {
+          match = state.termsByEmail.get(r.emailNorm);
+          matchedBy = 'email';
+        } else if (state.termsByCustomer.has(r.customerNorm)) {
+          match = state.termsByCustomer.get(r.customerNorm);
+          matchedBy = 'customer';
+        }
+
+        r.termDays = match ? cleanInt(match.termDays) : 0;
+        r.matchedBy = matchedBy;
+
+        const useTerms = agingMode === 'terms';
+        const dueDate = useTerms && r.orderDate ? addDays(r.orderDate, r.termDays) : r.orderDate;
+        r.dueDate = dueDate;
+        r.agingBasis = useTerms ? 'terms' : 'order_date';
+
+        if (!r.orderDate || r.openAmount <= 0) {
+          r.daysPastDue = 0;
+          r.agingBucket = 'paid';
+        } else {
+          const basisDate = dueDate || r.orderDate;
+          r.daysPastDue = diffDays(asOf, basisDate);
+          r.agingBucket = agingBucket(r.daysPastDue, r.openAmount);
+        }
+      });
     }
 
     async function parseCsv(url) {
@@ -529,37 +917,48 @@
 
     async function loadData() {
       els.refreshBtn.disabled = true;
-      setStatus(`Loading ${CSV_SOURCES.length} source${CSV_SOURCES.length === 1 ? '' : 's'}...`);
+      setStatus(`Loading sales + terms data...`);
+
       try {
+        const [salesResults, termsResults] = await Promise.all([
+          Promise.all(CSV_SOURCES.map(url => parseCsv(url))),
+          parseCsv(TERMS_CSV_URL).catch(() => null)
+        ]);
+
         const all = [];
-        for (let i = 0; i < CSV_SOURCES.length; i++) {
-          const rows = await parseCsv(CSV_SOURCES[i]);
-          rows.forEach(r => all.push(normalizeRow(r, i + 1)));
-        }
+        salesResults.forEach((rows, idx) => {
+          rows.forEach(r => all.push(normalizeRow(r, idx + 1)));
+        });
         state.rows = all.filter(r => r.customer || r.orderName);
+
+        if (termsResults && termsResults.length) {
+          buildTermsIndexes(normalizeTermsRows(termsResults));
+          state.termsMeta = { loaded: true, usingSample: false };
+        } else {
+          buildTermsIndexes(normalizeTermsRows(SAMPLE_TERMS));
+          state.termsMeta = { loaded: true, usingSample: true };
+        }
+
         refreshAll();
-        setStatus(`Loaded ${formatNumber(state.rows.length)} orders.`);
+
+        const termMsg = state.termsMeta.usingSample ? 'sample terms fallback' : 'live terms loaded';
+        setStatus(`Loaded ${formatNumber(state.rows.length)} orders · ${formatNumber(state.termsRows.length)} terms rows · ${termMsg}.`);
       } catch (err) {
         console.error(err);
+
         state.rows = SAMPLE_ROWS.map((r, i) => normalizeRow(r, i + 1));
+        buildTermsIndexes(normalizeTermsRows(SAMPLE_TERMS));
+        state.termsMeta = { loaded: true, usingSample: true };
+
         refreshAll();
-        setStatus('Live source failed, showing sample data instead.', true);
+        setStatus('Live source failed, showing sample data and sample terms.', true);
       } finally {
         els.refreshBtn.disabled = false;
       }
     }
 
     function refreshAll() {
-      const asOf = parseDateFlex(els.asOfDate.value) || new Date();
-      state.rows.forEach(r => {
-        if (!r.orderDate || r.openAmount <= 0) {
-          r.ageDays = 0;
-          r.agingBucket = 'paid';
-        } else {
-          r.ageDays = Math.max(0, Math.floor((stripTime(asOf) - stripTime(r.orderDate)) / 86400000));
-          r.agingBucket = agingBucket(r.ageDays, r.openAmount);
-        }
-      });
+      applyTermsToRows();
 
       const q = els.searchInput.value.trim().toLowerCase();
       const start = parseDateFlex(els.startDate.value);
@@ -569,7 +968,15 @@
 
       state.filteredRows = state.rows.filter(r => {
         if (q) {
-          const hay = [r.customer, r.email, r.orderName, r.tagsLabel, r.financialStatus].join(' ').toLowerCase();
+          const hay = [
+            r.customer,
+            r.email,
+            r.orderName,
+            r.tagsLabel,
+            r.financialStatus,
+            r.matchedBy,
+            r.termDays
+          ].join(' ').toLowerCase();
           if (!hay.includes(q)) return false;
         }
         if (start && (!r.orderDate || stripTime(r.orderDate) < stripTime(start))) return false;
@@ -581,6 +988,7 @@
       });
 
       state.customerRollup = rollupCustomers(state.filteredRows);
+
       renderKpis();
       renderCompanySummary();
       renderTopCustomers();
@@ -591,85 +999,126 @@
 
     function rollupCustomers(rows) {
       const map = new Map();
+
       rows.forEach(r => {
         const key = `${r.customer}__${r.email}`;
         if (!map.has(key)) {
-          map.set(key, { customer: r.customer, email: r.email, orders: 0, openOrders: 0, sales: 0, openBalance: 0, b0: 0, b31: 0, b61: 0, b90: 0, oldestOpenDate: null });
+          map.set(key, {
+            customer: r.customer,
+            email: r.email,
+            orders: 0,
+            openOrders: 0,
+            sales: 0,
+            openBalance: 0,
+            current: 0,
+            b1: 0,
+            b31: 0,
+            b61: 0,
+            b90: 0,
+            oldestOpenDate: null,
+            matchedTermsOrders: 0
+          });
         }
+
         const item = map.get(key);
         item.orders += 1;
         item.sales += r.sales;
         item.openBalance += r.openAmount;
         if (r.openAmount > 0) item.openOrders += 1;
-        if (r.openAmount > 0 && r.orderDate && (!item.oldestOpenDate || r.orderDate < item.oldestOpenDate)) item.oldestOpenDate = r.orderDate;
-        if (r.agingBucket === '0-30') item.b0 += r.openAmount;
+        if (r.matchedBy !== 'default') item.matchedTermsOrders += 1;
+
+        if (r.openAmount > 0 && r.orderDate && (!item.oldestOpenDate || r.orderDate < item.oldestOpenDate)) {
+          item.oldestOpenDate = r.orderDate;
+        }
+
+        if (r.agingBucket === 'current') item.current += r.openAmount;
+        else if (r.agingBucket === '1-30') item.b1 += r.openAmount;
         else if (r.agingBucket === '31-60') item.b31 += r.openAmount;
         else if (r.agingBucket === '61-90') item.b61 += r.openAmount;
         else if (r.agingBucket === '90+') item.b90 += r.openAmount;
       });
-      return Array.from(map.values()).sort((a,b) => b.openBalance - a.openBalance || b.sales - a.sales || a.customer.localeCompare(b.customer));
+
+      return Array.from(map.values()).sort((a, b) =>
+        b.openBalance - a.openBalance ||
+        b.sales - a.sales ||
+        a.customer.localeCompare(b.customer)
+      );
     }
 
     function renderKpis() {
       const netSales = state.filteredRows.reduce((s, r) => s + r.sales, 0);
       const openBalance = state.filteredRows.reduce((s, r) => s + r.openAmount, 0);
-      const paidSales = state.filteredRows.reduce((s, r) => s + r.paidAmount, 0);
-      const openCustomers = state.customerRollup.filter(c => c.openBalance > 0).length;
-      const b0 = state.filteredRows.filter(r => r.agingBucket === '0-30').reduce((s, r) => s + r.openAmount, 0);
+      const current = state.filteredRows.filter(r => r.agingBucket === 'current').reduce((s, r) => s + r.openAmount, 0);
+      const b1 = state.filteredRows.filter(r => r.agingBucket === '1-30').reduce((s, r) => s + r.openAmount, 0);
       const b31plus = state.filteredRows.filter(r => ['31-60','61-90','90+'].includes(r.agingBucket)).reduce((s, r) => s + r.openAmount, 0);
+
+      const openRows = state.filteredRows.filter(r => r.openAmount > 0);
+      const matched = openRows.filter(r => r.matchedBy !== 'default').length;
+      const matchedPct = openRows.length ? ((matched / openRows.length) * 100).toFixed(0) : 0;
+
       els.kpiNetSales.textContent = formatMoney(netSales);
       els.kpiOpenBalance.textContent = formatMoney(openBalance);
-      els.kpiPaidSales.textContent = formatMoney(paidSales);
-      els.kpiCustomers.textContent = formatNumber(openCustomers);
-      els.kpi0to30.textContent = formatMoney(b0);
+      els.kpiCurrent.textContent = formatMoney(current);
+      els.kpi1to30.textContent = formatMoney(b1);
       els.kpi31plus.textContent = formatMoney(b31plus);
+      els.kpiTermsMatched.textContent = `${matchedPct}%`;
     }
 
     function renderCompanySummary() {
       const totalOrders = state.filteredRows.length;
       const openOrders = state.filteredRows.filter(r => r.openAmount > 0).length;
       const gross = state.filteredRows.reduce((s, r) => s + r.gross, 0);
-      const discounts = state.filteredRows.reduce((s, r) => s + r.discounts, 0);
-      const refunds = state.filteredRows.reduce((s, r) => s + r.refunds, 0);
       const sales = state.filteredRows.reduce((s, r) => s + r.sales, 0);
       const openBalance = state.filteredRows.reduce((s, r) => s + r.openAmount, 0);
+      const termsMatched = state.filteredRows.filter(r => r.matchedBy !== 'default').length;
+      const fallbackRows = state.filteredRows.filter(r => r.matchedBy === 'default').length;
       const openPct = sales > 0 ? (openBalance / sales) * 100 : 0;
+
       const items = [
         ['Orders', formatNumber(totalOrders), `${formatNumber(openOrders)} open`],
         ['Open %', `${openPct.toFixed(1)}%`, 'Of sales'],
         ['Gross', formatMoney(gross), 'Before discounts'],
         ['Net', formatMoney(sales), 'After discounts'],
-        ['Disc + ref', formatMoney(discounts + refunds), 'Combined'],
-        ['Open bal', formatMoney(openBalance), 'Current']
+        ['Terms hit', formatNumber(termsMatched), 'Matched rows'],
+        ['Fallback', formatNumber(fallbackRows), 'Default term days']
       ];
+
       els.companySummary.innerHTML = items.map(([label, value, sub]) => `
         <div class="mini-card">
           <div class="label">${escapeHtml(label)}</div>
           <div class="value mono">${escapeHtml(value)}</div>
           <div class="mt-1 text-xs text-slate-500">${escapeHtml(sub)}</div>
-        </div>`).join('');
+        </div>
+      `).join('');
     }
 
     function renderTopCustomers() {
       const rows = state.customerRollup.filter(c => c.openBalance > 0).slice(0, 8);
-      els.topCustomers.innerHTML = rows.length ? rows.map(c => `
-        <div class="list-row">
-          <div class="min-w-0">
-            <div class="truncate font-semibold text-slate-900">${escapeHtml(c.customer)}</div>
-            <div class="text-xs text-slate-500">${formatNumber(c.openOrders)} open</div>
+
+      els.topCustomers.innerHTML = rows.length
+        ? rows.map(c => `
+          <div class="list-row">
+            <div class="min-w-0">
+              <div class="truncate font-semibold text-slate-900">${escapeHtml(c.customer)}</div>
+              <div class="text-xs text-slate-500">${formatNumber(c.openOrders)} open · ${formatNumber(c.matchedTermsOrders)} terms hit</div>
+            </div>
+            <div class="text-right font-extrabold mono text-slate-900">${formatMoney(c.openBalance)}</div>
           </div>
-          <div class="text-right font-extrabold mono text-slate-900">${formatMoney(c.openBalance)}</div>
-        </div>`).join('') : '<div class="text-sm text-slate-500">No open customers.</div>';
+        `).join('')
+        : '<div class="text-sm text-slate-500">No open customers.</div>';
     }
 
     function renderAgingCards() {
       const buckets = [
-        ['0–30', state.filteredRows.filter(r => r.agingBucket === '0-30').reduce((s, r) => s + r.openAmount, 0)],
+        ['Current', state.filteredRows.filter(r => r.agingBucket === 'current').reduce((s, r) => s + r.openAmount, 0)],
+        ['1–30', state.filteredRows.filter(r => r.agingBucket === '1-30').reduce((s, r) => s + r.openAmount, 0)],
         ['31–60', state.filteredRows.filter(r => r.agingBucket === '31-60').reduce((s, r) => s + r.openAmount, 0)],
         ['61–90', state.filteredRows.filter(r => r.agingBucket === '61-90').reduce((s, r) => s + r.openAmount, 0)],
         ['90+', state.filteredRows.filter(r => r.agingBucket === '90+').reduce((s, r) => s + r.openAmount, 0)]
       ];
+
       const total = buckets.reduce((s, [,v]) => s + v, 0);
+
       els.agingCards.innerHTML = buckets.map(([label, value]) => {
         const pct = total > 0 ? (value / total) * 100 : 0;
         return `
@@ -682,7 +1131,8 @@
               <div class="font-extrabold mono text-slate-900">${formatMoney(value)}</div>
               <div class="text-xs text-slate-500">${pct.toFixed(1)}%</div>
             </div>
-          </div>`;
+          </div>
+        `;
       }).join('');
     }
 
@@ -693,8 +1143,11 @@
 
     function renderRollupTable() {
       els.mainTableTitle.textContent = 'Customer rollup';
-      els.mainTableSub.textContent = 'Who owes and how old it is.';
+      els.mainTableSub.textContent = els.agingMode.value === 'terms'
+        ? 'Aging is based on due date using matched term days.'
+        : 'Aging is based on order date only.';
       els.rowCount.textContent = formatNumber(state.customerRollup.length);
+
       els.mainHead.innerHTML = `<tr>
         <th class="w-customer">Customer</th>
         <th class="w-email">Email</th>
@@ -702,26 +1155,31 @@
         <th class="right w-small">Open</th>
         <th class="right w-money">Sales</th>
         <th class="right w-money">Balance</th>
-        <th class="right w-money">0–30</th>
+        <th class="right w-money">Current</th>
+        <th class="right w-money">1–30</th>
         <th class="right w-money">31–60</th>
         <th class="right w-money">61–90</th>
         <th class="right w-money">90+</th>
-        <th class="w-small">Oldest</th>
       </tr>`;
+
       els.mainBody.innerHTML = state.customerRollup.map(c => `
         <tr>
-          <td class="w-customer"><div class="font-semibold text-slate-900">${escapeHtml(c.customer)}</div></td>
+          <td class="w-customer">
+            <div class="font-semibold text-slate-900">${escapeHtml(c.customer)}</div>
+            <div class="text-xs text-slate-500">${formatNumber(c.matchedTermsOrders)} terms matched</div>
+          </td>
           <td class="muted w-email">${escapeHtml(c.email || '—')}</td>
           <td class="right mono w-small">${formatNumber(c.orders)}</td>
           <td class="right mono w-small">${formatNumber(c.openOrders)}</td>
           <td class="right mono w-money">${formatMoney(c.sales)}</td>
           <td class="right mono w-money font-extrabold">${formatMoney(c.openBalance)}</td>
-          <td class="right mono w-money">${formatMoney(c.b0)}</td>
+          <td class="right mono w-money">${formatMoney(c.current)}</td>
+          <td class="right mono w-money">${formatMoney(c.b1)}</td>
           <td class="right mono w-money">${formatMoney(c.b31)}</td>
           <td class="right mono w-money">${formatMoney(c.b61)}</td>
           <td class="right mono w-money">${formatMoney(c.b90)}</td>
-          <td class="muted w-small">${c.oldestOpenDate ? formatShortDate(c.oldestOpenDate) : '—'}</td>
-        </tr>`).join('') || `<tr><td colspan="11" class="py-10 text-center text-slate-500">No customers match the current filters.</td></tr>`;
+        </tr>
+      `).join('') || `<tr><td colspan="11" class="py-10 text-center text-slate-500">No customers match the current filters.</td></tr>`;
     }
 
     function finBadge(status, openAmount) {
@@ -732,6 +1190,12 @@
       return `<span class="badge badge-closed">${escapeHtml(s || 'other')}</span>`;
     }
 
+    function termsBadge(row) {
+      if (row.matchedBy === 'email') return '<span class="badge badge-terms">Email match</span>';
+      if (row.matchedBy === 'customer') return '<span class="badge badge-terms">Customer match</span>';
+      return '<span class="badge badge-fallback">Default</span>';
+    }
+
     function fulfillBadge(status) {
       const s = normalizeStatus(status);
       if (s.includes('fulfilled')) return '<span class="badge badge-fulfilled">Fulfilled</span>';
@@ -740,31 +1204,42 @@
 
     function renderOrdersTable() {
       els.mainTableTitle.textContent = 'Orders';
-      els.mainTableSub.textContent = 'Underlying rows.';
+      els.mainTableSub.textContent = 'Underlying rows with due dates and terms matching.';
       els.rowCount.textContent = formatNumber(state.filteredRows.length);
+
       els.mainHead.innerHTML = `<tr>
         <th class="w-small">Date</th>
         <th class="w-customer">Customer</th>
         <th class="w-small">Order</th>
         <th class="w-small">Fin</th>
-        <th class="w-small">Fulfill</th>
-        <th class="right w-small">Qty</th>
+        <th class="w-small">Terms</th>
+        <th class="right w-small">Days</th>
+        <th class="w-small">Due</th>
         <th class="right w-money">Sales</th>
         <th class="right w-money">Open</th>
-        <th class="right w-small">Age</th>
+        <th class="right w-small">Past due</th>
       </tr>`;
-      els.mainBody.innerHTML = state.filteredRows.slice().sort((a,b) => (b.openAmount - a.openAmount) || ((a.orderDate || 0) - (b.orderDate || 0))).map(r => `
+
+      els.mainBody.innerHTML = getSortedOrders(state.filteredRows).map(r => `
         <tr>
           <td class="muted w-small">${r.orderDate ? formatShortDate(r.orderDate) : '—'}</td>
-          <td class="w-customer"><div class="font-semibold text-slate-900">${escapeHtml(r.customer)}</div><div class="text-xs text-slate-500">${escapeHtml(r.email || 'No email')}</div></td>
+          <td class="w-customer">
+            <div class="font-semibold text-slate-900">${escapeHtml(r.customer)}</div>
+            <div class="text-xs text-slate-500">${escapeHtml(r.email || 'No email')}</div>
+          </td>
           <td class="font-semibold text-slate-900 w-small">${escapeHtml(r.orderName || '—')}</td>
           <td class="w-small">${finBadge(r.financialStatus, r.openAmount)}</td>
-          <td class="w-small">${fulfillBadge(r.fulfillment)}</td>
-          <td class="right mono w-small">${formatNumber(r.quantity)}</td>
+          <td class="w-small">
+            ${termsBadge(r)}
+            <div class="text-xs text-slate-500 mt-1">${formatNumber(r.termDays)}d</div>
+          </td>
+          <td class="right mono w-small">${formatNumber(r.termDays)}</td>
+          <td class="muted w-small">${r.dueDate ? formatShortDate(r.dueDate) : '—'}</td>
           <td class="right mono w-money">${formatMoney(r.sales)}</td>
           <td class="right mono w-money font-extrabold">${formatMoney(r.openAmount)}</td>
-          <td class="right mono w-small">${r.openAmount > 0 ? formatNumber(r.ageDays) : '—'}</td>
-        </tr>`).join('') || `<tr><td colspan="9" class="py-10 text-center text-slate-500">No orders match the current filters.</td></tr>`;
+          <td class="right mono w-small">${r.openAmount > 0 ? formatNumber(r.daysPastDue) : '—'}</td>
+        </tr>
+      `).join('') || `<tr><td colspan="10" class="py-10 text-center text-slate-500">No orders match the current filters.</td></tr>`;
     }
 
     function renderDetailTable() {
@@ -774,23 +1249,87 @@
         <th class="w-small">Order</th>
         <th class="w-small">Fin</th>
         <th class="w-small">Fulfill</th>
-        <th class="right w-small">Qty</th>
+        <th class="w-small">Terms match</th>
+        <th class="right w-small">Term days</th>
+        <th class="w-small">Due date</th>
         <th class="right w-money">Sales</th>
         <th class="right w-money">Open</th>
-        <th class="right w-small">Age</th>
+        <th class="right w-small">Past due</th>
+        <th class="w-small">Bucket</th>
       </tr>`;
-      els.detailBody.innerHTML = state.filteredRows.slice().sort((a,b) => (b.openAmount - a.openAmount) || ((a.orderDate || 0) - (b.orderDate || 0))).map(r => `
+
+      els.detailBody.innerHTML = getSortedOrders(state.filteredRows).map(r => `
         <tr>
           <td class="muted w-small">${r.orderDate ? formatShortDate(r.orderDate) : '—'}</td>
-          <td class="w-customer"><div class="font-semibold text-slate-900">${escapeHtml(r.customer)}</div><div class="text-xs text-slate-500">${escapeHtml(r.email || 'No email')}</div></td>
+          <td class="w-customer">
+            <div class="font-semibold text-slate-900">${escapeHtml(r.customer)}</div>
+            <div class="text-xs text-slate-500">${escapeHtml(r.email || 'No email')}</div>
+          </td>
           <td class="font-semibold text-slate-900 w-small">${escapeHtml(r.orderName || '—')}</td>
           <td class="w-small">${finBadge(r.financialStatus, r.openAmount)}</td>
           <td class="w-small">${fulfillBadge(r.fulfillment)}</td>
-          <td class="right mono w-small">${formatNumber(r.quantity)}</td>
+          <td class="w-small">${termsBadge(r)}</td>
+          <td class="right mono w-small">${formatNumber(r.termDays)}</td>
+          <td class="muted w-small">${r.dueDate ? formatShortDate(r.dueDate) : '—'}</td>
           <td class="right mono w-money">${formatMoney(r.sales)}</td>
           <td class="right mono w-money font-extrabold">${formatMoney(r.openAmount)}</td>
-          <td class="right mono w-small">${r.openAmount > 0 ? formatNumber(r.ageDays) : '—'}</td>
-        </tr>`).join('') || `<tr><td colspan="9" class="py-10 text-center text-slate-500">No order rows match the current filters.</td></tr>`;
+          <td class="right mono w-small">${r.openAmount > 0 ? formatNumber(r.daysPastDue) : '—'}</td>
+          <td class="w-small">${escapeHtml(r.agingBucket)}</td>
+        </tr>
+      `).join('') || `<tr><td colspan="12" class="py-10 text-center text-slate-500">No order rows match the current filters.</td></tr>`;
+    }
+
+    function getSortedOrders(rows) {
+      return rows.slice().sort((a, b) =>
+        (b.openAmount - a.openAmount) ||
+        (b.daysPastDue - a.daysPastDue) ||
+        ((a.orderDate || 0) - (b.orderDate || 0))
+      );
+    }
+
+    function runExport(type) {
+      switch (type) {
+        case 'current':
+          if (state.view === 'rollup') exportRollup();
+          else exportOrders(state.filteredRows, 'statement_orders.csv');
+          break;
+        case 'rollup':
+          exportRollup();
+          break;
+        case 'orders':
+          exportOrders(state.filteredRows, 'statement_orders.csv');
+          break;
+        case 'openOrders':
+          exportOrders(state.filteredRows.filter(r => r.openAmount > 0), 'statement_open_orders.csv');
+          break;
+        case 'agingSummary':
+          exportAgingSummary();
+          break;
+        case 'financialSummary':
+          exportFinancialSummary();
+          break;
+        case 'fulfillmentSummary':
+          exportFulfillmentSummary();
+          break;
+        case 'termsSummary':
+          exportTermsSummary();
+          break;
+        default:
+          setStatus('Unknown export type.', true);
+      }
+    }
+
+    function downloadCsv(rows, filename, statusMessage) {
+      if (!rows.length) return setStatus('Nothing to export for the current selection.', true);
+      const csv = Papa.unparse(rows);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      setStatus(statusMessage || 'Export complete.');
     }
 
     function exportRollup() {
@@ -801,22 +1340,159 @@
         Open_Orders: c.openOrders,
         Sales: c.sales.toFixed(2),
         Open_Balance: c.openBalance.toFixed(2),
-        Aging_0_30: c.b0.toFixed(2),
+        Current: c.current.toFixed(2),
+        Aging_1_30: c.b1.toFixed(2),
         Aging_31_60: c.b31.toFixed(2),
         Aging_61_90: c.b61.toFixed(2),
         Aging_90_plus: c.b90.toFixed(2),
-        Oldest_Open_Date: c.oldestOpenDate ? formatShortDate(c.oldestOpenDate) : ''
+        Terms_Matched_Orders: c.matchedTermsOrders
       }));
-      if (!rows.length) return setStatus('Nothing to export for the current view.', true);
-      const csv = Papa.unparse(rows);
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'statement_rollup.csv';
-      a.click();
-      URL.revokeObjectURL(url);
-      setStatus('Exported current rollup.');
+      downloadCsv(rows, 'statement_rollup.csv', 'Exported customer rollup.');
+    }
+
+    function exportOrders(orderRows, filename) {
+      const rows = getSortedOrders(orderRows).map(r => ({
+        Order_Date: r.orderDate ? formatShortDate(r.orderDate) : '',
+        Due_Date: r.dueDate ? formatShortDate(r.dueDate) : '',
+        Customer: r.customer,
+        Email: r.email,
+        Customer_Tags: r.tagsLabel,
+        Order_Name: r.orderName,
+        Financial_Status: r.financialStatus,
+        Fulfillment_Status: r.fulfillment,
+        Terms_Days: r.termDays,
+        Terms_Matched_By: r.matchedBy,
+        Aging_Basis: r.agingBasis,
+        Quantity: r.quantity,
+        Gross_Sales: r.gross.toFixed(2),
+        Discounts: r.discounts.toFixed(2),
+        Refunds: r.refunds.toFixed(2),
+        Shipping: r.shipping.toFixed(2),
+        Taxes: r.taxes.toFixed(2),
+        Net_Sales: r.sales.toFixed(2),
+        Open_Amount: r.openAmount.toFixed(2),
+        Paid_Amount: r.paidAmount.toFixed(2),
+        Days_Past_Due: r.openAmount > 0 ? r.daysPastDue : '',
+        Aging_Bucket: r.agingBucket,
+        Source_Index: r.sourceIndex
+      }));
+      downloadCsv(rows, filename, `Exported ${formatNumber(rows.length)} order rows.`);
+    }
+
+    function exportAgingSummary() {
+      const groups = [
+        ['current', 'Current'],
+        ['1-30', '1–30'],
+        ['31-60', '31–60'],
+        ['61-90', '61–90'],
+        ['90+', '90+'],
+        ['paid', 'Paid']
+      ].map(([key, label]) => {
+        const rows = state.filteredRows.filter(r => r.agingBucket === key);
+        return {
+          Bucket: label,
+          Order_Count: rows.length,
+          Customer_Count: new Set(rows.map(r => `${r.customer}__${r.email}`)).size,
+          Net_Sales: rows.reduce((s, r) => s + r.sales, 0).toFixed(2),
+          Open_Amount: rows.reduce((s, r) => s + r.openAmount, 0).toFixed(2)
+        };
+      });
+
+      downloadCsv(groups, 'statement_aging_summary.csv', 'Exported aging summary.');
+    }
+
+    function exportFinancialSummary() {
+      const map = new Map();
+
+      state.filteredRows.forEach(r => {
+        const key = r.openAmount > 0 ? 'open' : (r.financialStatus || 'other');
+        if (!map.has(key)) {
+          map.set(key, {
+            Financial_Status: key,
+            Order_Count: 0,
+            Customer_Count_Set: new Set(),
+            Net_Sales: 0,
+            Open_Amount: 0
+          });
+        }
+        const item = map.get(key);
+        item.Order_Count += 1;
+        item.Customer_Count_Set.add(`${r.customer}__${r.email}`);
+        item.Net_Sales += r.sales;
+        item.Open_Amount += r.openAmount;
+      });
+
+      const rows = Array.from(map.values()).map(v => ({
+        Financial_Status: v.Financial_Status,
+        Order_Count: v.Order_Count,
+        Customer_Count: v.Customer_Count_Set.size,
+        Net_Sales: v.Net_Sales.toFixed(2),
+        Open_Amount: v.Open_Amount.toFixed(2)
+      })).sort((a, b) => Number(b.Open_Amount) - Number(a.Open_Amount));
+
+      downloadCsv(rows, 'statement_financial_summary.csv', 'Exported financial summary.');
+    }
+
+    function exportFulfillmentSummary() {
+      const map = new Map();
+
+      state.filteredRows.forEach(r => {
+        const key = r.fulfillment || 'unknown';
+        if (!map.has(key)) {
+          map.set(key, {
+            Fulfillment_Status: key,
+            Order_Count: 0,
+            Quantity: 0,
+            Net_Sales: 0,
+            Open_Amount: 0
+          });
+        }
+        const item = map.get(key);
+        item.Order_Count += 1;
+        item.Quantity += r.quantity;
+        item.Net_Sales += r.sales;
+        item.Open_Amount += r.openAmount;
+      });
+
+      const rows = Array.from(map.values()).map(v => ({
+        Fulfillment_Status: v.Fulfillment_Status,
+        Order_Count: v.Order_Count,
+        Quantity: v.Quantity,
+        Net_Sales: v.Net_Sales.toFixed(2),
+        Open_Amount: v.Open_Amount.toFixed(2)
+      })).sort((a, b) => Number(b.Open_Amount) - Number(a.Open_Amount));
+
+      downloadCsv(rows, 'statement_fulfillment_summary.csv', 'Exported fulfillment summary.');
+    }
+
+    function exportTermsSummary() {
+      const openRows = state.filteredRows.filter(r => r.openAmount > 0);
+      const matchedEmail = openRows.filter(r => r.matchedBy === 'email');
+      const matchedCustomer = openRows.filter(r => r.matchedBy === 'customer');
+      const defaultRows = openRows.filter(r => r.matchedBy === 'default');
+
+      const rows = [
+        {
+          Match_Type: 'email',
+          Order_Count: matchedEmail.length,
+          Open_Amount: matchedEmail.reduce((s, r) => s + r.openAmount, 0).toFixed(2),
+          Avg_Term_Days: matchedEmail.length ? (matchedEmail.reduce((s, r) => s + r.termDays, 0) / matchedEmail.length).toFixed(1) : '0.0'
+        },
+        {
+          Match_Type: 'customer',
+          Order_Count: matchedCustomer.length,
+          Open_Amount: matchedCustomer.reduce((s, r) => s + r.openAmount, 0).toFixed(2),
+          Avg_Term_Days: matchedCustomer.length ? (matchedCustomer.reduce((s, r) => s + r.termDays, 0) / matchedCustomer.length).toFixed(1) : '0.0'
+        },
+        {
+          Match_Type: 'default',
+          Order_Count: defaultRows.length,
+          Open_Amount: defaultRows.reduce((s, r) => s + r.openAmount, 0).toFixed(2),
+          Avg_Term_Days: defaultRows.length ? (defaultRows.reduce((s, r) => s + r.termDays, 0) / defaultRows.length).toFixed(1) : '0.0'
+        }
+      ];
+
+      downloadCsv(rows, 'statement_terms_summary.csv', 'Exported terms summary.');
     }
 
     init();
