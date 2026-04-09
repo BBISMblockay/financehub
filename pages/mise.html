@@ -16,42 +16,40 @@
   <style>
     :root{
       color-scheme: light;
-      --bg:#f4f7fb;
+      --bg:#f3f7fb;
       --panel:#ffffff;
       --panel-2:#f8fafc;
       --line:#e2e8f0;
-      --line-2:#dbe4ee;
+      --line-2:#d8e2ec;
       --text:#0f172a;
       --muted:#64748b;
       --muted-2:#94a3b8;
       --shadow:0 10px 26px rgba(15,23,42,.05);
-      --shadow-lg:0 16px 40px rgba(15,23,42,.08);
-      --radius:20px;
+      --shadow-lg:0 18px 44px rgba(15,23,42,.08);
+      --radius:22px;
     }
     html,body{
-      margin:0;padding:0;background:
-      radial-gradient(circle at top left, rgba(255,255,255,.9), transparent 26%),
-      linear-gradient(180deg,#f7f9fc 0%,#f2f6fb 100%);
+      margin:0;
+      padding:0;
+      background:
+        radial-gradient(circle at top left, rgba(255,255,255,.94), transparent 24%),
+        linear-gradient(180deg,#f8fbfe 0%,#f2f6fb 100%);
       color:var(--text);
       font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
     }
-    body{line-height:1.45}
-    .app{
-      max-width:1380px;
-      margin:0 auto;
-      padding:18px 14px 40px;
-    }
+    body{ line-height:1.45; }
+    .app{ max-width:1380px; margin:0 auto; padding:18px 14px 40px; }
     .card,.metric,.subcard{
-      background:rgba(255,255,255,.96);
+      background:rgba(255,255,255,.97);
       border:1px solid var(--line);
       box-shadow:var(--shadow);
     }
-    .card{border-radius:24px}
-    .subcard{border-radius:18px}
+    .card{ border-radius:24px; }
+    .subcard{ border-radius:18px; }
     .metric{
       border-radius:18px;
       padding:14px 14px 12px;
-      min-height:104px;
+      min-height:108px;
       display:flex;
       flex-direction:column;
       justify-content:space-between;
@@ -64,8 +62,10 @@
     .hero:before{
       content:"";
       position:absolute;
-      width:380px;height:380px;
-      right:-120px;top:-220px;
+      width:380px;
+      height:380px;
+      right:-120px;
+      top:-220px;
       background:radial-gradient(circle, rgba(148,163,184,.14), transparent 68%);
       pointer-events:none;
     }
@@ -79,16 +79,16 @@
     }
     .hero-title{
       margin:8px 0 0;
-      font-size:clamp(1.75rem,2vw + 1rem,2.5rem);
+      font-size:clamp(1.72rem,2vw + 1rem,2.45rem);
       line-height:1.02;
       letter-spacing:-.04em;
       font-weight:800;
     }
     .hero-sub{
       margin:10px 0 0;
-      max-width:860px;
+      max-width:820px;
       color:#475569;
-      font-size:.95rem;
+      font-size:.94rem;
     }
     .toolbar{
       display:flex;
@@ -97,7 +97,7 @@
       align-items:center;
       justify-content:flex-end;
     }
-    .btn,.btn-dark,.btn-soft{
+    .btn,.btn-dark,.btn-soft,.seg-btn{
       display:inline-flex;
       align-items:center;
       justify-content:center;
@@ -114,23 +114,27 @@
       transition:.14s ease;
       white-space:nowrap;
     }
-    .btn-dark{background:#0f172a;color:#fff;border-color:#0f172a}
-    .btn-soft{background:#f8fafc}
-    .btn:hover,.btn-dark:hover,.btn-soft:hover{transform:translateY(-1px);box-shadow:0 8px 18px rgba(15,23,42,.08)}
-    .section{
-      margin-top:14px;
-      padding:18px;
+    .btn-dark{ background:#0f172a; color:#fff; border-color:#0f172a; }
+    .btn-soft{ background:#f8fafc; }
+    .btn:hover,.btn-dark:hover,.btn-soft:hover,.seg-btn:hover{ transform:translateY(-1px); box-shadow:0 8px 18px rgba(15,23,42,.08); }
+    .seg-wrap{
+      display:inline-flex;
+      gap:6px;
+      padding:6px;
+      border:1px solid var(--line);
+      border-radius:16px;
+      background:#f8fafc;
+      flex-wrap:wrap;
     }
-    .section-title{
-      font-size:1.06rem;
-      font-weight:800;
-      letter-spacing:-.02em;
+    .seg-btn.active{
+      background:#0f172a;
+      color:#fff;
+      border-color:#0f172a;
+      box-shadow:none;
     }
-    .section-sub{
-      margin-top:2px;
-      font-size:.88rem;
-      color:var(--muted);
-    }
+    .section{ margin-top:14px; padding:18px; }
+    .section-title{ font-size:1.05rem; font-weight:800; letter-spacing:-.02em; }
+    .section-sub{ margin-top:2px; font-size:.88rem; color:var(--muted); }
     .metric-label{
       font-size:.68rem;
       letter-spacing:.12em;
@@ -139,22 +143,15 @@
       color:var(--muted);
     }
     .metric-value{
-      font-size:1.55rem;
+      font-size:1.5rem;
       line-height:1.02;
       letter-spacing:-.035em;
       font-weight:800;
       margin-top:8px;
     }
-    .metric-note{
-      font-size:.75rem;
-      color:var(--muted);
-      margin-top:6px;
-    }
-    .mono{
-      font-variant-numeric:tabular-nums;
-      font-feature-settings:"tnum" 1;
-    }
-    .field{
+    .metric-note{ font-size:.75rem; color:var(--muted); margin-top:6px; }
+    .mono{ font-variant-numeric:tabular-nums; font-feature-settings:"tnum" 1; }
+    .field,.sort-field{
       width:100%;
       min-height:44px;
       border:1px solid var(--line-2);
@@ -165,9 +162,18 @@
       color:var(--text);
       outline:none;
     }
-    .field:focus{
+    .field:focus,.sort-field:focus{
       border-color:#94a3b8;
       box-shadow:0 0 0 4px rgba(148,163,184,.12);
+    }
+    .field-wrap label,.mini-label{
+      display:block;
+      font-size:.66rem;
+      text-transform:uppercase;
+      letter-spacing:.11em;
+      font-weight:800;
+      color:var(--muted);
+      margin:0 0 8px;
     }
     .pill{
       display:inline-flex;
@@ -180,29 +186,16 @@
       font-weight:800;
       white-space:nowrap;
     }
-    .pill-green{background:#dcfce7;color:#166534}
-    .pill-amber{background:#fef3c7;color:#92400e}
-    .pill-red{background:#fee2e2;color:#991b1b}
-    .pill-slate{background:#e2e8f0;color:#334155}
-    .pill-blue{background:#dbeafe;color:#1d4ed8}
-    .mini{
-      height:9px;
-      border-radius:999px;
-      background:#e2e8f0;
-      overflow:hidden;
-    }
-    .mini > span{
-      display:block;
-      height:100%;
-      border-radius:999px;
-      background:linear-gradient(90deg,#0f172a,#64748b);
-    }
-    .scrollbar::-webkit-scrollbar,
-    .table-wrap::-webkit-scrollbar{height:10px;width:10px}
-    .scrollbar::-webkit-scrollbar-thumb,
-    .table-wrap::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:999px}
-    .scrollbar::-webkit-scrollbar-track,
-    .table-wrap::-webkit-scrollbar-track{background:transparent}
+    .pill-green{ background:#dcfce7; color:#166534; }
+    .pill-amber{ background:#fef3c7; color:#92400e; }
+    .pill-red{ background:#fee2e2; color:#991b1b; }
+    .pill-slate{ background:#e2e8f0; color:#334155; }
+    .pill-blue{ background:#dbeafe; color:#1d4ed8; }
+    .mini{ height:9px; border-radius:999px; background:#e2e8f0; overflow:hidden; }
+    .mini > span{ display:block; height:100%; border-radius:999px; background:linear-gradient(90deg,#0f172a,#64748b); }
+    .scrollbar::-webkit-scrollbar,.table-wrap::-webkit-scrollbar{ height:10px; width:10px; }
+    .scrollbar::-webkit-scrollbar-thumb,.table-wrap::-webkit-scrollbar-thumb{ background:#cbd5e1; border-radius:999px; }
+    .scrollbar::-webkit-scrollbar-track,.table-wrap::-webkit-scrollbar-track{ background:transparent; }
     .table-wrap{
       overflow:auto;
       border:1px solid var(--line);
@@ -210,17 +203,8 @@
       background:#fff;
       max-height:72vh;
     }
-    .table-sticky thead th{
-      position:sticky;
-      top:0;
-      background:#f8fafc;
-      z-index:2;
-    }
-    table{
-      border-collapse:separate;
-      border-spacing:0;
-      width:100%;
-    }
+    .table-sticky thead th{ position:sticky; top:0; background:#f8fafc; z-index:2; }
+    table{ border-collapse:separate; border-spacing:0; width:100%; }
     th{
       font-size:.76rem;
       color:#64748b;
@@ -235,7 +219,7 @@
       border-bottom:1px solid #edf2f7;
       font-size:.84rem;
     }
-    tr:hover td{background:#fafcff}
+    tr:hover td{ background:#fafcff; }
     .link-btn{
       display:inline-flex;
       align-items:center;
@@ -251,14 +235,10 @@
       text-decoration:none;
       white-space:nowrap;
     }
-    .link-btn:hover{background:#f8fafc}
-    .muted{color:var(--muted)}
-    .muted-2{color:var(--muted-2)}
-    .right-meta{
-      font-size:.75rem;
-      color:var(--muted);
-      white-space:nowrap;
-    }
+    .link-btn:hover{ background:#f8fafc; }
+    .muted{ color:var(--muted); }
+    .muted-2{ color:var(--muted-2); }
+    .right-meta{ font-size:.75rem; color:var(--muted); white-space:nowrap; }
     .label-row{
       display:flex;
       align-items:center;
@@ -278,20 +258,17 @@
       font-size:.67rem;
       font-weight:700;
     }
-    .source-drive{color:#166534}
-    .source-jotform{color:#92400e}
+    .source-drive{ color:#166534; }
+    .source-jotform{ color:#92400e; }
     .truncate-2{
       display:-webkit-box;
       -webkit-box-orient:vertical;
       -webkit-line-clamp:2;
       overflow:hidden;
     }
-    .mobile-cards{display:none}
-    .mobile-row{
-      padding:14px;
-      border-bottom:1px solid #edf2f7;
-    }
-    .mobile-row:last-child{border-bottom:none}
+    .mobile-cards{ display:none; }
+    .mobile-row{ padding:14px; border-bottom:1px solid #edf2f7; }
+    .mobile-row:last-child{ border-bottom:none; }
     .mobile-grid{
       display:grid;
       grid-template-columns:1fr 1fr;
@@ -307,23 +284,110 @@
       color:var(--muted);
       margin-bottom:2px;
     }
-    .desktop-only{display:block}
-    .mobile-only{display:none}
-    canvas{max-width:100%}
+    .desktop-only{ display:block; }
+    .mobile-only{ display:none; }
+    .filters-shell{
+      padding:16px;
+      border-radius:20px;
+      border:1px solid var(--line);
+      background:linear-gradient(180deg,#fbfdff 0%,#f8fafc 100%);
+    }
+    .quick-grid{
+      display:grid;
+      grid-template-columns:minmax(260px,1.4fr) auto auto auto;
+      gap:12px;
+      align-items:end;
+    }
+    .chips-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      min-height:22px;
+    }
+    .filter-chip{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:.42rem .68rem;
+      border-radius:999px;
+      border:1px solid #dbe4ee;
+      background:#fff;
+      font-size:.74rem;
+      font-weight:700;
+      color:#334155;
+    }
+    .filter-chip button{
+      border:none;
+      background:transparent;
+      cursor:pointer;
+      font-size:.8rem;
+      color:#64748b;
+      padding:0;
+      line-height:1;
+    }
+    .drawer{
+      margin-top:14px;
+      padding-top:14px;
+      border-top:1px dashed var(--line-2);
+      display:none;
+    }
+    .drawer.open{ display:block; }
+    .toggle-line{ display:flex; align-items:center; gap:10px; }
+    .summary-strip{
+      display:grid;
+      grid-template-columns:repeat(4,minmax(0,1fr));
+      gap:12px;
+      margin-top:14px;
+    }
+    .strip-card{
+      border:1px solid var(--line);
+      border-radius:16px;
+      background:#fff;
+      padding:12px 14px;
+    }
+    .strip-title{
+      font-size:.66rem;
+      text-transform:uppercase;
+      letter-spacing:.11em;
+      font-weight:800;
+      color:var(--muted);
+    }
+    .strip-value{
+      margin-top:8px;
+      font-size:1.05rem;
+      font-weight:800;
+      letter-spacing:-.02em;
+    }
+
+    .tabbar{ display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+    .tabbtn{ min-height:40px; padding:.62rem .95rem; border-radius:999px; border:1px solid var(--line-2); background:#fff; color:var(--text); font-size:.82rem; font-weight:800; cursor:pointer; }
+    .tabbtn.active{ background:#0f172a; color:#fff; border-color:#0f172a; }
+    .tabpanel{ display:none; }
+    .tabpanel.active{ display:block; }
+
+    canvas{ max-width:100%; }
 
     @media (max-width: 1100px){
-      .app{padding:14px 12px 28px}
+      .app{ padding:14px 12px 28px; }
+      .quick-grid{ grid-template-columns:1fr 1fr; }
+      .summary-strip{ grid-template-columns:repeat(2,minmax(0,1fr)); }
     }
     @media (max-width: 900px){
-      .desktop-only{display:none}
-      .mobile-only{display:block}
-      .hero{padding:18px}
-      .section{padding:16px}
-      .metric{min-height:96px}
-      .mobile-cards{display:block}
-      .desktop-table{display:none}
-      .mobile-stack{grid-template-columns:1fr !important}
-      .toolbar{justify-content:flex-start}
+      .desktop-only{ display:none; }
+      .mobile-only{ display:block; }
+      .hero{ padding:18px; }
+      .section{ padding:16px; }
+      .metric{ min-height:96px; }
+      .mobile-cards{ display:block; }
+      .desktop-table{ display:none; }
+      .mobile-stack{ grid-template-columns:1fr !important; }
+      .toolbar{ justify-content:flex-start; }
+      .quick-grid{ grid-template-columns:1fr; }
+      .summary-strip{ grid-template-columns:1fr 1fr; }
+    }
+    @media (max-width: 640px){
+      .summary-strip{ grid-template-columns:1fr; }
+      .mobile-grid{ grid-template-columns:1fr; }
     }
   </style>
 </head>
@@ -335,15 +399,12 @@
         <div>
           <div class="kicker">Jotform · Google Sheets · Google Drive · Read Only</div>
           <h1 class="hero-title">MISE Accounts Payable</h1>
-          <p class="hero-sub">
-            Payables reporting with Google Drive-backed file viewing, open AP tracking,
-            aging, vendor rollups, charts, and full submission detail.
-          </p>
+          <p class="hero-sub">Payables reporting with Google Drive-backed file viewing, open AP tracking, aging, vendor rollups, charts, and full submission detail.</p>
         </div>
         <div class="toolbar">
           <button id="refreshBtn" class="btn">Refresh Data</button>
           <button id="exportBtn" class="btn">Export Filtered CSV</button>
-          <button id="resetBtn" class="btn-dark">Reset Filters</button>
+          <button id="resetBtn" class="btn-dark">Reset</button>
         </div>
       </div>
     </section>
@@ -352,72 +413,163 @@
       <div class="metric">
         <div class="metric-label">Rows</div>
         <div id="kpiRows" class="metric-value mono">—</div>
-        <div class="metric-note">Current filtered view</div>
+        <div class="metric-note">Filtered rows</div>
       </div>
       <div class="metric">
         <div class="metric-label">Open AP Count</div>
         <div id="kpiOpenCount" class="metric-value mono">—</div>
-        <div class="metric-note">Actionable unpaid items</div>
+        <div class="metric-note">Unpaid items</div>
       </div>
       <div class="metric">
         <div class="metric-label">Open AP Amount</div>
         <div id="kpiOpenAmount" class="metric-value mono">—</div>
-        <div class="metric-note">Outstanding payable value</div>
+        <div class="metric-note">Open amount</div>
       </div>
       <div class="metric">
         <div class="metric-label">Overdue Amount</div>
         <div id="kpiOverdueAmount" class="metric-value mono">—</div>
-        <div class="metric-note">Past due based on due date</div>
+        <div class="metric-note">Past due</div>
       </div>
       <div class="metric">
         <div class="metric-label">Due Next 7 Days</div>
         <div id="kpiDueSoon" class="metric-value mono">—</div>
-        <div class="metric-note">Upcoming open AP</div>
+        <div class="metric-note">Coming due</div>
       </div>
       <div class="metric">
         <div class="metric-label">Complete / Info</div>
         <div id="kpiCompleteAmount" class="metric-value mono">—</div>
-        <div class="metric-note">Receipts + paid items</div>
+        <div class="metric-note">Paid + receipts</div>
       </div>
     </section>
 
+    <section class="card section mt-4">
+      <div class="label-row">
+        <div>
+          <div class="section-title">Browse</div>
+          
+        </div>
+        <div id="lastUpdated" class="right-meta">Loading…</div>
+      </div>
+
+      <div class="filters-shell">
+        <div class="quick-grid">
+          <div class="field-wrap">
+            <label for="searchInput">Search</label>
+            <input id="searchInput" class="field" placeholder="Vendor, invoice, notes, submitter, file, submission ID..." />
+          </div>
+
+          <div class="field-wrap">
+            <label>Quick View</label>
+            <div id="quickViewWrap" class="seg-wrap">
+              <button type="button" class="seg-btn active" data-quick-view="all">All</button>
+              <button type="button" class="seg-btn" data-quick-view="open">Open AP</button>
+              <button type="button" class="seg-btn" data-quick-view="overdue">Overdue</button>
+              <button type="button" class="seg-btn" data-quick-view="dueSoon">Due 7 Days</button>
+              <button type="button" class="seg-btn" data-quick-view="complete">Complete</button>
+            </div>
+          </div>
+
+          <div class="field-wrap">
+            <label for="sortBy">Sort</label>
+            <select id="sortBy" class="sort-field">
+              <option value="priority">Priority view</option>
+              <option value="dueAsc">Due date · soonest first</option>
+              <option value="dueDesc">Due date · latest first</option>
+              <option value="amountDesc">Amount · highest first</option>
+              <option value="amountAsc">Amount · lowest first</option>
+              <option value="submissionDesc">Submission date · newest</option>
+              <option value="submissionAsc">Submission date · oldest</option>
+              <option value="vendorAsc">Vendor · A to Z</option>
+              <option value="vendorDesc">Vendor · Z to A</option>
+            </select>
+          </div>
+
+          <div class="field-wrap">
+            <label>&nbsp;</label>
+            <button id="toggleAdvancedBtn" class="btn-soft w-full">More Filters</button>
+          </div>
+        </div>
+        <div id="activeFilterChips" class="chips-row mt-4"></div>
+
+        <div id="advancedDrawer" class="drawer">
+          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+            <div class="field-wrap">
+              <label for="statusFilter">Reporting Status</label>
+              <select id="statusFilter" class="field"></select>
+            </div>
+            <div class="field-wrap">
+              <label for="dueBucketFilter">Due Bucket</label>
+              <select id="dueBucketFilter" class="field"></select>
+            </div>
+            <div class="field-wrap">
+              <label for="typeFilter">Request Type</label>
+              <select id="typeFilter" class="field"></select>
+            </div>
+            <div class="field-wrap">
+              <label for="vendorFilter">Vendor</label>
+              <select id="vendorFilter" class="field"></select>
+            </div>
+            <div class="field-wrap">
+              <label for="categoryFilter">Category</label>
+              <select id="categoryFilter" class="field"></select>
+            </div>
+            <div class="field-wrap">
+              <label for="submitterFilter">Submitter</label>
+              <select id="submitterFilter" class="field"></select>
+            </div>
+            <div class="field-wrap">
+              <label for="paidByFilter">Paid By</label>
+              <select id="paidByFilter" class="field"></select>
+            </div>
+            <div class="field-wrap">
+              <label for="entityFilter">Entity</label>
+              <select id="entityFilter" class="field"></select>
+            </div>
+            <div class="field-wrap">
+              <label for="dateFrom">Submission Date From</label>
+              <input id="dateFrom" class="field" type="date" />
+            </div>
+            <div class="field-wrap">
+              <label for="dateTo">Submission Date To</label>
+              <input id="dateTo" class="field" type="date" />
+            </div>
+            <div class="field-wrap">
+              <label>&nbsp;</label>
+              <label class="field toggle-line cursor-pointer">
+                <input id="unpaidOnly" type="checkbox" class="h-4 w-4" />
+                <span>Open AP only</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="tabbar">
+      <button id="tabSubmissionsBtn" class="tabbtn active" type="button">Submissions</button>
+      <button id="tabReportsBtn" class="tabbtn" type="button">Aging & Reports</button>
+    </div>
+
+    <div id="reportsPanel" class="tabpanel">
     <section class="grid grid-cols-1 xl:grid-cols-[1.2fr_.8fr] gap-4 mt-4 mobile-stack">
       <div class="card section">
         <div class="label-row">
           <div>
-            <div class="section-title">Filters</div>
-            <div class="section-sub">Search vendor, invoice, notes, submitter, payment detail, file name, or submission ID.</div>
+            <div class="section-title">Aging Snapshot</div>
+            
           </div>
-          <div id="lastUpdated" class="right-meta">Loading…</div>
         </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
-          <input id="searchInput" class="field" placeholder="Search..." />
-          <select id="typeFilter" class="field"></select>
-          <select id="statusFilter" class="field"></select>
-          <select id="vendorFilter" class="field"></select>
-          <select id="categoryFilter" class="field"></select>
-          <select id="submitterFilter" class="field"></select>
-          <select id="paidByFilter" class="field"></select>
-          <select id="entityFilter" class="field"></select>
-          <select id="dueBucketFilter" class="field"></select>
-          <input id="dateFrom" class="field" type="date" />
-          <input id="dateTo" class="field" type="date" />
-          <label class="field flex items-center gap-3 cursor-pointer">
-            <input id="unpaidOnly" type="checkbox" class="h-4 w-4" />
-            <span>Open AP only</span>
-          </label>
-        </div>
+        <div id="agingCards" class="grid grid-cols-2 gap-3"></div>
       </div>
 
       <div class="card section">
         <div class="label-row">
           <div>
-            <div class="section-title">Aging Snapshot</div>
-            <div class="section-sub">Aging applies to open AP only. Receipt uploads stay in complete / info.</div>
+            <div class="section-title">Status Buckets</div>
+            
           </div>
         </div>
-        <div id="agingCards" class="grid grid-cols-2 gap-3"></div>
+        <div id="bucketWrap" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
       </div>
     </section>
 
@@ -426,7 +578,7 @@
         <div class="label-row">
           <div>
             <div class="section-title">Open AP Trend</div>
-            <div class="section-sub">Monthly open AP vs complete / info totals in the current filtered view.</div>
+            
           </div>
         </div>
         <div class="h-[320px]"><canvas id="trendChart"></canvas></div>
@@ -436,7 +588,7 @@
         <div class="label-row">
           <div>
             <div class="section-title">Top Vendors by Open Amount</div>
-            <div class="section-sub">Largest remaining AP exposure by vendor.</div>
+            
           </div>
         </div>
         <div class="h-[320px]"><canvas id="vendorChart"></canvas></div>
@@ -447,8 +599,8 @@
       <div class="card section">
         <div class="label-row">
           <div>
-            <div class="section-title">Payables Summary</div>
-            <div class="section-sub">Vendor rollup from the current filtered view.</div>
+            <div class="section-title">Vendor Summary</div>
+            
           </div>
         </div>
         <div class="table-wrap scrollbar desktop-table">
@@ -467,23 +619,14 @@
         </div>
         <div id="summaryMobile" class="mobile-cards"></div>
       </div>
-
-      <div class="card section">
-        <div class="label-row">
-          <div>
-            <div class="section-title">Status Buckets</div>
-            <div class="section-sub">Fast view of open vs complete status buckets.</div>
-          </div>
-        </div>
-        <div id="bucketWrap" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
-      </div>
     </section>
+    </div>
 
-    <section class="card section mt-4">
+    <section id="submissionsPanel" class="card section mt-4 tabpanel active">
       <div class="label-row">
         <div>
-          <div class="section-title">Submission Detail</div>
-          <div class="section-sub">Uses Drive File URL first, then falls back to Jotform file links if Drive is blank.</div>
+          <div class="section-title">Submissions</div>
+          
         </div>
         <div id="tableCount" class="right-meta">0 rows</div>
       </div>
@@ -525,7 +668,10 @@ const state = {
   raw: [],
   filtered: [],
   trendChart: null,
-  vendorChart: null
+  vendorChart: null,
+  quickView: 'all',
+  advancedOpen: false,
+  activeTab: 'submissions'
 };
 
 const $ = s => document.querySelector(s);
@@ -543,6 +689,7 @@ const els = {
   unpaidOnly: $('#unpaidOnly'),
   dateFrom: $('#dateFrom'),
   dateTo: $('#dateTo'),
+  sortBy: $('#sortBy'),
   tbody: $('#tableBody'),
   summary: $('#summaryBody'),
   summaryMobile: $('#summaryMobile'),
@@ -550,7 +697,15 @@ const els = {
   agingCards: $('#agingCards'),
   mobileRows: $('#mobileRows'),
   tableCount: $('#tableCount'),
-  lastUpdated: $('#lastUpdated')
+  lastUpdated: $('#lastUpdated'),
+  activeFilterChips: $('#activeFilterChips'),
+  advancedDrawer: $('#advancedDrawer'),
+  toggleAdvancedBtn: $('#toggleAdvancedBtn'),
+  quickViewWrap: $('#quickViewWrap'),
+  submissionsPanel: $('#submissionsPanel'),
+  reportsPanel: $('#reportsPanel'),
+  tabSubmissionsBtn: $('#tabSubmissionsBtn'),
+  tabReportsBtn: $('#tabReportsBtn')
 };
 
 function money(n){
@@ -603,9 +758,7 @@ function parseDate(v){
   const d = new Date(s);
   return isNaN(+d) ? null : d;
 }
-function stripTime(d){
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
-}
+function stripTime(d){ return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
 function daysBetween(a,b){
   const ms = 24*60*60*1000;
   return Math.floor((stripTime(a) - stripTime(b)) / ms);
@@ -623,15 +776,11 @@ function yesNo(v){
   if(['no','open','unpaid','false'].includes(s)) return 'No';
   return s ? v : 'No';
 }
-function uniq(vals){
-  return [...new Set(vals.filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b)));
-}
+function uniq(vals){ return [...new Set(vals.filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b))); }
 function optionHTML(list, first='All'){
   return [`<option value="">${first}</option>`, ...list.map(v => `<option>${esc(v)}</option>`)].join('');
 }
-function ym(d){
-  return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` : 'Unknown';
-}
+function ym(d){ return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` : 'Unknown'; }
 function ymLabel(s){
   if(!s || s === 'Unknown') return 'Unknown';
   const [y,m] = s.split('-').map(Number);
@@ -663,6 +812,33 @@ function statusPillHtml(label){
 }
 function sourceClass(source){
   return source === 'Drive' ? 'source-drive' : (source === 'Jotform' ? 'source-jotform' : '');
+}
+function rowPriorityScore(r){
+  if(r.isOperationallyComplete) return 50;
+  if(r.dueBucket === 'Overdue') return 1;
+  if(r.dueBucket === 'Due today') return 2;
+  if(r.dueBucket === 'Due next 7 days') return 3;
+  if(r.dueBucket === 'Future') return 4;
+  if(r.dueBucket === 'No due date') return 5;
+  return 10;
+}
+function firstActiveFilter(){
+  if(state.quickView !== 'all') return quickViewLabel(state.quickView);
+  if(els.search.value) return 'Search';
+  if(els.status.value) return 'Reporting status';
+  if(els.dueBucket.value) return 'Due bucket';
+  if(els.vendor.value) return 'Vendor';
+  if(els.type.value) return 'Request type';
+  if(els.category.value) return 'Category';
+  if(els.submitter.value) return 'Submitter';
+  if(els.paidBy.value) return 'Paid by';
+  if(els.entity.value) return 'Entity';
+  if(els.dateFrom.value || els.dateTo.value) return 'Submission date range';
+  if(els.unpaidOnly.checked) return 'Open AP only';
+  return 'None';
+}
+function quickViewLabel(v){
+  return ({ all:'All items', open:'Open AP', overdue:'Overdue', dueSoon:'Due next 7 days', complete:'Complete / Info' }[v]) || 'All items';
 }
 
 function normalizeRow(r){
@@ -701,11 +877,14 @@ function normalizeRow(r){
   let agingBucket = 'Complete / Info';
   if(isActionablePayable){
     if(!dueDate) agingBucket = 'No due date';
-    else if(dueDelta < 0) agingBucket = 'Current / Not yet due';
-    else if(dueDelta <= 30) agingBucket = '0-30 days';
-    else if(dueDelta <= 60) agingBucket = '31-60 days';
-    else if(dueDelta <= 90) agingBucket = '61-90 days';
-    else agingBucket = '90+ days';
+    else if(dueDelta >= 0) agingBucket = 'Current / Not yet due';
+    else {
+      const lateDays = Math.abs(dueDelta);
+      if(lateDays <= 30) agingBucket = '0-30 days';
+      else if(lateDays <= 60) agingBucket = '31-60 days';
+      else if(lateDays <= 90) agingBucket = '61-90 days';
+      else agingBucket = '90+ days';
+    }
   }
 
   const jotformFiles = splitMultiLinks(r['File Upload']);
@@ -751,7 +930,8 @@ function normalizeRow(r){
     dueDelta,
     agingBucket,
     rowStatusText,
-    reportStatus: isActionablePayable ? 'Open AP' : 'Complete / Info'
+    reportStatus: isActionablePayable ? 'Open AP' : 'Complete / Info',
+    priorityScore: 0
   };
 }
 
@@ -768,7 +948,7 @@ async function loadData(){
     });
   });
 
-  state.raw = rows.map(normalizeRow).filter(r => r.vendor !== '—' || r.submissionId !== '—');
+  state.raw = rows.map(normalizeRow).filter(r => r.vendor !== '—' || r.submissionId !== '—').map(r => ({ ...r, priorityScore: rowPriorityScore(r) }));
   hydrateFilters();
   applyFilters();
   els.lastUpdated.textContent = `Loaded ${state.raw.length.toLocaleString()} rows · ${new Date().toLocaleString()}`;
@@ -785,12 +965,55 @@ function hydrateFilters(){
   els.dueBucket.innerHTML = optionHTML(['Overdue','Due today','Due next 7 days','Future','No due date','Complete'], 'All due buckets');
 }
 
+function applyQuickView(rows){
+  switch(state.quickView){
+    case 'open': return rows.filter(r => r.isActionablePayable);
+    case 'overdue': return rows.filter(r => r.isActionablePayable && r.dueBucket === 'Overdue');
+    case 'dueSoon': return rows.filter(r => r.isActionablePayable && (r.dueBucket === 'Due today' || r.dueBucket === 'Due next 7 days'));
+    case 'complete': return rows.filter(r => r.isOperationallyComplete);
+    default: return rows;
+  }
+}
+
+function sortRows(rows){
+  const mode = els.sortBy.value || 'priority';
+  const clone = [...rows];
+  clone.sort((a,b) => {
+    if(mode === 'priority'){
+      const aDue = a.dueDate ? +a.dueDate : Number.MAX_SAFE_INTEGER;
+      const bDue = b.dueDate ? +b.dueDate : Number.MAX_SAFE_INTEGER;
+      return (a.priorityScore - b.priorityScore)
+        || (b.amount - a.amount)
+        || (aDue - bDue)
+        || ((+b.submissionDate || 0) - (+a.submissionDate || 0));
+    }
+    if(mode === 'dueAsc'){
+      const aDue = a.dueDate ? +a.dueDate : Number.MAX_SAFE_INTEGER;
+      const bDue = b.dueDate ? +b.dueDate : Number.MAX_SAFE_INTEGER;
+      return aDue - bDue || (b.amount - a.amount);
+    }
+    if(mode === 'dueDesc'){
+      const aDue = a.dueDate ? +a.dueDate : -1;
+      const bDue = b.dueDate ? +b.dueDate : -1;
+      return bDue - aDue || (b.amount - a.amount);
+    }
+    if(mode === 'amountDesc') return b.amount - a.amount || ((+b.submissionDate || 0) - (+a.submissionDate || 0));
+    if(mode === 'amountAsc') return a.amount - b.amount || ((+b.submissionDate || 0) - (+a.submissionDate || 0));
+    if(mode === 'submissionAsc') return ((+a.submissionDate || 0) - (+b.submissionDate || 0));
+    if(mode === 'submissionDesc') return ((+b.submissionDate || 0) - (+a.submissionDate || 0));
+    if(mode === 'vendorAsc') return a.vendor.localeCompare(b.vendor) || (b.amount - a.amount);
+    if(mode === 'vendorDesc') return b.vendor.localeCompare(a.vendor) || (b.amount - a.amount);
+    return 0;
+  });
+  return clone;
+}
+
 function applyFilters(){
   const q = compact(els.search.value).toLowerCase();
   const from = parseDate(els.dateFrom.value);
   const to = parseDate(els.dateTo.value);
 
-  state.filtered = state.raw.filter(r => {
+  let rows = state.raw.filter(r => {
     if(q){
       const hay = [
         r.vendor, r.invoice, r.notes, r.submitter, r.paymentDetail,
@@ -813,18 +1036,53 @@ function applyFilters(){
     if(to && (!r.submissionDate || stripTime(r.submissionDate) > stripTime(to))) return false;
 
     return true;
-  }).sort((a,b) => {
-    const ad = a.dueDate ? +a.dueDate : Number.MAX_SAFE_INTEGER;
-    const bd = b.dueDate ? +b.dueDate : Number.MAX_SAFE_INTEGER;
-    return ad - bd || (+b.submissionDate || 0) - (+a.submissionDate || 0);
   });
 
+  rows = applyQuickView(rows);
+  state.filtered = sortRows(rows);
+
+  renderFilterSummary();
   renderKPIs();
   renderAgingCards();
   renderBuckets();
   renderSummary();
   renderCharts();
   renderTable();
+}
+
+function renderFilterSummary(){
+  const chips = [];
+  if(state.quickView !== 'all') chips.push({ label:`View: ${quickViewLabel(state.quickView)}`, clear:() => setQuickView('all') });
+  if(els.search.value) chips.push({ label:`Search: ${els.search.value}`, key:'searchInput' });
+  if(els.status.value) chips.push({ label:`Status: ${els.status.value}`, key:'statusFilter' });
+  if(els.dueBucket.value) chips.push({ label:`Due: ${els.dueBucket.value}`, key:'dueBucketFilter' });
+  if(els.type.value) chips.push({ label:`Type: ${els.type.value}`, key:'typeFilter' });
+  if(els.vendor.value) chips.push({ label:`Vendor: ${els.vendor.value}`, key:'vendorFilter' });
+  if(els.category.value) chips.push({ label:`Category: ${els.category.value}`, key:'categoryFilter' });
+  if(els.submitter.value) chips.push({ label:`Submitter: ${els.submitter.value}`, key:'submitterFilter' });
+  if(els.paidBy.value) chips.push({ label:`Paid by: ${els.paidBy.value}`, key:'paidByFilter' });
+  if(els.entity.value) chips.push({ label:`Entity: ${els.entity.value}`, key:'entityFilter' });
+  if(els.dateFrom.value) chips.push({ label:`From: ${els.dateFrom.value}`, key:'dateFrom' });
+  if(els.dateTo.value) chips.push({ label:`To: ${els.dateTo.value}`, key:'dateTo' });
+  if(els.unpaidOnly.checked) chips.push({ label:'Open AP only', key:'unpaidOnly', isCheckbox:true });
+
+  els.activeFilterChips.innerHTML = chips.length ? chips.map((chip,idx) => `
+    <span class="filter-chip">
+      ${esc(chip.label)}
+      <button type="button" data-chip-index="${idx}" aria-label="Remove filter">×</button>
+    </span>
+  `).join('') : '<span class="text-sm muted">All results</span>';
+
+  [...els.activeFilterChips.querySelectorAll('button[data-chip-index]')].forEach(btn => {
+    btn.addEventListener('click', () => {
+      const chip = chips[Number(btn.dataset.chipIndex)];
+      if(!chip) return;
+      if(chip.clear) chip.clear();
+      else if(chip.isCheckbox) document.getElementById(chip.key).checked = false;
+      else document.getElementById(chip.key).value = '';
+      applyFilters();
+    });
+  });
 }
 
 function renderKPIs(){
@@ -1223,24 +1481,55 @@ function exportFilteredCSV(){
   URL.revokeObjectURL(url);
 }
 
+function setTab(tab){
+  state.activeTab = tab;
+  els.submissionsPanel.classList.toggle('active', tab === 'submissions');
+  els.reportsPanel.classList.toggle('active', tab === 'reports');
+  els.tabSubmissionsBtn.classList.toggle('active', tab === 'submissions');
+  els.tabReportsBtn.classList.toggle('active', tab === 'reports');
+  if(tab === 'reports') setTimeout(renderCharts, 0);
+}
+
+function setQuickView(value){
+  state.quickView = value;
+  [...document.querySelectorAll('[data-quick-view]')].forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.quickView === value);
+  });
+  applyFilters();
+}
+
+function setAdvancedOpen(open){
+  state.advancedOpen = open;
+  els.advancedDrawer.classList.toggle('open', open);
+  els.toggleAdvancedBtn.textContent = open ? 'Hide Filters' : 'More Filters';
+}
+
 function resetFilters(){
   ['searchInput','dateFrom','dateTo'].forEach(id => document.getElementById(id).value = '');
   ['typeFilter','statusFilter','vendorFilter','categoryFilter','submitterFilter','paidByFilter','entityFilter','dueBucketFilter']
     .forEach(id => document.getElementById(id).value = '');
   els.unpaidOnly.checked = false;
-  applyFilters();
+  els.sortBy.value = 'priority';
+  setQuickView('all');
 }
 
 ['input','change'].forEach(evt => {
   [
     'searchInput','typeFilter','statusFilter','vendorFilter','categoryFilter',
     'submitterFilter','paidByFilter','entityFilter','dueBucketFilter',
-    'dateFrom','dateTo','unpaidOnly'
+    'dateFrom','dateTo','unpaidOnly','sortBy'
   ].forEach(id => {
     document.getElementById(id).addEventListener(evt, applyFilters);
   });
 });
 
+[...document.querySelectorAll('[data-quick-view]')].forEach(btn => {
+  btn.addEventListener('click', () => setQuickView(btn.dataset.quickView));
+});
+
+els.toggleAdvancedBtn.addEventListener('click', () => setAdvancedOpen(!state.advancedOpen));
+els.tabSubmissionsBtn.addEventListener('click', () => setTab('submissions'));
+els.tabReportsBtn.addEventListener('click', () => setTab('reports'));
 document.getElementById('refreshBtn').addEventListener('click', loadData);
 document.getElementById('exportBtn').addEventListener('click', exportFilteredCSV);
 document.getElementById('resetBtn').addEventListener('click', resetFilters);
