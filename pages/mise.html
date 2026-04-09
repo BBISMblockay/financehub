@@ -14,54 +14,171 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <style>
-    :root{color-scheme:light}
+    :root{
+      color-scheme: light;
+      --bg:#f4f7fb;
+      --panel:#ffffff;
+      --panel-2:#f8fafc;
+      --line:#e2e8f0;
+      --line-2:#dbe4ee;
+      --text:#0f172a;
+      --muted:#64748b;
+      --muted-2:#94a3b8;
+      --shadow:0 10px 26px rgba(15,23,42,.05);
+      --shadow-lg:0 16px 40px rgba(15,23,42,.08);
+      --radius:20px;
+    }
     html,body{
-      margin:0;padding:0;background:#f5f7fb;color:#0f172a;
-      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif
+      margin:0;padding:0;background:
+      radial-gradient(circle at top left, rgba(255,255,255,.9), transparent 26%),
+      linear-gradient(180deg,#f7f9fc 0%,#f2f6fb 100%);
+      color:var(--text);
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
     }
     body{line-height:1.45}
-    .weebly-shell{
-      max-width:1160px;
+    .app{
+      max-width:1380px;
       margin:0 auto;
-      padding:22px 16px 36px;
+      padding:18px 14px 40px;
     }
-    .hero-card,.panel,.metric-card{
-      background:#fff;
-      border:1px solid #e2e8f0;
-      border-radius:22px;
-      box-shadow:0 10px 28px rgba(15,23,42,.05);
+    .card,.metric,.subcard{
+      background:rgba(255,255,255,.96);
+      border:1px solid var(--line);
+      box-shadow:var(--shadow);
     }
-    .hero-card{padding:24px}
-    .panel{padding:20px}
-    .metric-card{padding:16px}
-    .mono{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
-    .soft-label{
-      font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.14em;color:#64748b
+    .card{border-radius:24px}
+    .subcard{border-radius:18px}
+    .metric{
+      border-radius:18px;
+      padding:14px 14px 12px;
+      min-height:104px;
+      display:flex;
+      flex-direction:column;
+      justify-content:space-between;
+    }
+    .hero{
+      padding:22px;
+      position:relative;
+      overflow:hidden;
+    }
+    .hero:before{
+      content:"";
+      position:absolute;
+      width:380px;height:380px;
+      right:-120px;top:-220px;
+      background:radial-gradient(circle, rgba(148,163,184,.14), transparent 68%);
+      pointer-events:none;
+    }
+    .kicker{
+      font-size:.68rem;
+      line-height:1;
+      letter-spacing:.16em;
+      text-transform:uppercase;
+      color:var(--muted);
+      font-weight:800;
     }
     .hero-title{
-      font-size:clamp(1.8rem,3vw,2.4rem);
-      line-height:1.05;font-weight:800;letter-spacing:-.03em;color:#0f172a
+      margin:8px 0 0;
+      font-size:clamp(1.75rem,2vw + 1rem,2.5rem);
+      line-height:1.02;
+      letter-spacing:-.04em;
+      font-weight:800;
     }
-    .hero-sub{font-size:.96rem;color:#475569;max-width:760px}
-    .btn,.btn-dark{
-      display:inline-flex;align-items:center;justify-content:center;
-      min-height:42px;padding:.68rem 1rem;border-radius:14px;
-      border:1px solid #d9e1ea;background:#fff;color:#0f172a;
-      font-size:.84rem;font-weight:700;text-decoration:none;cursor:pointer;
-      transition:transform .14s ease, box-shadow .14s ease, border-color .14s ease;
+    .hero-sub{
+      margin:10px 0 0;
+      max-width:860px;
+      color:#475569;
+      font-size:.95rem;
+    }
+    .toolbar{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+      justify-content:flex-end;
+    }
+    .btn,.btn-dark,.btn-soft{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-height:40px;
+      padding:.62rem .95rem;
+      border-radius:13px;
+      border:1px solid var(--line-2);
+      background:#fff;
+      color:var(--text);
+      font-size:.82rem;
+      font-weight:700;
+      text-decoration:none;
+      cursor:pointer;
+      transition:.14s ease;
+      white-space:nowrap;
     }
     .btn-dark{background:#0f172a;color:#fff;border-color:#0f172a}
-    .btn:hover,.btn-dark:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(15,23,42,.08)}
-    .field{
-      width:100%;min-height:46px;border:1px solid #dbe2ea;background:#fff;border-radius:14px;
-      padding:.78rem .9rem;font-size:.92rem;color:#0f172a;outline:none
+    .btn-soft{background:#f8fafc}
+    .btn:hover,.btn-dark:hover,.btn-soft:hover{transform:translateY(-1px);box-shadow:0 8px 18px rgba(15,23,42,.08)}
+    .section{
+      margin-top:14px;
+      padding:18px;
     }
-    .field:focus{border-color:#94a3b8;box-shadow:0 0 0 4px rgba(148,163,184,.12)}
-    .metric-value{font-size:1.7rem;font-weight:800;letter-spacing:-.03em}
-    .metric-note{font-size:.76rem;color:#64748b;margin-top:4px}
+    .section-title{
+      font-size:1.06rem;
+      font-weight:800;
+      letter-spacing:-.02em;
+    }
+    .section-sub{
+      margin-top:2px;
+      font-size:.88rem;
+      color:var(--muted);
+    }
+    .metric-label{
+      font-size:.68rem;
+      letter-spacing:.12em;
+      text-transform:uppercase;
+      font-weight:800;
+      color:var(--muted);
+    }
+    .metric-value{
+      font-size:1.55rem;
+      line-height:1.02;
+      letter-spacing:-.035em;
+      font-weight:800;
+      margin-top:8px;
+    }
+    .metric-note{
+      font-size:.75rem;
+      color:var(--muted);
+      margin-top:6px;
+    }
+    .mono{
+      font-variant-numeric:tabular-nums;
+      font-feature-settings:"tnum" 1;
+    }
+    .field{
+      width:100%;
+      min-height:44px;
+      border:1px solid var(--line-2);
+      background:#fff;
+      border-radius:14px;
+      padding:.76rem .88rem;
+      font-size:.9rem;
+      color:var(--text);
+      outline:none;
+    }
+    .field:focus{
+      border-color:#94a3b8;
+      box-shadow:0 0 0 4px rgba(148,163,184,.12);
+    }
     .pill{
-      display:inline-flex;align-items:center;gap:.35rem;border-radius:999px;
-      padding:.28rem .6rem;font-size:.72rem;font-weight:800;line-height:1
+      display:inline-flex;
+      align-items:center;
+      gap:.35rem;
+      border-radius:999px;
+      padding:.28rem .56rem;
+      font-size:.68rem;
+      line-height:1;
+      font-weight:800;
+      white-space:nowrap;
     }
     .pill-green{background:#dcfce7;color:#166534}
     .pill-amber{background:#fef3c7;color:#92400e}
@@ -69,64 +186,161 @@
     .pill-slate{background:#e2e8f0;color:#334155}
     .pill-blue{background:#dbeafe;color:#1d4ed8}
     .mini{
-      height:10px;border-radius:999px;background:#e2e8f0;overflow:hidden
+      height:9px;
+      border-radius:999px;
+      background:#e2e8f0;
+      overflow:hidden;
     }
-    .mini>span{
-      display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#0f172a,#64748b)
+    .mini > span{
+      display:block;
+      height:100%;
+      border-radius:999px;
+      background:linear-gradient(90deg,#0f172a,#64748b);
     }
+    .scrollbar::-webkit-scrollbar,
+    .table-wrap::-webkit-scrollbar{height:10px;width:10px}
+    .scrollbar::-webkit-scrollbar-thumb,
+    .table-wrap::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:999px}
+    .scrollbar::-webkit-scrollbar-track,
+    .table-wrap::-webkit-scrollbar-track{background:transparent}
     .table-wrap{
       overflow:auto;
-      max-height:72vh;
-      border:1px solid #e2e8f0;
+      border:1px solid var(--line);
       border-radius:18px;
-      background:#fff
+      background:#fff;
+      max-height:72vh;
     }
-    .table-wrap::-webkit-scrollbar,
-    .scrollbar::-webkit-scrollbar{height:10px;width:10px}
-    .table-wrap::-webkit-scrollbar-thumb,
-    .scrollbar::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:999px}
-    .table-wrap::-webkit-scrollbar-track,
-    .scrollbar::-webkit-scrollbar-track{background:transparent}
-    table{border-collapse:separate;border-spacing:0}
     .table-sticky thead th{
-      position:sticky;top:0;background:#f8fafc;z-index:2
+      position:sticky;
+      top:0;
+      background:#f8fafc;
+      z-index:2;
     }
-    .muted{color:#64748b}
-    .section-title{font-size:1.15rem;font-weight:800;letter-spacing:-.02em}
-    .section-sub{font-size:.9rem;color:#64748b}
+    table{
+      border-collapse:separate;
+      border-spacing:0;
+      width:100%;
+    }
+    th{
+      font-size:.76rem;
+      color:#64748b;
+      font-weight:700;
+      text-align:left;
+      border-bottom:1px solid var(--line);
+      padding:13px 14px;
+    }
+    td{
+      padding:14px;
+      vertical-align:top;
+      border-bottom:1px solid #edf2f7;
+      font-size:.84rem;
+    }
+    tr:hover td{background:#fafcff}
     .link-btn{
-      display:inline-flex;align-items:center;justify-content:center;padding:.48rem .72rem;
-      border-radius:12px;border:1px solid #e2e8f0;background:#fff;color:#0f172a;
-      font-size:.77rem;font-weight:700;text-decoration:none
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-height:34px;
+      padding:.45rem .7rem;
+      border-radius:12px;
+      border:1px solid var(--line);
+      background:#fff;
+      color:var(--text);
+      font-size:.74rem;
+      font-weight:700;
+      text-decoration:none;
+      white-space:nowrap;
     }
     .link-btn:hover{background:#f8fafc}
-    .tight{line-height:1.25}
-    .truncate-2{
-      display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+    .muted{color:var(--muted)}
+    .muted-2{color:var(--muted-2)}
+    .right-meta{
+      font-size:.75rem;
+      color:var(--muted);
+      white-space:nowrap;
     }
+    .label-row{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+      flex-wrap:wrap;
+      margin-bottom:12px;
+    }
+    .table-chip{
+      display:inline-flex;
+      align-items:center;
+      padding:.22rem .5rem;
+      border:1px solid var(--line);
+      border-radius:999px;
+      background:#f8fafc;
+      color:#475569;
+      font-size:.67rem;
+      font-weight:700;
+    }
+    .source-drive{color:#166534}
+    .source-jotform{color:#92400e}
+    .truncate-2{
+      display:-webkit-box;
+      -webkit-box-orient:vertical;
+      -webkit-line-clamp:2;
+      overflow:hidden;
+    }
+    .mobile-cards{display:none}
+    .mobile-row{
+      padding:14px;
+      border-bottom:1px solid #edf2f7;
+    }
+    .mobile-row:last-child{border-bottom:none}
+    .mobile-grid{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px 12px;
+      margin-top:10px;
+      font-size:.79rem;
+    }
+    .mobile-label{
+      font-size:.66rem;
+      text-transform:uppercase;
+      letter-spacing:.08em;
+      font-weight:800;
+      color:var(--muted);
+      margin-bottom:2px;
+    }
+    .desktop-only{display:block}
+    .mobile-only{display:none}
     canvas{max-width:100%}
+
+    @media (max-width: 1100px){
+      .app{padding:14px 12px 28px}
+    }
     @media (max-width: 900px){
-      .weebly-shell{padding:14px 12px 28px}
-      .hero-card,.panel,.metric-card{border-radius:18px}
-      .hero-card{padding:18px}
-      .panel{padding:16px}
+      .desktop-only{display:none}
+      .mobile-only{display:block}
+      .hero{padding:18px}
+      .section{padding:16px}
+      .metric{min-height:96px}
+      .mobile-cards{display:block}
+      .desktop-table{display:none}
+      .mobile-stack{grid-template-columns:1fr !important}
+      .toolbar{justify-content:flex-start}
     }
   </style>
 </head>
 <body>
-  <div class="weebly-shell">
-    <section class="hero-card">
-      <div class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-        <div class="min-w-0">
-          <div class="soft-label">Jotform · Google Sheets · Google Drive · Read Only</div>
-          <h1 class="hero-title mt-2">Payables Submission Viewer</h1>
-          <p class="hero-sub mt-3">
-            View MISE submission records, receipt uploads, purchase requests,
-            reimbursement items, Drive-backed file links, inbox links, and edit URLs
-            without needing clients inside your native Jotform account.
+  <div class="app">
+
+    <section class="card hero">
+      <div class="grid grid-cols-1 xl:grid-cols-[1fr_auto] gap-5 items-end">
+        <div>
+          <div class="kicker">Jotform · Google Sheets · Google Drive · Read Only</div>
+          <h1 class="hero-title">Payables Submission Viewer</h1>
+          <p class="hero-sub">
+            Clean, client-friendly payables reporting with Drive-backed file viewing, open AP tracking,
+            aging, vendor rollups, charts, and full submission detail.
           </p>
         </div>
-        <div class="flex flex-wrap gap-2 lg:justify-end">
+        <div class="toolbar">
           <button id="refreshBtn" class="btn">Refresh Data</button>
           <button id="exportBtn" class="btn">Export Filtered CSV</button>
           <button id="resetBtn" class="btn-dark">Reset Filters</button>
@@ -134,47 +348,47 @@
       </div>
     </section>
 
-    <section class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-4 mt-5">
-      <div class="metric-card">
-        <div class="soft-label">Rows</div>
-        <div id="kpiRows" class="metric-value mono mt-2">—</div>
+    <section class="grid grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-4 mt-4">
+      <div class="metric">
+        <div class="metric-label">Rows</div>
+        <div id="kpiRows" class="metric-value mono">—</div>
         <div class="metric-note">Current filtered view</div>
       </div>
-      <div class="metric-card">
-        <div class="soft-label">Open AP Count</div>
-        <div id="kpiOpenCount" class="metric-value mono mt-2">—</div>
+      <div class="metric">
+        <div class="metric-label">Open AP Count</div>
+        <div id="kpiOpenCount" class="metric-value mono">—</div>
         <div class="metric-note">Actionable unpaid items</div>
       </div>
-      <div class="metric-card">
-        <div class="soft-label">Open AP Amount</div>
-        <div id="kpiOpenAmount" class="metric-value mono mt-2">—</div>
+      <div class="metric">
+        <div class="metric-label">Open AP Amount</div>
+        <div id="kpiOpenAmount" class="metric-value mono">—</div>
         <div class="metric-note">Outstanding payable value</div>
       </div>
-      <div class="metric-card">
-        <div class="soft-label">Overdue Amount</div>
-        <div id="kpiOverdueAmount" class="metric-value mono mt-2">—</div>
+      <div class="metric">
+        <div class="metric-label">Overdue Amount</div>
+        <div id="kpiOverdueAmount" class="metric-value mono">—</div>
         <div class="metric-note">Past due based on due date</div>
       </div>
-      <div class="metric-card">
-        <div class="soft-label">Due Next 7 Days</div>
-        <div id="kpiDueSoon" class="metric-value mono mt-2">—</div>
+      <div class="metric">
+        <div class="metric-label">Due Next 7 Days</div>
+        <div id="kpiDueSoon" class="metric-value mono">—</div>
         <div class="metric-note">Upcoming open AP</div>
       </div>
-      <div class="metric-card">
-        <div class="soft-label">Complete / Info</div>
-        <div id="kpiCompleteAmount" class="metric-value mono mt-2">—</div>
+      <div class="metric">
+        <div class="metric-label">Complete / Info</div>
+        <div id="kpiCompleteAmount" class="metric-value mono">—</div>
         <div class="metric-note">Receipts + paid items</div>
       </div>
     </section>
 
-    <section class="grid grid-cols-1 xl:grid-cols-[1.2fr,.8fr] gap-5 mt-5">
-      <div class="panel">
-        <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between mb-4">
+    <section class="grid grid-cols-1 xl:grid-cols-[1.2fr_.8fr] gap-4 mt-4 mobile-stack">
+      <div class="card section">
+        <div class="label-row">
           <div>
             <div class="section-title">Filters</div>
-            <div class="section-sub">Search vendor, invoice number, notes, submitter, category, payment detail, or submission ID.</div>
+            <div class="section-sub">Search vendor, invoice, notes, submitter, payment detail, file name, or submission ID.</div>
           </div>
-          <div id="lastUpdated" class="text-xs muted">Loading…</div>
+          <div id="lastUpdated" class="right-meta">Loading…</div>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
@@ -196,95 +410,126 @@
         </div>
       </div>
 
-      <div class="panel">
-        <div class="section-title">Aging Snapshot</div>
-        <div class="section-sub mt-1">Aging only applies to open AP. Receipt uploads stay in complete / info.</div>
-        <div id="agingCards" class="grid grid-cols-2 gap-3 mt-4"></div>
+      <div class="card section">
+        <div class="label-row">
+          <div>
+            <div class="section-title">Aging Snapshot</div>
+            <div class="section-sub">Aging applies to open AP only. Receipt uploads stay in complete / info.</div>
+          </div>
+        </div>
+        <div id="agingCards" class="grid grid-cols-2 gap-3"></div>
       </div>
     </section>
 
-    <section class="grid grid-cols-1 xl:grid-cols-2 gap-5 mt-5">
-      <div class="panel">
-        <div class="section-title">Open AP Trend</div>
-        <div class="section-sub mt-1">Monthly open AP vs complete / info totals in the current filtered view.</div>
-        <div class="mt-4 h-[310px]"><canvas id="trendChart"></canvas></div>
+    <section class="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-4 mobile-stack">
+      <div class="card section">
+        <div class="label-row">
+          <div>
+            <div class="section-title">Open AP Trend</div>
+            <div class="section-sub">Monthly open AP vs complete / info totals in the current filtered view.</div>
+          </div>
+        </div>
+        <div class="h-[320px]"><canvas id="trendChart"></canvas></div>
       </div>
-      <div class="panel">
-        <div class="section-title">Top Vendors by Open Amount</div>
-        <div class="section-sub mt-1">Largest remaining AP exposure by vendor.</div>
-        <div class="mt-4 h-[310px]"><canvas id="vendorChart"></canvas></div>
+
+      <div class="card section">
+        <div class="label-row">
+          <div>
+            <div class="section-title">Top Vendors by Open Amount</div>
+            <div class="section-sub">Largest remaining AP exposure by vendor.</div>
+          </div>
+        </div>
+        <div class="h-[320px]"><canvas id="vendorChart"></canvas></div>
       </div>
     </section>
 
-    <section class="grid grid-cols-1 xl:grid-cols-[1.05fr,.95fr] gap-5 mt-5">
-      <div class="panel">
-        <div class="section-title">Payables Summary</div>
-        <div class="section-sub mt-1 mb-4">Vendor rollup from the current filtered view.</div>
-        <div class="table-wrap scrollbar">
-          <table class="w-full text-sm">
-            <thead class="bg-slate-50">
-              <tr class="text-left text-slate-500">
-                <th class="px-4 py-3 font-semibold">Vendor</th>
-                <th class="px-4 py-3 font-semibold">Rows</th>
-                <th class="px-4 py-3 font-semibold">Open</th>
-                <th class="px-4 py-3 font-semibold">Open Amount</th>
-                <th class="px-4 py-3 font-semibold">Overdue</th>
+    <section class="grid grid-cols-1 xl:grid-cols-[1.05fr_.95fr] gap-4 mt-4 mobile-stack">
+      <div class="card section">
+        <div class="label-row">
+          <div>
+            <div class="section-title">Payables Summary</div>
+            <div class="section-sub">Vendor rollup from the current filtered view.</div>
+          </div>
+        </div>
+        <div class="table-wrap scrollbar desktop-table">
+          <table>
+            <thead class="table-sticky">
+              <tr>
+                <th>Vendor</th>
+                <th>Rows</th>
+                <th>Open</th>
+                <th>Open Amount</th>
+                <th>Overdue</th>
               </tr>
             </thead>
             <tbody id="summaryBody"></tbody>
           </table>
         </div>
+        <div id="summaryMobile" class="mobile-cards"></div>
       </div>
 
-      <div class="panel">
-        <div class="section-title">Status Buckets</div>
-        <div class="section-sub mt-1 mb-4">Fast view of open vs complete status buckets.</div>
+      <div class="card section">
+        <div class="label-row">
+          <div>
+            <div class="section-title">Status Buckets</div>
+            <div class="section-sub">Fast view of open vs complete status buckets.</div>
+          </div>
+        </div>
         <div id="bucketWrap" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
       </div>
     </section>
 
-    <section class="panel mt-5">
-      <div class="flex flex-col gap-2 md:flex-row md:items-end md:justify-between mb-4">
+    <section class="card section mt-4">
+      <div class="label-row">
         <div>
           <div class="section-title">Submission Detail</div>
-          <div class="section-sub mt-1">Uses Drive File URL first, then falls back to original Jotform file links if Drive is blank.</div>
+          <div class="section-sub">Uses Drive File URL first, then falls back to Jotform file links if Drive is blank.</div>
         </div>
-        <div id="tableCount" class="text-sm font-semibold muted">0 rows</div>
+        <div id="tableCount" class="right-meta">0 rows</div>
       </div>
 
-      <div class="table-wrap table-sticky scrollbar">
-        <table class="w-full min-w-[2140px] text-sm">
+      <div class="desktop-table table-wrap table-sticky scrollbar">
+        <table class="min-w-[2280px]">
           <thead>
-            <tr class="text-left text-slate-500 border-b border-slate-200">
-              <th class="px-4 py-3 font-semibold">Submission</th>
-              <th class="px-4 py-3 font-semibold">Type</th>
-              <th class="px-4 py-3 font-semibold">Vendor</th>
-              <th class="px-4 py-3 font-semibold">Invoice</th>
-              <th class="px-4 py-3 font-semibold">Amount</th>
-              <th class="px-4 py-3 font-semibold">Aging</th>
-              <th class="px-4 py-3 font-semibold">Status</th>
-              <th class="px-4 py-3 font-semibold">Category</th>
-              <th class="px-4 py-3 font-semibold">Notes</th>
-              <th class="px-4 py-3 font-semibold">Submitter</th>
-              <th class="px-4 py-3 font-semibold">Paid by</th>
-              <th class="px-4 py-3 font-semibold">Entity</th>
-              <th class="px-4 py-3 font-semibold">Drive File Name</th>
-              <th class="px-4 py-3 font-semibold">Drive Match Status</th>
-              <th class="px-4 py-3 font-semibold">Links</th>
+            <tr>
+              <th>Submission</th>
+              <th>Type</th>
+              <th>Vendor</th>
+              <th>Invoice</th>
+              <th>Amount</th>
+              <th>Aging</th>
+              <th>Status</th>
+              <th>Category</th>
+              <th>Notes</th>
+              <th>Submitter</th>
+              <th>Paid by</th>
+              <th>Entity</th>
+              <th>Drive File Name</th>
+              <th>Drive Match Status</th>
+              <th>Links</th>
             </tr>
           </thead>
           <tbody id="tableBody"></tbody>
         </table>
       </div>
+
+      <div id="mobileRows" class="mobile-cards subcard overflow-hidden border border-slate-200"></div>
     </section>
+
   </div>
 
 <script>
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRIk0Vxt7GPkDpy1TrbYA6aGaGomkJhdCcuyokBUWS1jMwheDqdMbV76fG-_P-ibaFnMFc-K48f760V/pub?gid=1266023746&single=true&output=csv';
 
-const state = { raw: [], filtered: [], trendChart: null, vendorChart: null };
+const state = {
+  raw: [],
+  filtered: [],
+  trendChart: null,
+  vendorChart: null
+};
 
 const $ = s => document.querySelector(s);
+
 const els = {
   search: $('#searchInput'),
   type: $('#typeFilter'),
@@ -300,8 +545,10 @@ const els = {
   dateTo: $('#dateTo'),
   tbody: $('#tableBody'),
   summary: $('#summaryBody'),
+  summaryMobile: $('#summaryMobile'),
   bucketWrap: $('#bucketWrap'),
   agingCards: $('#agingCards'),
+  mobileRows: $('#mobileRows'),
   tableCount: $('#tableCount'),
   lastUpdated: $('#lastUpdated')
 };
@@ -313,29 +560,24 @@ function money(n){
     maximumFractionDigits:2
   }).format(Number(n || 0));
 }
-
 function fmtDate(d){
   if(!d) return '—';
   const x = parseDate(d);
   if(!x) return d;
   return x.toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'});
 }
-
 function esc(s){
   return String(s ?? '').replace(/[&<>"']/g, m => ({
     '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
   }[m]));
 }
-
 function compact(v){ return String(v ?? '').trim(); }
-
 function num(v){
   if(v == null || v === '') return 0;
   const cleaned = String(v).replace(/[$,\s]/g,'');
   const n = Number(cleaned);
   return Number.isFinite(n) ? n : 0;
 }
-
 function parseDate(v){
   const s = compact(v);
   if(!s) return null;
@@ -361,16 +603,13 @@ function parseDate(v){
   const d = new Date(s);
   return isNaN(+d) ? null : d;
 }
-
 function stripTime(d){
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
-
 function daysBetween(a,b){
   const ms = 24*60*60*1000;
   return Math.floor((stripTime(a) - stripTime(b)) / ms);
 }
-
 function toISODate(d){
   if(!d) return '';
   const y = d.getFullYear();
@@ -378,32 +617,26 @@ function toISODate(d){
   const day = String(d.getDate()).padStart(2,'0');
   return `${y}-${m}-${day}`;
 }
-
 function yesNo(v){
   const s = compact(v).toLowerCase();
   if(['yes','paid','complete','completed','true'].includes(s)) return 'Yes';
   if(['no','open','unpaid','false'].includes(s)) return 'No';
   return s ? v : 'No';
 }
-
 function uniq(vals){
   return [...new Set(vals.filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b)));
 }
-
 function optionHTML(list, first='All'){
   return [`<option value="">${first}</option>`, ...list.map(v => `<option>${esc(v)}</option>`)].join('');
 }
-
 function ym(d){
   return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` : 'Unknown';
 }
-
 function ymLabel(s){
   if(!s || s === 'Unknown') return 'Unknown';
   const [y,m] = s.split('-').map(Number);
   return new Date(y,m-1,1).toLocaleDateString('en-US',{month:'short',year:'numeric'});
 }
-
 function normalizeFileLink(url){
   const s = String(url || '').trim();
   if(!s) return '';
@@ -416,12 +649,20 @@ function normalizeFileLink(url){
 
   return s;
 }
-
 function splitMultiLinks(value){
   return compact(value)
     .split(/\n+/)
     .map(s => s.trim())
     .filter(Boolean);
+}
+function statusPillHtml(label){
+  if(label === 'Complete') return '<span class="pill pill-green">Complete</span>';
+  if(label === 'Open · Overdue') return '<span class="pill pill-red">Open · Overdue</span>';
+  if(label === 'Open · Coming due') return '<span class="pill pill-amber">Open · Coming due</span>';
+  return '<span class="pill pill-slate">Open AP</span>';
+}
+function sourceClass(source){
+  return source === 'Drive' ? 'source-drive' : (source === 'Jotform' ? 'source-jotform' : '');
 }
 
 function normalizeRow(r){
@@ -472,6 +713,11 @@ function normalizeRow(r){
   const preferredFiles = driveFiles.length ? driveFiles : jotformFiles;
   const fileSourceLabel = driveFiles.length ? 'Drive' : (jotformFiles.length ? 'Jotform' : 'None');
 
+  let rowStatusText = 'Open AP';
+  if(isOperationallyComplete) rowStatusText = 'Complete';
+  else if(dueBucket === 'Overdue') rowStatusText = 'Open · Overdue';
+  else if(dueBucket === 'Due today' || dueBucket === 'Due next 7 days') rowStatusText = 'Open · Coming due';
+
   return {
     raw: r,
     submissionDate,
@@ -504,6 +750,7 @@ function normalizeRow(r){
     dueBucket,
     dueDelta,
     agingBucket,
+    rowStatusText,
     reportStatus: isActionablePayable ? 'Open AP' : 'Complete / Info'
   };
 }
@@ -613,10 +860,10 @@ function renderAgingCards(){
     const amt = rows.reduce((s,r)=>s+r.amount,0);
     const pct = Math.max(0, Math.min(100, (amt/total) * 100));
     return `
-      <div class="border border-slate-200 rounded-2xl p-4 bg-slate-50/70">
+      <div class="subcard p-4 border border-slate-200 bg-slate-50/80">
         <div class="flex items-center justify-between gap-2">
           <span class="pill ${b.cls}">${esc(b.label)}</span>
-          <span class="text-xs mono text-slate-500">${rows.length} rows</span>
+          <span class="text-xs mono muted">${rows.length} rows</span>
         </div>
         <div class="mt-3 text-xl font-extrabold mono">${money(amt)}</div>
         <div class="mt-3 mini"><span style="width:${pct}%"></span></div>
@@ -638,10 +885,10 @@ function renderBuckets(){
       'pill-slate';
 
     return `
-      <div class="border border-slate-200 rounded-2xl p-4 bg-slate-50/70">
+      <div class="subcard p-4 border border-slate-200 bg-slate-50/80">
         <div class="flex items-center justify-between gap-3">
           <span class="pill ${cls}">${esc(label)}</span>
-          <span class="text-xs text-slate-500 mono">${rows.length.toLocaleString()} rows</span>
+          <span class="text-xs mono muted">${rows.length.toLocaleString()} rows</span>
         </div>
         <div class="mt-3 text-xl font-extrabold mono">${money(amt)}</div>
       </div>
@@ -667,16 +914,26 @@ function renderSummary(){
   const arr = [...map.values()].sort((a,b)=>b.openAmt - a.openAmt || b.rows - a.rows).slice(0,20);
 
   els.summary.innerHTML = arr.length ? arr.map(x => `
-    <tr class="border-t border-slate-100">
-      <td class="px-4 py-3 font-semibold text-slate-800">${esc(x.vendor)}</td>
-      <td class="px-4 py-3 mono">${x.rows}</td>
-      <td class="px-4 py-3 mono">${x.open}</td>
-      <td class="px-4 py-3 mono">${money(x.openAmt)}</td>
-      <td class="px-4 py-3 mono">${money(x.overdueAmt)}</td>
+    <tr>
+      <td><div class="font-semibold">${esc(x.vendor)}</div></td>
+      <td class="mono">${x.rows}</td>
+      <td class="mono">${x.open}</td>
+      <td class="mono font-semibold">${money(x.openAmt)}</td>
+      <td class="mono">${money(x.overdueAmt)}</td>
     </tr>
-  `).join('') : `
-    <tr><td colspan="5" class="px-4 py-6 text-sm text-slate-500">No data in current view.</td></tr>
-  `;
+  `).join('') : `<tr><td colspan="5" class="muted">No data in current view.</td></tr>`;
+
+  els.summaryMobile.innerHTML = arr.length ? arr.map(x => `
+    <div class="subcard p-4 mb-3 border border-slate-200">
+      <div class="font-semibold">${esc(x.vendor)}</div>
+      <div class="mobile-grid">
+        <div><div class="mobile-label">Rows</div><div class="mono">${x.rows}</div></div>
+        <div><div class="mobile-label">Open</div><div class="mono">${x.open}</div></div>
+        <div><div class="mobile-label">Open Amount</div><div class="mono font-semibold">${money(x.openAmt)}</div></div>
+        <div><div class="mobile-label">Overdue</div><div class="mono">${money(x.overdueAmt)}</div></div>
+      </div>
+    </div>
+  `).join('') : `<div class="muted">No data in current view.</div>`;
 }
 
 function buildTrendSeries(){
@@ -748,10 +1005,10 @@ function renderCharts(){
       plugins: { legend: { position:'bottom' } },
       scales: {
         y: {
-          ticks: {
-            callback: v => money(v)
-          }
-        }
+          ticks: { callback: v => money(v) },
+          grid: { color:'rgba(148,163,184,.2)' }
+        },
+        x: { grid: { display:false } }
       }
     }
   });
@@ -761,7 +1018,7 @@ function renderCharts(){
     data: {
       labels: vendor.labels,
       datasets: [{
-        label: 'Open amount',
+        label: 'Open Amount',
         data: vendor.values,
         backgroundColor: 'rgba(71,85,105,.85)',
         borderRadius: 8,
@@ -775,20 +1032,133 @@ function renderCharts(){
       plugins: { legend: { display:false } },
       scales: {
         x: {
-          ticks: {
-            callback: v => money(v)
-          }
-        }
+          ticks: { callback: v => money(v) },
+          grid: { color:'rgba(148,163,184,.2)' }
+        },
+        y: { grid: { display:false } }
       }
     }
   });
 }
 
-function paymentPill(r){
-  if(r.isOperationallyComplete) return '<span class="pill pill-green">Complete</span>';
-  if(r.dueBucket === 'Overdue') return '<span class="pill pill-red">Open · Overdue</span>';
-  if(r.dueBucket === 'Due today' || r.dueBucket === 'Due next 7 days') return '<span class="pill pill-amber">Open · Coming due</span>';
-  return '<span class="pill pill-slate">Open AP</span>';
+function renderDesktopRow(r){
+  const fileLinks = r.preferredFiles.length
+    ? r.preferredFiles.map((u,i)=>`<a class="link-btn" href="${esc(u)}" target="_blank" rel="noopener">${r.fileSourceLabel} File ${i+1}</a>`).join(' ')
+    : '<span class="muted-2">No file</span>';
+
+  const openLink = r.submissionUrl
+    ? `<a class="link-btn" href="${esc(r.submissionUrl)}" target="_blank" rel="noopener">Open</a>`
+    : '';
+
+  const editLink = r.editUrl
+    ? `<a class="link-btn" href="${esc(r.editUrl)}" target="_blank" rel="noopener">Edit</a>`
+    : '';
+
+  return `
+    <tr>
+      <td>
+        <div class="font-semibold">${esc(r.submissionId)}</div>
+        <div class="text-xs muted mt-1">${fmtDate(r.submissionDate)}</div>
+      </td>
+      <td>${esc(r.type)}</td>
+      <td><div class="font-semibold">${esc(r.vendor)}</div></td>
+      <td>
+        <div>${esc(r.invoice)}</div>
+        <div class="text-xs muted mt-1">${r.datePaid ? 'Paid date: ' + esc(r.datePaid) : ''}</div>
+      </td>
+      <td class="mono font-semibold">${money(r.amount)}</td>
+      <td>
+        <div>${agingText(r)}</div>
+        <div class="text-xs muted mt-1">${esc(r.agingBucket)}</div>
+      </td>
+      <td>
+        <div>${statusPillHtml(r.rowStatusText)}</div>
+        <div class="text-xs muted mt-2 max-w-[250px]">${esc(r.paymentDetail || '')}</div>
+      </td>
+      <td>${esc(r.category)}</td>
+      <td><div class="max-w-[320px] whitespace-pre-wrap break-words">${esc(r.notes || '—')}</div></td>
+      <td>${esc(r.submitter)}</td>
+      <td>${esc(r.paidBy)}</td>
+      <td>${esc(r.entity)}</td>
+      <td><div class="max-w-[220px] whitespace-pre-wrap break-words">${esc(r.driveFileName || '—')}</div></td>
+      <td>
+        <div class="max-w-[250px] whitespace-pre-wrap break-words truncate-2">${esc(r.driveMatchStatus || '—')}</div>
+        <div class="text-xs mt-2 ${sourceClass(r.fileSourceLabel)}">Source: ${esc(r.fileSourceLabel)}</div>
+      </td>
+      <td><div class="flex flex-wrap gap-2 min-w-[300px]">${fileLinks} ${openLink} ${editLink}</div></td>
+    </tr>
+  `;
+}
+
+function renderMobileRow(r){
+  const fileLinks = r.preferredFiles.length
+    ? r.preferredFiles.map((u,i)=>`<a class="link-btn" href="${esc(u)}" target="_blank" rel="noopener">${r.fileSourceLabel} File ${i+1}</a>`).join(' ')
+    : '<span class="muted-2">No file</span>';
+
+  const openLink = r.submissionUrl
+    ? `<a class="link-btn" href="${esc(r.submissionUrl)}" target="_blank" rel="noopener">Open</a>`
+    : '';
+
+  const editLink = r.editUrl
+    ? `<a class="link-btn" href="${esc(r.editUrl)}" target="_blank" rel="noopener">Edit</a>`
+    : '';
+
+  return `
+    <div class="mobile-row">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="font-semibold">${esc(r.vendor)}</div>
+          <div class="text-xs muted mt-1">${esc(r.type)} · ${esc(r.submissionId)}</div>
+        </div>
+        <div class="mono font-semibold">${money(r.amount)}</div>
+      </div>
+
+      <div class="flex flex-wrap gap-2 mt-3">
+        ${statusPillHtml(r.rowStatusText)}
+        <span class="table-chip">${esc(r.category)}</span>
+        <span class="table-chip ${sourceClass(r.fileSourceLabel)}">Source: ${esc(r.fileSourceLabel)}</span>
+      </div>
+
+      <div class="mobile-grid">
+        <div>
+          <div class="mobile-label">Invoice</div>
+          <div>${esc(r.invoice)}</div>
+        </div>
+        <div>
+          <div class="mobile-label">Aging</div>
+          <div>${agingText(r)}</div>
+        </div>
+        <div>
+          <div class="mobile-label">Submitter</div>
+          <div>${esc(r.submitter)}</div>
+        </div>
+        <div>
+          <div class="mobile-label">Entity</div>
+          <div>${esc(r.entity)}</div>
+        </div>
+        <div>
+          <div class="mobile-label">Drive File</div>
+          <div class="break-words">${esc(r.driveFileName || '—')}</div>
+        </div>
+        <div>
+          <div class="mobile-label">Drive Match</div>
+          <div class="break-words">${esc(r.driveMatchStatus || '—')}</div>
+        </div>
+      </div>
+
+      <div class="mt-3">
+        <div class="mobile-label">Notes</div>
+        <div class="text-sm break-words whitespace-pre-wrap">${esc(r.notes || '—')}</div>
+      </div>
+
+      <div class="mt-3">
+        <div class="mobile-label">Payment Detail</div>
+        <div class="text-sm break-words whitespace-pre-wrap">${esc(r.paymentDetail || '—')}</div>
+      </div>
+
+      <div class="flex flex-wrap gap-2 mt-4">${fileLinks} ${openLink} ${editLink}</div>
+    </div>
+  `;
 }
 
 function agingText(r){
@@ -802,62 +1172,13 @@ function agingText(r){
 function renderTable(){
   els.tableCount.textContent = `${state.filtered.length.toLocaleString()} rows`;
 
-  els.tbody.innerHTML = state.filtered.length ? state.filtered.map(r => {
-    const fileLinks = r.preferredFiles.length
-      ? r.preferredFiles.map((u,i)=>`<a class="link-btn" href="${esc(u)}" target="_blank" rel="noopener">${r.fileSourceLabel} File ${i+1}</a>`).join(' ')
-      : '<span class="text-slate-400">No file</span>';
+  els.tbody.innerHTML = state.filtered.length
+    ? state.filtered.map(renderDesktopRow).join('')
+    : `<tr><td colspan="15" class="muted">No rows match your filters.</td></tr>`;
 
-    const openLink = r.submissionUrl
-      ? `<a class="link-btn" href="${esc(r.submissionUrl)}" target="_blank" rel="noopener">Open</a>`
-      : '';
-
-    const editLink = r.editUrl
-      ? `<a class="link-btn" href="${esc(r.editUrl)}" target="_blank" rel="noopener">Edit</a>`
-      : '';
-
-    return `
-      <tr class="border-b border-slate-100 align-top hover:bg-slate-50/70">
-        <td class="px-4 py-3">
-          <div class="font-semibold text-slate-900">${esc(r.submissionId)}</div>
-          <div class="text-xs text-slate-500 mt-1">${fmtDate(r.submissionDate)}</div>
-        </td>
-        <td class="px-4 py-3">${esc(r.type)}</td>
-        <td class="px-4 py-3"><div class="font-semibold text-slate-900">${esc(r.vendor)}</div></td>
-        <td class="px-4 py-3">
-          <div>${esc(r.invoice)}</div>
-          <div class="text-xs text-slate-500 mt-1">${r.datePaid ? 'Paid date: ' + esc(r.datePaid) : ''}</div>
-        </td>
-        <td class="px-4 py-3 mono font-semibold">${money(r.amount)}</td>
-        <td class="px-4 py-3">
-          <div>${agingText(r)}</div>
-          <div class="text-xs text-slate-500 mt-1">${esc(r.agingBucket)}</div>
-        </td>
-        <td class="px-4 py-3">
-          <div>${paymentPill(r)}</div>
-          <div class="text-xs text-slate-500 mt-1 max-w-[260px]">${esc(r.paymentDetail || '')}</div>
-        </td>
-        <td class="px-4 py-3">${esc(r.category)}</td>
-        <td class="px-4 py-3">
-          <div class="max-w-[320px] whitespace-pre-wrap break-words text-slate-700">${esc(r.notes || '—')}</div>
-        </td>
-        <td class="px-4 py-3"><div>${esc(r.submitter)}</div></td>
-        <td class="px-4 py-3">${esc(r.paidBy)}</td>
-        <td class="px-4 py-3">${esc(r.entity)}</td>
-        <td class="px-4 py-3">
-          <div class="max-w-[220px] text-slate-700 whitespace-pre-wrap break-words">${esc(r.driveFileName || '—')}</div>
-        </td>
-        <td class="px-4 py-3">
-          <div class="max-w-[250px] text-slate-700 whitespace-pre-wrap break-words truncate-2">${esc(r.driveMatchStatus || '—')}</div>
-          <div class="text-xs text-slate-500 mt-1">Source: ${esc(r.fileSourceLabel)}</div>
-        </td>
-        <td class="px-4 py-3">
-          <div class="flex flex-wrap gap-2 min-w-[300px]">${fileLinks} ${openLink} ${editLink}</div>
-        </td>
-      </tr>
-    `;
-  }).join('') : `
-    <tr><td colspan="15" class="px-4 py-8 text-center text-slate-500">No rows match your filters.</td></tr>
-  `;
+  els.mobileRows.innerHTML = state.filtered.length
+    ? state.filtered.map(renderMobileRow).join('')
+    : `<div class="mobile-row muted">No rows match your filters.</div>`;
 }
 
 function exportFilteredCSV(){
@@ -937,11 +1258,12 @@ loadData().catch(err => {
   els.lastUpdated.textContent = 'Failed to load CSV';
   els.tbody.innerHTML = `
     <tr>
-      <td colspan="15" class="px-4 py-8 text-center text-red-600">
+      <td colspan="15" class="text-red-600">
         Could not load the Google Sheet CSV. Check that the sheet is published and accessible.
       </td>
     </tr>
   `;
+  els.mobileRows.innerHTML = `<div class="mobile-row text-red-600">Could not load the Google Sheet CSV.</div>`;
 });
 </script>
 </body>
