@@ -489,7 +489,7 @@
       </div>
 
       <div class="desktop-table table-wrap table-sticky scrollbar">
-        <table class="min-w-[2280px]">
+        <table class="min-w-[2200px]">
           <thead>
             <tr>
               <th>Submission</th>
@@ -1046,10 +1046,6 @@ function renderDesktopRow(r){
     ? r.preferredFiles.map((u,i)=>`<a class="link-btn" href="${esc(u)}" target="_blank" rel="noopener">${r.fileSourceLabel} File ${i+1}</a>`).join(' ')
     : '<span class="muted-2">No file</span>';
 
-  const openLink = r.submissionUrl
-    ? `<a class="link-btn" href="${esc(r.submissionUrl)}" target="_blank" rel="noopener">Open</a>`
-    : '';
-
   const editLink = r.editUrl
     ? `<a class="link-btn" href="${esc(r.editUrl)}" target="_blank" rel="noopener">Edit</a>`
     : '';
@@ -1085,7 +1081,7 @@ function renderDesktopRow(r){
         <div class="max-w-[250px] whitespace-pre-wrap break-words truncate-2">${esc(r.driveMatchStatus || '—')}</div>
         <div class="text-xs mt-2 ${sourceClass(r.fileSourceLabel)}">Source: ${esc(r.fileSourceLabel)}</div>
       </td>
-      <td><div class="flex flex-wrap gap-2 min-w-[300px]">${fileLinks} ${openLink} ${editLink}</div></td>
+      <td><div class="flex flex-wrap gap-2 min-w-[260px]">${fileLinks} ${editLink}</div></td>
     </tr>
   `;
 }
@@ -1094,10 +1090,6 @@ function renderMobileRow(r){
   const fileLinks = r.preferredFiles.length
     ? r.preferredFiles.map((u,i)=>`<a class="link-btn" href="${esc(u)}" target="_blank" rel="noopener">${r.fileSourceLabel} File ${i+1}</a>`).join(' ')
     : '<span class="muted-2">No file</span>';
-
-  const openLink = r.submissionUrl
-    ? `<a class="link-btn" href="${esc(r.submissionUrl)}" target="_blank" rel="noopener">Open</a>`
-    : '';
 
   const editLink = r.editUrl
     ? `<a class="link-btn" href="${esc(r.editUrl)}" target="_blank" rel="noopener">Edit</a>`
@@ -1156,7 +1148,7 @@ function renderMobileRow(r){
         <div class="text-sm break-words whitespace-pre-wrap">${esc(r.paymentDetail || '—')}</div>
       </div>
 
-      <div class="flex flex-wrap gap-2 mt-4">${fileLinks} ${openLink} ${editLink}</div>
+      <div class="flex flex-wrap gap-2 mt-4">${fileLinks} ${editLink}</div>
     </div>
   `;
 }
