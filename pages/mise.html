@@ -3,220 +3,426 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Payables Viewer</title>
+  <title>MISE Payables Submission Viewer</title>
+
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
   <style>
     :root{color-scheme:light}
-    html,body{margin:0;padding:0;background:linear-gradient(180deg,#f8fafc 0%,#f4f7fb 100%);color:#0f172a;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+    html,body{
+      margin:0;padding:0;background:#f5f7fb;color:#0f172a;
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif
+    }
+    body{line-height:1.45}
+    .weebly-shell{
+      max-width:1160px;
+      margin:0 auto;
+      padding:22px 16px 36px;
+    }
+    .hero-card,.panel,.metric-card{
+      background:#fff;
+      border:1px solid #e2e8f0;
+      border-radius:22px;
+      box-shadow:0 10px 28px rgba(15,23,42,.05);
+    }
+    .hero-card{padding:24px}
+    .panel{padding:20px}
+    .metric-card{padding:16px}
     .mono{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
-    .glass{background:rgba(255,255,255,.78);backdrop-filter:blur(14px)}
-    .shadow-soft{box-shadow:0 12px 40px rgba(15,23,42,.07)}
-    .shadow-panel{box-shadow:0 16px 50px rgba(15,23,42,.08)}
-    .scrollbar::-webkit-scrollbar{height:10px;width:10px}.scrollbar::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:999px}.scrollbar::-webkit-scrollbar-track{background:transparent}
-    .pill{display:inline-flex;align-items:center;gap:.35rem;border-radius:999px;padding:.28rem .58rem;font-size:.74rem;font-weight:700}
-    .pill-green{background:#dcfce7;color:#166534}.pill-amber{background:#fef3c7;color:#92400e}.pill-red{background:#fee2e2;color:#991b1b}.pill-slate{background:#e2e8f0;color:#334155}.pill-blue{background:#dbeafe;color:#1d4ed8}
-    .table-sticky thead th{position:sticky;top:0;background:#f8fafc;z-index:2}
-    .link-btn{display:inline-flex;align-items:center;justify-content:center;padding:.46rem .7rem;border-radius:.8rem;border:1px solid #e2e8f0;background:white;font-size:.76rem;font-weight:700;color:#0f172a;text-decoration:none;transition:.15s ease}
-    .link-btn:hover{background:#f8fafc;border-color:#cbd5e1}
-    .field{width:100%;border:1px solid #dbe2ea;background:white;border-radius:1rem;padding:.74rem .88rem;font-size:.92rem;outline:none}
+    .soft-label{
+      font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.14em;color:#64748b
+    }
+    .hero-title{
+      font-size:clamp(1.8rem,3vw,2.4rem);
+      line-height:1.05;font-weight:800;letter-spacing:-.03em;color:#0f172a
+    }
+    .hero-sub{font-size:.96rem;color:#475569;max-width:760px}
+    .btn,.btn-dark{
+      display:inline-flex;align-items:center;justify-content:center;
+      min-height:42px;padding:.68rem 1rem;border-radius:14px;
+      border:1px solid #d9e1ea;background:#fff;color:#0f172a;
+      font-size:.84rem;font-weight:700;text-decoration:none;cursor:pointer;
+      transition:transform .14s ease, box-shadow .14s ease, border-color .14s ease;
+    }
+    .btn-dark{background:#0f172a;color:#fff;border-color:#0f172a}
+    .btn:hover,.btn-dark:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(15,23,42,.08)}
+    .field{
+      width:100%;min-height:46px;border:1px solid #dbe2ea;background:#fff;border-radius:14px;
+      padding:.78rem .9rem;font-size:.92rem;color:#0f172a;outline:none
+    }
     .field:focus{border-color:#94a3b8;box-shadow:0 0 0 4px rgba(148,163,184,.12)}
-    .card{border:1px solid #e2e8f0;border-radius:1.3rem;background:rgba(255,255,255,.94)}
-    .metric{position:relative;overflow:hidden}
-    .metric:before{content:"";position:absolute;inset:auto -40px -40px auto;width:120px;height:120px;border-radius:999px;background:radial-gradient(circle,rgba(148,163,184,.16),transparent 70%)}
-    .mini{height:10px;border-radius:999px;background:#e2e8f0;overflow:hidden}
-    .mini > span{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#0f172a,#64748b)}
+    .metric-value{font-size:1.7rem;font-weight:800;letter-spacing:-.03em}
+    .metric-note{font-size:.76rem;color:#64748b;margin-top:4px}
+    .pill{
+      display:inline-flex;align-items:center;gap:.35rem;border-radius:999px;
+      padding:.28rem .6rem;font-size:.72rem;font-weight:800;line-height:1
+    }
+    .pill-green{background:#dcfce7;color:#166534}
+    .pill-amber{background:#fef3c7;color:#92400e}
+    .pill-red{background:#fee2e2;color:#991b1b}
+    .pill-slate{background:#e2e8f0;color:#334155}
+    .pill-blue{background:#dbeafe;color:#1d4ed8}
+    .mini{
+      height:10px;border-radius:999px;background:#e2e8f0;overflow:hidden
+    }
+    .mini>span{
+      display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,#0f172a,#64748b)
+    }
+    .table-wrap{
+      overflow:auto;
+      max-height:72vh;
+      border:1px solid #e2e8f0;
+      border-radius:18px;
+      background:#fff
+    }
+    .table-wrap::-webkit-scrollbar,
+    .scrollbar::-webkit-scrollbar{height:10px;width:10px}
+    .table-wrap::-webkit-scrollbar-thumb,
+    .scrollbar::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:999px}
+    .table-wrap::-webkit-scrollbar-track,
+    .scrollbar::-webkit-scrollbar-track{background:transparent}
+    table{border-collapse:separate;border-spacing:0}
+    .table-sticky thead th{
+      position:sticky;top:0;background:#f8fafc;z-index:2
+    }
+    .muted{color:#64748b}
+    .section-title{font-size:1.15rem;font-weight:800;letter-spacing:-.02em}
+    .section-sub{font-size:.9rem;color:#64748b}
+    .link-btn{
+      display:inline-flex;align-items:center;justify-content:center;padding:.48rem .72rem;
+      border-radius:12px;border:1px solid #e2e8f0;background:#fff;color:#0f172a;
+      font-size:.77rem;font-weight:700;text-decoration:none
+    }
+    .link-btn:hover{background:#f8fafc}
+    .tight{line-height:1.25}
+    .truncate-2{
+      display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+    }
     canvas{max-width:100%}
+    @media (max-width: 900px){
+      .weebly-shell{padding:14px 12px 28px}
+      .hero-card,.panel,.metric-card{border-radius:18px}
+      .hero-card{padding:18px}
+      .panel{padding:16px}
+    }
   </style>
 </head>
 <body>
-  <div class="min-h-screen">
-    <header class="sticky top-0 z-20 border-b border-slate-200/70 glass">
-      <div class="max-w-[1750px] mx-auto px-4 sm:px-6 lg:px-8 py-4">
-        <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <div class="text-[11px] uppercase tracking-[0.22em] text-slate-500 font-bold">Jotform · Google Sheets · Read Only</div>
-            <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900">Payables Submission Viewer</h1>
-            <p class="text-sm text-slate-600 mt-1">View Jotform submissions, uploads, edit links, and AP reporting without requiring clients to access your Jotform account directly.</p>
-          </div>
-          <div class="flex flex-wrap gap-2">
-            <button id="refreshBtn" class="link-btn">Refresh data</button>
-            <button id="exportBtn" class="link-btn">Export filtered CSV</button>
-            <button id="resetBtn" class="link-btn">Reset filters</button>
-          </div>
+  <div class="weebly-shell">
+    <section class="hero-card">
+      <div class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <div class="min-w-0">
+          <div class="soft-label">Jotform · Google Sheets · Google Drive · Read Only</div>
+          <h1 class="hero-title mt-2">Payables Submission Viewer</h1>
+          <p class="hero-sub mt-3">
+            View MISE submission records, receipt uploads, purchase requests,
+            reimbursement items, Drive-backed file links, inbox links, and edit URLs
+            without needing clients inside your native Jotform account.
+          </p>
+        </div>
+        <div class="flex flex-wrap gap-2 lg:justify-end">
+          <button id="refreshBtn" class="btn">Refresh Data</button>
+          <button id="exportBtn" class="btn">Export Filtered CSV</button>
+          <button id="resetBtn" class="btn-dark">Reset Filters</button>
         </div>
       </div>
-    </header>
+    </section>
 
-    <main class="max-w-[1750px] mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
-      <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-4">
-        <div class="card metric shadow-soft p-4"><div class="text-xs uppercase tracking-wide text-slate-500 font-bold">Rows</div><div id="kpiRows" class="mt-2 text-2xl font-extrabold mono">—</div><div class="text-xs text-slate-500 mt-1">Current filtered view</div></div>
-        <div class="card metric shadow-soft p-4"><div class="text-xs uppercase tracking-wide text-slate-500 font-bold">Open AP count</div><div id="kpiUnpaidCount" class="mt-2 text-2xl font-extrabold mono">—</div><div class="text-xs text-slate-500 mt-1">Requests still actionable</div></div>
-        <div class="card metric shadow-soft p-4"><div class="text-xs uppercase tracking-wide text-slate-500 font-bold">Open AP amount</div><div id="kpiUnpaidAmount" class="mt-2 text-2xl font-extrabold mono">—</div><div class="text-xs text-slate-500 mt-1">Current outstanding</div></div>
-        <div class="card metric shadow-soft p-4"><div class="text-xs uppercase tracking-wide text-slate-500 font-bold">Overdue amount</div><div id="kpiOverdueAmount" class="mt-2 text-2xl font-extrabold mono">—</div><div class="text-xs text-slate-500 mt-1">Past due based on Due Date</div></div>
-        <div class="card metric shadow-soft p-4"><div class="text-xs uppercase tracking-wide text-slate-500 font-bold">Due next 7 days</div><div id="kpiNext7" class="mt-2 text-2xl font-extrabold mono">—</div><div class="text-xs text-slate-500 mt-1">Upcoming open items</div></div>
-        <div class="card metric shadow-soft p-4"><div class="text-xs uppercase tracking-wide text-slate-500 font-bold">Completed amount</div><div id="kpiPaidAmount" class="mt-2 text-2xl font-extrabold mono">—</div><div class="text-xs text-slate-500 mt-1">Receipts + paid items</div></div>
-      </section>
+    <section class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-4 mt-5">
+      <div class="metric-card">
+        <div class="soft-label">Rows</div>
+        <div id="kpiRows" class="metric-value mono mt-2">—</div>
+        <div class="metric-note">Current filtered view</div>
+      </div>
+      <div class="metric-card">
+        <div class="soft-label">Open AP Count</div>
+        <div id="kpiOpenCount" class="metric-value mono mt-2">—</div>
+        <div class="metric-note">Actionable unpaid items</div>
+      </div>
+      <div class="metric-card">
+        <div class="soft-label">Open AP Amount</div>
+        <div id="kpiOpenAmount" class="metric-value mono mt-2">—</div>
+        <div class="metric-note">Outstanding payable value</div>
+      </div>
+      <div class="metric-card">
+        <div class="soft-label">Overdue Amount</div>
+        <div id="kpiOverdueAmount" class="metric-value mono mt-2">—</div>
+        <div class="metric-note">Past due based on due date</div>
+      </div>
+      <div class="metric-card">
+        <div class="soft-label">Due Next 7 Days</div>
+        <div id="kpiDueSoon" class="metric-value mono mt-2">—</div>
+        <div class="metric-note">Upcoming open AP</div>
+      </div>
+      <div class="metric-card">
+        <div class="soft-label">Complete / Info</div>
+        <div id="kpiCompleteAmount" class="metric-value mono mt-2">—</div>
+        <div class="metric-note">Receipts + paid items</div>
+      </div>
+    </section>
 
-      <section class="grid grid-cols-1 xl:grid-cols-[1.15fr,.85fr] gap-6">
-        <div class="card shadow-panel p-4 sm:p-5">
-          <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
-            <div>
-              <h2 class="text-lg font-bold tracking-tight">Filters</h2>
-              <p class="text-sm text-slate-500">Search vendors, invoice numbers, notes, submitters, categories, and payment detail.</p>
-            </div>
-            <div id="lastUpdated" class="text-xs text-slate-500">Loading…</div>
-          </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
-            <input id="searchInput" class="field" placeholder="Search vendor, invoice, notes, submitter…" />
-            <select id="typeFilter" class="field"></select>
-            <select id="statusFilter" class="field"></select>
-            <select id="vendorFilter" class="field"></select>
-            <select id="categoryFilter" class="field"></select>
-            <select id="submitterFilter" class="field"></select>
-            <select id="paidByFilter" class="field"></select>
-            <select id="entityFilter" class="field"></select>
-            <select id="dueBucketFilter" class="field"></select>
-            <input id="dateFrom" class="field" type="date" />
-            <input id="dateTo" class="field" type="date" />
-            <label class="field flex items-center gap-3 cursor-pointer"><input id="unpaidOnly" type="checkbox" class="h-4 w-4" /> <span>Open AP only</span></label>
-          </div>
-        </div>
-
-        <div class="card shadow-panel p-4 sm:p-5">
-          <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
-            <div>
-              <h2 class="text-lg font-bold tracking-tight">Aging snapshot</h2>
-              <p class="text-sm text-slate-500">Open AP only. Receipt uploads stay out of aging.</p>
-            </div>
-          </div>
-          <div class="grid grid-cols-2 gap-3" id="agingCards"></div>
-        </div>
-      </section>
-
-      <section class="grid grid-cols-1 xl:grid-cols-[1.1fr,.9fr] gap-6">
-        <div class="card shadow-panel p-4 sm:p-5">
-          <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
-            <div>
-              <h2 class="text-lg font-bold tracking-tight">Open AP trend</h2>
-              <p class="text-sm text-slate-500">Monthly open vs completed submission value in current view.</p>
-            </div>
-          </div>
-          <div class="h-[320px]"><canvas id="trendChart"></canvas></div>
-        </div>
-
-        <div class="card shadow-panel p-4 sm:p-5">
-          <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
-            <div>
-              <h2 class="text-lg font-bold tracking-tight">Top vendors by open amount</h2>
-              <p class="text-sm text-slate-500">Largest remaining payable exposure.</p>
-            </div>
-          </div>
-          <div class="h-[320px]"><canvas id="vendorChart"></canvas></div>
-        </div>
-      </section>
-
-      <section class="grid grid-cols-1 xl:grid-cols-[1.05fr,.95fr] gap-6">
-        <div class="card shadow-soft p-4 sm:p-5">
-          <div class="flex items-center justify-between gap-3 flex-wrap mb-4">
-            <div>
-              <h2 class="text-lg font-bold tracking-tight">Payables summary</h2>
-              <p class="text-sm text-slate-500">Grouped rollup from the current filtered view.</p>
-            </div>
-          </div>
-          <div class="overflow-auto scrollbar rounded-2xl border border-slate-200">
-            <table class="w-full text-sm">
-              <thead class="bg-slate-50">
-                <tr class="text-left text-slate-500">
-                  <th class="px-4 py-3 font-semibold">Vendor</th>
-                  <th class="px-4 py-3 font-semibold">Rows</th>
-                  <th class="px-4 py-3 font-semibold">Open</th>
-                  <th class="px-4 py-3 font-semibold">Open Amount</th>
-                  <th class="px-4 py-3 font-semibold">Overdue</th>
-                </tr>
-              </thead>
-              <tbody id="summaryBody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div class="card shadow-soft p-4 sm:p-5">
-          <h2 class="text-lg font-bold tracking-tight mb-4">Status buckets</h2>
-          <div id="bucketWrap" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
-        </div>
-      </section>
-
-      <section class="card shadow-soft overflow-hidden">
-        <div class="px-4 sm:px-5 py-4 border-b border-slate-200 flex items-center justify-between gap-3 flex-wrap">
+    <section class="grid grid-cols-1 xl:grid-cols-[1.2fr,.8fr] gap-5 mt-5">
+      <div class="panel">
+        <div class="flex flex-col gap-3 md:flex-row md:items-end md:justify-between mb-4">
           <div>
-            <h2 class="text-lg font-bold tracking-tight">Submission detail</h2>
-            <p class="text-sm text-slate-500">File links, Jotform inbox links, edit links, submitter, vendor, due date, payment status, and notes.</p>
+            <div class="section-title">Filters</div>
+            <div class="section-sub">Search vendor, invoice number, notes, submitter, category, payment detail, or submission ID.</div>
           </div>
-          <div id="tableCount" class="text-sm font-semibold text-slate-600">0 rows</div>
+          <div id="lastUpdated" class="text-xs muted">Loading…</div>
         </div>
-        <div class="overflow-auto scrollbar max-h-[72vh] table-sticky">
-          <table class="w-full min-w-[1980px] text-sm">
-            <thead>
-              <tr class="text-left text-slate-500 border-b border-slate-200">
-                <th class="px-4 py-3 font-semibold">Submission</th>
-                <th class="px-4 py-3 font-semibold">Type</th>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-3">
+          <input id="searchInput" class="field" placeholder="Search..." />
+          <select id="typeFilter" class="field"></select>
+          <select id="statusFilter" class="field"></select>
+          <select id="vendorFilter" class="field"></select>
+          <select id="categoryFilter" class="field"></select>
+          <select id="submitterFilter" class="field"></select>
+          <select id="paidByFilter" class="field"></select>
+          <select id="entityFilter" class="field"></select>
+          <select id="dueBucketFilter" class="field"></select>
+          <input id="dateFrom" class="field" type="date" />
+          <input id="dateTo" class="field" type="date" />
+          <label class="field flex items-center gap-3 cursor-pointer">
+            <input id="unpaidOnly" type="checkbox" class="h-4 w-4" />
+            <span>Open AP only</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="section-title">Aging Snapshot</div>
+        <div class="section-sub mt-1">Aging only applies to open AP. Receipt uploads stay in complete / info.</div>
+        <div id="agingCards" class="grid grid-cols-2 gap-3 mt-4"></div>
+      </div>
+    </section>
+
+    <section class="grid grid-cols-1 xl:grid-cols-2 gap-5 mt-5">
+      <div class="panel">
+        <div class="section-title">Open AP Trend</div>
+        <div class="section-sub mt-1">Monthly open AP vs complete / info totals in the current filtered view.</div>
+        <div class="mt-4 h-[310px]"><canvas id="trendChart"></canvas></div>
+      </div>
+      <div class="panel">
+        <div class="section-title">Top Vendors by Open Amount</div>
+        <div class="section-sub mt-1">Largest remaining AP exposure by vendor.</div>
+        <div class="mt-4 h-[310px]"><canvas id="vendorChart"></canvas></div>
+      </div>
+    </section>
+
+    <section class="grid grid-cols-1 xl:grid-cols-[1.05fr,.95fr] gap-5 mt-5">
+      <div class="panel">
+        <div class="section-title">Payables Summary</div>
+        <div class="section-sub mt-1 mb-4">Vendor rollup from the current filtered view.</div>
+        <div class="table-wrap scrollbar">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50">
+              <tr class="text-left text-slate-500">
                 <th class="px-4 py-3 font-semibold">Vendor</th>
-                <th class="px-4 py-3 font-semibold">Invoice</th>
-                <th class="px-4 py-3 font-semibold">Amount</th>
-                <th class="px-4 py-3 font-semibold">Aging</th>
-                <th class="px-4 py-3 font-semibold">Status</th>
-                <th class="px-4 py-3 font-semibold">Category</th>
-                <th class="px-4 py-3 font-semibold">Notes</th>
-                <th class="px-4 py-3 font-semibold">Submitter</th>
-                <th class="px-4 py-3 font-semibold">Paid by</th>
-                <th class="px-4 py-3 font-semibold">Entity</th>
-                <th class="px-4 py-3 font-semibold">Links</th>
+                <th class="px-4 py-3 font-semibold">Rows</th>
+                <th class="px-4 py-3 font-semibold">Open</th>
+                <th class="px-4 py-3 font-semibold">Open Amount</th>
+                <th class="px-4 py-3 font-semibold">Overdue</th>
               </tr>
             </thead>
-            <tbody id="tableBody"></tbody>
+            <tbody id="summaryBody"></tbody>
           </table>
         </div>
-      </section>
-    </main>
+      </div>
+
+      <div class="panel">
+        <div class="section-title">Status Buckets</div>
+        <div class="section-sub mt-1 mb-4">Fast view of open vs complete status buckets.</div>
+        <div id="bucketWrap" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
+      </div>
+    </section>
+
+    <section class="panel mt-5">
+      <div class="flex flex-col gap-2 md:flex-row md:items-end md:justify-between mb-4">
+        <div>
+          <div class="section-title">Submission Detail</div>
+          <div class="section-sub mt-1">Uses Drive File URL first, then falls back to original Jotform file links if Drive is blank.</div>
+        </div>
+        <div id="tableCount" class="text-sm font-semibold muted">0 rows</div>
+      </div>
+
+      <div class="table-wrap table-sticky scrollbar">
+        <table class="w-full min-w-[2140px] text-sm">
+          <thead>
+            <tr class="text-left text-slate-500 border-b border-slate-200">
+              <th class="px-4 py-3 font-semibold">Submission</th>
+              <th class="px-4 py-3 font-semibold">Type</th>
+              <th class="px-4 py-3 font-semibold">Vendor</th>
+              <th class="px-4 py-3 font-semibold">Invoice</th>
+              <th class="px-4 py-3 font-semibold">Amount</th>
+              <th class="px-4 py-3 font-semibold">Aging</th>
+              <th class="px-4 py-3 font-semibold">Status</th>
+              <th class="px-4 py-3 font-semibold">Category</th>
+              <th class="px-4 py-3 font-semibold">Notes</th>
+              <th class="px-4 py-3 font-semibold">Submitter</th>
+              <th class="px-4 py-3 font-semibold">Paid by</th>
+              <th class="px-4 py-3 font-semibold">Entity</th>
+              <th class="px-4 py-3 font-semibold">Drive File Name</th>
+              <th class="px-4 py-3 font-semibold">Drive Match Status</th>
+              <th class="px-4 py-3 font-semibold">Links</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+    </section>
   </div>
 
 <script>
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRIk0Vxt7GPkDpy1TrbYA6aGaGomkJhdCcuyokBUWS1jMwheDqdMbV76fG-_P-ibaFnMFc-K48f760V/pub?gid=1266023746&single=true&output=csv';
 
 const state = { raw: [], filtered: [], trendChart: null, vendorChart: null };
+
 const $ = s => document.querySelector(s);
 const els = {
-  search: $('#searchInput'), type: $('#typeFilter'), status: $('#statusFilter'), vendor: $('#vendorFilter'), category: $('#categoryFilter'), submitter: $('#submitterFilter'), paidBy: $('#paidByFilter'), entity: $('#entityFilter'), dueBucket: $('#dueBucketFilter'), unpaidOnly: $('#unpaidOnly'), dateFrom: $('#dateFrom'), dateTo: $('#dateTo'),
-  tbody: $('#tableBody'), summary: $('#summaryBody'), bucketWrap: $('#bucketWrap'), tableCount: $('#tableCount'), lastUpdated: $('#lastUpdated'), agingCards: $('#agingCards')
+  search: $('#searchInput'),
+  type: $('#typeFilter'),
+  status: $('#statusFilter'),
+  vendor: $('#vendorFilter'),
+  category: $('#categoryFilter'),
+  submitter: $('#submitterFilter'),
+  paidBy: $('#paidByFilter'),
+  entity: $('#entityFilter'),
+  dueBucket: $('#dueBucketFilter'),
+  unpaidOnly: $('#unpaidOnly'),
+  dateFrom: $('#dateFrom'),
+  dateTo: $('#dateTo'),
+  tbody: $('#tableBody'),
+  summary: $('#summaryBody'),
+  bucketWrap: $('#bucketWrap'),
+  agingCards: $('#agingCards'),
+  tableCount: $('#tableCount'),
+  lastUpdated: $('#lastUpdated')
 };
 
-function money(n){ return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2}).format(Number(n||0)); }
-function fmtDate(d){ if(!d) return '—'; const x = parseDate(d); if(!x) return d; return x.toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'}); }
-function esc(s){ return String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+function money(n){
+  return new Intl.NumberFormat('en-US',{
+    style:'currency',
+    currency:'USD',
+    maximumFractionDigits:2
+  }).format(Number(n || 0));
+}
+
+function fmtDate(d){
+  if(!d) return '—';
+  const x = parseDate(d);
+  if(!x) return d;
+  return x.toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'});
+}
+
+function esc(s){
+  return String(s ?? '').replace(/[&<>"']/g, m => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[m]));
+}
+
 function compact(v){ return String(v ?? '').trim(); }
-function num(v){ if(v==null || v==='') return 0; const cleaned = String(v).replace(/[$,\s]/g,''); const n = Number(cleaned); return Number.isFinite(n) ? n : 0; }
+
+function num(v){
+  if(v == null || v === '') return 0;
+  const cleaned = String(v).replace(/[$,\s]/g,'');
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function parseDate(v){
   const s = compact(v);
   if(!s) return null;
-  if(/^\d{4}-\d{2}-\d{2}/.test(s)){ const d = new Date(s + 'T00:00:00'); return isNaN(+d)?null:d; }
+
+  if(/^\d{4}-\d{2}-\d{2}/.test(s)){
+    const d = new Date(s + 'T00:00:00');
+    return isNaN(+d) ? null : d;
+  }
+
   const mdY = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
-  if(mdY){ const d = new Date(Number(mdY[3]), Number(mdY[1])-1, Number(mdY[2])); return isNaN(+d)?null:d; }
+  if(mdY){
+    const d = new Date(Number(mdY[3]), Number(mdY[1]) - 1, Number(mdY[2]));
+    return isNaN(+d) ? null : d;
+  }
+
   const slash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-  if(slash){ const year = slash[3].length===2 ? Number('20'+slash[3]) : Number(slash[3]); const d = new Date(year, Number(slash[1])-1, Number(slash[2])); return isNaN(+d)?null:d; }
-  const d = new Date(s); return isNaN(+d)?null:d;
+  if(slash){
+    const year = slash[3].length === 2 ? Number('20' + slash[3]) : Number(slash[3]);
+    const d = new Date(year, Number(slash[1]) - 1, Number(slash[2]));
+    return isNaN(+d) ? null : d;
+  }
+
+  const d = new Date(s);
+  return isNaN(+d) ? null : d;
 }
-function toISODate(d){ if(!d) return ''; const y=d.getFullYear(), m=String(d.getMonth()+1).padStart(2,'0'), day=String(d.getDate()).padStart(2,'0'); return `${y}-${m}-${day}`; }
-function daysBetween(a,b){ const ms = 24*60*60*1000; return Math.floor((stripTime(a)-stripTime(b))/ms); }
-function stripTime(d){ return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
-function yesNo(v){ const s = compact(v).toLowerCase(); if(['yes','paid','complete','completed','true'].includes(s)) return 'Yes'; if(['no','open','unpaid','false'].includes(s)) return 'No'; return s ? v : 'No'; }
-function uniq(vals){ return [...new Set(vals.filter(Boolean))].sort((a,b)=> String(a).localeCompare(String(b))); }
-function optionHTML(list, first='All'){ return [`<option value="">${first}</option>`, ...list.map(v => `<option>${esc(v)}</option>`)].join(''); }
-function ym(d){ return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` : 'Unknown'; }
-function ymLabel(s){ if(!s || s==='Unknown') return 'Unknown'; const [y,m] = s.split('-').map(Number); return new Date(y,m-1,1).toLocaleDateString('en-US',{month:'short',year:'numeric'}); }
+
+function stripTime(d){
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function daysBetween(a,b){
+  const ms = 24*60*60*1000;
+  return Math.floor((stripTime(a) - stripTime(b)) / ms);
+}
+
+function toISODate(d){
+  if(!d) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+
+function yesNo(v){
+  const s = compact(v).toLowerCase();
+  if(['yes','paid','complete','completed','true'].includes(s)) return 'Yes';
+  if(['no','open','unpaid','false'].includes(s)) return 'No';
+  return s ? v : 'No';
+}
+
+function uniq(vals){
+  return [...new Set(vals.filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b)));
+}
+
+function optionHTML(list, first='All'){
+  return [`<option value="">${first}</option>`, ...list.map(v => `<option>${esc(v)}</option>`)].join('');
+}
+
+function ym(d){
+  return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` : 'Unknown';
+}
+
+function ymLabel(s){
+  if(!s || s === 'Unknown') return 'Unknown';
+  const [y,m] = s.split('-').map(Number);
+  return new Date(y,m-1,1).toLocaleDateString('en-US',{month:'short',year:'numeric'});
+}
+
+function normalizeFileLink(url){
+  const s = String(url || '').trim();
+  if(!s) return '';
+
+  const fileMatch = s.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+  if(fileMatch) return `https://drive.google.com/file/d/${fileMatch[1]}/view`;
+
+  const openId = s.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if(openId) return `https://drive.google.com/file/d/${openId[1]}/view`;
+
+  return s;
+}
+
+function splitMultiLinks(value){
+  return compact(value)
+    .split(/\n+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
 
 function normalizeRow(r){
   const dueDate = parseDate(r['Due Date']);
@@ -225,14 +431,21 @@ function normalizeRow(r){
   const type = compact(r['Purchase Request or Receipt Upload?']) || '—';
   const rawPaymentComplete = yesNo(r['Payment Complete']);
   const amount = num(r['Amount Due $']);
+
   const isReceiptUpload = /receipt upload/i.test(type);
   const isPurchaseRequest = /purchase request/i.test(type);
   const isReimbursement = /reimbursement/i.test(type);
+
   const isOperationallyComplete = isReceiptUpload || rawPaymentComplete === 'Yes';
-  const isActionablePayable = !isReceiptUpload && (isPurchaseRequest || isReimbursement || amount > 0) && rawPaymentComplete !== 'Yes';
+  const isActionablePayable =
+    !isReceiptUpload &&
+    (isPurchaseRequest || isReimbursement || amount > 0) &&
+    rawPaymentComplete !== 'Yes';
+
   const today = stripTime(new Date());
   let dueBucket = 'No due date';
   let dueDelta = null;
+
   if(dueDate){
     dueDelta = daysBetween(dueDate, today);
     if(isOperationallyComplete) dueBucket = 'Complete';
@@ -254,10 +467,16 @@ function normalizeRow(r){
     else agingBucket = '90+ days';
   }
 
-  const files = compact(r['File Upload']).split(/\n+/).map(s => s.trim()).filter(Boolean);
+  const jotformFiles = splitMultiLinks(r['File Upload']);
+  const driveFiles = splitMultiLinks(r['Drive File URL']).map(normalizeFileLink);
+  const preferredFiles = driveFiles.length ? driveFiles : jotformFiles;
+  const fileSourceLabel = driveFiles.length ? 'Drive' : (jotformFiles.length ? 'Jotform' : 'None');
+
   return {
     raw: r,
-    submissionDate, dueDate, lastUpdate,
+    submissionDate,
+    dueDate,
+    lastUpdate,
     type,
     submitter: compact(r['Employee email (Submitter)']) || '—',
     vendor: compact(r['Vendor']) || '—',
@@ -275,7 +494,12 @@ function normalizeRow(r){
     entity: compact(r['MISE Footwear']) || '—',
     submissionUrl: compact(r['Submission URL']),
     editUrl: compact(r['Submission Edit URL']),
-    files,
+    jotformFiles,
+    driveFiles,
+    preferredFiles,
+    fileSourceLabel,
+    driveFileName: compact(r['Drive File Name']) || '',
+    driveMatchStatus: compact(r['Drive Match Status']) || '',
     submissionId: compact(r['Submission ID']) || '—',
     dueBucket,
     dueDelta,
@@ -286,7 +510,8 @@ function normalizeRow(r){
 
 async function loadData(){
   els.lastUpdated.textContent = 'Loading data…';
-  const rows = await new Promise((resolve,reject)=>{
+
+  const rows = await new Promise((resolve,reject) => {
     Papa.parse(CSV_URL, {
       download: true,
       header: true,
@@ -295,6 +520,7 @@ async function loadData(){
       error: reject
     });
   });
+
   state.raw = rows.map(normalizeRow).filter(r => r.vendor !== '—' || r.submissionId !== '—');
   hydrateFilters();
   applyFilters();
@@ -316,11 +542,17 @@ function applyFilters(){
   const q = compact(els.search.value).toLowerCase();
   const from = parseDate(els.dateFrom.value);
   const to = parseDate(els.dateTo.value);
+
   state.filtered = state.raw.filter(r => {
     if(q){
-      const hay = [r.vendor,r.invoice,r.notes,r.submitter,r.paymentDetail,r.category,r.type,r.paidBy,r.entity,r.submissionId].join(' | ').toLowerCase();
+      const hay = [
+        r.vendor, r.invoice, r.notes, r.submitter, r.paymentDetail,
+        r.category, r.type, r.paidBy, r.entity, r.submissionId,
+        r.driveFileName, r.driveMatchStatus
+      ].join(' | ').toLowerCase();
       if(!hay.includes(q)) return false;
     }
+
     if(els.type.value && r.type !== els.type.value) return false;
     if(els.status.value && r.reportStatus !== els.status.value) return false;
     if(els.vendor.value && r.vendor !== els.vendor.value) return false;
@@ -332,12 +564,14 @@ function applyFilters(){
     if(els.unpaidOnly.checked && !r.isActionablePayable) return false;
     if(from && (!r.submissionDate || stripTime(r.submissionDate) < stripTime(from))) return false;
     if(to && (!r.submissionDate || stripTime(r.submissionDate) > stripTime(to))) return false;
+
     return true;
-  }).sort((a,b)=>{
+  }).sort((a,b) => {
     const ad = a.dueDate ? +a.dueDate : Number.MAX_SAFE_INTEGER;
     const bd = b.dueDate ? +b.dueDate : Number.MAX_SAFE_INTEGER;
-    return ad - bd || (+b.submissionDate||0) - (+a.submissionDate||0);
+    return ad - bd || (+b.submissionDate || 0) - (+a.submissionDate || 0);
   });
+
   renderKPIs();
   renderAgingCards();
   renderBuckets();
@@ -348,20 +582,23 @@ function applyFilters(){
 
 function renderKPIs(){
   const rows = state.filtered;
-  const unpaid = rows.filter(r => r.isActionablePayable);
-  const completed = rows.filter(r => r.isOperationallyComplete);
-  const overdue = unpaid.filter(r => r.dueBucket === 'Overdue');
-  const next7 = unpaid.filter(r => r.dueBucket === 'Due today' || r.dueBucket === 'Due next 7 days');
+  const open = rows.filter(r => r.isActionablePayable);
+  const complete = rows.filter(r => r.isOperationallyComplete);
+  const overdue = open.filter(r => r.dueBucket === 'Overdue');
+  const dueSoon = open.filter(r => r.dueBucket === 'Due today' || r.dueBucket === 'Due next 7 days');
+
   $('#kpiRows').textContent = rows.length.toLocaleString();
-  $('#kpiUnpaidCount').textContent = unpaid.length.toLocaleString();
-  $('#kpiUnpaidAmount').textContent = money(unpaid.reduce((s,r)=>s+r.amount,0));
+  $('#kpiOpenCount').textContent = open.length.toLocaleString();
+  $('#kpiOpenAmount').textContent = money(open.reduce((s,r)=>s+r.amount,0));
   $('#kpiOverdueAmount').textContent = money(overdue.reduce((s,r)=>s+r.amount,0));
-  $('#kpiNext7').textContent = money(next7.reduce((s,r)=>s+r.amount,0));
-  $('#kpiPaidAmount').textContent = money(completed.reduce((s,r)=>s+r.amount,0));
+  $('#kpiDueSoon').textContent = money(dueSoon.reduce((s,r)=>s+r.amount,0));
+  $('#kpiCompleteAmount').textContent = money(complete.reduce((s,r)=>s+r.amount,0));
 }
 
 function renderAgingCards(){
   const open = state.filtered.filter(r => r.isActionablePayable);
+  const total = open.reduce((s,r)=>s+r.amount,0) || 1;
+
   const buckets = [
     { label:'Current / Not yet due', key:'Current / Not yet due', cls:'pill-blue' },
     { label:'0-30 days', key:'0-30 days', cls:'pill-amber' },
@@ -370,28 +607,51 @@ function renderAgingCards(){
     { label:'90+ days', key:'90+ days', cls:'pill-red' },
     { label:'No due date', key:'No due date', cls:'pill-slate' }
   ];
-  const total = open.reduce((s,r)=>s+r.amount,0) || 1;
+
   els.agingCards.innerHTML = buckets.map(b => {
     const rows = open.filter(r => r.agingBucket === b.key);
     const amt = rows.reduce((s,r)=>s+r.amount,0);
-    const pct = Math.max(0, Math.min(100, (amt/total)*100));
-    return `<div class="border border-slate-200 rounded-2xl p-4 bg-slate-50/70"><div class="flex items-center justify-between gap-2"><span class="pill ${b.cls}">${esc(b.label)}</span><span class="text-xs mono text-slate-500">${rows.length} rows</span></div><div class="mt-3 text-xl font-extrabold mono">${money(amt)}</div><div class="mt-3 mini"><span style="width:${pct}%"></span></div></div>`;
+    const pct = Math.max(0, Math.min(100, (amt/total) * 100));
+    return `
+      <div class="border border-slate-200 rounded-2xl p-4 bg-slate-50/70">
+        <div class="flex items-center justify-between gap-2">
+          <span class="pill ${b.cls}">${esc(b.label)}</span>
+          <span class="text-xs mono text-slate-500">${rows.length} rows</span>
+        </div>
+        <div class="mt-3 text-xl font-extrabold mono">${money(amt)}</div>
+        <div class="mt-3 mini"><span style="width:${pct}%"></span></div>
+      </div>
+    `;
   }).join('');
 }
 
 function renderBuckets(){
   const labels = ['Overdue','Due today','Due next 7 days','Future','No due date','Complete'];
-  const html = labels.map(label => {
+
+  els.bucketWrap.innerHTML = labels.map(label => {
     const rows = state.filtered.filter(r => r.dueBucket === label);
     const amt = rows.reduce((s,r)=>s+r.amount,0);
-    const cls = label==='Overdue' ? 'pill-red' : label==='Due today' || label==='Due next 7 days' ? 'pill-amber' : label==='Complete' ? 'pill-green' : 'pill-slate';
-    return `<div class="border border-slate-200 rounded-2xl p-4 bg-slate-50/70"><div class="flex items-center justify-between gap-3"><span class="pill ${cls}">${esc(label)}</span><span class="text-xs text-slate-500 mono">${rows.length.toLocaleString()} rows</span></div><div class="mt-3 text-xl font-extrabold mono">${money(amt)}</div></div>`;
+    const cls =
+      label === 'Overdue' ? 'pill-red' :
+      (label === 'Due today' || label === 'Due next 7 days') ? 'pill-amber' :
+      label === 'Complete' ? 'pill-green' :
+      'pill-slate';
+
+    return `
+      <div class="border border-slate-200 rounded-2xl p-4 bg-slate-50/70">
+        <div class="flex items-center justify-between gap-3">
+          <span class="pill ${cls}">${esc(label)}</span>
+          <span class="text-xs text-slate-500 mono">${rows.length.toLocaleString()} rows</span>
+        </div>
+        <div class="mt-3 text-xl font-extrabold mono">${money(amt)}</div>
+      </div>
+    `;
   }).join('');
-  els.bucketWrap.innerHTML = html || '<div class="text-sm text-slate-500">No rows.</div>';
 }
 
 function renderSummary(){
   const map = new Map();
+
   for(const r of state.filtered){
     const key = r.vendor || '—';
     if(!map.has(key)) map.set(key, { vendor:key, rows:0, open:0, openAmt:0, overdueAmt:0 });
@@ -403,12 +663,25 @@ function renderSummary(){
       if(r.dueBucket === 'Overdue') x.overdueAmt += r.amount;
     }
   }
-  const arr = [...map.values()].sort((a,b)=> b.openAmt - a.openAmt || b.rows - a.rows).slice(0,20);
-  els.summary.innerHTML = arr.length ? arr.map(x => `<tr class="border-t border-slate-100"><td class="px-4 py-3 font-semibold text-slate-800">${esc(x.vendor)}</td><td class="px-4 py-3 mono">${x.rows}</td><td class="px-4 py-3 mono">${x.open}</td><td class="px-4 py-3 mono">${money(x.openAmt)}</td><td class="px-4 py-3 mono">${money(x.overdueAmt)}</td></tr>`).join('') : '<tr><td colspan="5" class="px-4 py-6 text-sm text-slate-500">No data in current view.</td></tr>';
+
+  const arr = [...map.values()].sort((a,b)=>b.openAmt - a.openAmt || b.rows - a.rows).slice(0,20);
+
+  els.summary.innerHTML = arr.length ? arr.map(x => `
+    <tr class="border-t border-slate-100">
+      <td class="px-4 py-3 font-semibold text-slate-800">${esc(x.vendor)}</td>
+      <td class="px-4 py-3 mono">${x.rows}</td>
+      <td class="px-4 py-3 mono">${x.open}</td>
+      <td class="px-4 py-3 mono">${money(x.openAmt)}</td>
+      <td class="px-4 py-3 mono">${money(x.overdueAmt)}</td>
+    </tr>
+  `).join('') : `
+    <tr><td colspan="5" class="px-4 py-6 text-sm text-slate-500">No data in current view.</td></tr>
+  `;
 }
 
 function buildTrendSeries(){
   const map = new Map();
+
   for(const r of state.filtered){
     const key = ym(r.submissionDate || r.dueDate);
     if(!map.has(key)) map.set(key, { open:0, complete:0 });
@@ -416,7 +689,9 @@ function buildTrendSeries(){
     if(r.isActionablePayable) x.open += r.amount;
     else x.complete += r.amount;
   }
+
   const keys = [...map.keys()].sort();
+
   return {
     labels: keys.map(ymLabel),
     open: keys.map(k => map.get(k).open),
@@ -426,11 +701,17 @@ function buildTrendSeries(){
 
 function buildVendorSeries(){
   const map = new Map();
+
   for(const r of state.filtered.filter(r => r.isActionablePayable)){
     map.set(r.vendor, (map.get(r.vendor) || 0) + r.amount);
   }
+
   const arr = [...map.entries()].sort((a,b)=>b[1]-a[1]).slice(0,8);
-  return { labels: arr.map(x=>x[0]), values: arr.map(x=>x[1]) };
+
+  return {
+    labels: arr.map(x => x[0]),
+    values: arr.map(x => x[1])
+  };
 }
 
 function renderCharts(){
@@ -445,15 +726,33 @@ function renderCharts(){
     data: {
       labels: trend.labels,
       datasets: [
-        { label: 'Open AP', data: trend.open, backgroundColor: 'rgba(15,23,42,.82)', borderRadius: 8, borderSkipped:false },
-        { label: 'Complete / Info', data: trend.complete, backgroundColor: 'rgba(148,163,184,.65)', borderRadius: 8, borderSkipped:false }
+        {
+          label: 'Open AP',
+          data: trend.open,
+          backgroundColor: 'rgba(15,23,42,.82)',
+          borderRadius: 8,
+          borderSkipped: false
+        },
+        {
+          label: 'Complete / Info',
+          data: trend.complete,
+          backgroundColor: 'rgba(148,163,184,.65)',
+          borderRadius: 8,
+          borderSkipped: false
+        }
       ]
     },
     options: {
-      responsive:true,
-      maintainAspectRatio:false,
-      plugins:{ legend:{ position:'bottom' } },
-      scales:{ y:{ ticks:{ callback:v=>money(v) } } }
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position:'bottom' } },
+      scales: {
+        y: {
+          ticks: {
+            callback: v => money(v)
+          }
+        }
+      }
     }
   });
 
@@ -461,14 +760,26 @@ function renderCharts(){
     type: 'bar',
     data: {
       labels: vendor.labels,
-      datasets: [{ label:'Open amount', data: vendor.values, backgroundColor:'rgba(71,85,105,.85)', borderRadius:8, borderSkipped:false }]
+      datasets: [{
+        label: 'Open amount',
+        data: vendor.values,
+        backgroundColor: 'rgba(71,85,105,.85)',
+        borderRadius: 8,
+        borderSkipped: false
+      }]
     },
     options: {
-      indexAxis:'y',
-      responsive:true,
-      maintainAspectRatio:false,
-      plugins:{ legend:{ display:false } },
-      scales:{ x:{ ticks:{ callback:v=>money(v) } } }
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display:false } },
+      scales: {
+        x: {
+          ticks: {
+            callback: v => money(v)
+          }
+        }
+      }
     }
   });
 }
@@ -490,30 +801,74 @@ function agingText(r){
 
 function renderTable(){
   els.tableCount.textContent = `${state.filtered.length.toLocaleString()} rows`;
+
   els.tbody.innerHTML = state.filtered.length ? state.filtered.map(r => {
-    const fileLinks = r.files.length ? r.files.map((u,i)=>`<a class="link-btn" href="${esc(u)}" target="_blank" rel="noopener">File ${i+1}</a>`).join(' ') : '<span class="text-slate-400">No file</span>';
-    const openLink = r.submissionUrl ? `<a class="link-btn" href="${esc(r.submissionUrl)}" target="_blank" rel="noopener">Open</a>` : '';
-    const editLink = r.editUrl ? `<a class="link-btn" href="${esc(r.editUrl)}" target="_blank" rel="noopener">Edit</a>` : '';
-    return `<tr class="border-b border-slate-100 align-top hover:bg-slate-50/70">
-      <td class="px-4 py-3"><div class="font-semibold text-slate-900">${esc(r.submissionId)}</div><div class="text-xs text-slate-500 mt-1">${fmtDate(r.submissionDate)}</div></td>
-      <td class="px-4 py-3">${esc(r.type)}</td>
-      <td class="px-4 py-3"><div class="font-semibold text-slate-900">${esc(r.vendor)}</div></td>
-      <td class="px-4 py-3"><div>${esc(r.invoice)}</div><div class="text-xs text-slate-500 mt-1">${r.datePaid ? 'Paid date: ' + esc(r.datePaid) : ''}</div></td>
-      <td class="px-4 py-3 mono font-semibold">${money(r.amount)}</td>
-      <td class="px-4 py-3"><div>${agingText(r)}</div><div class="text-xs text-slate-500 mt-1">${esc(r.agingBucket)}</div></td>
-      <td class="px-4 py-3"><div>${paymentPill(r)}</div><div class="text-xs text-slate-500 mt-1 max-w-[260px]">${esc(r.paymentDetail || '')}</div></td>
-      <td class="px-4 py-3">${esc(r.category)}</td>
-      <td class="px-4 py-3"><div class="max-w-[320px] whitespace-pre-wrap break-words text-slate-700">${esc(r.notes || '—')}</div></td>
-      <td class="px-4 py-3"><div>${esc(r.submitter)}</div></td>
-      <td class="px-4 py-3">${esc(r.paidBy)}</td>
-      <td class="px-4 py-3">${esc(r.entity)}</td>
-      <td class="px-4 py-3"><div class="flex flex-wrap gap-2 min-w-[220px]">${fileLinks} ${openLink} ${editLink}</div></td>
-    </tr>`;
-  }).join('') : `<tr><td colspan="13" class="px-4 py-8 text-center text-slate-500">No rows match your filters.</td></tr>`;
+    const fileLinks = r.preferredFiles.length
+      ? r.preferredFiles.map((u,i)=>`<a class="link-btn" href="${esc(u)}" target="_blank" rel="noopener">${r.fileSourceLabel} File ${i+1}</a>`).join(' ')
+      : '<span class="text-slate-400">No file</span>';
+
+    const openLink = r.submissionUrl
+      ? `<a class="link-btn" href="${esc(r.submissionUrl)}" target="_blank" rel="noopener">Open</a>`
+      : '';
+
+    const editLink = r.editUrl
+      ? `<a class="link-btn" href="${esc(r.editUrl)}" target="_blank" rel="noopener">Edit</a>`
+      : '';
+
+    return `
+      <tr class="border-b border-slate-100 align-top hover:bg-slate-50/70">
+        <td class="px-4 py-3">
+          <div class="font-semibold text-slate-900">${esc(r.submissionId)}</div>
+          <div class="text-xs text-slate-500 mt-1">${fmtDate(r.submissionDate)}</div>
+        </td>
+        <td class="px-4 py-3">${esc(r.type)}</td>
+        <td class="px-4 py-3"><div class="font-semibold text-slate-900">${esc(r.vendor)}</div></td>
+        <td class="px-4 py-3">
+          <div>${esc(r.invoice)}</div>
+          <div class="text-xs text-slate-500 mt-1">${r.datePaid ? 'Paid date: ' + esc(r.datePaid) : ''}</div>
+        </td>
+        <td class="px-4 py-3 mono font-semibold">${money(r.amount)}</td>
+        <td class="px-4 py-3">
+          <div>${agingText(r)}</div>
+          <div class="text-xs text-slate-500 mt-1">${esc(r.agingBucket)}</div>
+        </td>
+        <td class="px-4 py-3">
+          <div>${paymentPill(r)}</div>
+          <div class="text-xs text-slate-500 mt-1 max-w-[260px]">${esc(r.paymentDetail || '')}</div>
+        </td>
+        <td class="px-4 py-3">${esc(r.category)}</td>
+        <td class="px-4 py-3">
+          <div class="max-w-[320px] whitespace-pre-wrap break-words text-slate-700">${esc(r.notes || '—')}</div>
+        </td>
+        <td class="px-4 py-3"><div>${esc(r.submitter)}</div></td>
+        <td class="px-4 py-3">${esc(r.paidBy)}</td>
+        <td class="px-4 py-3">${esc(r.entity)}</td>
+        <td class="px-4 py-3">
+          <div class="max-w-[220px] text-slate-700 whitespace-pre-wrap break-words">${esc(r.driveFileName || '—')}</div>
+        </td>
+        <td class="px-4 py-3">
+          <div class="max-w-[250px] text-slate-700 whitespace-pre-wrap break-words truncate-2">${esc(r.driveMatchStatus || '—')}</div>
+          <div class="text-xs text-slate-500 mt-1">Source: ${esc(r.fileSourceLabel)}</div>
+        </td>
+        <td class="px-4 py-3">
+          <div class="flex flex-wrap gap-2 min-w-[300px]">${fileLinks} ${openLink} ${editLink}</div>
+        </td>
+      </tr>
+    `;
+  }).join('') : `
+    <tr><td colspan="15" class="px-4 py-8 text-center text-slate-500">No rows match your filters.</td></tr>
+  `;
 }
 
 function exportFilteredCSV(){
-  const headers = ['Submission Date','Type','Report Status','Submitter','Vendor','Due Date','Due Bucket','Aging Bucket','Payment Complete','Invoice Number','Amount Due $','Category','Notes','Paid by','Date Paid','Payment Detail','Entity','Submission URL','Submission Edit URL','File Upload','Submission ID'];
+  const headers = [
+    'Submission Date','Type','Report Status','Submitter','Vendor','Due Date',
+    'Due Bucket','Aging Bucket','Payment Complete','Invoice Number','Amount Due $',
+    'Category','Notes','Paid by','Date Paid','Payment Detail','Entity',
+    'Drive File URL','Drive File Name','Drive Match Status',
+    'Submission URL','Submission Edit URL','File Upload','Submission ID'
+  ];
+
   const rows = state.filtered.map(r => ({
     'Submission Date': r.submissionDate ? toISODate(r.submissionDate) : '',
     'Type': r.type,
@@ -532,29 +887,45 @@ function exportFilteredCSV(){
     'Date Paid': r.datePaid,
     'Payment Detail': r.paymentDetail,
     'Entity': r.entity,
+    'Drive File URL': r.driveFiles.join(' | '),
+    'Drive File Name': r.driveFileName,
+    'Drive Match Status': r.driveMatchStatus,
     'Submission URL': r.submissionUrl,
     'Submission Edit URL': r.editUrl,
-    'File Upload': r.files.join(' | '),
+    'File Upload': r.jotformFiles.join(' | '),
     'Submission ID': r.submissionId
   }));
-  const csv = Papa.unparse({ fields: headers, data: rows.map(r => headers.map(h => r[h] ?? '')) });
+
+  const csv = Papa.unparse({
+    fields: headers,
+    data: rows.map(r => headers.map(h => r[h] ?? ''))
+  });
+
   const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = 'payables_filtered_export.csv'; a.click();
+  a.href = url;
+  a.download = 'payables_filtered_export.csv';
+  a.click();
   URL.revokeObjectURL(url);
 }
 
 function resetFilters(){
   ['searchInput','dateFrom','dateTo'].forEach(id => document.getElementById(id).value = '');
-  ['typeFilter','statusFilter','vendorFilter','categoryFilter','submitterFilter','paidByFilter','entityFilter','dueBucketFilter'].forEach(id => document.getElementById(id).value = '');
+  ['typeFilter','statusFilter','vendorFilter','categoryFilter','submitterFilter','paidByFilter','entityFilter','dueBucketFilter']
+    .forEach(id => document.getElementById(id).value = '');
   els.unpaidOnly.checked = false;
   applyFilters();
 }
 
 ['input','change'].forEach(evt => {
-  ['searchInput','typeFilter','statusFilter','vendorFilter','categoryFilter','submitterFilter','paidByFilter','entityFilter','dueBucketFilter','dateFrom','dateTo','unpaidOnly']
-    .forEach(id => document.getElementById(id).addEventListener(evt, applyFilters));
+  [
+    'searchInput','typeFilter','statusFilter','vendorFilter','categoryFilter',
+    'submitterFilter','paidByFilter','entityFilter','dueBucketFilter',
+    'dateFrom','dateTo','unpaidOnly'
+  ].forEach(id => {
+    document.getElementById(id).addEventListener(evt, applyFilters);
+  });
 });
 
 document.getElementById('refreshBtn').addEventListener('click', loadData);
@@ -564,7 +935,13 @@ document.getElementById('resetBtn').addEventListener('click', resetFilters);
 loadData().catch(err => {
   console.error(err);
   els.lastUpdated.textContent = 'Failed to load CSV';
-  els.tbody.innerHTML = `<tr><td colspan="13" class="px-4 py-8 text-center text-red-600">Could not load the Google Sheet CSV. Check that the sheet is published and accessible.</td></tr>`;
+  els.tbody.innerHTML = `
+    <tr>
+      <td colspan="15" class="px-4 py-8 text-center text-red-600">
+        Could not load the Google Sheet CSV. Check that the sheet is published and accessible.
+      </td>
+    </tr>
+  `;
 });
 </script>
 </body>
