@@ -1,0 +1,1554 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Really Cool Bars Payables</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    :root{
+      color-scheme: light;
+      --bg:#f3f7fb;
+      --panel:#ffffff;
+      --panel-2:#f8fafc;
+      --line:#e2e8f0;
+      --line-2:#d8e2ec;
+      --text:#0f172a;
+      --muted:#64748b;
+      --muted-2:#94a3b8;
+      --shadow:0 10px 26px rgba(15,23,42,.05);
+      --shadow-lg:0 18px 44px rgba(15,23,42,.08);
+      --radius:22px;
+    }
+    html,body{
+      margin:0;
+      padding:0;
+      background:
+        radial-gradient(circle at top left, rgba(255,255,255,.94), transparent 24%),
+        linear-gradient(180deg,#f8fbfe 0%,#f2f6fb 100%);
+      color:var(--text);
+      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+    }
+    body{ line-height:1.45; }
+    .app{ max-width:1380px; margin:0 auto; padding:18px 14px 40px; }
+    .card,.metric,.subcard{
+      background:rgba(255,255,255,.97);
+      border:1px solid var(--line);
+      box-shadow:var(--shadow);
+    }
+    .card{ border-radius:24px; }
+    .subcard{ border-radius:18px; }
+    .metric{
+      border-radius:18px;
+      padding:14px 14px 12px;
+      min-height:108px;
+      display:flex;
+      flex-direction:column;
+      justify-content:space-between;
+    }
+    .hero{
+      padding:22px;
+      position:relative;
+      overflow:hidden;
+    }
+    .hero:before{
+      content:"";
+      position:absolute;
+      width:380px;
+      height:380px;
+      right:-120px;
+      top:-220px;
+      background:radial-gradient(circle, rgba(148,163,184,.14), transparent 68%);
+      pointer-events:none;
+    }
+    .kicker{
+      font-size:.68rem;
+      line-height:1;
+      letter-spacing:.16em;
+      text-transform:uppercase;
+      color:var(--muted);
+      font-weight:800;
+    }
+    .hero-title{
+      margin:8px 0 0;
+      font-size:clamp(1.72rem,2vw + 1rem,2.45rem);
+      line-height:1.02;
+      letter-spacing:-.04em;
+      font-weight:800;
+    }
+    .hero-sub{
+      margin:10px 0 0;
+      max-width:820px;
+      color:#475569;
+      font-size:.94rem;
+    }
+    .toolbar{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+      justify-content:flex-end;
+    }
+    .btn,.btn-dark,.btn-soft,.seg-btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-height:40px;
+      padding:.62rem .95rem;
+      border-radius:13px;
+      border:1px solid var(--line-2);
+      background:#fff;
+      color:var(--text);
+      font-size:.82rem;
+      font-weight:700;
+      text-decoration:none;
+      cursor:pointer;
+      transition:.14s ease;
+      white-space:nowrap;
+    }
+    .btn-dark{ background:#0f172a; color:#fff; border-color:#0f172a; }
+    .btn-soft{ background:#f8fafc; }
+    .btn:hover,.btn-dark:hover,.btn-soft:hover,.seg-btn:hover{ transform:translateY(-1px); box-shadow:0 8px 18px rgba(15,23,42,.08); }
+    .seg-wrap{
+      display:inline-flex;
+      gap:6px;
+      padding:6px;
+      border:1px solid var(--line);
+      border-radius:16px;
+      background:#f8fafc;
+      flex-wrap:wrap;
+    }
+    .seg-btn.active{
+      background:#0f172a;
+      color:#fff;
+      border-color:#0f172a;
+      box-shadow:none;
+    }
+    .section{ margin-top:14px; padding:18px; }
+    .section-title{ font-size:1.05rem; font-weight:800; letter-spacing:-.02em; }
+    .metric-label{
+      font-size:.68rem;
+      letter-spacing:.12em;
+      text-transform:uppercase;
+      font-weight:800;
+      color:var(--muted);
+    }
+    .metric-value{
+      font-size:1.5rem;
+      line-height:1.02;
+      letter-spacing:-.035em;
+      font-weight:800;
+      margin-top:8px;
+    }
+    .metric-note{ font-size:.75rem; color:var(--muted); margin-top:6px; }
+    .mono{ font-variant-numeric:tabular-nums; font-feature-settings:"tnum" 1; }
+    .field,.sort-field{
+      width:100%;
+      min-height:44px;
+      border:1px solid var(--line-2);
+      background:#fff;
+      border-radius:14px;
+      padding:.76rem .88rem;
+      font-size:.9rem;
+      color:var(--text);
+      outline:none;
+    }
+    .field:focus,.sort-field:focus{
+      border-color:#94a3b8;
+      box-shadow:0 0 0 4px rgba(148,163,184,.12);
+    }
+    .field-wrap label{
+      display:block;
+      font-size:.66rem;
+      text-transform:uppercase;
+      letter-spacing:.11em;
+      font-weight:800;
+      color:var(--muted);
+      margin:0 0 8px;
+    }
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:.35rem;
+      border-radius:999px;
+      padding:.28rem .56rem;
+      font-size:.68rem;
+      line-height:1;
+      font-weight:800;
+      white-space:nowrap;
+    }
+    .pill-green{ background:#dcfce7; color:#166534; }
+    .pill-amber{ background:#fef3c7; color:#92400e; }
+    .pill-red{ background:#fee2e2; color:#991b1b; }
+    .pill-slate{ background:#e2e8f0; color:#334155; }
+    .pill-blue{ background:#dbeafe; color:#1d4ed8; }
+    .mini{ height:9px; border-radius:999px; background:#e2e8f0; overflow:hidden; }
+    .mini > span{ display:block; height:100%; border-radius:999px; background:linear-gradient(90deg,#0f172a,#64748b); }
+    .scrollbar::-webkit-scrollbar,.table-wrap::-webkit-scrollbar{ height:10px; width:10px; }
+    .scrollbar::-webkit-scrollbar-thumb,.table-wrap::-webkit-scrollbar-thumb{ background:#cbd5e1; border-radius:999px; }
+    .scrollbar::-webkit-scrollbar-track,.table-wrap::-webkit-scrollbar-track{ background:transparent; }
+    .table-wrap{
+      overflow:auto;
+      border:1px solid var(--line);
+      border-radius:18px;
+      background:#fff;
+      max-height:72vh;
+    }
+    .table-sticky thead th{ position:sticky; top:0; background:#f8fafc; z-index:2; }
+    table{ border-collapse:separate; border-spacing:0; width:100%; }
+    th{
+      font-size:.76rem;
+      color:#64748b;
+      font-weight:700;
+      text-align:left;
+      border-bottom:1px solid var(--line);
+      padding:13px 14px;
+    }
+    td{
+      padding:14px;
+      vertical-align:top;
+      border-bottom:1px solid #edf2f7;
+      font-size:.84rem;
+    }
+    tr:hover td{ background:#fafcff; }
+    .link-btn{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-height:34px;
+      padding:.45rem .7rem;
+      border-radius:12px;
+      border:1px solid var(--line);
+      background:#fff;
+      color:var(--text);
+      font-size:.74rem;
+      font-weight:700;
+      text-decoration:none;
+      white-space:nowrap;
+    }
+    .link-btn:hover{ background:#f8fafc; }
+    .muted{ color:var(--muted); }
+    .muted-2{ color:var(--muted-2); }
+    .right-meta{ font-size:.75rem; color:var(--muted); white-space:nowrap; }
+    .label-row{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:8px;
+      flex-wrap:wrap;
+      margin-bottom:12px;
+    }
+    .table-chip{
+      display:inline-flex;
+      align-items:center;
+      padding:.22rem .5rem;
+      border:1px solid var(--line);
+      border-radius:999px;
+      background:#f8fafc;
+      color:#475569;
+      font-size:.67rem;
+      font-weight:700;
+    }
+    .source-drive{ color:#166534; }
+    .source-jotform{ color:#92400e; }
+    .truncate-2{
+      display:-webkit-box;
+      -webkit-box-orient:vertical;
+      -webkit-line-clamp:2;
+      overflow:hidden;
+    }
+    .mobile-cards{ display:none; }
+    .mobile-row{ padding:14px; border-bottom:1px solid #edf2f7; }
+    .mobile-row:last-child{ border-bottom:none; }
+    .mobile-grid{
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:10px 12px;
+      margin-top:10px;
+      font-size:.79rem;
+    }
+    .mobile-label{
+      font-size:.66rem;
+      text-transform:uppercase;
+      letter-spacing:.08em;
+      font-weight:800;
+      color:var(--muted);
+      margin-bottom:2px;
+    }
+    .desktop-only{ display:block; }
+    .mobile-only{ display:none; }
+    .filters-shell{
+      padding:16px;
+      border-radius:20px;
+      border:1px solid var(--line);
+      background:linear-gradient(180deg,#fbfdff 0%,#f8fafc 100%);
+    }
+    .quick-grid{
+      display:grid;
+      grid-template-columns:minmax(260px,1.4fr) auto auto auto;
+      gap:12px;
+      align-items:end;
+    }
+    .chips-row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:8px;
+      min-height:22px;
+    }
+    .filter-chip{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:.42rem .68rem;
+      border-radius:999px;
+      border:1px solid #dbe4ee;
+      background:#fff;
+      font-size:.74rem;
+      font-weight:700;
+      color:#334155;
+    }
+    .filter-chip button{
+      border:none;
+      background:transparent;
+      cursor:pointer;
+      font-size:.8rem;
+      color:#64748b;
+      padding:0;
+      line-height:1;
+    }
+    .drawer{
+      margin-top:14px;
+      padding-top:14px;
+      border-top:1px dashed var(--line-2);
+      display:none;
+    }
+    .drawer.open{ display:block; }
+    .toggle-line{ display:flex; align-items:center; gap:10px; }
+    .tabbar{ display:flex; gap:10px; flex-wrap:wrap; margin-top:14px; }
+    .tabbtn{
+      min-height:40px;
+      padding:.62rem .95rem;
+      border-radius:999px;
+      border:1px solid var(--line-2);
+      background:#fff;
+      color:var(--text);
+      font-size:.82rem;
+      font-weight:800;
+      cursor:pointer;
+    }
+    .tabbtn.active{ background:#0f172a; color:#fff; border-color:#0f172a; }
+    .tabpanel{ display:none; }
+    .tabpanel.active{ display:block; }
+    canvas{ max-width:100%; }
+
+    @media (max-width: 1100px){
+      .app{ padding:14px 12px 28px; }
+      .quick-grid{ grid-template-columns:1fr 1fr; }
+    }
+    @media (max-width: 900px){
+      .desktop-only{ display:none; }
+      .mobile-only{ display:block; }
+      .hero{ padding:18px; }
+      .section{ padding:16px; }
+      .metric{ min-height:96px; }
+      .mobile-cards{ display:block; }
+      .desktop-table{ display:none; }
+      .mobile-stack{ grid-template-columns:1fr !important; }
+      .toolbar{ justify-content:flex-start; }
+      .quick-grid{ grid-template-columns:1fr; }
+      .mobile-grid{ grid-template-columns:1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+
+    <section class="card hero">
+      <div class="grid grid-cols-1 xl:grid-cols-[1fr_auto] gap-5 items-end">
+        <div>
+          <div class="kicker">Jotform · Google Sheets · Google Drive · Read Only</div>
+          <h1 class="hero-title">Hospitality Payables</h1>
+          <p class="hero-sub">Simple submissions view first, aging and rollups second.</p>
+        </div>
+        <div class="toolbar">
+          <button id="refreshBtn" class="btn">Refresh Data</button>
+          <button id="exportBtn" class="btn">Export Filtered CSV</button>
+          <button id="resetBtn" class="btn-dark">Reset</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-4 mt-4">
+      <div class="metric">
+        <div class="metric-label">Rows</div>
+        <div id="kpiRows" class="metric-value mono">—</div>
+        <div class="metric-note">Filtered rows</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Open AP Count</div>
+        <div id="kpiOpenCount" class="metric-value mono">—</div>
+        <div class="metric-note">Unpaid items</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Open AP Amount</div>
+        <div id="kpiOpenAmount" class="metric-value mono">—</div>
+        <div class="metric-note">Open amount</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Overdue Amount</div>
+        <div id="kpiOverdueAmount" class="metric-value mono">—</div>
+        <div class="metric-note">Past due</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Due Next 7 Days</div>
+        <div id="kpiDueSoon" class="metric-value mono">—</div>
+        <div class="metric-note">Coming due</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Complete</div>
+        <div id="kpiCompleteAmount" class="metric-value mono">—</div>
+        <div class="metric-note">Paid items</div>
+      </div>
+    </section>
+
+    <section class="card section mt-4">
+      <div class="label-row">
+        <div><div class="section-title">Browse</div></div>
+        <div id="lastUpdated" class="right-meta">Loading…</div>
+      </div>
+
+      <div class="filters-shell">
+        <div class="quick-grid">
+          <div class="field-wrap">
+            <label for="searchInput">Search</label>
+            <input id="searchInput" class="field" placeholder="Vendor, invoice, notes, submitter, file, submission ID..." />
+          </div>
+
+          <div class="field-wrap">
+            <label>Quick View</label>
+            <div id="quickViewWrap" class="seg-wrap">
+              <button type="button" class="seg-btn active" data-quick-view="all">All</button>
+              <button type="button" class="seg-btn" data-quick-view="open">Open AP</button>
+              <button type="button" class="seg-btn" data-quick-view="overdue">Overdue</button>
+              <button type="button" class="seg-btn" data-quick-view="dueSoon">Due 7 Days</button>
+              <button type="button" class="seg-btn" data-quick-view="complete">Complete</button>
+            </div>
+          </div>
+
+          <div class="field-wrap">
+            <label for="sortBy">Sort</label>
+            <select id="sortBy" class="sort-field">
+              <option value="priority">Priority view</option>
+              <option value="dueAsc">Due date · soonest first</option>
+              <option value="dueDesc">Due date · latest first</option>
+              <option value="amountDesc">Amount · highest first</option>
+              <option value="amountAsc">Amount · lowest first</option>
+              <option value="submissionDesc">Submission date · newest</option>
+              <option value="submissionAsc">Submission date · oldest</option>
+              <option value="vendorAsc">Vendor · A to Z</option>
+              <option value="vendorDesc">Vendor · Z to A</option>
+            </select>
+          </div>
+
+          <div class="field-wrap">
+            <label>&nbsp;</label>
+            <button id="toggleAdvancedBtn" class="btn-soft w-full">More Filters</button>
+          </div>
+        </div>
+
+        <div id="activeFilterChips" class="chips-row mt-4"></div>
+
+        <div id="advancedDrawer" class="drawer">
+          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+            <div class="field-wrap">
+              <label for="statusFilter">Reporting Status</label>
+              <select id="statusFilter" class="field"></select>
+            </div>
+            <div class="field-wrap">
+              <label for="dueBucketFilter">Due Bucket</label>
+              <select id="dueBucketFilter" class="field"></select>
+            </div>
+            <div class="field-wrap">
+              <label for="locationFilter">Location</label>
+              <select id="locationFilter" class="field"></select>
+            </div>
+            <div class="field-wrap">
+              <label for="vendorFilter">Vendor</label>
+              <select id="vendorFilter" class="field"></select>
+            </div>
+            <div class="field-wrap">
+              <label for="categoryFilter">Category</label>
+              <select id="categoryFilter" class="field"></select>
+            </div>
+            <div class="field-wrap">
+              <label for="submitterFilter">Submitter</label>
+              <select id="submitterFilter" class="field"></select>
+            </div>
+            <div class="field-wrap">
+              <label for="paidByFilter">Paid By</label>
+              <select id="paidByFilter" class="field"></select>
+            </div>
+            <div class="field-wrap">
+              <label for="paymentTypeFilter">Payment Type</label>
+              <select id="paymentTypeFilter" class="field"></select>
+            </div>
+            <div class="field-wrap">
+              <label for="dateFrom">Submission Date From</label>
+              <input id="dateFrom" class="field" type="date" />
+            </div>
+            <div class="field-wrap">
+              <label for="dateTo">Submission Date To</label>
+              <input id="dateTo" class="field" type="date" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="tabbar">
+      <button id="tabSubmissionsBtn" class="tabbtn active" type="button">Submissions</button>
+      <button id="tabReportsBtn" class="tabbtn" type="button">Aging & Reports</button>
+    </div>
+
+    <div id="reportsPanel" class="tabpanel">
+      <section class="grid grid-cols-1 xl:grid-cols-[1.2fr_.8fr] gap-4 mt-4 mobile-stack">
+        <div class="card section">
+          <div class="label-row"><div><div class="section-title">Aging Snapshot</div></div></div>
+          <div id="agingCards" class="grid grid-cols-2 gap-3"></div>
+        </div>
+
+        <div class="card section">
+          <div class="label-row"><div><div class="section-title">Status Buckets</div></div></div>
+          <div id="bucketWrap" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
+        </div>
+      </section>
+
+      <section class="grid grid-cols-1 xl:grid-cols-2 gap-4 mt-4 mobile-stack">
+        <div class="card section">
+          <div class="label-row"><div><div class="section-title">Open AP Trend</div></div></div>
+          <div class="h-[320px]"><canvas id="trendChart"></canvas></div>
+        </div>
+
+        <div class="card section">
+          <div class="label-row"><div><div class="section-title">Top Vendors by Open Amount</div></div></div>
+          <div class="h-[320px]"><canvas id="vendorChart"></canvas></div>
+        </div>
+      </section>
+
+      <section class="grid grid-cols-1 xl:grid-cols-[1.05fr_.95fr] gap-4 mt-4 mobile-stack">
+        <div class="card section">
+          <div class="label-row"><div><div class="section-title">Vendor Summary</div></div></div>
+          <div class="table-wrap scrollbar desktop-table">
+            <table>
+              <thead class="table-sticky">
+                <tr>
+                  <th>Vendor</th>
+                  <th>Rows</th>
+                  <th>Open</th>
+                  <th>Open Amount</th>
+                  <th>Overdue</th>
+                </tr>
+              </thead>
+              <tbody id="summaryBody"></tbody>
+            </table>
+          </div>
+          <div id="summaryMobile" class="mobile-cards"></div>
+        </div>
+
+        <div class="card section">
+          <div class="label-row"><div><div class="section-title">Location Summary</div></div></div>
+          <div class="table-wrap scrollbar desktop-table">
+            <table>
+              <thead class="table-sticky">
+                <tr>
+                  <th>Location</th>
+                  <th>Rows</th>
+                  <th>Open Amount</th>
+                  <th>Overdue</th>
+                </tr>
+              </thead>
+              <tbody id="locationSummaryBody"></tbody>
+            </table>
+          </div>
+          <div id="locationSummaryMobile" class="mobile-cards"></div>
+        </div>
+      </section>
+    </div>
+
+    <section id="submissionsPanel" class="card section mt-4 tabpanel active">
+      <div class="label-row">
+        <div><div class="section-title">Submissions</div></div>
+        <div id="tableCount" class="right-meta">0 rows</div>
+      </div>
+
+      <div class="desktop-table table-wrap table-sticky scrollbar">
+        <table class="min-w-[2100px]">
+          <thead>
+            <tr>
+              <th>Submission</th>
+              <th>Location</th>
+              <th>Vendor</th>
+              <th>Invoice</th>
+              <th>Amount</th>
+              <th>Aging</th>
+              <th>Status</th>
+              <th>Category</th>
+              <th>Notes</th>
+              <th>Submitter</th>
+              <th>Paid by</th>
+              <th>Payment</th>
+              <th>Drive File Name</th>
+              <th>Drive Match Status</th>
+              <th>Links</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody"></tbody>
+        </table>
+      </div>
+
+      <div id="mobileRows" class="mobile-cards subcard overflow-hidden border border-slate-200"></div>
+    </section>
+
+  </div>
+
+<script>
+const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTakey3__4dnC5sIUDHzd1EaUbGu6xaCKKCzMXg9Dpl52fBvTxG_WUobYjtmkKkZj_2wIEAnnrlyOLP/pub?gid=1047290950&single=true&output=csv';
+
+const state = {
+  raw: [],
+  filtered: [],
+  trendChart: null,
+  vendorChart: null,
+  quickView: 'all',
+  advancedOpen: false,
+  activeTab: 'submissions'
+};
+
+const $ = s => document.querySelector(s);
+
+const els = {
+  search: $('#searchInput'),
+  status: $('#statusFilter'),
+  location: $('#locationFilter'),
+  vendor: $('#vendorFilter'),
+  category: $('#categoryFilter'),
+  submitter: $('#submitterFilter'),
+  paidBy: $('#paidByFilter'),
+  paymentType: $('#paymentTypeFilter'),
+  dueBucket: $('#dueBucketFilter'),
+  dateFrom: $('#dateFrom'),
+  dateTo: $('#dateTo'),
+  sortBy: $('#sortBy'),
+  tbody: $('#tableBody'),
+  summary: $('#summaryBody'),
+  summaryMobile: $('#summaryMobile'),
+  locationSummaryBody: $('#locationSummaryBody'),
+  locationSummaryMobile: $('#locationSummaryMobile'),
+  bucketWrap: $('#bucketWrap'),
+  agingCards: $('#agingCards'),
+  mobileRows: $('#mobileRows'),
+  tableCount: $('#tableCount'),
+  lastUpdated: $('#lastUpdated'),
+  activeFilterChips: $('#activeFilterChips'),
+  advancedDrawer: $('#advancedDrawer'),
+  toggleAdvancedBtn: $('#toggleAdvancedBtn'),
+  submissionsPanel: $('#submissionsPanel'),
+  reportsPanel: $('#reportsPanel'),
+  tabSubmissionsBtn: $('#tabSubmissionsBtn'),
+  tabReportsBtn: $('#tabReportsBtn')
+};
+
+function money(n){
+  return new Intl.NumberFormat('en-US',{
+    style:'currency',
+    currency:'USD',
+    maximumFractionDigits:2
+  }).format(Number(n || 0));
+}
+function fmtDate(d){
+  if(!d) return '—';
+  const x = parseDate(d);
+  if(!x) return String(d || '—');
+  return x.toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'});
+}
+function esc(s){
+  return String(s ?? '').replace(/[&<>"']/g, m => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[m]));
+}
+function compact(v){ return String(v ?? '').trim(); }
+function num(v){
+  if(v == null || v === '') return 0;
+  const cleaned = String(v).replace(/[$,\s]/g,'');
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : 0;
+}
+function parseDate(v){
+  const s = compact(v);
+  if(!s) return null;
+
+  if(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s)){
+    const d = new Date(s.replace(' ','T'));
+    return isNaN(+d) ? null : d;
+  }
+  if(/^\d{4}-\d{2}-\d{2}/.test(s)){
+    const d = new Date(s + 'T00:00:00');
+    return isNaN(+d) ? null : d;
+  }
+
+  const mdY = s.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+  if(mdY){
+    const d = new Date(Number(mdY[3]), Number(mdY[1]) - 1, Number(mdY[2]));
+    return isNaN(+d) ? null : d;
+  }
+
+  const slash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if(slash){
+    const year = slash[3].length === 2 ? Number('20' + slash[3]) : Number(slash[3]);
+    const d = new Date(year, Number(slash[1]) - 1, Number(slash[2]));
+    return isNaN(+d) ? null : d;
+  }
+
+  const d = new Date(s);
+  return isNaN(+d) ? null : d;
+}
+function stripTime(d){ return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+function daysBetween(a,b){
+  const ms = 24*60*60*1000;
+  return Math.floor((stripTime(a) - stripTime(b)) / ms);
+}
+function toISODate(d){
+  if(!d) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+function yesNo(v){
+  const s = compact(v).toLowerCase();
+  if(['yes','paid','complete','completed','true'].includes(s)) return 'Yes';
+  if(['no','open','unpaid','false'].includes(s)) return 'No';
+  return s ? v : 'No';
+}
+function uniq(vals){ return [...new Set(vals.filter(Boolean))].sort((a,b)=>String(a).localeCompare(String(b))); }
+function optionHTML(list, first='All'){
+  return [`<option value="">${first}</option>`, ...list.map(v => `<option>${esc(v)}</option>`)].join('');
+}
+function ym(d){ return d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}` : 'Unknown'; }
+function ymLabel(s){
+  if(!s || s === 'Unknown') return 'Unknown';
+  const [y,m] = s.split('-').map(Number);
+  return new Date(y,m-1,1).toLocaleDateString('en-US',{month:'short',year:'numeric'});
+}
+function normalizeFileLink(url){
+  const s = String(url || '').trim();
+  if(!s) return '';
+
+  const fileMatch = s.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+  if(fileMatch) return `https://drive.google.com/file/d/${fileMatch[1]}/view`;
+
+  const openId = s.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if(openId) return `https://drive.google.com/file/d/${openId[1]}/view`;
+
+  return s;
+}
+function splitMultiLinks(value){
+  return compact(value)
+    .split(/\n+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+function statusPillHtml(label){
+  if(label === 'Complete') return '<span class="pill pill-green">Complete</span>';
+  if(label === 'Open · Overdue') return '<span class="pill pill-red">Open · Overdue</span>';
+  if(label === 'Open · Coming due') return '<span class="pill pill-amber">Open · Coming due</span>';
+  return '<span class="pill pill-slate">Open AP</span>';
+}
+function sourceClass(source){
+  return source === 'Drive' ? 'source-drive' : (source === 'Jotform' ? 'source-jotform' : '');
+}
+function rowPriorityScore(r){
+  if(r.reportStatus === 'Complete') return 50;
+  if(r.dueBucket === 'Overdue') return 1;
+  if(r.dueBucket === 'Due today') return 2;
+  if(r.dueBucket === 'Due next 7 days') return 3;
+  if(r.dueBucket === 'Future') return 4;
+  if(r.dueBucket === 'No due date') return 5;
+  return 10;
+}
+function quickViewLabel(v){
+  return ({ all:'All items', open:'Open AP', overdue:'Overdue', dueSoon:'Due next 7 days', complete:'Complete' }[v]) || 'All items';
+}
+
+function detectCategory(r){
+  const fromHelper = compact(r['Primary Category']);
+  if(fromHelper) return fromHelper;
+
+  const categories = [
+    ['Category & Amount >> Food >> Amount ($)','Food'],
+    ['Category & Amount >> N/A Bev >> Amount ($)','N/A Bev'],
+    ['Category & Amount >> Wine >> Amount ($)','Wine'],
+    ['Category & Amount >> Beer >> Amount ($)','Beer'],
+    ['Category & Amount >> Meals >> Amount ($)','Meals'],
+    ['Category & Amount >> Office Supplies >> Amount ($)','Office Supplies'],
+    ['Category & Amount >> Other  >> Amount ($)','Other'],
+    ['Category & Amount >> Product Sales >> Amount ($)','Product Sales'],
+    ['Category & Amount >> Consulting Income >> Amount ($)','Consulting Income'],
+    ['Category & Amount >> Event Income >> Amount ($)','Event Income'],
+    ['Category & Amount >> Merchandise Income >> Amount ($)','Merchandise Income']
+  ];
+
+  let best = '';
+  let bestAmt = 0;
+  for(const [key,label] of categories){
+    const amt = num(r[key]);
+    if(amt > bestAmt){
+      bestAmt = amt;
+      best = label;
+    }
+  }
+  return best || '—';
+}
+
+function normalizeRow(r){
+  const dueDate = parseDate(r['Due Date']);
+  const submissionDate = parseDate(r['Submission Date']);
+  const rawPaymentComplete = yesNo(r['Payment Complete']);
+  const amount = num(r['Total Calculation ($)']);
+  const today = stripTime(new Date());
+
+  let dueBucket = 'No due date';
+  let dueDelta = null;
+
+  if(dueDate){
+    dueDelta = daysBetween(dueDate, today);
+    if(rawPaymentComplete === 'Yes') dueBucket = 'Complete';
+    else if(dueDelta < 0) dueBucket = 'Overdue';
+    else if(dueDelta === 0) dueBucket = 'Due today';
+    else if(dueDelta <= 7) dueBucket = 'Due next 7 days';
+    else dueBucket = 'Future';
+  } else if(rawPaymentComplete === 'Yes'){
+    dueBucket = 'Complete';
+  }
+
+  let agingBucket = 'Complete';
+  if(rawPaymentComplete !== 'Yes'){
+    if(!dueDate) agingBucket = 'No due date';
+    else if(dueDelta >= 0) agingBucket = 'Current / Not yet due';
+    else {
+      const lateDays = Math.abs(dueDelta);
+      if(lateDays <= 30) agingBucket = '0-30 days';
+      else if(lateDays <= 60) agingBucket = '31-60 days';
+      else if(lateDays <= 90) agingBucket = '61-90 days';
+      else agingBucket = '90+ days';
+    }
+  }
+
+  const jotformFiles = splitMultiLinks(r['File Upload']);
+  const driveFiles = splitMultiLinks(r['Drive File URL']).map(normalizeFileLink);
+  const preferredFiles = driveFiles.length ? driveFiles : jotformFiles;
+  const fileSourceLabel = driveFiles.length ? 'Drive' : (jotformFiles.length ? 'Jotform' : 'None');
+
+  let rowStatusText = 'Open AP';
+  if(rawPaymentComplete === 'Yes') rowStatusText = 'Complete';
+  else if(dueBucket === 'Overdue') rowStatusText = 'Open · Overdue';
+  else if(dueBucket === 'Due today' || dueBucket === 'Due next 7 days') rowStatusText = 'Open · Coming due';
+
+  const reportStatus = rawPaymentComplete === 'Yes' ? 'Complete' : 'Open AP';
+
+  const row = {
+    raw: r,
+    submissionDate,
+    dueDate,
+    location: compact(r['Location']) || '—',
+    submitter: compact(r['Employee email (Submitter)']) || '—',
+    vendor: compact(r['Vendor']) || '—',
+    paymentComplete: rawPaymentComplete,
+    invoice: compact(r['Invoice Number']) || '—',
+    amount,
+    category: detectCategory(r),
+    notes: compact(r['Notes']) || '',
+    paidBy: compact(r['Paid by']) || '—',
+    datePaid: compact(r['Date Paid']) || '',
+    paymentType: compact(r['Payment Type']) || '—',
+    paymentDetail: compact(r['Payment Detail (Check #/ confirmation #)']) || '',
+    submissionUrl: compact(r['Submission URL']),
+    editUrl: compact(r['Submission Edit URL']),
+    jotformFiles,
+    driveFiles,
+    preferredFiles,
+    fileSourceLabel,
+    driveFileUrl: compact(r['Drive File URL']) || '',
+    driveFileName: compact(r['Drive File Name']) || '',
+    driveMatchStatus: compact(r['Drive Match Status']) || '',
+    submissionId: compact(r['Submission ID']) || '—',
+    dueBucket,
+    dueDelta,
+    agingBucket,
+    rowStatusText,
+    reportStatus
+  };
+
+  row.priorityScore = rowPriorityScore(row);
+  return row;
+}
+
+async function loadData(){
+  els.lastUpdated.textContent = 'Loading data…';
+
+  const rows = await new Promise((resolve,reject) => {
+    Papa.parse(CSV_URL, {
+      download: true,
+      header: true,
+      skipEmptyLines: true,
+      complete: res => resolve(res.data || []),
+      error: reject
+    });
+  });
+
+  state.raw = rows
+    .map(normalizeRow)
+    .filter(r => r.vendor !== '—' || r.submissionId !== '—');
+
+  hydrateFilters();
+  applyFilters();
+  els.lastUpdated.textContent = `Loaded ${state.raw.length.toLocaleString()} rows · ${new Date().toLocaleString()}`;
+}
+
+function hydrateFilters(){
+  els.status.innerHTML = optionHTML(['Open AP','Complete'], 'All reporting statuses');
+  els.location.innerHTML = optionHTML(uniq(state.raw.map(r=>r.location)), 'All locations');
+  els.vendor.innerHTML = optionHTML(uniq(state.raw.map(r=>r.vendor)), 'All vendors');
+  els.category.innerHTML = optionHTML(uniq(state.raw.map(r=>r.category)), 'All categories');
+  els.submitter.innerHTML = optionHTML(uniq(state.raw.map(r=>r.submitter)), 'All submitters');
+  els.paidBy.innerHTML = optionHTML(uniq(state.raw.map(r=>r.paidBy)), 'All paid by');
+  els.paymentType.innerHTML = optionHTML(uniq(state.raw.map(r=>r.paymentType)), 'All payment types');
+  els.dueBucket.innerHTML = optionHTML(['Overdue','Due today','Due next 7 days','Future','No due date','Complete'], 'All due buckets');
+}
+
+function applyQuickView(rows){
+  switch(state.quickView){
+    case 'open': return rows.filter(r => r.reportStatus === 'Open AP');
+    case 'overdue': return rows.filter(r => r.reportStatus === 'Open AP' && r.dueBucket === 'Overdue');
+    case 'dueSoon': return rows.filter(r => r.reportStatus === 'Open AP' && (r.dueBucket === 'Due today' || r.dueBucket === 'Due next 7 days'));
+    case 'complete': return rows.filter(r => r.reportStatus === 'Complete');
+    default: return rows;
+  }
+}
+
+function sortRows(rows){
+  const mode = els.sortBy.value || 'priority';
+  const clone = [...rows];
+  clone.sort((a,b) => {
+    if(mode === 'priority'){
+      const aDue = a.dueDate ? +a.dueDate : Number.MAX_SAFE_INTEGER;
+      const bDue = b.dueDate ? +b.dueDate : Number.MAX_SAFE_INTEGER;
+      return (a.priorityScore - b.priorityScore)
+        || (b.amount - a.amount)
+        || (aDue - bDue)
+        || ((+b.submissionDate || 0) - (+a.submissionDate || 0));
+    }
+    if(mode === 'dueAsc'){
+      const aDue = a.dueDate ? +a.dueDate : Number.MAX_SAFE_INTEGER;
+      const bDue = b.dueDate ? +b.dueDate : Number.MAX_SAFE_INTEGER;
+      return aDue - bDue || (b.amount - a.amount);
+    }
+    if(mode === 'dueDesc'){
+      const aDue = a.dueDate ? +a.dueDate : -1;
+      const bDue = b.dueDate ? +b.dueDate : -1;
+      return bDue - aDue || (b.amount - a.amount);
+    }
+    if(mode === 'amountDesc') return b.amount - a.amount || ((+b.submissionDate || 0) - (+a.submissionDate || 0));
+    if(mode === 'amountAsc') return a.amount - b.amount || ((+b.submissionDate || 0) - (+a.submissionDate || 0));
+    if(mode === 'submissionAsc') return ((+a.submissionDate || 0) - (+b.submissionDate || 0));
+    if(mode === 'submissionDesc') return ((+b.submissionDate || 0) - (+a.submissionDate || 0));
+    if(mode === 'vendorAsc') return a.vendor.localeCompare(b.vendor) || (b.amount - a.amount);
+    if(mode === 'vendorDesc') return b.vendor.localeCompare(a.vendor) || (b.amount - a.amount);
+    return 0;
+  });
+  return clone;
+}
+
+function applyFilters(){
+  const q = compact(els.search.value).toLowerCase();
+  const from = parseDate(els.dateFrom.value);
+  const to = parseDate(els.dateTo.value);
+
+  let rows = state.raw.filter(r => {
+    if(q){
+      const hay = [
+        r.vendor, r.invoice, r.notes, r.submitter, r.paymentDetail,
+        r.category, r.location, r.paidBy, r.paymentType,
+        r.submissionId, r.driveFileName, r.driveMatchStatus
+      ].join(' | ').toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+
+    if(els.status.value && r.reportStatus !== els.status.value) return false;
+    if(els.location.value && r.location !== els.location.value) return false;
+    if(els.vendor.value && r.vendor !== els.vendor.value) return false;
+    if(els.category.value && r.category !== els.category.value) return false;
+    if(els.submitter.value && r.submitter !== els.submitter.value) return false;
+    if(els.paidBy.value && r.paidBy !== els.paidBy.value) return false;
+    if(els.paymentType.value && r.paymentType !== els.paymentType.value) return false;
+    if(els.dueBucket.value && r.dueBucket !== els.dueBucket.value) return false;
+    if(from && (!r.submissionDate || stripTime(r.submissionDate) < stripTime(from))) return false;
+    if(to && (!r.submissionDate || stripTime(r.submissionDate) > stripTime(to))) return false;
+
+    return true;
+  });
+
+  rows = applyQuickView(rows);
+  state.filtered = sortRows(rows);
+
+  renderFilterSummary();
+  renderKPIs();
+  renderAgingCards();
+  renderBuckets();
+  renderSummary();
+  renderLocationSummary();
+  renderTable();
+  if(state.activeTab === 'reports') renderCharts();
+}
+
+function renderFilterSummary(){
+  const chips = [];
+  if(state.quickView !== 'all') chips.push({ label:`View: ${quickViewLabel(state.quickView)}`, clear:() => setQuickView('all') });
+  if(els.search.value) chips.push({ label:`Search: ${els.search.value}`, key:'searchInput' });
+  if(els.status.value) chips.push({ label:`Status: ${els.status.value}`, key:'statusFilter' });
+  if(els.dueBucket.value) chips.push({ label:`Due: ${els.dueBucket.value}`, key:'dueBucketFilter' });
+  if(els.location.value) chips.push({ label:`Location: ${els.location.value}`, key:'locationFilter' });
+  if(els.vendor.value) chips.push({ label:`Vendor: ${els.vendor.value}`, key:'vendorFilter' });
+  if(els.category.value) chips.push({ label:`Category: ${els.category.value}`, key:'categoryFilter' });
+  if(els.submitter.value) chips.push({ label:`Submitter: ${els.submitter.value}`, key:'submitterFilter' });
+  if(els.paidBy.value) chips.push({ label:`Paid by: ${els.paidBy.value}`, key:'paidByFilter' });
+  if(els.paymentType.value) chips.push({ label:`Payment: ${els.paymentType.value}`, key:'paymentTypeFilter' });
+  if(els.dateFrom.value) chips.push({ label:`From: ${els.dateFrom.value}`, key:'dateFrom' });
+  if(els.dateTo.value) chips.push({ label:`To: ${els.dateTo.value}`, key:'dateTo' });
+
+  els.activeFilterChips.innerHTML = chips.length ? chips.map((chip,idx) => `
+    <span class="filter-chip">
+      ${esc(chip.label)}
+      <button type="button" data-chip-index="${idx}" aria-label="Remove filter">×</button>
+    </span>
+  `).join('') : '<span class="text-sm muted">All results</span>';
+
+  [...els.activeFilterChips.querySelectorAll('button[data-chip-index]')].forEach(btn => {
+    btn.addEventListener('click', () => {
+      const chip = chips[Number(btn.dataset.chipIndex)];
+      if(!chip) return;
+      if(chip.clear) chip.clear();
+      else document.getElementById(chip.key).value = '';
+      applyFilters();
+    });
+  });
+}
+
+function renderKPIs(){
+  const rows = state.filtered;
+  const open = rows.filter(r => r.reportStatus === 'Open AP');
+  const complete = rows.filter(r => r.reportStatus === 'Complete');
+  const overdue = open.filter(r => r.dueBucket === 'Overdue');
+  const dueSoon = open.filter(r => r.dueBucket === 'Due today' || r.dueBucket === 'Due next 7 days');
+
+  $('#kpiRows').textContent = rows.length.toLocaleString();
+  $('#kpiOpenCount').textContent = open.length.toLocaleString();
+  $('#kpiOpenAmount').textContent = money(open.reduce((s,r)=>s+r.amount,0));
+  $('#kpiOverdueAmount').textContent = money(overdue.reduce((s,r)=>s+r.amount,0));
+  $('#kpiDueSoon').textContent = money(dueSoon.reduce((s,r)=>s+r.amount,0));
+  $('#kpiCompleteAmount').textContent = money(complete.reduce((s,r)=>s+r.amount,0));
+}
+
+function renderAgingCards(){
+  const open = state.filtered.filter(r => r.reportStatus === 'Open AP');
+  const total = open.reduce((s,r)=>s+r.amount,0) || 1;
+
+  const buckets = [
+    { label:'Current / Not yet due', key:'Current / Not yet due', cls:'pill-blue' },
+    { label:'0-30 days', key:'0-30 days', cls:'pill-amber' },
+    { label:'31-60 days', key:'31-60 days', cls:'pill-amber' },
+    { label:'61-90 days', key:'61-90 days', cls:'pill-red' },
+    { label:'90+ days', key:'90+ days', cls:'pill-red' },
+    { label:'No due date', key:'No due date', cls:'pill-slate' }
+  ];
+
+  els.agingCards.innerHTML = buckets.map(b => {
+    const rows = open.filter(r => r.agingBucket === b.key);
+    const amt = rows.reduce((s,r)=>s+r.amount,0);
+    const pct = Math.max(0, Math.min(100, (amt/total) * 100));
+    return `
+      <div class="subcard p-4 border border-slate-200 bg-slate-50/80">
+        <div class="flex items-center justify-between gap-2">
+          <span class="pill ${b.cls}">${esc(b.label)}</span>
+          <span class="text-xs mono muted">${rows.length} rows</span>
+        </div>
+        <div class="mt-3 text-xl font-extrabold mono">${money(amt)}</div>
+        <div class="mt-3 mini"><span style="width:${pct}%"></span></div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderBuckets(){
+  const labels = ['Overdue','Due today','Due next 7 days','Future','No due date','Complete'];
+
+  els.bucketWrap.innerHTML = labels.map(label => {
+    const rows = state.filtered.filter(r => r.dueBucket === label);
+    const amt = rows.reduce((s,r)=>s+r.amount,0);
+    const cls =
+      label === 'Overdue' ? 'pill-red' :
+      (label === 'Due today' || label === 'Due next 7 days') ? 'pill-amber' :
+      label === 'Complete' ? 'pill-green' :
+      'pill-slate';
+
+    return `
+      <div class="subcard p-4 border border-slate-200 bg-slate-50/80">
+        <div class="flex items-center justify-between gap-3">
+          <span class="pill ${cls}">${esc(label)}</span>
+          <span class="text-xs mono muted">${rows.length.toLocaleString()} rows</span>
+        </div>
+        <div class="mt-3 text-xl font-extrabold mono">${money(amt)}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderSummary(){
+  const map = new Map();
+
+  for(const r of state.filtered){
+    const key = r.vendor || '—';
+    if(!map.has(key)) map.set(key, { vendor:key, rows:0, open:0, openAmt:0, overdueAmt:0 });
+    const x = map.get(key);
+    x.rows++;
+    if(r.reportStatus === 'Open AP'){
+      x.open++;
+      x.openAmt += r.amount;
+      if(r.dueBucket === 'Overdue') x.overdueAmt += r.amount;
+    }
+  }
+
+  const arr = [...map.values()].sort((a,b)=>b.openAmt - a.openAmt || b.rows - a.rows).slice(0,20);
+
+  els.summary.innerHTML = arr.length ? arr.map(x => `
+    <tr>
+      <td><div class="font-semibold">${esc(x.vendor)}</div></td>
+      <td class="mono">${x.rows}</td>
+      <td class="mono">${x.open}</td>
+      <td class="mono font-semibold">${money(x.openAmt)}</td>
+      <td class="mono">${money(x.overdueAmt)}</td>
+    </tr>
+  `).join('') : `<tr><td colspan="5" class="muted">No data in current view.</td></tr>`;
+
+  els.summaryMobile.innerHTML = arr.length ? arr.map(x => `
+    <div class="subcard p-4 mb-3 border border-slate-200">
+      <div class="font-semibold">${esc(x.vendor)}</div>
+      <div class="mobile-grid">
+        <div><div class="mobile-label">Rows</div><div class="mono">${x.rows}</div></div>
+        <div><div class="mobile-label">Open</div><div class="mono">${x.open}</div></div>
+        <div><div class="mobile-label">Open Amount</div><div class="mono font-semibold">${money(x.openAmt)}</div></div>
+        <div><div class="mobile-label">Overdue</div><div class="mono">${money(x.overdueAmt)}</div></div>
+      </div>
+    </div>
+  `).join('') : `<div class="muted">No data in current view.</div>`;
+}
+
+function renderLocationSummary(){
+  const map = new Map();
+
+  for(const r of state.filtered){
+    const key = r.location || '—';
+    if(!map.has(key)) map.set(key, { location:key, rows:0, openAmt:0, overdueAmt:0 });
+    const x = map.get(key);
+    x.rows++;
+    if(r.reportStatus === 'Open AP'){
+      x.openAmt += r.amount;
+      if(r.dueBucket === 'Overdue') x.overdueAmt += r.amount;
+    }
+  }
+
+  const arr = [...map.values()].sort((a,b)=>b.openAmt - a.openAmt || b.rows - a.rows);
+
+  els.locationSummaryBody.innerHTML = arr.length ? arr.map(x => `
+    <tr>
+      <td><div class="font-semibold">${esc(x.location)}</div></td>
+      <td class="mono">${x.rows}</td>
+      <td class="mono font-semibold">${money(x.openAmt)}</td>
+      <td class="mono">${money(x.overdueAmt)}</td>
+    </tr>
+  `).join('') : `<tr><td colspan="4" class="muted">No data in current view.</td></tr>`;
+
+  els.locationSummaryMobile.innerHTML = arr.length ? arr.map(x => `
+    <div class="subcard p-4 mb-3 border border-slate-200">
+      <div class="font-semibold">${esc(x.location)}</div>
+      <div class="mobile-grid">
+        <div><div class="mobile-label">Rows</div><div class="mono">${x.rows}</div></div>
+        <div><div class="mobile-label">Open Amount</div><div class="mono font-semibold">${money(x.openAmt)}</div></div>
+        <div><div class="mobile-label">Overdue</div><div class="mono">${money(x.overdueAmt)}</div></div>
+      </div>
+    </div>
+  `).join('') : `<div class="muted">No data in current view.</div>`;
+}
+
+function buildTrendSeries(){
+  const map = new Map();
+
+  for(const r of state.filtered){
+    const key = ym(r.submissionDate || r.dueDate);
+    if(!map.has(key)) map.set(key, { open:0, complete:0 });
+    const x = map.get(key);
+    if(r.reportStatus === 'Open AP') x.open += r.amount;
+    else x.complete += r.amount;
+  }
+
+  const keys = [...map.keys()].sort();
+
+  return {
+    labels: keys.map(ymLabel),
+    open: keys.map(k => map.get(k).open),
+    complete: keys.map(k => map.get(k).complete)
+  };
+}
+
+function buildVendorSeries(){
+  const map = new Map();
+
+  for(const r of state.filtered.filter(r => r.reportStatus === 'Open AP')){
+    map.set(r.vendor, (map.get(r.vendor) || 0) + r.amount);
+  }
+
+  const arr = [...map.entries()].sort((a,b)=>b[1]-a[1]).slice(0,8);
+
+  return {
+    labels: arr.map(x => x[0]),
+    values: arr.map(x => x[1])
+  };
+}
+
+function renderCharts(){
+  const trend = buildTrendSeries();
+  const vendor = buildVendorSeries();
+
+  if(state.trendChart) state.trendChart.destroy();
+  if(state.vendorChart) state.vendorChart.destroy();
+
+  state.trendChart = new Chart(document.getElementById('trendChart'), {
+    type: 'bar',
+    data: {
+      labels: trend.labels,
+      datasets: [
+        {
+          label: 'Open AP',
+          data: trend.open,
+          backgroundColor: 'rgba(15,23,42,.82)',
+          borderRadius: 8,
+          borderSkipped: false
+        },
+        {
+          label: 'Complete',
+          data: trend.complete,
+          backgroundColor: 'rgba(148,163,184,.65)',
+          borderRadius: 8,
+          borderSkipped: false
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { position:'bottom' } },
+      scales: {
+        y: {
+          ticks: { callback: v => money(v) },
+          grid: { color:'rgba(148,163,184,.2)' }
+        },
+        x: { grid: { display:false } }
+      }
+    }
+  });
+
+  state.vendorChart = new Chart(document.getElementById('vendorChart'), {
+    type: 'bar',
+    data: {
+      labels: vendor.labels,
+      datasets: [{
+        label: 'Open Amount',
+        data: vendor.values,
+        backgroundColor: 'rgba(71,85,105,.85)',
+        borderRadius: 8,
+        borderSkipped: false
+      }]
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display:false } },
+      scales: {
+        x: {
+          ticks: { callback: v => money(v) },
+          grid: { color:'rgba(148,163,184,.2)' }
+        },
+        y: { grid: { display:false } }
+      }
+    }
+  });
+}
+
+function agingText(r){
+  if(r.reportStatus === 'Complete') return 'Complete';
+  if(!r.dueDate) return 'No due date';
+  if(r.dueDelta < 0) return `${fmtDate(r.dueDate)} · ${Math.abs(r.dueDelta)}d late`;
+  if(r.dueDelta === 0) return `${fmtDate(r.dueDate)} · today`;
+  return `${fmtDate(r.dueDate)} · ${r.dueDelta}d to due`;
+}
+
+function renderDesktopRow(r){
+  const fileLinks = r.preferredFiles.length
+    ? r.preferredFiles.map((u,i)=>`<a class="link-btn" href="${esc(u)}" target="_blank" rel="noopener">${r.fileSourceLabel} File ${i+1}</a>`).join(' ')
+    : '<span class="muted-2">No file</span>';
+
+  const editLink = r.editUrl
+    ? `<a class="link-btn" href="${esc(r.editUrl)}" target="_blank" rel="noopener">Edit</a>`
+    : '';
+
+  return `
+    <tr>
+      <td>
+        <div class="font-semibold">${esc(r.submissionId)}</div>
+        <div class="text-xs muted mt-1">${fmtDate(r.submissionDate)}</div>
+      </td>
+      <td>${esc(r.location)}</td>
+      <td><div class="font-semibold">${esc(r.vendor)}</div></td>
+      <td>
+        <div>${esc(r.invoice)}</div>
+        <div class="text-xs muted mt-1">${r.datePaid ? 'Paid date: ' + esc(r.datePaid) : ''}</div>
+      </td>
+      <td class="mono font-semibold">${money(r.amount)}</td>
+      <td>
+        <div>${agingText(r)}</div>
+        <div class="text-xs muted mt-1">${esc(r.agingBucket)}</div>
+      </td>
+      <td>
+        <div>${statusPillHtml(r.rowStatusText)}</div>
+        <div class="text-xs muted mt-2 max-w-[250px]">${esc(r.paymentDetail || '')}</div>
+      </td>
+      <td>${esc(r.category)}</td>
+      <td><div class="max-w-[320px] whitespace-pre-wrap break-words">${esc(r.notes || '—')}</div></td>
+      <td>${esc(r.submitter)}</td>
+      <td>${esc(r.paidBy)}</td>
+      <td>${esc(r.paymentType)}</td>
+      <td><div class="max-w-[220px] whitespace-pre-wrap break-words">${esc(r.driveFileName || '—')}</div></td>
+      <td>
+        <div class="max-w-[250px] whitespace-pre-wrap break-words truncate-2">${esc(r.driveMatchStatus || '—')}</div>
+        <div class="text-xs mt-2 ${sourceClass(r.fileSourceLabel)}">Source: ${esc(r.fileSourceLabel)}</div>
+      </td>
+      <td><div class="flex flex-wrap gap-2 min-w-[260px]">${fileLinks} ${editLink}</div></td>
+    </tr>
+  `;
+}
+
+function renderMobileRow(r){
+  const fileLinks = r.preferredFiles.length
+    ? r.preferredFiles.map((u,i)=>`<a class="link-btn" href="${esc(u)}" target="_blank" rel="noopener">${r.fileSourceLabel} File ${i+1}</a>`).join(' ')
+    : '<span class="muted-2">No file</span>';
+
+  const editLink = r.editUrl
+    ? `<a class="link-btn" href="${esc(r.editUrl)}" target="_blank" rel="noopener">Edit</a>`
+    : '';
+
+  return `
+    <div class="mobile-row">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="font-semibold">${esc(r.vendor)}</div>
+          <div class="text-xs muted mt-1">${esc(r.location)} · ${esc(r.submissionId)}</div>
+        </div>
+        <div class="mono font-semibold">${money(r.amount)}</div>
+      </div>
+
+      <div class="flex flex-wrap gap-2 mt-3">
+        ${statusPillHtml(r.rowStatusText)}
+        <span class="table-chip">${esc(r.category)}</span>
+        <span class="table-chip ${sourceClass(r.fileSourceLabel)}">Source: ${esc(r.fileSourceLabel)}</span>
+      </div>
+
+      <div class="mobile-grid">
+        <div>
+          <div class="mobile-label">Invoice</div>
+          <div>${esc(r.invoice)}</div>
+        </div>
+        <div>
+          <div class="mobile-label">Aging</div>
+          <div>${agingText(r)}</div>
+        </div>
+        <div>
+          <div class="mobile-label">Submitter</div>
+          <div>${esc(r.submitter)}</div>
+        </div>
+        <div>
+          <div class="mobile-label">Paid By</div>
+          <div>${esc(r.paidBy)}</div>
+        </div>
+        <div>
+          <div class="mobile-label">Payment</div>
+          <div>${esc(r.paymentType)}</div>
+        </div>
+        <div>
+          <div class="mobile-label">Drive File</div>
+          <div class="break-words">${esc(r.driveFileName || '—')}</div>
+        </div>
+      </div>
+
+      <div class="mt-3">
+        <div class="mobile-label">Notes</div>
+        <div class="text-sm break-words whitespace-pre-wrap">${esc(r.notes || '—')}</div>
+      </div>
+
+      <div class="mt-3">
+        <div class="mobile-label">Drive Match</div>
+        <div class="text-sm break-words whitespace-pre-wrap">${esc(r.driveMatchStatus || '—')}</div>
+      </div>
+
+      <div class="flex flex-wrap gap-2 mt-4">${fileLinks} ${editLink}</div>
+    </div>
+  `;
+}
+
+function renderTable(){
+  els.tableCount.textContent = `${state.filtered.length.toLocaleString()} rows`;
+
+  els.tbody.innerHTML = state.filtered.length
+    ? state.filtered.map(renderDesktopRow).join('')
+    : `<tr><td colspan="15" class="muted">No rows match your filters.</td></tr>`;
+
+  els.mobileRows.innerHTML = state.filtered.length
+    ? state.filtered.map(renderMobileRow).join('')
+    : `<div class="mobile-row muted">No rows match your filters.</div>`;
+}
+
+function exportFilteredCSV(){
+  const headers = [
+    'Submission Date','Location','Report Status','Submitter','Vendor','Due Date',
+    'Due Bucket','Aging Bucket','Payment Complete','Invoice Number','Amount',
+    'Category','Notes','Paid by','Date Paid','Payment Type','Payment Detail',
+    'Drive File URL','Drive File Name','Drive Match Status',
+    'Submission URL','Submission Edit URL','File Upload','Submission ID'
+  ];
+
+  const rows = state.filtered.map(r => ({
+    'Submission Date': r.submissionDate ? toISODate(r.submissionDate) : '',
+    'Location': r.location,
+    'Report Status': r.reportStatus,
+    'Submitter': r.submitter,
+    'Vendor': r.vendor,
+    'Due Date': r.dueDate ? toISODate(r.dueDate) : '',
+    'Due Bucket': r.dueBucket,
+    'Aging Bucket': r.agingBucket,
+    'Payment Complete': r.paymentComplete,
+    'Invoice Number': r.invoice,
+    'Amount': r.amount,
+    'Category': r.category,
+    'Notes': r.notes,
+    'Paid by': r.paidBy,
+    'Date Paid': r.datePaid,
+    'Payment Type': r.paymentType,
+    'Payment Detail': r.paymentDetail,
+    'Drive File URL': r.driveFiles.join(' | '),
+    'Drive File Name': r.driveFileName,
+    'Drive Match Status': r.driveMatchStatus,
+    'Submission URL': r.submissionUrl,
+    'Submission Edit URL': r.editUrl,
+    'File Upload': r.jotformFiles.join(' | '),
+    'Submission ID': r.submissionId
+  }));
+
+  const csv = Papa.unparse({
+    fields: headers,
+    data: rows.map(r => headers.map(h => r[h] ?? ''))
+  });
+
+  const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'hospitality_payables_filtered_export.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function setTab(tab){
+  state.activeTab = tab;
+  els.submissionsPanel.classList.toggle('active', tab === 'submissions');
+  els.reportsPanel.classList.toggle('active', tab === 'reports');
+  els.tabSubmissionsBtn.classList.toggle('active', tab === 'submissions');
+  els.tabReportsBtn.classList.toggle('active', tab === 'reports');
+  if(tab === 'reports') setTimeout(renderCharts, 0);
+}
+
+function setQuickView(value){
+  state.quickView = value;
+  [...document.querySelectorAll('[data-quick-view]')].forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.quickView === value);
+  });
+  applyFilters();
+}
+
+function setAdvancedOpen(open){
+  state.advancedOpen = open;
+  els.advancedDrawer.classList.toggle('open', open);
+  els.toggleAdvancedBtn.textContent = open ? 'Hide Filters' : 'More Filters';
+}
+
+function resetFilters(){
+  ['searchInput','dateFrom','dateTo'].forEach(id => document.getElementById(id).value = '');
+  ['statusFilter','locationFilter','vendorFilter','categoryFilter','submitterFilter','paidByFilter','paymentTypeFilter','dueBucketFilter']
+    .forEach(id => document.getElementById(id).value = '');
+  els.sortBy.value = 'priority';
+  setQuickView('all');
+}
+
+['input','change'].forEach(evt => {
+  [
+    'searchInput','statusFilter','locationFilter','vendorFilter','categoryFilter',
+    'submitterFilter','paidByFilter','paymentTypeFilter','dueBucketFilter',
+    'dateFrom','dateTo','sortBy'
+  ].forEach(id => {
+    document.getElementById(id).addEventListener(evt, applyFilters);
+  });
+});
+
+[...document.querySelectorAll('[data-quick-view]')].forEach(btn => {
+  btn.addEventListener('click', () => setQuickView(btn.dataset.quickView));
+});
+
+els.toggleAdvancedBtn.addEventListener('click', () => setAdvancedOpen(!state.advancedOpen));
+els.tabSubmissionsBtn.addEventListener('click', () => setTab('submissions'));
+els.tabReportsBtn.addEventListener('click', () => setTab('reports'));
+document.getElementById('refreshBtn').addEventListener('click', loadData);
+document.getElementById('exportBtn').addEventListener('click', exportFilteredCSV);
+document.getElementById('resetBtn').addEventListener('click', resetFilters);
+
+loadData().catch(err => {
+  console.error(err);
+  els.lastUpdated.textContent = 'Failed to load CSV';
+  els.tbody.innerHTML = `
+    <tr>
+      <td colspan="15" class="text-red-600">
+        Could not load the Google Sheet CSV. Check that the sheet is published and accessible.
+      </td>
+    </tr>
+  `;
+  els.mobileRows.innerHTML = `<div class="mobile-row text-red-600">Could not load the Google Sheet CSV.</div>`;
+});
+</script>
+</body>
+</html>
