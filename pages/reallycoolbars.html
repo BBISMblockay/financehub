@@ -97,7 +97,7 @@
       align-items:center;
       justify-content:flex-end;
     }
-    .btn,.btn-dark,.btn-soft,.seg-btn{
+    .btn,.btn-dark,.btn-soft,.seg-btn,.pager-btn{
       display:inline-flex;
       align-items:center;
       justify-content:center;
@@ -116,7 +116,7 @@
     }
     .btn-dark{ background:#0f172a; color:#fff; border-color:#0f172a; }
     .btn-soft{ background:#f8fafc; }
-    .btn:hover,.btn-dark:hover,.btn-soft:hover,.seg-btn:hover{ transform:translateY(-1px); box-shadow:0 8px 18px rgba(15,23,42,.08); }
+    .btn:hover,.btn-dark:hover,.btn-soft:hover,.seg-btn:hover,.pager-btn:hover{ transform:translateY(-1px); box-shadow:0 8px 18px rgba(15,23,42,.08); }
     .seg-wrap{
       display:inline-flex;
       gap:6px;
@@ -150,7 +150,7 @@
     }
     .metric-note{ font-size:.75rem; color:var(--muted); margin-top:6px; }
     .mono{ font-variant-numeric:tabular-nums; font-feature-settings:"tnum" 1; }
-    .field,.sort-field{
+    .field,.sort-field,.page-size-select{
       width:100%;
       min-height:44px;
       border:1px solid var(--line-2);
@@ -161,7 +161,7 @@
       color:var(--text);
       outline:none;
     }
-    .field:focus,.sort-field:focus{
+    .field:focus,.sort-field:focus,.page-size-select:focus{
       border-color:#94a3b8;
       box-shadow:0 0 0 4px rgba(148,163,184,.12);
     }
@@ -347,6 +347,32 @@
     .tabbtn.active{ background:#0f172a; color:#fff; border-color:#0f172a; }
     .tabpanel{ display:none; }
     .tabpanel.active{ display:block; }
+    .pager{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:12px;
+      flex-wrap:wrap;
+      margin-top:14px;
+      padding-top:14px;
+      border-top:1px solid var(--line);
+    }
+    .pager-left,.pager-right{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      flex-wrap:wrap;
+    }
+    .pager-meta{
+      font-size:.8rem;
+      color:var(--muted);
+    }
+    .pager-btn[disabled]{
+      opacity:.45;
+      cursor:not-allowed;
+      transform:none;
+      box-shadow:none;
+    }
     canvas{ max-width:100%; }
 
     @media (max-width: 1100px){
@@ -365,6 +391,9 @@
       .toolbar{ justify-content:flex-start; }
       .quick-grid{ grid-template-columns:1fr; }
       .mobile-grid{ grid-template-columns:1fr; }
+      .pager{
+        align-items:flex-start;
+      }
     }
   </style>
 </head>
@@ -615,12 +644,30 @@
       </div>
 
       <div id="mobileRows" class="mobile-cards subcard overflow-hidden border border-slate-200"></div>
+
+      <div class="pager">
+        <div class="pager-left">
+          <div class="pager-meta" id="pageMeta">Showing 0–0 of 0</div>
+          <select id="pageSizeSelect" class="page-size-select" style="width:auto;min-width:110px;">
+            <option value="25">25 rows</option>
+            <option value="50">50 rows</option>
+            <option value="75" selected>75 rows</option>
+            <option value="100">100 rows</option>
+          </select>
+        </div>
+        <div class="pager-right">
+          <button id="prevPageBtn" class="pager-btn" type="button">Previous</button>
+          <div class="pager-meta" id="pageNumberMeta">Page 1 of 1</div>
+          <button id="nextPageBtn" class="pager-btn" type="button">Next</button>
+        </div>
+      </div>
     </section>
 
   </div>
 
 <script>
 const CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTakey3__4dnC5sIUDHzd1EaUbGu6xaCKKCzMXg9Dpl52fBvTxG_WUobYjtmkKkZj_2wIEAnnrlyOLP/pub?gid=1047290950&single=true&output=csv';
+const MOBILE_QUERY = window.matchMedia('(max-width: 900px)');
 
 const state = {
   raw: [],
@@ -629,7 +676,9 @@ const state = {
   vendorChart: null,
   quickView: 'all',
   advancedOpen: false,
-  activeTab: 'submissions'
+  activeTab: 'submissions',
+  page: 1,
+  pageSize: 75
 };
 
 const $ = s => document.querySelector(s);
@@ -663,7 +712,12 @@ const els = {
   submissionsPanel: $('#submissionsPanel'),
   reportsPanel: $('#reportsPanel'),
   tabSubmissionsBtn: $('#tabSubmissionsBtn'),
-  tabReportsBtn: $('#tabReportsBtn')
+  tabReportsBtn: $('#tabReportsBtn'),
+  pageMeta: $('#pageMeta'),
+  pageNumberMeta: $('#pageNumberMeta'),
+  prevPageBtn: $('#prevPageBtn'),
+  nextPageBtn: $('#nextPageBtn'),
+  pageSizeSelect: $('#pageSizeSelect')
 };
 
 function money(n){
@@ -787,6 +841,42 @@ function rowPriorityScore(r){
 function quickViewLabel(v){
   return ({ all:'All items', open:'Open AP', overdue:'Overdue', dueSoon:'Due next 7 days', complete:'Complete' }[v]) || 'All items';
 }
+function isMobileLayout(){
+  return MOBILE_QUERY.matches;
+}
+function debounce(fn, wait=220){
+  let t;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), wait);
+  };
+}
+function resetPage(){
+  state.page = 1;
+}
+function getPageSize(){
+  return Number(els.pageSizeSelect.value || state.pageSize || 75);
+}
+function getPageCount(){
+  return Math.max(1, Math.ceil(state.filtered.length / state.pageSize));
+}
+function getPagedRows(){
+  const start = (state.page - 1) * state.pageSize;
+  const end = start + state.pageSize;
+  return state.filtered.slice(start, end);
+}
+function updatePager(){
+  const total = state.filtered.length;
+  const pageCount = getPageCount();
+  if(state.page > pageCount) state.page = pageCount;
+  const start = total ? ((state.page - 1) * state.pageSize) + 1 : 0;
+  const end = Math.min(state.page * state.pageSize, total);
+
+  els.pageMeta.textContent = `Showing ${start.toLocaleString()}–${end.toLocaleString()} of ${total.toLocaleString()}`;
+  els.pageNumberMeta.textContent = `Page ${state.page} of ${pageCount}`;
+  els.prevPageBtn.disabled = state.page <= 1;
+  els.nextPageBtn.disabled = state.page >= pageCount;
+}
 
 function detectCategory(r){
   const fromHelper = compact(r['Primary Category']);
@@ -898,6 +988,12 @@ function normalizeRow(r){
   };
 
   row.priorityScore = rowPriorityScore(row);
+  row.searchHaystack = [
+    row.vendor, row.invoice, row.notes, row.submitter, row.paymentDetail,
+    row.category, row.location, row.paidBy, row.paymentType,
+    row.submissionId, row.driveFileName, row.driveMatchStatus
+  ].join(' | ').toLowerCase();
+
   return row;
 }
 
@@ -919,7 +1015,8 @@ async function loadData(){
     .filter(r => r.vendor !== '—' || r.submissionId !== '—');
 
   hydrateFilters();
-  applyFilters();
+  resetPage();
+  applyFilters({ skipResetPage: true });
   els.lastUpdated.textContent = `Loaded ${state.raw.length.toLocaleString()} rows · ${new Date().toLocaleString()}`;
 }
 
@@ -977,21 +1074,17 @@ function sortRows(rows){
   return clone;
 }
 
-function applyFilters(){
+function applyFilters({ skipResetPage = false } = {}){
+  if(!skipResetPage) resetPage();
+
+  state.pageSize = getPageSize();
+
   const q = compact(els.search.value).toLowerCase();
   const from = parseDate(els.dateFrom.value);
   const to = parseDate(els.dateTo.value);
 
   let rows = state.raw.filter(r => {
-    if(q){
-      const hay = [
-        r.vendor, r.invoice, r.notes, r.submitter, r.paymentDetail,
-        r.category, r.location, r.paidBy, r.paymentType,
-        r.submissionId, r.driveFileName, r.driveMatchStatus
-      ].join(' | ').toLowerCase();
-      if(!hay.includes(q)) return false;
-    }
-
+    if(q && !r.searchHaystack.includes(q)) return false;
     if(els.status.value && r.reportStatus !== els.status.value) return false;
     if(els.location.value && r.location !== els.location.value) return false;
     if(els.vendor.value && r.vendor !== els.vendor.value) return false;
@@ -1002,7 +1095,6 @@ function applyFilters(){
     if(els.dueBucket.value && r.dueBucket !== els.dueBucket.value) return false;
     if(from && (!r.submissionDate || stripTime(r.submissionDate) < stripTime(from))) return false;
     if(to && (!r.submissionDate || stripTime(r.submissionDate) > stripTime(to))) return false;
-
     return true;
   });
 
@@ -1425,14 +1517,21 @@ function renderMobileRow(r){
 
 function renderTable(){
   els.tableCount.textContent = `${state.filtered.length.toLocaleString()} rows`;
+  updatePager();
 
-  els.tbody.innerHTML = state.filtered.length
-    ? state.filtered.map(renderDesktopRow).join('')
-    : `<tr><td colspan="15" class="muted">No rows match your filters.</td></tr>`;
+  const rows = getPagedRows();
 
-  els.mobileRows.innerHTML = state.filtered.length
-    ? state.filtered.map(renderMobileRow).join('')
-    : `<div class="mobile-row muted">No rows match your filters.</div>`;
+  if(isMobileLayout()){
+    els.tbody.innerHTML = '';
+    els.mobileRows.innerHTML = rows.length
+      ? rows.map(renderMobileRow).join('')
+      : `<div class="mobile-row muted">No rows match your filters.</div>`;
+  } else {
+    els.mobileRows.innerHTML = '';
+    els.tbody.innerHTML = rows.length
+      ? rows.map(renderDesktopRow).join('')
+      : `<tr><td colspan="15" class="muted">No rows match your filters.</td></tr>`;
+  }
 }
 
 function exportFilteredCSV(){
@@ -1513,22 +1612,52 @@ function resetFilters(){
   ['statusFilter','locationFilter','vendorFilter','categoryFilter','submitterFilter','paidByFilter','paymentTypeFilter','dueBucketFilter']
     .forEach(id => document.getElementById(id).value = '');
   els.sortBy.value = 'priority';
+  els.pageSizeSelect.value = '75';
+  state.pageSize = 75;
   setQuickView('all');
 }
 
-['input','change'].forEach(evt => {
+const debouncedSearchApply = debounce(() => applyFilters(), 220);
+
+['change'].forEach(evt => {
   [
-    'searchInput','statusFilter','locationFilter','vendorFilter','categoryFilter',
+    'statusFilter','locationFilter','vendorFilter','categoryFilter',
     'submitterFilter','paidByFilter','paymentTypeFilter','dueBucketFilter',
-    'dateFrom','dateTo','sortBy'
+    'dateFrom','dateTo','sortBy','pageSizeSelect'
   ].forEach(id => {
-    document.getElementById(id).addEventListener(evt, applyFilters);
+    document.getElementById(id).addEventListener(evt, () => {
+      if(id === 'pageSizeSelect') state.pageSize = getPageSize();
+      applyFilters();
+    });
   });
 });
+
+document.getElementById('searchInput').addEventListener('input', debouncedSearchApply);
 
 [...document.querySelectorAll('[data-quick-view]')].forEach(btn => {
   btn.addEventListener('click', () => setQuickView(btn.dataset.quickView));
 });
+
+els.prevPageBtn.addEventListener('click', () => {
+  if(state.page > 1){
+    state.page--;
+    renderTable();
+  }
+});
+
+els.nextPageBtn.addEventListener('click', () => {
+  const pageCount = getPageCount();
+  if(state.page < pageCount){
+    state.page++;
+    renderTable();
+  }
+});
+
+if(MOBILE_QUERY.addEventListener){
+  MOBILE_QUERY.addEventListener('change', () => renderTable());
+} else if(MOBILE_QUERY.addListener){
+  MOBILE_QUERY.addListener(() => renderTable());
+}
 
 els.toggleAdvancedBtn.addEventListener('click', () => setAdvancedOpen(!state.advancedOpen));
 els.tabSubmissionsBtn.addEventListener('click', () => setTab('submissions'));
