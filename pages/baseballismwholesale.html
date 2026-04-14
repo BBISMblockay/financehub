@@ -1604,13 +1604,13 @@
 
       document.querySelectorAll('.queue-done-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
-          await updateQueueStatus(btn.getAttribute('data-id'), 'completed');
+          await updateQueueStatus(btn.getAttribute('data-id'), 'complete');
         });
       });
 
       document.querySelectorAll('.queue-cancel-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
-          await updateQueueStatus(btn.getAttribute('data-id'), 'canceled');
+          await updateQueueStatus(btn.getAttribute('data-id'), 'skipped');
         });
       });
 
@@ -1619,8 +1619,8 @@
       });
 
       const pending = state.filteredQueueItems.filter(r => normalizeStatus(r.status) === 'pending').length;
-      const completed = state.filteredQueueItems.filter(r => normalizeStatus(r.status) === 'completed').length;
-      const canceled = state.filteredQueueItems.filter(r => normalizeStatus(r.status) === 'canceled').length;
+      const completed = state.filteredQueueItems.filter(r => normalizeStatus(r.status) === 'complete').length;
+      const canceled = state.filteredQueueItems.filter(r => normalizeStatus(r.status) === 'skipped').length;
       const failed = state.filteredQueueItems.filter(r => normalizeStatus(r.status) === 'failed').length;
 
       els.queueSummaryCards.innerHTML = [
