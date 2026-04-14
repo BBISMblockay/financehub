@@ -5,6 +5,7 @@
   "main": "server/index.mjs",
   "scripts": {
     "start": "node server/index.mjs"
+    "sync:ar": "node server/run-ar-sync.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.8",
