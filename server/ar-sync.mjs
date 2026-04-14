@@ -1,5 +1,3 @@
-// file: server/ar-sync.mjs
-
 import crypto from "crypto";
 import fetch from "node-fetch";
 import Papa from "papaparse";
@@ -12,6 +10,8 @@ const SALES_CSV_SOURCES = [
 
 const TERMS_CSV_URL =
   "https://docs.google.com/spreadsheets/d/e/2PACX-1vStgtzXpQpW_9oWh4QC2NOoO7F9L0fJLM7EDP7To0DyDp0TWaFk4V9YUxJVs9NRRv_7-bof9I-Gcc2J/pub?gid=814012167&single=true&output=csv";
+
+const JOB_SYNC_KEY = "ar_google_sheets_sync";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -38,24 +38,26 @@ function parseDateFlex(value) {
   if (!value) return null;
   const raw = String(value).trim();
   if (!raw) return null;
+
   const d = new Date(raw);
   if (Number.isNaN(d.getTime())) return null;
-  return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-}
 
-function toDateString(date) {
-  if (!date) return null;
-  return date.toISOString().slice(0, 10);
+  return new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
 }
 
 function stripTime(date) {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
 }
 
+function toDateString(date) {
+  if (!date) return null;
+  return stripTime(date).toISOString().slice(0, 10);
+}
+
 function addDays(date, days) {
   if (!date) return null;
   const d = stripTime(date);
-  d.setUTCDate(d.getUTCDate() + days);
+  d.setUTCDate(d.getUTCDate() + Number(days || 0));
   return d;
 }
 
@@ -92,6 +94,7 @@ function detectDateKey(row) {
 
 function detectTermsColumns(row) {
   const keys = Object.keys(row || {});
+
   const findKey = (patterns) => {
     for (const k of keys) {
       const lk = k.toLowerCase().trim();
@@ -118,16 +121,21 @@ function agingBucket(daysPastDue, openAmount) {
 
 async function fetchCsvRows(url) {
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Failed CSV fetch: ${url} (${res.status})`);
-  const text = await res.text();
+  if (!res.ok) {
+    throw new Error(`Failed CSV fetch: ${res.status} ${url}`);
+  }
 
+  const text = await res.text();
   const parsed = Papa.parse(text, {
     header: true,
     skipEmptyLines: true
   });
 
   if (parsed.errors?.length) {
-    console.warn("CSV parse warnings:", parsed.errors.slice(0, 5));
+    const serious = parsed.errors.filter((e) => e.code !== "UndetectableDelimiter");
+    if (serious.length) {
+      console.warn(`CSV parse warnings for ${url}:`, serious.slice(0, 5));
+    }
   }
 
   return parsed.data || [];
@@ -215,7 +223,7 @@ function normalizeSalesRow(row, sourceIndex) {
     customerNorm: normalizeCustomerName(customer),
     emailNorm: normalizeEmail(email),
     tags,
-    orderName: String(row["Order name"] || "").trim(),
+    orderName: String(row["Order name"] || "").trim() || "Unknown Order",
     fulfillment,
     financialStatus,
     settlementClass,
@@ -247,7 +255,6 @@ function applyTermsAndAging(rows, termsIndexes, asOfDate = new Date()) {
     row.termDays = match ? cleanInt(match.termDays) : 0;
     row.matchedBy = matchedBy;
     row.agingBasis = "terms";
-
     row.dueDate = row.orderDate ? addDays(row.orderDate, row.termDays) : null;
 
     if (!row.orderDate || row.openAmount <= 0) {
@@ -272,12 +279,72 @@ function buildSourceRowHash(row) {
     row.customerNorm,
     row.emailNorm,
     row.orderName,
-    row.sales.toFixed(2),
-    row.openAmount.toFixed(2),
+    Number(row.sales || 0).toFixed(2),
+    Number(row.openAmount || 0).toFixed(2),
     row.financialStatus
   ].join("|");
 
   return crypto.createHash("sha256").update(raw).digest("hex");
+}
+
+async function saveSyncRunning(startedAt) {
+  const { error } = await supabase
+    .from("job_sync_state")
+    .upsert(
+      {
+        key: JOB_SYNC_KEY,
+        status: "running",
+        started_at: startedAt,
+        completed_at: null,
+        updated_at: new Date().toISOString(),
+        error_text: null
+      },
+      { onConflict: "key" }
+    );
+
+  if (error) throw error;
+}
+
+async function saveSyncSuccess(summary) {
+  const { error } = await supabase
+    .from("job_sync_state")
+    .upsert(
+      {
+        key: JOB_SYNC_KEY,
+        status: "success",
+        started_at: summary.started_at,
+        completed_at: summary.completed_at,
+        last_success_at: summary.completed_at,
+        updated_at: new Date().toISOString(),
+        payload: summary,
+        error_text: null
+      },
+      { onConflict: "key" }
+    );
+
+  if (error) throw error;
+}
+
+async function saveSyncFailure(startedAt, err) {
+  const now = new Date().toISOString();
+
+  const { error } = await supabase
+    .from("job_sync_state")
+    .upsert(
+      {
+        key: JOB_SYNC_KEY,
+        status: "failed",
+        started_at: startedAt,
+        completed_at: now,
+        updated_at: now,
+        error_text: err?.message || "Unknown sync failure"
+      },
+      { onConflict: "key" }
+    );
+
+  if (error) {
+    console.warn("Failed to save AR sync failure state:", error.message);
+  }
 }
 
 async function upsertCustomers(rows) {
@@ -285,6 +352,7 @@ async function upsertCustomers(rows) {
 
   for (const row of rows) {
     const key = `${row.customerNorm}__${row.emailNorm || ""}`;
+
     if (!grouped.has(key)) {
       grouped.set(key, {
         customer_name: row.customer,
@@ -293,11 +361,19 @@ async function upsertCustomers(rows) {
         email_norm: row.emailNorm || null,
         term_days: row.termDays || 0
       });
+    } else {
+      const existing = grouped.get(key);
+      if ((!existing.email || existing.email === "") && row.email) {
+        existing.email = row.email;
+        existing.email_norm = row.emailNorm;
+      }
+      if ((existing.term_days || 0) === 0 && (row.termDays || 0) > 0) {
+        existing.term_days = row.termDays;
+      }
     }
   }
 
   const payload = Array.from(grouped.values());
-
   if (!payload.length) return new Map();
 
   const { error } = await supabase
@@ -315,13 +391,13 @@ async function upsertCustomers(rows) {
 
   if (fetchError) throw fetchError;
 
-  const map = new Map();
+  const customerIdMap = new Map();
   for (const c of data || []) {
     const key = `${c.customer_name_norm}__${c.email_norm || ""}`;
-    map.set(key, c.id);
+    customerIdMap.set(key, c.id);
   }
 
-  return map;
+  return customerIdMap;
 }
 
 async function upsertInvoices(rows, customerIdMap) {
@@ -333,15 +409,13 @@ async function upsertInvoices(rows, customerIdMap) {
       throw new Error(`Missing customer_id for ${row.customer} / ${row.email || "no email"}`);
     }
 
-    const sourceRowHash = buildSourceRowHash(row);
-
     return {
       customer_id: customerId,
       source_name: row.sourceName,
       source_index: row.sourceIndex,
-      source_row_hash: sourceRowHash,
+      source_row_hash: buildSourceRowHash(row),
       external_order_id: null,
-      order_name: row.orderName || "Unknown Order",
+      order_name: row.orderName,
       order_date: toDateString(row.orderDate),
       due_date: toDateString(row.dueDate),
       term_days: row.termDays || 0,
@@ -370,6 +444,7 @@ async function upsertInvoices(rows, customerIdMap) {
   });
 
   const chunkSize = 500;
+
   for (let i = 0; i < payload.length; i += chunkSize) {
     const chunk = payload.slice(i, i + chunkSize);
 
@@ -382,6 +457,8 @@ async function upsertInvoices(rows, customerIdMap) {
 
     if (error) throw error;
   }
+
+  return payload.length;
 }
 
 async function refreshCustomerSummary() {
@@ -389,51 +466,47 @@ async function refreshCustomerSummary() {
   if (error) throw error;
 }
 
-async function saveSyncState(summary) {
-  const { error } = await supabase.from("sync_state").upsert(
-    {
-      key: "ar_google_sheets_sync",
-      value: summary,
-      updated_at: new Date().toISOString()
-    },
-    { onConflict: "key" }
-  );
-
-  if (error) {
-    console.warn("sync_state upsert skipped:", error.message);
-  }
-}
-
 export async function runArSync() {
   const startedAt = new Date().toISOString();
+  await saveSyncRunning(startedAt);
 
-  const [salesArrays, termsRowsRaw] = await Promise.all([
-    Promise.all(SALES_CSV_SOURCES.map((url) => fetchCsvRows(url))),
-    fetchCsvRows(TERMS_CSV_URL)
-  ]);
+  try {
+    const [salesArrays, termsRowsRaw] = await Promise.all([
+      Promise.all(SALES_CSV_SOURCES.map((url) => fetchCsvRows(url))),
+      fetchCsvRows(TERMS_CSV_URL)
+    ]);
 
-  const salesRows = salesArrays.flatMap((rows, idx) =>
-    rows.map((row) => normalizeSalesRow(row, idx + 1))
-  );
+    const normalizedSalesRows = salesArrays.flatMap((rows, idx) =>
+      rows.map((row) => normalizeSalesRow(row, idx + 1))
+    );
 
-  const termsRows = normalizeTermsRows(termsRowsRaw);
-  const termsIndexes = buildTermsIndexes(termsRows);
+    const validSalesRows = normalizedSalesRows.filter(
+      (r) => r.customerNorm || r.orderName || r.emailNorm
+    );
 
-  const finalRows = applyTermsAndAging(salesRows, termsIndexes, new Date());
+    const termsRows = normalizeTermsRows(termsRowsRaw);
+    const termsIndexes = buildTermsIndexes(termsRows);
 
-  const customerIdMap = await upsertCustomers(finalRows);
-  await upsertInvoices(finalRows, customerIdMap);
-  await refreshCustomerSummary();
+    const finalRows = applyTermsAndAging(validSalesRows, termsIndexes, new Date());
 
-  const summary = {
-    started_at: startedAt,
-    completed_at: new Date().toISOString(),
-    sales_row_count: finalRows.length,
-    terms_row_count: termsRows.length,
-    customer_count: customerIdMap.size
-  };
+    const customerIdMap = await upsertCustomers(finalRows);
+    const invoiceCount = await upsertInvoices(finalRows, customerIdMap);
+    await refreshCustomerSummary();
 
-  await saveSyncState(summary);
+    const summary = {
+      started_at: startedAt,
+      completed_at: new Date().toISOString(),
+      sales_row_count: finalRows.length,
+      terms_row_count: termsRows.length,
+      customer_count: customerIdMap.size,
+      invoice_count: invoiceCount,
+      sources: SALES_CSV_SOURCES
+    };
 
-  return summary;
+    await saveSyncSuccess(summary);
+    return summary;
+  } catch (err) {
+    await saveSyncFailure(startedAt, err);
+    throw err;
+  }
 }
