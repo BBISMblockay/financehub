@@ -24,7 +24,7 @@
       color: #0f172a;
     }
     .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
-    .shell { max-width: 1620px; margin: 0 auto; padding: 22px; }
+    .shell { max-width: 1680px; margin: 0 auto; padding: 22px; }
 
     .card {
       background: rgba(255,255,255,.90);
@@ -95,6 +95,7 @@
       cursor: pointer;
     }
     .btn:hover { transform: translateY(-1px); }
+    .btn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
     .btn-primary {
       background: #0f172a;
       color: #fff;
@@ -105,8 +106,8 @@
     .btn-danger { background: #7f1d1d; color: #fff; border-color: #7f1d1d; }
     .btn-xs {
       border-radius: 12px;
-      padding: .45rem .7rem;
-      font-size: .76rem;
+      padding: .42rem .66rem;
+      font-size: .73rem;
       font-weight: 800;
     }
 
@@ -266,12 +267,13 @@
     .badge-priority-normal { background: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
     .badge-priority-high { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
     .badge-priority-urgent { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+    .badge-queue-pending { background: #ecfeff; color: #155e75; border-color: #a5f3fc; }
 
-    .w-customer { min-width: 220px; }
-    .w-email { min-width: 180px; max-width: 240px; }
-    .w-small { min-width: 84px; }
-    .w-money { min-width: 112px; }
-    .w-actions { min-width: 120px; }
+    .w-customer { min-width: 260px; }
+    .w-email { min-width: 220px; max-width: 280px; }
+    .w-small { min-width: 92px; }
+    .w-money { min-width: 118px; }
+    .w-actions { min-width: 190px; }
 
     details summary { list-style: none; cursor: pointer; }
     details summary::-webkit-details-marker { display: none; }
@@ -326,7 +328,7 @@
       position: fixed;
       top: 0;
       right: 0;
-      width: min(620px, 100vw);
+      width: min(680px, 100vw);
       height: 100vh;
       background: #fff;
       z-index: 90;
@@ -369,6 +371,30 @@
     }
     .field-grid .full { grid-column: 1 / -1; }
 
+    .toast-wrap {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 120;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      pointer-events: none;
+    }
+    .toast {
+      min-width: 260px;
+      max-width: 420px;
+      background: rgba(15,23,42,.96);
+      color: #fff;
+      border-radius: 16px;
+      padding: 12px 14px;
+      box-shadow: 0 16px 40px rgba(15,23,42,.22);
+      font-size: .88rem;
+      font-weight: 700;
+      pointer-events: auto;
+    }
+    .toast.error { background: rgba(127,29,29,.96); }
+
     @media (max-width: 1180px) {
       .shell { padding: 14px; }
       .mini-grid { grid-template-columns: 1fr; }
@@ -385,11 +411,11 @@
       <div class="hero p-5 lg:p-6">
         <div class="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div class="space-y-3">
-            <div class="hero-chip">AR workbench · synced from Supabase · workflow + contact actions</div>
+            <div class="hero-chip">AR workbench · synced from Supabase · polished manual workflow</div>
             <div>
               <h1 class="text-3xl lg:text-4xl font-extrabold tracking-tight">AR Workbench</h1>
               <p class="mt-2 max-w-3xl text-sm text-slate-200/80">
-                Customer balances, aging, workflow updates, contact tracking, and manual AR actions.
+                Customer balances, aging, workflow updates, contact tracking, queueing, and quick actions.
               </p>
             </div>
           </div>
@@ -551,7 +577,7 @@
             <div class="flex items-start justify-between gap-3">
               <div>
                 <div id="mainTableTitle" class="section-title">Customer rollup</div>
-                <div id="mainTableSub" class="section-sub">AR balances, workflow fields, and manual actions.</div>
+                <div id="mainTableSub" class="section-sub">Supabase-backed AR balances with quick actions and workflow visibility.</div>
               </div>
               <div class="text-xs text-slate-500"><span id="rowCount">0</span> rows</div>
             </div>
@@ -611,7 +637,7 @@
         <div>
           <div class="text-xs uppercase tracking-[.12em] text-slate-500 font-extrabold">AR Workbench</div>
           <h2 id="drawerTitle" class="mt-1 text-xl font-extrabold text-slate-900">Customer</h2>
-          <p id="drawerSub" class="mt-1 text-sm text-slate-500">Edit workflow, contact info, and log AR actions.</p>
+          <p id="drawerSub" class="mt-1 text-sm text-slate-500">Edit workflow, contact info, queue reminders, and log AR actions.</p>
         </div>
         <button id="closeDrawerBtn" class="btn btn-soft btn-xs">Close</button>
       </div>
@@ -770,6 +796,8 @@
     </div>
   </aside>
 
+  <div id="toastWrap" class="toast-wrap"></div>
+
   <script>
     const SUPABASE_URL =
       window.__SILO_CONFIG__?.SUPABASE_URL ||
@@ -795,6 +823,7 @@
       filteredCustomerRollup: [],
       syncStatus: null,
       profiles: [],
+      queueSummary: [],
       currentUser: null,
       currentCustomer: null,
       currentCustomerActivity: [],
@@ -865,7 +894,9 @@
       fLogChannel: document.getElementById('fLogChannel'),
       fLogSubject: document.getElementById('fLogSubject'),
       fLogMessage: document.getElementById('fLogMessage'),
-      fQueueReminder: document.getElementById('fQueueReminder')
+      fQueueReminder: document.getElementById('fQueueReminder'),
+
+      toastWrap: document.getElementById('toastWrap')
     };
 
     function parseDateFlex(value) {
@@ -934,9 +965,29 @@
       return String(v || '').trim().toLowerCase();
     }
 
+    function normalizeNameForOverride(v) {
+      return String(v || '')
+        .trim()
+        .toLowerCase()
+        .replace(/&/g, 'and')
+        .replace(/[^\w\s]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
     function setStatus(message, isError = false) {
       els.statusText.innerHTML = message;
       els.statusText.className = `lg:col-span-12 flex items-end text-xs ${isError ? 'text-red-600' : 'text-slate-500'}`;
+    }
+
+    function showToast(message, isError = false) {
+      const el = document.createElement('div');
+      el.className = `toast ${isError ? 'error' : ''}`;
+      el.textContent = message;
+      els.toastWrap.appendChild(el);
+      setTimeout(() => {
+        el.remove();
+      }, 3200);
     }
 
     function buildSyncLabel() {
@@ -983,7 +1034,6 @@
         bad_email: 'badge-status-bad_email',
         closed: 'badge-closed'
       }[s] || 'badge-closed';
-
       return `<span class="badge ${cls}">${escapeHtml(s || 'unknown')}</span>`;
     }
 
@@ -995,8 +1045,14 @@
         high: 'badge-priority-high',
         urgent: 'badge-priority-urgent'
       }[p] || 'badge-priority-normal';
-
       return `<span class="badge ${cls}">${escapeHtml(p || 'normal')}</span>`;
+    }
+
+    function queueBadge(customerId) {
+      const item = state.queueSummary.find(x => x.customer_id === customerId);
+      const pending = Number(item?.pending_count || 0);
+      if (!pending) return '';
+      return `<span class="badge badge-queue-pending">${pending} queued</span>`;
     }
 
     function assignedName(id) {
@@ -1017,6 +1073,15 @@
         .select('id, name, email, role, is_active')
         .eq('is_active', true)
         .order('name', { ascending: true });
+
+      if (error) throw error;
+      return data || [];
+    }
+
+    async function fetchQueueSummary() {
+      const { data, error } = await supabaseClient
+        .from('ar_customer_queue_summary_v')
+        .select('*');
 
       if (error) throw error;
       return data || [];
@@ -1093,9 +1158,10 @@
       setStatus('Loading AR workbench data...');
 
       try {
-        const [currentUser, profiles, invoiceRows, rollupRows, syncRows] = await Promise.all([
+        const [currentUser, profiles, queueSummary, invoiceRows, rollupRows, syncRows] = await Promise.all([
           getCurrentUser(),
           fetchProfiles(),
+          fetchQueueSummary(),
           fetchAllInvoices(),
           fetchAllCustomerRollup(),
           supabaseClient.from('ar_sync_status_v').select('*').limit(1)
@@ -1103,6 +1169,7 @@
 
         state.currentUser = currentUser;
         state.profiles = profiles;
+        state.queueSummary = queueSummary;
         state.invoices = (invoiceRows || []).map(r => ({
           ...r,
           orderDate: parseDateFlex(r.order_date),
@@ -1121,6 +1188,7 @@
       } catch (err) {
         console.error(err);
         setStatus(`Supabase load failed: ${escapeHtml(err.message || 'Unknown error')}`, true);
+        showToast(`Load failed: ${err.message || 'Unknown error'}`, true);
       } finally {
         els.refreshBtn.disabled = false;
       }
@@ -1180,7 +1248,8 @@
           b90: 0,
           orders: 0,
           openOrders: 0,
-          matchedTermsOrders: 0
+          matchedTermsOrders: 0,
+          queue_pending_count: Number(state.queueSummary.find(x => x.customer_id === c.customer_id)?.pending_count || 0)
         });
       }
 
@@ -1205,7 +1274,8 @@
             b90: 0,
             orders: 0,
             openOrders: 0,
-            matchedTermsOrders: 0
+            matchedTermsOrders: 0,
+            queue_pending_count: Number(state.queueSummary.find(x => x.customer_id === r.customer_id)?.pending_count || 0)
           });
         }
 
@@ -1266,6 +1336,7 @@
       const sales = state.filteredInvoices.reduce((s, r) => s + Number(r.sales_amount || 0), 0);
       const openBalance = state.filteredInvoices.reduce((s, r) => s + Number(r.open_amount || 0), 0);
       const activeCustomers = state.filteredCustomerRollup.filter(r => normalizeStatus(r.contact_status) === 'active').length;
+      const queued = state.filteredCustomerRollup.reduce((s, r) => s + Number(r.queue_pending_count || 0), 0);
       const openPct = sales > 0 ? (openBalance / sales) * 100 : 0;
 
       const items = [
@@ -1274,7 +1345,7 @@
         ['Gross', formatMoney(gross), 'Before discounts'],
         ['Net', formatMoney(sales), 'After discounts'],
         ['Customers', formatNumber(state.filteredCustomerRollup.length), `${formatNumber(activeCustomers)} active`],
-        ['Queued', 'Manual phase', 'No auto sends yet']
+        ['Queued', formatNumber(queued), 'Pending actions']
       ];
 
       els.companySummary.innerHTML = items.map(([label, value, sub]) => `
@@ -1296,7 +1367,10 @@
               <div class="truncate font-semibold text-slate-900">${escapeHtml(c.effective_customer_name || c.customer_name)}</div>
               <div class="text-xs text-slate-500">${formatNumber(c.openOrders)} open · next ${escapeHtml(formatDateTime(c.next_follow_up_at))}</div>
             </div>
-            <div class="text-right font-extrabold mono text-slate-900">${formatMoney(c.openBalance)}</div>
+            <div class="text-right">
+              <div class="font-extrabold mono text-slate-900">${formatMoney(c.openBalance)}</div>
+              <div class="mt-1">${queueBadge(c.customer_id)}</div>
+            </div>
           </div>
         `).join('')
         : '<div class="text-sm text-slate-500">No open customers.</div>';
@@ -1337,20 +1411,19 @@
 
     function renderRollupTable() {
       els.mainTableTitle.textContent = 'Customer rollup';
-      els.mainTableSub.textContent = 'Supabase-backed AR balances with editable workflow fields.';
+      els.mainTableSub.textContent = 'Supabase-backed AR balances with quick actions, last activity, and queue visibility.';
       els.rowCount.textContent = formatNumber(state.filteredCustomerRollup.length);
 
       els.mainHead.innerHTML = `<tr>
         <th class="w-customer">Customer</th>
-        <th class="w-email">Billing</th>
+        <th class="w-email">Billing / contact</th>
         <th class="w-small">Workflow</th>
         <th class="w-small">Assigned</th>
-        <th class="right w-small">Ord</th>
         <th class="right w-small">Open</th>
         <th class="right w-money">Balance</th>
         <th class="right w-money">1–30</th>
         <th class="right w-money">31+</th>
-        <th class="w-small">Next follow-up</th>
+        <th class="w-small">Next / last</th>
         <th class="w-actions">Actions</th>
       </tr>`;
 
@@ -1358,37 +1431,73 @@
         <tr>
           <td class="w-customer">
             <div class="font-semibold text-slate-900">${escapeHtml(c.effective_customer_name || c.customer_name)}</div>
-            <div class="text-xs text-slate-500">
-              Last contact ${escapeHtml(formatDateTime(c.last_contacted_at))}
+            <div class="mt-1 flex flex-wrap items-center gap-2">
+              ${contactStatusBadge(c.contact_status)}
+              ${priorityBadge(c.workflow_priority || 'normal')}
+              ${queueBadge(c.customer_id)}
+            </div>
+            <div class="mt-2 text-xs text-slate-500">
+              ${escapeHtml(c.notes ? c.notes.slice(0, 70) + (c.notes.length > 70 ? '…' : '') : 'No notes yet')}
             </div>
           </td>
           <td class="w-email">
             <div class="text-slate-900">${escapeHtml(c.effective_email || 'No email')}</div>
             <div class="text-xs text-slate-500">${escapeHtml(c.contact_name || 'No contact')}</div>
+            <div class="text-xs text-slate-500">${escapeHtml(c.phone || '')}</div>
           </td>
           <td class="w-small">
-            <div>${contactStatusBadge(c.contact_status)}</div>
-            <div class="mt-1">${priorityBadge(c.workflow_priority || 'normal')}</div>
+            <div class="font-semibold text-slate-900">${escapeHtml(c.preferred_channel || 'email')}</div>
+            <div class="text-xs text-slate-500">${escapeHtml(formatNumber(c.openOrders))} open inv.</div>
           </td>
           <td class="w-small">
             <div class="font-semibold text-slate-900">${escapeHtml(assignedName(c.assigned_to))}</div>
           </td>
-          <td class="right mono w-small">${formatNumber(c.orders)}</td>
           <td class="right mono w-small">${formatNumber(c.openOrders)}</td>
           <td class="right mono w-money font-extrabold">${formatMoney(c.openBalance)}</td>
           <td class="right mono w-money">${formatMoney(c.b1)}</td>
-          <td class="right mono w-money">${formatMoney((Number(c.b31 || 0) + Number(c.b61 || 0) + Number(c.b90 || 0)))}</td>
-          <td class="w-small">${escapeHtml(formatDateTime(c.next_follow_up_at))}</td>
+          <td class="right mono w-money">${formatMoney(Number(c.b31 || 0) + Number(c.b61 || 0) + Number(c.b90 || 0))}</td>
+          <td class="w-small">
+            <div class="font-semibold text-slate-900">${escapeHtml(formatDateTime(c.next_follow_up_at))}</div>
+            <div class="text-xs text-slate-500">Last ${escapeHtml(formatDateTime(c.last_contacted_at))}</div>
+          </td>
           <td class="w-actions">
-            <button class="btn btn-soft btn-xs open-workbench-btn" data-customer-id="${escapeHtml(c.customer_id)}">
-              Actions
-            </button>
+            <div class="flex flex-wrap gap-2">
+              <button class="btn btn-soft btn-xs open-workbench-btn" data-customer-id="${escapeHtml(c.customer_id)}">Edit</button>
+              <button class="btn btn-soft btn-xs quick-plus7-btn" data-customer-id="${escapeHtml(c.customer_id)}">+7d</button>
+              <button class="btn btn-soft btn-xs quick-queue-btn" data-customer-id="${escapeHtml(c.customer_id)}">Queue</button>
+              <button class="btn btn-soft btn-xs quick-hold-btn" data-customer-id="${escapeHtml(c.customer_id)}">Hold</button>
+            </div>
           </td>
         </tr>
-      `).join('') || `<tr><td colspan="11" class="py-10 text-center text-slate-500">No customers match the current filters.</td></tr>`;
+      `).join('') || `<tr><td colspan="10" class="py-10 text-center text-slate-500">No customers match the current filters.</td></tr>`;
 
+      bindRowActionButtons();
+    }
+
+    function bindRowActionButtons() {
       document.querySelectorAll('.open-workbench-btn').forEach(btn => {
         btn.addEventListener('click', () => openDrawer(btn.getAttribute('data-customer-id')));
+      });
+
+      document.querySelectorAll('.quick-plus7-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.getAttribute('data-customer-id');
+          await quickSetFollowUp(id, 7);
+        });
+      });
+
+      document.querySelectorAll('.quick-queue-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.getAttribute('data-customer-id');
+          await quickQueueReminder(id);
+        });
+      });
+
+      document.querySelectorAll('.quick-hold-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.getAttribute('data-customer-id');
+          await quickSetHold(id);
+        });
       });
     }
 
@@ -1401,7 +1510,7 @@
 
     function renderOrdersTable() {
       els.mainTableTitle.textContent = 'Orders';
-      els.mainTableSub.textContent = 'Synced order rows from Supabase with effective workbench fields.';
+      els.mainTableSub.textContent = 'Synced order rows from Supabase with effective customer/contact fields.';
       els.rowCount.textContent = formatNumber(state.filteredInvoices.length);
 
       els.mainHead.innerHTML = `<tr>
@@ -1421,7 +1530,12 @@
           <td class="muted w-small">${formatShortDate(r.order_date)}</td>
           <td class="w-customer">
             <div class="font-semibold text-slate-900">${escapeHtml(r.effective_customer_name || r.customer_name)}</div>
-            <div class="text-xs text-slate-500">${escapeHtml(r.effective_email || 'No email')}</div>
+            <div class="mt-1 flex flex-wrap items-center gap-2">
+              ${contactStatusBadge(r.contact_status)}
+              ${priorityBadge(r.workflow_priority || 'normal')}
+              ${queueBadge(r.customer_id)}
+            </div>
+            <div class="mt-1 text-xs text-slate-500">${escapeHtml(r.effective_email || 'No email')}</div>
           </td>
           <td class="font-semibold text-slate-900 w-small">${escapeHtml(r.order_name || '—')}</td>
           <td class="w-small">${finBadge(r.financial_status, r.open_amount)}</td>
@@ -1430,22 +1544,18 @@
             <div class="text-xs text-slate-500 mt-1">${formatNumber(r.effective_term_days || r.term_days)}d</div>
           </td>
           <td class="w-small">
-            <div>${contactStatusBadge(r.contact_status)}</div>
-            <div class="mt-1">${priorityBadge(r.workflow_priority || 'normal')}</div>
+            <div class="font-semibold text-slate-900">${escapeHtml(assignedName(r.assigned_to))}</div>
+            <div class="text-xs text-slate-500">Last ${escapeHtml(formatDateTime(r.last_contacted_at))}</div>
           </td>
           <td class="right mono w-money font-extrabold">${formatMoney(r.open_amount)}</td>
           <td class="right mono w-small">${Number(r.open_amount) > 0 ? formatNumber(r.days_past_due) : '—'}</td>
           <td class="w-actions">
-            <button class="btn btn-soft btn-xs open-workbench-btn" data-customer-id="${escapeHtml(r.customer_id)}">
-              Actions
-            </button>
+            <button class="btn btn-soft btn-xs open-workbench-btn" data-customer-id="${escapeHtml(r.customer_id)}">Edit</button>
           </td>
         </tr>
       `).join('') || `<tr><td colspan="9" class="py-10 text-center text-slate-500">No orders match the current filters.</td></tr>`;
 
-      document.querySelectorAll('.open-workbench-btn').forEach(btn => {
-        btn.addEventListener('click', () => openDrawer(btn.getAttribute('data-customer-id')));
-      });
+      bindRowActionButtons();
     }
 
     function renderDetailTable() {
@@ -1507,6 +1617,7 @@
         Contact_Status: c.contact_status,
         Priority: c.workflow_priority || 'normal',
         Assigned_To: assignedName(c.assigned_to),
+        Queued_Reminders: Number(c.queue_pending_count || 0),
         Next_Follow_Up_At: c.next_follow_up_at || '',
         Last_Contacted_At: c.last_contacted_at || '',
         Orders: c.orders,
@@ -1680,7 +1791,7 @@
       }
     }
 
-    function openDrawer(customerId) {
+    async function openDrawer(customerId) {
       const customer = state.customerRollup.find(c => c.customer_id === customerId) ||
         state.filteredCustomerRollup.find(c => c.customer_id === customerId);
 
@@ -1707,6 +1818,9 @@
       els.fLogMessage.value = '';
       els.fQueueReminder.checked = false;
 
+      const queueItem = state.queueSummary.find(x => x.customer_id === customerId);
+      const pendingCount = Number(queueItem?.pending_count || 0);
+
       els.drawerSnapshot.innerHTML = `
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
           <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Open balance</div>
@@ -1715,6 +1829,14 @@
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
           <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Open invoices</div>
           <div class="mt-2 text-lg font-extrabold mono">${escapeHtml(formatNumber(customer.open_invoice_count || customer.openOrders || 0))}</div>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Oldest open</div>
+          <div class="mt-2 text-sm font-bold">${escapeHtml(formatShortDate(customer.oldest_open_invoice_date))}</div>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Queued reminders</div>
+          <div class="mt-2 text-lg font-extrabold mono">${escapeHtml(formatNumber(pendingCount))}</div>
         </div>
         <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
           <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Last contacted</div>
@@ -1726,7 +1848,7 @@
         </div>
       `;
 
-      loadDrawerActivity(customerId);
+      await loadDrawerActivity(customerId);
       els.drawerBackdrop.classList.add('open');
       els.workbenchDrawer.classList.add('open');
       els.workbenchDrawer.setAttribute('aria-hidden', 'false');
@@ -1755,7 +1877,7 @@
                 <div class="mt-1 text-xs text-slate-500">${escapeHtml(r.channel || '')} · ${escapeHtml(r.delivery_status || 'logged')}</div>
                 ${r.subject ? `<div class="mt-2 text-sm font-semibold text-slate-800">${escapeHtml(r.subject)}</div>` : ''}
                 ${r.message_body ? `<div class="mt-1 text-sm text-slate-600 whitespace-pre-wrap">${escapeHtml(r.message_body)}</div>` : ''}
-                ${r.notes ? `<div class="mt-2 text-xs text-slate-500">${escapeHtml(r.notes)}</div>` : ''}
+                ${r.sent_to ? `<div class="mt-2 text-xs text-slate-500">To: ${escapeHtml(r.sent_to)}</div>` : ''}
               </div>
             `).join('')
           : 'No activity yet.';
@@ -1773,7 +1895,7 @@
 
       const updatePayload = {
         customer_name_override: els.fCustomerNameOverride.value.trim() || null,
-        customer_name_override_norm: (els.fCustomerNameOverride.value || '').trim().toLowerCase().replace(/&/g, 'and').replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim(),
+        customer_name_override_norm: normalizeNameForOverride(els.fCustomerNameOverride.value),
         billing_email_override: els.fBillingEmailOverride.value.trim() || null,
         billing_email_override_norm: (els.fBillingEmailOverride.value || '').trim().toLowerCase(),
         term_days_override: els.fTermDaysOverride.value === '' ? null : Number(els.fTermDaysOverride.value),
@@ -1862,16 +1984,79 @@
         }
 
         await loadData();
-        if (state.currentCustomer) {
-          await openDrawer(customerId);
-        }
+        await openDrawer(customerId);
         setStatus('Customer workflow updated successfully.');
+        showToast('Customer saved.');
       } catch (err) {
         console.error(err);
         setStatus(`Save failed: ${escapeHtml(err.message || 'Unknown error')}`, true);
+        showToast(`Save failed: ${err.message || 'Unknown error'}`, true);
       } finally {
         els.saveDrawerBtn.disabled = false;
         els.markContactedBtn.disabled = false;
+      }
+    }
+
+    async function quickSetFollowUp(customerId, days) {
+      const d = new Date();
+      d.setDate(d.getDate() + days);
+
+      try {
+        const { error } = await supabaseClient
+          .from('ar_customers')
+          .update({ next_follow_up_at: d.toISOString() })
+          .eq('id', customerId);
+
+        if (error) throw error;
+        await loadData();
+        showToast(`Follow-up moved +${days} days.`);
+      } catch (err) {
+        console.error(err);
+        showToast(`Quick update failed: ${err.message || 'Unknown error'}`, true);
+      }
+    }
+
+    async function quickQueueReminder(customerId) {
+      const customer = state.customerRollup.find(c => c.customer_id === customerId) || state.filteredCustomerRollup.find(c => c.customer_id === customerId);
+      if (!customer) return;
+
+      try {
+        const { error } = await supabaseClient
+          .from('ar_action_queue')
+          .insert({
+            customer_id: customerId,
+            action_type: 'send_reminder',
+            scheduled_for: new Date().toISOString(),
+            status: 'pending',
+            reason: 'Queued from rollup quick action',
+            payload: {
+              customer_name: customer.effective_customer_name || customer.customer_name,
+              effective_email: customer.effective_email || customer.email || null
+            }
+          });
+
+        if (error) throw error;
+        await loadData();
+        showToast('Reminder queued.');
+      } catch (err) {
+        console.error(err);
+        showToast(`Queue failed: ${err.message || 'Unknown error'}`, true);
+      }
+    }
+
+    async function quickSetHold(customerId) {
+      try {
+        const { error } = await supabaseClient
+          .from('ar_customers')
+          .update({ contact_status: 'hold' })
+          .eq('id', customerId);
+
+        if (error) throw error;
+        await loadData();
+        showToast('Customer set to hold.');
+      } catch (err) {
+        console.error(err);
+        showToast(`Hold failed: ${err.message || 'Unknown error'}`, true);
       }
     }
 
