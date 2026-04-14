@@ -1431,20 +1431,27 @@
       );
 
       state.filteredQueueItems = state.queueItems.filter(r => {
-        const customer = state.customerRollup.find(c => c.customer_id === r.customer_id);
-        const hay = [
-          customer?.effective_customer_name,
-          customer?.customer_name,
-          customer?.effective_email,
-          r.action_type,
-          r.status,
-          r.reason,
-          JSON.stringify(r.payload || {})
-        ].join(' ').toLowerCase();
-        if (q && !hay.includes(q)) return false;
-        if (assigned && (customer?.assigned_to || '') !== assigned) return false;
-        return true;
-      });
+  const status = normalizeStatus(r.status);
+
+  const customer = state.customerRollup.find(c => c.customer_id === r.customer_id);
+  const hay = [
+    customer?.effective_customer_name,
+    customer?.customer_name,
+    customer?.effective_email,
+    r.action_type,
+    r.status,
+    r.reason,
+    JSON.stringify(r.payload || {})
+  ].join(' ').toLowerCase();
+
+  if (q && !hay.includes(q)) return false;
+  if (assigned && (customer?.assigned_to || '') !== assigned) return false;
+
+  // only show active queue items in main queue
+  if (!['pending', 'processing'].includes(status)) return false;
+
+  return true;
+});
 
       state.filteredActivityItems = state.activityItems.filter(r => {
         const customer = state.customerRollup.find(c => c.customer_id === r.customer_id);
