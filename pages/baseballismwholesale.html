@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Statement Aging</title>
+  <title>AR Workbench</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
@@ -24,7 +24,7 @@
       color: #0f172a;
     }
     .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
-    .shell { max-width: 1540px; margin: 0 auto; padding: 22px; }
+    .shell { max-width: 1620px; margin: 0 auto; padding: 22px; }
 
     .card {
       background: rgba(255,255,255,.90);
@@ -61,7 +61,7 @@
       letter-spacing: .02em;
     }
 
-    .input, .select {
+    .input, .select, .textarea {
       width: 100%;
       border-radius: 16px;
       border: 1px solid #dbe2ea;
@@ -72,7 +72,8 @@
       transition: .18s ease;
       color: #0f172a;
     }
-    .input:focus, .select:focus {
+    .textarea { min-height: 100px; resize: vertical; }
+    .input:focus, .select:focus, .textarea:focus {
       border-color: #0f172a;
       box-shadow: 0 0 0 4px rgba(15,23,42,.08);
     }
@@ -83,14 +84,15 @@
       justify-content: center;
       gap: .5rem;
       border-radius: 16px;
-      padding: .82rem 1rem;
+      padding: .78rem 1rem;
       font-weight: 800;
-      font-size: .92rem;
+      font-size: .9rem;
       transition: .18s ease;
       border: 1px solid #dbe2ea;
       background: #fff;
       color: #0f172a;
       white-space: nowrap;
+      cursor: pointer;
     }
     .btn:hover { transform: translateY(-1px); }
     .btn-primary {
@@ -100,6 +102,13 @@
       box-shadow: 0 10px 22px rgba(15,23,42,.15);
     }
     .btn-soft { background: #f8fafc; color: #0f172a; }
+    .btn-danger { background: #7f1d1d; color: #fff; border-color: #7f1d1d; }
+    .btn-xs {
+      border-radius: 12px;
+      padding: .45rem .7rem;
+      font-size: .76rem;
+      font-weight: 800;
+    }
 
     .segmented {
       display: inline-flex;
@@ -249,11 +258,20 @@
     .badge-unfulfilled { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
     .badge-terms { background: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
     .badge-fallback { background: #f8fafc; color: #475569; border-color: #cbd5e1; }
+    .badge-status-active { background: #ecfdf5; color: #166534; border-color: #bbf7d0; }
+    .badge-status-hold { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+    .badge-status-no_email { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
+    .badge-status-bad_email { background: #fef3c7; color: #92400e; border-color: #fde68a; }
+    .badge-priority-low { background: #f8fafc; color: #475569; border-color: #cbd5e1; }
+    .badge-priority-normal { background: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
+    .badge-priority-high { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
+    .badge-priority-urgent { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
 
     .w-customer { min-width: 220px; }
     .w-email { min-width: 180px; max-width: 240px; }
     .w-small { min-width: 84px; }
     .w-money { min-width: 112px; }
+    .w-actions { min-width: 120px; }
 
     details summary { list-style: none; cursor: pointer; }
     details summary::-webkit-details-marker { display: none; }
@@ -294,9 +312,69 @@
       margin-top: 2px;
     }
 
+    .drawer-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15,23,42,.34);
+      backdrop-filter: blur(3px);
+      z-index: 80;
+      display: none;
+    }
+    .drawer-backdrop.open { display: block; }
+
+    .drawer {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: min(620px, 100vw);
+      height: 100vh;
+      background: #fff;
+      z-index: 90;
+      border-left: 1px solid #e5e7eb;
+      box-shadow: -20px 0 40px rgba(15,23,42,.12);
+      transform: translateX(100%);
+      transition: transform .22s ease;
+      display: flex;
+      flex-direction: column;
+    }
+    .drawer.open { transform: translateX(0); }
+    .drawer-head {
+      padding: 20px 22px;
+      border-bottom: 1px solid #e5e7eb;
+      background: #fff;
+    }
+    .drawer-body {
+      flex: 1;
+      overflow: auto;
+      padding: 20px 22px 110px;
+    }
+    .drawer-foot {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 16px 22px;
+      background: rgba(255,255,255,.94);
+      backdrop-filter: blur(8px);
+      border-top: 1px solid #e5e7eb;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0,1fr));
+      gap: 14px;
+    }
+    .field-grid .full { grid-column: 1 / -1; }
+
     @media (max-width: 1180px) {
       .shell { padding: 14px; }
       .mini-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 760px) {
+      .field-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -307,11 +385,11 @@
       <div class="hero p-5 lg:p-6">
         <div class="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div class="space-y-3">
-            <div class="hero-chip">Accounts receivable · statement aging · synced from Supabase</div>
+            <div class="hero-chip">AR workbench · synced from Supabase · workflow + contact actions</div>
             <div>
-              <h1 class="text-3xl lg:text-4xl font-extrabold tracking-tight">Statement Aging</h1>
+              <h1 class="text-3xl lg:text-4xl font-extrabold tracking-tight">AR Workbench</h1>
               <p class="mt-2 max-w-3xl text-sm text-slate-200/80">
-                Customer balances, order detail, terms-based due dates, and exportable AR views.
+                Customer balances, aging, workflow updates, contact tracking, and manual AR actions.
               </p>
             </div>
           </div>
@@ -334,7 +412,7 @@
                 </button>
                 <button class="export-item" data-export="rollup">
                   Export rollup
-                  <span class="export-label">Customer summary with aging</span>
+                  <span class="export-label">Customer summary with workflow fields</span>
                 </button>
                 <button class="export-item" data-export="orders">
                   Export orders
@@ -374,23 +452,6 @@
           </div>
 
           <div class="lg:col-span-2">
-            <label class="mb-2 block text-sm font-semibold text-slate-700">Source</label>
-            <select id="dateField" class="select" disabled>
-              <option value="supabase">Supabase synced data</option>
-            </select>
-          </div>
-
-          <div class="lg:col-span-2">
-            <label class="mb-2 block text-sm font-semibold text-slate-700">Start</label>
-            <input id="startDate" type="date" class="input" />
-          </div>
-
-          <div class="lg:col-span-2">
-            <label class="mb-2 block text-sm font-semibold text-slate-700">End</label>
-            <input id="endDate" type="date" class="input" />
-          </div>
-
-          <div class="lg:col-span-2">
             <label class="mb-2 block text-sm font-semibold text-slate-700">Status</label>
             <select id="financialFilter" class="select">
               <option value="">All</option>
@@ -415,16 +476,49 @@
             </select>
           </div>
 
-          <div class="lg:col-span-4">
-            <label class="mb-2 block text-sm font-semibold text-slate-700">Search</label>
-            <input id="searchInput" class="input" placeholder="Customer, email, order, tag..." />
+          <div class="lg:col-span-2">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Workflow status</label>
+            <select id="contactStatusFilter" class="select">
+              <option value="">All</option>
+              <option value="active">Active</option>
+              <option value="hold">Hold</option>
+              <option value="no_email">No email</option>
+              <option value="bad_email">Bad email</option>
+              <option value="closed">Closed</option>
+            </select>
           </div>
 
           <div class="lg:col-span-2">
-            <label class="mb-2 block text-sm font-semibold text-slate-700">Aging mode</label>
-            <select id="agingMode" class="select" disabled>
-              <option value="terms">Terms-based</option>
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Priority</label>
+            <select id="priorityFilter" class="select">
+              <option value="">All</option>
+              <option value="low">Low</option>
+              <option value="normal">Normal</option>
+              <option value="high">High</option>
+              <option value="urgent">Urgent</option>
             </select>
+          </div>
+
+          <div class="lg:col-span-2">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Assigned</label>
+            <select id="assignedFilter" class="select">
+              <option value="">All</option>
+            </select>
+          </div>
+
+          <div class="lg:col-span-2">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Start</label>
+            <input id="startDate" type="date" class="input" />
+          </div>
+
+          <div class="lg:col-span-2">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">End</label>
+            <input id="endDate" type="date" class="input" />
+          </div>
+
+          <div class="lg:col-span-4">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Search</label>
+            <input id="searchInput" class="input" placeholder="Customer, email, order, note..." />
           </div>
 
           <div class="lg:col-span-2 flex items-end gap-3">
@@ -435,7 +529,7 @@
             <button id="clearFiltersBtn" class="btn btn-soft w-full">Clear</button>
           </div>
 
-          <div id="statusText" class="lg:col-span-4 flex items-end text-xs text-slate-500">
+          <div id="statusText" class="lg:col-span-12 flex items-end text-xs text-slate-500">
             Waiting for data.
           </div>
         </div>
@@ -457,7 +551,7 @@
             <div class="flex items-start justify-between gap-3">
               <div>
                 <div id="mainTableTitle" class="section-title">Customer rollup</div>
-                <div id="mainTableSub" class="section-sub">Who owes and how old it is.</div>
+                <div id="mainTableSub" class="section-sub">AR balances, workflow fields, and manual actions.</div>
               </div>
               <div class="text-xs text-slate-500"><span id="rowCount">0</span> rows</div>
             </div>
@@ -474,7 +568,7 @@
             <summary class="flex items-center justify-between gap-3">
               <div>
                 <div class="section-title">Order detail</div>
-                <div class="section-sub">Underlying synced rows, due dates, terms, and aging buckets.</div>
+                <div class="section-sub">Underlying synced rows with effective customer/contact fields.</div>
               </div>
               <div class="text-xs font-bold text-slate-500">Expand</div>
             </summary>
@@ -509,6 +603,173 @@
     </div>
   </div>
 
+  <div id="drawerBackdrop" class="drawer-backdrop"></div>
+
+  <aside id="workbenchDrawer" class="drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="text-xs uppercase tracking-[.12em] text-slate-500 font-extrabold">AR Workbench</div>
+          <h2 id="drawerTitle" class="mt-1 text-xl font-extrabold text-slate-900">Customer</h2>
+          <p id="drawerSub" class="mt-1 text-sm text-slate-500">Edit workflow, contact info, and log AR actions.</p>
+        </div>
+        <button id="closeDrawerBtn" class="btn btn-soft btn-xs">Close</button>
+      </div>
+    </div>
+
+    <div class="drawer-body">
+      <div class="space-y-6">
+        <div class="card p-4">
+          <div class="section-title">Snapshot</div>
+          <div id="drawerSnapshot" class="mt-4 grid grid-cols-2 gap-3 text-sm"></div>
+        </div>
+
+        <div class="card p-4">
+          <div class="section-title">Customer + billing</div>
+          <div class="field-grid mt-4">
+            <div class="full">
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Customer name override</label>
+              <input id="fCustomerNameOverride" class="input" placeholder="Displayed customer name" />
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Billing email override</label>
+              <input id="fBillingEmailOverride" class="input" placeholder="billing@example.com" />
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Terms override (days)</label>
+              <input id="fTermDaysOverride" type="number" min="0" class="input" placeholder="30" />
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Contact name</label>
+              <input id="fContactName" class="input" placeholder="AP contact name" />
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Phone</label>
+              <input id="fPhone" class="input" placeholder="Phone number" />
+            </div>
+          </div>
+        </div>
+
+        <div class="card p-4">
+          <div class="section-title">Workflow</div>
+          <div class="field-grid mt-4">
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Contact status</label>
+              <select id="fContactStatus" class="select">
+                <option value="active">Active</option>
+                <option value="hold">Hold</option>
+                <option value="no_email">No email</option>
+                <option value="bad_email">Bad email</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Preferred channel</label>
+              <select id="fPreferredChannel" class="select">
+                <option value="email">Email</option>
+                <option value="phone">Phone</option>
+                <option value="manual">Manual</option>
+                <option value="none">None</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Priority</label>
+              <select id="fWorkflowPriority" class="select">
+                <option value="low">Low</option>
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Assigned to</label>
+              <select id="fAssignedTo" class="select">
+                <option value="">Unassigned</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Next follow-up</label>
+              <input id="fNextFollowUpAt" type="datetime-local" class="input" />
+            </div>
+
+            <div class="full">
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Notes</label>
+              <textarea id="fNotes" class="textarea" placeholder="Internal notes, payment context, next steps..."></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="card p-4">
+          <div class="section-title">Log activity</div>
+          <div class="field-grid mt-4">
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Log type</label>
+              <select id="fLogType" class="select">
+                <option value="">None</option>
+                <option value="note">Internal note</option>
+                <option value="call">Phone call</option>
+                <option value="manual_email">Manual email</option>
+                <option value="reminder">Reminder</option>
+                <option value="statement">Statement</option>
+                <option value="escalation">Escalation</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Channel</label>
+              <select id="fLogChannel" class="select">
+                <option value="internal_note">Internal note</option>
+                <option value="email">Email</option>
+                <option value="phone">Phone</option>
+                <option value="manual">Manual</option>
+                <option value="sms">SMS</option>
+              </select>
+            </div>
+
+            <div class="full">
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Subject</label>
+              <input id="fLogSubject" class="input" placeholder="Optional subject line" />
+            </div>
+
+            <div class="full">
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Log note / message</label>
+              <textarea id="fLogMessage" class="textarea" placeholder="What happened, what was sent, callback request, payment promise, etc."></textarea>
+            </div>
+
+            <div class="full flex items-center gap-3">
+              <input id="fQueueReminder" type="checkbox" class="h-4 w-4 rounded border-slate-300" />
+              <label for="fQueueReminder" class="text-sm font-semibold text-slate-700">Also queue reminder action</label>
+            </div>
+          </div>
+        </div>
+
+        <div class="card p-4">
+          <div class="section-title">Recent activity</div>
+          <div id="drawerActivity" class="mt-4 space-y-3 text-sm text-slate-600">
+            No activity yet.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="drawer-foot">
+      <div class="flex gap-2">
+        <button id="markContactedBtn" class="btn btn-soft">Mark contacted now</button>
+      </div>
+      <div class="flex gap-2">
+        <button id="saveDrawerBtn" class="btn btn-primary">Save changes</button>
+      </div>
+    </div>
+  </aside>
+
   <script>
     const SUPABASE_URL =
       window.__SILO_CONFIG__?.SUPABASE_URL ||
@@ -533,15 +794,17 @@
       customerRollup: [],
       filteredCustomerRollup: [],
       syncStatus: null,
+      profiles: [],
+      currentUser: null,
+      currentCustomer: null,
+      currentCustomerActivity: [],
       view: 'rollup'
     };
 
     const els = {
       asOfDate: document.getElementById('asOfDate'),
-      dateField: document.getElementById('dateField'),
       refreshBtn: document.getElementById('refreshBtn'),
       clearFiltersBtn: document.getElementById('clearFiltersBtn'),
-      agingMode: document.getElementById('agingMode'),
       statusText: document.getElementById('statusText'),
 
       viewRollupBtn: document.getElementById('viewRollupBtn'),
@@ -555,6 +818,9 @@
       endDate: document.getElementById('endDate'),
       financialFilter: document.getElementById('financialFilter'),
       agingFilter: document.getElementById('agingFilter'),
+      contactStatusFilter: document.getElementById('contactStatusFilter'),
+      priorityFilter: document.getElementById('priorityFilter'),
+      assignedFilter: document.getElementById('assignedFilter'),
 
       rowCount: document.getElementById('rowCount'),
       mainTableTitle: document.getElementById('mainTableTitle'),
@@ -572,7 +838,34 @@
       kpiCurrent: document.getElementById('kpiCurrent'),
       kpi1to30: document.getElementById('kpi1to30'),
       kpi31plus: document.getElementById('kpi31plus'),
-      kpiTermsMatched: document.getElementById('kpiTermsMatched')
+      kpiTermsMatched: document.getElementById('kpiTermsMatched'),
+
+      drawerBackdrop: document.getElementById('drawerBackdrop'),
+      workbenchDrawer: document.getElementById('workbenchDrawer'),
+      closeDrawerBtn: document.getElementById('closeDrawerBtn'),
+      drawerTitle: document.getElementById('drawerTitle'),
+      drawerSub: document.getElementById('drawerSub'),
+      drawerSnapshot: document.getElementById('drawerSnapshot'),
+      drawerActivity: document.getElementById('drawerActivity'),
+      saveDrawerBtn: document.getElementById('saveDrawerBtn'),
+      markContactedBtn: document.getElementById('markContactedBtn'),
+
+      fCustomerNameOverride: document.getElementById('fCustomerNameOverride'),
+      fBillingEmailOverride: document.getElementById('fBillingEmailOverride'),
+      fTermDaysOverride: document.getElementById('fTermDaysOverride'),
+      fContactName: document.getElementById('fContactName'),
+      fPhone: document.getElementById('fPhone'),
+      fContactStatus: document.getElementById('fContactStatus'),
+      fPreferredChannel: document.getElementById('fPreferredChannel'),
+      fWorkflowPriority: document.getElementById('fWorkflowPriority'),
+      fAssignedTo: document.getElementById('fAssignedTo'),
+      fNextFollowUpAt: document.getElementById('fNextFollowUpAt'),
+      fNotes: document.getElementById('fNotes'),
+      fLogType: document.getElementById('fLogType'),
+      fLogChannel: document.getElementById('fLogChannel'),
+      fLogSubject: document.getElementById('fLogSubject'),
+      fLogMessage: document.getElementById('fLogMessage'),
+      fQueueReminder: document.getElementById('fQueueReminder')
     };
 
     function parseDateFlex(value) {
@@ -613,6 +906,24 @@
         : '—';
     }
 
+    function toDatetimeLocalValue(value) {
+      if (!value) return '';
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return '';
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mi = String(d.getMinutes()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+    }
+
+    function localInputToIso(value) {
+      if (!value) return null;
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? null : d.toISOString();
+    }
+
     function escapeHtml(str) {
       return String(str ?? '').replace(/[&<>"']/g, m => ({
         '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
@@ -625,7 +936,7 @@
 
     function setStatus(message, isError = false) {
       els.statusText.innerHTML = message;
-      els.statusText.className = `lg:col-span-4 flex items-end text-xs ${isError ? 'text-red-600' : 'text-slate-500'}`;
+      els.statusText.className = `lg:col-span-12 flex items-end text-xs ${isError ? 'text-red-600' : 'text-slate-500'}`;
     }
 
     function buildSyncLabel() {
@@ -641,63 +952,6 @@
         return `Last sync failed: <span class="font-semibold">${escapeHtml(s.error_text || 'Unknown error')}</span>`;
       }
       return `Sync status: ${escapeHtml(s.status || 'unknown')}`;
-    }
-
-    function wireEvents() {
-      els.refreshBtn.addEventListener('click', loadData);
-      els.clearFiltersBtn.addEventListener('click', clearFilters);
-
-      els.viewRollupBtn.addEventListener('click', () => setView('rollup'));
-      els.viewOrdersBtn.addEventListener('click', () => setView('orders'));
-
-      [
-        els.asOfDate,
-        els.searchInput,
-        els.startDate,
-        els.endDate,
-        els.financialFilter,
-        els.agingFilter
-      ].forEach(el => {
-        el.addEventListener('input', refreshAll);
-        el.addEventListener('change', refreshAll);
-      });
-
-      els.exportMenuBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        els.exportPanel.classList.toggle('open');
-      });
-
-      document.querySelectorAll('[data-export]').forEach(btn => {
-        btn.addEventListener('click', () => {
-          const type = btn.getAttribute('data-export');
-          runExport(type);
-          els.exportPanel.classList.remove('open');
-        });
-      });
-
-      document.addEventListener('click', (e) => {
-        if (!els.exportPanel.contains(e.target) && e.target !== els.exportMenuBtn) {
-          els.exportPanel.classList.remove('open');
-        }
-      });
-    }
-
-    function clearFilters() {
-      els.searchInput.value = '';
-      els.startDate.value = '';
-      els.endDate.value = new Date().toISOString().slice(0, 10);
-      els.financialFilter.value = '';
-      els.agingFilter.value = '';
-      refreshAll();
-      setStatus(buildSyncLabel());
-    }
-
-    function setView(view) {
-      state.view = view;
-      els.viewRollupBtn.classList.toggle('active', view === 'rollup');
-      els.viewOrdersBtn.classList.toggle('active', view === 'orders');
-      if (view === 'orders') document.getElementById('detailPanel').open = true;
-      renderMainTable();
     }
 
     function finBadge(status, openAmount) {
@@ -720,6 +974,68 @@
       return '<span class="badge badge-unfulfilled">Unfulfilled</span>';
     }
 
+    function contactStatusBadge(status) {
+      const s = normalizeStatus(status);
+      const cls = {
+        active: 'badge-status-active',
+        hold: 'badge-status-hold',
+        no_email: 'badge-status-no_email',
+        bad_email: 'badge-status-bad_email',
+        closed: 'badge-closed'
+      }[s] || 'badge-closed';
+
+      return `<span class="badge ${cls}">${escapeHtml(s || 'unknown')}</span>`;
+    }
+
+    function priorityBadge(priority) {
+      const p = normalizeStatus(priority);
+      const cls = {
+        low: 'badge-priority-low',
+        normal: 'badge-priority-normal',
+        high: 'badge-priority-high',
+        urgent: 'badge-priority-urgent'
+      }[p] || 'badge-priority-normal';
+
+      return `<span class="badge ${cls}">${escapeHtml(p || 'normal')}</span>`;
+    }
+
+    function assignedName(id) {
+      if (!id) return '—';
+      const match = state.profiles.find(p => p.id === id);
+      return match?.name || match?.email || 'Assigned';
+    }
+
+    async function getCurrentUser() {
+      const { data, error } = await supabaseClient.auth.getUser();
+      if (error) throw error;
+      return data?.user || null;
+    }
+
+    async function fetchProfiles() {
+      const { data, error } = await supabaseClient
+        .from('profiles')
+        .select('id, name, email, role, is_active')
+        .eq('is_active', true)
+        .order('name', { ascending: true });
+
+      if (error) throw error;
+      return data || [];
+    }
+
+    function renderAssignedFilterOptions() {
+      const opts = ['<option value="">All</option>']
+        .concat(
+          state.profiles.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name || p.email)}</option>`)
+        );
+
+      els.assignedFilter.innerHTML = opts.join('');
+      els.fAssignedTo.innerHTML = ['<option value="">Unassigned</option>']
+        .concat(
+          state.profiles.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name || p.email)}</option>`)
+        )
+        .join('');
+    }
+
     async function fetchAllInvoices() {
       let allRows = [];
       let from = 0;
@@ -727,7 +1043,7 @@
 
       while (true) {
         const { data, error } = await supabaseClient
-          .from('ar_invoices')
+          .from('ar_invoice_workbench_v')
           .select('*')
           .order('open_amount', { ascending: false })
           .range(from, from + pageSize - 1);
@@ -737,7 +1053,6 @@
         if (!data || data.length < pageSize) break;
         from += pageSize;
       }
-
       return allRows;
     }
 
@@ -758,29 +1073,45 @@
         if (!data || data.length < pageSize) break;
         from += pageSize;
       }
-
       return allRows;
+    }
+
+    async function fetchCustomerActivity(customerId) {
+      const { data, error } = await supabaseClient
+        .from('ar_contact_log')
+        .select('*')
+        .eq('customer_id', customerId)
+        .order('created_at', { ascending: false })
+        .limit(15);
+
+      if (error) throw error;
+      return data || [];
     }
 
     async function loadData() {
       els.refreshBtn.disabled = true;
-      setStatus('Loading Supabase AR data...');
+      setStatus('Loading AR workbench data...');
 
       try {
-        const [invoiceRows, rollupRows, syncRows] = await Promise.all([
+        const [currentUser, profiles, invoiceRows, rollupRows, syncRows] = await Promise.all([
+          getCurrentUser(),
+          fetchProfiles(),
           fetchAllInvoices(),
           fetchAllCustomerRollup(),
           supabaseClient.from('ar_sync_status_v').select('*').limit(1)
         ]);
 
+        state.currentUser = currentUser;
+        state.profiles = profiles;
         state.invoices = (invoiceRows || []).map(r => ({
           ...r,
           orderDate: parseDateFlex(r.order_date),
           dueDate: parseDateFlex(r.due_date)
         }));
-
         state.customerRollup = rollupRows || [];
         state.syncStatus = syncRows?.data?.[0] || null;
+
+        renderAssignedFilterOptions();
 
         if (!els.asOfDate.value) els.asOfDate.value = new Date().toISOString().slice(0, 10);
         if (!els.endDate.value) els.endDate.value = new Date().toISOString().slice(0, 10);
@@ -801,16 +1132,21 @@
       const end = parseDateFlex(els.endDate.value);
       const financial = els.financialFilter.value;
       const aging = els.agingFilter.value;
+      const contactStatus = els.contactStatusFilter.value;
+      const priority = els.priorityFilter.value;
+      const assigned = els.assignedFilter.value;
 
       state.filteredInvoices = state.invoices.filter(r => {
         if (q) {
           const hay = [
-            r.customer_name,
-            r.customer_email,
+            r.effective_customer_name,
+            r.effective_email,
             r.order_name,
             (r.customer_tags || []).join(', '),
             r.financial_status,
-            r.matched_by
+            r.notes,
+            r.contact_name,
+            r.phone
           ].join(' ').toLowerCase();
 
           if (!hay.includes(q)) return false;
@@ -821,6 +1157,9 @@
         if (financial === 'open' && !(r.is_open && Number(r.open_amount) > 0)) return false;
         if (financial && financial !== 'open' && normalizeStatus(r.financial_status) !== financial) return false;
         if (aging && r.aging_bucket !== aging) return false;
+        if (contactStatus && normalizeStatus(r.contact_status) !== contactStatus) return false;
+        if (priority && normalizeStatus(r.workflow_priority) !== priority) return false;
+        if (assigned && (r.assigned_to || '') !== assigned) return false;
 
         return true;
       });
@@ -849,11 +1188,14 @@
         if (!map.has(r.customer_id)) {
           map.set(r.customer_id, {
             customer_id: r.customer_id,
-            customer_name: r.customer_name,
-            email: r.customer_email,
-            current_open_balance: 0,
-            total_sales: 0,
-            open_invoice_count: 0,
+            effective_customer_name: r.effective_customer_name,
+            effective_email: r.effective_email,
+            contact_status: r.contact_status,
+            workflow_priority: r.workflow_priority,
+            assigned_to: r.assigned_to,
+            next_follow_up_at: r.next_follow_up_at,
+            last_contacted_at: r.last_contacted_at,
+            notes: r.notes,
             sales: 0,
             openBalance: 0,
             current: 0,
@@ -863,9 +1205,7 @@
             b90: 0,
             orders: 0,
             openOrders: 0,
-            matchedTermsOrders: 0,
-            last_contacted_at: null,
-            next_follow_up_at: null
+            matchedTermsOrders: 0
           });
         }
 
@@ -925,8 +1265,7 @@
       const gross = state.filteredInvoices.reduce((s, r) => s + Number(r.gross_amount || 0), 0);
       const sales = state.filteredInvoices.reduce((s, r) => s + Number(r.sales_amount || 0), 0);
       const openBalance = state.filteredInvoices.reduce((s, r) => s + Number(r.open_amount || 0), 0);
-      const termsMatched = state.filteredInvoices.filter(r => r.matched_by !== 'default').length;
-      const fallbackRows = state.filteredInvoices.filter(r => r.matched_by === 'default').length;
+      const activeCustomers = state.filteredCustomerRollup.filter(r => normalizeStatus(r.contact_status) === 'active').length;
       const openPct = sales > 0 ? (openBalance / sales) * 100 : 0;
 
       const items = [
@@ -934,8 +1273,8 @@
         ['Open %', `${openPct.toFixed(1)}%`, 'Of sales'],
         ['Gross', formatMoney(gross), 'Before discounts'],
         ['Net', formatMoney(sales), 'After discounts'],
-        ['Terms hit', formatNumber(termsMatched), 'Matched rows'],
-        ['Fallback', formatNumber(fallbackRows), 'Default term days']
+        ['Customers', formatNumber(state.filteredCustomerRollup.length), `${formatNumber(activeCustomers)} active`],
+        ['Queued', 'Manual phase', 'No auto sends yet']
       ];
 
       els.companySummary.innerHTML = items.map(([label, value, sub]) => `
@@ -954,8 +1293,8 @@
         ? rows.map(c => `
           <div class="list-row">
             <div class="min-w-0">
-              <div class="truncate font-semibold text-slate-900">${escapeHtml(c.customer_name)}</div>
-              <div class="text-xs text-slate-500">${formatNumber(c.openOrders)} open · ${formatNumber(c.matchedTermsOrders)} terms hit</div>
+              <div class="truncate font-semibold text-slate-900">${escapeHtml(c.effective_customer_name || c.customer_name)}</div>
+              <div class="text-xs text-slate-500">${formatNumber(c.openOrders)} open · next ${escapeHtml(formatDateTime(c.next_follow_up_at))}</div>
             </div>
             <div class="text-right font-extrabold mono text-slate-900">${formatMoney(c.openBalance)}</div>
           </div>
@@ -998,41 +1337,59 @@
 
     function renderRollupTable() {
       els.mainTableTitle.textContent = 'Customer rollup';
-      els.mainTableSub.textContent = 'Supabase-backed aging and open balance by customer.';
+      els.mainTableSub.textContent = 'Supabase-backed AR balances with editable workflow fields.';
       els.rowCount.textContent = formatNumber(state.filteredCustomerRollup.length);
 
       els.mainHead.innerHTML = `<tr>
         <th class="w-customer">Customer</th>
-        <th class="w-email">Email</th>
+        <th class="w-email">Billing</th>
+        <th class="w-small">Workflow</th>
+        <th class="w-small">Assigned</th>
         <th class="right w-small">Ord</th>
         <th class="right w-small">Open</th>
-        <th class="right w-money">Sales</th>
         <th class="right w-money">Balance</th>
-        <th class="right w-money">Current</th>
         <th class="right w-money">1–30</th>
-        <th class="right w-money">31–60</th>
-        <th class="right w-money">61–90</th>
-        <th class="right w-money">90+</th>
+        <th class="right w-money">31+</th>
+        <th class="w-small">Next follow-up</th>
+        <th class="w-actions">Actions</th>
       </tr>`;
 
       els.mainBody.innerHTML = state.filteredCustomerRollup.map(c => `
         <tr>
           <td class="w-customer">
-            <div class="font-semibold text-slate-900">${escapeHtml(c.customer_name)}</div>
-            <div class="text-xs text-slate-500">Last contact ${escapeHtml(formatDateTime(c.last_contacted_at))}</div>
+            <div class="font-semibold text-slate-900">${escapeHtml(c.effective_customer_name || c.customer_name)}</div>
+            <div class="text-xs text-slate-500">
+              Last contact ${escapeHtml(formatDateTime(c.last_contacted_at))}
+            </div>
           </td>
-          <td class="muted w-email">${escapeHtml(c.email || '—')}</td>
+          <td class="w-email">
+            <div class="text-slate-900">${escapeHtml(c.effective_email || 'No email')}</div>
+            <div class="text-xs text-slate-500">${escapeHtml(c.contact_name || 'No contact')}</div>
+          </td>
+          <td class="w-small">
+            <div>${contactStatusBadge(c.contact_status)}</div>
+            <div class="mt-1">${priorityBadge(c.workflow_priority || 'normal')}</div>
+          </td>
+          <td class="w-small">
+            <div class="font-semibold text-slate-900">${escapeHtml(assignedName(c.assigned_to))}</div>
+          </td>
           <td class="right mono w-small">${formatNumber(c.orders)}</td>
           <td class="right mono w-small">${formatNumber(c.openOrders)}</td>
-          <td class="right mono w-money">${formatMoney(c.sales)}</td>
           <td class="right mono w-money font-extrabold">${formatMoney(c.openBalance)}</td>
-          <td class="right mono w-money">${formatMoney(c.current)}</td>
           <td class="right mono w-money">${formatMoney(c.b1)}</td>
-          <td class="right mono w-money">${formatMoney(c.b31)}</td>
-          <td class="right mono w-money">${formatMoney(c.b61)}</td>
-          <td class="right mono w-money">${formatMoney(c.b90)}</td>
+          <td class="right mono w-money">${formatMoney((Number(c.b31 || 0) + Number(c.b61 || 0) + Number(c.b90 || 0)))}</td>
+          <td class="w-small">${escapeHtml(formatDateTime(c.next_follow_up_at))}</td>
+          <td class="w-actions">
+            <button class="btn btn-soft btn-xs open-workbench-btn" data-customer-id="${escapeHtml(c.customer_id)}">
+              Actions
+            </button>
+          </td>
         </tr>
       `).join('') || `<tr><td colspan="11" class="py-10 text-center text-slate-500">No customers match the current filters.</td></tr>`;
+
+      document.querySelectorAll('.open-workbench-btn').forEach(btn => {
+        btn.addEventListener('click', () => openDrawer(btn.getAttribute('data-customer-id')));
+      });
     }
 
     function getSortedOrders(rows) {
@@ -1044,7 +1401,7 @@
 
     function renderOrdersTable() {
       els.mainTableTitle.textContent = 'Orders';
-      els.mainTableSub.textContent = 'Synced order rows from Supabase.';
+      els.mainTableSub.textContent = 'Synced order rows from Supabase with effective workbench fields.';
       els.rowCount.textContent = formatNumber(state.filteredInvoices.length);
 
       els.mainHead.innerHTML = `<tr>
@@ -1053,33 +1410,42 @@
         <th class="w-small">Order</th>
         <th class="w-small">Fin</th>
         <th class="w-small">Terms</th>
-        <th class="right w-small">Days</th>
-        <th class="w-small">Due</th>
-        <th class="right w-money">Sales</th>
+        <th class="w-small">Workflow</th>
         <th class="right w-money">Open</th>
         <th class="right w-small">Past due</th>
+        <th class="w-actions">Actions</th>
       </tr>`;
 
       els.mainBody.innerHTML = getSortedOrders(state.filteredInvoices).map(r => `
         <tr>
           <td class="muted w-small">${formatShortDate(r.order_date)}</td>
           <td class="w-customer">
-            <div class="font-semibold text-slate-900">${escapeHtml(r.customer_name)}</div>
-            <div class="text-xs text-slate-500">${escapeHtml(r.customer_email || 'No email')}</div>
+            <div class="font-semibold text-slate-900">${escapeHtml(r.effective_customer_name || r.customer_name)}</div>
+            <div class="text-xs text-slate-500">${escapeHtml(r.effective_email || 'No email')}</div>
           </td>
           <td class="font-semibold text-slate-900 w-small">${escapeHtml(r.order_name || '—')}</td>
           <td class="w-small">${finBadge(r.financial_status, r.open_amount)}</td>
           <td class="w-small">
             ${termsBadge(r)}
-            <div class="text-xs text-slate-500 mt-1">${formatNumber(r.term_days)}d</div>
+            <div class="text-xs text-slate-500 mt-1">${formatNumber(r.effective_term_days || r.term_days)}d</div>
           </td>
-          <td class="right mono w-small">${formatNumber(r.term_days)}</td>
-          <td class="muted w-small">${formatShortDate(r.due_date)}</td>
-          <td class="right mono w-money">${formatMoney(r.sales_amount)}</td>
+          <td class="w-small">
+            <div>${contactStatusBadge(r.contact_status)}</div>
+            <div class="mt-1">${priorityBadge(r.workflow_priority || 'normal')}</div>
+          </td>
           <td class="right mono w-money font-extrabold">${formatMoney(r.open_amount)}</td>
           <td class="right mono w-small">${Number(r.open_amount) > 0 ? formatNumber(r.days_past_due) : '—'}</td>
+          <td class="w-actions">
+            <button class="btn btn-soft btn-xs open-workbench-btn" data-customer-id="${escapeHtml(r.customer_id)}">
+              Actions
+            </button>
+          </td>
         </tr>
-      `).join('') || `<tr><td colspan="10" class="py-10 text-center text-slate-500">No orders match the current filters.</td></tr>`;
+      `).join('') || `<tr><td colspan="9" class="py-10 text-center text-slate-500">No orders match the current filters.</td></tr>`;
+
+      document.querySelectorAll('.open-workbench-btn').forEach(btn => {
+        btn.addEventListener('click', () => openDrawer(btn.getAttribute('data-customer-id')));
+      });
     }
 
     function renderDetailTable() {
@@ -1102,14 +1468,14 @@
         <tr>
           <td class="muted w-small">${formatShortDate(r.order_date)}</td>
           <td class="w-customer">
-            <div class="font-semibold text-slate-900">${escapeHtml(r.customer_name)}</div>
-            <div class="text-xs text-slate-500">${escapeHtml(r.customer_email || 'No email')}</div>
+            <div class="font-semibold text-slate-900">${escapeHtml(r.effective_customer_name || r.customer_name)}</div>
+            <div class="text-xs text-slate-500">${escapeHtml(r.effective_email || 'No email')}</div>
           </td>
           <td class="font-semibold text-slate-900 w-small">${escapeHtml(r.order_name || '—')}</td>
           <td class="w-small">${finBadge(r.financial_status, r.open_amount)}</td>
           <td class="w-small">${fulfillBadge(r.fulfillment_status)}</td>
           <td class="w-small">${termsBadge(r)}</td>
-          <td class="right mono w-small">${formatNumber(r.term_days)}</td>
+          <td class="right mono w-small">${formatNumber(r.effective_term_days || r.term_days)}</td>
           <td class="muted w-small">${formatShortDate(r.due_date)}</td>
           <td class="right mono w-money">${formatMoney(r.sales_amount)}</td>
           <td class="right mono w-money font-extrabold">${formatMoney(r.open_amount)}</td>
@@ -1134,8 +1500,15 @@
 
     function exportRollup() {
       const rows = state.filteredCustomerRollup.map(c => ({
-        Customer: c.customer_name,
-        Email: c.email,
+        Customer: c.effective_customer_name || c.customer_name,
+        Billing_Email: c.effective_email || '',
+        Contact_Name: c.contact_name || '',
+        Phone: c.phone || '',
+        Contact_Status: c.contact_status,
+        Priority: c.workflow_priority || 'normal',
+        Assigned_To: assignedName(c.assigned_to),
+        Next_Follow_Up_At: c.next_follow_up_at || '',
+        Last_Contacted_At: c.last_contacted_at || '',
         Orders: c.orders,
         Open_Orders: c.openOrders,
         Sales: Number(c.sales || 0).toFixed(2),
@@ -1145,36 +1518,32 @@
         Aging_31_60: Number(c.b31 || 0).toFixed(2),
         Aging_61_90: Number(c.b61 || 0).toFixed(2),
         Aging_90_plus: Number(c.b90 || 0).toFixed(2),
-        Last_Contacted_At: c.last_contacted_at || '',
-        Next_Follow_Up_At: c.next_follow_up_at || ''
+        Notes: c.notes || ''
       }));
-      downloadCsv(rows, 'statement_rollup.csv', 'Exported customer rollup.');
+      downloadCsv(rows, 'ar_workbench_rollup.csv', 'Exported customer rollup.');
     }
 
     function exportOrders(orderRows, filename) {
       const rows = getSortedOrders(orderRows).map(r => ({
         Order_Date: r.order_date || '',
         Due_Date: r.due_date || '',
-        Customer: r.customer_name,
-        Email: r.customer_email || '',
+        Customer: r.effective_customer_name || r.customer_name,
+        Email: r.effective_email || '',
+        Contact_Status: r.contact_status || '',
+        Priority: r.workflow_priority || '',
+        Assigned_To: assignedName(r.assigned_to),
         Customer_Tags: (r.customer_tags || []).join(', '),
         Order_Name: r.order_name,
         Financial_Status: r.financial_status,
         Fulfillment_Status: r.fulfillment_status,
-        Terms_Days: r.term_days,
+        Terms_Days: r.effective_term_days || r.term_days,
         Terms_Matched_By: r.matched_by,
-        Aging_Basis: r.aging_basis,
         Quantity: r.quantity,
-        Gross_Sales: Number(r.gross_amount || 0).toFixed(2),
-        Discounts: Number(r.discounts_amount || 0).toFixed(2),
-        Refunds: Number(r.refunds_amount || 0).toFixed(2),
-        Shipping: Number(r.shipping_amount || 0).toFixed(2),
-        Taxes: Number(r.taxes_amount || 0).toFixed(2),
         Net_Sales: Number(r.sales_amount || 0).toFixed(2),
         Open_Amount: Number(r.open_amount || 0).toFixed(2),
-        Paid_Amount: Number(r.paid_amount || 0).toFixed(2),
         Days_Past_Due: Number(r.open_amount || 0) > 0 ? r.days_past_due : '',
-        Aging_Bucket: r.aging_bucket
+        Aging_Bucket: r.aging_bucket,
+        Notes: r.notes || ''
       }));
       downloadCsv(rows, filename, `Exported ${formatNumber(rows.length)} order rows.`);
     }
@@ -1198,12 +1567,11 @@
         };
       });
 
-      downloadCsv(groups, 'statement_aging_summary.csv', 'Exported aging summary.');
+      downloadCsv(groups, 'ar_workbench_aging_summary.csv', 'Exported aging summary.');
     }
 
     function exportFinancialSummary() {
       const map = new Map();
-
       state.filteredInvoices.forEach(r => {
         const key = Number(r.open_amount || 0) > 0 ? 'open' : (r.financial_status || 'other');
         if (!map.has(key)) {
@@ -1224,12 +1592,11 @@
         Open_Amount: v.Open_Amount.toFixed(2)
       }));
 
-      downloadCsv(rows, 'statement_financial_summary.csv', 'Exported financial summary.');
+      downloadCsv(rows, 'ar_workbench_financial_summary.csv', 'Exported financial summary.');
     }
 
     function exportFulfillmentSummary() {
       const map = new Map();
-
       state.filteredInvoices.forEach(r => {
         const key = r.fulfillment_status || 'unknown';
         if (!map.has(key)) {
@@ -1250,7 +1617,7 @@
         Open_Amount: v.Open_Amount.toFixed(2)
       }));
 
-      downloadCsv(rows, 'statement_fulfillment_summary.csv', 'Exported fulfillment summary.');
+      downloadCsv(rows, 'ar_workbench_fulfillment_summary.csv', 'Exported fulfillment summary.');
     }
 
     function exportTermsSummary() {
@@ -1264,39 +1631,39 @@
           Match_Type: 'email',
           Order_Count: matchedEmail.length,
           Open_Amount: matchedEmail.reduce((s, r) => s + Number(r.open_amount || 0), 0).toFixed(2),
-          Avg_Term_Days: matchedEmail.length ? (matchedEmail.reduce((s, r) => s + Number(r.term_days || 0), 0) / matchedEmail.length).toFixed(1) : '0.0'
+          Avg_Term_Days: matchedEmail.length ? (matchedEmail.reduce((s, r) => s + Number(r.effective_term_days || r.term_days || 0), 0) / matchedEmail.length).toFixed(1) : '0.0'
         },
         {
           Match_Type: 'customer',
           Order_Count: matchedCustomer.length,
           Open_Amount: matchedCustomer.reduce((s, r) => s + Number(r.open_amount || 0), 0).toFixed(2),
-          Avg_Term_Days: matchedCustomer.length ? (matchedCustomer.reduce((s, r) => s + Number(r.term_days || 0), 0) / matchedCustomer.length).toFixed(1) : '0.0'
+          Avg_Term_Days: matchedCustomer.length ? (matchedCustomer.reduce((s, r) => s + Number(r.effective_term_days || r.term_days || 0), 0) / matchedCustomer.length).toFixed(1) : '0.0'
         },
         {
           Match_Type: 'default',
           Order_Count: defaultRows.length,
           Open_Amount: defaultRows.reduce((s, r) => s + Number(r.open_amount || 0), 0).toFixed(2),
-          Avg_Term_Days: defaultRows.length ? (defaultRows.reduce((s, r) => s + Number(r.term_days || 0), 0) / defaultRows.length).toFixed(1) : '0.0'
+          Avg_Term_Days: defaultRows.length ? (defaultRows.reduce((s, r) => s + Number(r.effective_term_days || r.term_days || 0), 0) / defaultRows.length).toFixed(1) : '0.0'
         }
       ];
 
-      downloadCsv(rows, 'statement_terms_summary.csv', 'Exported terms summary.');
+      downloadCsv(rows, 'ar_workbench_terms_summary.csv', 'Exported terms summary.');
     }
 
     function runExport(type) {
       switch (type) {
         case 'current':
           if (state.view === 'rollup') exportRollup();
-          else exportOrders(state.filteredInvoices, 'statement_orders.csv');
+          else exportOrders(state.filteredInvoices, 'ar_workbench_orders.csv');
           break;
         case 'rollup':
           exportRollup();
           break;
         case 'orders':
-          exportOrders(state.filteredInvoices, 'statement_orders.csv');
+          exportOrders(state.filteredInvoices, 'ar_workbench_orders.csv');
           break;
         case 'openOrders':
-          exportOrders(state.filteredInvoices.filter(r => Number(r.open_amount || 0) > 0), 'statement_open_orders.csv');
+          exportOrders(state.filteredInvoices.filter(r => Number(r.open_amount || 0) > 0), 'ar_workbench_open_orders.csv');
           break;
         case 'agingSummary':
           exportAgingSummary();
@@ -1313,9 +1680,271 @@
       }
     }
 
+    function openDrawer(customerId) {
+      const customer = state.customerRollup.find(c => c.customer_id === customerId) ||
+        state.filteredCustomerRollup.find(c => c.customer_id === customerId);
+
+      if (!customer) return;
+
+      state.currentCustomer = customer;
+      els.drawerTitle.textContent = customer.effective_customer_name || customer.customer_name;
+      els.drawerSub.textContent = `${customer.open_invoice_count || customer.openOrders || 0} open invoices · ${formatMoney(customer.current_open_balance || customer.openBalance || 0)} open`;
+
+      els.fCustomerNameOverride.value = customer.customer_name_override || '';
+      els.fBillingEmailOverride.value = customer.billing_email_override || '';
+      els.fTermDaysOverride.value = customer.term_days_override ?? '';
+      els.fContactName.value = customer.contact_name || '';
+      els.fPhone.value = customer.phone || '';
+      els.fContactStatus.value = customer.contact_status || 'active';
+      els.fPreferredChannel.value = customer.preferred_channel || 'email';
+      els.fWorkflowPriority.value = customer.workflow_priority || 'normal';
+      els.fAssignedTo.value = customer.assigned_to || '';
+      els.fNextFollowUpAt.value = toDatetimeLocalValue(customer.next_follow_up_at);
+      els.fNotes.value = customer.notes || '';
+      els.fLogType.value = '';
+      els.fLogChannel.value = 'internal_note';
+      els.fLogSubject.value = '';
+      els.fLogMessage.value = '';
+      els.fQueueReminder.checked = false;
+
+      els.drawerSnapshot.innerHTML = `
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Open balance</div>
+          <div class="mt-2 text-lg font-extrabold mono">${escapeHtml(formatMoney(customer.current_open_balance || customer.openBalance || 0))}</div>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Open invoices</div>
+          <div class="mt-2 text-lg font-extrabold mono">${escapeHtml(formatNumber(customer.open_invoice_count || customer.openOrders || 0))}</div>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Last contacted</div>
+          <div class="mt-2 text-sm font-bold">${escapeHtml(formatDateTime(customer.last_contacted_at))}</div>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Next follow-up</div>
+          <div class="mt-2 text-sm font-bold">${escapeHtml(formatDateTime(customer.next_follow_up_at))}</div>
+        </div>
+      `;
+
+      loadDrawerActivity(customerId);
+      els.drawerBackdrop.classList.add('open');
+      els.workbenchDrawer.classList.add('open');
+      els.workbenchDrawer.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeDrawer() {
+      els.drawerBackdrop.classList.remove('open');
+      els.workbenchDrawer.classList.remove('open');
+      els.workbenchDrawer.setAttribute('aria-hidden', 'true');
+      state.currentCustomer = null;
+      state.currentCustomerActivity = [];
+    }
+
+    async function loadDrawerActivity(customerId) {
+      try {
+        const rows = await fetchCustomerActivity(customerId);
+        state.currentCustomerActivity = rows;
+
+        els.drawerActivity.innerHTML = rows.length
+          ? rows.map(r => `
+              <div class="rounded-2xl border border-slate-200 p-3">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="font-semibold text-slate-900">${escapeHtml(r.contact_type || 'activity')}</div>
+                  <div class="text-xs text-slate-500">${escapeHtml(formatDateTime(r.sent_at || r.created_at))}</div>
+                </div>
+                <div class="mt-1 text-xs text-slate-500">${escapeHtml(r.channel || '')} · ${escapeHtml(r.delivery_status || 'logged')}</div>
+                ${r.subject ? `<div class="mt-2 text-sm font-semibold text-slate-800">${escapeHtml(r.subject)}</div>` : ''}
+                ${r.message_body ? `<div class="mt-1 text-sm text-slate-600 whitespace-pre-wrap">${escapeHtml(r.message_body)}</div>` : ''}
+                ${r.notes ? `<div class="mt-2 text-xs text-slate-500">${escapeHtml(r.notes)}</div>` : ''}
+              </div>
+            `).join('')
+          : 'No activity yet.';
+      } catch (err) {
+        console.error(err);
+        els.drawerActivity.innerHTML = 'Failed to load activity.';
+      }
+    }
+
+    async function saveCustomerChanges({ markContacted = false } = {}) {
+      if (!state.currentCustomer) return;
+
+      const customerId = state.currentCustomer.customer_id;
+      const nowIso = new Date().toISOString();
+
+      const updatePayload = {
+        customer_name_override: els.fCustomerNameOverride.value.trim() || null,
+        customer_name_override_norm: (els.fCustomerNameOverride.value || '').trim().toLowerCase().replace(/&/g, 'and').replace(/[^\w\s]/g, '').replace(/\s+/g, ' ').trim(),
+        billing_email_override: els.fBillingEmailOverride.value.trim() || null,
+        billing_email_override_norm: (els.fBillingEmailOverride.value || '').trim().toLowerCase(),
+        term_days_override: els.fTermDaysOverride.value === '' ? null : Number(els.fTermDaysOverride.value),
+        contact_name: els.fContactName.value.trim() || null,
+        phone: els.fPhone.value.trim() || null,
+        contact_status: els.fContactStatus.value,
+        preferred_channel: els.fPreferredChannel.value,
+        workflow_priority: els.fWorkflowPriority.value,
+        assigned_to: els.fAssignedTo.value || null,
+        next_follow_up_at: localInputToIso(els.fNextFollowUpAt.value),
+        notes: els.fNotes.value.trim() || null
+      };
+
+      if (markContacted) {
+        updatePayload.last_contacted_at = nowIso;
+      }
+
+      els.saveDrawerBtn.disabled = true;
+      els.markContactedBtn.disabled = true;
+
+      try {
+        const { error: updateError } = await supabaseClient
+          .from('ar_customers')
+          .update(updatePayload)
+          .eq('id', customerId);
+
+        if (updateError) throw updateError;
+
+        const logType = els.fLogType.value;
+        const logMessage = els.fLogMessage.value.trim();
+        const logSubject = els.fLogSubject.value.trim();
+        const shouldLog = !!logType || !!logMessage || markContacted;
+
+        if (shouldLog) {
+          const logPayload = {
+            customer_id: customerId,
+            contact_type: logType || 'note',
+            channel: logType ? els.fLogChannel.value : 'internal_note',
+            subject: logSubject || null,
+            message_body: logMessage || (markContacted ? 'Marked contacted in AR workbench.' : null),
+            sent_to: (els.fBillingEmailOverride.value.trim() || state.currentCustomer.effective_email || state.currentCustomer.email || null),
+            sent_at: nowIso,
+            delivery_status: 'sent',
+            notes: null,
+            created_by: state.currentUser?.id || null
+          };
+
+          const { error: logError } = await supabaseClient
+            .from('ar_contact_log')
+            .insert(logPayload);
+
+          if (logError) throw logError;
+        }
+
+        if (shouldLog || markContacted) {
+          const { error: touchError } = await supabaseClient
+            .from('ar_customers')
+            .update({
+              last_contacted_at: nowIso,
+              last_reminder_sent_at: (els.fLogType.value === 'reminder') ? nowIso : state.currentCustomer.last_reminder_sent_at,
+              last_statement_sent_at: (els.fLogType.value === 'statement') ? nowIso : state.currentCustomer.last_statement_sent_at
+            })
+            .eq('id', customerId);
+
+          if (touchError) throw touchError;
+        }
+
+        if (els.fQueueReminder.checked) {
+          const queuePayload = {
+            customer_id: customerId,
+            action_type: 'send_reminder',
+            scheduled_for: nowIso,
+            status: 'pending',
+            reason: 'Queued manually from AR workbench',
+            payload: {
+              customer_name: els.fCustomerNameOverride.value.trim() || state.currentCustomer.effective_customer_name || state.currentCustomer.customer_name,
+              effective_email: els.fBillingEmailOverride.value.trim() || state.currentCustomer.effective_email || state.currentCustomer.email || null
+            }
+          };
+
+          const { error: queueError } = await supabaseClient
+            .from('ar_action_queue')
+            .insert(queuePayload);
+
+          if (queueError) throw queueError;
+        }
+
+        await loadData();
+        if (state.currentCustomer) {
+          await openDrawer(customerId);
+        }
+        setStatus('Customer workflow updated successfully.');
+      } catch (err) {
+        console.error(err);
+        setStatus(`Save failed: ${escapeHtml(err.message || 'Unknown error')}`, true);
+      } finally {
+        els.saveDrawerBtn.disabled = false;
+        els.markContactedBtn.disabled = false;
+      }
+    }
+
+    function clearFilters() {
+      els.searchInput.value = '';
+      els.startDate.value = '';
+      els.endDate.value = new Date().toISOString().slice(0, 10);
+      els.financialFilter.value = '';
+      els.agingFilter.value = '';
+      els.contactStatusFilter.value = '';
+      els.priorityFilter.value = '';
+      els.assignedFilter.value = '';
+      refreshAll();
+      setStatus(buildSyncLabel());
+    }
+
+    function setView(view) {
+      state.view = view;
+      els.viewRollupBtn.classList.toggle('active', view === 'rollup');
+      els.viewOrdersBtn.classList.toggle('active', view === 'orders');
+      if (view === 'orders') document.getElementById('detailPanel').open = true;
+      renderMainTable();
+    }
+
+    function wireEvents() {
+      els.refreshBtn.addEventListener('click', loadData);
+      els.clearFiltersBtn.addEventListener('click', clearFilters);
+
+      els.viewRollupBtn.addEventListener('click', () => setView('rollup'));
+      els.viewOrdersBtn.addEventListener('click', () => setView('orders'));
+
+      [
+        els.asOfDate,
+        els.searchInput,
+        els.startDate,
+        els.endDate,
+        els.financialFilter,
+        els.agingFilter,
+        els.contactStatusFilter,
+        els.priorityFilter,
+        els.assignedFilter
+      ].forEach(el => {
+        el.addEventListener('input', refreshAll);
+        el.addEventListener('change', refreshAll);
+      });
+
+      els.exportMenuBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        els.exportPanel.classList.toggle('open');
+      });
+
+      document.querySelectorAll('[data-export]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const type = btn.getAttribute('data-export');
+          runExport(type);
+          els.exportPanel.classList.remove('open');
+        });
+      });
+
+      document.addEventListener('click', (e) => {
+        if (!els.exportPanel.contains(e.target) && e.target !== els.exportMenuBtn) {
+          els.exportPanel.classList.remove('open');
+        }
+      });
+
+      els.closeDrawerBtn.addEventListener('click', closeDrawer);
+      els.drawerBackdrop.addEventListener('click', closeDrawer);
+      els.saveDrawerBtn.addEventListener('click', () => saveCustomerChanges());
+      els.markContactedBtn.addEventListener('click', () => saveCustomerChanges({ markContacted: true }));
+    }
+
     function init() {
-      const now = new Date();
-      const iso = now.toISOString().slice(0, 10);
+      const iso = new Date().toISOString().slice(0, 10);
       els.asOfDate.value = iso;
       els.endDate.value = iso;
       wireEvents();
