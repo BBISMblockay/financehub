@@ -23,11 +23,12 @@
         radial-gradient(circle at top left, rgba(255,255,255,.92), rgba(245,247,251,.86) 38%, rgba(241,245,249,.96) 100%);
       color: #0f172a;
     }
+
     .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
-    .shell { max-width: 1680px; margin: 0 auto; padding: 22px; }
+    .shell { max-width: 1680px; margin: 0 auto; padding: 20px; }
 
     .card {
-      background: rgba(255,255,255,.90);
+      background: rgba(255,255,255,.92);
       backdrop-filter: blur(10px);
       border: 1px solid rgba(226,232,240,.95);
       border-radius: 24px;
@@ -83,7 +84,7 @@
       align-items: center;
       justify-content: center;
       gap: .5rem;
-      border-radius: 16px;
+      border-radius: 14px;
       padding: .78rem 1rem;
       font-weight: 800;
       font-size: .9rem;
@@ -103,7 +104,6 @@
       box-shadow: 0 10px 22px rgba(15,23,42,.15);
     }
     .btn-soft { background: #f8fafc; color: #0f172a; }
-    .btn-danger { background: #7f1d1d; color: #fff; border-color: #7f1d1d; }
     .btn-xs {
       border-radius: 12px;
       padding: .42rem .66rem;
@@ -111,27 +111,29 @@
       font-weight: 800;
     }
 
-    .segmented {
+    .top-tabs {
       display: inline-flex;
-      gap: 4px;
-      padding: 4px;
+      gap: 6px;
+      padding: 6px;
       border-radius: 999px;
-      border: 1px solid rgba(255,255,255,.10);
-      background: rgba(255,255,255,.08);
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      flex-wrap: wrap;
     }
-    .segmented button {
+    .top-tabs button {
       border: 0;
       background: transparent;
-      color: rgba(255,255,255,.72);
+      color: #475569;
       border-radius: 999px;
-      padding: .48rem .9rem;
-      font-size: .8rem;
+      padding: .56rem .95rem;
+      font-size: .82rem;
       font-weight: 800;
       cursor: pointer;
     }
-    .segmented button.active {
-      background: #fff;
-      color: #0f172a;
+    .top-tabs button.active {
+      background: #0f172a;
+      color: #fff;
+      box-shadow: 0 8px 18px rgba(15,23,42,.14);
     }
 
     .kpi {
@@ -269,14 +271,11 @@
     .badge-priority-urgent { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
     .badge-queue-pending { background: #ecfeff; color: #155e75; border-color: #a5f3fc; }
 
-    .w-customer { min-width: 260px; }
+    .w-customer { min-width: 250px; }
     .w-email { min-width: 220px; max-width: 280px; }
     .w-small { min-width: 92px; }
     .w-money { min-width: 118px; }
     .w-actions { min-width: 190px; }
-
-    details summary { list-style: none; cursor: pointer; }
-    details summary::-webkit-details-marker { display: none; }
 
     .export-menu { position: relative; }
     .export-panel {
@@ -314,6 +313,16 @@
       margin-top: 2px;
     }
 
+    .view-panel { display: none; }
+    .view-panel.active { display: block; }
+
+    .queue-card {
+      border: 1px solid #e5e7eb;
+      border-radius: 20px;
+      padding: 16px;
+      background: #fff;
+    }
+
     .drawer-backdrop {
       position: fixed;
       inset: 0;
@@ -328,7 +337,7 @@
       position: fixed;
       top: 0;
       right: 0;
-      width: min(680px, 100vw);
+      width: min(700px, 100vw);
       height: 100vh;
       background: #fff;
       z-index: 90;
@@ -401,6 +410,7 @@
     }
     @media (max-width: 760px) {
       .field-grid { grid-template-columns: 1fr; }
+      .top-tabs { width: 100%; }
     }
   </style>
 </head>
@@ -411,19 +421,21 @@
       <div class="hero p-5 lg:p-6">
         <div class="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div class="space-y-3">
-            <div class="hero-chip">AR workbench · synced from Supabase · polished manual workflow</div>
+            <div class="hero-chip">AR workbench · queue-first UI · same working paths and saves</div>
             <div>
               <h1 class="text-3xl lg:text-4xl font-extrabold tracking-tight">AR Workbench</h1>
               <p class="mt-2 max-w-3xl text-sm text-slate-200/80">
-                Customer balances, aging, workflow updates, contact tracking, queueing, and quick actions.
+                Queue, customers, orders, and activity in one place. Same working Supabase flow, cleaner operating layout.
               </p>
             </div>
           </div>
 
           <div class="flex flex-col gap-3 lg:flex-row lg:items-center">
-            <div class="segmented">
-              <button id="viewRollupBtn" class="active">Rollup</button>
-              <button id="viewOrdersBtn">Orders</button>
+            <div class="top-tabs">
+              <button id="tabQueueBtn" class="active">Queue</button>
+              <button id="tabCustomersBtn">Customers</button>
+              <button id="tabOrdersBtn">Orders</button>
+              <button id="tabActivityBtn">Activity</button>
             </div>
 
             <div class="export-menu">
@@ -434,19 +446,23 @@
               <div id="exportPanel" class="export-panel">
                 <button class="export-item" data-export="current">
                   Export current view
-                  <span class="export-label">Rollup or orders based on active tab</span>
+                  <span class="export-label">Queue, customers, orders, or activity based on active tab</span>
                 </button>
                 <button class="export-item" data-export="rollup">
-                  Export rollup
+                  Export customer rollup
                   <span class="export-label">Customer summary with workflow fields</span>
                 </button>
                 <button class="export-item" data-export="orders">
                   Export orders
                   <span class="export-label">Detailed filtered order rows</span>
                 </button>
-                <button class="export-item" data-export="openOrders">
-                  Export open orders
-                  <span class="export-label">Only unpaid/open order rows</span>
+                <button class="export-item" data-export="queue">
+                  Export action queue
+                  <span class="export-label">Pending / processed reminder queue items</span>
+                </button>
+                <button class="export-item" data-export="activity">
+                  Export activity log
+                  <span class="export-label">Recent contact and workflow activity</span>
                 </button>
                 <button class="export-item" data-export="agingSummary">
                   Export aging summary
@@ -567,62 +583,130 @@
         <div class="kpi"><div class="kpi-label">Current</div><div id="kpiCurrent" class="kpi-value mono">$0.00</div><div class="kpi-sub">Not yet due</div></div>
         <div class="kpi"><div class="kpi-label">1–30</div><div id="kpi1to30" class="kpi-value mono">$0.00</div><div class="kpi-sub">Past due</div></div>
         <div class="kpi"><div class="kpi-label">31+</div><div id="kpi31plus" class="kpi-value mono">$0.00</div><div class="kpi-sub">Older aging</div></div>
-        <div class="kpi"><div class="kpi-label">Terms matched</div><div id="kpiTermsMatched" class="kpi-value mono">0%</div><div class="kpi-sub">Email or customer match</div></div>
+        <div class="kpi"><div class="kpi-label">Queued</div><div id="kpiQueued" class="kpi-value mono">0</div><div class="kpi-sub">Pending actions</div></div>
       </div>
 
-      <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
-        <div class="xl:col-span-9 space-y-5">
-
-          <div class="card p-4 lg:p-5">
-            <div class="flex items-start justify-between gap-3">
-              <div>
-                <div id="mainTableTitle" class="section-title">Customer rollup</div>
-                <div id="mainTableSub" class="section-sub">Supabase-backed AR balances with quick actions and workflow visibility.</div>
+      <!-- Queue view -->
+      <div id="viewQueue" class="view-panel active">
+        <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
+          <div class="xl:col-span-8 space-y-5">
+            <div class="card p-4 lg:p-5">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="section-title">Action queue</div>
+                  <div class="section-sub">Pending, processing, sent, failed, or canceled reminder actions.</div>
+                </div>
+                <div class="text-xs text-slate-500"><span id="queueRowCount">0</span> rows</div>
               </div>
-              <div class="text-xs text-slate-500"><span id="rowCount">0</span> rows</div>
-            </div>
 
-            <div class="mt-4 table-wrap max-h-[720px]">
-              <table>
-                <thead id="mainHead"></thead>
-                <tbody id="mainBody"></tbody>
-              </table>
+              <div class="mt-4 table-wrap max-h-[720px]">
+                <table>
+                  <thead id="queueHead"></thead>
+                  <tbody id="queueBody"></tbody>
+                </table>
+              </div>
             </div>
           </div>
 
-          <details class="card p-4 lg:p-5" id="detailPanel">
-            <summary class="flex items-center justify-between gap-3">
-              <div>
-                <div class="section-title">Order detail</div>
-                <div class="section-sub">Underlying synced rows with effective customer/contact fields.</div>
-              </div>
-              <div class="text-xs font-bold text-slate-500">Expand</div>
-            </summary>
-
-            <div class="mt-4 table-wrap max-h-[520px]">
-              <table>
-                <thead id="detailHead"></thead>
-                <tbody id="detailBody"></tbody>
-              </table>
+          <div class="xl:col-span-4 space-y-5">
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">Queue summary</div>
+              <div class="mini-grid mt-4" id="queueSummaryCards"></div>
             </div>
-          </details>
+
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">Needs action</div>
+              <div class="section-sub">Fast buckets to work through.</div>
+              <div id="queueWorkBuckets" class="mt-4 space-y-3"></div>
+            </div>
+          </div>
         </div>
+      </div>
 
-        <div class="xl:col-span-3 space-y-5">
-          <div class="card p-4 lg:p-5">
-            <div class="section-title">Summary</div>
-            <div class="mini-grid mt-4" id="companySummary"></div>
+      <!-- Customers view -->
+      <div id="viewCustomers" class="view-panel">
+        <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
+          <div class="xl:col-span-9 space-y-5">
+            <div class="card p-4 lg:p-5">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="section-title">Customer workbench</div>
+                  <div class="section-sub">Compact action rows with status, last touch, queue, and quick actions.</div>
+                </div>
+                <div class="text-xs text-slate-500"><span id="customerRowCount">0</span> rows</div>
+              </div>
+
+              <div class="mt-4 table-wrap max-h-[720px]">
+                <table>
+                  <thead id="customerHead"></thead>
+                  <tbody id="customerBody"></tbody>
+                </table>
+              </div>
+            </div>
           </div>
 
-          <div class="card p-4 lg:p-5">
-            <div class="section-title">Top open</div>
-            <div class="section-sub">Largest balances in current filter.</div>
-            <div id="topCustomers" class="mt-4"></div>
+          <div class="xl:col-span-3 space-y-5">
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">Summary</div>
+              <div class="mini-grid mt-4" id="companySummary"></div>
+            </div>
+
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">Top open</div>
+              <div class="section-sub">Largest balances in current filter.</div>
+              <div id="topCustomers" class="mt-4"></div>
+            </div>
+
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">Aging</div>
+              <div id="agingCards" class="mt-4"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Orders view -->
+      <div id="viewOrders" class="view-panel">
+        <div class="card p-4 lg:p-5">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="section-title">Order detail</div>
+              <div class="section-sub">Underlying synced rows with effective customer/contact fields.</div>
+            </div>
+            <div class="text-xs text-slate-500"><span id="orderRowCount">0</span> rows</div>
           </div>
 
-          <div class="card p-4 lg:p-5">
-            <div class="section-title">Aging</div>
-            <div id="agingCards" class="mt-4"></div>
+          <div class="mt-4 table-wrap max-h-[760px]">
+            <table>
+              <thead id="orderHead"></thead>
+              <tbody id="orderBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Activity view -->
+      <div id="viewActivity" class="view-panel">
+        <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
+          <div class="xl:col-span-8">
+            <div class="card p-4 lg:p-5">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="section-title">Recent activity</div>
+                  <div class="section-sub">Contact log feed across customers.</div>
+                </div>
+                <div class="text-xs text-slate-500"><span id="activityRowCount">0</span> rows</div>
+              </div>
+
+              <div id="activityFeed" class="mt-4 space-y-3"></div>
+            </div>
+          </div>
+
+          <div class="xl:col-span-4 space-y-5">
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">Activity summary</div>
+              <div class="mini-grid mt-4" id="activitySummaryCards"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -824,10 +908,14 @@
       syncStatus: null,
       profiles: [],
       queueSummary: [],
+      queueItems: [],
+      filteredQueueItems: [],
+      activityItems: [],
+      filteredActivityItems: [],
       currentUser: null,
       currentCustomer: null,
       currentCustomerActivity: [],
-      view: 'rollup'
+      activeTab: 'queue'
     };
 
     const els = {
@@ -836,8 +924,15 @@
       clearFiltersBtn: document.getElementById('clearFiltersBtn'),
       statusText: document.getElementById('statusText'),
 
-      viewRollupBtn: document.getElementById('viewRollupBtn'),
-      viewOrdersBtn: document.getElementById('viewOrdersBtn'),
+      tabQueueBtn: document.getElementById('tabQueueBtn'),
+      tabCustomersBtn: document.getElementById('tabCustomersBtn'),
+      tabOrdersBtn: document.getElementById('tabOrdersBtn'),
+      tabActivityBtn: document.getElementById('tabActivityBtn'),
+
+      viewQueue: document.getElementById('viewQueue'),
+      viewCustomers: document.getElementById('viewCustomers'),
+      viewOrders: document.getElementById('viewOrders'),
+      viewActivity: document.getElementById('viewActivity'),
 
       exportMenuBtn: document.getElementById('exportMenuBtn'),
       exportPanel: document.getElementById('exportPanel'),
@@ -851,13 +946,6 @@
       priorityFilter: document.getElementById('priorityFilter'),
       assignedFilter: document.getElementById('assignedFilter'),
 
-      rowCount: document.getElementById('rowCount'),
-      mainTableTitle: document.getElementById('mainTableTitle'),
-      mainTableSub: document.getElementById('mainTableSub'),
-      mainHead: document.getElementById('mainHead'),
-      mainBody: document.getElementById('mainBody'),
-      detailHead: document.getElementById('detailHead'),
-      detailBody: document.getElementById('detailBody'),
       companySummary: document.getElementById('companySummary'),
       topCustomers: document.getElementById('topCustomers'),
       agingCards: document.getElementById('agingCards'),
@@ -867,7 +955,25 @@
       kpiCurrent: document.getElementById('kpiCurrent'),
       kpi1to30: document.getElementById('kpi1to30'),
       kpi31plus: document.getElementById('kpi31plus'),
-      kpiTermsMatched: document.getElementById('kpiTermsMatched'),
+      kpiQueued: document.getElementById('kpiQueued'),
+
+      customerRowCount: document.getElementById('customerRowCount'),
+      customerHead: document.getElementById('customerHead'),
+      customerBody: document.getElementById('customerBody'),
+
+      orderRowCount: document.getElementById('orderRowCount'),
+      orderHead: document.getElementById('orderHead'),
+      orderBody: document.getElementById('orderBody'),
+
+      queueRowCount: document.getElementById('queueRowCount'),
+      queueHead: document.getElementById('queueHead'),
+      queueBody: document.getElementById('queueBody'),
+      queueSummaryCards: document.getElementById('queueSummaryCards'),
+      queueWorkBuckets: document.getElementById('queueWorkBuckets'),
+
+      activityRowCount: document.getElementById('activityRowCount'),
+      activityFeed: document.getElementById('activityFeed'),
+      activitySummaryCards: document.getElementById('activitySummaryCards'),
 
       drawerBackdrop: document.getElementById('drawerBackdrop'),
       workbenchDrawer: document.getElementById('workbenchDrawer'),
@@ -985,9 +1091,7 @@
       el.className = `toast ${isError ? 'error' : ''}`;
       el.textContent = message;
       els.toastWrap.appendChild(el);
-      setTimeout(() => {
-        el.remove();
-      }, 3200);
+      setTimeout(() => el.remove(), 3200);
     }
 
     function buildSyncLabel() {
@@ -1087,6 +1191,28 @@
       return data || [];
     }
 
+    async function fetchQueueItems() {
+      const { data, error } = await supabaseClient
+        .from('ar_action_queue')
+        .select('*')
+        .order('scheduled_for', { ascending: true })
+        .limit(500);
+
+      if (error) throw error;
+      return data || [];
+    }
+
+    async function fetchActivityItems() {
+      const { data, error } = await supabaseClient
+        .from('ar_contact_log')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(500);
+
+      if (error) throw error;
+      return data || [];
+    }
+
     function renderAssignedFilterOptions() {
       const opts = ['<option value="">All</option>']
         .concat(
@@ -1105,14 +1231,12 @@
       let allRows = [];
       let from = 0;
       const pageSize = 1000;
-
       while (true) {
         const { data, error } = await supabaseClient
           .from('ar_invoice_workbench_v')
           .select('*')
           .order('open_amount', { ascending: false })
           .range(from, from + pageSize - 1);
-
         if (error) throw error;
         allRows = allRows.concat(data || []);
         if (!data || data.length < pageSize) break;
@@ -1125,14 +1249,12 @@
       let allRows = [];
       let from = 0;
       const pageSize = 1000;
-
       while (true) {
         const { data, error } = await supabaseClient
           .from('ar_customer_rollup_v')
           .select('*')
           .order('current_open_balance', { ascending: false })
           .range(from, from + pageSize - 1);
-
         if (error) throw error;
         allRows = allRows.concat(data || []);
         if (!data || data.length < pageSize) break;
@@ -1158,10 +1280,21 @@
       setStatus('Loading AR workbench data...');
 
       try {
-        const [currentUser, profiles, queueSummary, invoiceRows, rollupRows, syncRows] = await Promise.all([
+        const [
+          currentUser,
+          profiles,
+          queueSummary,
+          queueItems,
+          activityItems,
+          invoiceRows,
+          rollupRows,
+          syncRows
+        ] = await Promise.all([
           getCurrentUser(),
           fetchProfiles(),
           fetchQueueSummary(),
+          fetchQueueItems(),
+          fetchActivityItems(),
           fetchAllInvoices(),
           fetchAllCustomerRollup(),
           supabaseClient.from('ar_sync_status_v').select('*').limit(1)
@@ -1170,6 +1303,8 @@
         state.currentUser = currentUser;
         state.profiles = profiles;
         state.queueSummary = queueSummary;
+        state.queueItems = queueItems;
+        state.activityItems = activityItems;
         state.invoices = (invoiceRows || []).map(r => ({
           ...r,
           orderDate: parseDateFlex(r.order_date),
@@ -1216,10 +1351,8 @@
             r.contact_name,
             r.phone
           ].join(' ').toLowerCase();
-
           if (!hay.includes(q)) return false;
         }
-
         if (start && (!r.orderDate || stripTime(r.orderDate) < stripTime(start))) return false;
         if (end && (!r.orderDate || stripTime(r.orderDate) > stripTime(end))) return false;
         if (financial === 'open' && !(r.is_open && Number(r.open_amount) > 0)) return false;
@@ -1228,7 +1361,6 @@
         if (contactStatus && normalizeStatus(r.contact_status) !== contactStatus) return false;
         if (priority && normalizeStatus(r.workflow_priority) !== priority) return false;
         if (assigned && (r.assigned_to || '') !== assigned) return false;
-
         return true;
       });
 
@@ -1282,13 +1414,11 @@
         const c = map.get(r.customer_id);
         const sales = Number(r.sales_amount || 0);
         const open = Number(r.open_amount || 0);
-
         c.sales += sales;
         c.openBalance += open;
         c.orders += 1;
         if (open > 0) c.openOrders += 1;
         if (r.matched_by !== 'default') c.matchedTermsOrders += 1;
-
         if (r.aging_bucket === 'current') c.current += open;
         else if (r.aging_bucket === '1-30') c.b1 += open;
         else if (r.aging_bucket === '31-60') c.b31 += open;
@@ -1300,12 +1430,45 @@
         Number(b.openBalance || 0) - Number(a.openBalance || 0)
       );
 
+      state.filteredQueueItems = state.queueItems.filter(r => {
+        const customer = state.customerRollup.find(c => c.customer_id === r.customer_id);
+        const hay = [
+          customer?.effective_customer_name,
+          customer?.customer_name,
+          customer?.effective_email,
+          r.action_type,
+          r.status,
+          r.reason,
+          JSON.stringify(r.payload || {})
+        ].join(' ').toLowerCase();
+        if (q && !hay.includes(q)) return false;
+        if (assigned && (customer?.assigned_to || '') !== assigned) return false;
+        return true;
+      });
+
+      state.filteredActivityItems = state.activityItems.filter(r => {
+        const customer = state.customerRollup.find(c => c.customer_id === r.customer_id);
+        const hay = [
+          customer?.effective_customer_name,
+          customer?.customer_name,
+          r.contact_type,
+          r.channel,
+          r.subject,
+          r.message_body,
+          r.sent_to
+        ].join(' ').toLowerCase();
+        if (q && !hay.includes(q)) return false;
+        return true;
+      });
+
       renderKpis();
       renderCompanySummary();
       renderTopCustomers();
       renderAgingCards();
-      renderMainTable();
-      renderDetailTable();
+      renderQueueView();
+      renderCustomersView();
+      renderOrdersView();
+      renderActivityView();
     }
 
     function renderKpis() {
@@ -1316,17 +1479,14 @@
       const b31plus = state.filteredInvoices
         .filter(r => ['31-60','61-90','90+'].includes(r.aging_bucket))
         .reduce((s, r) => s + Number(r.open_amount || 0), 0);
-
-      const openRows = state.filteredInvoices.filter(r => Number(r.open_amount || 0) > 0);
-      const matched = openRows.filter(r => r.matched_by !== 'default').length;
-      const matchedPct = openRows.length ? ((matched / openRows.length) * 100).toFixed(0) : 0;
+      const queued = state.filteredQueueItems.filter(r => normalizeStatus(r.status) === 'pending').length;
 
       els.kpiNetSales.textContent = formatMoney(netSales);
       els.kpiOpenBalance.textContent = formatMoney(openBalance);
       els.kpiCurrent.textContent = formatMoney(current);
       els.kpi1to30.textContent = formatMoney(b1);
       els.kpi31plus.textContent = formatMoney(b31plus);
-      els.kpiTermsMatched.textContent = `${matchedPct}%`;
+      els.kpiQueued.textContent = formatNumber(queued);
     }
 
     function renderCompanySummary() {
@@ -1404,17 +1564,114 @@
       }).join('');
     }
 
-    function renderMainTable() {
-      if (state.view === 'rollup') renderRollupTable();
-      else renderOrdersTable();
+    function renderQueueView() {
+      els.queueRowCount.textContent = formatNumber(state.filteredQueueItems.length);
+
+      els.queueHead.innerHTML = `<tr>
+        <th>Customer</th>
+        <th>Action</th>
+        <th>Status</th>
+        <th>Scheduled</th>
+        <th>Reason</th>
+        <th>Last error</th>
+        <th>Actions</th>
+      </tr>`;
+
+      els.queueBody.innerHTML = state.filteredQueueItems.map(item => {
+        const customer = state.customerRollup.find(c => c.customer_id === item.customer_id);
+        const customerName = customer?.effective_customer_name || customer?.customer_name || 'Unknown';
+        return `
+          <tr>
+            <td>
+              <div class="font-semibold text-slate-900">${escapeHtml(customerName)}</div>
+              <div class="text-xs text-slate-500">${escapeHtml(customer?.effective_email || customer?.email || '')}</div>
+            </td>
+            <td>${escapeHtml(item.action_type || '')}</td>
+            <td><span class="badge badge-queue-pending">${escapeHtml(item.status || '')}</span></td>
+            <td>${escapeHtml(formatDateTime(item.scheduled_for))}</td>
+            <td>${escapeHtml(item.reason || '—')}</td>
+            <td class="text-xs text-slate-500">${escapeHtml(item.last_error || '—')}</td>
+            <td>
+              <div class="flex flex-wrap gap-2">
+                <button class="btn btn-soft btn-xs queue-done-btn" data-id="${escapeHtml(item.id)}">Done</button>
+                <button class="btn btn-soft btn-xs queue-cancel-btn" data-id="${escapeHtml(item.id)}">Cancel</button>
+                ${customer ? `<button class="btn btn-soft btn-xs open-workbench-btn" data-customer-id="${escapeHtml(customer.customer_id)}">Open</button>` : ''}
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('') || `<tr><td colspan="7" class="py-10 text-center text-slate-500">No queue items match the current filters.</td></tr>`;
+
+      document.querySelectorAll('.queue-done-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          await updateQueueStatus(btn.getAttribute('data-id'), 'completed');
+        });
+      });
+
+      document.querySelectorAll('.queue-cancel-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          await updateQueueStatus(btn.getAttribute('data-id'), 'canceled');
+        });
+      });
+
+      document.querySelectorAll('.open-workbench-btn').forEach(btn => {
+        btn.addEventListener('click', () => openDrawer(btn.getAttribute('data-customer-id')));
+      });
+
+      const pending = state.filteredQueueItems.filter(r => normalizeStatus(r.status) === 'pending').length;
+      const completed = state.filteredQueueItems.filter(r => normalizeStatus(r.status) === 'completed').length;
+      const canceled = state.filteredQueueItems.filter(r => normalizeStatus(r.status) === 'canceled').length;
+      const failed = state.filteredQueueItems.filter(r => normalizeStatus(r.status) === 'failed').length;
+
+      els.queueSummaryCards.innerHTML = [
+        ['Pending', formatNumber(pending), 'To process'],
+        ['Completed', formatNumber(completed), 'Marked done'],
+        ['Canceled', formatNumber(canceled), 'Stopped'],
+        ['Failed', formatNumber(failed), 'Needs review']
+      ].map(([label, value, sub]) => `
+        <div class="mini-card">
+          <div class="label">${escapeHtml(label)}</div>
+          <div class="value mono">${escapeHtml(value)}</div>
+          <div class="mt-1 text-xs text-slate-500">${escapeHtml(sub)}</div>
+        </div>
+      `).join('');
+
+      const workBuckets = [
+        {
+          label: 'Pending reminders',
+          value: pending,
+          helper: 'Reminder jobs ready to work'
+        },
+        {
+          label: 'No email / bad email',
+          value: state.filteredCustomerRollup.filter(r => ['no_email', 'bad_email'].includes(normalizeStatus(r.contact_status))).length,
+          helper: 'Customers needing contact cleanup'
+        },
+        {
+          label: 'Follow-ups due',
+          value: state.filteredCustomerRollup.filter(r => r.next_follow_up_at && new Date(r.next_follow_up_at) <= new Date()).length,
+          helper: 'Follow-up date is due or overdue'
+        },
+        {
+          label: '90+ balances',
+          value: state.filteredCustomerRollup.filter(r => Number(r.b90 || 0) > 0).length,
+          helper: 'Oldest aging accounts'
+        }
+      ];
+
+      els.queueWorkBuckets.innerHTML = workBuckets.map(b => `
+        <div class="queue-card">
+          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">${escapeHtml(b.label)}</div>
+          <div class="mt-2 text-2xl font-extrabold mono text-slate-900">${escapeHtml(formatNumber(b.value))}</div>
+          <div class="mt-1 text-sm text-slate-500">${escapeHtml(b.helper)}</div>
+        </div>
+      `).join('');
     }
 
-    function renderRollupTable() {
-      els.mainTableTitle.textContent = 'Customer rollup';
-      els.mainTableSub.textContent = 'Supabase-backed AR balances with quick actions, last activity, and queue visibility.';
-      els.rowCount.textContent = formatNumber(state.filteredCustomerRollup.length);
+    function renderCustomersView() {
+      els.customerRowCount.textContent = formatNumber(state.filteredCustomerRollup.length);
 
-      els.mainHead.innerHTML = `<tr>
+      els.customerHead.innerHTML = `<tr>
         <th class="w-customer">Customer</th>
         <th class="w-email">Billing / contact</th>
         <th class="w-small">Workflow</th>
@@ -1427,7 +1684,7 @@
         <th class="w-actions">Actions</th>
       </tr>`;
 
-      els.mainBody.innerHTML = state.filteredCustomerRollup.map(c => `
+      els.customerBody.innerHTML = state.filteredCustomerRollup.map(c => `
         <tr>
           <td class="w-customer">
             <div class="font-semibold text-slate-900">${escapeHtml(c.effective_customer_name || c.customer_name)}</div>
@@ -1471,34 +1728,7 @@
         </tr>
       `).join('') || `<tr><td colspan="10" class="py-10 text-center text-slate-500">No customers match the current filters.</td></tr>`;
 
-      bindRowActionButtons();
-    }
-
-    function bindRowActionButtons() {
-      document.querySelectorAll('.open-workbench-btn').forEach(btn => {
-        btn.addEventListener('click', () => openDrawer(btn.getAttribute('data-customer-id')));
-      });
-
-      document.querySelectorAll('.quick-plus7-btn').forEach(btn => {
-        btn.addEventListener('click', async () => {
-          const id = btn.getAttribute('data-customer-id');
-          await quickSetFollowUp(id, 7);
-        });
-      });
-
-      document.querySelectorAll('.quick-queue-btn').forEach(btn => {
-        btn.addEventListener('click', async () => {
-          const id = btn.getAttribute('data-customer-id');
-          await quickQueueReminder(id);
-        });
-      });
-
-      document.querySelectorAll('.quick-hold-btn').forEach(btn => {
-        btn.addEventListener('click', async () => {
-          const id = btn.getAttribute('data-customer-id');
-          await quickSetHold(id);
-        });
-      });
+      bindCustomerActionButtons();
     }
 
     function getSortedOrders(rows) {
@@ -1508,12 +1738,10 @@
       );
     }
 
-    function renderOrdersTable() {
-      els.mainTableTitle.textContent = 'Orders';
-      els.mainTableSub.textContent = 'Synced order rows from Supabase with effective customer/contact fields.';
-      els.rowCount.textContent = formatNumber(state.filteredInvoices.length);
+    function renderOrdersView() {
+      els.orderRowCount.textContent = formatNumber(state.filteredInvoices.length);
 
-      els.mainHead.innerHTML = `<tr>
+      els.orderHead.innerHTML = `<tr>
         <th class="w-small">Date</th>
         <th class="w-customer">Customer</th>
         <th class="w-small">Order</th>
@@ -1525,7 +1753,7 @@
         <th class="w-actions">Actions</th>
       </tr>`;
 
-      els.mainBody.innerHTML = getSortedOrders(state.filteredInvoices).map(r => `
+      els.orderBody.innerHTML = getSortedOrders(state.filteredInvoices).map(r => `
         <tr>
           <td class="muted w-small">${formatShortDate(r.order_date)}</td>
           <td class="w-customer">
@@ -1555,48 +1783,447 @@
         </tr>
       `).join('') || `<tr><td colspan="9" class="py-10 text-center text-slate-500">No orders match the current filters.</td></tr>`;
 
-      bindRowActionButtons();
+      document.querySelectorAll('.open-workbench-btn').forEach(btn => {
+        btn.addEventListener('click', () => openDrawer(btn.getAttribute('data-customer-id')));
+      });
     }
 
-    function renderDetailTable() {
-      els.detailHead.innerHTML = `<tr>
-        <th class="w-small">Date</th>
-        <th class="w-customer">Customer</th>
-        <th class="w-small">Order</th>
-        <th class="w-small">Fin</th>
-        <th class="w-small">Fulfill</th>
-        <th class="w-small">Terms match</th>
-        <th class="right w-small">Term days</th>
-        <th class="w-small">Due date</th>
-        <th class="right w-money">Sales</th>
-        <th class="right w-money">Open</th>
-        <th class="right w-small">Past due</th>
-        <th class="w-small">Bucket</th>
-      </tr>`;
+    function renderActivityView() {
+      els.activityRowCount.textContent = formatNumber(state.filteredActivityItems.length);
 
-      els.detailBody.innerHTML = getSortedOrders(state.filteredInvoices).map(r => `
-        <tr>
-          <td class="muted w-small">${formatShortDate(r.order_date)}</td>
-          <td class="w-customer">
-            <div class="font-semibold text-slate-900">${escapeHtml(r.effective_customer_name || r.customer_name)}</div>
-            <div class="text-xs text-slate-500">${escapeHtml(r.effective_email || 'No email')}</div>
-          </td>
-          <td class="font-semibold text-slate-900 w-small">${escapeHtml(r.order_name || '—')}</td>
-          <td class="w-small">${finBadge(r.financial_status, r.open_amount)}</td>
-          <td class="w-small">${fulfillBadge(r.fulfillment_status)}</td>
-          <td class="w-small">${termsBadge(r)}</td>
-          <td class="right mono w-small">${formatNumber(r.effective_term_days || r.term_days)}</td>
-          <td class="muted w-small">${formatShortDate(r.due_date)}</td>
-          <td class="right mono w-money">${formatMoney(r.sales_amount)}</td>
-          <td class="right mono w-money font-extrabold">${formatMoney(r.open_amount)}</td>
-          <td class="right mono w-small">${Number(r.open_amount) > 0 ? formatNumber(r.days_past_due) : '—'}</td>
-          <td class="w-small">${escapeHtml(r.aging_bucket)}</td>
-        </tr>
-      `).join('') || `<tr><td colspan="12" class="py-10 text-center text-slate-500">No order rows match the current filters.</td></tr>`;
+      els.activityFeed.innerHTML = state.filteredActivityItems.length
+        ? state.filteredActivityItems.map(r => {
+            const customer = state.customerRollup.find(c => c.customer_id === r.customer_id);
+            const customerName = customer?.effective_customer_name || customer?.customer_name || 'Unknown customer';
+            return `
+              <div class="card p-4">
+                <div class="flex items-start justify-between gap-3">
+                  <div>
+                    <div class="font-semibold text-slate-900">${escapeHtml(customerName)}</div>
+                    <div class="mt-1 text-xs text-slate-500">${escapeHtml(r.contact_type || 'activity')} · ${escapeHtml(r.channel || '')}</div>
+                  </div>
+                  <div class="text-xs text-slate-500">${escapeHtml(formatDateTime(r.sent_at || r.created_at))}</div>
+                </div>
+                ${r.subject ? `<div class="mt-3 text-sm font-semibold text-slate-800">${escapeHtml(r.subject)}</div>` : ''}
+                ${r.message_body ? `<div class="mt-1 text-sm text-slate-600 whitespace-pre-wrap">${escapeHtml(r.message_body)}</div>` : ''}
+                <div class="mt-3 flex flex-wrap items-center gap-2">
+                  <span class="badge badge-queue-pending">${escapeHtml(r.delivery_status || 'logged')}</span>
+                  ${customer ? `<button class="btn btn-soft btn-xs open-workbench-btn" data-customer-id="${escapeHtml(customer.customer_id)}">Open customer</button>` : ''}
+                </div>
+              </div>
+            `;
+          }).join('')
+        : '<div class="text-sm text-slate-500">No activity matches the current filters.</div>';
+
+      document.querySelectorAll('.open-workbench-btn').forEach(btn => {
+        btn.addEventListener('click', () => openDrawer(btn.getAttribute('data-customer-id')));
+      });
+
+      const noteCount = state.filteredActivityItems.filter(r => normalizeStatus(r.contact_type) === 'note').length;
+      const emailCount = state.filteredActivityItems.filter(r => normalizeStatus(r.channel) === 'email').length;
+      const callCount = state.filteredActivityItems.filter(r => normalizeStatus(r.channel) === 'phone').length;
+      const reminderCount = state.filteredActivityItems.filter(r => normalizeStatus(r.contact_type) === 'reminder').length;
+
+      els.activitySummaryCards.innerHTML = [
+        ['Notes', formatNumber(noteCount), 'Internal notes'],
+        ['Emails', formatNumber(emailCount), 'Email channel'],
+        ['Calls', formatNumber(callCount), 'Phone channel'],
+        ['Reminders', formatNumber(reminderCount), 'Reminder actions']
+      ].map(([label, value, sub]) => `
+        <div class="mini-card">
+          <div class="label">${escapeHtml(label)}</div>
+          <div class="value mono">${escapeHtml(value)}</div>
+          <div class="mt-1 text-xs text-slate-500">${escapeHtml(sub)}</div>
+        </div>
+      `).join('');
+    }
+
+    function bindCustomerActionButtons() {
+      document.querySelectorAll('.open-workbench-btn').forEach(btn => {
+        btn.addEventListener('click', () => openDrawer(btn.getAttribute('data-customer-id')));
+      });
+
+      document.querySelectorAll('.quick-plus7-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          await quickSetFollowUp(btn.getAttribute('data-customer-id'), 7);
+        });
+      });
+
+      document.querySelectorAll('.quick-queue-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          await quickQueueReminder(btn.getAttribute('data-customer-id'));
+        });
+      });
+
+      document.querySelectorAll('.quick-hold-btn').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          await quickSetHold(btn.getAttribute('data-customer-id'));
+        });
+      });
+    }
+
+    function setActiveTab(tab) {
+      state.activeTab = tab;
+
+      const tabMap = {
+        queue: [els.tabQueueBtn, els.viewQueue],
+        customers: [els.tabCustomersBtn, els.viewCustomers],
+        orders: [els.tabOrdersBtn, els.viewOrders],
+        activity: [els.tabActivityBtn, els.viewActivity]
+      };
+
+      Object.entries(tabMap).forEach(([key, [btn, panel]]) => {
+        btn.classList.toggle('active', key === tab);
+        panel.classList.toggle('active', key === tab);
+      });
+    }
+
+    async function openDrawer(customerId) {
+      const customer = state.customerRollup.find(c => c.customer_id === customerId) ||
+        state.filteredCustomerRollup.find(c => c.customer_id === customerId);
+
+      if (!customer) return;
+
+      state.currentCustomer = customer;
+      els.drawerTitle.textContent = customer.effective_customer_name || customer.customer_name;
+      els.drawerSub.textContent = `${customer.open_invoice_count || customer.openOrders || 0} open invoices · ${formatMoney(customer.current_open_balance || customer.openBalance || 0)} open`;
+
+      els.fCustomerNameOverride.value = customer.customer_name_override || '';
+      els.fBillingEmailOverride.value = customer.billing_email_override || '';
+      els.fTermDaysOverride.value = customer.term_days_override ?? '';
+      els.fContactName.value = customer.contact_name || '';
+      els.fPhone.value = customer.phone || '';
+      els.fContactStatus.value = customer.contact_status || 'active';
+      els.fPreferredChannel.value = customer.preferred_channel || 'email';
+      els.fWorkflowPriority.value = customer.workflow_priority || 'normal';
+      els.fAssignedTo.value = customer.assigned_to || '';
+      els.fNextFollowUpAt.value = toDatetimeLocalValue(customer.next_follow_up_at);
+      els.fNotes.value = customer.notes || '';
+      els.fLogType.value = '';
+      els.fLogChannel.value = 'internal_note';
+      els.fLogSubject.value = '';
+      els.fLogMessage.value = '';
+      els.fQueueReminder.checked = false;
+
+      const queueItem = state.queueSummary.find(x => x.customer_id === customerId);
+      const pendingCount = Number(queueItem?.pending_count || 0);
+
+      els.drawerSnapshot.innerHTML = `
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Open balance</div>
+          <div class="mt-2 text-lg font-extrabold mono">${escapeHtml(formatMoney(customer.current_open_balance || customer.openBalance || 0))}</div>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Open invoices</div>
+          <div class="mt-2 text-lg font-extrabold mono">${escapeHtml(formatNumber(customer.open_invoice_count || customer.openOrders || 0))}</div>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Oldest open</div>
+          <div class="mt-2 text-sm font-bold">${escapeHtml(formatShortDate(customer.oldest_open_invoice_date))}</div>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Queued reminders</div>
+          <div class="mt-2 text-lg font-extrabold mono">${escapeHtml(formatNumber(pendingCount))}</div>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Last contacted</div>
+          <div class="mt-2 text-sm font-bold">${escapeHtml(formatDateTime(customer.last_contacted_at))}</div>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Next follow-up</div>
+          <div class="mt-2 text-sm font-bold">${escapeHtml(formatDateTime(customer.next_follow_up_at))}</div>
+        </div>
+      `;
+
+      await loadDrawerActivity(customerId);
+      els.drawerBackdrop.classList.add('open');
+      els.workbenchDrawer.classList.add('open');
+      els.workbenchDrawer.setAttribute('aria-hidden', 'false');
+    }
+
+    function closeDrawer() {
+      els.drawerBackdrop.classList.remove('open');
+      els.workbenchDrawer.classList.remove('open');
+      els.workbenchDrawer.setAttribute('aria-hidden', 'true');
+      state.currentCustomer = null;
+      state.currentCustomerActivity = [];
+    }
+
+    async function loadDrawerActivity(customerId) {
+      try {
+        const rows = await fetchCustomerActivity(customerId);
+        state.currentCustomerActivity = rows;
+
+        els.drawerActivity.innerHTML = rows.length
+          ? rows.map(r => `
+              <div class="rounded-2xl border border-slate-200 p-3">
+                <div class="flex items-center justify-between gap-3">
+                  <div class="font-semibold text-slate-900">${escapeHtml(r.contact_type || 'activity')}</div>
+                  <div class="text-xs text-slate-500">${escapeHtml(formatDateTime(r.sent_at || r.created_at))}</div>
+                </div>
+                <div class="mt-1 text-xs text-slate-500">${escapeHtml(r.channel || '')} · ${escapeHtml(r.delivery_status || 'logged')}</div>
+                ${r.subject ? `<div class="mt-2 text-sm font-semibold text-slate-800">${escapeHtml(r.subject)}</div>` : ''}
+                ${r.message_body ? `<div class="mt-1 text-sm text-slate-600 whitespace-pre-wrap">${escapeHtml(r.message_body)}</div>` : ''}
+                ${r.sent_to ? `<div class="mt-2 text-xs text-slate-500">To: ${escapeHtml(r.sent_to)}</div>` : ''}
+              </div>
+            `).join('')
+          : 'No activity yet.';
+      } catch (err) {
+        console.error(err);
+        els.drawerActivity.innerHTML = 'Failed to load activity.';
+      }
+    }
+
+    async function saveCustomerChanges({ markContacted = false } = {}) {
+      if (!state.currentCustomer) return;
+
+      const customerId = state.currentCustomer.customer_id;
+      const nowIso = new Date().toISOString();
+
+      const updatePayload = {
+        customer_name_override: els.fCustomerNameOverride.value.trim() || null,
+        customer_name_override_norm: normalizeNameForOverride(els.fCustomerNameOverride.value),
+        billing_email_override: els.fBillingEmailOverride.value.trim() || null,
+        billing_email_override_norm: (els.fBillingEmailOverride.value || '').trim().toLowerCase(),
+        term_days_override: els.fTermDaysOverride.value === '' ? null : Number(els.fTermDaysOverride.value),
+        contact_name: els.fContactName.value.trim() || null,
+        phone: els.fPhone.value.trim() || null,
+        contact_status: els.fContactStatus.value,
+        preferred_channel: els.fPreferredChannel.value,
+        workflow_priority: els.fWorkflowPriority.value,
+        assigned_to: els.fAssignedTo.value || null,
+        next_follow_up_at: localInputToIso(els.fNextFollowUpAt.value),
+        notes: els.fNotes.value.trim() || null
+      };
+
+      if (markContacted) updatePayload.last_contacted_at = nowIso;
+
+      els.saveDrawerBtn.disabled = true;
+      els.markContactedBtn.disabled = true;
+
+      try {
+        const { error: updateError } = await supabaseClient
+          .from('ar_customers')
+          .update(updatePayload)
+          .eq('id', customerId);
+
+        if (updateError) throw updateError;
+
+        const logType = els.fLogType.value;
+        const logMessage = els.fLogMessage.value.trim();
+        const logSubject = els.fLogSubject.value.trim();
+        const shouldLog = !!logType || !!logMessage || markContacted;
+
+        if (shouldLog) {
+          const logPayload = {
+            customer_id: customerId,
+            contact_type: logType || 'note',
+            channel: logType ? els.fLogChannel.value : 'internal_note',
+            subject: logSubject || null,
+            message_body: logMessage || (markContacted ? 'Marked contacted in AR workbench.' : null),
+            sent_to: (els.fBillingEmailOverride.value.trim() || state.currentCustomer.effective_email || state.currentCustomer.email || null),
+            sent_at: nowIso,
+            delivery_status: 'sent',
+            notes: null,
+            created_by: state.currentUser?.id || null
+          };
+
+          const { error: logError } = await supabaseClient
+            .from('ar_contact_log')
+            .insert(logPayload);
+
+          if (logError) throw logError;
+        }
+
+        if (shouldLog || markContacted) {
+          const { error: touchError } = await supabaseClient
+            .from('ar_customers')
+            .update({
+              last_contacted_at: nowIso,
+              last_reminder_sent_at: (els.fLogType.value === 'reminder') ? nowIso : state.currentCustomer.last_reminder_sent_at,
+              last_statement_sent_at: (els.fLogType.value === 'statement') ? nowIso : state.currentCustomer.last_statement_sent_at
+            })
+            .eq('id', customerId);
+
+          if (touchError) throw touchError;
+        }
+
+        if (els.fQueueReminder.checked) {
+          const queuePayload = {
+            customer_id: customerId,
+            action_type: 'send_reminder',
+            scheduled_for: nowIso,
+            status: 'pending',
+            reason: 'Queued manually from AR workbench',
+            payload: {
+              customer_name: els.fCustomerNameOverride.value.trim() || state.currentCustomer.effective_customer_name || state.currentCustomer.customer_name,
+              effective_email: els.fBillingEmailOverride.value.trim() || state.currentCustomer.effective_email || state.currentCustomer.email || null
+            }
+          };
+
+          const { error: queueError } = await supabaseClient
+            .from('ar_action_queue')
+            .insert(queuePayload);
+
+          if (queueError) throw queueError;
+        }
+
+        await loadData();
+        await openDrawer(customerId);
+        setStatus('Customer workflow updated successfully.');
+        showToast('Customer saved.');
+      } catch (err) {
+        console.error(err);
+        setStatus(`Save failed: ${escapeHtml(err.message || 'Unknown error')}`, true);
+        showToast(`Save failed: ${err.message || 'Unknown error'}`, true);
+      } finally {
+        els.saveDrawerBtn.disabled = false;
+        els.markContactedBtn.disabled = false;
+      }
+    }
+
+    async function quickSetFollowUp(customerId, days) {
+      const d = new Date();
+      d.setDate(d.getDate() + days);
+
+      try {
+        const { error } = await supabaseClient
+          .from('ar_customers')
+          .update({ next_follow_up_at: d.toISOString() })
+          .eq('id', customerId);
+
+        if (error) throw error;
+        await loadData();
+        showToast(`Follow-up moved +${days} days.`);
+      } catch (err) {
+        console.error(err);
+        showToast(`Quick update failed: ${err.message || 'Unknown error'}`, true);
+      }
+    }
+
+    async function quickQueueReminder(customerId) {
+      const customer = state.customerRollup.find(c => c.customer_id === customerId) || state.filteredCustomerRollup.find(c => c.customer_id === customerId);
+      if (!customer) return;
+
+      try {
+        const { error } = await supabaseClient
+          .from('ar_action_queue')
+          .insert({
+            customer_id: customerId,
+            action_type: 'send_reminder',
+            scheduled_for: new Date().toISOString(),
+            status: 'pending',
+            reason: 'Queued from customer quick action',
+            payload: {
+              customer_name: customer.effective_customer_name || customer.customer_name,
+              effective_email: customer.effective_email || customer.email || null
+            }
+          });
+
+        if (error) throw error;
+        await loadData();
+        showToast('Reminder queued.');
+      } catch (err) {
+        console.error(err);
+        showToast(`Queue failed: ${err.message || 'Unknown error'}`, true);
+      }
+    }
+
+    async function quickSetHold(customerId) {
+      try {
+        const { error } = await supabaseClient
+          .from('ar_customers')
+          .update({ contact_status: 'hold' })
+          .eq('id', customerId);
+
+        if (error) throw error;
+        await loadData();
+        showToast('Customer set to hold.');
+      } catch (err) {
+        console.error(err);
+        showToast(`Hold failed: ${err.message || 'Unknown error'}`, true);
+      }
+    }
+
+    async function updateQueueStatus(queueId, status) {
+      try {
+        const patch = {
+          status,
+          updated_at: new Date().toISOString()
+        };
+        if (status === 'completed') {
+          patch.last_attempt_at = new Date().toISOString();
+        }
+
+        const { error } = await supabaseClient
+          .from('ar_action_queue')
+          .update(patch)
+          .eq('id', queueId);
+
+        if (error) throw error;
+        await loadData();
+        showToast(`Queue item marked ${status}.`);
+      } catch (err) {
+        console.error(err);
+        showToast(`Queue update failed: ${err.message || 'Unknown error'}`, true);
+      }
+    }
+
+    function clearFilters() {
+      els.searchInput.value = '';
+      els.startDate.value = '';
+      els.endDate.value = new Date().toISOString().slice(0, 10);
+      els.financialFilter.value = '';
+      els.agingFilter.value = '';
+      els.contactStatusFilter.value = '';
+      els.priorityFilter.value = '';
+      els.assignedFilter.value = '';
+      refreshAll();
+      setStatus(buildSyncLabel());
+    }
+
+    function exportQueue() {
+      const rows = state.filteredQueueItems.map(item => {
+        const customer = state.customerRollup.find(c => c.customer_id === item.customer_id);
+        return {
+          Customer: customer?.effective_customer_name || customer?.customer_name || '',
+          Email: customer?.effective_email || customer?.email || '',
+          Action_Type: item.action_type,
+          Status: item.status,
+          Scheduled_For: item.scheduled_for,
+          Reason: item.reason || '',
+          Attempt_Count: item.attempt_count,
+          Last_Attempt_At: item.last_attempt_at || '',
+          Last_Error: item.last_error || '',
+          Payload: JSON.stringify(item.payload || {})
+        };
+      });
+      downloadCsv(rows, 'ar_workbench_queue.csv', 'Exported action queue.');
+    }
+
+    function exportActivity() {
+      const rows = state.filteredActivityItems.map(item => {
+        const customer = state.customerRollup.find(c => c.customer_id === item.customer_id);
+        return {
+          Customer: customer?.effective_customer_name || customer?.customer_name || '',
+          Contact_Type: item.contact_type,
+          Channel: item.channel,
+          Subject: item.subject || '',
+          Message: item.message_body || '',
+          Sent_To: item.sent_to || '',
+          Sent_At: item.sent_at || '',
+          Delivery_Status: item.delivery_status || '',
+          Created_At: item.created_at || ''
+        };
+      });
+      downloadCsv(rows, 'ar_workbench_activity.csv', 'Exported activity log.');
     }
 
     function downloadCsv(rows, filename, statusMessage) {
-      if (!rows.length) return setStatus('Nothing to export for the current selection.', true);
+      if (!rows.length) {
+        setStatus('Nothing to export for the current selection.', true);
+        return;
+      }
       const csv = Papa.unparse(rows);
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
@@ -1764,8 +2391,10 @@
     function runExport(type) {
       switch (type) {
         case 'current':
-          if (state.view === 'rollup') exportRollup();
-          else exportOrders(state.filteredInvoices, 'ar_workbench_orders.csv');
+          if (state.activeTab === 'queue') exportQueue();
+          else if (state.activeTab === 'activity') exportActivity();
+          else if (state.activeTab === 'orders') exportOrders(state.filteredInvoices, 'ar_workbench_orders.csv');
+          else exportRollup();
           break;
         case 'rollup':
           exportRollup();
@@ -1773,8 +2402,11 @@
         case 'orders':
           exportOrders(state.filteredInvoices, 'ar_workbench_orders.csv');
           break;
-        case 'openOrders':
-          exportOrders(state.filteredInvoices.filter(r => Number(r.open_amount || 0) > 0), 'ar_workbench_open_orders.csv');
+        case 'queue':
+          exportQueue();
+          break;
+        case 'activity':
+          exportActivity();
           break;
         case 'agingSummary':
           exportAgingSummary();
@@ -1791,302 +2423,14 @@
       }
     }
 
-    async function openDrawer(customerId) {
-      const customer = state.customerRollup.find(c => c.customer_id === customerId) ||
-        state.filteredCustomerRollup.find(c => c.customer_id === customerId);
-
-      if (!customer) return;
-
-      state.currentCustomer = customer;
-      els.drawerTitle.textContent = customer.effective_customer_name || customer.customer_name;
-      els.drawerSub.textContent = `${customer.open_invoice_count || customer.openOrders || 0} open invoices · ${formatMoney(customer.current_open_balance || customer.openBalance || 0)} open`;
-
-      els.fCustomerNameOverride.value = customer.customer_name_override || '';
-      els.fBillingEmailOverride.value = customer.billing_email_override || '';
-      els.fTermDaysOverride.value = customer.term_days_override ?? '';
-      els.fContactName.value = customer.contact_name || '';
-      els.fPhone.value = customer.phone || '';
-      els.fContactStatus.value = customer.contact_status || 'active';
-      els.fPreferredChannel.value = customer.preferred_channel || 'email';
-      els.fWorkflowPriority.value = customer.workflow_priority || 'normal';
-      els.fAssignedTo.value = customer.assigned_to || '';
-      els.fNextFollowUpAt.value = toDatetimeLocalValue(customer.next_follow_up_at);
-      els.fNotes.value = customer.notes || '';
-      els.fLogType.value = '';
-      els.fLogChannel.value = 'internal_note';
-      els.fLogSubject.value = '';
-      els.fLogMessage.value = '';
-      els.fQueueReminder.checked = false;
-
-      const queueItem = state.queueSummary.find(x => x.customer_id === customerId);
-      const pendingCount = Number(queueItem?.pending_count || 0);
-
-      els.drawerSnapshot.innerHTML = `
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Open balance</div>
-          <div class="mt-2 text-lg font-extrabold mono">${escapeHtml(formatMoney(customer.current_open_balance || customer.openBalance || 0))}</div>
-        </div>
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Open invoices</div>
-          <div class="mt-2 text-lg font-extrabold mono">${escapeHtml(formatNumber(customer.open_invoice_count || customer.openOrders || 0))}</div>
-        </div>
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Oldest open</div>
-          <div class="mt-2 text-sm font-bold">${escapeHtml(formatShortDate(customer.oldest_open_invoice_date))}</div>
-        </div>
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Queued reminders</div>
-          <div class="mt-2 text-lg font-extrabold mono">${escapeHtml(formatNumber(pendingCount))}</div>
-        </div>
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Last contacted</div>
-          <div class="mt-2 text-sm font-bold">${escapeHtml(formatDateTime(customer.last_contacted_at))}</div>
-        </div>
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Next follow-up</div>
-          <div class="mt-2 text-sm font-bold">${escapeHtml(formatDateTime(customer.next_follow_up_at))}</div>
-        </div>
-      `;
-
-      await loadDrawerActivity(customerId);
-      els.drawerBackdrop.classList.add('open');
-      els.workbenchDrawer.classList.add('open');
-      els.workbenchDrawer.setAttribute('aria-hidden', 'false');
-    }
-
-    function closeDrawer() {
-      els.drawerBackdrop.classList.remove('open');
-      els.workbenchDrawer.classList.remove('open');
-      els.workbenchDrawer.setAttribute('aria-hidden', 'true');
-      state.currentCustomer = null;
-      state.currentCustomerActivity = [];
-    }
-
-    async function loadDrawerActivity(customerId) {
-      try {
-        const rows = await fetchCustomerActivity(customerId);
-        state.currentCustomerActivity = rows;
-
-        els.drawerActivity.innerHTML = rows.length
-          ? rows.map(r => `
-              <div class="rounded-2xl border border-slate-200 p-3">
-                <div class="flex items-center justify-between gap-3">
-                  <div class="font-semibold text-slate-900">${escapeHtml(r.contact_type || 'activity')}</div>
-                  <div class="text-xs text-slate-500">${escapeHtml(formatDateTime(r.sent_at || r.created_at))}</div>
-                </div>
-                <div class="mt-1 text-xs text-slate-500">${escapeHtml(r.channel || '')} · ${escapeHtml(r.delivery_status || 'logged')}</div>
-                ${r.subject ? `<div class="mt-2 text-sm font-semibold text-slate-800">${escapeHtml(r.subject)}</div>` : ''}
-                ${r.message_body ? `<div class="mt-1 text-sm text-slate-600 whitespace-pre-wrap">${escapeHtml(r.message_body)}</div>` : ''}
-                ${r.sent_to ? `<div class="mt-2 text-xs text-slate-500">To: ${escapeHtml(r.sent_to)}</div>` : ''}
-              </div>
-            `).join('')
-          : 'No activity yet.';
-      } catch (err) {
-        console.error(err);
-        els.drawerActivity.innerHTML = 'Failed to load activity.';
-      }
-    }
-
-    async function saveCustomerChanges({ markContacted = false } = {}) {
-      if (!state.currentCustomer) return;
-
-      const customerId = state.currentCustomer.customer_id;
-      const nowIso = new Date().toISOString();
-
-      const updatePayload = {
-        customer_name_override: els.fCustomerNameOverride.value.trim() || null,
-        customer_name_override_norm: normalizeNameForOverride(els.fCustomerNameOverride.value),
-        billing_email_override: els.fBillingEmailOverride.value.trim() || null,
-        billing_email_override_norm: (els.fBillingEmailOverride.value || '').trim().toLowerCase(),
-        term_days_override: els.fTermDaysOverride.value === '' ? null : Number(els.fTermDaysOverride.value),
-        contact_name: els.fContactName.value.trim() || null,
-        phone: els.fPhone.value.trim() || null,
-        contact_status: els.fContactStatus.value,
-        preferred_channel: els.fPreferredChannel.value,
-        workflow_priority: els.fWorkflowPriority.value,
-        assigned_to: els.fAssignedTo.value || null,
-        next_follow_up_at: localInputToIso(els.fNextFollowUpAt.value),
-        notes: els.fNotes.value.trim() || null
-      };
-
-      if (markContacted) {
-        updatePayload.last_contacted_at = nowIso;
-      }
-
-      els.saveDrawerBtn.disabled = true;
-      els.markContactedBtn.disabled = true;
-
-      try {
-        const { error: updateError } = await supabaseClient
-          .from('ar_customers')
-          .update(updatePayload)
-          .eq('id', customerId);
-
-        if (updateError) throw updateError;
-
-        const logType = els.fLogType.value;
-        const logMessage = els.fLogMessage.value.trim();
-        const logSubject = els.fLogSubject.value.trim();
-        const shouldLog = !!logType || !!logMessage || markContacted;
-
-        if (shouldLog) {
-          const logPayload = {
-            customer_id: customerId,
-            contact_type: logType || 'note',
-            channel: logType ? els.fLogChannel.value : 'internal_note',
-            subject: logSubject || null,
-            message_body: logMessage || (markContacted ? 'Marked contacted in AR workbench.' : null),
-            sent_to: (els.fBillingEmailOverride.value.trim() || state.currentCustomer.effective_email || state.currentCustomer.email || null),
-            sent_at: nowIso,
-            delivery_status: 'sent',
-            notes: null,
-            created_by: state.currentUser?.id || null
-          };
-
-          const { error: logError } = await supabaseClient
-            .from('ar_contact_log')
-            .insert(logPayload);
-
-          if (logError) throw logError;
-        }
-
-        if (shouldLog || markContacted) {
-          const { error: touchError } = await supabaseClient
-            .from('ar_customers')
-            .update({
-              last_contacted_at: nowIso,
-              last_reminder_sent_at: (els.fLogType.value === 'reminder') ? nowIso : state.currentCustomer.last_reminder_sent_at,
-              last_statement_sent_at: (els.fLogType.value === 'statement') ? nowIso : state.currentCustomer.last_statement_sent_at
-            })
-            .eq('id', customerId);
-
-          if (touchError) throw touchError;
-        }
-
-        if (els.fQueueReminder.checked) {
-          const queuePayload = {
-            customer_id: customerId,
-            action_type: 'send_reminder',
-            scheduled_for: nowIso,
-            status: 'pending',
-            reason: 'Queued manually from AR workbench',
-            payload: {
-              customer_name: els.fCustomerNameOverride.value.trim() || state.currentCustomer.effective_customer_name || state.currentCustomer.customer_name,
-              effective_email: els.fBillingEmailOverride.value.trim() || state.currentCustomer.effective_email || state.currentCustomer.email || null
-            }
-          };
-
-          const { error: queueError } = await supabaseClient
-            .from('ar_action_queue')
-            .insert(queuePayload);
-
-          if (queueError) throw queueError;
-        }
-
-        await loadData();
-        await openDrawer(customerId);
-        setStatus('Customer workflow updated successfully.');
-        showToast('Customer saved.');
-      } catch (err) {
-        console.error(err);
-        setStatus(`Save failed: ${escapeHtml(err.message || 'Unknown error')}`, true);
-        showToast(`Save failed: ${err.message || 'Unknown error'}`, true);
-      } finally {
-        els.saveDrawerBtn.disabled = false;
-        els.markContactedBtn.disabled = false;
-      }
-    }
-
-    async function quickSetFollowUp(customerId, days) {
-      const d = new Date();
-      d.setDate(d.getDate() + days);
-
-      try {
-        const { error } = await supabaseClient
-          .from('ar_customers')
-          .update({ next_follow_up_at: d.toISOString() })
-          .eq('id', customerId);
-
-        if (error) throw error;
-        await loadData();
-        showToast(`Follow-up moved +${days} days.`);
-      } catch (err) {
-        console.error(err);
-        showToast(`Quick update failed: ${err.message || 'Unknown error'}`, true);
-      }
-    }
-
-    async function quickQueueReminder(customerId) {
-      const customer = state.customerRollup.find(c => c.customer_id === customerId) || state.filteredCustomerRollup.find(c => c.customer_id === customerId);
-      if (!customer) return;
-
-      try {
-        const { error } = await supabaseClient
-          .from('ar_action_queue')
-          .insert({
-            customer_id: customerId,
-            action_type: 'send_reminder',
-            scheduled_for: new Date().toISOString(),
-            status: 'pending',
-            reason: 'Queued from rollup quick action',
-            payload: {
-              customer_name: customer.effective_customer_name || customer.customer_name,
-              effective_email: customer.effective_email || customer.email || null
-            }
-          });
-
-        if (error) throw error;
-        await loadData();
-        showToast('Reminder queued.');
-      } catch (err) {
-        console.error(err);
-        showToast(`Queue failed: ${err.message || 'Unknown error'}`, true);
-      }
-    }
-
-    async function quickSetHold(customerId) {
-      try {
-        const { error } = await supabaseClient
-          .from('ar_customers')
-          .update({ contact_status: 'hold' })
-          .eq('id', customerId);
-
-        if (error) throw error;
-        await loadData();
-        showToast('Customer set to hold.');
-      } catch (err) {
-        console.error(err);
-        showToast(`Hold failed: ${err.message || 'Unknown error'}`, true);
-      }
-    }
-
-    function clearFilters() {
-      els.searchInput.value = '';
-      els.startDate.value = '';
-      els.endDate.value = new Date().toISOString().slice(0, 10);
-      els.financialFilter.value = '';
-      els.agingFilter.value = '';
-      els.contactStatusFilter.value = '';
-      els.priorityFilter.value = '';
-      els.assignedFilter.value = '';
-      refreshAll();
-      setStatus(buildSyncLabel());
-    }
-
-    function setView(view) {
-      state.view = view;
-      els.viewRollupBtn.classList.toggle('active', view === 'rollup');
-      els.viewOrdersBtn.classList.toggle('active', view === 'orders');
-      if (view === 'orders') document.getElementById('detailPanel').open = true;
-      renderMainTable();
-    }
-
     function wireEvents() {
       els.refreshBtn.addEventListener('click', loadData);
       els.clearFiltersBtn.addEventListener('click', clearFilters);
 
-      els.viewRollupBtn.addEventListener('click', () => setView('rollup'));
-      els.viewOrdersBtn.addEventListener('click', () => setView('orders'));
+      els.tabQueueBtn.addEventListener('click', () => setActiveTab('queue'));
+      els.tabCustomersBtn.addEventListener('click', () => setActiveTab('customers'));
+      els.tabOrdersBtn.addEventListener('click', () => setActiveTab('orders'));
+      els.tabActivityBtn.addEventListener('click', () => setActiveTab('activity'));
 
       [
         els.asOfDate,
@@ -2110,8 +2454,7 @@
 
       document.querySelectorAll('[data-export]').forEach(btn => {
         btn.addEventListener('click', () => {
-          const type = btn.getAttribute('data-export');
-          runExport(type);
+          runExport(btn.getAttribute('data-export'));
           els.exportPanel.classList.remove('open');
         });
       });
