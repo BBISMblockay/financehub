@@ -1,9 +1,9 @@
 // file: server/ar-sync.mjs
 
 import crypto from "crypto";
+import fetch from "node-fetch";
 import Papa from "papaparse";
 import { createClient } from "@supabase/supabase-js";
-import fetch from "node-fetch";
 
 const SALES_CSV_SOURCES = [
   "https://docs.google.com/spreadsheets/d/e/2PACX-1vStgtzXpQpW_9oWh4QC2NOoO7F9L0fJLM7EDP7To0DyDp0TWaFk4V9YUxJVs9NRRv_7-bof9I-Gcc2J/pub?gid=0&single=true&output=csv",
