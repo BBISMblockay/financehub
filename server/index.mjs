@@ -3,6 +3,7 @@ import cors from "cors";
 import fetch from "node-fetch";
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
+import { runArSync } from "./ar-sync.mjs";
 
 const {
   PORT = 3000,
