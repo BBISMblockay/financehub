@@ -358,7 +358,7 @@ async function upsertCustomers(rows) {
         customer_name: row.customer,
         customer_name_norm: row.customerNorm,
         email: row.email || null,
-        email_norm: row.emailNorm || null,
+        email_norm: row.emailNorm || "",
         term_days: row.termDays || 0
       });
     } else {
