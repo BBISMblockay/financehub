@@ -400,6 +400,30 @@ async function upsertCustomers(rows) {
   return customerIdMap;
 }
 
+function dedupeInvoicePayload(payload) {
+  const deduped = new Map();
+
+  for (const row of payload) {
+    const key = `${row.customer_id}__${row.order_name}__${row.order_date}`;
+
+    const existing = deduped.get(key);
+
+    if (!existing) {
+      deduped.set(key, row);
+      continue;
+    }
+
+    const existingSeen = existing.last_seen_at ? new Date(existing.last_seen_at).getTime() : 0;
+    const currentSeen = row.last_seen_at ? new Date(row.last_seen_at).getTime() : 0;
+
+    if (currentSeen >= existingSeen) {
+      deduped.set(key, row);
+    }
+  }
+
+  return Array.from(deduped.values());
+}
+
 async function upsertInvoices(rows, customerIdMap) {
   const payload = rows.map((row) => {
     const customerKey = `${row.customerNorm}__${row.emailNorm || ""}`;
@@ -443,22 +467,23 @@ async function upsertInvoices(rows, customerIdMap) {
     };
   });
 
+  const dedupedPayload = dedupeInvoicePayload(payload);
   const chunkSize = 500;
 
-  for (let i = 0; i < payload.length; i += chunkSize) {
-    const chunk = payload.slice(i, i + chunkSize);
+  for (let i = 0; i < dedupedPayload.length; i += chunkSize) {
+    const chunk = dedupedPayload.slice(i, i + chunkSize);
 
     const { error } = await supabase
       .from("ar_invoices")
       .upsert(chunk, {
-        onConflict: "source_row_hash",
+        onConflict: "customer_id,order_name,order_date",
         ignoreDuplicates: false
       });
 
     if (error) throw error;
   }
 
-  return payload.length;
+  return dedupedPayload.length;
 }
 
 async function refreshCustomerSummary() {
