@@ -1,0 +1,1304 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Payment Requests Workbench</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="./config.js"></script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    :root { color-scheme: light; }
+    html, body { height: 100%; }
+    body {
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(255,255,255,.94), rgba(245,247,251,.88) 38%, rgba(241,245,249,.98) 100%);
+      color: #0f172a;
+    }
+    .shell { max-width: 1600px; margin: 0 auto; padding: 20px; }
+    .card {
+      background: rgba(255,255,255,.92);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(226,232,240,.95);
+      border-radius: 24px;
+      box-shadow:
+        0 1px 2px rgba(15,23,42,.04),
+        0 10px 30px rgba(15,23,42,.05);
+    }
+    .hero {
+      background:
+        linear-gradient(135deg, rgba(15,23,42,.98), rgba(30,41,59,.97) 55%, rgba(51,65,85,.96));
+      color: #fff;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 28px;
+      box-shadow:
+        0 18px 50px rgba(15,23,42,.18),
+        inset 0 1px 0 rgba(255,255,255,.08);
+    }
+    .hero-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.06);
+      color: rgba(255,255,255,.86);
+      border-radius: 999px;
+      padding: .45rem .75rem;
+      font-size: .74rem;
+      font-weight: 700;
+      letter-spacing: .02em;
+    }
+    .input, .select, .textarea {
+      width: 100%;
+      border-radius: 16px;
+      border: 1px solid #dbe2ea;
+      background: #fff;
+      padding: .82rem .95rem;
+      font-size: .92rem;
+      outline: none;
+      transition: .18s ease;
+      color: #0f172a;
+    }
+    .textarea { min-height: 110px; resize: vertical; }
+    .input:focus, .select:focus, .textarea:focus {
+      border-color: #0f172a;
+      box-shadow: 0 0 0 4px rgba(15,23,42,.08);
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: .5rem;
+      border-radius: 14px;
+      padding: .78rem 1rem;
+      font-weight: 800;
+      font-size: .9rem;
+      transition: .18s ease;
+      border: 1px solid #dbe2ea;
+      background: #fff;
+      color: #0f172a;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn:hover { transform: translateY(-1px); }
+    .btn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+    .btn-primary {
+      background: #0f172a;
+      color: #fff;
+      border-color: #0f172a;
+      box-shadow: 0 10px 22px rgba(15,23,42,.15);
+    }
+    .btn-soft { background: #f8fafc; color: #0f172a; }
+    .btn-xs {
+      border-radius: 12px;
+      padding: .42rem .66rem;
+      font-size: .73rem;
+      font-weight: 800;
+    }
+    .section-title { font-size: 1rem; font-weight: 800; color: #0f172a; }
+    .section-sub { margin-top: 2px; font-size: .82rem; color: #64748b; }
+    .muted { color: #64748b; }
+    .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+
+    .kpi {
+      border: 1px solid #e5e7eb;
+      border-radius: 20px;
+      padding: 16px 16px 14px;
+      background: linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(248,250,252,1) 100%);
+      min-height: 104px;
+    }
+    .kpi-label {
+      font-size: .68rem;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: #64748b;
+      font-weight: 800;
+    }
+    .kpi-value {
+      margin-top: 9px;
+      font-size: 1.55rem;
+      line-height: 1.02;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .kpi-sub {
+      margin-top: 6px;
+      font-size: .75rem;
+      color: #64748b;
+    }
+
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid #e5e7eb;
+      border-radius: 20px;
+      background: #fff;
+    }
+    table { width: 100%; border-collapse: separate; border-spacing: 0; }
+    thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: #f8fafc;
+      color: #64748b;
+      font-size: .72rem;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      font-weight: 800;
+      padding: .82rem .85rem;
+      border-bottom: 1px solid #e5e7eb;
+      text-align: left;
+      white-space: nowrap;
+    }
+    tbody td {
+      padding: .82rem .85rem;
+      border-bottom: 1px solid #f1f5f9;
+      font-size: .89rem;
+      vertical-align: top;
+      color: #0f172a;
+    }
+    tbody tr:hover td { background: #fafcff; }
+    .right { text-align: right; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: .24rem .55rem;
+      font-size: .71rem;
+      font-weight: 700;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+    .badge-new { background: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
+    .badge-in_review { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+    .badge-needs_info { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
+    .badge-approved { background: #ecfdf5; color: #166534; border-color: #bbf7d0; }
+    .badge-processing { background: #ecfeff; color: #155e75; border-color: #a5f3fc; }
+    .badge-paid { background: #ecfdf5; color: #166534; border-color: #bbf7d0; }
+    .badge-rejected { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+    .badge-cancelled { background: #f8fafc; color: #475569; border-color: #cbd5e1; }
+    .badge-priority-low { background: #f8fafc; color: #475569; border-color: #cbd5e1; }
+    .badge-priority-normal { background: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
+    .badge-priority-high { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
+    .badge-priority-urgent { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+    .badge-complete { background: #ecfdf5; color: #166534; border-color: #bbf7d0; }
+    .badge-open { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
+
+    .drawer-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15,23,42,.34);
+      backdrop-filter: blur(3px);
+      z-index: 80;
+      display: none;
+    }
+    .drawer-backdrop.open { display: block; }
+
+    .drawer {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: min(760px, 100vw);
+      height: 100vh;
+      background: #fff;
+      z-index: 90;
+      border-left: 1px solid #e5e7eb;
+      box-shadow: -20px 0 40px rgba(15,23,42,.12);
+      transform: translateX(100%);
+      transition: transform .22s ease;
+      display: flex;
+      flex-direction: column;
+    }
+    .drawer.open { transform: translateX(0); }
+    .drawer-head {
+      padding: 20px 22px;
+      border-bottom: 1px solid #e5e7eb;
+      background: #fff;
+    }
+    .drawer-body {
+      flex: 1;
+      overflow: auto;
+      padding: 20px 22px 110px;
+    }
+    .drawer-foot {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 16px 22px;
+      background: rgba(255,255,255,.94);
+      backdrop-filter: blur(8px);
+      border-top: 1px solid #e5e7eb;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0,1fr));
+      gap: 14px;
+    }
+    .field-grid .full { grid-column: 1 / -1; }
+
+    .mini-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .mini-card {
+      border: 1px solid #e5e7eb;
+      border-radius: 18px;
+      padding: 12px;
+      background: #fff;
+    }
+    .mini-card .label {
+      font-size: .68rem;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: #64748b;
+      font-weight: 800;
+    }
+    .mini-card .value {
+      margin-top: 8px;
+      font-size: 1.08rem;
+      font-weight: 800;
+      color: #0f172a;
+    }
+
+    .toast-wrap {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 120;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      pointer-events: none;
+    }
+    .toast {
+      min-width: 260px;
+      max-width: 420px;
+      background: rgba(15,23,42,.96);
+      color: #fff;
+      border-radius: 16px;
+      padding: 12px 14px;
+      box-shadow: 0 16px 40px rgba(15,23,42,.22);
+      font-size: .88rem;
+      font-weight: 700;
+      pointer-events: auto;
+    }
+    .toast.error { background: rgba(127,29,29,.96); }
+
+    @media (max-width: 1180px) {
+      .shell { padding: 14px; }
+      .mini-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 760px) {
+      .field-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body class="min-h-full">
+  <div class="shell">
+    <div class="space-y-5">
+
+      <div class="hero p-5 lg:p-6">
+        <div class="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+          <div class="space-y-3">
+            <div class="hero-chip">SILO · payment requests workbench</div>
+            <div>
+              <h1 class="text-3xl lg:text-4xl font-extrabold tracking-tight">Payment Requests Workbench</h1>
+              <p class="mt-2 max-w-3xl text-sm text-slate-200/80">
+                Internal processing view for submitted payment requests. Review documents, assign ownership, update status, and mark payments complete.
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center gap-3">
+            <button id="refreshBtn" class="btn">Refresh data</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card p-4 lg:p-5">
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-12">
+          <div class="lg:col-span-2">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Status</label>
+            <select id="statusFilter" class="select">
+              <option value="">All</option>
+              <option value="new">New</option>
+              <option value="in_review">In review</option>
+              <option value="needs_info">Needs info</option>
+              <option value="approved">Approved</option>
+              <option value="processing">Processing</option>
+              <option value="paid">Paid</option>
+              <option value="rejected">Rejected</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+
+          <div class="lg:col-span-2">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Priority</label>
+            <select id="priorityFilter" class="select">
+              <option value="">All</option>
+              <option value="low">Low</option>
+              <option value="normal">Normal</option>
+              <option value="high">High</option>
+              <option value="urgent">Urgent</option>
+            </select>
+          </div>
+
+          <div class="lg:col-span-2">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Completed</label>
+            <select id="completedFilter" class="select">
+              <option value="">All</option>
+              <option value="open">Open only</option>
+              <option value="complete">Completed only</option>
+            </select>
+          </div>
+
+          <div class="lg:col-span-2">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Assigned</label>
+            <select id="assignedFilter" class="select">
+              <option value="">All</option>
+            </select>
+          </div>
+
+          <div class="lg:col-span-2">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Request type</label>
+            <select id="typeFilter" class="select">
+              <option value="">All</option>
+              <option value="invoice_vendor_payment">Invoice / vendor payment</option>
+              <option value="inventory_deposit">Inventory deposit</option>
+              <option value="inventory_balance">Inventory balance</option>
+              <option value="employee_reimbursement">Employee reimbursement</option>
+              <option value="customer_refund">Customer refund</option>
+            </select>
+          </div>
+
+          <div class="lg:col-span-2">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Due date</label>
+            <select id="dueFilter" class="select">
+              <option value="">All</option>
+              <option value="overdue">Overdue</option>
+              <option value="next7">Next 7 days</option>
+              <option value="nodue">No due date</option>
+            </select>
+          </div>
+
+          <div class="lg:col-span-4">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Search</label>
+            <input id="searchInput" class="input" placeholder="Vendor, requester, PO, invoice, notes..." />
+          </div>
+
+          <div class="lg:col-span-2">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Submitted after</label>
+            <input id="startDate" type="date" class="input" />
+          </div>
+
+          <div class="lg:col-span-2">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Submitted before</label>
+            <input id="endDate" type="date" class="input" />
+          </div>
+
+          <div class="lg:col-span-2 flex items-end">
+            <button id="clearFiltersBtn" class="btn btn-soft w-full">Clear filters</button>
+          </div>
+
+          <div id="statusText" class="lg:col-span-12 text-xs text-slate-500">
+            Waiting for data.
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
+        <div class="kpi"><div class="kpi-label">Requests</div><div id="kpiRequests" class="kpi-value mono">0</div><div class="kpi-sub">Filtered rows</div></div>
+        <div class="kpi"><div class="kpi-label">Open amount</div><div id="kpiOpenAmount" class="kpi-value mono">$0.00</div><div class="kpi-sub">Not completed</div></div>
+        <div class="kpi"><div class="kpi-label">Overdue</div><div id="kpiOverdue" class="kpi-value mono">0</div><div class="kpi-sub">Past due date</div></div>
+        <div class="kpi"><div class="kpi-label">Unassigned</div><div id="kpiUnassigned" class="kpi-value mono">0</div><div class="kpi-sub">Needs owner</div></div>
+        <div class="kpi"><div class="kpi-label">Need file review</div><div id="kpiWithFiles" class="kpi-value mono">0</div><div class="kpi-sub">Requests with upload</div></div>
+        <div class="kpi"><div class="kpi-label">Completed</div><div id="kpiCompleted" class="kpi-value mono">0</div><div class="kpi-sub">Marked paid</div></div>
+      </div>
+
+      <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
+        <div class="xl:col-span-9">
+          <div class="card p-4 lg:p-5">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="section-title">Requests</div>
+                <div class="section-sub">Review, open file, edit, and process payment requests.</div>
+              </div>
+              <div class="text-xs text-slate-500"><span id="rowCount">0</span> rows</div>
+            </div>
+
+            <div class="mt-4 table-wrap max-h-[780px]">
+              <table>
+                <thead id="mainHead"></thead>
+                <tbody id="mainBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="xl:col-span-3 space-y-5">
+          <div class="card p-4 lg:p-5">
+            <div class="section-title">Quick buckets</div>
+            <div class="mini-grid mt-4" id="summaryCards"></div>
+          </div>
+
+          <div class="card p-4 lg:p-5">
+            <div class="section-title">Recent requests</div>
+            <div class="section-sub">Newest submissions in current filter.</div>
+            <div id="recentRequests" class="mt-4 space-y-3"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="drawerBackdrop" class="drawer-backdrop"></div>
+
+  <aside id="workbenchDrawer" class="drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="text-xs uppercase tracking-[.12em] text-slate-500 font-extrabold">Payment request</div>
+          <h2 id="drawerTitle" class="mt-1 text-xl font-extrabold text-slate-900">Request</h2>
+          <p id="drawerSub" class="mt-1 text-sm text-slate-500">Review source details, document, and internal processing fields.</p>
+        </div>
+        <button id="closeDrawerBtn" class="btn btn-soft btn-xs">Close</button>
+      </div>
+    </div>
+
+    <div class="drawer-body">
+      <div class="space-y-6">
+        <div class="card p-4">
+          <div class="section-title">Snapshot</div>
+          <div id="drawerSnapshot" class="mt-4 grid grid-cols-2 gap-3 text-sm"></div>
+        </div>
+
+        <div class="card p-4">
+          <div class="section-title">Submitted details</div>
+          <div class="field-grid mt-4">
+            <div class="full">
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Effective vendor</label>
+              <input id="fEffectiveVendor" class="input" disabled />
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Requester email</label>
+              <input id="fRequesterEmail" class="input" disabled />
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Location</label>
+              <input id="fLocationName" class="input" disabled />
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Request type</label>
+              <input id="fRequestTypeDisplay" class="input" disabled />
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Invoice #</label>
+              <input id="fInvoiceNumber" class="input" disabled />
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Flex ID #</label>
+              <input id="fFlexId" class="input" disabled />
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Internal PO #</label>
+              <input id="fPoNumber" class="input" disabled />
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Amount due</label>
+              <input id="fAmountDue" class="input mono" disabled />
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Due date</label>
+              <input id="fDueDate" class="input" disabled />
+            </div>
+
+            <div class="full">
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Submitted notes</label>
+              <textarea id="fSubmittedNotes" class="textarea" disabled></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="card p-4">
+          <div class="section-title">Document</div>
+          <div class="mt-4 flex flex-wrap gap-3">
+            <button id="openFileBtn" class="btn btn-soft" type="button">Open file</button>
+            <div id="fileMeta" class="text-sm text-slate-500 self-center">No file attached</div>
+          </div>
+        </div>
+
+        <div class="card p-4">
+          <div class="section-title">Internal processing</div>
+          <div class="field-grid mt-4">
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Workflow status</label>
+              <select id="fWorkflowStatus" class="select">
+                <option value="new">New</option>
+                <option value="in_review">In review</option>
+                <option value="needs_info">Needs info</option>
+                <option value="approved">Approved</option>
+                <option value="processing">Processing</option>
+                <option value="paid">Paid</option>
+                <option value="rejected">Rejected</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Assigned to</label>
+              <select id="fAssignedTo" class="select">
+                <option value="">Unassigned</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Priority</label>
+              <select id="fPriority" class="select">
+                <option value="low">Low</option>
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Payment type</label>
+              <select id="fPaymentType" class="select">
+                <option value="">Select payment type</option>
+                <option value="check">Check</option>
+                <option value="wire">Wire</option>
+                <option value="flexfin">FlexFin</option>
+                <option value="credit_card">Credit card</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Completed</label>
+              <select id="fCompleted" class="select">
+                <option value="false">Open</option>
+                <option value="true">Completed</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Date completed</label>
+              <input id="fDateCompleted" type="date" class="input" />
+            </div>
+
+            <div class="full">
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Payment detail</label>
+              <input id="fPaymentDetail" class="input" placeholder="Check #, wire detail, reimbursed via..., etc." />
+            </div>
+
+            <div class="full">
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Internal notes</label>
+              <textarea id="fInternalNotes" class="textarea" placeholder="Approval notes, follow-up, resolution details..."></textarea>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="drawer-foot">
+      <div class="flex gap-2">
+        <button id="markPaidBtn" class="btn btn-soft" type="button">Quick mark paid</button>
+      </div>
+      <div class="flex gap-2">
+        <button id="saveDrawerBtn" class="btn btn-primary" type="button">Save changes</button>
+      </div>
+    </div>
+  </aside>
+
+  <div id="toastWrap" class="toast-wrap"></div>
+
+  <script>
+    const SUPABASE_URL =
+      window.__SILO_CONFIG__?.SUPABASE_URL ||
+      window.SUPABASE_URL ||
+      window.CONFIG?.SUPABASE_URL;
+
+    const SUPABASE_ANON_KEY =
+      window.__SILO_CONFIG__?.SUPABASE_ANON_KEY ||
+      window.__SILO_CONFIG__?.SUPABASE_KEY ||
+      window.SUPABASE_ANON_KEY ||
+      window.CONFIG?.SUPABASE_ANON_KEY;
+
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      throw new Error("Missing Supabase config on page.");
+    }
+
+    const BUCKET = "payment-request-files";
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const state = {
+      rows: [],
+      filteredRows: [],
+      profiles: [],
+      currentUser: null,
+      currentRow: null
+    };
+
+    const els = {
+      refreshBtn: document.getElementById("refreshBtn"),
+      clearFiltersBtn: document.getElementById("clearFiltersBtn"),
+      statusText: document.getElementById("statusText"),
+
+      statusFilter: document.getElementById("statusFilter"),
+      priorityFilter: document.getElementById("priorityFilter"),
+      completedFilter: document.getElementById("completedFilter"),
+      assignedFilter: document.getElementById("assignedFilter"),
+      typeFilter: document.getElementById("typeFilter"),
+      dueFilter: document.getElementById("dueFilter"),
+      searchInput: document.getElementById("searchInput"),
+      startDate: document.getElementById("startDate"),
+      endDate: document.getElementById("endDate"),
+
+      kpiRequests: document.getElementById("kpiRequests"),
+      kpiOpenAmount: document.getElementById("kpiOpenAmount"),
+      kpiOverdue: document.getElementById("kpiOverdue"),
+      kpiUnassigned: document.getElementById("kpiUnassigned"),
+      kpiWithFiles: document.getElementById("kpiWithFiles"),
+      kpiCompleted: document.getElementById("kpiCompleted"),
+
+      rowCount: document.getElementById("rowCount"),
+      mainHead: document.getElementById("mainHead"),
+      mainBody: document.getElementById("mainBody"),
+
+      summaryCards: document.getElementById("summaryCards"),
+      recentRequests: document.getElementById("recentRequests"),
+
+      drawerBackdrop: document.getElementById("drawerBackdrop"),
+      workbenchDrawer: document.getElementById("workbenchDrawer"),
+      closeDrawerBtn: document.getElementById("closeDrawerBtn"),
+      drawerTitle: document.getElementById("drawerTitle"),
+      drawerSub: document.getElementById("drawerSub"),
+      drawerSnapshot: document.getElementById("drawerSnapshot"),
+
+      fEffectiveVendor: document.getElementById("fEffectiveVendor"),
+      fRequesterEmail: document.getElementById("fRequesterEmail"),
+      fLocationName: document.getElementById("fLocationName"),
+      fRequestTypeDisplay: document.getElementById("fRequestTypeDisplay"),
+      fInvoiceNumber: document.getElementById("fInvoiceNumber"),
+      fFlexId: document.getElementById("fFlexId"),
+      fPoNumber: document.getElementById("fPoNumber"),
+      fAmountDue: document.getElementById("fAmountDue"),
+      fDueDate: document.getElementById("fDueDate"),
+      fSubmittedNotes: document.getElementById("fSubmittedNotes"),
+
+      openFileBtn: document.getElementById("openFileBtn"),
+      fileMeta: document.getElementById("fileMeta"),
+
+      fWorkflowStatus: document.getElementById("fWorkflowStatus"),
+      fAssignedTo: document.getElementById("fAssignedTo"),
+      fPriority: document.getElementById("fPriority"),
+      fPaymentType: document.getElementById("fPaymentType"),
+      fCompleted: document.getElementById("fCompleted"),
+      fDateCompleted: document.getElementById("fDateCompleted"),
+      fPaymentDetail: document.getElementById("fPaymentDetail"),
+      fInternalNotes: document.getElementById("fInternalNotes"),
+
+      markPaidBtn: document.getElementById("markPaidBtn"),
+      saveDrawerBtn: document.getElementById("saveDrawerBtn"),
+
+      toastWrap: document.getElementById("toastWrap")
+    };
+
+    function formatMoney(value) {
+      return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value || 0));
+    }
+
+    function formatNumber(value) {
+      return new Intl.NumberFormat("en-US").format(Number(value || 0));
+    }
+
+    function parseDate(value) {
+      if (!value) return null;
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    function formatDate(value) {
+      const d = parseDate(value);
+      return d ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(d) : "—";
+    }
+
+    function formatDateTime(value) {
+      const d = parseDate(value);
+      return d ? new Intl.DateTimeFormat("en-US", {
+        month: "short", day: "numeric", year: "numeric",
+        hour: "numeric", minute: "2-digit"
+      }).format(d) : "—";
+    }
+
+    function escapeHtml(str) {
+      return String(str ?? "").replace(/[&<>"']/g, m => ({
+        "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"
+      }[m]));
+    }
+
+    function normalize(v) {
+      return String(v || "").trim().toLowerCase();
+    }
+
+    function showToast(message, isError = false) {
+      const el = document.createElement("div");
+      el.className = `toast ${isError ? "error" : ""}`;
+      el.textContent = message;
+      els.toastWrap.appendChild(el);
+      setTimeout(() => el.remove(), 3200);
+    }
+
+    function setStatus(message, isError = false) {
+      els.statusText.textContent = message;
+      els.statusText.className = `lg:col-span-12 text-xs ${isError ? "text-red-600" : "text-slate-500"}`;
+    }
+
+    function requestTypeLabel(v) {
+      const map = {
+        invoice_vendor_payment: "Invoice / vendor payment",
+        inventory_deposit: "Inventory deposit",
+        inventory_balance: "Inventory balance",
+        employee_reimbursement: "Employee reimbursement",
+        customer_refund: "Customer refund"
+      };
+      return map[v] || v || "—";
+    }
+
+    function badgeHtmlStatus(status) {
+      const s = normalize(status);
+      const cls = {
+        new: "badge-new",
+        in_review: "badge-in_review",
+        needs_info: "badge-needs_info",
+        approved: "badge-approved",
+        processing: "badge-processing",
+        paid: "badge-paid",
+        rejected: "badge-rejected",
+        cancelled: "badge-cancelled"
+      }[s] || "badge-cancelled";
+      return `<span class="badge ${cls}">${escapeHtml(s || "unknown")}</span>`;
+    }
+
+    function badgeHtmlPriority(priority) {
+      const p = normalize(priority);
+      const cls = {
+        low: "badge-priority-low",
+        normal: "badge-priority-normal",
+        high: "badge-priority-high",
+        urgent: "badge-priority-urgent"
+      }[p] || "badge-priority-normal";
+      return `<span class="badge ${cls}">${escapeHtml(p || "normal")}</span>`;
+    }
+
+    function badgeHtmlCompleted(val) {
+      return val
+        ? `<span class="badge badge-complete">Completed</span>`
+        : `<span class="badge badge-open">Open</span>`;
+    }
+
+    async function getCurrentUser() {
+      const { data, error } = await supabaseClient.auth.getUser();
+      if (error) throw error;
+      return data?.user || null;
+    }
+
+    async function fetchProfiles() {
+      const { data, error } = await supabaseClient
+        .from("profiles")
+        .select("id, name, email, is_active")
+        .eq("is_active", true)
+        .order("name", { ascending: true });
+
+      if (error) throw error;
+      return data || [];
+    }
+
+    async function fetchRows() {
+      let all = [];
+      let from = 0;
+      const size = 1000;
+
+      while (true) {
+        const { data, error } = await supabaseClient
+          .from("payment_requests_v")
+          .select("*")
+          .order("submitted_at", { ascending: false })
+          .range(from, from + size - 1);
+
+        if (error) throw error;
+        all = all.concat(data || []);
+        if (!data || data.length < size) break;
+        from += size;
+      }
+
+      return all;
+    }
+
+    function renderAssignedOptions() {
+      els.assignedFilter.innerHTML = ['<option value="">All</option>']
+        .concat(
+          state.profiles.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name || p.email)}</option>`)
+        )
+        .join("");
+
+      els.fAssignedTo.innerHTML = ['<option value="">Unassigned</option>']
+        .concat(
+          state.profiles.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name || p.email)}</option>`)
+        )
+        .join("");
+    }
+
+    function assignedName(id) {
+      if (!id) return "—";
+      const p = state.profiles.find(x => x.id === id);
+      return p?.name || p?.email || "Assigned";
+    }
+
+    async function loadData() {
+      els.refreshBtn.disabled = true;
+      setStatus("Loading payment requests...");
+
+      try {
+        const [user, profiles, rows] = await Promise.all([
+          getCurrentUser(),
+          fetchProfiles(),
+          fetchRows()
+        ]);
+
+        state.currentUser = user;
+        state.profiles = profiles;
+        state.rows = rows || [];
+
+        renderAssignedOptions();
+        refreshAll();
+        setStatus(`Loaded ${formatNumber(state.rows.length)} payment requests.`);
+      } catch (err) {
+        console.error(err);
+        setStatus(`Load failed: ${err.message || "Unknown error"}`, true);
+        showToast(`Load failed: ${err.message || "Unknown error"}`, true);
+      } finally {
+        els.refreshBtn.disabled = false;
+      }
+    }
+
+    function refreshAll() {
+      const q = normalize(els.searchInput.value);
+      const status = els.statusFilter.value;
+      const priority = els.priorityFilter.value;
+      const completed = els.completedFilter.value;
+      const assigned = els.assignedFilter.value;
+      const type = els.typeFilter.value;
+      const due = els.dueFilter.value;
+      const start = els.startDate.value ? new Date(els.startDate.value) : null;
+      const end = els.endDate.value ? new Date(els.endDate.value + "T23:59:59") : null;
+      const now = new Date();
+
+      state.filteredRows = state.rows.filter(r => {
+        const submitted = r.submitted_at ? new Date(r.submitted_at) : null;
+        const dueDate = r.due_date ? new Date(r.due_date + "T00:00:00") : null;
+
+        const hay = [
+          r.effective_vendor_name,
+          r.vendor_name,
+          r.vendor_name_manual,
+          r.requester_email,
+          r.location_name,
+          r.invoice_number,
+          r.flex_id,
+          r.internal_po_number,
+          r.notes_comments,
+          r.internal_notes,
+          r.payment_detail
+        ].join(" ").toLowerCase();
+
+        if (q && !hay.includes(q)) return false;
+        if (status && r.workflow_status !== status) return false;
+        if (priority && r.priority !== priority) return false;
+        if (assigned && (r.assigned_to || "") !== assigned) return false;
+        if (type && r.request_type !== type) return false;
+
+        if (completed === "open" && !!r.completed) return false;
+        if (completed === "complete" && !r.completed) return false;
+
+        if (due === "overdue" && (!dueDate || dueDate >= new Date(now.toDateString()) || r.completed)) return false;
+        if (due === "next7") {
+          if (!dueDate) return false;
+          const in7 = new Date();
+          in7.setDate(in7.getDate() + 7);
+          if (dueDate < new Date(now.toDateString()) || dueDate > in7) return false;
+        }
+        if (due === "nodue" && !!dueDate) return false;
+
+        if (start && (!submitted || submitted < start)) return false;
+        if (end && (!submitted || submitted > end)) return false;
+
+        return true;
+      });
+
+      renderKpis();
+      renderSummaryCards();
+      renderRecentRequests();
+      renderTable();
+    }
+
+    function renderKpis() {
+      const openRows = state.filteredRows.filter(r => !r.completed);
+      const overdue = state.filteredRows.filter(r => {
+        if (!r.due_date || r.completed) return false;
+        const d = new Date(r.due_date + "T00:00:00");
+        return d < new Date(new Date().toDateString());
+      });
+
+      els.kpiRequests.textContent = formatNumber(state.filteredRows.length);
+      els.kpiOpenAmount.textContent = formatMoney(openRows.reduce((s, r) => s + Number(r.amount_due || 0), 0));
+      els.kpiOverdue.textContent = formatNumber(overdue.length);
+      els.kpiUnassigned.textContent = formatNumber(state.filteredRows.filter(r => !r.assigned_to).length);
+      els.kpiWithFiles.textContent = formatNumber(state.filteredRows.filter(r => !!r.file_path).length);
+      els.kpiCompleted.textContent = formatNumber(state.filteredRows.filter(r => !!r.completed).length);
+    }
+
+    function renderSummaryCards() {
+      const buckets = [
+        ["New", state.filteredRows.filter(r => r.workflow_status === "new").length, "Fresh requests"],
+        ["Needs info", state.filteredRows.filter(r => r.workflow_status === "needs_info").length, "Waiting on follow-up"],
+        ["Processing", state.filteredRows.filter(r => r.workflow_status === "processing").length, "In payment flow"],
+        ["Paid", state.filteredRows.filter(r => r.workflow_status === "paid" || r.completed).length, "Resolved"]
+      ];
+
+      els.summaryCards.innerHTML = buckets.map(([label, value, sub]) => `
+        <div class="mini-card">
+          <div class="label">${escapeHtml(label)}</div>
+          <div class="value mono">${escapeHtml(formatNumber(value))}</div>
+          <div class="mt-1 text-xs text-slate-500">${escapeHtml(sub)}</div>
+        </div>
+      `).join("");
+    }
+
+    function renderRecentRequests() {
+      els.recentRequests.innerHTML = state.filteredRows.slice(0, 8).map(r => `
+        <div class="border border-slate-200 rounded-2xl p-3">
+          <div class="font-semibold text-slate-900">${escapeHtml(r.effective_vendor_name || "Unknown vendor")}</div>
+          <div class="mt-1 text-xs text-slate-500">${escapeHtml(requestTypeLabel(r.request_type))}</div>
+          <div class="mt-2 flex items-center justify-between gap-3">
+            <div class="font-extrabold mono text-slate-900">${escapeHtml(formatMoney(r.amount_due))}</div>
+            <button class="btn btn-soft btn-xs open-drawer-btn" data-id="${escapeHtml(r.id)}">Open</button>
+          </div>
+        </div>
+      `).join("") || `<div class="text-sm text-slate-500">No requests in current filter.</div>`;
+
+      document.querySelectorAll(".open-drawer-btn").forEach(btn => {
+        btn.addEventListener("click", () => openDrawer(btn.getAttribute("data-id")));
+      });
+    }
+
+    function renderTable() {
+      els.rowCount.textContent = formatNumber(state.filteredRows.length);
+
+      els.mainHead.innerHTML = `<tr>
+        <th>Vendor</th>
+        <th>Request</th>
+        <th class="right">Amount</th>
+        <th>Due</th>
+        <th>Requester</th>
+        <th>Workflow</th>
+        <th>Assigned</th>
+        <th>File</th>
+        <th>Actions</th>
+      </tr>`;
+
+      els.mainBody.innerHTML = state.filteredRows.map(r => `
+        <tr>
+          <td>
+            <div class="font-semibold text-slate-900">${escapeHtml(r.effective_vendor_name || "Unknown vendor")}</div>
+            <div class="text-xs text-slate-500">${escapeHtml(r.location_name || "No location")}</div>
+            <div class="mt-1">${badgeHtmlPriority(r.priority)}</div>
+          </td>
+          <td>
+            <div class="font-semibold text-slate-900">${escapeHtml(requestTypeLabel(r.request_type))}</div>
+            <div class="text-xs text-slate-500">
+              Inv: ${escapeHtml(r.invoice_number || "—")} · PO: ${escapeHtml(r.internal_po_number || "—")}
+            </div>
+            <div class="text-xs text-slate-500 mt-1">Submitted ${escapeHtml(formatDateTime(r.submitted_at))}</div>
+          </td>
+          <td class="right mono font-extrabold">${formatMoney(r.amount_due)}</td>
+          <td>
+            <div class="font-semibold text-slate-900">${escapeHtml(formatDate(r.due_date))}</div>
+            <div class="mt-1">${badgeHtmlCompleted(r.completed)}</div>
+          </td>
+          <td>
+            <div class="text-slate-900">${escapeHtml(r.requester_email || "—")}</div>
+          </td>
+          <td>
+            <div>${badgeHtmlStatus(r.workflow_status)}</div>
+          </td>
+          <td>
+            <div class="font-semibold text-slate-900">${escapeHtml(assignedName(r.assigned_to))}</div>
+          </td>
+          <td>
+            ${r.file_path
+              ? `<button class="btn btn-soft btn-xs open-file-btn" data-id="${escapeHtml(r.id)}">Open file</button>`
+              : `<span class="text-xs text-slate-400">No file</span>`}
+          </td>
+          <td>
+            <div class="flex flex-wrap gap-2">
+              <button class="btn btn-soft btn-xs open-drawer-btn" data-id="${escapeHtml(r.id)}">Edit</button>
+              <button class="btn btn-soft btn-xs quick-paid-btn" data-id="${escapeHtml(r.id)}">Mark paid</button>
+            </div>
+          </td>
+        </tr>
+      `).join("") || `<tr><td colspan="9" class="py-10 text-center text-slate-500">No payment requests match the current filters.</td></tr>`;
+
+      document.querySelectorAll(".open-drawer-btn").forEach(btn => {
+        btn.addEventListener("click", () => openDrawer(btn.getAttribute("data-id")));
+      });
+
+      document.querySelectorAll(".quick-paid-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          await quickMarkPaid(btn.getAttribute("data-id"));
+        });
+      });
+
+      document.querySelectorAll(".open-file-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          await openFileForRow(btn.getAttribute("data-id"));
+        });
+      });
+    }
+
+    async function createSignedUrl(filePath) {
+      const { data, error } = await supabaseClient.storage
+        .from(BUCKET)
+        .createSignedUrl(filePath, 60 * 10);
+
+      if (error) throw error;
+      return data?.signedUrl;
+    }
+
+    async function openFileForRow(id) {
+      try {
+        const row = state.rows.find(r => r.id === id);
+        if (!row?.file_path) {
+          showToast("No file attached.");
+          return;
+        }
+        const url = await createSignedUrl(row.file_path);
+        if (!url) throw new Error("No signed URL returned.");
+        window.open(url, "_blank", "noopener,noreferrer");
+      } catch (err) {
+        console.error(err);
+        showToast(`File open failed: ${err.message || "Unknown error"}`, true);
+      }
+    }
+
+    async function openDrawer(id) {
+      const row = state.rows.find(r => r.id === id);
+      if (!row) return;
+
+      state.currentRow = row;
+      els.drawerTitle.textContent = row.effective_vendor_name || "Unknown vendor";
+      els.drawerSub.textContent = `${requestTypeLabel(row.request_type)} · ${formatMoney(row.amount_due)} · submitted ${formatDateTime(row.submitted_at)}`;
+
+      els.fEffectiveVendor.value = row.effective_vendor_name || "";
+      els.fRequesterEmail.value = row.requester_email || "";
+      els.fLocationName.value = row.location_name || "";
+      els.fRequestTypeDisplay.value = requestTypeLabel(row.request_type);
+      els.fInvoiceNumber.value = row.invoice_number || "";
+      els.fFlexId.value = row.flex_id || "";
+      els.fPoNumber.value = row.internal_po_number || "";
+      els.fAmountDue.value = formatMoney(row.amount_due);
+      els.fDueDate.value = formatDate(row.due_date);
+      els.fSubmittedNotes.value = row.notes_comments || "";
+
+      els.fWorkflowStatus.value = row.workflow_status || "new";
+      els.fAssignedTo.value = row.assigned_to || "";
+      els.fPriority.value = row.priority || "normal";
+      els.fPaymentType.value = row.payment_type || "";
+      els.fCompleted.value = String(!!row.completed);
+      els.fDateCompleted.value = row.date_completed || "";
+      els.fPaymentDetail.value = row.payment_detail || "";
+      els.fInternalNotes.value = row.internal_notes || "";
+
+      els.fileMeta.textContent = row.file_name
+        ? `${row.file_name}`
+        : "No file attached";
+
+      els.openFileBtn.disabled = !row.file_path;
+
+      els.drawerSnapshot.innerHTML = `
+        <div class="mini-card">
+          <div class="label">Amount due</div>
+          <div class="value mono">${formatMoney(row.amount_due)}</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">Submitted</div>
+          <div class="value">${escapeHtml(formatDateTime(row.submitted_at))}</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">Status</div>
+          <div class="value">${badgeHtmlStatus(row.workflow_status)}</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">Completed</div>
+          <div class="value">${badgeHtmlCompleted(row.completed)}</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">Assigned</div>
+          <div class="value">${escapeHtml(assignedName(row.assigned_to))}</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">File</div>
+          <div class="value">${escapeHtml(row.file_name || "No file")}</div>
+        </div>
+      `;
+
+      els.drawerBackdrop.classList.add("open");
+      els.workbenchDrawer.classList.add("open");
+      els.workbenchDrawer.setAttribute("aria-hidden", "false");
+    }
+
+    function closeDrawer() {
+      els.drawerBackdrop.classList.remove("open");
+      els.workbenchDrawer.classList.remove("open");
+      els.workbenchDrawer.setAttribute("aria-hidden", "true");
+      state.currentRow = null;
+    }
+
+    async function saveRow({ markPaid = false } = {}) {
+      if (!state.currentRow) return;
+
+      els.saveDrawerBtn.disabled = true;
+      els.markPaidBtn.disabled = true;
+
+      try {
+        const completed = markPaid ? true : els.fCompleted.value === "true";
+        const workflowStatus = markPaid ? "paid" : els.fWorkflowStatus.value;
+        const dateCompleted = markPaid
+          ? new Date().toISOString().slice(0, 10)
+          : (els.fDateCompleted.value || null);
+
+        const payload = {
+          workflow_status: workflowStatus,
+          assigned_to: els.fAssignedTo.value || null,
+          priority: els.fPriority.value,
+          payment_type: els.fPaymentType.value || null,
+          completed: completed,
+          date_completed: completed ? dateCompleted : null,
+          payment_detail: els.fPaymentDetail.value.trim() || null,
+          internal_notes: els.fInternalNotes.value.trim() || null,
+          updated_by: state.currentUser?.id || null
+        };
+
+        const { error } = await supabaseClient
+          .from("payment_requests")
+          .update(payload)
+          .eq("id", state.currentRow.id);
+
+        if (error) throw error;
+
+        await loadData();
+        await openDrawer(state.currentRow.id);
+        showToast(markPaid ? "Request marked paid." : "Request updated.");
+      } catch (err) {
+        console.error(err);
+        showToast(`Save failed: ${err.message || "Unknown error"}`, true);
+      } finally {
+        els.saveDrawerBtn.disabled = false;
+        els.markPaidBtn.disabled = false;
+      }
+    }
+
+    async function quickMarkPaid(id) {
+      try {
+        const { error } = await supabaseClient
+          .from("payment_requests")
+          .update({
+            workflow_status: "paid",
+            completed: true,
+            date_completed: new Date().toISOString().slice(0, 10),
+            updated_by: state.currentUser?.id || null
+          })
+          .eq("id", id);
+
+        if (error) throw error;
+        await loadData();
+        showToast("Request marked paid.");
+      } catch (err) {
+        console.error(err);
+        showToast(`Quick mark paid failed: ${err.message || "Unknown error"}`, true);
+      }
+    }
+
+    function clearFilters() {
+      els.statusFilter.value = "";
+      els.priorityFilter.value = "";
+      els.completedFilter.value = "";
+      els.assignedFilter.value = "";
+      els.typeFilter.value = "";
+      els.dueFilter.value = "";
+      els.searchInput.value = "";
+      els.startDate.value = "";
+      els.endDate.value = "";
+      refreshAll();
+      setStatus(`Loaded ${formatNumber(state.rows.length)} payment requests.`);
+    }
+
+    function wireEvents() {
+      els.refreshBtn.addEventListener("click", loadData);
+      els.clearFiltersBtn.addEventListener("click", clearFilters);
+
+      [
+        els.statusFilter,
+        els.priorityFilter,
+        els.completedFilter,
+        els.assignedFilter,
+        els.typeFilter,
+        els.dueFilter,
+        els.searchInput,
+        els.startDate,
+        els.endDate
+      ].forEach(el => {
+        el.addEventListener("input", refreshAll);
+        el.addEventListener("change", refreshAll);
+      });
+
+      els.closeDrawerBtn.addEventListener("click", closeDrawer);
+      els.drawerBackdrop.addEventListener("click", closeDrawer);
+      els.saveDrawerBtn.addEventListener("click", () => saveRow());
+      els.markPaidBtn.addEventListener("click", () => saveRow({ markPaid: true }));
+      els.openFileBtn.addEventListener("click", async () => {
+        if (state.currentRow?.id) await openFileForRow(state.currentRow.id);
+      });
+    }
+
+    async function init() {
+      try {
+        state.currentUser = await getCurrentUser();
+        wireEvents();
+        loadData();
+      } catch (err) {
+        console.error(err);
+        setStatus(`Init failed: ${err.message || "Unknown error"}`, true);
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
