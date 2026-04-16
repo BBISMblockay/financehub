@@ -1280,35 +1280,49 @@
           letter-spacing:-.03em;
         }
 
-        .flags{
-          display:flex;
-          flex-wrap:wrap;
-          gap:10px;
-          margin-top:18px;
-        }
+        .spec-block{
+  margin-top:20px;
+  border-top:1px solid var(--line);
+  padding-top:16px;
+}
 
-        .flag{
-          display:inline-flex;
-          align-items:center;
-          gap:8px;
-          border:1px solid var(--line);
-          background:var(--soft);
-          border-radius:999px;
-          padding:9px 12px;
-          font-size:12px;
-          font-weight:700;
-        }
+.spec-title{
+  font-size:10px;
+  letter-spacing:.18em;
+  text-transform:uppercase;
+  color:var(--muted);
+  font-weight:700;
+  margin-bottom:12px;
+}
 
-        .flag-dot{
-          width:8px;
-          height:8px;
-          border-radius:999px;
-          background:#cbd5e1;
-        }
+.spec-grid{
+  display:grid;
+  grid-template-columns:repeat(2,minmax(0,1fr));
+  gap:10px 24px;
+}
 
-        .flag-yes .flag-dot{
-          background:#16a34a;
-        }
+.spec-row{
+  display:grid;
+  grid-template-columns:130px 1fr;
+  gap:10px;
+  align-items:start;
+  padding:6px 0;
+}
+
+.spec-k{
+  font-size:11px;
+  text-transform:uppercase;
+  letter-spacing:.12em;
+  color:var(--muted);
+  font-weight:700;
+}
+
+.spec-v{
+  font-size:13px;
+  color:var(--ink);
+  font-weight:600;
+  line-height:1.4;
+}
 
         .notes-card{
           margin-top:18px;
@@ -1579,26 +1593,27 @@
               </div>
             </div>
 
-            <div class="flags">
-              <div class="flag ${po.is_new_product_po ? 'flag-yes' : ''}">
-                <span class="flag-dot"></span>
-                ${po.is_new_product_po ? 'New Product' : 'Restock Product'}
-              </div>
-              <div class="flag ${po.wholesale_triggered ? 'flag-yes' : ''}">
-                <span class="flag-dot"></span>
-                ${po.wholesale_triggered ? 'Wholesale Triggered' : 'Wholesale Not Triggered'}
-              </div>
-              <div class="flag">
-                <span class="flag-dot"></span>
-                Product Images: Not Attached
-              </div>
-              <div class="flag">
-                <span class="flag-dot"></span>
-                Tech Pack: No Tech Pack
-              </div>
-            </div>
-          </div>
-        </div>
+            <div class="spec-block">
+  <div class="spec-title">Production Requirements</div>
+  <div class="spec-grid">
+    <div class="spec-row">
+      <div class="spec-k">Product Type</div>
+      <div class="spec-v">${po.is_new_product_po ? 'New Product' : 'Restock Product'}</div>
+    </div>
+    <div class="spec-row">
+      <div class="spec-k">Wholesale</div>
+      <div class="spec-v">${po.wholesale_triggered ? 'Triggered' : 'Not Triggered'}</div>
+    </div>
+    <div class="spec-row">
+      <div class="spec-k">Product Images</div>
+      <div class="spec-v">Not Attached</div>
+    </div>
+    <div class="spec-row">
+      <div class="spec-k">Tech Pack</div>
+      <div class="spec-v">No Tech Pack</div>
+    </div>
+  </div>
+</div>
 
         ${po.notes ? `
           <div class="notes-card">
