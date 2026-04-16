@@ -474,6 +474,7 @@
       poRows: [],
       currentPO: null,
       currentLines: [],
+      catalogRows: [],
       catalogResults: []
     };
 
@@ -637,25 +638,52 @@
       setEditorEnabled(true);
       await loadPOLines(po.id);
     }
+    
+    async function loadCatalogProducts() {
+  const { data, error } = await sb
+    .from('products_master')
+    .select('id, sku, product_title, variant_title, product_type, upc, msrp, unit_cost, is_active')
+    .order('product_title', { ascending: true })
+    .limit(1000);
+
+  if (error) throw error;
+
+  state.catalogRows = data || [];
+}
 
     async function searchCatalog() {
-      const raw = el.catalogSearch.value.trim();
-      let query = sb
-        .from('products_master')
-        .select('id, sku, product_title, variant_title, product_type, upc, msrp, unit_cost, is_active')
-        .limit(200);
+  if (!state.catalogRows.length) {
+    await loadCatalogProducts();
+  }
 
-      if (raw) {
-        const q = raw.replaceAll(',', ' ').trim();
-        query = query.or(`sku.ilike.%${q}%,product_title.ilike.%${q}%,variant_title.ilike.%${q}%,product_type.ilike.%${q}%`);
-      }
+  const raw = el.catalogSearch.value.trim().toLowerCase();
 
-      const { data, error } = await query.order('product_title', { ascending: true });
+  let rows = [...state.catalogRows];
 
-      if (error) throw error;
-      state.catalogResults = data || [];
-      renderCatalogResults();
-    }
+  rows = rows.filter(row => row.is_active !== false);
+
+  if (raw) {
+    const terms = raw.split(/\s+/).filter(Boolean);
+
+    rows = rows.filter(row => {
+      const haystack = [
+        row.sku,
+        row.product_title,
+        row.variant_title,
+        row.product_type,
+        row.upc
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      return terms.every(term => haystack.includes(term));
+    });
+  }
+
+  state.catalogResults = rows.slice(0, 200);
+  renderCatalogResults();
+}
 
     function renderFactoryOptions() {
       const current = el.factoryId.value;
