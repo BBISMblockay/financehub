@@ -1039,63 +1039,109 @@
   if (!state.currentPO) return '';
 
   const po = state.currentPO;
-  const factory = state.factories.find(f => f.id === po.factory_id);
   const lines = [...(state.currentLines || [])];
+  const factory = state.factories.find(f => f.id === po.factory_id);
 
-  const grouped = lines.reduce((acc, line) => {
-    const groupKey = line.product_type_snapshot || 'Other Products';
-    if (!acc[groupKey]) acc[groupKey] = [];
-    acc[groupKey].push(line);
+  const totalUnits = lines.reduce((sum, r) => sum + Number(r.qty || 0), 0);
+
+  const productPagesMap = lines.reduce((acc, line) => {
+    const key = line.title_snapshot || 'Untitled Product';
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(line);
     return acc;
   }, {});
 
-  const totalUnits = lines.reduce((sum, r) => sum + Number(r.qty || 0), 0);
-  const totalStyles = new Set(
-    lines.map(l => `${l.title_snapshot || ''}||${l.product_type_snapshot || ''}`)
-  ).size;
+  const productPages = Object.entries(productPagesMap)
+    .map(([title, productLines]) => ({
+      title,
+      lines: [...productLines].sort((a, b) => {
+        const aVal = `${a.variant_title_snapshot || ''} ${a.sku_snapshot || ''}`.toLowerCase();
+        const bVal = `${b.variant_title_snapshot || ''} ${b.sku_snapshot || ''}`.toLowerCase();
+        return aVal.localeCompare(bVal);
+      })
+    }))
+    .sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()));
 
-  const sectionHtml = Object.entries(grouped).map(([groupName, groupLines]) => {
-    const sorted = [...groupLines].sort((a, b) => {
-      const t1 = `${a.title_snapshot || ''} ${a.variant_title_snapshot || ''} ${a.sku_snapshot || ''}`.toLowerCase();
-      const t2 = `${b.title_snapshot || ''} ${b.variant_title_snapshot || ''} ${b.sku_snapshot || ''}`.toLowerCase();
-      return t1.localeCompare(t2);
-    });
+  const totalStyles = productPages.length;
+  const orderTypeLabel = po.is_new_product_po ? 'New Product' : 'Restock';
+  const techPackLabel = 'No Tech Pack';
+
+  const detailPagesHtml = productPages.map((product, idx) => {
+    const pageNumber = idx + 2;
+    const productQty = product.lines.reduce((sum, r) => sum + Number(r.qty || 0), 0);
+    const productType = product.lines[0]?.product_type_snapshot || '';
 
     return `
-      <section class="section-block">
-        <div class="section-head">
-          <div class="section-title">${escapeHtml(groupName)}</div>
-          <div class="section-count">${sorted.length} line${sorted.length === 1 ? '' : 's'}</div>
+      <div class="page-break"></div>
+
+      <div class="sheet detail-page">
+        <div class="detail-head">
+          <div>
+            <div class="detail-kicker">${escapeHtml(productType || 'Product')}</div>
+            <h2 class="detail-title">${escapeHtml(product.title)}</h2>
+            <div class="detail-sub">
+              One product title per page for cleaner factory review and production prep.
+            </div>
+          </div>
+
+          <div class="detail-meta">
+            <div class="detail-meta-row">PO#: <strong>${escapeHtml(po.po_name || '')}</strong></div>
+            <div class="detail-meta-row">Order Date: <strong>${escapeHtml(po.order_date || '—')}</strong></div>
+            <div class="detail-meta-row">Req. Ship Date: <strong>${escapeHtml(po.req_ship_date || '—')}</strong></div>
+            <div class="detail-meta-row">Units on This Page: <strong>${Number(productQty || 0).toLocaleString()}</strong></div>
+          </div>
         </div>
 
-        <table class="lines-table">
+        <div class="product-strip">
+          <div class="strip-item">
+            <div class="strip-k">Order Type</div>
+            <div class="strip-v">${escapeHtml(orderTypeLabel)}</div>
+          </div>
+          <div class="strip-item">
+            <div class="strip-k">Tech Pack</div>
+            <div class="strip-v">${escapeHtml(techPackLabel)}</div>
+          </div>
+          <div class="strip-item">
+            <div class="strip-k">Factory</div>
+            <div class="strip-v">${escapeHtml(factory?.factory_name || '—')}</div>
+          </div>
+        </div>
+
+        <table class="lines-table compact">
           <thead>
             <tr>
-              <th class="barcode-col">Barcode</th>
+              <th class="upc-col">UPC Code</th>
               <th>Product Title</th>
+              <th class="sku-col">SKU</th>
               <th>Variant</th>
-              <th>SKU</th>
-              <th class="upc-col">UPC</th>
               <th class="qty-col right">Qty</th>
             </tr>
           </thead>
           <tbody>
-            ${sorted.map(line => `
+            ${product.lines.map(line => `
               <tr>
-                <td>${escapeHtml(line.barcode_snapshot || '')}</td>
-                <td>
-                  <div class="line-title">${escapeHtml(line.title_snapshot || '')}</div>
-                  ${line.line_notes ? `<div class="line-note">${escapeHtml(line.line_notes)}</div>` : ''}
-                </td>
-                <td>${escapeHtml(line.variant_title_snapshot || '—')}</td>
-                <td>${escapeHtml(line.sku_snapshot || '')}</td>
                 <td>${escapeHtml(line.upc_snapshot || '')}</td>
+                <td>
+                  <div class="cell-main">${escapeHtml(line.title_snapshot || '')}</div>
+                  ${line.line_notes ? `<div class="cell-sub">${escapeHtml(line.line_notes)}</div>` : ''}
+                </td>
+                <td>
+                  <div class="cell-main">${escapeHtml(line.sku_snapshot || '')}</div>
+                </td>
+                <td>
+                  <div class="cell-main caps">${escapeHtml(line.variant_title_snapshot || '—')}</div>
+                </td>
                 <td class="right qty">${Number(line.qty || 0).toLocaleString()}</td>
               </tr>
             `).join('')}
           </tbody>
         </table>
-      </section>
+
+        <div class="detail-footer">
+          <div>Vendor-facing export · pricing intentionally excluded</div>
+          <div>${escapeHtml(po.po_name || '')} · Page ${pageNumber}</div>
+        </div>
+      </div>
     `;
   }).join('');
 
@@ -1113,7 +1159,7 @@
           --ink:#171717;
           --muted:#737373;
           --line:#d4d4d4;
-          --line-soft:#e8e8e8;
+          --line-soft:#ececec;
           --soft:#f7f7f7;
         }
 
@@ -1335,6 +1381,12 @@
           break-before:page;
         }
 
+        .detail-page{
+          min-height:calc(100vh - 62px);
+          display:flex;
+          flex-direction:column;
+        }
+
         .detail-head{
           display:grid;
           grid-template-columns:1fr 240px;
@@ -1342,7 +1394,16 @@
           align-items:end;
           padding-bottom:18px;
           border-bottom:2px solid var(--ink);
-          margin-bottom:22px;
+          margin-bottom:18px;
+        }
+
+        .detail-kicker{
+          font-size:10px;
+          letter-spacing:.18em;
+          text-transform:uppercase;
+          color:var(--muted);
+          font-weight:700;
+          margin-bottom:10px;
         }
 
         .detail-title{
@@ -1377,30 +1438,32 @@
           font-weight:800;
         }
 
-        .section-block{
-          margin-bottom:28px;
-        }
-
-        .section-head{
-          display:flex;
-          justify-content:space-between;
-          align-items:flex-end;
-          gap:12px;
+        .product-strip{
+          display:grid;
+          grid-template-columns:repeat(3,minmax(0,1fr));
+          gap:18px;
+          padding:0 0 16px 0;
           margin-bottom:10px;
+          border-bottom:1px solid var(--line);
         }
 
-        .section-title{
-          font-size:18px;
-          font-weight:800;
-          letter-spacing:-.03em;
+        .strip-item{
+          display:grid;
+          gap:6px;
         }
 
-        .section-count{
+        .strip-k{
           font-size:10px;
-          font-weight:700;
-          text-transform:uppercase;
           letter-spacing:.16em;
+          text-transform:uppercase;
           color:var(--muted);
+          font-weight:700;
+        }
+
+        .strip-v{
+          font-size:13px;
+          font-weight:700;
+          line-height:1.4;
         }
 
         .lines-table{
@@ -1410,7 +1473,7 @@
 
         .lines-table thead th{
           text-align:left;
-          padding:11px 8px;
+          padding:10px 8px;
           font-size:10px;
           font-weight:700;
           text-transform:uppercase;
@@ -1419,28 +1482,34 @@
           border-bottom:1.5px solid var(--line);
         }
 
-        .lines-table tbody td{
-          padding:13px 8px;
+        .lines-table.compact tbody td{
+          padding:10px 8px;
           vertical-align:top;
           font-size:12px;
           border-bottom:1px solid var(--line-soft);
         }
 
-        .lines-table tbody tr:last-child td{
+        .lines-table.compact tbody tr:last-child td{
           border-bottom:1px solid var(--line);
         }
 
-        .line-title{
-          font-size:13px;
+        .cell-main{
+          font-size:12px;
           font-weight:700;
-          line-height:1.35;
+          line-height:1.32;
         }
 
-        .line-note{
-          margin-top:5px;
-          font-size:11px;
-          line-height:1.45;
+        .cell-sub{
+          margin-top:4px;
+          font-size:10px;
+          line-height:1.4;
           color:var(--muted);
+          max-width:260px;
+        }
+
+        .caps{
+          text-transform:uppercase;
+          letter-spacing:.04em;
         }
 
         .right{
@@ -1452,17 +1521,17 @@
           font-size:13px;
         }
 
-        .barcode-col{width:130px}
         .upc-col{width:120px}
-        .qty-col{width:84px}
+        .sku-col{width:160px}
+        .qty-col{width:86px}
 
         .detail-footer{
           display:flex;
           justify-content:space-between;
           align-items:center;
           gap:12px;
-          margin-top:24px;
-          padding-top:14px;
+          margin-top:auto;
+          padding-top:18px;
           border-top:1px solid var(--line);
           font-size:11px;
           color:var(--muted);
@@ -1499,6 +1568,7 @@
           .no-print{display:none!important}
           .sheet{padding:0}
           .cover{min-height:auto}
+          .detail-page{min-height:auto}
         }
       </style>
     </head>
@@ -1540,8 +1610,8 @@
               <tr>
                 <td class="key">Buyer Contact</td>
                 <td class="val">
-                  Justin@baseballism.com<br>
-                  +1 (317) 354-6228
+                  Chris Clements<br>
+                  (831) 383-8283
                 </td>
               </tr>
             </table>
@@ -1572,20 +1642,12 @@
             <div class="block-title" style="margin-top:20px;">Production Requirements</div>
             <table class="req-table">
               <tr>
-                <td class="key">Product Type</td>
-                <td class="val">${po.is_new_product_po ? 'New Product' : 'Restock Product'}</td>
-              </tr>
-              <tr>
-                <td class="key">Wholesale</td>
-                <td class="val">${po.wholesale_triggered ? 'Triggered' : 'Not Triggered'}</td>
-              </tr>
-              <tr>
-                <td class="key">Product Images</td>
-                <td class="val">Not Attached</td>
+                <td class="key">Order Type</td>
+                <td class="val">${orderTypeLabel}</td>
               </tr>
               <tr>
                 <td class="key">Tech Pack</td>
-                <td class="val">No Tech Pack</td>
+                <td class="val">${techPackLabel}</td>
               </tr>
             </table>
           </div>
@@ -1604,32 +1666,10 @@
         </div>
       </div>
 
-      <div class="page-break"></div>
+      ${detailPagesHtml}
 
-      <div class="sheet">
-        <div class="detail-head">
-          <div>
-            <h2 class="detail-title">Line Item Detail</h2>
-            <div class="detail-sub">
-              Grouped by product type for vendor review and production prep.
-            </div>
-          </div>
-
-          <div class="detail-meta">
-            <div class="detail-meta-row">PO#: <strong>${escapeHtml(po.po_name || '')}</strong></div>
-            <div class="detail-meta-row">Order Date: <strong>${escapeHtml(po.order_date || '—')}</strong></div>
-            <div class="detail-meta-row">Req. Ship Date: <strong>${escapeHtml(po.req_ship_date || '—')}</strong></div>
-          </div>
-        </div>
-
-        ${sectionHtml}
-
-        <div class="detail-footer">
-          <div>Vendor-facing export · pricing intentionally excluded</div>
-          <div>${escapeHtml(po.po_name || '')}</div>
-        </div>
-
-        <div class="no-print-actions no-print">
+      <div class="sheet no-print">
+        <div class="no-print-actions">
           <button onclick="window.print()" class="print-btn">Print / Save PDF</button>
           <button onclick="window.close()" class="print-btn alt">Close</button>
         </div>
