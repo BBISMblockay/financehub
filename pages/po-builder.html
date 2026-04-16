@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Silo · PO Builder</title>
+  <title>Silo · PO Builder v2</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="./config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -11,105 +11,194 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
-    :root {
-      --bg: #f5f7fb;
-      --card: rgba(255,255,255,.9);
-      --line: rgba(15,23,42,.08);
-      --text: #0f172a;
-      --muted: #64748b;
-      --shadow: 0 10px 30px rgba(15,23,42,.08);
-      --radius: 24px;
-      --brand: #0f172a;
-      --brand-2: #1e293b;
-      --good: #166534;
-      --warn: #92400e;
-      --bad: #991b1b;
+    :root{
+      --bg:#f5f7fb;
+      --card:rgba(255,255,255,.92);
+      --line:rgba(15,23,42,.08);
+      --text:#0f172a;
+      --muted:#64748b;
+      --shadow:0 10px 30px rgba(15,23,42,.08);
+      --radius:24px;
+      --brand:#0f172a;
+      --brand-2:#1e293b;
     }
-    * { box-sizing: border-box; }
-    html, body {
-      margin: 0;
-      padding: 0;
-      font-family: Inter, system-ui, sans-serif;
-      color: var(--text);
-      background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+    *{box-sizing:border-box}
+    html,body{
+      margin:0;padding:0;
+      font-family:Inter,system-ui,sans-serif;
+      color:var(--text);
+      background:linear-gradient(180deg,#f8fafc 0%,#eef2f7 100%);
     }
-    .glass {
-      background: var(--card);
-      backdrop-filter: blur(14px);
-      border: 1px solid var(--line);
-      box-shadow: var(--shadow);
-      border-radius: var(--radius);
+    .glass{
+      background:var(--card);
+      backdrop-filter:blur(14px);
+      border:1px solid var(--line);
+      box-shadow:var(--shadow);
+      border-radius:var(--radius);
     }
-    .pill { border: 1px solid var(--line); background: white; border-radius: 999px; }
-    .table-wrap { overflow: auto; }
-    .sticky-head thead th { position: sticky; top: 0; background: rgba(248,250,252,.98); z-index: 2; }
-    .soft-scroll::-webkit-scrollbar { height: 10px; width: 10px; }
-    .soft-scroll::-webkit-scrollbar-thumb { background: rgba(148,163,184,.45); border-radius: 999px; }
-    .soft-scroll::-webkit-scrollbar-track { background: transparent; }
-    .modal-backdrop { background: rgba(15,23,42,.42); }
-    .hidden-safe { display: none !important; }
-    input, select, textarea {
-      outline: none;
-      border: 1px solid rgba(148,163,184,.35);
-      background: white;
-      color: var(--text);
-      border-radius: 16px;
-      transition: .18s ease;
+    .pill{border:1px solid var(--line);background:white;border-radius:999px}
+    .table-wrap{overflow:auto}
+    .sticky-head thead th{position:sticky;top:0;background:rgba(248,250,252,.98);z-index:2}
+    .soft-scroll::-webkit-scrollbar{height:10px;width:10px}
+    .soft-scroll::-webkit-scrollbar-thumb{background:rgba(148,163,184,.45);border-radius:999px}
+    .soft-scroll::-webkit-scrollbar-track{background:transparent}
+    .modal-backdrop{background:rgba(15,23,42,.42)}
+    .hidden-safe{display:none!important}
+    input,select,textarea{
+      outline:none;
+      border:1px solid rgba(148,163,184,.35);
+      background:white;
+      color:var(--text);
+      border-radius:16px;
+      transition:.18s ease;
     }
-    input:focus, select:focus, textarea:focus {
-      border-color: rgba(59,130,246,.45);
-      box-shadow: 0 0 0 4px rgba(59,130,246,.10);
+    input:focus,select:focus,textarea:focus{
+      border-color:rgba(59,130,246,.45);
+      box-shadow:0 0 0 4px rgba(59,130,246,.10);
     }
-    .btn {
-      border-radius: 16px;
-      padding: .8rem 1rem;
-      font-weight: 600;
-      transition: .18s ease;
-      border: 1px solid transparent;
-      cursor: pointer;
+    .btn{
+      border-radius:16px;
+      padding:.8rem 1rem;
+      font-weight:600;
+      transition:.18s ease;
+      border:1px solid transparent;
+      cursor:pointer;
     }
-    .btn-primary { background: var(--brand); color: white; }
-    .btn-primary:hover { background: #020617; }
-    .btn-secondary { background: white; border-color: var(--line); color: var(--text); }
-    .btn-secondary:hover { background: #f8fafc; }
-    .btn-danger { background: #fff1f2; color: #be123c; border-color: #fecdd3; }
-    .status-badge {
-      border-radius: 999px;
-      padding: .35rem .7rem;
-      font-size: .78rem;
-      font-weight: 700;
-      display: inline-flex;
-      align-items: center;
-      gap: .45rem;
+    .btn-primary{background:var(--brand);color:white}
+    .btn-primary:hover{background:#020617}
+    .btn-secondary{background:white;border-color:var(--line);color:var(--text)}
+    .btn-secondary:hover{background:#f8fafc}
+    .btn-danger{background:#fff1f2;color:#be123c;border-color:#fecdd3}
+    .btn-success{background:#ecfdf5;color:#166534;border-color:#bbf7d0}
+    .status-badge{
+      border-radius:999px;
+      padding:.35rem .7rem;
+      font-size:.78rem;
+      font-weight:700;
+      display:inline-flex;
+      align-items:center;
+      gap:.45rem;
     }
-    .status-dot { width: .5rem; height: .5rem; border-radius: 999px; display: inline-block; }
-    .status-Draft { background: #eff6ff; color: #1d4ed8; }
-    .status-Draft .status-dot { background: #3b82f6; }
-    .status-Approved { background: #f5f3ff; color: #6d28d9; }
-    .status-Approved .status-dot { background: #8b5cf6; }
-    .status-Sent\ to\ Factory { background: #ecfeff; color: #0f766e; }
-    .status-Sent\ to\ Factory .status-dot { background: #14b8a6; }
-    .status-Confirmed { background: #f0fdf4; color: #166534; }
-    .status-Confirmed .status-dot { background: #22c55e; }
-    .status-In\ Production { background: #fffbeb; color: #b45309; }
-    .status-In\ Production .status-dot { background: #f59e0b; }
-    .status-Shipped, .status-In\ Transit, .status-Partially\ Received { background: #eef2ff; color: #4338ca; }
-    .status-Shipped .status-dot, .status-In\ Transit .status-dot, .status-Partially\ Received .status-dot { background: #6366f1; }
-    .status-Received, .status-Closed { background: #f0fdf4; color: #166534; }
-    .status-Received .status-dot, .status-Closed .status-dot { background: #16a34a; }
-    .status-Cancelled { background: #fef2f2; color: #991b1b; }
-    .status-Cancelled .status-dot { background: #ef4444; }
+    .status-dot{width:.5rem;height:.5rem;border-radius:999px;display:inline-block}
+    .status-Draft{background:#eff6ff;color:#1d4ed8}
+    .status-Draft .status-dot{background:#3b82f6}
+    .status-Approved{background:#f5f3ff;color:#6d28d9}
+    .status-Approved .status-dot{background:#8b5cf6}
+    .status-Sent\ to\ Factory{background:#ecfeff;color:#0f766e}
+    .status-Sent\ to\ Factory .status-dot{background:#14b8a6}
+    .status-Confirmed{background:#f0fdf4;color:#166534}
+    .status-Confirmed .status-dot{background:#22c55e}
+    .status-In\ Production{background:#fffbeb;color:#b45309}
+    .status-In\ Production .status-dot{background:#f59e0b}
+    .status-Shipped,.status-In\ Transit,.status-Partially\ Received{background:#eef2ff;color:#4338ca}
+    .status-Shipped .status-dot,.status-In\ Transit .status-dot,.status-Partially\ Received .status-dot{background:#6366f1}
+    .status-Received,.status-Closed{background:#f0fdf4;color:#166534}
+    .status-Received .status-dot,.status-Closed .status-dot{background:#16a34a}
+    .status-Cancelled{background:#fef2f2;color:#991b1b}
+    .status-Cancelled .status-dot{background:#ef4444}
+    .muted-label{
+      margin-bottom:.5rem;
+      display:block;
+      font-size:.72rem;
+      font-weight:700;
+      text-transform:uppercase;
+      letter-spacing:.18em;
+      color:#64748b;
+    }
+    .pdf-sheet{
+      font-family:Inter,system-ui,sans-serif;
+      color:#111827;
+      padding:34px;
+    }
+    .pdf-head{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:20px;
+      border-bottom:2px solid #e5e7eb;
+      padding-bottom:20px;
+      margin-bottom:24px;
+    }
+    .pdf-title{
+      font-size:30px;
+      font-weight:800;
+      letter-spacing:-.03em;
+      margin:0;
+    }
+    .pdf-sub{
+      margin-top:6px;
+      color:#6b7280;
+      font-size:13px;
+    }
+    .pdf-grid{
+      display:grid;
+      grid-template-columns:repeat(4,1fr);
+      gap:14px;
+      margin-bottom:24px;
+    }
+    .pdf-card{
+      border:1px solid #e5e7eb;
+      border-radius:16px;
+      padding:14px;
+      background:#fafafa;
+    }
+    .pdf-card .k{
+      font-size:10px;
+      letter-spacing:.16em;
+      text-transform:uppercase;
+      color:#6b7280;
+      font-weight:700;
+      margin-bottom:8px;
+    }
+    .pdf-card .v{
+      font-size:14px;
+      font-weight:700;
+      color:#111827;
+    }
+    .pdf-table{
+      width:100%;
+      border-collapse:collapse;
+      margin-top:8px;
+    }
+    .pdf-table th,
+    .pdf-table td{
+      border-bottom:1px solid #e5e7eb;
+      padding:10px 8px;
+      text-align:left;
+      font-size:12px;
+      vertical-align:top;
+    }
+    .pdf-table th{
+      text-transform:uppercase;
+      letter-spacing:.12em;
+      font-size:10px;
+      color:#6b7280;
+    }
+    .pdf-notes{
+      margin-top:24px;
+      border:1px solid #e5e7eb;
+      border-radius:16px;
+      padding:16px;
+      background:#fafafa;
+      font-size:12px;
+      white-space:pre-wrap;
+    }
+    @media (max-width: 1200px){
+      .pdf-grid{grid-template-columns:repeat(2,1fr)}
+    }
   </style>
 </head>
 <body>
   <div class="min-h-screen px-4 py-4 sm:px-6 lg:px-8">
-    <div class="mx-auto max-w-[1600px] space-y-5">
+    <div class="mx-auto max-w-[1650px] space-y-5">
       <header class="glass px-5 py-5 sm:px-6">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Silo Purchasing</div>
             <div class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">PO Builder</div>
-            <div class="mt-2 max-w-3xl text-sm text-slate-500">Create and manage purchase orders against the new Supabase workflow. Build headers, add catalog or manual lines, review totals, and prep for PDF generation.</div>
+            <div class="mt-2 max-w-4xl text-sm text-slate-500">
+              Create and manage purchase orders against the new Supabase workflow. Build headers, add catalog or manual lines, review totals, and generate a vendor-facing PDF.
+            </div>
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <button id="btnRefresh" class="btn btn-secondary">Refresh</button>
@@ -155,6 +244,7 @@
               </div>
               <div class="flex flex-wrap gap-2">
                 <button id="btnSaveHeader" class="btn btn-primary" disabled>Save Header</button>
+                <button id="btnGeneratePdf" class="btn btn-success" disabled>Generate Vendor PDF</button>
                 <button id="btnAddCatalogLine" class="btn btn-secondary" disabled>Add Catalog Line</button>
                 <button id="btnAddManualLine" class="btn btn-secondary" disabled>Add Manual Line</button>
               </div>
@@ -162,31 +252,31 @@
 
             <div class="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <div>
-                <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">PO Name</label>
+                <label class="muted-label">PO Name</label>
                 <input id="poName" type="text" class="w-full px-4 py-3 text-sm font-semibold" placeholder="Auto-generated" />
               </div>
               <div>
-                <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Factory</label>
+                <label class="muted-label">Factory</label>
                 <select id="factoryId" class="w-full px-4 py-3 text-sm"></select>
               </div>
               <div>
-                <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Order Date</label>
+                <label class="muted-label">Order Date</label>
                 <input id="orderDate" type="date" class="w-full px-4 py-3 text-sm" />
               </div>
               <div>
-                <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Required Ship Date</label>
+                <label class="muted-label">Required Ship Date</label>
                 <input id="reqShipDate" type="date" class="w-full px-4 py-3 text-sm" />
               </div>
               <div>
-                <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Expected Arrival</label>
+                <label class="muted-label">Expected Arrival</label>
                 <input id="expectedArrivalDate" type="date" class="w-full px-4 py-3 text-sm" />
               </div>
               <div>
-                <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Date Bucket</label>
+                <label class="muted-label">Date Bucket</label>
                 <input id="dateBucket" type="text" class="w-full px-4 py-3 text-sm" placeholder="Holiday 2026" />
               </div>
               <div>
-                <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Status</label>
+                <label class="muted-label">Status</label>
                 <select id="status" class="w-full px-4 py-3 text-sm"></select>
               </div>
               <div class="grid grid-cols-2 gap-3">
@@ -203,11 +293,11 @@
 
             <div class="mt-4 grid gap-4 lg:grid-cols-2">
               <div>
-                <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Vendor Notes</label>
+                <label class="muted-label">Vendor Notes</label>
                 <textarea id="notes" rows="4" class="w-full px-4 py-3 text-sm" placeholder="Visible vendor-facing notes if needed"></textarea>
               </div>
               <div>
-                <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Internal Notes</label>
+                <label class="muted-label">Internal Notes</label>
                 <textarea id="internalNotes" rows="4" class="w-full px-4 py-3 text-sm" placeholder="Internal purchasing / planning notes"></textarea>
               </div>
             </div>
@@ -234,7 +324,7 @@
                 <div class="text-lg font-bold text-slate-900">PO Lines</div>
                 <div class="text-sm text-slate-500">Linked catalog lines or manual fallback entries</div>
               </div>
-              <div class="text-sm text-slate-500">Vendor PDF should later hide retail price</div>
+              <div class="text-sm text-slate-500">Vendor PDF excludes retail and cost</div>
             </div>
 
             <div class="mt-4 table-wrap soft-scroll sticky-head">
@@ -265,7 +355,7 @@
 
   <div id="catalogModal" class="fixed inset-0 z-40 hidden-safe items-center justify-center p-4">
     <div class="absolute inset-0 modal-backdrop"></div>
-    <div class="relative z-10 w-full max-w-5xl glass p-4 sm:p-5">
+    <div class="relative z-10 w-full max-w-6xl glass p-4 sm:p-5">
       <div class="flex items-center justify-between gap-3 border-b border-slate-200 pb-4">
         <div>
           <div class="text-lg font-bold text-slate-900">Add Catalog Line</div>
@@ -273,7 +363,7 @@
         </div>
         <button class="btn btn-secondary" data-close="catalogModal">Close</button>
       </div>
-      <div class="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_140px]">
+      <div class="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_160px]">
         <input id="catalogSearch" type="text" class="w-full px-4 py-3 text-sm" placeholder="Search SKU, title, variant, product type..." />
         <button id="btnSearchCatalog" class="btn btn-primary">Search</button>
       </div>
@@ -309,44 +399,44 @@
       </div>
       <div class="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <div>
-          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Product Type</label>
+          <label class="muted-label">Product Type</label>
           <input id="manualProductType" type="text" class="w-full px-4 py-3 text-sm" />
         </div>
         <div>
-          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Title</label>
+          <label class="muted-label">Title</label>
           <input id="manualTitle" type="text" class="w-full px-4 py-3 text-sm" />
         </div>
         <div>
-          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Variant</label>
+          <label class="muted-label">Variant</label>
           <input id="manualVariant" type="text" class="w-full px-4 py-3 text-sm" />
         </div>
         <div>
-          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">SKU</label>
+          <label class="muted-label">SKU</label>
           <input id="manualSku" type="text" class="w-full px-4 py-3 text-sm" />
         </div>
         <div>
-          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">UPC</label>
+          <label class="muted-label">UPC</label>
           <input id="manualUpc" type="text" class="w-full px-4 py-3 text-sm" />
         </div>
         <div>
-          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Barcode</label>
+          <label class="muted-label">Barcode</label>
           <input id="manualBarcode" type="text" class="w-full px-4 py-3 text-sm" />
         </div>
         <div>
-          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Retail Price</label>
+          <label class="muted-label">Retail Price</label>
           <input id="manualRetail" type="number" step="0.01" class="w-full px-4 py-3 text-sm" />
         </div>
         <div>
-          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Unit Cost</label>
+          <label class="muted-label">Unit Cost</label>
           <input id="manualCost" type="number" step="0.01" class="w-full px-4 py-3 text-sm" />
         </div>
         <div>
-          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Qty</label>
+          <label class="muted-label">Qty</label>
           <input id="manualQty" type="number" min="0" step="1" class="w-full px-4 py-3 text-sm" value="0" />
         </div>
       </div>
       <div class="mt-4">
-        <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Line Notes</label>
+        <label class="muted-label">Line Notes</label>
         <textarea id="manualNotes" rows="3" class="w-full px-4 py-3 text-sm"></textarea>
       </div>
       <div class="mt-4 flex justify-end gap-2">
@@ -399,6 +489,7 @@
       detailMeta: document.getElementById('detailMeta'),
       detailStatusWrap: document.getElementById('detailStatusWrap'),
       btnSaveHeader: document.getElementById('btnSaveHeader'),
+      btnGeneratePdf: document.getElementById('btnGeneratePdf'),
       btnAddCatalogLine: document.getElementById('btnAddCatalogLine'),
       btnAddManualLine: document.getElementById('btnAddManualLine'),
       poName: document.getElementById('poName'),
@@ -445,10 +536,6 @@
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#039;');
-    }
-
-    function toast(msg) {
-      console.log(msg);
     }
 
     function modalOpen(node) {
@@ -499,6 +586,7 @@
 
     function setEditorEnabled(enabled) {
       el.btnSaveHeader.disabled = !enabled;
+      el.btnGeneratePdf.disabled = !enabled || !state.currentPO?.id;
       el.btnAddCatalogLine.disabled = !enabled || !state.currentPO?.id;
       el.btnAddManualLine.disabled = !enabled || !state.currentPO?.id;
     }
@@ -555,15 +643,15 @@
       let query = sb
         .from('products_master')
         .select('id, sku, product_title, variant_title, product_type, upc, msrp, unit_cost, is_active')
-        .eq('is_active', true)
-        .limit(100);
+        .limit(200);
 
       if (raw) {
         const q = raw.replaceAll(',', ' ').trim();
         query = query.or(`sku.ilike.%${q}%,product_title.ilike.%${q}%,variant_title.ilike.%${q}%,product_type.ilike.%${q}%`);
       }
 
-      const { data, error } = await query.order('updated_at', { ascending: false });
+      const { data, error } = await query.order('product_title', { ascending: true });
+
       if (error) throw error;
       state.catalogResults = data || [];
       renderCatalogResults();
@@ -596,6 +684,7 @@
       const q = el.poSearch.value.trim().toLowerCase();
       const status = el.poStatusFilter.value;
       const factory = el.poFactoryFilter.value;
+
       const rows = state.poRows.filter(r => {
         const matchesQ = !q || [r.po_name, r.factory_name, r.date_bucket, r.status].join(' ').toLowerCase().includes(q);
         const matchesStatus = !status || r.status === status;
@@ -683,10 +772,12 @@
       setEditorEnabled(true);
       el.btnAddCatalogLine.disabled = true;
       el.btnAddManualLine.disabled = true;
+      el.btnGeneratePdf.disabled = true;
     }
 
     function renderLines() {
       const rows = state.currentLines || [];
+
       if (!rows.length) {
         el.linesTbody.innerHTML = `<tr><td colspan="11" class="px-3 py-10 text-center text-sm text-slate-500">No PO lines yet. Add a catalog line or use manual entry.</td></tr>`;
       } else {
@@ -699,18 +790,38 @@
             <td class="px-3 py-3 text-slate-600">${escapeHtml(line.upc_snapshot || '—')}</td>
             <td class="px-3 py-3 text-right text-slate-700">${money(line.retail_price || 0)}</td>
             <td class="px-3 py-3 text-right text-slate-700">${money(line.unit_cost || 0)}</td>
-            <td class="px-3 py-3 text-right font-semibold text-slate-900">${Number(line.qty || 0).toLocaleString()}</td>
-            <td class="px-3 py-3 text-right font-semibold text-slate-900">${money(line.retail_value || 0)}</td>
-            <td class="px-3 py-3 text-slate-600">${escapeHtml(line.line_notes || '')}</td>
             <td class="px-3 py-3 text-right">
-              <button class="btn btn-danger px-3 py-2 text-xs" data-line-delete="${line.id}">Delete</button>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value="${Number(line.qty || 0)}"
+                data-line-qty="${line.id}"
+                class="w-24 rounded-xl border border-slate-200 px-3 py-2 text-right text-sm"
+              />
             </td>
-          </tr>`).join('');
+            <td class="px-3 py-3 text-right font-semibold text-slate-900">${money(line.retail_value || 0)}</td>
+            <td class="px-3 py-3">
+              <textarea
+                data-line-notes="${line.id}"
+                rows="2"
+                class="min-w-[180px] rounded-xl border border-slate-200 px-3 py-2 text-sm"
+              >${escapeHtml(line.line_notes || '')}</textarea>
+            </td>
+            <td class="px-3 py-3 text-right">
+              <div class="flex flex-col items-end gap-2">
+                <button class="btn btn-secondary px-3 py-2 text-xs" data-line-save="${line.id}">Save</button>
+                <button class="btn btn-danger px-3 py-2 text-xs" data-line-delete="${line.id}">Delete</button>
+              </div>
+            </td>
+          </tr>
+        `).join('');
       }
 
       const totalUnits = rows.reduce((sum, r) => sum + Number(r.qty || 0), 0);
       const totalRetail = rows.reduce((sum, r) => sum + Number(r.retail_value || 0), 0);
       const totalCost = rows.reduce((sum, r) => sum + (Number(r.unit_cost || 0) * Number(r.qty || 0)), 0);
+
       el.kpiUnits.textContent = totalUnits.toLocaleString();
       el.kpiRetail.textContent = money(totalRetail);
       el.kpiCost.textContent = money(totalCost);
@@ -722,6 +833,7 @@
         el.catalogResults.innerHTML = `<tr><td colspan="8" class="px-3 py-10 text-center text-sm text-slate-500">No matching catalog products found.</td></tr>`;
         return;
       }
+
       el.catalogResults.innerHTML = rows.map(row => `
         <tr class="border-b border-slate-100">
           <td class="px-3 py-3 text-slate-700">${escapeHtml(row.sku || '')}</td>
@@ -730,13 +842,19 @@
           <td class="px-3 py-3 text-slate-600">${escapeHtml(row.product_type || '')}</td>
           <td class="px-3 py-3 text-right text-slate-700">${money(row.msrp || 0)}</td>
           <td class="px-3 py-3 text-right text-slate-700">${money(row.unit_cost || 0)}</td>
-          <td class="px-3 py-3 text-right"><input type="number" min="0" step="1" value="0" class="w-24 rounded-xl border border-slate-200 px-3 py-2 text-right text-sm" data-catalog-qty="${row.id}" /></td>
-          <td class="px-3 py-3 text-right"><button class="btn btn-primary px-3 py-2 text-xs" data-add-catalog="${row.id}">Add</button></td>
-        </tr>`).join('');
+          <td class="px-3 py-3 text-right">
+            <input type="number" min="0" step="1" value="0" class="w-24 rounded-xl border border-slate-200 px-3 py-2 text-right text-sm" data-catalog-qty="${row.id}" />
+          </td>
+          <td class="px-3 py-3 text-right">
+            <button class="btn btn-primary px-3 py-2 text-xs" data-add-catalog="${row.id}">Add</button>
+          </td>
+        </tr>
+      `).join('');
     }
 
     async function saveHeader() {
       const payload = currentFormData();
+
       if (!payload.factory_id) {
         alert('Select a factory first.');
         return;
@@ -763,7 +881,6 @@
 
       await refreshAll();
       if (savedId) await openPO(savedId);
-      toast('PO header saved');
     }
 
     async function addCatalogLine(productId, qty) {
@@ -775,12 +892,15 @@
         alert('Enter a quantity greater than 0.');
         return;
       }
+
       const { error } = await sb.from('po_lines').insert({
         po_header_id: state.currentPO.id,
         product_master_id: productId,
         qty: Number(qty)
       });
+
       if (error) throw error;
+
       await refreshAll();
       await openPO(state.currentPO.id);
       modalClose(el.catalogModal);
@@ -791,9 +911,11 @@
         alert('Save the PO header first.');
         return;
       }
+
       const qty = Number(el.manualQty.value || 0);
       const retail = Number(el.manualRetail.value || 0);
       const cost = Number(el.manualCost.value || 0);
+
       const payload = {
         po_header_id: state.currentPO.id,
         product_type_snapshot: el.manualProductType.value.trim() || null,
@@ -808,28 +930,65 @@
         retail_value: qty && retail ? qty * retail : null,
         line_notes: el.manualNotes.value.trim() || null
       };
+
       if (!payload.title_snapshot || qty <= 0) {
         alert('Manual line needs at least a title and qty > 0.');
         return;
       }
+
       const { error } = await sb.from('po_lines').insert(payload);
       if (error) throw error;
+
       clearManualModal();
       await refreshAll();
       await openPO(state.currentPO.id);
       modalClose(el.manualModal);
     }
 
+    async function saveLine(lineId) {
+      const qtyNode = document.querySelector(`[data-line-qty="${lineId}"]`);
+      const notesNode = document.querySelector(`[data-line-notes="${lineId}"]`);
+      const qty = Number(qtyNode?.value || 0);
+      const line_notes = notesNode?.value?.trim() || null;
+
+      if (qty < 0) {
+        alert('Qty cannot be negative.');
+        return;
+      }
+
+      const { error } = await sb
+        .from('po_lines')
+        .update({ qty, line_notes })
+        .eq('id', lineId);
+
+      if (error) throw error;
+
+      await refreshAll();
+      if (state.currentPO?.id) await openPO(state.currentPO.id);
+    }
+
     async function deleteLine(lineId) {
       if (!confirm('Delete this PO line?')) return;
+
       const { error } = await sb.from('po_lines').delete().eq('id', lineId);
       if (error) throw error;
+
       await refreshAll();
       if (state.currentPO?.id) await openPO(state.currentPO.id);
     }
 
     function clearManualModal() {
-      ['manualProductType','manualTitle','manualVariant','manualSku','manualUpc','manualBarcode','manualRetail','manualCost','manualNotes'].forEach(id => el[id].value = '');
+      [
+        'manualProductType',
+        'manualTitle',
+        'manualVariant',
+        'manualSku',
+        'manualUpc',
+        'manualBarcode',
+        'manualRetail',
+        'manualCost',
+        'manualNotes'
+      ].forEach(id => el[id].value = '');
       el.manualQty.value = 0;
     }
 
@@ -837,6 +996,7 @@
       const currentId = state.currentPO?.id || null;
       await loadFactories();
       await loadPOs();
+
       if (currentId) {
         const exists = state.poRows.find(x => x.id === currentId);
         if (exists) {
@@ -848,19 +1008,158 @@
       }
     }
 
+    function buildVendorPdfHtml() {
+      if (!state.currentPO) return '';
+
+      const po = state.currentPO;
+      const factory = state.factories.find(f => f.id === po.factory_id);
+
+      const lineRows = (state.currentLines || []).map(line => `
+        <tr>
+          <td>${escapeHtml(line.product_type_snapshot || '')}</td>
+          <td>${escapeHtml(line.title_snapshot || '')}</td>
+          <td>${escapeHtml(line.variant_title_snapshot || '')}</td>
+          <td>${escapeHtml(line.sku_snapshot || '')}</td>
+          <td>${escapeHtml(line.upc_snapshot || '')}</td>
+          <td style="text-align:right">${Number(line.qty || 0).toLocaleString()}</td>
+          <td>${escapeHtml(line.line_notes || '')}</td>
+        </tr>
+      `).join('');
+
+      return `
+        <!doctype html>
+        <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${escapeHtml(po.po_name || 'PO')}</title>
+          <link rel="preconnect" href="https://fonts.googleapis.com">
+          <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+          <style>
+            body{margin:0;background:white}
+            ${document.querySelector('style').innerHTML}
+            @media print{
+              body{background:white}
+              .no-print{display:none!important}
+            }
+          </style>
+        </head>
+        <body>
+          <div class="pdf-sheet">
+            <div class="pdf-head">
+              <div>
+                <h1 class="pdf-title">Purchase Order</h1>
+                <div class="pdf-sub">Vendor-facing PO export</div>
+              </div>
+              <div style="text-align:right">
+                <div style="font-size:28px;font-weight:800">${escapeHtml(po.po_name || '')}</div>
+                <div class="pdf-sub">${escapeHtml(factory?.factory_name || '')}</div>
+              </div>
+            </div>
+
+            <div class="pdf-grid">
+              <div class="pdf-card">
+                <div class="k">Factory</div>
+                <div class="v">${escapeHtml(factory?.factory_name || '—')}</div>
+              </div>
+              <div class="pdf-card">
+                <div class="k">Order Date</div>
+                <div class="v">${escapeHtml(po.order_date || '—')}</div>
+              </div>
+              <div class="pdf-card">
+                <div class="k">Required Ship Date</div>
+                <div class="v">${escapeHtml(po.req_ship_date || '—')}</div>
+              </div>
+              <div class="pdf-card">
+                <div class="k">Date Bucket</div>
+                <div class="v">${escapeHtml(po.date_bucket || '—')}</div>
+              </div>
+            </div>
+
+            <table class="pdf-table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Title</th>
+                  <th>Variant</th>
+                  <th>SKU</th>
+                  <th>UPC</th>
+                  <th style="text-align:right">Qty</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${lineRows || `<tr><td colspan="7">No lines on this PO.</td></tr>`}
+              </tbody>
+            </table>
+
+            ${po.notes ? `<div class="pdf-notes"><strong style="display:block;margin-bottom:8px">Vendor Notes</strong>${escapeHtml(po.notes)}</div>` : ''}
+
+            <div class="no-print" style="margin-top:24px;display:flex;gap:12px">
+              <button onclick="window.print()" style="padding:12px 18px;border-radius:12px;border:1px solid #d1d5db;background:#111827;color:white;font-weight:700;cursor:pointer">Print / Save PDF</button>
+              <button onclick="window.close()" style="padding:12px 18px;border-radius:12px;border:1px solid #d1d5db;background:white;color:#111827;font-weight:700;cursor:pointer">Close</button>
+            </div>
+          </div>
+        </body>
+        </html>
+      `;
+    }
+
+    function generateVendorPdf() {
+      if (!state.currentPO?.id) {
+        alert('Save and open a PO first.');
+        return;
+      }
+
+      const html = buildVendorPdfHtml();
+      const win = window.open('', '_blank', 'width=1200,height=900');
+      if (!win) {
+        alert('Pop-up blocked. Allow pop-ups for this site to generate the PDF.');
+        return;
+      }
+
+      win.document.open();
+      win.document.write(html);
+      win.document.close();
+    }
+
     el.btnRefresh.addEventListener('click', async () => {
-      try { await refreshAll(); } catch (e) { console.error(e); alert(e.message || 'Refresh failed'); }
+      try {
+        await refreshAll();
+      } catch (e) {
+        console.error(e);
+        alert(e.message || 'Refresh failed');
+      }
     });
 
     el.btnNewPO.addEventListener('click', () => resetEditorForNew());
 
     el.btnSaveHeader.addEventListener('click', async () => {
-      try { await saveHeader(); } catch (e) { console.error(e); alert(e.message || 'Save failed'); }
+      try {
+        await saveHeader();
+      } catch (e) {
+        console.error(e);
+        alert(e.message || 'Save failed');
+      }
+    });
+
+    el.btnGeneratePdf.addEventListener('click', () => {
+      try {
+        generateVendorPdf();
+      } catch (e) {
+        console.error(e);
+        alert(e.message || 'PDF generation failed');
+      }
     });
 
     el.btnAddCatalogLine.addEventListener('click', async () => {
       modalOpen(el.catalogModal);
-      try { await searchCatalog(); } catch (e) { console.error(e); }
+      try {
+        await searchCatalog();
+      } catch (e) {
+        console.error(e);
+        alert(e.message || 'Catalog load failed');
+      }
     });
 
     el.btnAddManualLine.addEventListener('click', () => {
@@ -869,18 +1168,32 @@
     });
 
     el.btnSearchCatalog.addEventListener('click', async () => {
-      try { await searchCatalog(); } catch (e) { console.error(e); alert(e.message || 'Search failed'); }
+      try {
+        await searchCatalog();
+      } catch (e) {
+        console.error(e);
+        alert(e.message || 'Search failed');
+      }
     });
 
     el.catalogSearch.addEventListener('keydown', async (ev) => {
       if (ev.key === 'Enter') {
         ev.preventDefault();
-        try { await searchCatalog(); } catch (e) { console.error(e); }
+        try {
+          await searchCatalog();
+        } catch (e) {
+          console.error(e);
+        }
       }
     });
 
     el.btnSaveManualLine.addEventListener('click', async () => {
-      try { await addManualLine(); } catch (e) { console.error(e); alert(e.message || 'Manual line save failed'); }
+      try {
+        await addManualLine();
+      } catch (e) {
+        console.error(e);
+        alert(e.message || 'Manual line save failed');
+      }
     });
 
     [el.poSearch, el.poStatusFilter, el.poFactoryFilter].forEach(node => node.addEventListener('input', renderPOList));
@@ -910,6 +1223,17 @@
         } catch (e) {
           console.error(e);
           alert(e.message || 'Add line failed');
+        }
+        return;
+      }
+
+      const saveLineBtn = ev.target.closest('[data-line-save]');
+      if (saveLineBtn) {
+        try {
+          await saveLine(saveLineBtn.getAttribute('data-line-save'));
+        } catch (e) {
+          console.error(e);
+          alert(e.message || 'Line save failed');
         }
         return;
       }
