@@ -1,0 +1,976 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Silo · PO Builder</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="./config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --card: rgba(255,255,255,.9);
+      --line: rgba(15,23,42,.08);
+      --text: #0f172a;
+      --muted: #64748b;
+      --shadow: 0 10px 30px rgba(15,23,42,.08);
+      --radius: 24px;
+      --brand: #0f172a;
+      --brand-2: #1e293b;
+      --good: #166534;
+      --warn: #92400e;
+      --bad: #991b1b;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: Inter, system-ui, sans-serif;
+      color: var(--text);
+      background: linear-gradient(180deg, #f8fafc 0%, #eef2f7 100%);
+    }
+    .glass {
+      background: var(--card);
+      backdrop-filter: blur(14px);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      border-radius: var(--radius);
+    }
+    .pill { border: 1px solid var(--line); background: white; border-radius: 999px; }
+    .table-wrap { overflow: auto; }
+    .sticky-head thead th { position: sticky; top: 0; background: rgba(248,250,252,.98); z-index: 2; }
+    .soft-scroll::-webkit-scrollbar { height: 10px; width: 10px; }
+    .soft-scroll::-webkit-scrollbar-thumb { background: rgba(148,163,184,.45); border-radius: 999px; }
+    .soft-scroll::-webkit-scrollbar-track { background: transparent; }
+    .modal-backdrop { background: rgba(15,23,42,.42); }
+    .hidden-safe { display: none !important; }
+    input, select, textarea {
+      outline: none;
+      border: 1px solid rgba(148,163,184,.35);
+      background: white;
+      color: var(--text);
+      border-radius: 16px;
+      transition: .18s ease;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: rgba(59,130,246,.45);
+      box-shadow: 0 0 0 4px rgba(59,130,246,.10);
+    }
+    .btn {
+      border-radius: 16px;
+      padding: .8rem 1rem;
+      font-weight: 600;
+      transition: .18s ease;
+      border: 1px solid transparent;
+      cursor: pointer;
+    }
+    .btn-primary { background: var(--brand); color: white; }
+    .btn-primary:hover { background: #020617; }
+    .btn-secondary { background: white; border-color: var(--line); color: var(--text); }
+    .btn-secondary:hover { background: #f8fafc; }
+    .btn-danger { background: #fff1f2; color: #be123c; border-color: #fecdd3; }
+    .status-badge {
+      border-radius: 999px;
+      padding: .35rem .7rem;
+      font-size: .78rem;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: .45rem;
+    }
+    .status-dot { width: .5rem; height: .5rem; border-radius: 999px; display: inline-block; }
+    .status-Draft { background: #eff6ff; color: #1d4ed8; }
+    .status-Draft .status-dot { background: #3b82f6; }
+    .status-Approved { background: #f5f3ff; color: #6d28d9; }
+    .status-Approved .status-dot { background: #8b5cf6; }
+    .status-Sent\ to\ Factory { background: #ecfeff; color: #0f766e; }
+    .status-Sent\ to\ Factory .status-dot { background: #14b8a6; }
+    .status-Confirmed { background: #f0fdf4; color: #166534; }
+    .status-Confirmed .status-dot { background: #22c55e; }
+    .status-In\ Production { background: #fffbeb; color: #b45309; }
+    .status-In\ Production .status-dot { background: #f59e0b; }
+    .status-Shipped, .status-In\ Transit, .status-Partially\ Received { background: #eef2ff; color: #4338ca; }
+    .status-Shipped .status-dot, .status-In\ Transit .status-dot, .status-Partially\ Received .status-dot { background: #6366f1; }
+    .status-Received, .status-Closed { background: #f0fdf4; color: #166534; }
+    .status-Received .status-dot, .status-Closed .status-dot { background: #16a34a; }
+    .status-Cancelled { background: #fef2f2; color: #991b1b; }
+    .status-Cancelled .status-dot { background: #ef4444; }
+  </style>
+</head>
+<body>
+  <div class="min-h-screen px-4 py-4 sm:px-6 lg:px-8">
+    <div class="mx-auto max-w-[1600px] space-y-5">
+      <header class="glass px-5 py-5 sm:px-6">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Silo Purchasing</div>
+            <div class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">PO Builder</div>
+            <div class="mt-2 max-w-3xl text-sm text-slate-500">Create and manage purchase orders against the new Supabase workflow. Build headers, add catalog or manual lines, review totals, and prep for PDF generation.</div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <button id="btnRefresh" class="btn btn-secondary">Refresh</button>
+            <button id="btnNewPO" class="btn btn-primary">New PO</button>
+          </div>
+        </div>
+      </header>
+
+      <section class="grid gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
+        <aside class="glass p-4 sm:p-5">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <div class="text-lg font-bold text-slate-900">PO List</div>
+              <div class="text-sm text-slate-500">Open and recent purchase orders</div>
+            </div>
+            <div id="poCount" class="pill px-3 py-1 text-xs font-semibold text-slate-600">0 POs</div>
+          </div>
+
+          <div class="mt-4 space-y-3">
+            <input id="poSearch" type="text" placeholder="Search PO name, factory, bucket..." class="w-full px-4 py-3 text-sm" />
+            <div class="grid grid-cols-2 gap-3">
+              <select id="poStatusFilter" class="w-full px-4 py-3 text-sm">
+                <option value="">All statuses</option>
+              </select>
+              <select id="poFactoryFilter" class="w-full px-4 py-3 text-sm">
+                <option value="">All factories</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="mt-4 max-h-[70vh] overflow-auto pr-1 soft-scroll" id="poList"></div>
+        </aside>
+
+        <main class="space-y-5">
+          <section class="glass p-4 sm:p-5">
+            <div class="flex flex-col gap-4 border-b border-slate-200 pb-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <div class="flex flex-wrap items-center gap-3">
+                  <h2 id="detailTitle" class="text-xl font-bold tracking-tight text-slate-900">No PO selected</h2>
+                  <div id="detailStatusWrap"></div>
+                </div>
+                <div id="detailMeta" class="mt-2 text-sm text-slate-500">Create a new PO or select one from the list.</div>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <button id="btnSaveHeader" class="btn btn-primary" disabled>Save Header</button>
+                <button id="btnAddCatalogLine" class="btn btn-secondary" disabled>Add Catalog Line</button>
+                <button id="btnAddManualLine" class="btn btn-secondary" disabled>Add Manual Line</button>
+              </div>
+            </div>
+
+            <div class="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div>
+                <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">PO Name</label>
+                <input id="poName" type="text" class="w-full px-4 py-3 text-sm font-semibold" placeholder="Auto-generated" />
+              </div>
+              <div>
+                <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Factory</label>
+                <select id="factoryId" class="w-full px-4 py-3 text-sm"></select>
+              </div>
+              <div>
+                <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Order Date</label>
+                <input id="orderDate" type="date" class="w-full px-4 py-3 text-sm" />
+              </div>
+              <div>
+                <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Required Ship Date</label>
+                <input id="reqShipDate" type="date" class="w-full px-4 py-3 text-sm" />
+              </div>
+              <div>
+                <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Expected Arrival</label>
+                <input id="expectedArrivalDate" type="date" class="w-full px-4 py-3 text-sm" />
+              </div>
+              <div>
+                <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Date Bucket</label>
+                <input id="dateBucket" type="text" class="w-full px-4 py-3 text-sm" placeholder="Holiday 2026" />
+              </div>
+              <div>
+                <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Status</label>
+                <select id="status" class="w-full px-4 py-3 text-sm"></select>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <label class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700">
+                  <div class="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Wholesale</div>
+                  <div class="mt-2 flex items-center gap-2"><input id="wholesaleTriggered" type="checkbox" class="h-4 w-4" /> Triggered</div>
+                </label>
+                <label class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700">
+                  <div class="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Product Mix</div>
+                  <div class="mt-2 flex items-center gap-2"><input id="isNewProductPO" type="checkbox" class="h-4 w-4" /> New Product</div>
+                </label>
+              </div>
+            </div>
+
+            <div class="mt-4 grid gap-4 lg:grid-cols-2">
+              <div>
+                <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Vendor Notes</label>
+                <textarea id="notes" rows="4" class="w-full px-4 py-3 text-sm" placeholder="Visible vendor-facing notes if needed"></textarea>
+              </div>
+              <div>
+                <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Internal Notes</label>
+                <textarea id="internalNotes" rows="4" class="w-full px-4 py-3 text-sm" placeholder="Internal purchasing / planning notes"></textarea>
+              </div>
+            </div>
+          </section>
+
+          <section class="grid gap-4 md:grid-cols-3">
+            <div class="glass p-5">
+              <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Total Units</div>
+              <div id="kpiUnits" class="mt-2 text-3xl font-extrabold tracking-tight text-slate-900">0</div>
+            </div>
+            <div class="glass p-5">
+              <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Retail Value</div>
+              <div id="kpiRetail" class="mt-2 text-3xl font-extrabold tracking-tight text-slate-900">$0.00</div>
+            </div>
+            <div class="glass p-5">
+              <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Estimated Cost</div>
+              <div id="kpiCost" class="mt-2 text-3xl font-extrabold tracking-tight text-slate-900">$0.00</div>
+            </div>
+          </section>
+
+          <section class="glass p-4 sm:p-5">
+            <div class="flex flex-col gap-3 border-b border-slate-200 pb-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div class="text-lg font-bold text-slate-900">PO Lines</div>
+                <div class="text-sm text-slate-500">Linked catalog lines or manual fallback entries</div>
+              </div>
+              <div class="text-sm text-slate-500">Vendor PDF should later hide retail price</div>
+            </div>
+
+            <div class="mt-4 table-wrap soft-scroll sticky-head">
+              <table class="min-w-full border-separate border-spacing-0 text-sm">
+                <thead>
+                  <tr>
+                    <th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">Type</th>
+                    <th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">Title</th>
+                    <th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">Variant</th>
+                    <th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">SKU</th>
+                    <th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">UPC</th>
+                    <th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Retail</th>
+                    <th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Cost</th>
+                    <th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Qty</th>
+                    <th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Retail Value</th>
+                    <th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">Notes</th>
+                    <th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="linesTbody"></tbody>
+              </table>
+            </div>
+          </section>
+        </main>
+      </section>
+    </div>
+  </div>
+
+  <div id="catalogModal" class="fixed inset-0 z-40 hidden-safe items-center justify-center p-4">
+    <div class="absolute inset-0 modal-backdrop"></div>
+    <div class="relative z-10 w-full max-w-5xl glass p-4 sm:p-5">
+      <div class="flex items-center justify-between gap-3 border-b border-slate-200 pb-4">
+        <div>
+          <div class="text-lg font-bold text-slate-900">Add Catalog Line</div>
+          <div class="text-sm text-slate-500">Search products_master and add a linked PO line</div>
+        </div>
+        <button class="btn btn-secondary" data-close="catalogModal">Close</button>
+      </div>
+      <div class="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_140px]">
+        <input id="catalogSearch" type="text" class="w-full px-4 py-3 text-sm" placeholder="Search SKU, title, variant, product type..." />
+        <button id="btnSearchCatalog" class="btn btn-primary">Search</button>
+      </div>
+      <div class="mt-4 max-h-[60vh] overflow-auto soft-scroll">
+        <table class="min-w-full text-sm">
+          <thead>
+            <tr>
+              <th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">SKU</th>
+              <th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">Title</th>
+              <th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">Variant</th>
+              <th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">Type</th>
+              <th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Retail</th>
+              <th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Cost</th>
+              <th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Qty</th>
+              <th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Add</th>
+            </tr>
+          </thead>
+          <tbody id="catalogResults"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="manualModal" class="fixed inset-0 z-40 hidden-safe items-center justify-center p-4">
+    <div class="absolute inset-0 modal-backdrop"></div>
+    <div class="relative z-10 w-full max-w-4xl glass p-4 sm:p-5">
+      <div class="flex items-center justify-between gap-3 border-b border-slate-200 pb-4">
+        <div>
+          <div class="text-lg font-bold text-slate-900">Add Manual Line</div>
+          <div class="text-sm text-slate-500">Use this for new or not-yet-loaded catalog products</div>
+        </div>
+        <button class="btn btn-secondary" data-close="manualModal">Close</button>
+      </div>
+      <div class="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <div>
+          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Product Type</label>
+          <input id="manualProductType" type="text" class="w-full px-4 py-3 text-sm" />
+        </div>
+        <div>
+          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Title</label>
+          <input id="manualTitle" type="text" class="w-full px-4 py-3 text-sm" />
+        </div>
+        <div>
+          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Variant</label>
+          <input id="manualVariant" type="text" class="w-full px-4 py-3 text-sm" />
+        </div>
+        <div>
+          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">SKU</label>
+          <input id="manualSku" type="text" class="w-full px-4 py-3 text-sm" />
+        </div>
+        <div>
+          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">UPC</label>
+          <input id="manualUpc" type="text" class="w-full px-4 py-3 text-sm" />
+        </div>
+        <div>
+          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Barcode</label>
+          <input id="manualBarcode" type="text" class="w-full px-4 py-3 text-sm" />
+        </div>
+        <div>
+          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Retail Price</label>
+          <input id="manualRetail" type="number" step="0.01" class="w-full px-4 py-3 text-sm" />
+        </div>
+        <div>
+          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Unit Cost</label>
+          <input id="manualCost" type="number" step="0.01" class="w-full px-4 py-3 text-sm" />
+        </div>
+        <div>
+          <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Qty</label>
+          <input id="manualQty" type="number" min="0" step="1" class="w-full px-4 py-3 text-sm" value="0" />
+        </div>
+      </div>
+      <div class="mt-4">
+        <label class="mb-2 block text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Line Notes</label>
+        <textarea id="manualNotes" rows="3" class="w-full px-4 py-3 text-sm"></textarea>
+      </div>
+      <div class="mt-4 flex justify-end gap-2">
+        <button class="btn btn-secondary" data-close="manualModal">Cancel</button>
+        <button id="btnSaveManualLine" class="btn btn-primary">Add Manual Line</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = window.__SILO_CONFIG__?.SUPABASE_URL || window.SUPABASE_URL || '';
+    const SUPABASE_ANON_KEY = window.__SILO_CONFIG__?.SUPABASE_ANON_KEY || window.SUPABASE_ANON_KEY || '';
+    const REDIRECT_TO = window.__SILO_CONFIG__?.REDIRECT_TO || window.REDIRECT_TO || '';
+    const REQUIRE_AUTH = Boolean(window.__SILO_CONFIG__?.REQUIRE_AUTH || window.REQUIRE_AUTH || false);
+
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      document.body.innerHTML = `
+        <div class="min-h-screen flex items-center justify-center p-6">
+          <div class="glass max-w-xl p-6 text-center">
+            <div class="text-xl font-bold text-slate-900">Missing Supabase config</div>
+            <div class="mt-2 text-sm text-slate-500">Provide SUPABASE_URL and SUPABASE_ANON_KEY through window.__SILO_CONFIG__ or global variables before loading this page.</div>
+          </div>
+        </div>`;
+      throw new Error("Missing Supabase config");
+    }
+
+    const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const PO_STATUSES = [
+      'Draft','Approved','Sent to Factory','Confirmed','In Production','Shipped','In Transit','Partially Received','Received','Closed','Cancelled'
+    ];
+
+    const state = {
+      factories: [],
+      poRows: [],
+      currentPO: null,
+      currentLines: [],
+      catalogResults: []
+    };
+
+    const el = {
+      poList: document.getElementById('poList'),
+      poCount: document.getElementById('poCount'),
+      poSearch: document.getElementById('poSearch'),
+      poStatusFilter: document.getElementById('poStatusFilter'),
+      poFactoryFilter: document.getElementById('poFactoryFilter'),
+      btnRefresh: document.getElementById('btnRefresh'),
+      btnNewPO: document.getElementById('btnNewPO'),
+      detailTitle: document.getElementById('detailTitle'),
+      detailMeta: document.getElementById('detailMeta'),
+      detailStatusWrap: document.getElementById('detailStatusWrap'),
+      btnSaveHeader: document.getElementById('btnSaveHeader'),
+      btnAddCatalogLine: document.getElementById('btnAddCatalogLine'),
+      btnAddManualLine: document.getElementById('btnAddManualLine'),
+      poName: document.getElementById('poName'),
+      factoryId: document.getElementById('factoryId'),
+      orderDate: document.getElementById('orderDate'),
+      reqShipDate: document.getElementById('reqShipDate'),
+      expectedArrivalDate: document.getElementById('expectedArrivalDate'),
+      dateBucket: document.getElementById('dateBucket'),
+      status: document.getElementById('status'),
+      wholesaleTriggered: document.getElementById('wholesaleTriggered'),
+      isNewProductPO: document.getElementById('isNewProductPO'),
+      notes: document.getElementById('notes'),
+      internalNotes: document.getElementById('internalNotes'),
+      kpiUnits: document.getElementById('kpiUnits'),
+      kpiRetail: document.getElementById('kpiRetail'),
+      kpiCost: document.getElementById('kpiCost'),
+      linesTbody: document.getElementById('linesTbody'),
+      catalogModal: document.getElementById('catalogModal'),
+      manualModal: document.getElementById('manualModal'),
+      catalogSearch: document.getElementById('catalogSearch'),
+      btnSearchCatalog: document.getElementById('btnSearchCatalog'),
+      catalogResults: document.getElementById('catalogResults'),
+      manualProductType: document.getElementById('manualProductType'),
+      manualTitle: document.getElementById('manualTitle'),
+      manualVariant: document.getElementById('manualVariant'),
+      manualSku: document.getElementById('manualSku'),
+      manualUpc: document.getElementById('manualUpc'),
+      manualBarcode: document.getElementById('manualBarcode'),
+      manualRetail: document.getElementById('manualRetail'),
+      manualCost: document.getElementById('manualCost'),
+      manualQty: document.getElementById('manualQty'),
+      manualNotes: document.getElementById('manualNotes'),
+      btnSaveManualLine: document.getElementById('btnSaveManualLine')
+    };
+
+    function money(v) {
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(v || 0));
+    }
+
+    function escapeHtml(str) {
+      return String(str ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+
+    function toast(msg) {
+      console.log(msg);
+    }
+
+    function modalOpen(node) {
+      node.classList.remove('hidden-safe');
+      node.classList.add('flex');
+    }
+
+    function modalClose(node) {
+      node.classList.add('hidden-safe');
+      node.classList.remove('flex');
+    }
+
+    function statusBadge(status) {
+      const safe = (status || 'Draft').replace(/"/g, '');
+      return `<span class="status-badge status-${safe}"><span class="status-dot"></span>${escapeHtml(status || 'Draft')}</span>`;
+    }
+
+    function todayStr() {
+      const d = new Date();
+      const m = `${d.getMonth() + 1}`.padStart(2, '0');
+      const day = `${d.getDate()}`.padStart(2, '0');
+      return `${d.getFullYear()}-${m}-${day}`;
+    }
+
+    function plusDaysStr(days) {
+      const d = new Date();
+      d.setDate(d.getDate() + days);
+      const m = `${d.getMonth() + 1}`.padStart(2, '0');
+      const day = `${d.getDate()}`.padStart(2, '0');
+      return `${d.getFullYear()}-${m}-${day}`;
+    }
+
+    function currentFormData() {
+      return {
+        po_name: el.poName.value.trim() || null,
+        factory_id: el.factoryId.value || null,
+        order_date: el.orderDate.value || null,
+        req_ship_date: el.reqShipDate.value || null,
+        expected_arrival_date: el.expectedArrivalDate.value || null,
+        date_bucket: el.dateBucket.value.trim() || null,
+        status: el.status.value || 'Draft',
+        wholesale_triggered: !!el.wholesaleTriggered.checked,
+        is_new_product_po: !!el.isNewProductPO.checked,
+        notes: el.notes.value.trim() || null,
+        internal_notes: el.internalNotes.value.trim() || null
+      };
+    }
+
+    function setEditorEnabled(enabled) {
+      el.btnSaveHeader.disabled = !enabled;
+      el.btnAddCatalogLine.disabled = !enabled || !state.currentPO?.id;
+      el.btnAddManualLine.disabled = !enabled || !state.currentPO?.id;
+    }
+
+    async function loadFactories() {
+      const { data, error } = await sb
+        .from('factories')
+        .select('id, factory_name, short_code')
+        .order('factory_name');
+      if (error) throw error;
+      state.factories = data || [];
+      renderFactoryOptions();
+      renderFactoryFilter();
+    }
+
+    async function loadPOs() {
+      const { data, error } = await sb
+        .from('v_po_header_summary')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(300);
+      if (error) throw error;
+      state.poRows = data || [];
+      renderPOList();
+    }
+
+    async function loadPOLines(poId) {
+      if (!poId) {
+        state.currentLines = [];
+        renderLines();
+        return;
+      }
+      const { data, error } = await sb
+        .from('po_lines')
+        .select('*')
+        .eq('po_header_id', poId)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      state.currentLines = data || [];
+      renderLines();
+    }
+
+    async function openPO(poId) {
+      const po = state.poRows.find(x => x.id === poId);
+      if (!po) return;
+      state.currentPO = { ...po };
+      fillEditor(po);
+      setEditorEnabled(true);
+      await loadPOLines(po.id);
+    }
+
+    async function searchCatalog() {
+      const raw = el.catalogSearch.value.trim();
+      let query = sb
+        .from('products_master')
+        .select('id, sku, product_title, variant_title, product_type, upc, msrp, unit_cost, is_active')
+        .eq('is_active', true)
+        .limit(100);
+
+      if (raw) {
+        const q = raw.replaceAll(',', ' ').trim();
+        query = query.or(`sku.ilike.%${q}%,product_title.ilike.%${q}%,variant_title.ilike.%${q}%,product_type.ilike.%${q}%`);
+      }
+
+      const { data, error } = await query.order('updated_at', { ascending: false });
+      if (error) throw error;
+      state.catalogResults = data || [];
+      renderCatalogResults();
+    }
+
+    function renderFactoryOptions() {
+      const current = el.factoryId.value;
+      const opts = ['<option value="">Select factory</option>']
+        .concat(state.factories.map(f => `<option value="${f.id}">${escapeHtml(f.factory_name)}${f.short_code ? ` · ${escapeHtml(f.short_code)}` : ''}</option>`));
+      el.factoryId.innerHTML = opts.join('');
+      if (current) el.factoryId.value = current;
+    }
+
+    function renderFactoryFilter() {
+      const current = el.poFactoryFilter.value;
+      el.poFactoryFilter.innerHTML = ['<option value="">All factories</option>']
+        .concat(state.factories.map(f => `<option value="${escapeHtml(f.factory_name)}">${escapeHtml(f.factory_name)}</option>`))
+        .join('');
+      el.poFactoryFilter.value = current;
+    }
+
+    function renderStatusOptions() {
+      el.status.innerHTML = PO_STATUSES.map(s => `<option value="${s}">${s}</option>`).join('');
+      el.poStatusFilter.innerHTML = ['<option value="">All statuses</option>']
+        .concat(PO_STATUSES.map(s => `<option value="${s}">${s}</option>`))
+        .join('');
+    }
+
+    function renderPOList() {
+      const q = el.poSearch.value.trim().toLowerCase();
+      const status = el.poStatusFilter.value;
+      const factory = el.poFactoryFilter.value;
+      const rows = state.poRows.filter(r => {
+        const matchesQ = !q || [r.po_name, r.factory_name, r.date_bucket, r.status].join(' ').toLowerCase().includes(q);
+        const matchesStatus = !status || r.status === status;
+        const matchesFactory = !factory || r.factory_name === factory;
+        return matchesQ && matchesStatus && matchesFactory;
+      });
+
+      el.poCount.textContent = `${rows.length} PO${rows.length === 1 ? '' : 's'}`;
+
+      if (!rows.length) {
+        el.poList.innerHTML = `<div class="rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">No purchase orders match the current filters.</div>`;
+        return;
+      }
+
+      el.poList.innerHTML = rows.map(row => {
+        const active = state.currentPO?.id === row.id;
+        return `
+          <button data-po-id="${row.id}" class="mb-3 w-full rounded-3xl border px-4 py-4 text-left transition ${active ? 'border-slate-900 bg-slate-900 text-white shadow-lg' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'}">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="text-sm font-bold ${active ? 'text-white' : 'text-slate-900'}">${escapeHtml(row.po_name)}</div>
+                <div class="mt-1 text-xs ${active ? 'text-slate-300' : 'text-slate-500'}">${escapeHtml(row.factory_name || 'Unknown factory')}</div>
+              </div>
+              <div>${statusBadge(row.status)}</div>
+            </div>
+            <div class="mt-3 grid grid-cols-3 gap-2 text-xs ${active ? 'text-slate-300' : 'text-slate-500'}">
+              <div>
+                <div class="font-semibold uppercase tracking-[0.14em]">Units</div>
+                <div class="mt-1 text-sm font-bold ${active ? 'text-white' : 'text-slate-900'}">${Number(row.total_units || 0).toLocaleString()}</div>
+              </div>
+              <div>
+                <div class="font-semibold uppercase tracking-[0.14em]">Retail</div>
+                <div class="mt-1 text-sm font-bold ${active ? 'text-white' : 'text-slate-900'}">${money(row.total_retail_value || 0)}</div>
+              </div>
+              <div>
+                <div class="font-semibold uppercase tracking-[0.14em]">Req Ship</div>
+                <div class="mt-1 text-sm font-bold ${active ? 'text-white' : 'text-slate-900'}">${escapeHtml(row.req_ship_date || '—')}</div>
+              </div>
+            </div>
+          </button>`;
+      }).join('');
+    }
+
+    function fillEditor(po) {
+      el.poName.value = po.po_name || '';
+      el.factoryId.value = po.factory_id || '';
+      el.orderDate.value = po.order_date || '';
+      el.reqShipDate.value = po.req_ship_date || '';
+      el.expectedArrivalDate.value = po.expected_arrival_date || '';
+      el.dateBucket.value = po.date_bucket || '';
+      el.status.value = po.status || 'Draft';
+      el.wholesaleTriggered.checked = !!po.wholesale_triggered;
+      el.isNewProductPO.checked = !!po.is_new_product_po;
+      el.notes.value = po.notes || '';
+      el.internalNotes.value = po.internal_notes || '';
+      el.detailTitle.textContent = po.po_name || 'Untitled PO';
+      el.detailStatusWrap.innerHTML = statusBadge(po.status || 'Draft');
+      el.detailMeta.textContent = `${po.factory_name || 'No factory'} · Ordered ${po.order_date || '—'} · Required ship ${po.req_ship_date || '—'}`;
+      el.kpiUnits.textContent = Number(po.total_units || 0).toLocaleString();
+      el.kpiRetail.textContent = money(po.total_retail_value || 0);
+      el.kpiCost.textContent = money(po.total_estimated_cost || 0);
+    }
+
+    function resetEditorForNew() {
+      state.currentPO = null;
+      state.currentLines = [];
+      el.poName.value = '';
+      el.factoryId.value = '';
+      el.orderDate.value = todayStr();
+      el.reqShipDate.value = plusDaysStr(45);
+      el.expectedArrivalDate.value = '';
+      el.dateBucket.value = '';
+      el.status.value = 'Draft';
+      el.wholesaleTriggered.checked = false;
+      el.isNewProductPO.checked = false;
+      el.notes.value = '';
+      el.internalNotes.value = '';
+      el.detailTitle.textContent = 'New Purchase Order';
+      el.detailStatusWrap.innerHTML = statusBadge('Draft');
+      el.detailMeta.textContent = 'Save the header first, then add linked or manual PO lines.';
+      el.kpiUnits.textContent = '0';
+      el.kpiRetail.textContent = money(0);
+      el.kpiCost.textContent = money(0);
+      renderLines();
+      setEditorEnabled(true);
+      el.btnAddCatalogLine.disabled = true;
+      el.btnAddManualLine.disabled = true;
+    }
+
+    function renderLines() {
+      const rows = state.currentLines || [];
+      if (!rows.length) {
+        el.linesTbody.innerHTML = `<tr><td colspan="11" class="px-3 py-10 text-center text-sm text-slate-500">No PO lines yet. Add a catalog line or use manual entry.</td></tr>`;
+      } else {
+        el.linesTbody.innerHTML = rows.map(line => `
+          <tr class="border-b border-slate-100">
+            <td class="px-3 py-3 text-slate-600">${escapeHtml(line.product_type_snapshot || '—')}</td>
+            <td class="px-3 py-3 font-semibold text-slate-900">${escapeHtml(line.title_snapshot || '—')}</td>
+            <td class="px-3 py-3 text-slate-600">${escapeHtml(line.variant_title_snapshot || '—')}</td>
+            <td class="px-3 py-3 text-slate-600">${escapeHtml(line.sku_snapshot || '—')}</td>
+            <td class="px-3 py-3 text-slate-600">${escapeHtml(line.upc_snapshot || '—')}</td>
+            <td class="px-3 py-3 text-right text-slate-700">${money(line.retail_price || 0)}</td>
+            <td class="px-3 py-3 text-right text-slate-700">${money(line.unit_cost || 0)}</td>
+            <td class="px-3 py-3 text-right font-semibold text-slate-900">${Number(line.qty || 0).toLocaleString()}</td>
+            <td class="px-3 py-3 text-right font-semibold text-slate-900">${money(line.retail_value || 0)}</td>
+            <td class="px-3 py-3 text-slate-600">${escapeHtml(line.line_notes || '')}</td>
+            <td class="px-3 py-3 text-right">
+              <button class="btn btn-danger px-3 py-2 text-xs" data-line-delete="${line.id}">Delete</button>
+            </td>
+          </tr>`).join('');
+      }
+
+      const totalUnits = rows.reduce((sum, r) => sum + Number(r.qty || 0), 0);
+      const totalRetail = rows.reduce((sum, r) => sum + Number(r.retail_value || 0), 0);
+      const totalCost = rows.reduce((sum, r) => sum + (Number(r.unit_cost || 0) * Number(r.qty || 0)), 0);
+      el.kpiUnits.textContent = totalUnits.toLocaleString();
+      el.kpiRetail.textContent = money(totalRetail);
+      el.kpiCost.textContent = money(totalCost);
+    }
+
+    function renderCatalogResults() {
+      const rows = state.catalogResults || [];
+      if (!rows.length) {
+        el.catalogResults.innerHTML = `<tr><td colspan="8" class="px-3 py-10 text-center text-sm text-slate-500">No matching catalog products found.</td></tr>`;
+        return;
+      }
+      el.catalogResults.innerHTML = rows.map(row => `
+        <tr class="border-b border-slate-100">
+          <td class="px-3 py-3 text-slate-700">${escapeHtml(row.sku || '')}</td>
+          <td class="px-3 py-3 font-semibold text-slate-900">${escapeHtml(row.product_title || '')}</td>
+          <td class="px-3 py-3 text-slate-600">${escapeHtml(row.variant_title || '')}</td>
+          <td class="px-3 py-3 text-slate-600">${escapeHtml(row.product_type || '')}</td>
+          <td class="px-3 py-3 text-right text-slate-700">${money(row.msrp || 0)}</td>
+          <td class="px-3 py-3 text-right text-slate-700">${money(row.unit_cost || 0)}</td>
+          <td class="px-3 py-3 text-right"><input type="number" min="0" step="1" value="0" class="w-24 rounded-xl border border-slate-200 px-3 py-2 text-right text-sm" data-catalog-qty="${row.id}" /></td>
+          <td class="px-3 py-3 text-right"><button class="btn btn-primary px-3 py-2 text-xs" data-add-catalog="${row.id}">Add</button></td>
+        </tr>`).join('');
+    }
+
+    async function saveHeader() {
+      const payload = currentFormData();
+      if (!payload.factory_id) {
+        alert('Select a factory first.');
+        return;
+      }
+
+      if (!payload.po_name) {
+        const { data, error } = await sb.rpc('generate_next_po_name', { p_factory_id: payload.factory_id });
+        if (error) throw error;
+        payload.po_name = data;
+        el.poName.value = data;
+      }
+
+      let savedId = state.currentPO?.id || null;
+
+      if (savedId) {
+        const { error } = await sb.from('po_headers').update(payload).eq('id', savedId);
+        if (error) throw error;
+      } else {
+        const { data, error } = await sb.from('po_headers').insert(payload).select('*').single();
+        if (error) throw error;
+        state.currentPO = data;
+        savedId = data.id;
+      }
+
+      await refreshAll();
+      if (savedId) await openPO(savedId);
+      toast('PO header saved');
+    }
+
+    async function addCatalogLine(productId, qty) {
+      if (!state.currentPO?.id) {
+        alert('Save the PO header first.');
+        return;
+      }
+      if (!qty || Number(qty) <= 0) {
+        alert('Enter a quantity greater than 0.');
+        return;
+      }
+      const { error } = await sb.from('po_lines').insert({
+        po_header_id: state.currentPO.id,
+        product_master_id: productId,
+        qty: Number(qty)
+      });
+      if (error) throw error;
+      await refreshAll();
+      await openPO(state.currentPO.id);
+      modalClose(el.catalogModal);
+    }
+
+    async function addManualLine() {
+      if (!state.currentPO?.id) {
+        alert('Save the PO header first.');
+        return;
+      }
+      const qty = Number(el.manualQty.value || 0);
+      const retail = Number(el.manualRetail.value || 0);
+      const cost = Number(el.manualCost.value || 0);
+      const payload = {
+        po_header_id: state.currentPO.id,
+        product_type_snapshot: el.manualProductType.value.trim() || null,
+        title_snapshot: el.manualTitle.value.trim() || null,
+        variant_title_snapshot: el.manualVariant.value.trim() || null,
+        sku_snapshot: el.manualSku.value.trim() || null,
+        upc_snapshot: el.manualUpc.value.trim() || null,
+        barcode_snapshot: el.manualBarcode.value.trim() || null,
+        retail_price: retail || null,
+        unit_cost: cost || null,
+        qty,
+        retail_value: qty && retail ? qty * retail : null,
+        line_notes: el.manualNotes.value.trim() || null
+      };
+      if (!payload.title_snapshot || qty <= 0) {
+        alert('Manual line needs at least a title and qty > 0.');
+        return;
+      }
+      const { error } = await sb.from('po_lines').insert(payload);
+      if (error) throw error;
+      clearManualModal();
+      await refreshAll();
+      await openPO(state.currentPO.id);
+      modalClose(el.manualModal);
+    }
+
+    async function deleteLine(lineId) {
+      if (!confirm('Delete this PO line?')) return;
+      const { error } = await sb.from('po_lines').delete().eq('id', lineId);
+      if (error) throw error;
+      await refreshAll();
+      if (state.currentPO?.id) await openPO(state.currentPO.id);
+    }
+
+    function clearManualModal() {
+      ['manualProductType','manualTitle','manualVariant','manualSku','manualUpc','manualBarcode','manualRetail','manualCost','manualNotes'].forEach(id => el[id].value = '');
+      el.manualQty.value = 0;
+    }
+
+    async function refreshAll() {
+      const currentId = state.currentPO?.id || null;
+      await loadFactories();
+      await loadPOs();
+      if (currentId) {
+        const exists = state.poRows.find(x => x.id === currentId);
+        if (exists) {
+          state.currentPO = exists;
+          fillEditor(exists);
+          await loadPOLines(currentId);
+          setEditorEnabled(true);
+        }
+      }
+    }
+
+    el.btnRefresh.addEventListener('click', async () => {
+      try { await refreshAll(); } catch (e) { console.error(e); alert(e.message || 'Refresh failed'); }
+    });
+
+    el.btnNewPO.addEventListener('click', () => resetEditorForNew());
+
+    el.btnSaveHeader.addEventListener('click', async () => {
+      try { await saveHeader(); } catch (e) { console.error(e); alert(e.message || 'Save failed'); }
+    });
+
+    el.btnAddCatalogLine.addEventListener('click', async () => {
+      modalOpen(el.catalogModal);
+      try { await searchCatalog(); } catch (e) { console.error(e); }
+    });
+
+    el.btnAddManualLine.addEventListener('click', () => {
+      clearManualModal();
+      modalOpen(el.manualModal);
+    });
+
+    el.btnSearchCatalog.addEventListener('click', async () => {
+      try { await searchCatalog(); } catch (e) { console.error(e); alert(e.message || 'Search failed'); }
+    });
+
+    el.catalogSearch.addEventListener('keydown', async (ev) => {
+      if (ev.key === 'Enter') {
+        ev.preventDefault();
+        try { await searchCatalog(); } catch (e) { console.error(e); }
+      }
+    });
+
+    el.btnSaveManualLine.addEventListener('click', async () => {
+      try { await addManualLine(); } catch (e) { console.error(e); alert(e.message || 'Manual line save failed'); }
+    });
+
+    [el.poSearch, el.poStatusFilter, el.poFactoryFilter].forEach(node => node.addEventListener('input', renderPOList));
+    el.poFactoryFilter.addEventListener('change', renderPOList);
+    el.poStatusFilter.addEventListener('change', renderPOList);
+
+    document.addEventListener('click', async (ev) => {
+      const poBtn = ev.target.closest('[data-po-id]');
+      if (poBtn) {
+        try {
+          await openPO(poBtn.getAttribute('data-po-id'));
+          renderPOList();
+        } catch (e) {
+          console.error(e);
+          alert(e.message || 'Failed to open PO');
+        }
+        return;
+      }
+
+      const addCatalogBtn = ev.target.closest('[data-add-catalog]');
+      if (addCatalogBtn) {
+        const id = addCatalogBtn.getAttribute('data-add-catalog');
+        const qtyInput = document.querySelector(`[data-catalog-qty="${id}"]`);
+        const qty = Number(qtyInput?.value || 0);
+        try {
+          await addCatalogLine(id, qty);
+        } catch (e) {
+          console.error(e);
+          alert(e.message || 'Add line failed');
+        }
+        return;
+      }
+
+      const delBtn = ev.target.closest('[data-line-delete]');
+      if (delBtn) {
+        try {
+          await deleteLine(delBtn.getAttribute('data-line-delete'));
+        } catch (e) {
+          console.error(e);
+          alert(e.message || 'Delete failed');
+        }
+        return;
+      }
+
+      const closeBtn = ev.target.closest('[data-close]');
+      if (closeBtn) {
+        const id = closeBtn.getAttribute('data-close');
+        const node = document.getElementById(id);
+        if (node) modalClose(node);
+      }
+    });
+
+    async function boot() {
+      renderStatusOptions();
+      resetEditorForNew();
+
+      if (REQUIRE_AUTH) {
+        try {
+          const { data, error } = await sb.auth.getSession();
+          if (error) throw error;
+          if (!data?.session) {
+            if (REDIRECT_TO) {
+              window.location.href = REDIRECT_TO;
+              return;
+            }
+            document.body.innerHTML = `
+              <div class="min-h-screen flex items-center justify-center p-6">
+                <div class="glass max-w-xl p-6 text-center">
+                  <div class="text-xl font-bold text-slate-900">Authentication required</div>
+                  <div class="mt-2 text-sm text-slate-500">Enable auth on this page through config.js and provide a REDIRECT_TO destination, or sign in before loading this page.</div>
+                </div>
+              </div>`;
+            return;
+          }
+        } catch (e) {
+          console.error(e);
+          alert(e.message || 'Auth check failed');
+          return;
+        }
+      }
+
+      try {
+        await refreshAll();
+      } catch (e) {
+        console.error(e);
+        alert(e.message || 'Initial load failed');
+      }
+    }
+
+    boot();
+  </script>
+</body>
+</html>
