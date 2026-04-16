@@ -1040,7 +1040,6 @@
 
   const po = state.currentPO;
   const factory = state.factories.find(f => f.id === po.factory_id);
-
   const lines = [...(state.currentLines || [])];
 
   const grouped = lines.reduce((acc, line) => {
@@ -1063,21 +1062,21 @@
     });
 
     return `
-      <section class="pdf-section">
-        <div class="pdf-section-head">
-          <div class="pdf-section-title">${escapeHtml(groupName)}</div>
-          <div class="pdf-section-meta">${sorted.length} line${sorted.length === 1 ? '' : 's'}</div>
+      <section class="section-block">
+        <div class="section-head">
+          <div class="section-title">${escapeHtml(groupName)}</div>
+          <div class="section-count">${sorted.length} line${sorted.length === 1 ? '' : 's'}</div>
         </div>
 
-        <table class="pdf-table">
+        <table class="lines-table">
           <thead>
             <tr>
-              <th class="w-barcode">Barcode</th>
+              <th class="barcode-col">Barcode</th>
               <th>Product Title</th>
               <th>Variant</th>
               <th>SKU</th>
-              <th class="w-upc">UPC</th>
-              <th class="w-qty right">Qty</th>
+              <th class="upc-col">UPC</th>
+              <th class="qty-col right">Qty</th>
             </tr>
           </thead>
           <tbody>
@@ -1085,13 +1084,13 @@
               <tr>
                 <td>${escapeHtml(line.barcode_snapshot || '')}</td>
                 <td>
-                  <div class="row-title">${escapeHtml(line.title_snapshot || '')}</div>
-                  ${line.line_notes ? `<div class="row-subnote">${escapeHtml(line.line_notes)}</div>` : ''}
+                  <div class="line-title">${escapeHtml(line.title_snapshot || '')}</div>
+                  ${line.line_notes ? `<div class="line-note">${escapeHtml(line.line_notes)}</div>` : ''}
                 </td>
                 <td>${escapeHtml(line.variant_title_snapshot || '—')}</td>
                 <td>${escapeHtml(line.sku_snapshot || '')}</td>
                 <td>${escapeHtml(line.upc_snapshot || '')}</td>
-                <td class="right qty-cell">${Number(line.qty || 0).toLocaleString()}</td>
+                <td class="right qty">${Number(line.qty || 0).toLocaleString()}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -1111,17 +1110,15 @@
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
       <style>
         :root{
-          --ink:#0f172a;
-          --muted:#64748b;
-          --line:#dbe3ee;
-          --line-2:#e8eef5;
-          --soft:#f8fafc;
-          --soft-2:#f1f5f9;
-          --brand:#0f172a;
-          --accent:#1d4ed8;
+          --ink:#171717;
+          --muted:#737373;
+          --line:#d4d4d4;
+          --line-soft:#e8e8e8;
+          --soft:#f7f7f7;
         }
 
         *{box-sizing:border-box}
+
         html,body{
           margin:0;
           padding:0;
@@ -1137,58 +1134,55 @@
 
         .sheet{
           width:100%;
-          padding:36px 38px 30px;
+          padding:34px 38px 28px;
         }
 
         .cover{
-          min-height:calc(100vh - 66px);
+          min-height:calc(100vh - 62px);
           display:flex;
           flex-direction:column;
         }
 
-        .cover-top{
-          display:flex;
-          justify-content:space-between;
-          align-items:flex-start;
-          gap:24px;
-          padding-bottom:22px;
-          border-bottom:2px solid var(--brand);
+        .topbar{
+          display:grid;
+          grid-template-columns:1fr 260px;
+          gap:28px;
+          align-items:start;
+          padding-bottom:20px;
+          border-bottom:2px solid var(--ink);
         }
 
-        .brand-kicker{
+        .eyebrow{
           font-size:11px;
-          letter-spacing:.22em;
           font-weight:700;
+          letter-spacing:.24em;
           text-transform:uppercase;
           color:var(--muted);
           margin-bottom:8px;
         }
 
-        .cover-title{
+        .title{
           margin:0;
-          font-size:40px;
+          font-size:42px;
           line-height:1;
+          letter-spacing:-.05em;
           font-weight:800;
-          letter-spacing:-.04em;
         }
 
-        .cover-sub{
+        .subtext{
           margin-top:10px;
-          font-size:14px;
+          max-width:560px;
           color:var(--muted);
-          max-width:520px;
-          line-height:1.5;
+          font-size:14px;
+          line-height:1.55;
         }
 
-        .po-badge{
-          min-width:240px;
-          border:1px solid var(--line);
-          border-radius:18px;
-          padding:18px 20px;
-          background:var(--soft);
+        .po-meta{
+          text-align:left;
+          padding-top:2px;
         }
 
-        .po-badge-label{
+        .po-meta .label{
           font-size:10px;
           letter-spacing:.18em;
           text-transform:uppercase;
@@ -1197,29 +1191,23 @@
           margin-bottom:8px;
         }
 
-        .po-badge-value{
-          font-size:28px;
-          line-height:1.05;
+        .po-meta .value{
+          font-size:24px;
+          line-height:1.1;
           font-weight:800;
           letter-spacing:-.04em;
           word-break:break-word;
         }
 
-        .summary-grid{
+        .cover-grid{
           display:grid;
-          grid-template-columns:1.2fr 1fr;
-          gap:18px;
-          margin-top:22px;
+          grid-template-columns:1fr 1fr;
+          gap:42px;
+          margin-top:28px;
+          align-items:start;
         }
 
-        .card{
-          border:1px solid var(--line);
-          border-radius:18px;
-          padding:18px;
-          background:#fff;
-        }
-
-        .card-title{
+        .block-title{
           font-size:10px;
           letter-spacing:.18em;
           text-transform:uppercase;
@@ -1228,127 +1216,118 @@
           margin-bottom:14px;
         }
 
-        .info-list{
-          display:grid;
-          gap:12px;
+        .info-table{
+          width:100%;
+          border-collapse:collapse;
         }
 
-        .info-row{
-          display:grid;
-          grid-template-columns:150px 1fr;
-          gap:12px;
-          align-items:start;
-          font-size:13px;
+        .info-table td{
+          padding:10px 0;
+          vertical-align:top;
+          font-size:14px;
+          line-height:1.45;
+          border-bottom:1px solid var(--line-soft);
         }
 
-        .info-key{
+        .info-table tr:last-child td{
+          border-bottom:none;
+        }
+
+        .info-table td.key{
+          width:170px;
           color:var(--muted);
           font-weight:600;
+          padding-right:16px;
         }
 
-        .info-val{
+        .info-table td.val{
           color:var(--ink);
           font-weight:600;
-          line-height:1.45;
         }
 
-        .mini-grid{
+        .summary-grid{
           display:grid;
           grid-template-columns:repeat(2,minmax(0,1fr));
-          gap:12px;
+          gap:18px 26px;
+          margin-bottom:18px;
         }
 
-        .mini{
-          border:1px solid var(--line-2);
-          background:var(--soft);
-          border-radius:16px;
-          padding:14px;
+        .summary-item{
+          padding-bottom:10px;
+          border-bottom:1px solid var(--line-soft);
         }
 
-        .mini-k{
+        .summary-item .k{
           font-size:10px;
-          letter-spacing:.16em;
+          letter-spacing:.18em;
           text-transform:uppercase;
           color:var(--muted);
           font-weight:700;
           margin-bottom:8px;
         }
 
-        .mini-v{
+        .summary-item .v{
           font-size:18px;
           font-weight:800;
           letter-spacing:-.03em;
         }
 
-        .spec-block{
-  margin-top:20px;
-  border-top:1px solid var(--line);
-  padding-top:16px;
-}
+        .req-table{
+          width:100%;
+          border-collapse:collapse;
+          margin-top:8px;
+        }
 
-.spec-title{
-  font-size:10px;
-  letter-spacing:.18em;
-  text-transform:uppercase;
-  color:var(--muted);
-  font-weight:700;
-  margin-bottom:12px;
-}
+        .req-table td{
+          padding:10px 0;
+          font-size:13px;
+          border-bottom:1px solid var(--line-soft);
+          vertical-align:top;
+        }
 
-.spec-grid{
-  display:grid;
-  grid-template-columns:repeat(2,minmax(0,1fr));
-  gap:10px 24px;
-}
+        .req-table tr:last-child td{
+          border-bottom:none;
+        }
 
-.spec-row{
-  display:grid;
-  grid-template-columns:130px 1fr;
-  gap:10px;
-  align-items:start;
-  padding:6px 0;
-}
+        .req-table td.key{
+          width:150px;
+          color:var(--muted);
+          font-weight:700;
+          text-transform:uppercase;
+          letter-spacing:.12em;
+          font-size:10px;
+          padding-right:16px;
+        }
 
-.spec-k{
-  font-size:11px;
-  text-transform:uppercase;
-  letter-spacing:.12em;
-  color:var(--muted);
-  font-weight:700;
-}
+        .req-table td.val{
+          color:var(--ink);
+          font-weight:600;
+          line-height:1.45;
+        }
 
-.spec-v{
-  font-size:13px;
-  color:var(--ink);
-  font-weight:600;
-  line-height:1.4;
-}
-
-        .notes-card{
-          margin-top:18px;
-          border:1px solid var(--line);
-          border-radius:18px;
-          background:var(--soft);
-          padding:18px;
+        .notes{
+          margin-top:24px;
+          padding-top:16px;
+          border-top:1px solid var(--line);
         }
 
         .notes-text{
           font-size:13px;
+          color:var(--ink);
           line-height:1.65;
           white-space:pre-wrap;
-          color:var(--ink);
         }
 
-        .cover-foot{
+        .cover-footer{
           margin-top:auto;
           display:flex;
           justify-content:space-between;
           align-items:center;
           gap:12px;
-          padding-top:22px;
+          padding-top:24px;
           border-top:1px solid var(--line);
-          color:var(--muted);
           font-size:11px;
+          color:var(--muted);
         }
 
         .page-break{
@@ -1357,18 +1336,19 @@
         }
 
         .detail-head{
-          display:flex;
-          justify-content:space-between;
-          align-items:flex-start;
-          gap:20px;
-          border-bottom:2px solid var(--brand);
+          display:grid;
+          grid-template-columns:1fr 240px;
+          gap:24px;
+          align-items:end;
           padding-bottom:18px;
+          border-bottom:2px solid var(--ink);
           margin-bottom:22px;
         }
 
         .detail-title{
           margin:0;
-          font-size:28px;
+          font-size:30px;
+          line-height:1.05;
           font-weight:800;
           letter-spacing:-.04em;
         }
@@ -1377,12 +1357,14 @@
           margin-top:8px;
           color:var(--muted);
           font-size:13px;
+          line-height:1.5;
+          max-width:460px;
         }
 
         .detail-meta{
-          text-align:right;
           display:grid;
           gap:8px;
+          justify-items:end;
         }
 
         .detail-meta-row{
@@ -1393,14 +1375,13 @@
         .detail-meta-row strong{
           color:var(--ink);
           font-weight:800;
-          letter-spacing:-.01em;
         }
 
-        .pdf-section{
-          margin-bottom:24px;
+        .section-block{
+          margin-bottom:28px;
         }
 
-        .pdf-section-head{
+        .section-head{
           display:flex;
           justify-content:space-between;
           align-items:flex-end;
@@ -1408,92 +1389,86 @@
           margin-bottom:10px;
         }
 
-        .pdf-section-title{
-          font-size:19px;
+        .section-title{
+          font-size:18px;
           font-weight:800;
           letter-spacing:-.03em;
         }
 
-        .pdf-section-meta{
-          font-size:11px;
-          text-transform:uppercase;
-          letter-spacing:.16em;
-          color:var(--muted);
-          font-weight:700;
-        }
-
-        .pdf-table{
-          width:100%;
-          border-collapse:separate;
-          border-spacing:0;
-          border:1px solid var(--line);
-          border-radius:16px;
-          overflow:hidden;
-        }
-
-        .pdf-table thead th{
-          background:var(--soft-2);
-          color:var(--muted);
+        .section-count{
           font-size:10px;
+          font-weight:700;
           text-transform:uppercase;
           letter-spacing:.16em;
-          font-weight:800;
+          color:var(--muted);
+        }
+
+        .lines-table{
+          width:100%;
+          border-collapse:collapse;
+        }
+
+        .lines-table thead th{
           text-align:left;
-          padding:12px 12px;
+          padding:11px 8px;
+          font-size:10px;
+          font-weight:700;
+          text-transform:uppercase;
+          letter-spacing:.18em;
+          color:var(--muted);
+          border-bottom:1.5px solid var(--line);
+        }
+
+        .lines-table tbody td{
+          padding:13px 8px;
+          vertical-align:top;
+          font-size:12px;
+          border-bottom:1px solid var(--line-soft);
+        }
+
+        .lines-table tbody tr:last-child td{
           border-bottom:1px solid var(--line);
         }
 
-        .pdf-table tbody td{
-          padding:12px 12px;
-          border-bottom:1px solid var(--line-2);
-          font-size:12px;
-          vertical-align:top;
-        }
-
-        .pdf-table tbody tr:last-child td{
-          border-bottom:none;
-        }
-
-        .row-title{
+        .line-title{
           font-size:13px;
           font-weight:700;
-          color:var(--ink);
           line-height:1.35;
         }
 
-        .row-subnote{
-          margin-top:4px;
-          color:var(--muted);
+        .line-note{
+          margin-top:5px;
           font-size:11px;
           line-height:1.45;
+          color:var(--muted);
         }
 
         .right{
           text-align:right !important;
         }
 
-        .qty-cell{
+        .qty{
           font-weight:800;
           font-size:13px;
         }
 
-        .w-barcode{width:120px}
-        .w-upc{width:120px}
-        .w-qty{width:84px}
+        .barcode-col{width:130px}
+        .upc-col{width:120px}
+        .qty-col{width:84px}
 
-        .detail-foot{
+        .detail-footer{
           display:flex;
           justify-content:space-between;
           align-items:center;
           gap:12px;
-          margin-top:22px;
+          margin-top:24px;
           padding-top:14px;
           border-top:1px solid var(--line);
-          color:var(--muted);
           font-size:11px;
+          color:var(--muted);
         }
 
-        .print-actions{
+        .no-print-actions{
           display:flex;
           gap:12px;
           margin-top:26px;
@@ -1501,9 +1476,9 @@
 
         .print-btn{
           padding:12px 18px;
-          border-radius:12px;
-          border:1px solid #d1d5db;
-          background:#111827;
+          border-radius:0;
+          border:1px solid var(--ink);
+          background:var(--ink);
           color:white;
           font-weight:700;
           cursor:pointer;
@@ -1512,7 +1487,7 @@
 
         .print-btn.alt{
           background:white;
-          color:#111827;
+          color:var(--ink);
         }
 
         @page{
@@ -1529,100 +1504,101 @@
     </head>
     <body>
       <div class="sheet cover">
-        <div class="cover-top">
+        <div class="topbar">
           <div>
-            <div class="brand-kicker">Baseballism Purchasing</div>
-            <h1 class="cover-title">Purchase Order</h1>
-            <div class="cover-sub">
+            <div class="eyebrow">Baseballism Purchasing</div>
+            <h1 class="title">Purchase Order</h1>
+            <div class="subtext">
               Vendor-facing purchase order for production and shipment preparation.
               Please review dates, quantities, and line details carefully before confirming.
             </div>
           </div>
 
-          <div class="po-badge">
-            <div class="po-badge-label">PO Number</div>
-            <div class="po-badge-value">${escapeHtml(po.po_name || '—')}</div>
+          <div class="po-meta">
+            <div class="label">PO Number</div>
+            <div class="value">${escapeHtml(po.po_name || '—')}</div>
           </div>
         </div>
 
-        <div class="summary-grid">
-          <div class="card">
-            <div class="card-title">Factory & Shipping</div>
-            <div class="info-list">
-              <div class="info-row">
-                <div class="info-key">Factory</div>
-                <div class="info-val">${escapeHtml(factory?.factory_name || '—')}</div>
-              </div>
-              <div class="info-row">
-                <div class="info-key">Ship To</div>
-                <div class="info-val">
+        <div class="cover-grid">
+          <div>
+            <div class="block-title">Factory & Shipping</div>
+            <table class="info-table">
+              <tr>
+                <td class="key">Factory</td>
+                <td class="val">${escapeHtml(factory?.factory_name || '—')}</td>
+              </tr>
+              <tr>
+                <td class="key">Ship To</td>
+                <td class="val">
                   Baseballism Inc.<br>
                   11035 SW 11th Street<br>
                   Building B, Suite 290<br>
                   Beaverton, OR 97005
-                </div>
-              </div>
-              <div class="info-row">
-                <div class="info-key">Buyer Contact</div>
-                <div class="info-val">
+                </td>
+              </tr>
+              <tr>
+                <td class="key">Buyer Contact</td>
+                <td class="val">
                   Justin@baseballism.com<br>
                   +1 (317) 354-6228
-                </div>
-              </div>
-            </div>
+                </td>
+              </tr>
+            </table>
           </div>
 
-          <div class="card">
-            <div class="card-title">PO Summary</div>
-            <div class="mini-grid">
-              <div class="mini">
-                <div class="mini-k">Order Date</div>
-                <div class="mini-v">${escapeHtml(po.order_date || '—')}</div>
+          <div>
+            <div class="block-title">PO Summary</div>
+
+            <div class="summary-grid">
+              <div class="summary-item">
+                <div class="k">Order Date</div>
+                <div class="v">${escapeHtml(po.order_date || '—')}</div>
               </div>
-              <div class="mini">
-                <div class="mini-k">Req. Ship Date</div>
-                <div class="mini-v">${escapeHtml(po.req_ship_date || '—')}</div>
+              <div class="summary-item">
+                <div class="k">Req. Ship Date</div>
+                <div class="v">${escapeHtml(po.req_ship_date || '—')}</div>
               </div>
-              <div class="mini">
-                <div class="mini-k">Total Styles</div>
-                <div class="mini-v">${Number(totalStyles || 0).toLocaleString()}</div>
+              <div class="summary-item">
+                <div class="k">Total Styles</div>
+                <div class="v">${Number(totalStyles || 0).toLocaleString()}</div>
               </div>
-              <div class="mini">
-                <div class="mini-k">Total Units</div>
-                <div class="mini-v">${Number(totalUnits || 0).toLocaleString()}</div>
+              <div class="summary-item">
+                <div class="k">Total Units</div>
+                <div class="v">${Number(totalUnits || 0).toLocaleString()}</div>
               </div>
             </div>
 
-            <div class="spec-block">
-  <div class="spec-title">Production Requirements</div>
-  <div class="spec-grid">
-    <div class="spec-row">
-      <div class="spec-k">Product Type</div>
-      <div class="spec-v">${po.is_new_product_po ? 'New Product' : 'Restock Product'}</div>
-    </div>
-    <div class="spec-row">
-      <div class="spec-k">Wholesale</div>
-      <div class="spec-v">${po.wholesale_triggered ? 'Triggered' : 'Not Triggered'}</div>
-    </div>
-    <div class="spec-row">
-      <div class="spec-k">Product Images</div>
-      <div class="spec-v">Not Attached</div>
-    </div>
-    <div class="spec-row">
-      <div class="spec-k">Tech Pack</div>
-      <div class="spec-v">No Tech Pack</div>
-    </div>
-  </div>
-</div>
+            <div class="block-title" style="margin-top:20px;">Production Requirements</div>
+            <table class="req-table">
+              <tr>
+                <td class="key">Product Type</td>
+                <td class="val">${po.is_new_product_po ? 'New Product' : 'Restock Product'}</td>
+              </tr>
+              <tr>
+                <td class="key">Wholesale</td>
+                <td class="val">${po.wholesale_triggered ? 'Triggered' : 'Not Triggered'}</td>
+              </tr>
+              <tr>
+                <td class="key">Product Images</td>
+                <td class="val">Not Attached</td>
+              </tr>
+              <tr>
+                <td class="key">Tech Pack</td>
+                <td class="val">No Tech Pack</td>
+              </tr>
+            </table>
+          </div>
+        </div>
 
         ${po.notes ? `
-          <div class="notes-card">
-            <div class="card-title">Vendor Notes</div>
+          <div class="notes">
+            <div class="block-title">Vendor Notes</div>
             <div class="notes-text">${escapeHtml(po.notes)}</div>
           </div>
         ` : ''}
 
-        <div class="cover-foot">
+        <div class="cover-footer">
           <div>Baseballism Purchase Order</div>
           <div>${escapeHtml(po.po_name || '')}</div>
         </div>
@@ -1634,8 +1610,11 @@
         <div class="detail-head">
           <div>
             <h2 class="detail-title">Line Item Detail</h2>
-            <div class="detail-sub">Grouped by product type for vendor review and production prep.</div>
+            <div class="detail-sub">
+              Grouped by product type for vendor review and production prep.
+            </div>
           </div>
+
           <div class="detail-meta">
             <div class="detail-meta-row">PO#: <strong>${escapeHtml(po.po_name || '')}</strong></div>
             <div class="detail-meta-row">Order Date: <strong>${escapeHtml(po.order_date || '—')}</strong></div>
@@ -1645,12 +1624,12 @@
 
         ${sectionHtml}
 
-        <div class="detail-foot">
+        <div class="detail-footer">
           <div>Vendor-facing export · pricing intentionally excluded</div>
           <div>${escapeHtml(po.po_name || '')}</div>
         </div>
 
-        <div class="print-actions no-print">
+        <div class="no-print-actions no-print">
           <button onclick="window.print()" class="print-btn">Print / Save PDF</button>
           <button onclick="window.close()" class="print-btn alt">Close</button>
         </div>
