@@ -1036,101 +1036,614 @@
     }
 
     function buildVendorPdfHtml() {
-      if (!state.currentPO) return '';
+  if (!state.currentPO) return '';
 
-      const po = state.currentPO;
-      const factory = state.factories.find(f => f.id === po.factory_id);
+  const po = state.currentPO;
+  const factory = state.factories.find(f => f.id === po.factory_id);
 
-      const lineRows = (state.currentLines || []).map(line => `
-        <tr>
-          <td>${escapeHtml(line.product_type_snapshot || '')}</td>
-          <td>${escapeHtml(line.title_snapshot || '')}</td>
-          <td>${escapeHtml(line.variant_title_snapshot || '')}</td>
-          <td>${escapeHtml(line.sku_snapshot || '')}</td>
-          <td>${escapeHtml(line.upc_snapshot || '')}</td>
-          <td style="text-align:right">${Number(line.qty || 0).toLocaleString()}</td>
-          <td>${escapeHtml(line.line_notes || '')}</td>
-        </tr>
-      `).join('');
+  const lines = [...(state.currentLines || [])];
 
-      return `
-        <!doctype html>
-        <html>
-        <head>
-          <meta charset="utf-8" />
-          <title>${escapeHtml(po.po_name || 'PO')}</title>
-          <link rel="preconnect" href="https://fonts.googleapis.com">
-          <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-          <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-          <style>
-            body{margin:0;background:white}
-            ${document.querySelector('style').innerHTML}
-            @media print{
-              body{background:white}
-              .no-print{display:none!important}
-            }
-          </style>
-        </head>
-        <body>
-          <div class="pdf-sheet">
-            <div class="pdf-head">
-              <div>
-                <h1 class="pdf-title">Purchase Order</h1>
-                <div class="pdf-sub">Vendor-facing PO export</div>
-              </div>
-              <div style="text-align:right">
-                <div style="font-size:28px;font-weight:800">${escapeHtml(po.po_name || '')}</div>
-                <div class="pdf-sub">${escapeHtml(factory?.factory_name || '')}</div>
-              </div>
-            </div>
+  const grouped = lines.reduce((acc, line) => {
+    const groupKey = line.product_type_snapshot || 'Other Products';
+    if (!acc[groupKey]) acc[groupKey] = [];
+    acc[groupKey].push(line);
+    return acc;
+  }, {});
 
-            <div class="pdf-grid">
-              <div class="pdf-card">
-                <div class="k">Factory</div>
-                <div class="v">${escapeHtml(factory?.factory_name || '—')}</div>
-              </div>
-              <div class="pdf-card">
-                <div class="k">Order Date</div>
-                <div class="v">${escapeHtml(po.order_date || '—')}</div>
-              </div>
-              <div class="pdf-card">
-                <div class="k">Required Ship Date</div>
-                <div class="v">${escapeHtml(po.req_ship_date || '—')}</div>
-              </div>
-              <div class="pdf-card">
-                <div class="k">Date Bucket</div>
-                <div class="v">${escapeHtml(po.date_bucket || '—')}</div>
-              </div>
-            </div>
+  const totalUnits = lines.reduce((sum, r) => sum + Number(r.qty || 0), 0);
+  const totalStyles = new Set(
+    lines.map(l => `${l.title_snapshot || ''}||${l.product_type_snapshot || ''}`)
+  ).size;
 
-            <table class="pdf-table">
-              <thead>
-                <tr>
-                  <th>Type</th>
-                  <th>Title</th>
-                  <th>Variant</th>
-                  <th>SKU</th>
-                  <th>UPC</th>
-                  <th style="text-align:right">Qty</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${lineRows || `<tr><td colspan="7">No lines on this PO.</td></tr>`}
-              </tbody>
-            </table>
+  const sectionHtml = Object.entries(grouped).map(([groupName, groupLines]) => {
+    const sorted = [...groupLines].sort((a, b) => {
+      const t1 = `${a.title_snapshot || ''} ${a.variant_title_snapshot || ''} ${a.sku_snapshot || ''}`.toLowerCase();
+      const t2 = `${b.title_snapshot || ''} ${b.variant_title_snapshot || ''} ${b.sku_snapshot || ''}`.toLowerCase();
+      return t1.localeCompare(t2);
+    });
 
-            ${po.notes ? `<div class="pdf-notes"><strong style="display:block;margin-bottom:8px">Vendor Notes</strong>${escapeHtml(po.notes)}</div>` : ''}
+    return `
+      <section class="pdf-section">
+        <div class="pdf-section-head">
+          <div class="pdf-section-title">${escapeHtml(groupName)}</div>
+          <div class="pdf-section-meta">${sorted.length} line${sorted.length === 1 ? '' : 's'}</div>
+        </div>
 
-            <div class="no-print" style="margin-top:24px;display:flex;gap:12px">
-              <button onclick="window.print()" style="padding:12px 18px;border-radius:12px;border:1px solid #d1d5db;background:#111827;color:white;font-weight:700;cursor:pointer">Print / Save PDF</button>
-              <button onclick="window.close()" style="padding:12px 18px;border-radius:12px;border:1px solid #d1d5db;background:white;color:#111827;font-weight:700;cursor:pointer">Close</button>
+        <table class="pdf-table">
+          <thead>
+            <tr>
+              <th class="w-barcode">Barcode</th>
+              <th>Product Title</th>
+              <th>Variant</th>
+              <th>SKU</th>
+              <th class="w-upc">UPC</th>
+              <th class="w-qty right">Qty</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sorted.map(line => `
+              <tr>
+                <td>${escapeHtml(line.barcode_snapshot || '')}</td>
+                <td>
+                  <div class="row-title">${escapeHtml(line.title_snapshot || '')}</div>
+                  ${line.line_notes ? `<div class="row-subnote">${escapeHtml(line.line_notes)}</div>` : ''}
+                </td>
+                <td>${escapeHtml(line.variant_title_snapshot || '—')}</td>
+                <td>${escapeHtml(line.sku_snapshot || '')}</td>
+                <td>${escapeHtml(line.upc_snapshot || '')}</td>
+                <td class="right qty-cell">${Number(line.qty || 0).toLocaleString()}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </section>
+    `;
+  }).join('');
+
+  return `
+    <!doctype html>
+    <html>
+    <head>
+      <meta charset="utf-8" />
+      <title>${escapeHtml(po.po_name || 'Purchase Order')}</title>
+      <link rel="preconnect" href="https://fonts.googleapis.com">
+      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+      <style>
+        :root{
+          --ink:#0f172a;
+          --muted:#64748b;
+          --line:#dbe3ee;
+          --line-2:#e8eef5;
+          --soft:#f8fafc;
+          --soft-2:#f1f5f9;
+          --brand:#0f172a;
+          --accent:#1d4ed8;
+        }
+
+        *{box-sizing:border-box}
+        html,body{
+          margin:0;
+          padding:0;
+          background:#fff;
+          color:var(--ink);
+          font-family:Inter,system-ui,sans-serif;
+        }
+
+        body{
+          -webkit-print-color-adjust:exact;
+          print-color-adjust:exact;
+        }
+
+        .sheet{
+          width:100%;
+          padding:36px 38px 30px;
+        }
+
+        .cover{
+          min-height:calc(100vh - 66px);
+          display:flex;
+          flex-direction:column;
+        }
+
+        .cover-top{
+          display:flex;
+          justify-content:space-between;
+          align-items:flex-start;
+          gap:24px;
+          padding-bottom:22px;
+          border-bottom:2px solid var(--brand);
+        }
+
+        .brand-kicker{
+          font-size:11px;
+          letter-spacing:.22em;
+          font-weight:700;
+          text-transform:uppercase;
+          color:var(--muted);
+          margin-bottom:8px;
+        }
+
+        .cover-title{
+          margin:0;
+          font-size:40px;
+          line-height:1;
+          font-weight:800;
+          letter-spacing:-.04em;
+        }
+
+        .cover-sub{
+          margin-top:10px;
+          font-size:14px;
+          color:var(--muted);
+          max-width:520px;
+          line-height:1.5;
+        }
+
+        .po-badge{
+          min-width:240px;
+          border:1px solid var(--line);
+          border-radius:18px;
+          padding:18px 20px;
+          background:var(--soft);
+        }
+
+        .po-badge-label{
+          font-size:10px;
+          letter-spacing:.18em;
+          text-transform:uppercase;
+          color:var(--muted);
+          font-weight:700;
+          margin-bottom:8px;
+        }
+
+        .po-badge-value{
+          font-size:28px;
+          line-height:1.05;
+          font-weight:800;
+          letter-spacing:-.04em;
+          word-break:break-word;
+        }
+
+        .summary-grid{
+          display:grid;
+          grid-template-columns:1.2fr 1fr;
+          gap:18px;
+          margin-top:22px;
+        }
+
+        .card{
+          border:1px solid var(--line);
+          border-radius:18px;
+          padding:18px;
+          background:#fff;
+        }
+
+        .card-title{
+          font-size:10px;
+          letter-spacing:.18em;
+          text-transform:uppercase;
+          color:var(--muted);
+          font-weight:700;
+          margin-bottom:14px;
+        }
+
+        .info-list{
+          display:grid;
+          gap:12px;
+        }
+
+        .info-row{
+          display:grid;
+          grid-template-columns:150px 1fr;
+          gap:12px;
+          align-items:start;
+          font-size:13px;
+        }
+
+        .info-key{
+          color:var(--muted);
+          font-weight:600;
+        }
+
+        .info-val{
+          color:var(--ink);
+          font-weight:600;
+          line-height:1.45;
+        }
+
+        .mini-grid{
+          display:grid;
+          grid-template-columns:repeat(2,minmax(0,1fr));
+          gap:12px;
+        }
+
+        .mini{
+          border:1px solid var(--line-2);
+          background:var(--soft);
+          border-radius:16px;
+          padding:14px;
+        }
+
+        .mini-k{
+          font-size:10px;
+          letter-spacing:.16em;
+          text-transform:uppercase;
+          color:var(--muted);
+          font-weight:700;
+          margin-bottom:8px;
+        }
+
+        .mini-v{
+          font-size:18px;
+          font-weight:800;
+          letter-spacing:-.03em;
+        }
+
+        .flags{
+          display:flex;
+          flex-wrap:wrap;
+          gap:10px;
+          margin-top:18px;
+        }
+
+        .flag{
+          display:inline-flex;
+          align-items:center;
+          gap:8px;
+          border:1px solid var(--line);
+          background:var(--soft);
+          border-radius:999px;
+          padding:9px 12px;
+          font-size:12px;
+          font-weight:700;
+        }
+
+        .flag-dot{
+          width:8px;
+          height:8px;
+          border-radius:999px;
+          background:#cbd5e1;
+        }
+
+        .flag-yes .flag-dot{
+          background:#16a34a;
+        }
+
+        .notes-card{
+          margin-top:18px;
+          border:1px solid var(--line);
+          border-radius:18px;
+          background:var(--soft);
+          padding:18px;
+        }
+
+        .notes-text{
+          font-size:13px;
+          line-height:1.65;
+          white-space:pre-wrap;
+          color:var(--ink);
+        }
+
+        .cover-foot{
+          margin-top:auto;
+          display:flex;
+          justify-content:space-between;
+          align-items:center;
+          gap:12px;
+          padding-top:22px;
+          border-top:1px solid var(--line);
+          color:var(--muted);
+          font-size:11px;
+        }
+
+        .page-break{
+          page-break-before:always;
+          break-before:page;
+        }
+
+        .detail-head{
+          display:flex;
+          justify-content:space-between;
+          align-items:flex-start;
+          gap:20px;
+          border-bottom:2px solid var(--brand);
+          padding-bottom:18px;
+          margin-bottom:22px;
+        }
+
+        .detail-title{
+          margin:0;
+          font-size:28px;
+          font-weight:800;
+          letter-spacing:-.04em;
+        }
+
+        .detail-sub{
+          margin-top:8px;
+          color:var(--muted);
+          font-size:13px;
+        }
+
+        .detail-meta{
+          text-align:right;
+          display:grid;
+          gap:8px;
+        }
+
+        .detail-meta-row{
+          font-size:12px;
+          color:var(--muted);
+        }
+
+        .detail-meta-row strong{
+          color:var(--ink);
+          font-weight:800;
+          letter-spacing:-.01em;
+        }
+
+        .pdf-section{
+          margin-bottom:24px;
+        }
+
+        .pdf-section-head{
+          display:flex;
+          justify-content:space-between;
+          align-items:flex-end;
+          gap:12px;
+          margin-bottom:10px;
+        }
+
+        .pdf-section-title{
+          font-size:19px;
+          font-weight:800;
+          letter-spacing:-.03em;
+        }
+
+        .pdf-section-meta{
+          font-size:11px;
+          text-transform:uppercase;
+          letter-spacing:.16em;
+          color:var(--muted);
+          font-weight:700;
+        }
+
+        .pdf-table{
+          width:100%;
+          border-collapse:separate;
+          border-spacing:0;
+          border:1px solid var(--line);
+          border-radius:16px;
+          overflow:hidden;
+        }
+
+        .pdf-table thead th{
+          background:var(--soft-2);
+          color:var(--muted);
+          font-size:10px;
+          text-transform:uppercase;
+          letter-spacing:.16em;
+          font-weight:800;
+          text-align:left;
+          padding:12px 12px;
+          border-bottom:1px solid var(--line);
+        }
+
+        .pdf-table tbody td{
+          padding:12px 12px;
+          border-bottom:1px solid var(--line-2);
+          font-size:12px;
+          vertical-align:top;
+        }
+
+        .pdf-table tbody tr:last-child td{
+          border-bottom:none;
+        }
+
+        .row-title{
+          font-size:13px;
+          font-weight:700;
+          color:var(--ink);
+          line-height:1.35;
+        }
+
+        .row-subnote{
+          margin-top:4px;
+          color:var(--muted);
+          font-size:11px;
+          line-height:1.45;
+        }
+
+        .right{
+          text-align:right !important;
+        }
+
+        .qty-cell{
+          font-weight:800;
+          font-size:13px;
+        }
+
+        .w-barcode{width:120px}
+        .w-upc{width:120px}
+        .w-qty{width:84px}
+
+        .detail-foot{
+          display:flex;
+          justify-content:space-between;
+          align-items:center;
+          gap:12px;
+          margin-top:22px;
+          padding-top:14px;
+          border-top:1px solid var(--line);
+          color:var(--muted);
+          font-size:11px;
+        }
+
+        .print-actions{
+          display:flex;
+          gap:12px;
+          margin-top:26px;
+        }
+
+        .print-btn{
+          padding:12px 18px;
+          border-radius:12px;
+          border:1px solid #d1d5db;
+          background:#111827;
+          color:white;
+          font-weight:700;
+          cursor:pointer;
+          font-family:inherit;
+        }
+
+        .print-btn.alt{
+          background:white;
+          color:#111827;
+        }
+
+        @page{
+          size:auto;
+          margin:14mm;
+        }
+
+        @media print{
+          .no-print{display:none!important}
+          .sheet{padding:0}
+          .cover{min-height:auto}
+        }
+      </style>
+    </head>
+    <body>
+      <div class="sheet cover">
+        <div class="cover-top">
+          <div>
+            <div class="brand-kicker">Baseballism Purchasing</div>
+            <h1 class="cover-title">Purchase Order</h1>
+            <div class="cover-sub">
+              Vendor-facing purchase order for production and shipment preparation.
+              Please review dates, quantities, and line details carefully before confirming.
             </div>
           </div>
-        </body>
-        </html>
-      `;
-    }
+
+          <div class="po-badge">
+            <div class="po-badge-label">PO Number</div>
+            <div class="po-badge-value">${escapeHtml(po.po_name || '—')}</div>
+          </div>
+        </div>
+
+        <div class="summary-grid">
+          <div class="card">
+            <div class="card-title">Factory & Shipping</div>
+            <div class="info-list">
+              <div class="info-row">
+                <div class="info-key">Factory</div>
+                <div class="info-val">${escapeHtml(factory?.factory_name || '—')}</div>
+              </div>
+              <div class="info-row">
+                <div class="info-key">Ship To</div>
+                <div class="info-val">
+                  Baseballism Inc.<br>
+                  11035 SW 11th Street<br>
+                  Building B, Suite 290<br>
+                  Beaverton, OR 97005
+                </div>
+              </div>
+              <div class="info-row">
+                <div class="info-key">Buyer Contact</div>
+                <div class="info-val">
+                  Justin@baseballism.com<br>
+                  +1 (317) 354-6228
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title">PO Summary</div>
+            <div class="mini-grid">
+              <div class="mini">
+                <div class="mini-k">Order Date</div>
+                <div class="mini-v">${escapeHtml(po.order_date || '—')}</div>
+              </div>
+              <div class="mini">
+                <div class="mini-k">Req. Ship Date</div>
+                <div class="mini-v">${escapeHtml(po.req_ship_date || '—')}</div>
+              </div>
+              <div class="mini">
+                <div class="mini-k">Total Styles</div>
+                <div class="mini-v">${Number(totalStyles || 0).toLocaleString()}</div>
+              </div>
+              <div class="mini">
+                <div class="mini-k">Total Units</div>
+                <div class="mini-v">${Number(totalUnits || 0).toLocaleString()}</div>
+              </div>
+            </div>
+
+            <div class="flags">
+              <div class="flag ${po.is_new_product_po ? 'flag-yes' : ''}">
+                <span class="flag-dot"></span>
+                ${po.is_new_product_po ? 'New Product' : 'Restock Product'}
+              </div>
+              <div class="flag ${po.wholesale_triggered ? 'flag-yes' : ''}">
+                <span class="flag-dot"></span>
+                ${po.wholesale_triggered ? 'Wholesale Triggered' : 'Wholesale Not Triggered'}
+              </div>
+              <div class="flag">
+                <span class="flag-dot"></span>
+                Product Images: Not Attached
+              </div>
+              <div class="flag">
+                <span class="flag-dot"></span>
+                Tech Pack: No Tech Pack
+              </div>
+            </div>
+          </div>
+        </div>
+
+        ${po.notes ? `
+          <div class="notes-card">
+            <div class="card-title">Vendor Notes</div>
+            <div class="notes-text">${escapeHtml(po.notes)}</div>
+          </div>
+        ` : ''}
+
+        <div class="cover-foot">
+          <div>Baseballism Purchase Order</div>
+          <div>${escapeHtml(po.po_name || '')}</div>
+        </div>
+      </div>
+
+      <div class="page-break"></div>
+
+      <div class="sheet">
+        <div class="detail-head">
+          <div>
+            <h2 class="detail-title">Line Item Detail</h2>
+            <div class="detail-sub">Grouped by product type for vendor review and production prep.</div>
+          </div>
+          <div class="detail-meta">
+            <div class="detail-meta-row">PO#: <strong>${escapeHtml(po.po_name || '')}</strong></div>
+            <div class="detail-meta-row">Order Date: <strong>${escapeHtml(po.order_date || '—')}</strong></div>
+            <div class="detail-meta-row">Req. Ship Date: <strong>${escapeHtml(po.req_ship_date || '—')}</strong></div>
+          </div>
+        </div>
+
+        ${sectionHtml}
+
+        <div class="detail-foot">
+          <div>Vendor-facing export · pricing intentionally excluded</div>
+          <div>${escapeHtml(po.po_name || '')}</div>
+        </div>
+
+        <div class="print-actions no-print">
+          <button onclick="window.print()" class="print-btn">Print / Save PDF</button>
+          <button onclick="window.close()" class="print-btn alt">Close</button>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+}
 
     function generateVendorPdf() {
       if (!state.currentPO?.id) {
