@@ -22,7 +22,8 @@
         radial-gradient(circle at top left, rgba(255,255,255,.94), rgba(245,247,251,.88) 38%, rgba(241,245,249,.98) 100%);
       color: #0f172a;
     }
-    .shell { max-width: 1600px; margin: 0 auto; padding: 20px; }
+
+    .shell { max-width: 1640px; margin: 0 auto; padding: 20px; }
     .card {
       background: rgba(255,255,255,.92);
       backdrop-filter: blur(10px);
@@ -55,6 +56,7 @@
       font-weight: 700;
       letter-spacing: .02em;
     }
+
     .input, .select, .textarea {
       width: 100%;
       border-radius: 16px;
@@ -71,6 +73,7 @@
       border-color: #0f172a;
       box-shadow: 0 0 0 4px rgba(15,23,42,.08);
     }
+
     .btn {
       display: inline-flex;
       align-items: center;
@@ -102,10 +105,38 @@
       font-size: .73rem;
       font-weight: 800;
     }
+
     .section-title { font-size: 1rem; font-weight: 800; color: #0f172a; }
     .section-sub { margin-top: 2px; font-size: .82rem; color: #64748b; }
-    .muted { color: #64748b; }
     .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+
+    .tabs {
+      display: inline-flex;
+      gap: 6px;
+      padding: 6px;
+      border-radius: 999px;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      flex-wrap: wrap;
+    }
+    .tabs button {
+      border: 0;
+      background: transparent;
+      color: #475569;
+      border-radius: 999px;
+      padding: .55rem .95rem;
+      font-size: .82rem;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .tabs button.active {
+      background: #0f172a;
+      color: #fff;
+      box-shadow: 0 8px 18px rgba(15,23,42,.14);
+    }
+
+    .view-panel { display: none; }
+    .view-panel.active { display: block; }
 
     .kpi {
       border: 1px solid #e5e7eb;
@@ -123,7 +154,7 @@
     }
     .kpi-value {
       margin-top: 9px;
-      font-size: 1.55rem;
+      font-size: 1.45rem;
       line-height: 1.02;
       font-weight: 800;
       color: #0f172a;
@@ -132,6 +163,27 @@
       margin-top: 6px;
       font-size: .75rem;
       color: #64748b;
+    }
+
+    .mini-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .mini-card {
+      border: 1px solid #e5e7eb;
+      border-radius: 18px;
+      padding: 12px;
+      background: #fff;
+    }
+    .mini-card .label {
+      font-size: .68rem;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: #64748b;
+      font-weight: 800;
+    }
+    .mini-card .value {
+      margin-top: 8px;
+      font-size: 1.08rem;
+      font-weight: 800;
+      color: #0f172a;
     }
 
     .table-wrap {
@@ -190,6 +242,19 @@
     .badge-priority-urgent { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
     .badge-complete { background: #ecfdf5; color: #166534; border-color: #bbf7d0; }
     .badge-open { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
+    .badge-overdue { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+    .badge-due_soon { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
+    .badge-current { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+
+    .list-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 11px 0;
+      border-bottom: 1px solid #eef2f7;
+    }
+    .list-row:last-child { border-bottom: 0; }
 
     .drawer-backdrop {
       position: fixed;
@@ -248,25 +313,11 @@
     }
     .field-grid .full { grid-column: 1 / -1; }
 
-    .mini-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-    .mini-card {
+    .activity-item {
       border: 1px solid #e5e7eb;
       border-radius: 18px;
       padding: 12px;
       background: #fff;
-    }
-    .mini-card .label {
-      font-size: .68rem;
-      text-transform: uppercase;
-      letter-spacing: .06em;
-      color: #64748b;
-      font-weight: 800;
-    }
-    .mini-card .value {
-      margin-top: 8px;
-      font-size: 1.08rem;
-      font-weight: 800;
-      color: #0f172a;
     }
 
     .toast-wrap {
@@ -299,6 +350,7 @@
     }
     @media (max-width: 760px) {
       .field-grid { grid-template-columns: 1fr; }
+      .tabs { width: 100%; }
     }
   </style>
 </head>
@@ -313,7 +365,7 @@
             <div>
               <h1 class="text-3xl lg:text-4xl font-extrabold tracking-tight">Payment Requests Workbench</h1>
               <p class="mt-2 max-w-3xl text-sm text-slate-200/80">
-                Internal processing view for submitted payment requests. Review documents, assign ownership, update status, and mark payments complete.
+                Internal processing and reporting view for submitted payment requests. Review documents, assign ownership, update status, mark payments complete, and monitor volume/trends.
               </p>
             </div>
           </div>
@@ -384,7 +436,9 @@
             <select id="dueFilter" class="select">
               <option value="">All</option>
               <option value="overdue">Overdue</option>
+              <option value="today">Due today</option>
               <option value="next7">Next 7 days</option>
+              <option value="next14">Next 14 days</option>
               <option value="nodue">No due date</option>
             </select>
           </div>
@@ -414,45 +468,152 @@
         </div>
       </div>
 
-      <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-8">
         <div class="kpi"><div class="kpi-label">Requests</div><div id="kpiRequests" class="kpi-value mono">0</div><div class="kpi-sub">Filtered rows</div></div>
+        <div class="kpi"><div class="kpi-label">Submitted amount</div><div id="kpiSubmittedAmount" class="kpi-value mono">$0.00</div><div class="kpi-sub">All filtered requests</div></div>
         <div class="kpi"><div class="kpi-label">Open amount</div><div id="kpiOpenAmount" class="kpi-value mono">$0.00</div><div class="kpi-sub">Not completed</div></div>
+        <div class="kpi"><div class="kpi-label">Completed amount</div><div id="kpiCompletedAmount" class="kpi-value mono">$0.00</div><div class="kpi-sub">Marked paid</div></div>
         <div class="kpi"><div class="kpi-label">Overdue</div><div id="kpiOverdue" class="kpi-value mono">0</div><div class="kpi-sub">Past due date</div></div>
+        <div class="kpi"><div class="kpi-label">Due 7 days</div><div id="kpiDue7" class="kpi-value mono">0</div><div class="kpi-sub">Open and upcoming</div></div>
         <div class="kpi"><div class="kpi-label">Unassigned</div><div id="kpiUnassigned" class="kpi-value mono">0</div><div class="kpi-sub">Needs owner</div></div>
-        <div class="kpi"><div class="kpi-label">Need file review</div><div id="kpiWithFiles" class="kpi-value mono">0</div><div class="kpi-sub">Requests with upload</div></div>
-        <div class="kpi"><div class="kpi-label">Completed</div><div id="kpiCompleted" class="kpi-value mono">0</div><div class="kpi-sub">Marked paid</div></div>
+        <div class="kpi"><div class="kpi-label">Avg days open</div><div id="kpiAvgDaysOpen" class="kpi-value mono">0</div><div class="kpi-sub">Open requests only</div></div>
       </div>
 
-      <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
-        <div class="xl:col-span-9">
-          <div class="card p-4 lg:p-5">
-            <div class="flex items-start justify-between gap-3">
-              <div>
-                <div class="section-title">Requests</div>
-                <div class="section-sub">Review, open file, edit, and process payment requests.</div>
+      <div class="card p-4 lg:p-5">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div class="section-title">Workbench sections</div>
+            <div class="section-sub">Keep the processing view clean while still surfacing deeper reporting.</div>
+          </div>
+          <div class="tabs">
+            <button id="tabRequestsBtn" class="active">Requests</button>
+            <button id="tabReportingBtn">Reporting</button>
+            <button id="tabActivityBtn">Activity</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="viewRequests" class="view-panel active">
+        <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
+          <div class="xl:col-span-9">
+            <div class="card p-4 lg:p-5">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="section-title">Requests</div>
+                  <div class="section-sub">Review, open file, edit, and process payment requests.</div>
+                </div>
+                <div class="text-xs text-slate-500"><span id="rowCount">0</span> rows</div>
               </div>
-              <div class="text-xs text-slate-500"><span id="rowCount">0</span> rows</div>
+
+              <div class="mt-4 table-wrap max-h-[780px]">
+                <table>
+                  <thead id="mainHead"></thead>
+                  <tbody id="mainBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="xl:col-span-3 space-y-5">
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">Quick buckets</div>
+              <div class="mini-grid mt-4" id="summaryCards"></div>
             </div>
 
-            <div class="mt-4 table-wrap max-h-[780px]">
-              <table>
-                <thead id="mainHead"></thead>
-                <tbody id="mainBody"></tbody>
-              </table>
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">Recent requests</div>
+              <div class="section-sub">Newest submissions in current filter.</div>
+              <div id="recentRequests" class="mt-4 space-y-3"></div>
             </div>
           </div>
         </div>
+      </div>
 
-        <div class="xl:col-span-3 space-y-5">
-          <div class="card p-4 lg:p-5">
-            <div class="section-title">Quick buckets</div>
-            <div class="mini-grid mt-4" id="summaryCards"></div>
+      <div id="viewReporting" class="view-panel">
+        <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
+          <div class="xl:col-span-4 space-y-5">
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">Due bucket reporting</div>
+              <div class="section-sub">Open requests grouped by due timing.</div>
+              <div class="mt-4 space-y-3" id="dueBucketReport"></div>
+            </div>
+
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">Turnaround</div>
+              <div class="mini-grid mt-4" id="turnaroundCards"></div>
+            </div>
           </div>
 
-          <div class="card p-4 lg:p-5">
-            <div class="section-title">Recent requests</div>
-            <div class="section-sub">Newest submissions in current filter.</div>
-            <div id="recentRequests" class="mt-4 space-y-3"></div>
+          <div class="xl:col-span-4 space-y-5">
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">By request type</div>
+              <div class="section-sub">Counts and dollars by request category.</div>
+              <div class="mt-4 table-wrap max-h-[360px]">
+                <table>
+                  <thead id="typeHead"></thead>
+                  <tbody id="typeBody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">By location</div>
+              <div class="section-sub">Volume and dollars by location.</div>
+              <div class="mt-4 table-wrap max-h-[360px]">
+                <table>
+                  <thead id="locationHead"></thead>
+                  <tbody id="locationBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="xl:col-span-4 space-y-5">
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">By assignee</div>
+              <div class="section-sub">Open and overdue work by owner.</div>
+              <div class="mt-4 table-wrap max-h-[360px]">
+                <table>
+                  <thead id="assigneeHead"></thead>
+                  <tbody id="assigneeBody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">By requester</div>
+              <div class="section-sub">Submission volume by requester email.</div>
+              <div class="mt-4 table-wrap max-h-[360px]">
+                <table>
+                  <thead id="requesterHead"></thead>
+                  <tbody id="requesterBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="viewActivity" class="view-panel">
+        <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
+          <div class="xl:col-span-8">
+            <div class="card p-4 lg:p-5">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="section-title">Recent activity</div>
+                  <div class="section-sub">Request submission and workflow update history.</div>
+                </div>
+                <div class="text-xs text-slate-500"><span id="activityRowCount">0</span> rows</div>
+              </div>
+              <div class="mt-4 space-y-3" id="activityFeed"></div>
+            </div>
+          </div>
+
+          <div class="xl:col-span-4 space-y-5">
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">Activity summary</div>
+              <div class="mini-grid mt-4" id="activitySummaryCards"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -467,7 +628,7 @@
         <div>
           <div class="text-xs uppercase tracking-[.12em] text-slate-500 font-extrabold">Payment request</div>
           <h2 id="drawerTitle" class="mt-1 text-xl font-extrabold text-slate-900">Request</h2>
-          <p id="drawerSub" class="mt-1 text-sm text-slate-500">Review source details, document, and internal processing fields.</p>
+          <p id="drawerSub" class="mt-1 text-sm text-slate-500">Review source details, document, internal processing, and activity history.</p>
         </div>
         <button id="closeDrawerBtn" class="btn btn-soft btn-xs">Close</button>
       </div>
@@ -613,6 +774,12 @@
             </div>
           </div>
         </div>
+
+        <div class="card p-4">
+          <div class="section-title">Activity history</div>
+          <div class="section-sub">Saved request history and workflow changes.</div>
+          <div id="drawerActivity" class="mt-4 space-y-3"></div>
+        </div>
       </div>
     </div>
 
@@ -652,13 +819,23 @@
       filteredRows: [],
       profiles: [],
       currentUser: null,
-      currentRow: null
+      currentRow: null,
+      activityRows: [],
+      filteredActivityRows: [],
+      activeTab: "requests"
     };
 
     const els = {
       refreshBtn: document.getElementById("refreshBtn"),
       clearFiltersBtn: document.getElementById("clearFiltersBtn"),
       statusText: document.getElementById("statusText"),
+
+      tabRequestsBtn: document.getElementById("tabRequestsBtn"),
+      tabReportingBtn: document.getElementById("tabReportingBtn"),
+      tabActivityBtn: document.getElementById("tabActivityBtn"),
+      viewRequests: document.getElementById("viewRequests"),
+      viewReporting: document.getElementById("viewReporting"),
+      viewActivity: document.getElementById("viewActivity"),
 
       statusFilter: document.getElementById("statusFilter"),
       priorityFilter: document.getElementById("priorityFilter"),
@@ -671,11 +848,13 @@
       endDate: document.getElementById("endDate"),
 
       kpiRequests: document.getElementById("kpiRequests"),
+      kpiSubmittedAmount: document.getElementById("kpiSubmittedAmount"),
       kpiOpenAmount: document.getElementById("kpiOpenAmount"),
+      kpiCompletedAmount: document.getElementById("kpiCompletedAmount"),
       kpiOverdue: document.getElementById("kpiOverdue"),
+      kpiDue7: document.getElementById("kpiDue7"),
       kpiUnassigned: document.getElementById("kpiUnassigned"),
-      kpiWithFiles: document.getElementById("kpiWithFiles"),
-      kpiCompleted: document.getElementById("kpiCompleted"),
+      kpiAvgDaysOpen: document.getElementById("kpiAvgDaysOpen"),
 
       rowCount: document.getElementById("rowCount"),
       mainHead: document.getElementById("mainHead"),
@@ -683,6 +862,22 @@
 
       summaryCards: document.getElementById("summaryCards"),
       recentRequests: document.getElementById("recentRequests"),
+
+      dueBucketReport: document.getElementById("dueBucketReport"),
+      turnaroundCards: document.getElementById("turnaroundCards"),
+
+      typeHead: document.getElementById("typeHead"),
+      typeBody: document.getElementById("typeBody"),
+      locationHead: document.getElementById("locationHead"),
+      locationBody: document.getElementById("locationBody"),
+      assigneeHead: document.getElementById("assigneeHead"),
+      assigneeBody: document.getElementById("assigneeBody"),
+      requesterHead: document.getElementById("requesterHead"),
+      requesterBody: document.getElementById("requesterBody"),
+
+      activityRowCount: document.getElementById("activityRowCount"),
+      activityFeed: document.getElementById("activityFeed"),
+      activitySummaryCards: document.getElementById("activitySummaryCards"),
 
       drawerBackdrop: document.getElementById("drawerBackdrop"),
       workbenchDrawer: document.getElementById("workbenchDrawer"),
@@ -713,6 +908,8 @@
       fDateCompleted: document.getElementById("fDateCompleted"),
       fPaymentDetail: document.getElementById("fPaymentDetail"),
       fInternalNotes: document.getElementById("fInternalNotes"),
+
+      drawerActivity: document.getElementById("drawerActivity"),
 
       markPaidBtn: document.getElementById("markPaidBtn"),
       saveDrawerBtn: document.getElementById("saveDrawerBtn"),
@@ -813,6 +1010,68 @@
         : `<span class="badge badge-open">Open</span>`;
     }
 
+    function dueBucket(row) {
+      if (row.completed) return "completed";
+      if (!row.due_date) return "no_due";
+      const today = new Date(new Date().toDateString());
+      const due = new Date(row.due_date + "T00:00:00");
+      const diff = Math.floor((due - today) / 86400000);
+      if (diff < 0) return "overdue";
+      if (diff === 0) return "today";
+      if (diff <= 7) return "next7";
+      if (diff <= 14) return "next14";
+      return "later";
+    }
+
+    function dueBucketLabel(bucket) {
+      const map = {
+        overdue: "Overdue",
+        today: "Due today",
+        next7: "Due 1–7 days",
+        next14: "Due 8–14 days",
+        later: "Later",
+        no_due: "No due date",
+        completed: "Completed"
+      };
+      return map[bucket] || bucket;
+    }
+
+    function dueBucketBadge(bucket) {
+      const cls = {
+        overdue: "badge-overdue",
+        today: "badge-due_soon",
+        next7: "badge-due_soon",
+        next14: "badge-current",
+        later: "badge-current",
+        no_due: "badge-cancelled",
+        completed: "badge-complete"
+      }[bucket] || "badge-cancelled";
+      return `<span class="badge ${cls}">${escapeHtml(dueBucketLabel(bucket))}</span>`;
+    }
+
+    function activityTypeLabel(type) {
+      const map = {
+        submitted: "Submitted",
+        status_changed: "Status changed",
+        assignment_changed: "Assignment changed",
+        priority_changed: "Priority changed",
+        payment_type_changed: "Payment type changed",
+        completed_changed: "Completed changed",
+        note_added: "Note added",
+        file_opened: "File opened",
+        updated: "Updated"
+      };
+      return map[type] || type || "Activity";
+    }
+
+    function activityMessage(row) {
+      if (row.message) return row.message;
+      if (row.field_name && (row.old_value || row.new_value)) {
+        return `${row.field_name}: ${row.old_value || "—"} → ${row.new_value || "—"}`;
+      }
+      return activityTypeLabel(row.activity_type);
+    }
+
     async function getCurrentUser() {
       const { data, error } = await supabaseClient.auth.getUser();
       if (error) throw error;
@@ -851,6 +1110,27 @@
       return all;
     }
 
+    async function fetchActivityRows() {
+      let all = [];
+      let from = 0;
+      const size = 1000;
+
+      while (true) {
+        const { data, error } = await supabaseClient
+          .from("payment_request_activity_v")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .range(from, from + size - 1);
+
+        if (error) throw error;
+        all = all.concat(data || []);
+        if (!data || data.length < size) break;
+        from += size;
+      }
+
+      return all;
+    }
+
     function renderAssignedOptions() {
       els.assignedFilter.innerHTML = ['<option value="">All</option>']
         .concat(
@@ -876,15 +1156,17 @@
       setStatus("Loading payment requests...");
 
       try {
-        const [user, profiles, rows] = await Promise.all([
+        const [user, profiles, rows, activityRows] = await Promise.all([
           getCurrentUser(),
           fetchProfiles(),
-          fetchRows()
+          fetchRows(),
+          fetchActivityRows()
         ]);
 
         state.currentUser = user;
         state.profiles = profiles;
         state.rows = rows || [];
+        state.activityRows = activityRows || [];
 
         renderAssignedOptions();
         refreshAll();
@@ -908,12 +1190,9 @@
       const due = els.dueFilter.value;
       const start = els.startDate.value ? new Date(els.startDate.value) : null;
       const end = els.endDate.value ? new Date(els.endDate.value + "T23:59:59") : null;
-      const now = new Date();
 
       state.filteredRows = state.rows.filter(r => {
         const submitted = r.submitted_at ? new Date(r.submitted_at) : null;
-        const dueDate = r.due_date ? new Date(r.due_date + "T00:00:00") : null;
-
         const hay = [
           r.effective_vendor_name,
           r.vendor_name,
@@ -933,18 +1212,15 @@
         if (priority && r.priority !== priority) return false;
         if (assigned && (r.assigned_to || "") !== assigned) return false;
         if (type && r.request_type !== type) return false;
-
         if (completed === "open" && !!r.completed) return false;
         if (completed === "complete" && !r.completed) return false;
 
-        if (due === "overdue" && (!dueDate || dueDate >= new Date(now.toDateString()) || r.completed)) return false;
-        if (due === "next7") {
-          if (!dueDate) return false;
-          const in7 = new Date();
-          in7.setDate(in7.getDate() + 7);
-          if (dueDate < new Date(now.toDateString()) || dueDate > in7) return false;
-        }
-        if (due === "nodue" && !!dueDate) return false;
+        const bucket = dueBucket(r);
+        if (due === "overdue" && bucket !== "overdue") return false;
+        if (due === "today" && bucket !== "today") return false;
+        if (due === "next7" && bucket !== "next7") return false;
+        if (due === "next14" && bucket !== "next14") return false;
+        if (due === "nodue" && bucket !== "no_due") return false;
 
         if (start && (!submitted || submitted < start)) return false;
         if (end && (!submitted || submitted > end)) return false;
@@ -952,26 +1228,40 @@
         return true;
       });
 
+      const filteredIds = new Set(state.filteredRows.map(r => r.id));
+      state.filteredActivityRows = state.activityRows.filter(a => filteredIds.has(a.payment_request_id));
+
       renderKpis();
       renderSummaryCards();
       renderRecentRequests();
       renderTable();
+      renderReporting();
+      renderActivity();
     }
 
     function renderKpis() {
       const openRows = state.filteredRows.filter(r => !r.completed);
-      const overdue = state.filteredRows.filter(r => {
-        if (!r.due_date || r.completed) return false;
-        const d = new Date(r.due_date + "T00:00:00");
-        return d < new Date(new Date().toDateString());
-      });
+      const overdueRows = openRows.filter(r => dueBucket(r) === "overdue");
+      const due7Rows = openRows.filter(r => ["today", "next7"].includes(dueBucket(r)));
+      const completedRows = state.filteredRows.filter(r => !!r.completed);
+
+      const avgDaysOpen = openRows.length
+        ? Math.round(openRows.reduce((sum, r) => {
+            const submitted = parseDate(r.submitted_at);
+            if (!submitted) return sum;
+            const today = new Date();
+            return sum + Math.max(0, Math.floor((today - submitted) / 86400000));
+          }, 0) / openRows.length)
+        : 0;
 
       els.kpiRequests.textContent = formatNumber(state.filteredRows.length);
+      els.kpiSubmittedAmount.textContent = formatMoney(state.filteredRows.reduce((s, r) => s + Number(r.amount_due || 0), 0));
       els.kpiOpenAmount.textContent = formatMoney(openRows.reduce((s, r) => s + Number(r.amount_due || 0), 0));
-      els.kpiOverdue.textContent = formatNumber(overdue.length);
+      els.kpiCompletedAmount.textContent = formatMoney(completedRows.reduce((s, r) => s + Number(r.amount_due || 0), 0));
+      els.kpiOverdue.textContent = formatNumber(overdueRows.length);
+      els.kpiDue7.textContent = formatNumber(due7Rows.length);
       els.kpiUnassigned.textContent = formatNumber(state.filteredRows.filter(r => !r.assigned_to).length);
-      els.kpiWithFiles.textContent = formatNumber(state.filteredRows.filter(r => !!r.file_path).length);
-      els.kpiCompleted.textContent = formatNumber(state.filteredRows.filter(r => !!r.completed).length);
+      els.kpiAvgDaysOpen.textContent = formatNumber(avgDaysOpen);
     }
 
     function renderSummaryCards() {
@@ -1040,7 +1330,10 @@
           <td class="right mono font-extrabold">${formatMoney(r.amount_due)}</td>
           <td>
             <div class="font-semibold text-slate-900">${escapeHtml(formatDate(r.due_date))}</div>
-            <div class="mt-1">${badgeHtmlCompleted(r.completed)}</div>
+            <div class="mt-1 flex flex-wrap gap-2">
+              ${badgeHtmlCompleted(r.completed)}
+              ${dueBucketBadge(dueBucket(r))}
+            </div>
           </td>
           <td>
             <div class="text-slate-900">${escapeHtml(r.requester_email || "—")}</div>
@@ -1082,6 +1375,197 @@
       });
     }
 
+    function aggregateBy(rows, keyFn, labelFn) {
+      const map = new Map();
+      rows.forEach(r => {
+        const key = keyFn(r);
+        if (!map.has(key)) {
+          map.set(key, {
+            key,
+            label: labelFn(r, key),
+            count: 0,
+            amount: 0,
+            openCount: 0,
+            openAmount: 0,
+            completedCount: 0,
+            completedAmount: 0,
+            overdueCount: 0
+          });
+        }
+        const item = map.get(key);
+        const amt = Number(r.amount_due || 0);
+        item.count += 1;
+        item.amount += amt;
+        if (r.completed) {
+          item.completedCount += 1;
+          item.completedAmount += amt;
+        } else {
+          item.openCount += 1;
+          item.openAmount += amt;
+        }
+        if (!r.completed && dueBucket(r) === "overdue") {
+          item.overdueCount += 1;
+        }
+      });
+      return Array.from(map.values()).sort((a, b) => b.amount - a.amount);
+    }
+
+    function renderReporting() {
+      const buckets = ["overdue", "today", "next7", "next14", "later", "no_due", "completed"].map(bucket => {
+        const rows = state.filteredRows.filter(r => dueBucket(r) === bucket);
+        return {
+          bucket,
+          label: dueBucketLabel(bucket),
+          count: rows.length,
+          amount: rows.reduce((s, r) => s + Number(r.amount_due || 0), 0)
+        };
+      });
+
+      els.dueBucketReport.innerHTML = buckets.map(b => `
+        <div class="list-row">
+          <div>
+            <div class="font-semibold text-slate-900">${escapeHtml(b.label)}</div>
+            <div class="text-xs text-slate-500">${formatNumber(b.count)} requests</div>
+          </div>
+          <div class="text-right">
+            <div class="font-extrabold mono text-slate-900">${formatMoney(b.amount)}</div>
+            <div class="mt-1">${dueBucketBadge(b.bucket)}</div>
+          </div>
+        </div>
+      `).join("");
+
+      const openRows = state.filteredRows.filter(r => !r.completed);
+      const completedRows = state.filteredRows.filter(r => r.completed && r.date_completed && r.submitted_at);
+
+      const avgDaysOpen = openRows.length
+        ? Math.round(openRows.reduce((sum, r) => {
+            const submitted = parseDate(r.submitted_at);
+            if (!submitted) return sum;
+            return sum + Math.max(0, Math.floor((new Date() - submitted) / 86400000));
+          }, 0) / openRows.length)
+        : 0;
+
+      const avgDaysToComplete = completedRows.length
+        ? Math.round(completedRows.reduce((sum, r) => {
+            const start = parseDate(r.submitted_at);
+            const end = parseDate(r.date_completed);
+            if (!start || !end) return sum;
+            return sum + Math.max(0, Math.floor((end - start) / 86400000));
+          }, 0) / completedRows.length)
+        : 0;
+
+      const oldestOpen = openRows.length
+        ? Math.max(...openRows.map(r => {
+            const submitted = parseDate(r.submitted_at);
+            return submitted ? Math.max(0, Math.floor((new Date() - submitted) / 86400000)) : 0;
+          }))
+        : 0;
+
+      const dueSoonAmount = openRows
+        .filter(r => ["today", "next7"].includes(dueBucket(r)))
+        .reduce((s, r) => s + Number(r.amount_due || 0), 0);
+
+      els.turnaroundCards.innerHTML = [
+        ["Avg days open", formatNumber(avgDaysOpen), "Open requests"],
+        ["Avg days to complete", formatNumber(avgDaysToComplete), "Completed requests"],
+        ["Oldest open", formatNumber(oldestOpen), "Days since submit"],
+        ["Due soon amount", formatMoney(dueSoonAmount), "Today + next 7 days"]
+      ].map(([label, value, sub]) => `
+        <div class="mini-card">
+          <div class="label">${escapeHtml(label)}</div>
+          <div class="value mono">${escapeHtml(value)}</div>
+          <div class="mt-1 text-xs text-slate-500">${escapeHtml(sub)}</div>
+        </div>
+      `).join("");
+
+      const byType = aggregateBy(state.filteredRows, r => r.request_type || "unknown", (r, key) => requestTypeLabel(key));
+      const byLocation = aggregateBy(state.filteredRows, r => r.location_name || "No location", (r, key) => key);
+      const byAssignee = aggregateBy(state.filteredRows, r => r.assigned_to || "unassigned", (r, key) => key === "unassigned" ? "Unassigned" : assignedName(key));
+      const byRequester = aggregateBy(state.filteredRows, r => r.requester_email || "No requester", (r, key) => key);
+
+      els.typeHead.innerHTML = `<tr><th>Type</th><th class="right">Count</th><th class="right">Open</th><th class="right">Amount</th></tr>`;
+      els.typeBody.innerHTML = byType.map(r => `
+        <tr>
+          <td>${escapeHtml(r.label)}</td>
+          <td class="right mono">${formatNumber(r.count)}</td>
+          <td class="right mono">${formatNumber(r.openCount)}</td>
+          <td class="right mono font-extrabold">${formatMoney(r.amount)}</td>
+        </tr>
+      `).join("") || `<tr><td colspan="4" class="py-8 text-center text-slate-500">No data.</td></tr>`;
+
+      els.locationHead.innerHTML = `<tr><th>Location</th><th class="right">Count</th><th class="right">Open</th><th class="right">Amount</th></tr>`;
+      els.locationBody.innerHTML = byLocation.map(r => `
+        <tr>
+          <td>${escapeHtml(r.label)}</td>
+          <td class="right mono">${formatNumber(r.count)}</td>
+          <td class="right mono">${formatNumber(r.openCount)}</td>
+          <td class="right mono font-extrabold">${formatMoney(r.amount)}</td>
+        </tr>
+      `).join("") || `<tr><td colspan="4" class="py-8 text-center text-slate-500">No data.</td></tr>`;
+
+      els.assigneeHead.innerHTML = `<tr><th>Assignee</th><th class="right">Open</th><th class="right">Overdue</th><th class="right">Open amount</th></tr>`;
+      els.assigneeBody.innerHTML = byAssignee.map(r => `
+        <tr>
+          <td>${escapeHtml(r.label)}</td>
+          <td class="right mono">${formatNumber(r.openCount)}</td>
+          <td class="right mono">${formatNumber(r.overdueCount)}</td>
+          <td class="right mono font-extrabold">${formatMoney(r.openAmount)}</td>
+        </tr>
+      `).join("") || `<tr><td colspan="4" class="py-8 text-center text-slate-500">No data.</td></tr>`;
+
+      els.requesterHead.innerHTML = `<tr><th>Requester</th><th class="right">Count</th><th class="right">Open</th><th class="right">Amount</th></tr>`;
+      els.requesterBody.innerHTML = byRequester.slice(0, 25).map(r => `
+        <tr>
+          <td>${escapeHtml(r.label)}</td>
+          <td class="right mono">${formatNumber(r.count)}</td>
+          <td class="right mono">${formatNumber(r.openCount)}</td>
+          <td class="right mono font-extrabold">${formatMoney(r.amount)}</td>
+        </tr>
+      `).join("") || `<tr><td colspan="4" class="py-8 text-center text-slate-500">No data.</td></tr>`;
+    }
+
+    function renderActivity() {
+      els.activityRowCount.textContent = formatNumber(state.filteredActivityRows.length);
+
+      els.activityFeed.innerHTML = state.filteredActivityRows.slice(0, 100).map(a => {
+        const request = state.rows.find(r => r.id === a.payment_request_id);
+        return `
+          <div class="activity-item">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="font-semibold text-slate-900">${escapeHtml(request?.effective_vendor_name || "Unknown vendor")}</div>
+                <div class="mt-1 text-xs text-slate-500">${escapeHtml(activityTypeLabel(a.activity_type))}</div>
+              </div>
+              <div class="text-xs text-slate-500">${escapeHtml(formatDateTime(a.created_at))}</div>
+            </div>
+            <div class="mt-2 text-sm text-slate-700">${escapeHtml(activityMessage(a))}</div>
+            <div class="mt-2 flex flex-wrap items-center gap-2">
+              <span class="badge badge-current">${escapeHtml(a.created_by_name || a.created_by_email || "System")}</span>
+              ${request ? `<button class="btn btn-soft btn-xs open-drawer-btn" data-id="${escapeHtml(request.id)}">Open request</button>` : ""}
+            </div>
+          </div>
+        `;
+      }).join("") || `<div class="text-sm text-slate-500">No activity in current filter.</div>`;
+
+      document.querySelectorAll("#activityFeed .open-drawer-btn").forEach(btn => {
+        btn.addEventListener("click", () => openDrawer(btn.getAttribute("data-id")));
+      });
+
+      const summary = aggregateBy(
+        state.filteredActivityRows,
+        a => a.activity_type || "updated",
+        (a, key) => activityTypeLabel(key)
+      );
+
+      els.activitySummaryCards.innerHTML = summary.slice(0, 8).map(item => `
+        <div class="mini-card">
+          <div class="label">${escapeHtml(item.label)}</div>
+          <div class="value mono">${formatNumber(item.count)}</div>
+          <div class="mt-1 text-xs text-slate-500">Recent activity</div>
+        </div>
+      `).join("") || `<div class="text-sm text-slate-500">No activity.</div>`;
+    }
+
     async function createSignedUrl(filePath) {
       const { data, error } = await supabaseClient.storage
         .from(BUCKET)
@@ -1091,7 +1575,23 @@
       return data?.signedUrl;
     }
 
-    async function openFileForRow(id) {
+    async function logActivity({ requestId, activityType, fieldName = null, oldValue = null, newValue = null, message = null }) {
+      const { error } = await supabaseClient
+        .from("payment_request_activity")
+        .insert({
+          payment_request_id: requestId,
+          activity_type: activityType,
+          field_name: fieldName,
+          old_value: oldValue,
+          new_value: newValue,
+          message,
+          created_by: state.currentUser?.id || null
+        });
+
+      if (error) throw error;
+    }
+
+    async function openFileForRow(id, shouldLog = true) {
       try {
         const row = state.rows.find(r => r.id === id);
         if (!row?.file_path) {
@@ -1100,6 +1600,18 @@
         }
         const url = await createSignedUrl(row.file_path);
         if (!url) throw new Error("No signed URL returned.");
+        if (shouldLog) {
+          try {
+            await logActivity({
+              requestId: row.id,
+              activityType: "file_opened",
+              message: `Opened file: ${row.file_name || "attached document"}`
+            });
+            await loadData();
+          } catch (logErr) {
+            console.error(logErr);
+          }
+        }
         window.open(url, "_blank", "noopener,noreferrer");
       } catch (err) {
         console.error(err);
@@ -1163,10 +1675,27 @@
           <div class="value">${escapeHtml(assignedName(row.assigned_to))}</div>
         </div>
         <div class="mini-card">
-          <div class="label">File</div>
-          <div class="value">${escapeHtml(row.file_name || "No file")}</div>
+          <div class="label">Due bucket</div>
+          <div class="value">${dueBucketBadge(dueBucket(row))}</div>
         </div>
       `;
+
+      const rowActivity = state.activityRows
+        .filter(a => a.payment_request_id === row.id)
+        .slice(0, 20);
+
+      els.drawerActivity.innerHTML = rowActivity.length
+        ? rowActivity.map(a => `
+            <div class="activity-item">
+              <div class="flex items-start justify-between gap-3">
+                <div class="font-semibold text-slate-900">${escapeHtml(activityTypeLabel(a.activity_type))}</div>
+                <div class="text-xs text-slate-500">${escapeHtml(formatDateTime(a.created_at))}</div>
+              </div>
+              <div class="mt-2 text-sm text-slate-700">${escapeHtml(activityMessage(a))}</div>
+              <div class="mt-2 text-xs text-slate-500">By ${escapeHtml(a.created_by_name || a.created_by_email || "System")}</div>
+            </div>
+          `).join("")
+        : `<div class="text-sm text-slate-500">No activity yet.</div>`;
 
       els.drawerBackdrop.classList.add("open");
       els.workbenchDrawer.classList.add("open");
@@ -1187,6 +1716,8 @@
       els.markPaidBtn.disabled = true;
 
       try {
+        const oldRow = { ...state.currentRow };
+
         const completed = markPaid ? true : els.fCompleted.value === "true";
         const workflowStatus = markPaid ? "paid" : els.fWorkflowStatus.value;
         const dateCompleted = markPaid
@@ -1212,8 +1743,86 @@
 
         if (error) throw error;
 
+        const activityPromises = [];
+
+        if (oldRow.workflow_status !== payload.workflow_status) {
+          activityPromises.push(logActivity({
+            requestId: oldRow.id,
+            activityType: "status_changed",
+            fieldName: "workflow_status",
+            oldValue: oldRow.workflow_status || "",
+            newValue: payload.workflow_status || "",
+            message: `Status changed from ${oldRow.workflow_status || "—"} to ${payload.workflow_status || "—"}`
+          }));
+        }
+
+        if ((oldRow.assigned_to || "") !== (payload.assigned_to || "")) {
+          activityPromises.push(logActivity({
+            requestId: oldRow.id,
+            activityType: "assignment_changed",
+            fieldName: "assigned_to",
+            oldValue: assignedName(oldRow.assigned_to),
+            newValue: assignedName(payload.assigned_to),
+            message: `Assignment changed from ${assignedName(oldRow.assigned_to)} to ${assignedName(payload.assigned_to)}`
+          }));
+        }
+
+        if ((oldRow.priority || "") !== (payload.priority || "")) {
+          activityPromises.push(logActivity({
+            requestId: oldRow.id,
+            activityType: "priority_changed",
+            fieldName: "priority",
+            oldValue: oldRow.priority || "",
+            newValue: payload.priority || "",
+            message: `Priority changed from ${oldRow.priority || "—"} to ${payload.priority || "—"}`
+          }));
+        }
+
+        if ((oldRow.payment_type || "") !== (payload.payment_type || "")) {
+          activityPromises.push(logActivity({
+            requestId: oldRow.id,
+            activityType: "payment_type_changed",
+            fieldName: "payment_type",
+            oldValue: oldRow.payment_type || "",
+            newValue: payload.payment_type || "",
+            message: `Payment type changed from ${oldRow.payment_type || "—"} to ${payload.payment_type || "—"}`
+          }));
+        }
+
+        if (!!oldRow.completed !== !!payload.completed) {
+          activityPromises.push(logActivity({
+            requestId: oldRow.id,
+            activityType: "completed_changed",
+            fieldName: "completed",
+            oldValue: oldRow.completed ? "Completed" : "Open",
+            newValue: payload.completed ? "Completed" : "Open",
+            message: payload.completed ? "Request marked completed." : "Request reopened."
+          }));
+        }
+
+        if ((oldRow.internal_notes || "").trim() !== (payload.internal_notes || "").trim() && (payload.internal_notes || "").trim()) {
+          activityPromises.push(logActivity({
+            requestId: oldRow.id,
+            activityType: "note_added",
+            fieldName: "internal_notes",
+            oldValue: "",
+            newValue: "",
+            message: `Internal note updated: ${(payload.internal_notes || "").slice(0, 200)}`
+          }));
+        }
+
+        if (!activityPromises.length) {
+          activityPromises.push(logActivity({
+            requestId: oldRow.id,
+            activityType: "updated",
+            message: markPaid ? "Request updated and marked paid." : "Request updated."
+          }));
+        }
+
+        await Promise.all(activityPromises);
+
         await loadData();
-        await openDrawer(state.currentRow.id);
+        await openDrawer(oldRow.id);
         showToast(markPaid ? "Request marked paid." : "Request updated.");
       } catch (err) {
         console.error(err);
@@ -1226,6 +1835,7 @@
 
     async function quickMarkPaid(id) {
       try {
+        const row = state.rows.find(r => r.id === id);
         const { error } = await supabaseClient
           .from("payment_requests")
           .update({
@@ -1237,6 +1847,16 @@
           .eq("id", id);
 
         if (error) throw error;
+
+        await logActivity({
+          requestId: id,
+          activityType: "completed_changed",
+          fieldName: "completed",
+          oldValue: row?.completed ? "Completed" : "Open",
+          newValue: "Completed",
+          message: "Request marked paid from workbench quick action."
+        });
+
         await loadData();
         showToast("Request marked paid.");
       } catch (err) {
@@ -1259,9 +1879,26 @@
       setStatus(`Loaded ${formatNumber(state.rows.length)} payment requests.`);
     }
 
+    function setActiveTab(tab) {
+      state.activeTab = tab;
+      const map = {
+        requests: [els.tabRequestsBtn, els.viewRequests],
+        reporting: [els.tabReportingBtn, els.viewReporting],
+        activity: [els.tabActivityBtn, els.viewActivity]
+      };
+      Object.entries(map).forEach(([key, [btn, panel]]) => {
+        btn.classList.toggle("active", key === tab);
+        panel.classList.toggle("active", key === tab);
+      });
+    }
+
     function wireEvents() {
       els.refreshBtn.addEventListener("click", loadData);
       els.clearFiltersBtn.addEventListener("click", clearFilters);
+
+      els.tabRequestsBtn.addEventListener("click", () => setActiveTab("requests"));
+      els.tabReportingBtn.addEventListener("click", () => setActiveTab("reporting"));
+      els.tabActivityBtn.addEventListener("click", () => setActiveTab("activity"));
 
       [
         els.statusFilter,
@@ -1283,7 +1920,7 @@
       els.saveDrawerBtn.addEventListener("click", () => saveRow());
       els.markPaidBtn.addEventListener("click", () => saveRow({ markPaid: true }));
       els.openFileBtn.addEventListener("click", async () => {
-        if (state.currentRow?.id) await openFileForRow(state.currentRow.id);
+        if (state.currentRow?.id) await openFileForRow(state.currentRow.id, true);
       });
     }
 
@@ -1291,7 +1928,7 @@
       try {
         state.currentUser = await getCurrentUser();
         wireEvents();
-        loadData();
+        await loadData();
       } catch (err) {
         console.error(err);
         setStatus(`Init failed: ${err.message || "Unknown error"}`, true);
