@@ -22,9 +22,10 @@
         radial-gradient(circle at top left, rgba(255,255,255,.94), rgba(245,247,251,.88) 38%, rgba(241,245,249,.98) 100%);
       color: #0f172a;
     }
-    .shell { max-width: 1080px; margin: 0 auto; padding: 22px; }
+    .shell { max-width: 1120px; margin: 0 auto; padding: 18px; }
+
     .card {
-      background: rgba(255,255,255,.92);
+      background: rgba(255,255,255,.94);
       backdrop-filter: blur(10px);
       border: 1px solid rgba(226,232,240,.95);
       border-radius: 24px;
@@ -32,6 +33,7 @@
         0 1px 2px rgba(15,23,42,.04),
         0 10px 30px rgba(15,23,42,.05);
     }
+
     .hero {
       background:
         linear-gradient(135deg, rgba(15,23,42,.98), rgba(30,41,59,.97) 55%, rgba(51,65,85,.96));
@@ -42,6 +44,7 @@
         0 18px 50px rgba(15,23,42,.18),
         inset 0 1px 0 rgba(255,255,255,.08);
     }
+
     .hero-chip {
       display: inline-flex;
       align-items: center;
@@ -55,29 +58,55 @@
       font-weight: 700;
       letter-spacing: .02em;
     }
+
+    .section-card {
+      border: 1px solid #e5e7eb;
+      border-radius: 22px;
+      background: linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(250,252,255,1) 100%);
+      padding: 18px;
+    }
+
+    .section-title {
+      font-size: 1rem;
+      font-weight: 800;
+      color: #0f172a;
+    }
+
+    .section-sub {
+      margin-top: 4px;
+      font-size: .82rem;
+      color: #64748b;
+    }
+
     .input, .select, .textarea, .file-input {
       width: 100%;
       border-radius: 16px;
       border: 1px solid #dbe2ea;
       background: #fff;
-      padding: .82rem .95rem;
-      font-size: .94rem;
+      padding: .88rem .98rem;
+      font-size: .95rem;
       outline: none;
       transition: .18s ease;
       color: #0f172a;
     }
-    .textarea { min-height: 120px; resize: vertical; }
+
+    .textarea {
+      min-height: 130px;
+      resize: vertical;
+    }
+
     .input:focus, .select:focus, .textarea:focus, .file-input:focus {
       border-color: #0f172a;
       box-shadow: 0 0 0 4px rgba(15,23,42,.08);
     }
+
     .btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
       gap: .5rem;
       border-radius: 16px;
-      padding: .85rem 1rem;
+      padding: .9rem 1.05rem;
       font-weight: 800;
       font-size: .92rem;
       transition: .18s ease;
@@ -87,41 +116,41 @@
       cursor: pointer;
       white-space: nowrap;
     }
+
     .btn:hover { transform: translateY(-1px); }
     .btn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+
     .btn-primary {
       background: #0f172a;
       color: #fff;
       border-color: #0f172a;
       box-shadow: 0 10px 22px rgba(15,23,42,.15);
     }
-    .section-title {
-      font-size: 1rem;
-      font-weight: 800;
+
+    .btn-soft {
+      background: #f8fafc;
       color: #0f172a;
     }
-    .section-sub {
-      margin-top: 2px;
-      font-size: .82rem;
-      color: #64748b;
-    }
-    .muted { color: #64748b; }
+
     .help {
       font-size: .78rem;
       color: #64748b;
-      margin-top: .45rem;
+      margin-top: .5rem;
+      line-height: 1.45;
     }
+
     .notice {
       border-radius: 18px;
       border: 1px solid #e2e8f0;
-      background: #f8fafc;
+      background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
       padding: 14px 16px;
       font-size: .88rem;
       color: #334155;
     }
+
     .status {
       border-radius: 16px;
-      padding: .8rem .95rem;
+      padding: .82rem .95rem;
       font-size: .88rem;
       font-weight: 700;
       border: 1px solid transparent;
@@ -141,20 +170,47 @@
       color: #b91c1c;
       border-color: #fecaca;
     }
+
     .pill {
       display: inline-flex;
       align-items: center;
       border-radius: 999px;
-      padding: .22rem .55rem;
+      padding: .26rem .6rem;
       font-size: .7rem;
       font-weight: 700;
       border: 1px solid #cbd5e1;
       color: #475569;
       background: #f8fafc;
     }
+
     .mono {
       font-variant-numeric: tabular-nums;
       font-feature-settings: "tnum" 1;
+    }
+
+    .required-dot {
+      color: #dc2626;
+      font-weight: 800;
+      margin-left: 2px;
+    }
+
+    .upload-box {
+      border: 1px dashed #cbd5e1;
+      border-radius: 18px;
+      background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+      padding: 16px;
+    }
+
+    .success-grid {
+      display: grid;
+      grid-template-columns: repeat(1, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    @media (min-width: 768px) {
+      .success-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
     }
   </style>
 </head>
@@ -167,7 +223,7 @@
           <div>
             <h1 class="text-3xl lg:text-4xl font-extrabold tracking-tight">Submit Payment Request</h1>
             <p class="mt-2 max-w-3xl text-sm text-slate-200/80">
-              Request a vendor payment, reimbursement, deposit, refund, or balance payment. Files upload directly into SILO storage and the request is saved into the payment request queue.
+              Submit a payment request into SILO for vendor payments, reimbursements, deposits, balances, or refunds. Requests are stored in Supabase and routed into the internal workbench for review and processing.
             </p>
           </div>
         </div>
@@ -177,15 +233,15 @@
         <div class="section-title">Authentication required</div>
         <div class="section-sub">You must be signed in to submit requests.</div>
         <div class="mt-4 notice">
-          This page is connected to Supabase auth. Once signed in, your email can auto-fill and your submission will be stamped to your user account.
+          This page is connected to Supabase auth. Once signed in, your email can auto-fill and your request will be stamped to your user account.
         </div>
       </div>
 
       <div id="appCard" class="card p-5 hidden">
         <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <div class="section-title">Request intake</div>
-            <div class="section-sub">Requester-facing submission only. Internal payment processing fields will be handled in the workbench.</div>
+            <div class="section-title">Payment request intake</div>
+            <div class="section-sub">Requester-facing submission only. Internal payment processing fields are handled in the workbench after submission.</div>
           </div>
           <div class="flex flex-wrap items-center gap-2 text-sm">
             <span class="pill">default status: new</span>
@@ -196,75 +252,96 @@
 
         <div id="statusBox" class="mt-4 hidden"></div>
 
-        <form id="requestForm" class="mt-5 space-y-6">
-          <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div class="md:col-span-2">
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Vendor</label>
-              <input id="vendorName" class="input" placeholder="Vendor name from standard list / preferred naming" />
-              <div class="help">Use the vendor name if known. If not listed or not established, use the manual vendor field below.</div>
-            </div>
+        <form id="requestForm" class="mt-5 space-y-5">
+          <div class="section-card">
+            <div class="section-title">Vendor and request basics</div>
+            <div class="section-sub">Start with who the request is for and what kind of payment is being requested.</div>
 
-            <div class="md:col-span-2">
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Vendor not listed / manual vendor</label>
-              <input id="vendorNameManual" class="input" placeholder="Manual vendor name if needed" />
-            </div>
+            <div class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div class="md:col-span-2">
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Vendor</label>
+                <input id="vendorName" class="input" placeholder="Preferred vendor name if known" />
+                <div class="help">Use the standard vendor name when possible. If the vendor is not established or not listed, use the manual vendor field below.</div>
+              </div>
 
-            <div>
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Request type <span class="text-red-500">*</span></label>
-              <select id="requestType" class="select" required>
-                <option value="">Select request type</option>
-                <option value="invoice_vendor_payment">Invoice / vendor payment</option>
-                <option value="inventory_deposit">Inventory deposit</option>
-                <option value="inventory_balance">Inventory balance</option>
-                <option value="employee_reimbursement">Employee reimbursement</option>
-                <option value="customer_refund">Customer refund</option>
-              </select>
-            </div>
+              <div class="md:col-span-2">
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Vendor not listed / manual vendor</label>
+                <input id="vendorNameManual" class="input" placeholder="Manual vendor name if needed" />
+              </div>
 
-            <div>
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Amount due <span class="text-red-500">*</span></label>
-              <input id="amountDue" type="number" min="0" step="0.01" class="input mono" placeholder="0.00" required />
-            </div>
+              <div>
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Request type<span class="required-dot">*</span></label>
+                <select id="requestType" class="select" required>
+                  <option value="">Select request type</option>
+                  <option value="invoice_vendor_payment">Invoice / vendor payment</option>
+                  <option value="inventory_deposit">Inventory deposit</option>
+                  <option value="inventory_balance">Inventory balance</option>
+                  <option value="employee_reimbursement">Employee reimbursement</option>
+                  <option value="customer_refund">Customer refund</option>
+                </select>
+              </div>
 
-            <div>
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Invoice #</label>
-              <input id="invoiceNumber" class="input" placeholder="Invoice reference" />
+              <div>
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Amount due<span class="required-dot">*</span></label>
+                <input id="amountDue" type="number" min="0" step="0.01" class="input mono" placeholder="0.00" required />
+              </div>
             </div>
+          </div>
 
-            <div>
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Flex ID #</label>
-              <input id="flexId" class="input" placeholder="Flex reference" />
+          <div class="section-card">
+            <div class="section-title">Reference information</div>
+            <div class="section-sub">Add identifiers that help finance and ops process the request faster.</div>
+
+            <div class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div>
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Invoice #</label>
+                <input id="invoiceNumber" class="input" placeholder="Invoice reference" />
+              </div>
+
+              <div>
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Flex ID #</label>
+                <input id="flexId" class="input" placeholder="Flex reference" />
+              </div>
+
+              <div>
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Internal PO #</label>
+                <input id="internalPoNumber" class="input" placeholder="Internal PO number" />
+              </div>
+
+              <div>
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Due date</label>
+                <input id="dueDate" type="date" class="input" />
+              </div>
             </div>
+          </div>
 
-            <div>
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Internal PO #</label>
-              <input id="internalPoNumber" class="input" placeholder="Internal PO number" />
-            </div>
+          <div class="section-card">
+            <div class="section-title">Requester and support details</div>
+            <div class="section-sub">Tell us who is submitting this and attach any supporting file.</div>
 
-            <div>
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Due date</label>
-              <input id="dueDate" type="date" class="input" />
-            </div>
+            <div class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div>
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Requester email<span class="required-dot">*</span></label>
+                <input id="requesterEmail" type="email" class="input" placeholder="you@company.com" required />
+              </div>
 
-            <div>
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Requester email <span class="text-red-500">*</span></label>
-              <input id="requesterEmail" type="email" class="input" placeholder="you@company.com" required />
-            </div>
+              <div>
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Location</label>
+                <input id="locationName" class="input" placeholder="Store / department / location" />
+              </div>
 
-            <div>
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Location</label>
-              <input id="locationName" class="input" placeholder="Store / department / location" />
-            </div>
+              <div class="md:col-span-2">
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Upload document</label>
+                <div class="upload-box">
+                  <input id="requestFile" type="file" class="file-input" accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.doc,.docx" />
+                  <div class="help">Accepted examples: invoice PDF, image, spreadsheet, or supporting document. File upload is optional, but helpful when supporting backup exists.</div>
+                </div>
+              </div>
 
-            <div class="md:col-span-2">
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Upload document</label>
-              <input id="requestFile" type="file" class="file-input" accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.doc,.docx" />
-              <div class="help">Accepted examples: invoice PDF, image, spreadsheet, supporting document. File upload is optional for now.</div>
-            </div>
-
-            <div class="md:col-span-2">
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Notes / comments</label>
-              <textarea id="notesComments" class="textarea" placeholder="Anything AP/ops should know about this request..."></textarea>
+              <div class="md:col-span-2">
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Notes / comments</label>
+                <textarea id="notesComments" class="textarea" placeholder="Anything AP/ops should know about this request..."></textarea>
+              </div>
             </div>
           </div>
 
@@ -286,8 +363,8 @@
 
       <div id="successCard" class="card p-5 hidden">
         <div class="section-title">Request submitted</div>
-        <div class="section-sub">The request was saved successfully.</div>
-        <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+        <div class="section-sub">The request was saved successfully and is now available in the payment requests workbench.</div>
+        <div class="mt-4 success-grid">
           <div class="notice">
             <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Request ID</div>
             <div id="successRequestId" class="mt-2 font-bold mono text-slate-900">—</div>
