@@ -130,7 +130,7 @@
       </div>
     </div>
 
-    <div class="status" id="statusBox">
+    <div class="status">
       <span class="spinner"></span>
       <span id="statusText">Checking your sign-in flow.</span>
       <div class="sub" id="subText">You will be redirected automatically.</div>
@@ -139,8 +139,13 @@
     <div class="link" id="manualLink"></div>
   </div>
 
-  <script>
-    const SESSION_KEY = "dept_access";
+  <script src="/pages/config.js"></script>
+  <script type="module">
+    import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm";
+
+    const config = window.__SILO_CONFIG__ || {};
+    const SUPABASE_URL = config.SUPABASE_URL;
+    const SUPABASE_ANON_KEY = config.SUPABASE_ANON_KEY;
 
     const statusText = document.getElementById("statusText");
     const subText = document.getElementById("subText");
@@ -148,9 +153,7 @@
 
     function hasAuthHash(hash) {
       if (!hash) return false;
-
       const lower = hash.toLowerCase();
-
       return (
         lower.includes("access_token=") ||
         lower.includes("refresh_token=") ||
@@ -161,45 +164,59 @@
       );
     }
 
-    function go(url, delay = 500) {
-      setTimeout(() => {
-        window.location.replace(url);
-      }, delay);
-    }
-
     function showManualLink(label, url) {
       manualLink.style.display = "block";
       manualLink.innerHTML = `<a href="${url}">${label}</a>`;
     }
 
-    (function init() {
-      const hash = window.location.hash || "";
-      const deptSession = sessionStorage.getItem(SESSION_KEY);
+    function go(url, delay = 700) {
+      setTimeout(() => {
+        window.location.replace(url);
+      }, delay);
+    }
 
-      // 1. Supabase invite / recovery / magic link detected
+    async function init() {
+      const hash = window.location.hash || "";
+
+      // 1. Invite / recovery / magic link hash present
       if (hasAuthHash(hash)) {
         statusText.textContent = "Invite detected. Sending you to account setup.";
         subText.textContent = "Finish setup first, then continue into SILO.";
         showManualLink("Continue to setup", `/pages/set-password.html${hash}`);
-        go(`/pages/set-password.html${hash}`, 700);
+        go(`/pages/set-password.html${hash}`);
         return;
       }
 
-      // 2. Existing old department-access session
-      if (deptSession) {
-        statusText.textContent = "Existing session found. Sending you to department access.";
-        subText.textContent = "You already have an active session in this browser.";
-        showManualLink("Continue to department access", "/pages/department-access.html");
-        go("/pages/department-access.html", 700);
-        return;
+      // 2. If Supabase config exists, check real auth session
+      if (SUPABASE_URL && SUPABASE_ANON_KEY) {
+        try {
+          const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+          const { data, error } = await supabase.auth.getSession();
+
+          if (error) {
+            console.error("Session check failed:", error);
+          }
+
+          if (data?.session) {
+            statusText.textContent = "You are already signed in. Sending you to SILO.";
+            subText.textContent = "Your session is active in this browser.";
+            showManualLink("Continue to department access", "/pages/department-access.html");
+            go("/pages/department-access.html");
+            return;
+          }
+        } catch (err) {
+          console.error("Supabase init failed:", err);
+        }
       }
 
-      // 3. Default path = login
-      statusText.textContent = "No active invite detected. Sending you to login.";
+      // 3. No session -> login
+      statusText.textContent = "No active session found. Sending you to login.";
       subText.textContent = "Use your SILO email login to continue.";
       showManualLink("Go to login", "/pages/login.html");
-      go("/pages/login.html", 700);
-    })();
+      go("/pages/login.html");
+    }
+
+    init();
   </script>
 </body>
 </html>
