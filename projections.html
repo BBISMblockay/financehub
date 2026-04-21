@@ -1255,14 +1255,14 @@
       if (error) console.warn("getSession error:", error);
 
       if (!data?.session) {
-        window.location.href = "/financehub/pages/login.html";
+        window.location.href = "/pages/login.html";
         return false;
       }
 
       authEmail.textContent = data.session.user?.email || "Signed in";
       logoutBtn.addEventListener("click", async () => {
         try { await supabaseClient.auth.signOut(); } catch (e) { console.warn("signOut error:", e); }
-        window.location.href = "/financehub/pages/login.html";
+        window.location.href = "/pages/login.html";
       });
 
       return true;
