@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Silo ERP — Owner Cockpit</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="/financehub/pages/config.js"></script>
+  <script src="/pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 
   <style>
@@ -339,13 +339,13 @@
 <!-- Add somewhere in executive.html (e.g., top nav) -->
 <div id="authBar" class="flex items-center gap-3 text-sm">
   <span id="authEmail" class="text-slate-600"></span>
-  <a href="/financehub/pages/logout.html"
+  <a href="/pages/logout.html"
      class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-800 hover:bg-slate-50">
     Logout
   </a>
 </div>
 
-<script src="/financehub/pages/config.js"></script>
+<script src="/pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 <script>
   (async function () {
@@ -354,7 +354,7 @@
 
     const { data } = await supabaseClient.auth.getSession();
     if (!data?.session) {
-      window.location.href = "/financehub/pages/login.html";
+      window.location.href = "/pages/login.html";
       return;
     }
 
@@ -865,7 +865,7 @@ if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
     if (error) console.warn("getSession error:", error);
 
     if (!data?.session) {
-      window.location.href = "/financehub/pages/login.html";
+      window.location.href = "/pages/login.html";
       return;
     }
 
@@ -881,7 +881,7 @@ if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
         } catch (e) {
           console.warn("signOut error:", e);
         }
-        window.location.href = "/financehub/pages/login.html";
+        window.location.href = "/pages/login.html";
       });
     }
   })();
