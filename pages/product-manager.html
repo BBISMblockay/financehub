@@ -6,7 +6,7 @@
   <title>Silo ERP — Product Tags Manager</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="/financehub/pages/config.js"></script>
+  <script src="/pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 
   <style>
@@ -518,7 +518,7 @@
     const cfg = window.__SILO_CONFIG__ || {};
     const SUPABASE_URL = cfg.SUPABASE_URL || "";
     const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || "";
-    const LOGIN_PATH = "/financehub/pages/login.html";
+    const LOGIN_PATH = "/pages/login.html";
     const THEME_KEY = "silo_product_tags_theme_v2";
     const PAGE_SIZE = 1000;
     const ADD_NEW_VALUE = "__ADD_NEW__";
@@ -1140,7 +1140,7 @@ Most likely causes:
 
     async function authGuard() {
       if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-        document.body.innerHTML = `<div style="padding:24px;font-family:sans-serif;">Missing Supabase config in /financehub/pages/config.js</div>`;
+        document.body.innerHTML = `<div style="padding:24px;font-family:sans-serif;">Missing Supabase config in /pages/config.js</div>`;
         return false;
       }
 
