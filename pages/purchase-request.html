@@ -255,12 +255,18 @@
             <div class="section-title">Vendor Information</div>
             <div class="section-sub"></div>
 
-            <div class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
-              <div class="md:col-span-2">
-                <label class="mb-2 block text-sm font-semibold text-slate-700">Vendor</label>
-                <input id="vendorName" class="input" placeholder="Preferred vendor name if known" />
-                <div class="help">If the vendor is not listed, use the manual vendor field below.</div>
-              </div>
+            <div class="md:col-span-2">
+  <label class="mb-2 block text-sm font-semibold text-slate-700">Vendor</label>
+  <input
+    id="vendorName"
+    class="input"
+    list="vendorOptions"
+    placeholder="Select or type vendor name"
+    autocomplete="off"
+  />
+  <datalist id="vendorOptions"></datalist>
+  <div class="help">Select a vendor if listed, or type a new one manually.</div>
+</div>
 
               <div class="md:col-span-2">
                 <label class="mb-2 block text-sm font-semibold text-slate-700">Vendor not listed / manual vendor</label>
@@ -426,6 +432,213 @@
       successRequestId: document.getElementById("successRequestId"),
       successFileName: document.getElementById("successFileName")
     };
+
+    <script>
+  const VENDORS = [
+    "21 In Right, Inc.",
+    "Addison Holub",
+    "Aiden McIntyre/Motive LA",
+    "Alec Sellers",
+    "Alex Hale- Baseballism Ambassador",
+    "AM Testing & Services",
+    "Amazon",
+    "Amy Gutierrez- Baseballism Ambassador",
+    "Anderson Air LLC",
+    "Andes Logistics",
+    "Angie Ivie- Baseballism Ambassador",
+    "Arco",
+    "Aric Vasquez- Baseballism Ambassador",
+    "Arizona Diamondbacks",
+    "ARTIGIFTS PREMIUM CO. LIMITED",
+    "Athletically Declined- Baseballism Ambassador",
+    "Attentive",
+    "Austin Schultz- Baseballism Ambassador",
+    "Baden Sports Inc.",
+    "Bat Bros LLC",
+    "Bay Alarm",
+    "Ben Atkinson",
+    "Bend Elks",
+    "Best Buy",
+    "BKM Management Company",
+    "BKM Property Management",
+    "Blake Evetts",
+    "Blake Mallet- Baseballism Ambassador",
+    "Bobby O'Neill- Baseballism Ambassador",
+    "Brett Davis",
+    "Brian Caprino",
+    "Brunt Work Pty Ltd",
+    "BruntWork Singapore Pte. Ltd.",
+    "Bryan Campbell",
+    "Cade Bell",
+    "Central Oregon Breeze",
+    "Chau Huynh- Baseballism Ambassador",
+    "Chris Clements",
+    "Christian Engel",
+    "Christian Lara- Baseballism Ambassador",
+    "Cincor Marroquinera",
+    "City of Arlington",
+    "City of Portland",
+    "Clancy Estate Care",
+    "Class 5 Technologies",
+    "Cobb County",
+    "Colin Anderson",
+    "Colton Beck",
+    "Connor Harris",
+    "Connor Webb- Baseballism Ambassador",
+    "Corey Wilmoth",
+    "Cox Internet",
+    "Creytex",
+    "Crystal Hosiery DBA FINEXPO INC",
+    "Daniel Lopez",
+    "David Ring- Baseballism Ambassador",
+    "Delaney Construction",
+    "Diamond Baseball Holdings",
+    "Dicks Sporting Goods",
+    "DJ/Nicole Maher",
+    "DOOR SERVICE, INC",
+    "Doug Hughes- Baseballism Ambassador",
+    "Echo Global Logistics Inc.",
+    "Elias Fidel",
+    "Employers Overload",
+    "Erik Hernandez",
+    "Everbest Corporation",
+    "Fanatics",
+    "Fedex",
+    "Fraîche Design Thinking S.A.S.",
+    "Fred F. Collin & Sons, INC",
+    "Frisco RoughRiders, LP",
+    "G&S Construction",
+    "Gader Ibrahim- Baseballism Ambassador",
+    "George K. Griffey, Jr",
+    "Gil Hernandez",
+    "Gladys Lopez- Baseballism Ambassador",
+    "Gov X",
+    "Grand & Benedicts",
+    "Gregory F.X. Daly",
+    "GUANGZHOU WANGBULIAO LEATHER CO.,LTD.",
+    "Guangzhou Xinyi Printing Company",
+    "Guangzhou Yilun Jewelry Co., Ltd.",
+    "Harry Jones Jr.- Baseballism Ambassador",
+    "Hat Back Collective",
+    "Hayden Millen- Baseballism Ambassador",
+    "Hillsboro hops",
+    "HK RUIJIA INTER TRADE LIMITED",
+    "HK Silver City Jewelry Co., Limited",
+    "Home Depot",
+    "HONG KONG YUNPO TRADING LIMITED",
+    "Horizon Sign Company",
+    "Illinois Department of Revenue",
+    "Image Pressworks",
+    "IMG",
+    "Jack Dugan- Baseballism Ambassador",
+    "Jackson Brewer- Baseballism Ambassador",
+    "Jacob Young",
+    "Jameson Commercial",
+    "Jenna Nimtz",
+    "Jessi Meeks- Baseballism Ambassador",
+    "Jiangmen SENPOLO Leather Co.,Ltd.",
+    "John Maddalone",
+    "Jordan Outdoor Enterprises",
+    "Josh Clark",
+    "Josh Wilson- Baseballism Ambassador",
+    "Joshua Clark",
+    "Justin Moore",
+    "Kalin",
+    "Kalin Boodman",
+    "Karla Olmos (Baseballism Ambassador)",
+    "Kennedy Brezenski",
+    "Kevin Chan - Baseballism Ambassador",
+    "Kurt Russel Marcelino",
+    "LA Gamo- Baseballism Ambassador",
+    "Lahti Helfgott LLC",
+    "LAZ Parking",
+    "Logo Brands",
+    "Lovett Inc.",
+    "Low and Inside",
+    "Luminary Group",
+    "Madison Rice",
+    "Make Plays Media LLC",
+    "Mark Farris",
+    "Master Industrial Ltd.",
+    "MazGlass",
+    "McCoy Russell",
+    "Megan Rembielak (Baseballism Ambassador)",
+    "Meta",
+    "Mia Willoughby- Baseballism Ambassador",
+    "Michael Tamayo",
+    "Miller Nash LLP",
+    "MLB Advanced Media, L.P.",
+    "MTAR LLC",
+    "North Portland Little League",
+    "Oakland A's",
+    "Omaha Baseball Village",
+    "OpSec Security, Inc.",
+    "Oregon Department of Revenue",
+    "Orion Fire Systems",
+    "Other",
+    "Ovations Merchandise Services, LP",
+    "Pacific Office Automation",
+    "Peyton Eise",
+    "POD 4 Print",
+    "Premier Press",
+    "Preston Chatman- Baseballism Ambassador",
+    "Pride Staff",
+    "Principal",
+    "Rachele Pence- Baseballism Ambassador",
+    "Rebel Child Journeys",
+    "Rick Barnes, Tax Assessor-Collector",
+    "Riley Chavez- Baseballism Ambassador",
+    "River City Stadium Management, LLC",
+    "Russ Smith",
+    "Ryan Dee",
+    "Scappoose High School",
+    "Scheels Corporate Office",
+    "School Tax Collector",
+    "Scott Grigg , TAC",
+    "SEG Systems",
+    "Sesame Collective",
+    "Seventh Inning Stretch",
+    "Shaoxing Keen Dragon Imp&Exp Co.,Ltd",
+    "SHAOXING TIANYUN GARMENT-MAKING CO.,LTD.",
+    "Sheehan Kreifels",
+    "Sign Effectz",
+    "SoCal Retail Services, Inc.",
+    "Southwest Sign Company",
+    "Space age",
+    "SQWAD",
+    "SSC Signs and Lighting",
+    "Stephanie Shirley- Baseballism Ambassador",
+    "Strategy Labs",
+    "Super Crown",
+    "Textiles Acrilan",
+    "Toru Zen Tanizawa",
+    "Travis Chock",
+    "Tyler Goodro",
+    "Tyler Goodro- Baseballism Ambassador",
+    "Uncanny Brands LLC",
+    "Universal Studios Licensing LLC",
+    "USA Baseball",
+    "Vertechs Electric",
+    "Village of Cooperstown",
+    "Vincent Chapman- Baseballism Ambassador",
+    "Visual Icon",
+    "Wall and Wall",
+    "Washington County",
+    "West Newbury Riverhawks",
+    "WORLDWIDE EXPRESS",
+    "YANTAI HAIXIANG FOREIGN TRADE CO., LTD",
+    "YIN HWA USA CORP",
+    "Zack Vreeland",
+    "ZHANJIA INT'L LIMITED"
+  ];
+
+  const vendorOptions = document.getElementById("vendorOptions");
+  vendorOptions.innerHTML = VENDORS
+    .slice()
+    .sort((a, b) => a.localeCompare(b))
+    .map(v => `<option value="${v.replace(/"/g, "&quot;")}"></option>`)
+    .join("");
+</script>
 
     let currentUser = null;
 
@@ -599,16 +812,17 @@
     }
 
     async function init() {
-      await ensureAuth();
+  populateVendorOptions();
+  await ensureAuth();
 
-      els.requestForm.addEventListener("submit", createPaymentRequest);
-      els.resetBtn.addEventListener("click", resetForm);
-      els.newRequestBtn.addEventListener("click", resetForm);
+  els.requestForm.addEventListener("submit", createPaymentRequest);
+  els.resetBtn.addEventListener("click", resetForm);
+  els.newRequestBtn.addEventListener("click", resetForm);
 
-      supabaseClient.auth.onAuthStateChange(async () => {
-        await ensureAuth();
-      });
-    }
+  supabaseClient.auth.onAuthStateChange(async () => {
+    await ensureAuth();
+  });
+}
 
     init();
   </script>
