@@ -149,7 +149,7 @@
       const CFG = window.__SILO_CONFIG__ || {};
       const SUPABASE_URL = (CFG.SUPABASE_URL || "").trim();
       const SUPABASE_ANON_KEY = (CFG.SUPABASE_ANON_KEY || "").trim();
-      const REDIRECT_TO = (CFG.REDIRECT_TO || "/executive.html").trim();
+      const REDIRECT_TO = (CFG.REDIRECT_TO || "/finance.html").trim();
       const EXPECT_EMAIL_CONFIRMATION = !!CFG.EXPECT_EMAIL_CONFIRMATION;
 
       const statusEl = document.getElementById("status");
@@ -232,8 +232,8 @@
         const role = (profile.role || "").toLowerCase();
         const department = (profile.department || "").toLowerCase();
 
-        if (role === "owner") return "/executive.html";
-        if (role === "admin" && department === "exec") return "/executive.html";
+        if (role === "owner") return "/finance.html";
+        if (role === "admin" && department === "exec") return "/finance.html";
 
         return ROUTE_BY_DEPARTMENT[department] || REDIRECT_TO;
       }
