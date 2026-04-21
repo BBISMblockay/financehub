@@ -12,7 +12,7 @@
   <!-- Supabase JS v2 -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
-  <!-- Config (must be alongside this file: /pages/config.js) -->
+  <!-- Config -->
   <script src="./config.js"></script>
 
   <style>
@@ -38,16 +38,13 @@
       </div>
 
       <div class="rounded-2xl bg-white border border-slate-200 p-6 shadow-soft">
-        <!-- Status -->
         <div id="status" class="hidden mb-4 rounded-xl border px-3 py-2 text-sm"></div>
 
-        <!-- Tabs -->
         <div class="mb-5 flex rounded-xl bg-slate-100 p-1">
           <button id="tabPassword" class="flex-1 rounded-lg px-3 py-2 text-sm font-medium bg-white shadow-sm">Password</button>
           <button id="tabMagic" class="flex-1 rounded-lg px-3 py-2 text-sm font-medium text-slate-600">Magic link</button>
         </div>
 
-        <!-- Password form -->
         <form id="formPassword" class="space-y-4">
           <div>
             <label class="block text-sm font-medium text-slate-700">Email</label>
@@ -77,7 +74,6 @@
           </div>
         </form>
 
-        <!-- Magic link form -->
         <form id="formMagic" class="space-y-4 hidden">
           <div>
             <label class="block text-sm font-medium text-slate-700">Email</label>
@@ -96,7 +92,6 @@
           </div>
         </form>
 
-        <!-- Signup modal -->
         <dialog id="dlgSignup" class="rounded-2xl p-0 w-full max-w-md">
           <div class="bg-white rounded-2xl border border-slate-200 shadow-soft">
             <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
@@ -139,7 +134,6 @@
           </div>
         </dialog>
 
-        <!-- Footer -->
         <div class="mt-6 text-xs text-slate-500">
           <div class="flex items-center justify-between">
             <span class="mono" id="envInfo">—</span>
@@ -152,7 +146,6 @@
 
   <script>
     (function () {
-      // ---- Config ----
       const CFG = window.__SILO_CONFIG__ || {};
       const SUPABASE_URL = (CFG.SUPABASE_URL || "").trim();
       const SUPABASE_ANON_KEY = (CFG.SUPABASE_ANON_KEY || "").trim();
@@ -163,7 +156,14 @@
       const envInfo = document.getElementById("envInfo");
       const btnSignout = document.getElementById("btnSignout");
 
-      // ---- Helpers ----
+      const ROUTE_BY_DEPARTMENT = {
+        exec: "/executive.html",
+        finance: "/aptest2.html",
+        ops: "/employeehub.html",
+        marketing: "/calendar.html",
+        retail: "/inventory.html"
+      };
+
       function showStatus(msg, type = "info") {
         statusEl.classList.remove("hidden");
         statusEl.className =
@@ -202,7 +202,6 @@
         return true;
       }
 
-      // ---- Create client (IMPORTANT: don't name it 'supabase' to avoid redeclare) ----
       if (!assertConfig()) return;
 
       const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -210,14 +209,41 @@
           persistSession: true,
           autoRefreshToken: true,
           detectSessionInUrl: true
-          // If Safari privacy blocks localStorage persistence, swap in:
-          // storage: window.sessionStorage
         }
       });
 
       envInfo.textContent = `Supabase: ${SUPABASE_URL.replace("https://", "")}`;
 
-      // ---- Tabs ----
+      async function getUserProfile(userId) {
+        const { data, error } = await supabaseClient
+          .from("profiles")
+          .select("role, department, is_active")
+          .eq("id", userId)
+          .single();
+
+        if (error) throw error;
+        if (!data) throw new Error("No profile found for this user.");
+        if (!data.is_active) throw new Error("Your account is inactive.");
+
+        return data;
+      }
+
+      function getRouteFromProfile(profile) {
+        const role = (profile.role || "").toLowerCase();
+        const department = (profile.department || "").toLowerCase();
+
+        if (role === "owner") return "/executive.html";
+        if (role === "admin" && department === "exec") return "/executive.html";
+
+        return ROUTE_BY_DEPARTMENT[department] || REDIRECT_TO;
+      }
+
+      async function resolveAndRedirect(userId) {
+        const profile = await getUserProfile(userId);
+        const route = getRouteFromProfile(profile);
+        window.location.href = route;
+      }
+
       const tabPassword = document.getElementById("tabPassword");
       const tabMagic = document.getElementById("tabMagic");
       const formPassword = document.getElementById("formPassword");
@@ -237,33 +263,37 @@
           formPassword.classList.add("hidden");
         }
       }
+
       tabPassword.addEventListener("click", () => setTab("password"));
       tabMagic.addEventListener("click", () => setTab("magic"));
 
-      // ---- Signup dialog ----
       const dlgSignup = document.getElementById("dlgSignup");
       const btnGoSignup = document.getElementById("btnGoSignup");
       const btnCloseSignup = document.getElementById("btnCloseSignup");
       btnGoSignup.addEventListener("click", () => dlgSignup.showModal());
       btnCloseSignup.addEventListener("click", () => dlgSignup.close());
 
-      // ---- Session bootstrap ----
       async function bootstrap() {
-        // Handle OAuth / magic link callbacks
         const { data, error } = await supabaseClient.auth.getSession();
         if (error) {
           showStatus("Auth error: " + error.message, "error");
           return;
         }
-        if (data?.session) {
+
+        if (data?.session?.user) {
           btnSignout.classList.remove("hidden");
           showStatus("You are already signed in. Redirecting…", "success");
-          window.location.href = REDIRECT_TO;
+
+          try {
+            await resolveAndRedirect(data.session.user.id);
+          } catch (err) {
+            showStatus(err?.message || "Could not determine user route.", "error");
+          }
         }
       }
+
       bootstrap();
 
-      // ---- Sign in (password) ----
       const btnLogin = document.getElementById("btnLogin");
       formPassword.addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -272,15 +302,16 @@
         const email = document.getElementById("email1").value.trim();
         const password = document.getElementById("password").value;
 
-        if (!email || !password) return showStatus("Enter email and password.", "error");
+        if (!email || !password) {
+          return showStatus("Enter email and password.", "error");
+        }
 
         setLoading(btnLogin, true, "Sign in");
         try {
           const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
           if (error) throw error;
 
-          if (!data?.session) {
-            // Some projects require email confirmation before session is created
+          if (!data?.session?.user) {
             if (EXPECT_EMAIL_CONFIRMATION) {
               showStatus("Signed in request accepted. If email confirmation is required, confirm your email then sign in again.", "info");
             } else {
@@ -290,7 +321,7 @@
           }
 
           showStatus("Signed in. Redirecting…", "success");
-          window.location.href = REDIRECT_TO;
+          await resolveAndRedirect(data.session.user.id);
         } catch (err) {
           showStatus(err?.message || "Sign-in failed.", "error");
         } finally {
@@ -298,7 +329,6 @@
         }
       });
 
-      // ---- Magic link ----
       const btnMagic = document.getElementById("btnMagic");
       formMagic.addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -309,15 +339,14 @@
 
         setLoading(btnMagic, true, "Email me a sign-in link");
         try {
-          // Redirect back to THIS page so detectSessionInUrl can complete the sign-in
           const redirectTo = window.location.origin + window.location.pathname;
 
           const { error } = await supabaseClient.auth.signInWithOtp({
             email,
             options: { emailRedirectTo: redirectTo }
           });
-          if (error) throw error;
 
+          if (error) throw error;
           showStatus("Magic link sent. Check your inbox.", "success");
         } catch (err) {
           showStatus(err?.message || "Could not send magic link.", "error");
@@ -326,7 +355,6 @@
         }
       });
 
-      // ---- Signup ----
       const formSignup = document.getElementById("formSignup");
       const btnSignup = document.getElementById("btnSignup");
       formSignup.addEventListener("submit", async (e) => {
@@ -352,16 +380,25 @@
               data: { name }
             }
           });
+
           if (error) throw error;
 
           dlgSignup.close();
 
-          // If email confirmation is required, session may be null until confirmed
           if (EXPECT_EMAIL_CONFIRMATION && !data?.session) {
             showStatus("Account created. Confirm your email, then come back and sign in.", "success");
-          } else {
+          } else if (data?.user?.id) {
             showStatus("Account created. Redirecting…", "success");
-            window.location.href = REDIRECT_TO;
+            try {
+              await resolveAndRedirect(data.user.id);
+            } catch (err) {
+              showStatus(
+                err?.message || "Account created, but no route/profile was found yet. Have an admin assign department access.",
+                "error"
+              );
+            }
+          } else {
+            showStatus("Account created. Sign in once your access is assigned.", "success");
           }
         } catch (err) {
           showStatus(err?.message || "Signup failed.", "error");
@@ -370,7 +407,6 @@
         }
       });
 
-      // ---- Forgot password (simple) ----
       const btnForgot = document.getElementById("btnForgot");
       btnForgot.addEventListener("click", async () => {
         clearStatus();
@@ -387,7 +423,6 @@
         }
       });
 
-      // ---- Sign out ----
       btnSignout.addEventListener("click", async () => {
         clearStatus();
         try {
@@ -400,7 +435,6 @@
         }
       });
 
-      // ---- Auth state change (optional UX) ----
       supabaseClient.auth.onAuthStateChange((event, session) => {
         if (session) btnSignout.classList.remove("hidden");
       });
