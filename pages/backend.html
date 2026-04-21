@@ -25,7 +25,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
 
   <!-- Config + Supabase -->
-  <script src="/financehub/pages/config.js"></script>
+  <script src="/pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 
   <style>
@@ -206,7 +206,7 @@
 
       <div class="flex items-center gap-2">
         <button id="themeBtn" class="btn" title="Toggle theme">Theme <span id="themeLabel" class="ml-2 font-extrabold">Light</span></button>
-        <a class="btn" href="/financehub/executive.html">Owner Cockpit</a>
+        <a class="btn" href="/executive.html">Owner Cockpit</a>
         <button id="refreshBtn" class="btn btn-primary">Refresh</button>
         <button id="logoutBtn" class="btn btn-danger">Logout</button>
       </div>
@@ -560,7 +560,7 @@
     }
 
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY){
-      alert("Missing SUPABASE_URL / SUPABASE_ANON_KEY in /financehub/pages/config.js");
+      alert("Missing SUPABASE_URL / SUPABASE_ANON_KEY in /pages/config.js");
     }
 
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -580,7 +580,7 @@
 
       const session = data?.session;
       if (!session){
-        window.location.href = "/financehub/pages/login.html";
+        window.location.href = "/pages/login.html";
         return false;
       }
 
@@ -621,7 +621,7 @@
 
       if (!allowed){
         alert("Access denied: owner/admin/superadmin required.");
-        window.location.href = "/financehub/pages/executive.html";
+        window.location.href = "/pages/executive.html";
         return false;
       }
       return true;
@@ -1047,7 +1047,7 @@
       // logout
       el("logoutBtn")?.addEventListener("click", async () => {
         try { await supabaseClient.auth.signOut(); } catch(e){}
-        window.location.href = "/financehub/pages/login.html";
+        window.location.href = "/pages/login.html";
       });
 
       // shortcuts
