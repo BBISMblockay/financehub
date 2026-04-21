@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="/financehub/pages/config.js"></script>
+  <script src="/pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 
   <style>
@@ -442,7 +442,7 @@
     const cfg = window.__SILO_CONFIG__ || {};
     const SUPABASE_URL = cfg.SUPABASE_URL || "";
     const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || "";
-    const LOGIN_PATH = "/financehub/pages/login.html";
+    const LOGIN_PATH = "/pages/login.html";
     const PRODUCT_TAG_PAGE_SIZE = 1000;
 
     let SUPABASE = null;
@@ -628,7 +628,7 @@
 
     async function initAuth(){
       if (!SUPABASE_URL || !SUPABASE_ANON_KEY){
-        document.body.innerHTML = `<div style="padding:24px;font-family:Inter,system-ui,sans-serif;">Missing Supabase config in /financehub/pages/config.js</div>`;
+        document.body.innerHTML = `<div style="padding:24px;font-family:Inter,system-ui,sans-serif;">Missing Supabase config in /pages/config.js</div>`;
         return false;
       }
 
