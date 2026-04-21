@@ -7,7 +7,7 @@
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
-  <script src="/financehub/pages/config.js"></script>
+  <script src="/pages/config.js"></script>
 
   <style>
     :root { color-scheme: light; }
@@ -208,7 +208,7 @@
 
     function ensureConfig() {
       if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-        setStatus("Missing Supabase config. Check /financehub/pages/config.js.", "error");
+        setStatus("Missing Supabase config. Check /pages/config.js.", "error");
         return false;
       }
       return true;
