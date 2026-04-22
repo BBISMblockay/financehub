@@ -421,27 +421,67 @@ async function syncSalesByDay() {
   const stats = [];
 
   for (const source of INVENTORY_SOURCES) {
+    console.log(`--- SALES SOURCE START: ${source.location_tag} ---`);
+    console.log(`sales_csv_url: ${source.sales_csv_url}`);
+
     const csvText = await fetchText(source.sales_csv_url);
+    console.log(`[sales csv length] ${source.location_tag}: ${csvText.length}`);
+
     const parsed = rowsToObjects(csvText);
 
-    if (parsed.headers?.length) {
-      console.log(`[sales headers] ${source.location_tag}:`, parsed.headers);
-      console.log(`[sales first row] ${source.location_tag}:`, parsed.rows[0]);
-    }
+    console.log(`[sales headers] ${source.location_tag}:`, parsed.headers);
+    console.log(`[sales first raw row] ${source.location_tag}:`, parsed.rows[0]);
 
-    const mapped = parsed.rows.map((r) => mapSalesRow(source, r)).filter(Boolean);
+    const sampleDayValue = parsed.rows?.[0]?.[SALES_HEADERS.dayDate];
+    const sampleSkuValue = parsed.rows?.[0]?.[SALES_HEADERS.sku];
+    const sampleProductValue = parsed.rows?.[0]?.[SALES_HEADERS.productName];
+
+    console.log(`[sales sample mapped keys] ${source.location_tag}:`, {
+      expectedDayHeader: SALES_HEADERS.dayDate,
+      expectedSkuHeader: SALES_HEADERS.sku,
+      expectedProductHeader: SALES_HEADERS.productName,
+      sampleDayValue,
+      sampleSkuValue,
+      sampleProductValue,
+      parsedRowKeys: parsed.rows?.[0] ? Object.keys(parsed.rows[0]) : []
+    });
+
+    const mapped = parsed.rows
+      .map((r, idx) => {
+        const row = mapSalesRow(source, r);
+
+        if (idx < 3) {
+          console.log(`[sales map result] ${source.location_tag} row ${idx}:`, {
+            inputDay: r[SALES_HEADERS.dayDate],
+            parsedDay: parseDateOnly(r[SALES_HEADERS.dayDate]),
+            inputSku: r[SALES_HEADERS.sku],
+            inputProduct: r[SALES_HEADERS.productName],
+            mapped: row
+          });
+        }
+
+        return row;
+      })
+      .filter(Boolean);
 
     allRows.push(...mapped);
+
     stats.push({
       location_tag: source.location_tag,
       raw_rows: parsed.rows.length,
       mapped_rows: mapped.length,
     });
+
+    console.log(`[sales stats] ${source.location_tag}: raw=${parsed.rows.length}, mapped=${mapped.length}`);
+    console.log(`--- SALES SOURCE END: ${source.location_tag} ---`);
   }
 
   if (!allRows.length) {
+    console.log("No mapped sales rows found. Skipping upsert.");
     return { upserted: 0, stats };
   }
+
+  console.log(`About to upsert ${allRows.length} sales rows`);
 
   await upsertInChunks(
     "sales_by_day",
@@ -455,7 +495,6 @@ async function syncSalesByDay() {
     stats,
   };
 }
-
 async function main() {
   console.log(`Starting Silo sync batch: ${BATCH_ID}`);
   console.log(`Snapshot at: ${SNAPSHOT_AT}`);
