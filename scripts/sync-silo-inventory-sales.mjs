@@ -522,7 +522,7 @@ async function syncSalesByDay() {
     );
 
     if (collapsed.length) {
-      await upsertInChunks("sales_by_day", collapsed, "row_hash", false, 100);
+      await upsertInChunks("sales_by_day", collapsed, "row_hash", false, 50);
       totalUpserted += collapsed.length;
       console.log(`[sales upserted] ${source.location_tag}: ${collapsed.length}`);
     } else {
