@@ -71,7 +71,10 @@ const SALES_HEADERS = {
 };
 
 function norm(value) {
-  return String(value ?? "").replace(/\u00A0/g, " ").trim();
+  return String(value ?? "")
+    .replace(/\uFEFF/g, "")
+    .replace(/\u00A0/g, " ")
+    .trim();
 }
 
 function num(value) {
@@ -96,13 +99,32 @@ function parseDateOnly(value) {
     return new Date(ts).toISOString().slice(0, 10);
   }
 
-  // Fallback MM/DD/YYYY
-  const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (m) {
-    const [, mm, dd, yyyy] = m;
-    const iso = `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
-    const ts2 = Date.parse(iso);
-    if (Number.isFinite(ts2)) return iso;
+  const mdy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (mdy) {
+    const [, mm, dd, yyyy] = mdy;
+    return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+  }
+
+  const ymd = raw.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (ymd) {
+    const [, yyyy, mm, dd] = ymd;
+    return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+  }
+
+  const jsDate = raw.match(/^Date\((\d{4}),(\d{1,2}),(\d{1,2})/i);
+  if (jsDate) {
+    const [, yyyy, mmZeroBased, dd] = jsDate;
+    const mm = String(Number(mmZeroBased) + 1).padStart(2, "0");
+    return `${yyyy}-${mm}-${String(dd).padStart(2, "0")}`;
+  }
+
+  if (/^\d+(\.\d+)?$/.test(raw)) {
+    const serial = Number(raw);
+    if (Number.isFinite(serial) && serial > 20000) {
+      const excelEpoch = new Date(Date.UTC(1899, 11, 30));
+      const dt = new Date(excelEpoch.getTime() + serial * 86400000);
+      return dt.toISOString().slice(0, 10);
+    }
   }
 
   return null;
@@ -401,6 +423,12 @@ async function syncSalesByDay() {
   for (const source of INVENTORY_SOURCES) {
     const csvText = await fetchText(source.sales_csv_url);
     const parsed = rowsToObjects(csvText);
+
+    if (parsed.headers?.length) {
+      console.log(`[sales headers] ${source.location_tag}:`, parsed.headers);
+      console.log(`[sales first row] ${source.location_tag}:`, parsed.rows[0]);
+    }
+
     const mapped = parsed.rows.map((r) => mapSalesRow(source, r)).filter(Boolean);
 
     allRows.push(...mapped);
