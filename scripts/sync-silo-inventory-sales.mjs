@@ -412,7 +412,7 @@ async function syncInventory() {
 }
 
 async function syncSalesByDay() {
-  const allRows = [];
+  let totalUpserted = 0;
   const stats = [];
 
   for (const source of INVENTORY_SOURCES) {
@@ -459,8 +459,6 @@ async function syncSalesByDay() {
       })
       .filter(Boolean);
 
-    allRows.push(...mapped);
-
     stats.push({
       location_tag: source.location_tag,
       raw_rows: parsed.rows.length,
@@ -470,20 +468,20 @@ async function syncSalesByDay() {
     console.log(
       `[sales stats] ${source.location_tag}: raw=${parsed.rows.length}, mapped=${mapped.length}`
     );
+
+    if (mapped.length) {
+      await upsertInChunks("sales_by_day", mapped, "row_hash", false);
+      totalUpserted += mapped.length;
+      console.log(`[sales upserted] ${source.location_tag}: ${mapped.length}`);
+    } else {
+      console.log(`[sales upserted] ${source.location_tag}: 0`);
+    }
+
     console.log(`--- SALES SOURCE END: ${source.location_tag} ---`);
   }
 
-  if (!allRows.length) {
-    console.log("No mapped sales rows found. Skipping upsert.");
-    return { upserted: 0, stats };
-  }
-
-  console.log(`About to upsert ${allRows.length} sales rows`);
-
-  await upsertInChunks("sales_by_day", allRows, "row_hash", false);
-
   return {
-    upserted: allRows.length,
+    upserted: totalUpserted,
     stats,
   };
 }
