@@ -1,3 +1,5 @@
+// config/silo-sources.mjs
+
 export const INVENTORY_SOURCES = [
   {
     location_tag: "online",
@@ -17,7 +19,7 @@ export const INVENTORY_SOURCES = [
     inventory_csv_url:
       "https://docs.google.com/spreadsheets/d/1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0/export?format=csv&gid=186382360",
     sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/e/2PACX-1vTrGtyPQZ9UZY0xn1vk49Aapc5PVpWTMfCctjyNH8K3rLrjUifqaxqZPC5vpA91FTdFm_yNdNhaThxY/pub?gid=1350148138&single=true&output=csv",
+      "https://docs.google.com/spreadsheets/d/1OV2vtJ6AHvE7qfw_8VmsgUermDhzjsK_Ha35U-SK_so/export?format=csv&gid=806693206",
   },
   {
     location_tag: "scottsdale",
@@ -27,7 +29,7 @@ export const INVENTORY_SOURCES = [
     inventory_csv_url:
       "https://docs.google.com/spreadsheets/d/1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0/export?format=csv&gid=1686608564",
     sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/e/2PACX-1vRisfYgm-JqLdAW4GrAl_K3dNPJxadE5VaQ7Fzju8vaWv9zEyXGJk6d5ZfM6owfhvHHz_Q-B36FuUqo/pub?gid=1328363473&single=true&output=csv",
+      "https://docs.google.com/spreadsheets/d/1Z4kgtyQv7MnEPnyS41zeCKhs4jlWNNWKZ7WxzLhNESo/export?format=csv&gid=1308507463",
   },
   {
     location_tag: "st_louis",
@@ -37,7 +39,7 @@ export const INVENTORY_SOURCES = [
     inventory_csv_url:
       "https://docs.google.com/spreadsheets/d/1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0/export?format=csv&gid=702923083",
     sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/e/2PACX-1vSvg4es9sqAsE6jzjea7Fw7vye8IoKH_UK8JJzGg8GXqtZFsvE2qBbvVp0ziSWibh6F1mB6QOy4Vr7h/pub?gid=1410428296&single=true&output=csv",
+      "https://docs.google.com/spreadsheets/d/1aLW8A8QrV07K8KQAo3pR2-ZBnbxGQRxt5OgOMJmeXBI/export?format=csv&gid=1857460869",
   },
   {
     location_tag: "mission_viejo",
@@ -47,7 +49,7 @@ export const INVENTORY_SOURCES = [
     inventory_csv_url:
       "https://docs.google.com/spreadsheets/d/1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0/export?format=csv&gid=948572027",
     sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/e/2PACX-1vSrVrtbatItRNJttp-6kFQE1m7XEWbPpRo6zIAqS3GBmNMqtoHuUemQK8-TR8Ya3QIMRVpJ-4ZvpUtu/pub?gid=589960408&single=true&output=csv",
+      "https://docs.google.com/spreadsheets/d/1rIolFKa5CoGyE4oyGCKqOEW43-eo92EyMFUMGAHpqZI/export?format=csv&gid=1048230983",
   },
   {
     location_tag: "texas",
@@ -57,17 +59,7 @@ export const INVENTORY_SOURCES = [
     inventory_csv_url:
       "https://docs.google.com/spreadsheets/d/1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0/export?format=csv&gid=335482043",
     sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/e/2PACX-1vSN19QBHslssiO4QpVXHxqfScuKqc9Rd0gzwuOGhIMnDa9H2HxlL0QmTDMHbbEfsaOVUzMhqkUj7uUr/pub?gid=679482519&single=true&output=csv",
-  },
-  {
-    location_tag: "field_of_dreams",
-    location_name: "Field of Dreams",
-    shop_domain: null,
-    gid: 1737418391,
-    inventory_csv_url:
-      "https://docs.google.com/spreadsheets/d/1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0/export?format=csv&gid=1737418391",
-    sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/e/2PACX-1vQNcbG_a-H8vmNF7Qm3S_n5a3MTuMZvsicODjImal2jylO74gB--3Mpgv9cCPG37WG4HFvshUrIfDdM/pub?gid=343232419&single=true&output=csv",
+      "https://docs.google.com/spreadsheets/d/17RU6dwFcUe_Ek-kttLaCGHRJHPUBwo0Y1p8y6thmCz0/export?format=csv&gid=850240535",
   },
   {
     location_tag: "cooperstown",
@@ -77,12 +69,24 @@ export const INVENTORY_SOURCES = [
     inventory_csv_url:
       "https://docs.google.com/spreadsheets/d/1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0/export?format=csv&gid=1924417187",
     sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/e/2PACX-1vTZDCPonNizaXhEklZp8ovhc_Iti725FpgZzyeu_rovAceUq9obq_AKvo0a7u-5SotcJh4xi-FC3FAv/pub?gid=965359182&single=true&output=csv",
+      "https://docs.google.com/spreadsheets/d/12dvRZTaDwLtvT48g17tr93QYsjOb1PspZFW8m9fnk9E/export?format=csv&gid=1271169490",
   },
-];
+  {
+    location_tag: "field_of_dreams",
+    location_name: "Field of Dreams",
+    shop_domain: null,
+    gid: 1737418391,
+    inventory_csv_url:
+      "https://docs.google.com/spreadsheets/d/1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0/export?format=csv&gid=1737418391",
+    sales_daily_csv_url:
+      "https://docs.google.com/spreadsheets/d/1yJ0tNyP_1XL5t77sSaRO48r6B9C5qnXvZxS0B7dBAFo/export?format=csv&gid=404045375",
+  },
+
+ 
 
 /**
- * Optional helper if you ever want to validate unique location tags at runtime.
+ * Runtime validation.
+ * Placeholders are allowed, but skipped until wired.
  */
 export function validateSources(sources = INVENTORY_SOURCES) {
   const seen = new Set();
