@@ -230,8 +230,8 @@ function chunk(array, size = 500) {
   return out;
 }
 
-async function upsertInChunks(table, rows, onConflict, ignoreDuplicates = false) {
-  for (const group of chunk(rows, 500)) {
+async function upsertInChunks(table, rows, onConflict, ignoreDuplicates = false, chunkSize = 500) {
+  for (const group of chunk(rows, chunkSize)) {
     const { error } = await supabase
       .from(table)
       .upsert(group, { onConflict, ignoreDuplicates });
@@ -452,7 +452,7 @@ async function syncInventory() {
     return { inserted: 0, stats };
   }
 
-  await upsertInChunks("inventory_on_hand", allRows, "row_hash", false);
+  await upsertInChunks("inventory_on_hand", allRows, "row_hash", false, 500);
 
   return {
     inserted: allRows.length,
@@ -522,7 +522,7 @@ async function syncSalesByDay() {
     );
 
     if (collapsed.length) {
-      await upsertInChunks("sales_by_day", collapsed, "row_hash", false);
+      await upsertInChunks("sales_by_day", collapsed, "row_hash", false, 100);
       totalUpserted += collapsed.length;
       console.log(`[sales upserted] ${source.location_tag}: ${collapsed.length}`);
     } else {
