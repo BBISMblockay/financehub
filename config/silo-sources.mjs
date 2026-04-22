@@ -81,6 +81,7 @@ export const INVENTORY_SOURCES = [
     sales_daily_csv_url:
       "https://docs.google.com/spreadsheets/d/1yJ0tNyP_1XL5t77sSaRO48r6B9C5qnXvZxS0B7dBAFo/export?format=csv&gid=404045375",
   },
+];
 
  
 
