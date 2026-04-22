@@ -311,6 +311,55 @@ function collapseInventoryRows(mappedRows) {
   });
 }
 
+function collapseSalesRows(mappedRows) {
+  const byKey = new Map();
+
+  for (const row of mappedRows) {
+    const key = row.row_hash;
+    const existing = byKey.get(key);
+
+    if (!existing) {
+      byKey.set(key, { ...row });
+      continue;
+    }
+
+    existing.total_quantity_sold =
+      (existing.total_quantity_sold ?? 0) + (row.total_quantity_sold ?? 0);
+
+    existing.total_orders =
+      (existing.total_orders ?? 0) + (row.total_orders ?? 0);
+
+    existing.total_gross_sales =
+      Number(existing.total_gross_sales ?? 0) + Number(row.total_gross_sales ?? 0);
+
+    existing.total_discounts =
+      Number(existing.total_discounts ?? 0) + Number(row.total_discounts ?? 0);
+
+    existing.total_refunds =
+      Number(existing.total_refunds ?? 0) + Number(row.total_refunds ?? 0);
+
+    existing.total_net_sales =
+      Number(existing.total_net_sales ?? 0) + Number(row.total_net_sales ?? 0);
+
+    existing.taxes =
+      Number(existing.taxes ?? 0) + Number(row.taxes ?? 0);
+
+    existing.shipping =
+      Number(existing.shipping ?? 0) + Number(row.shipping ?? 0);
+
+    existing.total_sales =
+      Number(existing.total_sales ?? 0) + Number(row.total_sales ?? 0);
+
+    if (!existing.product_name && row.product_name) existing.product_name = row.product_name;
+    if (!existing.sku && row.sku) existing.sku = row.sku;
+    if (!existing.product_type && row.product_type) existing.product_type = row.product_type;
+    if (!existing.vendor_original && row.vendor_original) existing.vendor_original = row.vendor_original;
+    if (!existing.shop_domain && row.shop_domain) existing.shop_domain = row.shop_domain;
+  }
+
+  return [...byKey.values()];
+}
+
 function mapInventoryRow(source, raw) {
   const variantSku = norm(raw[INV_HEADERS.sku]);
   if (!variantSku) return null;
@@ -459,20 +508,23 @@ async function syncSalesByDay() {
       })
       .filter(Boolean);
 
+    const collapsed = collapseSalesRows(mapped);
+
     stats.push({
       location_tag: source.location_tag,
       raw_rows: parsed.rows.length,
       mapped_rows: mapped.length,
+      collapsed_rows: collapsed.length,
     });
 
     console.log(
-      `[sales stats] ${source.location_tag}: raw=${parsed.rows.length}, mapped=${mapped.length}`
+      `[sales stats] ${source.location_tag}: raw=${parsed.rows.length}, mapped=${mapped.length}, collapsed=${collapsed.length}`
     );
 
-    if (mapped.length) {
-      await upsertInChunks("sales_by_day", mapped, "row_hash", false);
-      totalUpserted += mapped.length;
-      console.log(`[sales upserted] ${source.location_tag}: ${mapped.length}`);
+    if (collapsed.length) {
+      await upsertInChunks("sales_by_day", collapsed, "row_hash", false);
+      totalUpserted += collapsed.length;
+      console.log(`[sales upserted] ${source.location_tag}: ${collapsed.length}`);
     } else {
       console.log(`[sales upserted] ${source.location_tag}: 0`);
     }
