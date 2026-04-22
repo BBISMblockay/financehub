@@ -1,0 +1,885 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Silo · Sales Verification</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="./config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#f5f7fb;
+      --card:rgba(255,255,255,.92);
+      --line:rgba(15,23,42,.08);
+      --text:#0f172a;
+      --muted:#64748b;
+      --shadow:0 10px 30px rgba(15,23,42,.08);
+      --radius:24px;
+      --brand:#0f172a;
+      --brand-2:#1e293b;
+      --good:#166534;
+      --warn:#b45309;
+      --bad:#b91c1c;
+    }
+    *{box-sizing:border-box}
+    html,body{
+      margin:0;padding:0;
+      font-family:Inter,system-ui,sans-serif;
+      color:var(--text);
+      background:linear-gradient(180deg,#f8fafc 0%,#eef2f7 100%);
+    }
+    .glass{
+      background:var(--card);
+      backdrop-filter:blur(14px);
+      border:1px solid var(--line);
+      box-shadow:var(--shadow);
+      border-radius:var(--radius);
+    }
+    .pill{border:1px solid var(--line);background:white;border-radius:999px}
+    .soft-scroll::-webkit-scrollbar{height:10px;width:10px}
+    .soft-scroll::-webkit-scrollbar-thumb{background:rgba(148,163,184,.45);border-radius:999px}
+    .soft-scroll::-webkit-scrollbar-track{background:transparent}
+    .hidden-safe{display:none!important}
+    input,select{
+      outline:none;
+      border:1px solid rgba(148,163,184,.35);
+      background:white;
+      color:var(--text);
+      border-radius:14px;
+      transition:.18s ease;
+    }
+    input:focus,select:focus{
+      border-color:rgba(59,130,246,.45);
+      box-shadow:0 0 0 4px rgba(59,130,246,.10);
+    }
+    .btn{
+      border-radius:14px;
+      padding:.8rem 1rem;
+      font-weight:600;
+      transition:.18s ease;
+      border:1px solid transparent;
+      cursor:pointer;
+    }
+    .btn-primary{background:var(--brand);color:white}
+    .btn-primary:hover{background:#020617}
+    .btn-secondary{background:white;border-color:var(--line);color:var(--text)}
+    .btn-secondary:hover{background:#f8fafc}
+    .muted-label{
+      margin-bottom:.45rem;
+      display:block;
+      font-size:.68rem;
+      font-weight:700;
+      text-transform:uppercase;
+      letter-spacing:.18em;
+      color:#64748b;
+    }
+    .table-wrap{overflow:auto}
+    .sticky-head thead th{
+      position:sticky;
+      top:0;
+      z-index:2;
+      background:rgba(248,250,252,.98);
+      backdrop-filter:blur(10px);
+    }
+    table{
+      border-collapse:separate;
+      border-spacing:0;
+      width:100%;
+    }
+    .dense-table thead th{
+      font-size:11px;
+      text-transform:uppercase;
+      letter-spacing:.12em;
+      color:#64748b;
+      font-weight:700;
+      padding:11px 10px;
+      border-bottom:1px solid rgba(148,163,184,.22);
+      white-space:nowrap;
+    }
+    .dense-table tbody td{
+      padding:10px 10px;
+      font-size:13px;
+      border-bottom:1px solid rgba(148,163,184,.16);
+      vertical-align:top;
+    }
+    .dense-table tbody tr:hover td{background:rgba(248,250,252,.8)}
+    .num{text-align:right;font-variant-numeric:tabular-nums}
+    .mono{font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+    .badge{
+      display:inline-flex;
+      align-items:center;
+      gap:.4rem;
+      border-radius:999px;
+      padding:.25rem .65rem;
+      font-size:.75rem;
+      font-weight:700;
+      border:1px solid transparent;
+      white-space:nowrap;
+    }
+    .badge-good{background:#ecfdf5;color:var(--good);border-color:#bbf7d0}
+    .badge-warn{background:#fffbeb;color:var(--warn);border-color:#fde68a}
+    .badge-bad{background:#fef2f2;color:var(--bad);border-color:#fecaca}
+    .badge-neutral{background:#f8fafc;color:#475569;border-color:#e2e8f0}
+    .kpi-value{
+      font-size:2rem;
+      line-height:1;
+      font-weight:800;
+      letter-spacing:-.04em;
+      color:#0f172a;
+    }
+    .kpi-sub{
+      margin-top:.4rem;
+      font-size:.82rem;
+      color:#64748b;
+    }
+    .section-title{
+      font-size:1.05rem;
+      font-weight:800;
+      letter-spacing:-.02em;
+      color:#0f172a;
+    }
+    .section-sub{
+      margin-top:.15rem;
+      font-size:.86rem;
+      color:#64748b;
+    }
+    .chip-row{display:flex;flex-wrap:wrap;gap:.5rem}
+    .chip{
+      border:1px solid rgba(148,163,184,.26);
+      background:#fff;
+      border-radius:999px;
+      padding:.42rem .75rem;
+      font-size:.78rem;
+      font-weight:700;
+      color:#334155;
+      cursor:pointer;
+    }
+    .chip.active{
+      background:#0f172a;
+      color:white;
+      border-color:#0f172a;
+    }
+    .truncate-2{
+      display:-webkit-box;
+      -webkit-line-clamp:2;
+      -webkit-box-orient:vertical;
+      overflow:hidden;
+    }
+  </style>
+</head>
+<body>
+  <div class="min-h-screen px-4 py-4 sm:px-6 lg:px-8">
+    <div class="mx-auto max-w-[1700px] space-y-5">
+      <header class="glass px-5 py-5 sm:px-6">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Silo Sales</div>
+            <div class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">Sales Verification</div>
+            <div class="mt-2 max-w-4xl text-sm text-slate-500">
+              Validate imported sales rows, review loaded locations, and spot check exceptions before using the data downstream.
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <div id="lastRefreshPill" class="pill px-3 py-2 text-xs font-semibold text-slate-600">Last refresh: —</div>
+            <button id="btnRefresh" class="btn btn-secondary">Refresh</button>
+          </div>
+        </div>
+      </header>
+
+      <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+        <div class="glass p-5">
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Rows Loaded</div>
+          <div id="kpiRows" class="mt-2 kpi-value">—</div>
+          <div class="kpi-sub">Filtered result set</div>
+        </div>
+        <div class="glass p-5">
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Units</div>
+          <div id="kpiUnits" class="mt-2 kpi-value">—</div>
+          <div class="kpi-sub">Total quantity sold</div>
+        </div>
+        <div class="glass p-5">
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Net Sales</div>
+          <div id="kpiNet" class="mt-2 kpi-value">—</div>
+          <div class="kpi-sub">Total net sales</div>
+        </div>
+        <div class="glass p-5">
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Refunds</div>
+          <div id="kpiRefunds" class="mt-2 kpi-value">—</div>
+          <div class="kpi-sub">Total refunds field</div>
+        </div>
+        <div class="glass p-5">
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Locations</div>
+          <div id="kpiLocations" class="mt-2 kpi-value">—</div>
+          <div class="kpi-sub">Loaded in result</div>
+        </div>
+        <div class="glass p-5">
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Date Range</div>
+          <div id="kpiDateRange" class="mt-2 text-xl font-extrabold tracking-tight text-slate-900">—</div>
+          <div class="kpi-sub">Min to max day date</div>
+        </div>
+      </section>
+
+      <section class="glass p-4 sm:p-5">
+        <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <div class="section-title">Filters</div>
+            <div class="section-sub">Tight verification filters to review imports fast.</div>
+          </div>
+          <div class="chip-row" id="quickFilters">
+            <button class="chip active" data-quick="all">All Rows</button>
+            <button class="chip" data-quick="refund_discrepancy">Refund Discrepancy</button>
+            <button class="chip" data-quick="blank_sku">Blank SKU</button>
+            <button class="chip" data-quick="negative_net">Negative Net</button>
+          </div>
+        </div>
+
+        <div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+          <div>
+            <label class="muted-label">Location</label>
+            <select id="locationFilter" class="w-full px-4 py-3 text-sm">
+              <option value="">All locations</option>
+            </select>
+          </div>
+          <div>
+            <label class="muted-label">Date From</label>
+            <input id="dateFrom" type="date" class="w-full px-4 py-3 text-sm" />
+          </div>
+          <div>
+            <label class="muted-label">Date To</label>
+            <input id="dateTo" type="date" class="w-full px-4 py-3 text-sm" />
+          </div>
+          <div>
+            <label class="muted-label">Search</label>
+            <input id="searchInput" type="text" class="w-full px-4 py-3 text-sm" placeholder="SKU, product, vendor..." />
+          </div>
+          <div>
+            <label class="muted-label">Sort</label>
+            <select id="sortBy" class="w-full px-4 py-3 text-sm">
+              <option value="day_desc">Newest first</option>
+              <option value="day_asc">Oldest first</option>
+              <option value="net_desc">Net sales high to low</option>
+              <option value="qty_desc">Qty high to low</option>
+            </select>
+          </div>
+          <div class="flex items-end gap-2">
+            <button id="btnApply" class="btn btn-primary w-full">Apply</button>
+            <button id="btnReset" class="btn btn-secondary w-full">Reset</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid gap-5 xl:grid-cols-[minmax(0,1.25fr)_420px]">
+        <div class="space-y-5">
+          <section class="glass p-4 sm:p-5">
+            <div class="flex flex-col gap-2 border-b border-slate-200 pb-4 md:flex-row md:items-end md:justify-between">
+              <div>
+                <div class="section-title">Location Verification</div>
+                <div class="section-sub">Rollup by loaded location for quick tie-out review.</div>
+              </div>
+              <div id="locationSummaryCount" class="text-sm font-semibold text-slate-500">0 locations</div>
+            </div>
+            <div class="mt-4 table-wrap soft-scroll sticky-head">
+              <table class="dense-table min-w-full">
+                <thead>
+                  <tr>
+                    <th>Location</th>
+                    <th class="num">Rows</th>
+                    <th>Min Date</th>
+                    <th>Max Date</th>
+                    <th class="num">Units</th>
+                    <th class="num">Gross</th>
+                    <th class="num">Discounts</th>
+                    <th class="num">Refunds</th>
+                    <th class="num">Net</th>
+                    <th class="num">Total Sales</th>
+                  </tr>
+                </thead>
+                <tbody id="locationSummaryBody">
+                  <tr><td colspan="10" class="px-3 py-10 text-center text-sm text-slate-500">Loading…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="glass p-4 sm:p-5">
+            <div class="flex flex-col gap-2 border-b border-slate-200 pb-4 md:flex-row md:items-end md:justify-between">
+              <div>
+                <div class="section-title">Row Review</div>
+                <div class="section-sub">Spot check imported sales rows and exception behavior.</div>
+              </div>
+              <div id="detailCount" class="text-sm font-semibold text-slate-500">0 rows</div>
+            </div>
+            <div class="mt-4 table-wrap soft-scroll sticky-head">
+              <table class="dense-table min-w-[1320px]">
+                <thead>
+                  <tr>
+                    <th>Day</th>
+                    <th>Location</th>
+                    <th>SKU</th>
+                    <th>Product</th>
+                    <th>Type</th>
+                    <th>Vendor</th>
+                    <th class="num">Qty</th>
+                    <th class="num">Orders</th>
+                    <th class="num">Gross</th>
+                    <th class="num">Discounts</th>
+                    <th class="num">Refunds</th>
+                    <th class="num">Net</th>
+                    <th class="num">Taxes</th>
+                    <th class="num">Shipping</th>
+                    <th class="num">Total</th>
+                  </tr>
+                </thead>
+                <tbody id="detailBody">
+                  <tr><td colspan="15" class="px-3 py-10 text-center text-sm text-slate-500">Loading…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <aside class="space-y-5">
+          <section class="glass p-4 sm:p-5">
+            <div class="section-title">Exception Checks</div>
+            <div class="section-sub">Fast health checks on imported sales rows.</div>
+
+            <div class="mt-4 space-y-3">
+              <div class="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <div class="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Refund discrepancy rows</div>
+                    <div id="excRefundDiscrepancy" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">—</div>
+                  </div>
+                  <div class="badge badge-warn">Review</div>
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <div class="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Blank / null SKU rows</div>
+                    <div id="excBlankSku" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">—</div>
+                  </div>
+                  <div class="badge badge-bad">Watch</div>
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <div class="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Negative net sales rows</div>
+                    <div id="excNegativeNet" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">—</div>
+                  </div>
+                  <div class="badge badge-warn">Expected / Review</div>
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <div class="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Distinct sync batches</div>
+                    <div id="excBatchCount" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">—</div>
+                  </div>
+                  <div class="badge badge-good">Loaded</div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="glass p-4 sm:p-5">
+            <div class="section-title">Loaded Locations</div>
+            <div class="section-sub">Quick view of what is currently in the sales table.</div>
+            <div id="loadedLocationsList" class="mt-4 space-y-2">
+              <div class="text-sm text-slate-500">Loading…</div>
+            </div>
+          </section>
+
+          <section class="glass p-4 sm:p-5">
+            <div class="section-title">Notes</div>
+            <div class="section-sub">Use this page to verify imported sales before relying on downstream planning and reporting.</div>
+            <ul class="mt-4 space-y-2 text-sm text-slate-600">
+              <li>• Daily links are now feeding `sales_by_day`.</li>
+              <li>• Refund discrepancy rows are visible so you can decide how to handle them.</li>
+              <li>• Blank SKU rows are surfaced, not hidden.</li>
+              <li>• This page follows the same Supabase auth/config pattern as your PO Builder shell. :contentReference[oaicite:0]{index=0}</li>
+            </ul>
+          </section>
+        </aside>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = window.__SILO_CONFIG__?.SUPABASE_URL || window.SUPABASE_URL || '';
+    const SUPABASE_ANON_KEY = window.__SILO_CONFIG__?.SUPABASE_ANON_KEY || window.SUPABASE_ANON_KEY || '';
+    const REDIRECT_TO = window.__SILO_CONFIG__?.REDIRECT_TO || window.REDIRECT_TO || '';
+    const REQUIRE_AUTH = Boolean(window.__SILO_CONFIG__?.REQUIRE_AUTH || window.REQUIRE_AUTH || false);
+
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      document.body.innerHTML = `
+        <div class="min-h-screen flex items-center justify-center p-6">
+          <div class="glass max-w-xl p-6 text-center">
+            <div class="text-xl font-bold text-slate-900">Missing Supabase config</div>
+            <div class="mt-2 text-sm text-slate-500">Provide SUPABASE_URL and SUPABASE_ANON_KEY through window.__SILO_CONFIG__ or global variables before loading this page.</div>
+          </div>
+        </div>`;
+      throw new Error("Missing Supabase config");
+    }
+
+    const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const state = {
+      rows: [],
+      filteredRows: [],
+      quickFilter: 'all',
+      locationOptions: [],
+      loadedLocations: [],
+      batchCounts: 0,
+      lastRefreshAt: null
+    };
+
+    const el = {
+      btnRefresh: document.getElementById('btnRefresh'),
+      btnApply: document.getElementById('btnApply'),
+      btnReset: document.getElementById('btnReset'),
+      locationFilter: document.getElementById('locationFilter'),
+      dateFrom: document.getElementById('dateFrom'),
+      dateTo: document.getElementById('dateTo'),
+      searchInput: document.getElementById('searchInput'),
+      sortBy: document.getElementById('sortBy'),
+      quickFilters: document.getElementById('quickFilters'),
+      lastRefreshPill: document.getElementById('lastRefreshPill'),
+
+      kpiRows: document.getElementById('kpiRows'),
+      kpiUnits: document.getElementById('kpiUnits'),
+      kpiNet: document.getElementById('kpiNet'),
+      kpiRefunds: document.getElementById('kpiRefunds'),
+      kpiLocations: document.getElementById('kpiLocations'),
+      kpiDateRange: document.getElementById('kpiDateRange'),
+
+      excRefundDiscrepancy: document.getElementById('excRefundDiscrepancy'),
+      excBlankSku: document.getElementById('excBlankSku'),
+      excNegativeNet: document.getElementById('excNegativeNet'),
+      excBatchCount: document.getElementById('excBatchCount'),
+
+      locationSummaryBody: document.getElementById('locationSummaryBody'),
+      locationSummaryCount: document.getElementById('locationSummaryCount'),
+      detailBody: document.getElementById('detailBody'),
+      detailCount: document.getElementById('detailCount'),
+      loadedLocationsList: document.getElementById('loadedLocationsList')
+    };
+
+    function money(v) {
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(v || 0));
+    }
+
+    function numberFmt(v) {
+      return Number(v || 0).toLocaleString();
+    }
+
+    function fmtDate(v) {
+      if (!v) return '—';
+      return v;
+    }
+
+    function escapeHtml(str) {
+      return String(str ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+
+    function formatRelativeNow(ts) {
+      if (!ts) return '—';
+      const d = new Date(ts);
+      if (Number.isNaN(d.getTime())) return '—';
+      return d.toLocaleString();
+    }
+
+    function isRefundDiscrepancyRow(row) {
+      const p = String(row.product_name || '').trim().toLowerCase();
+      const s = String(row.sku || '').trim().toLowerCase();
+      return p === '[refund discrepancy]' || s === '[refund discrepancy]';
+    }
+
+    function isBlankSku(row) {
+      return !String(row.sku || '').trim();
+    }
+
+    function isNegativeNet(row) {
+      return Number(row.total_net_sales || 0) < 0;
+    }
+
+    function rowMatchesQuickFilter(row) {
+      switch (state.quickFilter) {
+        case 'refund_discrepancy': return isRefundDiscrepancyRow(row);
+        case 'blank_sku': return isBlankSku(row);
+        case 'negative_net': return isNegativeNet(row);
+        default: return true;
+      }
+    }
+
+    function buildLocationOptions() {
+      const locations = [...new Set(state.rows.map(r => r.location_tag).filter(Boolean))].sort();
+      state.locationOptions = locations;
+      el.locationFilter.innerHTML = ['<option value="">All locations</option>']
+        .concat(locations.map(loc => `<option value="${escapeHtml(loc)}">${escapeHtml(loc)}</option>`))
+        .join('');
+    }
+
+    function applyFilters() {
+      const location = el.locationFilter.value;
+      const dateFrom = el.dateFrom.value;
+      const dateTo = el.dateTo.value;
+      const q = el.searchInput.value.trim().toLowerCase();
+      const sortBy = el.sortBy.value;
+
+      let rows = state.rows.filter(row => {
+        if (location && row.location_tag !== location) return false;
+        if (dateFrom && row.day_date < dateFrom) return false;
+        if (dateTo && row.day_date > dateTo) return false;
+        if (!rowMatchesQuickFilter(row)) return false;
+
+        if (q) {
+          const hay = [
+            row.location_tag,
+            row.product_name,
+            row.sku,
+            row.product_type,
+            row.vendor_original
+          ].filter(Boolean).join(' ').toLowerCase();
+
+          if (!hay.includes(q)) return false;
+        }
+
+        return true;
+      });
+
+      rows.sort((a, b) => {
+        if (sortBy === 'day_asc') return String(a.day_date).localeCompare(String(b.day_date));
+        if (sortBy === 'net_desc') return Number(b.total_net_sales || 0) - Number(a.total_net_sales || 0);
+        if (sortBy === 'qty_desc') return Number(b.total_quantity_sold || 0) - Number(a.total_quantity_sold || 0);
+        return String(b.day_date).localeCompare(String(a.day_date));
+      });
+
+      state.filteredRows = rows;
+      renderAll();
+    }
+
+    function computeSummaryByLocation(rows) {
+      const map = new Map();
+
+      rows.forEach(row => {
+        const key = row.location_tag || 'unknown';
+        if (!map.has(key)) {
+          map.set(key, {
+            location_tag: key,
+            row_count: 0,
+            min_date: row.day_date || null,
+            max_date: row.day_date || null,
+            units: 0,
+            gross: 0,
+            discounts: 0,
+            refunds: 0,
+            net: 0,
+            total_sales: 0
+          });
+        }
+        const item = map.get(key);
+        item.row_count += 1;
+        if (row.day_date && (!item.min_date || row.day_date < item.min_date)) item.min_date = row.day_date;
+        if (row.day_date && (!item.max_date || row.day_date > item.max_date)) item.max_date = row.day_date;
+        item.units += Number(row.total_quantity_sold || 0);
+        item.gross += Number(row.total_gross_sales || 0);
+        item.discounts += Number(row.total_discounts || 0);
+        item.refunds += Number(row.total_refunds || 0);
+        item.net += Number(row.total_net_sales || 0);
+        item.total_sales += Number(row.total_sales || 0);
+      });
+
+      return [...map.values()].sort((a, b) => a.location_tag.localeCompare(b.location_tag));
+    }
+
+    function renderKpis() {
+      const rows = state.filteredRows;
+      const totalRows = rows.length;
+      const units = rows.reduce((sum, r) => sum + Number(r.total_quantity_sold || 0), 0);
+      const net = rows.reduce((sum, r) => sum + Number(r.total_net_sales || 0), 0);
+      const refunds = rows.reduce((sum, r) => sum + Number(r.total_refunds || 0), 0);
+      const locations = new Set(rows.map(r => r.location_tag).filter(Boolean));
+      const dates = rows.map(r => r.day_date).filter(Boolean).sort();
+
+      el.kpiRows.textContent = numberFmt(totalRows);
+      el.kpiUnits.textContent = numberFmt(units);
+      el.kpiNet.textContent = money(net);
+      el.kpiRefunds.textContent = money(refunds);
+      el.kpiLocations.textContent = numberFmt(locations.size);
+      el.kpiDateRange.textContent = dates.length ? `${dates[0]} → ${dates[dates.length - 1]}` : '—';
+      el.lastRefreshPill.textContent = `Last refresh: ${formatRelativeNow(state.lastRefreshAt)}`;
+    }
+
+    function renderExceptions() {
+      const allRows = state.rows;
+      const refundDiscrepancyCount = allRows.filter(isRefundDiscrepancyRow).length;
+      const blankSkuCount = allRows.filter(isBlankSku).length;
+      const negativeNetCount = allRows.filter(isNegativeNet).length;
+
+      el.excRefundDiscrepancy.textContent = numberFmt(refundDiscrepancyCount);
+      el.excBlankSku.textContent = numberFmt(blankSkuCount);
+      el.excNegativeNet.textContent = numberFmt(negativeNetCount);
+      el.excBatchCount.textContent = numberFmt(state.batchCounts || 0);
+    }
+
+    function renderLoadedLocations() {
+      if (!state.loadedLocations.length) {
+        el.loadedLocationsList.innerHTML = `<div class="text-sm text-slate-500">No loaded locations found.</div>`;
+        return;
+      }
+
+      el.loadedLocationsList.innerHTML = state.loadedLocations.map(loc => `
+        <div class="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3">
+          <div class="font-semibold text-slate-900">${escapeHtml(loc.location_tag)}</div>
+          <div class="badge badge-neutral">${numberFmt(loc.row_count)} rows</div>
+        </div>
+      `).join('');
+    }
+
+    function renderLocationSummary() {
+      const summary = computeSummaryByLocation(state.filteredRows);
+      el.locationSummaryCount.textContent = `${summary.length} location${summary.length === 1 ? '' : 's'}`;
+
+      if (!summary.length) {
+        el.locationSummaryBody.innerHTML = `<tr><td colspan="10" class="px-3 py-10 text-center text-sm text-slate-500">No rows match current filters.</td></tr>`;
+        return;
+      }
+
+      el.locationSummaryBody.innerHTML = summary.map(row => `
+        <tr>
+          <td><div class="font-semibold text-slate-900">${escapeHtml(row.location_tag)}</div></td>
+          <td class="num mono">${numberFmt(row.row_count)}</td>
+          <td class="mono">${fmtDate(row.min_date)}</td>
+          <td class="mono">${fmtDate(row.max_date)}</td>
+          <td class="num mono">${numberFmt(row.units)}</td>
+          <td class="num mono">${money(row.gross)}</td>
+          <td class="num mono">${money(row.discounts)}</td>
+          <td class="num mono">${money(row.refunds)}</td>
+          <td class="num mono font-semibold text-slate-900">${money(row.net)}</td>
+          <td class="num mono">${money(row.total_sales)}</td>
+        </tr>
+      `).join('');
+    }
+
+    function renderDetailRows() {
+      const rows = state.filteredRows.slice(0, 600);
+      el.detailCount.textContent = `${numberFmt(state.filteredRows.length)} rows${state.filteredRows.length > rows.length ? ` · showing first ${numberFmt(rows.length)}` : ''}`;
+
+      if (!rows.length) {
+        el.detailBody.innerHTML = `<tr><td colspan="15" class="px-3 py-10 text-center text-sm text-slate-500">No rows match current filters.</td></tr>`;
+        return;
+      }
+
+      el.detailBody.innerHTML = rows.map(row => {
+        const badge = isRefundDiscrepancyRow(row)
+          ? `<span class="badge badge-warn">Refund discrepancy</span>`
+          : isBlankSku(row)
+            ? `<span class="badge badge-bad">Blank SKU</span>`
+            : isNegativeNet(row)
+              ? `<span class="badge badge-warn">Negative net</span>`
+              : '';
+
+        return `
+          <tr>
+            <td class="mono">${fmtDate(row.day_date)}</td>
+            <td><div class="font-semibold text-slate-900">${escapeHtml(row.location_tag || '')}</div></td>
+            <td class="mono">${escapeHtml(row.sku || '—')}</td>
+            <td>
+              <div class="font-semibold text-slate-900 truncate-2">${escapeHtml(row.product_name || '—')}</div>
+              ${badge ? `<div class="mt-1">${badge}</div>` : ''}
+            </td>
+            <td>${escapeHtml(row.product_type || '—')}</td>
+            <td>${escapeHtml(row.vendor_original || '—')}</td>
+            <td class="num mono">${numberFmt(row.total_quantity_sold || 0)}</td>
+            <td class="num mono">${numberFmt(row.total_orders || 0)}</td>
+            <td class="num mono">${money(row.total_gross_sales)}</td>
+            <td class="num mono">${money(row.total_discounts)}</td>
+            <td class="num mono">${money(row.total_refunds)}</td>
+            <td class="num mono font-semibold text-slate-900">${money(row.total_net_sales)}</td>
+            <td class="num mono">${money(row.taxes)}</td>
+            <td class="num mono">${money(row.shipping)}</td>
+            <td class="num mono">${money(row.total_sales)}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderAll() {
+      renderKpis();
+      renderExceptions();
+      renderLoadedLocations();
+      renderLocationSummary();
+      renderDetailRows();
+    }
+
+    async function loadLoadedLocations() {
+      const { data, error } = await sb
+        .from('sales_by_day')
+        .select('location_tag')
+        .not('location_tag', 'is', null)
+        .limit(100000);
+
+      if (error) throw error;
+
+      const counts = new Map();
+      (data || []).forEach(row => {
+        const key = row.location_tag;
+        counts.set(key, (counts.get(key) || 0) + 1);
+      });
+
+      state.loadedLocations = [...counts.entries()]
+        .map(([location_tag, row_count]) => ({ location_tag, row_count }))
+        .sort((a, b) => a.location_tag.localeCompare(b.location_tag));
+    }
+
+    async function loadBatchCount() {
+      const { data, error } = await sb
+        .from('sales_by_day')
+        .select('sync_batch_id')
+        .not('sync_batch_id', 'is', null)
+        .limit(100000);
+
+      if (error) throw error;
+
+      state.batchCounts = new Set((data || []).map(x => x.sync_batch_id).filter(Boolean)).size;
+    }
+
+    async function loadRows() {
+      const { data, error } = await sb
+        .from('sales_by_day')
+        .select(`
+          day_date,
+          location_tag,
+          location_name,
+          product_name,
+          sku,
+          product_type,
+          vendor_original,
+          total_quantity_sold,
+          total_orders,
+          total_gross_sales,
+          total_discounts,
+          total_refunds,
+          total_net_sales,
+          taxes,
+          shipping,
+          total_sales,
+          sync_batch_id,
+          synced_at
+        `)
+        .order('day_date', { ascending: false })
+        .limit(100000);
+
+      if (error) throw error;
+
+      state.rows = data || [];
+      state.lastRefreshAt = new Date().toISOString();
+      buildLocationOptions();
+      applyFilters();
+    }
+
+    async function refreshAll() {
+      await Promise.all([
+        loadRows(),
+        loadLoadedLocations(),
+        loadBatchCount()
+      ]);
+      renderAll();
+    }
+
+    function resetFilters() {
+      state.quickFilter = 'all';
+      [...document.querySelectorAll('[data-quick]')].forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-quick') === 'all');
+      });
+      el.locationFilter.value = '';
+      el.dateFrom.value = '';
+      el.dateTo.value = '';
+      el.searchInput.value = '';
+      el.sortBy.value = 'day_desc';
+      applyFilters();
+    }
+
+    async function boot() {
+      if (REQUIRE_AUTH) {
+        try {
+          const { data, error } = await sb.auth.getSession();
+          if (error) throw error;
+          if (!data?.session) {
+            if (REDIRECT_TO) {
+              window.location.href = REDIRECT_TO;
+              return;
+            }
+            document.body.innerHTML = `
+              <div class="min-h-screen flex items-center justify-center p-6">
+                <div class="glass max-w-xl p-6 text-center">
+                  <div class="text-xl font-bold text-slate-900">Authentication required</div>
+                  <div class="mt-2 text-sm text-slate-500">Enable auth on this page through config.js and provide a REDIRECT_TO destination, or sign in before loading this page.</div>
+                </div>
+              </div>`;
+            return;
+          }
+        } catch (e) {
+          console.error(e);
+          alert(e.message || 'Auth check failed');
+          return;
+        }
+      }
+
+      try {
+        await refreshAll();
+      } catch (e) {
+        console.error(e);
+        alert(e.message || 'Initial load failed');
+      }
+    }
+
+    el.btnRefresh.addEventListener('click', async () => {
+      try {
+        await refreshAll();
+      } catch (e) {
+        console.error(e);
+        alert(e.message || 'Refresh failed');
+      }
+    });
+
+    el.btnApply.addEventListener('click', applyFilters);
+    el.btnReset.addEventListener('click', resetFilters);
+
+    ['change', 'input'].forEach(evt => {
+      el.locationFilter.addEventListener(evt, applyFilters);
+      el.dateFrom.addEventListener(evt, applyFilters);
+      el.dateTo.addEventListener(evt, applyFilters);
+      el.searchInput.addEventListener(evt, applyFilters);
+      el.sortBy.addEventListener(evt, applyFilters);
+    });
+
+    document.addEventListener('click', (ev) => {
+      const quick = ev.target.closest('[data-quick]');
+      if (!quick) return;
+
+      state.quickFilter = quick.getAttribute('data-quick') || 'all';
+      [...document.querySelectorAll('[data-quick]')].forEach(btn => {
+        btn.classList.toggle('active', btn === quick);
+      });
+      applyFilters();
+    });
+
+    boot();
+  </script>
+</body>
+</html>
