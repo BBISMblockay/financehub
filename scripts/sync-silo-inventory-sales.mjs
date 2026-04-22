@@ -385,7 +385,7 @@ async function syncInventory() {
   const stats = [];
 
   for (const source of INVENTORY_SOURCES) {
-    const csvText = await fetchText(source.csv_url);
+    const csvText = await fetchText(source.inventory_csv_url);
     const parsed = rowsToObjects(csvText);
     const mapped = parsed.rows.map((r) => mapInventoryRow(source, r)).filter(Boolean);
     const collapsed = collapseInventoryRows(mapped);
@@ -403,12 +403,7 @@ async function syncInventory() {
     return { inserted: 0, stats };
   }
 
-  await upsertInChunks(
-    "inventory_on_hand",
-    allRows,
-    "row_hash",
-    false
-  );
+  await upsertInChunks("inventory_on_hand", allRows, "row_hash", false);
 
   return {
     inserted: allRows.length,
@@ -422,9 +417,9 @@ async function syncSalesByDay() {
 
   for (const source of INVENTORY_SOURCES) {
     console.log(`--- SALES SOURCE START: ${source.location_tag} ---`);
-    console.log(`sales_csv_url: ${source.sales_csv_url}`);
+    console.log(`sales_daily_csv_url: ${source.sales_daily_csv_url}`);
 
-    const csvText = await fetchText(source.sales_csv_url);
+    const csvText = await fetchText(source.sales_daily_csv_url);
     console.log(`[sales csv length] ${source.location_tag}: ${csvText.length}`);
 
     const parsed = rowsToObjects(csvText);
@@ -443,7 +438,7 @@ async function syncSalesByDay() {
       sampleDayValue,
       sampleSkuValue,
       sampleProductValue,
-      parsedRowKeys: parsed.rows?.[0] ? Object.keys(parsed.rows[0]) : []
+      parsedRowKeys: parsed.rows?.[0] ? Object.keys(parsed.rows[0]) : [],
     });
 
     const mapped = parsed.rows
@@ -456,7 +451,7 @@ async function syncSalesByDay() {
             parsedDay: parseDateOnly(r[SALES_HEADERS.dayDate]),
             inputSku: r[SALES_HEADERS.sku],
             inputProduct: r[SALES_HEADERS.productName],
-            mapped: row
+            mapped: row,
           });
         }
 
@@ -472,7 +467,9 @@ async function syncSalesByDay() {
       mapped_rows: mapped.length,
     });
 
-    console.log(`[sales stats] ${source.location_tag}: raw=${parsed.rows.length}, mapped=${mapped.length}`);
+    console.log(
+      `[sales stats] ${source.location_tag}: raw=${parsed.rows.length}, mapped=${mapped.length}`
+    );
     console.log(`--- SALES SOURCE END: ${source.location_tag} ---`);
   }
 
@@ -483,18 +480,14 @@ async function syncSalesByDay() {
 
   console.log(`About to upsert ${allRows.length} sales rows`);
 
-  await upsertInChunks(
-    "sales_by_day",
-    allRows,
-    "row_hash",
-    false
-  );
+  await upsertInChunks("sales_by_day", allRows, "row_hash", false);
 
   return {
     upserted: allRows.length,
     stats,
   };
 }
+
 async function main() {
   console.log(`Starting Silo sync batch: ${BATCH_ID}`);
   console.log(`Snapshot at: ${SNAPSHOT_AT}`);
