@@ -5,7 +5,7 @@ export const INVENTORY_SOURCES = [
     shop_domain: "baseballism.com",
     gid: 0,
     csv_url: "https://docs.google.com/spreadsheets/d/1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0/export?format=csv&gid=0",
-    sales_csv_url: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRRZETeD2kKpL4vMvXnn4Z-xyb6M_oQ6u9cOSJts_YTLnGXrvMPhlhe0XQuL5VAYLlGlxSvQdUfxycp/pub?gid=481096073&single=true&output=csv"
+    sales_csv_url: "https://docs.google.com/spreadsheets/u/1/d/1e6ONBk-qlMFGSzI6xLdmfzOyvBaGk99T8stZ_mPpZX0/htmlview#gid=1924149688"
   },
   {
     location_tag: "atlanta",
