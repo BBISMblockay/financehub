@@ -3,7 +3,6 @@ name: Nightly Silo Sync
 on:
   workflow_dispatch:
   schedule:
-    # 2:15 AM UTC daily
     - cron: "15 2 * * *"
 
 jobs:
@@ -23,10 +22,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+
+      - name: Verify Supabase envs exist
+        run: |
+          test -n "$SUPABASE_URL" || (echo "Missing SUPABASE_URL" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "Missing SUPABASE_SERVICE_ROLE_KEY" && exit 1)
+          echo "Supabase env vars present"
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Run Silo inventory + sales sync
         run: node scripts/sync-silo-inventory-sales.mjs
