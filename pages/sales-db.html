@@ -264,6 +264,7 @@
       font-size:.9rem;
       font-weight:600;
     }
+    .hidden{display:none!important}
   </style>
 </head>
 <body>
@@ -275,7 +276,7 @@
             <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Silo Sales</div>
             <div class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">Sales Verification</div>
             <div class="mt-2 max-w-4xl text-sm text-slate-500">
-              BI-style verification matrix for loaded sales data with filtered rollups, exception checks, and paginated drilldown.
+              Verification matrix powered by summary view comps, with raw detail drilldown from <span class="mono">sales_by_day</span>.
             </div>
           </div>
           <div class="flex flex-wrap items-center gap-2">
@@ -294,32 +295,32 @@
         <div class="glass p-5">
           <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Rows Loaded</div>
           <div id="kpiRows" class="mt-2 kpi-value">—</div>
-          <div class="kpi-sub">Filtered result count</div>
+          <div class="kpi-sub">From summary view</div>
         </div>
         <div class="glass p-5">
-          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Units</div>
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">YTD Units</div>
           <div id="kpiUnits" class="mt-2 kpi-value">—</div>
-          <div class="kpi-sub">Quantity sold</div>
+          <div class="kpi-sub">Current year to date</div>
         </div>
         <div class="glass p-5">
-          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Net Sales</div>
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">YTD Net</div>
           <div id="kpiNet" class="mt-2 kpi-value">—</div>
-          <div class="kpi-sub">Filtered net rollup</div>
+          <div class="kpi-sub">Current year to date</div>
         </div>
         <div class="glass p-5">
-          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Refunds</div>
-          <div id="kpiRefunds" class="mt-2 kpi-value">—</div>
-          <div class="kpi-sub">Refund field rollup</div>
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">YTD vs PY</div>
+          <div id="kpiYtdVar" class="mt-2 kpi-value">—</div>
+          <div class="kpi-sub">Net sales variance %</div>
         </div>
         <div class="glass p-5">
           <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Locations</div>
           <div id="kpiLocations" class="mt-2 kpi-value">—</div>
-          <div class="kpi-sub">Distinct filtered stores</div>
+          <div class="kpi-sub">Stores in matrix</div>
         </div>
         <div class="glass p-5">
-          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Date Range</div>
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">As Of</div>
           <div id="kpiDateRange" class="mt-2 text-xl font-extrabold tracking-tight text-slate-900">—</div>
-          <div class="kpi-sub">Min → max loaded date</div>
+          <div class="kpi-sub">Current / prior-year comp date</div>
         </div>
       </section>
 
@@ -327,7 +328,7 @@
         <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <div class="section-title">Filters</div>
-            <div class="section-sub">Accurate filtered rollups, not page-only totals.</div>
+            <div class="section-sub">Matrix is summary-view based. Detail drilldown filters raw rows separately.</div>
           </div>
           <div class="chip-row" id="quickFilters">
             <button class="chip active" data-quick="all">All Rows</button>
@@ -339,31 +340,21 @@
 
         <div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-7">
           <div>
-            <label class="muted-label">Preset Window</label>
-            <select id="presetFilter" class="w-full px-4 py-3 text-sm">
-              <option value="90d" selected>Last 90 days</option>
-              <option value="30d">Last 30 days</option>
-              <option value="ytd">Year to date</option>
-              <option value="all">All loaded history</option>
-              <option value="custom">Custom dates</option>
-            </select>
-          </div>
-          <div>
             <label class="muted-label">Location</label>
             <select id="locationFilter" class="w-full px-4 py-3 text-sm">
               <option value="">All locations</option>
             </select>
           </div>
           <div>
-            <label class="muted-label">Date From</label>
+            <label class="muted-label">Detail Date From</label>
             <input id="dateFrom" type="date" class="w-full px-4 py-3 text-sm" />
           </div>
           <div>
-            <label class="muted-label">Date To</label>
+            <label class="muted-label">Detail Date To</label>
             <input id="dateTo" type="date" class="w-full px-4 py-3 text-sm" />
           </div>
           <div>
-            <label class="muted-label">Search</label>
+            <label class="muted-label">Search Detail</label>
             <input id="searchInput" type="text" class="w-full px-4 py-3 text-sm" placeholder="SKU, product, vendor..." />
           </div>
           <div>
@@ -373,6 +364,14 @@
               <option value="day_asc">Oldest first</option>
               <option value="net_desc">Net sales high → low</option>
               <option value="qty_desc">Qty high → low</option>
+            </select>
+          </div>
+          <div>
+            <label class="muted-label">Metric Display</label>
+            <select id="metricMode" class="w-full px-4 py-3 text-sm">
+              <option value="sales" selected>Sales focus</option>
+              <option value="units">Units focus</option>
+              <option value="both">Sales + Units</option>
             </select>
           </div>
           <div class="flex items-end gap-2">
@@ -393,39 +392,16 @@
             <div class="flex flex-col gap-2 border-b border-slate-200 pb-4 md:flex-row md:items-end md:justify-between">
               <div>
                 <div class="section-title">Store Verification Matrix</div>
-                <div class="section-sub">Day / MTD / YTD grouped by store, modeled more like your BI setup.</div>
+                <div class="section-sub">Current vs prior-year same-period comps from <span class="mono">sales_verification_store_comp_v</span>.</div>
               </div>
               <div id="matrixCount" class="text-sm font-semibold text-slate-500">0 stores</div>
             </div>
 
             <div class="mt-4 table-wrap soft-scroll">
               <table class="matrix-table">
-                <thead>
-                  <tr>
-                    <th class="store-col" rowspan="2">Store</th>
-                    <th class="group-day" colspan="3">Day</th>
-                    <th class="group-mtd" colspan="3">MTD</th>
-                    <th class="group-ytd" colspan="3">YTD</th>
-                    <th class="group-meta" colspan="4">Verification</th>
-                  </tr>
-                  <tr>
-                    <th class="group-day">Units</th>
-                    <th class="group-day">Net</th>
-                    <th class="group-day">Refunds</th>
-                    <th class="group-mtd">Units</th>
-                    <th class="group-mtd">Net</th>
-                    <th class="group-mtd">Refunds</th>
-                    <th class="group-ytd">Units</th>
-                    <th class="group-ytd">Net</th>
-                    <th class="group-ytd">Refunds</th>
-                    <th class="group-meta">Rows</th>
-                    <th class="group-meta">Blank SKU</th>
-                    <th class="group-meta">Min Date</th>
-                    <th class="group-meta">Max Date</th>
-                  </tr>
-                </thead>
+                <thead id="matrixHead"></thead>
                 <tbody id="matrixBody">
-                  <tr><td colspan="14" class="px-3 py-10 text-center text-sm text-slate-500">Loading…</td></tr>
+                  <tr><td colspan="20" class="px-3 py-10 text-center text-sm text-slate-500">Loading…</td></tr>
                 </tbody>
               </table>
             </div>
@@ -435,7 +411,7 @@
             <div class="flex flex-col gap-3 border-b border-slate-200 pb-4 md:flex-row md:items-end md:justify-between">
               <div>
                 <div class="section-title">Row Review</div>
-                <div class="section-sub">Paginated drilldown with server-side filters.</div>
+                <div class="section-sub">Raw paginated drilldown from <span class="mono">sales_by_day</span>.</div>
               </div>
               <div id="detailCount" class="text-sm font-semibold text-slate-500">0 rows</div>
             </div>
@@ -481,7 +457,7 @@
         <aside class="space-y-5">
           <section class="glass p-4 sm:p-5">
             <div class="section-title">Exception Checks</div>
-            <div class="section-sub">Full filtered result set.</div>
+            <div class="section-sub">Summary view counts for blanks / discrepancy + filtered detail state.</div>
 
             <div class="mt-4 space-y-3">
               <div class="rounded-2xl border border-slate-200 bg-white px-4 py-4">
@@ -510,14 +486,14 @@
                     <div class="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Negative net rows</div>
                     <div id="excNegativeNet" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">—</div>
                   </div>
-                  <div class="badge badge-warn">Expected / Review</div>
+                  <div class="badge badge-warn">Detail filtered</div>
                 </div>
               </div>
 
               <div class="rounded-2xl border border-slate-200 bg-white px-4 py-4">
                 <div class="flex items-center justify-between gap-3">
                   <div>
-                    <div class="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Distinct sync batches</div>
+                    <div class="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Matrix rows</div>
                     <div id="excBatchCount" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">—</div>
                   </div>
                   <div class="badge badge-good">Loaded</div>
@@ -527,8 +503,8 @@
           </section>
 
           <section class="glass p-4 sm:p-5">
-            <div class="section-title">Filtered Locations</div>
-            <div class="section-sub">Current loaded stores in the filtered result.</div>
+            <div class="section-title">Loaded Locations</div>
+            <div class="section-sub">Store list from the comp view.</div>
             <div id="loadedLocationsList" class="mt-4 space-y-2">
               <div class="text-sm text-slate-500">Loading…</div>
             </div>
@@ -536,12 +512,12 @@
 
           <section class="glass p-4 sm:p-5">
             <div class="section-title">Notes</div>
-            <div class="section-sub">How this page behaves.</div>
+            <div class="section-sub">Practical behavior.</div>
             <ul class="mt-4 space-y-2 text-sm text-slate-600">
-              <li>• Matrix is store-first for quick verification.</li>
-              <li>• KPI + matrix rollups use the full filtered result set.</li>
-              <li>• Detail table is paginated for safer browser performance.</li>
-              <li>• “All history” works, but is naturally slower until you add pre-aggregated summary views.</li>
+              <li>• Matrix reads from summary view, so loads should feel much faster.</li>
+              <li>• Detail table still comes from raw sales rows for spot checks.</li>
+              <li>• Location filter affects both matrix and detail table.</li>
+              <li>• Date + search filters only affect raw detail drilldown.</li>
             </ul>
           </section>
         </aside>
@@ -554,6 +530,7 @@
     const SUPABASE_ANON_KEY = window.__SILO_CONFIG__?.SUPABASE_ANON_KEY || window.SUPABASE_ANON_KEY || '';
     const REDIRECT_TO = window.__SILO_CONFIG__?.REDIRECT_TO || window.REDIRECT_TO || '';
     const REQUIRE_AUTH = Boolean(window.__SILO_CONFIG__?.REQUIRE_AUTH || window.REQUIRE_AUTH || false);
+    const DETAIL_PAGE_SIZE = 200;
 
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
       document.body.innerHTML = `
@@ -568,15 +545,12 @@
 
     const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    const SUMMARY_CHUNK = 2000;
-    const DETAIL_PAGE_SIZE = 200;
-
     const state = {
       locationOptions: [],
       currentPage: 1,
       totalPages: 1,
       totalRows: 0,
-      summary: null,
+      matrixRows: [],
       detailRows: [],
       quickFilter: 'all',
       lastRefreshAt: null,
@@ -589,25 +563,26 @@
       btnReset: document.getElementById('btnReset'),
       btnPrevPage: document.getElementById('btnPrevPage'),
       btnNextPage: document.getElementById('btnNextPage'),
-      presetFilter: document.getElementById('presetFilter'),
       locationFilter: document.getElementById('locationFilter'),
       dateFrom: document.getElementById('dateFrom'),
       dateTo: document.getElementById('dateTo'),
       searchInput: document.getElementById('searchInput'),
       sortBy: document.getElementById('sortBy'),
+      metricMode: document.getElementById('metricMode'),
       lastRefreshPill: document.getElementById('lastRefreshPill'),
       statusText: document.getElementById('statusText'),
       progressText: document.getElementById('progressText'),
       kpiRows: document.getElementById('kpiRows'),
       kpiUnits: document.getElementById('kpiUnits'),
       kpiNet: document.getElementById('kpiNet'),
-      kpiRefunds: document.getElementById('kpiRefunds'),
+      kpiYtdVar: document.getElementById('kpiYtdVar'),
       kpiLocations: document.getElementById('kpiLocations'),
       kpiDateRange: document.getElementById('kpiDateRange'),
       excRefundDiscrepancy: document.getElementById('excRefundDiscrepancy'),
       excBlankSku: document.getElementById('excBlankSku'),
       excNegativeNet: document.getElementById('excNegativeNet'),
       excBatchCount: document.getElementById('excBatchCount'),
+      matrixHead: document.getElementById('matrixHead'),
       matrixBody: document.getElementById('matrixBody'),
       matrixCount: document.getElementById('matrixCount'),
       detailBody: document.getElementById('detailBody'),
@@ -628,6 +603,10 @@
     function numberFmt(v) {
       return Number(v || 0).toLocaleString();
     }
+    function pctFmt(v) {
+      if (v === null || v === undefined || Number.isNaN(Number(v))) return '—';
+      return `${(Number(v) * 100).toFixed(1)}%`;
+    }
     function fmtDate(v) {
       return v || '—';
     }
@@ -645,29 +624,6 @@
       if (Number.isNaN(d.getTime())) return '—';
       return d.toLocaleString();
     }
-    function todayLocalDateString() {
-      const d = new Date();
-      const yyyy = d.getFullYear();
-      const mm = `${d.getMonth() + 1}`.padStart(2, '0');
-      const dd = `${d.getDate()}`.padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
-    }
-    function addDays(dateStr, days) {
-      const d = new Date(`${dateStr}T00:00:00`);
-      d.setDate(d.getDate() + days);
-      const yyyy = d.getFullYear();
-      const mm = `${d.getMonth() + 1}`.padStart(2, '0');
-      const dd = `${d.getDate()}`.padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
-    }
-    function startOfYear(dateStr) {
-      const year = String(dateStr || todayLocalDateString()).slice(0, 4);
-      return `${year}-01-01`;
-    }
-    function firstOfMonth(dateStr) {
-      const d = String(dateStr || todayLocalDateString());
-      return `${d.slice(0,4)}-${d.slice(5,7)}-01`;
-    }
     function setStatus(text) {
       el.statusText.textContent = text;
     }
@@ -682,6 +638,13 @@
       el.btnPrevPage.disabled = isLoading || state.currentPage <= 1;
       el.btnNextPage.disabled = isLoading || state.currentPage >= state.totalPages;
     }
+    function todayLocalDateString() {
+      const d = new Date();
+      const yyyy = d.getFullYear();
+      const mm = `${d.getMonth() + 1}`.padStart(2, '0');
+      const dd = `${d.getDate()}`.padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    }
 
     function isRefundDiscrepancyRow(row) {
       const p = String(row.product_name || '').trim().toLowerCase();
@@ -694,32 +657,17 @@
     function isNegativeNet(row) {
       return Number(row.total_net_sales || 0) < 0;
     }
-
-    function applyPresetDates() {
-      const preset = el.presetFilter.value;
-      const today = todayLocalDateString();
-
-      if (preset === '30d') {
-        el.dateFrom.value = addDays(today, -29);
-        el.dateTo.value = today;
-      } else if (preset === '90d') {
-        el.dateFrom.value = addDays(today, -89);
-        el.dateTo.value = today;
-      } else if (preset === 'ytd') {
-        el.dateFrom.value = startOfYear(today);
-        el.dateTo.value = today;
-      } else if (preset === 'all') {
-        el.dateFrom.value = '';
-        el.dateTo.value = '';
-      }
+    function escapeOrValue(v) {
+      return String(v).replaceAll(',', '\\,').replaceAll('(', '\\(').replaceAll(')', '\\)');
     }
 
     function resetFilters() {
-      el.presetFilter.value = '90d';
-      applyPresetDates();
       el.locationFilter.value = '';
+      el.dateFrom.value = '';
+      el.dateTo.value = '';
       el.searchInput.value = '';
       el.sortBy.value = 'day_desc';
+      el.metricMode.value = 'sales';
       state.quickFilter = 'all';
       [...document.querySelectorAll('[data-quick]')].forEach(btn => {
         btn.classList.toggle('active', btn.getAttribute('data-quick') === 'all');
@@ -729,22 +677,121 @@
 
     function getFilterState() {
       return {
-        preset: el.presetFilter.value,
         location: el.locationFilter.value.trim(),
         dateFrom: el.dateFrom.value,
         dateTo: el.dateTo.value,
         search: el.searchInput.value.trim(),
         sortBy: el.sortBy.value,
+        metricMode: el.metricMode.value,
         quick: state.quickFilter
       };
     }
 
-    function escapeOrValue(v) {
-      return String(v).replaceAll(',', '\\,').replaceAll('(', '\\(').replaceAll(')', '\\)');
+    function buildMatrixHead() {
+      const mode = el.metricMode.value;
+      let cols = '';
+
+      if (mode === 'sales' || mode === 'both') {
+        cols += `
+          <th class="group-day">CY Net</th>
+          <th class="group-day">PY Net</th>
+          <th class="group-day">Var %</th>
+          <th class="group-mtd">CY Net</th>
+          <th class="group-mtd">PY Net</th>
+          <th class="group-mtd">Var %</th>
+          <th class="group-ytd">CY Net</th>
+          <th class="group-ytd">PY Net</th>
+          <th class="group-ytd">Var %</th>
+        `;
+      }
+
+      if (mode === 'units' || mode === 'both') {
+        cols += `
+          <th class="group-day">CY Units</th>
+          <th class="group-day">PY Units</th>
+          <th class="group-day">Var %</th>
+          <th class="group-mtd">CY Units</th>
+          <th class="group-mtd">PY Units</th>
+          <th class="group-mtd">Var %</th>
+          <th class="group-ytd">CY Units</th>
+          <th class="group-ytd">PY Units</th>
+          <th class="group-ytd">Var %</th>
+        `;
+      }
+
+      cols += `
+        <th class="group-meta">Rows</th>
+        <th class="group-meta">Blank SKU</th>
+        <th class="group-meta">Discrepancy</th>
+        <th class="group-meta">Min Date</th>
+        <th class="group-meta">Max Date</th>
+      `;
+
+      el.matrixHead.innerHTML = `
+        <tr>
+          <th class="store-col" rowspan="2">Store</th>
+          <th class="group-day" colspan="${mode === 'both' ? 6 : 3}">Day</th>
+          <th class="group-mtd" colspan="${mode === 'both' ? 6 : 3}">MTD</th>
+          <th class="group-ytd" colspan="${mode === 'both' ? 6 : 3}">YTD</th>
+          <th class="group-meta" colspan="5">Verification</th>
+        </tr>
+        <tr>
+          ${cols}
+        </tr>
+      `;
     }
 
-    function applyCommonFilters(query, filters) {
-      let q = query;
+    async function loadLocationOptions() {
+      const { data, error } = await sb
+        .from('sales_verification_store_comp_v')
+        .select('location_tag')
+        .limit(1000);
+
+      if (error) throw error;
+
+      const options = [...new Set((data || []).map(r => r.location_tag).filter(Boolean))].sort();
+      state.locationOptions = options;
+      el.locationFilter.innerHTML = ['<option value="">All locations</option>']
+        .concat(options.map(loc => `<option value="${escapeHtml(loc)}">${escapeHtml(loc)}</option>`))
+        .join('');
+    }
+
+    async function loadMatrix() {
+      let q = sb
+        .from('sales_verification_store_comp_v')
+        .select('*')
+        .order('location_tag', { ascending: true });
+
+      const location = el.locationFilter.value.trim();
+      if (location) q = q.eq('location_tag', location);
+
+      const { data, error } = await q;
+      if (error) throw error;
+
+      state.matrixRows = data || [];
+    }
+
+    function buildDetailQuery(filters, from, to) {
+      let q = sb
+        .from('sales_by_day')
+        .select(`
+          day_date,
+          location_tag,
+          location_name,
+          product_name,
+          sku,
+          product_type,
+          vendor_original,
+          total_quantity_sold,
+          total_orders,
+          total_gross_sales,
+          total_discounts,
+          total_refunds,
+          total_net_sales,
+          taxes,
+          shipping,
+          total_sales
+        `, { count: 'exact' });
 
       if (filters.location) q = q.eq('location_tag', filters.location);
       if (filters.dateFrom) q = q.gte('day_date', filters.dateFrom);
@@ -769,55 +816,6 @@
         q = q.lt('total_net_sales', 0);
       }
 
-      return q;
-    }
-
-    function buildSummaryQuery(filters, from, to) {
-      let q = sb
-        .from('sales_by_day')
-        .select(`
-          day_date,
-          location_tag,
-          product_name,
-          sku,
-          total_quantity_sold,
-          total_gross_sales,
-          total_discounts,
-          total_refunds,
-          total_net_sales,
-          total_sales,
-          sync_batch_id
-        `)
-        .order('day_date', { ascending: true })
-        .range(from, to);
-
-      return applyCommonFilters(q, filters);
-    }
-
-    function buildDetailQuery(filters, from, to) {
-      let q = sb
-        .from('sales_by_day')
-        .select(`
-          day_date,
-          location_tag,
-          location_name,
-          product_name,
-          sku,
-          product_type,
-          vendor_original,
-          total_quantity_sold,
-          total_orders,
-          total_gross_sales,
-          total_discounts,
-          total_refunds,
-          total_net_sales,
-          taxes,
-          shipping,
-          total_sales
-        `);
-
-      q = applyCommonFilters(q, filters);
-
       if (filters.sortBy === 'day_asc') {
         q = q.order('day_date', { ascending: true }).order('product_name', { ascending: true });
       } else if (filters.sortBy === 'net_desc') {
@@ -831,233 +829,129 @@
       return q.range(from, to);
     }
 
-    async function loadLocationOptions() {
-      const { data, error } = await sb
-        .from('sales_by_day')
-        .select('location_tag')
-        .not('location_tag', 'is', null)
-        .limit(100000);
-
-      if (error) throw error;
-
-      const options = [...new Set((data || []).map(r => r.location_tag).filter(Boolean))].sort();
-      state.locationOptions = options;
-      el.locationFilter.innerHTML = ['<option value="">All locations</option>']
-        .concat(options.map(loc => `<option value="${escapeHtml(loc)}">${escapeHtml(loc)}</option>`))
-        .join('');
-    }
-
-    function ensureStoreEntry(map, key) {
-      if (!map.has(key)) {
-        map.set(key, {
-          location_tag: key,
-          rows: 0,
-          blank_sku: 0,
-          min_date: null,
-          max_date: null,
-          day_units: 0,
-          day_net: 0,
-          day_refunds: 0,
-          mtd_units: 0,
-          mtd_net: 0,
-          mtd_refunds: 0,
-          ytd_units: 0,
-          ytd_net: 0,
-          ytd_refunds: 0
-        });
-      }
-      return map.get(key);
-    }
-
-    async function computeSummary(filters) {
-      const summary = {
-        totalRows: 0,
-        totalUnits: 0,
-        totalNet: 0,
-        totalRefunds: 0,
-        minDate: null,
-        maxDate: null,
-        refundDiscrepancyCount: 0,
-        blankSkuCount: 0,
-        negativeNetCount: 0,
-        batchSet: new Set(),
-        storeMap: new Map()
-      };
-
-      let from = 0;
-      let keepGoing = true;
-
-      while (keepGoing) {
-        setProgress(`Scanning ${numberFmt(from + 1)}+`);
-        const { data, error } = await buildSummaryQuery(filters, from, from + SUMMARY_CHUNK - 1);
-        if (error) throw error;
-
-        const rows = data || [];
-        if (!rows.length) break;
-
-        for (const row of rows) {
-          summary.totalRows += 1;
-          summary.totalUnits += Number(row.total_quantity_sold || 0);
-          summary.totalNet += Number(row.total_net_sales || 0);
-          summary.totalRefunds += Number(row.total_refunds || 0);
-
-          if (row.day_date && (!summary.minDate || row.day_date < summary.minDate)) summary.minDate = row.day_date;
-          if (row.day_date && (!summary.maxDate || row.day_date > summary.maxDate)) summary.maxDate = row.day_date;
-
-          if (isRefundDiscrepancyRow(row)) summary.refundDiscrepancyCount += 1;
-          if (isBlankSku(row)) summary.blankSkuCount += 1;
-          if (isNegativeNet(row)) summary.negativeNetCount += 1;
-          if (row.sync_batch_id) summary.batchSet.add(row.sync_batch_id);
-
-          const key = row.location_tag || 'unknown';
-          const store = ensureStoreEntry(summary.storeMap, key);
-          store.rows += 1;
-          if (isBlankSku(row)) store.blank_sku += 1;
-          if (row.day_date && (!store.min_date || row.day_date < store.min_date)) store.min_date = row.day_date;
-          if (row.day_date && (!store.max_date || row.day_date > store.max_date)) store.max_date = row.day_date;
-        }
-
-        if (rows.length < SUMMARY_CHUNK) {
-          keepGoing = false;
-        } else {
-          from += SUMMARY_CHUNK;
-        }
-      }
-
-      if (summary.maxDate) {
-        const maxDate = summary.maxDate;
-        const mtdStart = firstOfMonth(maxDate);
-        const ytdStart = startOfYear(maxDate);
-
-        from = 0;
-        keepGoing = true;
-
-        while (keepGoing) {
-          setProgress(`Building matrix ${numberFmt(from + 1)}+`);
-          const { data, error } = await buildSummaryQuery(filters, from, from + SUMMARY_CHUNK - 1);
-          if (error) throw error;
-
-          const rows = data || [];
-          if (!rows.length) break;
-
-          for (const row of rows) {
-            const key = row.location_tag || 'unknown';
-            const store = ensureStoreEntry(summary.storeMap, key);
-            const qty = Number(row.total_quantity_sold || 0);
-            const net = Number(row.total_net_sales || 0);
-            const refunds = Number(row.total_refunds || 0);
-
-            if (row.day_date === maxDate) {
-              store.day_units += qty;
-              store.day_net += net;
-              store.day_refunds += refunds;
-            }
-            if (row.day_date >= mtdStart && row.day_date <= maxDate) {
-              store.mtd_units += qty;
-              store.mtd_net += net;
-              store.mtd_refunds += refunds;
-            }
-            if (row.day_date >= ytdStart && row.day_date <= maxDate) {
-              store.ytd_units += qty;
-              store.ytd_net += net;
-              store.ytd_refunds += refunds;
-            }
-          }
-
-          if (rows.length < SUMMARY_CHUNK) {
-            keepGoing = false;
-          } else {
-            from += SUMMARY_CHUNK;
-          }
-        }
-      }
-
-      summary.stores = [...summary.storeMap.values()].sort((a, b) => a.location_tag.localeCompare(b.location_tag));
-      summary.locationCount = summary.stores.length;
-      summary.batchCount = summary.batchSet.size;
-      return summary;
-    }
-
-    async function loadDetailPage(filters, page) {
-      const from = (page - 1) * DETAIL_PAGE_SIZE;
+    async function loadDetailPage() {
+      const filters = getFilterState();
+      const from = (state.currentPage - 1) * DETAIL_PAGE_SIZE;
       const to = from + DETAIL_PAGE_SIZE - 1;
-      const { data, error } = await buildDetailQuery(filters, from, to);
+      const { data, error, count } = await buildDetailQuery(filters, from, to);
       if (error) throw error;
-      return data || [];
+
+      state.detailRows = data || [];
+      state.totalRows = count || 0;
+      state.totalPages = Math.max(1, Math.ceil(state.totalRows / DETAIL_PAGE_SIZE));
+      if (state.currentPage > state.totalPages) state.currentPage = state.totalPages;
     }
 
     function renderKpis() {
-      const s = state.summary;
-      if (!s) return;
+      const rows = state.matrixRows || [];
+      const ytdUnits = rows.reduce((sum, r) => sum + Number(r.cur_ytd_qty || 0), 0);
+      const ytdNet = rows.reduce((sum, r) => sum + Number(r.cur_ytd_net || 0), 0);
+      const pyYtdNet = rows.reduce((sum, r) => sum + Number(r.py_ytd_net || 0), 0);
+      const ytdVarPct = pyYtdNet === 0 ? null : (ytdNet - pyYtdNet) / pyYtdNet;
+      const asOf = rows[0]?.as_of_date || null;
+      const pyAsOf = rows[0]?.py_as_of_date || null;
+      const totalViewRows = rows.reduce((sum, r) => sum + Number(r.row_count || 0), 0);
 
-      el.kpiRows.textContent = numberFmt(s.totalRows);
-      el.kpiUnits.textContent = numberFmt(s.totalUnits);
-      el.kpiNet.textContent = money(s.totalNet);
-      el.kpiRefunds.textContent = money(s.totalRefunds);
-      el.kpiLocations.textContent = numberFmt(s.locationCount);
-      el.kpiDateRange.textContent = s.minDate && s.maxDate ? `${s.minDate} → ${s.maxDate}` : '—';
+      el.kpiRows.textContent = numberFmt(totalViewRows);
+      el.kpiUnits.textContent = numberFmt(ytdUnits);
+      el.kpiNet.textContent = money(ytdNet);
+      el.kpiYtdVar.textContent = pctFmt(ytdVarPct);
+      el.kpiLocations.textContent = numberFmt(rows.length);
+      el.kpiDateRange.textContent = asOf ? `${asOf} / PY ${pyAsOf || '—'}` : '—';
       el.lastRefreshPill.textContent = `Last refresh: ${formatRelativeNow(state.lastRefreshAt)}`;
     }
 
     function renderExceptions() {
-      const s = state.summary;
-      if (!s) return;
+      const rows = state.matrixRows || [];
+      const refundDiscrepancy = rows.reduce((sum, r) => sum + Number(r.refund_discrepancy_rows || 0), 0);
+      const blankSku = rows.reduce((sum, r) => sum + Number(r.blank_sku_rows || 0), 0);
+      const negativeNet = (state.detailRows || []).filter(isNegativeNet).length;
 
-      el.excRefundDiscrepancy.textContent = numberFmt(s.refundDiscrepancyCount);
-      el.excBlankSku.textContent = numberFmt(s.blankSkuCount);
-      el.excNegativeNet.textContent = numberFmt(s.negativeNetCount);
-      el.excBatchCount.textContent = numberFmt(s.batchCount);
+      el.excRefundDiscrepancy.textContent = numberFmt(refundDiscrepancy);
+      el.excBlankSku.textContent = numberFmt(blankSku);
+      el.excNegativeNet.textContent = numberFmt(negativeNet);
+      el.excBatchCount.textContent = numberFmt(rows.length);
     }
 
     function renderLocations() {
-      const s = state.summary;
-      if (!s || !s.stores.length) {
+      const rows = state.matrixRows || [];
+      if (!rows.length) {
         el.loadedLocationsList.innerHTML = `<div class="text-sm text-slate-500">No loaded locations found.</div>`;
         return;
       }
 
-      el.loadedLocationsList.innerHTML = s.stores.map(loc => `
+      el.loadedLocationsList.innerHTML = rows.map(loc => `
         <div class="location-pill">
           <div class="font-semibold text-slate-900">${escapeHtml(loc.location_tag)}</div>
-          <div class="badge badge-neutral">${numberFmt(loc.rows)} rows</div>
+          <div class="badge badge-neutral">${numberFmt(loc.row_count || 0)} rows</div>
         </div>
       `).join('');
     }
 
     function renderMatrix() {
-      const s = state.summary;
-      if (!s || !s.stores.length) {
+      const rows = state.matrixRows || [];
+      const mode = el.metricMode.value;
+      buildMatrixHead();
+
+      if (!rows.length) {
         el.matrixCount.textContent = '0 stores';
-        el.matrixBody.innerHTML = `<tr><td colspan="14" class="px-3 py-10 text-center text-sm text-slate-500">No rows match current filters.</td></tr>`;
+        el.matrixBody.innerHTML = `<tr><td colspan="30" class="px-3 py-10 text-center text-sm text-slate-500">No matrix rows found.</td></tr>`;
         return;
       }
 
-      el.matrixCount.textContent = `${s.stores.length} store${s.stores.length === 1 ? '' : 's'}`;
+      el.matrixCount.textContent = `${rows.length} store${rows.length === 1 ? '' : 's'}`;
 
-      el.matrixBody.innerHTML = s.stores.map(row => `
-        <tr>
-          <td class="store-col">${escapeHtml(row.location_tag)}</td>
-          <td class="group-day num mono">${numberFmt(row.day_units)}</td>
-          <td class="group-day num mono">${money(row.day_net)}</td>
-          <td class="group-day num mono">${money(row.day_refunds)}</td>
-          <td class="group-mtd num mono">${numberFmt(row.mtd_units)}</td>
-          <td class="group-mtd num mono">${money(row.mtd_net)}</td>
-          <td class="group-mtd num mono">${money(row.mtd_refunds)}</td>
-          <td class="group-ytd num mono">${numberFmt(row.ytd_units)}</td>
-          <td class="group-ytd num mono">${money(row.ytd_net)}</td>
-          <td class="group-ytd num mono">${money(row.ytd_refunds)}</td>
-          <td class="group-meta num mono">${numberFmt(row.rows)}</td>
-          <td class="group-meta num mono">${numberFmt(row.blank_sku)}</td>
-          <td class="group-meta mono">${fmtDate(row.min_date)}</td>
-          <td class="group-meta mono">${fmtDate(row.max_date)}</td>
+      el.matrixBody.innerHTML = rows.map(r => {
+        let html = `<tr><td class="store-col">${escapeHtml(r.location_tag)}</td>`;
+
+        if (mode === 'sales' || mode === 'both') {
+          html += `
+            <td class="group-day num mono">${money(r.cur_day_net)}</td>
+            <td class="group-day num mono">${money(r.py_day_net)}</td>
+            <td class="group-day num mono">${pctFmt(r.day_net_var_pct)}</td>
+
+            <td class="group-mtd num mono">${money(r.cur_mtd_net)}</td>
+            <td class="group-mtd num mono">${money(r.py_mtd_net)}</td>
+            <td class="group-mtd num mono">${pctFmt(r.mtd_net_var_pct)}</td>
+
+            <td class="group-ytd num mono">${money(r.cur_ytd_net)}</td>
+            <td class="group-ytd num mono">${money(r.py_ytd_net)}</td>
+            <td class="group-ytd num mono">${pctFmt(r.ytd_net_var_pct)}</td>
+          `;
+        }
+
+        if (mode === 'units' || mode === 'both') {
+          html += `
+            <td class="group-day num mono">${numberFmt(r.cur_day_qty)}</td>
+            <td class="group-day num mono">${numberFmt(r.py_day_qty)}</td>
+            <td class="group-day num mono">${pctFmt(r.day_qty_var_pct)}</td>
+
+            <td class="group-mtd num mono">${numberFmt(r.cur_mtd_qty)}</td>
+            <td class="group-mtd num mono">${numberFmt(r.py_mtd_qty)}</td>
+            <td class="group-mtd num mono">${pctFmt(r.mtd_qty_var_pct)}</td>
+
+            <td class="group-ytd num mono">${numberFmt(r.cur_ytd_qty)}</td>
+            <td class="group-ytd num mono">${numberFmt(r.py_ytd_qty)}</td>
+            <td class="group-ytd num mono">${pctFmt(r.ytd_qty_var_pct)}</td>
+          `;
+        }
+
+        html += `
+          <td class="group-meta num mono">${numberFmt(r.row_count)}</td>
+          <td class="group-meta num mono">${numberFmt(r.blank_sku_rows)}</td>
+          <td class="group-meta num mono">${numberFmt(r.refund_discrepancy_rows)}</td>
+          <td class="group-meta mono">${fmtDate(r.min_day_date)}</td>
+          <td class="group-meta mono">${fmtDate(r.max_day_date)}</td>
         </tr>
-      `).join('');
+        `;
+        return html;
+      }).join('');
     }
 
     function renderDetailRows() {
       const rows = state.detailRows || [];
       if (!rows.length) {
-        el.detailBody.innerHTML = `<tr><td colspan="15" class="px-3 py-10 text-center text-sm text-slate-500">No rows match current filters.</td></tr>`;
+        el.detailBody.innerHTML = `<tr><td colspan="15" class="px-3 py-10 text-center text-sm text-slate-500">No rows match current detail filters.</td></tr>`;
       } else {
         el.detailBody.innerHTML = rows.map(row => {
           const badge = isRefundDiscrepancyRow(row)
@@ -1093,7 +987,7 @@
         }).join('');
       }
 
-      el.detailCount.textContent = `${numberFmt(state.totalRows)} rows in filtered result`;
+      el.detailCount.textContent = `${numberFmt(state.totalRows)} detail rows`;
       el.pageIndicator.textContent = `${state.currentPage} / ${state.totalPages}`;
       const start = state.totalRows ? ((state.currentPage - 1) * DETAIL_PAGE_SIZE) + 1 : 0;
       const end = Math.min(state.currentPage * DETAIL_PAGE_SIZE, state.totalRows);
@@ -1105,15 +999,11 @@
     }
 
     function renderProvisionalBanner() {
-      const s = state.summary;
-      if (!s || !s.maxDate) {
-        el.provisionalBanner.classList.add('hidden');
-        return;
-      }
-
+      const asOf = state.matrixRows?.[0]?.as_of_date || null;
       const today = todayLocalDateString();
-      if (s.maxDate === today) {
-        el.provisionalText.textContent = `Loaded max date is ${s.maxDate}. If Better Reports had not fully finished before this sync, current-day numbers may still be incomplete.`;
+
+      if (asOf && asOf === today) {
+        el.provisionalText.textContent = `Comp view as-of date is ${asOf}. If Better Reports had not fully finished before sync, current-day values may still be incomplete.`;
         el.provisionalBanner.classList.remove('hidden');
       } else {
         el.provisionalBanner.classList.add('hidden');
@@ -1130,30 +1020,23 @@
     }
 
     async function runFullLoad(resetPage = false) {
-      const filters = getFilterState();
       if (resetPage) state.currentPage = 1;
 
       setLoading(true);
-      setStatus('Loading filtered sales verification...');
+      setStatus('Loading matrix + detail...');
       setProgress('Starting');
 
       try {
-        const summary = await computeSummary(filters);
-        state.summary = summary;
-        state.totalRows = summary.totalRows;
-        state.totalPages = Math.max(1, Math.ceil(summary.totalRows / DETAIL_PAGE_SIZE));
+        setProgress('Loading matrix');
+        await loadMatrix();
 
-        if (state.currentPage > state.totalPages) {
-          state.currentPage = state.totalPages;
-        }
+        setProgress('Loading detail');
+        await loadDetailPage();
 
-        setProgress(`Loading detail page ${state.currentPage}`);
-        state.detailRows = await loadDetailPage(filters, state.currentPage);
         state.lastRefreshAt = new Date().toISOString();
-
-        setStatus(summary.totalRows
-          ? `Loaded ${numberFmt(summary.totalRows)} filtered rows across ${numberFmt(summary.locationCount)} store${summary.locationCount === 1 ? '' : 's'}.`
-          : 'No rows matched current filters.'
+        setStatus(state.matrixRows.length
+          ? `Loaded ${numberFmt(state.matrixRows.length)} store comp rows.`
+          : 'No comp rows found.'
         );
         setProgress('Complete');
         renderAll();
@@ -1170,12 +1053,13 @@
     async function changePage(nextPage) {
       if (nextPage < 1 || nextPage > state.totalPages || state.isLoading) return;
       state.currentPage = nextPage;
+
       setLoading(true);
       setStatus(`Loading detail page ${state.currentPage}...`);
       setProgress(`Page ${state.currentPage}`);
 
       try {
-        state.detailRows = await loadDetailPage(getFilterState(), state.currentPage);
+        await loadDetailPage();
         renderDetailRows();
         setStatus(`Loaded page ${state.currentPage} of ${state.totalPages}.`);
         setProgress('Complete');
@@ -1238,18 +1122,16 @@
       await runFullLoad(true);
     });
 
+    el.metricMode.addEventListener('change', () => {
+      renderMatrix();
+    });
+
     el.btnPrevPage.addEventListener('click', async () => {
       await changePage(state.currentPage - 1);
     });
 
     el.btnNextPage.addEventListener('click', async () => {
       await changePage(state.currentPage + 1);
-    });
-
-    el.presetFilter.addEventListener('change', () => {
-      if (el.presetFilter.value !== 'custom') {
-        applyPresetDates();
-      }
     });
 
     document.addEventListener('click', async (ev) => {
