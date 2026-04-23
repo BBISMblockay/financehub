@@ -138,6 +138,25 @@ function hashRow(parts) {
     .digest("hex");
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableUpsertError(message) {
+  const msg = String(message || "").toLowerCase();
+  return (
+    msg.includes("502") ||
+    msg.includes("bad gateway") ||
+    msg.includes("gateway") ||
+    msg.includes("timeout") ||
+    msg.includes("statement timeout") ||
+    msg.includes("canceling statement") ||
+    msg.includes("fetch failed") ||
+    msg.includes("network") ||
+    msg.includes("temporarily unavailable")
+  );
+}
+
 async function fetchText(url) {
   const res = await fetch(url, { cache: "no-store" });
   if (!res.ok) {
@@ -231,14 +250,47 @@ function chunk(array, size = 500) {
   return out;
 }
 
-async function upsertInChunks(table, rows, onConflict, ignoreDuplicates = false, chunkSize = 500) {
-  for (const group of chunk(rows, chunkSize)) {
-    const { error } = await supabase
-      .from(table)
-      .upsert(group, { onConflict, ignoreDuplicates });
+async function upsertInChunks(
+  table,
+  rows,
+  onConflict,
+  ignoreDuplicates = false,
+  chunkSize = 500,
+  maxRetries = 4
+) {
+  const groups = chunk(rows, chunkSize);
 
-    if (error) {
-      throw new Error(`${table} upsert failed: ${error.message}`);
+  for (let idx = 0; idx < groups.length; idx += 1) {
+    const group = groups[idx];
+    let attempt = 0;
+
+    while (true) {
+      const { error } = await supabase
+        .from(table)
+        .upsert(group, { onConflict, ignoreDuplicates });
+
+      if (!error) {
+        if ((idx + 1) % 100 === 0 || idx === groups.length - 1) {
+          console.log(
+            `[upsert] ${table} chunk ${idx + 1}/${groups.length} succeeded`
+          );
+        }
+        break;
+      }
+
+      attempt += 1;
+      const retryable = isRetryableUpsertError(error.message);
+
+      if (!retryable || attempt > maxRetries) {
+        throw new Error(`${table} upsert failed: ${error.message}`);
+      }
+
+      const waitMs = 1500 * Math.pow(2, attempt - 1);
+      console.warn(
+        `[retry] ${table} chunk ${idx + 1}/${groups.length} failed ` +
+        `(attempt ${attempt}/${maxRetries}) - waiting ${waitMs}ms`
+      );
+      await sleep(waitMs);
     }
   }
 }
@@ -453,7 +505,7 @@ async function syncInventory() {
     return { inserted: 0, stats };
   }
 
-  await upsertInChunks("inventory_on_hand", allRows, "row_hash", false, 500);
+  await upsertInChunks("inventory_on_hand", allRows, "row_hash", false, 500, 4);
 
   return {
     inserted: allRows.length,
@@ -523,7 +575,7 @@ async function syncSalesByDay() {
     );
 
     if (collapsed.length) {
-      await upsertInChunks("sales_by_day", collapsed, "row_hash", false, 50);
+      await upsertInChunks("sales_by_day", collapsed, "row_hash", false, 25, 4);
       totalUpserted += collapsed.length;
       console.log(`[sales upserted] ${source.location_tag}: ${collapsed.length}`);
     } else {
@@ -558,26 +610,26 @@ async function main() {
   const inventory = await syncInventory();
   const sales = await syncSalesByDay();
 
- let salesSummaryRefreshed = false;
-let salesSummaryRefreshError = null;
+  let salesSummaryRefreshed = false;
+  let salesSummaryRefreshError = null;
 
-try {
-  await refreshSalesVerificationSummary();
-  salesSummaryRefreshed = true;
-} catch (err) {
-  salesSummaryRefreshError = err.message;
-  console.error("Sales verification summary refresh failed:");
-  console.error(err);
-}
+  try {
+    await refreshSalesVerificationSummary();
+    salesSummaryRefreshed = true;
+  } catch (err) {
+    salesSummaryRefreshError = err.message;
+    console.error("Sales verification summary refresh failed:");
+    console.error(err);
+  }
 
- const result = {
-  batch_id: BATCH_ID,
-  snapshot_at: SNAPSHOT_AT,
-  inventory,
-  sales,
-  sales_summary_refreshed: salesSummaryRefreshed,
-  sales_summary_refresh_error: salesSummaryRefreshError,
-};
+  const result = {
+    batch_id: BATCH_ID,
+    snapshot_at: SNAPSHOT_AT,
+    inventory,
+    sales,
+    sales_summary_refreshed: salesSummaryRefreshed,
+    sales_summary_refresh_error: salesSummaryRefreshError,
+  };
 
   console.log("Silo sync complete:");
   console.log(JSON.stringify(result, null, 2));
