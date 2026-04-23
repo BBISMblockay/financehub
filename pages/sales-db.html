@@ -743,7 +743,7 @@
 
     async function loadLocationOptions() {
       const { data, error } = await sb
-        .from('sales_verification_store_comp_v')
+        .from('sales_verification_store_comp_summary')
         .select('location_tag')
         .limit(1000);
 
@@ -758,7 +758,7 @@
 
     async function loadMatrix() {
       let q = sb
-        .from('sales_verification_store_comp_v')
+        .from('sales_verification_store_comp_summary')
         .select('*')
         .order('location_tag', { ascending: true });
 
