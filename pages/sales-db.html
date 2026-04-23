@@ -276,7 +276,7 @@
             <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Silo Sales</div>
             <div class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">Sales Verification</div>
             <div class="mt-2 max-w-4xl text-sm text-slate-500">
-              Verification matrix powered by summary view comps, with raw detail drilldown from <span class="mono">sales_by_day</span>.
+              Verification matrix powered by <span class="mono">sales_verification_store_comp_summary</span>, with raw drilldown from <span class="mono">sales_by_day</span>.
             </div>
           </div>
           <div class="flex flex-wrap items-center gap-2">
@@ -295,7 +295,7 @@
         <div class="glass p-5">
           <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Rows Loaded</div>
           <div id="kpiRows" class="mt-2 kpi-value">—</div>
-          <div class="kpi-sub">From summary view</div>
+          <div class="kpi-sub">From summary table</div>
         </div>
         <div class="glass p-5">
           <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">YTD Units</div>
@@ -328,7 +328,7 @@
         <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <div class="section-title">Filters</div>
-            <div class="section-sub">Matrix is summary-view based. Detail drilldown filters raw rows separately.</div>
+            <div class="section-sub">Matrix uses the summary table. Detail drilldown filters raw rows separately.</div>
           </div>
           <div class="chip-row" id="quickFilters">
             <button class="chip active" data-quick="all">All Rows</button>
@@ -392,7 +392,7 @@
             <div class="flex flex-col gap-2 border-b border-slate-200 pb-4 md:flex-row md:items-end md:justify-between">
               <div>
                 <div class="section-title">Store Verification Matrix</div>
-                <div class="section-sub">Current vs prior-year same-period comps from <span class="mono">sales_verification_store_comp_v</span>.</div>
+                <div class="section-sub">Current vs prior-year same-period comps from <span class="mono">sales_verification_store_comp_summary</span>.</div>
               </div>
               <div id="matrixCount" class="text-sm font-semibold text-slate-500">0 stores</div>
             </div>
@@ -457,7 +457,7 @@
         <aside class="space-y-5">
           <section class="glass p-4 sm:p-5">
             <div class="section-title">Exception Checks</div>
-            <div class="section-sub">Summary view counts for blanks / discrepancy + filtered detail state.</div>
+            <div class="section-sub">Summary counts for blanks / discrepancy + filtered detail state.</div>
 
             <div class="mt-4 space-y-3">
               <div class="rounded-2xl border border-slate-200 bg-white px-4 py-4">
@@ -504,7 +504,7 @@
 
           <section class="glass p-4 sm:p-5">
             <div class="section-title">Loaded Locations</div>
-            <div class="section-sub">Store list from the comp view.</div>
+            <div class="section-sub">Store list from the summary table.</div>
             <div id="loadedLocationsList" class="mt-4 space-y-2">
               <div class="text-sm text-slate-500">Loading…</div>
             </div>
@@ -514,7 +514,7 @@
             <div class="section-title">Notes</div>
             <div class="section-sub">Practical behavior.</div>
             <ul class="mt-4 space-y-2 text-sm text-slate-600">
-              <li>• Matrix reads from summary view, so loads should feel much faster.</li>
+              <li>• Matrix reads from summary table, so loads should feel much faster.</li>
               <li>• Detail table still comes from raw sales rows for spot checks.</li>
               <li>• Location filter affects both matrix and detail table.</li>
               <li>• Date + search filters only affect raw detail drilldown.</li>
@@ -554,6 +554,7 @@
       detailRows: [],
       quickFilter: 'all',
       lastRefreshAt: null,
+      summaryRefreshedAt: null,
       isLoading: false
     };
 
@@ -610,6 +611,12 @@
     function fmtDate(v) {
       return v || '—';
     }
+    function formatTimestamp(ts) {
+      if (!ts) return '—';
+      const d = new Date(ts);
+      if (Number.isNaN(d.getTime())) return String(ts);
+      return d.toLocaleString();
+    }
     function escapeHtml(str) {
       return String(str ?? '')
         .replaceAll('&', '&amp;')
@@ -617,12 +624,6 @@
         .replaceAll('>', '&gt;')
         .replaceAll('"', '&quot;')
         .replaceAll("'", '&#039;');
-    }
-    function formatRelativeNow(ts) {
-      if (!ts) return '—';
-      const d = new Date(ts);
-      if (Number.isNaN(d.getTime())) return '—';
-      return d.toLocaleString();
     }
     function setStatus(text) {
       el.statusText.textContent = text;
@@ -769,6 +770,7 @@
       if (error) throw error;
 
       state.matrixRows = data || [];
+      state.summaryRefreshedAt = data?.[0]?.refreshed_at || null;
     }
 
     function buildDetailQuery(filters, from, to) {
@@ -858,7 +860,7 @@
       el.kpiYtdVar.textContent = pctFmt(ytdVarPct);
       el.kpiLocations.textContent = numberFmt(rows.length);
       el.kpiDateRange.textContent = asOf ? `${asOf} / PY ${pyAsOf || '—'}` : '—';
-      el.lastRefreshPill.textContent = `Last refresh: ${formatRelativeNow(state.lastRefreshAt)}`;
+      el.lastRefreshPill.textContent = `Last refresh: ${formatTimestamp(state.summaryRefreshedAt || state.lastRefreshAt)}`;
     }
 
     function renderExceptions() {
@@ -1003,7 +1005,7 @@
       const today = todayLocalDateString();
 
       if (asOf && asOf === today) {
-        el.provisionalText.textContent = `Comp view as-of date is ${asOf}. If Better Reports had not fully finished before sync, current-day values may still be incomplete.`;
+        el.provisionalText.textContent = `As-of date is ${asOf}. If Better Reports had not fully finished before sync, current-day values may still be incomplete.`;
         el.provisionalBanner.classList.remove('hidden');
       } else {
         el.provisionalBanner.classList.add('hidden');
