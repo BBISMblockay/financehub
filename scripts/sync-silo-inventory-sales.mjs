@@ -3,6 +3,7 @@
 // Nightly Silo sync:
 // - Inventory tabs (Google Sheets CSV export) -> public.inventory_on_hand
 // - Sales daily CSVs (one link per location)   -> public.sales_by_day
+// - Refresh sales verification summary         -> public.sales_verification_store_comp_summary
 //
 // Required env vars:
 //   SUPABASE_URL
@@ -538,6 +539,18 @@ async function syncSalesByDay() {
   };
 }
 
+async function refreshSalesVerificationSummary() {
+  console.log("Refreshing sales verification summary...");
+
+  const { error } = await supabase.rpc("refresh_sales_verification_store_comp_summary");
+
+  if (error) {
+    throw new Error(`sales summary refresh failed: ${error.message}`);
+  }
+
+  console.log("Sales verification summary refreshed.");
+}
+
 async function main() {
   console.log(`Starting Silo sync batch: ${BATCH_ID}`);
   console.log(`Snapshot at: ${SNAPSHOT_AT}`);
@@ -545,11 +558,14 @@ async function main() {
   const inventory = await syncInventory();
   const sales = await syncSalesByDay();
 
+  await refreshSalesVerificationSummary();
+
   const result = {
     batch_id: BATCH_ID,
     snapshot_at: SNAPSHOT_AT,
     inventory,
     sales,
+    sales_summary_refreshed: true,
   };
 
   console.log("Silo sync complete:");
