@@ -43,13 +43,12 @@
     .soft-scroll::-webkit-scrollbar{height:10px;width:10px}
     .soft-scroll::-webkit-scrollbar-thumb{background:rgba(148,163,184,.45);border-radius:999px}
     .soft-scroll::-webkit-scrollbar-track{background:transparent}
-    .hidden-safe{display:none!important}
     input,select{
       outline:none;
       border:1px solid rgba(148,163,184,.35);
       background:white;
       color:var(--text);
-      border-radius:14px;
+      border-radius:16px;
       transition:.18s ease;
     }
     input:focus,select:focus{
@@ -57,7 +56,7 @@
       box-shadow:0 0 0 4px rgba(59,130,246,.10);
     }
     .btn{
-      border-radius:14px;
+      border-radius:16px;
       padding:.8rem 1rem;
       font-weight:600;
       transition:.18s ease;
@@ -85,11 +84,7 @@
       background:rgba(248,250,252,.98);
       backdrop-filter:blur(10px);
     }
-    table{
-      border-collapse:separate;
-      border-spacing:0;
-      width:100%;
-    }
+    table{border-collapse:separate;border-spacing:0;width:100%}
     .dense-table thead th{
       font-size:11px;
       text-transform:uppercase;
@@ -99,6 +94,7 @@
       padding:11px 10px;
       border-bottom:1px solid rgba(148,163,184,.22);
       white-space:nowrap;
+      text-align:left;
     }
     .dense-table tbody td{
       padding:10px 10px;
@@ -157,6 +153,7 @@
       font-weight:700;
       color:#334155;
       cursor:pointer;
+      user-select:none;
     }
     .chip.active{
       background:#0f172a;
@@ -169,6 +166,36 @@
       -webkit-box-orient:vertical;
       overflow:hidden;
     }
+    .status-text{
+      font-size:.86rem;
+      color:#64748b;
+    }
+    .pagination-btn{
+      min-width:40px;
+      height:40px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      border-radius:12px;
+      border:1px solid rgba(148,163,184,.22);
+      background:#fff;
+      font-weight:700;
+      cursor:pointer;
+    }
+    .pagination-btn:disabled{
+      opacity:.45;
+      cursor:not-allowed;
+    }
+    .location-pill{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      border:1px solid rgba(148,163,184,.18);
+      background:white;
+      border-radius:18px;
+      padding:.75rem .9rem;
+    }
   </style>
 </head>
 <body>
@@ -180,7 +207,7 @@
             <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Silo Sales</div>
             <div class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">Sales Verification</div>
             <div class="mt-2 max-w-4xl text-sm text-slate-500">
-              Validate imported sales rows, review loaded locations, and spot check exceptions before using the data downstream.
+              Server-safe verification view for imported sales rows with filtered rollups, exception checks, and paginated detail review.
             </div>
           </div>
           <div class="flex flex-wrap items-center gap-2">
@@ -194,7 +221,7 @@
         <div class="glass p-5">
           <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Rows Loaded</div>
           <div id="kpiRows" class="mt-2 kpi-value">—</div>
-          <div class="kpi-sub">Filtered result set</div>
+          <div class="kpi-sub">Filtered result count</div>
         </div>
         <div class="glass p-5">
           <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Units</div>
@@ -204,22 +231,22 @@
         <div class="glass p-5">
           <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Net Sales</div>
           <div id="kpiNet" class="mt-2 kpi-value">—</div>
-          <div class="kpi-sub">Total net sales</div>
+          <div class="kpi-sub">Accurate filtered rollup</div>
         </div>
         <div class="glass p-5">
           <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Refunds</div>
           <div id="kpiRefunds" class="mt-2 kpi-value">—</div>
-          <div class="kpi-sub">Total refunds field</div>
+          <div class="kpi-sub">Refund field rollup</div>
         </div>
         <div class="glass p-5">
           <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Locations</div>
           <div id="kpiLocations" class="mt-2 kpi-value">—</div>
-          <div class="kpi-sub">Loaded in result</div>
+          <div class="kpi-sub">Distinct filtered locations</div>
         </div>
         <div class="glass p-5">
           <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Date Range</div>
           <div id="kpiDateRange" class="mt-2 text-xl font-extrabold tracking-tight text-slate-900">—</div>
-          <div class="kpi-sub">Min to max day date</div>
+          <div class="kpi-sub">Min → max day date</div>
         </div>
       </section>
 
@@ -227,7 +254,7 @@
         <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <div class="section-title">Filters</div>
-            <div class="section-sub">Tight verification filters to review imports fast.</div>
+            <div class="section-sub">Filtered rollups stay accurate across the full result set, not just the visible detail page.</div>
           </div>
           <div class="chip-row" id="quickFilters">
             <button class="chip active" data-quick="all">All Rows</button>
@@ -237,7 +264,17 @@
           </div>
         </div>
 
-        <div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+        <div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+          <div>
+            <label class="muted-label">Preset Window</label>
+            <select id="presetFilter" class="w-full px-4 py-3 text-sm">
+              <option value="90d" selected>Last 90 days</option>
+              <option value="30d">Last 30 days</option>
+              <option value="ytd">Year to date</option>
+              <option value="all">All loaded history</option>
+              <option value="custom">Custom dates</option>
+            </select>
+          </div>
           <div>
             <label class="muted-label">Location</label>
             <select id="locationFilter" class="w-full px-4 py-3 text-sm">
@@ -257,18 +294,23 @@
             <input id="searchInput" type="text" class="w-full px-4 py-3 text-sm" placeholder="SKU, product, vendor..." />
           </div>
           <div>
-            <label class="muted-label">Sort</label>
+            <label class="muted-label">Sort Detail</label>
             <select id="sortBy" class="w-full px-4 py-3 text-sm">
               <option value="day_desc">Newest first</option>
               <option value="day_asc">Oldest first</option>
-              <option value="net_desc">Net sales high to low</option>
-              <option value="qty_desc">Qty high to low</option>
+              <option value="net_desc">Net sales high → low</option>
+              <option value="qty_desc">Qty high → low</option>
             </select>
           </div>
           <div class="flex items-end gap-2">
             <button id="btnApply" class="btn btn-primary w-full">Apply</button>
             <button id="btnReset" class="btn btn-secondary w-full">Reset</button>
           </div>
+        </div>
+
+        <div class="mt-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div id="statusText" class="status-text">Ready.</div>
+          <div id="progressText" class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Idle</div>
         </div>
       </section>
 
@@ -278,7 +320,7 @@
             <div class="flex flex-col gap-2 border-b border-slate-200 pb-4 md:flex-row md:items-end md:justify-between">
               <div>
                 <div class="section-title">Location Verification</div>
-                <div class="section-sub">Rollup by loaded location for quick tie-out review.</div>
+                <div class="section-sub">Rollup by location across the full filtered dataset.</div>
               </div>
               <div id="locationSummaryCount" class="text-sm font-semibold text-slate-500">0 locations</div>
             </div>
@@ -306,15 +348,16 @@
           </section>
 
           <section class="glass p-4 sm:p-5">
-            <div class="flex flex-col gap-2 border-b border-slate-200 pb-4 md:flex-row md:items-end md:justify-between">
+            <div class="flex flex-col gap-3 border-b border-slate-200 pb-4 md:flex-row md:items-end md:justify-between">
               <div>
                 <div class="section-title">Row Review</div>
-                <div class="section-sub">Spot check imported sales rows and exception behavior.</div>
+                <div class="section-sub">Paginated detail table with filters applied server-side.</div>
               </div>
               <div id="detailCount" class="text-sm font-semibold text-slate-500">0 rows</div>
             </div>
+
             <div class="mt-4 table-wrap soft-scroll sticky-head">
-              <table class="dense-table min-w-[1320px]">
+              <table class="dense-table min-w-[1360px]">
                 <thead>
                   <tr>
                     <th>Day</th>
@@ -339,13 +382,22 @@
                 </tbody>
               </table>
             </div>
+
+            <div class="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div id="pageMeta" class="text-sm text-slate-500">Page 1</div>
+              <div class="flex items-center gap-2">
+                <button id="btnPrevPage" class="pagination-btn">‹</button>
+                <div id="pageIndicator" class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">1 / 1</div>
+                <button id="btnNextPage" class="pagination-btn">›</button>
+              </div>
+            </div>
           </section>
         </div>
 
         <aside class="space-y-5">
           <section class="glass p-4 sm:p-5">
             <div class="section-title">Exception Checks</div>
-            <div class="section-sub">Fast health checks on imported sales rows.</div>
+            <div class="section-sub">Full filtered result set, not page-only checks.</div>
 
             <div class="mt-4 space-y-3">
               <div class="rounded-2xl border border-slate-200 bg-white px-4 py-4">
@@ -371,7 +423,7 @@
               <div class="rounded-2xl border border-slate-200 bg-white px-4 py-4">
                 <div class="flex items-center justify-between gap-3">
                   <div>
-                    <div class="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Negative net sales rows</div>
+                    <div class="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Negative net rows</div>
                     <div id="excNegativeNet" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">—</div>
                   </div>
                   <div class="badge badge-warn">Expected / Review</div>
@@ -392,7 +444,7 @@
 
           <section class="glass p-4 sm:p-5">
             <div class="section-title">Loaded Locations</div>
-            <div class="section-sub">Quick view of what is currently in the sales table.</div>
+            <div class="section-sub">Current filtered location list.</div>
             <div id="loadedLocationsList" class="mt-4 space-y-2">
               <div class="text-sm text-slate-500">Loading…</div>
             </div>
@@ -400,12 +452,12 @@
 
           <section class="glass p-4 sm:p-5">
             <div class="section-title">Notes</div>
-            <div class="section-sub">Use this page to verify imported sales before relying on downstream planning and reporting.</div>
+            <div class="section-sub">Practical behavior of this page.</div>
             <ul class="mt-4 space-y-2 text-sm text-slate-600">
-              <li>• Daily links are now feeding `sales_by_day`.</li>
-              <li>• Refund discrepancy rows are visible so you can decide how to handle them.</li>
-              <li>• Blank SKU rows are surfaced, not hidden.</li>
-              <li>• This page follows the same Supabase auth/config pattern as your PO Builder shell. :contentReference[oaicite:0]{index=0}</li>
+              <li>• Summary cards and location rollups are calculated across the entire filtered dataset.</li>
+              <li>• Detail table is paginated so the browser does not try to load the entire table at once.</li>
+              <li>• “All history” works, but will take longer because it scans filtered rows in chunks.</li>
+              <li>• Blank SKU rows and refund discrepancy rows remain visible for operational review.</li>
             </ul>
           </section>
         </aside>
@@ -432,27 +484,39 @@
 
     const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+    const SUMMARY_CHUNK = 2000;
+    const DETAIL_PAGE_SIZE = 200;
+
     const state = {
-      rows: [],
-      filteredRows: [],
-      quickFilter: 'all',
       locationOptions: [],
-      loadedLocations: [],
-      batchCounts: 0,
-      lastRefreshAt: null
+      currentPage: 1,
+      totalPages: 1,
+      totalRows: 0,
+      summary: null,
+      detailRows: [],
+      quickFilter: 'all',
+      lastRefreshAt: null,
+      isLoading: false
     };
 
     const el = {
       btnRefresh: document.getElementById('btnRefresh'),
       btnApply: document.getElementById('btnApply'),
       btnReset: document.getElementById('btnReset'),
+      btnPrevPage: document.getElementById('btnPrevPage'),
+      btnNextPage: document.getElementById('btnNextPage'),
+
+      presetFilter: document.getElementById('presetFilter'),
       locationFilter: document.getElementById('locationFilter'),
       dateFrom: document.getElementById('dateFrom'),
       dateTo: document.getElementById('dateTo'),
       searchInput: document.getElementById('searchInput'),
       sortBy: document.getElementById('sortBy'),
+
       quickFilters: document.getElementById('quickFilters'),
       lastRefreshPill: document.getElementById('lastRefreshPill'),
+      statusText: document.getElementById('statusText'),
+      progressText: document.getElementById('progressText'),
 
       kpiRows: document.getElementById('kpiRows'),
       kpiUnits: document.getElementById('kpiUnits'),
@@ -470,7 +534,9 @@
       locationSummaryCount: document.getElementById('locationSummaryCount'),
       detailBody: document.getElementById('detailBody'),
       detailCount: document.getElementById('detailCount'),
-      loadedLocationsList: document.getElementById('loadedLocationsList')
+      loadedLocationsList: document.getElementById('loadedLocationsList'),
+      pageMeta: document.getElementById('pageMeta'),
+      pageIndicator: document.getElementById('pageIndicator')
     };
 
     function money(v) {
@@ -482,8 +548,7 @@
     }
 
     function fmtDate(v) {
-      if (!v) return '—';
-      return v;
+      return v || '—';
     }
 
     function escapeHtml(str) {
@@ -502,6 +567,89 @@
       return d.toLocaleString();
     }
 
+    function todayLocalDateString() {
+      const d = new Date();
+      const yyyy = d.getFullYear();
+      const mm = `${d.getMonth() + 1}`.padStart(2, '0');
+      const dd = `${d.getDate()}`.padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    }
+
+    function addDays(dateStr, days) {
+      const d = new Date(`${dateStr}T00:00:00`);
+      d.setDate(d.getDate() + days);
+      const yyyy = d.getFullYear();
+      const mm = `${d.getMonth() + 1}`.padStart(2, '0');
+      const dd = `${d.getDate()}`.padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    }
+
+    function startOfYear(dateStr) {
+      const year = String(dateStr || todayLocalDateString()).slice(0, 4);
+      return `${year}-01-01`;
+    }
+
+    function setStatus(text) {
+      el.statusText.textContent = text;
+    }
+
+    function setProgress(text) {
+      el.progressText.textContent = text;
+    }
+
+    function setLoading(isLoading) {
+      state.isLoading = isLoading;
+      el.btnRefresh.disabled = isLoading;
+      el.btnApply.disabled = isLoading;
+      el.btnReset.disabled = isLoading;
+      el.btnPrevPage.disabled = isLoading || state.currentPage <= 1;
+      el.btnNextPage.disabled = isLoading || state.currentPage >= state.totalPages;
+    }
+
+    function getFilterState() {
+      return {
+        preset: el.presetFilter.value,
+        location: el.locationFilter.value.trim(),
+        dateFrom: el.dateFrom.value,
+        dateTo: el.dateTo.value,
+        search: el.searchInput.value.trim(),
+        sortBy: el.sortBy.value,
+        quick: state.quickFilter
+      };
+    }
+
+    function applyPresetDates() {
+      const preset = el.presetFilter.value;
+      const today = todayLocalDateString();
+
+      if (preset === '30d') {
+        el.dateFrom.value = addDays(today, -29);
+        el.dateTo.value = today;
+      } else if (preset === '90d') {
+        el.dateFrom.value = addDays(today, -89);
+        el.dateTo.value = today;
+      } else if (preset === 'ytd') {
+        el.dateFrom.value = startOfYear(today);
+        el.dateTo.value = today;
+      } else if (preset === 'all') {
+        el.dateFrom.value = '';
+        el.dateTo.value = '';
+      }
+    }
+
+    function resetFilters() {
+      el.presetFilter.value = '90d';
+      applyPresetDates();
+      el.locationFilter.value = '';
+      el.searchInput.value = '';
+      el.sortBy.value = 'day_desc';
+      state.quickFilter = 'all';
+      [...document.querySelectorAll('[data-quick]')].forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-quick') === 'all');
+      });
+      state.currentPage = 1;
+    }
+
     function isRefundDiscrepancyRow(row) {
       const p = String(row.product_name || '').trim().toLowerCase();
       const s = String(row.sku || '').trim().toLowerCase();
@@ -516,250 +664,71 @@
       return Number(row.total_net_sales || 0) < 0;
     }
 
-    function rowMatchesQuickFilter(row) {
-      switch (state.quickFilter) {
-        case 'refund_discrepancy': return isRefundDiscrepancyRow(row);
-        case 'blank_sku': return isBlankSku(row);
-        case 'negative_net': return isNegativeNet(row);
-        default: return true;
+    function escapeOrValue(v) {
+      return String(v).replaceAll(',', '\\,').replaceAll('(', '\\(').replaceAll(')', '\\)');
+    }
+
+    function applyCommonFilters(query, filters) {
+      let q = query;
+
+      if (filters.location) {
+        q = q.eq('location_tag', filters.location);
       }
-    }
-
-    function buildLocationOptions() {
-      const locations = [...new Set(state.rows.map(r => r.location_tag).filter(Boolean))].sort();
-      state.locationOptions = locations;
-      el.locationFilter.innerHTML = ['<option value="">All locations</option>']
-        .concat(locations.map(loc => `<option value="${escapeHtml(loc)}">${escapeHtml(loc)}</option>`))
-        .join('');
-    }
-
-    function applyFilters() {
-      const location = el.locationFilter.value;
-      const dateFrom = el.dateFrom.value;
-      const dateTo = el.dateTo.value;
-      const q = el.searchInput.value.trim().toLowerCase();
-      const sortBy = el.sortBy.value;
-
-      let rows = state.rows.filter(row => {
-        if (location && row.location_tag !== location) return false;
-        if (dateFrom && row.day_date < dateFrom) return false;
-        if (dateTo && row.day_date > dateTo) return false;
-        if (!rowMatchesQuickFilter(row)) return false;
-
-        if (q) {
-          const hay = [
-            row.location_tag,
-            row.product_name,
-            row.sku,
-            row.product_type,
-            row.vendor_original
-          ].filter(Boolean).join(' ').toLowerCase();
-
-          if (!hay.includes(q)) return false;
-        }
-
-        return true;
-      });
-
-      rows.sort((a, b) => {
-        if (sortBy === 'day_asc') return String(a.day_date).localeCompare(String(b.day_date));
-        if (sortBy === 'net_desc') return Number(b.total_net_sales || 0) - Number(a.total_net_sales || 0);
-        if (sortBy === 'qty_desc') return Number(b.total_quantity_sold || 0) - Number(a.total_quantity_sold || 0);
-        return String(b.day_date).localeCompare(String(a.day_date));
-      });
-
-      state.filteredRows = rows;
-      renderAll();
-    }
-
-    function computeSummaryByLocation(rows) {
-      const map = new Map();
-
-      rows.forEach(row => {
-        const key = row.location_tag || 'unknown';
-        if (!map.has(key)) {
-          map.set(key, {
-            location_tag: key,
-            row_count: 0,
-            min_date: row.day_date || null,
-            max_date: row.day_date || null,
-            units: 0,
-            gross: 0,
-            discounts: 0,
-            refunds: 0,
-            net: 0,
-            total_sales: 0
-          });
-        }
-        const item = map.get(key);
-        item.row_count += 1;
-        if (row.day_date && (!item.min_date || row.day_date < item.min_date)) item.min_date = row.day_date;
-        if (row.day_date && (!item.max_date || row.day_date > item.max_date)) item.max_date = row.day_date;
-        item.units += Number(row.total_quantity_sold || 0);
-        item.gross += Number(row.total_gross_sales || 0);
-        item.discounts += Number(row.total_discounts || 0);
-        item.refunds += Number(row.total_refunds || 0);
-        item.net += Number(row.total_net_sales || 0);
-        item.total_sales += Number(row.total_sales || 0);
-      });
-
-      return [...map.values()].sort((a, b) => a.location_tag.localeCompare(b.location_tag));
-    }
-
-    function renderKpis() {
-      const rows = state.filteredRows;
-      const totalRows = rows.length;
-      const units = rows.reduce((sum, r) => sum + Number(r.total_quantity_sold || 0), 0);
-      const net = rows.reduce((sum, r) => sum + Number(r.total_net_sales || 0), 0);
-      const refunds = rows.reduce((sum, r) => sum + Number(r.total_refunds || 0), 0);
-      const locations = new Set(rows.map(r => r.location_tag).filter(Boolean));
-      const dates = rows.map(r => r.day_date).filter(Boolean).sort();
-
-      el.kpiRows.textContent = numberFmt(totalRows);
-      el.kpiUnits.textContent = numberFmt(units);
-      el.kpiNet.textContent = money(net);
-      el.kpiRefunds.textContent = money(refunds);
-      el.kpiLocations.textContent = numberFmt(locations.size);
-      el.kpiDateRange.textContent = dates.length ? `${dates[0]} → ${dates[dates.length - 1]}` : '—';
-      el.lastRefreshPill.textContent = `Last refresh: ${formatRelativeNow(state.lastRefreshAt)}`;
-    }
-
-    function renderExceptions() {
-      const allRows = state.rows;
-      const refundDiscrepancyCount = allRows.filter(isRefundDiscrepancyRow).length;
-      const blankSkuCount = allRows.filter(isBlankSku).length;
-      const negativeNetCount = allRows.filter(isNegativeNet).length;
-
-      el.excRefundDiscrepancy.textContent = numberFmt(refundDiscrepancyCount);
-      el.excBlankSku.textContent = numberFmt(blankSkuCount);
-      el.excNegativeNet.textContent = numberFmt(negativeNetCount);
-      el.excBatchCount.textContent = numberFmt(state.batchCounts || 0);
-    }
-
-    function renderLoadedLocations() {
-      if (!state.loadedLocations.length) {
-        el.loadedLocationsList.innerHTML = `<div class="text-sm text-slate-500">No loaded locations found.</div>`;
-        return;
+      if (filters.dateFrom) {
+        q = q.gte('day_date', filters.dateFrom);
+      }
+      if (filters.dateTo) {
+        q = q.lte('day_date', filters.dateTo);
+      }
+      if (filters.search) {
+        const term = escapeOrValue(`%${filters.search}%`);
+        q = q.or(
+          [
+            `product_name.ilike.${term}`,
+            `sku.ilike.${term}`,
+            `vendor_original.ilike.${term}`,
+            `product_type.ilike.${term}`
+          ].join(',')
+        );
       }
 
-      el.loadedLocationsList.innerHTML = state.loadedLocations.map(loc => `
-        <div class="flex items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-3 py-3">
-          <div class="font-semibold text-slate-900">${escapeHtml(loc.location_tag)}</div>
-          <div class="badge badge-neutral">${numberFmt(loc.row_count)} rows</div>
-        </div>
-      `).join('');
-    }
-
-    function renderLocationSummary() {
-      const summary = computeSummaryByLocation(state.filteredRows);
-      el.locationSummaryCount.textContent = `${summary.length} location${summary.length === 1 ? '' : 's'}`;
-
-      if (!summary.length) {
-        el.locationSummaryBody.innerHTML = `<tr><td colspan="10" class="px-3 py-10 text-center text-sm text-slate-500">No rows match current filters.</td></tr>`;
-        return;
+      if (filters.quick === 'refund_discrepancy') {
+        const target = escapeOrValue('[Refund discrepancy]');
+        q = q.or(`product_name.eq.${target},sku.eq.${target}`);
+      } else if (filters.quick === 'blank_sku') {
+        q = q.or('sku.is.null,sku.eq.');
+      } else if (filters.quick === 'negative_net') {
+        q = q.lt('total_net_sales', 0);
       }
 
-      el.locationSummaryBody.innerHTML = summary.map(row => `
-        <tr>
-          <td><div class="font-semibold text-slate-900">${escapeHtml(row.location_tag)}</div></td>
-          <td class="num mono">${numberFmt(row.row_count)}</td>
-          <td class="mono">${fmtDate(row.min_date)}</td>
-          <td class="mono">${fmtDate(row.max_date)}</td>
-          <td class="num mono">${numberFmt(row.units)}</td>
-          <td class="num mono">${money(row.gross)}</td>
-          <td class="num mono">${money(row.discounts)}</td>
-          <td class="num mono">${money(row.refunds)}</td>
-          <td class="num mono font-semibold text-slate-900">${money(row.net)}</td>
-          <td class="num mono">${money(row.total_sales)}</td>
-        </tr>
-      `).join('');
+      return q;
     }
 
-    function renderDetailRows() {
-      const rows = state.filteredRows.slice(0, 600);
-      el.detailCount.textContent = `${numberFmt(state.filteredRows.length)} rows${state.filteredRows.length > rows.length ? ` · showing first ${numberFmt(rows.length)}` : ''}`;
-
-      if (!rows.length) {
-        el.detailBody.innerHTML = `<tr><td colspan="15" class="px-3 py-10 text-center text-sm text-slate-500">No rows match current filters.</td></tr>`;
-        return;
-      }
-
-      el.detailBody.innerHTML = rows.map(row => {
-        const badge = isRefundDiscrepancyRow(row)
-          ? `<span class="badge badge-warn">Refund discrepancy</span>`
-          : isBlankSku(row)
-            ? `<span class="badge badge-bad">Blank SKU</span>`
-            : isNegativeNet(row)
-              ? `<span class="badge badge-warn">Negative net</span>`
-              : '';
-
-        return `
-          <tr>
-            <td class="mono">${fmtDate(row.day_date)}</td>
-            <td><div class="font-semibold text-slate-900">${escapeHtml(row.location_tag || '')}</div></td>
-            <td class="mono">${escapeHtml(row.sku || '—')}</td>
-            <td>
-              <div class="font-semibold text-slate-900 truncate-2">${escapeHtml(row.product_name || '—')}</div>
-              ${badge ? `<div class="mt-1">${badge}</div>` : ''}
-            </td>
-            <td>${escapeHtml(row.product_type || '—')}</td>
-            <td>${escapeHtml(row.vendor_original || '—')}</td>
-            <td class="num mono">${numberFmt(row.total_quantity_sold || 0)}</td>
-            <td class="num mono">${numberFmt(row.total_orders || 0)}</td>
-            <td class="num mono">${money(row.total_gross_sales)}</td>
-            <td class="num mono">${money(row.total_discounts)}</td>
-            <td class="num mono">${money(row.total_refunds)}</td>
-            <td class="num mono font-semibold text-slate-900">${money(row.total_net_sales)}</td>
-            <td class="num mono">${money(row.taxes)}</td>
-            <td class="num mono">${money(row.shipping)}</td>
-            <td class="num mono">${money(row.total_sales)}</td>
-          </tr>
-        `;
-      }).join('');
-    }
-
-    function renderAll() {
-      renderKpis();
-      renderExceptions();
-      renderLoadedLocations();
-      renderLocationSummary();
-      renderDetailRows();
-    }
-
-    async function loadLoadedLocations() {
-      const { data, error } = await sb
+    function buildSummaryQuery(filters, from, to) {
+      let q = sb
         .from('sales_by_day')
-        .select('location_tag')
-        .not('location_tag', 'is', null)
-        .limit(100000);
+        .select(`
+          day_date,
+          location_tag,
+          product_name,
+          sku,
+          total_quantity_sold,
+          total_gross_sales,
+          total_discounts,
+          total_refunds,
+          total_net_sales,
+          total_sales,
+          sync_batch_id
+        `)
+        .order('day_date', { ascending: true })
+        .range(from, to);
 
-      if (error) throw error;
-
-      const counts = new Map();
-      (data || []).forEach(row => {
-        const key = row.location_tag;
-        counts.set(key, (counts.get(key) || 0) + 1);
-      });
-
-      state.loadedLocations = [...counts.entries()]
-        .map(([location_tag, row_count]) => ({ location_tag, row_count }))
-        .sort((a, b) => a.location_tag.localeCompare(b.location_tag));
+      q = applyCommonFilters(q, filters);
+      return q;
     }
 
-    async function loadBatchCount() {
-      const { data, error } = await sb
-        .from('sales_by_day')
-        .select('sync_batch_id')
-        .not('sync_batch_id', 'is', null)
-        .limit(100000);
-
-      if (error) throw error;
-
-      state.batchCounts = new Set((data || []).map(x => x.sync_batch_id).filter(Boolean)).size;
-    }
-
-    async function loadRows() {
-      const { data, error } = await sb
+    function buildDetailQuery(filters, from, to) {
+      let q = sb
         .from('sales_by_day')
         .select(`
           day_date,
@@ -777,41 +746,312 @@
           total_net_sales,
           taxes,
           shipping,
-          total_sales,
-          sync_batch_id,
-          synced_at
-        `)
-        .order('day_date', { ascending: false })
+          total_sales
+        `);
+
+      q = applyCommonFilters(q, filters);
+
+      if (filters.sortBy === 'day_asc') {
+        q = q.order('day_date', { ascending: true }).order('product_name', { ascending: true });
+      } else if (filters.sortBy === 'net_desc') {
+        q = q.order('total_net_sales', { ascending: false }).order('day_date', { ascending: false });
+      } else if (filters.sortBy === 'qty_desc') {
+        q = q.order('total_quantity_sold', { ascending: false }).order('day_date', { ascending: false });
+      } else {
+        q = q.order('day_date', { ascending: false }).order('product_name', { ascending: true });
+      }
+
+      q = q.range(from, to);
+      return q;
+    }
+
+    async function loadLocationOptions() {
+      const { data, error } = await sb
+        .from('sales_by_day')
+        .select('location_tag')
+        .not('location_tag', 'is', null)
         .limit(100000);
 
       if (error) throw error;
 
-      state.rows = data || [];
-      state.lastRefreshAt = new Date().toISOString();
-      buildLocationOptions();
-      applyFilters();
+      const options = [...new Set((data || []).map(r => r.location_tag).filter(Boolean))].sort();
+      state.locationOptions = options;
+      el.locationFilter.innerHTML = ['<option value="">All locations</option>']
+        .concat(options.map(loc => `<option value="${escapeHtml(loc)}">${escapeHtml(loc)}</option>`))
+        .join('');
     }
 
-    async function refreshAll() {
-      await Promise.all([
-        loadRows(),
-        loadLoadedLocations(),
-        loadBatchCount()
-      ]);
-      renderAll();
+    async function computeSummary(filters) {
+      const summary = {
+        totalRows: 0,
+        totalUnits: 0,
+        totalNet: 0,
+        totalRefunds: 0,
+        minDate: null,
+        maxDate: null,
+        refundDiscrepancyCount: 0,
+        blankSkuCount: 0,
+        negativeNetCount: 0,
+        batchSet: new Set(),
+        locationMap: new Map()
+      };
+
+      let from = 0;
+      let keepGoing = true;
+
+      while (keepGoing) {
+        setProgress(`Scanning rows ${numberFmt(from + 1)}+`);
+        const { data, error } = await buildSummaryQuery(filters, from, from + SUMMARY_CHUNK - 1);
+
+        if (error) throw error;
+
+        const rows = data || [];
+        if (!rows.length) break;
+
+        for (const row of rows) {
+          summary.totalRows += 1;
+          summary.totalUnits += Number(row.total_quantity_sold || 0);
+          summary.totalNet += Number(row.total_net_sales || 0);
+          summary.totalRefunds += Number(row.total_refunds || 0);
+
+          if (row.day_date && (!summary.minDate || row.day_date < summary.minDate)) summary.minDate = row.day_date;
+          if (row.day_date && (!summary.maxDate || row.day_date > summary.maxDate)) summary.maxDate = row.day_date;
+
+          if (isRefundDiscrepancyRow(row)) summary.refundDiscrepancyCount += 1;
+          if (isBlankSku(row)) summary.blankSkuCount += 1;
+          if (isNegativeNet(row)) summary.negativeNetCount += 1;
+          if (row.sync_batch_id) summary.batchSet.add(row.sync_batch_id);
+
+          const key = row.location_tag || 'unknown';
+          if (!summary.locationMap.has(key)) {
+            summary.locationMap.set(key, {
+              location_tag: key,
+              row_count: 0,
+              min_date: row.day_date || null,
+              max_date: row.day_date || null,
+              units: 0,
+              gross: 0,
+              discounts: 0,
+              refunds: 0,
+              net: 0,
+              total_sales: 0
+            });
+          }
+
+          const item = summary.locationMap.get(key);
+          item.row_count += 1;
+          if (row.day_date && (!item.min_date || row.day_date < item.min_date)) item.min_date = row.day_date;
+          if (row.day_date && (!item.max_date || row.day_date > item.max_date)) item.max_date = row.day_date;
+          item.units += Number(row.total_quantity_sold || 0);
+          item.gross += Number(row.total_gross_sales || 0);
+          item.discounts += Number(row.total_discounts || 0);
+          item.refunds += Number(row.total_refunds || 0);
+          item.net += Number(row.total_net_sales || 0);
+          item.total_sales += Number(row.total_sales || 0);
+        }
+
+        if (rows.length < SUMMARY_CHUNK) {
+          keepGoing = false;
+        } else {
+          from += SUMMARY_CHUNK;
+        }
+      }
+
+      summary.locations = [...summary.locationMap.values()].sort((a, b) => a.location_tag.localeCompare(b.location_tag));
+      summary.locationCount = summary.locations.length;
+      summary.batchCount = summary.batchSet.size;
+
+      return summary;
     }
 
-    function resetFilters() {
-      state.quickFilter = 'all';
-      [...document.querySelectorAll('[data-quick]')].forEach(btn => {
-        btn.classList.toggle('active', btn.getAttribute('data-quick') === 'all');
-      });
-      el.locationFilter.value = '';
-      el.dateFrom.value = '';
-      el.dateTo.value = '';
-      el.searchInput.value = '';
-      el.sortBy.value = 'day_desc';
-      applyFilters();
+    async function loadDetailPage(filters, page) {
+      const from = (page - 1) * DETAIL_PAGE_SIZE;
+      const to = from + DETAIL_PAGE_SIZE - 1;
+
+      const { data, error } = await buildDetailQuery(filters, from, to);
+      if (error) throw error;
+      return data || [];
+    }
+
+    function renderKpis() {
+      const s = state.summary;
+      if (!s) return;
+
+      el.kpiRows.textContent = numberFmt(s.totalRows);
+      el.kpiUnits.textContent = numberFmt(s.totalUnits);
+      el.kpiNet.textContent = money(s.totalNet);
+      el.kpiRefunds.textContent = money(s.totalRefunds);
+      el.kpiLocations.textContent = numberFmt(s.locationCount);
+      el.kpiDateRange.textContent = s.minDate && s.maxDate ? `${s.minDate} → ${s.maxDate}` : '—';
+      el.lastRefreshPill.textContent = `Last refresh: ${formatRelativeNow(state.lastRefreshAt)}`;
+    }
+
+    function renderExceptions() {
+      const s = state.summary;
+      if (!s) return;
+
+      el.excRefundDiscrepancy.textContent = numberFmt(s.refundDiscrepancyCount);
+      el.excBlankSku.textContent = numberFmt(s.blankSkuCount);
+      el.excNegativeNet.textContent = numberFmt(s.negativeNetCount);
+      el.excBatchCount.textContent = numberFmt(s.batchCount);
+    }
+
+    function renderLoadedLocations() {
+      const s = state.summary;
+      if (!s || !s.locations.length) {
+        el.loadedLocationsList.innerHTML = `<div class="text-sm text-slate-500">No loaded locations found.</div>`;
+        return;
+      }
+
+      el.loadedLocationsList.innerHTML = s.locations.map(loc => `
+        <div class="location-pill">
+          <div class="font-semibold text-slate-900">${escapeHtml(loc.location_tag)}</div>
+          <div class="badge badge-neutral">${numberFmt(loc.row_count)} rows</div>
+        </div>
+      `).join('');
+    }
+
+    function renderLocationSummary() {
+      const s = state.summary;
+      if (!s || !s.locations.length) {
+        el.locationSummaryCount.textContent = '0 locations';
+        el.locationSummaryBody.innerHTML = `<tr><td colspan="10" class="px-3 py-10 text-center text-sm text-slate-500">No rows match current filters.</td></tr>`;
+        return;
+      }
+
+      el.locationSummaryCount.textContent = `${s.locations.length} location${s.locations.length === 1 ? '' : 's'}`;
+      el.locationSummaryBody.innerHTML = s.locations.map(row => `
+        <tr>
+          <td><div class="font-semibold text-slate-900">${escapeHtml(row.location_tag)}</div></td>
+          <td class="num mono">${numberFmt(row.row_count)}</td>
+          <td class="mono">${fmtDate(row.min_date)}</td>
+          <td class="mono">${fmtDate(row.max_date)}</td>
+          <td class="num mono">${numberFmt(row.units)}</td>
+          <td class="num mono">${money(row.gross)}</td>
+          <td class="num mono">${money(row.discounts)}</td>
+          <td class="num mono">${money(row.refunds)}</td>
+          <td class="num mono font-semibold text-slate-900">${money(row.net)}</td>
+          <td class="num mono">${money(row.total_sales)}</td>
+        </tr>
+      `).join('');
+    }
+
+    function renderDetailRows() {
+      const rows = state.detailRows || [];
+      if (!rows.length) {
+        el.detailBody.innerHTML = `<tr><td colspan="15" class="px-3 py-10 text-center text-sm text-slate-500">No rows match current filters.</td></tr>`;
+      } else {
+        el.detailBody.innerHTML = rows.map(row => {
+          const badge = isRefundDiscrepancyRow(row)
+            ? `<span class="badge badge-warn">Refund discrepancy</span>`
+            : isBlankSku(row)
+              ? `<span class="badge badge-bad">Blank SKU</span>`
+              : isNegativeNet(row)
+                ? `<span class="badge badge-warn">Negative net</span>`
+                : '';
+
+          return `
+            <tr>
+              <td class="mono">${fmtDate(row.day_date)}</td>
+              <td><div class="font-semibold text-slate-900">${escapeHtml(row.location_tag || '')}</div></td>
+              <td class="mono">${escapeHtml(row.sku || '—')}</td>
+              <td>
+                <div class="font-semibold text-slate-900 truncate-2">${escapeHtml(row.product_name || '—')}</div>
+                ${badge ? `<div class="mt-1">${badge}</div>` : ''}
+              </td>
+              <td>${escapeHtml(row.product_type || '—')}</td>
+              <td>${escapeHtml(row.vendor_original || '—')}</td>
+              <td class="num mono">${numberFmt(row.total_quantity_sold || 0)}</td>
+              <td class="num mono">${numberFmt(row.total_orders || 0)}</td>
+              <td class="num mono">${money(row.total_gross_sales)}</td>
+              <td class="num mono">${money(row.total_discounts)}</td>
+              <td class="num mono">${money(row.total_refunds)}</td>
+              <td class="num mono font-semibold text-slate-900">${money(row.total_net_sales)}</td>
+              <td class="num mono">${money(row.taxes)}</td>
+              <td class="num mono">${money(row.shipping)}</td>
+              <td class="num mono">${money(row.total_sales)}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+
+      el.detailCount.textContent = `${numberFmt(state.totalRows)} rows in filtered result`;
+      el.pageIndicator.textContent = `${state.currentPage} / ${state.totalPages}`;
+      const start = state.totalRows ? ((state.currentPage - 1) * DETAIL_PAGE_SIZE) + 1 : 0;
+      const end = Math.min(state.currentPage * DETAIL_PAGE_SIZE, state.totalRows);
+      el.pageMeta.textContent = state.totalRows
+        ? `Showing ${numberFmt(start)}–${numberFmt(end)} of ${numberFmt(state.totalRows)}`
+        : 'No rows';
+      el.btnPrevPage.disabled = state.isLoading || state.currentPage <= 1;
+      el.btnNextPage.disabled = state.isLoading || state.currentPage >= state.totalPages;
+    }
+
+    function renderAll() {
+      renderKpis();
+      renderExceptions();
+      renderLoadedLocations();
+      renderLocationSummary();
+      renderDetailRows();
+    }
+
+    async function runFullLoad(resetPage = false) {
+      const filters = getFilterState();
+      if (resetPage) state.currentPage = 1;
+
+      setLoading(true);
+      setStatus('Loading filtered sales verification...');
+      setProgress('Starting');
+
+      try {
+        const summary = await computeSummary(filters);
+        state.summary = summary;
+        state.totalRows = summary.totalRows;
+        state.totalPages = Math.max(1, Math.ceil(summary.totalRows / DETAIL_PAGE_SIZE));
+
+        if (state.currentPage > state.totalPages) {
+          state.currentPage = state.totalPages;
+        }
+
+        setProgress(`Loading detail page ${state.currentPage}`);
+        state.detailRows = await loadDetailPage(filters, state.currentPage);
+        state.lastRefreshAt = new Date().toISOString();
+
+        setStatus(summary.totalRows
+          ? `Loaded ${numberFmt(summary.totalRows)} filtered rows across ${numberFmt(summary.locationCount)} location${summary.locationCount === 1 ? '' : 's'}.`
+          : 'No rows matched current filters.'
+        );
+        setProgress('Complete');
+        renderAll();
+      } catch (e) {
+        console.error(e);
+        setStatus(`Load failed: ${e.message || 'Unknown error'}`);
+        setProgress('Failed');
+        alert(e.message || 'Load failed');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function changePage(nextPage) {
+      if (nextPage < 1 || nextPage > state.totalPages || state.isLoading) return;
+      state.currentPage = nextPage;
+      setLoading(true);
+      setStatus(`Loading detail page ${state.currentPage}...`);
+      setProgress(`Page ${state.currentPage}`);
+
+      try {
+        state.detailRows = await loadDetailPage(getFilterState(), state.currentPage);
+        renderDetailRows();
+        setStatus(`Loaded page ${state.currentPage} of ${state.totalPages}.`);
+        setProgress('Complete');
+      } catch (e) {
+        console.error(e);
+        setStatus(`Page load failed: ${e.message || 'Unknown error'}`);
+        setProgress('Failed');
+        alert(e.message || 'Page load failed');
+      } finally {
+        setLoading(false);
+      }
     }
 
     async function boot() {
@@ -841,7 +1081,9 @@
       }
 
       try {
-        await refreshAll();
+        await loadLocationOptions();
+        resetFilters();
+        await runFullLoad(true);
       } catch (e) {
         console.error(e);
         alert(e.message || 'Initial load failed');
@@ -849,26 +1091,33 @@
     }
 
     el.btnRefresh.addEventListener('click', async () => {
-      try {
-        await refreshAll();
-      } catch (e) {
-        console.error(e);
-        alert(e.message || 'Refresh failed');
+      await runFullLoad(false);
+    });
+
+    el.btnApply.addEventListener('click', async () => {
+      await runFullLoad(true);
+    });
+
+    el.btnReset.addEventListener('click', async () => {
+      resetFilters();
+      await runFullLoad(true);
+    });
+
+    el.btnPrevPage.addEventListener('click', async () => {
+      await changePage(state.currentPage - 1);
+    });
+
+    el.btnNextPage.addEventListener('click', async () => {
+      await changePage(state.currentPage + 1);
+    });
+
+    el.presetFilter.addEventListener('change', () => {
+      if (el.presetFilter.value !== 'custom') {
+        applyPresetDates();
       }
     });
 
-    el.btnApply.addEventListener('click', applyFilters);
-    el.btnReset.addEventListener('click', resetFilters);
-
-    ['change', 'input'].forEach(evt => {
-      el.locationFilter.addEventListener(evt, applyFilters);
-      el.dateFrom.addEventListener(evt, applyFilters);
-      el.dateTo.addEventListener(evt, applyFilters);
-      el.searchInput.addEventListener(evt, applyFilters);
-      el.sortBy.addEventListener(evt, applyFilters);
-    });
-
-    document.addEventListener('click', (ev) => {
+    document.addEventListener('click', async (ev) => {
       const quick = ev.target.closest('[data-quick]');
       if (!quick) return;
 
@@ -876,7 +1125,8 @@
       [...document.querySelectorAll('[data-quick]')].forEach(btn => {
         btn.classList.toggle('active', btn === quick);
       });
-      applyFilters();
+
+      await runFullLoad(true);
     });
 
     boot();
