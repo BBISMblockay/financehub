@@ -3,12 +3,12 @@ name: Nightly Silo Sync
 on:
   workflow_dispatch:
   schedule:
-    - cron: "15 2 * * *"
+    - cron: "30 10 * * *"
 
 jobs:
   sync-silo:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     env:
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
