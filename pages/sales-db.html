@@ -1,0 +1,1270 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Silo · Sales Verification</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="./config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#f5f7fb;
+      --card:rgba(255,255,255,.92);
+      --line:rgba(15,23,42,.08);
+      --text:#0f172a;
+      --muted:#64748b;
+      --shadow:0 10px 30px rgba(15,23,42,.08);
+      --radius:24px;
+      --brand:#0f172a;
+      --good:#166534;
+      --warn:#b45309;
+      --bad:#b91c1c;
+      --soft-blue:#edf5ff;
+      --soft-tan:#f7efe8;
+      --soft-green:#eaf6f1;
+      --soft-slate:#f8fafc;
+    }
+    *{box-sizing:border-box}
+    html,body{
+      margin:0;padding:0;
+      font-family:Inter,system-ui,sans-serif;
+      color:var(--text);
+      background:linear-gradient(180deg,#f8fafc 0%,#eef2f7 100%);
+    }
+    .glass{
+      background:var(--card);
+      backdrop-filter:blur(14px);
+      border:1px solid var(--line);
+      box-shadow:var(--shadow);
+      border-radius:var(--radius);
+    }
+    .pill{border:1px solid var(--line);background:white;border-radius:999px}
+    .soft-scroll::-webkit-scrollbar{height:10px;width:10px}
+    .soft-scroll::-webkit-scrollbar-thumb{background:rgba(148,163,184,.45);border-radius:999px}
+    .soft-scroll::-webkit-scrollbar-track{background:transparent}
+    input,select{
+      outline:none;
+      border:1px solid rgba(148,163,184,.35);
+      background:white;
+      color:var(--text);
+      border-radius:16px;
+      transition:.18s ease;
+    }
+    input:focus,select:focus{
+      border-color:rgba(59,130,246,.45);
+      box-shadow:0 0 0 4px rgba(59,130,246,.10);
+    }
+    .btn{
+      border-radius:16px;
+      padding:.8rem 1rem;
+      font-weight:600;
+      transition:.18s ease;
+      border:1px solid transparent;
+      cursor:pointer;
+    }
+    .btn-primary{background:var(--brand);color:white}
+    .btn-primary:hover{background:#020617}
+    .btn-secondary{background:white;border-color:var(--line);color:var(--text)}
+    .btn-secondary:hover{background:#f8fafc}
+    .muted-label{
+      margin-bottom:.45rem;
+      display:block;
+      font-size:.68rem;
+      font-weight:700;
+      text-transform:uppercase;
+      letter-spacing:.18em;
+      color:#64748b;
+    }
+    .table-wrap{overflow:auto}
+    .sticky-head thead th{
+      position:sticky;
+      top:0;
+      z-index:2;
+      background:rgba(248,250,252,.98);
+      backdrop-filter:blur(10px);
+    }
+    table{border-collapse:separate;border-spacing:0;width:100%}
+    .dense-table thead th{
+      font-size:11px;
+      text-transform:uppercase;
+      letter-spacing:.12em;
+      color:#64748b;
+      font-weight:700;
+      padding:11px 10px;
+      border-bottom:1px solid rgba(148,163,184,.22);
+      white-space:nowrap;
+      text-align:left;
+    }
+    .dense-table tbody td{
+      padding:10px 10px;
+      font-size:13px;
+      border-bottom:1px solid rgba(148,163,184,.14);
+      vertical-align:top;
+    }
+    .dense-table tbody tr:hover td{background:rgba(248,250,252,.72)}
+    .num{text-align:right;font-variant-numeric:tabular-nums}
+    .mono{font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+    .badge{
+      display:inline-flex;
+      align-items:center;
+      gap:.4rem;
+      border-radius:999px;
+      padding:.25rem .65rem;
+      font-size:.75rem;
+      font-weight:700;
+      border:1px solid transparent;
+      white-space:nowrap;
+    }
+    .badge-good{background:#ecfdf5;color:var(--good);border-color:#bbf7d0}
+    .badge-warn{background:#fffbeb;color:var(--warn);border-color:#fde68a}
+    .badge-bad{background:#fef2f2;color:var(--bad);border-color:#fecaca}
+    .badge-neutral{background:#f8fafc;color:#475569;border-color:#e2e8f0}
+    .kpi-value{
+      font-size:2rem;
+      line-height:1;
+      font-weight:800;
+      letter-spacing:-.04em;
+      color:#0f172a;
+    }
+    .kpi-sub{
+      margin-top:.4rem;
+      font-size:.82rem;
+      color:#64748b;
+    }
+    .section-title{
+      font-size:1.05rem;
+      font-weight:800;
+      letter-spacing:-.02em;
+      color:#0f172a;
+    }
+    .section-sub{
+      margin-top:.15rem;
+      font-size:.86rem;
+      color:#64748b;
+    }
+    .chip-row{display:flex;flex-wrap:wrap;gap:.5rem}
+    .chip{
+      border:1px solid rgba(148,163,184,.26);
+      background:#fff;
+      border-radius:999px;
+      padding:.42rem .75rem;
+      font-size:.78rem;
+      font-weight:700;
+      color:#334155;
+      cursor:pointer;
+      user-select:none;
+    }
+    .chip.active{
+      background:#0f172a;
+      color:white;
+      border-color:#0f172a;
+    }
+    .truncate-2{
+      display:-webkit-box;
+      -webkit-line-clamp:2;
+      -webkit-box-orient:vertical;
+      overflow:hidden;
+    }
+    .status-text{
+      font-size:.86rem;
+      color:#64748b;
+    }
+    .pagination-btn{
+      min-width:40px;
+      height:40px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      border-radius:12px;
+      border:1px solid rgba(148,163,184,.22);
+      background:#fff;
+      font-weight:700;
+      cursor:pointer;
+    }
+    .pagination-btn:disabled{opacity:.45;cursor:not-allowed}
+    .location-pill{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      border:1px solid rgba(148,163,184,.18);
+      background:white;
+      border-radius:18px;
+      padding:.75rem .9rem;
+    }
+    .matrix-table{
+      width:max-content;
+      min-width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+    }
+    .matrix-table thead tr:first-child th{
+      font-size:10px;
+      text-transform:uppercase;
+      letter-spacing:.18em;
+      color:#64748b;
+      padding:10px 8px;
+      border-bottom:1px solid rgba(148,163,184,.22);
+      text-align:center;
+      position:sticky;
+      top:0;
+      z-index:3;
+      background:rgba(248,250,252,.98);
+    }
+    .matrix-table thead tr:nth-child(2) th{
+      font-size:10px;
+      text-transform:uppercase;
+      letter-spacing:.12em;
+      color:#64748b;
+      padding:10px 8px;
+      border-bottom:1px solid rgba(148,163,184,.18);
+      text-align:right;
+      position:sticky;
+      top:38px;
+      z-index:3;
+      background:rgba(248,250,252,.98);
+    }
+    .matrix-table thead th:first-child,
+    .matrix-table tbody td:first-child{
+      position:sticky;
+      left:0;
+      z-index:4;
+      background:white;
+    }
+    .matrix-table tbody td{
+      font-size:12px;
+      padding:9px 8px;
+      border-bottom:1px solid rgba(148,163,184,.14);
+      white-space:nowrap;
+    }
+    .matrix-table tbody tr:hover td{background:rgba(248,250,252,.72)}
+    .matrix-table .store-col{
+      min-width:165px;
+      font-weight:700;
+      color:#0f172a;
+      text-align:left !important;
+    }
+    .matrix-table .group-day{background:var(--soft-blue)}
+    .matrix-table .group-mtd{background:var(--soft-tan)}
+    .matrix-table .group-ytd{background:var(--soft-green)}
+    .matrix-table .group-meta{background:var(--soft-slate)}
+    .provisional{
+      display:flex;
+      align-items:center;
+      gap:.55rem;
+      border:1px solid #fde68a;
+      background:#fffbeb;
+      color:#92400e;
+      border-radius:18px;
+      padding:.9rem 1rem;
+      font-size:.9rem;
+      font-weight:600;
+    }
+  </style>
+</head>
+<body>
+  <div class="min-h-screen px-4 py-4 sm:px-6 lg:px-8">
+    <div class="mx-auto max-w-[1750px] space-y-5">
+      <header class="glass px-5 py-5 sm:px-6">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Silo Sales</div>
+            <div class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">Sales Verification</div>
+            <div class="mt-2 max-w-4xl text-sm text-slate-500">
+              BI-style verification matrix for loaded sales data with filtered rollups, exception checks, and paginated drilldown.
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <div id="lastRefreshPill" class="pill px-3 py-2 text-xs font-semibold text-slate-600">Last refresh: —</div>
+            <button id="btnRefresh" class="btn btn-secondary">Refresh</button>
+          </div>
+        </div>
+      </header>
+
+      <div id="provisionalBanner" class="hidden provisional">
+        <span>⚠</span>
+        <span id="provisionalText">Current day may be incomplete depending on Better Reports timing.</span>
+      </div>
+
+      <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+        <div class="glass p-5">
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Rows Loaded</div>
+          <div id="kpiRows" class="mt-2 kpi-value">—</div>
+          <div class="kpi-sub">Filtered result count</div>
+        </div>
+        <div class="glass p-5">
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Units</div>
+          <div id="kpiUnits" class="mt-2 kpi-value">—</div>
+          <div class="kpi-sub">Quantity sold</div>
+        </div>
+        <div class="glass p-5">
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Net Sales</div>
+          <div id="kpiNet" class="mt-2 kpi-value">—</div>
+          <div class="kpi-sub">Filtered net rollup</div>
+        </div>
+        <div class="glass p-5">
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Refunds</div>
+          <div id="kpiRefunds" class="mt-2 kpi-value">—</div>
+          <div class="kpi-sub">Refund field rollup</div>
+        </div>
+        <div class="glass p-5">
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Locations</div>
+          <div id="kpiLocations" class="mt-2 kpi-value">—</div>
+          <div class="kpi-sub">Distinct filtered stores</div>
+        </div>
+        <div class="glass p-5">
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Date Range</div>
+          <div id="kpiDateRange" class="mt-2 text-xl font-extrabold tracking-tight text-slate-900">—</div>
+          <div class="kpi-sub">Min → max loaded date</div>
+        </div>
+      </section>
+
+      <section class="glass p-4 sm:p-5">
+        <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <div class="section-title">Filters</div>
+            <div class="section-sub">Accurate filtered rollups, not page-only totals.</div>
+          </div>
+          <div class="chip-row" id="quickFilters">
+            <button class="chip active" data-quick="all">All Rows</button>
+            <button class="chip" data-quick="refund_discrepancy">Refund Discrepancy</button>
+            <button class="chip" data-quick="blank_sku">Blank SKU</button>
+            <button class="chip" data-quick="negative_net">Negative Net</button>
+          </div>
+        </div>
+
+        <div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-7">
+          <div>
+            <label class="muted-label">Preset Window</label>
+            <select id="presetFilter" class="w-full px-4 py-3 text-sm">
+              <option value="90d" selected>Last 90 days</option>
+              <option value="30d">Last 30 days</option>
+              <option value="ytd">Year to date</option>
+              <option value="all">All loaded history</option>
+              <option value="custom">Custom dates</option>
+            </select>
+          </div>
+          <div>
+            <label class="muted-label">Location</label>
+            <select id="locationFilter" class="w-full px-4 py-3 text-sm">
+              <option value="">All locations</option>
+            </select>
+          </div>
+          <div>
+            <label class="muted-label">Date From</label>
+            <input id="dateFrom" type="date" class="w-full px-4 py-3 text-sm" />
+          </div>
+          <div>
+            <label class="muted-label">Date To</label>
+            <input id="dateTo" type="date" class="w-full px-4 py-3 text-sm" />
+          </div>
+          <div>
+            <label class="muted-label">Search</label>
+            <input id="searchInput" type="text" class="w-full px-4 py-3 text-sm" placeholder="SKU, product, vendor..." />
+          </div>
+          <div>
+            <label class="muted-label">Sort Detail</label>
+            <select id="sortBy" class="w-full px-4 py-3 text-sm">
+              <option value="day_desc">Newest first</option>
+              <option value="day_asc">Oldest first</option>
+              <option value="net_desc">Net sales high → low</option>
+              <option value="qty_desc">Qty high → low</option>
+            </select>
+          </div>
+          <div class="flex items-end gap-2">
+            <button id="btnApply" class="btn btn-primary w-full">Apply</button>
+            <button id="btnReset" class="btn btn-secondary w-full">Reset</button>
+          </div>
+        </div>
+
+        <div class="mt-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div id="statusText" class="status-text">Ready.</div>
+          <div id="progressText" class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Idle</div>
+        </div>
+      </section>
+
+      <section class="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_420px]">
+        <div class="space-y-5">
+          <section class="glass p-4 sm:p-5">
+            <div class="flex flex-col gap-2 border-b border-slate-200 pb-4 md:flex-row md:items-end md:justify-between">
+              <div>
+                <div class="section-title">Store Verification Matrix</div>
+                <div class="section-sub">Day / MTD / YTD grouped by store, modeled more like your BI setup.</div>
+              </div>
+              <div id="matrixCount" class="text-sm font-semibold text-slate-500">0 stores</div>
+            </div>
+
+            <div class="mt-4 table-wrap soft-scroll">
+              <table class="matrix-table">
+                <thead>
+                  <tr>
+                    <th class="store-col" rowspan="2">Store</th>
+                    <th class="group-day" colspan="3">Day</th>
+                    <th class="group-mtd" colspan="3">MTD</th>
+                    <th class="group-ytd" colspan="3">YTD</th>
+                    <th class="group-meta" colspan="4">Verification</th>
+                  </tr>
+                  <tr>
+                    <th class="group-day">Units</th>
+                    <th class="group-day">Net</th>
+                    <th class="group-day">Refunds</th>
+                    <th class="group-mtd">Units</th>
+                    <th class="group-mtd">Net</th>
+                    <th class="group-mtd">Refunds</th>
+                    <th class="group-ytd">Units</th>
+                    <th class="group-ytd">Net</th>
+                    <th class="group-ytd">Refunds</th>
+                    <th class="group-meta">Rows</th>
+                    <th class="group-meta">Blank SKU</th>
+                    <th class="group-meta">Min Date</th>
+                    <th class="group-meta">Max Date</th>
+                  </tr>
+                </thead>
+                <tbody id="matrixBody">
+                  <tr><td colspan="14" class="px-3 py-10 text-center text-sm text-slate-500">Loading…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section class="glass p-4 sm:p-5">
+            <div class="flex flex-col gap-3 border-b border-slate-200 pb-4 md:flex-row md:items-end md:justify-between">
+              <div>
+                <div class="section-title">Row Review</div>
+                <div class="section-sub">Paginated drilldown with server-side filters.</div>
+              </div>
+              <div id="detailCount" class="text-sm font-semibold text-slate-500">0 rows</div>
+            </div>
+
+            <div class="mt-4 table-wrap soft-scroll sticky-head">
+              <table class="dense-table min-w-[1360px]">
+                <thead>
+                  <tr>
+                    <th>Day</th>
+                    <th>Location</th>
+                    <th>SKU</th>
+                    <th>Product</th>
+                    <th>Type</th>
+                    <th>Vendor</th>
+                    <th class="num">Qty</th>
+                    <th class="num">Orders</th>
+                    <th class="num">Gross</th>
+                    <th class="num">Discounts</th>
+                    <th class="num">Refunds</th>
+                    <th class="num">Net</th>
+                    <th class="num">Taxes</th>
+                    <th class="num">Shipping</th>
+                    <th class="num">Total</th>
+                  </tr>
+                </thead>
+                <tbody id="detailBody">
+                  <tr><td colspan="15" class="px-3 py-10 text-center text-sm text-slate-500">Loading…</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="mt-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div id="pageMeta" class="text-sm text-slate-500">Page 1</div>
+              <div class="flex items-center gap-2">
+                <button id="btnPrevPage" class="pagination-btn">‹</button>
+                <div id="pageIndicator" class="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700">1 / 1</div>
+                <button id="btnNextPage" class="pagination-btn">›</button>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <aside class="space-y-5">
+          <section class="glass p-4 sm:p-5">
+            <div class="section-title">Exception Checks</div>
+            <div class="section-sub">Full filtered result set.</div>
+
+            <div class="mt-4 space-y-3">
+              <div class="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <div class="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Refund discrepancy rows</div>
+                    <div id="excRefundDiscrepancy" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">—</div>
+                  </div>
+                  <div class="badge badge-warn">Review</div>
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <div class="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Blank / null SKU rows</div>
+                    <div id="excBlankSku" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">—</div>
+                  </div>
+                  <div class="badge badge-bad">Watch</div>
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <div class="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Negative net rows</div>
+                    <div id="excNegativeNet" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">—</div>
+                  </div>
+                  <div class="badge badge-warn">Expected / Review</div>
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <div class="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Distinct sync batches</div>
+                    <div id="excBatchCount" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">—</div>
+                  </div>
+                  <div class="badge badge-good">Loaded</div>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="glass p-4 sm:p-5">
+            <div class="section-title">Filtered Locations</div>
+            <div class="section-sub">Current loaded stores in the filtered result.</div>
+            <div id="loadedLocationsList" class="mt-4 space-y-2">
+              <div class="text-sm text-slate-500">Loading…</div>
+            </div>
+          </section>
+
+          <section class="glass p-4 sm:p-5">
+            <div class="section-title">Notes</div>
+            <div class="section-sub">How this page behaves.</div>
+            <ul class="mt-4 space-y-2 text-sm text-slate-600">
+              <li>• Matrix is store-first for quick verification.</li>
+              <li>• KPI + matrix rollups use the full filtered result set.</li>
+              <li>• Detail table is paginated for safer browser performance.</li>
+              <li>• “All history” works, but is naturally slower until you add pre-aggregated summary views.</li>
+            </ul>
+          </section>
+        </aside>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = window.__SILO_CONFIG__?.SUPABASE_URL || window.SUPABASE_URL || '';
+    const SUPABASE_ANON_KEY = window.__SILO_CONFIG__?.SUPABASE_ANON_KEY || window.SUPABASE_ANON_KEY || '';
+    const REDIRECT_TO = window.__SILO_CONFIG__?.REDIRECT_TO || window.REDIRECT_TO || '';
+    const REQUIRE_AUTH = Boolean(window.__SILO_CONFIG__?.REQUIRE_AUTH || window.REQUIRE_AUTH || false);
+
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      document.body.innerHTML = `
+        <div class="min-h-screen flex items-center justify-center p-6">
+          <div class="glass max-w-xl p-6 text-center">
+            <div class="text-xl font-bold text-slate-900">Missing Supabase config</div>
+            <div class="mt-2 text-sm text-slate-500">Provide SUPABASE_URL and SUPABASE_ANON_KEY through window.__SILO_CONFIG__ or global variables before loading this page.</div>
+          </div>
+        </div>`;
+      throw new Error("Missing Supabase config");
+    }
+
+    const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const SUMMARY_CHUNK = 2000;
+    const DETAIL_PAGE_SIZE = 200;
+
+    const state = {
+      locationOptions: [],
+      currentPage: 1,
+      totalPages: 1,
+      totalRows: 0,
+      summary: null,
+      detailRows: [],
+      quickFilter: 'all',
+      lastRefreshAt: null,
+      isLoading: false
+    };
+
+    const el = {
+      btnRefresh: document.getElementById('btnRefresh'),
+      btnApply: document.getElementById('btnApply'),
+      btnReset: document.getElementById('btnReset'),
+      btnPrevPage: document.getElementById('btnPrevPage'),
+      btnNextPage: document.getElementById('btnNextPage'),
+      presetFilter: document.getElementById('presetFilter'),
+      locationFilter: document.getElementById('locationFilter'),
+      dateFrom: document.getElementById('dateFrom'),
+      dateTo: document.getElementById('dateTo'),
+      searchInput: document.getElementById('searchInput'),
+      sortBy: document.getElementById('sortBy'),
+      lastRefreshPill: document.getElementById('lastRefreshPill'),
+      statusText: document.getElementById('statusText'),
+      progressText: document.getElementById('progressText'),
+      kpiRows: document.getElementById('kpiRows'),
+      kpiUnits: document.getElementById('kpiUnits'),
+      kpiNet: document.getElementById('kpiNet'),
+      kpiRefunds: document.getElementById('kpiRefunds'),
+      kpiLocations: document.getElementById('kpiLocations'),
+      kpiDateRange: document.getElementById('kpiDateRange'),
+      excRefundDiscrepancy: document.getElementById('excRefundDiscrepancy'),
+      excBlankSku: document.getElementById('excBlankSku'),
+      excNegativeNet: document.getElementById('excNegativeNet'),
+      excBatchCount: document.getElementById('excBatchCount'),
+      matrixBody: document.getElementById('matrixBody'),
+      matrixCount: document.getElementById('matrixCount'),
+      detailBody: document.getElementById('detailBody'),
+      detailCount: document.getElementById('detailCount'),
+      loadedLocationsList: document.getElementById('loadedLocationsList'),
+      pageMeta: document.getElementById('pageMeta'),
+      pageIndicator: document.getElementById('pageIndicator'),
+      provisionalBanner: document.getElementById('provisionalBanner'),
+      provisionalText: document.getElementById('provisionalText')
+    };
+
+    function money(v) {
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(Number(v || 0));
+    }
+    function moneyExact(v) {
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(v || 0));
+    }
+    function numberFmt(v) {
+      return Number(v || 0).toLocaleString();
+    }
+    function fmtDate(v) {
+      return v || '—';
+    }
+    function escapeHtml(str) {
+      return String(str ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+    function formatRelativeNow(ts) {
+      if (!ts) return '—';
+      const d = new Date(ts);
+      if (Number.isNaN(d.getTime())) return '—';
+      return d.toLocaleString();
+    }
+    function todayLocalDateString() {
+      const d = new Date();
+      const yyyy = d.getFullYear();
+      const mm = `${d.getMonth() + 1}`.padStart(2, '0');
+      const dd = `${d.getDate()}`.padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    function addDays(dateStr, days) {
+      const d = new Date(`${dateStr}T00:00:00`);
+      d.setDate(d.getDate() + days);
+      const yyyy = d.getFullYear();
+      const mm = `${d.getMonth() + 1}`.padStart(2, '0');
+      const dd = `${d.getDate()}`.padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    function startOfYear(dateStr) {
+      const year = String(dateStr || todayLocalDateString()).slice(0, 4);
+      return `${year}-01-01`;
+    }
+    function firstOfMonth(dateStr) {
+      const d = String(dateStr || todayLocalDateString());
+      return `${d.slice(0,4)}-${d.slice(5,7)}-01`;
+    }
+    function setStatus(text) {
+      el.statusText.textContent = text;
+    }
+    function setProgress(text) {
+      el.progressText.textContent = text;
+    }
+    function setLoading(isLoading) {
+      state.isLoading = isLoading;
+      el.btnRefresh.disabled = isLoading;
+      el.btnApply.disabled = isLoading;
+      el.btnReset.disabled = isLoading;
+      el.btnPrevPage.disabled = isLoading || state.currentPage <= 1;
+      el.btnNextPage.disabled = isLoading || state.currentPage >= state.totalPages;
+    }
+
+    function isRefundDiscrepancyRow(row) {
+      const p = String(row.product_name || '').trim().toLowerCase();
+      const s = String(row.sku || '').trim().toLowerCase();
+      return p === '[refund discrepancy]' || s === '[refund discrepancy]';
+    }
+    function isBlankSku(row) {
+      return !String(row.sku || '').trim();
+    }
+    function isNegativeNet(row) {
+      return Number(row.total_net_sales || 0) < 0;
+    }
+
+    function applyPresetDates() {
+      const preset = el.presetFilter.value;
+      const today = todayLocalDateString();
+
+      if (preset === '30d') {
+        el.dateFrom.value = addDays(today, -29);
+        el.dateTo.value = today;
+      } else if (preset === '90d') {
+        el.dateFrom.value = addDays(today, -89);
+        el.dateTo.value = today;
+      } else if (preset === 'ytd') {
+        el.dateFrom.value = startOfYear(today);
+        el.dateTo.value = today;
+      } else if (preset === 'all') {
+        el.dateFrom.value = '';
+        el.dateTo.value = '';
+      }
+    }
+
+    function resetFilters() {
+      el.presetFilter.value = '90d';
+      applyPresetDates();
+      el.locationFilter.value = '';
+      el.searchInput.value = '';
+      el.sortBy.value = 'day_desc';
+      state.quickFilter = 'all';
+      [...document.querySelectorAll('[data-quick]')].forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-quick') === 'all');
+      });
+      state.currentPage = 1;
+    }
+
+    function getFilterState() {
+      return {
+        preset: el.presetFilter.value,
+        location: el.locationFilter.value.trim(),
+        dateFrom: el.dateFrom.value,
+        dateTo: el.dateTo.value,
+        search: el.searchInput.value.trim(),
+        sortBy: el.sortBy.value,
+        quick: state.quickFilter
+      };
+    }
+
+    function escapeOrValue(v) {
+      return String(v).replaceAll(',', '\\,').replaceAll('(', '\\(').replaceAll(')', '\\)');
+    }
+
+    function applyCommonFilters(query, filters) {
+      let q = query;
+
+      if (filters.location) q = q.eq('location_tag', filters.location);
+      if (filters.dateFrom) q = q.gte('day_date', filters.dateFrom);
+      if (filters.dateTo) q = q.lte('day_date', filters.dateTo);
+
+      if (filters.search) {
+        const term = escapeOrValue(`%${filters.search}%`);
+        q = q.or([
+          `product_name.ilike.${term}`,
+          `sku.ilike.${term}`,
+          `vendor_original.ilike.${term}`,
+          `product_type.ilike.${term}`
+        ].join(','));
+      }
+
+      if (filters.quick === 'refund_discrepancy') {
+        const target = escapeOrValue('[Refund discrepancy]');
+        q = q.or(`product_name.eq.${target},sku.eq.${target}`);
+      } else if (filters.quick === 'blank_sku') {
+        q = q.or('sku.is.null,sku.eq.');
+      } else if (filters.quick === 'negative_net') {
+        q = q.lt('total_net_sales', 0);
+      }
+
+      return q;
+    }
+
+    function buildSummaryQuery(filters, from, to) {
+      let q = sb
+        .from('sales_by_day')
+        .select(`
+          day_date,
+          location_tag,
+          product_name,
+          sku,
+          total_quantity_sold,
+          total_gross_sales,
+          total_discounts,
+          total_refunds,
+          total_net_sales,
+          total_sales,
+          sync_batch_id
+        `)
+        .order('day_date', { ascending: true })
+        .range(from, to);
+
+      return applyCommonFilters(q, filters);
+    }
+
+    function buildDetailQuery(filters, from, to) {
+      let q = sb
+        .from('sales_by_day')
+        .select(`
+          day_date,
+          location_tag,
+          location_name,
+          product_name,
+          sku,
+          product_type,
+          vendor_original,
+          total_quantity_sold,
+          total_orders,
+          total_gross_sales,
+          total_discounts,
+          total_refunds,
+          total_net_sales,
+          taxes,
+          shipping,
+          total_sales
+        `);
+
+      q = applyCommonFilters(q, filters);
+
+      if (filters.sortBy === 'day_asc') {
+        q = q.order('day_date', { ascending: true }).order('product_name', { ascending: true });
+      } else if (filters.sortBy === 'net_desc') {
+        q = q.order('total_net_sales', { ascending: false }).order('day_date', { ascending: false });
+      } else if (filters.sortBy === 'qty_desc') {
+        q = q.order('total_quantity_sold', { ascending: false }).order('day_date', { ascending: false });
+      } else {
+        q = q.order('day_date', { ascending: false }).order('product_name', { ascending: true });
+      }
+
+      return q.range(from, to);
+    }
+
+    async function loadLocationOptions() {
+      const { data, error } = await sb
+        .from('sales_by_day')
+        .select('location_tag')
+        .not('location_tag', 'is', null)
+        .limit(100000);
+
+      if (error) throw error;
+
+      const options = [...new Set((data || []).map(r => r.location_tag).filter(Boolean))].sort();
+      state.locationOptions = options;
+      el.locationFilter.innerHTML = ['<option value="">All locations</option>']
+        .concat(options.map(loc => `<option value="${escapeHtml(loc)}">${escapeHtml(loc)}</option>`))
+        .join('');
+    }
+
+    function ensureStoreEntry(map, key) {
+      if (!map.has(key)) {
+        map.set(key, {
+          location_tag: key,
+          rows: 0,
+          blank_sku: 0,
+          min_date: null,
+          max_date: null,
+          day_units: 0,
+          day_net: 0,
+          day_refunds: 0,
+          mtd_units: 0,
+          mtd_net: 0,
+          mtd_refunds: 0,
+          ytd_units: 0,
+          ytd_net: 0,
+          ytd_refunds: 0
+        });
+      }
+      return map.get(key);
+    }
+
+    async function computeSummary(filters) {
+      const summary = {
+        totalRows: 0,
+        totalUnits: 0,
+        totalNet: 0,
+        totalRefunds: 0,
+        minDate: null,
+        maxDate: null,
+        refundDiscrepancyCount: 0,
+        blankSkuCount: 0,
+        negativeNetCount: 0,
+        batchSet: new Set(),
+        storeMap: new Map()
+      };
+
+      let from = 0;
+      let keepGoing = true;
+
+      while (keepGoing) {
+        setProgress(`Scanning ${numberFmt(from + 1)}+`);
+        const { data, error } = await buildSummaryQuery(filters, from, from + SUMMARY_CHUNK - 1);
+        if (error) throw error;
+
+        const rows = data || [];
+        if (!rows.length) break;
+
+        for (const row of rows) {
+          summary.totalRows += 1;
+          summary.totalUnits += Number(row.total_quantity_sold || 0);
+          summary.totalNet += Number(row.total_net_sales || 0);
+          summary.totalRefunds += Number(row.total_refunds || 0);
+
+          if (row.day_date && (!summary.minDate || row.day_date < summary.minDate)) summary.minDate = row.day_date;
+          if (row.day_date && (!summary.maxDate || row.day_date > summary.maxDate)) summary.maxDate = row.day_date;
+
+          if (isRefundDiscrepancyRow(row)) summary.refundDiscrepancyCount += 1;
+          if (isBlankSku(row)) summary.blankSkuCount += 1;
+          if (isNegativeNet(row)) summary.negativeNetCount += 1;
+          if (row.sync_batch_id) summary.batchSet.add(row.sync_batch_id);
+
+          const key = row.location_tag || 'unknown';
+          const store = ensureStoreEntry(summary.storeMap, key);
+          store.rows += 1;
+          if (isBlankSku(row)) store.blank_sku += 1;
+          if (row.day_date && (!store.min_date || row.day_date < store.min_date)) store.min_date = row.day_date;
+          if (row.day_date && (!store.max_date || row.day_date > store.max_date)) store.max_date = row.day_date;
+        }
+
+        if (rows.length < SUMMARY_CHUNK) {
+          keepGoing = false;
+        } else {
+          from += SUMMARY_CHUNK;
+        }
+      }
+
+      if (summary.maxDate) {
+        const maxDate = summary.maxDate;
+        const mtdStart = firstOfMonth(maxDate);
+        const ytdStart = startOfYear(maxDate);
+
+        from = 0;
+        keepGoing = true;
+
+        while (keepGoing) {
+          setProgress(`Building matrix ${numberFmt(from + 1)}+`);
+          const { data, error } = await buildSummaryQuery(filters, from, from + SUMMARY_CHUNK - 1);
+          if (error) throw error;
+
+          const rows = data || [];
+          if (!rows.length) break;
+
+          for (const row of rows) {
+            const key = row.location_tag || 'unknown';
+            const store = ensureStoreEntry(summary.storeMap, key);
+            const qty = Number(row.total_quantity_sold || 0);
+            const net = Number(row.total_net_sales || 0);
+            const refunds = Number(row.total_refunds || 0);
+
+            if (row.day_date === maxDate) {
+              store.day_units += qty;
+              store.day_net += net;
+              store.day_refunds += refunds;
+            }
+            if (row.day_date >= mtdStart && row.day_date <= maxDate) {
+              store.mtd_units += qty;
+              store.mtd_net += net;
+              store.mtd_refunds += refunds;
+            }
+            if (row.day_date >= ytdStart && row.day_date <= maxDate) {
+              store.ytd_units += qty;
+              store.ytd_net += net;
+              store.ytd_refunds += refunds;
+            }
+          }
+
+          if (rows.length < SUMMARY_CHUNK) {
+            keepGoing = false;
+          } else {
+            from += SUMMARY_CHUNK;
+          }
+        }
+      }
+
+      summary.stores = [...summary.storeMap.values()].sort((a, b) => a.location_tag.localeCompare(b.location_tag));
+      summary.locationCount = summary.stores.length;
+      summary.batchCount = summary.batchSet.size;
+      return summary;
+    }
+
+    async function loadDetailPage(filters, page) {
+      const from = (page - 1) * DETAIL_PAGE_SIZE;
+      const to = from + DETAIL_PAGE_SIZE - 1;
+      const { data, error } = await buildDetailQuery(filters, from, to);
+      if (error) throw error;
+      return data || [];
+    }
+
+    function renderKpis() {
+      const s = state.summary;
+      if (!s) return;
+
+      el.kpiRows.textContent = numberFmt(s.totalRows);
+      el.kpiUnits.textContent = numberFmt(s.totalUnits);
+      el.kpiNet.textContent = money(s.totalNet);
+      el.kpiRefunds.textContent = money(s.totalRefunds);
+      el.kpiLocations.textContent = numberFmt(s.locationCount);
+      el.kpiDateRange.textContent = s.minDate && s.maxDate ? `${s.minDate} → ${s.maxDate}` : '—';
+      el.lastRefreshPill.textContent = `Last refresh: ${formatRelativeNow(state.lastRefreshAt)}`;
+    }
+
+    function renderExceptions() {
+      const s = state.summary;
+      if (!s) return;
+
+      el.excRefundDiscrepancy.textContent = numberFmt(s.refundDiscrepancyCount);
+      el.excBlankSku.textContent = numberFmt(s.blankSkuCount);
+      el.excNegativeNet.textContent = numberFmt(s.negativeNetCount);
+      el.excBatchCount.textContent = numberFmt(s.batchCount);
+    }
+
+    function renderLocations() {
+      const s = state.summary;
+      if (!s || !s.stores.length) {
+        el.loadedLocationsList.innerHTML = `<div class="text-sm text-slate-500">No loaded locations found.</div>`;
+        return;
+      }
+
+      el.loadedLocationsList.innerHTML = s.stores.map(loc => `
+        <div class="location-pill">
+          <div class="font-semibold text-slate-900">${escapeHtml(loc.location_tag)}</div>
+          <div class="badge badge-neutral">${numberFmt(loc.rows)} rows</div>
+        </div>
+      `).join('');
+    }
+
+    function renderMatrix() {
+      const s = state.summary;
+      if (!s || !s.stores.length) {
+        el.matrixCount.textContent = '0 stores';
+        el.matrixBody.innerHTML = `<tr><td colspan="14" class="px-3 py-10 text-center text-sm text-slate-500">No rows match current filters.</td></tr>`;
+        return;
+      }
+
+      el.matrixCount.textContent = `${s.stores.length} store${s.stores.length === 1 ? '' : 's'}`;
+
+      el.matrixBody.innerHTML = s.stores.map(row => `
+        <tr>
+          <td class="store-col">${escapeHtml(row.location_tag)}</td>
+          <td class="group-day num mono">${numberFmt(row.day_units)}</td>
+          <td class="group-day num mono">${money(row.day_net)}</td>
+          <td class="group-day num mono">${money(row.day_refunds)}</td>
+          <td class="group-mtd num mono">${numberFmt(row.mtd_units)}</td>
+          <td class="group-mtd num mono">${money(row.mtd_net)}</td>
+          <td class="group-mtd num mono">${money(row.mtd_refunds)}</td>
+          <td class="group-ytd num mono">${numberFmt(row.ytd_units)}</td>
+          <td class="group-ytd num mono">${money(row.ytd_net)}</td>
+          <td class="group-ytd num mono">${money(row.ytd_refunds)}</td>
+          <td class="group-meta num mono">${numberFmt(row.rows)}</td>
+          <td class="group-meta num mono">${numberFmt(row.blank_sku)}</td>
+          <td class="group-meta mono">${fmtDate(row.min_date)}</td>
+          <td class="group-meta mono">${fmtDate(row.max_date)}</td>
+        </tr>
+      `).join('');
+    }
+
+    function renderDetailRows() {
+      const rows = state.detailRows || [];
+      if (!rows.length) {
+        el.detailBody.innerHTML = `<tr><td colspan="15" class="px-3 py-10 text-center text-sm text-slate-500">No rows match current filters.</td></tr>`;
+      } else {
+        el.detailBody.innerHTML = rows.map(row => {
+          const badge = isRefundDiscrepancyRow(row)
+            ? `<span class="badge badge-warn">Refund discrepancy</span>`
+            : isBlankSku(row)
+              ? `<span class="badge badge-bad">Blank SKU</span>`
+              : isNegativeNet(row)
+                ? `<span class="badge badge-warn">Negative net</span>`
+                : '';
+
+          return `
+            <tr>
+              <td class="mono">${fmtDate(row.day_date)}</td>
+              <td><div class="font-semibold text-slate-900">${escapeHtml(row.location_tag || '')}</div></td>
+              <td class="mono">${escapeHtml(row.sku || '—')}</td>
+              <td>
+                <div class="font-semibold text-slate-900 truncate-2">${escapeHtml(row.product_name || '—')}</div>
+                ${badge ? `<div class="mt-1">${badge}</div>` : ''}
+              </td>
+              <td>${escapeHtml(row.product_type || '—')}</td>
+              <td>${escapeHtml(row.vendor_original || '—')}</td>
+              <td class="num mono">${numberFmt(row.total_quantity_sold || 0)}</td>
+              <td class="num mono">${numberFmt(row.total_orders || 0)}</td>
+              <td class="num mono">${moneyExact(row.total_gross_sales)}</td>
+              <td class="num mono">${moneyExact(row.total_discounts)}</td>
+              <td class="num mono">${moneyExact(row.total_refunds)}</td>
+              <td class="num mono font-semibold text-slate-900">${moneyExact(row.total_net_sales)}</td>
+              <td class="num mono">${moneyExact(row.taxes)}</td>
+              <td class="num mono">${moneyExact(row.shipping)}</td>
+              <td class="num mono">${moneyExact(row.total_sales)}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+
+      el.detailCount.textContent = `${numberFmt(state.totalRows)} rows in filtered result`;
+      el.pageIndicator.textContent = `${state.currentPage} / ${state.totalPages}`;
+      const start = state.totalRows ? ((state.currentPage - 1) * DETAIL_PAGE_SIZE) + 1 : 0;
+      const end = Math.min(state.currentPage * DETAIL_PAGE_SIZE, state.totalRows);
+      el.pageMeta.textContent = state.totalRows
+        ? `Showing ${numberFmt(start)}–${numberFmt(end)} of ${numberFmt(state.totalRows)}`
+        : 'No rows';
+      el.btnPrevPage.disabled = state.isLoading || state.currentPage <= 1;
+      el.btnNextPage.disabled = state.isLoading || state.currentPage >= state.totalPages;
+    }
+
+    function renderProvisionalBanner() {
+      const s = state.summary;
+      if (!s || !s.maxDate) {
+        el.provisionalBanner.classList.add('hidden');
+        return;
+      }
+
+      const today = todayLocalDateString();
+      if (s.maxDate === today) {
+        el.provisionalText.textContent = `Loaded max date is ${s.maxDate}. If Better Reports had not fully finished before this sync, current-day numbers may still be incomplete.`;
+        el.provisionalBanner.classList.remove('hidden');
+      } else {
+        el.provisionalBanner.classList.add('hidden');
+      }
+    }
+
+    function renderAll() {
+      renderKpis();
+      renderExceptions();
+      renderLocations();
+      renderMatrix();
+      renderDetailRows();
+      renderProvisionalBanner();
+    }
+
+    async function runFullLoad(resetPage = false) {
+      const filters = getFilterState();
+      if (resetPage) state.currentPage = 1;
+
+      setLoading(true);
+      setStatus('Loading filtered sales verification...');
+      setProgress('Starting');
+
+      try {
+        const summary = await computeSummary(filters);
+        state.summary = summary;
+        state.totalRows = summary.totalRows;
+        state.totalPages = Math.max(1, Math.ceil(summary.totalRows / DETAIL_PAGE_SIZE));
+
+        if (state.currentPage > state.totalPages) {
+          state.currentPage = state.totalPages;
+        }
+
+        setProgress(`Loading detail page ${state.currentPage}`);
+        state.detailRows = await loadDetailPage(filters, state.currentPage);
+        state.lastRefreshAt = new Date().toISOString();
+
+        setStatus(summary.totalRows
+          ? `Loaded ${numberFmt(summary.totalRows)} filtered rows across ${numberFmt(summary.locationCount)} store${summary.locationCount === 1 ? '' : 's'}.`
+          : 'No rows matched current filters.'
+        );
+        setProgress('Complete');
+        renderAll();
+      } catch (e) {
+        console.error(e);
+        setStatus(`Load failed: ${e.message || 'Unknown error'}`);
+        setProgress('Failed');
+        alert(e.message || 'Load failed');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function changePage(nextPage) {
+      if (nextPage < 1 || nextPage > state.totalPages || state.isLoading) return;
+      state.currentPage = nextPage;
+      setLoading(true);
+      setStatus(`Loading detail page ${state.currentPage}...`);
+      setProgress(`Page ${state.currentPage}`);
+
+      try {
+        state.detailRows = await loadDetailPage(getFilterState(), state.currentPage);
+        renderDetailRows();
+        setStatus(`Loaded page ${state.currentPage} of ${state.totalPages}.`);
+        setProgress('Complete');
+      } catch (e) {
+        console.error(e);
+        setStatus(`Page load failed: ${e.message || 'Unknown error'}`);
+        setProgress('Failed');
+        alert(e.message || 'Page load failed');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function boot() {
+      if (REQUIRE_AUTH) {
+        try {
+          const { data, error } = await sb.auth.getSession();
+          if (error) throw error;
+          if (!data?.session) {
+            if (REDIRECT_TO) {
+              window.location.href = REDIRECT_TO;
+              return;
+            }
+            document.body.innerHTML = `
+              <div class="min-h-screen flex items-center justify-center p-6">
+                <div class="glass max-w-xl p-6 text-center">
+                  <div class="text-xl font-bold text-slate-900">Authentication required</div>
+                  <div class="mt-2 text-sm text-slate-500">Enable auth on this page through config.js and provide a REDIRECT_TO destination, or sign in before loading this page.</div>
+                </div>
+              </div>`;
+            return;
+          }
+        } catch (e) {
+          console.error(e);
+          alert(e.message || 'Auth check failed');
+          return;
+        }
+      }
+
+      try {
+        await loadLocationOptions();
+        resetFilters();
+        await runFullLoad(true);
+      } catch (e) {
+        console.error(e);
+        alert(e.message || 'Initial load failed');
+      }
+    }
+
+    el.btnRefresh.addEventListener('click', async () => {
+      await runFullLoad(false);
+    });
+
+    el.btnApply.addEventListener('click', async () => {
+      await runFullLoad(true);
+    });
+
+    el.btnReset.addEventListener('click', async () => {
+      resetFilters();
+      await runFullLoad(true);
+    });
+
+    el.btnPrevPage.addEventListener('click', async () => {
+      await changePage(state.currentPage - 1);
+    });
+
+    el.btnNextPage.addEventListener('click', async () => {
+      await changePage(state.currentPage + 1);
+    });
+
+    el.presetFilter.addEventListener('change', () => {
+      if (el.presetFilter.value !== 'custom') {
+        applyPresetDates();
+      }
+    });
+
+    document.addEventListener('click', async (ev) => {
+      const quick = ev.target.closest('[data-quick]');
+      if (!quick) return;
+
+      state.quickFilter = quick.getAttribute('data-quick') || 'all';
+      [...document.querySelectorAll('[data-quick]')].forEach(btn => {
+        btn.classList.toggle('active', btn === quick);
+      });
+
+      await runFullLoad(true);
+    });
+
+    boot();
+  </script>
+</body>
+</html>
