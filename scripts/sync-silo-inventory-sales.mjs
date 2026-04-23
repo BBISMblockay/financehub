@@ -558,15 +558,26 @@ async function main() {
   const inventory = await syncInventory();
   const sales = await syncSalesByDay();
 
-  await refreshSalesVerificationSummary();
+ let salesSummaryRefreshed = false;
+let salesSummaryRefreshError = null;
 
-  const result = {
-    batch_id: BATCH_ID,
-    snapshot_at: SNAPSHOT_AT,
-    inventory,
-    sales,
-    sales_summary_refreshed: true,
-  };
+try {
+  await refreshSalesVerificationSummary();
+  salesSummaryRefreshed = true;
+} catch (err) {
+  salesSummaryRefreshError = err.message;
+  console.error("Sales verification summary refresh failed:");
+  console.error(err);
+}
+
+ const result = {
+  batch_id: BATCH_ID,
+  snapshot_at: SNAPSHOT_AT,
+  inventory,
+  sales,
+  sales_summary_refreshed: salesSummaryRefreshed,
+  sales_summary_refresh_error: salesSummaryRefreshError,
+};
 
   console.log("Silo sync complete:");
   console.log(JSON.stringify(result, null, 2));
