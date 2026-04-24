@@ -407,6 +407,64 @@
     }
     .toast.error { background: rgba(127,29,29,.96); }
 
+
+    /* Ultra-compact AR grid pass */
+    .section-title { font-size: .88rem; }
+    .section-sub { font-size: .72rem; }
+    .table-wrap { border-radius: 10px; }
+    table { font-size: .72rem; }
+    thead th {
+      padding: .34rem .42rem !important;
+      font-size: .58rem !important;
+      line-height: 1.1;
+    }
+    tbody td {
+      padding: .30rem .42rem !important;
+      font-size: .70rem !important;
+      line-height: 1.18;
+    }
+    tbody tr { height: 34px; }
+    .badge {
+      padding: .10rem .32rem !important;
+      font-size: .56rem !important;
+      line-height: 1.05;
+    }
+    .btn-xs {
+      padding: .22rem .38rem !important;
+      font-size: .60rem !important;
+      line-height: 1.05;
+    }
+    .cell-main {
+      font-weight: 700;
+      color: #0f172a;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .cell-sub {
+      color: #64748b;
+      font-size: .64rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      margin-top: 1px;
+    }
+    .cell-inline {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      min-width: 0;
+      white-space: nowrap;
+    }
+    .row-actions {
+      display: flex;
+      flex-wrap: nowrap;
+      gap: 4px;
+    }
+    .w-customer { min-width: 210px; max-width: 260px; }
+    .w-email { min-width: 175px; max-width: 220px; }
+    .w-actions { min-width: 142px; }
+
     @media (max-width: 1180px) {
       .shell { padding: 14px; }
       .mini-grid { grid-template-columns: 1fr; }
@@ -1695,61 +1753,72 @@
 
       els.customerHead.innerHTML = `<tr>
         <th class="w-customer">Customer</th>
-        <th class="w-email">Billing / contact</th>
+        <th class="w-email">Billing</th>
         <th class="w-small">Workflow</th>
         <th class="w-small">Assigned</th>
         <th class="right w-small">Open</th>
         <th class="right w-money">Balance</th>
         <th class="right w-money">1–30</th>
         <th class="right w-money">31+</th>
-        <th class="w-small">Next / last</th>
+        <th class="w-small">Follow-up</th>
         <th class="w-actions">Actions</th>
       </tr>`;
 
-      els.customerBody.innerHTML = state.filteredCustomerRollup.map(c => `
-        <tr>
-          <td class="w-customer">
-            <div class="font-semibold text-slate-900">${escapeHtml(c.effective_customer_name || c.customer_name)}</div>
-            <div class="mt-1 flex flex-wrap items-center gap-2">
-              ${contactStatusBadge(c.contact_status)}
-              ${priorityBadge(c.workflow_priority || 'normal')}
-              ${queueBadge(c.customer_id)}
-              ${syncStatusBadge(c)}
-            </div>
-            <div class="mt-2 text-xs text-slate-500">
-              ${escapeHtml(c.notes ? c.notes.slice(0, 70) + (c.notes.length > 70 ? '…' : '') : 'No notes yet')}
-            </div>
-          </td>
-          <td class="w-email">
-            <div class="text-slate-900">${escapeHtml(c.effective_email || 'No email')}</div>
-            <div class="text-xs text-slate-500">${escapeHtml(c.contact_name || 'No contact')}</div>
-            <div class="text-xs text-slate-500">${escapeHtml(c.phone || '')}</div>
-          </td>
-          <td class="w-small">
-            <div class="font-semibold text-slate-900">${escapeHtml(c.preferred_channel || 'email')}</div>
-            <div class="text-xs text-slate-500">${escapeHtml(formatNumber(c.openOrders))} open inv.</div>
-          </td>
-          <td class="w-small">
-            <div class="font-semibold text-slate-900">${escapeHtml(assignedName(c.assigned_to))}</div>
-          </td>
-          <td class="right mono w-small">${formatNumber(c.openOrders)}</td>
-          <td class="right mono w-money font-extrabold">${formatMoney(c.openBalance)}</td>
-          <td class="right mono w-money">${formatMoney(c.b1)}</td>
-          <td class="right mono w-money">${formatMoney(Number(c.b31 || 0) + Number(c.b61 || 0) + Number(c.b90 || 0))}</td>
-          <td class="w-small">
-            <div class="font-semibold text-slate-900">${escapeHtml(formatDateTime(c.next_follow_up_at))}</div>
-            <div class="text-xs text-slate-500">Last ${escapeHtml(formatDateTime(c.last_contacted_at))}</div>
-          </td>
-          <td class="w-actions">
-            <div class="flex flex-wrap gap-2">
-              <button class="btn btn-soft btn-xs open-workbench-btn" data-customer-id="${escapeHtml(c.customer_id)}">Edit</button>
-              <button class="btn btn-soft btn-xs quick-plus7-btn" data-customer-id="${escapeHtml(c.customer_id)}">+7d</button>
-              <button class="btn btn-soft btn-xs quick-queue-btn" data-customer-id="${escapeHtml(c.customer_id)}">Queue</button>
-              <button class="btn btn-soft btn-xs quick-hold-btn" data-customer-id="${escapeHtml(c.customer_id)}">Hold</button>
-            </div>
-          </td>
-        </tr>
-      `).join('') || `<tr><td colspan="10" class="py-10 text-center text-slate-500">No customers match the current filters.</td></tr>`;
+      els.customerBody.innerHTML = state.filteredCustomerRollup.map(c => {
+        const balance31Plus = Number(c.b31 || 0) + Number(c.b61 || 0) + Number(c.b90 || 0);
+        const email = c.effective_email || 'No email';
+        const contact = c.contact_name || c.phone || '';
+        const followUp = c.next_follow_up_at ? formatDateTime(c.next_follow_up_at) : '—';
+
+        return `
+          <tr>
+            <td class="w-customer">
+              <div class="cell-inline">
+                <span class="cell-main" title="${escapeHtml(c.effective_customer_name || c.customer_name)}">${escapeHtml(c.effective_customer_name || c.customer_name)}</span>
+              </div>
+              <div class="cell-inline mt-1">
+                ${contactStatusBadge(c.contact_status)}
+                ${priorityBadge(c.workflow_priority || 'normal')}
+                ${queueBadge(c.customer_id)}
+                ${syncStatusBadge(c)}
+              </div>
+            </td>
+
+            <td class="w-email">
+              <div class="cell-main" title="${escapeHtml(email)}">${escapeHtml(email)}</div>
+              <div class="cell-sub">${escapeHtml(contact || '—')}</div>
+            </td>
+
+            <td class="w-small">
+              <div class="cell-main">${escapeHtml(c.preferred_channel || 'email')}</div>
+              <div class="cell-sub">${formatNumber(c.openOrders)} open</div>
+            </td>
+
+            <td class="w-small">
+              <div class="cell-main">${escapeHtml(assignedName(c.assigned_to))}</div>
+            </td>
+
+            <td class="right mono w-small">${formatNumber(c.openOrders)}</td>
+            <td class="right mono w-money font-extrabold">${formatMoney(c.openBalance)}</td>
+            <td class="right mono w-money">${formatMoney(c.b1)}</td>
+            <td class="right mono w-money">${formatMoney(balance31Plus)}</td>
+
+            <td class="w-small">
+              <div class="cell-main">${escapeHtml(followUp)}</div>
+              <div class="cell-sub">Last ${escapeHtml(formatDateTime(c.last_contacted_at))}</div>
+            </td>
+
+            <td class="w-actions">
+              <div class="row-actions">
+                <button class="btn btn-soft btn-xs open-workbench-btn" data-customer-id="${escapeHtml(c.customer_id)}">Edit</button>
+                <button class="btn btn-soft btn-xs quick-plus7-btn" data-customer-id="${escapeHtml(c.customer_id)}">+7</button>
+                <button class="btn btn-soft btn-xs quick-queue-btn" data-customer-id="${escapeHtml(c.customer_id)}">Queue</button>
+                <button class="btn btn-soft btn-xs quick-hold-btn" data-customer-id="${escapeHtml(c.customer_id)}">Hold</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('') || `<tr><td colspan="10" class="py-6 text-center text-slate-500">No customers match the current filters.</td></tr>`;
 
       bindCustomerActionButtons();
     }
@@ -1770,7 +1839,7 @@
         <th class="w-small">Order</th>
         <th class="w-small">Fin</th>
         <th class="w-small">Terms</th>
-        <th class="w-small">Workflow</th>
+        <th class="w-small">Assigned</th>
         <th class="right w-money">Open</th>
         <th class="right w-small">Past due</th>
         <th class="w-actions">Actions</th>
@@ -1779,33 +1848,42 @@
       els.orderBody.innerHTML = getSortedOrders(state.filteredInvoices).map(r => `
         <tr>
           <td class="muted w-small">${formatShortDate(r.order_date)}</td>
+
           <td class="w-customer">
-            <div class="font-semibold text-slate-900">${escapeHtml(r.effective_customer_name || r.customer_name)}</div>
-            <div class="mt-1 flex flex-wrap items-center gap-2">
+            <div class="cell-main" title="${escapeHtml(r.effective_customer_name || r.customer_name)}">${escapeHtml(r.effective_customer_name || r.customer_name)}</div>
+            <div class="cell-inline mt-1">
               ${contactStatusBadge(r.contact_status)}
               ${priorityBadge(r.workflow_priority || 'normal')}
               ${queueBadge(r.customer_id)}
               ${syncStatusBadge(r)}
             </div>
-            <div class="mt-1 text-xs text-slate-500">${escapeHtml(r.effective_email || 'No email')}</div>
           </td>
+
           <td class="font-semibold text-slate-900 w-small">${escapeHtml(r.order_name || '—')}</td>
           <td class="w-small">${finBadge(r.financial_status, r.open_amount)}</td>
+
           <td class="w-small">
-            ${termsBadge(r)}
-            <div class="text-xs text-slate-500 mt-1">${formatNumber(r.effective_term_days || r.term_days)}d</div>
+            <div class="cell-inline">
+              ${termsBadge(r)}
+              <span class="cell-sub">${formatNumber(r.effective_term_days || r.term_days)}d</span>
+            </div>
           </td>
+
           <td class="w-small">
-            <div class="font-semibold text-slate-900">${escapeHtml(assignedName(r.assigned_to))}</div>
-            <div class="text-xs text-slate-500">Last ${escapeHtml(formatDateTime(r.last_contacted_at))}</div>
+            <div class="cell-main">${escapeHtml(assignedName(r.assigned_to))}</div>
+            <div class="cell-sub">Last ${escapeHtml(formatDateTime(r.last_contacted_at))}</div>
           </td>
+
           <td class="right mono w-money font-extrabold">${formatMoney(r.open_amount)}</td>
           <td class="right mono w-small">${Number(r.open_amount) > 0 ? formatNumber(r.days_past_due) : '—'}</td>
+
           <td class="w-actions">
-            <button class="btn btn-soft btn-xs open-workbench-btn" data-customer-id="${escapeHtml(r.customer_id)}">Edit</button>
+            <div class="row-actions">
+              <button class="btn btn-soft btn-xs open-workbench-btn" data-customer-id="${escapeHtml(r.customer_id)}">Edit</button>
+            </div>
           </td>
         </tr>
-      `).join('') || `<tr><td colspan="9" class="py-10 text-center text-slate-500">No orders match the current filters.</td></tr>`;
+      `).join('') || `<tr><td colspan="9" class="py-6 text-center text-slate-500">No orders match the current filters.</td></tr>`;
 
       document.querySelectorAll('.open-workbench-btn').forEach(btn => {
         btn.addEventListener('click', () => openDrawer(btn.getAttribute('data-customer-id')));
