@@ -86,9 +86,11 @@ function normalizeStatus(v) {
 function detectDateKey(row) {
   const keys = Object.keys(row || {});
   const preferred = ["DAY Order Date", "Order Date", "Created at", "Date"];
+
   for (const key of preferred) {
     if (keys.includes(key)) return key;
   }
+
   return keys.find((k) => /date/i.test(k)) || null;
 }
 
@@ -121,6 +123,7 @@ function agingBucket(daysPastDue, openAmount) {
 
 async function fetchCsvRows(url) {
   const res = await fetch(url);
+
   if (!res.ok) {
     throw new Error(`Failed CSV fetch: ${res.status} ${url}`);
   }
@@ -133,6 +136,7 @@ async function fetchCsvRows(url) {
 
   if (parsed.errors?.length) {
     const serious = parsed.errors.filter((e) => e.code !== "UndetectableDelimiter");
+
     if (serious.length) {
       console.warn(`CSV parse warnings for ${url}:`, serious.slice(0, 5));
     }
@@ -201,16 +205,27 @@ function normalizeSalesRow(row, sourceIndex) {
     .map((v) => v.trim())
     .filter(Boolean);
 
-  const openStatuses = new Set(["pending", "authorized", "partially_paid", "partially paid", "due", "unpaid", "open"]);
+  const openStatuses = new Set([
+    "pending",
+    "authorized",
+    "partially_paid",
+    "partially paid",
+    "due",
+    "unpaid",
+    "open"
+  ]);
+
   const paidStatuses = new Set(["paid", "partially_refunded", "partially refunded"]);
-  const closedStatuses = new Set(["voided", "refunded", "expired"]);
+  const closedStatuses = new Set(["voided", "refunded", "expired", "cancelled", "canceled"]);
 
   let settlementClass = "other";
+
   if (openStatuses.has(financialStatus)) settlementClass = "open";
   else if (paidStatuses.has(financialStatus)) settlementClass = "paid";
   else if (closedStatuses.has(financialStatus)) settlementClass = "closed";
 
   let openAmount = settlementClass === "open" ? Math.max(0, sales) : 0;
+
   if (sales <= 0) openAmount = 0;
   if (refunds >= Math.max(gross, sales) && Math.max(gross, sales) > 0) openAmount = 0;
 
@@ -287,7 +302,7 @@ function buildSourceRowHash(row) {
   return crypto.createHash("sha256").update(raw).digest("hex");
 }
 
-async function saveSyncRunning(startedAt) {
+async function saveSyncRunning(startedAt, syncRunId) {
   const { error } = await supabase
     .from("job_sync_state")
     .upsert(
@@ -297,7 +312,10 @@ async function saveSyncRunning(startedAt) {
         started_at: startedAt,
         completed_at: null,
         updated_at: new Date().toISOString(),
-        error_text: null
+        error_text: null,
+        payload: {
+          sync_run_id: syncRunId
+        }
       },
       { onConflict: "key" }
     );
@@ -325,7 +343,7 @@ async function saveSyncSuccess(summary) {
   if (error) throw error;
 }
 
-async function saveSyncFailure(startedAt, err) {
+async function saveSyncFailure(startedAt, err, syncRunId = null) {
   const now = new Date().toISOString();
 
   const { error } = await supabase
@@ -337,7 +355,10 @@ async function saveSyncFailure(startedAt, err) {
         started_at: startedAt,
         completed_at: now,
         updated_at: now,
-        error_text: err?.message || "Unknown sync failure"
+        error_text: err?.message || "Unknown sync failure",
+        payload: {
+          sync_run_id: syncRunId
+        }
       },
       { onConflict: "key" }
     );
@@ -363,10 +384,12 @@ async function upsertCustomers(rows) {
       });
     } else {
       const existing = grouped.get(key);
+
       if ((!existing.email || existing.email === "") && row.email) {
         existing.email = row.email;
         existing.email_norm = row.emailNorm;
       }
+
       if ((existing.term_days || 0) === 0 && (row.termDays || 0) > 0) {
         existing.term_days = row.termDays;
       }
@@ -374,6 +397,7 @@ async function upsertCustomers(rows) {
   }
 
   const payload = Array.from(grouped.values());
+
   if (!payload.length) return new Map();
 
   const { error } = await supabase
@@ -392,6 +416,7 @@ async function upsertCustomers(rows) {
   if (fetchError) throw fetchError;
 
   const customerIdMap = new Map();
+
   for (const c of data || []) {
     const key = `${c.customer_name_norm}__${c.email_norm || ""}`;
     customerIdMap.set(key, c.id);
@@ -424,7 +449,9 @@ function dedupeInvoicePayload(payload) {
   return Array.from(deduped.values());
 }
 
-async function upsertInvoices(rows, customerIdMap) {
+async function upsertInvoices(rows, customerIdMap, syncRunId) {
+  const now = new Date().toISOString();
+
   const payload = rows.map((row) => {
     const customerKey = `${row.customerNorm}__${row.emailNorm || ""}`;
     const customerId = customerIdMap.get(customerKey);
@@ -463,7 +490,13 @@ async function upsertInvoices(rows, customerIdMap) {
       days_past_due: row.daysPastDue || 0,
       aging_bucket: row.agingBucket || "paid",
       is_open: !!row.isOpen,
-      last_seen_at: new Date().toISOString()
+      last_seen_at: now,
+
+      // New sync tracking fields.
+      sync_run_id: syncRunId,
+      sync_status: "active",
+      source_missing: false,
+      source_missing_at: null
     };
   });
 
@@ -486,6 +519,28 @@ async function upsertInvoices(rows, customerIdMap) {
   return dedupedPayload.length;
 }
 
+async function markMissingInvoices(syncRunId) {
+  const now = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from("ar_invoices")
+    .update({
+      sync_status: "missing_from_source",
+      source_missing: true,
+      source_missing_at: now,
+      is_open: false,
+      open_amount: 0
+    })
+    .neq("sync_run_id", syncRunId)
+    .eq("sync_status", "active")
+    .in("source_name", ["google_sheet_1", "google_sheet_2"])
+    .select("id");
+
+  if (error) throw error;
+
+  return data?.length || 0;
+}
+
 async function refreshCustomerSummary() {
   const { error } = await supabase.rpc("refresh_ar_customer_summary");
   if (error) throw error;
@@ -493,7 +548,9 @@ async function refreshCustomerSummary() {
 
 export async function runArSync() {
   const startedAt = new Date().toISOString();
-  await saveSyncRunning(startedAt);
+  const syncRunId = crypto.randomUUID();
+
+  await saveSyncRunning(startedAt, syncRunId);
 
   try {
     const [salesArrays, termsRowsRaw] = await Promise.all([
@@ -515,23 +572,28 @@ export async function runArSync() {
     const finalRows = applyTermsAndAging(validSalesRows, termsIndexes, new Date());
 
     const customerIdMap = await upsertCustomers(finalRows);
-    const invoiceCount = await upsertInvoices(finalRows, customerIdMap);
+    const invoiceCount = await upsertInvoices(finalRows, customerIdMap, syncRunId);
+    const missingInvoiceCount = await markMissingInvoices(syncRunId);
+
     await refreshCustomerSummary();
 
     const summary = {
       started_at: startedAt,
       completed_at: new Date().toISOString(),
+      sync_run_id: syncRunId,
       sales_row_count: finalRows.length,
       terms_row_count: termsRows.length,
       customer_count: customerIdMap.size,
       invoice_count: invoiceCount,
+      missing_invoice_count: missingInvoiceCount,
       sources: SALES_CSV_SOURCES
     };
 
     await saveSyncSuccess(summary);
+
     return summary;
   } catch (err) {
-    await saveSyncFailure(startedAt, err);
+    await saveSyncFailure(startedAt, err, syncRunId);
     throw err;
   }
 }
