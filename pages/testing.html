@@ -245,32 +245,32 @@
         <div class="glass p-5">
           <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Rows</div>
           <div id="kpiRows" class="mt-2 kpi-value">—</div>
-          <div class="kpi-sub">Aggregated row count</div>
+          <div class="kpi-sub">Exact filtered row count</div>
         </div>
         <div class="glass p-5">
           <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Net Sales</div>
           <div id="kpiNet" class="mt-2 kpi-value">—</div>
-          <div class="kpi-sub">Filtered period</div>
+          <div class="kpi-sub">Exact filtered period</div>
         </div>
         <div class="glass p-5">
           <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Units</div>
           <div id="kpiUnits" class="mt-2 kpi-value">—</div>
-          <div class="kpi-sub">Quantity sold</div>
+          <div class="kpi-sub">Exact quantity sold</div>
         </div>
         <div class="glass p-5">
           <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Orders</div>
           <div id="kpiOrders" class="mt-2 kpi-value">—</div>
-          <div class="kpi-sub">Total orders</div>
+          <div class="kpi-sub">Exact total orders</div>
         </div>
         <div class="glass p-5">
           <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Refunds</div>
           <div id="kpiRefunds" class="mt-2 kpi-value">—</div>
-          <div class="kpi-sub">Refund field total</div>
+          <div class="kpi-sub">Exact refund total</div>
         </div>
         <div class="glass p-5">
           <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Avg Net / Day</div>
           <div id="kpiAvgDay" class="mt-2 kpi-value">—</div>
-          <div class="kpi-sub">Across filtered days</div>
+          <div class="kpi-sub">Exact across distinct days</div>
         </div>
       </section>
 
@@ -307,7 +307,7 @@
 
         <section class="glass p-4 sm:p-5">
           <div class="section-title">Top-Level Summary</div>
-          <div class="section-sub">Quick BI-style rollup.</div>
+          <div class="section-sub">Exact overview totals from dedicated summary RPC.</div>
           <div class="mt-4 table-wrap soft-scroll">
             <table class="dense-table min-w-[900px]">
               <thead>
@@ -529,6 +529,7 @@
       charts: {},
       locationOptions: [],
       typeOptions: [],
+      overviewRow: null,
       dailyRows: [],
       storeRows: [],
       typeRows: [],
@@ -713,6 +714,11 @@
     async function loadAggregates() {
       const filters = getFilters();
 
+      setProgress('Loading overview');
+      const overviewRes = await sb.rpc('report_sales_overview_totals', filters);
+      if (overviewRes.error) throw overviewRes.error;
+      state.overviewRow = overviewRes.data?.[0] || null;
+
       setProgress('Loading daily');
       const dailyRes = await sb.rpc('report_sales_daily_breakdown', filters);
       if (dailyRes.error) throw dailyRes.error;
@@ -778,38 +784,40 @@
     }
 
     function renderOverview() {
+      const overview = state.overviewRow;
       const daily = state.dailyRows;
       const stores = state.storeRows;
 
-      const uniqueDays = daily.length || 1;
-      const net = daily.reduce((s,r) => s + Number(r.total_net_sales || 0), 0);
-      const gross = daily.reduce((s,r) => s + Number(r.total_gross_sales || 0), 0);
-      const units = daily.reduce((s,r) => s + Number(r.total_quantity_sold || 0), 0);
-      const orders = daily.reduce((s,r) => s + Number(r.total_orders || 0), 0);
-      const refunds = daily.reduce((s,r) => s + Number(r.total_refunds || 0), 0);
-      const discounts = daily.reduce((s,r) => s + Number(r.total_discounts || 0), 0);
-      const taxes = daily.reduce((s,r) => s + Number(r.taxes || 0), 0);
-      const shipping = daily.reduce((s,r) => s + Number(r.shipping || 0), 0);
-      const rowCount = daily.reduce((s,r) => s + Number(r.row_count || 0), 0);
+      const rowCount = Number(overview?.row_count || 0);
+      const net = Number(overview?.total_net_sales || 0);
+      const gross = Number(overview?.total_gross_sales || 0);
+      const units = Number(overview?.total_quantity_sold || 0);
+      const orders = Number(overview?.total_orders || 0);
+      const refunds = Number(overview?.total_refunds || 0);
+      const discounts = Number(overview?.total_discounts || 0);
+      const taxes = Number(overview?.taxes || 0);
+      const shipping = Number(overview?.shipping || 0);
+      const distinctDays = Number(overview?.distinct_days || 0);
+      const distinctStores = Number(overview?.distinct_stores || 0);
 
       el.kpiRows.textContent = numberFmt(rowCount);
       el.kpiNet.textContent = money(net);
       el.kpiUnits.textContent = numberFmt(units);
       el.kpiOrders.textContent = numberFmt(orders);
       el.kpiRefunds.textContent = money(refunds);
-      el.kpiAvgDay.textContent = money(net / uniqueDays);
+      el.kpiAvgDay.textContent = money(distinctDays ? (net / distinctDays) : 0);
 
       const topStore = stores[0]?.location_tag || '—';
       const topDay = daily.slice().sort((a,b) => Number(b.total_net_sales || 0) - Number(a.total_net_sales || 0))[0];
 
       el.overviewSummaryBody.innerHTML = `
         <tr><td>Gross Sales</td><td class="num mono">${moneyExact(gross)}</td><td>Before discounts and refunds</td></tr>
-        <tr><td>Discounts</td><td class="num mono">${moneyExact(discounts)}</td><td>Filtered period</td></tr>
-        <tr><td>Refunds</td><td class="num mono">${moneyExact(refunds)}</td><td>Refund field total</td></tr>
+        <tr><td>Discounts</td><td class="num mono">${moneyExact(discounts)}</td><td>Exact filtered total</td></tr>
+        <tr><td>Refunds</td><td class="num mono">${moneyExact(refunds)}</td><td>Exact filtered total</td></tr>
         <tr><td>Taxes</td><td class="num mono">${moneyExact(taxes)}</td><td>Reported tax amount</td></tr>
         <tr><td>Shipping</td><td class="num mono">${moneyExact(shipping)}</td><td>Reported shipping amount</td></tr>
-        <tr><td>Distinct Stores</td><td class="num mono">${numberFmt(stores.length)}</td><td>Top store: ${escapeHtml(topStore)}</td></tr>
-        <tr><td>Distinct Days</td><td class="num mono">${numberFmt(uniqueDays)}</td><td>Top day: ${topDay ? `${escapeHtml(topDay.day_date)} (${money(topDay.total_net_sales)})` : '—'}</td></tr>
+        <tr><td>Distinct Stores</td><td class="num mono">${numberFmt(distinctStores)}</td><td>Top store: ${escapeHtml(topStore)}</td></tr>
+        <tr><td>Distinct Days</td><td class="num mono">${numberFmt(distinctDays)}</td><td>Top day: ${topDay ? `${escapeHtml(topDay.day_date)} (${money(topDay.total_net_sales)})` : '—'}</td></tr>
       `;
     }
 
@@ -1030,8 +1038,8 @@
 
         state.lastLoadAt = new Date().toISOString();
 
-        const totalAggRows = state.dailyRows.reduce((s,r) => s + Number(r.row_count || 0), 0);
-        setStatus(`Loaded reporting views. Aggregated rows represented: ${numberFmt(totalAggRows)}.`);
+        const totalAggRows = Number(state.overviewRow?.row_count || 0);
+        setStatus(`Loaded reporting views. Exact filtered rows represented: ${numberFmt(totalAggRows)}.`);
         setProgress('Rendering');
         renderAll();
         setProgress('Complete');
