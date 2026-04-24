@@ -25,16 +25,16 @@
     }
 
     .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
-    .shell { max-width: 1680px; margin: 0 auto; padding: 20px; }
+    .shell { max-width: 1760px; margin: 0 auto; padding: 12px; }
 
     .card {
-      background: rgba(255,255,255,.92);
-      backdrop-filter: blur(10px);
+      background: rgba(255,255,255,.94);
+      backdrop-filter: blur(8px);
       border: 1px solid rgba(226,232,240,.95);
-      border-radius: 24px;
+      border-radius: 14px;
       box-shadow:
-        0 1px 2px rgba(15,23,42,.04),
-        0 10px 30px rgba(15,23,42,.05);
+        0 1px 2px rgba(15,23,42,.035),
+        0 6px 18px rgba(15,23,42,.04);
     }
 
     .hero {
@@ -42,9 +42,9 @@
         linear-gradient(135deg, rgba(15,23,42,.98), rgba(30,41,59,.97) 55%, rgba(51,65,85,.96));
       color: #fff;
       border: 1px solid rgba(255,255,255,.08);
-      border-radius: 28px;
+      border-radius: 16px;
       box-shadow:
-        0 18px 50px rgba(15,23,42,.18),
+        0 10px 28px rgba(15,23,42,.14),
         inset 0 1px 0 rgba(255,255,255,.08);
     }
 
@@ -64,11 +64,11 @@
 
     .input, .select, .textarea {
       width: 100%;
-      border-radius: 16px;
+      border-radius: 10px;
       border: 1px solid #dbe2ea;
       background: #fff;
-      padding: .82rem .95rem;
-      font-size: .92rem;
+      padding: .52rem .66rem;
+      font-size: .78rem;
       outline: none;
       transition: .18s ease;
       color: #0f172a;
@@ -84,10 +84,10 @@
       align-items: center;
       justify-content: center;
       gap: .5rem;
-      border-radius: 14px;
-      padding: .78rem 1rem;
+      border-radius: 10px;
+      padding: .52rem .72rem;
       font-weight: 800;
-      font-size: .9rem;
+      font-size: .78rem;
       transition: .18s ease;
       border: 1px solid #dbe2ea;
       background: #fff;
@@ -105,16 +105,16 @@
     }
     .btn-soft { background: #f8fafc; color: #0f172a; }
     .btn-xs {
-      border-radius: 12px;
-      padding: .42rem .66rem;
-      font-size: .73rem;
+      border-radius: 9px;
+      padding: .32rem .5rem;
+      font-size: .61rem;
       font-weight: 800;
     }
 
     .top-tabs {
       display: inline-flex;
-      gap: 6px;
-      padding: 6px;
+      gap: 4px;
+      padding: 4px;
       border-radius: 999px;
       border: 1px solid #e2e8f0;
       background: #f8fafc;
@@ -125,8 +125,8 @@
       background: transparent;
       color: #475569;
       border-radius: 999px;
-      padding: .56rem .95rem;
-      font-size: .82rem;
+      padding: .38rem .72rem;
+      font-size: .74rem;
       font-weight: 800;
       cursor: pointer;
     }
@@ -138,28 +138,28 @@
 
     .kpi {
       border: 1px solid #e5e7eb;
-      border-radius: 20px;
-      padding: 16px 16px 14px;
+      border-radius: 14px;
+      padding: 10px 12px;
       background: linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(248,250,252,1) 100%);
-      min-height: 104px;
+      min-height: 72px;
     }
     .kpi-label {
-      font-size: .68rem;
+      font-size: .61rem;
       text-transform: uppercase;
       letter-spacing: .08em;
       color: #64748b;
       font-weight: 800;
     }
     .kpi-value {
-      margin-top: 9px;
-      font-size: 1.55rem;
+      margin-top: 5px;
+      font-size: 1.08rem;
       line-height: 1.02;
       font-weight: 800;
       color: #0f172a;
     }
     .kpi-sub {
-      margin-top: 6px;
-      font-size: .75rem;
+      margin-top: 3px;
+      font-size: .68rem;
       color: #64748b;
     }
 
@@ -174,7 +174,7 @@
       background: #fff;
     }
     .mini-card .label {
-      font-size: .68rem;
+      font-size: .61rem;
       text-transform: uppercase;
       letter-spacing: .06em;
       color: #64748b;
@@ -214,7 +214,7 @@
     .table-wrap {
       overflow: auto;
       border: 1px solid #e5e7eb;
-      border-radius: 20px;
+      border-radius: 12px;
       background: #fff;
     }
     table { width: 100%; border-collapse: separate; border-spacing: 0; }
@@ -224,19 +224,19 @@
       z-index: 2;
       background: #f8fafc;
       color: #64748b;
-      font-size: .72rem;
+      font-size: .64rem;
       text-transform: uppercase;
       letter-spacing: .05em;
       font-weight: 800;
-      padding: .82rem .85rem;
+      padding: .46rem .58rem;
       border-bottom: 1px solid #e5e7eb;
       text-align: left;
       white-space: nowrap;
     }
     tbody td {
-      padding: .82rem .85rem;
+      padding: .46rem .58rem;
       border-bottom: 1px solid #f1f5f9;
-      font-size: .89rem;
+      font-size: .76rem;
       vertical-align: middle;
       color: #0f172a;
     }
@@ -248,8 +248,8 @@
       display: inline-flex;
       align-items: center;
       border-radius: 999px;
-      padding: .24rem .55rem;
-      font-size: .71rem;
+      padding: .16rem .42rem;
+      font-size: .64rem;
       font-weight: 700;
       border: 1px solid transparent;
       white-space: nowrap;
@@ -262,6 +262,7 @@
     .badge-terms { background: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
     .badge-fallback { background: #f8fafc; color: #475569; border-color: #cbd5e1; }
     .badge-status-active { background: #ecfdf5; color: #166534; border-color: #bbf7d0; }
+    .badge-sync-missing { background: #fff1f2; color: #be123c; border-color: #fecdd3; }
     .badge-status-hold { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
     .badge-status-no_email { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
     .badge-status-bad_email { background: #fef3c7; color: #92400e; border-color: #fde68a; }
@@ -271,11 +272,13 @@
     .badge-priority-urgent { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
     .badge-queue-pending { background: #ecfeff; color: #155e75; border-color: #a5f3fc; }
 
-    .w-customer { min-width: 250px; }
-    .w-email { min-width: 220px; max-width: 280px; }
-    .w-small { min-width: 92px; }
-    .w-money { min-width: 118px; }
-    .w-actions { min-width: 190px; }
+    .w-customer { min-width: 220px; max-width: 320px; }
+    .w-email { min-width: 190px; max-width: 250px; }
+    .w-small { min-width: 76px; }
+    .w-money { min-width: 96px; }
+    .w-actions { min-width: 150px; }
+    tbody td, thead th { white-space: nowrap; }
+    tbody td .truncate-2 { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     .export-menu { position: relative; }
     .export-panel {
@@ -416,15 +419,15 @@
 </head>
 <body class="min-h-full">
   <div class="shell">
-    <div class="space-y-5">
+    <div class="space-y-3">
 
-      <div class="hero p-5 lg:p-6">
+      <div class="hero p-3 lg:p-4">
         <div class="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div class="space-y-3">
             <div class="hero-chip">AR Workbench</div>
             <div>
-              <h1 class="text-3xl lg:text-4xl font-extrabold tracking-tight">Baseballism Wholesale AR</h1>
-              <p class="mt-2 max-w-3xl text-sm text-slate-200/80">
+              <h1 class="text-xl lg:text-2xl font-extrabold tracking-tight">Baseballism Wholesale AR</h1>
+              <p class="mt-1 max-w-3xl text-xs text-slate-200/80">
                 Queue, customers, orders, and activity in one place. Nightly Sync.
               </p>
             </div>
@@ -486,15 +489,15 @@
         </div>
       </div>
 
-      <div class="card p-4 lg:p-5">
-        <div class="grid grid-cols-1 gap-4 lg:grid-cols-12">
+      <div class="card p-3 lg:p-4">
+        <div class="grid grid-cols-1 gap-2 lg:grid-cols-12">
           <div class="lg:col-span-2">
-            <label class="mb-2 block text-sm font-semibold text-slate-700">As of</label>
+            <label class="mb-1 block text-xs font-semibold text-slate-700">As of</label>
             <input id="asOfDate" type="date" class="input" />
           </div>
 
           <div class="lg:col-span-2">
-            <label class="mb-2 block text-sm font-semibold text-slate-700">Status</label>
+            <label class="mb-1 block text-xs font-semibold text-slate-700">Status</label>
             <select id="financialFilter" class="select">
               <option value="">All</option>
               <option value="open">Open only</option>
@@ -502,11 +505,12 @@
               <option value="pending">Pending only</option>
               <option value="authorized">Authorized only</option>
               <option value="voided">Voided only</option>
+              <option value="missing">Missing / voided review</option>
             </select>
           </div>
 
           <div class="lg:col-span-2">
-            <label class="mb-2 block text-sm font-semibold text-slate-700">Aging</label>
+            <label class="mb-1 block text-xs font-semibold text-slate-700">Aging</label>
             <select id="agingFilter" class="select">
               <option value="">All</option>
               <option value="current">Current</option>
@@ -519,7 +523,7 @@
           </div>
 
           <div class="lg:col-span-2">
-            <label class="mb-2 block text-sm font-semibold text-slate-700">Workflow status</label>
+            <label class="mb-1 block text-xs font-semibold text-slate-700">Workflow status</label>
             <select id="contactStatusFilter" class="select">
               <option value="">All</option>
               <option value="active">Active</option>
@@ -531,7 +535,7 @@
           </div>
 
           <div class="lg:col-span-2">
-            <label class="mb-2 block text-sm font-semibold text-slate-700">Priority</label>
+            <label class="mb-1 block text-xs font-semibold text-slate-700">Priority</label>
             <select id="priorityFilter" class="select">
               <option value="">All</option>
               <option value="low">Low</option>
@@ -542,24 +546,24 @@
           </div>
 
           <div class="lg:col-span-2">
-            <label class="mb-2 block text-sm font-semibold text-slate-700">Assigned</label>
+            <label class="mb-1 block text-xs font-semibold text-slate-700">Assigned</label>
             <select id="assignedFilter" class="select">
               <option value="">All</option>
             </select>
           </div>
 
           <div class="lg:col-span-2">
-            <label class="mb-2 block text-sm font-semibold text-slate-700">Start</label>
+            <label class="mb-1 block text-xs font-semibold text-slate-700">Start</label>
             <input id="startDate" type="date" class="input" />
           </div>
 
           <div class="lg:col-span-2">
-            <label class="mb-2 block text-sm font-semibold text-slate-700">End</label>
+            <label class="mb-1 block text-xs font-semibold text-slate-700">End</label>
             <input id="endDate" type="date" class="input" />
           </div>
 
           <div class="lg:col-span-4">
-            <label class="mb-2 block text-sm font-semibold text-slate-700">Search</label>
+            <label class="mb-1 block text-xs font-semibold text-slate-700">Search</label>
             <input id="searchInput" class="input" placeholder="Customer, email, order, note..." />
           </div>
 
@@ -577,7 +581,7 @@
         </div>
       </div>
 
-      <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
+      <div class="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
         <div class="kpi"><div class="kpi-label">Sales</div><div id="kpiNetSales" class="kpi-value mono">$0.00</div><div class="kpi-sub">Filtered sales</div></div>
         <div class="kpi"><div class="kpi-label">Open</div><div id="kpiOpenBalance" class="kpi-value mono">$0.00</div><div class="kpi-sub">Current balance</div></div>
         <div class="kpi"><div class="kpi-label">Current</div><div id="kpiCurrent" class="kpi-value mono">$0.00</div><div class="kpi-sub">Not yet due</div></div>
@@ -590,7 +594,7 @@
       <div id="viewQueue" class="view-panel active">
         <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
           <div class="xl:col-span-8 space-y-5">
-            <div class="card p-4 lg:p-5">
+            <div class="card p-3 lg:p-4">
               <div class="flex items-start justify-between gap-3">
                 <div>
                   <div class="section-title">Action queue</div>
@@ -599,7 +603,7 @@
                 <div class="text-xs text-slate-500"><span id="queueRowCount">0</span> rows</div>
               </div>
 
-              <div class="mt-4 table-wrap max-h-[720px]">
+              <div class="mt-4 table-wrap max-h-[72vh]">
                 <table>
                   <thead id="queueHead"></thead>
                   <tbody id="queueBody"></tbody>
@@ -609,12 +613,12 @@
           </div>
 
           <div class="xl:col-span-4 space-y-5">
-            <div class="card p-4 lg:p-5">
+            <div class="card p-3 lg:p-4">
               <div class="section-title">Queue summary</div>
               <div class="mini-grid mt-4" id="queueSummaryCards"></div>
             </div>
 
-            <div class="card p-4 lg:p-5">
+            <div class="card p-3 lg:p-4">
               <div class="section-title">Needs action</div>
               <div class="section-sub">Fast buckets to work through.</div>
               <div id="queueWorkBuckets" class="mt-4 space-y-3"></div>
@@ -627,7 +631,7 @@
       <div id="viewCustomers" class="view-panel">
         <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
           <div class="xl:col-span-9 space-y-5">
-            <div class="card p-4 lg:p-5">
+            <div class="card p-3 lg:p-4">
               <div class="flex items-start justify-between gap-3">
                 <div>
                   <div class="section-title">Customer workbench</div>
@@ -636,7 +640,7 @@
                 <div class="text-xs text-slate-500"><span id="customerRowCount">0</span> rows</div>
               </div>
 
-              <div class="mt-4 table-wrap max-h-[720px]">
+              <div class="mt-4 table-wrap max-h-[72vh]">
                 <table>
                   <thead id="customerHead"></thead>
                   <tbody id="customerBody"></tbody>
@@ -646,18 +650,18 @@
           </div>
 
           <div class="xl:col-span-3 space-y-5">
-            <div class="card p-4 lg:p-5">
+            <div class="card p-3 lg:p-4">
               <div class="section-title">Summary</div>
               <div class="mini-grid mt-4" id="companySummary"></div>
             </div>
 
-            <div class="card p-4 lg:p-5">
+            <div class="card p-3 lg:p-4">
               <div class="section-title">Top open</div>
               <div class="section-sub">Largest balances in current filter.</div>
               <div id="topCustomers" class="mt-4"></div>
             </div>
 
-            <div class="card p-4 lg:p-5">
+            <div class="card p-3 lg:p-4">
               <div class="section-title">Aging</div>
               <div id="agingCards" class="mt-4"></div>
             </div>
@@ -667,7 +671,7 @@
 
       <!-- Orders view -->
       <div id="viewOrders" class="view-panel">
-        <div class="card p-4 lg:p-5">
+        <div class="card p-3 lg:p-4">
           <div class="flex items-start justify-between gap-3">
             <div>
               <div class="section-title">Order detail</div>
@@ -676,7 +680,7 @@
             <div class="text-xs text-slate-500"><span id="orderRowCount">0</span> rows</div>
           </div>
 
-          <div class="mt-4 table-wrap max-h-[760px]">
+          <div class="mt-4 table-wrap max-h-[74vh]">
             <table>
               <thead id="orderHead"></thead>
               <tbody id="orderBody"></tbody>
@@ -689,7 +693,7 @@
       <div id="viewActivity" class="view-panel">
         <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
           <div class="xl:col-span-8">
-            <div class="card p-4 lg:p-5">
+            <div class="card p-3 lg:p-4">
               <div class="flex items-start justify-between gap-3">
                 <div>
                   <div class="section-title">Recent activity</div>
@@ -703,7 +707,7 @@
           </div>
 
           <div class="xl:col-span-4 space-y-5">
-            <div class="card p-4 lg:p-5">
+            <div class="card p-3 lg:p-4">
               <div class="section-title">Activity summary</div>
               <div class="mini-grid mt-4" id="activitySummaryCards"></div>
             </div>
@@ -738,27 +742,27 @@
           <div class="section-title">Customer + billing</div>
           <div class="field-grid mt-4">
             <div class="full">
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Customer name override</label>
+              <label class="mb-1 block text-xs font-semibold text-slate-700">Customer name override</label>
               <input id="fCustomerNameOverride" class="input" placeholder="Displayed customer name" />
             </div>
 
             <div>
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Billing email override</label>
+              <label class="mb-1 block text-xs font-semibold text-slate-700">Billing email override</label>
               <input id="fBillingEmailOverride" class="input" placeholder="billing@example.com" />
             </div>
 
             <div>
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Terms override (days)</label>
+              <label class="mb-1 block text-xs font-semibold text-slate-700">Terms override (days)</label>
               <input id="fTermDaysOverride" type="number" min="0" class="input" placeholder="30" />
             </div>
 
             <div>
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Contact name</label>
+              <label class="mb-1 block text-xs font-semibold text-slate-700">Contact name</label>
               <input id="fContactName" class="input" placeholder="AP contact name" />
             </div>
 
             <div>
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Phone</label>
+              <label class="mb-1 block text-xs font-semibold text-slate-700">Phone</label>
               <input id="fPhone" class="input" placeholder="Phone number" />
             </div>
           </div>
@@ -768,7 +772,7 @@
           <div class="section-title">Workflow</div>
           <div class="field-grid mt-4">
             <div>
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Contact status</label>
+              <label class="mb-1 block text-xs font-semibold text-slate-700">Contact status</label>
               <select id="fContactStatus" class="select">
                 <option value="active">Active</option>
                 <option value="hold">Hold</option>
@@ -779,7 +783,7 @@
             </div>
 
             <div>
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Preferred channel</label>
+              <label class="mb-1 block text-xs font-semibold text-slate-700">Preferred channel</label>
               <select id="fPreferredChannel" class="select">
                 <option value="email">Email</option>
                 <option value="phone">Phone</option>
@@ -789,7 +793,7 @@
             </div>
 
             <div>
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Priority</label>
+              <label class="mb-1 block text-xs font-semibold text-slate-700">Priority</label>
               <select id="fWorkflowPriority" class="select">
                 <option value="low">Low</option>
                 <option value="normal">Normal</option>
@@ -799,19 +803,19 @@
             </div>
 
             <div>
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Assigned to</label>
+              <label class="mb-1 block text-xs font-semibold text-slate-700">Assigned to</label>
               <select id="fAssignedTo" class="select">
                 <option value="">Unassigned</option>
               </select>
             </div>
 
             <div>
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Next follow-up</label>
+              <label class="mb-1 block text-xs font-semibold text-slate-700">Next follow-up</label>
               <input id="fNextFollowUpAt" type="datetime-local" class="input" />
             </div>
 
             <div class="full">
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Notes</label>
+              <label class="mb-1 block text-xs font-semibold text-slate-700">Notes</label>
               <textarea id="fNotes" class="textarea" placeholder="Internal notes, payment context, next steps..."></textarea>
             </div>
           </div>
@@ -821,7 +825,7 @@
           <div class="section-title">Log activity</div>
           <div class="field-grid mt-4">
             <div>
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Log type</label>
+              <label class="mb-1 block text-xs font-semibold text-slate-700">Log type</label>
               <select id="fLogType" class="select">
                 <option value="">None</option>
                 <option value="note">Internal note</option>
@@ -834,7 +838,7 @@
             </div>
 
             <div>
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Channel</label>
+              <label class="mb-1 block text-xs font-semibold text-slate-700">Channel</label>
               <select id="fLogChannel" class="select">
                 <option value="internal_note">Internal note</option>
                 <option value="email">Email</option>
@@ -845,12 +849,12 @@
             </div>
 
             <div class="full">
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Subject</label>
+              <label class="mb-1 block text-xs font-semibold text-slate-700">Subject</label>
               <input id="fLogSubject" class="input" placeholder="Optional subject line" />
             </div>
 
             <div class="full">
-              <label class="mb-2 block text-sm font-semibold text-slate-700">Log note / message</label>
+              <label class="mb-1 block text-xs font-semibold text-slate-700">Log note / message</label>
               <textarea id="fLogMessage" class="textarea" placeholder="What happened, what was sent, callback request, payment promise, etc."></textarea>
             </div>
 
@@ -1129,6 +1133,14 @@
       return '<span class="badge badge-unfulfilled">Unfulfilled</span>';
     }
 
+
+    function syncStatusBadge(row) {
+      const syncStatus = normalizeStatus(row?.sync_status);
+      const missing = row?.source_missing === true || syncStatus === 'missing_from_source';
+      if (!missing) return '';
+      return '<span class="badge badge-sync-missing">Missing source</span>';
+    }
+
     function contactStatusBadge(status) {
       const s = normalizeStatus(status);
       const cls = {
@@ -1355,8 +1367,11 @@
         }
         if (start && (!r.orderDate || stripTime(r.orderDate) < stripTime(start))) return false;
         if (end && (!r.orderDate || stripTime(r.orderDate) > stripTime(end))) return false;
+        const isMissingSource = r.source_missing === true || normalizeStatus(r.sync_status) === 'missing_from_source';
+        if (financial !== 'missing' && isMissingSource) return false;
+        if (financial === 'missing' && !isMissingSource) return false;
         if (financial === 'open' && !(r.is_open && Number(r.open_amount) > 0)) return false;
-        if (financial && financial !== 'open' && normalizeStatus(r.financial_status) !== financial) return false;
+        if (financial && !['open', 'missing'].includes(financial) && normalizeStatus(r.financial_status) !== financial) return false;
         if (aging && r.aging_bucket !== aging) return false;
         if (contactStatus && normalizeStatus(r.contact_status) !== contactStatus) return false;
         if (priority && normalizeStatus(r.workflow_priority) !== priority) return false;
@@ -1699,6 +1714,7 @@
               ${contactStatusBadge(c.contact_status)}
               ${priorityBadge(c.workflow_priority || 'normal')}
               ${queueBadge(c.customer_id)}
+              ${syncStatusBadge(c)}
             </div>
             <div class="mt-2 text-xs text-slate-500">
               ${escapeHtml(c.notes ? c.notes.slice(0, 70) + (c.notes.length > 70 ? '…' : '') : 'No notes yet')}
@@ -1769,6 +1785,7 @@
               ${contactStatusBadge(r.contact_status)}
               ${priorityBadge(r.workflow_priority || 'normal')}
               ${queueBadge(r.customer_id)}
+              ${syncStatusBadge(r)}
             </div>
             <div class="mt-1 text-xs text-slate-500">${escapeHtml(r.effective_email || 'No email')}</div>
           </td>
@@ -2158,7 +2175,7 @@
           status,
           updated_at: new Date().toISOString()
         };
-        if (status === 'completed') {
+        if (status === 'complete' || status === 'completed') {
           patch.last_attempt_at = new Date().toISOString();
         }
 
