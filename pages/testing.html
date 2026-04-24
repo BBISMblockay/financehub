@@ -1,0 +1,1113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Silo · Sales Reporting</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="./config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#f5f7fb;
+      --card:rgba(255,255,255,.92);
+      --line:rgba(15,23,42,.08);
+      --text:#0f172a;
+      --muted:#64748b;
+      --shadow:0 10px 30px rgba(15,23,42,.08);
+      --radius:24px;
+      --brand:#0f172a;
+    }
+    *{box-sizing:border-box}
+    html,body{
+      margin:0;padding:0;
+      font-family:Inter,system-ui,sans-serif;
+      color:var(--text);
+      background:linear-gradient(180deg,#f8fafc 0%,#eef2f7 100%);
+    }
+    .glass{
+      background:var(--card);
+      backdrop-filter:blur(14px);
+      border:1px solid var(--line);
+      box-shadow:var(--shadow);
+      border-radius:var(--radius);
+    }
+    .pill{border:1px solid var(--line);background:white;border-radius:999px}
+    .soft-scroll::-webkit-scrollbar{height:10px;width:10px}
+    .soft-scroll::-webkit-scrollbar-thumb{background:rgba(148,163,184,.45);border-radius:999px}
+    .soft-scroll::-webkit-scrollbar-track{background:transparent}
+    input,select{
+      outline:none;
+      border:1px solid rgba(148,163,184,.35);
+      background:white;
+      color:var(--text);
+      border-radius:16px;
+      transition:.18s ease;
+    }
+    input:focus,select:focus{
+      border-color:rgba(59,130,246,.45);
+      box-shadow:0 0 0 4px rgba(59,130,246,.10);
+    }
+    .btn{
+      border-radius:16px;
+      padding:.8rem 1rem;
+      font-weight:600;
+      transition:.18s ease;
+      border:1px solid transparent;
+      cursor:pointer;
+    }
+    .btn-primary{background:var(--brand);color:white}
+    .btn-primary:hover{background:#020617}
+    .btn-secondary{background:white;border-color:var(--line);color:var(--text)}
+    .btn-secondary:hover{background:#f8fafc}
+    .muted-label{
+      margin-bottom:.45rem;
+      display:block;
+      font-size:.68rem;
+      font-weight:700;
+      text-transform:uppercase;
+      letter-spacing:.18em;
+      color:#64748b;
+    }
+    .section-title{
+      font-size:1.05rem;
+      font-weight:800;
+      letter-spacing:-.02em;
+      color:#0f172a;
+    }
+    .section-sub{
+      margin-top:.15rem;
+      font-size:.86rem;
+      color:#64748b;
+    }
+    .status-text{
+      font-size:.86rem;
+      color:#64748b;
+    }
+    .kpi-value{
+      font-size:2rem;
+      line-height:1;
+      font-weight:800;
+      letter-spacing:-.04em;
+      color:#0f172a;
+    }
+    .kpi-sub{
+      margin-top:.4rem;
+      font-size:.82rem;
+      color:#64748b;
+    }
+    .num{text-align:right;font-variant-numeric:tabular-nums}
+    .mono{font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+    .badge{
+      display:inline-flex;
+      align-items:center;
+      gap:.4rem;
+      border-radius:999px;
+      padding:.25rem .65rem;
+      font-size:.75rem;
+      font-weight:700;
+      border:1px solid transparent;
+      white-space:nowrap;
+    }
+    .badge-warn{background:#fffbeb;color:#b45309;border-color:#fde68a}
+    .badge-bad{background:#fef2f2;color:#b91c1c;border-color:#fecaca}
+    .tab-btn{
+      border:1px solid rgba(148,163,184,.2);
+      background:#fff;
+      color:#334155;
+      border-radius:14px;
+      padding:.75rem .95rem;
+      font-size:.84rem;
+      font-weight:700;
+      cursor:pointer;
+      white-space:nowrap;
+    }
+    .tab-btn.active{
+      background:#0f172a;
+      color:#fff;
+      border-color:#0f172a;
+    }
+    .tab-panel{display:none}
+    .tab-panel.active{display:block}
+    .table-wrap{overflow:auto}
+    table{border-collapse:separate;border-spacing:0;width:100%}
+    .dense-table thead th{
+      position:sticky;
+      top:0;
+      z-index:2;
+      background:rgba(248,250,252,.98);
+      backdrop-filter:blur(10px);
+      font-size:11px;
+      text-transform:uppercase;
+      letter-spacing:.12em;
+      color:#64748b;
+      font-weight:700;
+      padding:11px 10px;
+      border-bottom:1px solid rgba(148,163,184,.22);
+      white-space:nowrap;
+      text-align:left;
+    }
+    .dense-table tbody td{
+      padding:10px 10px;
+      font-size:13px;
+      border-bottom:1px solid rgba(148,163,184,.14);
+      vertical-align:top;
+    }
+    .dense-table tbody tr:hover td{background:rgba(248,250,252,.72)}
+    .hidden{display:none!important}
+    canvas{max-height:360px!important}
+  </style>
+</head>
+<body>
+  <div class="min-h-screen px-4 py-4 sm:px-6 lg:px-8">
+    <div class="mx-auto max-w-[1800px] space-y-5">
+      <header class="glass px-5 py-5 sm:px-6">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Silo Reporting</div>
+            <div class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">Sales Reporting Suite</div>
+            <div class="mt-2 max-w-4xl text-sm text-slate-500">
+              BI-style reporting powered by SQL report functions on top of <span class="mono">sales_by_day</span>.
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <div id="lastRefreshPill" class="pill px-3 py-2 text-xs font-semibold text-slate-600">Last load: —</div>
+            <button id="btnRefresh" class="btn btn-secondary">Refresh</button>
+          </div>
+        </div>
+      </header>
+
+      <section class="glass p-4 sm:p-5">
+        <div class="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+          <div>
+            <div class="section-title">Filters</div>
+            <div class="section-sub">SQL-driven report tabs with tighter query shapes for speed.</div>
+          </div>
+          <div class="flex flex-wrap gap-2" id="presetButtons">
+            <button class="pill px-3 py-2 text-xs font-semibold text-slate-600 preset-btn active" data-preset="30d">Last 30d</button>
+            <button class="pill px-3 py-2 text-xs font-semibold text-slate-600 preset-btn" data-preset="90d">Last 90d</button>
+            <button class="pill px-3 py-2 text-xs font-semibold text-slate-600 preset-btn" data-preset="ytd">YTD</button>
+            <button class="pill px-3 py-2 text-xs font-semibold text-slate-600 preset-btn" data-preset="365d">Last 365d</button>
+            <button class="pill px-3 py-2 text-xs font-semibold text-slate-600 preset-btn" data-preset="custom">Custom</button>
+          </div>
+        </div>
+
+        <div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-8">
+          <div>
+            <label class="muted-label">Location</label>
+            <select id="locationFilter" class="w-full px-4 py-3 text-sm">
+              <option value="">All locations</option>
+            </select>
+          </div>
+          <div>
+            <label class="muted-label">Date From</label>
+            <input id="dateFrom" type="date" class="w-full px-4 py-3 text-sm" />
+          </div>
+          <div>
+            <label class="muted-label">Date To</label>
+            <input id="dateTo" type="date" class="w-full px-4 py-3 text-sm" />
+          </div>
+          <div>
+            <label class="muted-label">Product / SKU Search</label>
+            <input id="searchInput" type="text" class="w-full px-4 py-3 text-sm" placeholder="Search product, SKU, vendor..." />
+          </div>
+          <div>
+            <label class="muted-label">Product Type</label>
+            <select id="productTypeFilter" class="w-full px-4 py-3 text-sm">
+              <option value="">All product types</option>
+            </select>
+          </div>
+          <div>
+            <label class="muted-label">View Mode</label>
+            <select id="viewMode" class="w-full px-4 py-3 text-sm">
+              <option value="net" selected>Net Sales</option>
+              <option value="units">Units</option>
+              <option value="both">Both</option>
+            </select>
+          </div>
+          <div class="xl:col-span-2 flex items-end gap-2">
+            <button id="btnApply" class="btn btn-primary w-full">Apply</button>
+            <button id="btnReset" class="btn btn-secondary w-full">Reset</button>
+          </div>
+        </div>
+
+        <div class="mt-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div id="statusText" class="status-text">Ready.</div>
+          <div id="progressText" class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Idle</div>
+        </div>
+      </section>
+
+      <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
+        <div class="glass p-5">
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Rows</div>
+          <div id="kpiRows" class="mt-2 kpi-value">—</div>
+          <div class="kpi-sub">Aggregated row count</div>
+        </div>
+        <div class="glass p-5">
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Net Sales</div>
+          <div id="kpiNet" class="mt-2 kpi-value">—</div>
+          <div class="kpi-sub">Filtered period</div>
+        </div>
+        <div class="glass p-5">
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Units</div>
+          <div id="kpiUnits" class="mt-2 kpi-value">—</div>
+          <div class="kpi-sub">Quantity sold</div>
+        </div>
+        <div class="glass p-5">
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Orders</div>
+          <div id="kpiOrders" class="mt-2 kpi-value">—</div>
+          <div class="kpi-sub">Total orders</div>
+        </div>
+        <div class="glass p-5">
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Refunds</div>
+          <div id="kpiRefunds" class="mt-2 kpi-value">—</div>
+          <div class="kpi-sub">Refund field total</div>
+        </div>
+        <div class="glass p-5">
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Avg Net / Day</div>
+          <div id="kpiAvgDay" class="mt-2 kpi-value">—</div>
+          <div class="kpi-sub">Across filtered days</div>
+        </div>
+      </section>
+
+      <section class="glass p-4 sm:p-5">
+        <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <div class="section-title">Report Tabs</div>
+            <div class="section-sub">One page, multiple BI-style views.</div>
+          </div>
+          <div class="flex gap-2 overflow-auto soft-scroll pb-1">
+            <button class="tab-btn active" data-tab="overview">Overview</button>
+            <button class="tab-btn" data-tab="daily">Daily Breakdown</button>
+            <button class="tab-btn" data-tab="stores">Store Comparison</button>
+            <button class="tab-btn" data-tab="products">Product Explorer</button>
+            <button class="tab-btn" data-tab="types">Product Types</button>
+            <button class="tab-btn" data-tab="exceptions">Exceptions</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="tab-overview" class="tab-panel active space-y-5">
+        <div class="grid gap-5 xl:grid-cols-[1.2fr_.8fr]">
+          <section class="glass p-4 sm:p-5">
+            <div class="section-title">Net Sales by Day</div>
+            <div class="section-sub">Filtered daily trend.</div>
+            <div class="mt-4"><canvas id="dailyNetChart"></canvas></div>
+          </section>
+          <section class="glass p-4 sm:p-5">
+            <div class="section-title">Location Mix</div>
+            <div class="section-sub">Filtered net sales by store.</div>
+            <div class="mt-4"><canvas id="locationMixChart"></canvas></div>
+          </section>
+        </div>
+
+        <section class="glass p-4 sm:p-5">
+          <div class="section-title">Top-Level Summary</div>
+          <div class="section-sub">Quick BI-style rollup.</div>
+          <div class="mt-4 table-wrap soft-scroll">
+            <table class="dense-table min-w-[900px]">
+              <thead>
+                <tr>
+                  <th>Metric</th>
+                  <th class="num">Value</th>
+                  <th>Note</th>
+                </tr>
+              </thead>
+              <tbody id="overviewSummaryBody">
+                <tr><td colspan="3" class="px-3 py-10 text-center text-sm text-slate-500">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="tab-daily" class="tab-panel space-y-5">
+        <section class="glass p-4 sm:p-5">
+          <div class="section-title">Daily Sales Breakdown</div>
+          <div class="section-sub">Date-level rollup across the filtered range.</div>
+          <div class="mt-4 table-wrap soft-scroll">
+            <table class="dense-table min-w-[1200px]">
+              <thead>
+                <tr>
+                  <th>Day</th>
+                  <th class="num">Net</th>
+                  <th class="num">Gross</th>
+                  <th class="num">Units</th>
+                  <th class="num">Orders</th>
+                  <th class="num">Refunds</th>
+                  <th class="num">Discounts</th>
+                  <th class="num">Taxes</th>
+                  <th class="num">Shipping</th>
+                  <th class="num">Rows</th>
+                </tr>
+              </thead>
+              <tbody id="dailyBreakdownBody">
+                <tr><td colspan="10" class="px-3 py-10 text-center text-sm text-slate-500">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="tab-stores" class="tab-panel space-y-5">
+        <section class="glass p-4 sm:p-5">
+          <div class="section-title">Store Comparison</div>
+          <div class="section-sub">Location-level variance within the selected period.</div>
+          <div class="mt-4 table-wrap soft-scroll">
+            <table class="dense-table min-w-[1300px]">
+              <thead>
+                <tr>
+                  <th>Store</th>
+                  <th class="num">Net</th>
+                  <th class="num">Gross</th>
+                  <th class="num">Units</th>
+                  <th class="num">Orders</th>
+                  <th class="num">Refunds</th>
+                  <th class="num">Discounts</th>
+                  <th class="num">Taxes</th>
+                  <th class="num">Shipping</th>
+                  <th class="num">Avg Net / Day</th>
+                  <th class="num">Rows</th>
+                </tr>
+              </thead>
+              <tbody id="storeComparisonBody">
+                <tr><td colspan="11" class="px-3 py-10 text-center text-sm text-slate-500">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="tab-products" class="tab-panel space-y-5">
+        <section class="glass p-4 sm:p-5">
+          <div class="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+            <div>
+              <div class="section-title">Product Explorer</div>
+              <div class="section-sub">Top products from the filtered range.</div>
+            </div>
+            <div class="text-sm text-slate-500">Sorted by net sales</div>
+          </div>
+          <div class="mt-4 table-wrap soft-scroll">
+            <table class="dense-table min-w-[1550px]">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>SKU</th>
+                  <th>Type</th>
+                  <th>Vendor</th>
+                  <th class="num">Net</th>
+                  <th class="num">Gross</th>
+                  <th class="num">Units</th>
+                  <th class="num">Orders</th>
+                  <th class="num">Refunds</th>
+                  <th class="num">Discounts</th>
+                  <th class="num">Taxes</th>
+                  <th class="num">Shipping</th>
+                  <th class="num">Rows</th>
+                </tr>
+              </thead>
+              <tbody id="productExplorerBody">
+                <tr><td colspan="13" class="px-3 py-10 text-center text-sm text-slate-500">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+
+      <section id="tab-types" class="tab-panel space-y-5">
+        <div class="grid gap-5 xl:grid-cols-[1fr_1fr]">
+          <section class="glass p-4 sm:p-5">
+            <div class="section-title">Product Type Comparison</div>
+            <div class="section-sub">Net sales by product type.</div>
+            <div class="mt-4"><canvas id="typeMixChart"></canvas></div>
+          </section>
+          <section class="glass p-4 sm:p-5">
+            <div class="section-title">Product Type Table</div>
+            <div class="section-sub">Units × net sales comparison.</div>
+            <div class="mt-4 table-wrap soft-scroll">
+              <table class="dense-table min-w-[1100px]">
+                <thead>
+                  <tr>
+                    <th>Product Type</th>
+                    <th class="num">Net</th>
+                    <th class="num">Gross</th>
+                    <th class="num">Units</th>
+                    <th class="num">Orders</th>
+                    <th class="num">Refunds</th>
+                    <th class="num">Discounts</th>
+                    <th class="num">Taxes</th>
+                    <th class="num">Shipping</th>
+                    <th class="num">Rows</th>
+                  </tr>
+                </thead>
+                <tbody id="typeComparisonBody">
+                  <tr><td colspan="10" class="px-3 py-10 text-center text-sm text-slate-500">Loading…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <section id="tab-exceptions" class="tab-panel space-y-5">
+        <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div class="glass p-5">
+            <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Refund discrepancy rows</div>
+            <div id="excRefundDiscrepancy" class="mt-2 kpi-value">—</div>
+          </div>
+          <div class="glass p-5">
+            <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Blank SKU rows</div>
+            <div id="excBlankSku" class="mt-2 kpi-value">—</div>
+          </div>
+          <div class="glass p-5">
+            <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Negative net rows</div>
+            <div id="excNegativeNet" class="mt-2 kpi-value">—</div>
+          </div>
+          <div class="glass p-5">
+            <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Distinct stores</div>
+            <div id="excStoreCount" class="mt-2 kpi-value">—</div>
+          </div>
+        </div>
+
+        <section class="glass p-4 sm:p-5">
+          <div class="section-title">Exception Rows</div>
+          <div class="section-sub">Filtered raw rows flagged for review.</div>
+          <div class="mt-4 table-wrap soft-scroll">
+            <table class="dense-table min-w-[1450px]">
+              <thead>
+                <tr>
+                  <th>Day</th>
+                  <th>Store</th>
+                  <th>SKU</th>
+                  <th>Product</th>
+                  <th>Type</th>
+                  <th>Vendor</th>
+                  <th class="num">Net</th>
+                  <th class="num">Refunds</th>
+                  <th class="num">Units</th>
+                  <th>Flag</th>
+                </tr>
+              </thead>
+              <tbody id="exceptionRowsBody">
+                <tr><td colspan="10" class="px-3 py-10 text-center text-sm text-slate-500">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = window.__SILO_CONFIG__?.SUPABASE_URL || window.SUPABASE_URL || '';
+    const SUPABASE_ANON_KEY = window.__SILO_CONFIG__?.SUPABASE_ANON_KEY || window.SUPABASE_ANON_KEY || '';
+    const REDIRECT_TO = window.__SILO_CONFIG__?.REDIRECT_TO || window.REDIRECT_TO || '';
+    const REQUIRE_AUTH = Boolean(window.__SILO_CONFIG__?.REQUIRE_AUTH || window.REQUIRE_AUTH || false);
+    const EXCEPTION_LIMIT = 250;
+
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      document.body.innerHTML = `
+        <div class="min-h-screen flex items-center justify-center p-6">
+          <div class="glass max-w-xl p-6 text-center">
+            <div class="text-xl font-bold text-slate-900">Missing Supabase config</div>
+            <div class="mt-2 text-sm text-slate-500">Provide SUPABASE_URL and SUPABASE_ANON_KEY through window.__SILO_CONFIG__ or global variables before loading this page.</div>
+          </div>
+        </div>`;
+      throw new Error("Missing Supabase config");
+    }
+
+    const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const state = {
+      activePreset: '30d',
+      activeTab: 'overview',
+      lastLoadAt: null,
+      charts: {},
+      locationOptions: [],
+      typeOptions: [],
+      dailyRows: [],
+      storeRows: [],
+      typeRows: [],
+      productRows: [],
+      exceptionRows: []
+    };
+
+    const el = {
+      lastRefreshPill: document.getElementById('lastRefreshPill'),
+      btnRefresh: document.getElementById('btnRefresh'),
+      btnApply: document.getElementById('btnApply'),
+      btnReset: document.getElementById('btnReset'),
+      locationFilter: document.getElementById('locationFilter'),
+      dateFrom: document.getElementById('dateFrom'),
+      dateTo: document.getElementById('dateTo'),
+      searchInput: document.getElementById('searchInput'),
+      productTypeFilter: document.getElementById('productTypeFilter'),
+      viewMode: document.getElementById('viewMode'),
+      statusText: document.getElementById('statusText'),
+      progressText: document.getElementById('progressText'),
+      kpiRows: document.getElementById('kpiRows'),
+      kpiNet: document.getElementById('kpiNet'),
+      kpiUnits: document.getElementById('kpiUnits'),
+      kpiOrders: document.getElementById('kpiOrders'),
+      kpiRefunds: document.getElementById('kpiRefunds'),
+      kpiAvgDay: document.getElementById('kpiAvgDay'),
+      overviewSummaryBody: document.getElementById('overviewSummaryBody'),
+      dailyBreakdownBody: document.getElementById('dailyBreakdownBody'),
+      storeComparisonBody: document.getElementById('storeComparisonBody'),
+      productExplorerBody: document.getElementById('productExplorerBody'),
+      typeComparisonBody: document.getElementById('typeComparisonBody'),
+      excRefundDiscrepancy: document.getElementById('excRefundDiscrepancy'),
+      excBlankSku: document.getElementById('excBlankSku'),
+      excNegativeNet: document.getElementById('excNegativeNet'),
+      excStoreCount: document.getElementById('excStoreCount'),
+      exceptionRowsBody: document.getElementById('exceptionRowsBody')
+    };
+
+    function money(v) {
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(Number(v || 0));
+    }
+    function moneyExact(v) {
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(v || 0));
+    }
+    function numberFmt(v) {
+      return Number(v || 0).toLocaleString();
+    }
+    function fmtDate(v) {
+      return v || '—';
+    }
+    function escapeHtml(str) {
+      return String(str ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+    function setStatus(text) {
+      el.statusText.textContent = text;
+    }
+    function setProgress(text) {
+      el.progressText.textContent = text;
+    }
+    function formatTimestamp(ts) {
+      if (!ts) return '—';
+      const d = new Date(ts);
+      if (Number.isNaN(d.getTime())) return '—';
+      return d.toLocaleString();
+    }
+    function todayLocalDateString() {
+      const d = new Date();
+      const yyyy = d.getFullYear();
+      const mm = `${d.getMonth() + 1}`.padStart(2, '0');
+      const dd = `${d.getDate()}`.padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    function addDays(dateStr, days) {
+      const d = new Date(`${dateStr}T00:00:00`);
+      d.setDate(d.getDate() + days);
+      const yyyy = d.getFullYear();
+      const mm = `${d.getMonth() + 1}`.padStart(2, '0');
+      const dd = `${d.getDate()}`.padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    function startOfYear(dateStr) {
+      const y = String(dateStr).slice(0, 4);
+      return `${y}-01-01`;
+    }
+    function isRefundDiscrepancyRow(row) {
+      const p = String(row.product_name || '').trim().toLowerCase();
+      const s = String(row.sku || '').trim().toLowerCase();
+      return p === '[refund discrepancy]' || s === '[refund discrepancy]';
+    }
+    function isBlankSku(row) {
+      return !String(row.sku || '').trim();
+    }
+    function isNegativeNet(row) {
+      return Number(row.total_net_sales || 0) < 0;
+    }
+    function escapeOrValue(v) {
+      return String(v).replaceAll(',', '\\,').replaceAll('(', '\\(').replaceAll(')', '\\)');
+    }
+
+    function applyPreset(preset) {
+      state.activePreset = preset;
+      const today = todayLocalDateString();
+
+      if (preset === '30d') {
+        el.dateFrom.value = addDays(today, -29);
+        el.dateTo.value = today;
+      } else if (preset === '90d') {
+        el.dateFrom.value = addDays(today, -89);
+        el.dateTo.value = today;
+      } else if (preset === '365d') {
+        el.dateFrom.value = addDays(today, -364);
+        el.dateTo.value = today;
+      } else if (preset === 'ytd') {
+        el.dateFrom.value = startOfYear(today);
+        el.dateTo.value = today;
+      }
+
+      document.querySelectorAll('.preset-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.preset === preset);
+      });
+    }
+
+    function resetFilters() {
+      applyPreset('30d');
+      el.locationFilter.value = '';
+      el.searchInput.value = '';
+      el.productTypeFilter.value = '';
+      el.viewMode.value = 'net';
+    }
+
+    function getFilters() {
+      return {
+        p_date_from: el.dateFrom.value,
+        p_date_to: el.dateTo.value,
+        p_location_tag: el.locationFilter.value.trim() || null,
+        p_product_type: el.productTypeFilter.value.trim() || null,
+        p_search: el.searchInput.value.trim() || null
+      };
+    }
+
+    async function loadLocationOptions() {
+      const { data, error } = await sb
+        .from('sales_verification_store_comp_summary')
+        .select('location_tag')
+        .order('location_tag', { ascending: true });
+
+      if (error) throw error;
+
+      const locs = [...new Set((data || []).map(r => r.location_tag).filter(Boolean))];
+      state.locationOptions = locs;
+      el.locationFilter.innerHTML = ['<option value="">All locations</option>']
+        .concat(locs.map(loc => `<option value="${escapeHtml(loc)}">${escapeHtml(loc)}</option>`))
+        .join('');
+    }
+
+    async function loadTypeOptions() {
+      const filters = getFilters();
+      const { data, error } = await sb.rpc('report_sales_product_type_comparison', {
+        p_date_from: filters.p_date_from,
+        p_date_to: filters.p_date_to,
+        p_location_tag: filters.p_location_tag,
+        p_product_type: null,
+        p_search: null
+      });
+
+      if (error) throw error;
+
+      const types = [...new Set((data || []).map(r => r.product_type).filter(Boolean))];
+      state.typeOptions = types;
+      const current = el.productTypeFilter.value;
+      el.productTypeFilter.innerHTML = ['<option value="">All product types</option>']
+        .concat(types.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`))
+        .join('');
+      el.productTypeFilter.value = current && types.includes(current) ? current : '';
+    }
+
+    async function loadAggregates() {
+      const filters = getFilters();
+
+      setProgress('Loading daily');
+      const dailyRes = await sb.rpc('report_sales_daily_breakdown', filters);
+      if (dailyRes.error) throw dailyRes.error;
+      state.dailyRows = dailyRes.data || [];
+
+      setProgress('Loading stores');
+      const storesRes = await sb.rpc('report_sales_store_comparison', filters);
+      if (storesRes.error) throw storesRes.error;
+      state.storeRows = storesRes.data || [];
+
+      setProgress('Loading product types');
+      const typesRes = await sb.rpc('report_sales_product_type_comparison', filters);
+      if (typesRes.error) throw typesRes.error;
+      state.typeRows = typesRes.data || [];
+
+      setProgress('Loading products');
+      const productsRes = await sb.rpc('report_sales_top_products', {
+        ...filters,
+        p_limit: 250
+      });
+      if (productsRes.error) throw productsRes.error;
+      state.productRows = productsRes.data || [];
+    }
+
+    async function loadExceptions() {
+      const filters = getFilters();
+
+      let q = sb
+        .from('sales_by_day')
+        .select(`
+          day_date,
+          location_tag,
+          product_name,
+          sku,
+          product_type,
+          vendor_original,
+          total_net_sales,
+          total_refunds,
+          total_quantity_sold
+        `)
+        .gte('day_date', filters.p_date_from)
+        .lte('day_date', filters.p_date_to)
+        .order('day_date', { ascending: false })
+        .limit(EXCEPTION_LIMIT);
+
+      if (filters.p_location_tag) q = q.eq('location_tag', filters.p_location_tag);
+      if (filters.p_product_type) q = q.eq('product_type', filters.p_product_type);
+      if (filters.p_search) {
+        const term = escapeOrValue(`%${filters.p_search}%`);
+        q = q.or([
+          `product_name.ilike.${term}`,
+          `sku.ilike.${term}`,
+          `vendor_original.ilike.${term}`
+        ].join(','));
+      }
+
+      const { data, error } = await q;
+      if (error) throw error;
+
+      state.exceptionRows = (data || []).filter(r =>
+        isRefundDiscrepancyRow(r) || isBlankSku(r) || isNegativeNet(r)
+      );
+    }
+
+    function renderOverview() {
+      const daily = state.dailyRows;
+      const stores = state.storeRows;
+
+      const uniqueDays = daily.length || 1;
+      const net = daily.reduce((s,r) => s + Number(r.total_net_sales || 0), 0);
+      const gross = daily.reduce((s,r) => s + Number(r.total_gross_sales || 0), 0);
+      const units = daily.reduce((s,r) => s + Number(r.total_quantity_sold || 0), 0);
+      const orders = daily.reduce((s,r) => s + Number(r.total_orders || 0), 0);
+      const refunds = daily.reduce((s,r) => s + Number(r.total_refunds || 0), 0);
+      const discounts = daily.reduce((s,r) => s + Number(r.total_discounts || 0), 0);
+      const taxes = daily.reduce((s,r) => s + Number(r.taxes || 0), 0);
+      const shipping = daily.reduce((s,r) => s + Number(r.shipping || 0), 0);
+      const rowCount = daily.reduce((s,r) => s + Number(r.row_count || 0), 0);
+
+      el.kpiRows.textContent = numberFmt(rowCount);
+      el.kpiNet.textContent = money(net);
+      el.kpiUnits.textContent = numberFmt(units);
+      el.kpiOrders.textContent = numberFmt(orders);
+      el.kpiRefunds.textContent = money(refunds);
+      el.kpiAvgDay.textContent = money(net / uniqueDays);
+
+      const topStore = stores[0]?.location_tag || '—';
+      const topDay = daily.slice().sort((a,b) => Number(b.total_net_sales || 0) - Number(a.total_net_sales || 0))[0];
+
+      el.overviewSummaryBody.innerHTML = `
+        <tr><td>Gross Sales</td><td class="num mono">${moneyExact(gross)}</td><td>Before discounts and refunds</td></tr>
+        <tr><td>Discounts</td><td class="num mono">${moneyExact(discounts)}</td><td>Filtered period</td></tr>
+        <tr><td>Refunds</td><td class="num mono">${moneyExact(refunds)}</td><td>Refund field total</td></tr>
+        <tr><td>Taxes</td><td class="num mono">${moneyExact(taxes)}</td><td>Reported tax amount</td></tr>
+        <tr><td>Shipping</td><td class="num mono">${moneyExact(shipping)}</td><td>Reported shipping amount</td></tr>
+        <tr><td>Distinct Stores</td><td class="num mono">${numberFmt(stores.length)}</td><td>Top store: ${escapeHtml(topStore)}</td></tr>
+        <tr><td>Distinct Days</td><td class="num mono">${numberFmt(uniqueDays)}</td><td>Top day: ${topDay ? `${escapeHtml(topDay.day_date)} (${money(topDay.total_net_sales)})` : '—'}</td></tr>
+      `;
+    }
+
+    function renderDailyTable() {
+      const rows = state.dailyRows;
+      el.dailyBreakdownBody.innerHTML = rows.length
+        ? rows.map(r => `
+          <tr>
+            <td class="mono">${escapeHtml(r.day_date)}</td>
+            <td class="num mono">${moneyExact(r.total_net_sales)}</td>
+            <td class="num mono">${moneyExact(r.total_gross_sales)}</td>
+            <td class="num mono">${numberFmt(r.total_quantity_sold)}</td>
+            <td class="num mono">${numberFmt(r.total_orders)}</td>
+            <td class="num mono">${moneyExact(r.total_refunds)}</td>
+            <td class="num mono">${moneyExact(r.total_discounts)}</td>
+            <td class="num mono">${moneyExact(r.taxes)}</td>
+            <td class="num mono">${moneyExact(r.shipping)}</td>
+            <td class="num mono">${numberFmt(r.row_count)}</td>
+          </tr>
+        `).join('')
+        : `<tr><td colspan="10" class="px-3 py-10 text-center text-sm text-slate-500">No daily rows found.</td></tr>`;
+    }
+
+    function renderStoreTable() {
+      const rows = state.storeRows;
+      el.storeComparisonBody.innerHTML = rows.length
+        ? rows.map(r => `
+          <tr>
+            <td class="font-semibold text-slate-900">${escapeHtml(r.location_tag)}</td>
+            <td class="num mono">${moneyExact(r.total_net_sales)}</td>
+            <td class="num mono">${moneyExact(r.total_gross_sales)}</td>
+            <td class="num mono">${numberFmt(r.total_quantity_sold)}</td>
+            <td class="num mono">${numberFmt(r.total_orders)}</td>
+            <td class="num mono">${moneyExact(r.total_refunds)}</td>
+            <td class="num mono">${moneyExact(r.total_discounts)}</td>
+            <td class="num mono">${moneyExact(r.taxes)}</td>
+            <td class="num mono">${moneyExact(r.shipping)}</td>
+            <td class="num mono">${moneyExact(r.avg_net_per_day)}</td>
+            <td class="num mono">${numberFmt(r.row_count)}</td>
+          </tr>
+        `).join('')
+        : `<tr><td colspan="11" class="px-3 py-10 text-center text-sm text-slate-500">No store rows found.</td></tr>`;
+    }
+
+    function renderProductsTable() {
+      const rows = state.productRows;
+      el.productExplorerBody.innerHTML = rows.length
+        ? rows.map(r => `
+          <tr>
+            <td><div class="font-semibold text-slate-900">${escapeHtml(r.product_name)}</div></td>
+            <td class="mono">${escapeHtml(r.sku)}</td>
+            <td>${escapeHtml(r.product_type)}</td>
+            <td>${escapeHtml(r.vendor_original)}</td>
+            <td class="num mono">${moneyExact(r.total_net_sales)}</td>
+            <td class="num mono">${moneyExact(r.total_gross_sales)}</td>
+            <td class="num mono">${numberFmt(r.total_quantity_sold)}</td>
+            <td class="num mono">${numberFmt(r.total_orders)}</td>
+            <td class="num mono">${moneyExact(r.total_refunds)}</td>
+            <td class="num mono">${moneyExact(r.total_discounts)}</td>
+            <td class="num mono">${moneyExact(r.taxes)}</td>
+            <td class="num mono">${moneyExact(r.shipping)}</td>
+            <td class="num mono">${numberFmt(r.row_count)}</td>
+          </tr>
+        `).join('')
+        : `<tr><td colspan="13" class="px-3 py-10 text-center text-sm text-slate-500">No product rows found.</td></tr>`;
+    }
+
+    function renderTypesTable() {
+      const rows = state.typeRows;
+      el.typeComparisonBody.innerHTML = rows.length
+        ? rows.map(r => `
+          <tr>
+            <td class="font-semibold text-slate-900">${escapeHtml(r.product_type)}</td>
+            <td class="num mono">${moneyExact(r.total_net_sales)}</td>
+            <td class="num mono">${moneyExact(r.total_gross_sales)}</td>
+            <td class="num mono">${numberFmt(r.total_quantity_sold)}</td>
+            <td class="num mono">${numberFmt(r.total_orders)}</td>
+            <td class="num mono">${moneyExact(r.total_refunds)}</td>
+            <td class="num mono">${moneyExact(r.total_discounts)}</td>
+            <td class="num mono">${moneyExact(r.taxes)}</td>
+            <td class="num mono">${moneyExact(r.shipping)}</td>
+            <td class="num mono">${numberFmt(r.row_count)}</td>
+          </tr>
+        `).join('')
+        : `<tr><td colspan="10" class="px-3 py-10 text-center text-sm text-slate-500">No product type rows found.</td></tr>`;
+    }
+
+    function renderExceptions() {
+      const rows = state.exceptionRows;
+      const refundRows = rows.filter(isRefundDiscrepancyRow).length;
+      const blankSkuRows = rows.filter(isBlankSku).length;
+      const negativeRows = rows.filter(isNegativeNet).length;
+      const distinctStores = new Set(rows.map(r => r.location_tag).filter(Boolean)).size;
+
+      el.excRefundDiscrepancy.textContent = numberFmt(refundRows);
+      el.excBlankSku.textContent = numberFmt(blankSkuRows);
+      el.excNegativeNet.textContent = numberFmt(negativeRows);
+      el.excStoreCount.textContent = numberFmt(distinctStores);
+
+      el.exceptionRowsBody.innerHTML = rows.length
+        ? rows.map(r => {
+          const flags = [];
+          if (isRefundDiscrepancyRow(r)) flags.push('Refund discrepancy');
+          if (isBlankSku(r)) flags.push('Blank SKU');
+          if (isNegativeNet(r)) flags.push('Negative net');
+
+          return `
+            <tr>
+              <td class="mono">${escapeHtml(r.day_date || '—')}</td>
+              <td>${escapeHtml(r.location_tag || '—')}</td>
+              <td class="mono">${escapeHtml(r.sku || '—')}</td>
+              <td><div class="font-semibold text-slate-900">${escapeHtml(r.product_name || '—')}</div></td>
+              <td>${escapeHtml(r.product_type || '—')}</td>
+              <td>${escapeHtml(r.vendor_original || '—')}</td>
+              <td class="num mono">${moneyExact(r.total_net_sales)}</td>
+              <td class="num mono">${moneyExact(r.total_refunds)}</td>
+              <td class="num mono">${numberFmt(r.total_quantity_sold)}</td>
+              <td>${flags.map(f => `<span class="badge badge-warn mr-1">${escapeHtml(f)}</span>`).join('')}</td>
+            </tr>
+          `;
+        }).join('')
+        : `<tr><td colspan="10" class="px-3 py-10 text-center text-sm text-slate-500">No exception rows found.</td></tr>`;
+    }
+
+    function destroyChart(key) {
+      if (state.charts[key]) {
+        state.charts[key].destroy();
+        state.charts[key] = null;
+      }
+    }
+
+    function renderCharts() {
+      destroyChart('dailyNet');
+      destroyChart('locationMix');
+      destroyChart('typeMix');
+
+      const daily = state.dailyRows;
+      const stores = state.storeRows;
+      const types = state.typeRows;
+
+      const dailyCtx = document.getElementById('dailyNetChart');
+      state.charts.dailyNet = new Chart(dailyCtx, {
+        type: 'line',
+        data: {
+          labels: daily.map(r => r.day_date),
+          datasets: [{
+            label: 'Net Sales',
+            data: daily.map(r => Number(r.total_net_sales || 0)),
+            tension: 0.25
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: { y: { ticks: { callback: (v) => `$${Number(v).toLocaleString()}` } } }
+        }
+      });
+
+      const locationCtx = document.getElementById('locationMixChart');
+      state.charts.locationMix = new Chart(locationCtx, {
+        type: 'bar',
+        data: {
+          labels: stores.slice(0, 12).map(r => r.location_tag),
+          datasets: [{
+            label: 'Net Sales',
+            data: stores.slice(0, 12).map(r => Number(r.total_net_sales || 0))
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: { y: { ticks: { callback: (v) => `$${Number(v).toLocaleString()}` } } }
+        }
+      });
+
+      const typeCtx = document.getElementById('typeMixChart');
+      state.charts.typeMix = new Chart(typeCtx, {
+        type: 'bar',
+        data: {
+          labels: types.slice(0, 12).map(r => r.product_type),
+          datasets: [{
+            label: 'Net Sales',
+            data: types.slice(0, 12).map(r => Number(r.total_net_sales || 0))
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: { y: { ticks: { callback: (v) => `$${Number(v).toLocaleString()}` } } }
+        }
+      });
+    }
+
+    function renderAll() {
+      renderOverview();
+      renderDailyTable();
+      renderStoreTable();
+      renderProductsTable();
+      renderTypesTable();
+      renderExceptions();
+      renderCharts();
+      el.lastRefreshPill.textContent = `Last load: ${formatTimestamp(state.lastLoadAt)}`;
+    }
+
+    async function runLoad() {
+      setStatus('Loading reporting dataset...');
+      setProgress('Starting');
+
+      try {
+        await loadTypeOptions();
+        await loadAggregates();
+
+        setProgress('Loading exceptions');
+        await loadExceptions();
+
+        state.lastLoadAt = new Date().toISOString();
+
+        const totalAggRows = state.dailyRows.reduce((s,r) => s + Number(r.row_count || 0), 0);
+        setStatus(`Loaded reporting views. Aggregated rows represented: ${numberFmt(totalAggRows)}.`);
+        setProgress('Rendering');
+        renderAll();
+        setProgress('Complete');
+      } catch (e) {
+        console.error(e);
+        setStatus(`Load failed: ${e.message || 'Unknown error'}`);
+        setProgress('Failed');
+        alert(e.message || 'Load failed');
+      }
+    }
+
+    function switchTab(tab) {
+      state.activeTab = tab;
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === tab);
+      });
+      document.querySelectorAll('.tab-panel').forEach(panel => {
+        panel.classList.toggle('active', panel.id === `tab-${tab}`);
+      });
+    }
+
+    async function boot() {
+      if (REQUIRE_AUTH) {
+        try {
+          const { data, error } = await sb.auth.getSession();
+          if (error) throw error;
+          if (!data?.session) {
+            if (REDIRECT_TO) {
+              window.location.href = REDIRECT_TO;
+              return;
+            }
+            document.body.innerHTML = `
+              <div class="min-h-screen flex items-center justify-center p-6">
+                <div class="glass max-w-xl p-6 text-center">
+                  <div class="text-xl font-bold text-slate-900">Authentication required</div>
+                  <div class="mt-2 text-sm text-slate-500">Enable auth on this page through config.js and provide a REDIRECT_TO destination, or sign in before loading this page.</div>
+                </div>
+              </div>`;
+            return;
+          }
+        } catch (e) {
+          console.error(e);
+          alert(e.message || 'Auth check failed');
+          return;
+        }
+      }
+
+      await loadLocationOptions();
+      resetFilters();
+      await runLoad();
+    }
+
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+    });
+
+    document.querySelectorAll('.preset-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        applyPreset(btn.dataset.preset);
+      });
+    });
+
+    el.btnApply.addEventListener('click', async () => {
+      await runLoad();
+    });
+
+    el.btnRefresh.addEventListener('click', async () => {
+      await runLoad();
+    });
+
+    el.btnReset.addEventListener('click', async () => {
+      resetFilters();
+      await runLoad();
+    });
+
+    boot();
+  </script>
+</body>
+</html>
