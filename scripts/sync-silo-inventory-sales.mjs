@@ -17,7 +17,12 @@
 
 import crypto from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
-import { INVENTORY_SOURCES, validateSources } from "../config/silo-sources.mjs";
+import {
+  INVENTORY_SOURCES,
+  getInventorySources,
+  getSalesSources,
+  validateSources
+} from "../config/silo-sources.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -483,10 +488,16 @@ function mapSalesRow(source, raw) {
 }
 
 async function syncInventory() {
+  const inventorySources = getInventorySources(INVENTORY_SOURCES);
   const allRows = [];
   const stats = [];
 
-  for (const source of INVENTORY_SOURCES) {
+  console.log(`[inventory] ${inventorySources.length} sources enabled`);
+
+  for (const source of inventorySources) {
+    console.log(`--- INVENTORY SOURCE START: ${source.location_tag} ---`);
+    console.log(`inventory_csv_url: ${source.inventory_csv_url}`);
+
     const csvText = await fetchText(source.inventory_csv_url);
     const parsed = rowsToObjects(csvText);
     const mapped = parsed.rows.map((r) => mapInventoryRow(source, r)).filter(Boolean);
@@ -499,6 +510,12 @@ async function syncInventory() {
       mapped_rows: mapped.length,
       collapsed_rows: collapsed.length,
     });
+
+    console.log(
+      `[inventory stats] ${source.location_tag}: raw=${parsed.rows.length}, mapped=${mapped.length}, collapsed=${collapsed.length}`
+    );
+
+    console.log(`--- INVENTORY SOURCE END: ${source.location_tag} ---`);
   }
 
   if (!allRows.length) {
@@ -514,10 +531,13 @@ async function syncInventory() {
 }
 
 async function syncSalesByDay() {
+  const salesSources = getSalesSources(INVENTORY_SOURCES);
   let totalUpserted = 0;
   const stats = [];
 
-  for (const source of INVENTORY_SOURCES) {
+  console.log(`[sales] ${salesSources.length} sources enabled`);
+
+  for (const source of salesSources) {
     console.log(`--- SALES SOURCE START: ${source.location_tag} ---`);
     console.log(`sales_daily_csv_url: ${source.sales_daily_csv_url}`);
 
