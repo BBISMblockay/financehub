@@ -21,7 +21,7 @@ import {
   INVENTORY_SOURCES,
   getInventorySources,
   getSalesSources,
-  validateSources
+  validateSources,
 } from "../config/silo-sources.mjs";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -163,10 +163,16 @@ function isRetryableUpsertError(message) {
 }
 
 async function fetchText(url) {
+  if (!url) {
+    throw new Error("fetchText called without a URL");
+  }
+
   const res = await fetch(url, { cache: "no-store" });
+
   if (!res.ok) {
     throw new Error(`HTTP ${res.status} for ${url}`);
   }
+
   return await res.text();
 }
 
@@ -187,11 +193,13 @@ function parseCSV(text) {
         i += 2;
         continue;
       }
+
       if (c === '"') {
         inQuotes = false;
         i += 1;
         continue;
       }
+
       field += c;
       i += 1;
       continue;
@@ -202,16 +210,19 @@ function parseCSV(text) {
       i += 1;
       continue;
     }
+
     if (c === ",") {
       row.push(field);
       field = "";
       i += 1;
       continue;
     }
+
     if (c === "\r") {
       i += 1;
       continue;
     }
+
     if (c === "\n") {
       row.push(field);
       rows.push(row);
@@ -249,9 +260,11 @@ function rowsToObjects(csvText) {
 
 function chunk(array, size = 500) {
   const out = [];
+
   for (let i = 0; i < array.length; i += size) {
     out.push(array.slice(i, i + size));
   }
+
   return out;
 }
 
@@ -275,7 +288,7 @@ async function upsertInChunks(
         .upsert(group, { onConflict, ignoreDuplicates });
 
       if (!error) {
-        if ((idx + 1) % 100 === 0 || idx === groups.length - 1) {
+        if ((idx + 1) % 25 === 0 || idx === groups.length - 1) {
           console.log(
             `[upsert] ${table} chunk ${idx + 1}/${groups.length} succeeded`
           );
@@ -293,8 +306,9 @@ async function upsertInChunks(
       const waitMs = 1500 * Math.pow(2, attempt - 1);
       console.warn(
         `[retry] ${table} chunk ${idx + 1}/${groups.length} failed ` +
-        `(attempt ${attempt}/${maxRetries}) - waiting ${waitMs}ms`
+          `(attempt ${attempt}/${maxRetries}) - waiting ${waitMs}ms`
       );
+
       await sleep(waitMs);
     }
   }
@@ -319,7 +333,8 @@ function collapseInventoryRows(mappedRows) {
     }
 
     existing.total_available_quantity =
-      (existing.total_available_quantity ?? 0) + (row.total_available_quantity ?? 0);
+      (existing.total_available_quantity ?? 0) +
+      (row.total_available_quantity ?? 0);
 
     existing.total_available_inventory_value =
       Number(existing.total_available_inventory_value ?? 0) +
@@ -340,18 +355,36 @@ function collapseInventoryRows(mappedRows) {
       Number(row.est_days_before_oos ?? 0)
     );
 
-    if (!existing.product_title && row.product_title) existing.product_title = row.product_title;
-    if (!existing.variant_title && row.variant_title) existing.variant_title = row.variant_title;
-    if (!existing.product_type && row.product_type) existing.product_type = row.product_type;
-    if (!existing.variant_barcode && row.variant_barcode) existing.variant_barcode = row.variant_barcode;
-    if (!existing.product_image_url && row.product_image_url) existing.product_image_url = row.product_image_url;
-    if (!existing.shop_domain && row.shop_domain) existing.shop_domain = row.shop_domain;
+    if (!existing.product_title && row.product_title) {
+      existing.product_title = row.product_title;
+    }
+
+    if (!existing.variant_title && row.variant_title) {
+      existing.variant_title = row.variant_title;
+    }
+
+    if (!existing.product_type && row.product_type) {
+      existing.product_type = row.product_type;
+    }
+
+    if (!existing.variant_barcode && row.variant_barcode) {
+      existing.variant_barcode = row.variant_barcode;
+    }
+
+    if (!existing.product_image_url && row.product_image_url) {
+      existing.product_image_url = row.product_image_url;
+    }
+
+    if (!existing.shop_domain && row.shop_domain) {
+      existing.shop_domain = row.shop_domain;
+    }
 
     if (row.location) existing._locations.add(row.location);
   }
 
   return [...byKey.values()].map((row) => {
     const locs = [...row._locations];
+
     row.location =
       locs.length <= 3
         ? locs.join(", ")
@@ -388,7 +421,8 @@ function collapseSalesRows(mappedRows) {
       (existing.total_orders ?? 0) + (row.total_orders ?? 0);
 
     existing.total_gross_sales =
-      Number(existing.total_gross_sales ?? 0) + Number(row.total_gross_sales ?? 0);
+      Number(existing.total_gross_sales ?? 0) +
+      Number(row.total_gross_sales ?? 0);
 
     existing.total_discounts =
       Number(existing.total_discounts ?? 0) + Number(row.total_discounts ?? 0);
@@ -399,8 +433,7 @@ function collapseSalesRows(mappedRows) {
     existing.total_net_sales =
       Number(existing.total_net_sales ?? 0) + Number(row.total_net_sales ?? 0);
 
-    existing.taxes =
-      Number(existing.taxes ?? 0) + Number(row.taxes ?? 0);
+    existing.taxes = Number(existing.taxes ?? 0) + Number(row.taxes ?? 0);
 
     existing.shipping =
       Number(existing.shipping ?? 0) + Number(row.shipping ?? 0);
@@ -408,11 +441,25 @@ function collapseSalesRows(mappedRows) {
     existing.total_sales =
       Number(existing.total_sales ?? 0) + Number(row.total_sales ?? 0);
 
-    if (!existing.product_name && row.product_name) existing.product_name = row.product_name;
-    if (!existing.sku && row.sku) existing.sku = row.sku;
-    if (!existing.product_type && row.product_type) existing.product_type = row.product_type;
-    if (!existing.vendor_original && row.vendor_original) existing.vendor_original = row.vendor_original;
-    if (!existing.shop_domain && row.shop_domain) existing.shop_domain = row.shop_domain;
+    if (!existing.product_name && row.product_name) {
+      existing.product_name = row.product_name;
+    }
+
+    if (!existing.sku && row.sku) {
+      existing.sku = row.sku;
+    }
+
+    if (!existing.product_type && row.product_type) {
+      existing.product_type = row.product_type;
+    }
+
+    if (!existing.vendor_original && row.vendor_original) {
+      existing.vendor_original = row.vendor_original;
+    }
+
+    if (!existing.shop_domain && row.shop_domain) {
+      existing.shop_domain = row.shop_domain;
+    }
   }
 
   return [...byKey.values()];
@@ -487,6 +534,12 @@ function mapSalesRow(source, raw) {
   };
 }
 
+function getSalesChunkSize(rowCount) {
+  if (rowCount >= 100000) return 500;
+  if (rowCount >= 50000) return 750;
+  return 1000;
+}
+
 async function syncInventory() {
   const inventorySources = getInventorySources(INVENTORY_SOURCES);
   const allRows = [];
@@ -504,6 +557,7 @@ async function syncInventory() {
     const collapsed = collapseInventoryRows(mapped);
 
     allRows.push(...collapsed);
+
     stats.push({
       location_tag: source.location_tag,
       raw_rows: parsed.rows.length,
@@ -542,43 +596,10 @@ async function syncSalesByDay() {
     console.log(`sales_daily_csv_url: ${source.sales_daily_csv_url}`);
 
     const csvText = await fetchText(source.sales_daily_csv_url);
-    console.log(`[sales csv length] ${source.location_tag}: ${csvText.length}`);
-
     const parsed = rowsToObjects(csvText);
 
-    console.log(`[sales headers] ${source.location_tag}:`, parsed.headers);
-    console.log(`[sales first raw row] ${source.location_tag}:`, parsed.rows[0]);
-
-    const sampleDayValue = parsed.rows?.[0]?.[SALES_HEADERS.dayDate];
-    const sampleSkuValue = parsed.rows?.[0]?.[SALES_HEADERS.sku];
-    const sampleProductValue = parsed.rows?.[0]?.[SALES_HEADERS.productName];
-
-    console.log(`[sales sample mapped keys] ${source.location_tag}:`, {
-      expectedDayHeader: SALES_HEADERS.dayDate,
-      expectedSkuHeader: SALES_HEADERS.sku,
-      expectedProductHeader: SALES_HEADERS.productName,
-      sampleDayValue,
-      sampleSkuValue,
-      sampleProductValue,
-      parsedRowKeys: parsed.rows?.[0] ? Object.keys(parsed.rows[0]) : [],
-    });
-
     const mapped = parsed.rows
-      .map((r, idx) => {
-        const row = mapSalesRow(source, r);
-
-        if (idx < 3) {
-          console.log(`[sales map result] ${source.location_tag} row ${idx}:`, {
-            inputDay: r[SALES_HEADERS.dayDate],
-            parsedDay: parseDateOnly(r[SALES_HEADERS.dayDate]),
-            inputSku: r[SALES_HEADERS.sku],
-            inputProduct: r[SALES_HEADERS.productName],
-            mapped: row,
-          });
-        }
-
-        return row;
-      })
+      .map((r) => mapSalesRow(source, r))
       .filter(Boolean);
 
     const collapsed = collapseSalesRows(mapped);
@@ -595,8 +616,23 @@ async function syncSalesByDay() {
     );
 
     if (collapsed.length) {
-      await upsertInChunks("sales_by_day", collapsed, "row_hash", false, 25, 4);
+      const salesChunkSize = getSalesChunkSize(collapsed.length);
+
+      console.log(
+        `[sales upsert start] ${source.location_tag}: rows=${collapsed.length}, chunk_size=${salesChunkSize}`
+      );
+
+      await upsertInChunks(
+        "sales_by_day",
+        collapsed,
+        "row_hash",
+        false,
+        salesChunkSize,
+        4
+      );
+
       totalUpserted += collapsed.length;
+
       console.log(`[sales upserted] ${source.location_tag}: ${collapsed.length}`);
     } else {
       console.log(`[sales upserted] ${source.location_tag}: 0`);
@@ -614,7 +650,9 @@ async function syncSalesByDay() {
 async function refreshSalesVerificationSummary() {
   console.log("Refreshing sales verification summary...");
 
-  const { error } = await supabase.rpc("refresh_sales_verification_store_comp_summary");
+  const { error } = await supabase.rpc(
+    "refresh_sales_verification_store_comp_summary"
+  );
 
   if (error) {
     throw new Error(`sales summary refresh failed: ${error.message}`);
