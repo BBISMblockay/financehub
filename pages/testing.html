@@ -324,7 +324,7 @@
         .select('id, sku, product_title, variant_title, product_type, upc, barcode, msrp, unit_cost, is_active, product_ready_for_po')
         .eq('is_active', true)
         .order('product_title',{ascending:true})
-        .limit(20000);
+        .limit(2000000);
       if(error) throw error;
       state.catalogRows=(data||[]).sort(compareProductLines);
     }
