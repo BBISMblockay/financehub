@@ -55,7 +55,7 @@ export const INVENTORY_SOURCES = [
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/1aLW8A8QrV07K8KQAo3pR2-ZBnbxGQRxt5OgOMJmeXBI/export?format=csv&gid=1857460869",
     sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/1aLW8A8QrV07K8KQAo3pR2-ZBnbxGQRxt5OgOMJmeXBI/export?format=csv&gid=0",
+      "https://docs.google.com/spreadsheets/d/1xLwzVUkMAJzgWbx0HaHLGIuk7cgAX0sFOyqj9Shr_Rc/export?format=csv&gid=0",
   },
   {
     location_tag: "mission_viejo",
