@@ -306,8 +306,28 @@
 
     async function loadFactories(){ const {data,error}=await sb.from('factories').select('id, factory_name, short_code').order('factory_name'); if(error) throw error; state.factories=data||[]; renderFactoryOptions(); renderFactoryFilter(); }
     async function loadPOs(){ const {data,error}=await sb.from('v_po_header_summary').select('*').order('created_at',{ascending:false}).limit(300); if(error) throw error; state.poRows=data||[]; renderPOList(); }
-    async function loadPOLines(poId){ if(!poId){ state.currentLines=[]; renderLines(); return; } const {data,error}=await sb.from('po_lines').select('*').eq('po_header_id',poId).order('created_at',{ascending:true}); if(error) throw error; state.currentLines=data||[]; renderLines(); }
-    async function loadCatalogProducts(){ const {data,error}=await sb.from('products_master').select('id, sku, product_title, variant_title, product_type, upc, msrp, unit_cost, is_active').order('product_title',{ascending:true}).limit(5000); if(error) throw error; state.catalogRows=data||[]; }
+    async function loadPOLines(poId){
+      if(!poId){ state.currentLines=[]; renderLines(); return; }
+      const {data,error}=await sb
+        .from('po_lines')
+        .select('*')
+        .eq('po_header_id',poId)
+        .order('created_at',{ascending:true});
+      if(error) throw error;
+      state.currentLines=(data||[]).sort(compareProductLines);
+      renderLines();
+    }
+
+    async function loadCatalogProducts(){
+      const {data,error}=await sb
+        .from('products_master')
+        .select('id, sku, product_title, variant_title, product_type, upc, barcode, msrp, unit_cost, is_active, product_ready_for_po')
+        .eq('is_active', true)
+        .order('product_title',{ascending:true})
+        .limit(20000);
+      if(error) throw error;
+      state.catalogRows=(data||[]).sort(compareProductLines);
+    }
 
     async function openPO(poId){ const po=state.poRows.find(x=>x.id===poId); if(!po) return; state.currentPO={...po}; fillEditor(po); setEditorEnabled(true); await loadPOLines(po.id); renderPOList(); }
 
@@ -360,15 +380,47 @@
     }
 
     async function searchCatalog(){
-      if(!state.catalogRows.length) await loadCatalogProducts();
-      const raw=el.catalogSearch.value.trim().toLowerCase(); let rows=[...state.catalogRows].filter(row=>row.is_active!==false);
-      if(raw){ const terms=raw.split(/\s+/).filter(Boolean); rows=rows.filter(row=>{ const hay=[row.sku,row.product_title,row.variant_title,row.product_type,row.upc].filter(Boolean).join(' ').toLowerCase(); return terms.every(term=>hay.includes(term)); }); }
-      state.catalogResults=rows.slice(0,250); renderCatalogResults();
+      const raw=el.catalogSearch.value.trim();
+
+      let query=sb
+        .from('products_master')
+        .select('id, sku, product_title, variant_title, product_type, upc, barcode, msrp, unit_cost, is_active, product_ready_for_po')
+        .eq('is_active', true)
+        .limit(1000);
+
+      if(raw){
+        const cleaned=raw.replaceAll(',', ' ').trim();
+        const terms=cleaned.split(/\s+/).filter(Boolean).slice(0,6);
+        const orParts=[];
+        terms.forEach(term=>{
+          const safe=term.replace(/[%,]/g,'').trim();
+          if(!safe) return;
+          orParts.push(`sku.ilike.%${safe}%`);
+          orParts.push(`product_title.ilike.%${safe}%`);
+          orParts.push(`variant_title.ilike.%${safe}%`);
+          orParts.push(`product_type.ilike.%${safe}%`);
+          orParts.push(`upc.ilike.%${safe}%`);
+          orParts.push(`barcode.ilike.%${safe}%`);
+        });
+        if(orParts.length) query=query.or(orParts.join(','));
+      }
+
+      const {data,error}=await query.order('product_title',{ascending:true});
+      if(error) throw error;
+
+      const rows=(data||[]).sort(compareProductLines);
+      state.catalogResults=rows.slice(0,1000);
+
+      const existing=new Map(state.catalogRows.map(row=>[String(row.id),row]));
+      rows.forEach(row=>existing.set(String(row.id),row));
+      state.catalogRows=Array.from(existing.values()).sort(compareProductLines);
+
+      renderCatalogResults();
     }
 
     function productToLine(productId, qty){
-      const p=state.catalogRows.find(x=>String(x.id)===String(productId));
-      return { po_header_id:state.currentPO.id, product_master_id:productId, product_type_snapshot:p?.product_type||null, title_snapshot:p?.product_title||null, variant_title_snapshot:p?.variant_title||null, sku_snapshot:p?.sku||null, upc_snapshot:p?.upc||null, retail_price:p?.msrp ?? null, unit_cost:p?.unit_cost ?? null, qty:Number(qty||0), retail_value:Number(qty||0)*Number(p?.msrp||0) };
+      const p=state.catalogRows.find(x=>String(x.id)===String(productId)) || state.catalogResults.find(x=>String(x.id)===String(productId));
+      return { po_header_id:state.currentPO.id, product_master_id:productId, product_type_snapshot:p?.product_type||null, title_snapshot:p?.product_title||null, variant_title_snapshot:p?.variant_title||null, sku_snapshot:p?.sku||null, upc_snapshot:p?.upc||p?.barcode||null, barcode_snapshot:p?.barcode||p?.upc||null, retail_price:p?.msrp ?? null, unit_cost:p?.unit_cost ?? null, qty:Number(qty||0), retail_value:Number(qty||0)*Number(p?.msrp||0) };
     }
 
     async function saveHeader(){
@@ -487,6 +539,27 @@
       const numeric=normalized.match(/\d+(\.\d+)?/); if(numeric) return Number(numeric[0]);
       const alphaOrder={xxs:1,xs:2,s:3,small:3,m:4,medium:4,l:5,large:5,xl:6,xxl:7,'2xl':7,xxxl:8,'3xl':8,xxxxl:9,'4xl':9,os:50,'one size':50,'one size fits all':50};
       return alphaOrder[normalized] ?? null;
+    }
+
+
+    function compareProductLines(a,b){
+      const aTitle=String(a.product_title||a.title_snapshot||'').toLowerCase();
+      const bTitle=String(b.product_title||b.title_snapshot||'').toLowerCase();
+      if(aTitle!==bTitle) return aTitle.localeCompare(bTitle,undefined,{numeric:true});
+
+      const aSize=parseSize(a.variant_title||a.variant_title_snapshot);
+      const bSize=parseSize(b.variant_title||b.variant_title_snapshot);
+      if(aSize!==null && bSize!==null) return aSize-bSize;
+      if(aSize!==null) return -1;
+      if(bSize!==null) return 1;
+
+      const aUpc=String(a.upc||a.upc_snapshot||a.barcode||a.barcode_snapshot||'');
+      const bUpc=String(b.upc||b.upc_snapshot||b.barcode||b.barcode_snapshot||'');
+      if(aUpc && bUpc) return aUpc.localeCompare(bUpc,undefined,{numeric:true});
+
+      const aSku=String(a.sku||a.sku_snapshot||'');
+      const bSku=String(b.sku||b.sku_snapshot||'');
+      return aSku.localeCompare(bSku,undefined,{numeric:true});
     }
 
     function buildVendorPdfHtml(){
