@@ -1034,6 +1034,42 @@
       }
     }
 
+    function parseSize(value) {
+  const raw = String(value || '').trim().toLowerCase();
+  if (!raw) return null;
+
+  const normalized = raw
+    .replace(/^size\s*/i, '')
+    .replace(/men'?s|women'?s|youth|adult/gi, '')
+    .trim();
+
+  const numeric = normalized.match(/\d+(\.\d+)?/);
+  if (numeric) return Number(numeric[0]);
+
+  const alphaOrder = {
+    xxs: 1,
+    xs: 2,
+    s: 3,
+    small: 3,
+    m: 4,
+    medium: 4,
+    l: 5,
+    large: 5,
+    xl: 6,
+    xxl: 7,
+    '2xl': 7,
+    xxxl: 8,
+    '3xl': 8,
+    xxxxl: 9,
+    '4xl': 9,
+    os: 50,
+    'one size': 50,
+    'one size fits all': 50
+  };
+
+  return alphaOrder[normalized] ?? null;
+}
+
     function buildVendorPdfHtml() {
   if (!state.currentPO) return '';
 
@@ -1053,11 +1089,23 @@
   const productPages = Object.entries(productPagesMap)
     .map(([title, productLines]) => ({
       title,
-      lines: [...productLines].sort((a, b) => {
-        const aVal = `${a.variant_title_snapshot || ''} ${a.sku_snapshot || ''}`.toLowerCase();
-        const bVal = `${b.variant_title_snapshot || ''} ${b.sku_snapshot || ''}`.toLowerCase();
-        return aVal.localeCompare(bVal);
-      })
+     lines: [...productLines].sort((a, b) => {
+  const aSize = parseSize(a.variant_title_snapshot);
+  const bSize = parseSize(b.variant_title_snapshot);
+
+  if (aSize !== null && bSize !== null) return aSize - bSize;
+  if (aSize !== null) return -1;
+  if (bSize !== null) return 1;
+
+  const aUpc = String(a.upc_snapshot || '');
+  const bUpc = String(b.upc_snapshot || '');
+
+  if (aUpc && bUpc) return aUpc.localeCompare(bUpc, undefined, { numeric: true });
+
+  const aSku = String(a.sku_snapshot || '');
+  const bSku = String(b.sku_snapshot || '');
+  return aSku.localeCompare(bSku, undefined, { numeric: true });
+})
     }))
     .sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()));
 
