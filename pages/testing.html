@@ -182,7 +182,7 @@
         <div><div class="text-lg font-bold text-slate-900">Add Catalog Line</div><div class="text-sm text-slate-500">Search products_master and add linked PO lines.</div></div>
         <div class="flex items-center gap-2"><button id="btnAddSelectedCatalog" class="btn btn-primary">Add Selected</button><button class="btn btn-secondary" data-close="catalogModal">Close</button></div>
       </div>
-      <div class="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_160px]"><input id="catalogSearch" type="text" class="w-full px-4 py-3 text-sm" placeholder="Search SKU, title, variant, product type..." /><button id="btnSearchCatalog" class="btn btn-primary">Search</button></div>
+      <div class="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_160px]"><input id="catalogSearch" type="text" class="w-full px-4 py-3 text-sm" placeholder="Search SKU, UPC, title, variant, product type..." /><button id="btnSearchCatalog" class="btn btn-primary">Search</button></div>
       <div class="mt-4 max-h-[60vh] overflow-auto soft-scroll">
         <table class="min-w-full text-sm">
           <thead><tr><th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">SKU</th><th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">Title</th><th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">Variant</th><th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">Type</th><th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Retail</th><th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Cost</th><th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Qty</th><th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Add</th></tr></thead>
@@ -380,41 +380,24 @@
     }
 
     async function searchCatalog(){
-      const raw=el.catalogSearch.value.trim();
+      const raw = el.catalogSearch.value.trim();
 
-      let query=sb
-        .from('products_master')
-        .select('id, sku, product_title, variant_title, product_type, upc, barcode, msrp, unit_cost, is_active, product_ready_for_po')
-        .eq('is_active', true)
-        .limit(20000);
-
-      if(raw){
-        const cleaned=raw.replaceAll(',', ' ').trim();
-        const terms=cleaned.split(/\s+/).filter(Boolean).slice(0,6);
-        const orParts=[];
-        terms.forEach(term=>{
-          const safe=term.replace(/[%,]/g,'').trim();
-          if(!safe) return;
-          orParts.push(`sku.ilike.%${safe}%`);
-          orParts.push(`product_title.ilike.%${safe}%`);
-          orParts.push(`variant_title.ilike.%${safe}%`);
-          orParts.push(`product_type.ilike.%${safe}%`);
-          orParts.push(`upc.ilike.%${safe}%`);
-          orParts.push(`barcode.ilike.%${safe}%`);
-        });
-        if(orParts.length) query=query.or(orParts.join(','));
+      if (!state.catalogRows.length) {
+        await loadCatalogProducts();
       }
 
-      const {data,error}=await query.order('product_title',{ascending:true});
-      if(error) throw error;
+      let rows = (state.catalogRows || []).filter(row => row.is_active !== false);
 
-      const rows=(data||[]).sort(compareProductLines);
-      state.catalogResults=rows.slice(0,20000);
+      if (raw) {
+        rows = rows
+          .map(row => ({ ...row, _searchScore: catalogSearchScore(row, raw) }))
+          .filter(row => row._searchScore >= 0)
+          .sort(sortCatalogSearchResults);
+      } else {
+        rows = rows.sort(compareProductLines);
+      }
 
-      const existing=new Map(state.catalogRows.map(row=>[String(row.id),row]));
-      rows.forEach(row=>existing.set(String(row.id),row));
-      state.catalogRows=Array.from(existing.values()).sort(compareProductLines);
-
+      state.catalogResults = rows.slice(0, 20000);
       renderCatalogResults();
     }
 
@@ -582,6 +565,103 @@
       const aSku=String(a.sku||a.sku_snapshot||'');
       const bSku=String(b.sku||b.sku_snapshot||'');
       return aSku.localeCompare(bSku,undefined,{numeric:true});
+    }
+
+
+    function normalizeCatalogText(value){
+      return String(value || '')
+        .toLowerCase()
+        .replace(/&/g, ' and ')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+    }
+
+    function compactCatalogText(value){
+      return String(value || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '');
+    }
+
+    function getCatalogSearchFields(row){
+      const sku = row.sku || row.sku_snapshot || '';
+      const title = row.product_title || row.title_snapshot || '';
+      const variant = row.variant_title || row.variant_title_snapshot || '';
+      const type = row.product_type || row.product_type_snapshot || '';
+      const upc = row.upc || row.upc_snapshot || row.barcode || row.barcode_snapshot || '';
+      const barcode = row.barcode || row.barcode_snapshot || row.upc || row.upc_snapshot || '';
+
+      return { sku, title, variant, type, upc, barcode };
+    }
+
+    function catalogSearchScore(row, rawSearch){
+      const search = String(rawSearch || '').trim();
+      if (!search) return 1;
+
+      const fields = getCatalogSearchFields(row);
+      const normalizedSearch = normalizeCatalogText(search);
+      const compactSearch = compactCatalogText(search);
+      const terms = normalizedSearch.split(/\s+/).filter(Boolean);
+      if (!terms.length && !compactSearch) return 1;
+
+      const normalizedHaystack = normalizeCatalogText([
+        fields.sku,
+        fields.title,
+        fields.variant,
+        fields.type,
+        fields.upc,
+        fields.barcode
+      ].join(' '));
+
+      const compactHaystack = compactCatalogText([
+        fields.sku,
+        fields.title,
+        fields.variant,
+        fields.type,
+        fields.upc,
+        fields.barcode
+      ].join(' '));
+
+      const compactSku = compactCatalogText(fields.sku);
+      const compactUpc = compactCatalogText(fields.upc || fields.barcode);
+      const normalizedTitle = normalizeCatalogText(fields.title);
+      const normalizedVariant = normalizeCatalogText(fields.variant);
+
+      const allTermsMatch = terms.every(term =>
+        normalizedHaystack.includes(term) || compactHaystack.includes(compactCatalogText(term))
+      );
+
+      const compactMatch = compactSearch && compactHaystack.includes(compactSearch);
+      if (!allTermsMatch && !compactMatch) return -1;
+
+      let score = 0;
+
+      if (compactSku && compactSku === compactSearch) score += 10000;
+      else if (compactSku && compactSku.startsWith(compactSearch)) score += 6000;
+      else if (compactSku && compactSku.includes(compactSearch)) score += 3500;
+
+      if (compactUpc && compactUpc === compactSearch) score += 9000;
+      else if (compactUpc && compactUpc.startsWith(compactSearch)) score += 4500;
+      else if (compactUpc && compactUpc.includes(compactSearch)) score += 2500;
+
+      if (normalizedTitle === normalizedSearch) score += 5000;
+      else if (normalizedTitle.startsWith(normalizedSearch)) score += 3000;
+      else if (normalizedTitle.includes(normalizedSearch)) score += 1800;
+
+      if (normalizedVariant === normalizedSearch) score += 1200;
+      else if (normalizedVariant.includes(normalizedSearch)) score += 700;
+
+      score += terms.length * 100;
+
+      if (row.product_ready_for_po === true) score += 50;
+      if (row.is_active === true) score += 25;
+
+      return score;
+    }
+
+    function sortCatalogSearchResults(a, b){
+      const scoreDiff = (b._searchScore || 0) - (a._searchScore || 0);
+      if (scoreDiff) return scoreDiff;
+      return compareProductLines(a, b);
     }
 
     function buildVendorPdfHtml(){
