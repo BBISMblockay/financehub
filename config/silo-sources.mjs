@@ -127,7 +127,7 @@ export const INVENTORY_SOURCES = [
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/1yJ0tNyP_1XL5t77sSaRO48r6B9C5qnXvZxS0B7dBAFo/export?format=csv&gid=404045375",
     sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/1xOMiD7_Oqxh0Tgs-al5ymx-WO0x1ZiRXJ4D2fXkiwXI//export?format=csv&gid=0",
+      "https://docs.google.com/spreadsheets/d/1xOMiD7_Oqxh0Tgs-al5ymx-WO0x1ZiRXJ4D2fXkiwXI/export?format=csv&gid=0",
   },
 
   // Sales-only / historical / seasonal / closed / wholesale sources.
