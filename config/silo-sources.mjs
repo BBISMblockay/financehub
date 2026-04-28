@@ -31,7 +31,7 @@ export const INVENTORY_SOURCES = [
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/1OV2vtJ6AHvE7qfw_8VmsgUermDhzjsK_Ha35U-SK_so/export?format=csv&gid=806693206",
     sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/1OV2vtJ6AHvE7qfw_8VmsgUermDhzjsK_Ha35U-SK_so/export?format=csv&gid=806693206",
+      "https://docs.google.com/spreadsheets/d/1fxf3YsaaGQQvz9xPoQycDbB1mP63HMP1gMvi66mgaZA/export?format=csv&gid=0",
   },
   {
     location_tag: "scottsdale",
@@ -43,7 +43,7 @@ export const INVENTORY_SOURCES = [
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/1Z4kgtyQv7MnEPnyS41zeCKhs4jlWNNWKZ7WxzLhNESo/export?format=csv&gid=1308507463",
     sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/1Z4kgtyQv7MnEPnyS41zeCKhs4jlWNNWKZ7WxzLhNESo/export?format=csv&gid=1308507463",
+      "https://docs.google.com/spreadsheets/d/1z3jMCC9McfQiqYUYEiiggkSrtdSVhPduudVIVMNfvUQ/export?format=csv&gid=0",
   },
   {
     location_tag: "st_louis",
@@ -55,7 +55,7 @@ export const INVENTORY_SOURCES = [
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/1aLW8A8QrV07K8KQAo3pR2-ZBnbxGQRxt5OgOMJmeXBI/export?format=csv&gid=1857460869",
     sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/1aLW8A8QrV07K8KQAo3pR2-ZBnbxGQRxt5OgOMJmeXBI/export?format=csv&gid=1857460869",
+      "https://docs.google.com/spreadsheets/d/1aLW8A8QrV07K8KQAo3pR2-ZBnbxGQRxt5OgOMJmeXBI/export?format=csv&gid=0",
   },
   {
     location_tag: "mission_viejo",
@@ -67,7 +67,7 @@ export const INVENTORY_SOURCES = [
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/1rIolFKa5CoGyE4oyGCKqOEW43-eo92EyMFUMGAHpqZI/export?format=csv&gid=1048230983",
     sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/1rIolFKa5CoGyE4oyGCKqOEW43-eo92EyMFUMGAHpqZI/export?format=csv&gid=1048230983",
+      "https://docs.google.com/spreadsheets/d/11BbhpgTr72kVXn_6-78NkXe5VZIXfrj_080azvUu6NY/export?format=csv&gid=0",
   },
   {
     location_tag: "texas",
@@ -79,7 +79,7 @@ export const INVENTORY_SOURCES = [
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/17RU6dwFcUe_Ek-kttLaCGHRJHPUBwo0Y1p8y6thmCz0/export?format=csv&gid=850240535",
     sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/17RU6dwFcUe_Ek-kttLaCGHRJHPUBwo0Y1p8y6thmCz0/export?format=csv&gid=850240535",
+      "https://docs.google.com/spreadsheets/d/1Bf04RXS5lglkH_HJlS4-TTGXhE8Sp8tiNODIZQdQGls/export?format=csv&gid=0",
   },
   {
     location_tag: "cooperstown",
@@ -91,7 +91,7 @@ export const INVENTORY_SOURCES = [
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/12dvRZTaDwLtvT48g17tr93QYsjOb1PspZFW8m9fnk9E/export?format=csv&gid=1271169490",
     sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/12dvRZTaDwLtvT48g17tr93QYsjOb1PspZFW8m9fnk9E/export?format=csv&gid=1271169490",
+      "https://docs.google.com/spreadsheets/d/1kJCsRUxR1etIjSMKgHJKkJniYmtAeLEfXNrX3uoHM_g/export?format=csv&gid=0",
   },
   {
     location_tag: "lakepoint",
@@ -103,7 +103,7 @@ export const INVENTORY_SOURCES = [
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/1pIOhsDP42GRdL9rvGMB9KHdBW1ZDNIV_MCQ9VJa1bdk/export?format=csv&gid=942246931",
     sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/1pIOhsDP42GRdL9rvGMB9KHdBW1ZDNIV_MCQ9VJa1bdk/export?format=csv&gid=942246931",
+      "https://docs.google.com/spreadsheets/d/1okW_SzO3Bag6d0vr2qG8Z8T3Atj82Lah6rc8nwkOf20/export?format=csv&gid=942246931",
   },
   {
     location_tag: "ontario",
@@ -115,7 +115,7 @@ export const INVENTORY_SOURCES = [
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/1MY8Mysg3i3FsSMyfzOTNqxxSLuSjs8VccHg4HZ9OToU/export?format=csv&gid=213281218",
     sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/1MY8Mysg3i3FsSMyfzOTNqxxSLuSjs8VccHg4HZ9OToU/export?format=csv&gid=213281218",
+      "https://docs.google.com/spreadsheets/d/1zZyeAOvVWjo06IYhavWgeHR1g3tAUbNulGBU4wzHduA/export?format=csv&gid=0",
   },
   {
     location_tag: "field_of_dreams",
@@ -142,8 +142,7 @@ export const INVENTORY_SOURCES = [
     inventory_csv_url: null,
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/15hF7xymuryl6fOEWo4eas09LP2OtVJtfl4INeb_0pDU/export?format=csv&gid=0",
-    sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/15hF7xymuryl6fOEWo4eas09LP2OtVJtfl4INeb_0pDU/export?format=csv&gid=0",
+    sales_daily_csv_url: null,
     source_note: "No inventory to report - shares Shopify with St. Louis",
   },
   {
@@ -154,8 +153,7 @@ export const INVENTORY_SOURCES = [
     inventory_csv_url: null,
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/135pbyKIDJUYnv9PfJ9oyoXZLqVq-06jPIxi83HUlciw/export?format=csv&gid=1071346335",
-    sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/135pbyKIDJUYnv9PfJ9oyoXZLqVq-06jPIxi83HUlciw/export?format=csv&gid=1071346335",
+    sales_daily_csv_url: null,
     source_note: "No inventory to report - store is closed - historical sales only",
   },
   {
@@ -166,8 +164,7 @@ export const INVENTORY_SOURCES = [
     inventory_csv_url: null,
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/1NFyVDhdFXIYMavh0aS6raq5EI37Qj7CtQ-FUejsEJcM/export?format=csv&gid=534471104",
-    sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/1NFyVDhdFXIYMavh0aS6raq5EI37Qj7CtQ-FUejsEJcM/export?format=csv&gid=534471104",
+    sales_daily_csv_url: null,
     source_note: "No inventory - pop-up / seasonal sales",
   },
   {
@@ -178,8 +175,7 @@ export const INVENTORY_SOURCES = [
     inventory_csv_url: null,
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/161TJdFjZVQtBdGSXgQ4Ob4fWQVbRDLwpymrrhH0xHFw/export?format=csv&gid=0",
-    sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/161TJdFjZVQtBdGSXgQ4Ob4fWQVbRDLwpymrrhH0xHFw/export?format=csv&gid=0",
+    sales_daily_csv_url: null,
     source_note: "No inventory - store closed - historical sales only",
   },
   {
@@ -190,8 +186,7 @@ export const INVENTORY_SOURCES = [
     inventory_csv_url: null,
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/12Y03AnPP2k_lniJj01mW9gfNEhfEZeV0qwjzdH0VHBw/export?format=csv&gid=0",
-    sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/12Y03AnPP2k_lniJj01mW9gfNEhfEZeV0qwjzdH0VHBw/export?format=csv&gid=0",
+    sales_daily_csv_url: null,
     source_note: "No inventory - pop-up / seasonal sales",
   },
   {
@@ -202,8 +197,7 @@ export const INVENTORY_SOURCES = [
     inventory_csv_url: null,
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/1ifR6h5XoZhKNpC7lPJfxEcqTKM3_2IrhulipcDYegIk/export?format=csv&gid=1177326560",
-    sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/1ifR6h5XoZhKNpC7lPJfxEcqTKM3_2IrhulipcDYegIk/export?format=csv&gid=1177326560",
+    sales_daily_csv_url: null,
     source_note: "Irvine closed - historical sales only",
   },
   {
@@ -214,8 +208,7 @@ export const INVENTORY_SOURCES = [
     inventory_csv_url: null,
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/1l2vM7DIq9Ov4dE58sUzvzEZYIKqPdjbQcxMVho5wAQQ/export?format=csv&gid=739086750",
-    sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/1l2vM7DIq9Ov4dE58sUzvzEZYIKqPdjbQcxMVho5wAQQ/export?format=csv&gid=739086750",
+    sales_daily_csv_url: null,
     source_note: "No inventory - pop-up / seasonal sales",
   },
   {
@@ -227,8 +220,7 @@ export const INVENTORY_SOURCES = [
       "https://docs.google.com/spreadsheets/d/1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0/export?format=csv&gid=1025836195",
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/1YEW8QMXhXdh18KOtaiqvnQj_fre-Ju-ifNWLgodb1-E/export?format=csv&gid=0",
-    sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/1YEW8QMXhXdh18KOtaiqvnQj_fre-Ju-ifNWLgodb1-E/export?format=csv&gid=0",
+    sales_daily_csv_url: null,
   },
   {
     location_tag: "west_palm",
@@ -238,8 +230,7 @@ export const INVENTORY_SOURCES = [
     inventory_csv_url: null,
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/1EIAhg0T0bYhAas-Y2DWAK05yXwGB6DzKtFshqEmjNQo/export?format=csv&gid=462681770",
-    sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/1EIAhg0T0bYhAas-Y2DWAK05yXwGB6DzKtFshqEmjNQo/export?format=csv&gid=462681770",
+    sales_daily_csv_url: null,
     source_note: "No inventory - pop-up / seasonal sales",
   },
   {
@@ -250,8 +241,7 @@ export const INVENTORY_SOURCES = [
     inventory_csv_url: null,
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/1E-XbWDKzegG3Z9hLOLS3CmLkMDuvPuIL9Hv_rvFuzdc/export?format=csv&gid=0",
-    sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/1E-XbWDKzegG3Z9hLOLS3CmLkMDuvPuIL9Hv_rvFuzdc/export?format=csv&gid=0",
+    sales_daily_csv_url: null,
     source_note: "No inventory - pop-up / seasonal sales",
   },
   {
@@ -262,8 +252,7 @@ export const INVENTORY_SOURCES = [
     inventory_csv_url: null,
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/1ssDq8woW4Nj0xg4w3ECU_4Pij9pQ5TDrTvRAgjaqN2Q/export?format=csv&gid=1922617606",
-    sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/1ssDq8woW4Nj0xg4w3ECU_4Pij9pQ5TDrTvRAgjaqN2Q/export?format=csv&gid=1922617606",
+    sales_daily_csv_url: null,
     source_note: "No inventory to report on wholesale - B2B",
   },
   {
@@ -274,8 +263,7 @@ export const INVENTORY_SOURCES = [
     inventory_csv_url: null,
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/1OTuZyR36sFc2LENbKzZS7mDfyQpfpE897jM4XXYkqyU/export?format=csv&gid=62451732",
-    sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/1OTuZyR36sFc2LENbKzZS7mDfyQpfpE897jM4XXYkqyU/export?format=csv&gid=62451732",
+    sales_daily_csv_url: null,
     source_note: "No inventory to report on wholesale - DSG",
   },
   {
@@ -286,8 +274,7 @@ export const INVENTORY_SOURCES = [
     inventory_csv_url: null,
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/1Pyt7zvP23T51Sr7X4AKky6q8gxjoKhmlHw8sDnqtlqg/export?format=csv&gid=53482340",
-    sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/1Pyt7zvP23T51Sr7X4AKky6q8gxjoKhmlHw8sDnqtlqg/export?format=csv&gid=53482340",
+    sales_daily_csv_url: null,
     source_note: "No inventory to report on wholesale - MLB",
   },
   {
@@ -298,8 +285,7 @@ export const INVENTORY_SOURCES = [
     inventory_csv_url: null,
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/1LnnSOzbJ3LBsc5LStU05L1CgLFxheBj5pwHJmM2DEaE/export?format=csv&gid=0",
-    sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/1LnnSOzbJ3LBsc5LStU05L1CgLFxheBj5pwHJmM2DEaE/export?format=csv&gid=0",
+    sales_daily_csv_url: null,
     source_note: "No inventory to report on wholesale - Faire",
   },
   {
@@ -310,8 +296,7 @@ export const INVENTORY_SOURCES = [
     inventory_csv_url: null,
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/1N6h8beO9XY7fslSQqevmPFBpd00TXPPL2X5ZddmN9GI/export?format=csv&gid=2109690736",
-    sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/1N6h8beO9XY7fslSQqevmPFBpd00TXPPL2X5ZddmN9GI/export?format=csv&gid=2109690736",
+    sales_daily_csv_url: null,
     source_note: "No inventory - pop-up / seasonal sales",
   },
   {
@@ -322,8 +307,7 @@ export const INVENTORY_SOURCES = [
     inventory_csv_url: null,
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/1vaD1FLZZV4nQdjvWaHHKzjRLSMu7Q76Hhts6Wi5lW40/export?format=csv&gid=0",
-    sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/1vaD1FLZZV4nQdjvWaHHKzjRLSMu7Q76Hhts6Wi5lW40/export?format=csv&gid=0",
+    sales_daily_csv_url: null,
     source_note: "No inventory to report - shares Shopify with Texas",
   },
   {
@@ -334,8 +318,7 @@ export const INVENTORY_SOURCES = [
     inventory_csv_url: null,
     sales_backfill_csv_url:
       "https://docs.google.com/spreadsheets/d/12hsdMcHsrk0xGMZn6V6Uyv1PFShVjCx7PiGofs5xH2c/export?format=csv&gid=0",
-    sales_daily_csv_url:
-      "https://docs.google.com/spreadsheets/d/12hsdMcHsrk0xGMZn6V6Uyv1PFShVjCx7PiGofs5xH2c/export?format=csv&gid=0",
+    sales_daily_csv_url: null,
     source_note: "No inventory to report - shares Shopify with Texas / historical sales",
   },
 ];
