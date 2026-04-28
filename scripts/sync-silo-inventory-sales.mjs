@@ -10,7 +10,12 @@
 //   SUPABASE_SERVICE_ROLE_KEY
 //
 // Optional:
-//   SILO_SYNC_BATCH_ID   (otherwise generated automatically)
+//   SILO_SYNC_BATCH_ID
+//   SILO_SALES_SYNC_MODE=daily|backfill
+//   SILO_ONLY_SOURCE=online
+//   SILO_SKIP_INVENTORY=true
+//   SILO_SKIP_SALES=true
+//   SILO_SKIP_SUMMARY_REFRESH=true
 //
 // Run:
 //   node scripts/sync-silo-inventory-sales.mjs
@@ -21,6 +26,7 @@ import {
   INVENTORY_SOURCES,
   getInventorySources,
   getSalesSources,
+  getBackfillSalesSources,
   validateSources,
 } from "../config/silo-sources.mjs";
 
@@ -42,6 +48,12 @@ const BATCH_ID =
   `silo-${new Date().toISOString().replace(/[:.]/g, "-")}`;
 
 const SNAPSHOT_AT = new Date().toISOString();
+
+const SALES_SYNC_MODE = process.env.SILO_SALES_SYNC_MODE || "daily";
+const ONLY_SOURCE = process.env.SILO_ONLY_SOURCE || "";
+const SKIP_INVENTORY = process.env.SILO_SKIP_INVENTORY === "true";
+const SKIP_SALES = process.env.SILO_SKIP_SALES === "true";
+const SKIP_SUMMARY_REFRESH = process.env.SILO_SKIP_SUMMARY_REFRESH === "true";
 
 const INV_HEADERS = {
   location: "Location",
@@ -75,6 +87,11 @@ const SALES_HEADERS = {
   shipping: "SUM Shipping",
   totalSales: "SUM Total sales",
 };
+
+function filterSourcesByEnv(sources) {
+  if (!ONLY_SOURCE) return sources;
+  return sources.filter((src) => src.location_tag === ONLY_SOURCE);
+}
 
 function norm(value) {
   return String(value ?? "")
@@ -540,8 +557,19 @@ function getSalesChunkSize(rowCount) {
   return 1000;
 }
 
+function getSalesUrl(source) {
+  if (SALES_SYNC_MODE === "backfill") {
+    return source.sales_backfill_csv_url || source.sales_daily_csv_url;
+  }
+
+  return source.sales_daily_csv_url;
+}
+
 async function syncInventory() {
-  const inventorySources = getInventorySources(INVENTORY_SOURCES);
+  const inventorySources = filterSourcesByEnv(
+    getInventorySources(INVENTORY_SOURCES)
+  );
+
   const allRows = [];
   const stats = [];
 
@@ -585,17 +613,26 @@ async function syncInventory() {
 }
 
 async function syncSalesByDay() {
-  const salesSources = getSalesSources(INVENTORY_SOURCES);
+  const baseSalesSources =
+    SALES_SYNC_MODE === "backfill"
+      ? getBackfillSalesSources(INVENTORY_SOURCES)
+      : getSalesSources(INVENTORY_SOURCES);
+
+  const salesSources = filterSourcesByEnv(baseSalesSources);
+
   let totalUpserted = 0;
   const stats = [];
 
+  console.log(`[sales mode] ${SALES_SYNC_MODE}`);
   console.log(`[sales] ${salesSources.length} sources enabled`);
 
   for (const source of salesSources) {
-    console.log(`--- SALES SOURCE START: ${source.location_tag} ---`);
-    console.log(`sales_daily_csv_url: ${source.sales_daily_csv_url}`);
+    const salesUrl = getSalesUrl(source);
 
-    const csvText = await fetchText(source.sales_daily_csv_url);
+    console.log(`--- SALES SOURCE START: ${source.location_tag} ---`);
+    console.log(`sales_csv_url: ${salesUrl}`);
+
+    const csvText = await fetchText(salesUrl);
     const parsed = rowsToObjects(csvText);
 
     const mapped = parsed.rows
@@ -606,6 +643,7 @@ async function syncSalesByDay() {
 
     stats.push({
       location_tag: source.location_tag,
+      mode: SALES_SYNC_MODE,
       raw_rows: parsed.rows.length,
       mapped_rows: mapped.length,
       collapsed_rows: collapsed.length,
@@ -642,6 +680,7 @@ async function syncSalesByDay() {
   }
 
   return {
+    mode: SALES_SYNC_MODE,
     upserted: totalUpserted,
     stats,
   };
@@ -664,25 +703,41 @@ async function refreshSalesVerificationSummary() {
 async function main() {
   console.log(`Starting Silo sync batch: ${BATCH_ID}`);
   console.log(`Snapshot at: ${SNAPSHOT_AT}`);
+  console.log(`Sales sync mode: ${SALES_SYNC_MODE}`);
+  console.log(`Only source: ${ONLY_SOURCE || "all"}`);
+  console.log(`Skip inventory: ${SKIP_INVENTORY}`);
+  console.log(`Skip sales: ${SKIP_SALES}`);
+  console.log(`Skip summary refresh: ${SKIP_SUMMARY_REFRESH}`);
 
-  const inventory = await syncInventory();
-  const sales = await syncSalesByDay();
+  const inventory = SKIP_INVENTORY
+    ? { inserted: 0, stats: [], skipped: true }
+    : await syncInventory();
+
+  const sales = SKIP_SALES
+    ? { mode: SALES_SYNC_MODE, upserted: 0, stats: [], skipped: true }
+    : await syncSalesByDay();
 
   let salesSummaryRefreshed = false;
   let salesSummaryRefreshError = null;
 
-  try {
-    await refreshSalesVerificationSummary();
-    salesSummaryRefreshed = true;
-  } catch (err) {
-    salesSummaryRefreshError = err.message;
-    console.error("Sales verification summary refresh failed:");
-    console.error(err);
+  if (SKIP_SUMMARY_REFRESH) {
+    console.log("Sales verification summary refresh skipped.");
+  } else {
+    try {
+      await refreshSalesVerificationSummary();
+      salesSummaryRefreshed = true;
+    } catch (err) {
+      salesSummaryRefreshError = err.message;
+      console.error("Sales verification summary refresh failed:");
+      console.error(err);
+    }
   }
 
   const result = {
     batch_id: BATCH_ID,
     snapshot_at: SNAPSHOT_AT,
+    sales_sync_mode: SALES_SYNC_MODE,
+    only_source: ONLY_SOURCE || null,
     inventory,
     sales,
     sales_summary_refreshed: salesSummaryRefreshed,
