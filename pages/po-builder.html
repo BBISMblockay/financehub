@@ -1519,9 +1519,25 @@
           font-size:13px;
         }
 
-        .upc-col{width:120px}
-        .sku-col{width:160px}
-        .qty-col{width:86px}
+   .lines-table{
+  width:100%;
+  border-collapse:collapse;
+  table-layout:fixed;
+}
+
+.upc-col{width:13%}
+.title-col{width:39%}
+.sku-col{width:25%}
+.variant-col{width:13%}
+.qty-col{width:10%}
+
+.sku-cell{
+  white-space:nowrap;
+  word-break:keep-all;
+  overflow-wrap:normal;
+  font-size:10px;
+  line-height:1.15;
+}
 
         .detail-footer{
           display:flex;
