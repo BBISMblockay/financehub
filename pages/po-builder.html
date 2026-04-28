@@ -1078,8 +1078,7 @@
           <div>
             <div class="detail-kicker">${escapeHtml(productType || 'Product')}</div>
             <h2 class="detail-title">${escapeHtml(product.title)}</h2>
-            <div class="detail-sub">
-            </div>
+            <div class="detail-sub"></div>
           </div>
 
           <div class="detail-meta">
@@ -1109,27 +1108,31 @@
           <thead>
             <tr>
               <th class="upc-col">UPC Code</th>
-              <th>Product Title</th>
+              <th class="title-col">Product Title</th>
               <th class="sku-col">SKU</th>
-              <th>Variant</th>
+              <th class="variant-col">Variant</th>
               <th class="qty-col right">Qty</th>
             </tr>
           </thead>
           <tbody>
             ${product.lines.map(line => `
               <tr>
-                <td>${escapeHtml(line.upc_snapshot || '')}</td>
-                <td>
+                <td class="upc-col">${escapeHtml(line.upc_snapshot || '')}</td>
+
+                <td class="title-col">
                   <div class="cell-main">${escapeHtml(line.title_snapshot || '')}</div>
                   ${line.line_notes ? `<div class="cell-sub">${escapeHtml(line.line_notes)}</div>` : ''}
                 </td>
-                <td>
-                  <div class="cell-main">${escapeHtml(line.sku_snapshot || '')}</div>
+
+                <td class="sku-col">
+                  <div class="cell-main sku-cell">${escapeHtml(line.sku_snapshot || '')}</div>
                 </td>
-                <td>
+
+                <td class="variant-col">
                   <div class="cell-main caps">${escapeHtml(line.variant_title_snapshot || '—')}</div>
                 </td>
-                <td class="right qty">${Number(line.qty || 0).toLocaleString()}</td>
+
+                <td class="qty-col right qty">${Number(line.qty || 0).toLocaleString()}</td>
               </tr>
             `).join('')}
           </tbody>
@@ -1467,6 +1470,7 @@
         .lines-table{
           width:100%;
           border-collapse:collapse;
+          table-layout:fixed;
         }
 
         .lines-table thead th{
@@ -1491,10 +1495,25 @@
           border-bottom:1px solid var(--line);
         }
 
+        .upc-col{width:13%}
+        .title-col{width:36%}
+        .sku-col{width:28%}
+        .variant-col{width:13%}
+        .qty-col{width:10%}
+
         .cell-main{
           font-size:12px;
           font-weight:700;
           line-height:1.32;
+        }
+
+        .sku-cell{
+          white-space:nowrap;
+          word-break:keep-all;
+          overflow-wrap:normal;
+          font-size:9.5px;
+          line-height:1.15;
+          letter-spacing:-.02em;
         }
 
         .cell-sub{
@@ -1518,26 +1537,6 @@
           font-weight:800;
           font-size:13px;
         }
-
-   .lines-table{
-  width:100%;
-  border-collapse:collapse;
-  table-layout:fixed;
-}
-
-.upc-col{width:13%}
-.title-col{width:39%}
-.sku-col{width:25%}
-.variant-col{width:13%}
-.qty-col{width:10%}
-
-.sku-cell{
-  white-space:nowrap;
-  word-break:keep-all;
-  overflow-wrap:normal;
-  font-size:10px;
-  line-height:1.15;
-}
 
         .detail-footer{
           display:flex;
@@ -1592,8 +1591,7 @@
           <div>
             <div class="eyebrow">Baseballism Inc.</div>
             <h1 class="title">Purchase Order</h1>
-            <div class="subtext">
-            </div>
+            <div class="subtext"></div>
           </div>
 
           <div class="po-meta">
