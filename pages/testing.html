@@ -180,7 +180,7 @@
     <div class="relative z-10 w-full max-w-6xl glass p-4 sm:p-5">
       <div class="flex items-center justify-between gap-3 border-b border-slate-200 pb-4">
         <div><div class="text-lg font-bold text-slate-900">Add Catalog Line</div><div class="text-sm text-slate-500">Search products_master and add linked PO lines.</div></div>
-        <button class="btn btn-secondary" data-close="catalogModal">Close</button>
+        <div class="flex items-center gap-2"><button id="btnAddSelectedCatalog" class="btn btn-primary">Add Selected</button><button class="btn btn-secondary" data-close="catalogModal">Close</button></div>
       </div>
       <div class="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_160px]"><input id="catalogSearch" type="text" class="w-full px-4 py-3 text-sm" placeholder="Search SKU, title, variant, product type..." /><button id="btnSearchCatalog" class="btn btn-primary">Search</button></div>
       <div class="mt-4 max-h-[60vh] overflow-auto soft-scroll">
@@ -281,7 +281,7 @@
       btnRefresh: document.getElementById('btnRefresh'), btnNewPO: document.getElementById('btnNewPO'), btnSaveHeader: document.getElementById('btnSaveHeader'), btnGeneratePdf: document.getElementById('btnGeneratePdf'), btnDuplicatePO: document.getElementById('btnDuplicatePO'), btnAddCatalogLine: document.getElementById('btnAddCatalogLine'), btnBulkSku: document.getElementById('btnBulkSku'), btnImportLines: document.getElementById('btnImportLines'), btnAddManualLine: document.getElementById('btnAddManualLine'),
       detailTitle: document.getElementById('detailTitle'), detailMeta: document.getElementById('detailMeta'), detailStatusWrap: document.getElementById('detailStatusWrap'), poName: document.getElementById('poName'), factoryId: document.getElementById('factoryId'), orderDate: document.getElementById('orderDate'), reqShipDate: document.getElementById('reqShipDate'), expectedArrivalDate: document.getElementById('expectedArrivalDate'), dateBucket: document.getElementById('dateBucket'), status: document.getElementById('status'), wholesaleTriggered: document.getElementById('wholesaleTriggered'), isNewProductPO: document.getElementById('isNewProductPO'), notes: document.getElementById('notes'), internalNotes: document.getElementById('internalNotes'),
       kpiUnits: document.getElementById('kpiUnits'), kpiRetail: document.getElementById('kpiRetail'), kpiCost: document.getElementById('kpiCost'), linesTbody: document.getElementById('linesTbody'),
-      catalogModal: document.getElementById('catalogModal'), catalogSearch: document.getElementById('catalogSearch'), btnSearchCatalog: document.getElementById('btnSearchCatalog'), catalogResults: document.getElementById('catalogResults'),
+      catalogModal: document.getElementById('catalogModal'), catalogSearch: document.getElementById('catalogSearch'), btnSearchCatalog: document.getElementById('btnSearchCatalog'), btnAddSelectedCatalog: document.getElementById('btnAddSelectedCatalog'), catalogResults: document.getElementById('catalogResults'),
       manualModal: document.getElementById('manualModal'), manualProductType: document.getElementById('manualProductType'), manualTitle: document.getElementById('manualTitle'), manualVariant: document.getElementById('manualVariant'), manualSku: document.getElementById('manualSku'), manualUpc: document.getElementById('manualUpc'), manualBarcode: document.getElementById('manualBarcode'), manualRetail: document.getElementById('manualRetail'), manualCost: document.getElementById('manualCost'), manualQty: document.getElementById('manualQty'), manualNotes: document.getElementById('manualNotes'), btnSaveManualLine: document.getElementById('btnSaveManualLine'), btnSaveManualAnother: document.getElementById('btnSaveManualAnother'),
       bulkSkuModal: document.getElementById('bulkSkuModal'), bulkSkuText: document.getElementById('bulkSkuText'), btnProcessBulkSku: document.getElementById('btnProcessBulkSku'), bulkSkuResult: document.getElementById('bulkSkuResult'),
       importModal: document.getElementById('importModal'), importFile: document.getElementById('importFile'), importText: document.getElementById('importText'), btnProcessImport: document.getElementById('btnProcessImport'), importResult: document.getElementById('importResult')
@@ -324,7 +324,7 @@
         .select('id, sku, product_title, variant_title, product_type, upc, barcode, msrp, unit_cost, is_active, product_ready_for_po')
         .eq('is_active', true)
         .order('product_title',{ascending:true})
-        .limit(2000000);
+        .limit(1000000);
       if(error) throw error;
       state.catalogRows=(data||[]).sort(compareProductLines);
     }
@@ -386,7 +386,7 @@
         .from('products_master')
         .select('id, sku, product_title, variant_title, product_type, upc, barcode, msrp, unit_cost, is_active, product_ready_for_po')
         .eq('is_active', true)
-        .limit(1000);
+        .limit(20000);
 
       if(raw){
         const cleaned=raw.replaceAll(',', ' ').trim();
@@ -409,7 +409,7 @@
       if(error) throw error;
 
       const rows=(data||[]).sort(compareProductLines);
-      state.catalogResults=rows.slice(0,1000);
+      state.catalogResults=rows.slice(0,20000);
 
       const existing=new Map(state.catalogRows.map(row=>[String(row.id),row]));
       rows.forEach(row=>existing.set(String(row.id),row));
@@ -438,6 +438,28 @@
       const payload=productToLine(productId, qty);
       const {error}=await sb.from('po_lines').insert(payload); if(error) throw error;
       await refreshAll(); await openPO(state.currentPO.id); modalClose(el.catalogModal);
+    }
+
+    async function addSelectedCatalogLines(){
+      if(!state.currentPO?.id){ alert('Save the PO header first.'); return; }
+      const qtyInputs=[...document.querySelectorAll('[data-catalog-qty]')];
+      const selected=qtyInputs
+        .map(input=>({productId:input.getAttribute('data-catalog-qty'),qty:Number(input.value||0)}))
+        .filter(row=>row.productId&&row.qty>0);
+
+      if(!selected.length){
+        alert('Enter a quantity greater than 0 on at least one catalog row.');
+        return;
+      }
+
+      const payload=selected.map(row=>productToLine(row.productId,row.qty));
+      const {error}=await sb.from('po_lines').insert(payload);
+      if(error) throw error;
+
+      await refreshAll();
+      await openPO(state.currentPO.id);
+      qtyInputs.forEach(input=>{ input.value=0; });
+      modalClose(el.catalogModal);
     }
 
     function manualPayload(){
@@ -586,6 +608,7 @@
     el.btnImportLines.addEventListener('click',()=>{ el.importResult.textContent=''; modalOpen(el.importModal); });
     el.btnAddManualLine.addEventListener('click',()=>{ clearManualModal(); modalOpen(el.manualModal); });
     el.btnSearchCatalog.addEventListener('click',async()=>{ try{ await searchCatalog(); }catch(e){ console.error(e); alert(e.message||'Search failed'); } });
+    el.btnAddSelectedCatalog.addEventListener('click',async()=>{ try{ await addSelectedCatalogLines(); }catch(e){ console.error(e); alert(e.message||'Add selected catalog lines failed'); } });
     el.catalogSearch.addEventListener('keydown',async(ev)=>{ if(ev.key==='Enter'){ ev.preventDefault(); try{ await searchCatalog(); }catch(e){ console.error(e); } } });
     el.btnSaveManualLine.addEventListener('click',async()=>{ try{ await addManualLine(false); }catch(e){ console.error(e); alert(e.message||'Manual line save failed'); } });
     el.btnSaveManualAnother.addEventListener('click',async()=>{ try{ await addManualLine(true); }catch(e){ console.error(e); alert(e.message||'Manual line save failed'); } });
