@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Silo · PO Builder v2.6 Compact</title>
+  <title>Silo · PO Builder v2.7 Ultra Compact</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="./config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -80,12 +80,55 @@
     label.rounded-2xl{border-radius:12px!important;padding:.55rem .65rem!important}
     label.rounded-2xl .mt-2{margin-top:.35rem!important}
     .hint{font-size:.7rem}
+
+
+    /* v2.7 ultra-compact laptop workbench pass */
+    html,body{font-size:13px}
+    body{overflow-x:hidden}
+    body .glass{border-radius:12px;box-shadow:0 5px 14px rgba(15,23,42,.045)}
+    body .btn{border-radius:9px;padding:.42rem .58rem!important;font-size:.72rem!important;line-height:1!important}
+    .compact-page-head{min-height:58px}
+    .compact-page-head .text-xs.uppercase{font-size:.62rem!important;letter-spacing:.22em!important}
+    .compact-page-head .sm\:text-2xl{font-size:1.12rem!important;line-height:1.1!important}
+    .compact-page-head .text-xs.text-slate-500{font-size:.70rem!important;max-width:760px}
+    #poList button{padding:.52rem .62rem!important;margin-bottom:.42rem!important;border-radius:11px!important}
+    #poList button .grid{margin-top:.45rem!important;gap:.3rem!important}
+    #poList button .text-sm{font-size:.75rem!important;line-height:1.1!important}
+    #poList button .text-xs{font-size:.64rem!important;line-height:1.05!important}
+    #poSearch,#poStatusFilter,#poFactoryFilter{height:31px!important;min-height:31px!important}
+    aside .mt-4{margin-top:.55rem!important}.soft-scroll{scrollbar-width:thin}
+    #detailTitle{font-size:1rem!important}.status-badge{font-size:.62rem!important;padding:.18rem .42rem!important}
+    #detailMeta{font-size:.68rem!important;line-height:1.2!important}.muted-label{font-size:.56rem!important;letter-spacing:.16em!important;margin-bottom:.18rem!important}
+    body input:not([type="checkbox"]),body select{min-height:30px!important;height:30px!important;padding:.32rem .5rem!important;border-radius:8px!important;font-size:.72rem!important}
+    body textarea{min-height:30px!important;padding:.32rem .5rem!important;border-radius:8px!important;font-size:.72rem!important;line-height:1.2!important}
+    .po-flags label{height:50px!important;overflow:hidden}.po-flags input{margin:0!important}.po-flags div{line-height:1.05!important}
+    .compact-kpis .glass{min-height:48px!important}.compact-kpis .text-\[10px\]{font-size:.55rem!important}.compact-kpis .text-xl{font-size:1.08rem!important}
+    .compact-line-grid{max-height:58vh;overflow:auto}.compact-line-grid table{table-layout:fixed}
+    .compact-line-grid thead th{padding:6px 5px!important;font-size:.58rem!important;letter-spacing:.095em!important}
+    .compact-line-grid tbody td{padding:3px 4px!important;vertical-align:middle!important}
+    .po-lines-table th:nth-child(1),.po-lines-table td:nth-child(1){width:82px}
+    .po-lines-table th:nth-child(2),.po-lines-table td:nth-child(2){width:150px}
+    .po-lines-table th:nth-child(3),.po-lines-table td:nth-child(3){width:70px}
+    .po-lines-table th:nth-child(4),.po-lines-table td:nth-child(4){width:170px}
+    .po-lines-table th:nth-child(5),.po-lines-table td:nth-child(5){width:118px}
+    .po-lines-table th:nth-child(6),.po-lines-table td:nth-child(6){width:72px}
+    .po-lines-table th:nth-child(7),.po-lines-table td:nth-child(7){width:72px}
+    .po-lines-table th:nth-child(8),.po-lines-table td:nth-child(8){width:64px}
+    .po-lines-table th:nth-child(9),.po-lines-table td:nth-child(9){width:82px}
+    .po-lines-table th:nth-child(10),.po-lines-table td:nth-child(10){width:120px}
+    .po-lines-table th:nth-child(11),.po-lines-table td:nth-child(11){width:88px}
+    .line-input{min-width:0!important;height:25px!important;min-height:25px!important;border-radius:7px!important;padding:.22rem .35rem!important;font-size:.66rem!important;line-height:1!important}
+    .line-input.small{text-align:right!important}.line-input.notes{height:25px!important;min-height:25px!important;resize:none!important}
+    #linesTbody .btn,.line-save-btn,.line-delete-btn{padding:.24rem .38rem!important;border-radius:7px!important;font-size:.60rem!important;min-height:24px!important}
+    .table-wrap{border-radius:9px!important}.pill{font-size:.62rem!important;padding:.14rem .45rem!important}
+    .catalog-modal-table th,.catalog-modal-table td{padding:.35rem .45rem!important;font-size:.7rem!important}
+
 </style>
 </head>
 <body>
-  <div class="min-h-screen px-3 py-3 sm:px-4 lg:px-5">
-    <div class="mx-auto max-w-[1800px] space-y-3">
-      <header class="glass px-4 py-3 sm:px-4 compact-page-head">
+  <div class="min-h-screen px-2 py-2 sm:px-3 lg:px-3">
+    <div class="mx-auto max-w-[1920px] space-y-2">
+      <header class="glass px-3 py-2 sm:px-3 compact-page-head">
         <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Silo Purchasing</div>
@@ -99,8 +142,8 @@
         </div>
       </header>
 
-      <section class="grid gap-3 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <aside class="glass p-3 sm:p-3">
+      <section class="grid gap-2 xl:grid-cols-[300px_minmax(0,1fr)]">
+        <aside class="glass p-2 sm:p-2">
           <div class="flex items-center justify-between gap-3">
             <div>
               <div class="text-base font-bold text-slate-900">PO List</div>
@@ -120,9 +163,9 @@
           <div class="mt-3 max-h-[75vh] overflow-auto pr-1 soft-scroll" id="poList"></div>
         </aside>
 
-        <main class="space-y-3">
-          <section class="glass p-3 sm:p-3">
-            <div class="flex flex-col gap-3 border-b border-slate-200 pb-3 lg:flex-row lg:items-start lg:justify-between">
+        <main class="space-y-2">
+          <section class="glass p-2 sm:p-2">
+            <div class="flex flex-col gap-2 border-b border-slate-200 pb-2 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <div class="flex flex-wrap items-center gap-3">
                   <h2 id="detailTitle" class="text-lg font-bold tracking-tight text-slate-900">No PO selected</h2>
@@ -141,7 +184,7 @@
               </div>
             </div>
 
-            <div class="mt-3 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+            <div class="mt-2 grid gap-2 md:grid-cols-4 xl:grid-cols-8">
               <div><label class="muted-label">PO Name</label><input id="poName" type="text" class="w-full px-3 py-2 text-xs font-semibold" placeholder="Auto-generated" /></div>
               <div><label class="muted-label">Factory</label><select id="factoryId" class="w-full px-3 py-2 text-xs"></select></div>
               <div><label class="muted-label">Order Date</label><input id="orderDate" type="date" class="w-full px-3 py-2 text-xs" /></div>
@@ -149,31 +192,31 @@
               <div><label class="muted-label">Expected Arrival</label><input id="expectedArrivalDate" type="date" class="w-full px-3 py-2 text-xs" /></div>
               <div><label class="muted-label">Date Bucket</label><input id="dateBucket" type="text" class="w-full px-3 py-2 text-xs" placeholder="Holiday 2026" /></div>
               <div><label class="muted-label">Status</label><select id="status" class="w-full px-3 py-2 text-xs"></select></div>
-              <div class="grid grid-cols-2 gap-3">
-                <label class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700"><div class="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Wholesale</div><div class="mt-2 flex items-center gap-2"><input id="wholesaleTriggered" type="checkbox" class="h-4 w-4" /> Triggered</div></label>
-                <label class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700"><div class="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Product Mix</div><div class="mt-2 flex items-center gap-2"><input id="isNewProductPO" type="checkbox" class="h-4 w-4" /> New Product</div></label>
+              <div class="grid grid-cols-2 gap-2 xl:col-span-2 po-flags">
+                <label class="rounded-2xl border border-slate-200 bg-white px-2 py-2 text-xs font-medium text-slate-700"><div class="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-400">Wholesale</div><div class="mt-1 flex items-center gap-1.5"><input id="wholesaleTriggered" type="checkbox" class="h-3.5 w-3.5" /> Triggered</div></label>
+                <label class="rounded-2xl border border-slate-200 bg-white px-2 py-2 text-xs font-medium text-slate-700"><div class="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-400">Product Mix</div><div class="mt-1 flex items-center gap-1.5"><input id="isNewProductPO" type="checkbox" class="h-3.5 w-3.5" /> New Product</div></label>
               </div>
             </div>
 
-            <div class="mt-3 grid gap-3 lg:grid-cols-2">
-              <div><label class="muted-label">Vendor Notes</label><textarea id="notes" rows="2" class="w-full px-3 py-2 text-xs" placeholder="Visible vendor-facing notes if needed"></textarea></div>
-              <div><label class="muted-label">Internal Notes</label><textarea id="internalNotes" rows="2" class="w-full px-3 py-2 text-xs" placeholder="Internal purchasing / planning notes"></textarea></div>
+            <div class="mt-2 grid gap-2 lg:grid-cols-2">
+              <div><label class="muted-label">Vendor Notes</label><textarea id="notes" rows="1" class="w-full px-3 py-2 text-xs" placeholder="Visible vendor-facing notes if needed"></textarea></div>
+              <div><label class="muted-label">Internal Notes</label><textarea id="internalNotes" rows="1" class="w-full px-3 py-2 text-xs" placeholder="Internal purchasing / planning notes"></textarea></div>
             </div>
           </section>
 
-          <section class="grid gap-3 md:grid-cols-3 compact-kpis">
-            <div class="glass px-4 py-3"><div class="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Total Units</div><div id="kpiUnits" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">0</div></div>
-            <div class="glass px-4 py-3"><div class="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Retail Value</div><div id="kpiRetail" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">$0.00</div></div>
-            <div class="glass px-4 py-3"><div class="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Estimated Cost</div><div id="kpiCost" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">$0.00</div></div>
+          <section class="grid gap-2 md:grid-cols-3 compact-kpis">
+            <div class="glass px-3 py-2"><div class="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Total Units</div><div id="kpiUnits" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">0</div></div>
+            <div class="glass px-3 py-2"><div class="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Retail Value</div><div id="kpiRetail" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">$0.00</div></div>
+            <div class="glass px-3 py-2"><div class="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Estimated Cost</div><div id="kpiCost" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">$0.00</div></div>
           </section>
 
-          <section class="glass p-3 sm:p-3">
-            <div class="flex flex-col gap-2 border-b border-slate-200 pb-3 md:flex-row md:items-center md:justify-between">
+          <section class="glass p-2 sm:p-2">
+            <div class="flex flex-col gap-1 border-b border-slate-200 pb-2 md:flex-row md:items-center md:justify-between">
               <div><div class="text-base font-bold text-slate-900">PO Lines</div><div class="text-xs text-slate-500">Editable line matrix. Save rows individually after changes.</div></div>
               <div class="text-xs text-slate-500">Retail value recalculates on save.</div>
             </div>
-            <div class="mt-3 table-wrap soft-scroll sticky-head compact-line-grid">
-              <table class="min-w-[1420px] w-full border-separate border-spacing-0 text-xs">
+            <div class="mt-2 table-wrap soft-scroll sticky-head compact-line-grid">
+              <table class="min-w-[1180px] w-full border-separate border-spacing-0 text-xs po-lines-table">
                 <thead>
                   <tr>
                     <th class="border-b border-slate-200 px-2 py-3 text-left font-semibold text-slate-500">Type</th>
@@ -200,7 +243,7 @@
 
   <div id="catalogModal" class="fixed inset-0 z-40 hidden-safe items-center justify-center p-4">
     <div class="absolute inset-0 modal-backdrop"></div>
-    <div class="relative z-10 w-full max-w-6xl glass p-4 sm:p-5">
+    <div class="relative z-10 w-full max-w-6xl glass p-3 sm:p-3">
       <div class="flex items-center justify-between gap-3 border-b border-slate-200 pb-4">
         <div><div class="text-lg font-bold text-slate-900">Add Catalog Line</div><div class="text-sm text-slate-500">Search products_master and add linked PO lines.</div></div>
         <div class="flex items-center gap-2"><button id="btnAddSelectedCatalog" class="btn btn-primary">Add Selected</button><button class="btn btn-secondary" data-close="catalogModal">Close</button></div>
@@ -217,7 +260,7 @@
 
   <div id="manualModal" class="fixed inset-0 z-40 hidden-safe items-center justify-center p-4">
     <div class="absolute inset-0 modal-backdrop"></div>
-    <div class="relative z-10 w-full max-w-4xl glass p-4 sm:p-5">
+    <div class="relative z-10 w-full max-w-4xl glass p-3 sm:p-3">
       <div class="flex items-center justify-between gap-3 border-b border-slate-200 pb-4">
         <div><div class="text-lg font-bold text-slate-900">Add Manual Line</div><div class="text-sm text-slate-500">For new/not-yet-loaded catalog products.</div></div>
         <button class="btn btn-secondary" data-close="manualModal">Close</button>
@@ -244,7 +287,7 @@
 
   <div id="bulkSkuModal" class="fixed inset-0 z-40 hidden-safe items-center justify-center p-4">
     <div class="absolute inset-0 modal-backdrop"></div>
-    <div class="relative z-10 w-full max-w-4xl glass p-4 sm:p-5">
+    <div class="relative z-10 w-full max-w-4xl glass p-3 sm:p-3">
       <div class="flex items-center justify-between gap-3 border-b border-slate-200 pb-4">
         <div><div class="text-lg font-bold text-slate-900">Bulk SKU Add</div><div class="text-sm text-slate-500">Paste SKU + Qty rows. Matches against products_master.</div></div>
         <button class="btn btn-secondary" data-close="bulkSkuModal">Close</button>
@@ -263,7 +306,7 @@
 
   <div id="importModal" class="fixed inset-0 z-40 hidden-safe items-center justify-center p-4">
     <div class="absolute inset-0 modal-backdrop"></div>
-    <div class="relative z-10 w-full max-w-5xl glass p-4 sm:p-5">
+    <div class="relative z-10 w-full max-w-5xl glass p-3 sm:p-3">
       <div class="flex items-center justify-between gap-3 border-b border-slate-200 pb-4">
         <div><div class="text-lg font-bold text-slate-900">Import PO Lines</div><div class="text-sm text-slate-500">Paste CSV/TSV line data into the current PO as manual snapshot lines.</div></div>
         <button class="btn btn-secondary" data-close="importModal">Close</button>
@@ -389,7 +432,7 @@
           <td class="px-2 py-2"><input class="line-input small" type="number" min="0" step="1" data-line-field="qty" data-line-id="${line.id}" value="${Number(line.qty||0)}"></td>
           <td class="px-2 py-2 text-right font-semibold text-slate-900">${money(line.retail_value||0)}</td>
           <td class="px-2 py-2"><textarea class="line-input notes" rows="1" data-line-field="line_notes" data-line-id="${line.id}">${escapeHtml(line.line_notes||'')}</textarea></td>
-          <td class="px-2 py-2 text-right"><div class="flex flex-col items-end gap-2"><button class="btn btn-secondary px-3 py-2 text-xs" data-line-save="${line.id}">Save</button><button class="btn btn-danger px-3 py-2 text-xs" data-line-delete="${line.id}">Delete</button></div></td>
+          <td class="px-1 py-1 text-right"><div class="flex items-center justify-end gap-1"><button class="btn btn-secondary line-save-btn" data-line-save="${line.id}">Save</button><button class="btn btn-danger line-delete-btn" data-line-delete="${line.id}">Del</button></div></td>
         </tr>`).join('');
       }
       const totalUnits=rows.reduce((s,r)=>s+Number(r.qty||0),0), totalRetail=rows.reduce((s,r)=>s+Number(r.retail_value||0),0), totalCost=rows.reduce((s,r)=>s+(Number(r.unit_cost||0)*Number(r.qty||0)),0);
@@ -696,7 +739,50 @@
       const totalStyles=productPages.length, orderTypeLabel=po.is_new_product_po?'New Product':'Restock', techPackLabel='No Tech Pack';
       const detailPagesHtml=productPages.map((product,idx)=>{ const pageNumber=idx+2, productQty=product.lines.reduce((sum,r)=>sum+Number(r.qty||0),0), productType=product.lines[0]?.product_type_snapshot||''; return `<div class="page-break"></div><div class="sheet detail-page"><div class="detail-head"><div><div class="detail-kicker">${escapeHtml(productType||'Product')}</div><h2 class="detail-title">${escapeHtml(product.title)}</h2><div class="detail-sub"></div></div><div class="detail-meta"><div class="detail-meta-row">PO#: <strong>${escapeHtml(po.po_name||'')}</strong></div><div class="detail-meta-row">Order Date: <strong>${escapeHtml(po.order_date||'—')}</strong></div><div class="detail-meta-row">Req. Ship Date: <strong>${escapeHtml(po.req_ship_date||'—')}</strong></div><div class="detail-meta-row">Total Units in style: <strong>${Number(productQty||0).toLocaleString()}</strong></div></div></div><div class="product-strip"><div class="strip-item"><div class="strip-k">Order Type</div><div class="strip-v">${escapeHtml(orderTypeLabel)}</div></div><div class="strip-item"><div class="strip-k">Tech Pack</div><div class="strip-v">${escapeHtml(techPackLabel)}</div></div><div class="strip-item"><div class="strip-k">Factory</div><div class="strip-v">${escapeHtml(factory?.factory_name||'—')}</div></div></div><table class="lines-table compact"><thead><tr><th class="upc-col">UPC Code</th><th class="title-col">Product Title</th><th class="sku-col">SKU</th><th class="variant-col">Variant</th><th class="qty-col right">Qty</th></tr></thead><tbody>${product.lines.map(line=>`<tr><td class="upc-col">${escapeHtml(line.upc_snapshot||'')}</td><td class="title-col"><div class="cell-main">${escapeHtml(line.title_snapshot||'')}</div>${line.line_notes?`<div class="cell-sub">${escapeHtml(line.line_notes)}</div>`:''}</td><td class="sku-col"><div class="cell-main sku-cell">${escapeHtml(line.sku_snapshot||'')}</div></td><td class="variant-col"><div class="cell-main caps">${escapeHtml(line.variant_title_snapshot||'—')}</div></td><td class="qty-col right qty">${Number(line.qty||0).toLocaleString()}</td></tr>`).join('')}</tbody></table><div class="detail-footer"><div></div><div>${escapeHtml(po.po_name||'')} · Page ${pageNumber}</div></div></div>`; }).join('');
 
-      return `<!doctype html><html><head><meta charset="utf-8" /><title>${escapeHtml(po.po_name||'Purchase Order')}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"><style>:root{--ink:#171717;--muted:#737373;--line:#d4d4d4;--line-soft:#ececec;--soft:#f7f7f7}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:var(--ink);font-family:Inter,system-ui,sans-serif}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.sheet{width:100%;padding:34px 38px 28px}.cover{min-height:calc(100vh - 62px);display:flex;flex-direction:column}.topbar{display:grid;grid-template-columns:1fr 260px;gap:28px;align-items:start;padding-bottom:20px;border-bottom:2px solid var(--ink)}.eyebrow{font-size:11px;font-weight:700;letter-spacing:.24em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}.title{margin:0;font-size:42px;line-height:1;letter-spacing:-.05em;font-weight:800}.subtext{margin-top:10px;max-width:560px;color:var(--muted);font-size:14px;line-height:1.55}.po-meta{text-align:left;padding-top:2px}.po-meta .label{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:8px}.po-meta .value{font-size:24px;line-height:1.1;font-weight:800;letter-spacing:-.04em;word-break:break-word}.cover-grid{display:grid;grid-template-columns:1fr 1fr;gap:42px;margin-top:28px;align-items:start}.block-title{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:14px}.info-table,.req-table{width:100%;border-collapse:collapse}.info-table td{padding:10px 0;vertical-align:top;font-size:14px;line-height:1.45;border-bottom:1px solid var(--line-soft)}.info-table tr:last-child td,.req-table tr:last-child td{border-bottom:none}.info-table td.key{width:170px;color:var(--muted);font-weight:600;padding-right:16px}.info-table td.val{color:var(--ink);font-weight:600}.summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 26px;margin-bottom:18px}.summary-item{padding-bottom:10px;border-bottom:1px solid var(--line-soft)}.summary-item .k{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:8px}.summary-item .v{font-size:18px;font-weight:800;letter-spacing:-.03em}.req-table{margin-top:8px}.req-table td{padding:10px 0;font-size:13px;border-bottom:1px solid var(--line-soft);vertical-align:top}.req-table td.key{width:150px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.12em;font-size:10px;padding-right:16px}.req-table td.val{color:var(--ink);font-weight:600;line-height:1.45}.notes{margin-top:24px;padding-top:16px;border-top:1px solid var(--line)}.notes-text{font-size:13px;color:var(--ink);line-height:1.65;white-space:pre-wrap}.cover-footer{margin-top:auto;display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:24px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}.page-break{page-break-before:always;break-before:page}.detail-page{min-height:calc(100vh - 62px);display:flex;flex-direction:column}.detail-head{display:grid;grid-template-columns:1fr 240px;gap:24px;align-items:end;padding-bottom:18px;border-bottom:2px solid var(--ink);margin-bottom:18px}.detail-kicker{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:10px}.detail-title{margin:0;font-size:30px;line-height:1.05;font-weight:800;letter-spacing:-.04em}.detail-meta{display:grid;gap:8px;justify-items:end}.detail-meta-row{font-size:12px;color:var(--muted)}.detail-meta-row strong{color:var(--ink);font-weight:800}.product-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;padding:0 0 16px 0;margin-bottom:10px;border-bottom:1px solid var(--line)}.strip-item{display:grid;gap:6px}.strip-k{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:700}.strip-v{font-size:13px;font-weight:700;line-height:1.4}.lines-table{width:100%;border-collapse:collapse;table-layout:fixed}.lines-table thead th{text-align:left;padding:10px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.18em;color:var(--muted);border-bottom:1.5px solid var(--line)}.lines-table.compact tbody td{padding:10px 8px;vertical-align:top;font-size:12px;border-bottom:1px solid var(--line-soft)}.lines-table.compact tbody tr:last-child td{border-bottom:1px solid var(--line)}.upc-col{width:13%}.title-col{width:36%}.sku-col{width:28%}.variant-col{width:13%}.qty-col{width:10%}.cell-main{font-size:12px;font-weight:700;line-height:1.32}.sku-cell{white-space:nowrap;word-break:keep-all;overflow-wrap:normal;font-size:9.5px;line-height:1.15;letter-spacing:-.02em}.cell-sub{margin-top:4px;font-size:10px;line-height:1.4;color:var(--muted);max-width:260px}.caps{text-transform:uppercase;letter-spacing:.04em}.right{text-align:right!important}.qty{font-weight:800;font-size:13px}.detail-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:auto;padding-top:18px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}.no-print-actions{display:flex;gap:12px;margin-top:26px}.print-btn{padding:12px 18px;border-radius:0;border:1px solid var(--ink);background:var(--ink);color:white;font-weight:700;cursor:pointer;font-family:inherit}.print-btn.alt{background:white;color:var(--ink)}@page{size:auto;margin:14mm}@media print{.no-print{display:none!important}.sheet{padding:0}.cover{min-height:auto}.detail-page{min-height:auto}}</style></head><body><div class="sheet cover"><div class="topbar"><div><div class="eyebrow">Baseballism Inc.</div><h1 class="title">Purchase Order</h1><div class="subtext"></div></div><div class="po-meta"><div class="label">PO Number</div><div class="value">${escapeHtml(po.po_name||'—')}</div></div></div><div class="cover-grid"><div><div class="block-title">Factory & Shipping</div><table class="info-table"><tr><td class="key">Factory</td><td class="val">${escapeHtml(factory?.factory_name||'—')}</td></tr><tr><td class="key">Ship To</td><td class="val">Baseballism Inc.<br>11035 SW 11th Street<br>Building B, Suite 290<br>Beaverton, OR 97005</td></tr><tr><td class="key">Buyer Contact</td><td class="val">Chris Clements<br>(831) 383-8283</td></tr></table></div><div><div class="block-title">PO Summary</div><div class="summary-grid"><div class="summary-item"><div class="k">Order Date</div><div class="v">${escapeHtml(po.order_date||'—')}</div></div><div class="summary-item"><div class="k">Req. Ship Date</div><div class="v">${escapeHtml(po.req_ship_date||'—')}</div></div><div class="summary-item"><div class="k">Total Styles</div><div class="v">${Number(totalStyles||0).toLocaleString()}</div></div><div class="summary-item"><div class="k">Total Units</div><div class="v">${Number(totalUnits||0).toLocaleString()}</div></div></div><div class="block-title" style="margin-top:20px;">Production Requirements</div><table class="req-table"><tr><td class="key">Order Type</td><td class="val">${orderTypeLabel}</td></tr><tr><td class="key">Tech Pack</td><td class="val">${techPackLabel}</td></tr></table></div></div>${po.notes?`<div class="notes"><div class="block-title">Vendor Notes</div><div class="notes-text">${escapeHtml(po.notes)}</div></div>`:''}<div class="cover-footer"><div>Baseballism Purchase Order</div><div>${escapeHtml(po.po_name||'')}</div></div></div>${detailPagesHtml}<div class="sheet no-print"><div class="no-print-actions"><button onclick="window.print()" class="print-btn">Print / Save PDF</button><button onclick="window.close()" class="print-btn alt">Close</button></div></div></body></html>`;
+      return `<!doctype html><html><head><meta charset="utf-8" /><title>${escapeHtml(po.po_name||'Purchase Order')}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"><style>:root{--ink:#171717;--muted:#737373;--line:#d4d4d4;--line-soft:#ececec;--soft:#f7f7f7}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:var(--ink);font-family:Inter,system-ui,sans-serif}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.sheet{width:100%;padding:34px 38px 28px}.cover{min-height:calc(100vh - 62px);display:flex;flex-direction:column}.topbar{display:grid;grid-template-columns:1fr 260px;gap:28px;align-items:start;padding-bottom:20px;border-bottom:2px solid var(--ink)}.eyebrow{font-size:11px;font-weight:700;letter-spacing:.24em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}.title{margin:0;font-size:42px;line-height:1;letter-spacing:-.05em;font-weight:800}.subtext{margin-top:10px;max-width:560px;color:var(--muted);font-size:14px;line-height:1.55}.po-meta{text-align:left;padding-top:2px}.po-meta .label{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:8px}.po-meta .value{font-size:24px;line-height:1.1;font-weight:800;letter-spacing:-.04em;word-break:break-word}.cover-grid{display:grid;grid-template-columns:1fr 1fr;gap:42px;margin-top:28px;align-items:start}.block-title{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:14px}.info-table,.req-table{width:100%;border-collapse:collapse}.info-table td{padding:10px 0;vertical-align:top;font-size:14px;line-height:1.45;border-bottom:1px solid var(--line-soft)}.info-table tr:last-child td,.req-table tr:last-child td{border-bottom:none}.info-table td.key{width:170px;color:var(--muted);font-weight:600;padding-right:16px}.info-table td.val{color:var(--ink);font-weight:600}.summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 26px;margin-bottom:18px}.summary-item{padding-bottom:10px;border-bottom:1px solid var(--line-soft)}.summary-item .k{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:8px}.summary-item .v{font-size:18px;font-weight:800;letter-spacing:-.03em}.req-table{margin-top:8px}.req-table td{padding:10px 0;font-size:13px;border-bottom:1px solid var(--line-soft);vertical-align:top}.req-table td.key{width:150px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.12em;font-size:10px;padding-right:16px}.req-table td.val{color:var(--ink);font-weight:600;line-height:1.45}.notes{margin-top:24px;padding-top:16px;border-top:1px solid var(--line)}.notes-text{font-size:13px;color:var(--ink);line-height:1.65;white-space:pre-wrap}.cover-footer{margin-top:auto;display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:24px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}.page-break{page-break-before:always;break-before:page}.detail-page{min-height:calc(100vh - 62px);display:flex;flex-direction:column}.detail-head{display:grid;grid-template-columns:1fr 240px;gap:24px;align-items:end;padding-bottom:18px;border-bottom:2px solid var(--ink);margin-bottom:18px}.detail-kicker{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:10px}.detail-title{margin:0;font-size:30px;line-height:1.05;font-weight:800;letter-spacing:-.04em}.detail-meta{display:grid;gap:8px;justify-items:end}.detail-meta-row{font-size:12px;color:var(--muted)}.detail-meta-row strong{color:var(--ink);font-weight:800}.product-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;padding:0 0 16px 0;margin-bottom:10px;border-bottom:1px solid var(--line)}.strip-item{display:grid;gap:6px}.strip-k{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:700}.strip-v{font-size:13px;font-weight:700;line-height:1.4}.lines-table{width:100%;border-collapse:collapse;table-layout:fixed}.lines-table thead th{text-align:left;padding:10px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.18em;color:var(--muted);border-bottom:1.5px solid var(--line)}.lines-table.compact tbody td{padding:10px 8px;vertical-align:top;font-size:12px;border-bottom:1px solid var(--line-soft)}.lines-table.compact tbody tr:last-child td{border-bottom:1px solid var(--line)}.upc-col{width:13%}.title-col{width:36%}.sku-col{width:28%}.variant-col{width:13%}.qty-col{width:10%}.cell-main{font-size:12px;font-weight:700;line-height:1.32}.sku-cell{white-space:nowrap;word-break:keep-all;overflow-wrap:normal;font-size:9.5px;line-height:1.15;letter-spacing:-.02em}.cell-sub{margin-top:4px;font-size:10px;line-height:1.4;color:var(--muted);max-width:260px}.caps{text-transform:uppercase;letter-spacing:.04em}.right{text-align:right!important}.qty{font-weight:800;font-size:13px}.detail-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:auto;padding-top:18px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}.no-print-actions{display:flex;gap:12px;margin-top:26px}.print-btn{padding:12px 18px;border-radius:0;border:1px solid var(--ink);background:var(--ink);color:white;font-weight:700;cursor:pointer;font-family:inherit}.print-btn.alt{background:white;color:var(--ink)}@page{size:auto;margin:14mm}@media print{.no-print{display:none!important}.sheet{padding:0}.cover{min-height:auto}.detail-page{min-height:auto}}
+
+    /* v2.7 ultra-compact laptop workbench pass */
+    html,body{font-size:13px}
+    body{overflow-x:hidden}
+    body .glass{border-radius:12px;box-shadow:0 5px 14px rgba(15,23,42,.045)}
+    body .btn{border-radius:9px;padding:.42rem .58rem!important;font-size:.72rem!important;line-height:1!important}
+    .compact-page-head{min-height:58px}
+    .compact-page-head .text-xs.uppercase{font-size:.62rem!important;letter-spacing:.22em!important}
+    .compact-page-head .sm\:text-2xl{font-size:1.12rem!important;line-height:1.1!important}
+    .compact-page-head .text-xs.text-slate-500{font-size:.70rem!important;max-width:760px}
+    #poList button{padding:.52rem .62rem!important;margin-bottom:.42rem!important;border-radius:11px!important}
+    #poList button .grid{margin-top:.45rem!important;gap:.3rem!important}
+    #poList button .text-sm{font-size:.75rem!important;line-height:1.1!important}
+    #poList button .text-xs{font-size:.64rem!important;line-height:1.05!important}
+    #poSearch,#poStatusFilter,#poFactoryFilter{height:31px!important;min-height:31px!important}
+    aside .mt-4{margin-top:.55rem!important}.soft-scroll{scrollbar-width:thin}
+    #detailTitle{font-size:1rem!important}.status-badge{font-size:.62rem!important;padding:.18rem .42rem!important}
+    #detailMeta{font-size:.68rem!important;line-height:1.2!important}.muted-label{font-size:.56rem!important;letter-spacing:.16em!important;margin-bottom:.18rem!important}
+    body input:not([type="checkbox"]),body select{min-height:30px!important;height:30px!important;padding:.32rem .5rem!important;border-radius:8px!important;font-size:.72rem!important}
+    body textarea{min-height:30px!important;padding:.32rem .5rem!important;border-radius:8px!important;font-size:.72rem!important;line-height:1.2!important}
+    .po-flags label{height:50px!important;overflow:hidden}.po-flags input{margin:0!important}.po-flags div{line-height:1.05!important}
+    .compact-kpis .glass{min-height:48px!important}.compact-kpis .text-\[10px\]{font-size:.55rem!important}.compact-kpis .text-xl{font-size:1.08rem!important}
+    .compact-line-grid{max-height:58vh;overflow:auto}.compact-line-grid table{table-layout:fixed}
+    .compact-line-grid thead th{padding:6px 5px!important;font-size:.58rem!important;letter-spacing:.095em!important}
+    .compact-line-grid tbody td{padding:3px 4px!important;vertical-align:middle!important}
+    .po-lines-table th:nth-child(1),.po-lines-table td:nth-child(1){width:82px}
+    .po-lines-table th:nth-child(2),.po-lines-table td:nth-child(2){width:150px}
+    .po-lines-table th:nth-child(3),.po-lines-table td:nth-child(3){width:70px}
+    .po-lines-table th:nth-child(4),.po-lines-table td:nth-child(4){width:170px}
+    .po-lines-table th:nth-child(5),.po-lines-table td:nth-child(5){width:118px}
+    .po-lines-table th:nth-child(6),.po-lines-table td:nth-child(6){width:72px}
+    .po-lines-table th:nth-child(7),.po-lines-table td:nth-child(7){width:72px}
+    .po-lines-table th:nth-child(8),.po-lines-table td:nth-child(8){width:64px}
+    .po-lines-table th:nth-child(9),.po-lines-table td:nth-child(9){width:82px}
+    .po-lines-table th:nth-child(10),.po-lines-table td:nth-child(10){width:120px}
+    .po-lines-table th:nth-child(11),.po-lines-table td:nth-child(11){width:88px}
+    .line-input{min-width:0!important;height:25px!important;min-height:25px!important;border-radius:7px!important;padding:.22rem .35rem!important;font-size:.66rem!important;line-height:1!important}
+    .line-input.small{text-align:right!important}.line-input.notes{height:25px!important;min-height:25px!important;resize:none!important}
+    #linesTbody .btn,.line-save-btn,.line-delete-btn{padding:.24rem .38rem!important;border-radius:7px!important;font-size:.60rem!important;min-height:24px!important}
+    .table-wrap{border-radius:9px!important}.pill{font-size:.62rem!important;padding:.14rem .45rem!important}
+    .catalog-modal-table th,.catalog-modal-table td{padding:.35rem .45rem!important;font-size:.7rem!important}
+
+</style></head><body><div class="sheet cover"><div class="topbar"><div><div class="eyebrow">Baseballism Inc.</div><h1 class="title">Purchase Order</h1><div class="subtext"></div></div><div class="po-meta"><div class="label">PO Number</div><div class="value">${escapeHtml(po.po_name||'—')}</div></div></div><div class="cover-grid"><div><div class="block-title">Factory & Shipping</div><table class="info-table"><tr><td class="key">Factory</td><td class="val">${escapeHtml(factory?.factory_name||'—')}</td></tr><tr><td class="key">Ship To</td><td class="val">Baseballism Inc.<br>11035 SW 11th Street<br>Building B, Suite 290<br>Beaverton, OR 97005</td></tr><tr><td class="key">Buyer Contact</td><td class="val">Chris Clements<br>(831) 383-8283</td></tr></table></div><div><div class="block-title">PO Summary</div><div class="summary-grid"><div class="summary-item"><div class="k">Order Date</div><div class="v">${escapeHtml(po.order_date||'—')}</div></div><div class="summary-item"><div class="k">Req. Ship Date</div><div class="v">${escapeHtml(po.req_ship_date||'—')}</div></div><div class="summary-item"><div class="k">Total Styles</div><div class="v">${Number(totalStyles||0).toLocaleString()}</div></div><div class="summary-item"><div class="k">Total Units</div><div class="v">${Number(totalUnits||0).toLocaleString()}</div></div></div><div class="block-title" style="margin-top:20px;">Production Requirements</div><table class="req-table"><tr><td class="key">Order Type</td><td class="val">${orderTypeLabel}</td></tr><tr><td class="key">Tech Pack</td><td class="val">${techPackLabel}</td></tr></table></div></div>${po.notes?`<div class="notes"><div class="block-title">Vendor Notes</div><div class="notes-text">${escapeHtml(po.notes)}</div></div>`:''}<div class="cover-footer"><div>Baseballism Purchase Order</div><div>${escapeHtml(po.po_name||'')}</div></div></div>${detailPagesHtml}<div class="sheet no-print"><div class="no-print-actions"><button onclick="window.print()" class="print-btn">Print / Save PDF</button><button onclick="window.close()" class="print-btn alt">Close</button></div></div></body></html>`;
     }
 
     function generateVendorPdf(){ if(!state.currentPO?.id){ alert('Save and open a PO first.'); return; } const html=buildVendorPdfHtml(); const win=window.open('','_blank','width=1200,height=900'); if(!win){ alert('Pop-up blocked. Allow pop-ups for this site.'); return; } win.document.open(); win.document.write(html); win.document.close(); }
