@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Silo · PO Builder v2.2</title>
+  <title>Silo · PO Builder v2.7 Ultra Compact</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="./config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -17,8 +17,8 @@
       --line:rgba(15,23,42,.08);
       --text:#0f172a;
       --muted:#64748b;
-      --shadow:0 10px 30px rgba(15,23,42,.08);
-      --radius:24px;
+      --shadow:0 8px 22px rgba(15,23,42,.06);
+      --radius:16px;
       --brand:#0f172a;
     }
     *{box-sizing:border-box}
@@ -57,17 +57,83 @@
     .line-input.small{min-width:76px;text-align:right}
     .line-input.notes{min-width:160px}
     .hint{font-size:.76rem;color:#64748b;line-height:1.45}
-  </style>
+  
+    /* Silo compact workbench overrides */
+    body .glass{border-radius:16px;box-shadow:0 8px 22px rgba(15,23,42,.055)}
+    body .btn{border-radius:11px;padding:.48rem .72rem;font-size:.78rem;line-height:1.1}
+    body input:not([type="checkbox"]),body select{min-height:34px!important;padding:.42rem .62rem!important;border-radius:10px!important;font-size:.76rem!important}
+    body textarea{border-radius:10px!important;font-size:.76rem!important;line-height:1.25!important}
+    .muted-label{margin-bottom:.24rem;font-size:.61rem;letter-spacing:.17em;color:#64748b}
+    .status-badge{padding:.22rem .5rem;font-size:.68rem;gap:.32rem}.status-dot{width:.42rem;height:.42rem}
+    .compact-page-head .btn{padding:.55rem .82rem}
+    .compact-kpis .glass{min-height:70px}
+    .compact-line-grid thead th{padding:7px 6px!important;font-size:.64rem;letter-spacing:.11em;white-space:nowrap;background:#f8fafc}
+    .compact-line-grid tbody td{padding:5px 6px!important;vertical-align:middle}
+    .line-input{min-width:86px;border-radius:8px!important;padding:.3rem .42rem!important;font-size:.71rem!important;line-height:1.1!important;min-height:28px!important;height:29px}
+    .line-input.small{min-width:66px}.line-input.notes{min-width:130px;resize:vertical;height:29px}
+    #linesTbody .btn{padding:.34rem .55rem!important;border-radius:8px!important;font-size:.66rem!important}
+    #linesTbody tr:hover{background:#f8fafc}
+    #poList button{border-radius:14px!important;padding:.65rem .78rem!important;margin-bottom:.55rem!important}
+    #poList .status-badge{padding:.18rem .45rem;font-size:.65rem}
+    .table-wrap{border-radius:12px;border:1px solid rgba(15,23,42,.06)}
+    .pill{font-size:.68rem;padding:.18rem .55rem!important}
+    label.rounded-2xl{border-radius:12px!important;padding:.55rem .65rem!important}
+    label.rounded-2xl .mt-2{margin-top:.35rem!important}
+    .hint{font-size:.7rem}
+
+
+    /* v2.7 ultra-compact laptop workbench pass */
+    html,body{font-size:13px}
+    body{overflow-x:hidden}
+    body .glass{border-radius:12px;box-shadow:0 5px 14px rgba(15,23,42,.045)}
+    body .btn{border-radius:9px;padding:.42rem .58rem!important;font-size:.72rem!important;line-height:1!important}
+    .compact-page-head{min-height:58px}
+    .compact-page-head .text-xs.uppercase{font-size:.62rem!important;letter-spacing:.22em!important}
+    .compact-page-head .sm\:text-2xl{font-size:1.12rem!important;line-height:1.1!important}
+    .compact-page-head .text-xs.text-slate-500{font-size:.70rem!important;max-width:760px}
+    #poList button{padding:.52rem .62rem!important;margin-bottom:.42rem!important;border-radius:11px!important}
+    #poList button .grid{margin-top:.45rem!important;gap:.3rem!important}
+    #poList button .text-sm{font-size:.75rem!important;line-height:1.1!important}
+    #poList button .text-xs{font-size:.64rem!important;line-height:1.05!important}
+    #poSearch,#poStatusFilter,#poFactoryFilter{height:31px!important;min-height:31px!important}
+    aside .mt-4{margin-top:.55rem!important}.soft-scroll{scrollbar-width:thin}
+    #detailTitle{font-size:1rem!important}.status-badge{font-size:.62rem!important;padding:.18rem .42rem!important}
+    #detailMeta{font-size:.68rem!important;line-height:1.2!important}.muted-label{font-size:.56rem!important;letter-spacing:.16em!important;margin-bottom:.18rem!important}
+    body input:not([type="checkbox"]),body select{min-height:30px!important;height:30px!important;padding:.32rem .5rem!important;border-radius:8px!important;font-size:.72rem!important}
+    body textarea{min-height:30px!important;padding:.32rem .5rem!important;border-radius:8px!important;font-size:.72rem!important;line-height:1.2!important}
+    .po-flags label{height:50px!important;overflow:hidden}.po-flags input{margin:0!important}.po-flags div{line-height:1.05!important}
+    .compact-kpis .glass{min-height:48px!important}.compact-kpis .text-\[10px\]{font-size:.55rem!important}.compact-kpis .text-xl{font-size:1.08rem!important}
+    .compact-line-grid{max-height:58vh;overflow:auto}.compact-line-grid table{table-layout:fixed}
+    .compact-line-grid thead th{padding:6px 5px!important;font-size:.58rem!important;letter-spacing:.095em!important}
+    .compact-line-grid tbody td{padding:3px 4px!important;vertical-align:middle!important}
+    .po-lines-table th:nth-child(1),.po-lines-table td:nth-child(1){width:82px}
+    .po-lines-table th:nth-child(2),.po-lines-table td:nth-child(2){width:150px}
+    .po-lines-table th:nth-child(3),.po-lines-table td:nth-child(3){width:70px}
+    .po-lines-table th:nth-child(4),.po-lines-table td:nth-child(4){width:170px}
+    .po-lines-table th:nth-child(5),.po-lines-table td:nth-child(5){width:118px}
+    .po-lines-table th:nth-child(6),.po-lines-table td:nth-child(6){width:72px}
+    .po-lines-table th:nth-child(7),.po-lines-table td:nth-child(7){width:72px}
+    .po-lines-table th:nth-child(8),.po-lines-table td:nth-child(8){width:64px}
+    .po-lines-table th:nth-child(9),.po-lines-table td:nth-child(9){width:82px}
+    .po-lines-table th:nth-child(10),.po-lines-table td:nth-child(10){width:120px}
+    .po-lines-table th:nth-child(11),.po-lines-table td:nth-child(11){width:88px}
+    .line-input{min-width:0!important;height:25px!important;min-height:25px!important;border-radius:7px!important;padding:.22rem .35rem!important;font-size:.66rem!important;line-height:1!important}
+    .line-input.small{text-align:right!important}.line-input.notes{height:25px!important;min-height:25px!important;resize:none!important}
+    #linesTbody .btn,.line-save-btn,.line-delete-btn{padding:.24rem .38rem!important;border-radius:7px!important;font-size:.60rem!important;min-height:24px!important}
+    .table-wrap{border-radius:9px!important}.pill{font-size:.62rem!important;padding:.14rem .45rem!important}
+    .catalog-modal-table th,.catalog-modal-table td{padding:.35rem .45rem!important;font-size:.7rem!important}
+
+</style>
 </head>
 <body>
-  <div class="min-h-screen px-4 py-4 sm:px-6 lg:px-8">
-    <div class="mx-auto max-w-[1750px] space-y-5">
-      <header class="glass px-5 py-5 sm:px-6">
-        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+  <div class="min-h-screen px-2 py-2 sm:px-3 lg:px-3">
+    <div class="mx-auto max-w-[1920px] space-y-2">
+      <header class="glass px-3 py-2 sm:px-3 compact-page-head">
+        <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Silo Purchasing</div>
-            <div class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">PO Builder</div>
-            <div class="mt-2 text-sm text-slate-500">Catalog-linked PO creation, editable line matrix, bulk SKU add, manual import, duplicate PO, and vendor PDF output.</div>
+            <div class="mt-0 text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">PO Builder</div>
+            <div class="mt-1 text-xs text-slate-500">Catalog-linked POs, editable line matrix, bulk SKU add, imports, duplicate PO, and vendor PDF output.</div>
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <button id="btnRefresh" class="btn btn-secondary">Refresh</button>
@@ -76,36 +142,36 @@
         </div>
       </header>
 
-      <section class="grid gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
-        <aside class="glass p-4 sm:p-5">
+      <section class="grid gap-2 xl:grid-cols-[300px_minmax(0,1fr)]">
+        <aside class="glass p-2 sm:p-2">
           <div class="flex items-center justify-between gap-3">
             <div>
-              <div class="text-lg font-bold text-slate-900">PO List</div>
-              <div class="text-sm text-slate-500">Recent purchase orders</div>
+              <div class="text-base font-bold text-slate-900">PO List</div>
+              <div class="text-xs text-slate-500">Recent purchase orders</div>
             </div>
             <div id="poCount" class="pill px-3 py-1 text-xs font-semibold text-slate-600">0 POs</div>
           </div>
 
           <div class="mt-4 space-y-3">
-            <input id="poSearch" type="text" placeholder="Search PO name, factory, bucket..." class="w-full px-4 py-3 text-sm" />
+            <input id="poSearch" type="text" placeholder="Search PO name, factory, bucket..." class="w-full px-3 py-2 text-xs" />
             <div class="grid grid-cols-2 gap-3">
-              <select id="poStatusFilter" class="w-full px-4 py-3 text-sm"><option value="">All statuses</option></select>
-              <select id="poFactoryFilter" class="w-full px-4 py-3 text-sm"><option value="">All factories</option></select>
+              <select id="poStatusFilter" class="w-full px-3 py-2 text-xs"><option value="">All statuses</option></select>
+              <select id="poFactoryFilter" class="w-full px-3 py-2 text-xs"><option value="">All factories</option></select>
             </div>
           </div>
 
-          <div class="mt-4 max-h-[72vh] overflow-auto pr-1 soft-scroll" id="poList"></div>
+          <div class="mt-3 max-h-[75vh] overflow-auto pr-1 soft-scroll" id="poList"></div>
         </aside>
 
-        <main class="space-y-5">
-          <section class="glass p-4 sm:p-5">
-            <div class="flex flex-col gap-4 border-b border-slate-200 pb-4 lg:flex-row lg:items-start lg:justify-between">
+        <main class="space-y-2">
+          <section class="glass p-2 sm:p-2">
+            <div class="flex flex-col gap-2 border-b border-slate-200 pb-2 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <div class="flex flex-wrap items-center gap-3">
-                  <h2 id="detailTitle" class="text-xl font-bold tracking-tight text-slate-900">No PO selected</h2>
+                  <h2 id="detailTitle" class="text-lg font-bold tracking-tight text-slate-900">No PO selected</h2>
                   <div id="detailStatusWrap"></div>
                 </div>
-                <div id="detailMeta" class="mt-2 text-sm text-slate-500">Create a new PO or select one from the list.</div>
+                <div id="detailMeta" class="mt-1 text-xs text-slate-500">Create a new PO or select one from the list.</div>
               </div>
               <div class="flex flex-wrap gap-2">
                 <button id="btnSaveHeader" class="btn btn-primary" disabled>Save Header</button>
@@ -118,39 +184,39 @@
               </div>
             </div>
 
-            <div class="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div><label class="muted-label">PO Name</label><input id="poName" type="text" class="w-full px-4 py-3 text-sm font-semibold" placeholder="Auto-generated" /></div>
-              <div><label class="muted-label">Factory</label><select id="factoryId" class="w-full px-4 py-3 text-sm"></select></div>
-              <div><label class="muted-label">Order Date</label><input id="orderDate" type="date" class="w-full px-4 py-3 text-sm" /></div>
-              <div><label class="muted-label">Required Ship Date</label><input id="reqShipDate" type="date" class="w-full px-4 py-3 text-sm" /></div>
-              <div><label class="muted-label">Expected Arrival</label><input id="expectedArrivalDate" type="date" class="w-full px-4 py-3 text-sm" /></div>
-              <div><label class="muted-label">Date Bucket</label><input id="dateBucket" type="text" class="w-full px-4 py-3 text-sm" placeholder="Holiday 2026" /></div>
-              <div><label class="muted-label">Status</label><select id="status" class="w-full px-4 py-3 text-sm"></select></div>
-              <div class="grid grid-cols-2 gap-3">
-                <label class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700"><div class="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Wholesale</div><div class="mt-2 flex items-center gap-2"><input id="wholesaleTriggered" type="checkbox" class="h-4 w-4" /> Triggered</div></label>
-                <label class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700"><div class="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Product Mix</div><div class="mt-2 flex items-center gap-2"><input id="isNewProductPO" type="checkbox" class="h-4 w-4" /> New Product</div></label>
+            <div class="mt-2 grid gap-2 md:grid-cols-4 xl:grid-cols-8">
+              <div><label class="muted-label">PO Name</label><input id="poName" type="text" class="w-full px-3 py-2 text-xs font-semibold" placeholder="Auto-generated" /></div>
+              <div><label class="muted-label">Factory</label><select id="factoryId" class="w-full px-3 py-2 text-xs"></select></div>
+              <div><label class="muted-label">Order Date</label><input id="orderDate" type="date" class="w-full px-3 py-2 text-xs" /></div>
+              <div><label class="muted-label">Required Ship Date</label><input id="reqShipDate" type="date" class="w-full px-3 py-2 text-xs" /></div>
+              <div><label class="muted-label">Expected Arrival</label><input id="expectedArrivalDate" type="date" class="w-full px-3 py-2 text-xs" /></div>
+              <div><label class="muted-label">Date Bucket</label><input id="dateBucket" type="text" class="w-full px-3 py-2 text-xs" placeholder="Holiday 2026" /></div>
+              <div><label class="muted-label">Status</label><select id="status" class="w-full px-3 py-2 text-xs"></select></div>
+              <div class="grid grid-cols-2 gap-2 xl:col-span-2 po-flags">
+                <label class="rounded-2xl border border-slate-200 bg-white px-2 py-2 text-xs font-medium text-slate-700"><div class="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-400">Wholesale</div><div class="mt-1 flex items-center gap-1.5"><input id="wholesaleTriggered" type="checkbox" class="h-3.5 w-3.5" /> Triggered</div></label>
+                <label class="rounded-2xl border border-slate-200 bg-white px-2 py-2 text-xs font-medium text-slate-700"><div class="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-400">Product Mix</div><div class="mt-1 flex items-center gap-1.5"><input id="isNewProductPO" type="checkbox" class="h-3.5 w-3.5" /> New Product</div></label>
               </div>
             </div>
 
-            <div class="mt-4 grid gap-4 lg:grid-cols-2">
-              <div><label class="muted-label">Vendor Notes</label><textarea id="notes" rows="4" class="w-full px-4 py-3 text-sm" placeholder="Visible vendor-facing notes if needed"></textarea></div>
-              <div><label class="muted-label">Internal Notes</label><textarea id="internalNotes" rows="4" class="w-full px-4 py-3 text-sm" placeholder="Internal purchasing / planning notes"></textarea></div>
+            <div class="mt-2 grid gap-2 lg:grid-cols-2">
+              <div><label class="muted-label">Vendor Notes</label><textarea id="notes" rows="1" class="w-full px-3 py-2 text-xs" placeholder="Visible vendor-facing notes if needed"></textarea></div>
+              <div><label class="muted-label">Internal Notes</label><textarea id="internalNotes" rows="1" class="w-full px-3 py-2 text-xs" placeholder="Internal purchasing / planning notes"></textarea></div>
             </div>
           </section>
 
-          <section class="grid gap-4 md:grid-cols-3">
-            <div class="glass p-5"><div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Total Units</div><div id="kpiUnits" class="mt-2 text-3xl font-extrabold tracking-tight text-slate-900">0</div></div>
-            <div class="glass p-5"><div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Retail Value</div><div id="kpiRetail" class="mt-2 text-3xl font-extrabold tracking-tight text-slate-900">$0.00</div></div>
-            <div class="glass p-5"><div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Estimated Cost</div><div id="kpiCost" class="mt-2 text-3xl font-extrabold tracking-tight text-slate-900">$0.00</div></div>
+          <section class="grid gap-2 md:grid-cols-3 compact-kpis">
+            <div class="glass px-3 py-2"><div class="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Total Units</div><div id="kpiUnits" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">0</div></div>
+            <div class="glass px-3 py-2"><div class="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Retail Value</div><div id="kpiRetail" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">$0.00</div></div>
+            <div class="glass px-3 py-2"><div class="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Estimated Cost</div><div id="kpiCost" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">$0.00</div></div>
           </section>
 
-          <section class="glass p-4 sm:p-5">
-            <div class="flex flex-col gap-3 border-b border-slate-200 pb-4 md:flex-row md:items-center md:justify-between">
-              <div><div class="text-lg font-bold text-slate-900">PO Lines</div><div class="text-sm text-slate-500">Editable line matrix. Save rows individually after changes.</div></div>
+          <section class="glass p-2 sm:p-2">
+            <div class="flex flex-col gap-1 border-b border-slate-200 pb-2 md:flex-row md:items-center md:justify-between">
+              <div><div class="text-base font-bold text-slate-900">PO Lines</div><div class="text-xs text-slate-500">Editable line matrix. Save rows individually after changes.</div></div>
               <div class="text-xs text-slate-500">Retail value recalculates on save.</div>
             </div>
-            <div class="mt-4 table-wrap soft-scroll sticky-head">
-              <table class="min-w-[1500px] w-full border-separate border-spacing-0 text-sm">
+            <div class="mt-2 table-wrap soft-scroll sticky-head compact-line-grid">
+              <table class="min-w-[1180px] w-full border-separate border-spacing-0 text-xs po-lines-table">
                 <thead>
                   <tr>
                     <th class="border-b border-slate-200 px-2 py-3 text-left font-semibold text-slate-500">Type</th>
@@ -177,15 +243,15 @@
 
   <div id="catalogModal" class="fixed inset-0 z-40 hidden-safe items-center justify-center p-4">
     <div class="absolute inset-0 modal-backdrop"></div>
-    <div class="relative z-10 w-full max-w-6xl glass p-4 sm:p-5">
+    <div class="relative z-10 w-full max-w-6xl glass p-3 sm:p-3">
       <div class="flex items-center justify-between gap-3 border-b border-slate-200 pb-4">
         <div><div class="text-lg font-bold text-slate-900">Add Catalog Line</div><div class="text-sm text-slate-500">Search products_master and add linked PO lines.</div></div>
         <div class="flex items-center gap-2"><button id="btnAddSelectedCatalog" class="btn btn-primary">Add Selected</button><button class="btn btn-secondary" data-close="catalogModal">Close</button></div>
       </div>
-      <div class="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_160px]"><input id="catalogSearch" type="text" class="w-full px-4 py-3 text-sm" placeholder="Search SKU, UPC, title, variant, product type..." /><button id="btnSearchCatalog" class="btn btn-primary">Search</button></div>
+      <div class="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_160px]"><input id="catalogSearch" type="text" class="w-full px-3 py-2 text-xs" placeholder="Search SKU, UPC, title, variant, product type..." /><button id="btnSearchCatalog" class="btn btn-primary">Search</button></div>
       <div class="mt-4 max-h-[60vh] overflow-auto soft-scroll">
         <table class="min-w-full text-sm">
-          <thead><tr><th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">SKU</th><th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">Title</th><th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">Variant</th><th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">Type</th><th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Retail</th><th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Cost</th><th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Qty</th><th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Add</th></tr></thead>
+          <thead><tr><th class="border-b border-slate-200 px-2 py-2 text-left font-semibold text-slate-500">SKU</th><th class="border-b border-slate-200 px-2 py-2 text-left font-semibold text-slate-500">Title</th><th class="border-b border-slate-200 px-2 py-2 text-left font-semibold text-slate-500">Variant</th><th class="border-b border-slate-200 px-2 py-2 text-left font-semibold text-slate-500">Type</th><th class="border-b border-slate-200 px-2 py-2 text-right font-semibold text-slate-500">Retail</th><th class="border-b border-slate-200 px-2 py-2 text-right font-semibold text-slate-500">Cost</th><th class="border-b border-slate-200 px-2 py-2 text-right font-semibold text-slate-500">Qty</th><th class="border-b border-slate-200 px-2 py-2 text-right font-semibold text-slate-500">Add</th></tr></thead>
           <tbody id="catalogResults"></tbody>
         </table>
       </div>
@@ -194,23 +260,23 @@
 
   <div id="manualModal" class="fixed inset-0 z-40 hidden-safe items-center justify-center p-4">
     <div class="absolute inset-0 modal-backdrop"></div>
-    <div class="relative z-10 w-full max-w-4xl glass p-4 sm:p-5">
+    <div class="relative z-10 w-full max-w-4xl glass p-3 sm:p-3">
       <div class="flex items-center justify-between gap-3 border-b border-slate-200 pb-4">
         <div><div class="text-lg font-bold text-slate-900">Add Manual Line</div><div class="text-sm text-slate-500">For new/not-yet-loaded catalog products.</div></div>
         <button class="btn btn-secondary" data-close="manualModal">Close</button>
       </div>
       <div class="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <div><label class="muted-label">Product Type</label><input id="manualProductType" type="text" class="w-full px-4 py-3 text-sm" /></div>
-        <div><label class="muted-label">Title</label><input id="manualTitle" type="text" class="w-full px-4 py-3 text-sm" /></div>
-        <div><label class="muted-label">Variant</label><input id="manualVariant" type="text" class="w-full px-4 py-3 text-sm" /></div>
-        <div><label class="muted-label">SKU</label><input id="manualSku" type="text" class="w-full px-4 py-3 text-sm" /></div>
-        <div><label class="muted-label">UPC</label><input id="manualUpc" type="text" class="w-full px-4 py-3 text-sm" /></div>
-        <div><label class="muted-label">Barcode</label><input id="manualBarcode" type="text" class="w-full px-4 py-3 text-sm" /></div>
-        <div><label class="muted-label">Retail Price</label><input id="manualRetail" type="number" step="0.01" class="w-full px-4 py-3 text-sm" /></div>
-        <div><label class="muted-label">Unit Cost</label><input id="manualCost" type="number" step="0.01" class="w-full px-4 py-3 text-sm" /></div>
-        <div><label class="muted-label">Qty</label><input id="manualQty" type="number" min="0" step="1" class="w-full px-4 py-3 text-sm" value="0" /></div>
+        <div><label class="muted-label">Product Type</label><input id="manualProductType" type="text" class="w-full px-3 py-2 text-xs" /></div>
+        <div><label class="muted-label">Title</label><input id="manualTitle" type="text" class="w-full px-3 py-2 text-xs" /></div>
+        <div><label class="muted-label">Variant</label><input id="manualVariant" type="text" class="w-full px-3 py-2 text-xs" /></div>
+        <div><label class="muted-label">SKU</label><input id="manualSku" type="text" class="w-full px-3 py-2 text-xs" /></div>
+        <div><label class="muted-label">UPC</label><input id="manualUpc" type="text" class="w-full px-3 py-2 text-xs" /></div>
+        <div><label class="muted-label">Barcode</label><input id="manualBarcode" type="text" class="w-full px-3 py-2 text-xs" /></div>
+        <div><label class="muted-label">Retail Price</label><input id="manualRetail" type="number" step="0.01" class="w-full px-3 py-2 text-xs" /></div>
+        <div><label class="muted-label">Unit Cost</label><input id="manualCost" type="number" step="0.01" class="w-full px-3 py-2 text-xs" /></div>
+        <div><label class="muted-label">Qty</label><input id="manualQty" type="number" min="0" step="1" class="w-full px-3 py-2 text-xs" value="0" /></div>
       </div>
-      <div class="mt-4"><label class="muted-label">Line Notes</label><textarea id="manualNotes" rows="3" class="w-full px-4 py-3 text-sm"></textarea></div>
+      <div class="mt-4"><label class="muted-label">Line Notes</label><textarea id="manualNotes" rows="3" class="w-full px-3 py-2 text-xs"></textarea></div>
       <div class="mt-4 flex flex-wrap justify-end gap-2">
         <button class="btn btn-secondary" data-close="manualModal">Cancel</button>
         <button id="btnSaveManualAnother" class="btn btn-secondary">Add Line + Another</button>
@@ -221,13 +287,13 @@
 
   <div id="bulkSkuModal" class="fixed inset-0 z-40 hidden-safe items-center justify-center p-4">
     <div class="absolute inset-0 modal-backdrop"></div>
-    <div class="relative z-10 w-full max-w-4xl glass p-4 sm:p-5">
+    <div class="relative z-10 w-full max-w-4xl glass p-3 sm:p-3">
       <div class="flex items-center justify-between gap-3 border-b border-slate-200 pb-4">
         <div><div class="text-lg font-bold text-slate-900">Bulk SKU Add</div><div class="text-sm text-slate-500">Paste SKU + Qty rows. Matches against products_master.</div></div>
         <button class="btn btn-secondary" data-close="bulkSkuModal">Close</button>
       </div>
       <div class="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
-        <textarea id="bulkSkuText" rows="14" class="w-full px-4 py-3 text-sm font-mono" placeholder="SKU, Qty&#10;6-FlagMan1(Grey/White)-Shoe, 77&#10;7-FlagMan1(Grey/White)-Shoe, 10"></textarea>
+        <textarea id="bulkSkuText" rows="14" class="w-full px-3 py-2 text-xs font-mono" placeholder="SKU, Qty&#10;6-FlagMan1(Grey/White)-Shoe, 77&#10;7-FlagMan1(Grey/White)-Shoe, 10"></textarea>
         <div class="rounded-2xl border border-slate-200 bg-white p-4">
           <div class="text-sm font-bold text-slate-900">Accepted formats</div>
           <div class="mt-2 hint">SKU, Qty<br>SKU[TAB]Qty<br>Qty can be blank and defaults to 1. Header row is optional.</div>
@@ -240,7 +306,7 @@
 
   <div id="importModal" class="fixed inset-0 z-40 hidden-safe items-center justify-center p-4">
     <div class="absolute inset-0 modal-backdrop"></div>
-    <div class="relative z-10 w-full max-w-5xl glass p-4 sm:p-5">
+    <div class="relative z-10 w-full max-w-5xl glass p-3 sm:p-3">
       <div class="flex items-center justify-between gap-3 border-b border-slate-200 pb-4">
         <div><div class="text-lg font-bold text-slate-900">Import PO Lines</div><div class="text-sm text-slate-500">Paste CSV/TSV line data into the current PO as manual snapshot lines.</div></div>
         <button class="btn btn-secondary" data-close="importModal">Close</button>
@@ -248,7 +314,7 @@
       <div class="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
         <div>
           <input id="importFile" type="file" accept=".csv,.txt" class="mb-3 w-full px-4 py-3 text-sm" />
-          <textarea id="importText" rows="16" class="w-full px-4 py-3 text-sm font-mono" placeholder="product_type,title,variant,sku,upc,retail_price,unit_cost,qty,notes&#10;Shoe,FM1 - Grey/White,6,6-FlagMan1(Grey/White)-Shoe,727073775801,0,0,77,"></textarea>
+          <textarea id="importText" rows="16" class="w-full px-3 py-2 text-xs font-mono" placeholder="product_type,title,variant,sku,upc,retail_price,unit_cost,qty,notes&#10;Shoe,FM1 - Grey/White,6,6-FlagMan1(Grey/White)-Shoe,727073775801,0,0,77,"></textarea>
         </div>
         <div class="rounded-2xl border border-slate-200 bg-white p-4">
           <div class="text-sm font-bold text-slate-900">Supported columns</div>
@@ -324,7 +390,7 @@
         .select('id, sku, product_title, variant_title, product_type, upc, barcode, msrp, unit_cost, is_active, product_ready_for_po')
         .eq('is_active', true)
         .order('product_title',{ascending:true})
-        .limit(1000000);
+        .limit(20000);
       if(error) throw error;
       state.catalogRows=(data||[]).sort(compareProductLines);
     }
@@ -340,7 +406,7 @@
       const rows=state.poRows.filter(r=>{ const hay=[r.po_name,r.factory_name,r.date_bucket,r.status].join(' ').toLowerCase(); return (!q||hay.includes(q)) && (!status||r.status===status) && (!factory||r.factory_name===factory); });
       el.poCount.textContent=`${rows.length} PO${rows.length===1?'':'s'}`;
       if(!rows.length){ el.poList.innerHTML=`<div class="rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">No purchase orders match the current filters.</div>`; return; }
-      el.poList.innerHTML=rows.map(row=>{ const active=state.currentPO?.id===row.id; return `<button data-po-id="${row.id}" class="mb-3 w-full rounded-3xl border px-4 py-4 text-left transition ${active?'border-slate-900 bg-slate-900 text-white shadow-lg':'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'}"><div class="flex items-start justify-between gap-3"><div><div class="text-sm font-bold ${active?'text-white':'text-slate-900'}">${escapeHtml(row.po_name)}</div><div class="mt-1 text-xs ${active?'text-slate-300':'text-slate-500'}">${escapeHtml(row.factory_name||'Unknown factory')}</div></div><div>${statusBadge(row.status)}</div></div><div class="mt-3 grid grid-cols-3 gap-2 text-xs ${active?'text-slate-300':'text-slate-500'}"><div><div class="font-semibold uppercase tracking-[0.14em]">Units</div><div class="mt-1 text-sm font-bold ${active?'text-white':'text-slate-900'}">${Number(row.total_units||0).toLocaleString()}</div></div><div><div class="font-semibold uppercase tracking-[0.14em]">Retail</div><div class="mt-1 text-sm font-bold ${active?'text-white':'text-slate-900'}">${money(row.total_retail_value||0)}</div></div><div><div class="font-semibold uppercase tracking-[0.14em]">Req Ship</div><div class="mt-1 text-sm font-bold ${active?'text-white':'text-slate-900'}">${escapeHtml(row.req_ship_date||'—')}</div></div></div></button>`; }).join('');
+      el.poList.innerHTML=rows.map(row=>{ const active=state.currentPO?.id===row.id; return `<button data-po-id="${row.id}" class="mb-2 w-full rounded-xl border px-3 py-2 text-left transition ${active?'border-slate-900 bg-slate-900 text-white shadow-lg':'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'}"><div class="flex items-start justify-between gap-3"><div><div class="text-sm font-bold ${active?'text-white':'text-slate-900'}">${escapeHtml(row.po_name)}</div><div class="mt-1 text-xs ${active?'text-slate-300':'text-slate-500'}">${escapeHtml(row.factory_name||'Unknown factory')}</div></div><div>${statusBadge(row.status)}</div></div><div class="mt-2 grid grid-cols-3 gap-2 text-[10px] ${active?'text-slate-300':'text-slate-500'}"><div><div class="font-semibold uppercase tracking-[0.14em]">Units</div><div class="mt-0.5 text-xs font-bold ${active?'text-white':'text-slate-900'}">${Number(row.total_units||0).toLocaleString()}</div></div><div><div class="font-semibold uppercase tracking-[0.14em]">Retail</div><div class="mt-0.5 text-xs font-bold ${active?'text-white':'text-slate-900'}">${money(row.total_retail_value||0)}</div></div><div><div class="font-semibold uppercase tracking-[0.14em]">Req Ship</div><div class="mt-0.5 text-xs font-bold ${active?'text-white':'text-slate-900'}">${escapeHtml(row.req_ship_date||'—')}</div></div></div></button>`; }).join('');
     }
 
     function fillEditor(po){
@@ -366,7 +432,7 @@
           <td class="px-2 py-2"><input class="line-input small" type="number" min="0" step="1" data-line-field="qty" data-line-id="${line.id}" value="${Number(line.qty||0)}"></td>
           <td class="px-2 py-2 text-right font-semibold text-slate-900">${money(line.retail_value||0)}</td>
           <td class="px-2 py-2"><textarea class="line-input notes" rows="1" data-line-field="line_notes" data-line-id="${line.id}">${escapeHtml(line.line_notes||'')}</textarea></td>
-          <td class="px-2 py-2 text-right"><div class="flex flex-col items-end gap-2"><button class="btn btn-secondary px-3 py-2 text-xs" data-line-save="${line.id}">Save</button><button class="btn btn-danger px-3 py-2 text-xs" data-line-delete="${line.id}">Delete</button></div></td>
+          <td class="px-1 py-1 text-right"><div class="flex items-center justify-end gap-1"><button class="btn btn-secondary line-save-btn" data-line-save="${line.id}">Save</button><button class="btn btn-danger line-delete-btn" data-line-delete="${line.id}">Del</button></div></td>
         </tr>`).join('');
       }
       const totalUnits=rows.reduce((s,r)=>s+Number(r.qty||0),0), totalRetail=rows.reduce((s,r)=>s+Number(r.retail_value||0),0), totalCost=rows.reduce((s,r)=>s+(Number(r.unit_cost||0)*Number(r.qty||0)),0);
@@ -376,7 +442,7 @@
     function renderCatalogResults(){
       const rows=state.catalogResults||[];
       if(!rows.length){ el.catalogResults.innerHTML=`<tr><td colspan="8" class="px-3 py-10 text-center text-sm text-slate-500">No matching catalog products found.</td></tr>`; return; }
-      el.catalogResults.innerHTML=rows.map(row=>`<tr class="border-b border-slate-100"><td class="px-3 py-3 text-slate-700">${escapeHtml(row.sku||'')}</td><td class="px-3 py-3 font-semibold text-slate-900">${escapeHtml(row.product_title||'')}</td><td class="px-3 py-3 text-slate-600">${escapeHtml(row.variant_title||'')}</td><td class="px-3 py-3 text-slate-600">${escapeHtml(row.product_type||'')}</td><td class="px-3 py-3 text-right text-slate-700">${money(row.msrp||0)}</td><td class="px-3 py-3 text-right text-slate-700">${money(row.unit_cost||0)}</td><td class="px-3 py-3 text-right"><input type="number" min="0" step="1" value="0" class="w-24 rounded-xl border border-slate-200 px-3 py-2 text-right text-sm" data-catalog-qty="${row.id}" /></td><td class="px-3 py-3 text-right"><button class="btn btn-primary px-3 py-2 text-xs" data-add-catalog="${row.id}">Add</button></td></tr>`).join('');
+      el.catalogResults.innerHTML=rows.map(row=>`<tr class="border-b border-slate-100"><td class="px-3 py-3 text-slate-700">${escapeHtml(row.sku||'')}</td><td class="px-3 py-3 font-semibold text-slate-900">${escapeHtml(row.product_title||'')}</td><td class="px-3 py-3 text-slate-600">${escapeHtml(row.variant_title||'')}</td><td class="px-3 py-3 text-slate-600">${escapeHtml(row.product_type||'')}</td><td class="px-3 py-3 text-right text-slate-700">${money(row.msrp||0)}</td><td class="px-3 py-3 text-right text-slate-700">${money(row.unit_cost||0)}</td><td class="px-3 py-3 text-right"><input type="number" min="0" step="1" value="0" class="w-20 rounded-lg border border-slate-200 px-2 py-1 text-right text-xs" data-catalog-qty="${row.id}" /></td><td class="px-3 py-3 text-right"><button class="btn btn-primary px-3 py-2 text-xs" data-add-catalog="${row.id}">Add</button></td></tr>`).join('');
     }
 
     async function searchCatalog(){
@@ -673,7 +739,50 @@
       const totalStyles=productPages.length, orderTypeLabel=po.is_new_product_po?'New Product':'Restock', techPackLabel='No Tech Pack';
       const detailPagesHtml=productPages.map((product,idx)=>{ const pageNumber=idx+2, productQty=product.lines.reduce((sum,r)=>sum+Number(r.qty||0),0), productType=product.lines[0]?.product_type_snapshot||''; return `<div class="page-break"></div><div class="sheet detail-page"><div class="detail-head"><div><div class="detail-kicker">${escapeHtml(productType||'Product')}</div><h2 class="detail-title">${escapeHtml(product.title)}</h2><div class="detail-sub"></div></div><div class="detail-meta"><div class="detail-meta-row">PO#: <strong>${escapeHtml(po.po_name||'')}</strong></div><div class="detail-meta-row">Order Date: <strong>${escapeHtml(po.order_date||'—')}</strong></div><div class="detail-meta-row">Req. Ship Date: <strong>${escapeHtml(po.req_ship_date||'—')}</strong></div><div class="detail-meta-row">Total Units in style: <strong>${Number(productQty||0).toLocaleString()}</strong></div></div></div><div class="product-strip"><div class="strip-item"><div class="strip-k">Order Type</div><div class="strip-v">${escapeHtml(orderTypeLabel)}</div></div><div class="strip-item"><div class="strip-k">Tech Pack</div><div class="strip-v">${escapeHtml(techPackLabel)}</div></div><div class="strip-item"><div class="strip-k">Factory</div><div class="strip-v">${escapeHtml(factory?.factory_name||'—')}</div></div></div><table class="lines-table compact"><thead><tr><th class="upc-col">UPC Code</th><th class="title-col">Product Title</th><th class="sku-col">SKU</th><th class="variant-col">Variant</th><th class="qty-col right">Qty</th></tr></thead><tbody>${product.lines.map(line=>`<tr><td class="upc-col">${escapeHtml(line.upc_snapshot||'')}</td><td class="title-col"><div class="cell-main">${escapeHtml(line.title_snapshot||'')}</div>${line.line_notes?`<div class="cell-sub">${escapeHtml(line.line_notes)}</div>`:''}</td><td class="sku-col"><div class="cell-main sku-cell">${escapeHtml(line.sku_snapshot||'')}</div></td><td class="variant-col"><div class="cell-main caps">${escapeHtml(line.variant_title_snapshot||'—')}</div></td><td class="qty-col right qty">${Number(line.qty||0).toLocaleString()}</td></tr>`).join('')}</tbody></table><div class="detail-footer"><div></div><div>${escapeHtml(po.po_name||'')} · Page ${pageNumber}</div></div></div>`; }).join('');
 
-      return `<!doctype html><html><head><meta charset="utf-8" /><title>${escapeHtml(po.po_name||'Purchase Order')}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"><style>:root{--ink:#171717;--muted:#737373;--line:#d4d4d4;--line-soft:#ececec;--soft:#f7f7f7}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:var(--ink);font-family:Inter,system-ui,sans-serif}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.sheet{width:100%;padding:34px 38px 28px}.cover{min-height:calc(100vh - 62px);display:flex;flex-direction:column}.topbar{display:grid;grid-template-columns:1fr 260px;gap:28px;align-items:start;padding-bottom:20px;border-bottom:2px solid var(--ink)}.eyebrow{font-size:11px;font-weight:700;letter-spacing:.24em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}.title{margin:0;font-size:42px;line-height:1;letter-spacing:-.05em;font-weight:800}.subtext{margin-top:10px;max-width:560px;color:var(--muted);font-size:14px;line-height:1.55}.po-meta{text-align:left;padding-top:2px}.po-meta .label{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:8px}.po-meta .value{font-size:24px;line-height:1.1;font-weight:800;letter-spacing:-.04em;word-break:break-word}.cover-grid{display:grid;grid-template-columns:1fr 1fr;gap:42px;margin-top:28px;align-items:start}.block-title{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:14px}.info-table,.req-table{width:100%;border-collapse:collapse}.info-table td{padding:10px 0;vertical-align:top;font-size:14px;line-height:1.45;border-bottom:1px solid var(--line-soft)}.info-table tr:last-child td,.req-table tr:last-child td{border-bottom:none}.info-table td.key{width:170px;color:var(--muted);font-weight:600;padding-right:16px}.info-table td.val{color:var(--ink);font-weight:600}.summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 26px;margin-bottom:18px}.summary-item{padding-bottom:10px;border-bottom:1px solid var(--line-soft)}.summary-item .k{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:8px}.summary-item .v{font-size:18px;font-weight:800;letter-spacing:-.03em}.req-table{margin-top:8px}.req-table td{padding:10px 0;font-size:13px;border-bottom:1px solid var(--line-soft);vertical-align:top}.req-table td.key{width:150px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.12em;font-size:10px;padding-right:16px}.req-table td.val{color:var(--ink);font-weight:600;line-height:1.45}.notes{margin-top:24px;padding-top:16px;border-top:1px solid var(--line)}.notes-text{font-size:13px;color:var(--ink);line-height:1.65;white-space:pre-wrap}.cover-footer{margin-top:auto;display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:24px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}.page-break{page-break-before:always;break-before:page}.detail-page{min-height:calc(100vh - 62px);display:flex;flex-direction:column}.detail-head{display:grid;grid-template-columns:1fr 240px;gap:24px;align-items:end;padding-bottom:18px;border-bottom:2px solid var(--ink);margin-bottom:18px}.detail-kicker{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:10px}.detail-title{margin:0;font-size:30px;line-height:1.05;font-weight:800;letter-spacing:-.04em}.detail-meta{display:grid;gap:8px;justify-items:end}.detail-meta-row{font-size:12px;color:var(--muted)}.detail-meta-row strong{color:var(--ink);font-weight:800}.product-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;padding:0 0 16px 0;margin-bottom:10px;border-bottom:1px solid var(--line)}.strip-item{display:grid;gap:6px}.strip-k{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:700}.strip-v{font-size:13px;font-weight:700;line-height:1.4}.lines-table{width:100%;border-collapse:collapse;table-layout:fixed}.lines-table thead th{text-align:left;padding:10px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.18em;color:var(--muted);border-bottom:1.5px solid var(--line)}.lines-table.compact tbody td{padding:10px 8px;vertical-align:top;font-size:12px;border-bottom:1px solid var(--line-soft)}.lines-table.compact tbody tr:last-child td{border-bottom:1px solid var(--line)}.upc-col{width:13%}.title-col{width:36%}.sku-col{width:28%}.variant-col{width:13%}.qty-col{width:10%}.cell-main{font-size:12px;font-weight:700;line-height:1.32}.sku-cell{white-space:nowrap;word-break:keep-all;overflow-wrap:normal;font-size:9.5px;line-height:1.15;letter-spacing:-.02em}.cell-sub{margin-top:4px;font-size:10px;line-height:1.4;color:var(--muted);max-width:260px}.caps{text-transform:uppercase;letter-spacing:.04em}.right{text-align:right!important}.qty{font-weight:800;font-size:13px}.detail-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:auto;padding-top:18px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}.no-print-actions{display:flex;gap:12px;margin-top:26px}.print-btn{padding:12px 18px;border-radius:0;border:1px solid var(--ink);background:var(--ink);color:white;font-weight:700;cursor:pointer;font-family:inherit}.print-btn.alt{background:white;color:var(--ink)}@page{size:auto;margin:14mm}@media print{.no-print{display:none!important}.sheet{padding:0}.cover{min-height:auto}.detail-page{min-height:auto}}</style></head><body><div class="sheet cover"><div class="topbar"><div><div class="eyebrow">Baseballism Inc.</div><h1 class="title">Purchase Order</h1><div class="subtext"></div></div><div class="po-meta"><div class="label">PO Number</div><div class="value">${escapeHtml(po.po_name||'—')}</div></div></div><div class="cover-grid"><div><div class="block-title">Factory & Shipping</div><table class="info-table"><tr><td class="key">Factory</td><td class="val">${escapeHtml(factory?.factory_name||'—')}</td></tr><tr><td class="key">Ship To</td><td class="val">Baseballism Inc.<br>11035 SW 11th Street<br>Building B, Suite 290<br>Beaverton, OR 97005</td></tr><tr><td class="key">Buyer Contact</td><td class="val">Chris Clements<br>(831) 383-8283</td></tr></table></div><div><div class="block-title">PO Summary</div><div class="summary-grid"><div class="summary-item"><div class="k">Order Date</div><div class="v">${escapeHtml(po.order_date||'—')}</div></div><div class="summary-item"><div class="k">Req. Ship Date</div><div class="v">${escapeHtml(po.req_ship_date||'—')}</div></div><div class="summary-item"><div class="k">Total Styles</div><div class="v">${Number(totalStyles||0).toLocaleString()}</div></div><div class="summary-item"><div class="k">Total Units</div><div class="v">${Number(totalUnits||0).toLocaleString()}</div></div></div><div class="block-title" style="margin-top:20px;">Production Requirements</div><table class="req-table"><tr><td class="key">Order Type</td><td class="val">${orderTypeLabel}</td></tr><tr><td class="key">Tech Pack</td><td class="val">${techPackLabel}</td></tr></table></div></div>${po.notes?`<div class="notes"><div class="block-title">Vendor Notes</div><div class="notes-text">${escapeHtml(po.notes)}</div></div>`:''}<div class="cover-footer"><div>Baseballism Purchase Order</div><div>${escapeHtml(po.po_name||'')}</div></div></div>${detailPagesHtml}<div class="sheet no-print"><div class="no-print-actions"><button onclick="window.print()" class="print-btn">Print / Save PDF</button><button onclick="window.close()" class="print-btn alt">Close</button></div></div></body></html>`;
+      return `<!doctype html><html><head><meta charset="utf-8" /><title>${escapeHtml(po.po_name||'Purchase Order')}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"><style>:root{--ink:#171717;--muted:#737373;--line:#d4d4d4;--line-soft:#ececec;--soft:#f7f7f7}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:var(--ink);font-family:Inter,system-ui,sans-serif}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.sheet{width:100%;padding:34px 38px 28px}.cover{min-height:calc(100vh - 62px);display:flex;flex-direction:column}.topbar{display:grid;grid-template-columns:1fr 260px;gap:28px;align-items:start;padding-bottom:20px;border-bottom:2px solid var(--ink)}.eyebrow{font-size:11px;font-weight:700;letter-spacing:.24em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}.title{margin:0;font-size:42px;line-height:1;letter-spacing:-.05em;font-weight:800}.subtext{margin-top:10px;max-width:560px;color:var(--muted);font-size:14px;line-height:1.55}.po-meta{text-align:left;padding-top:2px}.po-meta .label{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:8px}.po-meta .value{font-size:24px;line-height:1.1;font-weight:800;letter-spacing:-.04em;word-break:break-word}.cover-grid{display:grid;grid-template-columns:1fr 1fr;gap:42px;margin-top:28px;align-items:start}.block-title{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:14px}.info-table,.req-table{width:100%;border-collapse:collapse}.info-table td{padding:10px 0;vertical-align:top;font-size:14px;line-height:1.45;border-bottom:1px solid var(--line-soft)}.info-table tr:last-child td,.req-table tr:last-child td{border-bottom:none}.info-table td.key{width:170px;color:var(--muted);font-weight:600;padding-right:16px}.info-table td.val{color:var(--ink);font-weight:600}.summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 26px;margin-bottom:18px}.summary-item{padding-bottom:10px;border-bottom:1px solid var(--line-soft)}.summary-item .k{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:8px}.summary-item .v{font-size:18px;font-weight:800;letter-spacing:-.03em}.req-table{margin-top:8px}.req-table td{padding:10px 0;font-size:13px;border-bottom:1px solid var(--line-soft);vertical-align:top}.req-table td.key{width:150px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.12em;font-size:10px;padding-right:16px}.req-table td.val{color:var(--ink);font-weight:600;line-height:1.45}.notes{margin-top:24px;padding-top:16px;border-top:1px solid var(--line)}.notes-text{font-size:13px;color:var(--ink);line-height:1.65;white-space:pre-wrap}.cover-footer{margin-top:auto;display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:24px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}.page-break{page-break-before:always;break-before:page}.detail-page{min-height:calc(100vh - 62px);display:flex;flex-direction:column}.detail-head{display:grid;grid-template-columns:1fr 240px;gap:24px;align-items:end;padding-bottom:18px;border-bottom:2px solid var(--ink);margin-bottom:18px}.detail-kicker{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:10px}.detail-title{margin:0;font-size:30px;line-height:1.05;font-weight:800;letter-spacing:-.04em}.detail-meta{display:grid;gap:8px;justify-items:end}.detail-meta-row{font-size:12px;color:var(--muted)}.detail-meta-row strong{color:var(--ink);font-weight:800}.product-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;padding:0 0 16px 0;margin-bottom:10px;border-bottom:1px solid var(--line)}.strip-item{display:grid;gap:6px}.strip-k{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:700}.strip-v{font-size:13px;font-weight:700;line-height:1.4}.lines-table{width:100%;border-collapse:collapse;table-layout:fixed}.lines-table thead th{text-align:left;padding:10px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.18em;color:var(--muted);border-bottom:1.5px solid var(--line)}.lines-table.compact tbody td{padding:10px 8px;vertical-align:top;font-size:12px;border-bottom:1px solid var(--line-soft)}.lines-table.compact tbody tr:last-child td{border-bottom:1px solid var(--line)}.upc-col{width:13%}.title-col{width:36%}.sku-col{width:28%}.variant-col{width:13%}.qty-col{width:10%}.cell-main{font-size:12px;font-weight:700;line-height:1.32}.sku-cell{white-space:nowrap;word-break:keep-all;overflow-wrap:normal;font-size:9.5px;line-height:1.15;letter-spacing:-.02em}.cell-sub{margin-top:4px;font-size:10px;line-height:1.4;color:var(--muted);max-width:260px}.caps{text-transform:uppercase;letter-spacing:.04em}.right{text-align:right!important}.qty{font-weight:800;font-size:13px}.detail-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:auto;padding-top:18px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}.no-print-actions{display:flex;gap:12px;margin-top:26px}.print-btn{padding:12px 18px;border-radius:0;border:1px solid var(--ink);background:var(--ink);color:white;font-weight:700;cursor:pointer;font-family:inherit}.print-btn.alt{background:white;color:var(--ink)}@page{size:auto;margin:14mm}@media print{.no-print{display:none!important}.sheet{padding:0}.cover{min-height:auto}.detail-page{min-height:auto}}
+
+    /* v2.7 ultra-compact laptop workbench pass */
+    html,body{font-size:13px}
+    body{overflow-x:hidden}
+    body .glass{border-radius:12px;box-shadow:0 5px 14px rgba(15,23,42,.045)}
+    body .btn{border-radius:9px;padding:.42rem .58rem!important;font-size:.72rem!important;line-height:1!important}
+    .compact-page-head{min-height:58px}
+    .compact-page-head .text-xs.uppercase{font-size:.62rem!important;letter-spacing:.22em!important}
+    .compact-page-head .sm\:text-2xl{font-size:1.12rem!important;line-height:1.1!important}
+    .compact-page-head .text-xs.text-slate-500{font-size:.70rem!important;max-width:760px}
+    #poList button{padding:.52rem .62rem!important;margin-bottom:.42rem!important;border-radius:11px!important}
+    #poList button .grid{margin-top:.45rem!important;gap:.3rem!important}
+    #poList button .text-sm{font-size:.75rem!important;line-height:1.1!important}
+    #poList button .text-xs{font-size:.64rem!important;line-height:1.05!important}
+    #poSearch,#poStatusFilter,#poFactoryFilter{height:31px!important;min-height:31px!important}
+    aside .mt-4{margin-top:.55rem!important}.soft-scroll{scrollbar-width:thin}
+    #detailTitle{font-size:1rem!important}.status-badge{font-size:.62rem!important;padding:.18rem .42rem!important}
+    #detailMeta{font-size:.68rem!important;line-height:1.2!important}.muted-label{font-size:.56rem!important;letter-spacing:.16em!important;margin-bottom:.18rem!important}
+    body input:not([type="checkbox"]),body select{min-height:30px!important;height:30px!important;padding:.32rem .5rem!important;border-radius:8px!important;font-size:.72rem!important}
+    body textarea{min-height:30px!important;padding:.32rem .5rem!important;border-radius:8px!important;font-size:.72rem!important;line-height:1.2!important}
+    .po-flags label{height:50px!important;overflow:hidden}.po-flags input{margin:0!important}.po-flags div{line-height:1.05!important}
+    .compact-kpis .glass{min-height:48px!important}.compact-kpis .text-\[10px\]{font-size:.55rem!important}.compact-kpis .text-xl{font-size:1.08rem!important}
+    .compact-line-grid{max-height:58vh;overflow:auto}.compact-line-grid table{table-layout:fixed}
+    .compact-line-grid thead th{padding:6px 5px!important;font-size:.58rem!important;letter-spacing:.095em!important}
+    .compact-line-grid tbody td{padding:3px 4px!important;vertical-align:middle!important}
+    .po-lines-table th:nth-child(1),.po-lines-table td:nth-child(1){width:82px}
+    .po-lines-table th:nth-child(2),.po-lines-table td:nth-child(2){width:150px}
+    .po-lines-table th:nth-child(3),.po-lines-table td:nth-child(3){width:70px}
+    .po-lines-table th:nth-child(4),.po-lines-table td:nth-child(4){width:170px}
+    .po-lines-table th:nth-child(5),.po-lines-table td:nth-child(5){width:118px}
+    .po-lines-table th:nth-child(6),.po-lines-table td:nth-child(6){width:72px}
+    .po-lines-table th:nth-child(7),.po-lines-table td:nth-child(7){width:72px}
+    .po-lines-table th:nth-child(8),.po-lines-table td:nth-child(8){width:64px}
+    .po-lines-table th:nth-child(9),.po-lines-table td:nth-child(9){width:82px}
+    .po-lines-table th:nth-child(10),.po-lines-table td:nth-child(10){width:120px}
+    .po-lines-table th:nth-child(11),.po-lines-table td:nth-child(11){width:88px}
+    .line-input{min-width:0!important;height:25px!important;min-height:25px!important;border-radius:7px!important;padding:.22rem .35rem!important;font-size:.66rem!important;line-height:1!important}
+    .line-input.small{text-align:right!important}.line-input.notes{height:25px!important;min-height:25px!important;resize:none!important}
+    #linesTbody .btn,.line-save-btn,.line-delete-btn{padding:.24rem .38rem!important;border-radius:7px!important;font-size:.60rem!important;min-height:24px!important}
+    .table-wrap{border-radius:9px!important}.pill{font-size:.62rem!important;padding:.14rem .45rem!important}
+    .catalog-modal-table th,.catalog-modal-table td{padding:.35rem .45rem!important;font-size:.7rem!important}
+
+</style></head><body><div class="sheet cover"><div class="topbar"><div><div class="eyebrow">Baseballism Inc.</div><h1 class="title">Purchase Order</h1><div class="subtext"></div></div><div class="po-meta"><div class="label">PO Number</div><div class="value">${escapeHtml(po.po_name||'—')}</div></div></div><div class="cover-grid"><div><div class="block-title">Factory & Shipping</div><table class="info-table"><tr><td class="key">Factory</td><td class="val">${escapeHtml(factory?.factory_name||'—')}</td></tr><tr><td class="key">Ship To</td><td class="val">Baseballism Inc.<br>11035 SW 11th Street<br>Building B, Suite 290<br>Beaverton, OR 97005</td></tr><tr><td class="key">Buyer Contact</td><td class="val">Chris Clements<br>(831) 383-8283</td></tr></table></div><div><div class="block-title">PO Summary</div><div class="summary-grid"><div class="summary-item"><div class="k">Order Date</div><div class="v">${escapeHtml(po.order_date||'—')}</div></div><div class="summary-item"><div class="k">Req. Ship Date</div><div class="v">${escapeHtml(po.req_ship_date||'—')}</div></div><div class="summary-item"><div class="k">Total Styles</div><div class="v">${Number(totalStyles||0).toLocaleString()}</div></div><div class="summary-item"><div class="k">Total Units</div><div class="v">${Number(totalUnits||0).toLocaleString()}</div></div></div><div class="block-title" style="margin-top:20px;">Production Requirements</div><table class="req-table"><tr><td class="key">Order Type</td><td class="val">${orderTypeLabel}</td></tr><tr><td class="key">Tech Pack</td><td class="val">${techPackLabel}</td></tr></table></div></div>${po.notes?`<div class="notes"><div class="block-title">Vendor Notes</div><div class="notes-text">${escapeHtml(po.notes)}</div></div>`:''}<div class="cover-footer"><div>Baseballism Purchase Order</div><div>${escapeHtml(po.po_name||'')}</div></div></div>${detailPagesHtml}<div class="sheet no-print"><div class="no-print-actions"><button onclick="window.print()" class="print-btn">Print / Save PDF</button><button onclick="window.close()" class="print-btn alt">Close</button></div></div></body></html>`;
     }
 
     function generateVendorPdf(){ if(!state.currentPO?.id){ alert('Save and open a PO first.'); return; } const html=buildVendorPdfHtml(); const win=window.open('','_blank','width=1200,height=900'); if(!win){ alert('Pop-up blocked. Allow pop-ups for this site.'); return; } win.document.open(); win.document.write(html); win.document.close(); }
