@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Silo · PO Builder v2.1</title>
+  <title>Silo · PO Builder v2.7 Ultra Compact</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="./config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -17,25 +17,13 @@
       --line:rgba(15,23,42,.08);
       --text:#0f172a;
       --muted:#64748b;
-      --shadow:0 10px 30px rgba(15,23,42,.08);
-      --radius:24px;
+      --shadow:0 8px 22px rgba(15,23,42,.06);
+      --radius:16px;
       --brand:#0f172a;
-      --brand-2:#1e293b;
     }
     *{box-sizing:border-box}
-    html,body{
-      margin:0;padding:0;
-      font-family:Inter,system-ui,sans-serif;
-      color:var(--text);
-      background:linear-gradient(180deg,#f8fafc 0%,#eef2f7 100%);
-    }
-    .glass{
-      background:var(--card);
-      backdrop-filter:blur(14px);
-      border:1px solid var(--line);
-      box-shadow:var(--shadow);
-      border-radius:var(--radius);
-    }
+    html,body{margin:0;padding:0;font-family:Inter,system-ui,sans-serif;color:var(--text);background:linear-gradient(180deg,#f8fafc 0%,#eef2f7 100%)}
+    .glass{background:var(--card);backdrop-filter:blur(14px);border:1px solid var(--line);box-shadow:var(--shadow);border-radius:var(--radius)}
     .pill{border:1px solid var(--line);background:white;border-radius:999px}
     .table-wrap{overflow:auto}
     .sticky-head thead th{position:sticky;top:0;background:rgba(248,250,252,.98);z-index:2}
@@ -44,160 +32,108 @@
     .soft-scroll::-webkit-scrollbar-track{background:transparent}
     .modal-backdrop{background:rgba(15,23,42,.42)}
     .hidden-safe{display:none!important}
-    input,select,textarea{
-      outline:none;
-      border:1px solid rgba(148,163,184,.35);
-      background:white;
-      color:var(--text);
-      border-radius:16px;
-      transition:.18s ease;
-    }
-    input:focus,select:focus,textarea:focus{
-      border-color:rgba(59,130,246,.45);
-      box-shadow:0 0 0 4px rgba(59,130,246,.10);
-    }
-    .btn{
-      border-radius:16px;
-      padding:.8rem 1rem;
-      font-weight:600;
-      transition:.18s ease;
-      border:1px solid transparent;
-      cursor:pointer;
-    }
-    .btn-primary{background:var(--brand);color:white}
-    .btn-primary:hover{background:#020617}
-    .btn-secondary{background:white;border-color:var(--line);color:var(--text)}
-    .btn-secondary:hover{background:#f8fafc}
+    input,select,textarea{outline:none;border:1px solid rgba(148,163,184,.35);background:white;color:var(--text);border-radius:16px;transition:.18s ease}
+    input:focus,select:focus,textarea:focus{border-color:rgba(59,130,246,.45);box-shadow:0 0 0 4px rgba(59,130,246,.10)}
+    .btn{border-radius:16px;padding:.8rem 1rem;font-weight:600;transition:.18s ease;border:1px solid transparent;cursor:pointer;white-space:nowrap}
+    .btn:disabled{opacity:.45;cursor:not-allowed}
+    .btn-primary{background:var(--brand);color:white}.btn-primary:hover:not(:disabled){background:#020617}
+    .btn-secondary{background:white;border-color:var(--line);color:var(--text)}.btn-secondary:hover:not(:disabled){background:#f8fafc}
     .btn-danger{background:#fff1f2;color:#be123c;border-color:#fecdd3}
     .btn-success{background:#ecfdf5;color:#166534;border-color:#bbf7d0}
-    .status-badge{
-      border-radius:999px;
-      padding:.35rem .7rem;
-      font-size:.78rem;
-      font-weight:700;
-      display:inline-flex;
-      align-items:center;
-      gap:.45rem;
-    }
+    .btn-warn{background:#fffbeb;color:#92400e;border-color:#fde68a}
+    .status-badge{border-radius:999px;padding:.35rem .7rem;font-size:.78rem;font-weight:700;display:inline-flex;align-items:center;gap:.45rem}
     .status-dot{width:.5rem;height:.5rem;border-radius:999px;display:inline-block}
-    .status-Draft{background:#eff6ff;color:#1d4ed8}
-    .status-Draft .status-dot{background:#3b82f6}
-    .status-Approved{background:#f5f3ff;color:#6d28d9}
-    .status-Approved .status-dot{background:#8b5cf6}
-    .status-Sent\ to\ Factory{background:#ecfeff;color:#0f766e}
-    .status-Sent\ to\ Factory .status-dot{background:#14b8a6}
-    .status-Confirmed{background:#f0fdf4;color:#166534}
-    .status-Confirmed .status-dot{background:#22c55e}
-    .status-In\ Production{background:#fffbeb;color:#b45309}
-    .status-In\ Production .status-dot{background:#f59e0b}
+    .status-Draft{background:#eff6ff;color:#1d4ed8}.status-Draft .status-dot{background:#3b82f6}
+    .status-Approved{background:#f5f3ff;color:#6d28d9}.status-Approved .status-dot{background:#8b5cf6}
+    .status-Sent\ to\ Factory{background:#ecfeff;color:#0f766e}.status-Sent\ to\ Factory .status-dot{background:#14b8a6}
+    .status-Confirmed{background:#f0fdf4;color:#166534}.status-Confirmed .status-dot{background:#22c55e}
+    .status-In\ Production{background:#fffbeb;color:#b45309}.status-In\ Production .status-dot{background:#f59e0b}
     .status-Shipped,.status-In\ Transit,.status-Partially\ Received{background:#eef2ff;color:#4338ca}
     .status-Shipped .status-dot,.status-In\ Transit .status-dot,.status-Partially\ Received .status-dot{background:#6366f1}
-    .status-Received,.status-Closed{background:#f0fdf4;color:#166534}
-    .status-Received .status-dot,.status-Closed .status-dot{background:#16a34a}
-    .status-Cancelled{background:#fef2f2;color:#991b1b}
-    .status-Cancelled .status-dot{background:#ef4444}
-    .muted-label{
-      margin-bottom:.5rem;
-      display:block;
-      font-size:.72rem;
-      font-weight:700;
-      text-transform:uppercase;
-      letter-spacing:.18em;
-      color:#64748b;
-    }
-    .pdf-sheet{
-      font-family:Inter,system-ui,sans-serif;
-      color:#111827;
-      padding:34px;
-    }
-    .pdf-head{
-      display:flex;
-      justify-content:space-between;
-      align-items:flex-start;
-      gap:20px;
-      border-bottom:2px solid #e5e7eb;
-      padding-bottom:20px;
-      margin-bottom:24px;
-    }
-    .pdf-title{
-      font-size:30px;
-      font-weight:800;
-      letter-spacing:-.03em;
-      margin:0;
-    }
-    .pdf-sub{
-      margin-top:6px;
-      color:#6b7280;
-      font-size:13px;
-    }
-    .pdf-grid{
-      display:grid;
-      grid-template-columns:repeat(4,1fr);
-      gap:14px;
-      margin-bottom:24px;
-    }
-    .pdf-card{
-      border:1px solid #e5e7eb;
-      border-radius:16px;
-      padding:14px;
-      background:#fafafa;
-    }
-    .pdf-card .k{
-      font-size:10px;
-      letter-spacing:.16em;
-      text-transform:uppercase;
-      color:#6b7280;
-      font-weight:700;
-      margin-bottom:8px;
-    }
-    .pdf-card .v{
-      font-size:14px;
-      font-weight:700;
-      color:#111827;
-    }
-    .pdf-table{
-      width:100%;
-      border-collapse:collapse;
-      margin-top:8px;
-    }
-    .pdf-table th,
-    .pdf-table td{
-      border-bottom:1px solid #e5e7eb;
-      padding:10px 8px;
-      text-align:left;
-      font-size:12px;
-      vertical-align:top;
-    }
-    .pdf-table th{
-      text-transform:uppercase;
-      letter-spacing:.12em;
-      font-size:10px;
-      color:#6b7280;
-    }
-    .pdf-notes{
-      margin-top:24px;
-      border:1px solid #e5e7eb;
-      border-radius:16px;
-      padding:16px;
-      background:#fafafa;
-      font-size:12px;
-      white-space:pre-wrap;
-    }
-    @media (max-width: 1200px){
-      .pdf-grid{grid-template-columns:repeat(2,1fr)}
-    }
-  </style>
+    .status-Received,.status-Closed{background:#f0fdf4;color:#166534}.status-Received .status-dot,.status-Closed .status-dot{background:#16a34a}
+    .status-Cancelled{background:#fef2f2;color:#991b1b}.status-Cancelled .status-dot{background:#ef4444}
+    .muted-label{margin-bottom:.5rem;display:block;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.18em;color:#64748b}
+    .line-input{width:100%;min-width:110px;border-radius:12px;padding:.45rem .55rem;font-size:.78rem;background:#fff}
+    .line-input.small{min-width:76px;text-align:right}
+    .line-input.notes{min-width:160px}
+    .hint{font-size:.76rem;color:#64748b;line-height:1.45}
+  
+    /* Silo compact workbench overrides */
+    body .glass{border-radius:16px;box-shadow:0 8px 22px rgba(15,23,42,.055)}
+    body .btn{border-radius:11px;padding:.48rem .72rem;font-size:.78rem;line-height:1.1}
+    body input:not([type="checkbox"]),body select{min-height:34px!important;padding:.42rem .62rem!important;border-radius:10px!important;font-size:.76rem!important}
+    body textarea{border-radius:10px!important;font-size:.76rem!important;line-height:1.25!important}
+    .muted-label{margin-bottom:.24rem;font-size:.61rem;letter-spacing:.17em;color:#64748b}
+    .status-badge{padding:.22rem .5rem;font-size:.68rem;gap:.32rem}.status-dot{width:.42rem;height:.42rem}
+    .compact-page-head .btn{padding:.55rem .82rem}
+    .compact-kpis .glass{min-height:70px}
+    .compact-line-grid thead th{padding:7px 6px!important;font-size:.64rem;letter-spacing:.11em;white-space:nowrap;background:#f8fafc}
+    .compact-line-grid tbody td{padding:5px 6px!important;vertical-align:middle}
+    .line-input{min-width:86px;border-radius:8px!important;padding:.3rem .42rem!important;font-size:.71rem!important;line-height:1.1!important;min-height:28px!important;height:29px}
+    .line-input.small{min-width:66px}.line-input.notes{min-width:130px;resize:vertical;height:29px}
+    #linesTbody .btn{padding:.34rem .55rem!important;border-radius:8px!important;font-size:.66rem!important}
+    #linesTbody tr:hover{background:#f8fafc}
+    #poList button{border-radius:14px!important;padding:.65rem .78rem!important;margin-bottom:.55rem!important}
+    #poList .status-badge{padding:.18rem .45rem;font-size:.65rem}
+    .table-wrap{border-radius:12px;border:1px solid rgba(15,23,42,.06)}
+    .pill{font-size:.68rem;padding:.18rem .55rem!important}
+    label.rounded-2xl{border-radius:12px!important;padding:.55rem .65rem!important}
+    label.rounded-2xl .mt-2{margin-top:.35rem!important}
+    .hint{font-size:.7rem}
+
+
+    /* v2.7 ultra-compact laptop workbench pass */
+    html,body{font-size:13px}
+    body{overflow-x:hidden}
+    body .glass{border-radius:12px;box-shadow:0 5px 14px rgba(15,23,42,.045)}
+    body .btn{border-radius:9px;padding:.42rem .58rem!important;font-size:.72rem!important;line-height:1!important}
+    .compact-page-head{min-height:58px}
+    .compact-page-head .text-xs.uppercase{font-size:.62rem!important;letter-spacing:.22em!important}
+    .compact-page-head .sm\:text-2xl{font-size:1.12rem!important;line-height:1.1!important}
+    .compact-page-head .text-xs.text-slate-500{font-size:.70rem!important;max-width:760px}
+    #poList button{padding:.52rem .62rem!important;margin-bottom:.42rem!important;border-radius:11px!important}
+    #poList button .grid{margin-top:.45rem!important;gap:.3rem!important}
+    #poList button .text-sm{font-size:.75rem!important;line-height:1.1!important}
+    #poList button .text-xs{font-size:.64rem!important;line-height:1.05!important}
+    #poSearch,#poStatusFilter,#poFactoryFilter{height:31px!important;min-height:31px!important}
+    aside .mt-4{margin-top:.55rem!important}.soft-scroll{scrollbar-width:thin}
+    #detailTitle{font-size:1rem!important}.status-badge{font-size:.62rem!important;padding:.18rem .42rem!important}
+    #detailMeta{font-size:.68rem!important;line-height:1.2!important}.muted-label{font-size:.56rem!important;letter-spacing:.16em!important;margin-bottom:.18rem!important}
+    body input:not([type="checkbox"]),body select{min-height:30px!important;height:30px!important;padding:.32rem .5rem!important;border-radius:8px!important;font-size:.72rem!important}
+    body textarea{min-height:30px!important;padding:.32rem .5rem!important;border-radius:8px!important;font-size:.72rem!important;line-height:1.2!important}
+    .po-flags label{height:50px!important;overflow:hidden}.po-flags input{margin:0!important}.po-flags div{line-height:1.05!important}
+    .compact-kpis .glass{min-height:48px!important}.compact-kpis .text-\[10px\]{font-size:.55rem!important}.compact-kpis .text-xl{font-size:1.08rem!important}
+    .compact-line-grid{max-height:58vh;overflow:auto}.compact-line-grid table{table-layout:fixed}
+    .compact-line-grid thead th{padding:6px 5px!important;font-size:.58rem!important;letter-spacing:.095em!important}
+    .compact-line-grid tbody td{padding:3px 4px!important;vertical-align:middle!important}
+    .po-lines-table th:nth-child(1),.po-lines-table td:nth-child(1){width:82px}
+    .po-lines-table th:nth-child(2),.po-lines-table td:nth-child(2){width:150px}
+    .po-lines-table th:nth-child(3),.po-lines-table td:nth-child(3){width:70px}
+    .po-lines-table th:nth-child(4),.po-lines-table td:nth-child(4){width:170px}
+    .po-lines-table th:nth-child(5),.po-lines-table td:nth-child(5){width:118px}
+    .po-lines-table th:nth-child(6),.po-lines-table td:nth-child(6){width:72px}
+    .po-lines-table th:nth-child(7),.po-lines-table td:nth-child(7){width:72px}
+    .po-lines-table th:nth-child(8),.po-lines-table td:nth-child(8){width:64px}
+    .po-lines-table th:nth-child(9),.po-lines-table td:nth-child(9){width:82px}
+    .po-lines-table th:nth-child(10),.po-lines-table td:nth-child(10){width:120px}
+    .po-lines-table th:nth-child(11),.po-lines-table td:nth-child(11){width:88px}
+    .line-input{min-width:0!important;height:25px!important;min-height:25px!important;border-radius:7px!important;padding:.22rem .35rem!important;font-size:.66rem!important;line-height:1!important}
+    .line-input.small{text-align:right!important}.line-input.notes{height:25px!important;min-height:25px!important;resize:none!important}
+    #linesTbody .btn,.line-save-btn,.line-delete-btn{padding:.24rem .38rem!important;border-radius:7px!important;font-size:.60rem!important;min-height:24px!important}
+    .table-wrap{border-radius:9px!important}.pill{font-size:.62rem!important;padding:.14rem .45rem!important}
+    .catalog-modal-table th,.catalog-modal-table td{padding:.35rem .45rem!important;font-size:.7rem!important}
+
+</style>
 </head>
 <body>
-  <div class="min-h-screen px-4 py-4 sm:px-6 lg:px-8">
-    <div class="mx-auto max-w-[1650px] space-y-5">
-      <header class="glass px-5 py-5 sm:px-6">
-        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+  <div class="min-h-screen px-2 py-2 sm:px-3 lg:px-3">
+    <div class="mx-auto max-w-[1920px] space-y-2">
+      <header class="glass px-3 py-2 sm:px-3 compact-page-head">
+        <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Silo Purchasing</div>
-            <div class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">PO Builder</div>
-            <div class="mt-2 max-w-4xl text-sm text-slate-500">
-            </div>
+            <div class="mt-0 text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">PO Builder</div>
+            <div class="mt-1 text-xs text-slate-500">Catalog-linked POs, editable line matrix, bulk SKU add, imports, duplicate PO, and vendor PDF output.</div>
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <button id="btnRefresh" class="btn btn-secondary">Refresh</button>
@@ -206,141 +142,94 @@
         </div>
       </header>
 
-      <section class="grid gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
-        <aside class="glass p-4 sm:p-5">
+      <section class="grid gap-2 xl:grid-cols-[300px_minmax(0,1fr)]">
+        <aside class="glass p-2 sm:p-2">
           <div class="flex items-center justify-between gap-3">
             <div>
-              <div class="text-lg font-bold text-slate-900">PO List</div>
-              <div class="text-sm text-slate-500"></div>
+              <div class="text-base font-bold text-slate-900">PO List</div>
+              <div class="text-xs text-slate-500">Recent purchase orders</div>
             </div>
             <div id="poCount" class="pill px-3 py-1 text-xs font-semibold text-slate-600">0 POs</div>
           </div>
 
           <div class="mt-4 space-y-3">
-            <input id="poSearch" type="text" placeholder="Search PO name, factory, bucket..." class="w-full px-4 py-3 text-sm" />
+            <input id="poSearch" type="text" placeholder="Search PO name, factory, bucket..." class="w-full px-3 py-2 text-xs" />
             <div class="grid grid-cols-2 gap-3">
-              <select id="poStatusFilter" class="w-full px-4 py-3 text-sm">
-                <option value="">All statuses</option>
-              </select>
-              <select id="poFactoryFilter" class="w-full px-4 py-3 text-sm">
-                <option value="">All factories</option>
-              </select>
+              <select id="poStatusFilter" class="w-full px-3 py-2 text-xs"><option value="">All statuses</option></select>
+              <select id="poFactoryFilter" class="w-full px-3 py-2 text-xs"><option value="">All factories</option></select>
             </div>
           </div>
 
-          <div class="mt-4 max-h-[70vh] overflow-auto pr-1 soft-scroll" id="poList"></div>
+          <div class="mt-3 max-h-[75vh] overflow-auto pr-1 soft-scroll" id="poList"></div>
         </aside>
 
-        <main class="space-y-5">
-          <section class="glass p-4 sm:p-5">
-            <div class="flex flex-col gap-4 border-b border-slate-200 pb-4 lg:flex-row lg:items-start lg:justify-between">
+        <main class="space-y-2">
+          <section class="glass p-2 sm:p-2">
+            <div class="flex flex-col gap-2 border-b border-slate-200 pb-2 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <div class="flex flex-wrap items-center gap-3">
-                  <h2 id="detailTitle" class="text-xl font-bold tracking-tight text-slate-900">No PO selected</h2>
+                  <h2 id="detailTitle" class="text-lg font-bold tracking-tight text-slate-900">No PO selected</h2>
                   <div id="detailStatusWrap"></div>
                 </div>
-                <div id="detailMeta" class="mt-2 text-sm text-slate-500">Create a new PO or select one from the list.</div>
+                <div id="detailMeta" class="mt-1 text-xs text-slate-500">Create a new PO or select one from the list.</div>
               </div>
               <div class="flex flex-wrap gap-2">
                 <button id="btnSaveHeader" class="btn btn-primary" disabled>Save Header</button>
                 <button id="btnGeneratePdf" class="btn btn-success" disabled>Generate Vendor PDF</button>
+                <button id="btnDuplicatePO" class="btn btn-warn" disabled>Duplicate PO</button>
                 <button id="btnAddCatalogLine" class="btn btn-secondary" disabled>Add Catalog Line</button>
+                <button id="btnBulkSku" class="btn btn-secondary" disabled>Bulk SKU Add</button>
+                <button id="btnImportLines" class="btn btn-secondary" disabled>Import Lines</button>
                 <button id="btnAddManualLine" class="btn btn-secondary" disabled>Add Manual Line</button>
               </div>
             </div>
 
-            <div class="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div>
-                <label class="muted-label">PO Name</label>
-                <input id="poName" type="text" class="w-full px-4 py-3 text-sm font-semibold" placeholder="Auto-generated" />
-              </div>
-              <div>
-                <label class="muted-label">Factory</label>
-                <select id="factoryId" class="w-full px-4 py-3 text-sm"></select>
-              </div>
-              <div>
-                <label class="muted-label">Order Date</label>
-                <input id="orderDate" type="date" class="w-full px-4 py-3 text-sm" />
-              </div>
-              <div>
-                <label class="muted-label">Required Ship Date</label>
-                <input id="reqShipDate" type="date" class="w-full px-4 py-3 text-sm" />
-              </div>
-              <div>
-                <label class="muted-label">Expected Arrival</label>
-                <input id="expectedArrivalDate" type="date" class="w-full px-4 py-3 text-sm" />
-              </div>
-              <div>
-                <label class="muted-label">Date Bucket</label>
-                <input id="dateBucket" type="text" class="w-full px-4 py-3 text-sm" placeholder="Holiday 2026" />
-              </div>
-              <div>
-                <label class="muted-label">Status</label>
-                <select id="status" class="w-full px-4 py-3 text-sm"></select>
-              </div>
-              <div class="grid grid-cols-2 gap-3">
-                <label class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700">
-                  <div class="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Wholesale</div>
-                  <div class="mt-2 flex items-center gap-2"><input id="wholesaleTriggered" type="checkbox" class="h-4 w-4" /> Triggered</div>
-                </label>
-                <label class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700">
-                  <div class="text-xs font-semibold uppercase tracking-[0.15em] text-slate-400">Product Mix</div>
-                  <div class="mt-2 flex items-center gap-2"><input id="isNewProductPO" type="checkbox" class="h-4 w-4" /> New Product</div>
-                </label>
+            <div class="mt-2 grid gap-2 md:grid-cols-4 xl:grid-cols-8">
+              <div><label class="muted-label">PO Name</label><input id="poName" type="text" class="w-full px-3 py-2 text-xs font-semibold" placeholder="Auto-generated" /></div>
+              <div><label class="muted-label">Factory</label><select id="factoryId" class="w-full px-3 py-2 text-xs"></select></div>
+              <div><label class="muted-label">Order Date</label><input id="orderDate" type="date" class="w-full px-3 py-2 text-xs" /></div>
+              <div><label class="muted-label">Required Ship Date</label><input id="reqShipDate" type="date" class="w-full px-3 py-2 text-xs" /></div>
+              <div><label class="muted-label">Expected Arrival</label><input id="expectedArrivalDate" type="date" class="w-full px-3 py-2 text-xs" /></div>
+              <div><label class="muted-label">Date Bucket</label><input id="dateBucket" type="text" class="w-full px-3 py-2 text-xs" placeholder="Holiday 2026" /></div>
+              <div><label class="muted-label">Status</label><select id="status" class="w-full px-3 py-2 text-xs"></select></div>
+              <div class="grid grid-cols-2 gap-2 xl:col-span-2 po-flags">
+                <label class="rounded-2xl border border-slate-200 bg-white px-2 py-2 text-xs font-medium text-slate-700"><div class="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-400">Wholesale</div><div class="mt-1 flex items-center gap-1.5"><input id="wholesaleTriggered" type="checkbox" class="h-3.5 w-3.5" /> Triggered</div></label>
+                <label class="rounded-2xl border border-slate-200 bg-white px-2 py-2 text-xs font-medium text-slate-700"><div class="text-[9px] font-semibold uppercase tracking-[0.14em] text-slate-400">Product Mix</div><div class="mt-1 flex items-center gap-1.5"><input id="isNewProductPO" type="checkbox" class="h-3.5 w-3.5" /> New Product</div></label>
               </div>
             </div>
 
-            <div class="mt-4 grid gap-4 lg:grid-cols-2">
-              <div>
-                <label class="muted-label">Vendor Notes</label>
-                <textarea id="notes" rows="4" class="w-full px-4 py-3 text-sm" placeholder="Visible vendor-facing notes if needed"></textarea>
-              </div>
-              <div>
-                <label class="muted-label">Internal Notes</label>
-                <textarea id="internalNotes" rows="4" class="w-full px-4 py-3 text-sm" placeholder="Internal purchasing / planning notes"></textarea>
-              </div>
+            <div class="mt-2 grid gap-2 lg:grid-cols-2">
+              <div><label class="muted-label">Vendor Notes</label><textarea id="notes" rows="1" class="w-full px-3 py-2 text-xs" placeholder="Visible vendor-facing notes if needed"></textarea></div>
+              <div><label class="muted-label">Internal Notes</label><textarea id="internalNotes" rows="1" class="w-full px-3 py-2 text-xs" placeholder="Internal purchasing / planning notes"></textarea></div>
             </div>
           </section>
 
-          <section class="grid gap-4 md:grid-cols-3">
-            <div class="glass p-5">
-              <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Total Units</div>
-              <div id="kpiUnits" class="mt-2 text-3xl font-extrabold tracking-tight text-slate-900">0</div>
-            </div>
-            <div class="glass p-5">
-              <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Retail Value</div>
-              <div id="kpiRetail" class="mt-2 text-3xl font-extrabold tracking-tight text-slate-900">$0.00</div>
-            </div>
-            <div class="glass p-5">
-              <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Estimated Cost</div>
-              <div id="kpiCost" class="mt-2 text-3xl font-extrabold tracking-tight text-slate-900">$0.00</div>
-            </div>
+          <section class="grid gap-2 md:grid-cols-3 compact-kpis">
+            <div class="glass px-3 py-2"><div class="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Total Units</div><div id="kpiUnits" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">0</div></div>
+            <div class="glass px-3 py-2"><div class="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Retail Value</div><div id="kpiRetail" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">$0.00</div></div>
+            <div class="glass px-3 py-2"><div class="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Estimated Cost</div><div id="kpiCost" class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900">$0.00</div></div>
           </section>
 
-          <section class="glass p-4 sm:p-5">
-            <div class="flex flex-col gap-3 border-b border-slate-200 pb-4 md:flex-row md:items-center md:justify-between">
-              <div>
-                <div class="text-lg font-bold text-slate-900">PO Lines</div>
-                <div class="text-sm text-slate-500"></div>
-              </div>
-              <div class="text-sm text-slate-500"></div>
+          <section class="glass p-2 sm:p-2">
+            <div class="flex flex-col gap-1 border-b border-slate-200 pb-2 md:flex-row md:items-center md:justify-between">
+              <div><div class="text-base font-bold text-slate-900">PO Lines</div><div class="text-xs text-slate-500">Editable line matrix. Save rows individually after changes.</div></div>
+              <div class="text-xs text-slate-500">Retail value recalculates on save.</div>
             </div>
-
-            <div class="mt-4 table-wrap soft-scroll sticky-head">
-              <table class="min-w-full border-separate border-spacing-0 text-sm">
+            <div class="mt-2 table-wrap soft-scroll sticky-head compact-line-grid">
+              <table class="min-w-[1180px] w-full border-separate border-spacing-0 text-xs po-lines-table">
                 <thead>
                   <tr>
-                    <th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">Type</th>
-                    <th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">Title</th>
-                    <th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">Variant</th>
-                    <th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">SKU</th>
-                    <th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">UPC</th>
-                    <th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Retail</th>
-                    <th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Cost</th>
-                    <th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Qty</th>
-                    <th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Retail Value</th>
-                    <th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">Notes</th>
-                    <th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Actions</th>
+                    <th class="border-b border-slate-200 px-2 py-3 text-left font-semibold text-slate-500">Type</th>
+                    <th class="border-b border-slate-200 px-2 py-3 text-left font-semibold text-slate-500">Title</th>
+                    <th class="border-b border-slate-200 px-2 py-3 text-left font-semibold text-slate-500">Variant</th>
+                    <th class="border-b border-slate-200 px-2 py-3 text-left font-semibold text-slate-500">SKU</th>
+                    <th class="border-b border-slate-200 px-2 py-3 text-left font-semibold text-slate-500">UPC</th>
+                    <th class="border-b border-slate-200 px-2 py-3 text-right font-semibold text-slate-500">Retail</th>
+                    <th class="border-b border-slate-200 px-2 py-3 text-right font-semibold text-slate-500">Cost</th>
+                    <th class="border-b border-slate-200 px-2 py-3 text-right font-semibold text-slate-500">Qty</th>
+                    <th class="border-b border-slate-200 px-2 py-3 text-right font-semibold text-slate-500">Retail Value</th>
+                    <th class="border-b border-slate-200 px-2 py-3 text-left font-semibold text-slate-500">Notes</th>
+                    <th class="border-b border-slate-200 px-2 py-3 text-right font-semibold text-slate-500">Actions</th>
                   </tr>
                 </thead>
                 <tbody id="linesTbody"></tbody>
@@ -354,32 +243,15 @@
 
   <div id="catalogModal" class="fixed inset-0 z-40 hidden-safe items-center justify-center p-4">
     <div class="absolute inset-0 modal-backdrop"></div>
-    <div class="relative z-10 w-full max-w-6xl glass p-4 sm:p-5">
+    <div class="relative z-10 w-full max-w-6xl glass p-3 sm:p-3">
       <div class="flex items-center justify-between gap-3 border-b border-slate-200 pb-4">
-        <div>
-          <div class="text-lg font-bold text-slate-900">Add Catalog Line</div>
-          <div class="text-sm text-slate-500">Search products_master and add a linked PO line</div>
-        </div>
-        <button class="btn btn-secondary" data-close="catalogModal">Close</button>
+        <div><div class="text-lg font-bold text-slate-900">Add Catalog Line</div><div class="text-sm text-slate-500">Search products_master and add linked PO lines.</div></div>
+        <div class="flex items-center gap-2"><button id="btnAddSelectedCatalog" class="btn btn-primary">Add Selected</button><button class="btn btn-secondary" data-close="catalogModal">Close</button></div>
       </div>
-      <div class="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_160px]">
-        <input id="catalogSearch" type="text" class="w-full px-4 py-3 text-sm" placeholder="Search SKU, title, variant, product type..." />
-        <button id="btnSearchCatalog" class="btn btn-primary">Search</button>
-      </div>
+      <div class="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_160px]"><input id="catalogSearch" type="text" class="w-full px-3 py-2 text-xs" placeholder="Search SKU, UPC, title, variant, product type..." /><button id="btnSearchCatalog" class="btn btn-primary">Search</button></div>
       <div class="mt-4 max-h-[60vh] overflow-auto soft-scroll">
         <table class="min-w-full text-sm">
-          <thead>
-            <tr>
-              <th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">SKU</th>
-              <th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">Title</th>
-              <th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">Variant</th>
-              <th class="border-b border-slate-200 px-3 py-3 text-left font-semibold text-slate-500">Type</th>
-              <th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Retail</th>
-              <th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Cost</th>
-              <th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Qty</th>
-              <th class="border-b border-slate-200 px-3 py-3 text-right font-semibold text-slate-500">Add</th>
-            </tr>
-          </thead>
+          <thead><tr><th class="border-b border-slate-200 px-2 py-2 text-left font-semibold text-slate-500">SKU</th><th class="border-b border-slate-200 px-2 py-2 text-left font-semibold text-slate-500">Title</th><th class="border-b border-slate-200 px-2 py-2 text-left font-semibold text-slate-500">Variant</th><th class="border-b border-slate-200 px-2 py-2 text-left font-semibold text-slate-500">Type</th><th class="border-b border-slate-200 px-2 py-2 text-right font-semibold text-slate-500">Retail</th><th class="border-b border-slate-200 px-2 py-2 text-right font-semibold text-slate-500">Cost</th><th class="border-b border-slate-200 px-2 py-2 text-right font-semibold text-slate-500">Qty</th><th class="border-b border-slate-200 px-2 py-2 text-right font-semibold text-slate-500">Add</th></tr></thead>
           <tbody id="catalogResults"></tbody>
         </table>
       </div>
@@ -388,59 +260,68 @@
 
   <div id="manualModal" class="fixed inset-0 z-40 hidden-safe items-center justify-center p-4">
     <div class="absolute inset-0 modal-backdrop"></div>
-    <div class="relative z-10 w-full max-w-4xl glass p-4 sm:p-5">
+    <div class="relative z-10 w-full max-w-4xl glass p-3 sm:p-3">
       <div class="flex items-center justify-between gap-3 border-b border-slate-200 pb-4">
-        <div>
-          <div class="text-lg font-bold text-slate-900">Add Manual Line</div>
-          <div class="text-sm text-slate-500">Use this for new or not-yet-loaded catalog products</div>
-        </div>
+        <div><div class="text-lg font-bold text-slate-900">Add Manual Line</div><div class="text-sm text-slate-500">For new/not-yet-loaded catalog products.</div></div>
         <button class="btn btn-secondary" data-close="manualModal">Close</button>
       </div>
       <div class="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        <div>
-          <label class="muted-label">Product Type</label>
-          <input id="manualProductType" type="text" class="w-full px-4 py-3 text-sm" />
-        </div>
-        <div>
-          <label class="muted-label">Title</label>
-          <input id="manualTitle" type="text" class="w-full px-4 py-3 text-sm" />
-        </div>
-        <div>
-          <label class="muted-label">Variant</label>
-          <input id="manualVariant" type="text" class="w-full px-4 py-3 text-sm" />
-        </div>
-        <div>
-          <label class="muted-label">SKU</label>
-          <input id="manualSku" type="text" class="w-full px-4 py-3 text-sm" />
-        </div>
-        <div>
-          <label class="muted-label">UPC</label>
-          <input id="manualUpc" type="text" class="w-full px-4 py-3 text-sm" />
-        </div>
-        <div>
-          <label class="muted-label">Barcode</label>
-          <input id="manualBarcode" type="text" class="w-full px-4 py-3 text-sm" />
-        </div>
-        <div>
-          <label class="muted-label">Retail Price</label>
-          <input id="manualRetail" type="number" step="0.01" class="w-full px-4 py-3 text-sm" />
-        </div>
-        <div>
-          <label class="muted-label">Unit Cost</label>
-          <input id="manualCost" type="number" step="0.01" class="w-full px-4 py-3 text-sm" />
-        </div>
-        <div>
-          <label class="muted-label">Qty</label>
-          <input id="manualQty" type="number" min="0" step="1" class="w-full px-4 py-3 text-sm" value="0" />
-        </div>
+        <div><label class="muted-label">Product Type</label><input id="manualProductType" type="text" class="w-full px-3 py-2 text-xs" /></div>
+        <div><label class="muted-label">Title</label><input id="manualTitle" type="text" class="w-full px-3 py-2 text-xs" /></div>
+        <div><label class="muted-label">Variant</label><input id="manualVariant" type="text" class="w-full px-3 py-2 text-xs" /></div>
+        <div><label class="muted-label">SKU</label><input id="manualSku" type="text" class="w-full px-3 py-2 text-xs" /></div>
+        <div><label class="muted-label">UPC</label><input id="manualUpc" type="text" class="w-full px-3 py-2 text-xs" /></div>
+        <div><label class="muted-label">Barcode</label><input id="manualBarcode" type="text" class="w-full px-3 py-2 text-xs" /></div>
+        <div><label class="muted-label">Retail Price</label><input id="manualRetail" type="number" step="0.01" class="w-full px-3 py-2 text-xs" /></div>
+        <div><label class="muted-label">Unit Cost</label><input id="manualCost" type="number" step="0.01" class="w-full px-3 py-2 text-xs" /></div>
+        <div><label class="muted-label">Qty</label><input id="manualQty" type="number" min="0" step="1" class="w-full px-3 py-2 text-xs" value="0" /></div>
       </div>
-      <div class="mt-4">
-        <label class="muted-label">Line Notes</label>
-        <textarea id="manualNotes" rows="3" class="w-full px-4 py-3 text-sm"></textarea>
-      </div>
-      <div class="mt-4 flex justify-end gap-2">
+      <div class="mt-4"><label class="muted-label">Line Notes</label><textarea id="manualNotes" rows="3" class="w-full px-3 py-2 text-xs"></textarea></div>
+      <div class="mt-4 flex flex-wrap justify-end gap-2">
         <button class="btn btn-secondary" data-close="manualModal">Cancel</button>
-        <button id="btnSaveManualLine" class="btn btn-primary">Add Manual Line</button>
+        <button id="btnSaveManualAnother" class="btn btn-secondary">Add Line + Another</button>
+        <button id="btnSaveManualLine" class="btn btn-primary">Add Line + Done</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="bulkSkuModal" class="fixed inset-0 z-40 hidden-safe items-center justify-center p-4">
+    <div class="absolute inset-0 modal-backdrop"></div>
+    <div class="relative z-10 w-full max-w-4xl glass p-3 sm:p-3">
+      <div class="flex items-center justify-between gap-3 border-b border-slate-200 pb-4">
+        <div><div class="text-lg font-bold text-slate-900">Bulk SKU Add</div><div class="text-sm text-slate-500">Paste SKU + Qty rows. Matches against products_master.</div></div>
+        <button class="btn btn-secondary" data-close="bulkSkuModal">Close</button>
+      </div>
+      <div class="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
+        <textarea id="bulkSkuText" rows="14" class="w-full px-3 py-2 text-xs font-mono" placeholder="SKU, Qty&#10;6-FlagMan1(Grey/White)-Shoe, 77&#10;7-FlagMan1(Grey/White)-Shoe, 10"></textarea>
+        <div class="rounded-2xl border border-slate-200 bg-white p-4">
+          <div class="text-sm font-bold text-slate-900">Accepted formats</div>
+          <div class="mt-2 hint">SKU, Qty<br>SKU[TAB]Qty<br>Qty can be blank and defaults to 1. Header row is optional.</div>
+          <button id="btnProcessBulkSku" class="btn btn-primary mt-4 w-full">Add Matched SKUs</button>
+          <div id="bulkSkuResult" class="mt-3 hint"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="importModal" class="fixed inset-0 z-40 hidden-safe items-center justify-center p-4">
+    <div class="absolute inset-0 modal-backdrop"></div>
+    <div class="relative z-10 w-full max-w-5xl glass p-3 sm:p-3">
+      <div class="flex items-center justify-between gap-3 border-b border-slate-200 pb-4">
+        <div><div class="text-lg font-bold text-slate-900">Import PO Lines</div><div class="text-sm text-slate-500">Paste CSV/TSV line data into the current PO as manual snapshot lines.</div></div>
+        <button class="btn btn-secondary" data-close="importModal">Close</button>
+      </div>
+      <div class="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+        <div>
+          <input id="importFile" type="file" accept=".csv,.txt" class="mb-3 w-full px-4 py-3 text-sm" />
+          <textarea id="importText" rows="16" class="w-full px-3 py-2 text-xs font-mono" placeholder="product_type,title,variant,sku,upc,retail_price,unit_cost,qty,notes&#10;Shoe,FM1 - Grey/White,6,6-FlagMan1(Grey/White)-Shoe,727073775801,0,0,77,"></textarea>
+        </div>
+        <div class="rounded-2xl border border-slate-200 bg-white p-4">
+          <div class="text-sm font-bold text-slate-900">Supported columns</div>
+          <div class="mt-2 hint">product_type, title, variant, sku, upc, barcode, retail_price, unit_cost, qty, notes<br><br>If no header is present, this order is assumed.</div>
+          <button id="btnProcessImport" class="btn btn-primary mt-4 w-full">Import Lines</button>
+          <div id="importResult" class="mt-3 hint"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -452,1479 +333,518 @@
     const REQUIRE_AUTH = Boolean(window.__SILO_CONFIG__?.REQUIRE_AUTH || window.REQUIRE_AUTH || false);
 
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-      document.body.innerHTML = `
-        <div class="min-h-screen flex items-center justify-center p-6">
-          <div class="glass max-w-xl p-6 text-center">
-            <div class="text-xl font-bold text-slate-900">Missing Supabase config</div>
-            <div class="mt-2 text-sm text-slate-500">Provide SUPABASE_URL and SUPABASE_ANON_KEY through window.__SILO_CONFIG__ or global variables before loading this page.</div>
-          </div>
-        </div>`;
-      throw new Error("Missing Supabase config");
+      document.body.innerHTML = `<div class="min-h-screen flex items-center justify-center p-6"><div class="glass max-w-xl p-6 text-center"><div class="text-xl font-bold text-slate-900">Missing Supabase config</div><div class="mt-2 text-sm text-slate-500">Provide SUPABASE_URL and SUPABASE_ANON_KEY through config.js.</div></div></div>`;
+      throw new Error('Missing Supabase config');
     }
 
     const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const PO_STATUSES = ['Draft','Approved','Sent to Factory','Confirmed','In Production','Shipped','In Transit','Partially Received','Received','Closed','Cancelled'];
 
-    const PO_STATUSES = [
-      'Draft','Approved','Sent to Factory','Confirmed','In Production','Shipped','In Transit','Partially Received','Received','Closed','Cancelled'
-    ];
-
-    const state = {
-      factories: [],
-      poRows: [],
-      currentPO: null,
-      currentLines: [],
-      catalogRows: [],
-      catalogResults: []
-    };
+    const state = { factories: [], poRows: [], currentPO: null, currentLines: [], catalogRows: [], catalogResults: [] };
 
     const el = {
-      poList: document.getElementById('poList'),
-      poCount: document.getElementById('poCount'),
-      poSearch: document.getElementById('poSearch'),
-      poStatusFilter: document.getElementById('poStatusFilter'),
-      poFactoryFilter: document.getElementById('poFactoryFilter'),
-      btnRefresh: document.getElementById('btnRefresh'),
-      btnNewPO: document.getElementById('btnNewPO'),
-      detailTitle: document.getElementById('detailTitle'),
-      detailMeta: document.getElementById('detailMeta'),
-      detailStatusWrap: document.getElementById('detailStatusWrap'),
-      btnSaveHeader: document.getElementById('btnSaveHeader'),
-      btnGeneratePdf: document.getElementById('btnGeneratePdf'),
-      btnAddCatalogLine: document.getElementById('btnAddCatalogLine'),
-      btnAddManualLine: document.getElementById('btnAddManualLine'),
-      poName: document.getElementById('poName'),
-      factoryId: document.getElementById('factoryId'),
-      orderDate: document.getElementById('orderDate'),
-      reqShipDate: document.getElementById('reqShipDate'),
-      expectedArrivalDate: document.getElementById('expectedArrivalDate'),
-      dateBucket: document.getElementById('dateBucket'),
-      status: document.getElementById('status'),
-      wholesaleTriggered: document.getElementById('wholesaleTriggered'),
-      isNewProductPO: document.getElementById('isNewProductPO'),
-      notes: document.getElementById('notes'),
-      internalNotes: document.getElementById('internalNotes'),
-      kpiUnits: document.getElementById('kpiUnits'),
-      kpiRetail: document.getElementById('kpiRetail'),
-      kpiCost: document.getElementById('kpiCost'),
-      linesTbody: document.getElementById('linesTbody'),
-      catalogModal: document.getElementById('catalogModal'),
-      manualModal: document.getElementById('manualModal'),
-      catalogSearch: document.getElementById('catalogSearch'),
-      btnSearchCatalog: document.getElementById('btnSearchCatalog'),
-      catalogResults: document.getElementById('catalogResults'),
-      manualProductType: document.getElementById('manualProductType'),
-      manualTitle: document.getElementById('manualTitle'),
-      manualVariant: document.getElementById('manualVariant'),
-      manualSku: document.getElementById('manualSku'),
-      manualUpc: document.getElementById('manualUpc'),
-      manualBarcode: document.getElementById('manualBarcode'),
-      manualRetail: document.getElementById('manualRetail'),
-      manualCost: document.getElementById('manualCost'),
-      manualQty: document.getElementById('manualQty'),
-      manualNotes: document.getElementById('manualNotes'),
-      btnSaveManualLine: document.getElementById('btnSaveManualLine')
+      poList: document.getElementById('poList'), poCount: document.getElementById('poCount'), poSearch: document.getElementById('poSearch'), poStatusFilter: document.getElementById('poStatusFilter'), poFactoryFilter: document.getElementById('poFactoryFilter'),
+      btnRefresh: document.getElementById('btnRefresh'), btnNewPO: document.getElementById('btnNewPO'), btnSaveHeader: document.getElementById('btnSaveHeader'), btnGeneratePdf: document.getElementById('btnGeneratePdf'), btnDuplicatePO: document.getElementById('btnDuplicatePO'), btnAddCatalogLine: document.getElementById('btnAddCatalogLine'), btnBulkSku: document.getElementById('btnBulkSku'), btnImportLines: document.getElementById('btnImportLines'), btnAddManualLine: document.getElementById('btnAddManualLine'),
+      detailTitle: document.getElementById('detailTitle'), detailMeta: document.getElementById('detailMeta'), detailStatusWrap: document.getElementById('detailStatusWrap'), poName: document.getElementById('poName'), factoryId: document.getElementById('factoryId'), orderDate: document.getElementById('orderDate'), reqShipDate: document.getElementById('reqShipDate'), expectedArrivalDate: document.getElementById('expectedArrivalDate'), dateBucket: document.getElementById('dateBucket'), status: document.getElementById('status'), wholesaleTriggered: document.getElementById('wholesaleTriggered'), isNewProductPO: document.getElementById('isNewProductPO'), notes: document.getElementById('notes'), internalNotes: document.getElementById('internalNotes'),
+      kpiUnits: document.getElementById('kpiUnits'), kpiRetail: document.getElementById('kpiRetail'), kpiCost: document.getElementById('kpiCost'), linesTbody: document.getElementById('linesTbody'),
+      catalogModal: document.getElementById('catalogModal'), catalogSearch: document.getElementById('catalogSearch'), btnSearchCatalog: document.getElementById('btnSearchCatalog'), btnAddSelectedCatalog: document.getElementById('btnAddSelectedCatalog'), catalogResults: document.getElementById('catalogResults'),
+      manualModal: document.getElementById('manualModal'), manualProductType: document.getElementById('manualProductType'), manualTitle: document.getElementById('manualTitle'), manualVariant: document.getElementById('manualVariant'), manualSku: document.getElementById('manualSku'), manualUpc: document.getElementById('manualUpc'), manualBarcode: document.getElementById('manualBarcode'), manualRetail: document.getElementById('manualRetail'), manualCost: document.getElementById('manualCost'), manualQty: document.getElementById('manualQty'), manualNotes: document.getElementById('manualNotes'), btnSaveManualLine: document.getElementById('btnSaveManualLine'), btnSaveManualAnother: document.getElementById('btnSaveManualAnother'),
+      bulkSkuModal: document.getElementById('bulkSkuModal'), bulkSkuText: document.getElementById('bulkSkuText'), btnProcessBulkSku: document.getElementById('btnProcessBulkSku'), bulkSkuResult: document.getElementById('bulkSkuResult'),
+      importModal: document.getElementById('importModal'), importFile: document.getElementById('importFile'), importText: document.getElementById('importText'), btnProcessImport: document.getElementById('btnProcessImport'), importResult: document.getElementById('importResult')
     };
 
-    function money(v) {
-      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(v || 0));
+    function money(v){ return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(v||0)); }
+    function escapeHtml(str){ return String(str ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;'); }
+    function modalOpen(node){ node.classList.remove('hidden-safe'); node.classList.add('flex'); }
+    function modalClose(node){ node.classList.add('hidden-safe'); node.classList.remove('flex'); }
+    function statusBadge(status){ const safe=(status||'Draft').replace(/"/g,''); return `<span class="status-badge status-${safe}"><span class="status-dot"></span>${escapeHtml(status||'Draft')}</span>`; }
+    function todayStr(){ const d=new Date(); return `${d.getFullYear()}-${`${d.getMonth()+1}`.padStart(2,'0')}-${`${d.getDate()}`.padStart(2,'0')}`; }
+    function plusDaysStr(days){ const d=new Date(); d.setDate(d.getDate()+days); return `${d.getFullYear()}-${`${d.getMonth()+1}`.padStart(2,'0')}-${`${d.getDate()}`.padStart(2,'0')}`; }
+    function num(v){ const n=Number(String(v ?? '').replace(/[^0-9.-]/g,'')); return Number.isFinite(n) ? n : 0; }
+
+    function currentFormData(){
+      return { po_name: el.poName.value.trim() || null, factory_id: el.factoryId.value || null, order_date: el.orderDate.value || null, req_ship_date: el.reqShipDate.value || null, expected_arrival_date: el.expectedArrivalDate.value || null, date_bucket: el.dateBucket.value.trim() || null, status: el.status.value || 'Draft', wholesale_triggered: !!el.wholesaleTriggered.checked, is_new_product_po: !!el.isNewProductPO.checked, notes: el.notes.value.trim() || null, internal_notes: el.internalNotes.value.trim() || null };
     }
 
-    function escapeHtml(str) {
-      return String(str ?? '')
-        .replaceAll('&', '&amp;')
-        .replaceAll('<', '&lt;')
-        .replaceAll('>', '&gt;')
-        .replaceAll('"', '&quot;')
-        .replaceAll("'", '&#039;');
+    function setEditorEnabled(enabled){
+      [el.btnSaveHeader, el.btnGeneratePdf, el.btnDuplicatePO, el.btnAddCatalogLine, el.btnBulkSku, el.btnImportLines, el.btnAddManualLine].forEach(btn => btn.disabled = !enabled || (btn !== el.btnSaveHeader && !state.currentPO?.id));
     }
 
-    function modalOpen(node) {
-      node.classList.remove('hidden-safe');
-      node.classList.add('flex');
-    }
-
-    function modalClose(node) {
-      node.classList.add('hidden-safe');
-      node.classList.remove('flex');
-    }
-
-    function statusBadge(status) {
-      const safe = (status || 'Draft').replace(/"/g, '');
-      return `<span class="status-badge status-${safe}"><span class="status-dot"></span>${escapeHtml(status || 'Draft')}</span>`;
-    }
-
-    function todayStr() {
-      const d = new Date();
-      const m = `${d.getMonth() + 1}`.padStart(2, '0');
-      const day = `${d.getDate()}`.padStart(2, '0');
-      return `${d.getFullYear()}-${m}-${day}`;
-    }
-
-    function plusDaysStr(days) {
-      const d = new Date();
-      d.setDate(d.getDate() + days);
-      const m = `${d.getMonth() + 1}`.padStart(2, '0');
-      const day = `${d.getDate()}`.padStart(2, '0');
-      return `${d.getFullYear()}-${m}-${day}`;
-    }
-
-    function currentFormData() {
-      return {
-        po_name: el.poName.value.trim() || null,
-        factory_id: el.factoryId.value || null,
-        order_date: el.orderDate.value || null,
-        req_ship_date: el.reqShipDate.value || null,
-        expected_arrival_date: el.expectedArrivalDate.value || null,
-        date_bucket: el.dateBucket.value.trim() || null,
-        status: el.status.value || 'Draft',
-        wholesale_triggered: !!el.wholesaleTriggered.checked,
-        is_new_product_po: !!el.isNewProductPO.checked,
-        notes: el.notes.value.trim() || null,
-        internal_notes: el.internalNotes.value.trim() || null
-      };
-    }
-
-    function setEditorEnabled(enabled) {
-      el.btnSaveHeader.disabled = !enabled;
-      el.btnGeneratePdf.disabled = !enabled || !state.currentPO?.id;
-      el.btnAddCatalogLine.disabled = !enabled || !state.currentPO?.id;
-      el.btnAddManualLine.disabled = !enabled || !state.currentPO?.id;
-    }
-
-    async function loadFactories() {
-      const { data, error } = await sb
-        .from('factories')
-        .select('id, factory_name, short_code')
-        .order('factory_name');
-      if (error) throw error;
-      state.factories = data || [];
-      renderFactoryOptions();
-      renderFactoryFilter();
-    }
-
-    async function loadPOs() {
-      const { data, error } = await sb
-        .from('v_po_header_summary')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(300);
-      if (error) throw error;
-      state.poRows = data || [];
-      renderPOList();
-    }
-
-    async function loadPOLines(poId) {
-      if (!poId) {
-        state.currentLines = [];
-        renderLines();
-        return;
-      }
-      const { data, error } = await sb
+    async function loadFactories(){ const {data,error}=await sb.from('factories').select('id, factory_name, short_code').order('factory_name'); if(error) throw error; state.factories=data||[]; renderFactoryOptions(); renderFactoryFilter(); }
+    async function loadPOs(){ const {data,error}=await sb.from('v_po_header_summary').select('*').order('created_at',{ascending:false}).limit(300); if(error) throw error; state.poRows=data||[]; renderPOList(); }
+    async function loadPOLines(poId){
+      if(!poId){ state.currentLines=[]; renderLines(); return; }
+      const {data,error}=await sb
         .from('po_lines')
         .select('*')
-        .eq('po_header_id', poId)
-        .order('created_at', { ascending: true });
-      if (error) throw error;
-      state.currentLines = data || [];
+        .eq('po_header_id',poId)
+        .order('created_at',{ascending:true});
+      if(error) throw error;
+      state.currentLines=(data||[]).sort(compareProductLines);
       renderLines();
     }
 
-    async function loadCatalogProducts() {
-      const { data, error } = await sb
+    async function loadCatalogProducts(){
+      const {data,error}=await sb
         .from('products_master')
-        .select('id, sku, product_title, variant_title, product_type, upc, msrp, unit_cost, is_active')
-        .order('product_title', { ascending: true })
-        .limit(1000);
-
-      if (error) throw error;
-      state.catalogRows = data || [];
+        .select('id, sku, product_title, variant_title, product_type, upc, barcode, msrp, unit_cost, is_active, product_ready_for_po')
+        .order('product_title',{ascending:true})
+        .limit(2000000);
+      if(error) throw error;
+      state.catalogRows=dedupeCatalogRows(data||[]).sort(compareProductLines);
     }
 
-    async function openPO(poId) {
-      const po = state.poRows.find(x => x.id === poId);
-      if (!po) return;
-      state.currentPO = { ...po };
-      fillEditor(po);
-      setEditorEnabled(true);
-      await loadPOLines(po.id);
+    async function openPO(poId){ const po=state.poRows.find(x=>x.id===poId); if(!po) return; state.currentPO={...po}; fillEditor(po); setEditorEnabled(true); await loadPOLines(po.id); renderPOList(); }
+
+    function renderFactoryOptions(){ const current=el.factoryId.value; el.factoryId.innerHTML=['<option value="">Select factory</option>'].concat(state.factories.map(f=>`<option value="${f.id}">${escapeHtml(f.factory_name)}${f.short_code ? ` · ${escapeHtml(f.short_code)}` : ''}</option>`)).join(''); if(current) el.factoryId.value=current; }
+    function renderFactoryFilter(){ const current=el.poFactoryFilter.value; el.poFactoryFilter.innerHTML=['<option value="">All factories</option>'].concat(state.factories.map(f=>`<option value="${escapeHtml(f.factory_name)}">${escapeHtml(f.factory_name)}</option>`)).join(''); el.poFactoryFilter.value=current; }
+    function renderStatusOptions(){ el.status.innerHTML=PO_STATUSES.map(s=>`<option value="${s}">${s}</option>`).join(''); el.poStatusFilter.innerHTML=['<option value="">All statuses</option>'].concat(PO_STATUSES.map(s=>`<option value="${s}">${s}</option>`)).join(''); }
+
+    function renderPOList(){
+      const q=el.poSearch.value.trim().toLowerCase(), status=el.poStatusFilter.value, factory=el.poFactoryFilter.value;
+      const rows=state.poRows.filter(r=>{ const hay=[r.po_name,r.factory_name,r.date_bucket,r.status].join(' ').toLowerCase(); return (!q||hay.includes(q)) && (!status||r.status===status) && (!factory||r.factory_name===factory); });
+      el.poCount.textContent=`${rows.length} PO${rows.length===1?'':'s'}`;
+      if(!rows.length){ el.poList.innerHTML=`<div class="rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">No purchase orders match the current filters.</div>`; return; }
+      el.poList.innerHTML=rows.map(row=>{ const active=state.currentPO?.id===row.id; return `<button data-po-id="${row.id}" class="mb-2 w-full rounded-xl border px-3 py-2 text-left transition ${active?'border-slate-900 bg-slate-900 text-white shadow-lg':'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'}"><div class="flex items-start justify-between gap-3"><div><div class="text-sm font-bold ${active?'text-white':'text-slate-900'}">${escapeHtml(row.po_name)}</div><div class="mt-1 text-xs ${active?'text-slate-300':'text-slate-500'}">${escapeHtml(row.factory_name||'Unknown factory')}</div></div><div>${statusBadge(row.status)}</div></div><div class="mt-2 grid grid-cols-3 gap-2 text-[10px] ${active?'text-slate-300':'text-slate-500'}"><div><div class="font-semibold uppercase tracking-[0.14em]">Units</div><div class="mt-0.5 text-xs font-bold ${active?'text-white':'text-slate-900'}">${Number(row.total_units||0).toLocaleString()}</div></div><div><div class="font-semibold uppercase tracking-[0.14em]">Retail</div><div class="mt-0.5 text-xs font-bold ${active?'text-white':'text-slate-900'}">${money(row.total_retail_value||0)}</div></div><div><div class="font-semibold uppercase tracking-[0.14em]">Req Ship</div><div class="mt-0.5 text-xs font-bold ${active?'text-white':'text-slate-900'}">${escapeHtml(row.req_ship_date||'—')}</div></div></div></button>`; }).join('');
     }
 
-    async function searchCatalog() {
+    function fillEditor(po){
+      el.poName.value=po.po_name||''; el.factoryId.value=po.factory_id||''; el.orderDate.value=po.order_date||''; el.reqShipDate.value=po.req_ship_date||''; el.expectedArrivalDate.value=po.expected_arrival_date||''; el.dateBucket.value=po.date_bucket||''; el.status.value=po.status||'Draft'; el.wholesaleTriggered.checked=!!po.wholesale_triggered; el.isNewProductPO.checked=!!po.is_new_product_po; el.notes.value=po.notes||''; el.internalNotes.value=po.internal_notes||'';
+      el.detailTitle.textContent=po.po_name||'Untitled PO'; el.detailStatusWrap.innerHTML=statusBadge(po.status||'Draft'); el.detailMeta.textContent=`${po.factory_name||'No factory'} · Ordered ${po.order_date||'—'} · Required ship ${po.req_ship_date||'—'}`;
+      el.kpiUnits.textContent=Number(po.total_units||0).toLocaleString(); el.kpiRetail.textContent=money(po.total_retail_value||0); el.kpiCost.textContent=money(po.total_estimated_cost||0);
+    }
+
+    function resetEditorForNew(){ state.currentPO=null; state.currentLines=[]; el.poName.value=''; el.factoryId.value=''; el.orderDate.value=todayStr(); el.reqShipDate.value=plusDaysStr(45); el.expectedArrivalDate.value=''; el.dateBucket.value=''; el.status.value='Draft'; el.wholesaleTriggered.checked=false; el.isNewProductPO.checked=false; el.notes.value=''; el.internalNotes.value=''; el.detailTitle.textContent='New Purchase Order'; el.detailStatusWrap.innerHTML=statusBadge('Draft'); el.detailMeta.textContent='Save the header first, then add catalog, bulk, imported, or manual lines.'; renderLines(); setEditorEnabled(true); el.btnGeneratePdf.disabled=true; el.btnDuplicatePO.disabled=true; el.btnAddCatalogLine.disabled=true; el.btnBulkSku.disabled=true; el.btnImportLines.disabled=true; el.btnAddManualLine.disabled=true; }
+
+    function renderLines(){
+      const rows=state.currentLines||[];
+      if(!rows.length){ el.linesTbody.innerHTML=`<tr><td colspan="11" class="px-3 py-10 text-center text-sm text-slate-500">No PO lines yet. Add a catalog line, bulk SKU list, imported PO, or manual entry.</td></tr>`; }
+      else {
+        el.linesTbody.innerHTML=rows.map(line=>`<tr class="border-b border-slate-100" data-line-row="${line.id}">
+          <td class="px-2 py-2"><input class="line-input" data-line-field="product_type_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.product_type_snapshot||'')}"></td>
+          <td class="px-2 py-2"><input class="line-input" data-line-field="title_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.title_snapshot||'')}"></td>
+          <td class="px-2 py-2"><input class="line-input" data-line-field="variant_title_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.variant_title_snapshot||'')}"></td>
+          <td class="px-2 py-2"><input class="line-input" data-line-field="sku_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.sku_snapshot||'')}"></td>
+          <td class="px-2 py-2"><input class="line-input" data-line-field="upc_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.upc_snapshot||'')}"></td>
+          <td class="px-2 py-2"><input class="line-input small" type="number" step="0.01" data-line-field="retail_price" data-line-id="${line.id}" value="${Number(line.retail_price||0)}"></td>
+          <td class="px-2 py-2"><input class="line-input small" type="number" step="0.01" data-line-field="unit_cost" data-line-id="${line.id}" value="${Number(line.unit_cost||0)}"></td>
+          <td class="px-2 py-2"><input class="line-input small" type="number" min="0" step="1" data-line-field="qty" data-line-id="${line.id}" value="${Number(line.qty||0)}"></td>
+          <td class="px-2 py-2 text-right font-semibold text-slate-900">${money(line.retail_value||0)}</td>
+          <td class="px-2 py-2"><textarea class="line-input notes" rows="1" data-line-field="line_notes" data-line-id="${line.id}">${escapeHtml(line.line_notes||'')}</textarea></td>
+          <td class="px-1 py-1 text-right"><div class="flex items-center justify-end gap-1"><button class="btn btn-secondary line-save-btn" data-line-save="${line.id}">Save</button><button class="btn btn-danger line-delete-btn" data-line-delete="${line.id}">Del</button></div></td>
+        </tr>`).join('');
+      }
+      const totalUnits=rows.reduce((s,r)=>s+Number(r.qty||0),0), totalRetail=rows.reduce((s,r)=>s+Number(r.retail_value||0),0), totalCost=rows.reduce((s,r)=>s+(Number(r.unit_cost||0)*Number(r.qty||0)),0);
+      el.kpiUnits.textContent=totalUnits.toLocaleString(); el.kpiRetail.textContent=money(totalRetail); el.kpiCost.textContent=money(totalCost);
+    }
+
+    function renderCatalogResults(){
+      const rows=state.catalogResults||[];
+      if(!rows.length){ el.catalogResults.innerHTML=`<tr><td colspan="8" class="px-3 py-10 text-center text-sm text-slate-500">No matching catalog products found.</td></tr>`; return; }
+      el.catalogResults.innerHTML=rows.map(row=>`<tr class="border-b border-slate-100"><td class="px-3 py-3 text-slate-700">${escapeHtml(row.sku||'')}</td><td class="px-3 py-3 font-semibold text-slate-900">${escapeHtml(row.product_title||'')}</td><td class="px-3 py-3 text-slate-600">${escapeHtml(row.variant_title||'')}</td><td class="px-3 py-3 text-slate-600">${escapeHtml(row.product_type||'')}</td><td class="px-3 py-3 text-right text-slate-700">${money(row.msrp||0)}</td><td class="px-3 py-3 text-right text-slate-700">${money(row.unit_cost||0)}</td><td class="px-3 py-3 text-right"><input type="number" min="0" step="1" value="0" class="w-20 rounded-lg border border-slate-200 px-2 py-1 text-right text-xs" data-catalog-qty="${row.id}" /></td><td class="px-3 py-3 text-right"><button class="btn btn-primary px-3 py-2 text-xs" data-add-catalog="${row.id}">Add</button></td></tr>`).join('');
+    }
+
+    async function searchCatalog(){
+      const raw = el.catalogSearch.value.trim();
+
       if (!state.catalogRows.length) {
         await loadCatalogProducts();
       }
 
-      const raw = el.catalogSearch.value.trim().toLowerCase();
-      let rows = [...state.catalogRows];
-
-      rows = rows.filter(row => row.is_active !== false);
+      let rows = [...(state.catalogRows || [])];
 
       if (raw) {
-        const terms = raw.split(/\s+/).filter(Boolean);
-
-        rows = rows.filter(row => {
-          const haystack = [
-            row.sku,
-            row.product_title,
-            row.variant_title,
-            row.product_type,
-            row.upc
-          ]
-            .filter(Boolean)
-            .join(' ')
-            .toLowerCase();
-
-          return terms.every(term => haystack.includes(term));
-        });
+        rows = rows
+          .map(row => ({ ...row, _searchScore: catalogSearchScore(row, raw) }))
+          .filter(row => row._searchScore >= 0)
+          .sort(sortCatalogSearchResults);
+      } else {
+        rows = rows.sort(compareProductLines);
       }
 
-      state.catalogResults = rows.slice(0, 200);
+      state.catalogResults = rows.slice(0, 20000);
       renderCatalogResults();
     }
 
-    function renderFactoryOptions() {
-      const current = el.factoryId.value;
-      const opts = ['<option value="">Select factory</option>']
-        .concat(state.factories.map(f => `<option value="${f.id}">${escapeHtml(f.factory_name)}${f.short_code ? ` · ${escapeHtml(f.short_code)}` : ''}</option>`));
-      el.factoryId.innerHTML = opts.join('');
-      if (current) el.factoryId.value = current;
+    function productToLine(productId, qty){
+      const p=state.catalogRows.find(x=>String(x.id)===String(productId)) || state.catalogResults.find(x=>String(x.id)===String(productId));
+      return { po_header_id:state.currentPO.id, product_master_id:productId, product_type_snapshot:p?.product_type||null, title_snapshot:p?.product_title||null, variant_title_snapshot:p?.variant_title||null, sku_snapshot:p?.sku||null, upc_snapshot:p?.upc||p?.barcode||null, barcode_snapshot:p?.barcode||p?.upc||null, retail_price:p?.msrp ?? null, unit_cost:p?.unit_cost ?? null, qty:Number(qty||0), retail_value:Number(qty||0)*Number(p?.msrp||0) };
     }
 
-    function renderFactoryFilter() {
-      const current = el.poFactoryFilter.value;
-      el.poFactoryFilter.innerHTML = ['<option value="">All factories</option>']
-        .concat(state.factories.map(f => `<option value="${escapeHtml(f.factory_name)}">${escapeHtml(f.factory_name)}</option>`))
-        .join('');
-      el.poFactoryFilter.value = current;
+    async function saveHeader(){
+      const payload=currentFormData(); if(!payload.factory_id){ alert('Select a factory first.'); return; }
+      if(!payload.po_name){ const {data,error}=await sb.rpc('generate_next_po_name',{p_factory_id:payload.factory_id}); if(error) throw error; payload.po_name=data; el.poName.value=data; }
+      let savedId=state.currentPO?.id||null;
+      if(savedId){ const {error}=await sb.from('po_headers').update(payload).eq('id',savedId); if(error) throw error; }
+      else { const {data,error}=await sb.from('po_headers').insert(payload).select('*').single(); if(error) throw error; state.currentPO=data; savedId=data.id; }
+      await refreshAll(); if(savedId) await openPO(savedId);
     }
 
-    function renderStatusOptions() {
-      el.status.innerHTML = PO_STATUSES.map(s => `<option value="${s}">${s}</option>`).join('');
-      el.poStatusFilter.innerHTML = ['<option value="">All statuses</option>']
-        .concat(PO_STATUSES.map(s => `<option value="${s}">${s}</option>`))
-        .join('');
+    async function addCatalogLine(productId, qty){
+      if(!state.currentPO?.id){ alert('Save the PO header first.'); return; }
+      if(!qty || Number(qty)<=0){ alert('Enter a quantity greater than 0.'); return; }
+      const payload=productToLine(productId, qty);
+      const {error}=await sb.from('po_lines').insert(payload); if(error) throw error;
+      await refreshAll(); await openPO(state.currentPO.id); modalClose(el.catalogModal);
     }
 
-    function renderPOList() {
-      const q = el.poSearch.value.trim().toLowerCase();
-      const status = el.poStatusFilter.value;
-      const factory = el.poFactoryFilter.value;
+    async function addSelectedCatalogLines(){
+      if(!state.currentPO?.id){ alert('Save the PO header first.'); return; }
+      const qtyInputs=[...document.querySelectorAll('[data-catalog-qty]')];
+      const selected=qtyInputs
+        .map(input=>({productId:input.getAttribute('data-catalog-qty'),qty:Number(input.value||0)}))
+        .filter(row=>row.productId&&row.qty>0);
 
-      const rows = state.poRows.filter(r => {
-        const matchesQ = !q || [r.po_name, r.factory_name, r.date_bucket, r.status].join(' ').toLowerCase().includes(q);
-        const matchesStatus = !status || r.status === status;
-        const matchesFactory = !factory || r.factory_name === factory;
-        return matchesQ && matchesStatus && matchesFactory;
-      });
-
-      el.poCount.textContent = `${rows.length} PO${rows.length === 1 ? '' : 's'}`;
-
-      if (!rows.length) {
-        el.poList.innerHTML = `<div class="rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">No purchase orders match the current filters.</div>`;
+      if(!selected.length){
+        alert('Enter a quantity greater than 0 on at least one catalog row.');
         return;
       }
 
-      el.poList.innerHTML = rows.map(row => {
-        const active = state.currentPO?.id === row.id;
-        return `
-          <button data-po-id="${row.id}" class="mb-3 w-full rounded-3xl border px-4 py-4 text-left transition ${active ? 'border-slate-900 bg-slate-900 text-white shadow-lg' : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'}">
-            <div class="flex items-start justify-between gap-3">
-              <div>
-                <div class="text-sm font-bold ${active ? 'text-white' : 'text-slate-900'}">${escapeHtml(row.po_name)}</div>
-                <div class="mt-1 text-xs ${active ? 'text-slate-300' : 'text-slate-500'}">${escapeHtml(row.factory_name || 'Unknown factory')}</div>
-              </div>
-              <div>${statusBadge(row.status)}</div>
-            </div>
-            <div class="mt-3 grid grid-cols-3 gap-2 text-xs ${active ? 'text-slate-300' : 'text-slate-500'}">
-              <div>
-                <div class="font-semibold uppercase tracking-[0.14em]">Units</div>
-                <div class="mt-1 text-sm font-bold ${active ? 'text-white' : 'text-slate-900'}">${Number(row.total_units || 0).toLocaleString()}</div>
-              </div>
-              <div>
-                <div class="font-semibold uppercase tracking-[0.14em]">Retail</div>
-                <div class="mt-1 text-sm font-bold ${active ? 'text-white' : 'text-slate-900'}">${money(row.total_retail_value || 0)}</div>
-              </div>
-              <div>
-                <div class="font-semibold uppercase tracking-[0.14em]">Req Ship</div>
-                <div class="mt-1 text-sm font-bold ${active ? 'text-white' : 'text-slate-900'}">${escapeHtml(row.req_ship_date || '—')}</div>
-              </div>
-            </div>
-          </button>`;
-      }).join('');
-    }
-
-    function fillEditor(po) {
-      el.poName.value = po.po_name || '';
-      el.factoryId.value = po.factory_id || '';
-      el.orderDate.value = po.order_date || '';
-      el.reqShipDate.value = po.req_ship_date || '';
-      el.expectedArrivalDate.value = po.expected_arrival_date || '';
-      el.dateBucket.value = po.date_bucket || '';
-      el.status.value = po.status || 'Draft';
-      el.wholesaleTriggered.checked = !!po.wholesale_triggered;
-      el.isNewProductPO.checked = !!po.is_new_product_po;
-      el.notes.value = po.notes || '';
-      el.internalNotes.value = po.internal_notes || '';
-      el.detailTitle.textContent = po.po_name || 'Untitled PO';
-      el.detailStatusWrap.innerHTML = statusBadge(po.status || 'Draft');
-      el.detailMeta.textContent = `${po.factory_name || 'No factory'} · Ordered ${po.order_date || '—'} · Required ship ${po.req_ship_date || '—'}`;
-      el.kpiUnits.textContent = Number(po.total_units || 0).toLocaleString();
-      el.kpiRetail.textContent = money(po.total_retail_value || 0);
-      el.kpiCost.textContent = money(po.total_estimated_cost || 0);
-    }
-
-    function resetEditorForNew() {
-      state.currentPO = null;
-      state.currentLines = [];
-      el.poName.value = '';
-      el.factoryId.value = '';
-      el.orderDate.value = todayStr();
-      el.reqShipDate.value = plusDaysStr(45);
-      el.expectedArrivalDate.value = '';
-      el.dateBucket.value = '';
-      el.status.value = 'Draft';
-      el.wholesaleTriggered.checked = false;
-      el.isNewProductPO.checked = false;
-      el.notes.value = '';
-      el.internalNotes.value = '';
-      el.detailTitle.textContent = 'New Purchase Order';
-      el.detailStatusWrap.innerHTML = statusBadge('Draft');
-      el.detailMeta.textContent = 'Save the header first, then add linked or manual PO lines.';
-      el.kpiUnits.textContent = '0';
-      el.kpiRetail.textContent = money(0);
-      el.kpiCost.textContent = money(0);
-      renderLines();
-      setEditorEnabled(true);
-      el.btnAddCatalogLine.disabled = true;
-      el.btnAddManualLine.disabled = true;
-      el.btnGeneratePdf.disabled = true;
-    }
-
-    function renderLines() {
-      const rows = state.currentLines || [];
-
-      if (!rows.length) {
-        el.linesTbody.innerHTML = `<tr><td colspan="11" class="px-3 py-10 text-center text-sm text-slate-500">No PO lines yet. Add a catalog line or use manual entry.</td></tr>`;
-      } else {
-        el.linesTbody.innerHTML = rows.map(line => `
-          <tr class="border-b border-slate-100">
-            <td class="px-3 py-3 text-slate-600">${escapeHtml(line.product_type_snapshot || '—')}</td>
-            <td class="px-3 py-3 font-semibold text-slate-900">${escapeHtml(line.title_snapshot || '—')}</td>
-            <td class="px-3 py-3 text-slate-600">${escapeHtml(line.variant_title_snapshot || '—')}</td>
-            <td class="px-3 py-3 text-slate-600">${escapeHtml(line.sku_snapshot || '—')}</td>
-            <td class="px-3 py-3 text-slate-600">${escapeHtml(line.upc_snapshot || '—')}</td>
-            <td class="px-3 py-3 text-right text-slate-700">${money(line.retail_price || 0)}</td>
-            <td class="px-3 py-3 text-right text-slate-700">${money(line.unit_cost || 0)}</td>
-            <td class="px-3 py-3 text-right">
-              <input
-                type="number"
-                min="0"
-                step="1"
-                value="${Number(line.qty || 0)}"
-                data-line-qty="${line.id}"
-                class="w-24 rounded-xl border border-slate-200 px-3 py-2 text-right text-sm"
-              />
-            </td>
-            <td class="px-3 py-3 text-right font-semibold text-slate-900">${money(line.retail_value || 0)}</td>
-            <td class="px-3 py-3">
-              <textarea
-                data-line-notes="${line.id}"
-                rows="2"
-                class="min-w-[180px] rounded-xl border border-slate-200 px-3 py-2 text-sm"
-              >${escapeHtml(line.line_notes || '')}</textarea>
-            </td>
-            <td class="px-3 py-3 text-right">
-              <div class="flex flex-col items-end gap-2">
-                <button class="btn btn-secondary px-3 py-2 text-xs" data-line-save="${line.id}">Save</button>
-                <button class="btn btn-danger px-3 py-2 text-xs" data-line-delete="${line.id}">Delete</button>
-              </div>
-            </td>
-          </tr>
-        `).join('');
-      }
-
-      const totalUnits = rows.reduce((sum, r) => sum + Number(r.qty || 0), 0);
-      const totalRetail = rows.reduce((sum, r) => sum + Number(r.retail_value || 0), 0);
-      const totalCost = rows.reduce((sum, r) => sum + (Number(r.unit_cost || 0) * Number(r.qty || 0)), 0);
-
-      el.kpiUnits.textContent = totalUnits.toLocaleString();
-      el.kpiRetail.textContent = money(totalRetail);
-      el.kpiCost.textContent = money(totalCost);
-    }
-
-    function renderCatalogResults() {
-      const rows = state.catalogResults || [];
-      if (!rows.length) {
-        el.catalogResults.innerHTML = `<tr><td colspan="8" class="px-3 py-10 text-center text-sm text-slate-500">No matching catalog products found.</td></tr>`;
-        return;
-      }
-
-      el.catalogResults.innerHTML = rows.map(row => `
-        <tr class="border-b border-slate-100">
-          <td class="px-3 py-3 text-slate-700">${escapeHtml(row.sku || '')}</td>
-          <td class="px-3 py-3 font-semibold text-slate-900">${escapeHtml(row.product_title || '')}</td>
-          <td class="px-3 py-3 text-slate-600">${escapeHtml(row.variant_title || '')}</td>
-          <td class="px-3 py-3 text-slate-600">${escapeHtml(row.product_type || '')}</td>
-          <td class="px-3 py-3 text-right text-slate-700">${money(row.msrp || 0)}</td>
-          <td class="px-3 py-3 text-right text-slate-700">${money(row.unit_cost || 0)}</td>
-          <td class="px-3 py-3 text-right">
-            <input type="number" min="0" step="1" value="0" class="w-24 rounded-xl border border-slate-200 px-3 py-2 text-right text-sm" data-catalog-qty="${row.id}" />
-          </td>
-          <td class="px-3 py-3 text-right">
-            <button class="btn btn-primary px-3 py-2 text-xs" data-add-catalog="${row.id}">Add</button>
-          </td>
-        </tr>
-      `).join('');
-    }
-
-    async function saveHeader() {
-      const payload = currentFormData();
-
-      if (!payload.factory_id) {
-        alert('Select a factory first.');
-        return;
-      }
-
-      if (!payload.po_name) {
-        const { data, error } = await sb.rpc('generate_next_po_name', { p_factory_id: payload.factory_id });
-        if (error) throw error;
-        payload.po_name = data;
-        el.poName.value = data;
-      }
-
-      let savedId = state.currentPO?.id || null;
-
-      if (savedId) {
-        const { error } = await sb.from('po_headers').update(payload).eq('id', savedId);
-        if (error) throw error;
-      } else {
-        const { data, error } = await sb.from('po_headers').insert(payload).select('*').single();
-        if (error) throw error;
-        state.currentPO = data;
-        savedId = data.id;
-      }
-
-      await refreshAll();
-      if (savedId) await openPO(savedId);
-    }
-
-    async function addCatalogLine(productId, qty) {
-      if (!state.currentPO?.id) {
-        alert('Save the PO header first.');
-        return;
-      }
-      if (!qty || Number(qty) <= 0) {
-        alert('Enter a quantity greater than 0.');
-        return;
-      }
-
-      const { error } = await sb.from('po_lines').insert({
-        po_header_id: state.currentPO.id,
-        product_master_id: productId,
-        qty: Number(qty)
-      });
-
-      if (error) throw error;
+      const payload=selected.map(row=>productToLine(row.productId,row.qty));
+      const {error}=await sb.from('po_lines').insert(payload);
+      if(error) throw error;
 
       await refreshAll();
       await openPO(state.currentPO.id);
+      qtyInputs.forEach(input=>{ input.value=0; });
       modalClose(el.catalogModal);
     }
 
-    async function addManualLine() {
-      if (!state.currentPO?.id) {
-        alert('Save the PO header first.');
-        return;
-      }
-
-      const qty = Number(el.manualQty.value || 0);
-      const retail = Number(el.manualRetail.value || 0);
-      const cost = Number(el.manualCost.value || 0);
-
-      const payload = {
-        po_header_id: state.currentPO.id,
-        product_type_snapshot: el.manualProductType.value.trim() || null,
-        title_snapshot: el.manualTitle.value.trim() || null,
-        variant_title_snapshot: el.manualVariant.value.trim() || null,
-        sku_snapshot: el.manualSku.value.trim() || null,
-        upc_snapshot: el.manualUpc.value.trim() || null,
-        barcode_snapshot: el.manualBarcode.value.trim() || null,
-        retail_price: retail || null,
-        unit_cost: cost || null,
-        qty,
-        retail_value: qty && retail ? qty * retail : null,
-        line_notes: el.manualNotes.value.trim() || null
-      };
-
-      if (!payload.title_snapshot || qty <= 0) {
-        alert('Manual line needs at least a title and qty > 0.');
-        return;
-      }
-
-      const { error } = await sb.from('po_lines').insert(payload);
-      if (error) throw error;
-
-      clearManualModal();
-      await refreshAll();
-      await openPO(state.currentPO.id);
-      modalClose(el.manualModal);
+    function manualPayload(){
+      const qty=num(el.manualQty.value), retail=num(el.manualRetail.value), cost=num(el.manualCost.value);
+      return { po_header_id:state.currentPO.id, product_type_snapshot:el.manualProductType.value.trim()||null, title_snapshot:el.manualTitle.value.trim()||null, variant_title_snapshot:el.manualVariant.value.trim()||null, sku_snapshot:el.manualSku.value.trim()||null, upc_snapshot:el.manualUpc.value.trim()||null, barcode_snapshot:el.manualBarcode.value.trim()||null, retail_price:retail||null, unit_cost:cost||null, qty, retail_value:qty&&retail ? qty*retail : 0, line_notes:el.manualNotes.value.trim()||null };
     }
 
-    async function saveLine(lineId) {
-      const qtyNode = document.querySelector(`[data-line-qty="${lineId}"]`);
-      const notesNode = document.querySelector(`[data-line-notes="${lineId}"]`);
-      const qty = Number(qtyNode?.value || 0);
-      const line_notes = notesNode?.value?.trim() || null;
-
-      if (qty < 0) {
-        alert('Qty cannot be negative.');
-        return;
-      }
-
-      const { error } = await sb
-        .from('po_lines')
-        .update({ qty, line_notes })
-        .eq('id', lineId);
-
-      if (error) throw error;
-
-      await refreshAll();
-      if (state.currentPO?.id) await openPO(state.currentPO.id);
+    async function addManualLine(keepOpen=false){
+      if(!state.currentPO?.id){ alert('Save the PO header first.'); return; }
+      const payload=manualPayload(); if(!payload.title_snapshot || payload.qty<=0){ alert('Manual line needs at least a title and qty > 0.'); return; }
+      const {error}=await sb.from('po_lines').insert(payload); if(error) throw error;
+      clearManualModal(); await refreshAll(); await openPO(state.currentPO.id); if(!keepOpen) modalClose(el.manualModal);
     }
 
-    async function deleteLine(lineId) {
-      if (!confirm('Delete this PO line?')) return;
-
-      const { error } = await sb.from('po_lines').delete().eq('id', lineId);
-      if (error) throw error;
-
-      await refreshAll();
-      if (state.currentPO?.id) await openPO(state.currentPO.id);
+    async function saveLine(lineId){
+      const row=document.querySelector(`[data-line-row="${lineId}"]`); if(!row) return;
+      const get=(field)=>row.querySelector(`[data-line-field="${field}"]`)?.value ?? '';
+      const qty=num(get('qty')), retail=num(get('retail_price'));
+      const payload={ product_type_snapshot:get('product_type_snapshot').trim()||null, title_snapshot:get('title_snapshot').trim()||null, variant_title_snapshot:get('variant_title_snapshot').trim()||null, sku_snapshot:get('sku_snapshot').trim()||null, upc_snapshot:get('upc_snapshot').trim()||null, retail_price:retail||null, unit_cost:num(get('unit_cost'))||null, qty, retail_value:qty*retail, line_notes:get('line_notes').trim()||null };
+      if(qty<0){ alert('Qty cannot be negative.'); return; }
+      const {error}=await sb.from('po_lines').update(payload).eq('id',lineId); if(error) throw error;
+      await refreshAll(); if(state.currentPO?.id) await openPO(state.currentPO.id);
     }
 
-    function clearManualModal() {
-      [
-        'manualProductType',
-        'manualTitle',
-        'manualVariant',
-        'manualSku',
-        'manualUpc',
-        'manualBarcode',
-        'manualRetail',
-        'manualCost',
-        'manualNotes'
-      ].forEach(id => el[id].value = '');
-      el.manualQty.value = 0;
+    async function deleteLine(lineId){ if(!confirm('Delete this PO line?')) return; const {error}=await sb.from('po_lines').delete().eq('id',lineId); if(error) throw error; await refreshAll(); if(state.currentPO?.id) await openPO(state.currentPO.id); }
+
+    async function duplicateCurrentPO(){
+      if(!state.currentPO?.id){ alert('Open a PO first.'); return; }
+      const po=state.currentPO;
+      let newName=null;
+      const {data:nameData,error:nameErr}=await sb.rpc('generate_next_po_name',{p_factory_id:po.factory_id});
+      if(nameErr) throw nameErr;
+      newName=nameData;
+      const header={ po_name:newName, factory_id:po.factory_id, order_date:todayStr(), req_ship_date:po.req_ship_date||null, expected_arrival_date:po.expected_arrival_date||null, date_bucket:po.date_bucket||null, status:'Draft', wholesale_triggered:!!po.wholesale_triggered, is_new_product_po:!!po.is_new_product_po, notes:po.notes||null, internal_notes:po.internal_notes||null };
+      const {data:newPo,error:headerErr}=await sb.from('po_headers').insert(header).select('*').single(); if(headerErr) throw headerErr;
+      const copied=(state.currentLines||[]).map(line=>({ po_header_id:newPo.id, product_master_id:line.product_master_id||null, product_type_snapshot:line.product_type_snapshot||null, title_snapshot:line.title_snapshot||null, variant_title_snapshot:line.variant_title_snapshot||null, sku_snapshot:line.sku_snapshot||null, upc_snapshot:line.upc_snapshot||null, barcode_snapshot:line.barcode_snapshot||null, retail_price:line.retail_price||null, unit_cost:line.unit_cost||null, qty:Number(line.qty||0), retail_value:Number(line.retail_price||0)*Number(line.qty||0), line_notes:line.line_notes||null }));
+      if(copied.length){ const {error:lineErr}=await sb.from('po_lines').insert(copied); if(lineErr) throw lineErr; }
+      await refreshAll(); await openPO(newPo.id); alert(`Duplicated PO as ${newName}`);
     }
 
-    async function refreshAll() {
-      const currentId = state.currentPO?.id || null;
-      await loadFactories();
-      await loadPOs();
-      await loadCatalogProducts();
+    function clearManualModal(){ ['manualProductType','manualTitle','manualVariant','manualSku','manualUpc','manualBarcode','manualRetail','manualCost','manualNotes'].forEach(id=>el[id].value=''); el.manualQty.value=0; }
 
-      if (currentId) {
-        const exists = state.poRows.find(x => x.id === currentId);
-        if (exists) {
-          state.currentPO = exists;
-          fillEditor(exists);
-          await loadPOLines(currentId);
-          setEditorEnabled(true);
-        }
-      }
+    function parseGridText(text){
+      const lines=String(text||'').split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+      return lines.map(line=> line.includes('\t') ? line.split('\t').map(x=>x.trim()) : line.split(',').map(x=>x.trim()));
     }
 
-    function parseSize(value) {
-  const raw = String(value || '').trim().toLowerCase();
-  if (!raw) return null;
-
-  const normalized = raw
-    .replace(/^size\s*/i, '')
-    .replace(/men'?s|women'?s|youth|adult/gi, '')
-    .trim();
-
-  const numeric = normalized.match(/\d+(\.\d+)?/);
-  if (numeric) return Number(numeric[0]);
-
-  const alphaOrder = {
-    xxs: 1,
-    xs: 2,
-    s: 3,
-    small: 3,
-    m: 4,
-    medium: 4,
-    l: 5,
-    large: 5,
-    xl: 6,
-    xxl: 7,
-    '2xl': 7,
-    xxxl: 8,
-    '3xl': 8,
-    xxxxl: 9,
-    '4xl': 9,
-    os: 50,
-    'one size': 50,
-    'one size fits all': 50
-  };
-
-  return alphaOrder[normalized] ?? null;
-}
-
-    function buildVendorPdfHtml() {
-  if (!state.currentPO) return '';
-
-  const po = state.currentPO;
-  const lines = [...(state.currentLines || [])];
-  const factory = state.factories.find(f => f.id === po.factory_id);
-
-  const totalUnits = lines.reduce((sum, r) => sum + Number(r.qty || 0), 0);
-
-  const productPagesMap = lines.reduce((acc, line) => {
-    const key = line.title_snapshot || 'Untitled Product';
-    if (!acc[key]) acc[key] = [];
-    acc[key].push(line);
-    return acc;
-  }, {});
-
-  const productPages = Object.entries(productPagesMap)
-    .map(([title, productLines]) => ({
-      title,
-     lines: [...productLines].sort((a, b) => {
-  const aSize = parseSize(a.variant_title_snapshot);
-  const bSize = parseSize(b.variant_title_snapshot);
-
-  if (aSize !== null && bSize !== null) return aSize - bSize;
-  if (aSize !== null) return -1;
-  if (bSize !== null) return 1;
-
-  const aUpc = String(a.upc_snapshot || '');
-  const bUpc = String(b.upc_snapshot || '');
-
-  if (aUpc && bUpc) return aUpc.localeCompare(bUpc, undefined, { numeric: true });
-
-  const aSku = String(a.sku_snapshot || '');
-  const bSku = String(b.sku_snapshot || '');
-  return aSku.localeCompare(bSku, undefined, { numeric: true });
-})
-    }))
-    .sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()));
-
-  const totalStyles = productPages.length;
-  const orderTypeLabel = po.is_new_product_po ? 'New Product' : 'Restock';
-  const techPackLabel = 'No Tech Pack';
-
-  const detailPagesHtml = productPages.map((product, idx) => {
-    const pageNumber = idx + 2;
-    const productQty = product.lines.reduce((sum, r) => sum + Number(r.qty || 0), 0);
-    const productType = product.lines[0]?.product_type_snapshot || '';
-
-    return `
-      <div class="page-break"></div>
-
-      <div class="sheet detail-page">
-        <div class="detail-head">
-          <div>
-            <div class="detail-kicker">${escapeHtml(productType || 'Product')}</div>
-            <h2 class="detail-title">${escapeHtml(product.title)}</h2>
-            <div class="detail-sub"></div>
-          </div>
-
-          <div class="detail-meta">
-            <div class="detail-meta-row">PO#: <strong>${escapeHtml(po.po_name || '')}</strong></div>
-            <div class="detail-meta-row">Order Date: <strong>${escapeHtml(po.order_date || '—')}</strong></div>
-            <div class="detail-meta-row">Req. Ship Date: <strong>${escapeHtml(po.req_ship_date || '—')}</strong></div>
-            <div class="detail-meta-row">Total Units in style: <strong>${Number(productQty || 0).toLocaleString()}</strong></div>
-          </div>
-        </div>
-
-        <div class="product-strip">
-          <div class="strip-item">
-            <div class="strip-k">Order Type</div>
-            <div class="strip-v">${escapeHtml(orderTypeLabel)}</div>
-          </div>
-          <div class="strip-item">
-            <div class="strip-k">Tech Pack</div>
-            <div class="strip-v">${escapeHtml(techPackLabel)}</div>
-          </div>
-          <div class="strip-item">
-            <div class="strip-k">Factory</div>
-            <div class="strip-v">${escapeHtml(factory?.factory_name || '—')}</div>
-          </div>
-        </div>
-
-        <table class="lines-table compact">
-          <thead>
-            <tr>
-              <th class="upc-col">UPC Code</th>
-              <th class="title-col">Product Title</th>
-              <th class="sku-col">SKU</th>
-              <th class="variant-col">Variant</th>
-              <th class="qty-col right">Qty</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${product.lines.map(line => `
-              <tr>
-                <td class="upc-col">${escapeHtml(line.upc_snapshot || '')}</td>
-
-                <td class="title-col">
-                  <div class="cell-main">${escapeHtml(line.title_snapshot || '')}</div>
-                  ${line.line_notes ? `<div class="cell-sub">${escapeHtml(line.line_notes)}</div>` : ''}
-                </td>
-
-                <td class="sku-col">
-                  <div class="cell-main sku-cell">${escapeHtml(line.sku_snapshot || '')}</div>
-                </td>
-
-                <td class="variant-col">
-                  <div class="cell-main caps">${escapeHtml(line.variant_title_snapshot || '—')}</div>
-                </td>
-
-                <td class="qty-col right qty">${Number(line.qty || 0).toLocaleString()}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-
-        <div class="detail-footer">
-          <div></div>
-          <div>${escapeHtml(po.po_name || '')} · Page ${pageNumber}</div>
-        </div>
-      </div>
-    `;
-  }).join('');
-
-  return `
-    <!doctype html>
-    <html>
-    <head>
-      <meta charset="utf-8" />
-      <title>${escapeHtml(po.po_name || 'Purchase Order')}</title>
-      <link rel="preconnect" href="https://fonts.googleapis.com">
-      <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-      <style>
-        :root{
-          --ink:#171717;
-          --muted:#737373;
-          --line:#d4d4d4;
-          --line-soft:#ececec;
-          --soft:#f7f7f7;
-        }
-
-        *{box-sizing:border-box}
-
-        html,body{
-          margin:0;
-          padding:0;
-          background:#fff;
-          color:var(--ink);
-          font-family:Inter,system-ui,sans-serif;
-        }
-
-        body{
-          -webkit-print-color-adjust:exact;
-          print-color-adjust:exact;
-        }
-
-        .sheet{
-          width:100%;
-          padding:34px 38px 28px;
-        }
-
-        .cover{
-          min-height:calc(100vh - 62px);
-          display:flex;
-          flex-direction:column;
-        }
-
-        .topbar{
-          display:grid;
-          grid-template-columns:1fr 260px;
-          gap:28px;
-          align-items:start;
-          padding-bottom:20px;
-          border-bottom:2px solid var(--ink);
-        }
-
-        .eyebrow{
-          font-size:11px;
-          font-weight:700;
-          letter-spacing:.24em;
-          text-transform:uppercase;
-          color:var(--muted);
-          margin-bottom:8px;
-        }
-
-        .title{
-          margin:0;
-          font-size:42px;
-          line-height:1;
-          letter-spacing:-.05em;
-          font-weight:800;
-        }
-
-        .subtext{
-          margin-top:10px;
-          max-width:560px;
-          color:var(--muted);
-          font-size:14px;
-          line-height:1.55;
-        }
-
-        .po-meta{
-          text-align:left;
-          padding-top:2px;
-        }
-
-        .po-meta .label{
-          font-size:10px;
-          letter-spacing:.18em;
-          text-transform:uppercase;
-          color:var(--muted);
-          font-weight:700;
-          margin-bottom:8px;
-        }
-
-        .po-meta .value{
-          font-size:24px;
-          line-height:1.1;
-          font-weight:800;
-          letter-spacing:-.04em;
-          word-break:break-word;
-        }
-
-        .cover-grid{
-          display:grid;
-          grid-template-columns:1fr 1fr;
-          gap:42px;
-          margin-top:28px;
-          align-items:start;
-        }
-
-        .block-title{
-          font-size:10px;
-          letter-spacing:.18em;
-          text-transform:uppercase;
-          color:var(--muted);
-          font-weight:700;
-          margin-bottom:14px;
-        }
-
-        .info-table{
-          width:100%;
-          border-collapse:collapse;
-        }
-
-        .info-table td{
-          padding:10px 0;
-          vertical-align:top;
-          font-size:14px;
-          line-height:1.45;
-          border-bottom:1px solid var(--line-soft);
-        }
-
-        .info-table tr:last-child td{
-          border-bottom:none;
-        }
-
-        .info-table td.key{
-          width:170px;
-          color:var(--muted);
-          font-weight:600;
-          padding-right:16px;
-        }
-
-        .info-table td.val{
-          color:var(--ink);
-          font-weight:600;
-        }
-
-        .summary-grid{
-          display:grid;
-          grid-template-columns:repeat(2,minmax(0,1fr));
-          gap:18px 26px;
-          margin-bottom:18px;
-        }
-
-        .summary-item{
-          padding-bottom:10px;
-          border-bottom:1px solid var(--line-soft);
-        }
-
-        .summary-item .k{
-          font-size:10px;
-          letter-spacing:.18em;
-          text-transform:uppercase;
-          color:var(--muted);
-          font-weight:700;
-          margin-bottom:8px;
-        }
-
-        .summary-item .v{
-          font-size:18px;
-          font-weight:800;
-          letter-spacing:-.03em;
-        }
-
-        .req-table{
-          width:100%;
-          border-collapse:collapse;
-          margin-top:8px;
-        }
-
-        .req-table td{
-          padding:10px 0;
-          font-size:13px;
-          border-bottom:1px solid var(--line-soft);
-          vertical-align:top;
-        }
-
-        .req-table tr:last-child td{
-          border-bottom:none;
-        }
-
-        .req-table td.key{
-          width:150px;
-          color:var(--muted);
-          font-weight:700;
-          text-transform:uppercase;
-          letter-spacing:.12em;
-          font-size:10px;
-          padding-right:16px;
-        }
-
-        .req-table td.val{
-          color:var(--ink);
-          font-weight:600;
-          line-height:1.45;
-        }
-
-        .notes{
-          margin-top:24px;
-          padding-top:16px;
-          border-top:1px solid var(--line);
-        }
-
-        .notes-text{
-          font-size:13px;
-          color:var(--ink);
-          line-height:1.65;
-          white-space:pre-wrap;
-        }
-
-        .cover-footer{
-          margin-top:auto;
-          display:flex;
-          justify-content:space-between;
-          align-items:center;
-          gap:12px;
-          padding-top:24px;
-          border-top:1px solid var(--line);
-          font-size:11px;
-          color:var(--muted);
-        }
-
-        .page-break{
-          page-break-before:always;
-          break-before:page;
-        }
-
-        .detail-page{
-          min-height:calc(100vh - 62px);
-          display:flex;
-          flex-direction:column;
-        }
-
-        .detail-head{
-          display:grid;
-          grid-template-columns:1fr 240px;
-          gap:24px;
-          align-items:end;
-          padding-bottom:18px;
-          border-bottom:2px solid var(--ink);
-          margin-bottom:18px;
-        }
-
-        .detail-kicker{
-          font-size:10px;
-          letter-spacing:.18em;
-          text-transform:uppercase;
-          color:var(--muted);
-          font-weight:700;
-          margin-bottom:10px;
-        }
-
-        .detail-title{
-          margin:0;
-          font-size:30px;
-          line-height:1.05;
-          font-weight:800;
-          letter-spacing:-.04em;
-        }
-
-        .detail-sub{
-          margin-top:8px;
-          color:var(--muted);
-          font-size:13px;
-          line-height:1.5;
-          max-width:460px;
-        }
-
-        .detail-meta{
-          display:grid;
-          gap:8px;
-          justify-items:end;
-        }
-
-        .detail-meta-row{
-          font-size:12px;
-          color:var(--muted);
-        }
-
-        .detail-meta-row strong{
-          color:var(--ink);
-          font-weight:800;
-        }
-
-        .product-strip{
-          display:grid;
-          grid-template-columns:repeat(3,minmax(0,1fr));
-          gap:18px;
-          padding:0 0 16px 0;
-          margin-bottom:10px;
-          border-bottom:1px solid var(--line);
-        }
-
-        .strip-item{
-          display:grid;
-          gap:6px;
-        }
-
-        .strip-k{
-          font-size:10px;
-          letter-spacing:.16em;
-          text-transform:uppercase;
-          color:var(--muted);
-          font-weight:700;
-        }
-
-        .strip-v{
-          font-size:13px;
-          font-weight:700;
-          line-height:1.4;
-        }
-
-        .lines-table{
-          width:100%;
-          border-collapse:collapse;
-          table-layout:fixed;
-        }
-
-        .lines-table thead th{
-          text-align:left;
-          padding:10px 8px;
-          font-size:10px;
-          font-weight:700;
-          text-transform:uppercase;
-          letter-spacing:.18em;
-          color:var(--muted);
-          border-bottom:1.5px solid var(--line);
-        }
-
-        .lines-table.compact tbody td{
-          padding:10px 8px;
-          vertical-align:top;
-          font-size:12px;
-          border-bottom:1px solid var(--line-soft);
-        }
-
-        .lines-table.compact tbody tr:last-child td{
-          border-bottom:1px solid var(--line);
-        }
-
-        .upc-col{width:13%}
-        .title-col{width:36%}
-        .sku-col{width:28%}
-        .variant-col{width:13%}
-        .qty-col{width:10%}
-
-        .cell-main{
-          font-size:12px;
-          font-weight:700;
-          line-height:1.32;
-        }
-
-        .sku-cell{
-          white-space:nowrap;
-          word-break:keep-all;
-          overflow-wrap:normal;
-          font-size:9.5px;
-          line-height:1.15;
-          letter-spacing:-.02em;
-        }
-
-        .cell-sub{
-          margin-top:4px;
-          font-size:10px;
-          line-height:1.4;
-          color:var(--muted);
-          max-width:260px;
-        }
-
-        .caps{
-          text-transform:uppercase;
-          letter-spacing:.04em;
-        }
-
-        .right{
-          text-align:right !important;
-        }
-
-        .qty{
-          font-weight:800;
-          font-size:13px;
-        }
-
-        .detail-footer{
-          display:flex;
-          justify-content:space-between;
-          align-items:center;
-          gap:12px;
-          margin-top:auto;
-          padding-top:18px;
-          border-top:1px solid var(--line);
-          font-size:11px;
-          color:var(--muted);
-        }
-
-        .no-print-actions{
-          display:flex;
-          gap:12px;
-          margin-top:26px;
-        }
-
-        .print-btn{
-          padding:12px 18px;
-          border-radius:0;
-          border:1px solid var(--ink);
-          background:var(--ink);
-          color:white;
-          font-weight:700;
-          cursor:pointer;
-          font-family:inherit;
-        }
-
-        .print-btn.alt{
-          background:white;
-          color:var(--ink);
-        }
-
-        @page{
-          size:auto;
-          margin:14mm;
-        }
-
-        @media print{
-          .no-print{display:none!important}
-          .sheet{padding:0}
-          .cover{min-height:auto}
-          .detail-page{min-height:auto}
-        }
-      </style>
-    </head>
-    <body>
-      <div class="sheet cover">
-        <div class="topbar">
-          <div>
-            <div class="eyebrow">Baseballism Inc.</div>
-            <h1 class="title">Purchase Order</h1>
-            <div class="subtext"></div>
-          </div>
-
-          <div class="po-meta">
-            <div class="label">PO Number</div>
-            <div class="value">${escapeHtml(po.po_name || '—')}</div>
-          </div>
-        </div>
-
-        <div class="cover-grid">
-          <div>
-            <div class="block-title">Factory & Shipping</div>
-            <table class="info-table">
-              <tr>
-                <td class="key">Factory</td>
-                <td class="val">${escapeHtml(factory?.factory_name || '—')}</td>
-              </tr>
-              <tr>
-                <td class="key">Ship To</td>
-                <td class="val">
-                  Baseballism Inc.<br>
-                  11035 SW 11th Street<br>
-                  Building B, Suite 290<br>
-                  Beaverton, OR 97005
-                </td>
-              </tr>
-              <tr>
-                <td class="key">Buyer Contact</td>
-                <td class="val">
-                  Chris Clements<br>
-                  (831) 383-8283
-                </td>
-              </tr>
-            </table>
-          </div>
-
-          <div>
-            <div class="block-title">PO Summary</div>
-
-            <div class="summary-grid">
-              <div class="summary-item">
-                <div class="k">Order Date</div>
-                <div class="v">${escapeHtml(po.order_date || '—')}</div>
-              </div>
-              <div class="summary-item">
-                <div class="k">Req. Ship Date</div>
-                <div class="v">${escapeHtml(po.req_ship_date || '—')}</div>
-              </div>
-              <div class="summary-item">
-                <div class="k">Total Styles</div>
-                <div class="v">${Number(totalStyles || 0).toLocaleString()}</div>
-              </div>
-              <div class="summary-item">
-                <div class="k">Total Units</div>
-                <div class="v">${Number(totalUnits || 0).toLocaleString()}</div>
-              </div>
-            </div>
-
-            <div class="block-title" style="margin-top:20px;">Production Requirements</div>
-            <table class="req-table">
-              <tr>
-                <td class="key">Order Type</td>
-                <td class="val">${orderTypeLabel}</td>
-              </tr>
-              <tr>
-                <td class="key">Tech Pack</td>
-                <td class="val">${techPackLabel}</td>
-              </tr>
-            </table>
-          </div>
-        </div>
-
-        ${po.notes ? `
-          <div class="notes">
-            <div class="block-title">Vendor Notes</div>
-            <div class="notes-text">${escapeHtml(po.notes)}</div>
-          </div>
-        ` : ''}
-
-        <div class="cover-footer">
-          <div>Baseballism Purchase Order</div>
-          <div>${escapeHtml(po.po_name || '')}</div>
-        </div>
-      </div>
-
-      ${detailPagesHtml}
-
-      <div class="sheet no-print">
-        <div class="no-print-actions">
-          <button onclick="window.print()" class="print-btn">Print / Save PDF</button>
-          <button onclick="window.close()" class="print-btn alt">Close</button>
-        </div>
-      </div>
-    </body>
-    </html>
-  `;
-}
-
-    function generateVendorPdf() {
-      if (!state.currentPO?.id) {
-        alert('Save and open a PO first.');
-        return;
-      }
-
-      const html = buildVendorPdfHtml();
-      const win = window.open('', '_blank', 'width=1200,height=900');
-      if (!win) {
-        alert('Pop-up blocked. Allow pop-ups for this site to generate the PDF.');
-        return;
-      }
-
-      win.document.open();
-      win.document.write(html);
-      win.document.close();
+    async function processBulkSku(){
+      if(!state.currentPO?.id){ alert('Save/open a PO first.'); return; }
+      if(!state.catalogRows.length) await loadCatalogProducts();
+      const rows=parseGridText(el.bulkSkuText.value);
+      const skuMap=new Map(state.catalogRows.map(p=>[String(p.sku||'').trim().toLowerCase(),p]));
+      const inserts=[], missing=[];
+      rows.forEach((cols,idx)=>{
+        if(!cols.length) return;
+        const first=String(cols[0]||'').toLowerCase();
+        if(idx===0 && (first==='sku' || first.includes('variant sku'))) return;
+        const sku=String(cols[0]||'').trim(); const qty=num(cols[1]||1) || 1;
+        const product=skuMap.get(sku.toLowerCase());
+        if(!product){ missing.push(sku); return; }
+        inserts.push(productToLine(product.id, qty));
+      });
+      if(inserts.length){ const {error}=await sb.from('po_lines').insert(inserts); if(error) throw error; await refreshAll(); await openPO(state.currentPO.id); }
+      el.bulkSkuResult.innerHTML=`Added ${inserts.length} line${inserts.length===1?'':'s'}.${missing.length?`<br>Unmatched: ${missing.map(escapeHtml).join(', ')}`:''}`;
     }
 
-    el.btnRefresh.addEventListener('click', async () => {
-      try {
-        await refreshAll();
-      } catch (e) {
-        console.error(e);
-        alert(e.message || 'Refresh failed');
-      }
-    });
+    function parseImportRows(text){
+      const rows=parseGridText(text); if(!rows.length) return [];
+      const defaultHeaders=['product_type','title','variant','sku','upc','barcode','retail_price','unit_cost','qty','notes'];
+      const first=rows[0].map(x=>String(x||'').trim().toLowerCase().replace(/\s+/g,'_'));
+      const hasHeader=first.some(h=>['sku','title','product_title','qty','quantity','variant','upc'].includes(h));
+      const headers=hasHeader ? first : defaultHeaders;
+      const dataRows=hasHeader ? rows.slice(1) : rows;
+      return dataRows.map(cols=>{
+        const obj={}; headers.forEach((h,i)=>obj[h]=cols[i]??'');
+        const qty=num(obj.qty || obj.quantity || 0), retail=num(obj.retail_price || obj.retail || obj.msrp || 0), cost=num(obj.unit_cost || obj.cost || 0);
+        return { po_header_id:state.currentPO.id, product_type_snapshot:(obj.product_type||obj.type||'').trim()||null, title_snapshot:(obj.title||obj.product_title||obj.product||'').trim()||null, variant_title_snapshot:(obj.variant||obj.variant_title||obj.size||'').trim()||null, sku_snapshot:(obj.sku||'').trim()||null, upc_snapshot:(obj.upc||'').trim()||null, barcode_snapshot:(obj.barcode||'').trim()||null, retail_price:retail||null, unit_cost:cost||null, qty, retail_value:qty*retail, line_notes:(obj.notes||obj.line_notes||'').trim()||null };
+      }).filter(r=>r.title_snapshot && r.qty>0);
+    }
 
-    el.btnNewPO.addEventListener('click', () => resetEditorForNew());
+    async function processImport(){
+      if(!state.currentPO?.id){ alert('Save/open a PO first.'); return; }
+      const rows=parseImportRows(el.importText.value);
+      if(!rows.length){ el.importResult.textContent='No valid import rows found.'; return; }
+      const {error}=await sb.from('po_lines').insert(rows); if(error) throw error;
+      await refreshAll(); await openPO(state.currentPO.id);
+      el.importResult.textContent=`Imported ${rows.length} line${rows.length===1?'':'s'}.`;
+    }
 
-    el.btnSaveHeader.addEventListener('click', async () => {
-      try {
-        await saveHeader();
-      } catch (e) {
-        console.error(e);
-        alert(e.message || 'Save failed');
-      }
-    });
+    async function refreshAll(){
+      const currentId=state.currentPO?.id||null;
+      await loadFactories(); await loadPOs(); await loadCatalogProducts();
+      if(currentId){ const exists=state.poRows.find(x=>x.id===currentId); if(exists){ state.currentPO=exists; fillEditor(exists); await loadPOLines(currentId); setEditorEnabled(true); } }
+    }
 
-    el.btnGeneratePdf.addEventListener('click', () => {
-      try {
-        generateVendorPdf();
-      } catch (e) {
-        console.error(e);
-        alert(e.message || 'PDF generation failed');
-      }
-    });
+    function parseSize(value){
+      const raw=String(value||'').trim().toLowerCase(); if(!raw) return null;
+      const normalized=raw.replace(/^size\s*/i,'').replace(/men'?s|women'?s|youth|adult/gi,'').trim();
+      const numeric=normalized.match(/\d+(\.\d+)?/); if(numeric) return Number(numeric[0]);
+      const alphaOrder={xxs:1,xs:2,s:3,small:3,m:4,medium:4,l:5,large:5,xl:6,xxl:7,'2xl':7,xxxl:8,'3xl':8,xxxxl:9,'4xl':9,os:50,'one size':50,'one size fits all':50};
+      return alphaOrder[normalized] ?? null;
+    }
 
-    el.btnAddCatalogLine.addEventListener('click', async () => {
-      modalOpen(el.catalogModal);
-      try {
-        await searchCatalog();
-      } catch (e) {
-        console.error(e);
-        alert(e.message || 'Catalog load failed');
-      }
-    });
 
-    el.btnAddManualLine.addEventListener('click', () => {
-      clearManualModal();
-      modalOpen(el.manualModal);
-    });
+    function catalogRowQuality(row){
+      let score=0;
+      if(row.product_ready_for_po===true) score+=50;
+      if(row.is_active===true) score+=25;
+      if(row.product_title) score+=10;
+      if(row.variant_title) score+=8;
+      if(row.upc || row.barcode) score+=6;
+      if(row.product_type) score+=4;
+      if(row.msrp!==null && row.msrp!==undefined) score+=2;
+      if(row.unit_cost!==null && row.unit_cost!==undefined) score+=2;
+      return score;
+    }
 
-    el.btnSearchCatalog.addEventListener('click', async () => {
-      try {
-        await searchCatalog();
-      } catch (e) {
-        console.error(e);
-        alert(e.message || 'Search failed');
-      }
-    });
-
-    el.catalogSearch.addEventListener('keydown', async (ev) => {
-      if (ev.key === 'Enter') {
-        ev.preventDefault();
-        try {
-          await searchCatalog();
-        } catch (e) {
-          console.error(e);
+    function dedupeCatalogRows(rows){
+      const byKey=new Map();
+      for(const row of rows||[]){
+        const skuKey=compactCatalogText(row.sku || "");
+        const upcKey=compactCatalogText(row.upc || row.barcode || "");
+        const key = skuKey ? ("sku:" + skuKey) : (upcKey ? ("upc:" + upcKey) : ("id:" + row.id));
+        const existing=byKey.get(key);
+        if(!existing || catalogRowQuality(row)>catalogRowQuality(existing)){
+          byKey.set(key,row);
         }
       }
+      return [...byKey.values()];
+    }
+
+    function compareProductLines(a,b){
+      const aTitle=String(a.product_title||a.title_snapshot||'').toLowerCase();
+      const bTitle=String(b.product_title||b.title_snapshot||'').toLowerCase();
+      if(aTitle!==bTitle) return aTitle.localeCompare(bTitle,undefined,{numeric:true});
+
+      const aSize=parseSize(a.variant_title||a.variant_title_snapshot);
+      const bSize=parseSize(b.variant_title||b.variant_title_snapshot);
+      if(aSize!==null && bSize!==null) return aSize-bSize;
+      if(aSize!==null) return -1;
+      if(bSize!==null) return 1;
+
+      const aUpc=String(a.upc||a.upc_snapshot||a.barcode||a.barcode_snapshot||'');
+      const bUpc=String(b.upc||b.upc_snapshot||b.barcode||b.barcode_snapshot||'');
+      if(aUpc && bUpc) return aUpc.localeCompare(bUpc,undefined,{numeric:true});
+
+      const aSku=String(a.sku||a.sku_snapshot||'');
+      const bSku=String(b.sku||b.sku_snapshot||'');
+      return aSku.localeCompare(bSku,undefined,{numeric:true});
+    }
+
+
+    function normalizeCatalogText(value){
+      return String(value || '')
+        .toLowerCase()
+        .replace(/&/g, ' and ')
+        .replace(/[^a-z0-9]+/g, ' ')
+        .trim();
+    }
+
+    function compactCatalogText(value){
+      return String(value || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '');
+    }
+
+    function getCatalogSearchFields(row){
+      const sku = row.sku || row.sku_snapshot || '';
+      const title = row.product_title || row.title_snapshot || '';
+      const variant = row.variant_title || row.variant_title_snapshot || '';
+      const type = row.product_type || row.product_type_snapshot || '';
+      const upc = row.upc || row.upc_snapshot || row.barcode || row.barcode_snapshot || '';
+      const barcode = row.barcode || row.barcode_snapshot || row.upc || row.upc_snapshot || '';
+
+      return { sku, title, variant, type, upc, barcode };
+    }
+
+    function catalogSearchScore(row, rawSearch){
+      const search = String(rawSearch || '').trim();
+      if (!search) return 1;
+
+      const fields = getCatalogSearchFields(row);
+      const normalizedSearch = normalizeCatalogText(search);
+      const compactSearch = compactCatalogText(search);
+      const terms = normalizedSearch.split(/\s+/).filter(Boolean);
+      if (!terms.length && !compactSearch) return 1;
+
+      const normalizedHaystack = normalizeCatalogText([
+        fields.sku,
+        fields.title,
+        fields.variant,
+        fields.type,
+        fields.upc,
+        fields.barcode
+      ].join(' '));
+
+      const compactHaystack = compactCatalogText([
+        fields.sku,
+        fields.title,
+        fields.variant,
+        fields.type,
+        fields.upc,
+        fields.barcode
+      ].join(' '));
+
+      const compactSku = compactCatalogText(fields.sku);
+      const compactUpc = compactCatalogText(fields.upc || fields.barcode);
+      const normalizedTitle = normalizeCatalogText(fields.title);
+      const normalizedVariant = normalizeCatalogText(fields.variant);
+
+      const allTermsMatch = terms.every(term =>
+        normalizedHaystack.includes(term) || compactHaystack.includes(compactCatalogText(term))
+      );
+
+      const compactMatch = compactSearch && compactHaystack.includes(compactSearch);
+      if (!allTermsMatch && !compactMatch) return -1;
+
+      let score = 0;
+
+      if (compactSku && compactSku === compactSearch) score += 10000;
+      else if (compactSku && compactSku.startsWith(compactSearch)) score += 6000;
+      else if (compactSku && compactSku.includes(compactSearch)) score += 3500;
+
+      if (compactUpc && compactUpc === compactSearch) score += 9000;
+      else if (compactUpc && compactUpc.startsWith(compactSearch)) score += 4500;
+      else if (compactUpc && compactUpc.includes(compactSearch)) score += 2500;
+
+      if (normalizedTitle === normalizedSearch) score += 5000;
+      else if (normalizedTitle.startsWith(normalizedSearch)) score += 3000;
+      else if (normalizedTitle.includes(normalizedSearch)) score += 1800;
+
+      if (normalizedVariant === normalizedSearch) score += 1200;
+      else if (normalizedVariant.includes(normalizedSearch)) score += 700;
+
+      score += terms.length * 100;
+
+      if (row.product_ready_for_po === true) score += 50;
+      if (row.is_active === true) score += 25;
+
+      return score;
+    }
+
+    function sortCatalogSearchResults(a, b){
+      const scoreDiff = (b._searchScore || 0) - (a._searchScore || 0);
+      if (scoreDiff) return scoreDiff;
+      return compareProductLines(a, b);
+    }
+
+    function buildVendorPdfHtml(){
+      if(!state.currentPO) return '';
+      const po=state.currentPO, lines=[...(state.currentLines||[])], factory=state.factories.find(f=>f.id===po.factory_id);
+      const totalUnits=lines.reduce((sum,r)=>sum+Number(r.qty||0),0);
+      const productPagesMap=lines.reduce((acc,line)=>{ const key=line.title_snapshot||'Untitled Product'; if(!acc[key]) acc[key]=[]; acc[key].push(line); return acc; },{});
+      const productPages=Object.entries(productPagesMap).map(([title,productLines])=>({ title, lines:[...productLines].sort((a,b)=>{ const aSize=parseSize(a.variant_title_snapshot), bSize=parseSize(b.variant_title_snapshot); if(aSize!==null&&bSize!==null) return aSize-bSize; if(aSize!==null) return -1; if(bSize!==null) return 1; const aUpc=String(a.upc_snapshot||''), bUpc=String(b.upc_snapshot||''); if(aUpc&&bUpc) return aUpc.localeCompare(bUpc,undefined,{numeric:true}); return String(a.sku_snapshot||'').localeCompare(String(b.sku_snapshot||''),undefined,{numeric:true}); }) })).sort((a,b)=>a.title.toLowerCase().localeCompare(b.title.toLowerCase()));
+      const totalStyles=productPages.length, orderTypeLabel=po.is_new_product_po?'New Product':'Restock', techPackLabel='No Tech Pack';
+      const detailPagesHtml=productPages.map((product,idx)=>{ const pageNumber=idx+2, productQty=product.lines.reduce((sum,r)=>sum+Number(r.qty||0),0), productType=product.lines[0]?.product_type_snapshot||''; return `<div class="page-break"></div><div class="sheet detail-page"><div class="detail-head"><div><div class="detail-kicker">${escapeHtml(productType||'Product')}</div><h2 class="detail-title">${escapeHtml(product.title)}</h2><div class="detail-sub"></div></div><div class="detail-meta"><div class="detail-meta-row">PO#: <strong>${escapeHtml(po.po_name||'')}</strong></div><div class="detail-meta-row">Order Date: <strong>${escapeHtml(po.order_date||'—')}</strong></div><div class="detail-meta-row">Req. Ship Date: <strong>${escapeHtml(po.req_ship_date||'—')}</strong></div><div class="detail-meta-row">Total Units in style: <strong>${Number(productQty||0).toLocaleString()}</strong></div></div></div><div class="product-strip"><div class="strip-item"><div class="strip-k">Order Type</div><div class="strip-v">${escapeHtml(orderTypeLabel)}</div></div><div class="strip-item"><div class="strip-k">Tech Pack</div><div class="strip-v">${escapeHtml(techPackLabel)}</div></div><div class="strip-item"><div class="strip-k">Factory</div><div class="strip-v">${escapeHtml(factory?.factory_name||'—')}</div></div></div><table class="lines-table compact"><thead><tr><th class="upc-col">UPC Code</th><th class="title-col">Product Title</th><th class="sku-col">SKU</th><th class="variant-col">Variant</th><th class="qty-col right">Qty</th></tr></thead><tbody>${product.lines.map(line=>`<tr><td class="upc-col">${escapeHtml(line.upc_snapshot||'')}</td><td class="title-col"><div class="cell-main">${escapeHtml(line.title_snapshot||'')}</div>${line.line_notes?`<div class="cell-sub">${escapeHtml(line.line_notes)}</div>`:''}</td><td class="sku-col"><div class="cell-main sku-cell">${escapeHtml(line.sku_snapshot||'')}</div></td><td class="variant-col"><div class="cell-main caps">${escapeHtml(line.variant_title_snapshot||'—')}</div></td><td class="qty-col right qty">${Number(line.qty||0).toLocaleString()}</td></tr>`).join('')}</tbody></table><div class="detail-footer"><div></div><div>${escapeHtml(po.po_name||'')} · Page ${pageNumber}</div></div></div>`; }).join('');
+
+      return `<!doctype html><html><head><meta charset="utf-8" /><title>${escapeHtml(po.po_name||'Purchase Order')}</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"><style>:root{--ink:#171717;--muted:#737373;--line:#d4d4d4;--line-soft:#ececec;--soft:#f7f7f7}*{box-sizing:border-box}html,body{margin:0;padding:0;background:#fff;color:var(--ink);font-family:Inter,system-ui,sans-serif}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}.sheet{width:100%;padding:34px 38px 28px}.cover{min-height:calc(100vh - 62px);display:flex;flex-direction:column}.topbar{display:grid;grid-template-columns:1fr 260px;gap:28px;align-items:start;padding-bottom:20px;border-bottom:2px solid var(--ink)}.eyebrow{font-size:11px;font-weight:700;letter-spacing:.24em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}.title{margin:0;font-size:42px;line-height:1;letter-spacing:-.05em;font-weight:800}.subtext{margin-top:10px;max-width:560px;color:var(--muted);font-size:14px;line-height:1.55}.po-meta{text-align:left;padding-top:2px}.po-meta .label{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:8px}.po-meta .value{font-size:24px;line-height:1.1;font-weight:800;letter-spacing:-.04em;word-break:break-word}.cover-grid{display:grid;grid-template-columns:1fr 1fr;gap:42px;margin-top:28px;align-items:start}.block-title{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:14px}.info-table,.req-table{width:100%;border-collapse:collapse}.info-table td{padding:10px 0;vertical-align:top;font-size:14px;line-height:1.45;border-bottom:1px solid var(--line-soft)}.info-table tr:last-child td,.req-table tr:last-child td{border-bottom:none}.info-table td.key{width:170px;color:var(--muted);font-weight:600;padding-right:16px}.info-table td.val{color:var(--ink);font-weight:600}.summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 26px;margin-bottom:18px}.summary-item{padding-bottom:10px;border-bottom:1px solid var(--line-soft)}.summary-item .k{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:8px}.summary-item .v{font-size:18px;font-weight:800;letter-spacing:-.03em}.req-table{margin-top:8px}.req-table td{padding:10px 0;font-size:13px;border-bottom:1px solid var(--line-soft);vertical-align:top}.req-table td.key{width:150px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.12em;font-size:10px;padding-right:16px}.req-table td.val{color:var(--ink);font-weight:600;line-height:1.45}.notes{margin-top:24px;padding-top:16px;border-top:1px solid var(--line)}.notes-text{font-size:13px;color:var(--ink);line-height:1.65;white-space:pre-wrap}.cover-footer{margin-top:auto;display:flex;justify-content:space-between;align-items:center;gap:12px;padding-top:24px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}.page-break{page-break-before:always;break-before:page}.detail-page{min-height:calc(100vh - 62px);display:flex;flex-direction:column}.detail-head{display:grid;grid-template-columns:1fr 240px;gap:24px;align-items:end;padding-bottom:18px;border-bottom:2px solid var(--ink);margin-bottom:18px}.detail-kicker{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted);font-weight:700;margin-bottom:10px}.detail-title{margin:0;font-size:30px;line-height:1.05;font-weight:800;letter-spacing:-.04em}.detail-meta{display:grid;gap:8px;justify-items:end}.detail-meta-row{font-size:12px;color:var(--muted)}.detail-meta-row strong{color:var(--ink);font-weight:800}.product-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;padding:0 0 16px 0;margin-bottom:10px;border-bottom:1px solid var(--line)}.strip-item{display:grid;gap:6px}.strip-k{font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);font-weight:700}.strip-v{font-size:13px;font-weight:700;line-height:1.4}.lines-table{width:100%;border-collapse:collapse;table-layout:fixed}.lines-table thead th{text-align:left;padding:10px 8px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.18em;color:var(--muted);border-bottom:1.5px solid var(--line)}.lines-table.compact tbody td{padding:10px 8px;vertical-align:top;font-size:12px;border-bottom:1px solid var(--line-soft)}.lines-table.compact tbody tr:last-child td{border-bottom:1px solid var(--line)}.upc-col{width:13%}.title-col{width:36%}.sku-col{width:28%}.variant-col{width:13%}.qty-col{width:10%}.cell-main{font-size:12px;font-weight:700;line-height:1.32}.sku-cell{white-space:nowrap;word-break:keep-all;overflow-wrap:normal;font-size:9.5px;line-height:1.15;letter-spacing:-.02em}.cell-sub{margin-top:4px;font-size:10px;line-height:1.4;color:var(--muted);max-width:260px}.caps{text-transform:uppercase;letter-spacing:.04em}.right{text-align:right!important}.qty{font-weight:800;font-size:13px}.detail-footer{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:auto;padding-top:18px;border-top:1px solid var(--line);font-size:11px;color:var(--muted)}.no-print-actions{display:flex;gap:12px;margin-top:26px}.print-btn{padding:12px 18px;border-radius:0;border:1px solid var(--ink);background:var(--ink);color:white;font-weight:700;cursor:pointer;font-family:inherit}.print-btn.alt{background:white;color:var(--ink)}@page{size:auto;margin:14mm}@media print{.no-print{display:none!important}.sheet{padding:0}.cover{min-height:auto}.detail-page{min-height:auto}}
+
+    /* v2.7 ultra-compact laptop workbench pass */
+    html,body{font-size:13px}
+    body{overflow-x:hidden}
+    body .glass{border-radius:12px;box-shadow:0 5px 14px rgba(15,23,42,.045)}
+    body .btn{border-radius:9px;padding:.42rem .58rem!important;font-size:.72rem!important;line-height:1!important}
+    .compact-page-head{min-height:58px}
+    .compact-page-head .text-xs.uppercase{font-size:.62rem!important;letter-spacing:.22em!important}
+    .compact-page-head .sm\:text-2xl{font-size:1.12rem!important;line-height:1.1!important}
+    .compact-page-head .text-xs.text-slate-500{font-size:.70rem!important;max-width:760px}
+    #poList button{padding:.52rem .62rem!important;margin-bottom:.42rem!important;border-radius:11px!important}
+    #poList button .grid{margin-top:.45rem!important;gap:.3rem!important}
+    #poList button .text-sm{font-size:.75rem!important;line-height:1.1!important}
+    #poList button .text-xs{font-size:.64rem!important;line-height:1.05!important}
+    #poSearch,#poStatusFilter,#poFactoryFilter{height:31px!important;min-height:31px!important}
+    aside .mt-4{margin-top:.55rem!important}.soft-scroll{scrollbar-width:thin}
+    #detailTitle{font-size:1rem!important}.status-badge{font-size:.62rem!important;padding:.18rem .42rem!important}
+    #detailMeta{font-size:.68rem!important;line-height:1.2!important}.muted-label{font-size:.56rem!important;letter-spacing:.16em!important;margin-bottom:.18rem!important}
+    body input:not([type="checkbox"]),body select{min-height:30px!important;height:30px!important;padding:.32rem .5rem!important;border-radius:8px!important;font-size:.72rem!important}
+    body textarea{min-height:30px!important;padding:.32rem .5rem!important;border-radius:8px!important;font-size:.72rem!important;line-height:1.2!important}
+    .po-flags label{height:50px!important;overflow:hidden}.po-flags input{margin:0!important}.po-flags div{line-height:1.05!important}
+    .compact-kpis .glass{min-height:48px!important}.compact-kpis .text-\[10px\]{font-size:.55rem!important}.compact-kpis .text-xl{font-size:1.08rem!important}
+    .compact-line-grid{max-height:58vh;overflow:auto}.compact-line-grid table{table-layout:fixed}
+    .compact-line-grid thead th{padding:6px 5px!important;font-size:.58rem!important;letter-spacing:.095em!important}
+    .compact-line-grid tbody td{padding:3px 4px!important;vertical-align:middle!important}
+    .po-lines-table th:nth-child(1),.po-lines-table td:nth-child(1){width:82px}
+    .po-lines-table th:nth-child(2),.po-lines-table td:nth-child(2){width:150px}
+    .po-lines-table th:nth-child(3),.po-lines-table td:nth-child(3){width:70px}
+    .po-lines-table th:nth-child(4),.po-lines-table td:nth-child(4){width:170px}
+    .po-lines-table th:nth-child(5),.po-lines-table td:nth-child(5){width:118px}
+    .po-lines-table th:nth-child(6),.po-lines-table td:nth-child(6){width:72px}
+    .po-lines-table th:nth-child(7),.po-lines-table td:nth-child(7){width:72px}
+    .po-lines-table th:nth-child(8),.po-lines-table td:nth-child(8){width:64px}
+    .po-lines-table th:nth-child(9),.po-lines-table td:nth-child(9){width:82px}
+    .po-lines-table th:nth-child(10),.po-lines-table td:nth-child(10){width:120px}
+    .po-lines-table th:nth-child(11),.po-lines-table td:nth-child(11){width:88px}
+    .line-input{min-width:0!important;height:25px!important;min-height:25px!important;border-radius:7px!important;padding:.22rem .35rem!important;font-size:.66rem!important;line-height:1!important}
+    .line-input.small{text-align:right!important}.line-input.notes{height:25px!important;min-height:25px!important;resize:none!important}
+    #linesTbody .btn,.line-save-btn,.line-delete-btn{padding:.24rem .38rem!important;border-radius:7px!important;font-size:.60rem!important;min-height:24px!important}
+    .table-wrap{border-radius:9px!important}.pill{font-size:.62rem!important;padding:.14rem .45rem!important}
+    .catalog-modal-table th,.catalog-modal-table td{padding:.35rem .45rem!important;font-size:.7rem!important}
+
+</style></head><body><div class="sheet cover"><div class="topbar"><div><div class="eyebrow">Baseballism Inc.</div><h1 class="title">Purchase Order</h1><div class="subtext"></div></div><div class="po-meta"><div class="label">PO Number</div><div class="value">${escapeHtml(po.po_name||'—')}</div></div></div><div class="cover-grid"><div><div class="block-title">Factory & Shipping</div><table class="info-table"><tr><td class="key">Factory</td><td class="val">${escapeHtml(factory?.factory_name||'—')}</td></tr><tr><td class="key">Ship To</td><td class="val">Baseballism Inc.<br>11035 SW 11th Street<br>Building B, Suite 290<br>Beaverton, OR 97005</td></tr><tr><td class="key">Buyer Contact</td><td class="val">Chris Clements<br>(831) 383-8283</td></tr></table></div><div><div class="block-title">PO Summary</div><div class="summary-grid"><div class="summary-item"><div class="k">Order Date</div><div class="v">${escapeHtml(po.order_date||'—')}</div></div><div class="summary-item"><div class="k">Req. Ship Date</div><div class="v">${escapeHtml(po.req_ship_date||'—')}</div></div><div class="summary-item"><div class="k">Total Styles</div><div class="v">${Number(totalStyles||0).toLocaleString()}</div></div><div class="summary-item"><div class="k">Total Units</div><div class="v">${Number(totalUnits||0).toLocaleString()}</div></div></div><div class="block-title" style="margin-top:20px;">Production Requirements</div><table class="req-table"><tr><td class="key">Order Type</td><td class="val">${orderTypeLabel}</td></tr><tr><td class="key">Tech Pack</td><td class="val">${techPackLabel}</td></tr></table></div></div>${po.notes?`<div class="notes"><div class="block-title">Vendor Notes</div><div class="notes-text">${escapeHtml(po.notes)}</div></div>`:''}<div class="cover-footer"><div>Baseballism Purchase Order</div><div>${escapeHtml(po.po_name||'')}</div></div></div>${detailPagesHtml}<div class="sheet no-print"><div class="no-print-actions"><button onclick="window.print()" class="print-btn">Print / Save PDF</button><button onclick="window.close()" class="print-btn alt">Close</button></div></div></body></html>`;
+    }
+
+    function generateVendorPdf(){ if(!state.currentPO?.id){ alert('Save and open a PO first.'); return; } const html=buildVendorPdfHtml(); const win=window.open('','_blank','width=1200,height=900'); if(!win){ alert('Pop-up blocked. Allow pop-ups for this site.'); return; } win.document.open(); win.document.write(html); win.document.close(); }
+
+    el.btnRefresh.addEventListener('click', async()=>{ try{ await refreshAll(); }catch(e){ console.error(e); alert(e.message||'Refresh failed'); } });
+    el.btnNewPO.addEventListener('click',()=>resetEditorForNew());
+    el.btnSaveHeader.addEventListener('click',async()=>{ try{ await saveHeader(); }catch(e){ console.error(e); alert(e.message||'Save failed'); } });
+    el.btnGeneratePdf.addEventListener('click',()=>{ try{ generateVendorPdf(); }catch(e){ console.error(e); alert(e.message||'PDF generation failed'); } });
+    el.btnDuplicatePO.addEventListener('click',async()=>{ try{ await duplicateCurrentPO(); }catch(e){ console.error(e); alert(e.message||'Duplicate failed'); } });
+    el.btnAddCatalogLine.addEventListener('click',async()=>{ modalOpen(el.catalogModal); try{ await searchCatalog(); }catch(e){ console.error(e); alert(e.message||'Catalog load failed'); } });
+    el.btnBulkSku.addEventListener('click',()=>{ el.bulkSkuResult.textContent=''; modalOpen(el.bulkSkuModal); });
+    el.btnImportLines.addEventListener('click',()=>{ el.importResult.textContent=''; modalOpen(el.importModal); });
+    el.btnAddManualLine.addEventListener('click',()=>{ clearManualModal(); modalOpen(el.manualModal); });
+    el.btnSearchCatalog.addEventListener('click',async()=>{ try{ await searchCatalog(); }catch(e){ console.error(e); alert(e.message||'Search failed'); } });
+    el.btnAddSelectedCatalog.addEventListener('click',async()=>{ try{ await addSelectedCatalogLines(); }catch(e){ console.error(e); alert(e.message||'Add selected catalog lines failed'); } });
+    el.catalogSearch.addEventListener('keydown',async(ev)=>{ if(ev.key==='Enter'){ ev.preventDefault(); try{ await searchCatalog(); }catch(e){ console.error(e); } } });
+    el.btnSaveManualLine.addEventListener('click',async()=>{ try{ await addManualLine(false); }catch(e){ console.error(e); alert(e.message||'Manual line save failed'); } });
+    el.btnSaveManualAnother.addEventListener('click',async()=>{ try{ await addManualLine(true); }catch(e){ console.error(e); alert(e.message||'Manual line save failed'); } });
+    el.btnProcessBulkSku.addEventListener('click',async()=>{ try{ await processBulkSku(); }catch(e){ console.error(e); alert(e.message||'Bulk SKU add failed'); } });
+    el.btnProcessImport.addEventListener('click',async()=>{ try{ await processImport(); }catch(e){ console.error(e); alert(e.message||'Import failed'); } });
+    el.importFile.addEventListener('change',async()=>{ const file=el.importFile.files?.[0]; if(!file) return; el.importText.value=await file.text(); });
+    [el.poSearch,el.poStatusFilter,el.poFactoryFilter].forEach(node=>node.addEventListener('input',renderPOList));
+    el.poFactoryFilter.addEventListener('change',renderPOList); el.poStatusFilter.addEventListener('change',renderPOList);
+
+    document.addEventListener('click',async(ev)=>{
+      const poBtn=ev.target.closest('[data-po-id]'); if(poBtn){ try{ await openPO(poBtn.getAttribute('data-po-id')); }catch(e){ console.error(e); alert(e.message||'Failed to open PO'); } return; }
+      const addCatalogBtn=ev.target.closest('[data-add-catalog]'); if(addCatalogBtn){ const id=addCatalogBtn.getAttribute('data-add-catalog'); const qtyInput=document.querySelector(`[data-catalog-qty="${id}"]`); const qty=Number(qtyInput?.value||0); try{ await addCatalogLine(id,qty); }catch(e){ console.error(e); alert(e.message||'Add line failed'); } return; }
+      const saveLineBtn=ev.target.closest('[data-line-save]'); if(saveLineBtn){ try{ await saveLine(saveLineBtn.getAttribute('data-line-save')); }catch(e){ console.error(e); alert(e.message||'Line save failed'); } return; }
+      const delBtn=ev.target.closest('[data-line-delete]'); if(delBtn){ try{ await deleteLine(delBtn.getAttribute('data-line-delete')); }catch(e){ console.error(e); alert(e.message||'Delete failed'); } return; }
+      const closeBtn=ev.target.closest('[data-close]'); if(closeBtn){ const node=document.getElementById(closeBtn.getAttribute('data-close')); if(node) modalClose(node); }
     });
 
-    el.btnSaveManualLine.addEventListener('click', async () => {
-      try {
-        await addManualLine();
-      } catch (e) {
-        console.error(e);
-        alert(e.message || 'Manual line save failed');
-      }
-    });
-
-    [el.poSearch, el.poStatusFilter, el.poFactoryFilter].forEach(node => node.addEventListener('input', renderPOList));
-    el.poFactoryFilter.addEventListener('change', renderPOList);
-    el.poStatusFilter.addEventListener('change', renderPOList);
-
-    document.addEventListener('click', async (ev) => {
-      const poBtn = ev.target.closest('[data-po-id]');
-      if (poBtn) {
-        try {
-          await openPO(poBtn.getAttribute('data-po-id'));
-          renderPOList();
-        } catch (e) {
-          console.error(e);
-          alert(e.message || 'Failed to open PO');
-        }
-        return;
-      }
-
-      const addCatalogBtn = ev.target.closest('[data-add-catalog]');
-      if (addCatalogBtn) {
-        const id = addCatalogBtn.getAttribute('data-add-catalog');
-        const qtyInput = document.querySelector(`[data-catalog-qty="${id}"]`);
-        const qty = Number(qtyInput?.value || 0);
-        try {
-          await addCatalogLine(id, qty);
-        } catch (e) {
-          console.error(e);
-          alert(e.message || 'Add line failed');
-        }
-        return;
-      }
-
-      const saveLineBtn = ev.target.closest('[data-line-save]');
-      if (saveLineBtn) {
-        try {
-          await saveLine(saveLineBtn.getAttribute('data-line-save'));
-        } catch (e) {
-          console.error(e);
-          alert(e.message || 'Line save failed');
-        }
-        return;
-      }
-
-      const delBtn = ev.target.closest('[data-line-delete]');
-      if (delBtn) {
-        try {
-          await deleteLine(delBtn.getAttribute('data-line-delete'));
-        } catch (e) {
-          console.error(e);
-          alert(e.message || 'Delete failed');
-        }
-        return;
-      }
-
-      const closeBtn = ev.target.closest('[data-close]');
-      if (closeBtn) {
-        const id = closeBtn.getAttribute('data-close');
-        const node = document.getElementById(id);
-        if (node) modalClose(node);
-      }
-    });
-
-    async function boot() {
-      renderStatusOptions();
-      resetEditorForNew();
-
-      if (REQUIRE_AUTH) {
-        try {
-          const { data, error } = await sb.auth.getSession();
-          if (error) throw error;
-          if (!data?.session) {
-            if (REDIRECT_TO) {
-              window.location.href = REDIRECT_TO;
-              return;
-            }
-            document.body.innerHTML = `
-              <div class="min-h-screen flex items-center justify-center p-6">
-                <div class="glass max-w-xl p-6 text-center">
-                  <div class="text-xl font-bold text-slate-900">Authentication required</div>
-                  <div class="mt-2 text-sm text-slate-500">Enable auth on this page through config.js and provide a REDIRECT_TO destination, or sign in before loading this page.</div>
-                </div>
-              </div>`;
-            return;
-          }
-        } catch (e) {
-          console.error(e);
-          alert(e.message || 'Auth check failed');
-          return;
-        }
-      }
-
-      try {
-        await loadCatalogProducts();
-        await refreshAll();
-      } catch (e) {
-        console.error(e);
-        alert(e.message || 'Initial load failed');
-      }
+    async function boot(){
+      renderStatusOptions(); resetEditorForNew();
+      if(REQUIRE_AUTH){ try{ const {data,error}=await sb.auth.getSession(); if(error) throw error; if(!data?.session){ if(REDIRECT_TO){ window.location.href=REDIRECT_TO; return; } document.body.innerHTML=`<div class="min-h-screen flex items-center justify-center p-6"><div class="glass max-w-xl p-6 text-center"><div class="text-xl font-bold text-slate-900">Authentication required</div><div class="mt-2 text-sm text-slate-500">Sign in before loading this page.</div></div></div>`; return; } }catch(e){ console.error(e); alert(e.message||'Auth check failed'); return; } }
+      try{ await loadCatalogProducts(); await refreshAll(); }catch(e){ console.error(e); alert(e.message||'Initial load failed'); }
     }
 
     boot();
