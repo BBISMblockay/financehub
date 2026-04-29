@@ -339,6 +339,9 @@
 
     const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     const PO_STATUSES = ['Draft','Approved','Sent to Factory','Confirmed','In Production','Shipped','In Transit','Partially Received','Received','Closed','Cancelled'];
+    const CATALOG_SELECT = 'id, sku, product_title, variant_title, product_type, upc, barcode, msrp, unit_cost, is_active, product_ready_for_po';
+    const CATALOG_PREVIEW_LIMIT = 500;
+    const CATALOG_SEARCH_LIMIT = 2000000;
 
     const state = { factories: [], poRows: [], currentPO: null, currentLines: [], catalogRows: [], catalogResults: [] };
 
@@ -387,14 +390,15 @@
     async function loadCatalogProducts(){
       const {data,error}=await sb
         .from('products_master')
-        .select('id, sku, product_title, variant_title, product_type, upc, barcode, msrp, unit_cost, is_active, product_ready_for_po')
+        .select(CATALOG_SELECT)
         .order('product_title',{ascending:true})
-        .limit(2000000);
+        .limit(CATALOG_PREVIEW_LIMIT);
       if(error) throw error;
       state.catalogRows=dedupeCatalogRows(data||[]).sort(compareProductLines);
     }
 
-    async function openPO(poId){ const po=state.poRows.find(x=>x.id===poId); if(!po) return; state.currentPO={...po}; fillEditor(po); setEditorEnabled(true); await loadPOLines(po.id); renderPOList(); }
+    async function openPO
+(poId){ const po=state.poRows.find(x=>x.id===poId); if(!po) return; state.currentPO={...po}; fillEditor(po); setEditorEnabled(true); await loadPOLines(po.id); renderPOList(); }
 
     function renderFactoryOptions(){ const current=el.factoryId.value; el.factoryId.innerHTML=['<option value="">Select factory</option>'].concat(state.factories.map(f=>`<option value="${f.id}">${escapeHtml(f.factory_name)}${f.short_code ? ` · ${escapeHtml(f.short_code)}` : ''}</option>`)).join(''); if(current) el.factoryId.value=current; }
     function renderFactoryFilter(){ const current=el.poFactoryFilter.value; el.poFactoryFilter.innerHTML=['<option value="">All factories</option>'].concat(state.factories.map(f=>`<option value="${escapeHtml(f.factory_name)}">${escapeHtml(f.factory_name)}</option>`)).join(''); el.poFactoryFilter.value=current; }
@@ -447,28 +451,67 @@
     async function searchCatalog(){
       const raw = el.catalogSearch.value.trim();
 
-      if (!state.catalogRows.length) {
-        await loadCatalogProducts();
+      if(!raw){
+        if(!state.catalogRows.length) await loadCatalogProducts();
+        state.catalogResults = dedupeCatalogRows(state.catalogRows || [])
+          .sort(compareProductLines)
+          .slice(0, 500);
+        renderCatalogResults();
+        return;
       }
 
-      let rows = [...(state.catalogRows || [])];
+      const rows = await queryCatalogProducts(raw);
+      state.catalogRows = dedupeCatalogRows([...(state.catalogRows || []), ...rows]).sort(compareProductLines);
+      state.catalogResults = dedupeCatalogRows(rows)
+        .map(row => ({ ...row, _searchScore: catalogSearchScore(row, raw) }))
+        .filter(row => row._searchScore >= 0)
+        .sort(sortCatalogSearchResults)
+        .slice(0, CATALOG_SEARCH_LIMIT);
 
-      if (raw) {
-        rows = rows
-          .map(row => ({ ...row, _searchScore: catalogSearchScore(row, raw) }))
-          .filter(row => row._searchScore >= 0)
-          .sort(sortCatalogSearchResults);
-      } else {
-        rows = rows.sort(compareProductLines);
-      }
-
-      state.catalogResults = rows.slice(0, 20000);
       renderCatalogResults();
     }
 
+    async function queryCatalogProducts(raw){
+      const clean = String(raw || '').trim();
+      if(!clean) return [];
+
+      const compact = compactCatalogText(clean);
+      const terms = normalizeCatalogText(clean).split(/\s+/).filter(Boolean).slice(0, 4);
+      const searches = [...new Set([clean, compact, ...terms].filter(Boolean))];
+      const byId = new Map();
+
+      for(const term of searches){
+        const safe = String(term).replace(/[%,]/g, ' ').trim();
+        if(!safe) continue;
+
+        const {data,error}=await sb
+          .from('products_master')
+          .select(CATALOG_SELECT)
+          .or([
+            `sku.ilike.%${safe}%`,
+            `product_title.ilike.%${safe}%`,
+            `variant_title.ilike.%${safe}%`,
+            `product_type.ilike.%${safe}%`,
+            `upc.ilike.%${safe}%`,
+            `barcode.ilike.%${safe}%`
+          ].join(','))
+          .order('product_title',{ascending:true})
+          .limit(CATALOG_SEARCH_LIMIT);
+
+        if(error) throw error;
+        for(const row of data || []) byId.set(String(row.id), row);
+      }
+
+      return [...byId.values()];
+    }
+
+    function productRecordToLine(product, qty){
+      return { po_header_id:state.currentPO.id, product_master_id:product?.id||null, product_type_snapshot:product?.product_type||null, title_snapshot:product?.product_title||null, variant_title_snapshot:product?.variant_title||null, sku_snapshot:product?.sku||null, upc_snapshot:product?.upc||product?.barcode||null, barcode_snapshot:product?.barcode||product?.upc||null, retail_price:product?.msrp ?? null, unit_cost:product?.unit_cost ?? null, qty:Number(qty||0), retail_value:Number(qty||0)*Number(product?.msrp||0) };
+    }
+
     function productToLine(productId, qty){
-      const p=state.catalogRows.find(x=>String(x.id)===String(productId)) || state.catalogResults.find(x=>String(x.id)===String(productId));
-      return { po_header_id:state.currentPO.id, product_master_id:productId, product_type_snapshot:p?.product_type||null, title_snapshot:p?.product_title||null, variant_title_snapshot:p?.variant_title||null, sku_snapshot:p?.sku||null, upc_snapshot:p?.upc||p?.barcode||null, barcode_snapshot:p?.barcode||p?.upc||null, retail_price:p?.msrp ?? null, unit_cost:p?.unit_cost ?? null, qty:Number(qty||0), retail_value:Number(qty||0)*Number(p?.msrp||0) };
+      const p=state.catalogResults.find(x=>String(x.id)===String(productId)) || state.catalogRows.find(x=>String(x.id)===String(productId));
+      return productRecordToLine(p, qty);
     }
 
     async function saveHeader(){
@@ -557,24 +600,43 @@
 
     async function processBulkSku(){
       if(!state.currentPO?.id){ alert('Save/open a PO first.'); return; }
-      if(!state.catalogRows.length) await loadCatalogProducts();
       const rows=parseGridText(el.bulkSkuText.value);
-      const skuMap=new Map(state.catalogRows.map(p=>[String(p.sku||'').trim().toLowerCase(),p]));
-      const inserts=[], missing=[];
+      const wanted=[];
       rows.forEach((cols,idx)=>{
         if(!cols.length) return;
         const first=String(cols[0]||'').toLowerCase();
         if(idx===0 && (first==='sku' || first.includes('variant sku'))) return;
-        const sku=String(cols[0]||'').trim(); const qty=num(cols[1]||1) || 1;
-        const product=skuMap.get(sku.toLowerCase());
-        if(!product){ missing.push(sku); return; }
-        inserts.push(productToLine(product.id, qty));
+        const sku=String(cols[0]||'').trim();
+        const qty=num(cols[1]||1) || 1;
+        if(sku) wanted.push({sku,qty});
       });
+
+      const uniqueSkus=[...new Set(wanted.map(x=>x.sku))];
+      const productMap=new Map();
+
+      for(let i=0;i<uniqueSkus.length;i+=100){
+        const chunk=uniqueSkus.slice(i,i+100);
+        const {data,error}=await sb
+          .from('products_master')
+          .select(CATALOG_SELECT)
+          .in('sku', chunk);
+        if(error) throw error;
+        for(const row of data||[]) productMap.set(String(row.sku||'').trim().toLowerCase(), row);
+      }
+
+      const inserts=[], missing=[];
+      for(const item of wanted){
+        const product=productMap.get(item.sku.toLowerCase());
+        if(!product){ missing.push(item.sku); continue; }
+        inserts.push(productRecordToLine(product, item.qty));
+      }
+
       if(inserts.length){ const {error}=await sb.from('po_lines').insert(inserts); if(error) throw error; await refreshAll(); await openPO(state.currentPO.id); }
       el.bulkSkuResult.innerHTML=`Added ${inserts.length} line${inserts.length===1?'':'s'}.${missing.length?`<br>Unmatched: ${missing.map(escapeHtml).join(', ')}`:''}`;
     }
 
-    function parseImportRows(text){
+    function parseImportRows
+(text){
       const rows=parseGridText(text); if(!rows.length) return [];
       const defaultHeaders=['product_type','title','variant','sku','upc','barcode','retail_price','unit_cost','qty','notes'];
       const first=rows[0].map(x=>String(x||'').trim().toLowerCase().replace(/\s+/g,'_'));
