@@ -6,7 +6,7 @@ on:
       location_tag:
         description: "Location tag to backfill, or all"
         required: true
-        default: "all"
+        default: "scottsdale"
         type: string
 
 jobs:
@@ -29,11 +29,14 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-
-          SALES_SYNC_MODE: backfill
-          ONLY_SOURCE: ${{ inputs.location_tag }}
-
-          SKIP_INVENTORY: "true"
-          SKIP_SALES: "false"
-          SKIP_SUMMARY_REFRESH: "true"
-        run: node scripts/sync-silo-inventory-sales.mjs
+          SILO_SALES_SYNC_MODE: backfill
+          SILO_ONLY_SOURCE: ${{ inputs.location_tag }}
+          SILO_SKIP_INVENTORY: "true"
+          SILO_SKIP_SALES: "false"
+          SILO_SKIP_SUMMARY_REFRESH: "true"
+        run: |
+          echo "Requested location_tag=${{ inputs.location_tag }}"
+          echo "SILO_SALES_SYNC_MODE=$SILO_SALES_SYNC_MODE"
+          echo "SILO_ONLY_SOURCE=$SILO_ONLY_SOURCE"
+          echo "SILO_SKIP_INVENTORY=$SILO_SKIP_INVENTORY"
+          node scripts/sync-silo-inventory-sales.mjs
