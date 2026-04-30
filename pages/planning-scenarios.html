@@ -884,14 +884,22 @@
     return SALES_ROWS.filter(r => r.month_key === sourceMonth).reduce((s,r)=>s+r.units,0);
   }
 
-  function histProductTypeUnitsForMonth(month){
+  function productTypeRowsForBaselineMonth(month){
     const sourceMonth = baselineMonthFor(month);
-    return salesRowsForMonth(sourceMonth).reduce((s,r)=>s+r.units,0);
+    const productType = getFilters().productType;
+    return SALES_ROWS.filter(r => {
+      if (r.month_key !== sourceMonth) return false;
+      if (productType !== "__ALL__" && r.product_type !== productType) return false;
+      return true;
+    });
+  }
+
+  function histProductTypeUnitsForMonth(month){
+    return productTypeRowsForBaselineMonth(month).reduce((s,r)=>s+r.units,0);
   }
 
   function histProductTypeRevenueForMonth(month){
-    const sourceMonth = baselineMonthFor(month);
-    return salesRowsForMonth(sourceMonth).reduce((s,r)=>s+r.revenue,0);
+    return productTypeRowsForBaselineMonth(month).reduce((s,r)=>s+r.revenue,0);
   }
 
   function baselineLabelFor(month){
@@ -923,6 +931,31 @@
     const units = histProductTypeUnitsForMonth(month);
     const rev = histProductTypeRevenueForMonth(month);
     return units > 0 ? rev / units : 0;
+  }
+
+  function baselineSalesTotalsByChannelForSelectedMonths(){
+    const out = {};
+    for (const ch of CHANNELS) out[ch.key] = { key:ch.key, label:ch.label, units:0, revenue:0, rows:0, unique_skus:0 };
+
+    for (const month of selectedMonths()){
+      const sourceMonth = baselineMonthFor(month);
+      const productType = getFilters().productType;
+      const rows = SALES_ROWS.filter(r => {
+        if (r.month_key !== sourceMonth) return false;
+        if (productType !== "__ALL__" && r.product_type !== productType) return false;
+        return true;
+      });
+
+      for (const r of rows){
+        const k = out[r.channel] ? r.channel : "retail";
+        out[k].units += r.units;
+        out[k].revenue += r.revenue;
+        out[k].rows += r.rows;
+        out[k].unique_skus += r.unique_skus;
+      }
+    }
+
+    return out;
   }
 
   function calculateRevenuePlanScenario(lift){
@@ -979,11 +1012,12 @@
       monthRows
     };
 
-    const histByCh = salesTotalsByChannel();
+    const histByCh = baselineSalesTotalsByChannelForSelectedMonths();
+    const baselineChannelRevenue = Object.values(histByCh).reduce((s,r)=>s+r.revenue,0);
     const rows = CHANNELS.map(ch => {
       const hist = histByCh[ch.key];
       const inv = invByCh[ch.key];
-      const histRevenueShare = histRevenue > 0 ? hist.revenue / histRevenue : (ch.key === "online" ? .6 : ch.key === "retail" ? .35 : .05);
+      const histRevenueShare = baselineChannelRevenue > 0 ? hist.revenue / baselineChannelRevenue : (ch.key === "online" ? .6 : ch.key === "retail" ? .35 : .05);
       const chRevenue = revenue * histRevenueShare;
       const chUnits = units * histRevenueShare;
       const chGap = Math.ceil(chUnits - inv.on_hand);
