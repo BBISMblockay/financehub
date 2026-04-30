@@ -891,7 +891,15 @@
 
       const sku = norm(pick(o, ["variant_sku", "sku", "SKU", "Variant SKU"]));
       const barcode = norm(pick(o, ["variant_barcode", "barcode", "Variant Barcode"]));
-      const product = norm(pick(o, ["product_title", "product_name", "title", "Product title", "Product name"]));
+      const productFromView = norm(pick(o, [
+  "product_title",
+  "product_name",
+  "title",
+  "Product title",
+  "Product name"
+]));
+
+const product = productFromView || sku || barcode || "Untitled product";
       const variant = norm(pick(o, ["variant_title", "variant_name", "Variant title"]));
       const productType = norm(pick(o, ["product_type", "product_category", "category", "Product type"]));
 
