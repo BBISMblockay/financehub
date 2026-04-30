@@ -14,61 +14,277 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 
   <style>
-    :root{ color-scheme: light; }
+    :root{
+      --ink:#0f172a;
+      --muted:#64748b;
+      --line:#e2e8f0;
+      --soft:#f8fafc;
+      --blue:#1e3a5f;
+      --green1:#dcfce7;
+      --green2:#86efac;
+      --green3:#22c55e;
+      --green4:#15803d;
+      --green5:#052e16;
+      color-scheme: light;
+    }
+
     *{ box-sizing:border-box; }
-    body{ font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
-    .mono{ font-variant-numeric: tabular-nums; font-feature-settings:"tnum" 1; }
-    .surface{ border:1px solid rgba(15,23,42,.10); background:#fff; border-radius:16px; }
-    .shadow-soft{ box-shadow:0 12px 32px rgba(2,6,23,.08); }
-    .thin-scroll::-webkit-scrollbar{ height:10px; width:10px; }
-    .thin-scroll::-webkit-scrollbar-thumb{ background:rgba(15,23,42,.18); border-radius:999px; }
-    .thin-scroll::-webkit-scrollbar-track{ background:rgba(15,23,42,.05); }
-    .stickyHead thead th{ position:sticky; top:0; z-index:15; }
-    .btn{ border:1px solid rgba(15,23,42,.14); background:#fff; border-radius:10px; padding:8px 12px; font-size:13px; font-weight:700; }
-    .btn:hover{ background:rgba(15,23,42,.03); }
-    .btn-dark{ background:#0f172a; color:#fff; border:1px solid #0f172a; border-radius:10px; padding:8px 12px; font-size:13px; font-weight:800; }
+    html,body{ min-height:100%; }
+    body{
+      margin:0;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+      background:#f3f6f9;
+      color:var(--ink);
+      font-size:13px;
+    }
+
+    .mono{ font-variant-numeric:tabular-nums; font-feature-settings:"tnum" 1; }
+    .shell{ max-width:1900px; margin:0 auto; padding:14px 18px 28px; }
+    .surface{
+      background:#fff;
+      border:1px solid rgba(15,23,42,.10);
+      border-radius:10px;
+      box-shadow:0 8px 24px rgba(15,23,42,.05);
+    }
+    .panel-title{
+      font-size:11px;
+      text-transform:uppercase;
+      letter-spacing:.08em;
+      font-weight:900;
+      color:#0369a1;
+    }
+    .label{
+      font-size:10px;
+      line-height:1;
+      text-transform:uppercase;
+      letter-spacing:.10em;
+      font-weight:900;
+      color:#475569;
+      white-space:nowrap;
+    }
+    .field{
+      height:32px;
+      border:1px solid #cbd5e1;
+      border-radius:6px;
+      background:#fff;
+      padding:4px 9px;
+      font-size:12px;
+      outline:none;
+      min-width:0;
+    }
+    .field:focus{
+      border-color:#60a5fa;
+      box-shadow:0 0 0 3px rgba(59,130,246,.12);
+    }
+    .btn{
+      height:32px;
+      border:1px solid #cbd5e1;
+      background:#fff;
+      color:#0f172a;
+      border-radius:6px;
+      padding:0 12px;
+      font-size:12px;
+      font-weight:800;
+      white-space:nowrap;
+      cursor:pointer;
+    }
+    .btn:hover{ background:#f8fafc; }
+    .btn-dark{
+      height:32px;
+      border:1px solid #0f172a;
+      background:#0f172a;
+      color:#fff;
+      border-radius:6px;
+      padding:0 14px;
+      font-size:12px;
+      font-weight:900;
+      white-space:nowrap;
+      cursor:pointer;
+    }
     .btn-dark:hover{ background:#0b1220; }
-    .btn:disabled,.btn-dark:disabled{ opacity:.55; cursor:not-allowed; }
-    .seg{ border:1px solid rgba(15,23,42,.14); background:#fff; border-radius:14px; padding:4px; display:flex; gap:4px; flex-wrap:wrap; }
-    .seg button{ padding:7px 10px; font-size:12px; font-weight:800; border-radius:10px; }
-    .seg button.active{ background:#0f172a; color:#fff; }
-    .badge{ display:inline-flex; align-items:center; gap:.35rem; border:1px solid rgba(15,23,42,.14); background:#fff; border-radius:999px; padding:2px 8px; font-size:11px; font-weight:800; white-space:nowrap; }
-    .badge-good{ border-color:#bbf7d0; background:#ecfdf5; color:#166534; }
-    .badge-warn{ border-color:#fde68a; background:#fffbeb; color:#92400e; }
-    .badge-bad{ border-color:#fecaca; background:#fef2f2; color:#991b1b; }
-    .badge-info{ border-color:#bfdbfe; background:#eff6ff; color:#1e40af; }
-    .field-label{ display:block; margin-bottom:4px; font-size:11px; font-weight:800; color:#475569; text-transform:uppercase; letter-spacing:.08em; }
-    input,select{ border:1px solid rgba(148,163,184,.55); border-radius:10px; padding:8px 10px; font-size:13px; background:#fff; outline:none; }
-    input:focus,select:focus{ border-color:rgba(37,99,235,.55); box-shadow:0 0 0 3px rgba(37,99,235,.08); }
+    .chip{
+      border:1px solid #bfdbfe;
+      background:#eff6ff;
+      color:#1d4ed8;
+      border-radius:6px;
+      padding:4px 9px;
+      font-size:11px;
+      font-weight:900;
+      white-space:nowrap;
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+    }
+    .pill{
+      border:1px solid #dbe4ee;
+      border-radius:999px;
+      padding:2px 8px;
+      font-size:10px;
+      font-weight:900;
+      white-space:nowrap;
+      display:inline-flex;
+      align-items:center;
+      gap:4px;
+      background:#fff;
+    }
+    .pill-good{ border-color:#bbf7d0; background:#ecfdf5; color:#166534; }
+    .pill-warn{ border-color:#fde68a; background:#fffbeb; color:#92400e; }
+    .pill-bad{ border-color:#fecaca; background:#fef2f2; color:#991b1b; }
+    .pill-blue{ border-color:#bfdbfe; background:#eff6ff; color:#1e40af; }
+    .pill-purple{ border-color:#ddd6fe; background:#f5f3ff; color:#5b21b6; }
+
+    .scenario-card{
+      border-radius:8px;
+      min-height:78px;
+      padding:13px 15px;
+      color:#fff;
+      display:flex;
+      flex-direction:column;
+      justify-content:center;
+    }
+    .scenario-title{
+      font-size:11px;
+      font-weight:900;
+      text-transform:uppercase;
+      letter-spacing:.06em;
+      opacity:.95;
+    }
+    .scenario-value{
+      margin-top:3px;
+      font-size:24px;
+      line-height:1.05;
+      font-weight:950;
+      letter-spacing:-.04em;
+    }
+    .scenario-sub{
+      margin-top:4px;
+      font-size:10px;
+      opacity:.90;
+      line-height:1.25;
+    }
+
+    .assumption-strip{
+      display:grid;
+      grid-template-columns:minmax(170px, 1.1fr) repeat(5, minmax(92px, .65fr));
+      gap:8px;
+      align-items:center;
+      min-width:850px;
+    }
+    .assump-head{
+      font-size:11px;
+      line-height:1;
+      text-transform:uppercase;
+      letter-spacing:.08em;
+      font-weight:950;
+    }
+    .assump-note{
+      font-size:10px;
+      color:#64748b;
+      line-height:1.1;
+    }
+    .mini-input{
+      height:28px;
+      border:1px solid #d5dee9;
+      border-radius:6px;
+      padding:3px 7px;
+      width:100%;
+      font-size:11px;
+      text-align:right;
+      font-variant-numeric:tabular-nums;
+      outline:none;
+    }
+    .mini-input:focus{
+      border-color:#60a5fa;
+      box-shadow:0 0 0 3px rgba(59,130,246,.10);
+    }
+
+    .bar-row{
+      display:grid;
+      grid-template-columns:repeat(11, minmax(90px,1fr));
+      gap:4px;
+      min-width:1100px;
+      align-items:end;
+    }
+    .bar{
+      border-radius:2px 2px 0 0;
+      min-height:26px;
+      display:flex;
+      align-items:end;
+      justify-content:center;
+      padding-bottom:3px;
+      color:#0f172a;
+      font-size:9px;
+      font-weight:800;
+    }
+
     table{ border-collapse:separate; border-spacing:0; }
-    th{ background:#f8fafc; color:#475569; text-transform:uppercase; letter-spacing:.08em; font-size:11px; font-weight:900; border-bottom:1px solid #e2e8f0; }
-    td{ border-bottom:1px solid #f1f5f9; }
+    th{
+      background:#f8fafc;
+      color:#475569;
+      text-transform:uppercase;
+      letter-spacing:.07em;
+      font-size:10px;
+      font-weight:950;
+      border-bottom:1px solid var(--line);
+      white-space:nowrap;
+    }
+    td{
+      border-bottom:1px solid #edf2f7;
+      background:#fff;
+      font-size:11px;
+      white-space:nowrap;
+    }
+    tbody tr:nth-child(even) td{ background:#f8fafc; }
+    .stickyHead thead th{ position:sticky; top:0; z-index:15; }
     .num{ text-align:right; font-variant-numeric:tabular-nums; }
+    .thin-scroll{ scrollbar-width:thin; scrollbar-color:rgba(15,23,42,.25) rgba(15,23,42,.05); }
+    .thin-scroll::-webkit-scrollbar{ height:10px; width:10px; }
+    .thin-scroll::-webkit-scrollbar-thumb{ background:rgba(15,23,42,.20); border-radius:999px; }
+    .thin-scroll::-webkit-scrollbar-track{ background:rgba(15,23,42,.05); }
+
+    details > summary{ list-style:none; cursor:pointer; }
+    details > summary::-webkit-details-marker{ display:none; }
+
+    .mode-btn{
+      border:1px solid #dbe4ee;
+      background:#fff;
+      border-radius:6px;
+      height:28px;
+      padding:0 10px;
+      font-size:11px;
+      font-weight:900;
+      color:#0f172a;
+    }
+    .mode-btn.active{
+      background:#0f172a;
+      border-color:#0f172a;
+      color:#fff;
+    }
+
     @media print{
-      header,.no-print,#assumptionsPanel,#filtersPanel,#exportPanel{ display:none !important; }
-      body{ background:#fff !important; }
-      .surface{ box-shadow:none !important; break-inside:avoid; }
-      main{ max-width:none !important; padding:0 !important; }
+      header,.no-print,#filtersCard details.assumption-edit{ display:none !important; }
+      body{ background:#fff; }
+      .shell{ max-width:none; padding:0; }
+      .surface{ box-shadow:none; border-color:#cbd5e1; break-inside:avoid; }
+      .thin-scroll{ overflow:visible !important; }
     }
   </style>
 </head>
 
-<body class="min-h-full bg-slate-50 text-slate-900">
-  <header class="border-b border-slate-200 bg-white sticky top-0 z-40">
-    <div class="mx-auto max-w-[1900px] px-4 py-4 flex items-center justify-between gap-3">
+<body>
+  <header class="bg-white border-b border-slate-200 no-print">
+    <div class="shell py-3 flex items-center justify-between gap-3">
       <div class="flex items-center gap-3 min-w-0">
-        <div class="h-9 w-9 rounded-xl border border-slate-200 grid place-items-center shrink-0">
-          <span class="text-sm font-extrabold">S</span>
-        </div>
+        <div class="h-9 w-9 rounded-xl border border-slate-200 grid place-items-center shrink-0 font-black">S</div>
         <div class="min-w-0">
-          <div class="text-sm font-semibold truncate">Silo ERP — Planning Scenarios</div>
-          <div class="text-xs text-slate-500 truncate">
-            Historical baseline + projection overrides + ASP/mix assumptions + inventory gap proof
+          <div class="font-extrabold text-sm truncate">Silo ERP — Planning Scenarios</div>
+          <div class="text-[11px] text-slate-500 truncate">
+            Historical baseline + revenue / mix / ASP assumptions + inventory gap proof
           </div>
         </div>
       </div>
       <div class="flex items-center gap-2 shrink-0">
-        <span id="versionBadge" class="badge badge-info">Scenario Overrides v1</span>
+        <span class="chip">Scenario Matrix v3</span>
         <span id="authEmail" class="hidden md:inline text-xs text-slate-500"></span>
         <button id="btnReload" class="btn">Reload</button>
         <button id="btnPrint" class="btn">Print Proof</button>
@@ -78,31 +294,67 @@
     </div>
   </header>
 
-  <main class="mx-auto max-w-[1900px] px-4 py-5 space-y-4">
-    <section id="filtersPanel" class="surface p-4 shadow-soft">
-      <div class="flex flex-col xl:flex-row xl:items-end gap-3">
-        <div class="flex-1 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-3">
+  <main class="shell space-y-3">
+    <section id="filtersCard" class="surface p-3">
+      <div class="flex flex-col 2xl:flex-row 2xl:items-center gap-3">
+        <div class="flex items-center gap-2 flex-wrap flex-1">
+          <span class="text-[11px] font-black text-sky-700">↬ View filters:</span>
+
+          <div class="flex items-center gap-2">
+            <span class="label">Period</span>
+            <input id="dateFrom" type="month" class="field w-[120px] mono" />
+            <span class="text-slate-400">→</span>
+            <input id="dateTo" type="month" class="field w-[120px] mono" />
+          </div>
+
+          <div class="flex items-center gap-2">
+            <span class="label">Product type</span>
+            <select id="selProductType" class="field w-[180px]">
+              <option value="__ALL__">All product types</option>
+            </select>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <span class="label">Search</span>
+            <input id="txtProductSearch" class="field w-[230px]" placeholder="Product family optional..." />
+          </div>
+
+          <label class="flex items-center gap-2 text-[11px] text-slate-600">
+            <input id="chkShowUnits" type="checkbox" class="h-4 w-4" checked />
+            Show units
+          </label>
+
+          <span id="rangeChip" class="chip">—</span>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button id="btnApply" class="btn-dark">Run</button>
+          <button id="btnReset" class="btn">Reset</button>
+        </div>
+      </div>
+
+      <details class="assumption-edit mt-3" open>
+        <summary class="flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
           <div>
-            <label class="field-label">Product Type</label>
-            <select id="selProductType" class="w-full"><option value="__ALL__">All product types</option></select>
+            <div class="text-[12px] font-extrabold">Assumption Controls</div>
+            <div class="text-[11px] text-slate-500">
+              Optional overrides. Leave blank to use historical baseline × selected lift. Use revenue/mix/ASP to work backward from someone else's projection.
+            </div>
+          </div>
+          <span class="text-[11px] text-slate-500">toggle</span>
+        </summary>
+
+        <div class="mt-3 grid grid-cols-1 xl:grid-cols-4 gap-3">
+          <div>
+            <label class="label mb-1 block">Total Revenue Override</label>
+            <input id="numTotalRevenueOverride" type="number" step="1000" class="field w-full mono" placeholder="Blank = historical × lift" />
           </div>
           <div>
-            <label class="field-label">Product Search</label>
-            <input id="txtProductSearch" class="w-full" placeholder="Optional product filter..." />
-          </div>
-          <div>
-            <label class="field-label">Month From</label>
-            <input id="dateFrom" type="month" class="w-full mono" />
-          </div>
-          <div>
-            <label class="field-label">Month To</label>
-            <input id="dateTo" type="month" class="w-full mono" />
-          </div>
-          <div>
-            <label class="field-label">Scenario</label>
-            <select id="selScenario" class="w-full">
+            <label class="label mb-1 block">Scenario Preset</label>
+            <select id="selScenario" class="field w-full">
               <option value="0">Plan / Baseline</option>
               <option value="10">+10%</option>
+              <option value="20">+20%</option>
               <option value="25" selected>+25%</option>
               <option value="50">+50%</option>
               <option value="100">+100%</option>
@@ -110,168 +362,145 @@
             </select>
           </div>
           <div>
-            <label class="field-label">Custom Lift %</label>
-            <input id="numCustomLift" type="number" step="1" value="25" class="w-full mono" />
+            <label class="label mb-1 block">Custom Lift %</label>
+            <input id="numCustomLift" type="number" step="1" value="25" class="field w-full mono" />
           </div>
           <div>
-            <label class="field-label">Safety Stock %</label>
-            <input id="numSafetyPct" type="number" step="1" value="10" class="w-full mono" />
+            <label class="label mb-1 block">Safety / Buffer %</label>
+            <input id="numSafetyPct" type="number" step="1" value="10" class="field w-full mono" />
           </div>
         </div>
 
-        <div class="flex items-center gap-2">
-          <button id="btnApply" class="btn-dark">Run Scenario</button>
-          <button id="btnReset" class="btn">Reset</button>
+        <div class="mt-3 overflow-auto thin-scroll">
+          <div class="min-w-[850px] space-y-2" id="assumptionStrips"></div>
         </div>
-      </div>
+      </details>
 
-      <div class="mt-3 text-xs text-slate-600">
-        <span id="statusLine">Loading…</span>
-      </div>
+      <div id="statusLine" class="mt-2 text-[11px] text-slate-500 mono">Loading…</div>
     </section>
 
-    <section id="assumptionsPanel" class="surface p-4 shadow-soft space-y-4">
-      <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+    <section class="grid grid-cols-1 lg:grid-cols-4 gap-2" id="scenarioCards"></section>
+
+    <section class="grid grid-cols-1 xl:grid-cols-3 gap-2" id="assumptionReadout"></section>
+
+    <section class="surface p-3">
+      <div class="flex items-center justify-between gap-3">
         <div>
-          <div class="text-sm font-extrabold">Assumption Controls</div>
-          <div class="text-xs text-slate-500 mt-1">
-            Leave overrides blank to use historical baseline. Fill revenue/ASP/mix to work backward from someone else's projection.
+          <div class="panel-title">Annual Summary — All Scenarios</div>
+          <div class="text-[11px] text-slate-500 mt-1">
+            Scenario ladder from Plan through +100%. Uses historical mix/ASP unless overrides are active.
           </div>
         </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 min-w-full lg:min-w-[680px]">
-          <div>
-            <label class="field-label">Total Revenue Override</label>
-            <input id="numTotalRevenueOverride" type="number" step="1000" placeholder="Blank = historical × lift" class="w-full mono" />
-          </div>
-          <div>
-            <label class="field-label">Use Mix % when total override entered</label>
-            <select id="selMixMode" class="w-full">
-              <option value="on" selected>Yes — distribute by mix %</option>
-              <option value="off">No — use channel revenue overrides only</option>
-            </select>
-          </div>
-          <div>
-            <label class="field-label">Planning Note</label>
-            <input id="txtScenarioName" type="text" placeholder="ex: July B2S shorts push" class="w-full" />
-          </div>
+        <div class="flex items-center gap-2 no-print">
+          <button class="mode-btn active" data-summary-metric="revenue">Revenue</button>
+          <button class="mode-btn" data-summary-metric="units">Units</button>
+          <button class="mode-btn" data-summary-metric="gap">Inventory Gap</button>
         </div>
       </div>
 
-      <div class="overflow-auto thin-scroll">
-        <table class="min-w-[1250px] w-full text-sm">
-          <thead>
-            <tr>
-              <th class="px-3 py-2 text-left">Bucket</th>
-              <th class="px-3 py-2 text-center">Use</th>
-              <th class="px-3 py-2 num">Hist Units</th>
-              <th class="px-3 py-2 num">Hist Revenue</th>
-              <th class="px-3 py-2 num">Hist ASP</th>
-              <th class="px-3 py-2 num">Mix %</th>
-              <th class="px-3 py-2 num">Bucket Lift %</th>
-              <th class="px-3 py-2 num">Revenue Override</th>
-              <th class="px-3 py-2 num">ASP Override</th>
-              <th class="px-3 py-2 num">ASP Change %</th>
-              <th class="px-3 py-2 text-left">Readout</th>
-            </tr>
-          </thead>
-          <tbody id="assumptionsBody"></tbody>
+      <div class="mt-3 overflow-auto thin-scroll">
+        <div id="scenarioBars" class="bar-row"></div>
+        <table class="mt-3 min-w-[1150px] w-full">
+          <thead><tr id="scenarioMatrixHead"></tr></thead>
+          <tbody id="scenarioMatrixBody"></tbody>
         </table>
       </div>
     </section>
 
-    <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
-      <div class="surface p-4 shadow-soft">
-        <div class="text-xs font-bold text-slate-500 uppercase tracking-wide">Historical Revenue</div>
-        <div id="kHistRevenue" class="mt-2 text-2xl font-black mono">$0</div>
-        <div id="kHistRevenueSub" class="text-xs text-slate-500 mt-1">Selected baseline</div>
+    <section class="surface p-3">
+      <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
+        <div>
+          <div class="panel-title">Monthly Detail — Revenue by Scenario</div>
+          <div class="text-[11px] text-slate-500 mt-1">
+            Monthly baseline from Supabase, then scenario ladder. Use this as the print/export proof table.
+          </div>
+        </div>
+        <div class="flex flex-wrap items-center gap-2 no-print">
+          <button class="mode-btn active" data-monthly-metric="revenue">Revenue</button>
+          <button class="mode-btn" data-monthly-metric="units">Units</button>
+          <button class="mode-btn" data-monthly-metric="both">Revenue + Units</button>
+        </div>
       </div>
-      <div class="surface p-4 shadow-soft">
-        <div class="text-xs font-bold text-slate-500 uppercase tracking-wide">Required Units</div>
-        <div id="kReqUnits" class="mt-2 text-2xl font-black mono">0</div>
-        <div id="kReqUnitsSub" class="text-xs text-slate-500 mt-1">Scenario output</div>
-      </div>
-      <div class="surface p-4 shadow-soft">
-        <div class="text-xs font-bold text-slate-500 uppercase tracking-wide">Current On Hand</div>
-        <div id="kOnHand" class="mt-2 text-2xl font-black mono">0</div>
-        <div id="kOnHandSub" class="text-xs text-slate-500 mt-1">Filtered inventory</div>
-      </div>
-      <div class="surface p-4 shadow-soft">
-        <div class="text-xs font-bold text-slate-500 uppercase tracking-wide">Inventory Gap</div>
-        <div id="kGap" class="mt-2 text-2xl font-black mono">0</div>
-        <div id="kGapSub" class="text-xs text-slate-500 mt-1">Required units - on hand</div>
-      </div>
-      <div class="surface p-4 shadow-soft">
-        <div class="text-xs font-bold text-slate-500 uppercase tracking-wide">Gap + Safety</div>
-        <div id="kGapSafety" class="mt-2 text-2xl font-black mono">0</div>
-        <div id="kGapSafetySub" class="text-xs text-slate-500 mt-1">Buy need with safety stock</div>
+      <div class="mt-3 overflow-auto thin-scroll">
+        <table class="min-w-[1800px] w-full stickyHead">
+          <thead><tr id="monthlyHead"></tr></thead>
+          <tbody id="monthlyBody"></tbody>
+        </table>
       </div>
     </section>
 
-    <section class="grid grid-cols-1 xl:grid-cols-2 gap-4">
-      <div class="surface p-4 shadow-soft">
+    <section class="grid grid-cols-1 2xl:grid-cols-2 gap-3">
+      <section class="surface p-3">
         <div class="flex items-center justify-between gap-3">
           <div>
-            <div class="text-sm font-extrabold">Scenario Summary</div>
-            <div class="text-xs text-slate-500 mt-1">Plan, lift, revenue override, ASP impact, required units.</div>
+            <div class="panel-title">Inventory Gap — Selected Scenario</div>
+            <div class="text-[11px] text-slate-500 mt-1">
+              Current on-hand from inventory_workboard_v against required units.
+            </div>
           </div>
-          <span id="scenarioBadge" class="badge badge-info">—</span>
+          <span id="selectedScenarioChip" class="chip">+25%</span>
         </div>
         <div class="mt-3 overflow-auto thin-scroll">
-          <table class="min-w-[900px] w-full text-sm">
-            <thead>
-              <tr>
-                <th class="px-3 py-2 text-left">Bucket</th>
-                <th class="px-3 py-2 num">Revenue</th>
-                <th class="px-3 py-2 num">ASP</th>
-                <th class="px-3 py-2 num">Units</th>
-                <th class="px-3 py-2 num">Unit Delta</th>
-                <th class="px-3 py-2 num">Revenue Delta</th>
-              </tr>
-            </thead>
-            <tbody id="scenarioSummaryBody"></tbody>
-          </table>
-        </div>
-      </div>
-
-      <div class="surface p-4 shadow-soft">
-        <div class="text-sm font-extrabold">Inventory Gap by Bucket</div>
-        <div class="text-xs text-slate-500 mt-1">Inventory is estimated by current Silo inventory product type + product filter.</div>
-        <div class="mt-3 overflow-auto thin-scroll">
-          <table class="min-w-[900px] w-full text-sm">
+          <table class="min-w-[900px] w-full">
             <thead>
               <tr>
                 <th class="px-3 py-2 text-left">Bucket</th>
                 <th class="px-3 py-2 num">Required Units</th>
                 <th class="px-3 py-2 num">On Hand</th>
                 <th class="px-3 py-2 num">Gap</th>
-                <th class="px-3 py-2 num">Gap + Safety</th>
+                <th class="px-3 py-2 num">Gap + Buffer</th>
                 <th class="px-3 py-2 text-left">Signal</th>
               </tr>
             </thead>
-            <tbody id="inventoryGapBody"></tbody>
+            <tbody id="gapBody"></tbody>
           </table>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <section class="surface p-4 shadow-soft">
-      <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+      <section class="surface p-3">
         <div>
-          <div class="text-sm font-extrabold">Product Family Detail</div>
-          <div class="text-xs text-slate-500 mt-1">
-            Scenario units allocated by each product's demand share from current workboard velocity. Use this as planning pressure, not a final PO.
+          <div class="panel-title">Channel Mix / ASP Assumptions</div>
+          <div class="text-[11px] text-slate-500 mt-1">
+            Shows whether you are using historical mix or manual overrides.
           </div>
         </div>
-        <div class="seg no-print">
-          <button id="btnFamilyAll" class="active" data-family-filter="all">All</button>
-          <button data-family-filter="buy">Buy Need</button>
-          <button data-family-filter="mix">Review Mix</button>
-          <button data-family-filter="overstock">Overstock</button>
+        <div class="mt-3 overflow-auto thin-scroll">
+          <table class="min-w-[850px] w-full">
+            <thead>
+              <tr>
+                <th class="px-3 py-2 text-left">Bucket</th>
+                <th class="px-3 py-2 num">Hist Mix</th>
+                <th class="px-3 py-2 num">Plan Mix</th>
+                <th class="px-3 py-2 num">Hist ASP</th>
+                <th class="px-3 py-2 num">Plan ASP</th>
+                <th class="px-3 py-2 num">ASP Change</th>
+                <th class="px-3 py-2 text-left">Mode</th>
+              </tr>
+            </thead>
+            <tbody id="channelBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <section class="surface p-3">
+      <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
+        <div>
+          <div class="panel-title">Product Family Detail — Selected Scenario</div>
+          <div class="text-[11px] text-slate-500 mt-1">
+            Scenario demand allocated by current product-family demand share. Good for pressure testing, not final PO approval.
+          </div>
+        </div>
+        <div class="flex items-center gap-2 no-print">
+          <button class="mode-btn active" data-family-filter="all">All</button>
+          <button class="mode-btn" data-family-filter="buy">Buy Need</button>
+          <button class="mode-btn" data-family-filter="mix">Review Mix</button>
+          <button class="mode-btn" data-family-filter="overstock">Overstock</button>
         </div>
       </div>
+
       <div class="mt-3 overflow-auto thin-scroll">
-        <table class="min-w-[1600px] w-full text-sm stickyHead">
+        <table class="min-w-[1650px] w-full stickyHead">
           <thead>
             <tr>
               <th class="px-3 py-2 text-left">Product</th>
@@ -283,40 +512,19 @@
               <th class="px-3 py-2 num">Demand Share</th>
               <th class="px-3 py-2 num">Scenario Units</th>
               <th class="px-3 py-2 num">Gap</th>
-              <th class="px-3 py-2 num">Gap + Safety</th>
+              <th class="px-3 py-2 num">Gap + Buffer</th>
               <th class="px-3 py-2 text-left">Action</th>
-              <th class="px-3 py-2 text-left">Tag / Collection</th>
+              <th class="px-3 py-2 text-left">Tags</th>
             </tr>
           </thead>
-          <tbody id="productFamilyBody"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <section class="surface p-4 shadow-soft">
-      <div class="text-sm font-extrabold">Monthly Baseline</div>
-      <div class="text-xs text-slate-500 mt-1">Historical selected period by month and channel.</div>
-      <div class="mt-3 overflow-auto thin-scroll">
-        <table class="min-w-[1100px] w-full text-sm">
-          <thead>
-            <tr>
-              <th class="px-3 py-2 text-left">Month</th>
-              <th class="px-3 py-2 text-left">Bucket</th>
-              <th class="px-3 py-2 num">Units</th>
-              <th class="px-3 py-2 num">Revenue</th>
-              <th class="px-3 py-2 num">ASP</th>
-              <th class="px-3 py-2 num">Rows</th>
-              <th class="px-3 py-2 num">SKUs</th>
-            </tr>
-          </thead>
-          <tbody id="monthlyBody"></tbody>
+          <tbody id="familyBody"></tbody>
         </table>
       </div>
     </section>
   </main>
 
 <script>
-  console.log("Silo Planning Scenarios: Override Model v1 loaded");
+  console.log("Silo Planning Scenarios: Scenario Matrix v3 loaded");
 
   const cfg = window.__SILO_CONFIG__ || {};
   const SUPABASE_URL = cfg.SUPABASE_URL || "";
@@ -328,10 +536,13 @@
   const PAGE_SIZE = 10000;
 
   const CHANNELS = [
-    { key:"online", label:"Online" },
-    { key:"retail", label:"Retail" },
-    { key:"wholesale", label:"Wholesale / Faire" }
+    { key:"online", label:"Online", color:"#1d4ed8", className:"text-blue-700" },
+    { key:"retail", label:"Retail", color:"#16a34a", className:"text-green-700" },
+    { key:"wholesale", label:"Wholesale / Faire", color:"#b45309", className:"text-amber-700" }
   ];
+
+  const SCENARIOS = [0,10,20,30,40,50,60,70,80,90,100];
+  const CARD_SCENARIOS = [0,25,50,100];
 
   let SUPABASE = null;
   let SALES_ROWS = [];
@@ -339,8 +550,11 @@
   let FILTERED_SALES = [];
   let FILTERED_INVENTORY = [];
   let PRODUCT_FAMILIES = [];
-  let SCENARIO_RESULT = null;
+  let SUMMARY_METRIC = "revenue";
+  let MONTHLY_METRIC = "both";
   let FAMILY_FILTER = "all";
+  let LAST_RESULT = null;
+  let INIT_DONE = false;
 
   const el = id => document.getElementById(id);
 
@@ -355,9 +569,7 @@
   function money2(v){
     return num(v).toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:2});
   }
-  function pct(v){
-    return `${num(v).toFixed(1)}%`;
-  }
+  function pct(v, digits=1){ return `${num(v).toFixed(digits)}%`; }
   function esc(s){
     return String(s ?? "").replace(/[&<>"']/g, m => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[m]));
   }
@@ -365,6 +577,12 @@
     if (!v) return "";
     const s = String(v);
     return s.length >= 7 ? s.slice(0,7) : s;
+  }
+  function monthLabel(key){
+    if (!key || key.length < 7) return key || "—";
+    const [y,m] = key.split("-").map(Number);
+    const d = new Date(y, m-1, 1);
+    return d.toLocaleString(undefined,{month:"short"});
   }
   function normalizeTitleKey(v){
     return String(v ?? "")
@@ -386,15 +604,13 @@
     const c = norm(row.channel).toLowerCase();
     const loc = norm(row.location || row.location_tag).toLowerCase();
     if (c.includes("online") || loc === "online") return "online";
-    if (c.includes("wholesale") || c.includes("faire") || c.includes("dsg") || loc.includes("wholesale") || loc.includes("faire") || loc.includes("dsg")) return "wholesale";
-    if (c.includes("event") || loc.includes("popup") || loc.includes("pop_up")) return "wholesale";
+    if (c.includes("wholesale") || c.includes("faire") || c.includes("dsg") || c.includes("event") || loc.includes("wholesale") || loc.includes("faire") || loc.includes("dsg") || loc.includes("popup") || loc.includes("pop_up")) return "wholesale";
     return "retail";
   }
-  function sourceIdOfInventory(row){
-    const loc = norm(pick(row, ["location_tag","location","location_label","location_name"], "unknown"));
-    const v = loc.toLowerCase();
-    if (v === "online") return "online";
-    if (v.includes("wholesale") || v.includes("faire") || v.includes("dsg") || v.includes("popup") || v.includes("pop_up")) return "wholesale";
+  function channelOfInventory(row){
+    const loc = norm(pick(row, ["location_tag","location","location_label","location_name"], "unknown")).toLowerCase();
+    if (loc === "online") return "online";
+    if (loc.includes("wholesale") || loc.includes("faire") || loc.includes("dsg") || loc.includes("popup") || loc.includes("pop_up")) return "wholesale";
     return "retail";
   }
 
@@ -454,12 +670,10 @@
     const productFromView = norm(pick(r, ["product_title","product_name","title","Product title","Product name"], ""));
     const product = productFromView || sku || norm(pick(r, ["variant_barcode","barcode"], "")) || "Untitled product";
     const productType = norm(pick(r, ["product_type","product_category","category"], "Uncategorized")) || "Uncategorized";
-    const channel = sourceIdOfInventory(r);
-    const location = norm(pick(r, ["location","location_label","location_name","location_tag"], "Unknown"));
     return {
-      _id: `${channel}::${sku || normalizeTitleKey(product)}::${idx}`,
-      channel,
-      location,
+      _id:`${idx}`,
+      channel: channelOfInventory(r),
+      location: norm(pick(r, ["location","location_label","location_name","location_tag"], "Unknown")),
       product_type: productType,
       product,
       product_key: normalizeTitleKey(product),
@@ -479,53 +693,176 @@
     };
   }
 
-  function getScenarioLift(){
+  function getSelectedLift(){
     const v = el("selScenario").value;
     if (v === "custom") return num(el("numCustomLift").value) / 100;
     return num(v) / 100;
   }
 
-  function currentFilters(){
+  function getFilters(){
     return {
       productType: el("selProductType").value || "__ALL__",
       productSearch: norm(el("txtProductSearch").value).toLowerCase(),
       from: el("dateFrom").value,
       to: el("dateTo").value,
-      lift: getScenarioLift(),
+      selectedLift: getSelectedLift(),
       safetyPct: num(el("numSafetyPct").value) / 100,
       totalRevenueOverride: num(el("numTotalRevenueOverride").value),
-      mixMode: el("selMixMode").value,
-      scenarioName: norm(el("txtScenarioName").value)
+      showUnits: el("chkShowUnits").checked
     };
   }
 
-  function applyFilters(){
-    const f = currentFilters();
-
-    FILTERED_SALES = SALES_ROWS.filter(r => {
-      if (f.productType !== "__ALL__" && r.product_type !== f.productType) return false;
-      if (f.from && r.month_key < f.from) return false;
-      if (f.to && r.month_key > f.to) return false;
-      return true;
-    });
-
-    FILTERED_INVENTORY = INVENTORY_ROWS.filter(r => {
-      if (f.productType !== "__ALL__" && r.product_type !== f.productType) return false;
-      if (f.productSearch){
-        const hay = `${r.product} ${r.sku} ${r.product_type} ${r.tag} ${r.collection}`.toLowerCase();
-        if (!hay.includes(f.productSearch)) return false;
-      }
-      return true;
-    });
-
-    PRODUCT_FAMILIES = buildProductFamilies(FILTERED_INVENTORY);
-    SCENARIO_RESULT = calculateScenario();
-    renderAll();
+  function readChannelAssumptions(){
+    const out = {};
+    for (const ch of CHANNELS){
+      out[ch.key] = {
+        enabled: el(`chk_${ch.key}`)?.checked ?? true,
+        mixPct: num(el(`mix_${ch.key}`)?.value) / 100,
+        bucketLift: num(el(`lift_${ch.key}`)?.value) / 100,
+        revenueOverride: num(el(`rev_${ch.key}`)?.value),
+        aspOverride: num(el(`asp_${ch.key}`)?.value),
+        aspChange: num(el(`aspchg_${ch.key}`)?.value) / 100
+      };
+    }
+    return out;
   }
 
-  function buildProductFamilies(rows){
+  function salesTotalsByChannel(){
+    const out = {};
+    for (const ch of CHANNELS) out[ch.key] = { key:ch.key, label:ch.label, units:0, revenue:0, rows:0, unique_skus:0 };
+    for (const r of FILTERED_SALES){
+      const k = out[r.channel] ? r.channel : "retail";
+      out[k].units += r.units;
+      out[k].revenue += r.revenue;
+      out[k].rows += r.rows;
+      out[k].unique_skus += r.unique_skus;
+    }
+    return out;
+  }
+
+  function monthlyTotals(){
     const by = new Map();
-    for (const r of rows){
+    for (const r of FILTERED_SALES){
+      const k = r.month_key;
+      if (!by.has(k)) by.set(k, { month_key:k, units:0, revenue:0 });
+      const a = by.get(k);
+      a.units += r.units;
+      a.revenue += r.revenue;
+    }
+    return [...by.values()].sort((a,b) => a.month_key.localeCompare(b.month_key));
+  }
+
+  function inventoryTotalsByChannel(){
+    const out = {};
+    for (const ch of CHANNELS) out[ch.key] = { key:ch.key, label:ch.label, on_hand:0, retail_value:0 };
+    for (const r of FILTERED_INVENTORY){
+      const k = out[r.channel] ? r.channel : "retail";
+      out[k].on_hand += r.avail_qty;
+      out[k].retail_value += r.inv_value;
+    }
+    return out;
+  }
+
+  function calculateScenario(lift){
+    const f = getFilters();
+    const histByCh = salesTotalsByChannel();
+    const invByCh = inventoryTotalsByChannel();
+    const assumptions = readChannelAssumptions();
+    const histTotalRevenue = Object.values(histByCh).reduce((s,r) => s + r.revenue, 0);
+    const rows = [];
+
+    for (const ch of CHANNELS){
+      const hist = histByCh[ch.key];
+      const inv = invByCh[ch.key];
+      const a = assumptions[ch.key];
+
+      const histAsp = hist.units > 0 ? hist.revenue / hist.units : 0;
+      const planAsp = a.aspOverride > 0 ? a.aspOverride : histAsp * (1 + a.aspChange);
+      const combinedLift = lift + a.bucketLift;
+      const histMix = histTotalRevenue > 0 ? hist.revenue / histTotalRevenue : 0;
+
+      let revenue = 0;
+      let units = 0;
+      let mode = "historical × lift";
+
+      if (!a.enabled){
+        revenue = 0;
+        units = 0;
+        mode = "disabled";
+      } else if (a.revenueOverride > 0){
+        revenue = a.revenueOverride;
+        units = planAsp > 0 ? revenue / planAsp : 0;
+        mode = "bucket revenue override";
+      } else if (f.totalRevenueOverride > 0){
+        const mix = a.mixPct > 0 ? a.mixPct : histMix;
+        revenue = f.totalRevenueOverride * mix;
+        units = planAsp > 0 ? revenue / planAsp : 0;
+        mode = "total revenue × mix";
+      } else {
+        units = hist.units * (1 + combinedLift);
+        revenue = units * planAsp;
+      }
+
+      const gap = Math.ceil(units - inv.on_hand);
+      const gapBuffer = Math.max(0, Math.ceil(gap + units * f.safetyPct));
+
+      rows.push({
+        key:ch.key,
+        label:ch.label,
+        hist_units:hist.units,
+        hist_revenue:hist.revenue,
+        hist_asp:histAsp,
+        hist_mix:histMix,
+        plan_mix:a.mixPct || histMix,
+        plan_asp:planAsp,
+        asp_change:histAsp > 0 ? (planAsp / histAsp - 1) : 0,
+        revenue,
+        units,
+        unit_delta:units - hist.units,
+        revenue_delta:revenue - hist.revenue,
+        on_hand:inv.on_hand,
+        retail_value:inv.retail_value,
+        gap,
+        gap_buffer:gapBuffer,
+        mode
+      });
+    }
+
+    const total = rows.reduce((a,r) => {
+      a.hist_units += r.hist_units;
+      a.hist_revenue += r.hist_revenue;
+      a.revenue += r.revenue;
+      a.units += r.units;
+      a.unit_delta += r.unit_delta;
+      a.revenue_delta += r.revenue_delta;
+      a.on_hand += r.on_hand;
+      a.retail_value += r.retail_value;
+      a.gap += r.gap;
+      a.gap_buffer += r.gap_buffer;
+      return a;
+    }, { key:"total", label:"Total", hist_units:0, hist_revenue:0, revenue:0, units:0, unit_delta:0, revenue_delta:0, on_hand:0, retail_value:0, gap:0, gap_buffer:0 });
+
+    total.hist_asp = total.hist_units > 0 ? total.hist_revenue / total.hist_units : 0;
+    total.plan_asp = total.units > 0 ? total.revenue / total.units : 0;
+    total.hist_mix = 1;
+    total.plan_mix = 1;
+    total.asp_change = total.hist_asp > 0 ? (total.plan_asp / total.hist_asp - 1) : 0;
+    total.mode = "total";
+
+    return { lift, rows, total };
+  }
+
+  function selectedScenario(){
+    return calculateScenario(getSelectedLift());
+  }
+
+  function scenarioLabel(lift){
+    return lift === 0 ? "Plan" : `+${Math.round(lift * 100)}%`;
+  }
+
+  function buildProductFamilies(){
+    const by = new Map();
+    for (const r of FILTERED_INVENTORY){
       const k = r.product_key || normalizeTitleKey(r.product);
       if (!by.has(k)){
         by.set(k, {
@@ -548,300 +885,362 @@
         });
       }
       const a = by.get(k);
-      a.avail_qty += num(r.avail_qty);
-      a.inv_value += num(r.inv_value);
-      a.qty_7d += num(r.qty_7d);
-      a.sold_30 += num(r.sold_30);
-      a.qty_90d += num(r.qty_90d);
-      a.qty_365d += num(r.qty_365d);
+      a.avail_qty += r.avail_qty;
+      a.inv_value += r.inv_value;
+      a.qty_7d += r.qty_7d;
+      a.sold_30 += r.sold_30;
+      a.qty_90d += r.qty_90d;
+      a.qty_365d += r.qty_365d;
       if (r.sku) a.sku_count.add(r.sku);
       if (r.location) a.locations_count.add(r.location);
-      if (num(r.avail_qty) < 0) a.negative_count++;
+      if (r.avail_qty < 0) a.negative_count++;
       if (!a.tag && r.tag) a.tag = r.tag;
       if (!a.sub_tag && r.sub_tag) a.sub_tag = r.sub_tag;
       if (!a.indicator_group && r.indicator_group) a.indicator_group = r.indicator_group;
       if (!a.collection && r.collection) a.collection = r.collection;
     }
 
-    return [...by.values()].map(r => ({
+    PRODUCT_FAMILIES = [...by.values()].map(r => ({
       ...r,
       sku_count_num:r.sku_count.size,
       locations_count_num:r.locations_count.size
-    })).sort((a,b) => b.sold_30 - a.sold_30);
-  }
-
-  function salesTotalsByChannel(){
-    const out = {};
-    for (const ch of CHANNELS){
-      out[ch.key] = { key:ch.key, label:ch.label, units:0, revenue:0, rows:0, unique_skus:0 };
-    }
-    for (const r of FILTERED_SALES){
-      const k = out[r.channel] ? r.channel : "retail";
-      out[k].units += r.units;
-      out[k].revenue += r.revenue;
-      out[k].rows += r.rows;
-      out[k].unique_skus += r.unique_skus;
-    }
-    return out;
-  }
-
-  function inventoryTotalsByChannel(){
-    const out = {};
-    for (const ch of CHANNELS){
-      out[ch.key] = { key:ch.key, label:ch.label, on_hand:0, retail_value:0 };
-    }
-    for (const r of FILTERED_INVENTORY){
-      const k = out[r.channel] ? r.channel : "retail";
-      out[k].on_hand += r.avail_qty;
-      out[k].retail_value += r.inv_value;
-    }
-    return out;
-  }
-
-  function getAssumptionInputs(){
-    const assumptions = {};
-    for (const ch of CHANNELS){
-      assumptions[ch.key] = {
-        enabled: el(`chk_${ch.key}`).checked,
-        mixPct: num(el(`mix_${ch.key}`).value) / 100,
-        bucketLift: num(el(`lift_${ch.key}`).value) / 100,
-        revenueOverride: num(el(`rev_${ch.key}`).value),
-        aspOverride: num(el(`asp_${ch.key}`).value),
-        aspChange: num(el(`aspchg_${ch.key}`).value) / 100
-      };
-    }
-    return assumptions;
-  }
-
-  function calculateScenario(){
-    const f = currentFilters();
-    const histByCh = salesTotalsByChannel();
-    const invByCh = inventoryTotalsByChannel();
-    const assumptions = getAssumptionInputs();
-    const rows = [];
-
-    let histUnitsTotal = 0, histRevenueTotal = 0;
-    for (const ch of CHANNELS){
-      histUnitsTotal += histByCh[ch.key].units;
-      histRevenueTotal += histByCh[ch.key].revenue;
-    }
-
-    for (const ch of CHANNELS){
-      const hist = histByCh[ch.key];
-      const inv = invByCh[ch.key];
-      const a = assumptions[ch.key];
-      const histAsp = hist.units > 0 ? hist.revenue / hist.units : 0;
-      const adjustedAsp = a.aspOverride > 0 ? a.aspOverride : histAsp * (1 + a.aspChange);
-      const lift = f.lift + a.bucketLift;
-
-      let revenue = 0;
-      let units = 0;
-      let method = "Historical × Lift";
-
-      if (!a.enabled){
-        revenue = 0;
-        units = 0;
-        method = "Disabled";
-      } else if (a.revenueOverride > 0){
-        revenue = a.revenueOverride;
-        units = adjustedAsp > 0 ? revenue / adjustedAsp : 0;
-        method = "Bucket Revenue Override";
-      } else if (f.totalRevenueOverride > 0 && f.mixMode === "on"){
-        revenue = f.totalRevenueOverride * a.mixPct;
-        units = adjustedAsp > 0 ? revenue / adjustedAsp : 0;
-        method = "Total Revenue × Mix";
-      } else {
-        units = hist.units * (1 + lift);
-        revenue = units * adjustedAsp;
-      }
-
-      const gap = units - inv.on_hand;
-      const gapSafety = Math.max(0, Math.ceil(gap + (units * f.safetyPct)));
-      const plainGap = Math.ceil(gap);
-
-      rows.push({
-        key:ch.key,
-        label:ch.label,
-        enabled:a.enabled,
-        hist_units:hist.units,
-        hist_revenue:hist.revenue,
-        hist_asp:histAsp,
-        adjusted_asp:adjustedAsp,
-        revenue,
-        units,
-        unit_delta:units - hist.units,
-        revenue_delta:revenue - hist.revenue,
-        on_hand:inv.on_hand,
-        retail_value:inv.retail_value,
-        gap:plainGap,
-        gap_safety:gapSafety,
-        method
-      });
-    }
-
-    const total = rows.reduce((a,r) => {
-      a.hist_units += r.hist_units;
-      a.hist_revenue += r.hist_revenue;
-      a.revenue += r.revenue;
-      a.units += r.units;
-      a.unit_delta += r.unit_delta;
-      a.revenue_delta += r.revenue_delta;
-      a.on_hand += r.on_hand;
-      a.retail_value += r.retail_value;
-      a.gap += r.gap;
-      a.gap_safety += r.gap_safety;
-      return a;
-    }, { label:"Total", hist_units:0, hist_revenue:0, revenue:0, units:0, unit_delta:0, revenue_delta:0, on_hand:0, retail_value:0, gap:0, gap_safety:0 });
-
-    total.adjusted_asp = total.units > 0 ? total.revenue / total.units : 0;
-    total.hist_asp = total.hist_units > 0 ? total.hist_revenue / total.hist_units : 0;
-
-    return { rows, total, filters:f };
+    }));
   }
 
   function defaultAssumptionsFromHistorical(){
     const hist = salesTotalsByChannel();
     const totalRevenue = Object.values(hist).reduce((s,r) => s + r.revenue, 0);
     for (const ch of CHANNELS){
-      const h = hist[ch.key] || { units:0, revenue:0 };
+      const h = hist[ch.key] || { revenue:0 };
       const mix = totalRevenue > 0 ? (h.revenue / totalRevenue) * 100 : (ch.key === "online" ? 50 : ch.key === "retail" ? 40 : 10);
-      el(`mix_${ch.key}`).value = mix.toFixed(1);
-      el(`lift_${ch.key}`).value = "0";
-      el(`rev_${ch.key}`).value = "";
-      el(`asp_${ch.key}`).value = "";
-      el(`aspchg_${ch.key}`).value = "";
+      if (el(`mix_${ch.key}`)) el(`mix_${ch.key}`).value = mix.toFixed(1);
+      if (el(`lift_${ch.key}`)) el(`lift_${ch.key}`).value = "0";
+      if (el(`rev_${ch.key}`)) el(`rev_${ch.key}`).value = "";
+      if (el(`asp_${ch.key}`)) el(`asp_${ch.key}`).value = "";
+      if (el(`aspchg_${ch.key}`)) el(`aspchg_${ch.key}`).value = "0";
+      if (el(`chk_${ch.key}`)) el(`chk_${ch.key}`).checked = true;
     }
   }
 
   function renderProductTypeOptions(){
-    const types = [...new Set(SALES_ROWS.map(r => r.product_type).concat(INVENTORY_ROWS.map(r => r.product_type)).filter(Boolean))].sort();
+    const types = [...new Set(SALES_ROWS.map(r => r.product_type).concat(INVENTORY_ROWS.map(r => r.product_type)).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
     const sel = el("selProductType");
-    const current = sel.value || "__ALL__";
+    const cur = sel.value || "__ALL__";
     sel.innerHTML = `<option value="__ALL__">All product types</option>` + types.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join("");
-    sel.value = types.includes(current) ? current : "__ALL__";
+    sel.value = types.includes(cur) ? cur : "__ALL__";
   }
 
-  function renderAssumptionRows(){
+  function renderAssumptionStrips(){
     const hist = salesTotalsByChannel();
     const totalRevenue = Object.values(hist).reduce((s,r) => s + r.revenue, 0);
-    const body = el("assumptionsBody");
+    const body = el("assumptionStrips");
 
     body.innerHTML = CHANNELS.map(ch => {
       const h = hist[ch.key] || { units:0, revenue:0 };
       const asp = h.units > 0 ? h.revenue / h.units : 0;
-      const defaultMix = totalRevenue > 0 ? (h.revenue / totalRevenue) * 100 : 0;
-      const existingMix = el(`mix_${ch.key}`)?.value;
-      const mixValue = existingMix !== undefined && existingMix !== "" ? existingMix : defaultMix.toFixed(1);
+      const mixDefault = totalRevenue > 0 ? (h.revenue / totalRevenue) * 100 : 0;
+      const currentMix = el(`mix_${ch.key}`)?.value;
+      const currentLift = el(`lift_${ch.key}`)?.value;
+      const currentRev = el(`rev_${ch.key}`)?.value;
+      const currentAsp = el(`asp_${ch.key}`)?.value;
+      const currentAspChg = el(`aspchg_${ch.key}`)?.value;
+
       return `
-        <tr>
-          <td class="px-3 py-2 font-bold">${esc(ch.label)}</td>
-          <td class="px-3 py-2 text-center"><input id="chk_${ch.key}" type="checkbox" checked class="h-4 w-4"></td>
-          <td class="px-3 py-2 num mono">${Math.round(h.units).toLocaleString()}</td>
-          <td class="px-3 py-2 num mono">${money(h.revenue)}</td>
-          <td class="px-3 py-2 num mono">${money2(asp)}</td>
-          <td class="px-3 py-2 num"><input id="mix_${ch.key}" type="number" step="0.1" value="${esc(mixValue)}" class="w-24 mono text-right"></td>
-          <td class="px-3 py-2 num"><input id="lift_${ch.key}" type="number" step="1" value="${esc(el(`lift_${ch.key}`)?.value || "0")}" class="w-24 mono text-right"></td>
-          <td class="px-3 py-2 num"><input id="rev_${ch.key}" type="number" step="1000" value="${esc(el(`rev_${ch.key}`)?.value || "")}" placeholder="blank" class="w-36 mono text-right"></td>
-          <td class="px-3 py-2 num"><input id="asp_${ch.key}" type="number" step="0.01" value="${esc(el(`asp_${ch.key}`)?.value || "")}" placeholder="blank" class="w-28 mono text-right"></td>
-          <td class="px-3 py-2 num"><input id="aspchg_${ch.key}" type="number" step="1" value="${esc(el(`aspchg_${ch.key}`)?.value || "0")}" class="w-28 mono text-right"></td>
-          <td class="px-3 py-2 text-xs text-slate-600" id="readout_${ch.key}">—</td>
-        </tr>
+        <div class="surface p-2">
+          <div class="assumption-strip">
+            <div>
+              <div class="assump-head ${ch.className}">${esc(ch.label)} Assumptions</div>
+              <div class="assump-note">
+                <span class="mono">${Math.round(h.units).toLocaleString()} u</span>
+                @ <span class="mono">${money2(asp)}</span> ASP
+              </div>
+            </div>
+            <label class="text-[10px] font-bold text-slate-500">Use<br><input id="chk_${ch.key}" type="checkbox" class="h-4 w-4 mt-1" checked></label>
+            <label class="text-[10px] font-bold text-slate-500">Mix %<br><input id="mix_${ch.key}" class="mini-input" type="number" step="0.1" value="${esc(currentMix || mixDefault.toFixed(1))}"></label>
+            <label class="text-[10px] font-bold text-slate-500">Lift %<br><input id="lift_${ch.key}" class="mini-input" type="number" step="1" value="${esc(currentLift || "0")}"></label>
+            <label class="text-[10px] font-bold text-slate-500">Revenue Override<br><input id="rev_${ch.key}" class="mini-input" type="number" step="1000" value="${esc(currentRev || "")}" placeholder="blank"></label>
+            <label class="text-[10px] font-bold text-slate-500">ASP Override<br><input id="asp_${ch.key}" class="mini-input" type="number" step="0.01" value="${esc(currentAsp || "")}" placeholder="blank"></label>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-4 gap-2 mt-2">
+            <label class="text-[10px] font-bold text-slate-500">ASP Change %
+              <input id="aspchg_${ch.key}" class="mini-input mt-1" type="number" step="1" value="${esc(currentAspChg || "0")}">
+            </label>
+            <div class="md:col-span-3 text-[11px] text-slate-500 flex items-center" id="readout_${ch.key}">—</div>
+          </div>
+        </div>
       `;
     }).join("");
 
     for (const ch of CHANNELS){
       [`chk_${ch.key}`,`mix_${ch.key}`,`lift_${ch.key}`,`rev_${ch.key}`,`asp_${ch.key}`,`aspchg_${ch.key}`].forEach(id => {
-        el(id)?.addEventListener("input", applyFilters);
-        el(id)?.addEventListener("change", applyFilters);
+        el(id)?.addEventListener("input", run);
+        el(id)?.addEventListener("change", run);
       });
     }
   }
 
-  function signalForGap(gapSafety, units, onHand){
-    if (gapSafety > 0 && onHand <= 0) return `<span class="badge badge-bad">NO STOCK</span>`;
-    if (gapSafety > 0) return `<span class="badge badge-warn">BUY NEED</span>`;
-    if (onHand > units * 1.5 && units > 0) return `<span class="badge">OVERSTOCK</span>`;
-    return `<span class="badge badge-good">OK</span>`;
+  function run(){
+    const f = getFilters();
+
+    FILTERED_SALES = SALES_ROWS.filter(r => {
+      if (f.productType !== "__ALL__" && r.product_type !== f.productType) return false;
+      if (f.from && r.month_key < f.from) return false;
+      if (f.to && r.month_key > f.to) return false;
+      return true;
+    });
+
+    FILTERED_INVENTORY = INVENTORY_ROWS.filter(r => {
+      if (f.productType !== "__ALL__" && r.product_type !== f.productType) return false;
+      if (f.productSearch){
+        const hay = `${r.product} ${r.sku} ${r.product_type} ${r.tag} ${r.collection} ${r.indicator_group}`.toLowerCase();
+        if (!hay.includes(f.productSearch)) return false;
+      }
+      return true;
+    });
+
+    buildProductFamilies();
+    renderAssumptionStrips();
+    LAST_RESULT = selectedScenario();
+
+    renderTop();
+    renderScenarioMatrix();
+    renderMonthly();
+    renderGapAndChannel();
+    renderFamilies();
+    renderStatus();
   }
 
-  function productAction(row){
-    if (row.negative_count > 0) return `<span class="badge badge-warn">DATA REVIEW</span>`;
-    if (row.gap_safety > 0 && row.avail_qty > row.scenario_units) return `<span class="badge badge-info">REVIEW MIX</span>`;
-    if (row.gap_safety > 0) return `<span class="badge badge-bad">BUY</span>`;
-    if (row.avail_qty > row.scenario_units * 1.5 && row.scenario_units > 0) return `<span class="badge">OVERSTOCK</span>`;
-    return `<span class="badge badge-good">OK</span>`;
-  }
+  function renderTop(){
+    const f = getFilters();
+    const selected = selectedScenario();
+    const months = monthlyTotals();
+    const start = f.from ? monthLabel(f.from) : (months[0] ? monthLabel(months[0].month_key) : "—");
+    const end = f.to ? monthLabel(f.to) : (months[months.length-1] ? monthLabel(months[months.length-1].month_key) : "—");
+    const type = f.productType === "__ALL__" ? "All types" : f.productType;
+    el("rangeChip").textContent = `${start} – ${end} · ${type}`;
+    el("selectedScenarioChip").textContent = scenarioLabel(f.selectedLift);
 
-  function renderScenario(){
-    const result = SCENARIO_RESULT;
-    if (!result) return;
+    const cards = CARD_SCENARIOS.map((p, idx) => {
+      const r = calculateScenario(p/100).total;
+      const bg = idx === 0 ? "#243e6b" : idx === 1 ? "#86efac" : idx === 2 ? "#22c55e" : "#052e16";
+      const color = idx === 1 ? "#052e16" : "#fff";
+      const delta = r.revenue_delta >= 0 ? `+${money(r.revenue_delta)}` : money(r.revenue_delta);
+      return `
+        <div class="scenario-card" style="background:${bg}; color:${color}">
+          <div class="scenario-title">${p === 0 ? "At Plan" : `Plan +${p}%`}</div>
+          <div class="scenario-value">${money(r.revenue)}</div>
+          <div class="scenario-sub">
+            ${Math.round(r.units).toLocaleString()} units<br>
+            ${p === 0 ? "Baseline" : `${delta} vs plan`}
+          </div>
+        </div>
+      `;
+    }).join("");
+    el("scenarioCards").innerHTML = cards;
 
-    el("scenarioBadge").textContent = result.filters.scenarioName || `${pct(result.filters.lift * 100)} scenario`;
+    const by = selected.rows;
+    el("assumptionReadout").innerHTML = by.map(r => {
+      const ch = CHANNELS.find(c => c.key === r.key);
+      return `
+        <div class="surface p-3">
+          <div class="flex items-center justify-between gap-2">
+            <div class="assump-head ${ch?.className || ""}">${esc(r.label)} Assumptions</div>
+            <span class="text-[11px] text-slate-500 mono">${pct(r.plan_mix*100,0)} @ ${money2(r.plan_asp)}</span>
+          </div>
+          <div class="mt-2 grid grid-cols-3 gap-2">
+            <div><div class="text-[10px] text-slate-500 font-bold">Revenue</div><div class="mono font-black">${money(r.revenue)}</div></div>
+            <div><div class="text-[10px] text-slate-500 font-bold">Units</div><div class="mono font-black">${Math.round(r.units).toLocaleString()}</div></div>
+            <div><div class="text-[10px] text-slate-500 font-bold">ASP Δ</div><div class="mono font-black">${pct(r.asp_change*100)}</div></div>
+          </div>
+        </div>
+      `;
+    }).join("");
 
-    el("kHistRevenue").textContent = money(result.total.hist_revenue);
-    el("kHistRevenueSub").textContent = `${Math.round(result.total.hist_units).toLocaleString()} historical units`;
-    el("kReqUnits").textContent = Math.round(result.total.units).toLocaleString();
-    el("kReqUnitsSub").textContent = `${money(result.total.revenue)} projected revenue`;
-    el("kOnHand").textContent = Math.round(result.total.on_hand).toLocaleString();
-    el("kOnHandSub").textContent = `${money(result.total.retail_value)} retail value`;
-    el("kGap").textContent = Math.round(result.total.gap).toLocaleString();
-    el("kGapSub").textContent = `Required - on hand`;
-    el("kGapSafety").textContent = Math.round(result.total.gap_safety).toLocaleString();
-    el("kGapSafetySub").textContent = `${pct(result.filters.safetyPct * 100)} safety stock`;
-
-    for (const r of result.rows){
-      const readout = el(`readout_${r.key}`);
-      if (readout){
-        readout.innerHTML = `${r.method} → <b>${Math.round(r.units).toLocaleString()}</b> units @ <b>${money2(r.adjusted_asp)}</b>`;
+    for (const r of selected.rows){
+      const node = el(`readout_${r.key}`);
+      if (node){
+        node.innerHTML = `<span class="pill pill-blue">${esc(r.mode)}</span><span class="ml-2 mono">${money(r.revenue)} / ${Math.round(r.units).toLocaleString()} u @ ${money2(r.plan_asp)}</span>`;
       }
     }
+  }
 
-    const totalRow = result.total;
-    el("scenarioSummaryBody").innerHTML = result.rows.concat([totalRow]).map(r => `
-      <tr class="${r.label === "Total" ? "bg-slate-50 font-extrabold" : ""}">
-        <td class="px-3 py-2">${esc(r.label)}</td>
-        <td class="px-3 py-2 num mono">${money(r.revenue)}</td>
-        <td class="px-3 py-2 num mono">${money2(r.adjusted_asp)}</td>
-        <td class="px-3 py-2 num mono">${Math.round(r.units).toLocaleString()}</td>
-        <td class="px-3 py-2 num mono">${Math.round(r.unit_delta).toLocaleString()}</td>
-        <td class="px-3 py-2 num mono">${money(r.revenue_delta)}</td>
-      </tr>
-    `).join("");
+  function renderScenarioMatrix(){
+    const all = SCENARIOS.map(p => ({ pct:p, scenario:calculateScenario(p/100) }));
+    const maxVal = Math.max(...all.map(x => SUMMARY_METRIC === "units" ? x.scenario.total.units : SUMMARY_METRIC === "gap" ? x.scenario.total.gap_buffer : x.scenario.total.revenue), 1);
 
-    el("inventoryGapBody").innerHTML = result.rows.concat([totalRow]).map(r => `
-      <tr class="${r.label === "Total" ? "bg-slate-50 font-extrabold" : ""}">
-        <td class="px-3 py-2">${esc(r.label)}</td>
+    el("scenarioBars").innerHTML = all.map((x, idx) => {
+      const val = SUMMARY_METRIC === "units" ? x.scenario.total.units : SUMMARY_METRIC === "gap" ? x.scenario.total.gap_buffer : x.scenario.total.revenue;
+      const h = Math.max(24, Math.round((val / maxVal) * 70));
+      const colors = ["#243e6b","#dcfce7","#bbf7d0","#86efac","#4ade80","#22c55e","#16a34a","#15803d","#166534","#14532d","#052e16"];
+      const label = x.pct === 0 ? "Plan" : `+${x.pct}%`;
+      return `<div class="bar" style="height:${h}px;background:${colors[idx]};color:${idx===0||idx>6?"#fff":"#064e3b"}">${label}</div>`;
+    }).join("");
+
+    el("scenarioMatrixHead").innerHTML = `<th class="px-3 py-2 text-left">Plan</th>` + all.map(x => `<th class="px-3 py-2 num">${x.pct === 0 ? "Plan" : `+${x.pct}%`}</th>`).join("");
+
+    const revRow = `<tr><td class="px-3 py-2 font-extrabold">Revenue</td>${all.map(x => `<td class="px-3 py-2 num mono font-bold">${money(x.scenario.total.revenue)}</td>`).join("")}</tr>`;
+    const unitsRow = `<tr><td class="px-3 py-2 font-extrabold">Units</td>${all.map(x => `<td class="px-3 py-2 num mono">${Math.round(x.scenario.total.units).toLocaleString()} u</td>`).join("")}</tr>`;
+    const deltaRow = `<tr><td class="px-3 py-2 font-extrabold">Δ vs Plan</td>${all.map(x => {
+      const d = x.scenario.total.revenue_delta;
+      return `<td class="px-3 py-2 num mono text-emerald-700 font-bold">${x.pct === 0 ? "—" : `+${money(d)}`}</td>`;
+    }).join("")}</tr>`;
+    const gapRow = `<tr><td class="px-3 py-2 font-extrabold">Gap + Buffer</td>${all.map(x => `<td class="px-3 py-2 num mono">${Math.round(x.scenario.total.gap_buffer).toLocaleString()}</td>`).join("")}</tr>`;
+    el("scenarioMatrixBody").innerHTML = revRow + unitsRow + deltaRow + gapRow;
+  }
+
+  function monthlyScenarioFor(month, lift){
+    const f = getFilters();
+    const assumptions = readChannelAssumptions();
+    const rows = FILTERED_SALES.filter(r => r.month_key === month.month_key);
+    const histTotalRevenue = rows.reduce((s,r)=>s+r.revenue,0);
+    let units = 0, revenue = 0;
+
+    for (const ch of CHANNELS){
+      const chRows = rows.filter(r => r.channel === ch.key);
+      const histUnits = chRows.reduce((s,r)=>s+r.units,0);
+      const histRevenue = chRows.reduce((s,r)=>s+r.revenue,0);
+      const histAsp = histUnits > 0 ? histRevenue / histUnits : 0;
+      const a = assumptions[ch.key];
+      if (!a.enabled) continue;
+      const asp = a.aspOverride > 0 ? a.aspOverride : histAsp * (1 + a.aspChange);
+      if (f.totalRevenueOverride > 0){
+        // distribute total override to months by historical month revenue share, then channel mix
+        const selectedTotal = FILTERED_SALES.reduce((s,r)=>s+r.revenue,0);
+        const monthShare = selectedTotal > 0 ? histTotalRevenue / selectedTotal : 0;
+        const monthlyOverride = f.totalRevenueOverride * monthShare;
+        const rev = monthlyOverride * (a.mixPct || 0);
+        revenue += rev;
+        units += asp > 0 ? rev / asp : 0;
+      } else if (a.revenueOverride > 0){
+        const selectedTotal = FILTERED_SALES.reduce((s,r)=>s+r.revenue,0);
+        const monthShare = selectedTotal > 0 ? histTotalRevenue / selectedTotal : 0;
+        const rev = a.revenueOverride * monthShare;
+        revenue += rev;
+        units += asp > 0 ? rev / asp : 0;
+      } else {
+        const u = histUnits * (1 + lift + a.bucketLift);
+        units += u;
+        revenue += u * asp;
+      }
+    }
+    return { units, revenue };
+  }
+
+  function renderMonthly(){
+    const months = monthlyTotals();
+    const lifts = SCENARIOS;
+    let head = `<th class="px-3 py-2 text-left">Month</th>`;
+
+    for (const p of lifts){
+      if (MONTHLY_METRIC === "revenue"){
+        head += `<th class="px-3 py-2 num">${p===0?"Plan":`+${p}%`} Rev</th>`;
+      } else if (MONTHLY_METRIC === "units"){
+        head += `<th class="px-3 py-2 num">${p===0?"Plan":`+${p}%`} Units</th>`;
+      } else {
+        head += `<th class="px-3 py-2 num">${p===0?"Plan":`+${p}%`} Rev</th><th class="px-3 py-2 num">${p===0?"Plan":`+${p}%`} Units</th>`;
+      }
+    }
+    el("monthlyHead").innerHTML = head;
+
+    const rowsHtml = months.map(m => {
+      let row = `<tr><td class="px-3 py-2 font-bold">${esc(monthLabel(m.month_key))}</td>`;
+      for (const p of lifts){
+        const s = monthlyScenarioFor(m, p/100);
+        if (MONTHLY_METRIC === "revenue"){
+          row += `<td class="px-3 py-2 num mono font-semibold">${money(s.revenue)}</td>`;
+        } else if (MONTHLY_METRIC === "units"){
+          row += `<td class="px-3 py-2 num mono">${Math.round(s.units).toLocaleString()}</td>`;
+        } else {
+          row += `<td class="px-3 py-2 num mono font-semibold">${money(s.revenue)}</td><td class="px-3 py-2 num mono text-slate-500">${Math.round(s.units).toLocaleString()}</td>`;
+        }
+      }
+      row += `</tr>`;
+      return row;
+    }).join("");
+
+    const totalRow = (() => {
+      let row = `<tr class="bg-slate-50"><td class="px-3 py-2 font-black">Total</td>`;
+      for (const p of lifts){
+        const s = calculateScenario(p/100).total;
+        if (MONTHLY_METRIC === "revenue"){
+          row += `<td class="px-3 py-2 num mono font-black">${money(s.revenue)}</td>`;
+        } else if (MONTHLY_METRIC === "units"){
+          row += `<td class="px-3 py-2 num mono font-black">${Math.round(s.units).toLocaleString()}</td>`;
+        } else {
+          row += `<td class="px-3 py-2 num mono font-black">${money(s.revenue)}</td><td class="px-3 py-2 num mono font-bold text-slate-600">${Math.round(s.units).toLocaleString()}</td>`;
+        }
+      }
+      row += `</tr>`;
+      return row;
+    })();
+
+    el("monthlyBody").innerHTML = rowsHtml + totalRow;
+  }
+
+  function signalCell(row){
+    if (row.gap_buffer > 0 && row.on_hand <= 0) return `<span class="pill pill-bad">No Stock</span>`;
+    if (row.gap_buffer > 0) return `<span class="pill pill-warn">Buy Need</span>`;
+    if (row.on_hand > row.units * 1.5 && row.units > 0) return `<span class="pill">Overstock</span>`;
+    return `<span class="pill pill-good">OK</span>`;
+  }
+
+  function renderGapAndChannel(){
+    const s = selectedScenario();
+
+    el("gapBody").innerHTML = s.rows.concat([s.total]).map(r => `
+      <tr class="${r.key==="total"?"font-black bg-slate-50":""}">
+        <td class="px-3 py-2 font-bold">${esc(r.label)}</td>
         <td class="px-3 py-2 num mono">${Math.round(r.units).toLocaleString()}</td>
         <td class="px-3 py-2 num mono">${Math.round(r.on_hand).toLocaleString()}</td>
         <td class="px-3 py-2 num mono">${Math.round(r.gap).toLocaleString()}</td>
-        <td class="px-3 py-2 num mono">${Math.round(r.gap_safety).toLocaleString()}</td>
-        <td class="px-3 py-2">${r.label === "Total" ? "" : signalForGap(r.gap_safety, r.units, r.on_hand)}</td>
+        <td class="px-3 py-2 num mono font-bold">${Math.round(r.gap_buffer).toLocaleString()}</td>
+        <td class="px-3 py-2">${r.key==="total" ? "" : signalCell(r)}</td>
+      </tr>
+    `).join("");
+
+    el("channelBody").innerHTML = s.rows.map(r => `
+      <tr>
+        <td class="px-3 py-2 font-bold">${esc(r.label)}</td>
+        <td class="px-3 py-2 num mono">${pct(r.hist_mix*100)}</td>
+        <td class="px-3 py-2 num mono">${pct(r.plan_mix*100)}</td>
+        <td class="px-3 py-2 num mono">${money2(r.hist_asp)}</td>
+        <td class="px-3 py-2 num mono">${money2(r.plan_asp)}</td>
+        <td class="px-3 py-2 num mono">${pct(r.asp_change*100)}</td>
+        <td class="px-3 py-2"><span class="pill pill-blue">${esc(r.mode)}</span></td>
       </tr>
     `).join("");
   }
 
-  function renderProductFamilies(){
-    const result = SCENARIO_RESULT;
-    if (!result) return;
+  function familyAction(r){
+    if (r.negative_count > 0) return `<span class="pill pill-warn">Data Review</span>`;
+    if (r.gap_buffer > 0 && r.avail_qty > r.scenario_units) return `<span class="pill pill-purple">Review Mix</span>`;
+    if (r.gap_buffer > 0) return `<span class="pill pill-bad">Buy</span>`;
+    if (r.avail_qty > r.scenario_units * 1.5 && r.scenario_units > 0) return `<span class="pill">Overstock</span>`;
+    return `<span class="pill pill-good">OK</span>`;
+  }
 
-    const totalProjectedUnits = result.total.units;
-    const totalDemand = PRODUCT_FAMILIES.reduce((s,r) => s + Math.max(num(r.sold_30), num(r.qty_365d) / 12, 0), 0);
+  function renderFamilies(){
+    const s = selectedScenario();
+    const totalProjectedUnits = s.total.units;
+    const demandTotal = PRODUCT_FAMILIES.reduce((sum,r) => sum + Math.max(r.sold_30, r.qty_365d / 12, 0), 0);
 
-    const rows = PRODUCT_FAMILIES.map(r => {
-      const demand = Math.max(num(r.sold_30), num(r.qty_365d) / 12, 0);
-      const share = totalDemand > 0 ? demand / totalDemand : 0;
+    let rows = PRODUCT_FAMILIES.map(r => {
+      const demand = Math.max(r.sold_30, r.qty_365d / 12, 0);
+      const share = demandTotal > 0 ? demand / demandTotal : 0;
       const scenarioUnits = totalProjectedUnits * share;
-      const gap = Math.ceil(scenarioUnits - num(r.avail_qty));
-      const gapSafety = Math.max(0, Math.ceil(gap + scenarioUnits * result.filters.safetyPct));
-      return { ...r, demand, share, scenario_units: scenarioUnits, gap, gap_safety: gapSafety };
-    }).filter(r => {
-      if (FAMILY_FILTER === "buy") return r.gap_safety > 0;
-      if (FAMILY_FILTER === "mix") return r.gap_safety > 0 && r.avail_qty > r.scenario_units;
+      const gap = Math.ceil(scenarioUnits - r.avail_qty);
+      const gapBuffer = Math.max(0, Math.ceil(gap + scenarioUnits * getFilters().safetyPct));
+      return { ...r, demand, share, scenario_units:scenarioUnits, gap, gap_buffer:gapBuffer };
+    });
+
+    rows = rows.filter(r => {
+      if (FAMILY_FILTER === "buy") return r.gap_buffer > 0;
+      if (FAMILY_FILTER === "mix") return r.gap_buffer > 0 && r.avail_qty > r.scenario_units;
       if (FAMILY_FILTER === "overstock") return r.avail_qty > r.scenario_units * 1.5 && r.scenario_units > 0;
       return true;
-    }).sort((a,b) => b.gap_safety - a.gap_safety);
+    }).sort((a,b) => b.gap_buffer - a.gap_buffer);
 
-    el("productFamilyBody").innerHTML = rows.length ? rows.slice(0,500).map(r => `
+    el("familyBody").innerHTML = rows.length ? rows.slice(0,700).map(r => `
       <tr>
         <td class="px-3 py-2 font-semibold">${esc(r.product)}</td>
         <td class="px-3 py-2">${esc(r.product_type)}</td>
@@ -849,90 +1248,72 @@
         <td class="px-3 py-2 num mono">${money(r.inv_value)}</td>
         <td class="px-3 py-2 num mono">${Math.round(r.sold_30).toLocaleString()}</td>
         <td class="px-3 py-2 num mono">${Math.round(r.qty_365d).toLocaleString()}</td>
-        <td class="px-3 py-2 num mono">${pct(r.share * 100)}</td>
+        <td class="px-3 py-2 num mono">${pct(r.share*100,2)}</td>
         <td class="px-3 py-2 num mono">${Math.round(r.scenario_units).toLocaleString()}</td>
         <td class="px-3 py-2 num mono">${Math.round(r.gap).toLocaleString()}</td>
-        <td class="px-3 py-2 num mono font-bold">${Math.round(r.gap_safety).toLocaleString()}</td>
-        <td class="px-3 py-2">${productAction(r)}</td>
-        <td class="px-3 py-2 text-xs text-slate-600">${esc([r.tag, r.sub_tag, r.indicator_group, r.collection].filter(Boolean).join(" / ") || "—")}</td>
+        <td class="px-3 py-2 num mono font-black">${Math.round(r.gap_buffer).toLocaleString()}</td>
+        <td class="px-3 py-2">${familyAction(r)}</td>
+        <td class="px-3 py-2 text-slate-600">${esc([r.tag,r.sub_tag,r.indicator_group,r.collection].filter(Boolean).join(" / ") || "—")}</td>
       </tr>
-    `).join("") : `<tr><td colspan="12" class="px-3 py-8 text-center text-slate-500">No product family rows.</td></tr>`;
+    `).join("") : `<tr><td colspan="12" class="px-3 py-8 text-center text-slate-500">No product families for this filter.</td></tr>`;
   }
 
-  function renderMonthly(){
-    const by = new Map();
-    for (const r of FILTERED_SALES){
-      const key = `${r.month_key}::${r.channel}`;
-      if (!by.has(key)) by.set(key, { month_key:r.month_key, channel:r.channel, units:0, revenue:0, rows:0, unique_skus:0 });
-      const a = by.get(key);
-      a.units += r.units;
-      a.revenue += r.revenue;
-      a.rows += r.rows;
-      a.unique_skus += r.unique_skus;
-    }
-    const rows = [...by.values()].sort((a,b) => a.month_key.localeCompare(b.month_key) || a.channel.localeCompare(b.channel));
-    el("monthlyBody").innerHTML = rows.map(r => `
-      <tr>
-        <td class="px-3 py-2 mono">${esc(r.month_key)}</td>
-        <td class="px-3 py-2">${esc(CHANNELS.find(c => c.key === r.channel)?.label || r.channel)}</td>
-        <td class="px-3 py-2 num mono">${Math.round(r.units).toLocaleString()}</td>
-        <td class="px-3 py-2 num mono">${money(r.revenue)}</td>
-        <td class="px-3 py-2 num mono">${money2(r.units > 0 ? r.revenue / r.units : 0)}</td>
-        <td class="px-3 py-2 num mono">${Math.round(r.rows).toLocaleString()}</td>
-        <td class="px-3 py-2 num mono">${Math.round(r.unique_skus).toLocaleString()}</td>
-      </tr>
-    `).join("");
-  }
-
-  function renderAll(){
-    renderAssumptionRows();
-    SCENARIO_RESULT = calculateScenario();
-    renderScenario();
-    renderProductFamilies();
-    renderMonthly();
-
-    const f = currentFilters();
+  function renderStatus(){
+    const f = getFilters();
+    const months = monthlyTotals();
     el("statusLine").innerHTML = `
-      Loaded <b>${SALES_ROWS.length.toLocaleString()}</b> monthly sales rows and
+      Loaded <b>${SALES_ROWS.length.toLocaleString()}</b> sales monthly rows and
       <b>${INVENTORY_ROWS.length.toLocaleString()}</b> inventory rows.
-      Filtered baseline: <b>${FILTERED_SALES.length.toLocaleString()}</b> sales rows /
-      <b>${FILTERED_INVENTORY.length.toLocaleString()}</b> inventory rows.
+      Filtered <b>${FILTERED_SALES.length.toLocaleString()}</b> sales rows /
+      <b>${FILTERED_INVENTORY.length.toLocaleString()}</b> inventory rows /
+      <b>${PRODUCT_FAMILIES.length.toLocaleString()}</b> product families.
+      <span class="text-slate-400">Source: ${SALES_VIEW} + ${INVENTORY_VIEW}</span>
     `;
   }
 
-  function exportRows(){
-    const result = SCENARIO_RESULT;
-    if (!result) return;
-    const scenarioRows = result.rows.map(r => ({
-      section:"scenario_summary",
-      note:result.filters.scenarioName,
-      product_type:result.filters.productType,
-      bucket:r.label,
-      hist_units:Math.round(r.hist_units),
-      hist_revenue:r.hist_revenue,
-      hist_asp:r.hist_asp,
-      projected_revenue:r.revenue,
-      projected_units:Math.round(r.units),
-      adjusted_asp:r.adjusted_asp,
-      unit_delta:Math.round(r.unit_delta),
-      revenue_delta:r.revenue_delta,
-      on_hand:Math.round(r.on_hand),
-      gap:Math.round(r.gap),
-      gap_safety:Math.round(r.gap_safety),
-      method:r.method
-    }));
+  function resetControls(){
+    el("selProductType").value = "__ALL__";
+    el("txtProductSearch").value = "";
+    el("selScenario").value = "25";
+    el("numCustomLift").value = "25";
+    el("numSafetyPct").value = "10";
+    el("numTotalRevenueOverride").value = "";
+    defaultAssumptionsFromHistorical();
+    run();
+  }
 
-    const totalProjectedUnits = result.total.units;
-    const totalDemand = PRODUCT_FAMILIES.reduce((s,r) => s + Math.max(num(r.sold_30), num(r.qty_365d) / 12, 0), 0);
-    const familyRows = PRODUCT_FAMILIES.map(r => {
-      const demand = Math.max(num(r.sold_30), num(r.qty_365d) / 12, 0);
-      const share = totalDemand > 0 ? demand / totalDemand : 0;
-      const scenarioUnits = totalProjectedUnits * share;
-      const gap = Math.ceil(scenarioUnits - num(r.avail_qty));
-      const gapSafety = Math.max(0, Math.ceil(gap + scenarioUnits * result.filters.safetyPct));
-      return {
+  function exportCsv(){
+    const s = selectedScenario();
+    const rows = [];
+
+    for (const r of s.rows.concat([s.total])){
+      rows.push({
+        section:"scenario_summary",
+        product_type:getFilters().productType,
+        bucket:r.label,
+        scenario:scenarioLabel(s.lift),
+        historical_revenue:r.hist_revenue,
+        projected_revenue:r.revenue,
+        historical_units:Math.round(r.hist_units),
+        projected_units:Math.round(r.units),
+        historical_asp:r.hist_asp,
+        planned_asp:r.plan_asp,
+        on_hand:Math.round(r.on_hand),
+        gap:Math.round(r.gap),
+        gap_buffer:Math.round(r.gap_buffer),
+        mode:r.mode
+      });
+    }
+
+    const demandTotal = PRODUCT_FAMILIES.reduce((sum,r) => sum + Math.max(r.sold_30, r.qty_365d / 12, 0), 0);
+    for (const r of PRODUCT_FAMILIES){
+      const demand = Math.max(r.sold_30, r.qty_365d / 12, 0);
+      const share = demandTotal > 0 ? demand / demandTotal : 0;
+      const scenarioUnits = s.total.units * share;
+      const gap = Math.ceil(scenarioUnits - r.avail_qty);
+      const gapBuffer = Math.max(0, Math.ceil(gap + scenarioUnits * getFilters().safetyPct));
+      rows.push({
         section:"product_family",
-        note:result.filters.scenarioName,
         product_type:r.product_type,
         product:r.product,
         on_hand:Math.round(r.avail_qty),
@@ -942,16 +1323,15 @@
         demand_share:share,
         scenario_units:Math.round(scenarioUnits),
         gap:Math.round(gap),
-        gap_safety:Math.round(gapSafety),
+        gap_buffer:Math.round(gapBuffer),
         tag:r.tag,
         sub_tag:r.sub_tag,
         indicator_group:r.indicator_group,
         collection:r.collection
-      };
-    });
+      });
+    }
 
-    const rows = scenarioRows.concat(familyRows);
-    download(`planning_scenario_${new Date().toISOString().slice(0,10)}.csv`, toCSV(rows));
+    download(`planning_scenarios_${new Date().toISOString().slice(0,10)}.csv`, toCSV(rows));
   }
 
   function toCSV(rows){
@@ -965,7 +1345,7 @@
   }
 
   function download(filename, content){
-    const blob = new Blob([content], {type:"text/csv;charset=utf-8;"});
+    const blob = new Blob([content], { type:"text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -976,32 +1356,36 @@
     setTimeout(() => URL.revokeObjectURL(url), 500);
   }
 
-  function resetControls(){
-    el("selScenario").value = "25";
-    el("numCustomLift").value = "25";
-    el("numSafetyPct").value = "10";
-    el("numTotalRevenueOverride").value = "";
-    el("selMixMode").value = "on";
-    el("txtScenarioName").value = "";
-    defaultAssumptionsFromHistorical();
-    applyFilters();
-  }
-
   function bindEvents(){
     el("logoutBtn").addEventListener("click", async () => {
       try{ await SUPABASE.auth.signOut(); }catch(e){ console.warn(e); }
       window.location.href = LOGIN_PATH;
     });
+
     el("btnReload").addEventListener("click", loadAll);
-    el("btnApply").addEventListener("click", applyFilters);
+    el("btnApply").addEventListener("click", run);
     el("btnReset").addEventListener("click", resetControls);
     el("btnPrint").addEventListener("click", () => window.print());
-    el("btnExport").addEventListener("click", exportRows);
+    el("btnExport").addEventListener("click", exportCsv);
 
-    ["selProductType","txtProductSearch","dateFrom","dateTo","selScenario","numCustomLift","numSafetyPct","numTotalRevenueOverride","selMixMode","txtScenarioName"].forEach(id => {
-      el(id).addEventListener("change", applyFilters);
-      el(id).addEventListener("input", () => {
-        if (["txtProductSearch","numCustomLift","numSafetyPct","numTotalRevenueOverride","txtScenarioName"].includes(id)) applyFilters();
+    ["selProductType","txtProductSearch","dateFrom","dateTo","selScenario","numCustomLift","numSafetyPct","numTotalRevenueOverride","chkShowUnits"].forEach(id => {
+      el(id).addEventListener("input", run);
+      el(id).addEventListener("change", run);
+    });
+
+    document.querySelectorAll("[data-summary-metric]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        SUMMARY_METRIC = btn.getAttribute("data-summary-metric");
+        document.querySelectorAll("[data-summary-metric]").forEach(b => b.classList.toggle("active", b === btn));
+        renderScenarioMatrix();
+      });
+    });
+
+    document.querySelectorAll("[data-monthly-metric]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        MONTHLY_METRIC = btn.getAttribute("data-monthly-metric");
+        document.querySelectorAll("[data-monthly-metric]").forEach(b => b.classList.toggle("active", b === btn));
+        renderMonthly();
       });
     });
 
@@ -1009,7 +1393,7 @@
       btn.addEventListener("click", () => {
         FAMILY_FILTER = btn.getAttribute("data-family-filter");
         document.querySelectorAll("[data-family-filter]").forEach(b => b.classList.toggle("active", b === btn));
-        renderProductFamilies();
+        renderFamilies();
       });
     });
   }
@@ -1017,28 +1401,33 @@
   async function loadAll(){
     el("btnReload").disabled = true;
     el("btnReload").textContent = "Loading…";
-    el("statusLine").textContent = "Loading Supabase planning data…";
+    el("statusLine").textContent = "Loading Supabase scenario data…";
 
     try{
-      const [salesRaw, invRaw] = await Promise.all([
+      const [salesRaw, inventoryRaw] = await Promise.all([
         loadPaged(SALES_VIEW),
         loadPaged(INVENTORY_VIEW)
       ]);
+
       SALES_ROWS = salesRaw.map(mapSalesRow);
-      INVENTORY_ROWS = invRaw.map(mapInventoryRow);
+      INVENTORY_ROWS = inventoryRaw.map(mapInventoryRow);
 
       renderProductTypeOptions();
 
       const months = [...new Set(SALES_ROWS.map(r => r.month_key).filter(Boolean))].sort();
-      if (!el("dateFrom").value && months.length) el("dateFrom").value = months[Math.max(0, months.length - 12)];
+      if (!el("dateFrom").value && months.length) el("dateFrom").value = months[Math.max(0, months.length - 9)];
       if (!el("dateTo").value && months.length) el("dateTo").value = months[months.length - 1];
 
-      renderAssumptionRows();
+      FILTERED_SALES = SALES_ROWS.slice();
+      FILTERED_INVENTORY = INVENTORY_ROWS.slice();
+
+      renderAssumptionStrips();
       defaultAssumptionsFromHistorical();
-      applyFilters();
+      INIT_DONE = true;
+      run();
     } catch(err){
       console.error(err);
-      el("statusLine").innerHTML = `<span class="text-rose-700 font-bold">Load failed:</span> ${esc(err.message || String(err))}`;
+      el("statusLine").innerHTML = `<span class="text-red-700 font-bold">Load failed:</span> ${esc(err.message || String(err))}`;
       alert(`Load failed: ${err.message || String(err)}`);
     } finally {
       el("btnReload").disabled = false;
