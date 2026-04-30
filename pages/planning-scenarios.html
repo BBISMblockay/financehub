@@ -778,16 +778,56 @@
     return out;
   }
 
+  function addMonths(month, offset){
+    if (!month || month.length < 7) return "";
+    const [y,m] = month.split("-").map(Number);
+    const d = new Date(y, (m - 1) + offset, 1);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;
+  }
+
+  function sameMonthPriorYear(month){
+    return addMonths(month, -12);
+  }
+
+  function buildMonthRange(from, to){
+    if (!from || !to) return [];
+    const out = [];
+    let cursor = from;
+    let guard = 0;
+    while (cursor <= to && guard < 48){
+      out.push(cursor);
+      cursor = addMonths(cursor, 1);
+      guard++;
+    }
+    return out;
+  }
+
   function selectedMonths(){
     const f = getFilters();
+
+    // Revenue Plan mode must be able to look forward even when no sales rows exist yet.
+    // If the user chooses May-Dec 2026, we generate those calendar months and use prior-year
+    // same-month data as the seed/baseline unless manual revenue/mix/ASP overrides are entered.
+    if (f.from && f.to) return buildMonthRange(f.from, f.to);
+
     let months = [...new Set(SALES_ROWS.map(r => r.month_key).filter(Boolean))].sort();
     if (f.from) months = months.filter(m => m >= f.from);
     if (f.to) months = months.filter(m => m <= f.to);
     return months;
   }
 
-  function salesRowsForMonth(month){
-    return FILTERED_SALES.filter(r => r.month_key === month);
+  function salesRowsForMonth(month, opts = {}){
+    const sourceMonth = opts.sourceMonth || month;
+    const source = opts.allRows ? SALES_ROWS : FILTERED_SALES;
+    return source.filter(r => r.month_key === sourceMonth);
+  }
+
+  function baselineMonthFor(month){
+    // Exact month if historical rows exist, otherwise prior-year same month.
+    if (SALES_ROWS.some(r => r.month_key === month)) return month;
+    const prior = sameMonthPriorYear(month);
+    if (SALES_ROWS.some(r => r.month_key === prior)) return prior;
+    return month;
   }
 
   function salesTotalsByChannel(rows = FILTERED_SALES){
@@ -835,21 +875,28 @@
   }
 
   function allRevenueForMonth(month){
-    const f = getFilters();
-    return SALES_ROWS.filter(r => r.month_key === month).reduce((s,r)=>s+r.revenue,0);
+    const sourceMonth = baselineMonthFor(month);
+    return SALES_ROWS.filter(r => r.month_key === sourceMonth).reduce((s,r)=>s+r.revenue,0);
   }
 
   function allUnitsForMonth(month){
-    const f = getFilters();
-    return SALES_ROWS.filter(r => r.month_key === month).reduce((s,r)=>s+r.units,0);
+    const sourceMonth = baselineMonthFor(month);
+    return SALES_ROWS.filter(r => r.month_key === sourceMonth).reduce((s,r)=>s+r.units,0);
   }
 
   function histProductTypeUnitsForMonth(month){
-    return salesRowsForMonth(month).reduce((s,r)=>s+r.units,0);
+    const sourceMonth = baselineMonthFor(month);
+    return salesRowsForMonth(sourceMonth).reduce((s,r)=>s+r.units,0);
   }
 
   function histProductTypeRevenueForMonth(month){
-    return salesRowsForMonth(month).reduce((s,r)=>s+r.revenue,0);
+    const sourceMonth = baselineMonthFor(month);
+    return salesRowsForMonth(sourceMonth).reduce((s,r)=>s+r.revenue,0);
+  }
+
+  function baselineLabelFor(month){
+    const sourceMonth = baselineMonthFor(month);
+    return sourceMonth === month ? "actual" : `seeded from ${sourceMonth}`;
   }
 
   function monthPlanInput(idPrefix, month){
@@ -1131,7 +1178,7 @@
         <tr>
           <td class="px-3 py-2 font-bold">${esc(monthLabel(month))}</td>
           <td class="px-3 py-2 num"><input id="revplan_${month}" class="w-full text-right mono" type="number" step="1000" value="${esc(existing || "")}" placeholder="${Math.round(allRevenueForMonth(month)).toLocaleString()}"></td>
-          <td class="px-3 py-2"><input id="note_${month}" class="w-full" type="text" value="${esc(note)}" placeholder="optional"></td>
+          <td class="px-3 py-2"><input id="note_${month}" class="w-full" type="text" value="${esc(note)}" placeholder="${esc(baselineLabelFor(month))}"></td>
         </tr>
       `;
     }).join("");
