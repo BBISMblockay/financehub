@@ -158,7 +158,7 @@
             </select>
 
             <select id="selSort" class="rounded-lg border border-slate-200 px-3 py-2 text-sm min-w-[220px]">
-              <option value="suggested_desc">Suggested Buy (desc)</option>
+              <option value="suggested_desc">Buy / Mix Priority (desc)</option>
               <option value="days_asc">Days Cover / OOS (asc)</option>
               <option value="days_desc">Days Cover / OOS (desc)</option>
               <option value="qty_asc">On Hand (asc)</option>
@@ -250,7 +250,7 @@
               </div>
 
               <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-                Suggested Buy = sum of child SKU/location suggestions. SKU suggestion uses <span class="kbd">(Target Cover + Safety) × Avg/Day × Growth Factor − On Hand</span>.
+                Product Type/Product rows split clean buying from mix pressure. <span class="kbd">Category/Product Buy</span> uses aggregate cover so we do not overbuy heavy categories. <span class="kbd">Mix Shortage / SKU Pressure</span> shows child SKU/location shortages that need review, transfer, or size-curve cleanup.
               </div>
             </div>
           </details>
@@ -511,7 +511,9 @@
       { key: "risk_count", label: "Risk Items", align: "right", default: true },
       { key: "stale_count", label: "Stale", align: "right", default: false },
       { key: "negative_count", label: "Neg Inv", align: "right", default: false },
-      { key: "suggested_po", label: "Suggested Buy", align: "right", default: true },
+      { key: "category_buy", label: "Category Buy", align: "right", default: true },
+      { key: "mix_shortage", label: "Mix Shortage", align: "right", default: true },
+      { key: "suggested_po", label: "Draft Qty", align: "right", default: false },
       { key: "action_flag", label: "Action", default: true },
       { key: "_details", label: "", default: true }
     ];
@@ -537,7 +539,9 @@
       { key: "avg_day", label: "Avg/Day 30", align: "right", default: true },
       { key: "days_oos", label: "Days Cover", align: "right", default: true },
       { key: "last_sold_date", label: "Last Sold", default: true },
-      { key: "suggested_po", label: "Suggested Buy", align: "right", default: true },
+      { key: "category_buy", label: "Product Buy", align: "right", default: true },
+      { key: "mix_shortage", label: "SKU Pressure", align: "right", default: true },
+      { key: "suggested_po", label: "Draft Qty", align: "right", default: false },
       { key: "action_flag", label: "Action", default: true },
       { key: "_details", label: "", default: true }
     ];
@@ -746,6 +750,27 @@
       return `<span class="badge ${cls}">${escapeHtml(driverLabel(driver))}${pctTxt}</span>`;
     }
 
+    function negativeIsMaterial(row){
+      const neg = num(row.negative_count || 0);
+      if (num(row.avail_qty) < 0) return true;
+      if (!neg) return false;
+      const skuCount = Math.max(1, num(row.sku_count || row.variant_count || 1));
+      return neg >= Math.max(10, Math.ceil(skuCount * 0.02));
+    }
+
+    function categoryBuyQty(row, inputs){
+      const { targetCover, safetyDays, minReorder, defaultGrowthPct, seedAvgDay } = inputs || getStrategyInputs();
+      if (deriveDriverCode(row) === "hold") return 0;
+      const avg = effectiveAvgDay(row, seedAvgDay);
+      if (avg <= 0) return 0;
+      const factor = growthFactorForRow(row, defaultGrowthPct);
+      const coverDays = Math.max(0, targetCover) + Math.max(0, safetyDays);
+      const targetUnits = coverDays * avg * factor;
+      const needed = Math.max(Math.ceil(targetUnits - num(row.avail_qty)), 0);
+      if (needed < (minReorder || 0)) return 0;
+      return needed;
+    }
+
     function actionFlag(row){
       const avg = effectiveAvgDay(row, num(el("numSeedAvgDay")?.value || 0));
       const days = num(row.days_oos);
@@ -753,16 +778,31 @@
       const riskThr = num(el("numRiskDays")?.value || 14);
       const lastMs = row.last_sold_ms || null;
       const staleDays = lastMs ? daysSince(lastMs) : null;
+      const categoryBuy = num(row.category_buy ?? row.suggested_po);
+      const mixShortage = num(row.mix_shortage || 0);
       const suggested = LAST_SUGGEST.has(row._id) ? LAST_SUGGEST.get(row._id) : num(row.suggested_po);
-      const neg = num(row.negative_count || 0) > 0 || onhand < 0;
+      const materialNeg = negativeIsMaterial(row);
 
-      if (neg) return { t:"DATA ISSUE", cls:"border-rose-200 bg-rose-50 text-rose-900" };
       if (deriveDriverCode(row) === "hold") return { t:"HOLD", cls:"border-rose-200 bg-rose-50 text-rose-900" };
+
+      if (row.level === "type"){
+        if (materialNeg) return { t:"DATA REVIEW", cls:"border-rose-200 bg-rose-50 text-rose-900" };
+        if (categoryBuy > 0 && days > 0 && days <= riskThr) return { t:"BUY NOW", cls:"border-amber-200 bg-amber-50 text-amber-900" };
+        if (categoryBuy > 0) return { t:"BUY", cls:"border-emerald-200 bg-emerald-50 text-emerald-900" };
+        if (mixShortage > 0) return { t:"REVIEW MIX", cls:"border-violet-200 bg-violet-50 text-violet-900" };
+        if (num(row.transfer_short_count || 0) > 0 && num(row.transfer_excess_count || 0) > 0) return { t:"TRANSFER FIRST", cls:"border-sky-200 bg-sky-50 text-sky-900" };
+        if (avg > 0 && days >= 120) return { t:"OVERSTOCK", cls:"border-slate-200 bg-slate-50 text-slate-700" };
+        if (num(row.stale_count || 0) > 0) return { t:"REVIEW STALE", cls:"border-rose-200 bg-white text-rose-900" };
+        return { t:"OK", cls:"border-slate-200 bg-white text-slate-600" };
+      }
+
+      if (materialNeg) return { t:"DATA REVIEW", cls:"border-rose-200 bg-rose-50 text-rose-900" };
       if (suggested > 0 && days > 0 && days <= riskThr) return { t:"BUY NOW", cls:"border-amber-200 bg-amber-50 text-amber-900" };
       if (suggested > 0) return { t:"BUY", cls:"border-emerald-200 bg-emerald-50 text-emerald-900" };
+      if (mixShortage > 0) return { t:"REVIEW MIX", cls:"border-violet-200 bg-violet-50 text-violet-900" };
+      if (num(row.transfer_short_count || 0) > 0 && num(row.transfer_excess_count || 0) > 0) return { t:"TRANSFER FIRST", cls:"border-sky-200 bg-sky-50 text-sky-900" };
       if (avg > 0 && days >= 120) return { t:"OVERSTOCK", cls:"border-slate-200 bg-slate-50 text-slate-700" };
       if (staleDays !== null && staleDays >= 90 && avg <= 0 && onhand > 0) return { t:"STALE", cls:"border-rose-200 bg-rose-50 text-rose-900" };
-      if (num(row.transfer_short_count || 0) > 0 && num(row.transfer_excess_count || 0) > 0) return { t:"TRANSFER FIRST", cls:"border-sky-200 bg-sky-50 text-sky-900" };
       if (days > 0 && days <= 30) return { t:"WATCH", cls:"border-amber-200 bg-white text-amber-800" };
       return { t:"OK", cls:"border-slate-200 bg-white text-slate-600" };
     }
@@ -1178,6 +1218,8 @@
         last_sold_ms: null,
         last_sold_date: "",
         suggested_po: 0,
+        category_buy: 0,
+        mix_shortage: 0,
         risk_count: 0,
         stale_count: 0,
         negative_count: 0,
@@ -1294,7 +1336,9 @@
         agg.negative_count = neg;
         agg.transfer_short_count = short;
         agg.transfer_excess_count = excess;
-        agg.suggested_po = agg.children.reduce((s, child) => s + suggestPOQty(child, inputs), 0);
+        agg.mix_shortage = agg.children.reduce((s, child) => s + suggestPOQty(child, inputs), 0);
+        agg.category_buy = categoryBuyQty(agg, inputs);
+        agg.suggested_po = agg.category_buy;
         delete agg.child_skus;
         delete agg.child_products;
         out.push(agg);
@@ -1330,7 +1374,7 @@
         agg.negative_count += num(r.negative_count);
         agg.transfer_short_count += num(r.transfer_short_count);
         agg.transfer_excess_count += num(r.transfer_excess_count);
-        agg.suggested_po += num(r.suggested_po);
+        agg.mix_shortage += num(r.mix_shortage || r.suggested_po);
       }
       const out = [];
       for (const agg of byKey.values()){
@@ -1345,6 +1389,8 @@
           }
         }
         agg.locations_count = locs.size;
+        agg.category_buy = categoryBuyQty(agg, getStrategyInputs());
+        agg.suggested_po = agg.category_buy;
         delete agg.child_products;
         delete agg.child_skus;
         out.push(agg);
@@ -1516,7 +1562,7 @@
       const as = num(a.sold_30), bs = num(b.sold_30);
       const as365 = num(a.qty_365d), bs365 = num(b.qty_365d);
       const av = num(a.inv_value), bv = num(b.inv_value);
-      const ag = num(a.suggested_po), bg = num(b.suggested_po);
+      const ag = num(a.category_buy ?? a.suggested_po) + num(a.mix_shortage || 0), bg = num(b.category_buy ?? b.suggested_po) + num(b.mix_shortage || 0);
       const aSt = a.last_sold_ms ? a.last_sold_ms : 0;
       const bSt = b.last_sold_ms ? b.last_sold_ms : 0;
       switch(sort){
@@ -1592,7 +1638,8 @@
     }
 
     function suggestPOQty(row, inputs){
-      if (["type", "product"].includes(row.level)) return num(row.suggested_po);
+      if (row.level === "type") return categoryBuyQty(row, inputs || getStrategyInputs());
+      if (row.level === "product") return num(row.suggested_po);
       const { targetCover, safetyDays, minReorder, defaultGrowthPct, seedAvgDay } = inputs;
       const driver = deriveDriverCode(row);
       if (driver === "hold") return 0;
@@ -1613,14 +1660,16 @@
       for (const r of SKU_ROWS) LAST_SUGGEST.set(r._id, suggestPOQty(r, inputs));
 
       for (const p of PRODUCT_ROWS){
-        const total = (p.children || []).reduce((sum, skuRow) => sum + (LAST_SUGGEST.get(skuRow._id) ?? suggestPOQty(skuRow, inputs)), 0);
-        p.suggested_po = total;
-        LAST_SUGGEST.set(p._id, total);
+        p.mix_shortage = (p.children || []).reduce((sum, skuRow) => sum + (LAST_SUGGEST.get(skuRow._id) ?? suggestPOQty(skuRow, inputs)), 0);
+        p.category_buy = categoryBuyQty(p, inputs);
+        p.suggested_po = p.category_buy;
+        LAST_SUGGEST.set(p._id, p.category_buy);
       }
       for (const t of TYPE_ROWS){
-        const total = (t.children || []).reduce((sum, prodRow) => sum + (LAST_SUGGEST.get(prodRow._id) ?? num(prodRow.suggested_po)), 0);
-        t.suggested_po = total;
-        LAST_SUGGEST.set(t._id, total);
+        t.mix_shortage = (t.children || []).reduce((sum, prodRow) => sum + num(prodRow.mix_shortage || prodRow.suggested_po), 0);
+        t.category_buy = categoryBuyQty(t, inputs);
+        t.suggested_po = t.category_buy;
+        LAST_SUGGEST.set(t._id, t.category_buy);
       }
       render();
     }
@@ -1629,8 +1678,16 @@
       const inputs = getStrategyInputs();
       for (const r of RAW) r.suggested_po = suggestPOQty(r, inputs);
       for (const r of SKU_ROWS) r.suggested_po = suggestPOQty(r, inputs);
-      for (const p of PRODUCT_ROWS) p.suggested_po = (p.children || []).reduce((s, x) => s + suggestPOQty(x, inputs), 0);
-      for (const t of TYPE_ROWS) t.suggested_po = (t.children || []).reduce((s, x) => s + num(x.suggested_po), 0);
+      for (const p of PRODUCT_ROWS){
+        p.mix_shortage = (p.children || []).reduce((s, x) => s + suggestPOQty(x, inputs), 0);
+        p.category_buy = categoryBuyQty(p, inputs);
+        p.suggested_po = p.category_buy;
+      }
+      for (const t of TYPE_ROWS){
+        t.mix_shortage = (t.children || []).reduce((s, x) => s + num(x.mix_shortage || x.suggested_po), 0);
+        t.category_buy = categoryBuyQty(t, inputs);
+        t.suggested_po = t.category_buy;
+      }
     }
 
     function toggleSelect(id, on){
@@ -1837,7 +1894,7 @@
           <div class="rounded-xl border border-slate-200 bg-white p-3">
             <div class="text-lg font-extrabold">${escapeHtml(row.product_type || "Uncategorized")}</div>
             <div class="text-xs text-slate-600 mt-1">Product type rollup with product-family rows underneath.</div>
-            <div class="mt-2 flex flex-wrap gap-2">${actionBadge(row)} <span class="badge">Suggested: ${(LAST_SUGGEST.get(row._id) ?? row.suggested_po).toLocaleString()}</span></div>
+            <div class="mt-2 flex flex-wrap gap-2">${actionBadge(row)} <span class="badge">Category Buy: ${num(row.category_buy).toLocaleString()}</span> <span class="badge">Mix Shortage: ${num(row.mix_shortage).toLocaleString()}</span></div>
           </div>
           <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
             ${smallMetric("Products", num(row.products_count).toLocaleString())}
@@ -1859,12 +1916,13 @@
                     <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Sold 30d</th>
                     <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Sold 365d</th>
                     <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Days</th>
-                    <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Suggested</th>
+                    <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">Product Buy</th>
+                    <th class="px-3 py-2 text-right text-xs font-semibold text-slate-600">SKU Pressure</th>
                     <th class="px-3 py-2 text-left text-xs font-semibold text-slate-600">Action</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100">
-                  ${products.slice().sort((a,b) => num(b.suggested_po) - num(a.suggested_po)).map(p => `
+                  ${products.slice().sort((a,b) => (num(b.category_buy) + num(b.mix_shortage)) - (num(a.category_buy) + num(a.mix_shortage))).map(p => `
                     <tr>
                       <td class="px-3 py-2 font-semibold">${escapeHtml(p.product || "—")}</td>
                       <td class="px-3 py-2 text-right mono">${num(p.variant_count).toLocaleString()}</td>
@@ -1872,7 +1930,8 @@
                       <td class="px-3 py-2 text-right mono">${num(p.sold_30).toLocaleString()}</td>
                       <td class="px-3 py-2 text-right mono">${num(p.qty_365d).toLocaleString()}</td>
                       <td class="px-3 py-2 text-right mono">${num(p.days_oos) ? num(p.days_oos).toFixed(0) : "—"}</td>
-                      <td class="px-3 py-2 text-right mono font-semibold">${num(p.suggested_po).toLocaleString()}</td>
+                      <td class="px-3 py-2 text-right mono font-semibold">${num(p.category_buy).toLocaleString()}</td>
+                      <td class="px-3 py-2 text-right mono font-semibold text-violet-900">${num(p.mix_shortage).toLocaleString()}</td>
                       <td class="px-3 py-2">${actionBadge(p)}</td>
                     </tr>`).join("")}
                 </tbody>
@@ -1900,7 +1959,8 @@
                   ${driverBadgeForRow(row)}
                   ${row.tag ? `<span class="badge">Tag: ${escapeHtml(row.tag)}</span>` : ""}
                   ${row.collection ? `<span class="badge">Collection: ${escapeHtml(row.collection)}</span>` : ""}
-                  <span class="badge">Suggested: ${(LAST_SUGGEST.get(row._id) ?? row.suggested_po).toLocaleString()}</span>
+                  <span class="badge">Product Buy: ${num(row.category_buy).toLocaleString()}</span>
+                  <span class="badge">SKU Pressure: ${num(row.mix_shortage).toLocaleString()}</span>
                 </div>
               </div>
               <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
@@ -2149,6 +2209,8 @@
       if (key === "risk_count") return `<td class="px-3 py-2 ${align} mono">${num(r.risk_count).toLocaleString()}</td>`;
       if (key === "stale_count") return `<td class="px-3 py-2 ${align} mono">${num(r.stale_count).toLocaleString()}</td>`;
       if (key === "negative_count") return `<td class="px-3 py-2 ${align} mono">${num(r.negative_count).toLocaleString()}</td>`;
+      if (key === "category_buy") return `<td class="px-3 py-2 ${align} mono font-semibold">${num(r.category_buy ?? r.suggested_po).toLocaleString()}</td>`;
+      if (key === "mix_shortage") return `<td class="px-3 py-2 ${align} mono ${num(r.mix_shortage) > 0 ? "font-semibold text-violet-900" : ""}">${num(r.mix_shortage).toLocaleString()}</td>`;
       if (key === "transfer_flag") return `<td class="px-3 py-2 ${align}">${actionFlag(r).t === "TRANSFER FIRST" ? actionBadge(r) : `<span class="badge border-slate-200 bg-white text-slate-600">—</span>`}</td>`;
       if (key === "suggested_po") return `<td class="px-3 py-2 ${align} mono font-semibold">${sug === null ? "—" : num(sug).toLocaleString()}</td>`;
       if (key === "action_flag") return `<td class="px-3 py-2 ${align}">${actionBadge(r)}</td>`;
@@ -2296,7 +2358,9 @@
         risk_count: r.risk_count || "",
         stale_count: r.stale_count || "",
         negative_count: r.negative_count || "",
-        suggested_po: LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : r.suggested_po,
+        category_buy: r.category_buy || "",
+        mix_shortage: r.mix_shortage || "",
+        draft_qty: LAST_SUGGEST.has(r._id) ? LAST_SUGGEST.get(r._id) : r.suggested_po,
         action_flag: actionFlag(r).t
       }));
     }
