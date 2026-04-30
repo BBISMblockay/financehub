@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Silo · Factory Repository</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="./config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root{--card:rgba(255,255,255,.94);--line:rgba(15,23,42,.08);--text:#0f172a;--muted:#64748b;--shadow:0 6px 16px rgba(15,23,42,.05);--brand:#0f172a}
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;font-family:Inter,system-ui,sans-serif;color:var(--text);background:linear-gradient(180deg,#f8fafc 0%,#eef2f7 100%);font-size:13px}
+    .glass{background:var(--card);border:1px solid var(--line);box-shadow:var(--shadow);border-radius:12px}
+    .btn{border-radius:9px;padding:.45rem .65rem;font-size:.72rem;line-height:1;font-weight:700;border:1px solid transparent;cursor:pointer;white-space:nowrap;transition:.16s ease}
+    .btn:disabled{opacity:.45;cursor:not-allowed}.btn-primary{background:#0f172a;color:white}.btn-primary:hover:not(:disabled){background:#020617}
+    .btn-secondary{background:white;border-color:rgba(15,23,42,.10);color:#0f172a}.btn-secondary:hover:not(:disabled){background:#f8fafc}
+    .btn-danger{background:#fff1f2;color:#be123c;border-color:#fecdd3}.btn-success{background:#ecfdf5;color:#166534;border-color:#bbf7d0}
+    input,select,textarea{outline:none;border:1px solid rgba(148,163,184,.35);background:white;color:var(--text);border-radius:8px;transition:.16s ease;min-height:30px;padding:.32rem .5rem;font-size:.72rem}
+    input:focus,select:focus,textarea:focus{border-color:rgba(59,130,246,.45);box-shadow:0 0 0 3px rgba(59,130,246,.10)}
+    .muted-label{display:block;margin-bottom:.18rem;font-size:.56rem;font-weight:800;text-transform:uppercase;letter-spacing:.16em;color:#64748b}
+    .soft-scroll{scrollbar-width:thin}.soft-scroll::-webkit-scrollbar{height:9px;width:9px}.soft-scroll::-webkit-scrollbar-thumb{background:rgba(148,163,184,.45);border-radius:999px}
+    .table-wrap{overflow:auto;border-radius:9px;border:1px solid rgba(15,23,42,.06);max-height:70vh}
+    thead th{position:sticky;top:0;z-index:2;background:#f8fafc;border-bottom:1px solid rgba(15,23,42,.10);padding:7px 6px;font-size:.58rem;letter-spacing:.095em;text-transform:uppercase;color:#64748b;text-align:left;white-space:nowrap}
+    tbody td{border-bottom:1px solid rgba(15,23,42,.06);padding:4px 5px;vertical-align:middle} tbody tr:hover{background:#f8fafc}
+    .cell-input{width:100%;min-width:0;height:26px;min-height:26px;border-radius:7px;padding:.22rem .35rem;font-size:.66rem;line-height:1}
+    .pill{border:1px solid rgba(15,23,42,.08);background:white;border-radius:999px;font-size:.62rem;padding:.14rem .45rem;font-weight:700;color:#475569}
+    .modal-backdrop{background:rgba(15,23,42,.42)}.hidden-safe{display:none!important}
+  </style>
+</head>
+<body>
+  <div class="min-h-screen px-2 py-2 sm:px-3 lg:px-3">
+    <div class="mx-auto max-w-[1920px] space-y-2">
+      <header class="glass px-3 py-2">
+        <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Silo Purchasing</div>
+            <div class="mt-0 text-xl font-extrabold tracking-tight text-slate-900">Factory Repository</div>
+            <div class="mt-1 text-xs text-slate-500">Compact factory/vendor master list for PO Builder.</div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <button id="btnRefresh" class="btn btn-secondary">Refresh</button>
+            <button id="btnExport" class="btn btn-secondary">Export CSV</button>
+            <button id="btnNewFactory" class="btn btn-primary">New Factory</button>
+          </div>
+        </div>
+      </header>
+
+      <section class="grid gap-2 lg:grid-cols-[300px_minmax(0,1fr)]">
+        <aside class="glass p-2">
+          <div class="flex items-center justify-between gap-3">
+            <div><div class="text-base font-bold text-slate-900">Filters</div><div class="text-xs text-slate-500">Search and audit repository rows.</div></div>
+            <div id="factoryCount" class="pill">0 rows</div>
+          </div>
+          <div class="mt-3 space-y-2">
+            <div><label class="muted-label">Search</label><input id="searchInput" type="text" class="w-full" placeholder="Factory, code, contact, email..." /></div>
+            <div><label class="muted-label">Completeness</label><select id="completenessFilter" class="w-full"><option value="">All rows</option><option value="missing_code">Missing short code</option><option value="missing_contact">Missing contact</option><option value="missing_email">Missing email</option></select></div>
+          </div>
+          <div class="mt-3 grid grid-cols-2 gap-2">
+            <div class="glass px-3 py-2 shadow-none"><div class="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">Factories</div><div id="kpiFactories" class="mt-1 text-xl font-extrabold">0</div></div>
+            <div class="glass px-3 py-2 shadow-none"><div class="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-500">With Email</div><div id="kpiEmail" class="mt-1 text-xl font-extrabold">0</div></div>
+          </div>
+          <div class="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+            <div class="text-xs font-bold text-slate-900">Repository</div>
+            <div class="mt-1 text-xs leading-5 text-slate-500">Writes to <span class="font-semibold text-slate-700">public.factories</span>. Uses the same <span class="font-semibold text-slate-700">config.js</span> auth/config pattern as Silo pages.</div>
+          </div>
+        </aside>
+
+        <main class="space-y-2">
+          <section class="glass p-2">
+            <div class="flex flex-col gap-2 border-b border-slate-200 pb-2 md:flex-row md:items-center md:justify-between">
+              <div><div class="text-base font-bold text-slate-900">Factory Master</div><div id="loadStatus" class="text-xs text-slate-500">Ready.</div></div>
+              <div class="flex flex-wrap items-center gap-2"><button id="btnSaveAllChanged" class="btn btn-success" disabled>Save Changed Rows</button><button id="btnClearFilters" class="btn btn-secondary">Clear Filters</button></div>
+            </div>
+            <div class="mt-2 table-wrap soft-scroll">
+              <table class="w-full min-w-[1040px] border-separate border-spacing-0 text-xs">
+                <thead><tr><th style="width:52px;">Status</th><th style="width:260px;">Factory Name</th><th style="width:130px;">Short Code</th><th style="width:190px;">Contact Name</th><th style="width:240px;">Contact Email</th><th style="width:140px;">Contact Phone</th><th style="width:260px;">Notes</th><th style="width:120px;text-align:right;">Actions</th></tr></thead>
+                <tbody id="factoryTbody"></tbody>
+              </table>
+            </div>
+          </section>
+        </main>
+      </section>
+    </div>
+  </div>
+
+  <div id="factoryModal" class="fixed inset-0 z-40 hidden-safe items-center justify-center p-4">
+    <div class="absolute inset-0 modal-backdrop"></div>
+    <div class="relative z-10 w-full max-w-3xl glass p-3">
+      <div class="flex items-center justify-between gap-3 border-b border-slate-200 pb-3">
+        <div><div class="text-lg font-bold text-slate-900">New Factory</div><div class="text-sm text-slate-500">Create a factory/vendor record. UUID is generated by Supabase.</div></div>
+        <button class="btn btn-secondary" data-close="factoryModal">Close</button>
+      </div>
+      <div class="mt-3 grid gap-3 md:grid-cols-2">
+        <div><label class="muted-label">Factory Name</label><input id="newFactoryName" class="w-full" placeholder="Factory/vendor name" /></div>
+        <div><label class="muted-label">Short Code</label><input id="newShortCode" class="w-full" placeholder="Optional code" /></div>
+        <div><label class="muted-label">Contact Name</label><input id="newContactName" class="w-full" placeholder="Optional contact" /></div>
+        <div><label class="muted-label">Contact Email</label><input id="newContactEmail" class="w-full" placeholder="Optional email" /></div>
+        <div><label class="muted-label">Contact Phone</label><input id="newContactPhone" class="w-full" placeholder="Optional phone" /></div>
+        <div><label class="muted-label">Notes</label><input id="newNotes" class="w-full" placeholder="Optional notes" /></div>
+      </div>
+      <div class="mt-4 flex justify-end gap-2"><button class="btn btn-secondary" data-close="factoryModal">Cancel</button><button id="btnCreateFactory" class="btn btn-primary">Create Factory</button></div>
+    </div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = window.__SILO_CONFIG__?.SUPABASE_URL || window.SUPABASE_URL || '';
+    const SUPABASE_ANON_KEY = window.__SILO_CONFIG__?.SUPABASE_ANON_KEY || window.SUPABASE_ANON_KEY || '';
+    const REDIRECT_TO = window.__SILO_CONFIG__?.REDIRECT_TO || window.REDIRECT_TO || '';
+    const REQUIRE_AUTH = Boolean(window.__SILO_CONFIG__?.REQUIRE_AUTH || window.REQUIRE_AUTH || false);
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) { document.body.innerHTML = '<div class="min-h-screen flex items-center justify-center p-6"><div class="glass max-w-xl p-6 text-center"><div class="text-xl font-bold text-slate-900">Missing Supabase config</div><div class="mt-2 text-sm text-slate-500">Provide SUPABASE_URL and SUPABASE_ANON_KEY through config.js.</div></div></div>'; throw new Error('Missing Supabase config'); }
+    const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const OPTIONAL_COLUMNS = ['contact_phone', 'notes'];
+    const BASE_COLUMNS = ['id', 'factory_name', 'short_code', 'contact_name', 'contact_email', ...OPTIONAL_COLUMNS];
+    const state = { factories: [], filtered: [], changed: new Set(), supportedColumns: new Set(BASE_COLUMNS), missingOptionalColumns: new Set() };
+    const el = {
+      btnRefresh: document.getElementById('btnRefresh'), btnExport: document.getElementById('btnExport'), btnNewFactory: document.getElementById('btnNewFactory'), btnSaveAllChanged: document.getElementById('btnSaveAllChanged'), btnClearFilters: document.getElementById('btnClearFilters'), btnCreateFactory: document.getElementById('btnCreateFactory'),
+      searchInput: document.getElementById('searchInput'), completenessFilter: document.getElementById('completenessFilter'), factoryCount: document.getElementById('factoryCount'), kpiFactories: document.getElementById('kpiFactories'), kpiEmail: document.getElementById('kpiEmail'), loadStatus: document.getElementById('loadStatus'), factoryTbody: document.getElementById('factoryTbody'), factoryModal: document.getElementById('factoryModal'),
+      newFactoryName: document.getElementById('newFactoryName'), newShortCode: document.getElementById('newShortCode'), newContactName: document.getElementById('newContactName'), newContactEmail: document.getElementById('newContactEmail'), newContactPhone: document.getElementById('newContactPhone'), newNotes: document.getElementById('newNotes')
+    };
+
+    function escapeHtml(str){ return String(str ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;'); }
+    function clean(value){ const v = String(value ?? '').trim(); return v || null; }
+    function modalOpen(node){ node.classList.remove('hidden-safe'); node.classList.add('flex'); }
+    function modalClose(node){ node.classList.add('hidden-safe'); node.classList.remove('flex'); }
+    function setStatus(text){ el.loadStatus.textContent = text; }
+    function getEditableColumns(){ return ['factory_name','short_code','contact_name','contact_email', ...OPTIONAL_COLUMNS].filter(col => state.supportedColumns.has(col)); }
+    function buildSelectColumns(){ return BASE_COLUMNS.filter(col => state.supportedColumns.has(col)).join(', '); }
+
+    async function detectOptionalColumns(){
+      for (const col of OPTIONAL_COLUMNS) {
+        const { error } = await sb.from('factories').select(`id, ${col}`).limit(1);
+        if (error) { state.supportedColumns.delete(col); state.missingOptionalColumns.add(col); }
+        else { state.supportedColumns.add(col); }
+      }
+    }
+
+    async function loadFactories(){
+      setStatus('Loading factories...');
+      state.changed.clear(); el.btnSaveAllChanged.disabled = true;
+      await detectOptionalColumns();
+      const { data, error } = await sb.from('factories').select(buildSelectColumns()).order('factory_name', { ascending: true });
+      if (error) throw error;
+      state.factories = data || [];
+      applyFilters();
+      setStatus(`Loaded ${state.factories.length.toLocaleString()} factories.`);
+      if (state.missingOptionalColumns.size) setStatus(`Loaded ${state.factories.length.toLocaleString()} factories. Optional columns missing: ${[...state.missingOptionalColumns].join(', ')}.`);
+    }
+
+    function applyFilters(){
+      const q = el.searchInput.value.trim().toLowerCase();
+      const mode = el.completenessFilter.value;
+      state.filtered = state.factories.filter(row => {
+        const hay = [row.factory_name,row.short_code,row.contact_name,row.contact_email,row.contact_phone,row.notes].join(' ').toLowerCase();
+        if (q && !hay.includes(q)) return false;
+        if (mode === 'missing_code' && clean(row.short_code)) return false;
+        if (mode === 'missing_contact' && clean(row.contact_name)) return false;
+        if (mode === 'missing_email' && clean(row.contact_email)) return false;
+        return true;
+      });
+      render();
+    }
+
+    function render(){
+      el.factoryCount.textContent = `${state.filtered.length.toLocaleString()} row${state.filtered.length === 1 ? '' : 's'}`;
+      el.kpiFactories.textContent = state.factories.length.toLocaleString();
+      el.kpiEmail.textContent = state.factories.filter(row => clean(row.contact_email)).length.toLocaleString();
+      if (!state.filtered.length) { el.factoryTbody.innerHTML = '<tr><td colspan="8" class="px-3 py-10 text-center text-sm text-slate-500">No factories match the current filters.</td></tr>'; return; }
+      el.factoryTbody.innerHTML = state.filtered.map(row => {
+        const dirty = state.changed.has(row.id);
+        return `<tr data-row-id="${escapeHtml(row.id)}">
+          <td><span class="pill ${dirty ? 'bg-amber-50 text-amber-700 border-amber-200' : ''}">${dirty ? 'Changed' : 'Saved'}</span></td>
+          <td><input class="cell-input font-semibold" data-field="factory_name" value="${escapeHtml(row.factory_name || '')}" /></td>
+          <td><input class="cell-input" data-field="short_code" value="${escapeHtml(row.short_code || '')}" /></td>
+          <td><input class="cell-input" data-field="contact_name" value="${escapeHtml(row.contact_name || '')}" /></td>
+          <td><input class="cell-input" data-field="contact_email" value="${escapeHtml(row.contact_email || '')}" /></td>
+          <td><input class="cell-input" data-field="contact_phone" value="${escapeHtml(row.contact_phone || '')}" ${state.supportedColumns.has('contact_phone') ? '' : 'disabled placeholder="Column missing"'} /></td>
+          <td><input class="cell-input" data-field="notes" value="${escapeHtml(row.notes || '')}" ${state.supportedColumns.has('notes') ? '' : 'disabled placeholder="Column missing"'} /></td>
+          <td class="text-right"><div class="flex items-center justify-end gap-1"><button class="btn btn-secondary" data-save-row="${escapeHtml(row.id)}">Save</button><button class="btn btn-danger" data-delete-row="${escapeHtml(row.id)}">Del</button></div></td>
+        </tr>`;
+      }).join('');
+    }
+
+    function markChanged(rowId){
+      state.changed.add(rowId);
+      el.btnSaveAllChanged.disabled = !state.changed.size;
+      const factory = state.factories.find(row => String(row.id) === String(rowId));
+      const tr = document.querySelector(`[data-row-id="${CSS.escape(rowId)}"]`);
+      if (factory && tr) getEditableColumns().forEach(col => { const input = tr.querySelector(`[data-field="${col}"]`); if (input) factory[col] = input.value; });
+      render();
+    }
+
+    function getRowPayload(rowId){
+      const tr = document.querySelector(`[data-row-id="${CSS.escape(rowId)}"]`);
+      if (!tr) throw new Error('Row not found');
+      const payload = {};
+      getEditableColumns().forEach(col => { const input = tr.querySelector(`[data-field="${col}"]`); if (input && !input.disabled) payload[col] = clean(input.value); });
+      if (!payload.factory_name) throw new Error('Factory name is required.');
+      return payload;
+    }
+
+    async function saveRow(rowId){
+      const payload = getRowPayload(rowId);
+      const { error } = await sb.from('factories').update(payload).eq('id', rowId);
+      if (error) throw error;
+      state.changed.delete(rowId);
+      await loadFactories();
+    }
+
+    async function saveAllChanged(){ for (const id of [...state.changed]) await saveRow(id); await loadFactories(); }
+
+    async function deleteRow(rowId){
+      const row = state.factories.find(f => String(f.id) === String(rowId));
+      if (!confirm(`Delete ${row?.factory_name || 'this factory'}? This may affect PO history if referenced.`)) return;
+      const { error } = await sb.from('factories').delete().eq('id', rowId);
+      if (error) throw error;
+      await loadFactories();
+    }
+
+    function newFactoryPayload(){
+      const payload = { factory_name: clean(el.newFactoryName.value), short_code: clean(el.newShortCode.value), contact_name: clean(el.newContactName.value), contact_email: clean(el.newContactEmail.value) };
+      if (state.supportedColumns.has('contact_phone')) payload.contact_phone = clean(el.newContactPhone.value);
+      if (state.supportedColumns.has('notes')) payload.notes = clean(el.newNotes.value);
+      if (!payload.factory_name) throw new Error('Factory name is required.');
+      return payload;
+    }
+
+    async function createFactory(){
+      const { error } = await sb.from('factories').insert(newFactoryPayload());
+      if (error) throw error;
+      clearNewFactory(); modalClose(el.factoryModal); await loadFactories();
+    }
+
+    function clearNewFactory(){ [el.newFactoryName,el.newShortCode,el.newContactName,el.newContactEmail,el.newContactPhone,el.newNotes].forEach(n=>n.value=''); }
+
+    function exportCsv(){
+      const cols = ['factory_name','short_code','contact_name','contact_email', ...OPTIONAL_COLUMNS.filter(col => state.supportedColumns.has(col))];
+      const rows = state.filtered.map(row => cols.map(col => csvCell(row[col])).join(','));
+      const blob = new Blob([[cols.join(','), ...rows].join('\n')], { type:'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob); const a = document.createElement('a');
+      a.href = url; a.download = `silo_factories_${new Date().toISOString().slice(0,10)}.csv`; document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    }
+
+    function csvCell(value){ const str = String(value ?? ''); return /[",\n\r]/.test(str) ? `"${str.replaceAll('"','""')}"` : str; }
+    function clearFilters(){ el.searchInput.value=''; el.completenessFilter.value=''; applyFilters(); }
+
+    async function ensureAuth(){
+      if (!REQUIRE_AUTH) return true;
+      const { data, error } = await sb.auth.getSession();
+      if (error) throw error;
+      if (!data?.session) {
+        if (REDIRECT_TO) { window.location.href = REDIRECT_TO; return false; }
+        document.body.innerHTML = '<div class="min-h-screen flex items-center justify-center p-6"><div class="glass max-w-xl p-6 text-center"><div class="text-xl font-bold text-slate-900">Authentication required</div><div class="mt-2 text-sm text-slate-500">Sign in before loading this page.</div></div></div>';
+        return false;
+      }
+      return true;
+    }
+
+    el.btnRefresh.addEventListener('click', async()=>{ try{ await loadFactories(); }catch(e){ console.error(e); alert(e.message || 'Refresh failed'); } });
+    el.btnExport.addEventListener('click', exportCsv);
+    el.btnNewFactory.addEventListener('click', ()=>{ clearNewFactory(); modalOpen(el.factoryModal); setTimeout(()=>el.newFactoryName.focus(),50); });
+    el.btnCreateFactory.addEventListener('click', async()=>{ try{ await createFactory(); }catch(e){ console.error(e); alert(e.message || 'Create failed'); } });
+    el.btnSaveAllChanged.addEventListener('click', async()=>{ try{ await saveAllChanged(); }catch(e){ console.error(e); alert(e.message || 'Save changed rows failed'); } });
+    el.btnClearFilters.addEventListener('click', clearFilters);
+    el.searchInput.addEventListener('input', applyFilters); el.completenessFilter.addEventListener('change', applyFilters);
+    document.addEventListener('input', ev => { const input = ev.target.closest('[data-field]'); if (!input) return; const tr = input.closest('[data-row-id]'); if (tr) markChanged(tr.getAttribute('data-row-id')); });
+    document.addEventListener('click', async ev => {
+      const close = ev.target.closest('[data-close]'); if (close) { const node = document.getElementById(close.getAttribute('data-close')); if (node) modalClose(node); return; }
+      const save = ev.target.closest('[data-save-row]'); if (save) { try{ await saveRow(save.getAttribute('data-save-row')); }catch(e){ console.error(e); alert(e.message || 'Save row failed'); } return; }
+      const del = ev.target.closest('[data-delete-row]'); if (del) { try{ await deleteRow(del.getAttribute('data-delete-row')); }catch(e){ console.error(e); alert(e.message || 'Delete failed'); } }
+    });
+
+    async function boot(){
+      try{ const ok = await ensureAuth(); if (!ok) return; await loadFactories(); }
+      catch(e){ console.error(e); alert(e.message || 'Initial load failed'); }
+    }
+    boot();
+  </script>
+</body>
+</html>
