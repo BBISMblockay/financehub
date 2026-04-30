@@ -28,27 +28,127 @@
       --bad:#b91c1c;
     }
     *{box-sizing:border-box}
-    html,body{margin:0;padding:0;font-family:Inter,system-ui,sans-serif;color:var(--text);background:linear-gradient(180deg,#f8fafc 0%,#eef2f7 100%)}
-    .glass{background:var(--card);backdrop-filter:blur(14px);border:1px solid var(--line);box-shadow:var(--shadow);border-radius:var(--radius)}
+    html,body{
+      margin:0;
+      padding:0;
+      font-family:Inter,system-ui,sans-serif;
+      color:var(--text);
+      background:linear-gradient(180deg,#f8fafc 0%,#eef2f7 100%);
+    }
+    .glass{
+      background:var(--card);
+      backdrop-filter:blur(14px);
+      border:1px solid var(--line);
+      box-shadow:var(--shadow);
+      border-radius:var(--radius);
+    }
     .pill{border:1px solid var(--line);background:white;border-radius:999px}
-    .soft-scroll::-webkit-scrollbar{height:10px;width:10px}.soft-scroll::-webkit-scrollbar-thumb{background:rgba(148,163,184,.45);border-radius:999px}.soft-scroll::-webkit-scrollbar-track{background:transparent}
-    input,select{outline:none;border:1px solid rgba(148,163,184,.35);background:white;color:var(--text);border-radius:16px;transition:.18s ease}
-    input:focus,select:focus{border-color:rgba(59,130,246,.45);box-shadow:0 0 0 4px rgba(59,130,246,.10)}
-    .btn{border-radius:16px;padding:.8rem 1rem;font-weight:700;transition:.18s ease;border:1px solid transparent;cursor:pointer}
-    .btn-primary{background:var(--brand);color:white}.btn-primary:hover{background:#020617}
-    .btn-secondary{background:white;border-color:var(--line);color:var(--text)}.btn-secondary:hover{background:#f8fafc}
-    .muted-label{margin-bottom:.45rem;display:block;font-size:.68rem;font-weight:800;text-transform:uppercase;letter-spacing:.18em;color:#64748b}
+    .soft-scroll::-webkit-scrollbar{height:10px;width:10px}
+    .soft-scroll::-webkit-scrollbar-thumb{background:rgba(148,163,184,.45);border-radius:999px}
+    .soft-scroll::-webkit-scrollbar-track{background:transparent}
+    input,select{
+      outline:none;
+      border:1px solid rgba(148,163,184,.35);
+      background:white;
+      color:var(--text);
+      border-radius:16px;
+      transition:.18s ease;
+    }
+    input:focus,select:focus{
+      border-color:rgba(59,130,246,.45);
+      box-shadow:0 0 0 4px rgba(59,130,246,.10);
+    }
+    .btn{
+      border-radius:16px;
+      padding:.8rem 1rem;
+      font-weight:700;
+      transition:.18s ease;
+      border:1px solid transparent;
+      cursor:pointer;
+    }
+    .btn:disabled{opacity:.55;cursor:not-allowed}
+    .btn-primary{background:var(--brand);color:white}
+    .btn-primary:hover{background:#020617}
+    .btn-secondary{background:white;border-color:var(--line);color:var(--text)}
+    .btn-secondary:hover{background:#f8fafc}
+    .muted-label{
+      margin-bottom:.45rem;
+      display:block;
+      font-size:.68rem;
+      font-weight:800;
+      text-transform:uppercase;
+      letter-spacing:.18em;
+      color:#64748b;
+    }
     .section-title{font-size:1.05rem;font-weight:800;letter-spacing:-.02em;color:#0f172a}
-    .section-sub{margin-top:.15rem;font-size:.86rem;color:#64748b}.status-text{font-size:.86rem;color:#64748b}
-    .kpi-value{font-size:2rem;line-height:1;font-weight:800;letter-spacing:-.04em;color:#0f172a}.kpi-sub{margin-top:.4rem;font-size:.82rem;color:#64748b}
-    .num{text-align:right;font-variant-numeric:tabular-nums}.mono{font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
-    .badge{display:inline-flex;align-items:center;gap:.4rem;border-radius:999px;padding:.25rem .65rem;font-size:.75rem;font-weight:800;border:1px solid transparent;white-space:nowrap}
-    .badge-good{background:#ecfdf5;color:var(--good);border-color:#bbf7d0}.badge-warn{background:#fffbeb;color:var(--warn);border-color:#fde68a}.badge-bad{background:#fef2f2;color:var(--bad);border-color:#fecaca}.badge-neutral{background:#f8fafc;color:#475569;border-color:#e2e8f0}
-    .tab-btn{border:1px solid rgba(148,163,184,.2);background:#fff;color:#334155;border-radius:14px;padding:.75rem .95rem;font-size:.84rem;font-weight:800;cursor:pointer;white-space:nowrap}.tab-btn.active{background:#0f172a;color:#fff;border-color:#0f172a}
-    .tab-panel{display:none}.tab-panel.active{display:block}.table-wrap{overflow:auto}table{border-collapse:separate;border-spacing:0;width:100%}
-    .dense-table thead th{position:sticky;top:0;z-index:2;background:rgba(248,250,252,.98);backdrop-filter:blur(10px);font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:#64748b;font-weight:800;padding:11px 10px;border-bottom:1px solid rgba(148,163,184,.22);white-space:nowrap;text-align:left}
-    .dense-table tbody td{padding:10px 10px;font-size:13px;border-bottom:1px solid rgba(148,163,184,.14);vertical-align:top}.dense-table tbody tr:hover td{background:rgba(248,250,252,.72)}
-    .hint{border:1px dashed rgba(100,116,139,.28);background:rgba(248,250,252,.75);border-radius:18px;padding:12px 14px;color:#475569;font-size:13px}
+    .section-sub{margin-top:.15rem;font-size:.86rem;color:#64748b}
+    .status-text{font-size:.86rem;color:#64748b}
+    .kpi-value{font-size:2rem;line-height:1;font-weight:800;letter-spacing:-.04em;color:#0f172a}
+    .kpi-sub{margin-top:.4rem;font-size:.82rem;color:#64748b}
+    .num{text-align:right;font-variant-numeric:tabular-nums}
+    .mono{font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+    .badge{
+      display:inline-flex;
+      align-items:center;
+      gap:.4rem;
+      border-radius:999px;
+      padding:.25rem .65rem;
+      font-size:.75rem;
+      font-weight:800;
+      border:1px solid transparent;
+      white-space:nowrap;
+    }
+    .badge-good{background:#ecfdf5;color:var(--good);border-color:#bbf7d0}
+    .badge-warn{background:#fffbeb;color:var(--warn);border-color:#fde68a}
+    .badge-bad{background:#fef2f2;color:var(--bad);border-color:#fecaca}
+    .badge-neutral{background:#f8fafc;color:#475569;border-color:#e2e8f0}
+    .tab-btn{
+      border:1px solid rgba(148,163,184,.2);
+      background:#fff;
+      color:#334155;
+      border-radius:14px;
+      padding:.75rem .95rem;
+      font-size:.84rem;
+      font-weight:800;
+      cursor:pointer;
+      white-space:nowrap;
+    }
+    .tab-btn.active{background:#0f172a;color:#fff;border-color:#0f172a}
+    .tab-panel{display:none}
+    .tab-panel.active{display:block}
+    .table-wrap{overflow:auto}
+    table{border-collapse:separate;border-spacing:0;width:100%}
+    .dense-table thead th{
+      position:sticky;
+      top:0;
+      z-index:2;
+      background:rgba(248,250,252,.98);
+      backdrop-filter:blur(10px);
+      font-size:11px;
+      text-transform:uppercase;
+      letter-spacing:.12em;
+      color:#64748b;
+      font-weight:800;
+      padding:11px 10px;
+      border-bottom:1px solid rgba(148,163,184,.22);
+      white-space:nowrap;
+      text-align:left;
+    }
+    .dense-table tbody td{
+      padding:10px 10px;
+      font-size:13px;
+      border-bottom:1px solid rgba(148,163,184,.14);
+      vertical-align:top;
+    }
+    .dense-table tbody tr:hover td{background:rgba(248,250,252,.72)}
+    .hint{
+      border:1px dashed rgba(100,116,139,.28);
+      background:rgba(248,250,252,.75);
+      border-radius:18px;
+      padding:12px 14px;
+      color:#475569;
+      font-size:13px;
+    }
     canvas{max-height:340px!important}
   </style>
 </head>
@@ -62,7 +162,8 @@
             <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Silo Reporting</div>
             <div class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">Sales Reporting Suite</div>
             <div class="mt-2 max-w-5xl text-sm text-slate-500">
-              Fast BI-style reporting powered by Supabase summary views: <span class="mono">sales_location_verification_v</span>, <span class="mono">sales_monthly_location_rollup_v</span>, <span class="mono">sales_sku_location_rollup_v</span>, and <span class="mono">sales_exception_summary_v</span>.
+              Fast BI-style reporting powered by Supabase summary views and the SKU materialized view.
+              <span class="mono">sales_sku_location_rollup_mv</span> powers Product Explorer so the page does not scan raw online rows.
             </div>
           </div>
           <div class="flex flex-wrap items-center gap-2">
@@ -171,7 +272,7 @@
       <section id="tab-verification" class="tab-panel space-y-5">
         <section class="glass p-4 sm:p-5">
           <div class="section-title">Location Verification</div>
-          <div class="section-sub">Full loaded range by location from <span class="mono">sales_location_verification_v</span>.</div>
+          <div class="section-sub">Full loaded range by location from <span class="mono">sales_location_verification_v</span>. Coverage separates history depth from current refresh status.</div>
           <div class="mt-4 table-wrap soft-scroll"><table class="dense-table min-w-[1250px]"><thead><tr><th>Location</th><th class="num">Rows</th><th>Min Date</th><th>Max Date</th><th class="num">Units</th><th class="num">Gross</th><th class="num">Discounts</th><th class="num">Refunds</th><th class="num">Net</th><th class="num">Total Sales</th><th>Coverage</th></tr></thead><tbody id="locationVerificationBody"></tbody></table></div>
         </section>
       </section>
@@ -195,10 +296,10 @@
       <section id="tab-products" class="tab-panel space-y-5">
         <section class="glass p-4 sm:p-5">
           <div class="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-            <div><div class="section-title">Product Explorer</div><div class="section-sub">Uses <span class="mono">sales_sku_location_rollup_v</span>. Date filters do not apply to this all-loaded-history SKU view.</div></div>
+            <div><div class="section-title">Product Explorer</div><div class="section-sub">Uses <span class="mono">sales_sku_location_rollup_mv</span>. Date filters do not apply to this all-loaded-history SKU materialized view.</div></div>
             <div class="badge badge-neutral">Limit 500</div>
           </div>
-          <div class="mt-4 hint">This is intentionally view-based and fast. For exact period-by-SKU reporting later, add a monthly SKU rollup view instead of scanning raw rows.</div>
+          <div class="mt-4 hint">This product view is fast because it reads the materialized SKU rollup. Refresh <span class="mono">sales_sku_location_rollup_mv</span> after nightly sync/backfill when you need product totals current.</div>
           <div class="mt-4 table-wrap soft-scroll"><table class="dense-table min-w-[1350px]"><thead><tr><th>Product</th><th>SKU</th><th>Type</th><th>Location</th><th>First Sold</th><th>Last Sold</th><th class="num">Units</th><th class="num">Net</th><th class="num">Gross</th><th class="num">Refunds</th><th class="num">Rows</th></tr></thead><tbody id="productExplorerBody"></tbody></table></div>
         </section>
       </section>
@@ -224,7 +325,7 @@
   const VIEWS = {
     location: 'sales_location_verification_v',
     monthly: 'sales_monthly_location_rollup_v',
-    sku: 'sales_sku_location_rollup_v',
+    sku: 'sales_sku_location_rollup_mv',
     exceptions: 'sales_exception_summary_v'
   };
 
@@ -243,7 +344,8 @@
     activePreset: '30d',
     activeTab: 'overview',
     lastLoadAt: null,
-    charts: {}
+    charts: {},
+    loading: false
   };
 
   const el = {
@@ -261,6 +363,11 @@
   const escapeHtml = str => String(str ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
   const setStatus = text => el.statusText.textContent = text;
   const setProgress = text => el.progressText.textContent = text;
+
+  function setLoading(on){
+    state.loading = on;
+    [el.btnRefresh, el.btnApply, el.btnReset].forEach(btn => btn.disabled = on);
+  }
 
   function todayLocalDateString(){ const d = new Date(); return `${d.getFullYear()}-${`${d.getMonth()+1}`.padStart(2,'0')}-${`${d.getDate()}`.padStart(2,'0')}`; }
   function addDays(dateStr, days){ const d = new Date(`${dateStr}T00:00:00`); d.setDate(d.getDate()+days); return `${d.getFullYear()}-${`${d.getMonth()+1}`.padStart(2,'0')}-${`${d.getDate()}`.padStart(2,'0')}`; }
@@ -281,6 +388,10 @@
 
   function resetFilters(){ applyPreset('30d'); el.locationFilter.value = ''; el.searchInput.value = ''; el.productTypeFilter.value = ''; el.viewMode.value = 'net'; }
   function getFilters(){ return { location: el.locationFilter.value.trim(), dateFrom: el.dateFrom.value, dateTo: el.dateTo.value, search: el.searchInput.value.trim(), productType: el.productTypeFilter.value.trim(), metric: el.viewMode.value }; }
+
+  function escapePostgrestLike(term){
+    return String(term || '').replaceAll(',', '\\,').replaceAll('(', '\\(').replaceAll(')', '\\)');
+  }
 
   async function loadOptions(){
     const { data: locs, error: locErr } = await sb.from(VIEWS.location).select('location').order('location');
@@ -316,7 +427,7 @@
     if (filters.location) q = q.eq('location', filters.location);
     if (filters.productType) q = q.eq('product_type', filters.productType);
     if (filters.search) {
-      const term = `%${filters.search.replaceAll(',', '\\,').replaceAll('(', '\\(').replaceAll(')', '\\)')}%`;
+      const term = `%${escapePostgrestLike(filters.search)}%`;
       q = q.or(`product_name.ilike.${term},sku.ilike.${term}`);
     }
     const { data, error } = await q;
@@ -354,11 +465,27 @@
     return rows.reduce((a,r) => { a.rows += Number(r.rows || 0); a.unique_skus += Number(r.unique_skus || 0); a.units += Number(r.units || 0); a.gross += Number(r.gross || 0); a.discounts += Number(r.discounts || 0); a.refunds += Number(r.refunds || 0); a.net += Number(r.net || 0); a.total_sales += Number(r.total_sales || 0); return a; }, { rows:0, unique_skus:0, units:0, gross:0, discounts:0, refunds:0, net:0, total_sales:0 });
   }
 
+  function daysBehind(dateStr){
+    if (!dateStr) return 999999;
+    const max = new Date(`${dateStr}T00:00:00`);
+    if (Number.isNaN(max.getTime())) return 999999;
+    const today = new Date(`${todayLocalDateString()}T00:00:00`);
+    return Math.floor((today - max) / (1000*60*60*24));
+  }
+
   function coverageBadge(row){
     const min = row.min_date || '';
-    if (min <= '2024-01-31') return '<span class="badge badge-good">Historical</span>';
-    if (min <= '2025-12-31') return '<span class="badge badge-warn">Partial</span>';
-    return '<span class="badge badge-bad">Daily only</span>';
+    const behind = daysBehind(row.max_date);
+    const current = behind <= 2;
+    const historical = min <= '2024-01-31';
+    const partial = min <= '2025-12-31';
+
+    if (historical && current) return '<span class="badge badge-good">Historical + Current</span>';
+    if (historical && !current) return '<span class="badge badge-warn">Historical + Needs Refresh</span>';
+    if (partial && current) return '<span class="badge badge-warn">Partial + Current</span>';
+    if (partial && !current) return '<span class="badge badge-warn">Partial + Needs Refresh</span>';
+    if (current) return '<span class="badge badge-neutral">Daily Only + Current</span>';
+    return '<span class="badge badge-bad">Stale</span>';
   }
 
   function renderKPIs(monthlyRows){
@@ -404,11 +531,11 @@
   }
 
   function renderExceptions(rows){
-    const totals = rows.reduce((a,r) => { a.refund += Number(r.refund_discrepancy_rows || 0); a.blank += Number(r.blank_sku_rows || 0); a.negative += Number(r.negative_net_rows || 0); a.batches += Number(r.sync_batches || 0); return a; }, { refund:0, blank:0, negative:0, batches:0 });
-    el.excRefundDiscrepancy.textContent = numberFmt(totals.refund);
-    el.excBlankSku.textContent = numberFmt(totals.blank);
-    el.excNegativeNet.textContent = numberFmt(totals.negative);
-    el.excBatchCount.textContent = numberFmt(totals.batches);
+    const t = rows.reduce((a,r) => { a.refund += Number(r.refund_discrepancy_rows || 0); a.blank += Number(r.blank_sku_rows || 0); a.negative += Number(r.negative_net_rows || 0); a.batches += Number(r.sync_batches || 0); return a; }, { refund:0, blank:0, negative:0, batches:0 });
+    el.excRefundDiscrepancy.textContent = numberFmt(t.refund);
+    el.excBlankSku.textContent = numberFmt(t.blank);
+    el.excNegativeNet.textContent = numberFmt(t.negative);
+    el.excBatchCount.textContent = numberFmt(t.batches);
     el.exceptionSummaryBody.innerHTML = rows.length ? rows.map(r => `<tr><td class="font-semibold text-slate-900">${escapeHtml(r.location || '—')}</td><td class="num mono">${numberFmt(r.refund_discrepancy_rows)}</td><td class="num mono">${numberFmt(r.blank_sku_rows)}</td><td class="num mono">${numberFmt(r.negative_net_rows)}</td><td class="num mono">${numberFmt(r.sync_batches)}</td><td class="mono">${r.last_synced_at ? escapeHtml(new Date(r.last_synced_at).toLocaleString()) : '—'}</td></tr>`).join('') : `<tr><td colspan="6" class="px-3 py-10 text-center text-sm text-slate-500">No exception summary rows found.</td></tr>`;
   }
 
@@ -418,8 +545,16 @@
 
   function renderCharts(monthly, stores, metric){
     destroyChart('monthlyTrend'); destroyChart('locationMix');
-    state.charts.monthlyTrend = new Chart(document.getElementById('monthlyTrendChart'), { type:'line', data:{ labels: monthly.map(r => r.month_key), datasets:[{ label:metricLabel(metric), data:monthly.map(r => metricValue(r, metric)), tension:.25 }] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false} }, scales:{ y:{ ticks:{ callback:v => metric === 'units' ? Number(v).toLocaleString() : `$${Number(v).toLocaleString()}` } } } } });
-    state.charts.locationMix = new Chart(document.getElementById('locationMixChart'), { type:'bar', data:{ labels: stores.slice(0,12).map(r => r.location), datasets:[{ label:metricLabel(metric), data:stores.slice(0,12).map(r => metricValue(r, metric)) }] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false} }, scales:{ y:{ ticks:{ callback:v => metric === 'units' ? Number(v).toLocaleString() : `$${Number(v).toLocaleString()}` } } } } });
+    state.charts.monthlyTrend = new Chart(document.getElementById('monthlyTrendChart'), {
+      type:'line',
+      data:{ labels: monthly.map(r => r.month_key), datasets:[{ label:metricLabel(metric), data:monthly.map(r => metricValue(r, metric)), tension:.25 }] },
+      options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false} }, scales:{ y:{ ticks:{ callback:v => metric === 'units' ? Number(v).toLocaleString() : `$${Number(v).toLocaleString()}` } } } }
+    });
+    state.charts.locationMix = new Chart(document.getElementById('locationMixChart'), {
+      type:'bar',
+      data:{ labels: stores.slice(0,12).map(r => r.location), datasets:[{ label:metricLabel(metric), data:stores.slice(0,12).map(r => metricValue(r, metric)) }] },
+      options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false} }, scales:{ y:{ ticks:{ callback:v => metric === 'units' ? Number(v).toLocaleString() : `$${Number(v).toLocaleString()}` } } } }
+    });
   }
 
   function renderAll(){
@@ -438,15 +573,31 @@
   }
 
   async function runLoad(){
+    if (state.loading) return;
     const filters = getFilters();
+    setLoading(true);
     setStatus('Loading view-based reporting...'); setProgress('Views');
     try {
-      const [locationRows, monthlyRows, productRows, exceptionRows] = await Promise.all([fetchLocationVerification(filters), fetchMonthlyRows(filters), fetchProducts(filters), fetchExceptions(filters)]);
-      state.locationRows = locationRows; state.monthlyRows = monthlyRows; state.productRows = productRows; state.exceptionRows = exceptionRows; state.lastLoadAt = new Date().toISOString();
+      const [locationRows, monthlyRows, productRows, exceptionRows] = await Promise.all([
+        fetchLocationVerification(filters),
+        fetchMonthlyRows(filters),
+        fetchProducts(filters),
+        fetchExceptions(filters)
+      ]);
+      state.locationRows = locationRows;
+      state.monthlyRows = monthlyRows;
+      state.productRows = productRows;
+      state.exceptionRows = exceptionRows;
+      state.lastLoadAt = new Date().toISOString();
       setStatus(`Loaded ${numberFmt(monthlyRows.length)} monthly rollup rows, ${numberFmt(productRows.length)} product rows, and ${numberFmt(locationRows.length)} location verification rows.`);
       setProgress('Rendering'); renderAll(); setProgress('Complete');
     } catch(e) {
-      console.error(e); setStatus(`Load failed: ${e.message || 'Unknown error'}`); setProgress('Failed'); alert(e.message || 'Load failed');
+      console.error(e);
+      setStatus(`Load failed: ${e.message || 'Unknown error'}`);
+      setProgress('Failed');
+      alert(e.message || 'Load failed');
+    } finally {
+      setLoading(false);
     }
   }
 
