@@ -2,7 +2,7 @@
 <html lang="en" class="h-full">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Silo ERP — Planning Scenarios</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -12,659 +12,1045 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="/pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
   <style>
-    :root { color-scheme: light; }
-    body { font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
-    .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
-    .surface { border:1px solid rgba(15,23,42,.10); background:#fff; border-radius:16px; }
-    .soft-shadow { box-shadow:0 14px 38px rgba(2,6,23,.08); }
+    :root{ color-scheme: light; }
+    *{ box-sizing:border-box; }
+    body{ font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    .mono{ font-variant-numeric: tabular-nums; font-feature-settings:"tnum" 1; }
+    .surface{ border:1px solid rgba(15,23,42,.10); background:#fff; border-radius:16px; }
+    .shadow-soft{ box-shadow:0 12px 32px rgba(2,6,23,.08); }
     .thin-scroll::-webkit-scrollbar{ height:10px; width:10px; }
-    .thin-scroll::-webkit-scrollbar-thumb{ background:rgba(15,23,42,.20); border-radius:999px; }
+    .thin-scroll::-webkit-scrollbar-thumb{ background:rgba(15,23,42,.18); border-radius:999px; }
     .thin-scroll::-webkit-scrollbar-track{ background:rgba(15,23,42,.05); }
-    .seg{ border:1px solid rgba(15,23,42,.14); background:#fff; }
-    .seg button{ padding:7px 10px; font-size:12px; font-weight:800; border-radius:10px; white-space:nowrap; }
-    .seg button.active{ background:#0f172a; color:white; }
-    .btn{ border:1px solid rgba(15,23,42,.14); background:#fff; border-radius:12px; font-weight:800; }
-    .btn:hover{ background:rgba(15,23,42,.035); }
-    .btn-dark{ background:#0f172a; color:#fff; border:1px solid #0f172a; border-radius:12px; font-weight:900; }
+    .stickyHead thead th{ position:sticky; top:0; z-index:15; }
+    .btn{ border:1px solid rgba(15,23,42,.14); background:#fff; border-radius:10px; padding:8px 12px; font-size:13px; font-weight:700; }
+    .btn:hover{ background:rgba(15,23,42,.03); }
+    .btn-dark{ background:#0f172a; color:#fff; border:1px solid #0f172a; border-radius:10px; padding:8px 12px; font-size:13px; font-weight:800; }
     .btn-dark:hover{ background:#0b1220; }
-    .label{ display:block; font-size:10px; font-weight:900; text-transform:uppercase; letter-spacing:.14em; color:#64748b; margin-bottom:6px; }
-    .input{ width:100%; border:1px solid rgba(148,163,184,.35); border-radius:12px; padding:9px 10px; font-size:13px; outline:none; background:#fff; }
-    .input:focus{ border-color:rgba(59,130,246,.55); box-shadow:0 0 0 4px rgba(59,130,246,.10); }
-    .badge{ display:inline-flex; align-items:center; gap:6px; border:1px solid rgba(15,23,42,.14); background:#fff; border-radius:999px; padding:3px 9px; font-size:11px; font-weight:900; white-space:nowrap; }
-    .badge-blue{ background:#eff6ff; border-color:#bfdbfe; color:#1d4ed8; }
-    .badge-green{ background:#ecfdf5; border-color:#bbf7d0; color:#047857; }
-    .badge-amber{ background:#fffbeb; border-color:#fde68a; color:#b45309; }
-    .badge-red{ background:#fef2f2; border-color:#fecaca; color:#b91c1c; }
-    .tab{ border:1px solid rgba(15,23,42,.12); background:#fff; border-radius:13px; padding:9px 12px; font-size:13px; font-weight:900; color:#334155; white-space:nowrap; }
-    .tab.active{ background:#0f172a; color:white; border-color:#0f172a; }
-    .panel{ display:none; }
-    .panel.active{ display:block; }
-    table{ border-collapse:separate; border-spacing:0; width:100%; }
-    .dense th{ position:sticky; top:0; z-index:10; background:#f8fafc; color:#64748b; font-size:11px; text-transform:uppercase; letter-spacing:.10em; font-weight:900; padding:10px; border-bottom:1px solid rgba(148,163,184,.20); text-align:left; white-space:nowrap; }
-    .dense td{ padding:9px 10px; border-bottom:1px solid rgba(148,163,184,.14); font-size:12px; vertical-align:top; }
-    .dense tbody tr:hover td{ background:#f8fafc; }
+    .btn:disabled,.btn-dark:disabled{ opacity:.55; cursor:not-allowed; }
+    .seg{ border:1px solid rgba(15,23,42,.14); background:#fff; border-radius:14px; padding:4px; display:flex; gap:4px; flex-wrap:wrap; }
+    .seg button{ padding:7px 10px; font-size:12px; font-weight:800; border-radius:10px; }
+    .seg button.active{ background:#0f172a; color:#fff; }
+    .badge{ display:inline-flex; align-items:center; gap:.35rem; border:1px solid rgba(15,23,42,.14); background:#fff; border-radius:999px; padding:2px 8px; font-size:11px; font-weight:800; white-space:nowrap; }
+    .badge-good{ border-color:#bbf7d0; background:#ecfdf5; color:#166534; }
+    .badge-warn{ border-color:#fde68a; background:#fffbeb; color:#92400e; }
+    .badge-bad{ border-color:#fecaca; background:#fef2f2; color:#991b1b; }
+    .badge-info{ border-color:#bfdbfe; background:#eff6ff; color:#1e40af; }
+    .field-label{ display:block; margin-bottom:4px; font-size:11px; font-weight:800; color:#475569; text-transform:uppercase; letter-spacing:.08em; }
+    input,select{ border:1px solid rgba(148,163,184,.55); border-radius:10px; padding:8px 10px; font-size:13px; background:#fff; outline:none; }
+    input:focus,select:focus{ border-color:rgba(37,99,235,.55); box-shadow:0 0 0 3px rgba(37,99,235,.08); }
+    table{ border-collapse:separate; border-spacing:0; }
+    th{ background:#f8fafc; color:#475569; text-transform:uppercase; letter-spacing:.08em; font-size:11px; font-weight:900; border-bottom:1px solid #e2e8f0; }
+    td{ border-bottom:1px solid #f1f5f9; }
     .num{ text-align:right; font-variant-numeric:tabular-nums; }
-    .scenario-bar{ height:32px; border-radius:6px 6px 0 0; }
-    canvas{ max-height:340px!important; }
+    @media print{
+      header,.no-print,#assumptionsPanel,#filtersPanel,#exportPanel{ display:none !important; }
+      body{ background:#fff !important; }
+      .surface{ box-shadow:none !important; break-inside:avoid; }
+      main{ max-width:none !important; padding:0 !important; }
+    }
   </style>
 </head>
 
-<body class="min-h-full bg-slate-50 text-slate-950">
-  <div class="min-h-screen">
-    <header class="border-b border-slate-200 bg-white">
-      <div class="mx-auto max-w-[1900px] px-4 py-4 flex items-center justify-between gap-3">
-        <div class="flex items-center gap-3 min-w-0">
-          <div class="h-9 w-9 rounded-xl border border-slate-200 grid place-items-center shrink-0"><span class="text-sm font-black">S</span></div>
-          <div class="min-w-0">
-            <div class="text-sm font-black truncate">Silo ERP — Planning Scenarios</div>
-            <div class="text-xs text-slate-500 truncate">Product type → product family projections, channel assumptions, inventory gap, and PO pressure</div>
-          </div>
+<body class="min-h-full bg-slate-50 text-slate-900">
+  <header class="border-b border-slate-200 bg-white sticky top-0 z-40">
+    <div class="mx-auto max-w-[1900px] px-4 py-4 flex items-center justify-between gap-3">
+      <div class="flex items-center gap-3 min-w-0">
+        <div class="h-9 w-9 rounded-xl border border-slate-200 grid place-items-center shrink-0">
+          <span class="text-sm font-extrabold">S</span>
         </div>
-        <div class="flex items-center gap-2 shrink-0">
-          <span id="authEmail" class="hidden md:inline text-xs text-slate-500"></span>
-          <button id="btnReload" class="btn px-3 py-2 text-sm">Reload</button>
-          <button id="btnExport" class="btn-dark px-3 py-2 text-sm">Export CSV</button>
-          <button id="logoutBtn" class="btn px-3 py-2 text-sm">Logout</button>
+        <div class="min-w-0">
+          <div class="text-sm font-semibold truncate">Silo ERP — Planning Scenarios</div>
+          <div class="text-xs text-slate-500 truncate">
+            Historical baseline + projection overrides + ASP/mix assumptions + inventory gap proof
+          </div>
         </div>
       </div>
-    </header>
+      <div class="flex items-center gap-2 shrink-0">
+        <span id="versionBadge" class="badge badge-info">Scenario Overrides v1</span>
+        <span id="authEmail" class="hidden md:inline text-xs text-slate-500"></span>
+        <button id="btnReload" class="btn">Reload</button>
+        <button id="btnPrint" class="btn">Print Proof</button>
+        <button id="btnExport" class="btn-dark">Export CSV</button>
+        <button id="logoutBtn" class="btn">Logout</button>
+      </div>
+    </div>
+  </header>
 
-    <main class="mx-auto max-w-[1900px] p-4 space-y-4">
-      <section class="surface soft-shadow p-4 space-y-4">
-        <div class="flex flex-col 2xl:flex-row 2xl:items-end gap-3 justify-between">
-          <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3 flex-1">
-            <div>
-              <label class="label">Year</label>
-              <select id="selYear" class="input mono"></select>
-            </div>
-            <div>
-              <label class="label">From Month</label>
-              <select id="selFromMonth" class="input"></select>
-            </div>
-            <div>
-              <label class="label">To Month</label>
-              <select id="selToMonth" class="input"></select>
-            </div>
-            <div class="xl:col-span-2">
-              <label class="label">Product Type</label>
-              <input id="txtProductType" list="productTypeList" class="input" placeholder="ex: Youth Shorts" />
-              <datalist id="productTypeList"></datalist>
-            </div>
-            <div>
-              <label class="label">Metric</label>
-              <select id="selMetric" class="input">
-                <option value="net" selected>Net Sales</option>
-                <option value="total_sales">Total Sales</option>
-                <option value="gross">Gross Sales</option>
-              </select>
-            </div>
-            <div>
-              <label class="label">Scenario Focus</label>
-              <select id="selFocusScenario" class="input">
-                <option value="0">Plan</option>
-                <option value="10">+10%</option>
-                <option value="20">+20%</option>
-                <option value="25" selected>+25%</option>
-                <option value="30">+30%</option>
-                <option value="40">+40%</option>
-                <option value="50">+50%</option>
-                <option value="75">+75%</option>
-                <option value="100">+100%</option>
-              </select>
-            </div>
-            <div class="flex items-end gap-2">
-              <button id="btnApply" class="btn-dark px-4 py-2.5 text-sm w-full">Apply</button>
-              <button id="btnReset" class="btn px-4 py-2.5 text-sm w-full">Reset</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="flex flex-col lg:flex-row lg:items-center gap-3 justify-between">
-          <div class="flex items-center gap-2 flex-wrap">
-            <span class="text-xs font-black text-slate-700">Channels</span>
-            <label class="badge"><input id="chkOnline" type="checkbox" checked class="accent-slate-900"> Online</label>
-            <label class="badge"><input id="chkRetail" type="checkbox" checked class="accent-slate-900"> Retail</label>
-            <label class="badge"><input id="chkWholesale" type="checkbox" checked class="accent-slate-900"> Wholesale / Event</label>
-          </div>
-          <div class="flex items-center gap-2 flex-wrap">
-            <span class="text-xs font-black text-slate-700">Inventory Assumptions</span>
-            <label class="badge">Safety days <input id="numSafetyDays" type="number" value="21" min="0" step="1" class="ml-1 w-16 border-0 bg-transparent mono outline-none"></label>
-            <label class="badge">Ending cover <input id="numEndingCover" type="number" value="30" min="0" step="1" class="ml-1 w-16 border-0 bg-transparent mono outline-none"></label>
-            <label class="badge">Inbound <input id="numInbound" type="number" value="0" min="0" step="1" class="ml-1 w-20 border-0 bg-transparent mono outline-none"></label>
-          </div>
-        </div>
-
-        <div id="statusLine" class="text-xs text-slate-600 mono">Ready.</div>
-      </section>
-
-      <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3" id="scenarioCards"></section>
-
-      <section class="grid grid-cols-1 xl:grid-cols-3 gap-3" id="assumptionCards"></section>
-
-      <section class="surface p-4 space-y-3">
-        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+  <main class="mx-auto max-w-[1900px] px-4 py-5 space-y-4">
+    <section id="filtersPanel" class="surface p-4 shadow-soft">
+      <div class="flex flex-col xl:flex-row xl:items-end gap-3">
+        <div class="flex-1 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-7 gap-3">
           <div>
-            <div class="text-sm font-black">Scenario Tabs</div>
-            <div class="text-xs text-slate-500">Plan and growth scenarios tied to current inventory and product mix.</div>
+            <label class="field-label">Product Type</label>
+            <select id="selProductType" class="w-full"><option value="__ALL__">All product types</option></select>
           </div>
-          <div class="flex gap-2 overflow-x-auto thin-scroll pb-1">
-            <button class="tab active" data-tab="summary">Summary</button>
-            <button class="tab" data-tab="monthly">Monthly Detail</button>
-            <button class="tab" data-tab="inventory">Inventory Gap</button>
-            <button class="tab" data-tab="products">Product Family Detail</button>
-            <button class="tab" data-tab="channels">Channel Mix</button>
+          <div>
+            <label class="field-label">Product Search</label>
+            <input id="txtProductSearch" class="w-full" placeholder="Optional product filter..." />
+          </div>
+          <div>
+            <label class="field-label">Month From</label>
+            <input id="dateFrom" type="month" class="w-full mono" />
+          </div>
+          <div>
+            <label class="field-label">Month To</label>
+            <input id="dateTo" type="month" class="w-full mono" />
+          </div>
+          <div>
+            <label class="field-label">Scenario</label>
+            <select id="selScenario" class="w-full">
+              <option value="0">Plan / Baseline</option>
+              <option value="10">+10%</option>
+              <option value="25" selected>+25%</option>
+              <option value="50">+50%</option>
+              <option value="100">+100%</option>
+              <option value="custom">Custom</option>
+            </select>
+          </div>
+          <div>
+            <label class="field-label">Custom Lift %</label>
+            <input id="numCustomLift" type="number" step="1" value="25" class="w-full mono" />
+          </div>
+          <div>
+            <label class="field-label">Safety Stock %</label>
+            <input id="numSafetyPct" type="number" step="1" value="10" class="w-full mono" />
           </div>
         </div>
-      </section>
 
-      <section id="tab-summary" class="panel active space-y-4">
-        <section class="surface p-4">
-          <div class="flex items-center justify-between gap-3 mb-3">
-            <div>
-              <div class="text-sm font-black text-blue-900 uppercase tracking-wide">Annual Summary — All Scenarios</div>
-              <div class="text-xs text-slate-500">Revenue and units based on selected period, product type, and channel mix.</div>
-            </div>
-            <div id="summaryBadge" class="badge badge-blue">—</div>
-          </div>
-          <div id="scenarioBars" class="flex items-end gap-1 h-14 mb-2"></div>
-          <div class="overflow-auto thin-scroll">
-            <table class="dense min-w-[1200px]"><thead id="summaryHead"></thead><tbody id="summaryBody"></tbody></table>
-          </div>
-        </section>
+        <div class="flex items-center gap-2">
+          <button id="btnApply" class="btn-dark">Run Scenario</button>
+          <button id="btnReset" class="btn">Reset</button>
+        </div>
+      </div>
 
-        <section class="grid grid-cols-1 xl:grid-cols-[1.2fr_.8fr] gap-4">
-          <div class="surface p-4">
-            <div class="text-sm font-black mb-1">Scenario Revenue Curve</div>
-            <div class="text-xs text-slate-500 mb-3">Total period revenue by scenario.</div>
-            <canvas id="scenarioChart"></canvas>
-          </div>
-          <div class="surface p-4">
-            <div class="text-sm font-black mb-1">Inventory Gap at Focus Scenario</div>
-            <div class="text-xs text-slate-500 mb-3">Demand + safety/ending cover compared to current on hand + inbound.</div>
-            <canvas id="gapChart"></canvas>
-          </div>
-        </section>
-      </section>
+      <div class="mt-3 text-xs text-slate-600">
+        <span id="statusLine">Loading…</span>
+      </div>
+    </section>
 
-      <section id="tab-monthly" class="panel space-y-4">
-        <section class="surface p-4">
-          <div class="text-sm font-black text-blue-900 uppercase tracking-wide">Monthly Detail — Revenue by Scenario</div>
-          <div class="text-xs text-slate-500 mb-3">Base month values are actual history from <span class="mono">sales_monthly_product_type_rollup_v</span>.</div>
-          <div class="overflow-auto thin-scroll">
-            <table class="dense min-w-[1700px]"><thead id="monthlyHead"></thead><tbody id="monthlyBody"></tbody></table>
+    <section id="assumptionsPanel" class="surface p-4 shadow-soft space-y-4">
+      <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
+        <div>
+          <div class="text-sm font-extrabold">Assumption Controls</div>
+          <div class="text-xs text-slate-500 mt-1">
+            Leave overrides blank to use historical baseline. Fill revenue/ASP/mix to work backward from someone else's projection.
           </div>
-        </section>
-      </section>
+        </div>
 
-      <section id="tab-inventory" class="panel space-y-4">
-        <section class="surface p-4">
-          <div class="text-sm font-black text-blue-900 uppercase tracking-wide">Inventory Gap by Scenario</div>
-          <div class="text-xs text-slate-500 mb-3">This prevents broad overbuying: category/product gap uses current on hand and required cover, while product detail shows mix pressure.</div>
-          <div class="overflow-auto thin-scroll">
-            <table class="dense min-w-[1250px]"><thead id="inventoryHead"></thead><tbody id="inventoryBody"></tbody></table>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 min-w-full lg:min-w-[680px]">
+          <div>
+            <label class="field-label">Total Revenue Override</label>
+            <input id="numTotalRevenueOverride" type="number" step="1000" placeholder="Blank = historical × lift" class="w-full mono" />
           </div>
-        </section>
-      </section>
+          <div>
+            <label class="field-label">Use Mix % when total override entered</label>
+            <select id="selMixMode" class="w-full">
+              <option value="on" selected>Yes — distribute by mix %</option>
+              <option value="off">No — use channel revenue overrides only</option>
+            </select>
+          </div>
+          <div>
+            <label class="field-label">Planning Note</label>
+            <input id="txtScenarioName" type="text" placeholder="ex: Loomis July shorts push" class="w-full" />
+          </div>
+        </div>
+      </div>
 
-      <section id="tab-products" class="panel space-y-4">
-        <section class="surface p-4">
-          <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-3">
-            <div>
-              <div class="text-sm font-black text-blue-900 uppercase tracking-wide">Product Family Detail</div>
-              <div class="text-xs text-slate-500">Product rows use inventory workboard rollups and focus-scenario demand pressure.</div>
-            </div>
-            <div class="badge badge-green" id="productFocusBadge">—</div>
-          </div>
-          <div class="overflow-auto thin-scroll max-h-[64vh]">
-            <table class="dense min-w-[1500px]"><thead id="productHead"></thead><tbody id="productBody"></tbody></table>
-          </div>
-        </section>
-      </section>
+      <div class="overflow-auto thin-scroll">
+        <table class="min-w-[1250px] w-full text-sm">
+          <thead>
+            <tr>
+              <th class="px-3 py-2 text-left">Bucket</th>
+              <th class="px-3 py-2 text-center">Use</th>
+              <th class="px-3 py-2 num">Hist Units</th>
+              <th class="px-3 py-2 num">Hist Revenue</th>
+              <th class="px-3 py-2 num">Hist ASP</th>
+              <th class="px-3 py-2 num">Mix %</th>
+              <th class="px-3 py-2 num">Bucket Lift %</th>
+              <th class="px-3 py-2 num">Revenue Override</th>
+              <th class="px-3 py-2 num">ASP Override</th>
+              <th class="px-3 py-2 num">ASP Change %</th>
+              <th class="px-3 py-2 text-left">Readout</th>
+            </tr>
+          </thead>
+          <tbody id="assumptionsBody"></tbody>
+        </table>
+      </div>
+    </section>
 
-      <section id="tab-channels" class="panel space-y-4">
-        <section class="surface p-4">
-          <div class="grid grid-cols-1 xl:grid-cols-[.9fr_1.1fr] gap-4">
-            <div>
-              <div class="text-sm font-black text-blue-900 uppercase tracking-wide">Channel Mix</div>
-              <div class="text-xs text-slate-500 mb-3">Share and ASP based on selected period.</div>
-              <div class="overflow-auto thin-scroll">
-                <table class="dense min-w-[650px]"><thead><tr><th>Channel</th><th class="num">Units</th><th class="num">Revenue</th><th class="num">Share</th><th class="num">ASP</th></tr></thead><tbody id="channelBody"></tbody></table>
-              </div>
-            </div>
-            <div>
-              <div class="text-sm font-black mb-1">Channel Revenue Mix</div>
-              <div class="text-xs text-slate-500 mb-3">Selected product type and period.</div>
-              <canvas id="channelChart"></canvas>
-            </div>
+    <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
+      <div class="surface p-4 shadow-soft">
+        <div class="text-xs font-bold text-slate-500 uppercase tracking-wide">Historical Revenue</div>
+        <div id="kHistRevenue" class="mt-2 text-2xl font-black mono">$0</div>
+        <div id="kHistRevenueSub" class="text-xs text-slate-500 mt-1">Selected baseline</div>
+      </div>
+      <div class="surface p-4 shadow-soft">
+        <div class="text-xs font-bold text-slate-500 uppercase tracking-wide">Required Units</div>
+        <div id="kReqUnits" class="mt-2 text-2xl font-black mono">0</div>
+        <div id="kReqUnitsSub" class="text-xs text-slate-500 mt-1">Scenario output</div>
+      </div>
+      <div class="surface p-4 shadow-soft">
+        <div class="text-xs font-bold text-slate-500 uppercase tracking-wide">Current On Hand</div>
+        <div id="kOnHand" class="mt-2 text-2xl font-black mono">0</div>
+        <div id="kOnHandSub" class="text-xs text-slate-500 mt-1">Filtered inventory</div>
+      </div>
+      <div class="surface p-4 shadow-soft">
+        <div class="text-xs font-bold text-slate-500 uppercase tracking-wide">Inventory Gap</div>
+        <div id="kGap" class="mt-2 text-2xl font-black mono">0</div>
+        <div id="kGapSub" class="text-xs text-slate-500 mt-1">Required units - on hand</div>
+      </div>
+      <div class="surface p-4 shadow-soft">
+        <div class="text-xs font-bold text-slate-500 uppercase tracking-wide">Gap + Safety</div>
+        <div id="kGapSafety" class="mt-2 text-2xl font-black mono">0</div>
+        <div id="kGapSafetySub" class="text-xs text-slate-500 mt-1">Buy need with safety stock</div>
+      </div>
+    </section>
+
+    <section class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+      <div class="surface p-4 shadow-soft">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div class="text-sm font-extrabold">Scenario Summary</div>
+            <div class="text-xs text-slate-500 mt-1">Plan, lift, revenue override, ASP impact, required units.</div>
           </div>
-        </section>
-      </section>
-    </main>
-  </div>
+          <span id="scenarioBadge" class="badge badge-info">—</span>
+        </div>
+        <div class="mt-3 overflow-auto thin-scroll">
+          <table class="min-w-[900px] w-full text-sm">
+            <thead>
+              <tr>
+                <th class="px-3 py-2 text-left">Bucket</th>
+                <th class="px-3 py-2 num">Revenue</th>
+                <th class="px-3 py-2 num">ASP</th>
+                <th class="px-3 py-2 num">Units</th>
+                <th class="px-3 py-2 num">Unit Delta</th>
+                <th class="px-3 py-2 num">Revenue Delta</th>
+              </tr>
+            </thead>
+            <tbody id="scenarioSummaryBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="surface p-4 shadow-soft">
+        <div class="text-sm font-extrabold">Inventory Gap by Bucket</div>
+        <div class="text-xs text-slate-500 mt-1">Inventory is estimated by current Silo inventory product type + product filter.</div>
+        <div class="mt-3 overflow-auto thin-scroll">
+          <table class="min-w-[900px] w-full text-sm">
+            <thead>
+              <tr>
+                <th class="px-3 py-2 text-left">Bucket</th>
+                <th class="px-3 py-2 num">Required Units</th>
+                <th class="px-3 py-2 num">On Hand</th>
+                <th class="px-3 py-2 num">Gap</th>
+                <th class="px-3 py-2 num">Gap + Safety</th>
+                <th class="px-3 py-2 text-left">Signal</th>
+              </tr>
+            </thead>
+            <tbody id="inventoryGapBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="surface p-4 shadow-soft">
+      <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+        <div>
+          <div class="text-sm font-extrabold">Product Family Detail</div>
+          <div class="text-xs text-slate-500 mt-1">
+            Scenario units allocated by each product's demand share from current workboard velocity. Use this as planning pressure, not a final PO.
+          </div>
+        </div>
+        <div class="seg no-print">
+          <button id="btnFamilyAll" class="active" data-family-filter="all">All</button>
+          <button data-family-filter="buy">Buy Need</button>
+          <button data-family-filter="mix">Review Mix</button>
+          <button data-family-filter="overstock">Overstock</button>
+        </div>
+      </div>
+      <div class="mt-3 overflow-auto thin-scroll">
+        <table class="min-w-[1600px] w-full text-sm stickyHead">
+          <thead>
+            <tr>
+              <th class="px-3 py-2 text-left">Product</th>
+              <th class="px-3 py-2 text-left">Type</th>
+              <th class="px-3 py-2 num">On Hand</th>
+              <th class="px-3 py-2 num">Retail Value</th>
+              <th class="px-3 py-2 num">Sold 30d</th>
+              <th class="px-3 py-2 num">Sold 365d</th>
+              <th class="px-3 py-2 num">Demand Share</th>
+              <th class="px-3 py-2 num">Scenario Units</th>
+              <th class="px-3 py-2 num">Gap</th>
+              <th class="px-3 py-2 num">Gap + Safety</th>
+              <th class="px-3 py-2 text-left">Action</th>
+              <th class="px-3 py-2 text-left">Tag / Collection</th>
+            </tr>
+          </thead>
+          <tbody id="productFamilyBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="surface p-4 shadow-soft">
+      <div class="text-sm font-extrabold">Monthly Baseline</div>
+      <div class="text-xs text-slate-500 mt-1">Historical selected period by month and channel.</div>
+      <div class="mt-3 overflow-auto thin-scroll">
+        <table class="min-w-[1100px] w-full text-sm">
+          <thead>
+            <tr>
+              <th class="px-3 py-2 text-left">Month</th>
+              <th class="px-3 py-2 text-left">Bucket</th>
+              <th class="px-3 py-2 num">Units</th>
+              <th class="px-3 py-2 num">Revenue</th>
+              <th class="px-3 py-2 num">ASP</th>
+              <th class="px-3 py-2 num">Rows</th>
+              <th class="px-3 py-2 num">SKUs</th>
+            </tr>
+          </thead>
+          <tbody id="monthlyBody"></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
 
 <script>
+  console.log("Silo Planning Scenarios: Override Model v1 loaded");
+
   const cfg = window.__SILO_CONFIG__ || {};
   const SUPABASE_URL = cfg.SUPABASE_URL || "";
   const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || "";
   const LOGIN_PATH = "/pages/login.html";
+
   const SALES_VIEW = "sales_monthly_product_type_rollup_v";
   const INVENTORY_VIEW = "inventory_workboard_v";
   const PAGE_SIZE = 10000;
-  const MONTHS = [
-    [1,"Jan"],[2,"Feb"],[3,"Mar"],[4,"Apr"],[5,"May"],[6,"Jun"],
-    [7,"Jul"],[8,"Aug"],[9,"Sep"],[10,"Oct"],[11,"Nov"],[12,"Dec"]
+
+  const CHANNELS = [
+    { key:"online", label:"Online" },
+    { key:"retail", label:"Retail" },
+    { key:"wholesale", label:"Wholesale / Faire" }
   ];
-  const SCENARIOS = [0,10,20,25,30,40,50,60,70,80,90,100];
-  const CARD_SCENARIOS = [0,25,50,100];
 
-  let SB, SESSION;
-  let MONTHLY = [], INVENTORY = [], PRODUCT_ROWS = [];
-  let SUMMARY = {}, MONTHLY_SUMMARY = [], CHANNEL_SUMMARY = [], INVENTORY_GAPS = [];
-  let charts = {};
+  let SUPABASE = null;
+  let SALES_ROWS = [];
+  let INVENTORY_ROWS = [];
+  let FILTERED_SALES = [];
+  let FILTERED_INVENTORY = [];
+  let PRODUCT_FAMILIES = [];
+  let SCENARIO_RESULT = null;
+  let FAMILY_FILTER = "all";
 
-  const $ = id => document.getElementById(id);
-  const norm = v => (v ?? "").toString().replace(/\u00A0/g," ").trim();
-  const num = v => { const n = parseFloat((v ?? "").toString().replace(/[^0-9.\-]/g,"")); return Number.isFinite(n) ? n : 0; };
-  const money = v => num(v).toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:0});
-  const money2 = v => num(v).toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:2});
-  const fmt = v => num(v).toLocaleString(undefined,{maximumFractionDigits:0});
-  const pct = v => `${(num(v)*100).toFixed(1)}%`;
-  const esc = s => (s ?? "").toString().replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
-  const monthStart = (year, m) => `${year}-${String(m).padStart(2,"0")}-01`;
-  const monthKey = (dateLike) => (dateLike || "").toString().slice(0,7);
-  const monthLabel = (key) => { const m = Number((key||"").slice(5,7)); return MONTHS.find(x=>x[0]===m)?.[1] || key; };
-  const daysInSelectedPeriod = () => {
-    const y = Number($("selYear").value);
-    const from = Number($("selFromMonth").value);
-    const to = Number($("selToMonth").value);
-    const start = new Date(y, from-1, 1);
-    const end = new Date(y, to, 0);
-    return Math.max(1, Math.round((end - start) / (1000*60*60*24)) + 1);
-  };
+  const el = id => document.getElementById(id);
 
-  function setStatus(text){ $("statusLine").innerHTML = text; }
-  function selectedMetric(){ return $("selMetric").value || "net"; }
-  function selectedChannels(){
-    const out = [];
-    if ($("chkOnline").checked) out.push("Online");
-    if ($("chkRetail").checked) out.push("Retail");
-    if ($("chkWholesale").checked) out.push("Wholesale / Event");
-    return out;
+  function norm(v){ return String(v ?? "").replace(/\u00A0/g," ").trim(); }
+  function num(v){
+    const x = parseFloat(String(v ?? "").replace(/[^0-9.\-]/g,""));
+    return Number.isFinite(x) ? x : 0;
   }
-  function channelForLocation(location){
-    const s = norm(location).toLowerCase();
-    if (!s) return "Retail";
-    if (s === "online" || s.includes("online") || s.includes("warehouse")) return "Online";
-    if (s.includes("wholesale") || s.includes("faire") || s.includes("dsg") || s.includes("mlb") || s.includes("pop up") || s.includes("college world") || s.includes("event")) return "Wholesale / Event";
-    return "Retail";
+  function money(v){
+    return num(v).toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:0});
   }
-  function normalizeTitleKey(v){ return String(v ?? "").trim().toLowerCase().replace(/["']/g,"").replace(/&/g,"and").replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").replace(/-+/g,"-"); }
-  function pick(row, names, fallback=""){
-    for (const name of names){ if (row && row[name] !== undefined && row[name] !== null && row[name] !== "") return row[name]; }
+  function money2(v){
+    return num(v).toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:2});
+  }
+  function pct(v){
+    return `${num(v).toFixed(1)}%`;
+  }
+  function esc(s){
+    return String(s ?? "").replace(/[&<>"']/g, m => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[m]));
+  }
+  function monthKey(v){
+    if (!v) return "";
+    const s = String(v);
+    return s.length >= 7 ? s.slice(0,7) : s;
+  }
+  function normalizeTitleKey(v){
+    return String(v ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/['"]/g, "")
+      .replace(/&/g, "and")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .replace(/-+/g, "-");
+  }
+  function pick(row, names, fallback = ""){
+    for (const name of names){
+      if (row && row[name] !== undefined && row[name] !== null && row[name] !== "") return row[name];
+    }
     return fallback;
   }
-
-  function toCSV(rows, headers){
-    const cols = headers && headers.length ? headers : [...new Set(rows.flatMap(r=>Object.keys(r||{})))];
-    const cell = v => { const s = (v ?? "").toString(); return /[",\n]/.test(s) ? '"' + s.replace(/"/g,'""') + '"' : s; };
-    return [cols.join(","), ...rows.map(r => cols.map(h => cell(r[h])).join(","))].join("\n");
+  function channelOf(row){
+    const c = norm(row.channel).toLowerCase();
+    const loc = norm(row.location || row.location_tag).toLowerCase();
+    if (c.includes("online") || loc === "online") return "online";
+    if (c.includes("wholesale") || c.includes("faire") || c.includes("dsg") || loc.includes("wholesale") || loc.includes("faire") || loc.includes("dsg")) return "wholesale";
+    if (c.includes("event") || loc.includes("popup") || loc.includes("pop_up")) return "wholesale";
+    return "retail";
   }
-  function download(name, content){
-    const blob = new Blob([content], {type:"text/csv;charset=utf-8;"});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),500);
+  function sourceIdOfInventory(row){
+    const loc = norm(pick(row, ["location_tag","location","location_label","location_name"], "unknown"));
+    const v = loc.toLowerCase();
+    if (v === "online") return "online";
+    if (v.includes("wholesale") || v.includes("faire") || v.includes("dsg") || v.includes("popup") || v.includes("pop_up")) return "wholesale";
+    return "retail";
   }
 
   async function initAuth(){
-    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) throw new Error("Missing Supabase config in /pages/config.js");
-    SB = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    const { data, error } = await SB.auth.getSession();
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY){
+      document.body.innerHTML = `<div style="padding:24px;font-family:Inter,system-ui">Missing Supabase config in /pages/config.js</div>`;
+      return false;
+    }
+
+    SUPABASE = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const { data, error } = await SUPABASE.auth.getSession();
     if (error) console.warn(error);
-    if (!data?.session){ window.location.href = LOGIN_PATH; return false; }
-    SESSION = data.session;
-    $("authEmail").textContent = SESSION.user?.email || "Signed in";
+    if (!data?.session){
+      window.location.href = LOGIN_PATH;
+      return false;
+    }
+
+    el("authEmail").textContent = data.session.user?.email || "Signed in";
     return true;
   }
 
-  function setupControls(){
-    const y = new Date().getFullYear();
-    $("selYear").innerHTML = [y-3,y-2,y-1,y,y+1].map(v=>`<option value="${v}" ${v===y?"selected":""}>${v}</option>`).join("");
-    $("selFromMonth").innerHTML = MONTHS.map(([m,n])=>`<option value="${m}" ${m===4?"selected":""}>${n}</option>`).join("");
-    $("selToMonth").innerHTML = MONTHS.map(([m,n])=>`<option value="${m}" ${m===12?"selected":""}>${n}</option>`).join("");
-    $("txtProductType").value = "Youth Shorts";
-  }
-
-  async function loadProductTypeOptions(){
-    try{
-      const { data, error } = await SB.from(INVENTORY_VIEW).select("product_type").not("product_type","is",null).limit(PAGE_SIZE);
-      if (error) throw error;
-      const types = [...new Set((data||[]).map(r=>norm(r.product_type)).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
-      $("productTypeList").innerHTML = types.map(t=>`<option value="${esc(t)}"></option>`).join("");
-    } catch(e){ console.warn("Product type option load failed", e); }
-  }
-
-  async function fetchAllPaged(builder, pageSize=PAGE_SIZE){
+  async function loadPaged(viewName){
     const out = [];
     let from = 0;
     while (true){
-      const to = from + pageSize - 1;
-      const { data, error } = await builder().range(from,to);
+      const to = from + PAGE_SIZE - 1;
+      const { data, error } = await SUPABASE.from(viewName).select("*").range(from, to);
       if (error) throw error;
       if (!data || !data.length) break;
       out.push(...data);
-      if (data.length < pageSize) break;
-      from += pageSize;
+      if (data.length < PAGE_SIZE) break;
+      from += PAGE_SIZE;
     }
     return out;
   }
 
-  async function loadMonthly(){
-    const year = Number($("selYear").value);
-    let fromM = Number($("selFromMonth").value), toM = Number($("selToMonth").value);
-    if (fromM > toM) [fromM, toM] = [toM, fromM];
-    const fromDate = monthStart(year, fromM);
-    const toDate = monthStart(year, toM);
-    const type = norm($("txtProductType").value);
-
-    return await fetchAllPaged(() => {
-      let q = SB.from(SALES_VIEW).select("*").gte("month_start", fromDate).lte("month_start", toDate);
-      if (type) q = q.eq("product_type", type);
-      return q.order("month_start", {ascending:true});
-    }, 5000);
+  function mapSalesRow(r){
+    return {
+      month_key: monthKey(pick(r, ["month_key","month_start"], "")),
+      month_start: pick(r, ["month_start","month_key"], ""),
+      product_type: norm(pick(r, ["product_type","Product Type"], "Uncategorized")) || "Uncategorized",
+      channel: channelOf(r),
+      location: norm(pick(r, ["location","location_tag"], "")),
+      rows: num(pick(r, ["rows"], 0)),
+      unique_skus: num(pick(r, ["unique_skus","skus"], 0)),
+      units: num(pick(r, ["units","total_quantity_sold"], 0)),
+      revenue: num(pick(r, ["net","total_sales","gross"], 0)),
+      gross: num(pick(r, ["gross"], 0)),
+      discounts: num(pick(r, ["discounts"], 0)),
+      refunds: num(pick(r, ["refunds"], 0)),
+      total_sales: num(pick(r, ["total_sales"], 0))
+    };
   }
 
-  async function loadInventory(){
-    const type = norm($("txtProductType").value);
-    return await fetchAllPaged(() => {
-      let q = SB.from(INVENTORY_VIEW).select("*");
-      if (type) q = q.eq("product_type", type);
-      return q;
-    }, PAGE_SIZE);
+  function mapInventoryRow(r, idx){
+    const sku = norm(pick(r, ["variant_sku","sku","SKU"], ""));
+    const productFromView = norm(pick(r, ["product_title","product_name","title","Product title","Product name"], ""));
+    const product = productFromView || sku || norm(pick(r, ["variant_barcode","barcode"], "")) || "Untitled product";
+    const productType = norm(pick(r, ["product_type","product_category","category"], "Uncategorized")) || "Uncategorized";
+    const channel = sourceIdOfInventory(r);
+    const location = norm(pick(r, ["location","location_label","location_name","location_tag"], "Unknown"));
+    return {
+      _id: `${channel}::${sku || normalizeTitleKey(product)}::${idx}`,
+      channel,
+      location,
+      product_type: productType,
+      product,
+      product_key: normalizeTitleKey(product),
+      sku,
+      variant: norm(pick(r, ["variant_title","variant_name"], "")),
+      tag: norm(pick(r, ["tag"], "")),
+      sub_tag: norm(pick(r, ["sub_tag"], "")),
+      indicator_group: norm(pick(r, ["indicator_group"], "")),
+      collection: norm(pick(r, ["collection"], "")),
+      avail_qty: num(pick(r, ["total_available_quantity","available_quantity","avail_qty","quantity_available","quantity_on_hand","on_hand"], 0)),
+      inv_value: num(pick(r, ["total_available_inventory_value","available_inventory_value","inventory_value","retail_value","inv_value"], 0)),
+      qty_7d: num(pick(r, ["qty_7d","sold_7d","quantity_sold_7d"], 0)),
+      sold_30: num(pick(r, ["sold_30","qty_30d","sold_30d","quantity_sold_30d"], 0)),
+      qty_90d: num(pick(r, ["qty_90d","sold_90d"], 0)),
+      qty_365d: num(pick(r, ["qty_365d","sold_365d"], 0)),
+      last_sold_date: norm(pick(r, ["last_sold_date","last_sale_date"], ""))
+    };
   }
 
-  function mapInvRow(o, idx){
-    const sku = norm(pick(o,["variant_sku","sku","SKU","Variant SKU"]));
-    const barcode = norm(pick(o,["variant_barcode","barcode","Variant Barcode"]));
-    const productFromView = norm(pick(o,["product_title","product_name","title","Product title","Product name"]));
-    const product = productFromView || sku || barcode || "Untitled product";
-    const loc = norm(pick(o,["location_tag","location_label","location_name","location","source_label"],"Unknown"));
-    const variant = norm(pick(o,["variant_title","variant_name","Variant title"]));
-    const productType = norm(pick(o,["product_type","product_category","category","Product type"]));
-    const avail = num(pick(o,["total_available_quantity","available_quantity","avail_qty","quantity_available","quantity_on_hand","on_hand","qty_on_hand"],0));
-    const invValue = num(pick(o,["total_available_inventory_value","available_inventory_value","inventory_value","retail_value","inv_value","value_on_hand"],0));
-    const qty7 = num(pick(o,["qty_7d","sold_7","sold_7d"],0));
-    const sold30 = num(pick(o,["sold_30","qty_30d","sold_30d"],0));
-    const qty90 = num(pick(o,["qty_90d","sold_90","sold_90d"],0));
-    const qty365 = num(pick(o,["qty_365d","sold_365","sold_365d"],0));
-    const avg30 = num(pick(o,["avg_day_30","avg_day","avg_day_30d"],0)) || (sold30 ? sold30/30 : 0);
-    const avg7 = num(pick(o,["avg_day_7","avg_day_7d"],0)) || (qty7 ? qty7/7 : 0);
-    const days = num(pick(o,["days_oos","days_to_oos"],0)) || ((avg30 || avg7) > 0 ? avail/(avg30 || avg7) : 0);
-    const lastSold = norm(pick(o,["last_sold_date","last_sale_date","max_sold_date"],""));
-    const img = norm(pick(o,["product_image_url","image_url","img_url"],""));
-    return { idx, sku, barcode, product, product_key: normalizeTitleKey(product), variant, product_type: productType, location: loc, channel: channelForLocation(loc), avail_qty: avail, inv_value: invValue, qty_7d: qty7, sold_30: sold30, qty_90d: qty90, qty_365d: qty365, avg_day_7: avg7, avg_day_30: avg30, days_oos: days, last_sold_date:lastSold, image_url:img };
+  function getScenarioLift(){
+    const v = el("selScenario").value;
+    if (v === "custom") return num(el("numCustomLift").value) / 100;
+    return num(v) / 100;
   }
 
-  function compute(){
-    const metric = selectedMetric();
-    const allowedChannels = new Set(selectedChannels());
-    const periodDays = daysInSelectedPeriod();
-    const safetyDays = num($("numSafetyDays").value);
-    const endingCover = num($("numEndingCover").value);
-    const inbound = num($("numInbound").value);
-    const focus = num($("selFocusScenario").value);
+  function currentFilters(){
+    return {
+      productType: el("selProductType").value || "__ALL__",
+      productSearch: norm(el("txtProductSearch").value).toLowerCase(),
+      from: el("dateFrom").value,
+      to: el("dateTo").value,
+      lift: getScenarioLift(),
+      safetyPct: num(el("numSafetyPct").value) / 100,
+      totalRevenueOverride: num(el("numTotalRevenueOverride").value),
+      mixMode: el("selMixMode").value,
+      scenarioName: norm(el("txtScenarioName").value)
+    };
+  }
 
-    const monthlyRows = MONTHLY.map(r => {
-      const location = norm(r.location || r.location_tag || r.store || "Unknown");
-      const channel = channelForLocation(location);
-      return {
-        month_key: r.month_key || monthKey(r.month_start || r.month || r.day_date),
-        month_start: r.month_start || `${r.month_key}-01`,
-        location, channel,
-        product_type: norm(r.product_type || ""),
-        rows: num(r.rows), units: num(r.units || r.total_quantity_sold || r.quantity_sold),
-        gross: num(r.gross || r.total_gross_sales), discounts: num(r.discounts || r.total_discounts), refunds: num(r.refunds || r.total_refunds), net: num(r.net || r.total_net_sales), total_sales: num(r.total_sales)
-      };
-    }).filter(r => allowedChannels.has(r.channel));
+  function applyFilters(){
+    const f = currentFilters();
 
-    const base = monthlyRows.reduce((a,r)=>{ a.units += r.units; a.revenue += num(r[metric]); a.gross += r.gross; a.net += r.net; a.total_sales += r.total_sales; return a; }, {units:0,revenue:0,gross:0,net:0,total_sales:0});
-    base.asp = base.units ? base.revenue / base.units : 0;
-
-    SUMMARY = {};
-    for (const s of SCENARIOS){
-      const factor = 1 + s/100;
-      const projectedUnits = base.units * factor;
-      const projectedRevenue = base.revenue * factor;
-      const avgDay = projectedUnits / periodDays;
-      const required = projectedUnits + avgDay * (safetyDays + endingCover);
-      SUMMARY[s] = { scenario:s, factor, units: projectedUnits, revenue: projectedRevenue, asp: base.asp, incremental_units: projectedUnits - base.units, incremental_revenue: projectedRevenue - base.revenue, avg_day: avgDay, required_units: required };
-    }
-
-    const byMonth = new Map();
-    for (const r of monthlyRows){
-      const k = r.month_key;
-      if (!byMonth.has(k)) byMonth.set(k, { month_key:k, units:0, revenue:0, gross:0, net:0, total_sales:0 });
-      const m = byMonth.get(k);
-      m.units += r.units; m.revenue += num(r[metric]); m.gross += r.gross; m.net += r.net; m.total_sales += r.total_sales;
-    }
-    MONTHLY_SUMMARY = [...byMonth.values()].sort((a,b)=>a.month_key.localeCompare(b.month_key));
-
-    const byChannel = new Map();
-    for (const r of monthlyRows){
-      if (!byChannel.has(r.channel)) byChannel.set(r.channel, { channel:r.channel, units:0, revenue:0, rows:0 });
-      const c = byChannel.get(r.channel); c.units += r.units; c.revenue += num(r[metric]); c.rows += r.rows;
-    }
-    CHANNEL_SUMMARY = [...byChannel.values()].sort((a,b)=>b.revenue-a.revenue).map(c => ({...c, share: base.units ? c.units / base.units : 0, asp: c.units ? c.revenue/c.units : 0}));
-
-    const inv = INVENTORY.map(mapInvRow).filter(r => allowedChannels.has(r.channel));
-    const totalOnHand = inv.reduce((a,r)=>a+r.avail_qty,0);
-    const totalValue = inv.reduce((a,r)=>a+r.inv_value,0);
-
-    INVENTORY_GAPS = SCENARIOS.map(s => {
-      const summary = SUMMARY[s];
-      const required = summary.required_units;
-      const available = totalOnHand + inbound;
-      const gap = Math.max(0, Math.ceil(required - available));
-      const surplus = Math.max(0, Math.floor(available - required));
-      return { scenario:s, projected_units: summary.units, avg_day: summary.avg_day, required_units: required, on_hand: totalOnHand, inbound, available, gap, surplus, revenue: summary.revenue, inventory_value: totalValue };
+    FILTERED_SALES = SALES_ROWS.filter(r => {
+      if (f.productType !== "__ALL__" && r.product_type !== f.productType) return false;
+      if (f.from && r.month_key < f.from) return false;
+      if (f.to && r.month_key > f.to) return false;
+      return true;
     });
 
-    const totalSold30 = inv.reduce((a,r)=>a+r.sold_30,0);
-    const focusUnits = SUMMARY[focus]?.units || base.units;
-    const focusAvgDay = (SUMMARY[focus]?.avg_day || 0);
+    FILTERED_INVENTORY = INVENTORY_ROWS.filter(r => {
+      if (f.productType !== "__ALL__" && r.product_type !== f.productType) return false;
+      if (f.productSearch){
+        const hay = `${r.product} ${r.sku} ${r.product_type} ${r.tag} ${r.collection}`.toLowerCase();
+        if (!hay.includes(f.productSearch)) return false;
+      }
+      return true;
+    });
 
-    const prodMap = new Map();
-    for (const r of inv){
-      const key = r.product_key || r.sku || `row-${r.idx}`;
-      if (!prodMap.has(key)) prodMap.set(key, { product:r.product, product_key:key, product_type:r.product_type, variants:new Set(), skus:new Set(), locations:new Set(), image_url:r.image_url, avail_qty:0, inv_value:0, qty_7d:0, sold_30:0, qty_90d:0, qty_365d:0, negative_count:0, risk_count:0, stale_count:0, location_rows:[] });
-      const p = prodMap.get(key);
-      p.variants.add(r.variant || r.sku || "—"); p.skus.add(r.sku || r.barcode || "—"); p.locations.add(r.location);
-      p.avail_qty += r.avail_qty; p.inv_value += r.inv_value; p.qty_7d += r.qty_7d; p.sold_30 += r.sold_30; p.qty_90d += r.qty_90d; p.qty_365d += r.qty_365d;
-      if (r.avail_qty < 0) p.negative_count++;
-      if (r.days_oos > 0 && r.days_oos <= 14) p.risk_count++;
-      if (r.sold_30 <= 0 && r.qty_7d <= 0 && r.avail_qty > 0) p.stale_count++;
-      p.location_rows.push(r);
+    PRODUCT_FAMILIES = buildProductFamilies(FILTERED_INVENTORY);
+    SCENARIO_RESULT = calculateScenario();
+    renderAll();
+  }
+
+  function buildProductFamilies(rows){
+    const by = new Map();
+    for (const r of rows){
+      const k = r.product_key || normalizeTitleKey(r.product);
+      if (!by.has(k)){
+        by.set(k, {
+          product_key:k,
+          product:r.product,
+          product_type:r.product_type,
+          tag:"",
+          sub_tag:"",
+          indicator_group:"",
+          collection:"",
+          avail_qty:0,
+          inv_value:0,
+          qty_7d:0,
+          sold_30:0,
+          qty_90d:0,
+          qty_365d:0,
+          sku_count:new Set(),
+          locations_count:new Set(),
+          negative_count:0
+        });
+      }
+      const a = by.get(k);
+      a.avail_qty += num(r.avail_qty);
+      a.inv_value += num(r.inv_value);
+      a.qty_7d += num(r.qty_7d);
+      a.sold_30 += num(r.sold_30);
+      a.qty_90d += num(r.qty_90d);
+      a.qty_365d += num(r.qty_365d);
+      if (r.sku) a.sku_count.add(r.sku);
+      if (r.location) a.locations_count.add(r.location);
+      if (num(r.avail_qty) < 0) a.negative_count++;
+      if (!a.tag && r.tag) a.tag = r.tag;
+      if (!a.sub_tag && r.sub_tag) a.sub_tag = r.sub_tag;
+      if (!a.indicator_group && r.indicator_group) a.indicator_group = r.indicator_group;
+      if (!a.collection && r.collection) a.collection = r.collection;
     }
 
-    PRODUCT_ROWS = [...prodMap.values()].map(p => {
-      p.variants_count = p.variants.size; p.sku_count = p.skus.size; p.locations_count = p.locations.size;
-      p.avg_day_30 = p.sold_30 / 30; p.days_cover = p.avg_day_30 > 0 ? p.avail_qty / p.avg_day_30 : 0;
-      const share = totalSold30 > 0 ? p.sold_30 / totalSold30 : (p.inv_value > 0 ? p.inv_value / Math.max(1,totalValue) : 0);
-      p.focus_projected_units = focusUnits * share;
-      p.focus_avg_day = focusAvgDay * share;
-      p.required_units = p.focus_projected_units + p.focus_avg_day * (safetyDays + endingCover);
-      p.category_buy = Math.max(0, Math.ceil(p.required_units - p.avail_qty));
-      p.mix_pressure = p.location_rows.reduce((sum, r) => {
-        const avg = r.avg_day_30 || r.avg_day_7 || 0;
-        if (avg <= 0) return sum;
-        const req = avg * (safetyDays + endingCover);
-        return sum + Math.max(0, Math.ceil(req - r.avail_qty));
-      }, 0);
-      p.action = productAction(p);
-      return p;
-    }).sort((a,b)=> (b.category_buy || b.mix_pressure) - (a.category_buy || a.mix_pressure));
-
-    return { base, totalOnHand, totalValue, periodDays, focus };
+    return [...by.values()].map(r => ({
+      ...r,
+      sku_count_num:r.sku_count.size,
+      locations_count_num:r.locations_count.size
+    })).sort((a,b) => b.sold_30 - a.sold_30);
   }
 
-  function productAction(p){
-    if (p.negative_count > 0) return "DATA REVIEW";
-    if (p.category_buy > 0 && p.days_cover <= 30) return "BUY NOW";
-    if (p.category_buy > 0) return "BUY";
-    if (p.mix_pressure > 0 && p.days_cover > 60) return "REVIEW MIX";
-    if (p.days_cover > 180 && p.sold_30 > 0) return "OVERSTOCK";
-    if (p.sold_30 <= 0 && p.avail_qty > 0) return "STALE";
-    return "OK";
+  function salesTotalsByChannel(){
+    const out = {};
+    for (const ch of CHANNELS){
+      out[ch.key] = { key:ch.key, label:ch.label, units:0, revenue:0, rows:0, unique_skus:0 };
+    }
+    for (const r of FILTERED_SALES){
+      const k = out[r.channel] ? r.channel : "retail";
+      out[k].units += r.units;
+      out[k].revenue += r.revenue;
+      out[k].rows += r.rows;
+      out[k].unique_skus += r.unique_skus;
+    }
+    return out;
   }
 
-  function badgeForAction(action){
-    const cls = action === "BUY NOW" ? "badge-amber" : action === "BUY" ? "badge-green" : action === "REVIEW MIX" ? "badge-blue" : action === "DATA REVIEW" ? "badge-red" : action === "OVERSTOCK" ? "badge-blue" : action === "STALE" ? "badge-amber" : "";
-    return `<span class="badge ${cls}">${esc(action)}</span>`;
+  function inventoryTotalsByChannel(){
+    const out = {};
+    for (const ch of CHANNELS){
+      out[ch.key] = { key:ch.key, label:ch.label, on_hand:0, retail_value:0 };
+    }
+    for (const r of FILTERED_INVENTORY){
+      const k = out[r.channel] ? r.channel : "retail";
+      out[k].on_hand += r.avail_qty;
+      out[k].retail_value += r.inv_value;
+    }
+    return out;
   }
 
-  function render(){
-    const meta = compute();
-    renderScenarioCards(meta);
-    renderAssumptions(meta);
-    renderSummary(meta);
-    renderMonthly(meta);
-    renderInventory(meta);
-    renderProducts(meta);
-    renderChannels(meta);
-    renderCharts(meta);
-    const type = norm($("txtProductType").value) || "All product types";
-    setStatus(`Loaded <b>${fmt(MONTHLY.length)}</b> monthly rollup rows and <b>${fmt(INVENTORY.length)}</b> inventory rows. <span class="badge badge-blue">${esc(type)}</span> <span class="badge">${esc($("selFromMonth").selectedOptions[0].text)}–${esc($("selToMonth").selectedOptions[0].text)} ${esc($("selYear").value)}</span>`);
+  function getAssumptionInputs(){
+    const assumptions = {};
+    for (const ch of CHANNELS){
+      assumptions[ch.key] = {
+        enabled: el(`chk_${ch.key}`).checked,
+        mixPct: num(el(`mix_${ch.key}`).value) / 100,
+        bucketLift: num(el(`lift_${ch.key}`).value) / 100,
+        revenueOverride: num(el(`rev_${ch.key}`).value),
+        aspOverride: num(el(`asp_${ch.key}`).value),
+        aspChange: num(el(`aspchg_${ch.key}`).value) / 100
+      };
+    }
+    return assumptions;
   }
 
-  function renderScenarioCards(meta){
-    const colors = ["bg-[#203b68]","bg-emerald-300","bg-emerald-500","bg-emerald-950"];
-    $("scenarioCards").innerHTML = CARD_SCENARIOS.map((s,i)=> {
-      const d = SUMMARY[s];
-      const label = s === 0 ? "At Plan" : `Plan +${s}%`;
-      return `<div class="rounded-xl ${colors[i]} text-white p-4 soft-shadow">
-        <div class="text-xs font-black uppercase tracking-wide opacity-90">${label}</div>
-        <div class="mt-1 text-2xl font-black mono">${money2(d.revenue)}</div>
-        <div class="mt-1 text-[11px] font-bold opacity-90">${s===0 ? "Base scenario" : `+${money(d.incremental_revenue)} vs plan`}</div>
-        <div class="text-[11px] opacity-90 mono">${fmt(d.units)} units</div>
-      </div>`;
+  function calculateScenario(){
+    const f = currentFilters();
+    const histByCh = salesTotalsByChannel();
+    const invByCh = inventoryTotalsByChannel();
+    const assumptions = getAssumptionInputs();
+    const rows = [];
+
+    let histUnitsTotal = 0, histRevenueTotal = 0;
+    for (const ch of CHANNELS){
+      histUnitsTotal += histByCh[ch.key].units;
+      histRevenueTotal += histByCh[ch.key].revenue;
+    }
+
+    for (const ch of CHANNELS){
+      const hist = histByCh[ch.key];
+      const inv = invByCh[ch.key];
+      const a = assumptions[ch.key];
+      const histAsp = hist.units > 0 ? hist.revenue / hist.units : 0;
+      const adjustedAsp = a.aspOverride > 0 ? a.aspOverride : histAsp * (1 + a.aspChange);
+      const lift = f.lift + a.bucketLift;
+
+      let revenue = 0;
+      let units = 0;
+      let method = "Historical × Lift";
+
+      if (!a.enabled){
+        revenue = 0;
+        units = 0;
+        method = "Disabled";
+      } else if (a.revenueOverride > 0){
+        revenue = a.revenueOverride;
+        units = adjustedAsp > 0 ? revenue / adjustedAsp : 0;
+        method = "Bucket Revenue Override";
+      } else if (f.totalRevenueOverride > 0 && f.mixMode === "on"){
+        revenue = f.totalRevenueOverride * a.mixPct;
+        units = adjustedAsp > 0 ? revenue / adjustedAsp : 0;
+        method = "Total Revenue × Mix";
+      } else {
+        units = hist.units * (1 + lift);
+        revenue = units * adjustedAsp;
+      }
+
+      const gap = units - inv.on_hand;
+      const gapSafety = Math.max(0, Math.ceil(gap + (units * f.safetyPct)));
+      const plainGap = Math.ceil(gap);
+
+      rows.push({
+        key:ch.key,
+        label:ch.label,
+        enabled:a.enabled,
+        hist_units:hist.units,
+        hist_revenue:hist.revenue,
+        hist_asp:histAsp,
+        adjusted_asp:adjustedAsp,
+        revenue,
+        units,
+        unit_delta:units - hist.units,
+        revenue_delta:revenue - hist.revenue,
+        on_hand:inv.on_hand,
+        retail_value:inv.retail_value,
+        gap:plainGap,
+        gap_safety:gapSafety,
+        method
+      });
+    }
+
+    const total = rows.reduce((a,r) => {
+      a.hist_units += r.hist_units;
+      a.hist_revenue += r.hist_revenue;
+      a.revenue += r.revenue;
+      a.units += r.units;
+      a.unit_delta += r.unit_delta;
+      a.revenue_delta += r.revenue_delta;
+      a.on_hand += r.on_hand;
+      a.retail_value += r.retail_value;
+      a.gap += r.gap;
+      a.gap_safety += r.gap_safety;
+      return a;
+    }, { label:"Total", hist_units:0, hist_revenue:0, revenue:0, units:0, unit_delta:0, revenue_delta:0, on_hand:0, retail_value:0, gap:0, gap_safety:0 });
+
+    total.adjusted_asp = total.units > 0 ? total.revenue / total.units : 0;
+    total.hist_asp = total.hist_units > 0 ? total.hist_revenue / total.hist_units : 0;
+
+    return { rows, total, filters:f };
+  }
+
+  function defaultAssumptionsFromHistorical(){
+    const hist = salesTotalsByChannel();
+    const totalRevenue = Object.values(hist).reduce((s,r) => s + r.revenue, 0);
+    for (const ch of CHANNELS){
+      const h = hist[ch.key] || { units:0, revenue:0 };
+      const mix = totalRevenue > 0 ? (h.revenue / totalRevenue) * 100 : (ch.key === "online" ? 50 : ch.key === "retail" ? 40 : 10);
+      el(`mix_${ch.key}`).value = mix.toFixed(1);
+      el(`lift_${ch.key}`).value = "0";
+      el(`rev_${ch.key}`).value = "";
+      el(`asp_${ch.key}`).value = "";
+      el(`aspchg_${ch.key}`).value = "";
+    }
+  }
+
+  function renderProductTypeOptions(){
+    const types = [...new Set(SALES_ROWS.map(r => r.product_type).concat(INVENTORY_ROWS.map(r => r.product_type)).filter(Boolean))].sort();
+    const sel = el("selProductType");
+    const current = sel.value || "__ALL__";
+    sel.innerHTML = `<option value="__ALL__">All product types</option>` + types.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join("");
+    sel.value = types.includes(current) ? current : "__ALL__";
+  }
+
+  function renderAssumptionRows(){
+    const hist = salesTotalsByChannel();
+    const totalRevenue = Object.values(hist).reduce((s,r) => s + r.revenue, 0);
+    const body = el("assumptionsBody");
+
+    body.innerHTML = CHANNELS.map(ch => {
+      const h = hist[ch.key] || { units:0, revenue:0 };
+      const asp = h.units > 0 ? h.revenue / h.units : 0;
+      const defaultMix = totalRevenue > 0 ? (h.revenue / totalRevenue) * 100 : 0;
+      const existingMix = el(`mix_${ch.key}`)?.value;
+      const mixValue = existingMix !== undefined && existingMix !== "" ? existingMix : defaultMix.toFixed(1);
+      return `
+        <tr>
+          <td class="px-3 py-2 font-bold">${esc(ch.label)}</td>
+          <td class="px-3 py-2 text-center"><input id="chk_${ch.key}" type="checkbox" checked class="h-4 w-4"></td>
+          <td class="px-3 py-2 num mono">${Math.round(h.units).toLocaleString()}</td>
+          <td class="px-3 py-2 num mono">${money(h.revenue)}</td>
+          <td class="px-3 py-2 num mono">${money2(asp)}</td>
+          <td class="px-3 py-2 num"><input id="mix_${ch.key}" type="number" step="0.1" value="${esc(mixValue)}" class="w-24 mono text-right"></td>
+          <td class="px-3 py-2 num"><input id="lift_${ch.key}" type="number" step="1" value="${esc(el(`lift_${ch.key}`)?.value || "0")}" class="w-24 mono text-right"></td>
+          <td class="px-3 py-2 num"><input id="rev_${ch.key}" type="number" step="1000" value="${esc(el(`rev_${ch.key}`)?.value || "")}" placeholder="blank" class="w-36 mono text-right"></td>
+          <td class="px-3 py-2 num"><input id="asp_${ch.key}" type="number" step="0.01" value="${esc(el(`asp_${ch.key}`)?.value || "")}" placeholder="blank" class="w-28 mono text-right"></td>
+          <td class="px-3 py-2 num"><input id="aspchg_${ch.key}" type="number" step="1" value="${esc(el(`aspchg_${ch.key}`)?.value || "0")}" class="w-28 mono text-right"></td>
+          <td class="px-3 py-2 text-xs text-slate-600" id="readout_${ch.key}">—</td>
+        </tr>
+      `;
     }).join("");
+
+    for (const ch of CHANNELS){
+      [`chk_${ch.key}`,`mix_${ch.key}`,`lift_${ch.key}`,`rev_${ch.key}`,`asp_${ch.key}`,`aspchg_${ch.key}`].forEach(id => {
+        el(id)?.addEventListener("input", applyFilters);
+        el(id)?.addEventListener("change", applyFilters);
+      });
+    }
   }
 
-  function renderAssumptions(meta){
-    const by = new Map(CHANNEL_SUMMARY.map(c=>[c.channel,c]));
-    const cards = ["Online","Retail","Wholesale / Event"].map(ch => {
-      const c = by.get(ch) || {units:0,revenue:0,share:0,asp:0};
-      const color = ch === "Online" ? "text-blue-900" : ch === "Retail" ? "text-emerald-800" : "text-amber-700";
-      return `<div class="surface px-4 py-3 flex items-center justify-between gap-3">
-        <div class="text-xs font-black uppercase tracking-wide ${color}">${esc(ch)} Assumptions</div>
-        <div class="text-xs text-slate-600 mono text-right">${esc(norm($("txtProductType").value) || "All types")} ${pct(c.share)} @ ${money2(c.asp)}</div>
-      </div>`;
-    }).join("");
-    $("assumptionCards").innerHTML = cards;
+  function signalForGap(gapSafety, units, onHand){
+    if (gapSafety > 0 && onHand <= 0) return `<span class="badge badge-bad">NO STOCK</span>`;
+    if (gapSafety > 0) return `<span class="badge badge-warn">BUY NEED</span>`;
+    if (onHand > units * 1.5 && units > 0) return `<span class="badge">OVERSTOCK</span>`;
+    return `<span class="badge badge-good">OK</span>`;
   }
 
-  function renderSummary(meta){
-    $("summaryBadge").textContent = `${fmt(meta.base?.units || 0)} units at plan`;
-    const maxRev = Math.max(...SCENARIOS.map(s=>SUMMARY[s].revenue), 1);
-    $("scenarioBars").innerHTML = SCENARIOS.map(s => {
-      const h = Math.max(18, Math.round((SUMMARY[s].revenue / maxRev) * 52));
-      const shade = s === 0 ? "#203b68" : `hsl(145 65% ${85 - Math.min(55, s/2)}%)`;
-      return `<div class="flex-1 flex flex-col items-stretch justify-end"><div class="scenario-bar" style="height:${h}px;background:${shade}"></div><div class="text-[10px] text-right mono mt-1">${s===0?"Plan":"+"+s+"%"}</div></div>`;
-    }).join("");
+  function productAction(row){
+    if (row.negative_count > 0) return `<span class="badge badge-warn">DATA REVIEW</span>`;
+    if (row.gap_safety > 0 && row.avail_qty > row.scenario_units) return `<span class="badge badge-info">REVIEW MIX</span>`;
+    if (row.gap_safety > 0) return `<span class="badge badge-bad">BUY</span>`;
+    if (row.avail_qty > row.scenario_units * 1.5 && row.scenario_units > 0) return `<span class="badge">OVERSTOCK</span>`;
+    return `<span class="badge badge-good">OK</span>`;
+  }
 
-    $("summaryHead").innerHTML = `<tr><th>Metric</th>${SCENARIOS.map(s=>`<th class="num">${s===0?"Plan":"+"+s+"%"}</th>`).join("")}</tr>`;
-    const rows = [
-      ["Revenue", s => money2(SUMMARY[s].revenue)],
-      ["Units", s => fmt(SUMMARY[s].units)],
-      ["Incremental Revenue", s => s===0 ? "—" : money2(SUMMARY[s].incremental_revenue)],
-      ["Incremental Units", s => s===0 ? "—" : fmt(SUMMARY[s].incremental_units)],
-      ["Required Units incl. cover", s => fmt(SUMMARY[s].required_units)],
-      ["Avg Units / Day", s => SUMMARY[s].avg_day.toFixed(1)]
-    ];
-    $("summaryBody").innerHTML = rows.map(([label, fn])=>`<tr><td class="font-black">${label}</td>${SCENARIOS.map(s=>`<td class="num mono ${s===0?'font-black text-blue-900':''}">${fn(s)}</td>`).join("")}</tr>`).join("");
+  function renderScenario(){
+    const result = SCENARIO_RESULT;
+    if (!result) return;
+
+    el("scenarioBadge").textContent = result.filters.scenarioName || `${pct(result.filters.lift * 100)} scenario`;
+
+    el("kHistRevenue").textContent = money(result.total.hist_revenue);
+    el("kHistRevenueSub").textContent = `${Math.round(result.total.hist_units).toLocaleString()} historical units`;
+    el("kReqUnits").textContent = Math.round(result.total.units).toLocaleString();
+    el("kReqUnitsSub").textContent = `${money(result.total.revenue)} projected revenue`;
+    el("kOnHand").textContent = Math.round(result.total.on_hand).toLocaleString();
+    el("kOnHandSub").textContent = `${money(result.total.retail_value)} retail value`;
+    el("kGap").textContent = Math.round(result.total.gap).toLocaleString();
+    el("kGapSub").textContent = `Required - on hand`;
+    el("kGapSafety").textContent = Math.round(result.total.gap_safety).toLocaleString();
+    el("kGapSafetySub").textContent = `${pct(result.filters.safetyPct * 100)} safety stock`;
+
+    for (const r of result.rows){
+      const readout = el(`readout_${r.key}`);
+      if (readout){
+        readout.innerHTML = `${r.method} → <b>${Math.round(r.units).toLocaleString()}</b> units @ <b>${money2(r.adjusted_asp)}</b>`;
+      }
+    }
+
+    const totalRow = result.total;
+    el("scenarioSummaryBody").innerHTML = result.rows.concat([totalRow]).map(r => `
+      <tr class="${r.label === "Total" ? "bg-slate-50 font-extrabold" : ""}">
+        <td class="px-3 py-2">${esc(r.label)}</td>
+        <td class="px-3 py-2 num mono">${money(r.revenue)}</td>
+        <td class="px-3 py-2 num mono">${money2(r.adjusted_asp)}</td>
+        <td class="px-3 py-2 num mono">${Math.round(r.units).toLocaleString()}</td>
+        <td class="px-3 py-2 num mono">${Math.round(r.unit_delta).toLocaleString()}</td>
+        <td class="px-3 py-2 num mono">${money(r.revenue_delta)}</td>
+      </tr>
+    `).join("");
+
+    el("inventoryGapBody").innerHTML = result.rows.concat([totalRow]).map(r => `
+      <tr class="${r.label === "Total" ? "bg-slate-50 font-extrabold" : ""}">
+        <td class="px-3 py-2">${esc(r.label)}</td>
+        <td class="px-3 py-2 num mono">${Math.round(r.units).toLocaleString()}</td>
+        <td class="px-3 py-2 num mono">${Math.round(r.on_hand).toLocaleString()}</td>
+        <td class="px-3 py-2 num mono">${Math.round(r.gap).toLocaleString()}</td>
+        <td class="px-3 py-2 num mono">${Math.round(r.gap_safety).toLocaleString()}</td>
+        <td class="px-3 py-2">${r.label === "Total" ? "" : signalForGap(r.gap_safety, r.units, r.on_hand)}</td>
+      </tr>
+    `).join("");
+  }
+
+  function renderProductFamilies(){
+    const result = SCENARIO_RESULT;
+    if (!result) return;
+
+    const totalProjectedUnits = result.total.units;
+    const totalDemand = PRODUCT_FAMILIES.reduce((s,r) => s + Math.max(num(r.sold_30), num(r.qty_365d) / 12, 0), 0);
+
+    const rows = PRODUCT_FAMILIES.map(r => {
+      const demand = Math.max(num(r.sold_30), num(r.qty_365d) / 12, 0);
+      const share = totalDemand > 0 ? demand / totalDemand : 0;
+      const scenarioUnits = totalProjectedUnits * share;
+      const gap = Math.ceil(scenarioUnits - num(r.avail_qty));
+      const gapSafety = Math.max(0, Math.ceil(gap + scenarioUnits * result.filters.safetyPct));
+      return { ...r, demand, share, scenario_units: scenarioUnits, gap, gap_safety: gapSafety };
+    }).filter(r => {
+      if (FAMILY_FILTER === "buy") return r.gap_safety > 0;
+      if (FAMILY_FILTER === "mix") return r.gap_safety > 0 && r.avail_qty > r.scenario_units;
+      if (FAMILY_FILTER === "overstock") return r.avail_qty > r.scenario_units * 1.5 && r.scenario_units > 0;
+      return true;
+    }).sort((a,b) => b.gap_safety - a.gap_safety);
+
+    el("productFamilyBody").innerHTML = rows.length ? rows.slice(0,500).map(r => `
+      <tr>
+        <td class="px-3 py-2 font-semibold">${esc(r.product)}</td>
+        <td class="px-3 py-2">${esc(r.product_type)}</td>
+        <td class="px-3 py-2 num mono">${Math.round(r.avail_qty).toLocaleString()}</td>
+        <td class="px-3 py-2 num mono">${money(r.inv_value)}</td>
+        <td class="px-3 py-2 num mono">${Math.round(r.sold_30).toLocaleString()}</td>
+        <td class="px-3 py-2 num mono">${Math.round(r.qty_365d).toLocaleString()}</td>
+        <td class="px-3 py-2 num mono">${pct(r.share * 100)}</td>
+        <td class="px-3 py-2 num mono">${Math.round(r.scenario_units).toLocaleString()}</td>
+        <td class="px-3 py-2 num mono">${Math.round(r.gap).toLocaleString()}</td>
+        <td class="px-3 py-2 num mono font-bold">${Math.round(r.gap_safety).toLocaleString()}</td>
+        <td class="px-3 py-2">${productAction(r)}</td>
+        <td class="px-3 py-2 text-xs text-slate-600">${esc([r.tag, r.sub_tag, r.indicator_group, r.collection].filter(Boolean).join(" / ") || "—")}</td>
+      </tr>
+    `).join("") : `<tr><td colspan="12" class="px-3 py-8 text-center text-slate-500">No product family rows.</td></tr>`;
   }
 
   function renderMonthly(){
-    $("monthlyHead").innerHTML = `<tr><th>Month</th>${SCENARIOS.map(s=>`<th class="num">${s===0?"Plan":"+"+s+"%"} Rev</th><th class="num">${s===0?"Plan":"+"+s+"%"} Units</th>`).join("")}</tr>`;
-    $("monthlyBody").innerHTML = MONTHLY_SUMMARY.map(m => `<tr><td class="font-black">${esc(monthLabel(m.month_key))}</td>${SCENARIOS.map(s=>{ const f=1+s/100; return `<td class="num mono font-semibold">${money2(m.revenue*f)}</td><td class="num mono text-slate-600">${fmt(m.units*f)}</td>`; }).join("")}</tr>`).join("") + `<tr class="bg-slate-50"><td class="font-black">Total</td>${SCENARIOS.map(s=>`<td class="num mono font-black">${money2(SUMMARY[s].revenue)}</td><td class="num mono font-black">${fmt(SUMMARY[s].units)}</td>`).join("")}</tr>`;
-  }
-
-  function renderInventory(){
-    $("inventoryHead").innerHTML = `<tr><th>Scenario</th><th class="num">Projected Units</th><th class="num">Avg/Day</th><th class="num">Required Units</th><th class="num">On Hand</th><th class="num">Inbound</th><th class="num">Unit Gap</th><th class="num">Surplus</th><th class="num">Revenue</th><th>Action</th></tr>`;
-    $("inventoryBody").innerHTML = INVENTORY_GAPS.map(g => {
-      const action = g.gap > 0 ? (g.scenario === 0 ? "BUY / TRANSFER" : "PLAN BUY") : g.surplus > g.projected_units ? "OVERSTOCK RISK" : "COVERED";
-      return `<tr><td class="font-black">${g.scenario===0?"Plan":"+"+g.scenario+"%"}</td><td class="num mono">${fmt(g.projected_units)}</td><td class="num mono">${g.avg_day.toFixed(1)}</td><td class="num mono">${fmt(g.required_units)}</td><td class="num mono font-black">${fmt(g.on_hand)}</td><td class="num mono">${fmt(g.inbound)}</td><td class="num mono font-black ${g.gap>0?'text-amber-700':'text-slate-500'}">${fmt(g.gap)}</td><td class="num mono">${fmt(g.surplus)}</td><td class="num mono">${money2(g.revenue)}</td><td>${badgeForAction(action)}</td></tr>`;
-    }).join("");
-  }
-
-  function renderProducts(meta){
-    const focus = num($("selFocusScenario").value);
-    $("productFocusBadge").textContent = `Focus: ${focus===0?"Plan":"+"+focus+"%"}`;
-    $("productHead").innerHTML = `<tr><th>Product Family</th><th class="num">Variants</th><th class="num">SKUs</th><th class="num">Locations</th><th class="num">On Hand</th><th class="num">Retail Value</th><th class="num">Sold 30d</th><th class="num">Sold 365d</th><th class="num">Days Cover</th><th class="num">Projected Units</th><th class="num">Category Buy</th><th class="num">Mix Pressure</th><th>Action</th></tr>`;
-    const rows = PRODUCT_ROWS.slice(0,500);
-    $("productBody").innerHTML = rows.map(p => `<tr><td class="font-black max-w-[420px] truncate" title="${esc(p.product)}">${esc(p.product)}</td><td class="num mono">${fmt(p.variants_count)}</td><td class="num mono">${fmt(p.sku_count)}</td><td class="num mono">${fmt(p.locations_count)}</td><td class="num mono font-semibold">${fmt(p.avail_qty)}</td><td class="num mono">${money(p.inv_value)}</td><td class="num mono">${fmt(p.sold_30)}</td><td class="num mono">${fmt(p.qty_365d)}</td><td class="num mono">${p.days_cover?p.days_cover.toFixed(0):"—"}</td><td class="num mono">${fmt(p.focus_projected_units)}</td><td class="num mono font-black ${p.category_buy>0?'text-amber-700':''}">${fmt(p.category_buy)}</td><td class="num mono ${p.mix_pressure>0?'text-blue-700 font-black':''}">${fmt(p.mix_pressure)}</td><td>${badgeForAction(p.action)}</td></tr>`).join("");
-  }
-
-  function renderChannels(){
-    const totalUnits = CHANNEL_SUMMARY.reduce((a,c)=>a+c.units,0);
-    $("channelBody").innerHTML = CHANNEL_SUMMARY.map(c => `<tr><td class="font-black">${esc(c.channel)}</td><td class="num mono">${fmt(c.units)}</td><td class="num mono">${money2(c.revenue)}</td><td class="num mono">${pct(totalUnits ? c.units/totalUnits : 0)}</td><td class="num mono">${money2(c.asp)}</td></tr>`).join("") || `<tr><td colspan="5" class="text-center text-slate-500 py-8">No channel rows.</td></tr>`;
-  }
-
-  function destroyChart(k){ if (charts[k]) { charts[k].destroy(); charts[k]=null; } }
-  function renderCharts(){
-    destroyChart("scenario"); destroyChart("gap"); destroyChart("channel");
-    charts.scenario = new Chart($("scenarioChart"), { type:"bar", data:{ labels:SCENARIOS.map(s=>s===0?"Plan":"+"+s+"%"), datasets:[{ label:"Revenue", data:SCENARIOS.map(s=>SUMMARY[s].revenue) }] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{ticks:{callback:v=>money(v)}}} } });
-    charts.gap = new Chart($("gapChart"), { type:"bar", data:{ labels:INVENTORY_GAPS.map(g=>g.scenario===0?"Plan":"+"+g.scenario+"%"), datasets:[{ label:"Unit Gap", data:INVENTORY_GAPS.map(g=>g.gap) }] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{ticks:{callback:v=>fmt(v)}}} } });
-    charts.channel = new Chart($("channelChart"), { type:"bar", data:{ labels:CHANNEL_SUMMARY.map(c=>c.channel), datasets:[{ label:"Revenue", data:CHANNEL_SUMMARY.map(c=>c.revenue) }] }, options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{y:{ticks:{callback:v=>money(v)}}} } });
-  }
-
-  async function runLoad(){
-    try{
-      $("btnReload").disabled = true; $("btnApply").disabled = true;
-      setStatus("Loading scenario data from Supabase…");
-      const [monthly, inventory] = await Promise.all([loadMonthly(), loadInventory()]);
-      MONTHLY = monthly; INVENTORY = inventory;
-      render();
-    } catch(e){
-      console.error(e);
-      setStatus(`<span class="text-red-700 font-black">Load failed:</span> ${esc(e.message || String(e))}`);
-      alert(e.message || String(e));
-    } finally {
-      $("btnReload").disabled = false; $("btnApply").disabled = false;
+    const by = new Map();
+    for (const r of FILTERED_SALES){
+      const key = `${r.month_key}::${r.channel}`;
+      if (!by.has(key)) by.set(key, { month_key:r.month_key, channel:r.channel, units:0, revenue:0, rows:0, unique_skus:0 });
+      const a = by.get(key);
+      a.units += r.units;
+      a.revenue += r.revenue;
+      a.rows += r.rows;
+      a.unique_skus += r.unique_skus;
     }
+    const rows = [...by.values()].sort((a,b) => a.month_key.localeCompare(b.month_key) || a.channel.localeCompare(b.channel));
+    el("monthlyBody").innerHTML = rows.map(r => `
+      <tr>
+        <td class="px-3 py-2 mono">${esc(r.month_key)}</td>
+        <td class="px-3 py-2">${esc(CHANNELS.find(c => c.key === r.channel)?.label || r.channel)}</td>
+        <td class="px-3 py-2 num mono">${Math.round(r.units).toLocaleString()}</td>
+        <td class="px-3 py-2 num mono">${money(r.revenue)}</td>
+        <td class="px-3 py-2 num mono">${money2(r.units > 0 ? r.revenue / r.units : 0)}</td>
+        <td class="px-3 py-2 num mono">${Math.round(r.rows).toLocaleString()}</td>
+        <td class="px-3 py-2 num mono">${Math.round(r.unique_skus).toLocaleString()}</td>
+      </tr>
+    `).join("");
   }
 
-  function bind(){
-    $("btnReload").addEventListener("click", runLoad);
-    $("btnApply").addEventListener("click", runLoad);
-    $("btnReset").addEventListener("click", () => { setupControls(); runLoad(); });
-    ["chkOnline","chkRetail","chkWholesale","selMetric","selFocusScenario","numSafetyDays","numEndingCover","numInbound"].forEach(id => $(id).addEventListener("change", () => { if (MONTHLY.length || INVENTORY.length) render(); }));
-    $("logoutBtn").addEventListener("click", async () => { await SB.auth.signOut(); window.location.href = LOGIN_PATH; });
-    document.querySelectorAll(".tab").forEach(btn => btn.addEventListener("click", () => {
-      document.querySelectorAll(".tab").forEach(b=>b.classList.toggle("active", b===btn));
-      document.querySelectorAll(".panel").forEach(p=>p.classList.toggle("active", p.id === `tab-${btn.dataset.tab}`));
+  function renderAll(){
+    renderAssumptionRows();
+    SCENARIO_RESULT = calculateScenario();
+    renderScenario();
+    renderProductFamilies();
+    renderMonthly();
+
+    const f = currentFilters();
+    el("statusLine").innerHTML = `
+      Loaded <b>${SALES_ROWS.length.toLocaleString()}</b> monthly sales rows and
+      <b>${INVENTORY_ROWS.length.toLocaleString()}</b> inventory rows.
+      Filtered baseline: <b>${FILTERED_SALES.length.toLocaleString()}</b> sales rows /
+      <b>${FILTERED_INVENTORY.length.toLocaleString()}</b> inventory rows.
+    `;
+  }
+
+  function exportRows(){
+    const result = SCENARIO_RESULT;
+    if (!result) return;
+    const scenarioRows = result.rows.map(r => ({
+      section:"scenario_summary",
+      note:result.filters.scenarioName,
+      product_type:result.filters.productType,
+      bucket:r.label,
+      hist_units:Math.round(r.hist_units),
+      hist_revenue:r.hist_revenue,
+      hist_asp:r.hist_asp,
+      projected_revenue:r.revenue,
+      projected_units:Math.round(r.units),
+      adjusted_asp:r.adjusted_asp,
+      unit_delta:Math.round(r.unit_delta),
+      revenue_delta:r.revenue_delta,
+      on_hand:Math.round(r.on_hand),
+      gap:Math.round(r.gap),
+      gap_safety:Math.round(r.gap_safety),
+      method:r.method
     }));
-    $("btnExport").addEventListener("click", () => {
-      const rows = [];
-      for (const s of SCENARIOS) rows.push({ section:"scenario_summary", scenario:s===0?"Plan":"+"+s+"%", revenue:SUMMARY[s]?.revenue, units:SUMMARY[s]?.units, incremental_revenue:SUMMARY[s]?.incremental_revenue, required_units:SUMMARY[s]?.required_units });
-      for (const g of INVENTORY_GAPS) rows.push({ section:"inventory_gap", scenario:g.scenario===0?"Plan":"+"+g.scenario+"%", revenue:g.revenue, units:g.projected_units, required_units:g.required_units, on_hand:g.on_hand, inbound:g.inbound, gap:g.gap, surplus:g.surplus });
-      for (const p of PRODUCT_ROWS.slice(0,1000)) rows.push({ section:"product_family", product:p.product, product_type:p.product_type, on_hand:p.avail_qty, sold_30:p.sold_30, days_cover:p.days_cover, projected_units:p.focus_projected_units, category_buy:p.category_buy, mix_pressure:p.mix_pressure, action:p.action });
-      download(`planning_scenarios_${normalizeTitleKey($("txtProductType").value || "all")}_${new Date().toISOString().slice(0,10)}.csv`, toCSV(rows));
+
+    const totalProjectedUnits = result.total.units;
+    const totalDemand = PRODUCT_FAMILIES.reduce((s,r) => s + Math.max(num(r.sold_30), num(r.qty_365d) / 12, 0), 0);
+    const familyRows = PRODUCT_FAMILIES.map(r => {
+      const demand = Math.max(num(r.sold_30), num(r.qty_365d) / 12, 0);
+      const share = totalDemand > 0 ? demand / totalDemand : 0;
+      const scenarioUnits = totalProjectedUnits * share;
+      const gap = Math.ceil(scenarioUnits - num(r.avail_qty));
+      const gapSafety = Math.max(0, Math.ceil(gap + scenarioUnits * result.filters.safetyPct));
+      return {
+        section:"product_family",
+        note:result.filters.scenarioName,
+        product_type:r.product_type,
+        product:r.product,
+        on_hand:Math.round(r.avail_qty),
+        retail_value:r.inv_value,
+        sold_30:Math.round(r.sold_30),
+        sold_365:Math.round(r.qty_365d),
+        demand_share:share,
+        scenario_units:Math.round(scenarioUnits),
+        gap:Math.round(gap),
+        gap_safety:Math.round(gapSafety),
+        tag:r.tag,
+        sub_tag:r.sub_tag,
+        indicator_group:r.indicator_group,
+        collection:r.collection
+      };
+    });
+
+    const rows = scenarioRows.concat(familyRows);
+    download(`planning_scenario_${new Date().toISOString().slice(0,10)}.csv`, toCSV(rows));
+  }
+
+  function toCSV(rows){
+    if (!rows.length) return "";
+    const cols = [...new Set(rows.flatMap(r => Object.keys(r)))];
+    const escCsv = v => {
+      const s = String(v ?? "");
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+    };
+    return [cols.join(","), ...rows.map(r => cols.map(c => escCsv(r[c])).join(","))].join("\n");
+  }
+
+  function download(filename, content){
+    const blob = new Blob([content], {type:"text/csv;charset=utf-8;"});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 500);
+  }
+
+  function resetControls(){
+    el("selScenario").value = "25";
+    el("numCustomLift").value = "25";
+    el("numSafetyPct").value = "10";
+    el("numTotalRevenueOverride").value = "";
+    el("selMixMode").value = "on";
+    el("txtScenarioName").value = "";
+    defaultAssumptionsFromHistorical();
+    applyFilters();
+  }
+
+  function bindEvents(){
+    el("logoutBtn").addEventListener("click", async () => {
+      try{ await SUPABASE.auth.signOut(); }catch(e){ console.warn(e); }
+      window.location.href = LOGIN_PATH;
+    });
+    el("btnReload").addEventListener("click", loadAll);
+    el("btnApply").addEventListener("click", applyFilters);
+    el("btnReset").addEventListener("click", resetControls);
+    el("btnPrint").addEventListener("click", () => window.print());
+    el("btnExport").addEventListener("click", exportRows);
+
+    ["selProductType","txtProductSearch","dateFrom","dateTo","selScenario","numCustomLift","numSafetyPct","numTotalRevenueOverride","selMixMode","txtScenarioName"].forEach(id => {
+      el(id).addEventListener("change", applyFilters);
+      el(id).addEventListener("input", () => {
+        if (["txtProductSearch","numCustomLift","numSafetyPct","numTotalRevenueOverride","txtScenarioName"].includes(id)) applyFilters();
+      });
+    });
+
+    document.querySelectorAll("[data-family-filter]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        FAMILY_FILTER = btn.getAttribute("data-family-filter");
+        document.querySelectorAll("[data-family-filter]").forEach(b => b.classList.toggle("active", b === btn));
+        renderProductFamilies();
+      });
     });
   }
 
-  (async function boot(){
+  async function loadAll(){
+    el("btnReload").disabled = true;
+    el("btnReload").textContent = "Loading…";
+    el("statusLine").textContent = "Loading Supabase planning data…";
+
     try{
-      setupControls();
-      const ok = await initAuth(); if (!ok) return;
-      bind();
-      await loadProductTypeOptions();
-      await runLoad();
-    } catch(e){
-      document.body.innerHTML = `<div style="padding:24px;font-family:Inter,system-ui,sans-serif;"><b>Planning page failed to start:</b><br>${esc(e.message || String(e))}</div>`;
+      const [salesRaw, invRaw] = await Promise.all([
+        loadPaged(SALES_VIEW),
+        loadPaged(INVENTORY_VIEW)
+      ]);
+      SALES_ROWS = salesRaw.map(mapSalesRow);
+      INVENTORY_ROWS = invRaw.map(mapInventoryRow);
+
+      renderProductTypeOptions();
+
+      const months = [...new Set(SALES_ROWS.map(r => r.month_key).filter(Boolean))].sort();
+      if (!el("dateFrom").value && months.length) el("dateFrom").value = months[Math.max(0, months.length - 12)];
+      if (!el("dateTo").value && months.length) el("dateTo").value = months[months.length - 1];
+
+      renderAssumptionRows();
+      defaultAssumptionsFromHistorical();
+      applyFilters();
+    } catch(err){
+      console.error(err);
+      el("statusLine").innerHTML = `<span class="text-rose-700 font-bold">Load failed:</span> ${esc(err.message || String(err))}`;
+      alert(`Load failed: ${err.message || String(err)}`);
+    } finally {
+      el("btnReload").disabled = false;
+      el("btnReload").textContent = "Reload";
     }
+  }
+
+  (async function boot(){
+    const ok = await initAuth();
+    if (!ok) return;
+    bindEvents();
+    await loadAll();
   })();
 </script>
 </body>
