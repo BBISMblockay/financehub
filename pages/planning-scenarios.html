@@ -20,14 +20,8 @@
       --line:#e2e8f0;
       --soft:#f8fafc;
       --blue:#1e3a5f;
-      --green1:#dcfce7;
-      --green2:#86efac;
-      --green3:#22c55e;
-      --green4:#15803d;
-      --green5:#052e16;
       color-scheme: light;
     }
-
     *{ box-sizing:border-box; }
     html,body{ min-height:100%; }
     body{
@@ -37,7 +31,6 @@
       color:var(--ink);
       font-size:13px;
     }
-
     .mono{ font-variant-numeric:tabular-nums; font-feature-settings:"tnum" 1; }
     .shell{ max-width:1900px; margin:0 auto; padding:14px 18px 28px; }
     .surface{
@@ -72,7 +65,7 @@
       outline:none;
       min-width:0;
     }
-    .field:focus{
+    .field:focus,.mini-input:focus{
       border-color:#60a5fa;
       box-shadow:0 0 0 3px rgba(59,130,246,.12);
     }
@@ -162,26 +155,6 @@
       opacity:.90;
       line-height:1.25;
     }
-
-    .assumption-strip{
-      display:grid;
-      grid-template-columns:minmax(170px, 1.1fr) repeat(5, minmax(92px, .65fr));
-      gap:8px;
-      align-items:center;
-      min-width:850px;
-    }
-    .assump-head{
-      font-size:11px;
-      line-height:1;
-      text-transform:uppercase;
-      letter-spacing:.08em;
-      font-weight:950;
-    }
-    .assump-note{
-      font-size:10px;
-      color:#64748b;
-      line-height:1.1;
-    }
     .mini-input{
       height:28px;
       border:1px solid #d5dee9;
@@ -193,11 +166,6 @@
       font-variant-numeric:tabular-nums;
       outline:none;
     }
-    .mini-input:focus{
-      border-color:#60a5fa;
-      box-shadow:0 0 0 3px rgba(59,130,246,.10);
-    }
-
     .bar-row{
       display:grid;
       grid-template-columns:repeat(11, minmax(90px,1fr));
@@ -216,7 +184,6 @@
       font-size:9px;
       font-weight:800;
     }
-
     table{ border-collapse:separate; border-spacing:0; }
     th{
       background:#f8fafc;
@@ -241,10 +208,8 @@
     .thin-scroll::-webkit-scrollbar{ height:10px; width:10px; }
     .thin-scroll::-webkit-scrollbar-thumb{ background:rgba(15,23,42,.20); border-radius:999px; }
     .thin-scroll::-webkit-scrollbar-track{ background:rgba(15,23,42,.05); }
-
     details > summary{ list-style:none; cursor:pointer; }
     details > summary::-webkit-details-marker{ display:none; }
-
     .mode-btn{
       border:1px solid #dbe4ee;
       background:#fff;
@@ -260,9 +225,21 @@
       border-color:#0f172a;
       color:#fff;
     }
-
+    .plan-card-table input{
+      height:28px;
+      border:1px solid #d5dee9;
+      border-radius:6px;
+      padding:3px 7px;
+      font-size:11px;
+      font-variant-numeric:tabular-nums;
+      outline:none;
+    }
+    .plan-card-table input:focus{
+      border-color:#60a5fa;
+      box-shadow:0 0 0 3px rgba(59,130,246,.10);
+    }
     @media print{
-      header,.no-print,#filtersCard details.assumption-edit{ display:none !important; }
+      header,.no-print,#filtersCard details.assumption-edit,#planningInputs .edit-only{ display:none !important; }
       body{ background:#fff; }
       .shell{ max-width:none; padding:0; }
       .surface{ box-shadow:none; border-color:#cbd5e1; break-inside:avoid; }
@@ -279,12 +256,12 @@
         <div class="min-w-0">
           <div class="font-extrabold text-sm truncate">Silo ERP — Planning Scenarios</div>
           <div class="text-[11px] text-slate-500 truncate">
-            Historical baseline + revenue / mix / ASP assumptions + inventory gap proof
+            Historical baseline + revenue plan / mix / ASP overrides + inventory gap proof
           </div>
         </div>
       </div>
       <div class="flex items-center gap-2 shrink-0">
-        <span class="chip">Scenario Matrix v3</span>
+        <span class="chip">Revenue Plan Overrides v4</span>
         <span id="authEmail" class="hidden md:inline text-xs text-slate-500"></span>
         <button id="btnReload" class="btn">Reload</button>
         <button id="btnPrint" class="btn">Print Proof</button>
@@ -299,6 +276,14 @@
       <div class="flex flex-col 2xl:flex-row 2xl:items-center gap-3">
         <div class="flex items-center gap-2 flex-wrap flex-1">
           <span class="text-[11px] font-black text-sky-700">↬ View filters:</span>
+
+          <div class="flex items-center gap-2">
+            <span class="label">Mode</span>
+            <select id="selPlanMode" class="field w-[160px]">
+              <option value="historical">Historical Lift</option>
+              <option value="revenue_plan" selected>Revenue Plan</option>
+            </select>
+          </div>
 
           <div class="flex items-center gap-2">
             <span class="label">Period</span>
@@ -338,16 +323,16 @@
           <div>
             <div class="text-[12px] font-extrabold">Assumption Controls</div>
             <div class="text-[11px] text-slate-500">
-              Optional overrides. Leave blank to use historical baseline × selected lift. Use revenue/mix/ASP to work backward from someone else's projection.
+              Revenue Plan mode uses monthly revenue × product type mix ÷ ASP. Historical mode uses selected period baseline × lift.
             </div>
           </div>
           <span class="text-[11px] text-slate-500">toggle</span>
         </summary>
 
-        <div class="mt-3 grid grid-cols-1 xl:grid-cols-4 gap-3">
+        <div class="mt-3 grid grid-cols-1 xl:grid-cols-5 gap-3">
           <div>
             <label class="label mb-1 block">Total Revenue Override</label>
-            <input id="numTotalRevenueOverride" type="number" step="1000" class="field w-full mono" placeholder="Blank = historical × lift" />
+            <input id="numTotalRevenueOverride" type="number" step="1000" class="field w-full mono" placeholder="Historical mode only" />
           </div>
           <div>
             <label class="label mb-1 block">Scenario Preset</label>
@@ -369,14 +354,87 @@
             <label class="label mb-1 block">Safety / Buffer %</label>
             <input id="numSafetyPct" type="number" step="1" value="10" class="field w-full mono" />
           </div>
+          <div>
+            <label class="label mb-1 block">Scenario Name</label>
+            <input id="txtScenarioName" class="field w-full" placeholder="ex: Loomis Youth Shorts" />
+          </div>
         </div>
 
-        <div class="mt-3 overflow-auto thin-scroll">
+        <div class="mt-3 overflow-auto thin-scroll" id="historicalAssumptionWrap">
           <div class="min-w-[850px] space-y-2" id="assumptionStrips"></div>
         </div>
       </details>
 
       <div id="statusLine" class="mt-2 text-[11px] text-slate-500 mono">Loading…</div>
+    </section>
+
+    <section id="planningInputs" class="grid grid-cols-1 2xl:grid-cols-3 gap-3">
+      <div class="surface p-3">
+        <div class="flex items-center justify-between gap-3 mb-2">
+          <div>
+            <div class="text-[13px] font-black text-slate-700 uppercase tracking-wide">Revenue Plan</div>
+            <div class="text-[11px] text-slate-500">Monthly company/channel projection dollars.</div>
+          </div>
+          <button id="btnSeedRevenue" class="btn edit-only">Seed from Historical</button>
+        </div>
+        <div class="overflow-auto thin-scroll">
+          <table class="w-full min-w-[540px] plan-card-table">
+            <thead>
+              <tr>
+                <th class="px-3 py-2 text-left">Month</th>
+                <th class="px-3 py-2 num">Revenue Plan ($)</th>
+                <th class="px-3 py-2 text-left">Notes</th>
+              </tr>
+            </thead>
+            <tbody id="revenuePlanBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="surface p-3">
+        <div class="flex items-center justify-between gap-3 mb-2">
+          <div>
+            <div class="text-[13px] font-black text-slate-700 uppercase tracking-wide">Mix % <span class="text-slate-400">— Month Σ live</span></div>
+            <div class="text-[11px] text-slate-500">Selected product type share of revenue plan.</div>
+          </div>
+          <button id="btnSeedMix" class="btn edit-only">Seed Mix</button>
+        </div>
+        <div class="overflow-auto thin-scroll">
+          <table class="w-full min-w-[560px] plan-card-table">
+            <thead>
+              <tr>
+                <th class="px-3 py-2 text-left">Month</th>
+                <th class="px-3 py-2 text-left">Product Type</th>
+                <th class="px-3 py-2 num">Mix %</th>
+                <th class="px-3 py-2 num">Month Σ</th>
+              </tr>
+            </thead>
+            <tbody id="mixPlanBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="surface p-3">
+        <div class="flex items-center justify-between gap-3 mb-2">
+          <div>
+            <div class="text-[13px] font-black text-slate-700 uppercase tracking-wide">ASP</div>
+            <div class="text-[11px] text-slate-500">Average selling price override for unit need.</div>
+          </div>
+          <button id="btnSeedAsp" class="btn edit-only">Seed ASP</button>
+        </div>
+        <div class="overflow-auto thin-scroll">
+          <table class="w-full min-w-[520px] plan-card-table">
+            <thead>
+              <tr>
+                <th class="px-3 py-2 text-left">Month</th>
+                <th class="px-3 py-2 text-left">Product Type</th>
+                <th class="px-3 py-2 num">ASP ($)</th>
+              </tr>
+            </thead>
+            <tbody id="aspPlanBody"></tbody>
+          </table>
+        </div>
+      </div>
     </section>
 
     <section class="grid grid-cols-1 lg:grid-cols-4 gap-2" id="scenarioCards"></section>
@@ -388,7 +446,7 @@
         <div>
           <div class="panel-title">Annual Summary — All Scenarios</div>
           <div class="text-[11px] text-slate-500 mt-1">
-            Scenario ladder from Plan through +100%. Uses historical mix/ASP unless overrides are active.
+            Scenario ladder from Plan through +100%. In Revenue Plan mode, Plan is the manual revenue/mix/ASP model.
           </div>
         </div>
         <div class="flex items-center gap-2 no-print">
@@ -412,13 +470,14 @@
         <div>
           <div class="panel-title">Monthly Detail — Revenue by Scenario</div>
           <div class="text-[11px] text-slate-500 mt-1">
-            Monthly baseline from Supabase, then scenario ladder. Use this as the print/export proof table.
+            Revenue Plan mode: revenue × mix ÷ ASP by month. Historical mode: monthly actuals × scenario lift.
           </div>
         </div>
         <div class="flex flex-wrap items-center gap-2 no-print">
           <button class="mode-btn active" data-monthly-metric="revenue">Revenue</button>
           <button class="mode-btn" data-monthly-metric="units">Units</button>
           <button class="mode-btn" data-monthly-metric="both">Revenue + Units</button>
+          <button class="mode-btn" data-monthly-metric="formula">Formula Proof</button>
         </div>
       </div>
       <div class="mt-3 overflow-auto thin-scroll">
@@ -488,7 +547,7 @@
         <div>
           <div class="panel-title">Product Family Detail — Selected Scenario</div>
           <div class="text-[11px] text-slate-500 mt-1">
-            Scenario demand allocated by current product-family demand share. Good for pressure testing, not final PO approval.
+            Scenario demand allocated by product-family demand share. Good for pressure testing, not final PO approval.
           </div>
         </div>
         <div class="flex items-center gap-2 no-print">
@@ -524,7 +583,7 @@
   </main>
 
 <script>
-  console.log("Silo Planning Scenarios: Scenario Matrix v3 loaded");
+  console.log("Silo Planning Scenarios: Revenue Plan Overrides v4 loaded");
 
   const cfg = window.__SILO_CONFIG__ || {};
   const SUPABASE_URL = cfg.SUPABASE_URL || "";
@@ -554,7 +613,6 @@
   let MONTHLY_METRIC = "both";
   let FAMILY_FILTER = "all";
   let LAST_RESULT = null;
-  let INIT_DONE = false;
 
   const el = id => document.getElementById(id);
 
@@ -563,12 +621,8 @@
     const x = parseFloat(String(v ?? "").replace(/[^0-9.\-]/g,""));
     return Number.isFinite(x) ? x : 0;
   }
-  function money(v){
-    return num(v).toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:0});
-  }
-  function money2(v){
-    return num(v).toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:2});
-  }
+  function money(v){ return num(v).toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:0}); }
+  function money2(v){ return num(v).toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:2}); }
   function pct(v, digits=1){ return `${num(v).toFixed(digits)}%`; }
   function esc(s){
     return String(s ?? "").replace(/[&<>"']/g, m => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[m]));
@@ -586,13 +640,8 @@
   }
   function normalizeTitleKey(v){
     return String(v ?? "")
-      .trim()
-      .toLowerCase()
-      .replace(/['"]/g, "")
-      .replace(/&/g, "and")
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .replace(/-+/g, "-");
+      .trim().toLowerCase().replace(/['"]/g, "").replace(/&/g, "and")
+      .replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").replace(/-+/g, "-");
   }
   function pick(row, names, fallback = ""){
     for (const name of names){
@@ -619,7 +668,6 @@
       document.body.innerHTML = `<div style="padding:24px;font-family:Inter,system-ui">Missing Supabase config in /pages/config.js</div>`;
       return false;
     }
-
     SUPABASE = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     const { data, error } = await SUPABASE.auth.getSession();
     if (error) console.warn(error);
@@ -627,7 +675,6 @@
       window.location.href = LOGIN_PATH;
       return false;
     }
-
     el("authEmail").textContent = data.session.user?.email || "Signed in";
     return true;
   }
@@ -699,8 +746,11 @@
     return num(v) / 100;
   }
 
+  function getPlanMode(){ return el("selPlanMode").value || "revenue_plan"; }
+
   function getFilters(){
     return {
+      planMode: getPlanMode(),
       productType: el("selProductType").value || "__ALL__",
       productSearch: norm(el("txtProductSearch").value).toLowerCase(),
       from: el("dateFrom").value,
@@ -708,7 +758,8 @@
       selectedLift: getSelectedLift(),
       safetyPct: num(el("numSafetyPct").value) / 100,
       totalRevenueOverride: num(el("numTotalRevenueOverride").value),
-      showUnits: el("chkShowUnits").checked
+      showUnits: el("chkShowUnits").checked,
+      scenarioName: norm(el("txtScenarioName").value)
     };
   }
 
@@ -727,10 +778,22 @@
     return out;
   }
 
-  function salesTotalsByChannel(){
+  function selectedMonths(){
+    const f = getFilters();
+    let months = [...new Set(SALES_ROWS.map(r => r.month_key).filter(Boolean))].sort();
+    if (f.from) months = months.filter(m => m >= f.from);
+    if (f.to) months = months.filter(m => m <= f.to);
+    return months;
+  }
+
+  function salesRowsForMonth(month){
+    return FILTERED_SALES.filter(r => r.month_key === month);
+  }
+
+  function salesTotalsByChannel(rows = FILTERED_SALES){
     const out = {};
     for (const ch of CHANNELS) out[ch.key] = { key:ch.key, label:ch.label, units:0, revenue:0, rows:0, unique_skus:0 };
-    for (const r of FILTERED_SALES){
+    for (const r of rows){
       const k = out[r.channel] ? r.channel : "retail";
       out[k].units += r.units;
       out[k].revenue += r.revenue;
@@ -763,7 +826,147 @@
     return out;
   }
 
-  function calculateScenario(lift){
+  function productTypeRevenueForMonth(month){
+    const productType = getFilters().productType;
+    if (productType === "__ALL__"){
+      return salesRowsForMonth(month).reduce((s,r)=>s+r.revenue,0);
+    }
+    return salesRowsForMonth(month).reduce((s,r)=>s+r.revenue,0);
+  }
+
+  function allRevenueForMonth(month){
+    const f = getFilters();
+    return SALES_ROWS.filter(r => r.month_key === month).reduce((s,r)=>s+r.revenue,0);
+  }
+
+  function allUnitsForMonth(month){
+    const f = getFilters();
+    return SALES_ROWS.filter(r => r.month_key === month).reduce((s,r)=>s+r.units,0);
+  }
+
+  function histProductTypeUnitsForMonth(month){
+    return salesRowsForMonth(month).reduce((s,r)=>s+r.units,0);
+  }
+
+  function histProductTypeRevenueForMonth(month){
+    return salesRowsForMonth(month).reduce((s,r)=>s+r.revenue,0);
+  }
+
+  function monthPlanInput(idPrefix, month){
+    return num(el(`${idPrefix}_${month}`)?.value);
+  }
+
+  function revenuePlanForMonth(month){
+    const manual = monthPlanInput("revplan", month);
+    if (manual > 0) return manual;
+    return allRevenueForMonth(month);
+  }
+
+  function mixPctForMonth(month){
+    const manual = monthPlanInput("mixplan", month);
+    if (manual > 0) return manual / 100;
+    const allRev = allRevenueForMonth(month);
+    const prodRev = histProductTypeRevenueForMonth(month);
+    return allRev > 0 ? prodRev / allRev : 0;
+  }
+
+  function aspForMonth(month){
+    const manual = monthPlanInput("aspplan", month);
+    if (manual > 0) return manual;
+    const units = histProductTypeUnitsForMonth(month);
+    const rev = histProductTypeRevenueForMonth(month);
+    return units > 0 ? rev / units : 0;
+  }
+
+  function calculateRevenuePlanScenario(lift){
+    const months = selectedMonths();
+    const invByCh = inventoryTotalsByChannel();
+    const productType = getFilters().productType;
+    let revenue = 0;
+    let units = 0;
+
+    const monthRows = months.map(month => {
+      const baseRevenuePlan = revenuePlanForMonth(month);
+      const mix = mixPctForMonth(month);
+      const asp = aspForMonth(month);
+      const productRevenue = baseRevenuePlan * mix * (1 + lift);
+      const reqUnits = asp > 0 ? productRevenue / asp : 0;
+      revenue += productRevenue;
+      units += reqUnits;
+      return {
+        month,
+        revenue_plan: baseRevenuePlan,
+        mix,
+        asp,
+        product_revenue: productRevenue,
+        units: reqUnits
+      };
+    });
+
+    const histUnits = FILTERED_SALES.reduce((s,r)=>s+r.units,0);
+    const histRevenue = FILTERED_SALES.reduce((s,r)=>s+r.revenue,0);
+    const onHandTotal = Object.values(invByCh).reduce((s,r)=>s+r.on_hand,0);
+    const retailValue = Object.values(invByCh).reduce((s,r)=>s+r.retail_value,0);
+    const gap = Math.ceil(units - onHandTotal);
+    const gapBuffer = Math.max(0, Math.ceil(gap + units * getFilters().safetyPct));
+
+    const total = {
+      key:"total",
+      label:"Total",
+      hist_units:histUnits,
+      hist_revenue:histRevenue,
+      hist_asp:histUnits > 0 ? histRevenue / histUnits : 0,
+      hist_mix:1,
+      plan_mix:1,
+      plan_asp:units > 0 ? revenue / units : 0,
+      asp_change:0,
+      revenue,
+      units,
+      unit_delta:units - histUnits,
+      revenue_delta:revenue - histRevenue,
+      on_hand:onHandTotal,
+      retail_value:retailValue,
+      gap,
+      gap_buffer:gapBuffer,
+      mode:"revenue × mix ÷ asp",
+      monthRows
+    };
+
+    const histByCh = salesTotalsByChannel();
+    const rows = CHANNELS.map(ch => {
+      const hist = histByCh[ch.key];
+      const inv = invByCh[ch.key];
+      const histRevenueShare = histRevenue > 0 ? hist.revenue / histRevenue : (ch.key === "online" ? .6 : ch.key === "retail" ? .35 : .05);
+      const chRevenue = revenue * histRevenueShare;
+      const chUnits = units * histRevenueShare;
+      const chGap = Math.ceil(chUnits - inv.on_hand);
+      const chGapBuffer = Math.max(0, Math.ceil(chGap + chUnits * getFilters().safetyPct));
+      return {
+        key:ch.key,
+        label:ch.label,
+        hist_units:hist.units,
+        hist_revenue:hist.revenue,
+        hist_asp:hist.units > 0 ? hist.revenue / hist.units : 0,
+        hist_mix:histRevenueShare,
+        plan_mix:histRevenueShare,
+        plan_asp:chUnits > 0 ? chRevenue / chUnits : 0,
+        asp_change:0,
+        revenue:chRevenue,
+        units:chUnits,
+        unit_delta:chUnits - hist.units,
+        revenue_delta:chRevenue - hist.revenue,
+        on_hand:inv.on_hand,
+        retail_value:inv.retail_value,
+        gap:chGap,
+        gap_buffer:chGapBuffer,
+        mode:"allocated by historical channel share"
+      };
+    });
+
+    return { lift, rows, total, monthRows };
+  }
+
+  function calculateHistoricalScenario(lift){
     const f = getFilters();
     const histByCh = salesTotalsByChannel();
     const invByCh = inventoryTotalsByChannel();
@@ -852,13 +1055,12 @@
     return { lift, rows, total };
   }
 
-  function selectedScenario(){
-    return calculateScenario(getSelectedLift());
+  function calculateScenario(lift){
+    return getPlanMode() === "revenue_plan" ? calculateRevenuePlanScenario(lift) : calculateHistoricalScenario(lift);
   }
 
-  function scenarioLabel(lift){
-    return lift === 0 ? "Plan" : `+${Math.round(lift * 100)}%`;
-  }
+  function selectedScenario(){ return calculateScenario(getSelectedLift()); }
+  function scenarioLabel(lift){ return lift === 0 ? "Plan" : `+${Math.round(lift * 100)}%`; }
 
   function buildProductFamilies(){
     const by = new Map();
@@ -907,6 +1109,87 @@
     }));
   }
 
+  function renderProductTypeOptions(){
+    const types = [...new Set(SALES_ROWS.map(r => r.product_type).concat(INVENTORY_ROWS.map(r => r.product_type)).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+    const sel = el("selProductType");
+    const cur = sel.value || "__ALL__";
+    sel.innerHTML = `<option value="__ALL__">All product types</option>` + types.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join("");
+    sel.value = types.includes(cur) ? cur : "__ALL__";
+  }
+
+  function renderRevenuePlanInputs(){
+    const months = selectedMonths();
+    const productType = getFilters().productType === "__ALL__" ? "Selected Type" : getFilters().productType;
+    const revBody = el("revenuePlanBody");
+    const mixBody = el("mixPlanBody");
+    const aspBody = el("aspPlanBody");
+
+    revBody.innerHTML = months.map(month => {
+      const existing = el(`revplan_${month}`)?.value;
+      const note = el(`note_${month}`)?.value || "";
+      return `
+        <tr>
+          <td class="px-3 py-2 font-bold">${esc(monthLabel(month))}</td>
+          <td class="px-3 py-2 num"><input id="revplan_${month}" class="w-full text-right mono" type="number" step="1000" value="${esc(existing || "")}" placeholder="${Math.round(allRevenueForMonth(month)).toLocaleString()}"></td>
+          <td class="px-3 py-2"><input id="note_${month}" class="w-full" type="text" value="${esc(note)}" placeholder="optional"></td>
+        </tr>
+      `;
+    }).join("");
+
+    mixBody.innerHTML = months.map(month => {
+      const existing = el(`mixplan_${month}`)?.value;
+      const monthSum = existing ? num(existing) : mixPctForMonth(month) * 100;
+      return `
+        <tr>
+          <td class="px-3 py-2 font-bold">${esc(monthLabel(month))}</td>
+          <td class="px-3 py-2">${esc(productType)}</td>
+          <td class="px-3 py-2 num"><input id="mixplan_${month}" class="w-[92px] text-right mono" type="number" step="0.1" value="${esc(existing || "")}" placeholder="${(mixPctForMonth(month)*100).toFixed(1)}"></td>
+          <td class="px-3 py-2 num mono">${pct(monthSum,1)}</td>
+        </tr>
+      `;
+    }).join("");
+
+    aspBody.innerHTML = months.map(month => {
+      const existing = el(`aspplan_${month}`)?.value;
+      return `
+        <tr>
+          <td class="px-3 py-2 font-bold">${esc(monthLabel(month))}</td>
+          <td class="px-3 py-2">${esc(productType)}</td>
+          <td class="px-3 py-2 num"><input id="aspplan_${month}" class="w-[110px] text-right mono" type="number" step="0.01" value="${esc(existing || "")}" placeholder="${aspForMonth(month).toFixed(2)}"></td>
+        </tr>
+      `;
+    }).join("");
+
+    for (const month of months){
+      [`revplan_${month}`,`note_${month}`,`mixplan_${month}`,`aspplan_${month}`].forEach(id => {
+        el(id)?.addEventListener("input", run);
+        el(id)?.addEventListener("change", run);
+      });
+    }
+  }
+
+  function seedRevenuePlan(){
+    for (const month of selectedMonths()){
+      const node = el(`revplan_${month}`);
+      if (node) node.value = Math.round(allRevenueForMonth(month));
+    }
+    run();
+  }
+  function seedMixPlan(){
+    for (const month of selectedMonths()){
+      const node = el(`mixplan_${month}`);
+      if (node) node.value = (mixPctForMonth(month)*100).toFixed(1);
+    }
+    run();
+  }
+  function seedAspPlan(){
+    for (const month of selectedMonths()){
+      const node = el(`aspplan_${month}`);
+      if (node) node.value = aspForMonth(month).toFixed(2);
+    }
+    run();
+  }
+
   function defaultAssumptionsFromHistorical(){
     const hist = salesTotalsByChannel();
     const totalRevenue = Object.values(hist).reduce((s,r) => s + r.revenue, 0);
@@ -920,14 +1203,6 @@
       if (el(`aspchg_${ch.key}`)) el(`aspchg_${ch.key}`).value = "0";
       if (el(`chk_${ch.key}`)) el(`chk_${ch.key}`).checked = true;
     }
-  }
-
-  function renderProductTypeOptions(){
-    const types = [...new Set(SALES_ROWS.map(r => r.product_type).concat(INVENTORY_ROWS.map(r => r.product_type)).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
-    const sel = el("selProductType");
-    const cur = sel.value || "__ALL__";
-    sel.innerHTML = `<option value="__ALL__">All product types</option>` + types.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join("");
-    sel.value = types.includes(cur) ? cur : "__ALL__";
   }
 
   function renderAssumptionStrips(){
@@ -947,10 +1222,10 @@
 
       return `
         <div class="surface p-2">
-          <div class="assumption-strip">
+          <div class="grid grid-cols-[minmax(170px,1.1fr)_repeat(5,minmax(92px,.65fr))] gap-2 items-center min-w-[850px]">
             <div>
-              <div class="assump-head ${ch.className}">${esc(ch.label)} Assumptions</div>
-              <div class="assump-note">
+              <div class="text-[11px] font-black uppercase tracking-wide ${ch.className}">${esc(ch.label)} Assumptions</div>
+              <div class="text-[10px] text-slate-500">
                 <span class="mono">${Math.round(h.units).toLocaleString()} u</span>
                 @ <span class="mono">${money2(asp)}</span> ASP
               </div>
@@ -999,6 +1274,7 @@
     });
 
     buildProductFamilies();
+    renderRevenuePlanInputs();
     renderAssumptionStrips();
     LAST_RESULT = selectedScenario();
 
@@ -1008,16 +1284,20 @@
     renderGapAndChannel();
     renderFamilies();
     renderStatus();
+
+    const isRevenuePlan = getPlanMode() === "revenue_plan";
+    el("planningInputs").style.display = isRevenuePlan ? "" : "none";
+    el("historicalAssumptionWrap").style.display = isRevenuePlan ? "none" : "";
   }
 
   function renderTop(){
     const f = getFilters();
     const selected = selectedScenario();
-    const months = monthlyTotals();
-    const start = f.from ? monthLabel(f.from) : (months[0] ? monthLabel(months[0].month_key) : "—");
-    const end = f.to ? monthLabel(f.to) : (months[months.length-1] ? monthLabel(months[months.length-1].month_key) : "—");
+    const months = selectedMonths();
+    const start = f.from ? monthLabel(f.from) : (months[0] ? monthLabel(months[0]) : "—");
+    const end = f.to ? monthLabel(f.to) : (months[months.length-1] ? monthLabel(months[months.length-1]) : "—");
     const type = f.productType === "__ALL__" ? "All types" : f.productType;
-    el("rangeChip").textContent = `${start} – ${end} · ${type}`;
+    el("rangeChip").textContent = `${start} – ${end} · ${type} · ${f.planMode === "revenue_plan" ? "Revenue Plan" : "Historical"}`;
     el("selectedScenarioChip").textContent = scenarioLabel(f.selectedLift);
 
     const cards = CARD_SCENARIOS.map((p, idx) => {
@@ -1044,22 +1324,24 @@
       return `
         <div class="surface p-3">
           <div class="flex items-center justify-between gap-2">
-            <div class="assump-head ${ch?.className || ""}">${esc(r.label)} Assumptions</div>
+            <div class="text-[11px] font-black uppercase tracking-wide ${ch?.className || ""}">${esc(r.label)} Assumptions</div>
             <span class="text-[11px] text-slate-500 mono">${pct(r.plan_mix*100,0)} @ ${money2(r.plan_asp)}</span>
           </div>
           <div class="mt-2 grid grid-cols-3 gap-2">
             <div><div class="text-[10px] text-slate-500 font-bold">Revenue</div><div class="mono font-black">${money(r.revenue)}</div></div>
             <div><div class="text-[10px] text-slate-500 font-bold">Units</div><div class="mono font-black">${Math.round(r.units).toLocaleString()}</div></div>
-            <div><div class="text-[10px] text-slate-500 font-bold">ASP Δ</div><div class="mono font-black">${pct(r.asp_change*100)}</div></div>
+            <div><div class="text-[10px] text-slate-500 font-bold">Mode</div><div class="mono font-black text-[10px]">${esc(r.mode)}</div></div>
           </div>
         </div>
       `;
     }).join("");
 
-    for (const r of selected.rows){
-      const node = el(`readout_${r.key}`);
-      if (node){
-        node.innerHTML = `<span class="pill pill-blue">${esc(r.mode)}</span><span class="ml-2 mono">${money(r.revenue)} / ${Math.round(r.units).toLocaleString()} u @ ${money2(r.plan_asp)}</span>`;
+    if (getPlanMode() !== "revenue_plan"){
+      for (const r of selected.rows){
+        const node = el(`readout_${r.key}`);
+        if (node){
+          node.innerHTML = `<span class="pill pill-blue">${esc(r.mode)}</span><span class="ml-2 mono">${money(r.revenue)} / ${Math.round(r.units).toLocaleString()} u @ ${money2(r.plan_asp)}</span>`;
+        }
       }
     }
   }
@@ -1080,18 +1362,26 @@
 
     const revRow = `<tr><td class="px-3 py-2 font-extrabold">Revenue</td>${all.map(x => `<td class="px-3 py-2 num mono font-bold">${money(x.scenario.total.revenue)}</td>`).join("")}</tr>`;
     const unitsRow = `<tr><td class="px-3 py-2 font-extrabold">Units</td>${all.map(x => `<td class="px-3 py-2 num mono">${Math.round(x.scenario.total.units).toLocaleString()} u</td>`).join("")}</tr>`;
-    const deltaRow = `<tr><td class="px-3 py-2 font-extrabold">Δ vs Plan</td>${all.map(x => {
+    const deltaRow = `<tr><td class="px-3 py-2 font-extrabold">Δ vs Historical</td>${all.map(x => {
       const d = x.scenario.total.revenue_delta;
-      return `<td class="px-3 py-2 num mono text-emerald-700 font-bold">${x.pct === 0 ? "—" : `+${money(d)}`}</td>`;
+      return `<td class="px-3 py-2 num mono text-emerald-700 font-bold">${x.pct === 0 && getPlanMode() !== "revenue_plan" ? "—" : `${d >= 0 ? "+" : ""}${money(d)}`}</td>`;
     }).join("")}</tr>`;
     const gapRow = `<tr><td class="px-3 py-2 font-extrabold">Gap + Buffer</td>${all.map(x => `<td class="px-3 py-2 num mono">${Math.round(x.scenario.total.gap_buffer).toLocaleString()}</td>`).join("")}</tr>`;
     el("scenarioMatrixBody").innerHTML = revRow + unitsRow + deltaRow + gapRow;
   }
 
   function monthlyScenarioFor(month, lift){
-    const f = getFilters();
+    if (getPlanMode() === "revenue_plan"){
+      const revenuePlan = revenuePlanForMonth(month);
+      const mix = mixPctForMonth(month);
+      const asp = aspForMonth(month);
+      const productRevenue = revenuePlan * mix * (1 + lift);
+      const units = asp > 0 ? productRevenue / asp : 0;
+      return { units, revenue:productRevenue, revenuePlan, mix, asp };
+    }
+
     const assumptions = readChannelAssumptions();
-    const rows = FILTERED_SALES.filter(r => r.month_key === month.month_key);
+    const rows = FILTERED_SALES.filter(r => r.month_key === month);
     const histTotalRevenue = rows.reduce((s,r)=>s+r.revenue,0);
     let units = 0, revenue = 0;
 
@@ -1103,15 +1393,7 @@
       const a = assumptions[ch.key];
       if (!a.enabled) continue;
       const asp = a.aspOverride > 0 ? a.aspOverride : histAsp * (1 + a.aspChange);
-      if (f.totalRevenueOverride > 0){
-        // distribute total override to months by historical month revenue share, then channel mix
-        const selectedTotal = FILTERED_SALES.reduce((s,r)=>s+r.revenue,0);
-        const monthShare = selectedTotal > 0 ? histTotalRevenue / selectedTotal : 0;
-        const monthlyOverride = f.totalRevenueOverride * monthShare;
-        const rev = monthlyOverride * (a.mixPct || 0);
-        revenue += rev;
-        units += asp > 0 ? rev / asp : 0;
-      } else if (a.revenueOverride > 0){
+      if (a.revenueOverride > 0){
         const selectedTotal = FILTERED_SALES.reduce((s,r)=>s+r.revenue,0);
         const monthShare = selectedTotal > 0 ? histTotalRevenue / selectedTotal : 0;
         const rev = a.revenueOverride * monthShare;
@@ -1127,54 +1409,73 @@
   }
 
   function renderMonthly(){
-    const months = monthlyTotals();
+    const months = selectedMonths();
     const lifts = SCENARIOS;
     let head = `<th class="px-3 py-2 text-left">Month</th>`;
 
-    for (const p of lifts){
-      if (MONTHLY_METRIC === "revenue"){
-        head += `<th class="px-3 py-2 num">${p===0?"Plan":`+${p}%`} Rev</th>`;
-      } else if (MONTHLY_METRIC === "units"){
-        head += `<th class="px-3 py-2 num">${p===0?"Plan":`+${p}%`} Units</th>`;
-      } else {
-        head += `<th class="px-3 py-2 num">${p===0?"Plan":`+${p}%`} Rev</th><th class="px-3 py-2 num">${p===0?"Plan":`+${p}%`} Units</th>`;
+    if (MONTHLY_METRIC === "formula"){
+      head += `<th class="px-3 py-2 num">Revenue Plan</th><th class="px-3 py-2 num">Mix %</th><th class="px-3 py-2 num">Product Revenue</th><th class="px-3 py-2 num">ASP</th><th class="px-3 py-2 num">Required Units</th>`;
+    } else {
+      for (const p of lifts){
+        if (MONTHLY_METRIC === "revenue"){
+          head += `<th class="px-3 py-2 num">${p===0?"Plan":`+${p}%`} Rev</th>`;
+        } else if (MONTHLY_METRIC === "units"){
+          head += `<th class="px-3 py-2 num">${p===0?"Plan":`+${p}%`} Units</th>`;
+        } else {
+          head += `<th class="px-3 py-2 num">${p===0?"Plan":`+${p}%`} Rev</th><th class="px-3 py-2 num">${p===0?"Plan":`+${p}%`} Units</th>`;
+        }
       }
     }
     el("monthlyHead").innerHTML = head;
 
-    const rowsHtml = months.map(m => {
-      let row = `<tr><td class="px-3 py-2 font-bold">${esc(monthLabel(m.month_key))}</td>`;
-      for (const p of lifts){
-        const s = monthlyScenarioFor(m, p/100);
-        if (MONTHLY_METRIC === "revenue"){
-          row += `<td class="px-3 py-2 num mono font-semibold">${money(s.revenue)}</td>`;
-        } else if (MONTHLY_METRIC === "units"){
-          row += `<td class="px-3 py-2 num mono">${Math.round(s.units).toLocaleString()}</td>`;
-        } else {
-          row += `<td class="px-3 py-2 num mono font-semibold">${money(s.revenue)}</td><td class="px-3 py-2 num mono text-slate-500">${Math.round(s.units).toLocaleString()}</td>`;
+    let rowsHtml = "";
+    if (MONTHLY_METRIC === "formula"){
+      rowsHtml = months.map(m => {
+        const s = monthlyScenarioFor(m, getSelectedLift());
+        return `
+          <tr>
+            <td class="px-3 py-2 font-bold">${esc(monthLabel(m))}</td>
+            <td class="px-3 py-2 num mono">${money(s.revenuePlan)}</td>
+            <td class="px-3 py-2 num mono">${pct(s.mix*100)}</td>
+            <td class="px-3 py-2 num mono font-semibold">${money(s.revenue)}</td>
+            <td class="px-3 py-2 num mono">${money2(s.asp)}</td>
+            <td class="px-3 py-2 num mono font-bold">${Math.round(s.units).toLocaleString()}</td>
+          </tr>
+        `;
+      }).join("");
+    } else {
+      rowsHtml = months.map(m => {
+        let row = `<tr><td class="px-3 py-2 font-bold">${esc(monthLabel(m))}</td>`;
+        for (const p of lifts){
+          const s = monthlyScenarioFor(m, p/100);
+          if (MONTHLY_METRIC === "revenue"){
+            row += `<td class="px-3 py-2 num mono font-semibold">${money(s.revenue)}</td>`;
+          } else if (MONTHLY_METRIC === "units"){
+            row += `<td class="px-3 py-2 num mono">${Math.round(s.units).toLocaleString()}</td>`;
+          } else {
+            row += `<td class="px-3 py-2 num mono font-semibold">${money(s.revenue)}</td><td class="px-3 py-2 num mono text-slate-500">${Math.round(s.units).toLocaleString()}</td>`;
+          }
         }
-      }
-      row += `</tr>`;
-      return row;
-    }).join("");
+        row += `</tr>`;
+        return row;
+      }).join("");
 
-    const totalRow = (() => {
-      let row = `<tr class="bg-slate-50"><td class="px-3 py-2 font-black">Total</td>`;
+      let totalRow = `<tr class="bg-slate-50"><td class="px-3 py-2 font-black">Total</td>`;
       for (const p of lifts){
         const s = calculateScenario(p/100).total;
         if (MONTHLY_METRIC === "revenue"){
-          row += `<td class="px-3 py-2 num mono font-black">${money(s.revenue)}</td>`;
+          totalRow += `<td class="px-3 py-2 num mono font-black">${money(s.revenue)}</td>`;
         } else if (MONTHLY_METRIC === "units"){
-          row += `<td class="px-3 py-2 num mono font-black">${Math.round(s.units).toLocaleString()}</td>`;
+          totalRow += `<td class="px-3 py-2 num mono font-black">${Math.round(s.units).toLocaleString()}</td>`;
         } else {
-          row += `<td class="px-3 py-2 num mono font-black">${money(s.revenue)}</td><td class="px-3 py-2 num mono font-bold text-slate-600">${Math.round(s.units).toLocaleString()}</td>`;
+          totalRow += `<td class="px-3 py-2 num mono font-black">${money(s.revenue)}</td><td class="px-3 py-2 num mono font-bold text-slate-600">${Math.round(s.units).toLocaleString()}</td>`;
         }
       }
-      row += `</tr>`;
-      return row;
-    })();
+      totalRow += `</tr>`;
+      rowsHtml += totalRow;
+    }
 
-    el("monthlyBody").innerHTML = rowsHtml + totalRow;
+    el("monthlyBody").innerHTML = rowsHtml;
   }
 
   function signalCell(row){
@@ -1260,24 +1561,28 @@
 
   function renderStatus(){
     const f = getFilters();
-    const months = monthlyTotals();
     el("statusLine").innerHTML = `
       Loaded <b>${SALES_ROWS.length.toLocaleString()}</b> sales monthly rows and
       <b>${INVENTORY_ROWS.length.toLocaleString()}</b> inventory rows.
       Filtered <b>${FILTERED_SALES.length.toLocaleString()}</b> sales rows /
       <b>${FILTERED_INVENTORY.length.toLocaleString()}</b> inventory rows /
       <b>${PRODUCT_FAMILIES.length.toLocaleString()}</b> product families.
-      <span class="text-slate-400">Source: ${SALES_VIEW} + ${INVENTORY_VIEW}</span>
+      <span class="text-slate-400">Mode: ${f.planMode === "revenue_plan" ? "Revenue Plan" : "Historical Lift"} · Source: ${SALES_VIEW} + ${INVENTORY_VIEW}</span>
     `;
   }
 
   function resetControls(){
     el("selProductType").value = "__ALL__";
     el("txtProductSearch").value = "";
+    el("selPlanMode").value = "revenue_plan";
     el("selScenario").value = "25";
     el("numCustomLift").value = "25";
     el("numSafetyPct").value = "10";
     el("numTotalRevenueOverride").value = "";
+    el("txtScenarioName").value = "";
+    for (const month of selectedMonths()){
+      ["revplan","mixplan","aspplan","note"].forEach(p => { if (el(`${p}_${month}`)) el(`${p}_${month}`).value = ""; });
+    }
     defaultAssumptionsFromHistorical();
     run();
   }
@@ -1289,6 +1594,8 @@
     for (const r of s.rows.concat([s.total])){
       rows.push({
         section:"scenario_summary",
+        mode:getPlanMode(),
+        scenario_name:getFilters().scenarioName,
         product_type:getFilters().productType,
         bucket:r.label,
         scenario:scenarioLabel(s.lift),
@@ -1301,7 +1608,20 @@
         on_hand:Math.round(r.on_hand),
         gap:Math.round(r.gap),
         gap_buffer:Math.round(r.gap_buffer),
-        mode:r.mode
+        mode_calc:r.mode
+      });
+    }
+
+    for (const month of selectedMonths()){
+      const m = monthlyScenarioFor(month, getSelectedLift());
+      rows.push({
+        section:"monthly_formula",
+        month,
+        revenue_plan:m.revenuePlan,
+        mix_pct:m.mix,
+        product_revenue:m.revenue,
+        asp:m.asp,
+        required_units:Math.round(m.units)
       });
     }
 
@@ -1367,8 +1687,11 @@
     el("btnReset").addEventListener("click", resetControls);
     el("btnPrint").addEventListener("click", () => window.print());
     el("btnExport").addEventListener("click", exportCsv);
+    el("btnSeedRevenue").addEventListener("click", seedRevenuePlan);
+    el("btnSeedMix").addEventListener("click", seedMixPlan);
+    el("btnSeedAsp").addEventListener("click", seedAspPlan);
 
-    ["selProductType","txtProductSearch","dateFrom","dateTo","selScenario","numCustomLift","numSafetyPct","numTotalRevenueOverride","chkShowUnits"].forEach(id => {
+    ["selPlanMode","selProductType","txtProductSearch","dateFrom","dateTo","selScenario","numCustomLift","numSafetyPct","numTotalRevenueOverride","chkShowUnits","txtScenarioName"].forEach(id => {
       el(id).addEventListener("input", run);
       el(id).addEventListener("change", run);
     });
@@ -1423,7 +1746,6 @@
 
       renderAssumptionStrips();
       defaultAssumptionsFromHistorical();
-      INIT_DONE = true;
       run();
     } catch(err){
       console.error(err);
