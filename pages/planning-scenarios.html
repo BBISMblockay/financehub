@@ -192,7 +192,7 @@
       <section id="tab-monthly" class="panel space-y-4">
         <section class="surface p-4">
           <div class="text-sm font-black text-blue-900 uppercase tracking-wide">Monthly Detail — Revenue by Scenario</div>
-          <div class="text-xs text-slate-500 mb-3">Base month values are actual history from <span class="mono">sales_monthly_location_rollup_v</span>.</div>
+          <div class="text-xs text-slate-500 mb-3">Base month values are actual history from <span class="mono">sales_monthly_product_type_rollup_v</span>.</div>
           <div class="overflow-auto thin-scroll">
             <table class="dense min-w-[1700px]"><thead id="monthlyHead"></thead><tbody id="monthlyBody"></tbody></table>
           </div>
@@ -250,7 +250,7 @@
   const SUPABASE_URL = cfg.SUPABASE_URL || "";
   const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || "";
   const LOGIN_PATH = "/pages/login.html";
-  const SALES_VIEW = "sales_monthly_location_rollup_v";
+  const SALES_VIEW = "sales_monthly_product_type_rollup_v";
   const INVENTORY_VIEW = "inventory_workboard_v";
   const PAGE_SIZE = 10000;
   const MONTHS = [
