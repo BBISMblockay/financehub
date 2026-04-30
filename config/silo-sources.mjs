@@ -15,7 +15,7 @@ export const INVENTORY_SOURCES = [
 
     // Old full-history BI/backfill link. Do not use for normal nightly sync.
     sales_backfill_csv_url:
-      "https://docs.google.com/spreadsheets/d/1Q61RUXstQiCcoahFjeTFFnrISdQctuSQ9YiBoDXJOAo/edit?gid=135409578#gid=135409578",
+      "https://docs.google.com/spreadsheets/d/1Q61RUXstQiCcoahFjeTFFnrISdQctuSQ9YiBoDXJOAo/export?format=csv&gid=135409578",
 
     // New 7-day Silo sync link.
     sales_daily_csv_url:
