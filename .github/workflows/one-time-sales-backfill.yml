@@ -1,0 +1,39 @@
+name: One-Time Sales Backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      location_tag:
+        description: "Location tag to backfill, or all"
+        required: true
+        default: "all"
+        type: string
+
+jobs:
+  backfill-sales:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run sales backfill
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+
+          SALES_SYNC_MODE: backfill
+          ONLY_SOURCE: ${{ inputs.location_tag }}
+
+          SKIP_INVENTORY: "true"
+          SKIP_SALES: "false"
+          SKIP_SUMMARY_REFRESH: "true"
+        run: node scripts/sync-silo-inventory-sales.mjs
