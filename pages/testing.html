@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Silo · PO Builder v2.7 Ultra Compact</title>
+  <title>Silo · PO Builder</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="./config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -123,6 +123,15 @@
     .table-wrap{border-radius:9px!important}.pill{font-size:.62rem!important;padding:.14rem .45rem!important}
     .catalog-modal-table th,.catalog-modal-table td{padding:.35rem .45rem!important;font-size:.7rem!important}
 
+
+    .line-sort-th{cursor:pointer;user-select:none}
+    .line-sort-th:hover{color:#0f172a;background:#eef2f7!important}
+    .line-sort-th .sort-mark{opacity:.45;margin-left:.25rem;font-size:.62rem}
+    .line-autosave-state{min-width:42px;text-align:left;font-size:.58rem;font-weight:700;color:#94a3b8;line-height:1}
+    .line-autosave-state.is-saving{color:#b45309}
+    .line-autosave-state.is-saved{color:#166534}
+    .line-autosave-state.is-error{color:#be123c}
+
 </style>
 </head>
 <body>
@@ -212,23 +221,23 @@
 
           <section class="glass p-2 sm:p-2">
             <div class="flex flex-col gap-1 border-b border-slate-200 pb-2 md:flex-row md:items-center md:justify-between">
-              <div><div class="text-base font-bold text-slate-900">PO Lines</div><div class="text-xs text-slate-500">Editable line matrix. Save rows individually after changes.</div></div>
-              <div class="text-xs text-slate-500">Retail value recalculates on save.</div>
+              <div><div class="text-base font-bold text-slate-900">PO Lines</div><div class="text-xs text-slate-500">Editable line matrix. Edits auto-save after typing; Save remains as backup.</div></div>
+              <div class="text-xs text-slate-500">Click headers to sort. Retail value recalculates live.</div>
             </div>
             <div class="mt-2 table-wrap soft-scroll sticky-head compact-line-grid">
               <table class="min-w-[1180px] w-full border-separate border-spacing-0 text-xs po-lines-table">
                 <thead>
                   <tr>
-                    <th class="border-b border-slate-200 px-2 py-3 text-left font-semibold text-slate-500">Type</th>
-                    <th class="border-b border-slate-200 px-2 py-3 text-left font-semibold text-slate-500">Title</th>
-                    <th class="border-b border-slate-200 px-2 py-3 text-left font-semibold text-slate-500">Variant</th>
-                    <th class="border-b border-slate-200 px-2 py-3 text-left font-semibold text-slate-500">SKU</th>
-                    <th class="border-b border-slate-200 px-2 py-3 text-left font-semibold text-slate-500">UPC</th>
-                    <th class="border-b border-slate-200 px-2 py-3 text-right font-semibold text-slate-500">Retail</th>
-                    <th class="border-b border-slate-200 px-2 py-3 text-right font-semibold text-slate-500">Cost</th>
-                    <th class="border-b border-slate-200 px-2 py-3 text-right font-semibold text-slate-500">Qty</th>
-                    <th class="border-b border-slate-200 px-2 py-3 text-right font-semibold text-slate-500">Retail Value</th>
-                    <th class="border-b border-slate-200 px-2 py-3 text-left font-semibold text-slate-500">Notes</th>
+                    <th class="line-sort-th border-b border-slate-200 px-2 py-3 text-left font-semibold text-slate-500" data-line-sort="product_type_snapshot">Type <span class="sort-mark" data-sort-mark="product_type_snapshot"></span></th>
+                    <th class="line-sort-th border-b border-slate-200 px-2 py-3 text-left font-semibold text-slate-500" data-line-sort="title_snapshot">Title <span class="sort-mark" data-sort-mark="title_snapshot"></span></th>
+                    <th class="line-sort-th border-b border-slate-200 px-2 py-3 text-left font-semibold text-slate-500" data-line-sort="variant_title_snapshot">Variant <span class="sort-mark" data-sort-mark="variant_title_snapshot"></span></th>
+                    <th class="line-sort-th border-b border-slate-200 px-2 py-3 text-left font-semibold text-slate-500" data-line-sort="sku_snapshot">SKU <span class="sort-mark" data-sort-mark="sku_snapshot"></span></th>
+                    <th class="line-sort-th border-b border-slate-200 px-2 py-3 text-left font-semibold text-slate-500" data-line-sort="upc_snapshot">UPC <span class="sort-mark" data-sort-mark="upc_snapshot"></span></th>
+                    <th class="line-sort-th border-b border-slate-200 px-2 py-3 text-right font-semibold text-slate-500" data-line-sort="retail_price">Retail <span class="sort-mark" data-sort-mark="retail_price"></span></th>
+                    <th class="line-sort-th border-b border-slate-200 px-2 py-3 text-right font-semibold text-slate-500" data-line-sort="unit_cost">Cost <span class="sort-mark" data-sort-mark="unit_cost"></span></th>
+                    <th class="line-sort-th border-b border-slate-200 px-2 py-3 text-right font-semibold text-slate-500" data-line-sort="qty">Qty <span class="sort-mark" data-sort-mark="qty"></span></th>
+                    <th class="line-sort-th border-b border-slate-200 px-2 py-3 text-right font-semibold text-slate-500" data-line-sort="retail_value">Retail Value <span class="sort-mark" data-sort-mark="retail_value"></span></th>
+                    <th class="line-sort-th border-b border-slate-200 px-2 py-3 text-left font-semibold text-slate-500" data-line-sort="line_notes">Notes <span class="sort-mark" data-sort-mark="line_notes"></span></th>
                     <th class="border-b border-slate-200 px-2 py-3 text-right font-semibold text-slate-500">Actions</th>
                   </tr>
                 </thead>
@@ -343,7 +352,8 @@
     const CATALOG_PREVIEW_LIMIT = 500;
     const CATALOG_SEARCH_LIMIT = 2000000;
 
-    const state = { factories: [], poRows: [], currentPO: null, currentLines: [], catalogRows: [], catalogResults: [] };
+    const state = { factories: [], poRows: [], currentPO: null, currentLines: [], catalogRows: [], catalogResults: [], lineSort: { field: 'natural', dir: 'asc' } };
+    const lineSaveTimers = new Map();
 
     const el = {
       poList: document.getElementById('poList'), poCount: document.getElementById('poCount'), poSearch: document.getElementById('poSearch'), poStatusFilter: document.getElementById('poStatusFilter'), poFactoryFilter: document.getElementById('poFactoryFilter'),
@@ -383,7 +393,7 @@
         .eq('po_header_id',poId)
         .order('created_at',{ascending:true});
       if(error) throw error;
-      state.currentLines=(data||[]).sort(compareProductLines);
+      state.currentLines=sortLinesForDisplay(data||[]);
       renderLines();
     }
 
@@ -421,7 +431,10 @@
     function resetEditorForNew(){ state.currentPO=null; state.currentLines=[]; el.poName.value=''; el.factoryId.value=''; el.orderDate.value=todayStr(); el.reqShipDate.value=plusDaysStr(45); el.expectedArrivalDate.value=''; el.dateBucket.value=''; el.status.value='Draft'; el.wholesaleTriggered.checked=false; el.isNewProductPO.checked=false; el.notes.value=''; el.internalNotes.value=''; el.detailTitle.textContent='New Purchase Order'; el.detailStatusWrap.innerHTML=statusBadge('Draft'); el.detailMeta.textContent='Save the header first, then add catalog, bulk, imported, or manual lines.'; renderLines(); setEditorEnabled(true); el.btnGeneratePdf.disabled=true; el.btnDuplicatePO.disabled=true; el.btnAddCatalogLine.disabled=true; el.btnBulkSku.disabled=true; el.btnImportLines.disabled=true; el.btnAddManualLine.disabled=true; }
 
     function renderLines(){
-      const rows=state.currentLines||[];
+      const rows=sortLinesForDisplay(state.currentLines||[]);
+      state.currentLines=rows;
+      renderLineSortMarks();
+
       if(!rows.length){ el.linesTbody.innerHTML=`<tr><td colspan="11" class="px-3 py-10 text-center text-sm text-slate-500">No PO lines yet. Add a catalog line, bulk SKU list, imported PO, or manual entry.</td></tr>`; }
       else {
         el.linesTbody.innerHTML=rows.map(line=>`<tr class="border-b border-slate-100" data-line-row="${line.id}">
@@ -433,13 +446,12 @@
           <td class="px-2 py-2"><input class="line-input small" type="number" step="0.01" data-line-field="retail_price" data-line-id="${line.id}" value="${Number(line.retail_price||0)}"></td>
           <td class="px-2 py-2"><input class="line-input small" type="number" step="0.01" data-line-field="unit_cost" data-line-id="${line.id}" value="${Number(line.unit_cost||0)}"></td>
           <td class="px-2 py-2"><input class="line-input small" type="number" min="0" step="1" data-line-field="qty" data-line-id="${line.id}" value="${Number(line.qty||0)}"></td>
-          <td class="px-2 py-2 text-right font-semibold text-slate-900">${money(line.retail_value||0)}</td>
+          <td class="px-2 py-2 text-right font-semibold text-slate-900" data-line-retail-value="${line.id}">${money(line.retail_value||0)}</td>
           <td class="px-2 py-2"><textarea class="line-input notes" rows="1" data-line-field="line_notes" data-line-id="${line.id}">${escapeHtml(line.line_notes||'')}</textarea></td>
-          <td class="px-1 py-1 text-right"><div class="flex items-center justify-end gap-1"><button class="btn btn-secondary line-save-btn" data-line-save="${line.id}">Save</button><button class="btn btn-danger line-delete-btn" data-line-delete="${line.id}">Del</button></div></td>
+          <td class="px-1 py-1 text-right"><div class="flex items-center justify-end gap-1"><span class="line-autosave-state" data-line-save-state="${line.id}">Saved</span><button class="btn btn-secondary line-save-btn" data-line-save="${line.id}">Save</button><button class="btn btn-danger line-delete-btn" data-line-delete="${line.id}">Del</button></div></td>
         </tr>`).join('');
       }
-      const totalUnits=rows.reduce((s,r)=>s+Number(r.qty||0),0), totalRetail=rows.reduce((s,r)=>s+Number(r.retail_value||0),0), totalCost=rows.reduce((s,r)=>s+(Number(r.unit_cost||0)*Number(r.qty||0)),0);
-      el.kpiUnits.textContent=totalUnits.toLocaleString(); el.kpiRetail.textContent=money(totalRetail); el.kpiCost.textContent=money(totalCost);
+      updateLineTotalsFromState();
     }
 
     function renderCatalogResults(){
@@ -565,14 +577,78 @@
       clearManualModal(); await refreshAll(); await openPO(state.currentPO.id); if(!keepOpen) modalClose(el.manualModal);
     }
 
-    async function saveLine(lineId){
-      const row=document.querySelector(`[data-line-row="${lineId}"]`); if(!row) return;
+    function getLinePayloadFromRow(lineId){
+      const row=document.querySelector(`[data-line-row="${lineId}"]`);
+      if(!row) return null;
       const get=(field)=>row.querySelector(`[data-line-field="${field}"]`)?.value ?? '';
-      const qty=num(get('qty')), retail=num(get('retail_price'));
-      const payload={ product_type_snapshot:get('product_type_snapshot').trim()||null, title_snapshot:get('title_snapshot').trim()||null, variant_title_snapshot:get('variant_title_snapshot').trim()||null, sku_snapshot:get('sku_snapshot').trim()||null, upc_snapshot:get('upc_snapshot').trim()||null, retail_price:retail||null, unit_cost:num(get('unit_cost'))||null, qty, retail_value:qty*retail, line_notes:get('line_notes').trim()||null };
-      if(qty<0){ alert('Qty cannot be negative.'); return; }
-      const {error}=await sb.from('po_lines').update(payload).eq('id',lineId); if(error) throw error;
-      await refreshAll(); if(state.currentPO?.id) await openPO(state.currentPO.id);
+      const qty=num(get('qty'));
+      const retail=num(get('retail_price'));
+      const cost=num(get('unit_cost'));
+      return {
+        product_type_snapshot:get('product_type_snapshot').trim()||null,
+        title_snapshot:get('title_snapshot').trim()||null,
+        variant_title_snapshot:get('variant_title_snapshot').trim()||null,
+        sku_snapshot:get('sku_snapshot').trim()||null,
+        upc_snapshot:get('upc_snapshot').trim()||null,
+        retail_price:retail||null,
+        unit_cost:cost||null,
+        qty,
+        retail_value:qty*retail,
+        line_notes:get('line_notes').trim()||null
+      };
+    }
+
+    function setLineSaveState(lineId, status, label){
+      const node=document.querySelector(`[data-line-save-state="${lineId}"]`);
+      if(!node) return;
+      node.classList.remove('is-saving','is-saved','is-error');
+      if(status) node.classList.add(status);
+      node.textContent=label || '';
+    }
+
+    function updateLineTotalsFromState(){
+      const rows=state.currentLines||[];
+      const totalUnits=rows.reduce((s,r)=>s+Number(r.qty||0),0);
+      const totalRetail=rows.reduce((s,r)=>s+Number(r.retail_value||0),0);
+      const totalCost=rows.reduce((s,r)=>s+(Number(r.unit_cost||0)*Number(r.qty||0)),0);
+      el.kpiUnits.textContent=totalUnits.toLocaleString();
+      el.kpiRetail.textContent=money(totalRetail);
+      el.kpiCost.textContent=money(totalCost);
+    }
+
+    function updateRetailPreview(lineId){
+      const payload=getLinePayloadFromRow(lineId);
+      if(!payload) return;
+      const retailCell=document.querySelector(`[data-line-retail-value="${lineId}"]`);
+      if(retailCell) retailCell.textContent=money(payload.retail_value||0);
+      const idx=state.currentLines.findIndex(line=>String(line.id)===String(lineId));
+      if(idx>=0){ state.currentLines[idx]={...state.currentLines[idx],...payload}; updateLineTotalsFromState(); }
+    }
+
+    function scheduleLineAutoSave(lineId){
+      if(!lineId) return;
+      updateRetailPreview(lineId);
+      setLineSaveState(lineId,'is-saving','Saving');
+      clearTimeout(lineSaveTimers.get(lineId));
+      lineSaveTimers.set(lineId,setTimeout(async()=>{
+        try{ await saveLine(lineId,{silent:true}); }
+        catch(e){ console.error(e); setLineSaveState(lineId,'is-error','Error'); }
+        finally{ lineSaveTimers.delete(lineId); }
+      },650));
+    }
+
+    async function saveLine(lineId, opts={}){
+      const payload=getLinePayloadFromRow(lineId);
+      if(!payload) return;
+      if(payload.qty<0){ alert('Qty cannot be negative.'); return; }
+      setLineSaveState(lineId,'is-saving','Saving');
+      const {error}=await sb.from('po_lines').update(payload).eq('id',lineId);
+      if(error){ setLineSaveState(lineId,'is-error','Error'); throw error; }
+      const idx=state.currentLines.findIndex(line=>String(line.id)===String(lineId));
+      if(idx>=0) state.currentLines[idx]={...state.currentLines[idx],...payload};
+      updateRetailPreview(lineId);
+      setLineSaveState(lineId,'is-saved','Saved');
+      if(!opts.silent){ await refreshAll(); if(state.currentPO?.id) await openPO(state.currentPO.id); }
     }
 
     async function deleteLine(lineId){ if(!confirm('Delete this PO line?')) return; const {error}=await sb.from('po_lines').delete().eq('id',lineId); if(error) throw error; await refreshAll(); if(state.currentPO?.id) await openPO(state.currentPO.id); }
@@ -652,7 +728,7 @@
 
     async function processImport(){
       if(!state.currentPO?.id){ alert('Save/open a PO first.'); return; }
-      const rows=parseImportRows(el.importText.value);
+      const rows=parseImportRows(el.importText.value).sort(compareProductLines);
       if(!rows.length){ el.importResult.textContent='No valid import rows found.'; return; }
       const {error}=await sb.from('po_lines').insert(rows); if(error) throw error;
       await refreshAll(); await openPO(state.currentPO.id);
@@ -666,13 +742,90 @@
     }
 
     function parseSize(value){
-      const raw=String(value||'').trim().toLowerCase(); if(!raw) return null;
-      const normalized=raw.replace(/^size\s*/i,'').replace(/men'?s|women'?s|youth|adult/gi,'').trim();
-      const numeric=normalized.match(/\d+(\.\d+)?/); if(numeric) return Number(numeric[0]);
-      const alphaOrder={xxs:1,xs:2,s:3,small:3,m:4,medium:4,l:5,large:5,xl:6,xxl:7,'2xl':7,xxxl:8,'3xl':8,xxxxl:9,'4xl':9,os:50,'one size':50,'one size fits all':50};
-      return alphaOrder[normalized] ?? null;
+      const raw=String(value||'').trim();
+      if(!raw) return null;
+      const normalized=raw
+        .toUpperCase()
+        .replace(/\b(MEN'?S|WOMEN'?S|YOUTH|ADULT|SIZE)\b/g,'')
+        .replace(/[\s_]+/g,'')
+        .trim();
+
+      const alphaOrder={
+        'XXS':10,'XS':20,'S':30,'SMALL':30,'M':40,'MEDIUM':40,'L':50,'LARGE':50,
+        'XL':60,'1XL':60,'XXL':70,'2XL':70,'XXXL':80,'3XL':80,'XXXXL':90,'4XL':90,'5XL':100,
+        'YXS':20,'YS':30,'YM':40,'YL':50,'YXL':60,'YXXL':70,
+        'OS':500,'O/S':500,'ONESIZE':500,'ONESIZEFITSALL':500,'SNAP':510
+      };
+      if(alphaOrder[normalized]!==undefined) return alphaOrder[normalized];
+
+      const numeric=normalized.match(/\d+(\.\d+)?/);
+      if(numeric) return 1000 + Number(numeric[0]);
+      return null;
     }
 
+    function lineSortValue(line, field){
+      if(field==='natural') return null;
+      if(field==='variant_title_snapshot') return parseSize(line.variant_title_snapshot) ?? String(line.variant_title_snapshot||'').toLowerCase();
+      if(['retail_price','unit_cost','qty','retail_value'].includes(field)) return Number(line[field]||0);
+      return String(line[field]||'').toLowerCase();
+    }
+
+    function sortLinesForDisplay(rows){
+      const list=[...(rows||[])];
+      const {field,dir}=state.lineSort||{field:'natural',dir:'asc'};
+      const direction=dir==='desc'?-1:1;
+      return list.sort((a,b)=>{
+        if(field && field!=='natural'){
+          const av=lineSortValue(a,field), bv=lineSortValue(b,field);
+          if(typeof av==='number' && typeof bv==='number' && av!==bv) return (av-bv)*direction;
+          const cmp=String(av ?? '').localeCompare(String(bv ?? ''),undefined,{numeric:true});
+          if(cmp) return cmp*direction;
+        }
+        return compareProductLines(a,b);
+      });
+    }
+
+    function setLineSort(field){
+      if(!field) return;
+      if(state.lineSort.field===field) state.lineSort.dir=state.lineSort.dir==='asc'?'desc':'asc';
+      else state.lineSort={field,dir:'asc'};
+      renderLines();
+    }
+
+    function renderLineSortMarks(){
+      document.querySelectorAll('[data-sort-mark]').forEach(node=>{
+        const field=node.getAttribute('data-sort-mark');
+        node.textContent=state.lineSort.field===field ? (state.lineSort.dir==='asc'?'▲':'▼') : '';
+      });
+    }
+
+    function compareProductLines(a,b){
+      const aType=String(a.product_type||a.product_type_snapshot||'').toLowerCase();
+      const bType=String(b.product_type||b.product_type_snapshot||'').toLowerCase();
+      if(aType!==bType) return aType.localeCompare(bType,undefined,{numeric:true});
+
+      const aTitle=String(a.product_title||a.title_snapshot||'').toLowerCase();
+      const bTitle=String(b.product_title||b.title_snapshot||'').toLowerCase();
+      if(aTitle!==bTitle) return aTitle.localeCompare(bTitle,undefined,{numeric:true});
+
+      const aSize=parseSize(a.variant_title||a.variant_title_snapshot);
+      const bSize=parseSize(b.variant_title||b.variant_title_snapshot);
+      if(aSize!==null && bSize!==null && aSize!==bSize) return aSize-bSize;
+      if(aSize!==null && bSize===null) return -1;
+      if(aSize===null && bSize!==null) return 1;
+
+      const aVariant=String(a.variant_title||a.variant_title_snapshot||'').toLowerCase();
+      const bVariant=String(b.variant_title||b.variant_title_snapshot||'').toLowerCase();
+      if(aVariant!==bVariant) return aVariant.localeCompare(bVariant,undefined,{numeric:true});
+
+      const aUpc=String(a.upc||a.upc_snapshot||a.barcode||a.barcode_snapshot||'');
+      const bUpc=String(b.upc||b.upc_snapshot||b.barcode||b.barcode_snapshot||'');
+      if(aUpc && bUpc) return aUpc.localeCompare(bUpc,undefined,{numeric:true});
+
+      const aSku=String(a.sku||a.sku_snapshot||'');
+      const bSku=String(b.sku||b.sku_snapshot||'');
+      return aSku.localeCompare(bSku,undefined,{numeric:true});
+    }
 
     function catalogRowQuality(row){
       let score=0;
@@ -700,27 +853,6 @@
       }
       return [...byKey.values()];
     }
-
-    function compareProductLines(a,b){
-      const aTitle=String(a.product_title||a.title_snapshot||'').toLowerCase();
-      const bTitle=String(b.product_title||b.title_snapshot||'').toLowerCase();
-      if(aTitle!==bTitle) return aTitle.localeCompare(bTitle,undefined,{numeric:true});
-
-      const aSize=parseSize(a.variant_title||a.variant_title_snapshot);
-      const bSize=parseSize(b.variant_title||b.variant_title_snapshot);
-      if(aSize!==null && bSize!==null) return aSize-bSize;
-      if(aSize!==null) return -1;
-      if(bSize!==null) return 1;
-
-      const aUpc=String(a.upc||a.upc_snapshot||a.barcode||a.barcode_snapshot||'');
-      const bUpc=String(b.upc||b.upc_snapshot||b.barcode||b.barcode_snapshot||'');
-      if(aUpc && bUpc) return aUpc.localeCompare(bUpc,undefined,{numeric:true});
-
-      const aSku=String(a.sku||a.sku_snapshot||'');
-      const bSku=String(b.sku||b.sku_snapshot||'');
-      return aSku.localeCompare(bSku,undefined,{numeric:true});
-    }
-
 
     function normalizeCatalogText(value){
       return String(value || '')
@@ -895,10 +1027,16 @@
     [el.poSearch,el.poStatusFilter,el.poFactoryFilter].forEach(node=>node.addEventListener('input',renderPOList));
     el.poFactoryFilter.addEventListener('change',renderPOList); el.poStatusFilter.addEventListener('change',renderPOList);
 
+    document.addEventListener('input',(ev)=>{
+      const lineInput=ev.target.closest('[data-line-field][data-line-id]');
+      if(lineInput){ scheduleLineAutoSave(lineInput.getAttribute('data-line-id')); }
+    });
+
     document.addEventListener('click',async(ev)=>{
+      const sortHeader=ev.target.closest('[data-line-sort]'); if(sortHeader){ setLineSort(sortHeader.getAttribute('data-line-sort')); return; }
       const poBtn=ev.target.closest('[data-po-id]'); if(poBtn){ try{ await openPO(poBtn.getAttribute('data-po-id')); }catch(e){ console.error(e); alert(e.message||'Failed to open PO'); } return; }
       const addCatalogBtn=ev.target.closest('[data-add-catalog]'); if(addCatalogBtn){ const id=addCatalogBtn.getAttribute('data-add-catalog'); const qtyInput=document.querySelector(`[data-catalog-qty="${id}"]`); const qty=Number(qtyInput?.value||0); try{ await addCatalogLine(id,qty); }catch(e){ console.error(e); alert(e.message||'Add line failed'); } return; }
-      const saveLineBtn=ev.target.closest('[data-line-save]'); if(saveLineBtn){ try{ await saveLine(saveLineBtn.getAttribute('data-line-save')); }catch(e){ console.error(e); alert(e.message||'Line save failed'); } return; }
+      const saveLineBtn=ev.target.closest('[data-line-save]'); if(saveLineBtn){ const lineId=saveLineBtn.getAttribute('data-line-save'); clearTimeout(lineSaveTimers.get(lineId)); lineSaveTimers.delete(lineId); try{ await saveLine(lineId); }catch(e){ console.error(e); alert(e.message||'Line save failed'); } return; }
       const delBtn=ev.target.closest('[data-line-delete]'); if(delBtn){ try{ await deleteLine(delBtn.getAttribute('data-line-delete')); }catch(e){ console.error(e); alert(e.message||'Delete failed'); } return; }
       const closeBtn=ev.target.closest('[data-close]'); if(closeBtn){ const node=document.getElementById(closeBtn.getAttribute('data-close')); if(node) modalClose(node); }
     });
