@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO | Finance Department</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <style>
+    :root {
+      --bg: #f4f6fa;
+      --surface: #ffffff;
+      --surface-2: #f8fafc;
+      --text: #0f172a;
+      --muted: #64748b;
+      --muted-2: #94a3b8;
+      --border: #e2e8f0;
+      --border-2: #cbd5e1;
+      --accent: #4f46e5;
+      --accent-2: #2563eb;
+      --accent-soft: rgba(79, 70, 229, 0.12);
+      --nav: #0f172a;
+      --nav-2: #111c31;
+      --nav-border: rgba(255,255,255,0.08);
+      --nav-text: #f8fafc;
+      --nav-muted: #94a3b8;
+      --nav-hover: rgba(255,255,255,0.07);
+      --nav-active: rgba(79,70,229,0.22);
+      --shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+      --radius: 18px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      height: 100%;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(79, 70, 229, 0.08), transparent 28%),
+        linear-gradient(180deg, #f8fafc 0%, var(--bg) 100%);
+      overflow: hidden;
+    }
+
+    button, input {
+      font: inherit;
+    }
+
+    .app {
+      display: grid;
+      grid-template-columns: 276px 1fr;
+      height: 100vh;
+      min-height: 0;
+    }
+
+    /* Sidebar */
+
+    .sidebar {
+      background: linear-gradient(180deg, var(--nav) 0%, #0b1220 100%);
+      border-right: 1px solid var(--nav-border);
+      color: var(--nav-text);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .brand-block {
+      height: 78px;
+      padding: 20px 22px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--nav-border);
+      flex: 0 0 auto;
+    }
+
+    .brand-mark {
+      width: 38px;
+      height: 38px;
+      border-radius: 12px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, #635bff, #2563eb);
+      color: #fff;
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      box-shadow: 0 14px 28px rgba(37, 99, 235, 0.28);
+      flex: 0 0 auto;
+    }
+
+    .brand-copy {
+      min-width: 0;
+    }
+
+    .brand-title {
+      font-size: 16px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .brand-sub {
+      margin-top: 4px;
+      color: var(--nav-muted);
+      font-size: 12px;
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .sidebar-search {
+      padding: 14px 18px 12px;
+      border-bottom: 1px solid var(--nav-border);
+      flex: 0 0 auto;
+    }
+
+    .search-wrap {
+      position: relative;
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--nav-muted);
+      font-size: 13px;
+      pointer-events: none;
+    }
+
+    .search {
+      width: 100%;
+      height: 38px;
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 11px;
+      background: rgba(255,255,255,0.055);
+      color: #fff;
+      padding: 0 12px 0 34px;
+      outline: none;
+      font-size: 13px;
+    }
+
+    .search::placeholder {
+      color: rgba(255,255,255,0.42);
+    }
+
+    .search:focus {
+      border-color: rgba(99, 102, 241, 0.75);
+      box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.18);
+    }
+
+    .nav-scroll {
+      padding: 18px 18px 22px;
+      overflow-y: auto;
+      min-height: 0;
+      flex: 1;
+    }
+
+    .nav-section {
+      margin-bottom: 24px;
+    }
+
+    .nav-heading {
+      margin: 0 0 9px;
+      padding: 0 10px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      color: var(--nav-muted);
+    }
+
+    .nav-list {
+      display: grid;
+      gap: 3px;
+    }
+
+    .nav-link {
+      width: 100%;
+      min-height: 38px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: rgba(255,255,255,0.88);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 9px 10px;
+      border-radius: 10px;
+      cursor: pointer;
+      text-align: left;
+      transition: 0.15s ease;
+    }
+
+    .nav-link:hover {
+      background: var(--nav-hover);
+      color: #fff;
+    }
+
+    .nav-link.active {
+      background: linear-gradient(135deg, var(--nav-active), rgba(37, 99, 235, 0.08));
+      border-color: rgba(99, 102, 241, 0.35);
+      color: #fff;
+      box-shadow: inset 3px 0 0 #6366f1;
+    }
+
+    .nav-label {
+      min-width: 0;
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.2;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .nav-pill {
+      display: none;
+      font-size: 10px;
+      font-weight: 800;
+      color: #c7d2fe;
+      background: rgba(99, 102, 241, 0.16);
+      border: 1px solid rgba(99, 102, 241, 0.24);
+      padding: 3px 6px;
+      border-radius: 999px;
+      flex: 0 0 auto;
+    }
+
+    .nav-link[data-external="true"] .nav-pill {
+      display: inline-flex;
+    }
+
+    .sidebar-foot {
+      padding: 14px 18px;
+      border-top: 1px solid var(--nav-border);
+      color: var(--nav-muted);
+      font-size: 11px;
+      line-height: 1.4;
+      flex: 0 0 auto;
+    }
+
+    .empty {
+      color: var(--nav-muted);
+      font-size: 13px;
+      padding: 10px;
+      border: 1px dashed rgba(255,255,255,0.14);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.04);
+    }
+
+    /* Main */
+
+    .main {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .topbar {
+      height: 78px;
+      padding: 18px 24px;
+      background: rgba(255,255,255,0.76);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      flex: 0 0 auto;
+    }
+
+    .page-copy {
+      min-width: 0;
+    }
+
+    .page-kicker {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .page-title {
+      margin-top: 4px;
+      font-size: 22px;
+      line-height: 1.1;
+      font-weight: 800;
+      letter-spacing: -0.035em;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .page-sub {
+      margin-top: 5px;
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 780px;
+    }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      flex: 0 0 auto;
+    }
+
+    .btn {
+      height: 38px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      padding: 0 13px;
+      border-radius: 11px;
+      font-size: 13px;
+      font-weight: 750;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      cursor: pointer;
+      box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+      transition: 0.15s ease;
+      white-space: nowrap;
+    }
+
+    .btn:hover {
+      transform: translateY(-1px);
+      border-color: var(--border-2);
+      background: var(--surface-2);
+    }
+
+    .btn.primary {
+      color: #fff;
+      border-color: transparent;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 14px 28px rgba(37, 99, 235, 0.18);
+    }
+
+    .btn:disabled {
+      opacity: .5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .viewer-shell {
+      flex: 1;
+      min-height: 0;
+      padding: 14px;
+    }
+
+    .viewer-card {
+      height: 100%;
+      min-height: 0;
+      background: rgba(255,255,255,0.78);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px;
+      box-shadow: var(--shadow);
+    }
+
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: 0;
+      border-radius: 14px;
+      background: #fff;
+    }
+
+    .mobile-toggle {
+      display: none;
+    }
+
+    @media (max-width: 900px) {
+      html, body {
+        overflow: auto;
+      }
+
+      .app {
+        grid-template-columns: 1fr;
+        height: auto;
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        position: fixed;
+        inset: 0 auto 0 0;
+        width: 286px;
+        z-index: 40;
+        transform: translateX(-100%);
+        transition: transform .2s ease;
+      }
+
+      body.nav-open .sidebar {
+        transform: translateX(0);
+      }
+
+      .mobile-toggle {
+        display: inline-flex;
+      }
+
+      .topbar {
+        height: auto;
+        min-height: 72px;
+        align-items: flex-start;
+      }
+
+      .viewer-shell {
+        height: calc(100vh - 96px);
+      }
+
+      .page-sub {
+        max-width: 100%;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+    <aside class="sidebar" aria-label="Finance navigation">
+      <div class="brand-block">
+        <div class="brand-mark" id="deptInitials">FH</div>
+        <div class="brand-copy">
+          <div class="brand-title" id="deptTitle">Finance Department</div>
+          <div class="brand-sub" id="deptSub">Baseballism</div>
+        </div>
+      </div>
+
+      <div class="sidebar-search">
+        <div class="search-wrap">
+          <span class="search-icon">⌕</span>
+          <input id="menuSearch" class="search" type="text" placeholder="Search finance pages..." autocomplete="off" />
+        </div>
+      </div>
+
+      <nav class="nav-scroll" id="sidebarNav"></nav>
+
+      <div class="sidebar-foot">
+        SILO Finance Console<br/>
+        Department shell ready for role-based access.
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <button class="btn mobile-toggle" id="mobileMenuBtn" type="button">Menu</button>
+
+        <div class="page-copy">
+          <div class="page-kicker" id="pageKicker">Current Page</div>
+          <div class="page-title" id="viewerTitle">Finance Department</div>
+          <div class="page-sub" id="viewerSub">Select a page from the finance menu.</div>
+        </div>
+
+        <div class="actions">
+          <button class="btn" id="reloadBtn" type="button">Reload</button>
+          <button class="btn primary" id="openNewTab" type="button">Open</button>
+        </div>
+      </header>
+
+      <section class="viewer-shell">
+        <div class="viewer-card">
+          <iframe id="viewer" title="Finance Tool Viewer"></iframe>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    /*
+      Finance department shell.
+
+      Notes for future department access:
+      - This file controls navigation visibility only.
+      - Real security should still come from Supabase Auth/RLS and protected pages.
+      - When ready, replace CURRENT_USER with the authenticated user's profile/departments.
+    */
+
+    const DEPARTMENT = {
+      key: "finance",
+      initials: "FH",
+      title: "Finance Department",
+      subtitle: "Baseballism"
+    };
+
+    const CURRENT_USER = {
+      role: "admin",
+      departments: ["finance"]
+    };
+
+    const ROUTES = [
+      {
+        section: "Overview",
+        items: [
+          { id:"baseballism", label:"Dashboard", src:"/employeehub.html", access:["admin","finance"] },
+          { id:"executive", label:"Executive", src:"/executive.html", access:["admin","finance"] }
+        ]
+      },
+      {
+        section: "Payables",
+        items: [
+          { id:"ap-manager", label:"AP Manager", src:"/accountspayable.html", access:["admin","finance"] },
+          { id:"mailroom", label:"Mailroom Inbox", src:"/mailroom.html", access:["admin","finance"] },
+          { id:"payables", label:"BBISM Payables", src:"/ap-report.html", access:["admin","finance"] }
+        ]
+      },
+      {
+        section: "Receivables",
+        items: [
+          { id:"bbism-receivables", label:"BBISM Receivables", src:"/pages/baseballismwholesale.html", access:["admin","finance"] },
+          { id:"wpv-receivables", label:"WPV Receivables", src:"/wpvaccounts.html", access:["admin","finance"] }
+        ]
+      },
+      {
+        section: "Requests",
+        items: [
+          { id:"travel-requests", label:"Travel Requests", src:"https://www.jotform.com/grid/200496754119055", external:true, access:["admin","finance"] },
+          { id:"bars-requests", label:"Bars Requests", src:"https://www.jotform.com/grid/222686658265065", external:true, access:["admin","finance"] },
+          { id:"travel-report", label:"Travel Report", src:"/travel.html", access:["admin","finance"] }
+        ]
+      },
+      {
+        section: "Planning",
+        items: [
+          { id:"projections", label:"Revenue Projection", src:"/projections.html", access:["admin","finance"] },
+          { id:"marketing-calendar", label:"Marketing Calendar", src:"/calendar.html", access:["admin","finance"] },
+          { id:"po-calendar", label:"PO Calendar", src:"/planner.html", access:["admin","finance"] },
+          { id:"po-builder", label:"PO Builder", src:"/pages/po-builder.html", access:["admin","finance"] },
+          { id:"factories", label:"Factories", src:"/pages/factories.html", access:["admin","finance"] }
+        ]
+      },
+      {
+        section: "Inventory",
+        items: [
+          { id:"inventory", label:"Inventory Manager", src:"/inventory.html", access:["admin","finance"] },
+          { id:"product-tags", label:"Product Tags", src:"/pages/product-manager.html", access:["admin","finance"] }
+        ]
+      },
+      {
+        section: "Reports",
+        items: [
+          { id:"sales-dashboard", label:"BI Sales Dashboard", src:"https://app.powerbi.com/view?r=eyJrIjoiY2U0MWI2ZmMtMTY3MS00MDY3LTg5NjctN2VlYjk0NGMxNzUzIiwidCI6IjIzYTkzNDJkLTFjODEtNGJkNS1hY2U0LThmYWY4ZWVlNTZiZCJ9", external:true, access:["admin","finance"] }
+        ]
+      }
+    ];
+
+    let currentRoute = null;
+    let searchTerm = "";
+
+    const $ = id => document.getElementById(id);
+
+    const els = {
+      deptInitials: $("deptInitials"),
+      deptTitle: $("deptTitle"),
+      deptSub: $("deptSub"),
+      sidebarNav: $("sidebarNav"),
+      viewer: $("viewer"),
+      viewerTitle: $("viewerTitle"),
+      viewerSub: $("viewerSub"),
+      pageKicker: $("pageKicker"),
+      search: $("menuSearch"),
+      reloadBtn: $("reloadBtn"),
+      openNewTab: $("openNewTab"),
+      mobileMenuBtn: $("mobileMenuBtn")
+    };
+
+    function userCanAccess(route) {
+      if (!route.access || !route.access.length) return true;
+      if (route.access.includes(CURRENT_USER.role)) return true;
+      return CURRENT_USER.departments.some(dept => route.access.includes(dept));
+    }
+
+    function flattenRoutes() {
+      return ROUTES.flatMap(section =>
+        section.items.map(item => ({
+          ...item,
+          section: section.section
+        }))
+      );
+    }
+
+    function byId(id) {
+      return flattenRoutes().find(route => route.id === id);
+    }
+
+    function isExternal(src) {
+      return /^https?:\/\//i.test(src);
+    }
+
+    function visibleSections() {
+      const q = searchTerm.trim().toLowerCase();
+
+      return ROUTES.map(section => {
+        const items = section.items
+          .filter(userCanAccess)
+          .filter(item => {
+            if (!q) return true;
+            return (
+              item.label.toLowerCase().includes(q) ||
+              item.id.toLowerCase().includes(q) ||
+              section.section.toLowerCase().includes(q)
+            );
+          });
+
+        return { ...section, items };
+      }).filter(section => section.items.length);
+    }
+
+    function renderSidebar() {
+      const sections = visibleSections();
+      els.sidebarNav.innerHTML = "";
+
+      if (!sections.length) {
+        const empty = document.createElement("div");
+        empty.className = "empty";
+        empty.textContent = "No finance pages match your search.";
+        els.sidebarNav.appendChild(empty);
+        return;
+      }
+
+      sections.forEach(section => {
+        const block = document.createElement("section");
+        block.className = "nav-section";
+
+        const heading = document.createElement("h3");
+        heading.className = "nav-heading";
+        heading.textContent = section.section;
+
+        const list = document.createElement("div");
+        list.className = "nav-list";
+
+        section.items.forEach(route => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = `nav-link${currentRoute === route.id ? " active" : ""}`;
+          btn.dataset.external = String(route.external || isExternal(route.src));
+          btn.onclick = () => navigate(route.id);
+          btn.innerHTML = `
+            <span class="nav-label">${route.label}</span>
+            <span class="nav-pill">EXT</span>
+          `;
+          list.appendChild(btn);
+        });
+
+        block.appendChild(heading);
+        block.appendChild(list);
+        els.sidebarNav.appendChild(block);
+      });
+    }
+
+    function updateHeader() {
+      const route = byId(currentRoute);
+
+      if (!route) {
+        els.pageKicker.textContent = "Current Page";
+        els.viewerTitle.textContent = DEPARTMENT.title;
+        els.viewerSub.textContent = "Select a page from the finance menu.";
+        els.openNewTab.disabled = true;
+        return;
+      }
+
+      els.pageKicker.textContent = route.section || "Current Page";
+      els.viewerTitle.textContent = route.label;
+      els.viewerSub.textContent = route.src;
+      els.openNewTab.disabled = false;
+    }
+
+    function render() {
+      renderSidebar();
+      updateHeader();
+    }
+
+    function navigate(id) {
+      const route = byId(id);
+      if (!route || !userCanAccess(route)) return;
+
+      currentRoute = route.id;
+      els.viewer.src = route.src;
+
+      try {
+        localStorage.setItem("silo_finance_last_route", route.id);
+      } catch {}
+
+      document.body.classList.remove("nav-open");
+      render();
+    }
+
+    function reloadViewer() {
+      if (!currentRoute) return;
+      const route = byId(currentRoute);
+      if (!route) return;
+      els.viewer.src = route.src;
+    }
+
+    function openCurrent() {
+      const route = byId(currentRoute);
+      if (!route) return;
+      window.open(route.src, "_blank", "noopener,noreferrer");
+    }
+
+    function boot() {
+      els.deptInitials.textContent = DEPARTMENT.initials;
+      els.deptTitle.textContent = DEPARTMENT.title;
+      els.deptSub.textContent = DEPARTMENT.subtitle;
+
+      els.search.addEventListener("input", e => {
+        searchTerm = e.target.value || "";
+        renderSidebar();
+      });
+
+      els.reloadBtn.onclick = reloadViewer;
+      els.openNewTab.onclick = openCurrent;
+      els.mobileMenuBtn.onclick = () => document.body.classList.toggle("nav-open");
+
+      render();
+
+      let preferred = null;
+
+      try {
+        preferred = localStorage.getItem("silo_finance_last_route");
+      } catch {}
+
+      const firstAccessible = flattenRoutes().find(userCanAccess);
+      const preferredRoute = preferred ? byId(preferred) : null;
+
+      if (preferredRoute && userCanAccess(preferredRoute)) {
+        navigate(preferredRoute.id);
+      } else if (firstAccessible) {
+        navigate(firstAccessible.id);
+      }
+    }
+
+    boot();
+  </script>
+</body>
+</html>
