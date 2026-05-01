@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>SILO | Finance Department</title>
+
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 
   <style>
@@ -19,6 +20,7 @@
       --accent: #4f46e5;
       --accent-2: #2563eb;
       --accent-soft: rgba(79, 70, 229, 0.12);
+
       --nav: #0f172a;
       --nav-2: #111c31;
       --nav-border: rgba(255,255,255,0.08);
@@ -26,13 +28,17 @@
       --nav-muted: #94a3b8;
       --nav-hover: rgba(255,255,255,0.07);
       --nav-active: rgba(79,70,229,0.22);
+
       --shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
       --radius: 18px;
     }
 
-    * { box-sizing: border-box; }
+    * {
+      box-sizing: border-box;
+    }
 
-    html, body {
+    html,
+    body {
       margin: 0;
       height: 100%;
       font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -43,7 +49,8 @@
       overflow: hidden;
     }
 
-    button, input {
+    button,
+    input {
       font: inherit;
     }
 
@@ -53,8 +60,6 @@
       height: 100vh;
       min-height: 0;
     }
-
-    /* Sidebar */
 
     .sidebar {
       background: linear-gradient(180deg, var(--nav) 0%, #0b1220 100%);
@@ -245,6 +250,14 @@
       flex: 0 0 auto;
     }
 
+    .user-line {
+      margin-top: 7px;
+      color: rgba(255,255,255,0.64);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
     .empty {
       color: var(--nav-muted);
       font-size: 13px;
@@ -253,8 +266,6 @@
       border-radius: 12px;
       background: rgba(255,255,255,0.04);
     }
-
-    /* Main */
 
     .main {
       min-width: 0;
@@ -351,6 +362,12 @@
       box-shadow: 0 14px 28px rgba(37, 99, 235, 0.18);
     }
 
+    .btn.danger {
+      color: #991b1b;
+      background: #fff;
+      border-color: #fecaca;
+    }
+
     .btn:disabled {
       opacity: .5;
       cursor: not-allowed;
@@ -385,8 +402,54 @@
       display: none;
     }
 
+    .boot-screen {
+      height: 100vh;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at top left, rgba(79, 70, 229, 0.08), transparent 28%),
+        linear-gradient(180deg, #f8fafc 0%, var(--bg) 100%);
+      color: var(--text);
+    }
+
+    .boot-card {
+      width: min(420px, calc(100vw - 32px));
+      background: rgba(255,255,255,0.88);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 22px;
+      box-shadow: var(--shadow);
+      text-align: center;
+    }
+
+    .boot-logo {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      margin: 0 auto 12px;
+      color: #fff;
+      font-weight: 800;
+      background: linear-gradient(135deg, #635bff, #2563eb);
+    }
+
+    .boot-title {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .boot-sub {
+      margin-top: 7px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
     @media (max-width: 900px) {
-      html, body {
+      html,
+      body {
         overflow: auto;
       }
 
@@ -431,7 +494,15 @@
 </head>
 
 <body>
-  <div class="app">
+  <div id="bootScreen" class="boot-screen">
+    <div class="boot-card">
+      <div class="boot-logo">FH</div>
+      <div class="boot-title">Loading Finance Department</div>
+      <div class="boot-sub">Checking your Silo session and department access...</div>
+    </div>
+  </div>
+
+  <div id="appShell" class="app" style="display:none;">
     <aside class="sidebar" aria-label="Finance navigation">
       <div class="brand-block">
         <div class="brand-mark" id="deptInitials">FH</div>
@@ -451,8 +522,8 @@
       <nav class="nav-scroll" id="sidebarNav"></nav>
 
       <div class="sidebar-foot">
-        SILO Finance Console<br/>
-        Department shell ready for role-based access.
+        SILO Finance Console
+        <div class="user-line" id="userLine">Loading user...</div>
       </div>
     </aside>
 
@@ -469,6 +540,7 @@
         <div class="actions">
           <button class="btn" id="reloadBtn" type="button">Reload</button>
           <button class="btn primary" id="openNewTab" type="button">Open</button>
+          <button class="btn danger" id="signOutBtn" type="button">Sign Out</button>
         </div>
       </header>
 
@@ -480,16 +552,10 @@
     </main>
   </div>
 
+  <script src="/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
   <script>
-    /*
-      Finance department shell.
-
-      Notes for future department access:
-      - This file controls navigation visibility only.
-      - Real security should still come from Supabase Auth/RLS and protected pages.
-      - When ready, replace CURRENT_USER with the authenticated user's profile/departments.
-    */
-
     const DEPARTMENT = {
       key: "finance",
       initials: "FH",
@@ -497,17 +563,24 @@
       subtitle: "Baseballism"
     };
 
-    const CURRENT_USER = {
-      role: "admin",
-      departments: ["finance"]
+    let CURRENT_USER = {
+      id: null,
+      email: null,
+      role: null,
+      department: null,
+      departments: []
     };
+
+    let supabaseClient = null;
+    let currentRoute = null;
+    let searchTerm = "";
 
     const ROUTES = [
       {
         section: "Overview",
         items: [
           { id:"baseballism", label:"Dashboard", src:"/employeehub.html", access:["admin","finance"] },
-          { id:"executive", label:"Executive", src:"/executive.html", access:["admin","finance"] }
+          { id:"executive", label:"Executive", src:"/executive.html", access:["admin"] }
         ]
       },
       {
@@ -558,12 +631,11 @@
       }
     ];
 
-    let currentRoute = null;
-    let searchTerm = "";
-
     const $ = id => document.getElementById(id);
 
     const els = {
+      bootScreen: $("bootScreen"),
+      appShell: $("appShell"),
       deptInitials: $("deptInitials"),
       deptTitle: $("deptTitle"),
       deptSub: $("deptSub"),
@@ -575,13 +647,108 @@
       search: $("menuSearch"),
       reloadBtn: $("reloadBtn"),
       openNewTab: $("openNewTab"),
-      mobileMenuBtn: $("mobileMenuBtn")
+      mobileMenuBtn: $("mobileMenuBtn"),
+      signOutBtn: $("signOutBtn"),
+      userLine: $("userLine")
     };
+
+    function normalizeValue(value) {
+      return String(value || "").trim().toLowerCase();
+    }
+
+    function normalizeList(values) {
+      return [...new Set(
+        values
+          .flat()
+          .filter(Boolean)
+          .map(normalizeValue)
+          .filter(Boolean)
+      )];
+    }
+
+    async function loadCurrentUser() {
+      const config = window.__SILO_CONFIG__ || {};
+
+      if (!config.SUPABASE_URL || !config.SUPABASE_ANON_KEY) {
+        console.error("Missing /config.js Supabase config.");
+        window.location.href = "/pages/login.html";
+        return false;
+      }
+
+      supabaseClient = window.supabase.createClient(
+        config.SUPABASE_URL,
+        config.SUPABASE_ANON_KEY
+      );
+
+      const { data: sessionData, error: sessionError } = await supabaseClient.auth.getSession();
+
+      if (sessionError || !sessionData?.session?.user) {
+        console.warn("No active Supabase session.", sessionError);
+        window.location.href = "/pages/login.html";
+        return false;
+      }
+
+      const authUser = sessionData.session.user;
+
+      const { data: profile, error: profileError } = await supabaseClient
+        .from("profiles")
+        .select("*")
+        .eq("id", authUser.id)
+        .single();
+
+      if (profileError || !profile) {
+        console.error("Could not load profile:", profileError);
+        window.location.href = "/pages/login.html";
+        return false;
+      }
+
+      const role =
+        profile.role ||
+        profile.app_role ||
+        profile.user_role ||
+        profile.account_role ||
+        "user";
+
+      const rawDepartments = [
+        profile.department,
+        profile.dept,
+        profile.department_key,
+        profile.primary_department,
+        Array.isArray(profile.departments) ? profile.departments : [],
+        Array.isArray(profile.allowed_departments) ? profile.allowed_departments : [],
+        Array.isArray(profile.department_access) ? profile.department_access : []
+      ];
+
+      const departments = normalizeList(rawDepartments);
+
+      CURRENT_USER = {
+        id: authUser.id,
+        email: authUser.email || profile.email || null,
+        role: normalizeValue(role),
+        department: departments[0] || null,
+        departments
+      };
+
+      console.log("SILO current user:", CURRENT_USER);
+
+      return true;
+    }
 
     function userCanAccess(route) {
       if (!route.access || !route.access.length) return true;
-      if (route.access.includes(CURRENT_USER.role)) return true;
-      return CURRENT_USER.departments.some(dept => route.access.includes(dept));
+
+      const allowed = route.access.map(normalizeValue);
+      const role = normalizeValue(CURRENT_USER.role);
+      const departments = CURRENT_USER.departments || [];
+
+      if (allowed.includes(role)) return true;
+
+      return departments.some(dept => allowed.includes(dept));
+    }
+
+    function userCanEnterDepartment() {
+      if (CURRENT_USER.role === "admin") return true;
+      return CURRENT_USER.departments.includes(DEPARTMENT.key);
     }
 
     function flattenRoutes() {
@@ -627,7 +794,7 @@
       if (!sections.length) {
         const empty = document.createElement("div");
         empty.className = "empty";
-        empty.textContent = "No finance pages match your search.";
+        empty.textContent = "No finance pages are available for your role or search.";
         els.sidebarNav.appendChild(empty);
         return;
       }
@@ -682,6 +849,13 @@
     function render() {
       renderSidebar();
       updateHeader();
+
+      const role = CURRENT_USER.role || "user";
+      const depts = CURRENT_USER.departments?.length
+        ? CURRENT_USER.departments.join(", ")
+        : "no department";
+
+      els.userLine.textContent = `${CURRENT_USER.email || "User"} · ${role} · ${depts}`;
     }
 
     function navigate(id) {
@@ -712,6 +886,23 @@
       window.open(route.src, "_blank", "noopener,noreferrer");
     }
 
+    async function signOut() {
+      if (supabaseClient) {
+        await supabaseClient.auth.signOut();
+      }
+
+      try {
+        localStorage.removeItem("silo_finance_last_route");
+      } catch {}
+
+      window.location.href = "/pages/login.html";
+    }
+
+    function showApp() {
+      els.bootScreen.style.display = "none";
+      els.appShell.style.display = "grid";
+    }
+
     function boot() {
       els.deptInitials.textContent = DEPARTMENT.initials;
       els.deptTitle.textContent = DEPARTMENT.title;
@@ -724,6 +915,7 @@
 
       els.reloadBtn.onclick = reloadViewer;
       els.openNewTab.onclick = openCurrent;
+      els.signOutBtn.onclick = signOut;
       els.mobileMenuBtn.onclick = () => document.body.classList.toggle("nav-open");
 
       render();
@@ -742,9 +934,22 @@
       } else if (firstAccessible) {
         navigate(firstAccessible.id);
       }
+
+      showApp();
     }
 
-    boot();
+    (async () => {
+      const ok = await loadCurrentUser();
+      if (!ok) return;
+
+      if (!userCanEnterDepartment()) {
+        console.warn("User does not have access to this department:", CURRENT_USER);
+        window.location.href = "/pages/login.html";
+        return;
+      }
+
+      boot();
+    })();
   </script>
 </body>
 </html>
