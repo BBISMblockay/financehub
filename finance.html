@@ -14,15 +14,12 @@
       --surface-2: #f8fafc;
       --text: #0f172a;
       --muted: #64748b;
-      --muted-2: #94a3b8;
       --border: #e2e8f0;
       --border-2: #cbd5e1;
       --accent: #4f46e5;
       --accent-2: #2563eb;
-      --accent-soft: rgba(79, 70, 229, 0.12);
 
       --nav: #0f172a;
-      --nav-2: #111c31;
       --nav-border: rgba(255,255,255,0.08);
       --nav-text: #f8fafc;
       --nav-muted: #94a3b8;
@@ -33,12 +30,9 @@
       --radius: 18px;
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
-    html,
-    body {
+    html, body {
       margin: 0;
       height: 100%;
       font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -49,10 +43,7 @@
       overflow: hidden;
     }
 
-    button,
-    input {
-      font: inherit;
-    }
+    button, input { font: inherit; }
 
     .app {
       display: grid;
@@ -90,14 +81,11 @@
       color: #fff;
       font-size: 14px;
       font-weight: 800;
-      letter-spacing: -0.02em;
       box-shadow: 0 14px 28px rgba(37, 99, 235, 0.28);
       flex: 0 0 auto;
     }
 
-    .brand-copy {
-      min-width: 0;
-    }
+    .brand-copy { min-width: 0; }
 
     .brand-title {
       font-size: 16px;
@@ -125,9 +113,7 @@
       flex: 0 0 auto;
     }
 
-    .search-wrap {
-      position: relative;
-    }
+    .search-wrap { position: relative; }
 
     .search-icon {
       position: absolute;
@@ -151,9 +137,7 @@
       font-size: 13px;
     }
 
-    .search::placeholder {
-      color: rgba(255,255,255,0.42);
-    }
+    .search::placeholder { color: rgba(255,255,255,0.42); }
 
     .search:focus {
       border-color: rgba(99, 102, 241, 0.75);
@@ -167,9 +151,7 @@
       flex: 1;
     }
 
-    .nav-section {
-      margin-bottom: 24px;
-    }
+    .nav-section { margin-bottom: 24px; }
 
     .nav-heading {
       margin: 0 0 9px;
@@ -288,9 +270,7 @@
       flex: 0 0 auto;
     }
 
-    .page-copy {
-      min-width: 0;
-    }
+    .page-copy { min-width: 0; }
 
     .page-kicker {
       font-size: 11px;
@@ -347,6 +327,7 @@
       box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
       transition: 0.15s ease;
       white-space: nowrap;
+      text-decoration: none;
     }
 
     .btn:hover {
@@ -398,9 +379,7 @@
       background: #fff;
     }
 
-    .mobile-toggle {
-      display: none;
-    }
+    .mobile-toggle { display: none; }
 
     .boot-screen {
       height: 100vh;
@@ -413,8 +392,8 @@
     }
 
     .boot-card {
-      width: min(420px, calc(100vw - 32px));
-      background: rgba(255,255,255,0.88);
+      width: min(520px, calc(100vw - 32px));
+      background: rgba(255,255,255,0.9);
       border: 1px solid var(--border);
       border-radius: 20px;
       padding: 22px;
@@ -441,17 +420,28 @@
     }
 
     .boot-sub {
-      margin-top: 7px;
+      margin-top: 8px;
       color: var(--muted);
       font-size: 13px;
+      line-height: 1.5;
+    }
+
+    .debug-box {
+      margin-top: 14px;
+      text-align: left;
+      font-size: 12px;
       line-height: 1.45;
+      background: #0f172a;
+      color: #dbeafe;
+      border-radius: 14px;
+      padding: 12px;
+      overflow: auto;
+      max-height: 240px;
+      white-space: pre-wrap;
     }
 
     @media (max-width: 900px) {
-      html,
-      body {
-        overflow: auto;
-      }
+      html, body { overflow: auto; }
 
       .app {
         grid-template-columns: 1fr;
@@ -468,13 +458,9 @@
         transition: transform .2s ease;
       }
 
-      body.nav-open .sidebar {
-        transform: translateX(0);
-      }
+      body.nav-open .sidebar { transform: translateX(0); }
 
-      .mobile-toggle {
-        display: inline-flex;
-      }
+      .mobile-toggle { display: inline-flex; }
 
       .topbar {
         height: auto;
@@ -482,13 +468,9 @@
         align-items: flex-start;
       }
 
-      .viewer-shell {
-        height: calc(100vh - 96px);
-      }
+      .viewer-shell { height: calc(100vh - 96px); }
 
-      .page-sub {
-        max-width: 100%;
-      }
+      .page-sub { max-width: 100%; }
     }
   </style>
 </head>
@@ -562,6 +544,8 @@
       title: "Finance Department",
       subtitle: "Baseballism"
     };
+
+    const LOGIN_PATH = "/pages/login.html";
 
     let CURRENT_USER = {
       id: null,
@@ -666,12 +650,51 @@
       )];
     }
 
+    function safeJson(value) {
+      try {
+        return JSON.stringify(value, null, 2);
+      } catch {
+        return String(value);
+      }
+    }
+
+    function showAuthError(message, details = {}) {
+      console.error("Finance auth debug:", message, details);
+
+      if (!els.bootScreen) return;
+
+      els.bootScreen.style.display = "grid";
+      els.appShell.style.display = "none";
+
+      els.bootScreen.innerHTML = `
+        <div class="boot-card">
+          <div class="boot-logo">FH</div>
+          <div class="boot-title">Finance Auth Debug</div>
+          <div class="boot-sub">
+            ${message}
+          </div>
+          <div class="debug-box">${safeJson(details)}</div>
+          <div style="margin-top:14px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+            <button class="btn primary" onclick="window.location.href='${LOGIN_PATH}'">Go to Login</button>
+            <button class="btn" onclick="location.reload()">Reload</button>
+            <button class="btn" onclick="localStorage.removeItem('silo_finance_last_route'); location.reload();">Clear Last Route</button>
+          </div>
+        </div>
+      `;
+    }
+
     async function loadCurrentUser() {
       const config = window.__SILO_CONFIG__ || {};
 
+      console.log("SILO config loaded:", config);
+
       if (!config.SUPABASE_URL || !config.SUPABASE_ANON_KEY) {
-        console.error("Missing /config.js Supabase config.");
-        window.location.href = "/pages/login.html";
+        showAuthError("Missing /pages/config.js Supabase config.", { configKeys: Object.keys(config || {}) });
+        return false;
+      }
+
+      if (!window.supabase || !window.supabase.createClient) {
+        showAuthError("Supabase JS did not load.", {});
         return false;
       }
 
@@ -682,9 +705,18 @@
 
       const { data: sessionData, error: sessionError } = await supabaseClient.auth.getSession();
 
-      if (sessionError || !sessionData?.session?.user) {
-        console.warn("No active Supabase session.", sessionError);
-        window.location.href = "/pages/login.html";
+      console.log("SILO sessionData:", sessionData);
+      console.log("SILO sessionError:", sessionError);
+
+      if (sessionError) {
+        showAuthError("Supabase session lookup failed.", { sessionError });
+        return false;
+      }
+
+      if (!sessionData?.session?.user) {
+        showAuthError("No active Supabase session found on /finance.html.", {
+          note: "This page will not auto-redirect to login during debug, to prevent a loop."
+        });
         return false;
       }
 
@@ -694,11 +726,27 @@
         .from("profiles")
         .select("*")
         .eq("id", authUser.id)
-        .single();
+        .maybeSingle();
 
-      if (profileError || !profile) {
-        console.error("Could not load profile:", profileError);
-        window.location.href = "/pages/login.html";
+      console.log("SILO auth user:", authUser);
+      console.log("SILO profile:", profile);
+      console.log("SILO profileError:", profileError);
+
+      if (profileError) {
+        showAuthError("Profile query failed. Check profiles RLS, table name, or id mapping.", {
+          authUserId: authUser.id,
+          authEmail: authUser.email,
+          profileError
+        });
+        return false;
+      }
+
+      if (!profile) {
+        showAuthError("No profile row found for this logged-in user.", {
+          authUserId: authUser.id,
+          authEmail: authUser.email,
+          expected: "profiles.id should match auth.users.id"
+        });
         return false;
       }
 
@@ -729,7 +777,7 @@
         departments
       };
 
-      console.log("SILO current user:", CURRENT_USER);
+      console.log("SILO current user normalized:", CURRENT_USER);
 
       return true;
     }
@@ -743,12 +791,25 @@
 
       if (allowed.includes(role)) return true;
 
-      return departments.some(dept => allowed.includes(dept));
+      return departments.some(dept => {
+        return allowed.some(allowedItem =>
+          dept === allowedItem ||
+          dept.includes(allowedItem) ||
+          allowedItem.includes(dept)
+        );
+      });
     }
 
     function userCanEnterDepartment() {
       if (CURRENT_USER.role === "admin") return true;
-      return CURRENT_USER.departments.includes(DEPARTMENT.key);
+
+      const departmentKey = normalizeValue(DEPARTMENT.key);
+
+      return (CURRENT_USER.departments || []).some(dept =>
+        dept === departmentKey ||
+        dept.includes(departmentKey) ||
+        departmentKey.includes(dept)
+      );
     }
 
     function flattenRoutes() {
@@ -895,7 +956,7 @@
         localStorage.removeItem("silo_finance_last_route");
       } catch {}
 
-      window.location.href = "/pages/login.html";
+      window.location.href = LOGIN_PATH;
     }
 
     function showApp() {
@@ -943,8 +1004,11 @@
       if (!ok) return;
 
       if (!userCanEnterDepartment()) {
-        console.warn("User does not have access to this department:", CURRENT_USER);
-        window.location.href = "/pages/login.html";
+        showAuthError("Logged in, but this profile does not have finance department access.", {
+          currentUser: CURRENT_USER,
+          requiredDepartment: DEPARTMENT.key,
+          acceptedAdminRole: "admin"
+        });
         return;
       }
 
