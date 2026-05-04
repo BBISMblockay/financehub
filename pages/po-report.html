@@ -1,0 +1,829 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Silo · Incoming PO Report</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="./config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    :root{
+      --bg:#f5f7fb;
+      --card:rgba(255,255,255,.94);
+      --line:rgba(15,23,42,.08);
+      --text:#0f172a;
+      --muted:#64748b;
+      --shadow:0 5px 14px rgba(15,23,42,.045);
+      --brand:#0f172a;
+    }
+    *{box-sizing:border-box}
+    html,body{
+      margin:0;
+      padding:0;
+      font-family:Inter,system-ui,sans-serif;
+      color:var(--text);
+      background:linear-gradient(180deg,#f8fafc 0%,#eef2f7 100%);
+      font-size:13px;
+    }
+    .glass{
+      background:var(--card);
+      backdrop-filter:blur(14px);
+      border:1px solid var(--line);
+      box-shadow:var(--shadow);
+      border-radius:12px;
+    }
+    .btn{
+      border-radius:9px;
+      padding:.42rem .62rem;
+      font-size:.72rem;
+      font-weight:700;
+      line-height:1;
+      border:1px solid transparent;
+      cursor:pointer;
+      white-space:nowrap;
+      transition:.15s ease;
+    }
+    .btn-primary{background:#0f172a;color:white}
+    .btn-primary:hover{background:#020617}
+    .btn-secondary{background:white;color:#0f172a;border-color:rgba(15,23,42,.10)}
+    .btn-secondary:hover{background:#f8fafc}
+    .btn-good{background:#ecfdf5;color:#166534;border-color:#bbf7d0}
+    .btn-warn{background:#fffbeb;color:#92400e;border-color:#fde68a}
+    input,select{
+      outline:none;
+      border:1px solid rgba(148,163,184,.36);
+      background:white;
+      color:#0f172a;
+      border-radius:8px;
+      min-height:30px;
+      height:30px;
+      padding:.32rem .5rem;
+      font-size:.72rem;
+    }
+    input:focus,select:focus{
+      border-color:rgba(59,130,246,.45);
+      box-shadow:0 0 0 3px rgba(59,130,246,.10);
+    }
+    .muted-label{
+      display:block;
+      margin-bottom:.18rem;
+      font-size:.56rem;
+      font-weight:800;
+      text-transform:uppercase;
+      letter-spacing:.16em;
+      color:#64748b;
+    }
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:.32rem;
+      border-radius:999px;
+      border:1px solid rgba(15,23,42,.08);
+      background:white;
+      padding:.16rem .46rem;
+      font-size:.62rem;
+      font-weight:800;
+      color:#475569;
+      white-space:nowrap;
+    }
+    .status-badge{
+      display:inline-flex;
+      align-items:center;
+      gap:.32rem;
+      border-radius:999px;
+      padding:.18rem .42rem;
+      font-size:.62rem;
+      font-weight:800;
+      white-space:nowrap;
+    }
+    .status-dot{width:.42rem;height:.42rem;border-radius:999px;display:inline-block}
+    .status-Draft{background:#eff6ff;color:#1d4ed8}.status-Draft .status-dot{background:#3b82f6}
+    .status-Approved{background:#f5f3ff;color:#6d28d9}.status-Approved .status-dot{background:#8b5cf6}
+    .status-Sent-to-Factory{background:#ecfeff;color:#0f766e}.status-Sent-to-Factory .status-dot{background:#14b8a6}
+    .status-Confirmed{background:#f0fdf4;color:#166534}.status-Confirmed .status-dot{background:#22c55e}
+    .status-In-Production{background:#fffbeb;color:#b45309}.status-In-Production .status-dot{background:#f59e0b}
+    .status-Shipped,.status-In-Transit,.status-Partially-Received{background:#eef2ff;color:#4338ca}
+    .status-Shipped .status-dot,.status-In-Transit .status-dot,.status-Partially-Received .status-dot{background:#6366f1}
+    .status-Received,.status-Closed{background:#f0fdf4;color:#166534}.status-Received .status-dot,.status-Closed .status-dot{background:#16a34a}
+    .status-Cancelled{background:#fef2f2;color:#991b1b}.status-Cancelled .status-dot{background:#ef4444}
+    .table-wrap{
+      overflow:auto;
+      border-radius:9px;
+      border:1px solid rgba(15,23,42,.06);
+      background:white;
+    }
+    .sticky-head thead th{
+      position:sticky;
+      top:0;
+      z-index:2;
+      background:#f8fafc;
+    }
+    th{
+      padding:6px 7px;
+      font-size:.58rem;
+      text-transform:uppercase;
+      letter-spacing:.095em;
+      color:#64748b;
+      font-weight:800;
+      border-bottom:1px solid rgba(15,23,42,.08);
+      white-space:nowrap;
+    }
+    td{
+      padding:5px 7px;
+      border-bottom:1px solid rgba(15,23,42,.055);
+      vertical-align:middle;
+      font-size:.70rem;
+    }
+    tbody tr:hover{background:#f8fafc}
+    .right{text-align:right}
+    .kpi-title{
+      font-size:.55rem;
+      font-weight:800;
+      text-transform:uppercase;
+      letter-spacing:.18em;
+      color:#64748b;
+    }
+    .kpi-value{
+      margin-top:.28rem;
+      font-size:1.08rem;
+      line-height:1.1;
+      font-weight:900;
+      letter-spacing:-.04em;
+      color:#0f172a;
+    }
+    .kpi-sub{
+      margin-top:.18rem;
+      font-size:.65rem;
+      color:#64748b;
+    }
+    .soft-scroll::-webkit-scrollbar{height:10px;width:10px}
+    .soft-scroll::-webkit-scrollbar-thumb{background:rgba(148,163,184,.45);border-radius:999px}
+    .soft-scroll::-webkit-scrollbar-track{background:transparent}
+    .drawer-backdrop{background:rgba(15,23,42,.42)}
+    .hidden-safe{display:none!important}
+  </style>
+</head>
+
+<body>
+  <div class="min-h-screen px-2 py-2 sm:px-3 lg:px-3">
+    <div class="mx-auto max-w-[1920px] space-y-2">
+
+      <header class="glass px-3 py-2">
+        <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div class="text-[.62rem] font-bold uppercase tracking-[.22em] text-slate-500">Silo Purchasing</div>
+            <div class="mt-0 text-[1.12rem] font-extrabold tracking-tight text-slate-900">Incoming PO Report</div>
+            <div class="mt-1 text-[.70rem] text-slate-500">
+              Open purchase orders, incoming units, product rollups, retail value, and estimated landed commitments.
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <button id="btnRefresh" class="btn btn-secondary">Refresh</button>
+            <button id="btnExportPOs" class="btn btn-good">Export PO Summary</button>
+            <button id="btnExportProducts" class="btn btn-good">Export Product Rollup</button>
+            <a href="./po-builder.html" class="btn btn-primary no-underline">Open PO Builder</a>
+          </div>
+        </div>
+      </header>
+
+      <section class="glass p-2">
+        <div class="grid gap-2 md:grid-cols-2 xl:grid-cols-7">
+          <div>
+            <label class="muted-label">Search</label>
+            <input id="searchInput" class="w-full" placeholder="PO, factory, product, SKU..." />
+          </div>
+          <div>
+            <label class="muted-label">Status</label>
+            <select id="statusFilter" class="w-full">
+              <option value="">All statuses</option>
+            </select>
+          </div>
+          <div>
+            <label class="muted-label">Factory</label>
+            <select id="factoryFilter" class="w-full">
+              <option value="">All factories</option>
+            </select>
+          </div>
+          <div>
+            <label class="muted-label">Date Bucket</label>
+            <select id="bucketFilter" class="w-full">
+              <option value="">All buckets</option>
+            </select>
+          </div>
+          <div>
+            <label class="muted-label">Arrival From</label>
+            <input id="arrivalFrom" type="date" class="w-full" />
+          </div>
+          <div>
+            <label class="muted-label">Arrival To</label>
+            <input id="arrivalTo" type="date" class="w-full" />
+          </div>
+          <div>
+            <label class="muted-label">Scope</label>
+            <select id="scopeFilter" class="w-full">
+              <option value="open">Open incoming only</option>
+              <option value="all">All POs</option>
+              <option value="production">Production statuses</option>
+              <option value="arriving">Has expected arrival</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <section class="grid gap-2 md:grid-cols-2 xl:grid-cols-6">
+        <div class="glass px-3 py-2">
+          <div class="kpi-title">PO Count</div>
+          <div id="kpiPOs" class="kpi-value">0</div>
+          <div class="kpi-sub">matching purchase orders</div>
+        </div>
+        <div class="glass px-3 py-2">
+          <div class="kpi-title">Incoming Units</div>
+          <div id="kpiUnits" class="kpi-value">0</div>
+          <div class="kpi-sub">total ordered units</div>
+        </div>
+        <div class="glass px-3 py-2">
+          <div class="kpi-title">Retail Value</div>
+          <div id="kpiRetail" class="kpi-value">$0</div>
+          <div class="kpi-sub">ordered retail value</div>
+        </div>
+        <div class="glass px-3 py-2">
+          <div class="kpi-title">Estimated Cost</div>
+          <div id="kpiCost" class="kpi-value">$0</div>
+          <div class="kpi-sub">qty × unit cost</div>
+        </div>
+        <div class="glass px-3 py-2">
+          <div class="kpi-title">Retail-Cost Spread</div>
+          <div id="kpiSpread" class="kpi-value">$0</div>
+          <div class="kpi-sub">retail less estimated cost</div>
+        </div>
+        <div class="glass px-3 py-2">
+          <div class="kpi-title">Avg Unit Cost</div>
+          <div id="kpiAuc" class="kpi-value">$0</div>
+          <div class="kpi-sub">estimated cost / units</div>
+        </div>
+      </section>
+
+      <section class="grid gap-2 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,.85fr)]">
+        <div class="glass p-2">
+          <div class="flex items-center justify-between gap-2 border-b border-slate-200 pb-2">
+            <div>
+              <div class="text-sm font-extrabold text-slate-900">PO Summary</div>
+              <div class="text-[.68rem] text-slate-500">Incoming purchase orders by factory, status, timing, units, retail, and cost.</div>
+            </div>
+            <div id="poTableCount" class="pill">0 rows</div>
+          </div>
+
+          <div class="mt-2 table-wrap sticky-head soft-scroll max-h-[58vh]">
+            <table class="min-w-[1120px] w-full border-separate border-spacing-0">
+              <thead>
+                <tr>
+                  <th class="text-left">PO</th>
+                  <th class="text-left">Factory</th>
+                  <th class="text-left">Status</th>
+                  <th class="text-left">Bucket</th>
+                  <th class="text-left">Order</th>
+                  <th class="text-left">Req Ship</th>
+                  <th class="text-left">Expected</th>
+                  <th class="right">Lines</th>
+                  <th class="right">Styles</th>
+                  <th class="right">Units</th>
+                  <th class="right">Retail</th>
+                  <th class="right">Cost</th>
+                  <th class="right">Spread</th>
+                  <th class="text-left">Open</th>
+                </tr>
+              </thead>
+              <tbody id="poTbody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="glass p-2">
+          <div class="flex items-center justify-between gap-2 border-b border-slate-200 pb-2">
+            <div>
+              <div class="text-sm font-extrabold text-slate-900">Product Rollup</div>
+              <div class="text-[.68rem] text-slate-500">Grouped view of incoming units by product type and title.</div>
+            </div>
+            <div id="productTableCount" class="pill">0 rows</div>
+          </div>
+
+          <div class="mt-2 table-wrap sticky-head soft-scroll max-h-[58vh]">
+            <table class="min-w-[850px] w-full border-separate border-spacing-0">
+              <thead>
+                <tr>
+                  <th class="text-left">Type</th>
+                  <th class="text-left">Product</th>
+                  <th class="right">POs</th>
+                  <th class="right">SKUs</th>
+                  <th class="right">Variants</th>
+                  <th class="right">Units</th>
+                  <th class="right">Retail</th>
+                  <th class="right">Cost</th>
+                  <th class="right">AUC</th>
+                </tr>
+              </thead>
+              <tbody id="productTbody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="glass p-2">
+        <div class="flex items-center justify-between gap-2 border-b border-slate-200 pb-2">
+          <div>
+            <div class="text-sm font-extrabold text-slate-900">Incoming Line Detail</div>
+            <div class="text-[.68rem] text-slate-500">Line-level detail for SKU checks, product planning, and PO follow-up.</div>
+          </div>
+          <div id="lineTableCount" class="pill">0 rows</div>
+        </div>
+
+        <div class="mt-2 table-wrap sticky-head soft-scroll max-h-[45vh]">
+          <table class="min-w-[1400px] w-full border-separate border-spacing-0">
+            <thead>
+              <tr>
+                <th class="text-left">PO</th>
+                <th class="text-left">Factory</th>
+                <th class="text-left">Status</th>
+                <th class="text-left">Expected</th>
+                <th class="text-left">Type</th>
+                <th class="text-left">Product</th>
+                <th class="text-left">Variant</th>
+                <th class="text-left">SKU</th>
+                <th class="text-left">UPC</th>
+                <th class="right">Qty</th>
+                <th class="right">Retail</th>
+                <th class="right">Cost</th>
+                <th class="right">Retail Value</th>
+                <th class="right">Est. Cost</th>
+              </tr>
+            </thead>
+            <tbody id="lineTbody"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = window.__SILO_CONFIG__?.SUPABASE_URL || window.SUPABASE_URL || '';
+    const SUPABASE_ANON_KEY = window.__SILO_CONFIG__?.SUPABASE_ANON_KEY || window.SUPABASE_ANON_KEY || '';
+    const REDIRECT_TO = window.__SILO_CONFIG__?.REDIRECT_TO || window.REDIRECT_TO || './login.html';
+    const REQUIRE_AUTH = Boolean(window.__SILO_CONFIG__?.REQUIRE_AUTH || window.REQUIRE_AUTH || false);
+
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      document.body.innerHTML = '<div class="min-h-screen flex items-center justify-center p-6"><div class="glass max-w-xl p-6 text-center"><div class="text-xl font-bold text-slate-900">Missing Supabase config</div><div class="mt-2 text-sm text-slate-500">Provide SUPABASE_URL and SUPABASE_ANON_KEY through config.js.</div></div></div>';
+      throw new Error('Missing Supabase config');
+    }
+
+    const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const OPEN_STATUSES = new Set([
+      'Approved',
+      'Sent to Factory',
+      'Confirmed',
+      'In Production',
+      'Shipped',
+      'In Transit',
+      'Partially Received'
+    ]);
+
+    const PRODUCTION_STATUSES = new Set([
+      'Sent to Factory',
+      'Confirmed',
+      'In Production',
+      'Shipped',
+      'In Transit',
+      'Partially Received'
+    ]);
+
+    const state = {
+      poRows: [],
+      lineRows: [],
+      filteredPOs: [],
+      filteredLines: [],
+      productRows: []
+    };
+
+    const el = {
+      searchInput: document.getElementById('searchInput'),
+      statusFilter: document.getElementById('statusFilter'),
+      factoryFilter: document.getElementById('factoryFilter'),
+      bucketFilter: document.getElementById('bucketFilter'),
+      arrivalFrom: document.getElementById('arrivalFrom'),
+      arrivalTo: document.getElementById('arrivalTo'),
+      scopeFilter: document.getElementById('scopeFilter'),
+
+      btnRefresh: document.getElementById('btnRefresh'),
+      btnExportPOs: document.getElementById('btnExportPOs'),
+      btnExportProducts: document.getElementById('btnExportProducts'),
+
+      kpiPOs: document.getElementById('kpiPOs'),
+      kpiUnits: document.getElementById('kpiUnits'),
+      kpiRetail: document.getElementById('kpiRetail'),
+      kpiCost: document.getElementById('kpiCost'),
+      kpiSpread: document.getElementById('kpiSpread'),
+      kpiAuc: document.getElementById('kpiAuc'),
+
+      poTbody: document.getElementById('poTbody'),
+      productTbody: document.getElementById('productTbody'),
+      lineTbody: document.getElementById('lineTbody'),
+
+      poTableCount: document.getElementById('poTableCount'),
+      productTableCount: document.getElementById('productTableCount'),
+      lineTableCount: document.getElementById('lineTableCount')
+    };
+
+    function money(v){
+      return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(v || 0));
+    }
+
+    function money2(v){
+      return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(v || 0));
+    }
+
+    function num(v){
+      const n = Number(v || 0);
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function escapeHtml(str){
+      return String(str ?? '')
+        .replaceAll('&','&amp;')
+        .replaceAll('<','&lt;')
+        .replaceAll('>','&gt;')
+        .replaceAll('"','&quot;')
+        .replaceAll("'","&#039;");
+    }
+
+    function statusBadge(status){
+      const safe = String(status || 'Draft').replaceAll(' ', '-');
+      return `<span class="status-badge status-${safe}"><span class="status-dot"></span>${escapeHtml(status || 'Draft')}</span>`;
+    }
+
+    function dateLabel(v){
+      return v ? escapeHtml(v) : '—';
+    }
+
+    function isOpenStatus(status){
+      return OPEN_STATUSES.has(status);
+    }
+
+    function matchesDateRange(row){
+      const from = el.arrivalFrom.value;
+      const to = el.arrivalTo.value;
+      const d = row.expected_arrival_date || '';
+      if(from && (!d || d < from)) return false;
+      if(to && (!d || d > to)) return false;
+      return true;
+    }
+
+    function matchesScope(row){
+      const scope = el.scopeFilter.value;
+      if(scope === 'all') return true;
+      if(scope === 'open') return isOpenStatus(row.status);
+      if(scope === 'production') return PRODUCTION_STATUSES.has(row.status);
+      if(scope === 'arriving') return Boolean(row.expected_arrival_date);
+      return true;
+    }
+
+    function rowHaystack(row){
+      return [
+        row.po_name,
+        row.factory_name,
+        row.status,
+        row.date_bucket,
+        row.product_type,
+        row.product_title,
+        row.variant_title,
+        row.sku,
+        row.upc
+      ].join(' ').toLowerCase();
+    }
+
+    async function loadData(){
+      const { data: poData, error: poError } = await sb
+        .from('v_po_incoming_summary')
+        .select('*')
+        .order('expected_arrival_date', { ascending: true, nullsFirst: false })
+        .order('po_created_at', { ascending: false });
+
+      if(poError) throw poError;
+
+      const { data: lineData, error: lineError } = await sb
+        .from('v_po_incoming_lines')
+        .select('*')
+        .order('expected_arrival_date', { ascending: true, nullsFirst: false })
+        .order('po_created_at', { ascending: false });
+
+      if(lineError) throw lineError;
+
+      state.poRows = poData || [];
+      state.lineRows = (lineData || []).filter(r => r.po_line_id);
+      populateFilters();
+      applyFilters();
+    }
+
+    function populateFilters(){
+      const currentStatus = el.statusFilter.value;
+      const currentFactory = el.factoryFilter.value;
+      const currentBucket = el.bucketFilter.value;
+
+      const statuses = [...new Set(state.poRows.map(r => r.status).filter(Boolean))].sort();
+      const factories = [...new Set(state.poRows.map(r => r.factory_name).filter(Boolean))].sort();
+      const buckets = [...new Set(state.poRows.map(r => r.date_bucket).filter(Boolean))].sort();
+
+      el.statusFilter.innerHTML = '<option value="">All statuses</option>' + statuses.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+      el.factoryFilter.innerHTML = '<option value="">All factories</option>' + factories.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+      el.bucketFilter.innerHTML = '<option value="">All buckets</option>' + buckets.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join('');
+
+      el.statusFilter.value = currentStatus;
+      el.factoryFilter.value = currentFactory;
+      el.bucketFilter.value = currentBucket;
+    }
+
+    function applyFilters(){
+      const q = el.searchInput.value.trim().toLowerCase();
+      const status = el.statusFilter.value;
+      const factory = el.factoryFilter.value;
+      const bucket = el.bucketFilter.value;
+
+      state.filteredPOs = state.poRows.filter(row => {
+        const hay = rowHaystack(row);
+        return (!q || hay.includes(q))
+          && (!status || row.status === status)
+          && (!factory || row.factory_name === factory)
+          && (!bucket || row.date_bucket === bucket)
+          && matchesDateRange(row)
+          && matchesScope(row);
+      });
+
+      const visiblePOIds = new Set(state.filteredPOs.map(r => String(r.id)));
+
+      state.filteredLines = state.lineRows.filter(row => {
+        const hay = rowHaystack(row);
+        return visiblePOIds.has(String(row.po_header_id))
+          && (!q || hay.includes(q));
+      });
+
+      state.productRows = buildProductRollup(state.filteredLines);
+
+      renderKPIs();
+      renderPOTable();
+      renderProductTable();
+      renderLineTable();
+    }
+
+    function buildProductRollup(lines){
+      const map = new Map();
+
+      for(const r of lines){
+        const key = [
+          r.product_type || '',
+          r.product_title || ''
+        ].join('||');
+
+        if(!map.has(key)){
+          map.set(key, {
+            product_type: r.product_type || '—',
+            product_title: r.product_title || 'Untitled',
+            poIds: new Set(),
+            skus: new Set(),
+            variants: new Set(),
+            total_units: 0,
+            total_retail_value: 0,
+            total_estimated_cost: 0
+          });
+        }
+
+        const row = map.get(key);
+        if(r.po_header_id) row.poIds.add(String(r.po_header_id));
+        if(r.sku) row.skus.add(String(r.sku));
+        if(r.variant_title) row.variants.add(String(r.variant_title));
+        row.total_units += num(r.qty);
+        row.total_retail_value += num(r.retail_value);
+        row.total_estimated_cost += num(r.estimated_cost);
+      }
+
+      return [...map.values()]
+        .map(r => ({
+          ...r,
+          po_count: r.poIds.size,
+          sku_count: r.skus.size,
+          variant_count: r.variants.size,
+          avg_unit_cost: r.total_units ? r.total_estimated_cost / r.total_units : 0
+        }))
+        .sort((a,b) => b.total_estimated_cost - a.total_estimated_cost);
+    }
+
+    function renderKPIs(){
+      const poCount = state.filteredPOs.length;
+      const totalUnits = state.filteredPOs.reduce((s,r) => s + num(r.total_units), 0);
+      const totalRetail = state.filteredPOs.reduce((s,r) => s + num(r.total_retail_value), 0);
+      const totalCost = state.filteredPOs.reduce((s,r) => s + num(r.total_estimated_cost), 0);
+      const spread = totalRetail - totalCost;
+      const auc = totalUnits ? totalCost / totalUnits : 0;
+
+      el.kpiPOs.textContent = poCount.toLocaleString();
+      el.kpiUnits.textContent = totalUnits.toLocaleString();
+      el.kpiRetail.textContent = money(totalRetail);
+      el.kpiCost.textContent = money(totalCost);
+      el.kpiSpread.textContent = money(spread);
+      el.kpiAuc.textContent = money2(auc);
+    }
+
+    function renderPOTable(){
+      el.poTableCount.textContent = `${state.filteredPOs.length.toLocaleString()} rows`;
+
+      if(!state.filteredPOs.length){
+        el.poTbody.innerHTML = `<tr><td colspan="14" class="py-10 text-center text-slate-500">No purchase orders match the current filters.</td></tr>`;
+        return;
+      }
+
+      el.poTbody.innerHTML = state.filteredPOs.map(r => `
+        <tr>
+          <td class="font-extrabold text-slate-900">${escapeHtml(r.po_name || '—')}</td>
+          <td>${escapeHtml(r.factory_name || '—')}</td>
+          <td>${statusBadge(r.status)}</td>
+          <td>${escapeHtml(r.date_bucket || '—')}</td>
+          <td>${dateLabel(r.order_date)}</td>
+          <td>${dateLabel(r.req_ship_date)}</td>
+          <td>${dateLabel(r.expected_arrival_date)}</td>
+          <td class="right">${num(r.line_count).toLocaleString()}</td>
+          <td class="right">${num(r.style_count).toLocaleString()}</td>
+          <td class="right font-bold">${num(r.total_units).toLocaleString()}</td>
+          <td class="right font-bold">${money(r.total_retail_value)}</td>
+          <td class="right font-bold">${money(r.total_estimated_cost)}</td>
+          <td class="right">${money(r.retail_cost_spread)}</td>
+          <td>
+            <a class="pill hover:bg-slate-50" href="./po-builder.html" title="Open builder and select this PO manually">Builder</a>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function renderProductTable(){
+      el.productTableCount.textContent = `${state.productRows.length.toLocaleString()} rows`;
+
+      if(!state.productRows.length){
+        el.productTbody.innerHTML = `<tr><td colspan="9" class="py-10 text-center text-slate-500">No product rollup rows match the current filters.</td></tr>`;
+        return;
+      }
+
+      el.productTbody.innerHTML = state.productRows.map(r => `
+        <tr>
+          <td>${escapeHtml(r.product_type || '—')}</td>
+          <td class="font-extrabold text-slate-900">${escapeHtml(r.product_title || 'Untitled')}</td>
+          <td class="right">${num(r.po_count).toLocaleString()}</td>
+          <td class="right">${num(r.sku_count).toLocaleString()}</td>
+          <td class="right">${num(r.variant_count).toLocaleString()}</td>
+          <td class="right font-bold">${num(r.total_units).toLocaleString()}</td>
+          <td class="right font-bold">${money(r.total_retail_value)}</td>
+          <td class="right font-bold">${money(r.total_estimated_cost)}</td>
+          <td class="right">${money2(r.avg_unit_cost)}</td>
+        </tr>
+      `).join('');
+    }
+
+    function renderLineTable(){
+      el.lineTableCount.textContent = `${state.filteredLines.length.toLocaleString()} rows`;
+
+      if(!state.filteredLines.length){
+        el.lineTbody.innerHTML = `<tr><td colspan="14" class="py-10 text-center text-slate-500">No PO lines match the current filters.</td></tr>`;
+        return;
+      }
+
+      el.lineTbody.innerHTML = state.filteredLines.map(r => `
+        <tr>
+          <td class="font-extrabold text-slate-900">${escapeHtml(r.po_name || '—')}</td>
+          <td>${escapeHtml(r.factory_name || '—')}</td>
+          <td>${statusBadge(r.status)}</td>
+          <td>${dateLabel(r.expected_arrival_date)}</td>
+          <td>${escapeHtml(r.product_type || '—')}</td>
+          <td class="font-bold">${escapeHtml(r.product_title || 'Untitled')}</td>
+          <td>${escapeHtml(r.variant_title || '—')}</td>
+          <td>${escapeHtml(r.sku || '—')}</td>
+          <td>${escapeHtml(r.upc || '—')}</td>
+          <td class="right font-bold">${num(r.qty).toLocaleString()}</td>
+          <td class="right">${money2(r.retail_price)}</td>
+          <td class="right">${money2(r.unit_cost)}</td>
+          <td class="right font-bold">${money(r.retail_value)}</td>
+          <td class="right font-bold">${money(r.estimated_cost)}</td>
+        </tr>
+      `).join('');
+    }
+
+    function toCsvValue(v){
+      const s = String(v ?? '');
+      if(/[",\n]/.test(s)) return `"${s.replaceAll('"','""')}"`;
+      return s;
+    }
+
+    function downloadCsv(filename, rows){
+      if(!rows.length){
+        alert('No rows to export.');
+        return;
+      }
+
+      const headers = Object.keys(rows[0]);
+      const csv = [
+        headers.map(toCsvValue).join(','),
+        ...rows.map(row => headers.map(h => toCsvValue(row[h])).join(','))
+      ].join('\n');
+
+      const blob = new Blob([csv], { type:'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function exportPOs(){
+      const rows = state.filteredPOs.map(r => ({
+        po_name: r.po_name,
+        factory_name: r.factory_name,
+        status: r.status,
+        date_bucket: r.date_bucket,
+        order_date: r.order_date,
+        req_ship_date: r.req_ship_date,
+        expected_arrival_date: r.expected_arrival_date,
+        line_count: r.line_count,
+        style_count: r.style_count,
+        total_units: r.total_units,
+        total_retail_value: r.total_retail_value,
+        total_estimated_cost: r.total_estimated_cost,
+        retail_cost_spread: r.retail_cost_spread,
+        wholesale_triggered: r.wholesale_triggered,
+        is_new_product_po: r.is_new_product_po
+      }));
+
+      downloadCsv(`silo-incoming-po-summary-${new Date().toISOString().slice(0,10)}.csv`, rows);
+    }
+
+    function exportProducts(){
+      const rows = state.productRows.map(r => ({
+        product_type: r.product_type,
+        product_title: r.product_title,
+        po_count: r.po_count,
+        sku_count: r.sku_count,
+        variant_count: r.variant_count,
+        total_units: r.total_units,
+        total_retail_value: r.total_retail_value,
+        total_estimated_cost: r.total_estimated_cost,
+        avg_unit_cost: r.avg_unit_cost
+      }));
+
+      downloadCsv(`silo-incoming-po-product-rollup-${new Date().toISOString().slice(0,10)}.csv`, rows);
+    }
+
+    async function boot(){
+      if(REQUIRE_AUTH){
+        const { data, error } = await sb.auth.getSession();
+        if(error) throw error;
+        if(!data?.session){
+          window.location.href = REDIRECT_TO;
+          return;
+        }
+      }
+
+      await loadData();
+    }
+
+    [
+      el.searchInput,
+      el.statusFilter,
+      el.factoryFilter,
+      el.bucketFilter,
+      el.arrivalFrom,
+      el.arrivalTo,
+      el.scopeFilter
+    ].forEach(node => {
+      node.addEventListener('input', applyFilters);
+      node.addEventListener('change', applyFilters);
+    });
+
+    el.btnRefresh.addEventListener('click', async () => {
+      try { await loadData(); }
+      catch(e){ console.error(e); alert(e.message || 'Refresh failed'); }
+    });
+
+    el.btnExportPOs.addEventListener('click', exportPOs);
+    el.btnExportProducts.addEventListener('click', exportProducts);
+
+    boot().catch(e => {
+      console.error(e);
+      alert(e.message || 'Initial load failed');
+    });
+  </script>
+</body>
+</html>
