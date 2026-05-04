@@ -742,26 +742,95 @@
     }
 
     function parseSize(value){
-      const raw=String(value||'').trim();
-      if(!raw) return null;
-      const normalized=raw
-        .toUpperCase()
-        .replace(/\b(MEN'?S|WOMEN'?S|YOUTH|ADULT|SIZE)\b/g,'')
-        .replace(/[\s_]+/g,'')
-        .trim();
+  const raw = String(value || '').trim();
+  if(!raw) return null;
 
-      const alphaOrder={
-        'XXS':10,'XS':20,'S':30,'SMALL':30,'M':40,'MEDIUM':40,'L':50,'LARGE':50,
-        'XL':60,'1XL':60,'XXL':70,'2XL':70,'XXXL':80,'3XL':80,'XXXXL':90,'4XL':90,'5XL':100,
-        'YXS':20,'YS':30,'YM':40,'YL':50,'YXL':60,'YXXL':70,
-        'OS':500,'O/S':500,'ONESIZE':500,'ONESIZEFITSALL':500,'SNAP':510
-      };
-      if(alphaOrder[normalized]!==undefined) return alphaOrder[normalized];
+  const upper = raw
+    .toUpperCase()
+    .replace(/\b(MEN'?S|WOMEN'?S|YOUTH|ADULT|SIZE)\b/g,'')
+    .replace(/[_-]+/g,' ')
+    .replace(/\s+/g,' ')
+    .trim();
 
-      const numeric=normalized.match(/\d+(\.\d+)?/);
-      if(numeric) return 1000 + Number(numeric[0]);
-      return null;
+  const compact = upper.replace(/\s+/g,'');
+
+  const alphaOrder = {
+    'XXS':10,
+    'XS':20,
+    'S':30,
+    'SMALL':30,
+    'M':40,
+    'MEDIUM':40,
+    'L':50,
+    'LARGE':50,
+    'XL':60,
+    '1XL':60,
+    'XXL':70,
+    '2XL':70,
+    'XXXL':80,
+    '3XL':80,
+    'XXXXL':90,
+    '4XL':90,
+    '5XL':100,
+
+    'YXS':20,
+    'YS':30,
+    'YM':40,
+    'YL':50,
+    'YXL':60,
+    'YXXL':70,
+
+    'OS':500,
+    'O/S':500,
+    'ONESIZE':500,
+    'ONESIZEFITSALL':500,
+
+    // Keep adjustable hats after fitted hat sizes in PO/PDF sorting.
+    'SNAP':2000,
+    'SNAPBACK':2000,
+    'ADJUSTABLE':2000
+  };
+
+  if(alphaOrder[compact] !== undefined) return alphaOrder[compact];
+
+  // Fitted hat sizes like: 7 1/8, 7 1/4, 7 3/8, 7 1/2
+  const hatFraction = upper.match(/^(\d+)\s+(\d+)\/(\d+)$/);
+  if(hatFraction){
+    const whole = Number(hatFraction[1]);
+    const numerator = Number(hatFraction[2]);
+    const denominator = Number(hatFraction[3]);
+
+    if(denominator){
+      return 1000 + whole + (numerator / denominator);
     }
+  }
+
+  // Compact fitted hat sizes like: 71/8, 71/4, 73/8, 71/2
+  const compactHatFraction = compact.match(/^(\d)(\d+)\/(\d+)$/);
+  if(compactHatFraction){
+    const whole = Number(compactHatFraction[1]);
+    const numerator = Number(compactHatFraction[2]);
+    const denominator = Number(compactHatFraction[3]);
+
+    if(denominator){
+      return 1000 + whole + (numerator / denominator);
+    }
+  }
+
+  // Decimal sizes like 7.125, 7.25, 7.375, 7.5
+  const decimal = upper.match(/^(\d+)\.(\d+)$/);
+  if(decimal){
+    return 1000 + Number(decimal[0]);
+  }
+
+  // Plain numeric size like 6, 7, 8, 10, etc.
+  const numeric = upper.match(/^(\d+)$/);
+  if(numeric){
+    return 1000 + Number(numeric[1]);
+  }
+
+  return null;
+}
 
     function lineSortValue(line, field){
       if(field==='natural') return null;
