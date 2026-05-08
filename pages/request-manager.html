@@ -320,6 +320,37 @@
       background: #fff;
     }
 
+    .file-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 100%;
+    }
+    .file-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      border: 1px solid #e5e7eb;
+      border-radius: 14px;
+      background: #f8fafc;
+      padding: 8px 10px;
+    }
+    .file-row-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: .82rem;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .file-row-meta {
+      margin-top: 1px;
+      font-size: .7rem;
+      color: #64748b;
+    }
+
     .toast-wrap {
       position: fixed;
       right: 18px;
@@ -750,7 +781,7 @@
           <div class="section-title">Document</div>
           <div class="mt-4 flex flex-wrap gap-3">
             <button id="openFileBtn" class="btn btn-soft" type="button">Open file</button>
-            <div id="fileMeta" class="text-sm text-slate-500 self-center">No file attached</div>
+            <div id="fileMeta" class="text-sm text-slate-500 self-center flex-1">No file attached</div>
           </div>
         </div>
 
@@ -872,6 +903,7 @@
       currentRow: null,
       activityRows: [],
       filteredActivityRows: [],
+      files: [],
       activeTab: "requests",
       queueFilter: "open"
     };
@@ -974,6 +1006,16 @@
 
     function formatNumber(value) {
       return new Intl.NumberFormat("en-US").format(Number(value || 0));
+    }
+
+    function formatBytes(value) {
+      const bytes = Number(value || 0);
+      if (!bytes) return "";
+      if (bytes < 1024) return `${bytes} B`;
+      const kb = bytes / 1024;
+      if (kb < 1024) return `${kb.toFixed(kb >= 10 ? 0 : 1)} KB`;
+      const mb = kb / 1024;
+      return `${mb.toFixed(mb >= 10 ? 1 : 2)} MB`;
     }
 
     function parseDate(value) {
@@ -1182,6 +1224,59 @@
       return all;
     }
 
+    async function fetchRequestFiles() {
+      let all = [];
+      let from = 0;
+      const size = 1000;
+
+      while (true) {
+        const { data, error } = await supabaseClient
+          .from("payment_request_files")
+          .select("id, payment_request_id, file_name, file_path, file_url, file_size, mime_type, sort_order, created_at")
+          .order("sort_order", { ascending: true })
+          .order("created_at", { ascending: true })
+          .range(from, from + size - 1);
+
+        if (error) throw error;
+        all = all.concat(data || []);
+        if (!data || data.length < size) break;
+        from += size;
+      }
+
+      return all;
+    }
+
+    function filesForRequest(row) {
+      if (!row?.id) return [];
+
+      const attached = state.files
+        .filter(file => file.payment_request_id === row.id && file.file_path)
+        .sort((a, b) => Number(a.sort_order || 9999) - Number(b.sort_order || 9999));
+
+      if (attached.length) return attached;
+
+      if (row.file_path) {
+        return [{
+          id: `legacy-${row.id}`,
+          payment_request_id: row.id,
+          file_name: row.file_name || "Attached file",
+          file_path: row.file_path,
+          file_size: null,
+          mime_type: null,
+          sort_order: 1,
+          legacy: true
+        }];
+      }
+
+      return [];
+    }
+
+    function fileButtonLabel(row) {
+      const count = filesForRequest(row).length;
+      if (!count) return "";
+      return count === 1 ? "File" : `Files ${count}`;
+    }
+
     function renderAssignedOptions() {
       els.assignedFilter.innerHTML = ['<option value="">All</option>']
         .concat(
@@ -1207,21 +1302,23 @@
       setStatus("Loading payment requests...");
 
       try {
-        const [user, profiles, rows, activityRows] = await Promise.all([
+        const [user, profiles, rows, activityRows, files] = await Promise.all([
           getCurrentUser(),
           fetchProfiles(),
           fetchRows(),
-          fetchActivityRows()
+          fetchActivityRows(),
+          fetchRequestFiles()
         ]);
 
         state.currentUser = user;
         state.profiles = profiles;
         state.rows = rows || [];
         state.activityRows = activityRows || [];
+        state.files = files || [];
 
         renderAssignedOptions();
         refreshAll();
-        setStatus(`Loaded ${formatNumber(state.rows.length)} payment requests.`);
+        setStatus(`Loaded ${formatNumber(state.rows.length)} payment requests and ${formatNumber(state.files.length)} file attachment rows.`);
       } catch (err) {
         console.error(err);
         setStatus(`Load failed: ${err.message || "Unknown error"}`, true);
@@ -1414,8 +1511,8 @@
           <td>
             <div class="flex flex-wrap gap-1.5">
               <button class="btn btn-soft btn-xs open-drawer-btn" data-id="${escapeHtml(r.id)}">Edit</button>
-              ${r.file_path
-                ? `<button class="btn btn-soft btn-xs open-file-btn" data-id="${escapeHtml(r.id)}">File</button>`
+              ${filesForRequest(r).length
+                ? `<button class="btn btn-soft btn-xs open-file-btn" data-id="${escapeHtml(r.id)}">${escapeHtml(fileButtonLabel(r))}</button>`
                 : ``}
               ${r.completed ? `<button class="btn btn-soft btn-xs" disabled>Paid</button>` : `<button class="btn btn-soft btn-xs quick-paid-btn" data-id="${escapeHtml(r.id)}">Paid</button>`}
             </div>
@@ -1656,32 +1753,48 @@
       if (error) throw error;
     }
 
-    async function openFileForRow(id, shouldLog = true) {
+    async function openFilePath(filePath, fileName = "attached document", requestId = null, shouldLog = true) {
       try {
-        const row = state.rows.find(r => r.id === id);
-        if (!row?.file_path) {
+        if (!filePath) {
           showToast("No file attached.");
           return;
         }
-        const url = await createSignedUrl(row.file_path);
+
+        const url = await createSignedUrl(filePath);
         if (!url) throw new Error("No signed URL returned.");
-        if (shouldLog) {
+
+        if (shouldLog && requestId) {
           try {
             await logActivity({
-              requestId: row.id,
+              requestId,
               activityType: "file_opened",
-              message: `Opened file: ${row.file_name || "attached document"}`
+              message: `Opened file: ${fileName || "attached document"}`
             });
             await loadData();
           } catch (logErr) {
             console.error(logErr);
           }
         }
+
         window.open(url, "_blank", "noopener,noreferrer");
       } catch (err) {
         console.error(err);
         showToast(`File open failed: ${err.message || "Unknown error"}`, true);
       }
+    }
+
+    async function openFileForRow(id, shouldLog = true) {
+      const row = state.rows.find(r => r.id === id);
+      if (!row) return;
+
+      const files = filesForRequest(row);
+      if (!files.length) {
+        showToast("No file attached.");
+        return;
+      }
+
+      const first = files[0];
+      await openFilePath(first.file_path, first.file_name || "attached document", row.id, shouldLog);
     }
 
     async function openDrawer(id) {
@@ -1712,11 +1825,38 @@
       els.fPaymentDetail.value = row.payment_detail || "";
       els.fInternalNotes.value = row.internal_notes || "";
 
-      els.fileMeta.textContent = row.file_name
-        ? `${row.file_name}`
+      const rowFiles = filesForRequest(row);
+
+      els.fileMeta.innerHTML = rowFiles.length
+        ? `<div class="file-list">${rowFiles.map((file, index) => `
+            <div class="file-row">
+              <div class="min-w-0">
+                <div class="file-row-name">${escapeHtml(file.file_name || `File ${index + 1}`)}</div>
+                <div class="file-row-meta">${escapeHtml([formatBytes(file.file_size), file.mime_type || "", file.legacy ? "legacy" : ""].filter(Boolean).join(" · ") || "Attachment")}</div>
+              </div>
+              <button
+                class="btn btn-soft btn-xs open-drawer-file-btn"
+                type="button"
+                data-path="${escapeHtml(file.file_path)}"
+                data-name="${escapeHtml(file.file_name || `File ${index + 1}`)}"
+              >Open</button>
+            </div>
+          `).join("")}</div>`
         : "No file attached";
 
-      els.openFileBtn.disabled = !row.file_path;
+      document.querySelectorAll(".open-drawer-file-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          await openFilePath(
+            btn.getAttribute("data-path"),
+            btn.getAttribute("data-name"),
+            row.id,
+            true
+          );
+        });
+      });
+
+      els.openFileBtn.disabled = !rowFiles.length;
+      els.openFileBtn.textContent = rowFiles.length > 1 ? `Open first file (${rowFiles.length})` : "Open file";
 
       els.drawerSnapshot.innerHTML = `
         <div class="mini-card">
@@ -1738,6 +1878,10 @@
         <div class="mini-card">
           <div class="label">Assigned</div>
           <div class="value">${escapeHtml(assignedName(row.assigned_to))}</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">Files</div>
+          <div class="value mono">${formatNumber(rowFiles.length)}</div>
         </div>
         <div class="mini-card">
           <div class="label">Due bucket</div>
@@ -1956,7 +2100,7 @@
       els.endDate.value = "";
       state.queueFilter = "open";
       refreshAll();
-      setStatus(`Loaded ${formatNumber(state.rows.length)} payment requests.`);
+      setStatus(`Loaded ${formatNumber(state.rows.length)} payment requests and ${formatNumber(state.files.length)} file attachment rows.`);
     }
 
     function setActiveTab(tab) {
