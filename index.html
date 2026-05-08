@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SILO</title>
 
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700&display=swap" rel="stylesheet"/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;600;700&display=swap" rel="stylesheet" />
 
   <style>
     :root {
@@ -15,6 +15,9 @@
       --muted: #64748b;
       --border: #e2e8f0;
       --accent: #2563eb;
+      --danger: #991b1b;
+      --dangerBg: #fef2f2;
+      --dangerBorder: #fecaca;
     }
 
     * { box-sizing: border-box; }
@@ -25,7 +28,7 @@
       display: grid;
       place-items: center;
       background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
-      font-family: Inter, system-ui, sans-serif;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       color: var(--text);
     }
 
@@ -81,11 +84,20 @@
       color: var(--text);
     }
 
+    .status.error {
+      background: var(--dangerBg);
+      border-color: var(--dangerBorder);
+      color: var(--danger);
+    }
+
     .sub {
       margin-top: 10px;
       color: var(--muted);
       font-size: 13px;
+      line-height: 1.45;
     }
+
+    .status.error .sub { color: #7f1d1d; }
 
     .spinner {
       width: 18px;
@@ -99,6 +111,8 @@
       animation: spin 0.9s linear infinite;
     }
 
+    .status.error .spinner { display: none; }
+
     @keyframes spin {
       to { transform: rotate(360deg); }
     }
@@ -107,16 +121,25 @@
       margin-top: 16px;
       display: none;
       font-size: 14px;
+      line-height: 1.5;
     }
 
     .link a {
       color: var(--accent);
       text-decoration: none;
-      font-weight: 600;
+      font-weight: 700;
     }
 
-    .link a:hover {
-      text-decoration: underline;
+    .link a:hover { text-decoration: underline; }
+
+    .meta {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+      display: none;
     }
   </style>
 </head>
@@ -130,13 +153,14 @@
       </div>
     </div>
 
-    <div class="status">
-      <span class="spinner"></span>
+    <div class="status" id="statusBox">
+      <span class="spinner" id="spinner"></span>
       <span id="statusText">Checking your sign-in flow.</span>
       <div class="sub" id="subText">You will be redirected automatically.</div>
     </div>
 
     <div class="link" id="manualLink"></div>
+    <div class="meta" id="debugMeta"></div>
   </div>
 
   <script src="/pages/config.js"></script>
@@ -147,9 +171,15 @@
     const SUPABASE_URL = config.SUPABASE_URL;
     const SUPABASE_ANON_KEY = config.SUPABASE_ANON_KEY;
 
+    const DEFAULT_APP_PAGE = "/finance.html";
+    const LOGIN_PAGE = "/pages/login.html";
+    const SET_PASSWORD_PAGE = "/pages/set-password.html";
+
+    const statusBox = document.getElementById("statusBox");
     const statusText = document.getElementById("statusText");
     const subText = document.getElementById("subText");
     const manualLink = document.getElementById("manualLink");
+    const debugMeta = document.getElementById("debugMeta");
 
     function hasAuthHash(hash) {
       if (!hash) return false;
@@ -169,51 +199,154 @@
       manualLink.innerHTML = `<a href="${url}">${label}</a>`;
     }
 
-    function go(url, delay = 700) {
+    function showDebug(message) {
+      debugMeta.style.display = "block";
+      debugMeta.textContent = message;
+    }
+
+    function setError(message, detail, linkLabel = "Go to login", linkUrl = LOGIN_PAGE) {
+      statusBox.classList.add("error");
+      statusText.textContent = message;
+      subText.textContent = detail || "Use the link below to continue.";
+      showManualLink(linkLabel, linkUrl);
+    }
+
+    function safePath(value) {
+      const path = String(value || "").trim();
+      if (!path) return "";
+
+      // Keep redirects internal only.
+      if (!path.startsWith("/")) return "";
+      if (path.startsWith("//")) return "";
+
+      // Prevent auth router/login loops.
+      if (path === "/" || path === "/index.html") return "";
+      if (path === LOGIN_PAGE) return "";
+      if (path === "/pages/department-access.html") return "";
+
+      return path;
+    }
+
+    function go(url, delay = 600) {
       setTimeout(() => {
         window.location.replace(url);
       }, delay);
     }
 
+    function routeForProfile(profile) {
+      const role = String(profile?.role || "").toLowerCase();
+      const department = String(profile?.department || "").toLowerCase();
+      const defaultPage = safePath(profile?.default_page);
+
+      if (defaultPage) return defaultPage;
+
+      // Keep signed-in users off login/department-access. Finance is the current stable SILO landing.
+      if (role === "owner" || role === "admin") return DEFAULT_APP_PAGE;
+      if (department === "finance" || department === "exec" || department === "executive") return DEFAULT_APP_PAGE;
+      if (department === "ops" || department === "operations") return "/pages/ops.html";
+      if (department === "planning") return "/pages/planning.html";
+      if (department === "marketing") return "/marketing.html";
+      if (department === "retail") return "/retail.html";
+
+      return DEFAULT_APP_PAGE;
+    }
+
+    async function getProfileRoute(supabase, userId) {
+      if (!userId) return DEFAULT_APP_PAGE;
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("role, department, default_page, is_active")
+        .eq("id", userId)
+        .maybeSingle();
+
+      if (error) {
+        console.error("Profile lookup failed:", error);
+        return DEFAULT_APP_PAGE;
+      }
+
+      if (data && data.is_active === false) {
+        throw new Error("Your SILO account exists but is not active yet. Ask an admin to activate your profile.");
+      }
+
+      return routeForProfile(data || {});
+    }
+
     async function init() {
       const hash = window.location.hash || "";
 
-      // 1. Invite / recovery / magic link hash present
+      // 1. Invite / recovery / magic link hash present.
+      // Do not check session first here; password setup needs the hash preserved.
       if (hasAuthHash(hash)) {
-        statusText.textContent = "Invite detected. Sending you to account setup.";
+        const setupUrl = `${SET_PASSWORD_PAGE}${hash}`;
+        statusText.textContent = "Invite or password setup detected. Sending you to account setup.";
         subText.textContent = "Finish setup first, then continue into SILO.";
-        showManualLink("Continue to setup", `/pages/set-password.html${hash}`);
-        go(`/pages/set-password.html${hash}`);
+        showManualLink("Continue to setup", setupUrl);
+        go(setupUrl);
         return;
       }
 
-      // 2. If Supabase config exists, check real auth session
-      if (SUPABASE_URL && SUPABASE_ANON_KEY) {
-        try {
-          const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-          const { data, error } = await supabase.auth.getSession();
-
-          if (error) {
-            console.error("Session check failed:", error);
-          }
-
-          if (data?.session) {
-            statusText.textContent = "You are already signed in. Sending you to SILO.";
-            subText.textContent = "Your session is active in this browser.";
-            showManualLink("Continue to department access", "/pages/department-access.html");
-            go("/pages/department-access.html");
-            return;
-          }
-        } catch (err) {
-          console.error("Supabase init failed:", err);
-        }
+      // 2. Missing config should fail visibly instead of bouncing forever.
+      if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+        setError(
+          "SILO config is missing.",
+          "The page could not load /pages/config.js or the Supabase keys are unavailable.",
+          "Go to login",
+          LOGIN_PAGE
+        );
+        showDebug("Missing SUPABASE_URL or SUPABASE_ANON_KEY from window.__SILO_CONFIG__.");
+        return;
       }
 
-      // 3. No session -> login
-      statusText.textContent = "No active session found. Sending you to login.";
-      subText.textContent = "Use your SILO email login to continue.";
-      showManualLink("Go to login", "/pages/login.html");
-      go("/pages/login.html");
+      try {
+        const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        const { data, error } = await supabase.auth.getSession();
+
+        if (error) {
+          console.error("Session check failed:", error);
+          throw error;
+        }
+
+        // 3. Signed-in users go to app landing, not login and not department-access.
+        if (data?.session?.user) {
+          let target = DEFAULT_APP_PAGE;
+
+          try {
+            target = await getProfileRoute(supabase, data.session.user.id);
+          } catch (profileErr) {
+            setError(
+              "Account access is not active.",
+              profileErr?.message || "Your profile could not be validated.",
+              "Go to login",
+              LOGIN_PAGE
+            );
+            return;
+          }
+
+          target = safePath(target) || DEFAULT_APP_PAGE;
+
+          statusText.textContent = "You are already signed in. Sending you to SILO.";
+          subText.textContent = "Your session is active in this browser.";
+          showManualLink("Continue to SILO", target);
+          go(target);
+          return;
+        }
+
+        // 4. No session -> login.
+        statusText.textContent = "No active session found. Sending you to login.";
+        subText.textContent = "Use your SILO email login to continue.";
+        showManualLink("Go to login", LOGIN_PAGE);
+        go(LOGIN_PAGE);
+      } catch (err) {
+        console.error("SILO auth router failed:", err);
+        setError(
+          "Could not verify your session.",
+          "This usually means the auth config or Supabase session check failed. Try login directly.",
+          "Go to login",
+          LOGIN_PAGE
+        );
+        showDebug(err?.message || String(err));
+      }
     }
 
     init();
