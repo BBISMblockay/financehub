@@ -257,21 +257,18 @@
 
             <div class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
               <div class="md:col-span-2">
-                <label class="mb-2 block text-sm font-semibold text-slate-700">Vendor</label>
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Vendor<span class="required-dot">*</span></label>
                 <input
                   id="vendorName"
                   class="input"
                   list="vendorOptions"
-                  placeholder="Select or type vendor name"
+                  placeholder="Select existing vendor or type new vendor"
                   autocomplete="off"
+                  required
                 />
                 <datalist id="vendorOptions"></datalist>
-                <div class="help">Select a vendor if listed, or type a new one manually.</div>
-              </div>
-
-              <div class="md:col-span-2">
-                <label class="mb-2 block text-sm font-semibold text-slate-700">Vendor not listed / manual vendor</label>
-                <input id="vendorNameManual" class="input" placeholder="Manual vendor name if needed" />
+                <input id="vendorNameManual" type="hidden" value="" />
+                <div class="help">Start typing to select a vendor used on prior requests, or enter a new vendor name.</div>
               </div>
 
               <div>
@@ -336,16 +333,16 @@
               </div>
 
               <div class="md:col-span-2">
-                <label class="mb-2 block text-sm font-semibold text-slate-700">Upload document</label>
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Upload documents</label>
                 <div class="upload-box">
                   <input
-  id="requestFile"
-  type="file"
-  class="file-input"
-  accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.doc,.docx"
-  multiple
-/>
-                  <div class="help">Accepted examples: invoice PDF, images, spreadsheets, or supporting documents. You may attach multiple files.</div>
+                    id="requestFile"
+                    type="file"
+                    class="file-input"
+                    accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.doc,.docx"
+                    multiple
+                  />
+                  <div class="help">Accepted examples: invoice PDFs, images, spreadsheets, or supporting documents. You may attach multiple files.</div>
                 </div>
               </div>
 
@@ -381,8 +378,8 @@
             <div id="successRequestId" class="mt-2 font-bold mono text-slate-900">—</div>
           </div>
           <div class="notice">
-            <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">File uploaded</div>
-            <div id="successFileName" class="mt-2 font-bold text-slate-900">No file</div>
+            <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Files uploaded</div>
+            <div id="successFileName" class="mt-2 font-bold text-slate-900">No files</div>
           </div>
         </div>
         <div class="mt-4 flex gap-3">
@@ -638,18 +635,16 @@
       "ZHANJIA INT'L LIMITED"
     ];
 
-    function populateVendorOptions() {
-      const vendorOptions = document.getElementById("vendorOptions");
-      if (!vendorOptions) return;
-
-      vendorOptions.innerHTML = VENDORS
-        .slice()
-        .sort((a, b) => a.localeCompare(b))
-        .map(v => `<option value="${v.replace(/"/g, "&quot;")}"></option>`)
-        .join("");
-    }
-
     let currentUser = null;
+
+    function escapeAttr(value) {
+      return String(value || "").replace(/[&<>"]/g, m => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;"
+      }[m]));
+    }
 
     function normalizeName(value) {
       return String(value || "")
@@ -663,6 +658,60 @@
 
     function normalizeEmail(value) {
       return String(value || "").trim().toLowerCase();
+    }
+
+    async function fetchPriorVendors() {
+      const { data, error } = await supabaseClient
+        .from("payment_requests")
+        .select("vendor_name, vendor_name_manual")
+        .order("created_at", { ascending: false })
+        .limit(1000);
+
+      if (error) throw error;
+
+      const vendorMap = new Map();
+
+      (data || []).forEach(row => {
+        [row.vendor_name, row.vendor_name_manual].forEach(name => {
+          const clean = String(name || "").trim();
+          if (!clean) return;
+
+          const key = normalizeName(clean);
+          if (key && !vendorMap.has(key)) vendorMap.set(key, clean);
+        });
+      });
+
+      return Array.from(vendorMap.values()).sort((a, b) => a.localeCompare(b));
+    }
+
+    async function populateVendorOptions() {
+      const vendorOptions = document.getElementById("vendorOptions");
+      if (!vendorOptions) return;
+
+      try {
+        const priorVendors = await fetchPriorVendors();
+        const vendorMap = new Map();
+
+        [...priorVendors, ...VENDORS].forEach(name => {
+          const clean = String(name || "").trim();
+          if (!clean) return;
+          const key = normalizeName(clean);
+          if (key && !vendorMap.has(key)) vendorMap.set(key, clean);
+        });
+
+        vendorOptions.innerHTML = Array.from(vendorMap.values())
+          .sort((a, b) => a.localeCompare(b))
+          .map(v => `<option value="${escapeAttr(v)}"></option>`)
+          .join("");
+      } catch (error) {
+        console.error("Vendor load failed:", error);
+
+        vendorOptions.innerHTML = VENDORS
+          .slice()
+          .sort((a, b) => a.localeCompare(b))
+          .map(v => `<option value="${escapeAttr(v)}"></option>`)
+          .join("");
+      }
     }
 
     function showStatus(message, type = "info") {
@@ -716,39 +765,39 @@
     }
 
     async function uploadFiles(fileList, requestId) {
-  const files = Array.from(fileList || []);
-  if (!files.length) return [];
+      const files = Array.from(fileList || []);
+      if (!files.length) return [];
 
-  const uploaded = [];
+      const uploaded = [];
 
-  for (let index = 0; index < files.length; index += 1) {
-    const file = files[index];
-    const safeName = file.name.replace(/[^\w.\-]/g, "_");
-    const path = `${requestId}/${Date.now()}-${index + 1}-${safeName}`;
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        const safeName = file.name.replace(/[^\w.\-]/g, "_");
+        const path = `${requestId}/${Date.now()}-${index + 1}-${safeName}`;
 
-    const { error: uploadError } = await supabaseClient.storage
-      .from(BUCKET)
-      .upload(path, file, {
-        cacheControl: "3600",
-        upsert: false
-      });
+        const { error: uploadError } = await supabaseClient.storage
+          .from(BUCKET)
+          .upload(path, file, {
+            cacheControl: "3600",
+            upsert: false
+          });
 
-    if (uploadError) throw uploadError;
+        if (uploadError) throw uploadError;
 
-    uploaded.push({
-      payment_request_id: requestId,
-      file_name: file.name,
-      file_path: path,
-      file_url: null,
-      file_size: file.size || null,
-      mime_type: file.type || null,
-      sort_order: index + 1,
-      created_by: currentUser?.id || null
-    });
-  }
+        uploaded.push({
+          payment_request_id: requestId,
+          file_name: file.name,
+          file_path: path,
+          file_url: null,
+          file_size: file.size || null,
+          mime_type: file.type || null,
+          sort_order: index + 1,
+          created_by: currentUser?.id || null
+        });
+      }
 
-  return uploaded;
-}
+      return uploaded;
+    }
 
     async function createPaymentRequest(event) {
       event.preventDefault();
@@ -761,10 +810,14 @@
       }
 
       const vendorName = els.vendorName.value.trim();
-      const vendorNameManual = els.vendorNameManual.value.trim();
       const requesterEmail = els.requesterEmail.value.trim();
       const requestType = els.requestType.value;
       const amountDue = Number(els.amountDue.value);
+
+      if (!vendorName) {
+        showStatus("Vendor is required.", "error");
+        return;
+      }
 
       if (!requestType) {
         showStatus("Please select a request type.", "error");
@@ -785,20 +838,20 @@
 
       try {
         const requestId = crypto.randomUUID();
-const uploadedFiles = await uploadFiles(els.requestFile.files, requestId);
+        const uploadedFiles = await uploadFiles(els.requestFile.files, requestId);
 
-const primaryFile = uploadedFiles[0] || {
-  file_name: null,
-  file_path: null,
-  file_url: null
-};
+        const primaryFile = uploadedFiles[0] || {
+          file_name: null,
+          file_path: null,
+          file_url: null
+        };
 
         const payload = {
           id: requestId,
           vendor_name: vendorName || null,
           vendor_name_norm: normalizeName(vendorName),
-          vendor_name_manual: vendorNameManual || null,
-          vendor_name_manual_norm: normalizeName(vendorNameManual),
+          vendor_name_manual: null,
+          vendor_name_manual_norm: null,
           request_type: requestType,
           invoice_number: els.invoiceNumber.value.trim() || null,
           flex_id: els.flexId.value.trim() || null,
@@ -810,8 +863,8 @@ const primaryFile = uploadedFiles[0] || {
           location_name: els.locationName.value.trim() || null,
           notes_comments: els.notesComments.value.trim() || null,
           file_name: primaryFile.file_name,
-file_path: primaryFile.file_path,
-file_url: primaryFile.file_url,
+          file_path: primaryFile.file_path,
+          file_url: primaryFile.file_url,
           workflow_status: "new",
           completed: false,
           created_by: currentUser?.id || null,
@@ -825,17 +878,17 @@ file_url: primaryFile.file_url,
         if (insertError) throw insertError;
 
         if (uploadedFiles.length) {
-  const { error: fileRowsError } = await supabaseClient
-    .from("payment_request_files")
-    .insert(uploadedFiles);
+          const { error: fileRowsError } = await supabaseClient
+            .from("payment_request_files")
+            .insert(uploadedFiles);
 
-  if (fileRowsError) throw fileRowsError;
-}
+          if (fileRowsError) throw fileRowsError;
+        }
 
         els.successRequestId.textContent = requestId;
         els.successFileName.textContent = uploadedFiles.length
-  ? `${uploadedFiles.length} file${uploadedFiles.length === 1 ? "" : "s"} attached`
-  : "No files attached";
+          ? `${uploadedFiles.length} file${uploadedFiles.length === 1 ? "" : "s"} attached`
+          : "No files attached";
 
         els.appCard.classList.add("hidden");
         els.successCard.classList.remove("hidden");
@@ -849,8 +902,8 @@ file_url: primaryFile.file_url,
     }
 
     async function init() {
-      populateVendorOptions();
       await ensureAuth();
+      await populateVendorOptions();
 
       els.requestForm.addEventListener("submit", createPaymentRequest);
       els.resetBtn.addEventListener("click", resetForm);
@@ -858,6 +911,7 @@ file_url: primaryFile.file_url,
 
       supabaseClient.auth.onAuthStateChange(async () => {
         await ensureAuth();
+        await populateVendorOptions();
       });
     }
 
