@@ -243,8 +243,8 @@
       // Keep signed-in users off login/department-access. Finance is the current stable SILO landing.
       if (role === "owner" || role === "admin") return DEFAULT_APP_PAGE;
       if (department === "finance" || department === "exec" || department === "executive") return DEFAULT_APP_PAGE;
-      if (department === "ops" || department === "operations") return "/pages/ops.html";
-      if (department === "planning") return "/pages/planning.html";
+      if (department === "ops" || department === "operations") return "/ops.html";
+      if (department === "planning") return "/planning.html";
       if (department === "marketing") return "/marketing.html";
       if (department === "retail") return "/retail.html";
 
