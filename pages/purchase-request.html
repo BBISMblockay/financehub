@@ -338,8 +338,14 @@
               <div class="md:col-span-2">
                 <label class="mb-2 block text-sm font-semibold text-slate-700">Upload document</label>
                 <div class="upload-box">
-                  <input id="requestFile" type="file" class="file-input" accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.doc,.docx" />
-                  <div class="help">Accepted examples: invoice PDF, image, spreadsheet, or supporting document.</div>
+                  <input
+  id="requestFile"
+  type="file"
+  class="file-input"
+  accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.doc,.docx"
+  multiple
+/>
+                  <div class="help">Accepted examples: invoice PDF, images, spreadsheets, or supporting documents. You may attach multiple files.</div>
                 </div>
               </div>
 
@@ -709,27 +715,40 @@
       return true;
     }
 
-    async function uploadFile(file, requestId) {
-      if (!file) return { file_name: null, file_path: null, file_url: null };
+    async function uploadFiles(fileList, requestId) {
+  const files = Array.from(fileList || []);
+  if (!files.length) return [];
 
-      const safeName = file.name.replace(/[^\w.\-]/g, "_");
-      const path = `${requestId}/${Date.now()}-${safeName}`;
+  const uploaded = [];
 
-      const { error: uploadError } = await supabaseClient.storage
-        .from(BUCKET)
-        .upload(path, file, {
-          cacheControl: "3600",
-          upsert: false
-        });
+  for (let index = 0; index < files.length; index += 1) {
+    const file = files[index];
+    const safeName = file.name.replace(/[^\w.\-]/g, "_");
+    const path = `${requestId}/${Date.now()}-${index + 1}-${safeName}`;
 
-      if (uploadError) throw uploadError;
+    const { error: uploadError } = await supabaseClient.storage
+      .from(BUCKET)
+      .upload(path, file, {
+        cacheControl: "3600",
+        upsert: false
+      });
 
-      return {
-        file_name: file.name,
-        file_path: path,
-        file_url: null
-      };
-    }
+    if (uploadError) throw uploadError;
+
+    uploaded.push({
+      payment_request_id: requestId,
+      file_name: file.name,
+      file_path: path,
+      file_url: null,
+      file_size: file.size || null,
+      mime_type: file.type || null,
+      sort_order: index + 1,
+      created_by: currentUser?.id || null
+    });
+  }
+
+  return uploaded;
+}
 
     async function createPaymentRequest(event) {
       event.preventDefault();
@@ -766,8 +785,13 @@
 
       try {
         const requestId = crypto.randomUUID();
-        const file = els.requestFile.files?.[0] || null;
-        const fileMeta = await uploadFile(file, requestId);
+const uploadedFiles = await uploadFiles(els.requestFile.files, requestId);
+
+const primaryFile = uploadedFiles[0] || {
+  file_name: null,
+  file_path: null,
+  file_url: null
+};
 
         const payload = {
           id: requestId,
@@ -785,9 +809,9 @@
           requester_email_norm: normalizeEmail(requesterEmail),
           location_name: els.locationName.value.trim() || null,
           notes_comments: els.notesComments.value.trim() || null,
-          file_name: fileMeta.file_name,
-          file_path: fileMeta.file_path,
-          file_url: fileMeta.file_url,
+          file_name: primaryFile.file_name,
+file_path: primaryFile.file_path,
+file_url: primaryFile.file_url,
           workflow_status: "new",
           completed: false,
           created_by: currentUser?.id || null,
@@ -800,8 +824,18 @@
 
         if (insertError) throw insertError;
 
+        if (uploadedFiles.length) {
+  const { error: fileRowsError } = await supabaseClient
+    .from("payment_request_files")
+    .insert(uploadedFiles);
+
+  if (fileRowsError) throw fileRowsError;
+}
+
         els.successRequestId.textContent = requestId;
-        els.successFileName.textContent = fileMeta.file_name || "No file attached";
+        els.successFileName.textContent = uploadedFiles.length
+  ? `${uploadedFiles.length} file${uploadedFiles.length === 1 ? "" : "s"} attached`
+  : "No files attached";
 
         els.appCard.classList.add("hidden");
         els.successCard.classList.remove("hidden");
