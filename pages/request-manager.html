@@ -1417,7 +1417,7 @@
               ${r.file_path
                 ? `<button class="btn btn-soft btn-xs open-file-btn" data-id="${escapeHtml(r.id)}">File</button>`
                 : ``}
-              <button class="btn btn-soft btn-xs quick-paid-btn" data-id="${escapeHtml(r.id)}">Paid</button>
+              ${r.completed ? `<button class="btn btn-soft btn-xs" disabled>Paid</button>` : `<button class="btn btn-soft btn-xs quick-paid-btn" data-id="${escapeHtml(r.id)}">Paid</button>`}
             </div>
           </td>
         </tr>
@@ -1774,6 +1774,22 @@
       state.currentRow = null;
     }
 
+    async function updatePaymentRequestOrThrow(id, payload) {
+      const { data, error } = await supabaseClient
+        .from("payment_requests")
+        .update(payload)
+        .eq("id", id)
+        .select("id")
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data?.id) {
+        throw new Error("No row was updated. This usually means RLS/auth blocked the update or the request id does not match the base payment_requests row.");
+      }
+
+      return data;
+    }
+
     async function saveRow({ markPaid = false } = {}) {
       if (!state.currentRow) return;
 
@@ -1801,12 +1817,10 @@
           updated_by: state.currentUser?.id || null
         };
 
-        const { error } = await supabaseClient
-          .from("payment_requests")
-          .update(payload)
-          .eq("id", state.currentRow.id);
+        await updatePaymentRequestOrThrow(state.currentRow.id, payload);
 
-        if (error) throw error;
+        state.rows = state.rows.map(r => r.id === state.currentRow.id ? { ...r, ...payload } : r);
+        refreshAll();
 
         const activityPromises = [];
 
@@ -1901,17 +1915,17 @@
     async function quickMarkPaid(id) {
       try {
         const row = state.rows.find(r => r.id === id);
-        const { error } = await supabaseClient
-          .from("payment_requests")
-          .update({
-            workflow_status: "paid",
-            completed: true,
-            date_completed: new Date().toISOString().slice(0, 10),
-            updated_by: state.currentUser?.id || null
-          })
-          .eq("id", id);
+        const payload = {
+          workflow_status: "paid",
+          completed: true,
+          date_completed: new Date().toISOString().slice(0, 10),
+          updated_by: state.currentUser?.id || null
+        };
 
-        if (error) throw error;
+        await updatePaymentRequestOrThrow(id, payload);
+
+        state.rows = state.rows.map(r => r.id === id ? { ...r, ...payload } : r);
+        refreshAll();
 
         await logActivity({
           requestId: id,
