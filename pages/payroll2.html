@@ -873,38 +873,37 @@
     }
 
     function initSupabase() {
-  const cfg =
+  const rawConfig =
     window.__SILO_CONFIG ||
     window.SILO_CONFIG ||
     window.siloConfig ||
     window.SUPABASE_CONFIG ||
     {};
 
+  console.log("Config debug raw:", rawConfig);
+
   const url =
+    rawConfig.SUPABASE_URL ||
+    rawConfig.supabaseUrl ||
+    rawConfig.url ||
     window.SUPABASE_URL ||
     window.supabaseUrl ||
-    window.SILO_SUPABASE_URL ||
-    window.NEXT_PUBLIC_SUPABASE_URL ||
-    cfg.SUPABASE_URL ||
-    cfg.supabaseUrl ||
-    cfg.url;
+    window.SILO_SUPABASE_URL;
 
   const key =
+    rawConfig.SUPABASE_ANON_KEY ||
+    rawConfig.supabaseAnonKey ||
+    rawConfig.anonKey ||
     window.SUPABASE_ANON_KEY ||
     window.supabaseAnonKey ||
-    window.SILO_SUPABASE_ANON_KEY ||
-    window.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
-    cfg.SUPABASE_ANON_KEY ||
-    cfg.supabaseAnonKey ||
-    cfg.anonKey;
+    window.SILO_SUPABASE_ANON_KEY;
 
   if (!url || !key) {
-    console.log("Config debug:", {
-      __SILO_CONFIG: window.__SILO_CONFIG,
-      SILO_CONFIG: window.SILO_CONFIG,
-      SUPABASE_CONFIG: window.SUPABASE_CONFIG,
-      SUPABASE_URL: window.SUPABASE_URL,
-      SUPABASE_ANON_KEY: window.SUPABASE_ANON_KEY
+    console.error("Resolved Supabase config:", {
+      rawConfig,
+      url,
+      hasKey: !!key,
+      __SILO_CONFIG: window.__SILO_CONFIG
     });
 
     throw new Error("Missing Supabase config. Check /pages/config.js.");
@@ -987,7 +986,14 @@
       document.getElementById("batchModal").classList.remove("show");
     }
 
+    
+
     async function createBatch() {
+  if (!supabaseClient || !currentUser) {
+    showToast("Supabase/auth is not ready yet. Refresh after config loads.");
+    return;
+  }
+      const batchName = cleanText(document.getElementById("batchNameInput").value);
       const batchName = cleanText(document.getElementById("batchNameInput").value);
       const payPeriodStart = nullIfBlank(document.getElementById("periodStartInput").value);
       const payPeriodEnd = nullIfBlank(document.getElementById("periodEndInput").value);
