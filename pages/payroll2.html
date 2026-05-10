@@ -1357,14 +1357,87 @@
       }
     }
 
-    function validateHeaders(rows, expectedHeaders, label) {
-      const actualHeaders = Object.keys(rows[0] || {}).map(cleanHeader);
-      const missing = expectedHeaders.filter(h => !actualHeaders.includes(cleanHeader(h)));
+    function normalizeHeaderKey(value) {
+  return String(value || "")
+    .replace(/\uFEFF/g, "")
+    .replace(/[\s._/%-]+/g, "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .toLowerCase()
+    .trim();
+}
 
-      if (missing.length) {
-        throw new Error(`Missing ${label} headers: ${missing.join(", ")}`);
-      }
-    }
+function buildHeaderLookup(row) {
+  const lookup = {};
+  Object.keys(row || {}).forEach(originalHeader => {
+    lookup[normalizeHeaderKey(originalHeader)] = originalHeader;
+  });
+  return lookup;
+}
+
+function findCsvHeader(row, expectedHeader) {
+  const lookup = buildHeaderLookup(row);
+  const key = normalizeHeaderKey(expectedHeader);
+
+  const aliases = {
+    eecode: ["eecode", "eecod", "employeecode", "employeenumber"],
+    eename: ["eename", "eenam", "employeename", "employee"],
+    badge: ["badge", "badgenumber"],
+    payclass: ["payclass", "payclas", "payclassdesc"],
+    eestatus: ["eestatus", "eestat", "employeestatus", "status"],
+    hiredate: ["hiredate", "hireda", "hireddate"],
+
+    homedepartmentcode: ["homedepartmentcode", "homedeptcode", "homedcode", "homed"],
+    homedepartmentdesc: ["homedepartmentdesc", "homedeptdesc", "homedesc", "homed"],
+    homelocationcode: ["homelocationcode", "homeloccode", "homelcode", "homel"],
+    homelocationdesc: ["homelocationdesc", "homelocdesc", "homeldesc", "homel"],
+
+    distributeddepartmentcode: ["distributeddepartmentcode", "distdepartmentcode", "distdeptcode", "distributeddeptcode", "distributu", "distribu"],
+    distributeddepartmentdesc: ["distributeddepartmentdesc", "distdepartmentdesc", "distdeptdesc", "distributeddeptdesc", "distributu", "distribu"],
+    distributedlocationcode: ["distributedlocationcode", "distlocationcode", "distloccode", "distributedloccode", "distributu", "distribu"],
+    distributedlocationdesc: ["distributedlocationdesc", "distlocationdesc", "distlocdesc", "distributedlocdesc", "distributu", "distribu"],
+
+    punchdate: ["punchdate", "punchdat", "date"],
+    earningcode: ["earningcode", "earncode", "earning"],
+    earningdesc: ["earningdesc", "earndesc", "earningdescription", "earning"],
+    position: ["position", "positio"],
+    positionfamily: ["positionfamily", "positionfam", "positio"],
+    schedulegroup: ["schedulegroup", "schedulegrp", "schedu"],
+    payclass: ["payclass", "payclas"],
+    avgearnrate: ["avgearnrate", "avgearnrate", "averageearnrate", "avgearnrate", "rate"],
+    hours: ["hours", "hrs"],
+    amount: ["amount", "amt"],
+
+    hourspcttodist: ["hourspcttodist", "hourstodist", "hourspercenttodist"],
+    hourspcttocompany: ["hourspcttocompany", "hourstocompany", "hourspercenttocompany"],
+    amountpcttodist: ["amountpcttodist", "amounttodist", "amountpercenttodist"],
+    amountpcttocompany: ["amountpcttocompany", "amounttocompany", "amountpercenttocompany"]
+  };
+
+  if (lookup[key]) return lookup[key];
+
+  const aliasList = aliases[key] || [];
+  for (const alias of aliasList) {
+    if (lookup[alias]) return lookup[alias];
+  }
+
+  return null;
+}
+
+function validateHeaders(rows, expectedHeaders, label) {
+  const firstRow = rows[0] || {};
+  const actualHeaders = Object.keys(firstRow || {});
+  const missing = [];
+
+  expectedHeaders.forEach(expectedHeader => {
+    const found = findCsvHeader(firstRow, expectedHeader);
+    if (!found) missing.push(expectedHeader);
+  });
+
+  if (missing.length) {
+    console.log(`${label} actual headers:`, actualHeaders);
+    throw new Error(`Missing ${label} headers: ${missing.join(", ")}`);
+  }
+}
 
     function cleanHeader(value) {
       return String(value || "")
