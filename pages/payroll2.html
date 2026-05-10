@@ -993,49 +993,49 @@
     showToast("Supabase/auth is not ready yet. Refresh after config loads.");
     return;
   }
-      const batchName = cleanText(document.getElementById("batchNameInput").value);
-      const batchName = cleanText(document.getElementById("batchNameInput").value);
-      const payPeriodStart = nullIfBlank(document.getElementById("periodStartInput").value);
-      const payPeriodEnd = nullIfBlank(document.getElementById("periodEndInput").value);
-      const checkDate = nullIfBlank(document.getElementById("checkDateInput").value);
-      const notes = nullIfBlank(document.getElementById("notesInput").value);
 
-      if (!batchName) {
-        showToast("Batch name is required.");
-        return;
-      }
+  const batchName = cleanText(document.getElementById("batchNameInput").value);
+  const payPeriodStart = nullIfBlank(document.getElementById("periodStartInput").value);
+  const payPeriodEnd = nullIfBlank(document.getElementById("periodEndInput").value);
+  const checkDate = nullIfBlank(document.getElementById("checkDateInput").value);
+  const notes = nullIfBlank(document.getElementById("notesInput").value);
 
-      setLoading(true);
+  if (!batchName) {
+    showToast("Batch name is required.");
+    return;
+  }
 
-      try {
-        const payload = {
-          batch_name: batchName,
-          pay_period_start: payPeriodStart,
-          pay_period_end: payPeriodEnd,
-          check_date: checkDate,
-          notes,
-          uploaded_by: currentUser.id
-        };
+  setLoading(true);
 
-        const { data, error } = await supabaseClient
-          .from("payroll_import_batches")
-          .insert(payload)
-          .select("*")
-          .single();
+  try {
+    const payload = {
+      batch_name: batchName,
+      pay_period_start: payPeriodStart,
+      pay_period_end: payPeriodEnd,
+      check_date: checkDate,
+      notes,
+      uploaded_by: currentUser.id
+    };
 
-        if (error) throw error;
+    const { data, error } = await supabaseClient
+      .from("payroll_import_batches")
+      .insert(payload)
+      .select("*")
+      .single();
 
-        closeBatchModal();
-        showToast("Payroll batch created.");
-        await loadBatches(data.id);
-        await loadSelectedBatchData();
-      } catch (error) {
-        console.error(error);
-        showToast(error.message || "Failed to create batch.");
-      } finally {
-        setLoading(false);
-      }
-    }
+    if (error) throw error;
+
+    closeBatchModal();
+    showToast("Payroll batch created.");
+    await loadBatches(data.id);
+    await loadSelectedBatchData();
+  } catch (error) {
+    console.error(error);
+    showToast(error.message || "Failed to create batch.");
+  } finally {
+    setLoading(false);
+  }
+}
 
     async function loadBatches(preselectId = null) {
       const { data, error } = await supabaseClient
