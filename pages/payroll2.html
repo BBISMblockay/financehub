@@ -873,24 +873,45 @@
     }
 
     function initSupabase() {
-      const url =
-        window.SUPABASE_URL ||
-        window.supabaseUrl ||
-        window.SUPABASE_CONFIG?.url ||
-        window.SUPABASE_CONFIG?.supabaseUrl;
+  const cfg =
+    window.__SILO_CONFIG ||
+    window.SILO_CONFIG ||
+    window.siloConfig ||
+    window.SUPABASE_CONFIG ||
+    {};
 
-      const key =
-        window.SUPABASE_ANON_KEY ||
-        window.supabaseAnonKey ||
-        window.SUPABASE_CONFIG?.anonKey ||
-        window.SUPABASE_CONFIG?.supabaseAnonKey;
+  const url =
+    window.SUPABASE_URL ||
+    window.supabaseUrl ||
+    window.SILO_SUPABASE_URL ||
+    window.NEXT_PUBLIC_SUPABASE_URL ||
+    cfg.SUPABASE_URL ||
+    cfg.supabaseUrl ||
+    cfg.url;
 
-      if (!url || !key) {
-        throw new Error("Missing Supabase config. Check /pages/config.js.");
-      }
+  const key =
+    window.SUPABASE_ANON_KEY ||
+    window.supabaseAnonKey ||
+    window.SILO_SUPABASE_ANON_KEY ||
+    window.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+    cfg.SUPABASE_ANON_KEY ||
+    cfg.supabaseAnonKey ||
+    cfg.anonKey;
 
-      supabaseClient = window.supabase.createClient(url, key);
-    }
+  if (!url || !key) {
+    console.log("Config debug:", {
+      __SILO_CONFIG: window.__SILO_CONFIG,
+      SILO_CONFIG: window.SILO_CONFIG,
+      SUPABASE_CONFIG: window.SUPABASE_CONFIG,
+      SUPABASE_URL: window.SUPABASE_URL,
+      SUPABASE_ANON_KEY: window.SUPABASE_ANON_KEY
+    });
+
+    throw new Error("Missing Supabase config. Check /pages/config.js.");
+  }
+
+  supabaseClient = window.supabase.createClient(url, key);
+}
 
     async function requireAuth() {
       const { data, error } = await supabaseClient.auth.getUser();
