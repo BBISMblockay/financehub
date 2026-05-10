@@ -21,7 +21,6 @@
       --green: #0f766e;
       --red: #b91c1c;
       --amber: #b45309;
-      --blue: #1d4ed8;
     }
 
     * {
@@ -119,6 +118,7 @@
       display: flex;
       flex-direction: column;
       gap: 1px;
+      min-width: 0;
     }
 
     .title {
@@ -130,6 +130,10 @@
     .subtitle {
       color: var(--muted);
       font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 820px;
     }
 
     .actions {
@@ -280,8 +284,8 @@
     .workbench {
       flex: 1;
       min-height: 0;
-      display: grid;
-      grid-template-columns: 1fr;
+      display: flex;
+      flex-direction: column;
       overflow: hidden;
     }
 
@@ -363,10 +367,6 @@
       font-variant-numeric: tabular-nums;
     }
 
-    .muted {
-      color: var(--muted);
-    }
-
     .pill {
       display: inline-flex;
       align-items: center;
@@ -403,7 +403,7 @@
       right: 14px;
       bottom: 14px;
       z-index: 100;
-      max-width: 460px;
+      max-width: 520px;
       background: #111827;
       color: white;
       border-radius: 12px;
@@ -525,6 +525,10 @@
       .kpi-strip {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
+
+      .modal-body {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </head>
@@ -556,7 +560,7 @@
       <div class="topbar">
         <div class="title-wrap">
           <div class="title">Payroll Workbench</div>
-          <div class="subtitle" id="userLine">Upload time punch + register files, save to Supabase, report by employee, department, and pay type.</div>
+          <div class="subtitle" id="userLine">Loading payroll workspace...</div>
         </div>
 
         <div class="actions">
@@ -615,7 +619,7 @@
           </div>
 
           <div class="field">
-            <label>Status</label>
+            <label>Filters</label>
             <button class="btn" onclick="clearFilters()">Clear</button>
           </div>
         </div>
@@ -663,7 +667,7 @@
           </div>
 
           <div class="table-wrap" id="tableWrap">
-            <div class="empty">Select or create a payroll batch to begin.</div>
+            <div class="empty">Loading...</div>
           </div>
         </section>
       </section>
@@ -715,8 +719,6 @@
   </div>
 
   <div class="toast" id="toast"></div>
-
-  <script src="/pages/config.js"></script>
 
   <script>
     let supabaseClient = null;
@@ -858,59 +860,94 @@
       "payroll_date"
     ]);
 
-    document.addEventListener("DOMContentLoaded", init);
+    document.addEventListener("DOMContentLoaded", bootstrap);
 
-    async function init() {
+    async function bootstrap() {
       try {
-        initSupabase();
-        await requireAuth();
-        await loadBatches();
-        await loadSelectedBatchData();
+        setLoading(true);
+        renderEmpty("Loading Supabase config...");
+        await ensureSiloConfigLoaded();
+        await init();
       } catch (error) {
         console.error(error);
-        showToast(error.message || "Failed to initialize payroll page.");
+        showToast(error.message || "Failed to start payroll page.");
+        renderEmpty(error.message || "Failed to start payroll page.");
+      } finally {
+        setLoading(false);
       }
     }
 
+    function ensureSiloConfigLoaded() {
+      return new Promise((resolve, reject) => {
+        if (window.__SILO_CONFIG?.SUPABASE_URL && window.__SILO_CONFIG?.SUPABASE_ANON_KEY) {
+          resolve();
+          return;
+        }
+
+        const existing = [...document.scripts].some(script => script.src && script.src.includes("/pages/config.js"));
+
+        if (existing) {
+          setTimeout(() => {
+            if (window.__SILO_CONFIG?.SUPABASE_URL && window.__SILO_CONFIG?.SUPABASE_ANON_KEY) {
+              resolve();
+            } else {
+              loadConfigScript(resolve, reject);
+            }
+          }, 150);
+          return;
+        }
+
+        loadConfigScript(resolve, reject);
+      });
+    }
+
+    function loadConfigScript(resolve, reject) {
+      const script = document.createElement("script");
+      script.src = "/pages/config.js?v=" + Date.now();
+
+      script.onload = () => {
+        if (window.__SILO_CONFIG?.SUPABASE_URL && window.__SILO_CONFIG?.SUPABASE_ANON_KEY) {
+          resolve();
+        } else {
+          reject(new Error("Config file loaded, but window.__SILO_CONFIG is missing Supabase values."));
+        }
+      };
+
+      script.onerror = () => {
+        reject(new Error("Could not load /pages/config.js."));
+      };
+
+      document.head.appendChild(script);
+    }
+
+    async function init() {
+      initSupabase();
+      await requireAuth();
+      await loadBatches();
+      await loadSelectedBatchData();
+    }
+
     function initSupabase() {
-  const rawConfig =
-    window.__SILO_CONFIG ||
-    window.SILO_CONFIG ||
-    window.siloConfig ||
-    window.SUPABASE_CONFIG ||
-    {};
+      const cfg = window.__SILO_CONFIG || {};
+      const url = cfg.SUPABASE_URL;
+      const key = cfg.SUPABASE_ANON_KEY;
 
-  console.log("Config debug raw:", rawConfig);
+      console.log("Resolved Supabase config:", {
+        hasConfig: !!window.__SILO_CONFIG,
+        url,
+        hasKey: !!key
+      });
 
-  const url =
-    rawConfig.SUPABASE_URL ||
-    rawConfig.supabaseUrl ||
-    rawConfig.url ||
-    window.SUPABASE_URL ||
-    window.supabaseUrl ||
-    window.SILO_SUPABASE_URL;
+      if (!url || !key) {
+        throw new Error("Missing Supabase config. Check /pages/config.js.");
+      }
 
-  const key =
-    rawConfig.SUPABASE_ANON_KEY ||
-    rawConfig.supabaseAnonKey ||
-    rawConfig.anonKey ||
-    window.SUPABASE_ANON_KEY ||
-    window.supabaseAnonKey ||
-    window.SILO_SUPABASE_ANON_KEY;
+      if (!window.supabase?.createClient) {
+        throw new Error("Supabase JS client failed to load.");
+      }
 
-  if (!url || !key) {
-    console.error("Resolved Supabase config:", {
-      rawConfig,
-      url,
-      hasKey: !!key,
-      __SILO_CONFIG: window.__SILO_CONFIG
-    });
-
-    throw new Error("Missing Supabase config. Check /pages/config.js.");
-  }
-
-  supabaseClient = window.supabase.createClient(url, key);
-}
+      supabaseClient = window.supabase.createClient(url, key);
+    }
 
     async function requireAuth() {
       const { data, error } = await supabaseClient.auth.getUser();
@@ -952,13 +989,19 @@
     }
 
     function setLoading(isLoading) {
-      document.getElementById("loadingLine").classList.toggle("show", !!isLoading);
-      document.getElementById("uploadTimeBtn").disabled = !!isLoading;
-      document.getElementById("uploadRegisterBtn").disabled = !!isLoading;
+      const loadingLine = document.getElementById("loadingLine");
+      const uploadTimeBtn = document.getElementById("uploadTimeBtn");
+      const uploadRegisterBtn = document.getElementById("uploadRegisterBtn");
+
+      if (loadingLine) loadingLine.classList.toggle("show", !!isLoading);
+      if (uploadTimeBtn) uploadTimeBtn.disabled = !!isLoading;
+      if (uploadRegisterBtn) uploadRegisterBtn.disabled = !!isLoading;
     }
 
     function showToast(message) {
       const toast = document.getElementById("toast");
+      if (!toast) return;
+
       toast.textContent = message;
       toast.classList.add("show");
       clearTimeout(showToast._timer);
@@ -986,58 +1029,58 @@
       document.getElementById("batchModal").classList.remove("show");
     }
 
-    
-
     async function createBatch() {
-  if (!supabaseClient || !currentUser) {
-    showToast("Supabase/auth is not ready yet. Refresh after config loads.");
-    return;
-  }
+      if (!supabaseClient || !currentUser) {
+        showToast("Supabase/auth is not ready yet. Refresh after config loads.");
+        return;
+      }
 
-  const batchName = cleanText(document.getElementById("batchNameInput").value);
-  const payPeriodStart = nullIfBlank(document.getElementById("periodStartInput").value);
-  const payPeriodEnd = nullIfBlank(document.getElementById("periodEndInput").value);
-  const checkDate = nullIfBlank(document.getElementById("checkDateInput").value);
-  const notes = nullIfBlank(document.getElementById("notesInput").value);
+      const batchName = cleanText(document.getElementById("batchNameInput").value);
+      const payPeriodStart = nullIfBlank(document.getElementById("periodStartInput").value);
+      const payPeriodEnd = nullIfBlank(document.getElementById("periodEndInput").value);
+      const checkDate = nullIfBlank(document.getElementById("checkDateInput").value);
+      const notes = nullIfBlank(document.getElementById("notesInput").value);
 
-  if (!batchName) {
-    showToast("Batch name is required.");
-    return;
-  }
+      if (!batchName) {
+        showToast("Batch name is required.");
+        return;
+      }
 
-  setLoading(true);
+      setLoading(true);
 
-  try {
-    const payload = {
-      batch_name: batchName,
-      pay_period_start: payPeriodStart,
-      pay_period_end: payPeriodEnd,
-      check_date: checkDate,
-      notes,
-      uploaded_by: currentUser.id
-    };
+      try {
+        const payload = {
+          batch_name: batchName,
+          pay_period_start: payPeriodStart,
+          pay_period_end: payPeriodEnd,
+          check_date: checkDate,
+          notes,
+          uploaded_by: currentUser.id
+        };
 
-    const { data, error } = await supabaseClient
-      .from("payroll_import_batches")
-      .insert(payload)
-      .select("*")
-      .single();
+        const { data, error } = await supabaseClient
+          .from("payroll_import_batches")
+          .insert(payload)
+          .select("*")
+          .single();
 
-    if (error) throw error;
+        if (error) throw error;
 
-    closeBatchModal();
-    showToast("Payroll batch created.");
-    await loadBatches(data.id);
-    await loadSelectedBatchData();
-  } catch (error) {
-    console.error(error);
-    showToast(error.message || "Failed to create batch.");
-  } finally {
-    setLoading(false);
-  }
-}
+        closeBatchModal();
+        showToast("Payroll batch created.");
+        await loadBatches(data.id);
+        await loadSelectedBatchData();
+      } catch (error) {
+        console.error(error);
+        showToast(error.message || "Failed to create batch.");
+      } finally {
+        setLoading(false);
+      }
+    }
 
     async function loadBatches(preselectId = null) {
+      if (!supabaseClient) return;
+
       const { data, error } = await supabaseClient
         .from("payroll_import_batches")
         .select("*")
@@ -1080,7 +1123,13 @@
     }
 
     async function reloadAll() {
+      if (!supabaseClient) {
+        showToast("Supabase is not ready.");
+        return;
+      }
+
       setLoading(true);
+
       try {
         await loadBatches(selectedBatchId);
         await loadSelectedBatchData();
@@ -1119,6 +1168,7 @@
       } catch (error) {
         console.error(error);
         showToast(error.message || "Failed to load payroll reporting.");
+        renderEmpty(error.message || "Failed to load payroll reporting.");
       } finally {
         setLoading(false);
       }
@@ -1228,6 +1278,7 @@
 
       try {
         const rows = await parseCsv(file);
+
         if (!rows.length) {
           showToast("CSV has no rows.");
           return;
@@ -1258,9 +1309,7 @@
           skipEmptyLines: true,
           transformHeader: h => cleanHeader(h),
           complete: results => {
-            if (results.errors?.length) {
-              console.warn(results.errors);
-            }
+            if (results.errors?.length) console.warn(results.errors);
             resolve(results.data || []);
           },
           error: reject
@@ -1282,7 +1331,9 @@
         }
 
         return mapped;
-      }).filter(row => Object.values(row).some(v => v !== null && v !== "" && v !== selectedBatchId && v !== fileName));
+      }).filter(row => {
+        return row.ee_code || row.ee_name || row.hours || row.amount || row.punch_date;
+      });
 
       if (!mappedRows.length) {
         throw new Error("No usable time punch rows found.");
@@ -1320,7 +1371,9 @@
         }
 
         return mapped;
-      }).filter(row => Object.values(row).some(v => v !== null && v !== "" && v !== selectedBatchId && v !== fileName));
+      }).filter(row => {
+        return row.ee_code || row.ee_name || row.department_code || row.wages || row.amount;
+      });
 
       if (!mappedRows.length) {
         throw new Error("No usable register rows found.");
@@ -1355,10 +1408,7 @@
     async function insertInChunks(table, rows, chunkSize) {
       for (let i = 0; i < rows.length; i += chunkSize) {
         const chunk = rows.slice(i, i + chunkSize);
-        const { error } = await supabaseClient
-          .from(table)
-          .insert(chunk);
-
+        const { error } = await supabaseClient.from(table).insert(chunk);
         if (error) throw error;
       }
     }
@@ -1556,6 +1606,7 @@
       const payTypes = new Set(filteredCombined.map(r => r.pay_code).filter(Boolean));
 
       const totalHours = sum(filteredCombined, "hours");
+
       const timeWages = filteredCombined
         .filter(r => r.source_type === "time_punch")
         .reduce((acc, r) => acc + toNumber(r.payroll_amount), 0);
@@ -1783,7 +1834,10 @@
 
     function renderEmpty(message) {
       currentRenderedRows = [];
-      document.getElementById("tableWrap").innerHTML = `<div class="empty">${escapeHtml(message)}</div>`;
+      const tableWrap = document.getElementById("tableWrap");
+      if (tableWrap) {
+        tableWrap.innerHTML = `<div class="empty">${escapeHtml(message)}</div>`;
+      }
     }
 
     function buildExceptions() {
@@ -1814,7 +1868,9 @@
         if (String(row.ee_status || "").toLowerCase().includes("term") && toNumber(row.hours) > 0) {
           exceptions.push(exception("High", "Terminated/Inactive Employee With Hours", base));
         }
-        if (toNumber(row.avg_earn_rate) > 100) exceptions.push(exception("Medium", "High Avg Earn Rate", base));
+        if (toNumber(row.avg_earn_rate) > 100) {
+          exceptions.push(exception("Medium", "High Avg Earn Rate", base));
+        }
       }
 
       for (const row of registerRows) {
@@ -1954,6 +2010,7 @@
 
       const raw = String(value);
       const parts = raw.split("-");
+
       if (parts.length === 3) {
         return `${parts[1]}/${parts[2]}/${parts[0]}`;
       }
