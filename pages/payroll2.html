@@ -23,9 +23,7 @@
       --amber: #b45309;
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
       background: var(--bg);
@@ -161,9 +159,7 @@
       white-space: nowrap;
     }
 
-    .btn:hover {
-      background: #f8fafc;
-    }
+    .btn:hover { background: #f8fafc; }
 
     .btn.primary {
       background: #111827;
@@ -175,10 +171,6 @@
       background: #0f766e;
       color: #fff;
       border-color: #0f766e;
-    }
-
-    .btn.danger {
-      color: #b91c1c;
     }
 
     .btn:disabled {
@@ -358,9 +350,7 @@
       vertical-align: middle;
     }
 
-    tbody tr:hover {
-      background: #f8fafc;
-    }
+    tbody tr:hover { background: #f8fafc; }
 
     .num {
       text-align: right;
@@ -414,9 +404,7 @@
       line-height: 1.35;
     }
 
-    .toast.show {
-      display: block;
-    }
+    .toast.show { display: block; }
 
     .modal-backdrop {
       position: fixed;
@@ -429,9 +417,7 @@
       padding: 20px;
     }
 
-    .modal-backdrop.show {
-      display: flex;
-    }
+    .modal-backdrop.show { display: flex; }
 
     .modal {
       width: min(740px, 100%);
@@ -472,9 +458,7 @@
       background: #f8fafc;
     }
 
-    .hidden-file {
-      display: none;
-    }
+    .hidden-file { display: none; }
 
     .empty {
       padding: 26px;
@@ -492,9 +476,7 @@
       flex-shrink: 0;
     }
 
-    .loading-line.show {
-      display: block;
-    }
+    .loading-line.show { display: block; }
 
     @keyframes slide {
       0% { background-position: 0 0; }
@@ -502,33 +484,13 @@
     }
 
     @media (max-width: 1100px) {
-      .shell {
-        grid-template-columns: 1fr;
-      }
-
-      .sidebar {
-        display: none;
-      }
-
-      body {
-        overflow: auto;
-      }
-
-      .main {
-        height: 100vh;
-      }
-
-      .control-panel {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
-      .kpi-strip {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
-      .modal-body {
-        grid-template-columns: 1fr;
-      }
+      .shell { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      body { overflow: auto; }
+      .main { height: 100vh; }
+      .control-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .modal-body { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -720,6 +682,8 @@
 
   <div class="toast" id="toast"></div>
 
+  <script src="/pages/config.js"></script>
+
   <script>
     let supabaseClient = null;
     let currentUser = null;
@@ -739,50 +703,17 @@
     let currentRenderedRows = [];
 
     const TIME_HEADERS = [
-      "EE Code",
-      "EE Name",
-      "Badge",
-      "Payclass",
-      "EE Status",
-      "Hiredate",
-      "Home Department Code",
-      "Home Department Desc",
-      "Home Location Code",
-      "Home Location Desc",
-      "Distributed Department Code",
-      "Distributed Department Desc",
-      "Distributed Location Code",
-      "Distributed Location Desc",
-      "Punch Date",
-      "Earning Code",
-      "Earning Desc",
-      "Position",
-      "Position Family",
-      "Schedule Group",
-      "Pay Class",
-      "Avg. EarnRate",
-      "Hours",
-      "Amount",
-      "Hours % to Dist",
-      "Hours % to Company",
-      "Amount % to Dist",
-      "Amount % to Company"
+      "EE Code", "EE Name", "Badge", "Payclass", "EE Status", "Hiredate",
+      "Home Department Code", "Home Department Desc", "Home Location Code", "Home Location Desc",
+      "Distributed Department Code", "Distributed Department Desc", "Distributed Location Code", "Distributed Location Desc",
+      "Punch Date", "Earning Code", "Earning Desc", "Position", "Position Family", "Schedule Group",
+      "Pay Class", "Avg. EarnRate", "Hours", "Amount", "Hours % to Dist", "Hours % to Company",
+      "Amount % to Dist", "Amount % to Company"
     ];
 
     const REGISTER_HEADERS = [
-      "Department Code",
-      "Department Desc",
-      "Location Code",
-      "Location Desc",
-      "clientcode",
-      "EE Code",
-      "EE Name",
-      "Typecode",
-      "Typedesc",
-      "Register Type",
-      "Amount",
-      "Hours/Units",
-      "Wages"
+      "Department Code", "Department Desc", "Location Code", "Location Desc", "clientcode",
+      "EE Code", "EE Name", "Typecode", "Typedesc", "Register Type", "Amount", "Hours/Units", "Wages"
     ];
 
     const TIME_HEADER_MAP = {
@@ -833,32 +764,16 @@
     };
 
     const NUMERIC_FIELDS = new Set([
-      "avg_earn_rate",
-      "hours",
-      "amount",
-      "hours_pct_to_dist",
-      "hours_pct_to_company",
-      "amount_pct_to_dist",
-      "amount_pct_to_company",
-      "hours_units",
-      "wages",
-      "payroll_amount",
-      "total_hours",
-      "total_amount",
-      "total_payroll_amount",
-      "time_payroll_amount",
-      "register_payroll_amount",
-      "blended_rate",
-      "employee_count",
-      "department_count",
-      "punch_days"
+      "avg_earn_rate", "hours", "amount",
+      "hours_pct_to_dist", "hours_pct_to_company",
+      "amount_pct_to_dist", "amount_pct_to_company",
+      "hours_units", "wages", "payroll_amount",
+      "total_hours", "total_amount", "total_payroll_amount",
+      "time_payroll_amount", "register_payroll_amount",
+      "blended_rate", "employee_count", "department_count", "punch_days"
     ]);
 
-    const DATE_FIELDS = new Set([
-      "hiredate",
-      "punch_date",
-      "payroll_date"
-    ]);
+    const DATE_FIELDS = new Set(["hiredate", "punch_date", "payroll_date"]);
 
     document.addEventListener("DOMContentLoaded", bootstrap);
 
@@ -877,47 +792,77 @@
       }
     }
 
-    function ensureSiloConfigLoaded() {
-      return new Promise((resolve, reject) => {
-        if (window.__SILO_CONFIG?.SUPABASE_URL && window.__SILO_CONFIG?.SUPABASE_ANON_KEY) {
-          resolve();
-          return;
+    function getSiloConfig() {
+      const candidates = [
+        window.__SILO_CONFIG,
+        window.SILO_CONFIG,
+        window.siloConfig,
+        window.SUPABASE_CONFIG,
+        {
+          SUPABASE_URL: window.SUPABASE_URL,
+          SUPABASE_ANON_KEY: window.SUPABASE_ANON_KEY
         }
+      ];
 
-        const existing = [...document.scripts].some(script => script.src && script.src.includes("/pages/config.js"));
+      for (const cfg of candidates) {
+        if (!cfg || typeof cfg !== "object") continue;
 
-        if (existing) {
-          setTimeout(() => {
-            if (window.__SILO_CONFIG?.SUPABASE_URL && window.__SILO_CONFIG?.SUPABASE_ANON_KEY) {
-              resolve();
-            } else {
-              loadConfigScript(resolve, reject);
-            }
-          }, 150);
-          return;
+        const url =
+          cfg.SUPABASE_URL ||
+          cfg.supabaseUrl ||
+          cfg.supabase_url ||
+          cfg.url;
+
+        const key =
+          cfg.SUPABASE_ANON_KEY ||
+          cfg.supabaseAnonKey ||
+          cfg.supabase_anon_key ||
+          cfg.anonKey ||
+          cfg.key;
+
+        if (url && key) {
+          return { url, key, raw: cfg };
         }
+      }
 
-        loadConfigScript(resolve, reject);
-      });
+      return { url: null, key: null, raw: null };
     }
 
-    function loadConfigScript(resolve, reject) {
-      const script = document.createElement("script");
-      script.src = "/pages/config.js?v=" + Date.now();
+    function ensureSiloConfigLoaded() {
+      return new Promise((resolve, reject) => {
+        const already = getSiloConfig();
 
-      script.onload = () => {
-        if (window.__SILO_CONFIG?.SUPABASE_URL && window.__SILO_CONFIG?.SUPABASE_ANON_KEY) {
+        if (already.url && already.key) {
           resolve();
-        } else {
-          reject(new Error("Config file loaded, but window.__SILO_CONFIG is missing Supabase values."));
+          return;
         }
-      };
 
-      script.onerror = () => {
-        reject(new Error("Could not load /pages/config.js."));
-      };
+        const script = document.createElement("script");
+        script.src = "/pages/config.js?v=" + Date.now();
 
-      document.head.appendChild(script);
+        script.onload = () => {
+          const loaded = getSiloConfig();
+
+          console.log("Config loaded check:", {
+            hasUrl: !!loaded.url,
+            hasKey: !!loaded.key,
+            raw: loaded.raw,
+            directSiloConfig: window.__SILO_CONFIG
+          });
+
+          if (loaded.url && loaded.key) {
+            resolve();
+          } else {
+            reject(new Error("Config file loaded, but Supabase URL/key were not found in the expected config object."));
+          }
+        };
+
+        script.onerror = () => {
+          reject(new Error("Could not load /pages/config.js."));
+        };
+
+        document.head.appendChild(script);
+      });
     }
 
     async function init() {
@@ -928,17 +873,16 @@
     }
 
     function initSupabase() {
-      const cfg = window.__SILO_CONFIG || {};
-      const url = cfg.SUPABASE_URL;
-      const key = cfg.SUPABASE_ANON_KEY;
+      const resolved = getSiloConfig();
 
       console.log("Resolved Supabase config:", {
-        hasConfig: !!window.__SILO_CONFIG,
-        url,
-        hasKey: !!key
+        hasUrl: !!resolved.url,
+        hasKey: !!resolved.key,
+        raw: resolved.raw,
+        directSiloConfig: window.__SILO_CONFIG
       });
 
-      if (!url || !key) {
+      if (!resolved.url || !resolved.key) {
         throw new Error("Missing Supabase config. Check /pages/config.js.");
       }
 
@@ -946,7 +890,7 @@
         throw new Error("Supabase JS client failed to load.");
       }
 
-      supabaseClient = window.supabase.createClient(url, key);
+      supabaseClient = window.supabase.createClient(resolved.url, resolved.key);
     }
 
     async function requireAuth() {
@@ -1633,143 +1577,122 @@
       }
 
       if (activeTab === "departments") {
-        renderTable(
-          departmentRows.filter(rowMatchesFilters),
-          [
-            ["department_code", "Dept Code"],
-            ["department_desc", "Department"],
-            ["location_code", "Loc Code"],
-            ["location_desc", "Location"],
-            ["employee_count", "Employees", "num"],
-            ["total_hours", "Hours", "num"],
-            ["time_payroll_amount", "Time Wages", "money"],
-            ["register_payroll_amount", "Register Wages", "money"],
-            ["total_payroll_amount", "Total Payroll", "money"]
-          ]
-        );
+        renderTable(departmentRows.filter(rowMatchesFilters), [
+          ["department_code", "Dept Code"],
+          ["department_desc", "Department"],
+          ["location_code", "Loc Code"],
+          ["location_desc", "Location"],
+          ["employee_count", "Employees", "num"],
+          ["total_hours", "Hours", "num"],
+          ["time_payroll_amount", "Time Wages", "money"],
+          ["register_payroll_amount", "Register Wages", "money"],
+          ["total_payroll_amount", "Total Payroll", "money"]
+        ]);
         return;
       }
 
       if (activeTab === "employees") {
-        renderTable(
-          employeeRows.filter(rowMatchesFilters),
-          [
-            ["ee_code", "EE Code"],
-            ["ee_name", "Employee"],
-            ["department_count", "Dept Count", "num"],
-            ["total_hours", "Hours", "num"],
-            ["time_payroll_amount", "Time Wages", "money"],
-            ["register_payroll_amount", "Register Wages", "money"],
-            ["total_payroll_amount", "Total Payroll", "money"]
-          ]
-        );
+        renderTable(employeeRows.filter(rowMatchesFilters), [
+          ["ee_code", "EE Code"],
+          ["ee_name", "Employee"],
+          ["department_count", "Dept Count", "num"],
+          ["total_hours", "Hours", "num"],
+          ["time_payroll_amount", "Time Wages", "money"],
+          ["register_payroll_amount", "Register Wages", "money"],
+          ["total_payroll_amount", "Total Payroll", "money"]
+        ]);
         return;
       }
 
       if (activeTab === "paytypes") {
-        renderTable(
-          payTypeRows.filter(rowMatchesFilters),
-          [
-            ["source_type", "Source", "pill"],
-            ["pay_code", "Code"],
-            ["pay_desc", "Description"],
-            ["register_type", "Register Type"],
-            ["employee_count", "Employees", "num"],
-            ["total_hours", "Hours / Units", "num"],
-            ["total_payroll_amount", "Total Payroll", "money"]
-          ]
-        );
+        renderTable(payTypeRows.filter(rowMatchesFilters), [
+          ["source_type", "Source", "pill"],
+          ["pay_code", "Code"],
+          ["pay_desc", "Description"],
+          ["register_type", "Register Type"],
+          ["employee_count", "Employees", "num"],
+          ["total_hours", "Hours / Units", "num"],
+          ["total_payroll_amount", "Total Payroll", "money"]
+        ]);
         return;
       }
 
       if (activeTab === "combined") {
-        renderTable(
-          combinedRows.filter(rowMatchesFilters),
-          [
-            ["source_type", "Source", "pill"],
-            ["payroll_date", "Date", "date"],
-            ["ee_code", "EE Code"],
-            ["ee_name", "Employee"],
-            ["department_code", "Dept Code"],
-            ["department_desc", "Department"],
-            ["location_code", "Loc Code"],
-            ["location_desc", "Location"],
-            ["pay_code", "Pay Code"],
-            ["pay_desc", "Pay Desc"],
-            ["register_type", "Register Type"],
-            ["hours", "Hours / Units", "num"],
-            ["payroll_amount", "Payroll Amount", "money"]
-          ]
-        );
+        renderTable(combinedRows.filter(rowMatchesFilters), [
+          ["source_type", "Source", "pill"],
+          ["payroll_date", "Date", "date"],
+          ["ee_code", "EE Code"],
+          ["ee_name", "Employee"],
+          ["department_code", "Dept Code"],
+          ["department_desc", "Department"],
+          ["location_code", "Loc Code"],
+          ["location_desc", "Location"],
+          ["pay_code", "Pay Code"],
+          ["pay_desc", "Pay Desc"],
+          ["register_type", "Register Type"],
+          ["hours", "Hours / Units", "num"],
+          ["payroll_amount", "Payroll Amount", "money"]
+        ]);
         return;
       }
 
       if (activeTab === "time") {
-        renderTable(
-          timeRows.filter(rowMatchesFilters),
-          [
-            ["punch_date", "Punch Date", "date"],
-            ["ee_code", "EE Code"],
-            ["ee_name", "Employee"],
-            ["ee_status", "Status"],
-            ["distributed_department_code", "Dist Dept"],
-            ["distributed_department_desc", "Dist Dept Desc"],
-            ["distributed_location_code", "Dist Loc"],
-            ["distributed_location_desc", "Dist Loc Desc"],
-            ["earning_code", "Earn Code"],
-            ["earning_desc", "Earn Desc"],
-            ["position", "Position"],
-            ["schedule_group", "Schedule"],
-            ["pay_class", "Pay Class"],
-            ["avg_earn_rate", "Rate", "money"],
-            ["hours", "Hours", "num"],
-            ["amount", "Amount", "money"]
-          ]
-        );
+        renderTable(timeRows.filter(rowMatchesFilters), [
+          ["punch_date", "Punch Date", "date"],
+          ["ee_code", "EE Code"],
+          ["ee_name", "Employee"],
+          ["ee_status", "Status"],
+          ["distributed_department_code", "Dist Dept"],
+          ["distributed_department_desc", "Dist Dept Desc"],
+          ["distributed_location_code", "Dist Loc"],
+          ["distributed_location_desc", "Dist Loc Desc"],
+          ["earning_code", "Earn Code"],
+          ["earning_desc", "Earn Desc"],
+          ["position", "Position"],
+          ["schedule_group", "Schedule"],
+          ["pay_class", "Pay Class"],
+          ["avg_earn_rate", "Rate", "money"],
+          ["hours", "Hours", "num"],
+          ["amount", "Amount", "money"]
+        ]);
         return;
       }
 
       if (activeTab === "register") {
-        renderTable(
-          registerRows.filter(rowMatchesFilters),
-          [
-            ["department_code", "Dept Code"],
-            ["department_desc", "Department"],
-            ["location_code", "Loc Code"],
-            ["location_desc", "Location"],
-            ["clientcode", "Client Code"],
-            ["ee_code", "EE Code"],
-            ["ee_name", "Employee"],
-            ["typecode", "Type Code"],
-            ["typedesc", "Type Desc"],
-            ["register_type", "Register Type"],
-            ["amount", "Amount", "money"],
-            ["hours_units", "Hours / Units", "num"],
-            ["wages", "Wages", "money"]
-          ]
-        );
+        renderTable(registerRows.filter(rowMatchesFilters), [
+          ["department_code", "Dept Code"],
+          ["department_desc", "Department"],
+          ["location_code", "Loc Code"],
+          ["location_desc", "Location"],
+          ["clientcode", "Client Code"],
+          ["ee_code", "EE Code"],
+          ["ee_name", "Employee"],
+          ["typecode", "Type Code"],
+          ["typedesc", "Type Desc"],
+          ["register_type", "Register Type"],
+          ["amount", "Amount", "money"],
+          ["hours_units", "Hours / Units", "num"],
+          ["wages", "Wages", "money"]
+        ]);
         return;
       }
 
       if (activeTab === "exceptions") {
-        renderTable(
-          exceptionRows.filter(rowMatchesFilters),
-          [
-            ["severity", "Severity", "severity"],
-            ["source_type", "Source", "pill"],
-            ["issue", "Issue"],
-            ["ee_code", "EE Code"],
-            ["ee_name", "Employee"],
-            ["department_code", "Dept Code"],
-            ["department_desc", "Department"],
-            ["location_code", "Loc Code"],
-            ["location_desc", "Location"],
-            ["pay_code", "Pay Code"],
-            ["pay_desc", "Pay Desc"],
-            ["hours", "Hours / Units", "num"],
-            ["payroll_amount", "Amount", "money"]
-          ]
-        );
+        renderTable(exceptionRows.filter(rowMatchesFilters), [
+          ["severity", "Severity", "severity"],
+          ["source_type", "Source", "pill"],
+          ["issue", "Issue"],
+          ["ee_code", "EE Code"],
+          ["ee_name", "Employee"],
+          ["department_code", "Dept Code"],
+          ["department_desc", "Department"],
+          ["location_code", "Loc Code"],
+          ["location_desc", "Location"],
+          ["pay_code", "Pay Code"],
+          ["pay_desc", "Pay Desc"],
+          ["hours", "Hours / Units", "num"],
+          ["payroll_amount", "Amount", "money"]
+        ]);
       }
     }
 
@@ -1805,17 +1728,9 @@
       const [field, label, type] = col;
       const value = row[field];
 
-      if (type === "money") {
-        return `<td class="num">${formatMoney(value)}</td>`;
-      }
-
-      if (type === "num") {
-        return `<td class="num">${formatNumber(value, 2)}</td>`;
-      }
-
-      if (type === "date") {
-        return `<td>${escapeHtml(formatDate(value))}</td>`;
-      }
+      if (type === "money") return `<td class="num">${formatMoney(value)}</td>`;
+      if (type === "num") return `<td class="num">${formatNumber(value, 2)}</td>`;
+      if (type === "date") return `<td>${escapeHtml(formatDate(value))}</td>`;
 
       if (type === "pill") {
         const text = formatSource(value);
@@ -1835,9 +1750,7 @@
     function renderEmpty(message) {
       currentRenderedRows = [];
       const tableWrap = document.getElementById("tableWrap");
-      if (tableWrap) {
-        tableWrap.innerHTML = `<div class="empty">${escapeHtml(message)}</div>`;
-      }
+      if (tableWrap) tableWrap.innerHTML = `<div class="empty">${escapeHtml(message)}</div>`;
     }
 
     function buildExceptions() {
@@ -1945,11 +1858,7 @@
     }
 
     function exception(severity, issue, base) {
-      return {
-        severity,
-        issue,
-        ...base
-      };
+      return { severity, issue, ...base };
     }
 
     function exportCurrentTable() {
