@@ -6,7 +6,8 @@
   <title>Silo | Payroll Workbench</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 
   <style>
@@ -21,6 +22,7 @@
       --green: #0f766e;
       --red: #b91c1c;
       --amber: #b45309;
+      --blue: #1d4ed8;
     }
 
     * { box-sizing: border-box; }
@@ -173,6 +175,8 @@
       border-color: #0f766e;
     }
 
+    .btn.danger { color: #b91c1c; }
+
     .btn:disabled {
       opacity: .45;
       cursor: not-allowed;
@@ -198,7 +202,7 @@
     .control-panel {
       padding: 8px;
       display: grid;
-      grid-template-columns: 1.2fr .8fr .8fr .8fr .8fr .8fr auto;
+      grid-template-columns: 1.25fr .78fr .78fr .9fr .9fr .9fr .8fr 1fr auto;
       gap: 7px;
       align-items: end;
       flex-shrink: 0;
@@ -239,7 +243,7 @@
 
     .kpi-strip {
       display: grid;
-      grid-template-columns: repeat(7, minmax(0, 1fr));
+      grid-template-columns: repeat(8, minmax(0, 1fr));
       gap: 7px;
       flex-shrink: 0;
     }
@@ -393,7 +397,7 @@
       right: 14px;
       bottom: 14px;
       z-index: 100;
-      max-width: 520px;
+      max-width: 580px;
       background: #111827;
       color: white;
       border-radius: 12px;
@@ -483,7 +487,16 @@
       100% { background-position: 200% 0; }
     }
 
-    @media (max-width: 1100px) {
+    @media (max-width: 1300px) {
+      .control-panel {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+      .kpi-strip {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 800px) {
       .shell { grid-template-columns: 1fr; }
       .sidebar { display: none; }
       body { overflow: auto; }
@@ -541,8 +554,18 @@
           <div class="field">
             <label>Payroll Batch</label>
             <select id="batchSelect" onchange="handleBatchChange()">
-              <option value="">Loading batches...</option>
+              <option value="">All Batches</option>
             </select>
+          </div>
+
+          <div class="field">
+            <label>Date From</label>
+            <input id="dateFromInput" type="date" onchange="reloadAll()" />
+          </div>
+
+          <div class="field">
+            <label>Date To</label>
+            <input id="dateToInput" type="date" onchange="reloadAll()" />
           </div>
 
           <div class="field">
@@ -608,6 +631,10 @@
             <div class="value" id="kpiTotalPayroll">—</div>
           </div>
           <div class="kpi">
+            <div class="label">Blended Rate</div>
+            <div class="value" id="kpiBlendedRate">—</div>
+          </div>
+          <div class="kpi">
             <div class="label">Pay Types</div>
             <div class="value" id="kpiPayTypes">—</div>
           </div>
@@ -619,7 +646,9 @@
 
         <section class="panel workbench">
           <div class="tabs">
-            <button class="tab active" data-tab="departments" onclick="setTab('departments')">Departments</button>
+            <button class="tab active" data-tab="monthly" onclick="setTab('monthly')">Monthly Trend</button>
+            <button class="tab" data-tab="daily" onclick="setTab('daily')">Daily Time Summary</button>
+            <button class="tab" data-tab="departments" onclick="setTab('departments')">Departments</button>
             <button class="tab" data-tab="employees" onclick="setTab('employees')">Employees</button>
             <button class="tab" data-tab="paytypes" onclick="setTab('paytypes')">Pay Types</button>
             <button class="tab" data-tab="combined" onclick="setTab('combined')">Combined Detail</button>
@@ -682,38 +711,74 @@
 
   <div class="toast" id="toast"></div>
 
-  <script src="/pages/config.js"></script>
-
   <script>
+    const cfg = window.__SILO_CONFIG__ || {};
+    const SUPABASE_URL = cfg.SUPABASE_URL;
+    const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY;
+
     let supabaseClient = null;
     let currentUser = null;
     let currentProfile = null;
 
     let batches = [];
     let selectedBatchId = "";
-    let activeTab = "departments";
+    let activeTab = "monthly";
 
+    let combinedRows = [];
+    let timeRows = [];
     let departmentRows = [];
     let employeeRows = [];
     let payTypeRows = [];
-    let combinedRows = [];
-    let timeRows = [];
-    let registerRows = [];
+    let dailyRows = [];
+    let monthlyRows = [];
     let exceptionRows = [];
     let currentRenderedRows = [];
 
     const TIME_HEADERS = [
-      "EE Code", "EE Name", "Badge", "Payclass", "EE Status", "Hiredate",
-      "Home Department Code", "Home Department Desc", "Home Location Code", "Home Location Desc",
-      "Distributed Department Code", "Distributed Department Desc", "Distributed Location Code", "Distributed Location Desc",
-      "Punch Date", "Earning Code", "Earning Desc", "Position", "Position Family", "Schedule Group",
-      "Pay Class", "Avg. EarnRate", "Hours", "Amount", "Hours % to Dist", "Hours % to Company",
-      "Amount % to Dist", "Amount % to Company"
+      "EE Code",
+      "EE Name",
+      "Badge",
+      "Payclass",
+      "EE Status",
+      "Hiredate",
+      "Home Department Code",
+      "Home Department Desc",
+      "Home Location Code",
+      "Home Location Desc",
+      "Distributed Department Code",
+      "Distributed Department Desc",
+      "Distributed Location Code",
+      "Distributed Location Desc",
+      "Punch Date",
+      "Earning Code",
+      "Earning Desc",
+      "Position",
+      "Position Family",
+      "Schedule Group",
+      "Pay Class",
+      "Avg. EarnRate",
+      "Hours",
+      "Amount",
+      "Hours % to Dist",
+      "Hours % to Company",
+      "Amount % to Dist",
+      "Amount % to Company"
     ];
 
     const REGISTER_HEADERS = [
-      "Department Code", "Department Desc", "Location Code", "Location Desc", "clientcode",
-      "EE Code", "EE Name", "Typecode", "Typedesc", "Register Type", "Amount", "Hours/Units", "Wages"
+      "Department Code",
+      "Department Desc",
+      "Location Code",
+      "Location Desc",
+      "clientcode",
+      "EE Code",
+      "EE Name",
+      "Typecode",
+      "Typedesc",
+      "Register Type",
+      "Amount",
+      "Hours/Units",
+      "Wages"
     ];
 
     const TIME_HEADER_MAP = {
@@ -764,144 +829,76 @@
     };
 
     const NUMERIC_FIELDS = new Set([
-      "avg_earn_rate", "hours", "amount",
-      "hours_pct_to_dist", "hours_pct_to_company",
-      "amount_pct_to_dist", "amount_pct_to_company",
-      "hours_units", "wages", "payroll_amount",
-      "total_hours", "total_amount", "total_payroll_amount",
-      "time_payroll_amount", "register_payroll_amount",
-      "blended_rate", "employee_count", "department_count", "punch_days"
+      "avg_earn_rate",
+      "hours",
+      "amount",
+      "hours_pct_to_dist",
+      "hours_pct_to_company",
+      "amount_pct_to_dist",
+      "amount_pct_to_company",
+      "hours_units",
+      "wages",
+      "payroll_amount",
+      "total_hours",
+      "total_amount",
+      "total_payroll_amount",
+      "time_payroll_amount",
+      "register_payroll_amount",
+      "blended_rate",
+      "employee_count",
+      "department_count",
+      "punch_days"
     ]);
 
-    const DATE_FIELDS = new Set(["hiredate", "punch_date", "payroll_date"]);
+    const DATE_FIELDS = new Set([
+      "hiredate",
+      "punch_date",
+      "payroll_date",
+      "work_date"
+    ]);
 
-    document.addEventListener("DOMContentLoaded", bootstrap);
+    document.addEventListener("DOMContentLoaded", init);
 
-    async function bootstrap() {
+    async function init() {
       try {
         setLoading(true);
-        renderEmpty("Loading Supabase config...");
-        await ensureSiloConfigLoaded();
-        await init();
+        renderEmpty("Loading payroll workspace...");
+
+        if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+          throw new Error("Missing SUPABASE_URL / SUPABASE_ANON_KEY from /pages/config.js");
+        }
+
+        if (!window.supabase?.createClient) {
+          throw new Error("Supabase JS client failed to load.");
+        }
+
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        await requireAuth();
+        await loadBatches();
+        await loadSelectedData();
       } catch (error) {
         console.error(error);
-        showToast(error.message || "Failed to start payroll page.");
-        renderEmpty(error.message || "Failed to start payroll page.");
+        showToast(error.message || "Failed to initialize payroll page.");
+        renderEmpty(error.message || "Failed to initialize payroll page.");
       } finally {
         setLoading(false);
       }
     }
 
-    function getSiloConfig() {
-      const candidates = [
-        window.__SILO_CONFIG__,
-        window.SILO_CONFIG,
-        window.siloConfig,
-        window.SUPABASE_CONFIG,
-        {
-          SUPABASE_URL: window.SUPABASE_URL,
-          SUPABASE_ANON_KEY: window.SUPABASE_ANON_KEY
-        }
-      ];
-
-      for (const cfg of candidates) {
-        if (!cfg || typeof cfg !== "object") continue;
-
-        const url =
-          cfg.SUPABASE_URL ||
-          cfg.supabaseUrl ||
-          cfg.supabase_url ||
-          cfg.url;
-
-        const key =
-          cfg.SUPABASE_ANON_KEY ||
-          cfg.supabaseAnonKey ||
-          cfg.supabase_anon_key ||
-          cfg.anonKey ||
-          cfg.key;
-
-        if (url && key) {
-          return { url, key, raw: cfg };
-        }
-      }
-
-      return { url: null, key: null, raw: null };
-    }
-
-    function ensureSiloConfigLoaded() {
-      return new Promise((resolve, reject) => {
-        const already = getSiloConfig();
-
-        if (already.url && already.key) {
-          resolve();
-          return;
-        }
-
-        const script = document.createElement("script");
-        script.src = "/pages/config.js?v=" + Date.now();
-
-        script.onload = () => {
-          const loaded = getSiloConfig();
-
-          console.log("Config loaded check:", {
-            hasUrl: !!loaded.url,
-            hasKey: !!loaded.key,
-            raw: loaded.raw,
-            directSiloConfig: window.__SILO_CONFIG__
-          });
-
-          if (loaded.url && loaded.key) {
-            resolve();
-          } else {
-            reject(new Error("Config file loaded, but Supabase URL/key were not found in the expected config object."));
-          }
-        };
-
-        script.onerror = () => {
-          reject(new Error("Could not load /pages/config.js."));
-        };
-
-        document.head.appendChild(script);
-      });
-    }
-
-    async function init() {
-      initSupabase();
-      await requireAuth();
-      await loadBatches();
-      await loadSelectedBatchData();
-    }
-
-    function initSupabase() {
-      const resolved = getSiloConfig();
-
-      console.log("Resolved Supabase config:", {
-        hasUrl: !!resolved.url,
-        hasKey: !!resolved.key,
-        raw: resolved.raw,
-        directSiloConfig: window.__SILO_CONFIG__
-      });
-
-      if (!resolved.url || !resolved.key) {
-        throw new Error("Missing Supabase config. Check /pages/config.js.");
-      }
-
-      if (!window.supabase?.createClient) {
-        throw new Error("Supabase JS client failed to load.");
-      }
-
-      supabaseClient = window.supabase.createClient(resolved.url, resolved.key);
-    }
-
     async function requireAuth() {
-      const { data, error } = await supabaseClient.auth.getUser();
+      const { data, error } = await supabaseClient.auth.getSession();
 
-      if (error || !data?.user) {
+      if (error) console.warn("getSession error:", error);
+
+      const session = data?.session;
+
+      if (!session?.user) {
         window.location.href = "/pages/login.html";
         return;
       }
 
-      currentUser = data.user;
+      currentUser = session.user;
 
       const { data: profile, error: profileError } = await supabaseClient
         .from("profiles")
@@ -913,11 +910,16 @@
 
       currentProfile = profile;
 
+      const role = String(profile?.role || "").toLowerCase();
+      const department = String(profile?.department || "").toLowerCase();
+
       const isAllowed =
         profile?.is_active === true &&
         (
-          profile?.role === "admin" ||
-          profile?.department === "finance"
+          role === "admin" ||
+          role === "owner" ||
+          role === "superadmin" ||
+          department === "finance"
         );
 
       if (!isAllowed) {
@@ -949,7 +951,7 @@
       toast.textContent = message;
       toast.classList.add("show");
       clearTimeout(showToast._timer);
-      showToast._timer = setTimeout(() => toast.classList.remove("show"), 4200);
+      showToast._timer = setTimeout(() => toast.classList.remove("show"), 5200);
     }
 
     function openBatchModal() {
@@ -1013,7 +1015,7 @@
         closeBatchModal();
         showToast("Payroll batch created.");
         await loadBatches(data.id);
-        await loadSelectedBatchData();
+        await loadSelectedData();
       } catch (error) {
         console.error(error);
         showToast(error.message || "Failed to create batch.");
@@ -1023,26 +1025,20 @@
     }
 
     async function loadBatches(preselectId = null) {
-      if (!supabaseClient) return;
-
       const { data, error } = await supabaseClient
         .from("payroll_import_batches")
         .select("*")
         .order("uploaded_at", { ascending: false })
-        .limit(100);
+        .limit(250);
 
       if (error) throw error;
 
       batches = data || [];
 
       const select = document.getElementById("batchSelect");
-      select.innerHTML = "";
+      const previous = preselectId ?? selectedBatchId ?? "";
 
-      if (!batches.length) {
-        select.innerHTML = `<option value="">No batches yet</option>`;
-        selectedBatchId = "";
-        return;
-      }
+      select.innerHTML = `<option value="">All Batches</option>`;
 
       for (const batch of batches) {
         const option = document.createElement("option");
@@ -1057,13 +1053,13 @@
         select.appendChild(option);
       }
 
-      selectedBatchId = preselectId || selectedBatchId || batches[0].id;
+      selectedBatchId = previous;
       select.value = selectedBatchId;
     }
 
     async function handleBatchChange() {
-      selectedBatchId = document.getElementById("batchSelect").value;
-      await loadSelectedBatchData();
+      selectedBatchId = document.getElementById("batchSelect").value || "";
+      await loadSelectedData();
     }
 
     async function reloadAll() {
@@ -1076,7 +1072,7 @@
 
       try {
         await loadBatches(selectedBatchId);
-        await loadSelectedBatchData();
+        await loadSelectedData();
         showToast("Payroll data refreshed.");
       } catch (error) {
         console.error(error);
@@ -1086,25 +1082,23 @@
       }
     }
 
-    async function loadSelectedBatchData() {
-      if (!selectedBatchId) {
-        clearData();
-        renderActiveTab();
-        return;
-      }
+    function getDateFilters() {
+      return {
+        from: nullIfBlank(document.getElementById("dateFromInput").value),
+        to: nullIfBlank(document.getElementById("dateToInput").value)
+      };
+    }
 
+    async function loadSelectedData() {
       setLoading(true);
 
       try {
         await Promise.all([
-          loadDepartmentRows(),
-          loadEmployeeRows(),
-          loadPayTypeRows(),
           loadCombinedRows(),
-          loadTimeRows(),
-          loadRegisterRows()
+          loadTimeRows()
         ]);
 
+        buildAggregates();
         buildExceptions();
         rebuildFilterOptions();
         updateKpis();
@@ -1118,82 +1112,164 @@
       }
     }
 
-    async function loadDepartmentRows() {
-      const { data, error } = await supabaseClient
-        .from("payroll_department_cost_v")
-        .select("*")
-        .eq("batch_id", selectedBatchId)
-        .order("total_payroll_amount", { ascending: false, nullsFirst: false });
-
-      if (error) throw error;
-      departmentRows = data || [];
-    }
-
-    async function loadEmployeeRows() {
-      const { data, error } = await supabaseClient
-        .from("payroll_employee_cost_v")
-        .select("*")
-        .eq("batch_id", selectedBatchId)
-        .order("total_payroll_amount", { ascending: false, nullsFirst: false });
-
-      if (error) throw error;
-      employeeRows = data || [];
-    }
-
-    async function loadPayTypeRows() {
-      const { data, error } = await supabaseClient
-        .from("payroll_pay_type_summary_v")
-        .select("*")
-        .eq("batch_id", selectedBatchId)
-        .order("total_payroll_amount", { ascending: false, nullsFirst: false });
-
-      if (error) throw error;
-      payTypeRows = data || [];
-    }
-
     async function loadCombinedRows() {
-      const { data, error } = await supabaseClient
+      const dates = getDateFilters();
+
+      let query = supabaseClient
         .from("payroll_combined_cost_v")
         .select("*")
-        .eq("batch_id", selectedBatchId)
-        .order("ee_name", { ascending: true })
-        .limit(5000);
+        .order("work_date", { ascending: false, nullsFirst: false })
+        .limit(20000);
+
+      if (selectedBatchId) query = query.eq("batch_id", selectedBatchId);
+      if (dates.from) query = query.gte("work_date", dates.from);
+      if (dates.to) query = query.lte("work_date", dates.to);
+
+      const { data, error } = await query;
 
       if (error) throw error;
       combinedRows = data || [];
     }
 
     async function loadTimeRows() {
-      const { data, error } = await supabaseClient
+      const dates = getDateFilters();
+
+      let query = supabaseClient
         .from("payroll_time_lines")
         .select("*")
-        .eq("batch_id", selectedBatchId)
-        .order("ee_name", { ascending: true })
-        .limit(5000);
+        .order("punch_date", { ascending: false, nullsFirst: false })
+        .limit(20000);
+
+      if (selectedBatchId) query = query.eq("batch_id", selectedBatchId);
+      if (dates.from) query = query.gte("punch_date", dates.from);
+      if (dates.to) query = query.lte("punch_date", dates.to);
+
+      const { data, error } = await query;
 
       if (error) throw error;
       timeRows = data || [];
     }
 
-    async function loadRegisterRows() {
-      const { data, error } = await supabaseClient
-        .from("payroll_register_lines")
-        .select("*")
-        .eq("batch_id", selectedBatchId)
-        .order("ee_name", { ascending: true })
-        .limit(5000);
+    function buildAggregates() {
+      departmentRows = aggregateRows(combinedRows, ["department_code", "department_desc", "location_code", "location_desc"], row => ({
+        department_code: row.department_code,
+        department_desc: row.department_desc,
+        location_code: row.location_code,
+        location_desc: row.location_desc
+      }));
 
-      if (error) throw error;
-      registerRows = data || [];
+      employeeRows = aggregateRows(combinedRows, ["ee_code", "ee_name"], row => ({
+        ee_code: row.ee_code,
+        ee_name: row.ee_name
+      })).map(row => ({
+        ...row,
+        department_count: row._departmentSet ? row._departmentSet.size : 0
+      }));
+
+      payTypeRows = aggregateRows(combinedRows, ["source_type", "pay_code", "pay_desc", "register_type"], row => ({
+        source_type: row.source_type,
+        pay_code: row.pay_code,
+        pay_desc: row.pay_desc,
+        register_type: row.register_type
+      }));
+
+      dailyRows = aggregateRows(
+        timeRows.map(row => ({
+          ...row,
+          payroll_amount: row.amount,
+          department_code: row.distributed_department_code,
+          department_desc: row.distributed_department_desc,
+          location_code: row.distributed_location_code,
+          location_desc: row.distributed_location_desc,
+          pay_code: row.earning_code,
+          pay_desc: row.earning_desc,
+          work_date: row.punch_date,
+          source_type: "time_punch"
+        })),
+        ["punch_date", "department_code", "department_desc", "location_code", "location_desc", "pay_code", "pay_desc"],
+        row => ({
+          punch_date: row.punch_date,
+          department_code: row.department_code,
+          department_desc: row.department_desc,
+          location_code: row.location_code,
+          location_desc: row.location_desc,
+          pay_code: row.pay_code,
+          pay_desc: row.pay_desc
+        })
+      ).sort((a, b) => String(b.punch_date || "").localeCompare(String(a.punch_date || "")));
+
+      monthlyRows = aggregateRows(
+        combinedRows.map(row => ({
+          ...row,
+          payroll_month: monthKey(row.work_date || row.payroll_date)
+        })).filter(row => row.payroll_month),
+        ["payroll_month"],
+        row => ({
+          payroll_month: row.payroll_month
+        })
+      ).sort((a, b) => String(b.payroll_month || "").localeCompare(String(a.payroll_month || "")));
+
+      departmentRows.sort((a, b) => toNumber(b.total_payroll_amount) - toNumber(a.total_payroll_amount));
+      employeeRows.sort((a, b) => toNumber(b.total_payroll_amount) - toNumber(a.total_payroll_amount));
+      payTypeRows.sort((a, b) => toNumber(b.total_payroll_amount) - toNumber(a.total_payroll_amount));
+    }
+
+    function aggregateRows(rows, keyFields, baseFactory) {
+      const map = new Map();
+
+      for (const row of rows || []) {
+        const key = keyFields.map(field => row[field] ?? "").join("||");
+
+        if (!map.has(key)) {
+          const base = baseFactory(row);
+          map.set(key, {
+            ...base,
+            employee_count: 0,
+            total_hours: 0,
+            total_payroll_amount: 0,
+            time_payroll_amount: 0,
+            register_payroll_amount: 0,
+            blended_rate: null,
+            _employeeSet: new Set(),
+            _departmentSet: new Set()
+          });
+        }
+
+        const agg = map.get(key);
+        const empKey = row.ee_code || row.ee_name;
+        if (empKey) agg._employeeSet.add(empKey);
+
+        const deptKey = row.department_code || row.distributed_department_code || row.department_desc || row.distributed_department_desc;
+        if (deptKey) agg._departmentSet.add(deptKey);
+
+        const hours = toNumber(row.hours);
+        const amount = toNumber(row.payroll_amount ?? row.amount);
+
+        agg.total_hours += hours;
+        agg.total_payroll_amount += amount;
+
+        if (row.source_type === "register") {
+          agg.register_payroll_amount += amount;
+        } else {
+          agg.time_payroll_amount += amount;
+        }
+      }
+
+      return [...map.values()].map(row => ({
+        ...row,
+        employee_count: row._employeeSet.size,
+        blended_rate: row.total_hours ? row.total_payroll_amount / row.total_hours : null
+      }));
     }
 
     function clearData() {
+      combinedRows = [];
+      timeRows = [];
       departmentRows = [];
       employeeRows = [];
       payTypeRows = [];
-      combinedRows = [];
-      timeRows = [];
-      registerRows = [];
+      dailyRows = [];
+      monthlyRows = [];
       exceptionRows = [];
       currentRenderedRows = [];
       updateKpis();
@@ -1201,7 +1277,7 @@
 
     function chooseUpload(type) {
       if (!selectedBatchId) {
-        showToast("Create or select a payroll batch before uploading.");
+        showToast("Select a specific payroll batch before uploading. Reporting can use All Batches, but uploads need a batch.");
         return;
       }
 
@@ -1235,7 +1311,7 @@
         }
 
         await loadBatches(selectedBatchId);
-        await loadSelectedBatchData();
+        await loadSelectedData();
 
         showToast(`${file.name} uploaded and saved.`);
       } catch (error) {
@@ -1271,7 +1347,8 @@
         };
 
         for (const [csvHeader, dbField] of Object.entries(TIME_HEADER_MAP)) {
-          mapped[dbField] = normalizeValue(dbField, row[csvHeader]);
+          const actualHeader = findCsvHeader(row, csvHeader);
+          mapped[dbField] = normalizeValue(dbField, actualHeader ? row[actualHeader] : null);
         }
 
         return mapped;
@@ -1311,7 +1388,8 @@
         };
 
         for (const [csvHeader, dbField] of Object.entries(REGISTER_HEADER_MAP)) {
-          mapped[dbField] = normalizeValue(dbField, row[csvHeader]);
+          const actualHeader = findCsvHeader(row, csvHeader);
+          mapped[dbField] = normalizeValue(dbField, actualHeader ? row[actualHeader] : null);
         }
 
         return mapped;
@@ -1358,92 +1436,125 @@
     }
 
     function normalizeHeaderKey(value) {
-  return String(value || "")
-    .replace(/\uFEFF/g, "")
-    .replace(/[\s._/%-]+/g, "")
-    .replace(/[^a-zA-Z0-9]/g, "")
-    .toLowerCase()
-    .trim();
-}
-
-function buildHeaderLookup(row) {
-  const lookup = {};
-  Object.keys(row || {}).forEach(originalHeader => {
-    lookup[normalizeHeaderKey(originalHeader)] = originalHeader;
-  });
-  return lookup;
-}
-
-function findCsvHeader(row, expectedHeader) {
-  const lookup = buildHeaderLookup(row);
-  const key = normalizeHeaderKey(expectedHeader);
-
-  const aliases = {
-    eecode: ["eecode", "eecod", "employeecode", "employeenumber"],
-    eename: ["eename", "eenam", "employeename", "employee"],
-    badge: ["badge", "badgenumber"],
-    payclass: ["payclass", "payclas", "payclassdesc"],
-    eestatus: ["eestatus", "eestat", "employeestatus", "status"],
-    hiredate: ["hiredate", "hireda", "hireddate"],
-
-    homedepartmentcode: ["homedepartmentcode", "homedeptcode", "homedcode", "homed"],
-    homedepartmentdesc: ["homedepartmentdesc", "homedeptdesc", "homedesc", "homed"],
-    homelocationcode: ["homelocationcode", "homeloccode", "homelcode", "homel"],
-    homelocationdesc: ["homelocationdesc", "homelocdesc", "homeldesc", "homel"],
-
-    distributeddepartmentcode: ["distributeddepartmentcode", "distdepartmentcode", "distdeptcode", "distributeddeptcode", "distributu", "distribu"],
-    distributeddepartmentdesc: ["distributeddepartmentdesc", "distdepartmentdesc", "distdeptdesc", "distributeddeptdesc", "distributu", "distribu"],
-    distributedlocationcode: ["distributedlocationcode", "distlocationcode", "distloccode", "distributedloccode", "distributu", "distribu"],
-    distributedlocationdesc: ["distributedlocationdesc", "distlocationdesc", "distlocdesc", "distributedlocdesc", "distributu", "distribu"],
-
-    punchdate: ["punchdate", "punchdat", "date"],
-    earningcode: ["earningcode", "earncode", "earning"],
-    earningdesc: ["earningdesc", "earndesc", "earningdescription", "earning"],
-    position: ["position", "positio"],
-    positionfamily: ["positionfamily", "positionfam", "positio"],
-    schedulegroup: ["schedulegroup", "schedulegrp", "schedu"],
-    payclass: ["payclass", "payclas"],
-    avgearnrate: ["avgearnrate", "avgearnrate", "averageearnrate", "avgearnrate", "rate"],
-    hours: ["hours", "hrs"],
-    amount: ["amount", "amt"],
-
-    hourspcttodist: ["hourspcttodist", "hourstodist", "hourspercenttodist"],
-    hourspcttocompany: ["hourspcttocompany", "hourstocompany", "hourspercenttocompany"],
-    amountpcttodist: ["amountpcttodist", "amounttodist", "amountpercenttodist"],
-    amountpcttocompany: ["amountpcttocompany", "amounttocompany", "amountpercenttocompany"]
-  };
-
-  if (lookup[key]) return lookup[key];
-
-  const aliasList = aliases[key] || [];
-  for (const alias of aliasList) {
-    if (lookup[alias]) return lookup[alias];
-  }
-
-  return null;
-}
-
-function validateHeaders(rows, expectedHeaders, label) {
-  const firstRow = rows[0] || {};
-  const actualHeaders = Object.keys(firstRow || {});
-  const missing = [];
-
-  expectedHeaders.forEach(expectedHeader => {
-    const found = findCsvHeader(firstRow, expectedHeader);
-    if (!found) missing.push(expectedHeader);
-  });
-
-  if (missing.length) {
-    console.log(`${label} actual headers:`, actualHeaders);
-    throw new Error(`Missing ${label} headers: ${missing.join(", ")}`);
-  }
-}
+      return String(value || "")
+        .replace(/\uFEFF/g, "")
+        .replace(/[\s._/%-]+/g, "")
+        .replace(/[^a-zA-Z0-9]/g, "")
+        .toLowerCase()
+        .trim();
+    }
 
     function cleanHeader(value) {
       return String(value || "")
         .replace(/\uFEFF/g, "")
         .replace(/\s+/g, " ")
         .trim();
+    }
+
+    function buildHeaderLookup(row) {
+      const lookup = {};
+      Object.keys(row || {}).forEach(originalHeader => {
+        const key = normalizeHeaderKey(originalHeader);
+        if (!lookup[key]) lookup[key] = originalHeader;
+      });
+      return lookup;
+    }
+
+    function findCsvHeader(row, expectedHeader) {
+      const lookup = buildHeaderLookup(row);
+      const key = normalizeHeaderKey(expectedHeader);
+
+      const aliases = {
+        eecode: ["eecode", "eecod", "employeecode", "employeenumber", "empcode", "empid"],
+        eename: ["eename", "eenam", "employeename", "employee", "name"],
+        badge: ["badge", "badgenumber"],
+        payclass: ["payclass", "payclas", "payclassdesc", "payclassdescription"],
+        eestatus: ["eestatus", "eestat", "employeestatus", "status"],
+        hiredate: ["hiredate", "hireda", "hired", "hireddate"],
+
+        homedepartmentcode: ["homedepartmentcode", "homedeptcode", "homedepartment", "homedcode", "homed"],
+        homedepartmentdesc: ["homedepartmentdesc", "homedeptdesc", "homedeptdescription", "homedepartmentdescription", "homedesc"],
+        homelocationcode: ["homelocationcode", "homeloccode", "homelocation", "homelcode", "homel"],
+        homelocationdesc: ["homelocationdesc", "homelocdesc", "homelocdescription", "homelocationdescription", "homeldesc"],
+
+        distributeddepartmentcode: [
+          "distributeddepartmentcode", "distdepartmentcode", "distdeptcode", "distributeddeptcode",
+          "distributiondepartmentcode", "departmentcode", "deptcode"
+        ],
+        distributeddepartmentdesc: [
+          "distributeddepartmentdesc", "distdepartmentdesc", "distdeptdesc", "distributeddeptdesc",
+          "distributiondepartmentdesc", "departmentdesc", "deptdesc"
+        ],
+        distributedlocationcode: [
+          "distributedlocationcode", "distlocationcode", "distloccode", "distributedloccode",
+          "distributionlocationcode", "locationcode", "loccode"
+        ],
+        distributedlocationdesc: [
+          "distributedlocationdesc", "distlocationdesc", "distlocdesc", "distributedlocdesc",
+          "distributionlocationdesc", "locationdesc", "locdesc"
+        ],
+
+        punchdate: ["punchdate", "punchdat", "date", "workdate"],
+        earningcode: ["earningcode", "earncode", "earning", "earningcd"],
+        earningdesc: ["earningdesc", "earndesc", "earningdescription", "earningdescr"],
+        position: ["position", "positio", "jobposition"],
+        positionfamily: ["positionfamily", "positionfam", "jobfamily"],
+        schedulegroup: ["schedulegroup", "schedulegrp", "schedu", "schedule"],
+        avgearnrate: ["avgearnrate", "averageearnrate", "avgearningrate", "rate", "earnrate"],
+        hours: ["hours", "hrs"],
+        amount: ["amount", "amt", "wages"],
+
+        hourspcttodist: ["hourspcttodist", "hourstodist", "hourspercenttodist", "hoursdist"],
+        hourspcttocompany: ["hourspcttocompany", "hourstocompany", "hourspercenttocompany", "hourscompany"],
+        amountpcttodist: ["amountpcttodist", "amounttodist", "amountpercenttodist", "amountdist"],
+        amountpcttocompany: ["amountpcttocompany", "amounttocompany", "amountpercenttocompany", "amountcompany"],
+
+        departmentcode: ["departmentcode", "deptcode", "department"],
+        departmentdesc: ["departmentdesc", "deptdesc", "departmentdescription"],
+        locationcode: ["locationcode", "loccode", "location"],
+        locationdesc: ["locationdesc", "locdesc", "locationdescription"],
+        clientcode: ["clientcode", "client"],
+        typecode: ["typecode", "typecd", "paytypecode"],
+        typedesc: ["typedesc", "typedescription", "paytypedesc", "paytypedescription"],
+        registertype: ["registertype", "register"],
+        hoursunits: ["hoursunits", "hoursunit", "hoursorunits", "hours", "units"],
+        wages: ["wages", "wage", "grosswages", "grosspay"]
+      };
+
+      if (lookup[key]) return lookup[key];
+
+      const aliasList = aliases[key] || [];
+      for (const alias of aliasList) {
+        if (lookup[alias]) return lookup[alias];
+      }
+
+      const lookupKeys = Object.keys(lookup);
+
+      if (key.length >= 10) {
+        const startsWithMatch = lookupKeys.find(actualKey => {
+          return actualKey.startsWith(key.slice(0, 10)) || key.startsWith(actualKey.slice(0, 10));
+        });
+
+        if (startsWithMatch) return lookup[startsWithMatch];
+      }
+
+      return null;
+    }
+
+    function validateHeaders(rows, expectedHeaders, label) {
+      const firstRow = rows[0] || {};
+      const actualHeaders = Object.keys(firstRow || {});
+      const missing = [];
+
+      expectedHeaders.forEach(expectedHeader => {
+        const found = findCsvHeader(firstRow, expectedHeader);
+        if (!found) missing.push(expectedHeader);
+      });
+
+      if (missing.length) {
+        console.log(`${label} actual headers:`, actualHeaders);
+        throw new Error(`Missing ${label} headers: ${missing.join(", ")}`);
+      }
     }
 
     function normalizeValue(field, value) {
@@ -1633,19 +1744,46 @@ function validateHeaders(rows, expectedHeaders, label) {
         .reduce((acc, r) => acc + toNumber(r.payroll_amount), 0);
 
       const totalPayroll = timeWages + registerWages;
+      const blendedRate = totalHours ? totalPayroll / totalHours : null;
 
       document.getElementById("kpiEmployees").textContent = formatNumber(employees.size, 0);
       document.getElementById("kpiHours").textContent = formatNumber(totalHours, 2);
       document.getElementById("kpiTimeWages").textContent = formatMoney(timeWages);
       document.getElementById("kpiRegisterWages").textContent = formatMoney(registerWages);
       document.getElementById("kpiTotalPayroll").textContent = formatMoney(totalPayroll);
+      document.getElementById("kpiBlendedRate").textContent = blendedRate === null ? "—" : formatMoney(blendedRate);
       document.getElementById("kpiPayTypes").textContent = formatNumber(payTypes.size, 0);
       document.getElementById("kpiExceptions").textContent = formatNumber(filteredExceptions.length, 0);
     }
 
     function renderActiveTab() {
-      if (!selectedBatchId) {
-        renderEmpty("Select or create a payroll batch to begin.");
+      if (activeTab === "monthly") {
+        renderTable(monthlyRows.filter(rowMatchesFilters), [
+          ["payroll_month", "Month"],
+          ["employee_count", "Employees", "num"],
+          ["total_hours", "Hours / Units", "num"],
+          ["time_payroll_amount", "Time Wages", "money"],
+          ["register_payroll_amount", "Register Wages", "money"],
+          ["total_payroll_amount", "Total Payroll", "money"],
+          ["blended_rate", "Blended Rate", "money"]
+        ]);
+        return;
+      }
+
+      if (activeTab === "daily") {
+        renderTable(dailyRows.filter(rowMatchesFilters), [
+          ["punch_date", "Punch Date", "date"],
+          ["department_code", "Dept Code"],
+          ["department_desc", "Department"],
+          ["location_code", "Loc Code"],
+          ["location_desc", "Location"],
+          ["pay_code", "Earn Code"],
+          ["pay_desc", "Earn Desc"],
+          ["employee_count", "Employees", "num"],
+          ["total_hours", "Hours", "num"],
+          ["total_payroll_amount", "Amount", "money"],
+          ["blended_rate", "Blended Rate", "money"]
+        ]);
         return;
       }
 
@@ -1659,7 +1797,8 @@ function validateHeaders(rows, expectedHeaders, label) {
           ["total_hours", "Hours", "num"],
           ["time_payroll_amount", "Time Wages", "money"],
           ["register_payroll_amount", "Register Wages", "money"],
-          ["total_payroll_amount", "Total Payroll", "money"]
+          ["total_payroll_amount", "Total Payroll", "money"],
+          ["blended_rate", "Blended Rate", "money"]
         ]);
         return;
       }
@@ -1669,10 +1808,12 @@ function validateHeaders(rows, expectedHeaders, label) {
           ["ee_code", "EE Code"],
           ["ee_name", "Employee"],
           ["department_count", "Dept Count", "num"],
+          ["employee_count", "Employee Keys", "num"],
           ["total_hours", "Hours", "num"],
           ["time_payroll_amount", "Time Wages", "money"],
           ["register_payroll_amount", "Register Wages", "money"],
-          ["total_payroll_amount", "Total Payroll", "money"]
+          ["total_payroll_amount", "Total Payroll", "money"],
+          ["blended_rate", "Blended Rate", "money"]
         ]);
         return;
       }
@@ -1685,15 +1826,18 @@ function validateHeaders(rows, expectedHeaders, label) {
           ["register_type", "Register Type"],
           ["employee_count", "Employees", "num"],
           ["total_hours", "Hours / Units", "num"],
-          ["total_payroll_amount", "Total Payroll", "money"]
+          ["total_payroll_amount", "Total Payroll", "money"],
+          ["blended_rate", "Blended Rate", "money"]
         ]);
         return;
       }
 
       if (activeTab === "combined") {
         renderTable(combinedRows.filter(rowMatchesFilters), [
+          ["work_date", "Work Date", "date"],
+          ["payroll_date", "Payroll Date", "date"],
+          ["batch_name", "Batch"],
           ["source_type", "Source", "pill"],
-          ["payroll_date", "Date", "date"],
           ["ee_code", "EE Code"],
           ["ee_name", "Employee"],
           ["department_code", "Dept Code"],
@@ -1726,26 +1870,28 @@ function validateHeaders(rows, expectedHeaders, label) {
           ["pay_class", "Pay Class"],
           ["avg_earn_rate", "Rate", "money"],
           ["hours", "Hours", "num"],
-          ["amount", "Amount", "money"]
+          ["amount", "Amount", "money"],
+          ["source_file_name", "File"]
         ]);
         return;
       }
 
       if (activeTab === "register") {
-        renderTable(registerRows.filter(rowMatchesFilters), [
+        renderTable(combinedRows.filter(row => row.source_type === "register").filter(rowMatchesFilters), [
+          ["work_date", "Work Date", "date"],
+          ["payroll_date", "Payroll Date", "date"],
+          ["batch_name", "Batch"],
+          ["ee_code", "EE Code"],
+          ["ee_name", "Employee"],
           ["department_code", "Dept Code"],
           ["department_desc", "Department"],
           ["location_code", "Loc Code"],
           ["location_desc", "Location"],
-          ["clientcode", "Client Code"],
-          ["ee_code", "EE Code"],
-          ["ee_name", "Employee"],
-          ["typecode", "Type Code"],
-          ["typedesc", "Type Desc"],
+          ["pay_code", "Type Code"],
+          ["pay_desc", "Type Desc"],
           ["register_type", "Register Type"],
-          ["amount", "Amount", "money"],
-          ["hours_units", "Hours / Units", "num"],
-          ["wages", "Wages", "money"]
+          ["hours", "Hours / Units", "num"],
+          ["payroll_amount", "Payroll Amount", "money"]
         ]);
         return;
       }
@@ -1859,8 +2005,8 @@ function validateHeaders(rows, expectedHeaders, label) {
         }
       }
 
-      for (const row of registerRows) {
-        const payrollAmount = toNumber(row.wages) || toNumber(row.amount);
+      for (const row of combinedRows.filter(r => r.source_type === "register")) {
+        const payrollAmount = toNumber(row.payroll_amount);
 
         const base = {
           source_type: "register",
@@ -1870,61 +2016,18 @@ function validateHeaders(rows, expectedHeaders, label) {
           department_desc: row.department_desc,
           location_code: row.location_code,
           location_desc: row.location_desc,
-          pay_code: row.typecode,
-          pay_desc: row.typedesc,
-          hours: row.hours_units,
+          pay_code: row.pay_code,
+          pay_desc: row.pay_desc,
+          hours: row.hours,
           payroll_amount: payrollAmount
         };
 
         if (!row.ee_code) exceptions.push(exception("High", "Missing EE Code", base));
         if (!row.department_code && !row.department_desc) exceptions.push(exception("High", "Missing Department", base));
         if (!row.location_code && !row.location_desc) exceptions.push(exception("Medium", "Missing Location", base));
-        if (!row.typecode && !row.typedesc) exceptions.push(exception("Medium", "Missing Type Code / Description", base));
-        if (row.wages === null && row.amount !== null) exceptions.push(exception("Low", "Amount Exists But Wages Blank", base));
-        if (toNumber(row.wages) < 0) exceptions.push(exception("Medium", "Negative Wages", base));
+        if (!row.pay_code && !row.pay_desc) exceptions.push(exception("Medium", "Missing Type Code / Description", base));
+        if (payrollAmount < 0) exceptions.push(exception("Medium", "Negative Payroll Amount", base));
         if (payrollAmount > 10000) exceptions.push(exception("Medium", "High Register Amount", base));
-      }
-
-      const duplicateMap = new Map();
-
-      for (const row of registerRows) {
-        const key = [
-          row.ee_code || "",
-          row.typecode || "",
-          row.department_code || "",
-          row.location_code || "",
-          row.wages ?? "",
-          row.amount ?? ""
-        ].join("|");
-
-        duplicateMap.set(key, (duplicateMap.get(key) || 0) + 1);
-      }
-
-      for (const row of registerRows) {
-        const key = [
-          row.ee_code || "",
-          row.typecode || "",
-          row.department_code || "",
-          row.location_code || "",
-          row.wages ?? "",
-          row.amount ?? ""
-        ].join("|");
-
-        if (duplicateMap.get(key) > 1) {
-          exceptions.push(exception("Low", "Possible Duplicate Register Row", {
-            source_type: "register",
-            ee_code: row.ee_code,
-            ee_name: row.ee_name,
-            department_code: row.department_code,
-            department_desc: row.department_desc,
-            location_code: row.location_code,
-            location_desc: row.location_desc,
-            pay_code: row.typecode,
-            pay_desc: row.typedesc,
-            hours: row.hours_units,
-            payroll_amount: toNumber(row.wages) || toNumber(row.amount)
-          }));
-        }
       }
 
       exceptionRows = exceptions;
@@ -1945,7 +2048,8 @@ function validateHeaders(rows, expectedHeaders, label) {
       const url = URL.createObjectURL(blob);
 
       const batch = batches.find(b => b.id === selectedBatchId);
-      const fileName = `${slugify(batch?.batch_name || "payroll")}-${activeTab}.csv`;
+      const batchName = batch?.batch_name || (selectedBatchId ? "payroll-batch" : "all-batches");
+      const fileName = `${slugify(batchName)}-${activeTab}.csv`;
 
       const link = document.createElement("a");
       link.href = url;
@@ -1954,6 +2058,15 @@ function validateHeaders(rows, expectedHeaders, label) {
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
+    }
+
+    function monthKey(value) {
+      if (!value) return "";
+      const raw = String(value);
+      if (/^\d{4}-\d{2}/.test(raw)) return raw.slice(0, 7);
+      const d = new Date(raw);
+      if (Number.isNaN(d.getTime())) return "";
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     }
 
     function sum(rows, field) {
@@ -1976,6 +2089,8 @@ function validateHeaders(rows, expectedHeaders, label) {
     }
 
     function formatMoney(value) {
+      if (value === null || value === undefined || value === "") return "—";
+
       const n = Number(value ?? 0);
       if (!Number.isFinite(n)) return "—";
 
@@ -1995,6 +2110,10 @@ function validateHeaders(rows, expectedHeaders, label) {
 
       if (parts.length === 3) {
         return `${parts[1]}/${parts[2]}/${parts[0]}`;
+      }
+
+      if (parts.length === 2) {
+        return `${parts[1]}/${parts[0]}`;
       }
 
       return raw;
