@@ -175,8 +175,6 @@
       border-color: #0f766e;
     }
 
-    .btn.danger { color: #b91c1c; }
-
     .btn:disabled {
       opacity: .45;
       cursor: not-allowed;
@@ -397,7 +395,7 @@
       right: 14px;
       bottom: 14px;
       z-index: 100;
-      max-width: 580px;
+      max-width: 620px;
       background: #111827;
       color: white;
       border-radius: 12px;
@@ -536,7 +534,7 @@
 
         <div class="actions">
           <button class="btn" onclick="openBatchModal()">New Batch</button>
-          <button class="btn green" onclick="chooseUpload('time')" id="uploadTimeBtn">Upload Time Punch CSV</button>
+          <button class="btn green" onclick="chooseUpload('time')" id="uploadTimeBtn">Upload Time CSV</button>
           <button class="btn green" onclick="chooseUpload('register')" id="uploadRegisterBtn">Upload Register CSV</button>
           <button class="btn" onclick="reloadAll()">Refresh</button>
           <button class="btn" onclick="exportCurrentTable()">Export View</button>
@@ -611,28 +609,28 @@
             <div class="value" id="kpiEmployees">—</div>
           </div>
           <div class="kpi">
-            <div class="label">Total Hours / Units</div>
-            <div class="value" id="kpiHours">—</div>
+            <div class="label">Time Hours</div>
+            <div class="value" id="kpiTimeHours">—</div>
           </div>
           <div class="kpi">
-            <div class="label">Time Wages</div>
-            <div class="value" id="kpiTimeWages">—</div>
+            <div class="label">Gross Wages</div>
+            <div class="value" id="kpiGrossWages">—</div>
           </div>
           <div class="kpi">
-            <div class="label">Register Wages</div>
-            <div class="value" id="kpiRegisterWages">—</div>
+            <div class="label">Employer Taxes</div>
+            <div class="value" id="kpiEmployerTaxes">—</div>
           </div>
           <div class="kpi">
-            <div class="label">Total Payroll</div>
-            <div class="value" id="kpiTotalPayroll">—</div>
+            <div class="label">Payroll Expense</div>
+            <div class="value" id="kpiPayrollExpense">—</div>
           </div>
           <div class="kpi">
-            <div class="label">Blended Rate</div>
-            <div class="value" id="kpiBlendedRate">—</div>
+            <div class="label">Net Pay</div>
+            <div class="value" id="kpiNetPay">—</div>
           </div>
           <div class="kpi">
-            <div class="label">Pay Types</div>
-            <div class="value" id="kpiPayTypes">—</div>
+            <div class="label">EE Taxes</div>
+            <div class="value" id="kpiEmployeeTaxes">—</div>
           </div>
           <div class="kpi">
             <div class="label">Exceptions</div>
@@ -661,8 +659,8 @@
     </main>
   </div>
 
-  <input class="hidden-file" type="file" id="timeFileInput" accept=".csv,text/csv" onchange="handleFileSelected(event, 'time')" />
-  <input class="hidden-file" type="file" id="registerFileInput" accept=".csv,text/csv" onchange="handleFileSelected(event, 'register')" />
+  <input class="hidden-file" type="file" id="timeFileInput" accept=".csv,text/csv,.txt" onchange="handleFileSelected(event, 'time')" />
+  <input class="hidden-file" type="file" id="registerFileInput" accept=".csv,text/csv,.txt" onchange="handleFileSelected(event, 'register')" />
 
   <div class="modal-backdrop" id="batchModal">
     <div class="modal">
@@ -730,37 +728,6 @@
     let exceptionRows = [];
     let currentRenderedRows = [];
 
-    const TIME_HEADERS = [
-      "EE Code",
-      "EE Name",
-      "Badge",
-      "Payclass",
-      "EE Status",
-      "Hiredate",
-      "Home Department Code",
-      "Home Department Desc",
-      "Home Location Code",
-      "Home Location Desc",
-      "Distributed Department Code",
-      "Distributed Department Desc",
-      "Distributed Location Code",
-      "Distributed Location Desc",
-      "Punch Date",
-      "Earning Code",
-      "Earning Desc",
-      "Position",
-      "Position Family",
-      "Schedule Group",
-      "Pay Class",
-      "Avg. EarnRate",
-      "Hours",
-      "Amount",
-      "Hours % to Dist",
-      "Hours % to Company",
-      "Amount % to Dist",
-      "Amount % to Company"
-    ];
-
     const REGISTER_HEADERS = [
       "Department Code",
       "Department Desc",
@@ -778,37 +745,6 @@
       "Pay Period Start",
       "Pay Period End"
     ];
-
-    const TIME_HEADER_MAP = {
-      "EE Code": "ee_code",
-      "EE Name": "ee_name",
-      "Badge": "badge",
-      "Payclass": "payclass",
-      "EE Status": "ee_status",
-      "Hiredate": "hiredate",
-      "Home Department Code": "home_department_code",
-      "Home Department Desc": "home_department_desc",
-      "Home Location Code": "home_location_code",
-      "Home Location Desc": "home_location_desc",
-      "Distributed Department Code": "distributed_department_code",
-      "Distributed Department Desc": "distributed_department_desc",
-      "Distributed Location Code": "distributed_location_code",
-      "Distributed Location Desc": "distributed_location_desc",
-      "Punch Date": "punch_date",
-      "Earning Code": "earning_code",
-      "Earning Desc": "earning_desc",
-      "Position": "position",
-      "Position Family": "position_family",
-      "Schedule Group": "schedule_group",
-      "Pay Class": "pay_class",
-      "Avg. EarnRate": "avg_earn_rate",
-      "Hours": "hours",
-      "Amount": "amount",
-      "Hours % to Dist": "hours_pct_to_dist",
-      "Hours % to Company": "hours_pct_to_company",
-      "Amount % to Dist": "amount_pct_to_dist",
-      "Amount % to Company": "amount_pct_to_company"
-    };
 
     const REGISTER_HEADER_MAP = {
       "Department Code": "department_code",
@@ -847,7 +783,15 @@
       "blended_rate",
       "employee_count",
       "department_count",
-      "punch_days"
+      "punch_days",
+      "raw_earn_hours",
+      "raw_dollars",
+      "gross_earnings",
+      "net_pay",
+      "employee_tax",
+      "employer_tax",
+      "taxable_wage_base",
+      "time_allocation_amount"
     ]);
 
     const DATE_FIELDS = new Set([
@@ -952,7 +896,7 @@
       toast.textContent = message;
       toast.classList.add("show");
       clearTimeout(showToast._timer);
-      showToast._timer = setTimeout(() => toast.classList.remove("show"), 5200);
+      showToast._timer = setTimeout(() => toast.classList.remove("show"), 6200);
     }
 
     function openBatchModal() {
@@ -978,7 +922,7 @@
 
     async function createBatch() {
       if (!supabaseClient || !currentUser) {
-        showToast("Supabase/auth is not ready yet. Refresh after config loads.");
+        showToast("Supabase/auth is not ready yet.");
         return;
       }
 
@@ -1120,7 +1064,7 @@
         .from("payroll_combined_cost_v")
         .select("*")
         .order("work_date", { ascending: false, nullsFirst: false })
-        .limit(20000);
+        .limit(30000);
 
       if (selectedBatchId) query = query.eq("batch_id", selectedBatchId);
       if (dates.from) query = query.gte("work_date", dates.from);
@@ -1139,7 +1083,7 @@
         .from("payroll_time_lines")
         .select("*")
         .order("punch_date", { ascending: false, nullsFirst: false })
-        .limit(20000);
+        .limit(30000);
 
       if (selectedBatchId) query = query.eq("batch_id", selectedBatchId);
       if (dates.from) query = query.gte("punch_date", dates.from);
@@ -1177,7 +1121,13 @@
       dailyRows = aggregateRows(
         timeRows.map(row => ({
           ...row,
-          payroll_amount: row.amount,
+          payroll_amount: 0,
+          gross_earnings: 0,
+          net_pay: 0,
+          employee_tax: 0,
+          employer_tax: 0,
+          taxable_wage_base: 0,
+          time_allocation_amount: toNumber(row.amount),
           department_code: row.distributed_department_code,
           department_desc: row.distributed_department_desc,
           location_code: row.distributed_location_code,
@@ -1210,9 +1160,9 @@
         })
       ).sort((a, b) => String(b.payroll_month || "").localeCompare(String(a.payroll_month || "")));
 
-      departmentRows.sort((a, b) => toNumber(b.total_payroll_amount) - toNumber(a.total_payroll_amount));
-      employeeRows.sort((a, b) => toNumber(b.total_payroll_amount) - toNumber(a.total_payroll_amount));
-      payTypeRows.sort((a, b) => toNumber(b.total_payroll_amount) - toNumber(a.total_payroll_amount));
+      departmentRows.sort((a, b) => payrollExpense(b) - payrollExpense(a));
+      employeeRows.sort((a, b) => payrollExpense(b) - payrollExpense(a));
+      payTypeRows.sort((a, b) => payrollExpense(b) - payrollExpense(a));
     }
 
     function aggregateRows(rows, keyFields, baseFactory) {
@@ -1227,9 +1177,17 @@
             ...base,
             employee_count: 0,
             total_hours: 0,
+            time_hours: 0,
+            register_hours: 0,
             total_payroll_amount: 0,
             time_payroll_amount: 0,
             register_payroll_amount: 0,
+            gross_earnings: 0,
+            net_pay: 0,
+            employee_tax: 0,
+            employer_tax: 0,
+            taxable_wage_base: 0,
+            time_allocation_amount: 0,
             blended_rate: null,
             _employeeSet: new Set(),
             _departmentSet: new Set()
@@ -1245,36 +1203,43 @@
         if (deptKey) agg._departmentSet.add(deptKey);
 
         const hours = toNumber(row.hours);
-        const amount = toNumber(row.payroll_amount ?? row.amount);
+        const payrollAmount = toNumber(row.payroll_amount);
+        const gross = toNumber(row.gross_earnings);
+        const net = toNumber(row.net_pay);
+        const eeTax = toNumber(row.employee_tax);
+        const erTax = toNumber(row.employer_tax);
+        const taxableBase = toNumber(row.taxable_wage_base);
+        const timeAlloc = toNumber(row.time_allocation_amount);
 
         agg.total_hours += hours;
-        agg.total_payroll_amount += amount;
+        agg.total_payroll_amount += payrollAmount;
+        agg.gross_earnings += gross;
+        agg.net_pay += net;
+        agg.employee_tax += eeTax;
+        agg.employer_tax += erTax;
+        agg.taxable_wage_base += taxableBase;
+        agg.time_allocation_amount += timeAlloc;
 
-        if (row.source_type === "register") {
-          agg.register_payroll_amount += amount;
+        if (row.source_type === "time_punch") {
+          agg.time_hours += hours;
+          agg.time_payroll_amount += payrollAmount;
         } else {
-          agg.time_payroll_amount += amount;
+          agg.register_hours += hours;
+          agg.register_payroll_amount += payrollAmount;
         }
       }
 
       return [...map.values()].map(row => ({
         ...row,
         employee_count: row._employeeSet.size,
-        blended_rate: row.total_hours ? row.total_payroll_amount / row.total_hours : null
+        department_count: row._departmentSet.size,
+        payroll_expense: payrollExpense(row),
+        blended_rate: row.gross_earnings && row.register_hours ? row.gross_earnings / row.register_hours : null
       }));
     }
 
-    function clearData() {
-      combinedRows = [];
-      timeRows = [];
-      departmentRows = [];
-      employeeRows = [];
-      payTypeRows = [];
-      dailyRows = [];
-      monthlyRows = [];
-      exceptionRows = [];
-      currentRenderedRows = [];
-      updateKpis();
+    function payrollExpense(row) {
+      return toNumber(row.gross_earnings) + toNumber(row.employer_tax);
     }
 
     function chooseUpload(type) {
@@ -1300,6 +1265,14 @@
 
       try {
         const rows = await parseCsv(file);
+
+        console.log("Parsed CSV debug:", {
+          fileName: file.name,
+          rowCount: rows.length,
+          firstRow: rows[0],
+          secondRow: rows[1],
+          headers: Object.keys(rows[0] || {})
+        });
 
         if (!rows.length) {
           showToast("CSV has no rows.");
@@ -1328,44 +1301,85 @@
       return new Promise((resolve, reject) => {
         Papa.parse(file, {
           header: true,
-          skipEmptyLines: true,
+          skipEmptyLines: "greedy",
+          delimiter: "",
+          newline: "",
+          dynamicTyping: false,
           transformHeader: h => cleanHeader(h),
+          transform: value => {
+            return typeof value === "string"
+              ? value.replace(/\uFEFF/g, "").trim()
+              : value;
+          },
           complete: results => {
-            if (results.errors?.length) console.warn(results.errors);
-            resolve(results.data || []);
+            console.log("Papa Parse results:", {
+              meta: results.meta,
+              errors: results.errors,
+              rowCount: results.data?.length || 0,
+              firstRow: results.data?.[0],
+              secondRow: results.data?.[1],
+              headers: Object.keys(results.data?.[0] || {})
+            });
+
+            resolve((results.data || []).filter(row => {
+              return Object.values(row || {}).some(v => String(v ?? "").trim() !== "");
+            }));
           },
           error: reject
         });
       });
     }
 
+    function detectTimeFileType(firstRow) {
+      const hasPaycomPunch =
+        !!findCsvHeader(firstRow, "InPunchTime") &&
+        !!findCsvHeader(firstRow, "EarnHours");
+
+      if (hasPaycomPunch) return "paycom_punch";
+
+      const hasLaborAllocation =
+        !!findCsvHeader(firstRow, "Punch Date") &&
+        !!findCsvHeader(firstRow, "Hours");
+
+      if (hasLaborAllocation) return "labor_allocation";
+
+      return "unknown";
+    }
+
     async function uploadTimeRows(fileName, rawRows) {
-      validateHeaders(rawRows, TIME_HEADERS, "time punch");
+      const firstRow = rawRows[0] || {};
+      const fileType = detectTimeFileType(firstRow);
+
+      if (fileType === "unknown") {
+        console.log("Unknown time file headers:", Object.keys(firstRow));
+        throw new Error("Unknown time CSV format. Expected Labor Allocation or Paycom punch file.");
+      }
 
       const mappedRows = rawRows.map(row => {
-        const mapped = {
-          batch_id: selectedBatchId,
-          source_file_name: fileName
-        };
-
-        for (const [csvHeader, dbField] of Object.entries(TIME_HEADER_MAP)) {
-          const actualHeader = findCsvHeader(row, csvHeader);
-          mapped[dbField] = normalizeValue(dbField, actualHeader ? row[actualHeader] : null);
+        if (fileType === "paycom_punch") {
+          return mapPaycomPunchRow(fileName, row);
         }
 
-        return mapped;
+        return mapLaborAllocationRow(fileName, row);
       }).filter(row => {
-        return row.ee_code || row.ee_name || row.hours || row.amount || row.punch_date;
+        return row.ee_code || row.ee_name || row.hours || row.amount || row.punch_date || row.in_punch_time;
       });
 
       if (!mappedRows.length) {
-        throw new Error("No usable time punch rows found.");
+        throw new Error("No usable time rows found.");
       }
+
+      const { error: deleteError } = await supabaseClient
+        .from("payroll_time_lines")
+        .delete()
+        .eq("batch_id", selectedBatchId);
+
+      if (deleteError) throw deleteError;
 
       await insertInChunks("payroll_time_lines", mappedRows, 500);
 
       const totalHours = sum(mappedRows, "hours");
-      const totalWages = sum(mappedRows, "amount");
+      const totalAllocation = sum(mappedRows, "amount");
 
       const { error } = await supabaseClient
         .from("payroll_import_batches")
@@ -1373,11 +1387,135 @@
           time_file_name: fileName,
           time_row_count: mappedRows.length,
           total_hours: totalHours,
-          total_wages: totalWages
+          total_wages: totalAllocation
         })
         .eq("id", selectedBatchId);
 
       if (error) throw error;
+    }
+
+    function mapLaborAllocationRow(fileName, row) {
+      const mapped = {
+        batch_id: selectedBatchId,
+        source_file_name: fileName,
+        time_file_type: "labor_allocation"
+      };
+
+      mapped.ee_code = getValue(row, "EE Code");
+      mapped.ee_name = getValue(row, "EE Name");
+      mapped.badge = getValue(row, "Badge");
+      mapped.payclass = getValue(row, "Payclass") || getValue(row, "Pay Class");
+      mapped.ee_status = getValue(row, "EE Status");
+      mapped.hiredate = normalizeValue("hiredate", getValue(row, "Hiredate"));
+
+      mapped.home_department_code = getValue(row, "Home Department Code");
+      mapped.home_department_desc = getValue(row, "Home Department Desc");
+      mapped.home_location_code = getValue(row, "Home Location Code");
+      mapped.home_location_desc = getValue(row, "Home Location Desc");
+
+      mapped.distributed_department_code = getValue(row, "Distributed Department Code");
+      mapped.distributed_department_desc = getValue(row, "Distributed Department Desc");
+      mapped.distributed_location_code = getValue(row, "Distributed Location Code");
+      mapped.distributed_location_desc = getValue(row, "Distributed Location Desc");
+
+      mapped.punch_date = normalizeValue("punch_date", getValue(row, "Punch Date"));
+      mapped.earning_code = getValue(row, "Earning Code") || getValue(row, "EarnCode") || "REG";
+      mapped.earning_desc = getValue(row, "Earning Desc") || getValue(row, "Earning Description") || mapped.earning_code;
+
+      mapped.position = getValue(row, "Position");
+      mapped.position_family = getValue(row, "Position Family");
+      mapped.schedule_group = getValue(row, "Schedule Group");
+      mapped.pay_class = getValue(row, "Pay Class") || getValue(row, "Payclass");
+
+      mapped.avg_earn_rate = normalizeValue("avg_earn_rate", getValue(row, "EarnRate") || getValue(row, "Avg. EarnRate"));
+      mapped.hours = normalizeValue("hours", getValue(row, "Hours"));
+      mapped.amount = normalizeValue("amount", getValue(row, "Amount"));
+
+      mapped.hours_pct_to_dist = normalizeValue("hours_pct_to_dist", getValue(row, "Hours % to Dist"));
+      mapped.hours_pct_to_company = normalizeValue("hours_pct_to_company", getValue(row, "Hours % to Company"));
+      mapped.amount_pct_to_dist = normalizeValue("amount_pct_to_dist", getValue(row, "Amount % to Dist"));
+      mapped.amount_pct_to_company = normalizeValue("amount_pct_to_company", getValue(row, "Amount % to Company"));
+
+      mapped.raw_earn_hours = mapped.hours;
+      mapped.raw_dollars = mapped.amount;
+
+      return mapped;
+    }
+
+    function mapPaycomPunchRow(fileName, row) {
+      const first = getValue(row, "Firstname");
+      const last = getValue(row, "Lastname");
+      const fullName = [last, first].filter(Boolean).join(", ");
+
+      const inPunchRaw = getValue(row, "InPunchTime");
+      const outPunchRaw = getValue(row, "OutPunchTime");
+
+      const homeDeptCode = getValue(row, "HomeDepartment") || getValue(row, "Home Department Code");
+      const homeDeptDesc = getValue(row, "Home Department Desc") || splitAllocationName(getValue(row, "HomeAllocation")).department;
+      const homeLocCode = getValue(row, "Home Location Code");
+      const homeLocDesc = getValue(row, "Home Location Desc") || splitAllocationName(getValue(row, "HomeAllocation")).location;
+
+      const distDeptCode = getValue(row, "Distributed Department Code") || homeDeptCode;
+      const distDeptDesc = getValue(row, "Dist Department Desc") || getValue(row, "Distributed Department Desc") || splitAllocationName(getValue(row, "Allocation")).department || homeDeptDesc;
+      const distLocCode = getValue(row, "Dist Location Code") || getValue(row, "Distributed Location Code") || homeLocCode;
+      const distLocDesc = getValue(row, "Dist Location Desc") || getValue(row, "Distributed Location Desc") || splitAllocationName(getValue(row, "Allocation")).location || homeLocDesc;
+
+      const earnCode = getValue(row, "EarnCode") || getValue(row, "Earn Code") || "REG";
+      const earnHours = normalizeValue("hours", getValue(row, "EarnHours"));
+      const dollars = normalizeValue("amount", getValue(row, "Dollars"));
+
+      return {
+        batch_id: selectedBatchId,
+        source_file_name: fileName,
+        time_file_type: "paycom_punch",
+
+        ee_code: getValue(row, "EECode") || getValue(row, "EE Code"),
+        ee_name: fullName || getValue(row, "EE Name"),
+        lastname: last || null,
+        firstname: first || null,
+        badge: getValue(row, "Badge"),
+        payclass: getValue(row, "Pay Class"),
+        ee_status: null,
+        hiredate: null,
+
+        home_department_code: homeDeptCode,
+        home_department_desc: homeDeptDesc,
+        home_location_code: homeLocCode,
+        home_location_desc: homeLocDesc,
+
+        distributed_department_code: distDeptCode,
+        distributed_department_desc: distDeptDesc,
+        distributed_location_code: distLocCode,
+        distributed_location_desc: distLocDesc,
+
+        punch_date: parseDateTimeToDate(inPunchRaw),
+        in_punch_time: parseDateTimeToIso(inPunchRaw),
+        out_punch_time: parseDateTimeToIso(outPunchRaw),
+
+        earning_code: earnCode,
+        earning_desc: earnCode || "Hours",
+        position: getValue(row, "Allocation"),
+        position_family: distDeptDesc,
+        schedule_group: null,
+        pay_class: getValue(row, "Pay Class"),
+
+        avg_earn_rate: null,
+        hours: earnHours,
+        amount: dollars,
+
+        raw_earn_hours: earnHours,
+        raw_dollars: dollars,
+
+        allocation: getValue(row, "Allocation"),
+        employee_approved: getValue(row, "Employee Approved"),
+        supervisor_approved: getValue(row, "Supervisor Approved"),
+        tax_profile: getValue(row, "Tax Profile"),
+
+        hours_pct_to_dist: null,
+        hours_pct_to_company: null,
+        amount_pct_to_dist: null,
+        amount_pct_to_company: null
+      };
     }
 
     async function uploadRegisterRows(fileName, rawRows) {
@@ -1403,26 +1541,26 @@
         throw new Error("No usable register rows found.");
       }
 
+      const { error: deleteError } = await supabaseClient
+        .from("payroll_register_lines")
+        .delete()
+        .eq("batch_id", selectedBatchId);
+
+      if (deleteError) throw deleteError;
+
       await insertInChunks("payroll_register_lines", mappedRows, 500);
 
-      const totalRegisterHours = sum(mappedRows, "hours_units");
-      const totalRegisterWages = mappedRows.reduce((acc, row) => {
-        const wages = toNumber(row.wages);
-        const amount = toNumber(row.amount);
-        return acc + (wages || amount || 0);
-      }, 0);
-
-      const existingBatch = batches.find(b => b.id === selectedBatchId) || {};
-      const combinedHours = toNumber(existingBatch.total_hours) + totalRegisterHours;
-      const combinedWages = toNumber(existingBatch.total_wages) + totalRegisterWages;
+      const earnRows = mappedRows.filter(row => String(row.register_type || "").toUpperCase() === "EARN");
+      const totalRegisterHours = sum(earnRows, "hours_units");
+      const totalRegisterWages = earnRows.reduce((acc, row) => acc + (toNumber(row.wages) || toNumber(row.amount)), 0);
 
       const { error } = await supabaseClient
         .from("payroll_import_batches")
         .update({
           register_file_name: fileName,
           register_row_count: mappedRows.length,
-          total_hours: combinedHours,
-          total_wages: combinedWages
+          total_hours: totalRegisterHours,
+          total_wages: totalRegisterWages
         })
         .eq("id", selectedBatchId);
 
@@ -1435,6 +1573,11 @@
         const { error } = await supabaseClient.from(table).insert(chunk);
         if (error) throw error;
       }
+    }
+
+    function getValue(row, expectedHeader) {
+      const actualHeader = findCsvHeader(row, expectedHeader);
+      return actualHeader ? row[actualHeader] : null;
     }
 
     function normalizeHeaderKey(value) {
@@ -1467,70 +1610,91 @@
       const key = normalizeHeaderKey(expectedHeader);
 
       const aliases = {
-        eecode: ["eecode", "eecod", "employeecode", "employeenumber", "empcode", "empid"],
+        eecode: ["eecode", "ee_code", "eecod", "employeecode", "employeenumber", "empcode", "empid"],
+        eecodealt: ["ee code", "eecode"],
         eename: ["eename", "eenam", "employeename", "employee", "name"],
+        lastname: ["lastname", "last"],
+        firstname: ["firstname", "first"],
         badge: ["badge", "badgenumber"],
-        payclass: ["payclass", "payclas", "payclassdesc", "payclassdescription"],
+        payclass: ["payclass", "payclas", "payclassdesc", "payclassdescription", "pay class"],
+        payclassalt: ["payclass", "pay class"],
         eestatus: ["eestatus", "eestat", "employeestatus", "status"],
         hiredate: ["hiredate", "hireda", "hired", "hireddate"],
 
-        homedepartmentcode: ["homedepartmentcode", "homedeptcode", "homedepartment", "homedcode", "homed"],
-        homedepartmentdesc: ["homedepartmentdesc", "homedeptdesc", "homedeptdescription", "homedepartmentdescription", "homedesc"],
-        homelocationcode: ["homelocationcode", "homeloccode", "homelocation", "homelcode", "homel"],
-        homelocationdesc: ["homelocationdesc", "homelocdesc", "homelocdescription", "homelocationdescription", "homeldesc"],
+        homedepartment: ["homedepartment", "homedept", "homedepartmentcode", "home department code"],
+        homedepartmentcode: ["homedepartmentcode", "homedeptcode", "homedepartment", "homedcode", "home department code"],
+        homedepartmentdesc: ["homedepartmentdesc", "home department desc", "homedeptdesc", "homedeptdescription", "homedepartmentdescription", "homedesc"],
+        homeallocation: ["homeallocation", "homeallocationdesc"],
+        homelocationcode: ["homelocationcode", "home location code", "homeloccode", "homelocation", "homelcode"],
+        homelocationdesc: ["homelocationdesc", "home location desc", "homelocdesc", "homelocdescription", "homelocationdescription"],
 
         distributeddepartmentcode: [
-          "distributeddepartmentcode", "distdepartmentcode", "distdeptcode", "distributeddeptcode",
+          "distributeddepartmentcode", "distributed department code", "distdepartmentcode", "distdeptcode", "distributeddeptcode",
           "distributiondepartmentcode", "departmentcode", "deptcode"
         ],
         distributeddepartmentdesc: [
-          "distributeddepartmentdesc", "distdepartmentdesc", "distdeptdesc", "distributeddeptdesc",
+          "distributeddepartmentdesc", "distributed department desc", "distdepartmentdesc", "dist department desc", "distdeptdesc", "distributeddeptdesc",
           "distributiondepartmentdesc", "departmentdesc", "deptdesc"
         ],
+        distdepartmentdesc: ["distdepartmentdesc", "dist department desc", "distributeddepartmentdesc"],
         distributedlocationcode: [
-          "distributedlocationcode", "distlocationcode", "distloccode", "distributedloccode",
+          "distributedlocationcode", "distributed location code", "distlocationcode", "dist location code", "distloccode", "distributedloccode",
           "distributionlocationcode", "locationcode", "loccode"
         ],
+        distlocationcode: ["distlocationcode", "dist location code", "distributedlocationcode"],
         distributedlocationdesc: [
-          "distributedlocationdesc", "distlocationdesc", "distlocdesc", "distributedlocdesc",
+          "distributedlocationdesc", "distributed location desc", "distlocationdesc", "dist location desc", "distlocdesc", "distributedlocdesc",
           "distributionlocationdesc", "locationdesc", "locdesc"
         ],
+        distlocationdesc: ["distlocationdesc", "dist location desc", "distributedlocationdesc"],
 
-        punchdate: ["punchdate", "punchdat", "date", "workdate"],
-        earningcode: ["earningcode", "earncode", "earning", "earningcd"],
-        earningdesc: ["earningdesc", "earndesc", "earningdescription", "earningdescr"],
+        punchdate: ["punchdate", "punch date", "punchdat", "date", "workdate"],
+        inpunchtime: ["inpunchtime", "in punch time", "punchin", "in"],
+        outpunchtime: ["outpunchtime", "out punch time", "punchout", "out"],
+        earningcode: ["earningcode", "earning code", "earncode", "earn code", "earning", "earningcd"],
+        earncode: ["earncode", "earn code", "earningcode"],
+        earningdesc: ["earningdesc", "earning desc", "earndesc", "earningdescription", "earningdescr"],
         position: ["position", "positio", "jobposition"],
-        positionfamily: ["positionfamily", "positionfam", "jobfamily"],
-        schedulegroup: ["schedulegroup", "schedulegrp", "schedu", "schedule"],
-        avgearnrate: ["avgearnrate", "averageearnrate", "avgearningrate", "rate", "earnrate"],
+        positionfamily: ["positionfamily", "position family", "positionfam", "jobfamily"],
+        schedulegroup: ["schedulegroup", "schedule group", "schedulegrp", "schedu", "schedule"],
+        earnrate: ["earnrate", "earn rate", "avgearnrate", "avg earnrate", "averageearnrate", "avgearningrate", "rate"],
+        avgearnrate: ["avgearnrate", "avg earnrate", "earnrate", "earn rate", "averageearnrate", "avgearningrate", "rate"],
         hours: ["hours", "hrs"],
-        amount: ["amount", "amt", "wages"],
+        earnhours: ["earnhours", "earn hours", "hours", "hrs"],
+        dollars: ["dollars", "amount"],
+        amount: ["amount", "amt", "dollars", "wages"],
 
-        hourspcttodist: ["hourspcttodist", "hourstodist", "hourspercenttodist", "hoursdist"],
-        hourspcttocompany: ["hourspcttocompany", "hourstocompany", "hourspercenttocompany", "hourscompany"],
-        amountpcttodist: ["amountpcttodist", "amounttodist", "amountpercenttodist", "amountdist"],
-        amountpcttocompany: ["amountpcttocompany", "amounttocompany", "amountpercenttocompany", "amountcompany"],
+        allocation: ["allocation"],
+        employeeapproved: ["employeeapproved", "employee approved"],
+        supervisorapproved: ["supervisorapproved", "supervisor approved"],
+        taxprofile: ["taxprofile", "tax profile"],
 
-        departmentcode: ["departmentcode", "deptcode", "department"],
-        departmentdesc: ["departmentdesc", "deptdesc", "departmentdescription"],
-        locationcode: ["locationcode", "loccode", "location"],
-        locationdesc: ["locationdesc", "locdesc", "locationdescription"],
+        hourspcttodist: ["hourspcttodist", "hours to dist", "hours percent to dist", "hourstodist", "hourspercenttodist", "hoursdist"],
+        hourspcttocompany: ["hourspcttocompany", "hours to company", "hours percent to company", "hourstocompany", "hourspercenttocompany"],
+        amountpcttodist: ["amountpcttodist", "amount to dist", "amount percent to dist", "amounttodist", "amountpercenttodist", "amountdist"],
+        amountpcttocompany: ["amountpcttocompany", "amount to company", "amount percent to company", "amounttocompany", "amountpercenttocompany"],
+
+        departmentcode: ["departmentcode", "department code", "deptcode", "department"],
+        departmentdesc: ["departmentdesc", "department desc", "deptdesc", "departmentdescription"],
+        locationcode: ["locationcode", "location code", "loccode", "location"],
+        locationdesc: ["locationdesc", "location desc", "locdesc", "locationdescription"],
         clientcode: ["clientcode", "client"],
         typecode: ["typecode", "typecd", "paytypecode"],
         typedesc: ["typedesc", "typedescription", "paytypedesc", "paytypedescription"],
-        registertype: ["registertype", "register"],
-        hoursunits: ["hoursunits", "hoursunit", "hoursorunits", "hours", "units"],
+        registertype: ["registertype", "register type", "register"],
+        hoursunits: ["hoursunits", "hours units", "hoursunit", "hoursorunits", "hours", "units"],
         wages: ["wages", "wage", "grosswages", "grosspay"],
 
-        payperiodstart: ["payperiodstart", "periodstart", "paystart", "startdate", "periodbegin", "payperiodbegin"],
-        payperiodend: ["payperiodend", "periodend", "payend", "enddate", "periodending", "periodenddate", "payperiodending"]
+        payperiodstart: ["payperiodstart", "pay period start", "periodstart", "paystart", "startdate", "periodbegin", "payperiodbegin"],
+        payperiodend: ["payperiodend", "pay period end", "periodend", "payend", "enddate", "periodending", "periodenddate", "payperiodending"]
       };
 
       if (lookup[key]) return lookup[key];
 
       const aliasList = aliases[key] || [];
       for (const alias of aliasList) {
-        if (lookup[alias]) return lookup[alias];
+        const aliasKey = normalizeHeaderKey(alias);
+        if (lookup[aliasKey]) return lookup[aliasKey];
       }
 
       const lookupKeys = Object.keys(lookup);
@@ -1621,6 +1785,68 @@
       }
 
       return null;
+    }
+
+    function parseDateTimeToDate(value) {
+      const raw = cleanText(value);
+      if (!raw) return null;
+
+      const mdyTime = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+.+)?$/);
+      if (mdyTime) {
+        const month = String(mdyTime[1]).padStart(2, "0");
+        const day = String(mdyTime[2]).padStart(2, "0");
+        let year = mdyTime[3];
+
+        if (year.length === 2) {
+          year = Number(year) > 70 ? `19${year}` : `20${year}`;
+        }
+
+        return `${year}-${month}-${day}`;
+      }
+
+      return parseDate(raw);
+    }
+
+    function parseDateTimeToIso(value) {
+      const raw = cleanText(value);
+      if (!raw) return null;
+
+      const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s+(\d{1,2}):(\d{2})(?:\s*(AM|PM))?$/i);
+      if (m) {
+        let month = Number(m[1]);
+        let day = Number(m[2]);
+        let year = Number(m[3]);
+        let hour = Number(m[4]);
+        const minute = Number(m[5]);
+        const ampm = m[6] ? m[6].toUpperCase() : null;
+
+        if (year < 100) year = year > 70 ? 1900 + year : 2000 + year;
+        if (ampm === "PM" && hour < 12) hour += 12;
+        if (ampm === "AM" && hour === 12) hour = 0;
+
+        const local = new Date(year, month - 1, day, hour, minute, 0);
+        if (!Number.isNaN(local.getTime())) return local.toISOString();
+      }
+
+      const parsed = new Date(raw);
+      if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
+
+      return null;
+    }
+
+    function splitAllocationName(value) {
+      const raw = cleanText(value);
+      if (!raw) return { department: null, location: null };
+
+      const parts = raw.split("-");
+      if (parts.length >= 2) {
+        return {
+          department: cleanText(parts[0]),
+          location: cleanText(parts.slice(1).join("-"))
+        };
+      }
+
+      return { department: raw, location: null };
     }
 
     function cleanText(value) {
@@ -1736,28 +1962,23 @@
       const filteredExceptions = exceptionRows.filter(rowMatchesFilters);
 
       const employees = new Set(filteredCombined.map(r => r.ee_code || r.ee_name).filter(Boolean));
-      const payTypes = new Set(filteredCombined.map(r => r.pay_code).filter(Boolean));
-
-      const totalHours = sum(filteredCombined, "hours");
-
-      const timeWages = filteredCombined
+      const timeHours = filteredCombined
         .filter(r => r.source_type === "time_punch")
-        .reduce((acc, r) => acc + toNumber(r.payroll_amount), 0);
+        .reduce((acc, r) => acc + toNumber(r.hours), 0);
 
-      const registerWages = filteredCombined
-        .filter(r => r.source_type === "register")
-        .reduce((acc, r) => acc + toNumber(r.payroll_amount), 0);
-
-      const totalPayroll = timeWages + registerWages;
-      const blendedRate = totalHours ? totalPayroll / totalHours : null;
+      const grossWages = sum(filteredCombined, "gross_earnings");
+      const employerTaxes = sum(filteredCombined, "employer_tax");
+      const netPay = sum(filteredCombined, "net_pay");
+      const employeeTaxes = sum(filteredCombined, "employee_tax");
+      const expense = grossWages + employerTaxes;
 
       document.getElementById("kpiEmployees").textContent = formatNumber(employees.size, 0);
-      document.getElementById("kpiHours").textContent = formatNumber(totalHours, 2);
-      document.getElementById("kpiTimeWages").textContent = formatMoney(timeWages);
-      document.getElementById("kpiRegisterWages").textContent = formatMoney(registerWages);
-      document.getElementById("kpiTotalPayroll").textContent = formatMoney(totalPayroll);
-      document.getElementById("kpiBlendedRate").textContent = blendedRate === null ? "—" : formatMoney(blendedRate);
-      document.getElementById("kpiPayTypes").textContent = formatNumber(payTypes.size, 0);
+      document.getElementById("kpiTimeHours").textContent = formatNumber(timeHours, 2);
+      document.getElementById("kpiGrossWages").textContent = formatMoney(grossWages);
+      document.getElementById("kpiEmployerTaxes").textContent = formatMoney(employerTaxes);
+      document.getElementById("kpiPayrollExpense").textContent = formatMoney(expense);
+      document.getElementById("kpiNetPay").textContent = formatMoney(netPay);
+      document.getElementById("kpiEmployeeTaxes").textContent = formatMoney(employeeTaxes);
       document.getElementById("kpiExceptions").textContent = formatNumber(filteredExceptions.length, 0);
     }
 
@@ -1766,11 +1987,15 @@
         renderTable(monthlyRows.filter(rowMatchesFilters), [
           ["payroll_month", "Month"],
           ["employee_count", "Employees", "num"],
-          ["total_hours", "Hours / Units", "num"],
-          ["time_payroll_amount", "Time Wages", "money"],
-          ["register_payroll_amount", "Register Wages", "money"],
-          ["total_payroll_amount", "Total Payroll", "money"],
-          ["blended_rate", "Blended Rate", "money"]
+          ["time_hours", "Time Hours", "num"],
+          ["register_hours", "Register Hours", "num"],
+          ["gross_earnings", "Gross Wages", "money"],
+          ["employer_tax", "Employer Taxes", "money"],
+          ["payroll_expense", "Payroll Expense", "money"],
+          ["net_pay", "Net Pay", "money"],
+          ["employee_tax", "EE Taxes", "money"],
+          ["time_allocation_amount", "Time Allocation", "money"],
+          ["blended_rate", "Wage Rate", "money"]
         ]);
         return;
       }
@@ -1785,9 +2010,8 @@
           ["pay_code", "Earn Code"],
           ["pay_desc", "Earn Desc"],
           ["employee_count", "Employees", "num"],
-          ["total_hours", "Hours", "num"],
-          ["total_payroll_amount", "Amount", "money"],
-          ["blended_rate", "Blended Rate", "money"]
+          ["time_hours", "Hours", "num"],
+          ["time_allocation_amount", "Time Allocation", "money"]
         ]);
         return;
       }
@@ -1799,11 +2023,14 @@
           ["location_code", "Loc Code"],
           ["location_desc", "Location"],
           ["employee_count", "Employees", "num"],
-          ["total_hours", "Hours", "num"],
-          ["time_payroll_amount", "Time Wages", "money"],
-          ["register_payroll_amount", "Register Wages", "money"],
-          ["total_payroll_amount", "Total Payroll", "money"],
-          ["blended_rate", "Blended Rate", "money"]
+          ["time_hours", "Time Hours", "num"],
+          ["register_hours", "Register Hours", "num"],
+          ["gross_earnings", "Gross Wages", "money"],
+          ["employer_tax", "Employer Taxes", "money"],
+          ["payroll_expense", "Payroll Expense", "money"],
+          ["net_pay", "Net Pay", "money"],
+          ["employee_tax", "EE Taxes", "money"],
+          ["time_allocation_amount", "Time Allocation", "money"]
         ]);
         return;
       }
@@ -1813,12 +2040,14 @@
           ["ee_code", "EE Code"],
           ["ee_name", "Employee"],
           ["department_count", "Dept Count", "num"],
-          ["employee_count", "Employee Keys", "num"],
-          ["total_hours", "Hours", "num"],
-          ["time_payroll_amount", "Time Wages", "money"],
-          ["register_payroll_amount", "Register Wages", "money"],
-          ["total_payroll_amount", "Total Payroll", "money"],
-          ["blended_rate", "Blended Rate", "money"]
+          ["time_hours", "Time Hours", "num"],
+          ["register_hours", "Register Hours", "num"],
+          ["gross_earnings", "Gross Wages", "money"],
+          ["employer_tax", "Employer Taxes", "money"],
+          ["payroll_expense", "Payroll Expense", "money"],
+          ["net_pay", "Net Pay", "money"],
+          ["employee_tax", "EE Taxes", "money"],
+          ["time_allocation_amount", "Time Allocation", "money"]
         ]);
         return;
       }
@@ -1826,13 +2055,17 @@
       if (activeTab === "paytypes") {
         renderTable(payTypeRows.filter(rowMatchesFilters), [
           ["source_type", "Source", "pill"],
+          ["register_type", "Register Type"],
           ["pay_code", "Code"],
           ["pay_desc", "Description"],
-          ["register_type", "Register Type"],
           ["employee_count", "Employees", "num"],
-          ["total_hours", "Hours / Units", "num"],
-          ["total_payroll_amount", "Total Payroll", "money"],
-          ["blended_rate", "Blended Rate", "money"]
+          ["time_hours", "Time Hours", "num"],
+          ["register_hours", "Register Hours", "num"],
+          ["gross_earnings", "Gross Wages", "money"],
+          ["employer_tax", "Employer Taxes", "money"],
+          ["net_pay", "Net Pay", "money"],
+          ["employee_tax", "EE Taxes", "money"],
+          ["taxable_wage_base", "Taxable Wage Base", "money"]
         ]);
         return;
       }
@@ -1855,27 +2088,32 @@
           ["pay_desc", "Pay Desc"],
           ["register_type", "Register Type"],
           ["hours", "Hours / Units", "num"],
-          ["payroll_amount", "Payroll Amount", "money"]
+          ["gross_earnings", "Gross Wages", "money"],
+          ["employer_tax", "Employer Taxes", "money"],
+          ["net_pay", "Net Pay", "money"],
+          ["employee_tax", "EE Taxes", "money"],
+          ["time_allocation_amount", "Time Allocation", "money"]
         ]);
         return;
       }
 
       if (activeTab === "time") {
         renderTable(timeRows.filter(rowMatchesFilters), [
+          ["time_file_type", "File Type"],
           ["punch_date", "Punch Date", "date"],
+          ["in_punch_time", "In Punch"],
+          ["out_punch_time", "Out Punch"],
           ["ee_code", "EE Code"],
           ["ee_name", "Employee"],
-          ["ee_status", "Status"],
+          ["badge", "Badge"],
+          ["payclass", "Pay Class"],
           ["distributed_department_code", "Dist Dept"],
           ["distributed_department_desc", "Dist Dept Desc"],
           ["distributed_location_code", "Dist Loc"],
           ["distributed_location_desc", "Dist Loc Desc"],
           ["earning_code", "Earn Code"],
           ["earning_desc", "Earn Desc"],
-          ["position", "Position"],
-          ["schedule_group", "Schedule"],
-          ["pay_class", "Pay Class"],
-          ["avg_earn_rate", "Rate", "money"],
+          ["position", "Position / Allocation"],
           ["hours", "Hours", "num"],
           ["amount", "Amount", "money"],
           ["source_file_name", "File"]
@@ -1900,7 +2138,11 @@
           ["pay_desc", "Type Desc"],
           ["register_type", "Register Type"],
           ["hours", "Hours / Units", "num"],
-          ["payroll_amount", "Payroll Amount", "money"]
+          ["gross_earnings", "Gross Wages", "money"],
+          ["employer_tax", "Employer Taxes", "money"],
+          ["net_pay", "Net Pay", "money"],
+          ["employee_tax", "EE Taxes", "money"],
+          ["taxable_wage_base", "Taxable Wage Base", "money"]
         ]);
         return;
       }
@@ -1919,7 +2161,7 @@
           ["pay_code", "Pay Code"],
           ["pay_desc", "Pay Desc"],
           ["hours", "Hours / Units", "num"],
-          ["payroll_amount", "Amount", "money"]
+          ["payroll_expense", "Payroll Expense", "money"]
         ]);
       }
     }
@@ -1996,7 +2238,7 @@
           pay_code: row.earning_code,
           pay_desc: row.earning_desc,
           hours: row.hours,
-          payroll_amount: row.amount
+          payroll_expense: 0
         };
 
         if (!row.ee_code) exceptions.push(exception("High", "Missing EE Code", base));
@@ -2004,19 +2246,9 @@
         if (!row.distributed_department_code && !row.distributed_department_desc) exceptions.push(exception("High", "Missing Distributed Department", base));
         if (row.hours === null || row.hours === undefined) exceptions.push(exception("Medium", "Missing Hours", base));
         if (toNumber(row.hours) < 0) exceptions.push(exception("High", "Negative Hours", base));
-        if (row.amount === null || row.amount === undefined) exceptions.push(exception("Medium", "Missing Amount", base));
-        if (toNumber(row.amount) < 0) exceptions.push(exception("Medium", "Negative Amount", base));
-        if (String(row.ee_status || "").toLowerCase().includes("term") && toNumber(row.hours) > 0) {
-          exceptions.push(exception("High", "Terminated/Inactive Employee With Hours", base));
-        }
-        if (toNumber(row.avg_earn_rate) > 100) {
-          exceptions.push(exception("Medium", "High Avg Earn Rate", base));
-        }
       }
 
       for (const row of combinedRows.filter(r => r.source_type === "register")) {
-        const payrollAmount = toNumber(row.payroll_amount);
-
         const base = {
           source_type: "register",
           ee_code: row.ee_code,
@@ -2028,16 +2260,12 @@
           pay_code: row.pay_code,
           pay_desc: row.pay_desc,
           hours: row.hours,
-          payroll_amount: payrollAmount
+          payroll_expense: payrollExpense(row)
         };
 
         if (!row.ee_code) exceptions.push(exception("High", "Missing EE Code", base));
         if (!row.department_code && !row.department_desc) exceptions.push(exception("High", "Missing Department", base));
-        if (!row.location_code && !row.location_desc) exceptions.push(exception("Medium", "Missing Location", base));
-        if (!row.pay_code && !row.pay_desc) exceptions.push(exception("Medium", "Missing Type Code / Description", base));
         if (!row.pay_period_start || !row.pay_period_end) exceptions.push(exception("Medium", "Missing Register Pay Period Dates", base));
-        if (payrollAmount < 0) exceptions.push(exception("Medium", "Negative Payroll Amount", base));
-        if (payrollAmount > 10000) exceptions.push(exception("Medium", "High Register Amount", base));
       }
 
       exceptionRows = exceptions;
