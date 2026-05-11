@@ -488,12 +488,8 @@
     }
 
     @media (max-width: 1300px) {
-      .control-panel {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-      }
-      .kpi-strip {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-      }
+      .control-panel { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .kpi-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     }
 
     @media (max-width: 800px) {
@@ -827,7 +823,9 @@
       "Register Type": "register_type",
       "Amount": "amount",
       "Hours/Units": "hours_units",
-      "Wages": "wages"
+      "Wages": "wages",
+      "Pay Period Start": "pay_period_start",
+      "Pay Period End": "pay_period_end"
     };
 
     const NUMERIC_FIELDS = new Set([
@@ -849,16 +847,16 @@
       "blended_rate",
       "employee_count",
       "department_count",
-      "punch_days",
-      "pay_period_start",
-"pay_period_end"
+      "punch_days"
     ]);
 
     const DATE_FIELDS = new Set([
       "hiredate",
       "punch_date",
       "payroll_date",
-      "work_date"
+      "work_date",
+      "pay_period_start",
+      "pay_period_end"
     ]);
 
     document.addEventListener("DOMContentLoaded", init);
@@ -892,7 +890,6 @@
 
     async function requireAuth() {
       const { data, error } = await supabaseClient.auth.getSession();
-
       if (error) console.warn("getSession error:", error);
 
       const session = data?.session;
@@ -1240,6 +1237,7 @@
         }
 
         const agg = map.get(key);
+
         const empKey = row.ee_code || row.ee_name;
         if (empKey) agg._employeeSet.add(empKey);
 
@@ -1522,7 +1520,10 @@
         typedesc: ["typedesc", "typedescription", "paytypedesc", "paytypedescription"],
         registertype: ["registertype", "register"],
         hoursunits: ["hoursunits", "hoursunit", "hoursorunits", "hours", "units"],
-        wages: ["wages", "wage", "grosswages", "grosspay"]
+        wages: ["wages", "wage", "grosswages", "grosspay"],
+
+        payperiodstart: ["payperiodstart", "periodstart", "paystart", "startdate", "periodbegin", "payperiodbegin"],
+        payperiodend: ["payperiodend", "periodend", "payend", "enddate", "periodending", "periodenddate", "payperiodending"]
       };
 
       if (lookup[key]) return lookup[key];
@@ -1840,6 +1841,8 @@
         renderTable(combinedRows.filter(rowMatchesFilters), [
           ["work_date", "Work Date", "date"],
           ["payroll_date", "Payroll Date", "date"],
+          ["pay_period_start", "Period Start", "date"],
+          ["pay_period_end", "Period End", "date"],
           ["batch_name", "Batch"],
           ["source_type", "Source", "pill"],
           ["ee_code", "EE Code"],
@@ -1884,6 +1887,8 @@
         renderTable(combinedRows.filter(row => row.source_type === "register").filter(rowMatchesFilters), [
           ["work_date", "Work Date", "date"],
           ["payroll_date", "Payroll Date", "date"],
+          ["pay_period_start", "Period Start", "date"],
+          ["pay_period_end", "Period End", "date"],
           ["batch_name", "Batch"],
           ["ee_code", "EE Code"],
           ["ee_name", "Employee"],
@@ -2030,6 +2035,7 @@
         if (!row.department_code && !row.department_desc) exceptions.push(exception("High", "Missing Department", base));
         if (!row.location_code && !row.location_desc) exceptions.push(exception("Medium", "Missing Location", base));
         if (!row.pay_code && !row.pay_desc) exceptions.push(exception("Medium", "Missing Type Code / Description", base));
+        if (!row.pay_period_start || !row.pay_period_end) exceptions.push(exception("Medium", "Missing Register Pay Period Dates", base));
         if (payrollAmount < 0) exceptions.push(exception("Medium", "Negative Payroll Amount", base));
         if (payrollAmount > 10000) exceptions.push(exception("Medium", "High Register Amount", base));
       }
