@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Silo | Payroll BI Workbench</title>
+  <title>SILO | Payroll BI Workbench</title>
 
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="/pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
@@ -12,6 +13,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 
   <style>
+
     :root {
       --bg: #f6f7f9;
       --panel: #ffffff;
@@ -661,51 +663,230 @@
       .kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .modal-body { grid-template-columns: 1fr; }
     }
+  
+
+
+    /* Iframe/body-only mode for Finance Console.
+       No Silo sidebar, no standalone app shell, no nested menu. */
+
+    :root {
+      --bg: #f4f6fa;
+      --panel: #ffffff;
+      --panel2: #f8fafc;
+      --line: #d9dde5;
+      --line-soft: #edf0f4;
+      --text: #172033;
+      --muted: #687385;
+      --dark: #111827;
+      --green: #0f766e;
+      --red: #b91c1c;
+      --amber: #b45309;
+      --blue: #1d4ed8;
+      --purple: #6d28d9;
+      --border: #e2e8f0;
+      --shadow: 0 14px 32px rgba(15, 23, 42, 0.06);
+    }
+
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      min-height: 100%;
+      background: transparent;
+      overflow: hidden;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    .payroll-page {
+      height: 100vh;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      background:
+        radial-gradient(circle at top left, rgba(79, 70, 229, 0.06), transparent 26%),
+        linear-gradient(180deg, #f8fafc 0%, #f4f6fa 100%);
+    }
+
+    .payroll-header {
+      flex: 0 0 auto;
+      padding: 10px 12px 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,0.74);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+    }
+
+    .payroll-title-wrap {
+      min-width: 0;
+    }
+
+    .payroll-kicker {
+      font-size: 10px;
+      font-weight: 850;
+      color: #64748b;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+    }
+
+    .payroll-title {
+      margin-top: 2px;
+      font-size: 16px;
+      font-weight: 900;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+    }
+
+    .payroll-sub {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 800px;
+    }
+
+    .payroll-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 7px;
+      flex-wrap: wrap;
+      flex: 0 0 auto;
+    }
+
+    .content {
+      flex: 1;
+      min-height: 0;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      overflow: hidden;
+    }
+
+    .panel {
+      background: rgba(255,255,255,0.9);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+    }
+
+    .workbench {
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+    }
+
+    .btn {
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--dark);
+      height: 30px;
+      padding: 0 10px;
+      border-radius: 9px;
+      font-weight: 800;
+      font-size: 11px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+      text-decoration: none;
+      transition: 0.15s ease;
+    }
+
+    .btn:hover {
+      background: #f8fafc;
+      transform: translateY(-1px);
+    }
+
+    .btn.primary {
+      background: linear-gradient(135deg, #4f46e5, #2563eb);
+      color: #fff;
+      border-color: transparent;
+    }
+
+    .btn.green {
+      background: linear-gradient(135deg, #0f766e, #0d9488);
+      color: #fff;
+      border-color: transparent;
+    }
+
+    .btn.blue {
+      background: linear-gradient(135deg, #2563eb, #4f46e5);
+      color: #fff;
+      border-color: transparent;
+    }
+
+    .btn.danger {
+      color: #991b1b;
+      border-color: #fecaca;
+      background: #fff;
+    }
+
+    .sidebar,
+    .brand,
+    .nav-section,
+    .nav-link {
+      display: none !important;
+    }
+
+    @media (max-width: 900px) {
+      html,
+      body {
+        overflow: auto;
+      }
+
+      .payroll-page {
+        min-height: 100vh;
+        height: auto;
+      }
+
+      .payroll-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .payroll-actions {
+        justify-content: flex-start;
+      }
+
+      .content {
+        height: calc(100vh - 110px);
+      }
+    }
+
   </style>
 </head>
 
 <body>
-  <div class="shell">
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-dot"></div>
-        <div>Silo</div>
+  <main class="payroll-page">
+    <header class="payroll-header">
+      <div class="payroll-title-wrap">
+        <div class="payroll-kicker">Finance · Planning</div>
+        <div class="payroll-title">Payroll BI Workbench</div>
+        <div class="payroll-sub" id="userLine">Loading payroll workspace...</div>
       </div>
 
-      <div class="nav-section">Finance</div>
-      <a class="nav-link" href="/finance.html">Finance Home <span>›</span></a>
-      <a class="nav-link active" href="/pages/payroll.html">Payroll BI <span>›</span></a>
-      <a class="nav-link" href="/pages/ar.html">AR <span>›</span></a>
-      <a class="nav-link" href="/pages/statements.html">Statements <span>›</span></a>
-
-      <div class="nav-section">Planning</div>
-      <a class="nav-link" href="/pages/planning.html">Planning <span>›</span></a>
-      <a class="nav-link" href="/pages/po-builder.html">PO Builder <span>›</span></a>
-      <a class="nav-link" href="/pages/factories.html">Factories <span>›</span></a>
-
-      <div class="sidebar-foot">
-        Register-only payroll BI. Raw Paycom rows can be directly adjusted and marked as adjusted.
+      <div class="payroll-actions">
+        <button class="btn" onclick="openBatchModal()">New Batch</button>
+        <button class="btn green" onclick="chooseUpload()" id="uploadRegisterBtn">Upload Register CSV</button>
+        <button class="btn" onclick="reloadAll()">Refresh</button>
+        <button class="btn primary" onclick="exportCurrentTable()">Export View</button>
       </div>
-    </aside>
+    </header>
 
-    <main class="main">
-      <div class="topbar">
-        <div class="title-wrap">
-          <div class="title">Payroll BI Workbench</div>
-          <div class="subtitle" id="userLine">Loading register BI workspace...</div>
-        </div>
+    <div class="loading-line" id="loadingLine"></div>
 
-        <div class="actions">
-          <button class="btn" onclick="openBatchModal()">New Batch</button>
-          <button class="btn green" onclick="chooseUpload()" id="uploadRegisterBtn">Upload Register CSV</button>
-          <button class="btn" onclick="reloadAll()">Refresh</button>
-          <button class="btn" onclick="exportCurrentTable()">Export View</button>
-        </div>
-      </div>
+    <section class="content">
 
-      <div class="loading-line" id="loadingLine"></div>
-
-      <section class="content">
         <div class="panel control-panel">
           <div class="field">
             <label>Payroll Batch</label>
@@ -810,11 +991,9 @@
         <section class="panel workbench">
           <div class="tabs">
             <button class="tab active" data-tab="monthly" onclick="setTab('monthly')">Monthly Register</button>
-            <button class="tab" data-tab="insights" onclick="setTab('insights')">Insights</button>
             <button class="tab" data-tab="trend" onclick="setTab('trend')">Trend Compare</button>
             <button class="tab" data-tab="periods" onclick="setTab('periods')">Pay Periods</button>
             <button class="tab" data-tab="locations" onclick="setTab('locations')">Hours by Location</button>
-            <button class="tab" data-tab="locationCompare" onclick="setTab('locationCompare')">Location Compare</button>
             <button class="tab" data-tab="departments" onclick="setTab('departments')">Departments</button>
             <button class="tab" data-tab="employees" onclick="setTab('employees')">Employees</button>
             <button class="tab" data-tab="types" onclick="setTab('types')">Register Types</button>
@@ -828,9 +1007,9 @@
             <div class="empty">Loading...</div>
           </div>
         </section>
-      </section>
-    </main>
-  </div>
+      
+    </section>
+  </main>
 
   <input class="hidden-file" type="file" id="registerFileInput" accept=".csv,text/csv,.txt" onchange="handleFileSelected(event)" />
 
@@ -859,7 +1038,7 @@
   <div class="toast" id="toast"></div>
 
   <script>
-    const cfg = window.__SILO_CONFIG__ || {};
+const cfg = window.__SILO_CONFIG__ || {};
     const SUPABASE_URL = cfg.SUPABASE_URL;
     const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY;
 
@@ -883,12 +1062,6 @@
     let employeeRows = [];
     let typeRows = [];
     let codeRows = [];
-    let departmentCompareRows = [];
-    let employeeCompareRows = [];
-    let locationCompareRows = [];
-    let typeCompareRows = [];
-    let codeCompareRows = [];
-    let insightRows = [];
     let exceptionRows = [];
 
     let currentRenderedRows = [];
@@ -1030,8 +1203,9 @@
         return;
       }
 
-      document.getElementById("userLine").textContent =
-        `${currentUser.email || "Signed in"} · ${profile?.role || "user"} · ${profile?.department || "no department"} · multi-slicer payroll BI`;
+      const userText = `${currentUser.email || "Signed in"} · ${profile?.role || "user"} · ${profile?.department || "no department"} · payroll BI`;
+      const userLine = document.getElementById("userLine");
+      if (userLine) userLine.textContent = userText;
     }
 
     function setLoading(isLoading) {
@@ -1387,177 +1561,6 @@
         typecode: row.typecode,
         typedesc: row.typedesc
       })).sort((a, b) => b.register_activity - a.register_activity);
-
-      departmentCompareRows = buildComparisonRows(rows, ["department_code", "department_desc", "location_code", "location_desc"], row => ({
-        department_code: row.department_code,
-        department_desc: row.department_desc,
-        location_code: row.location_code,
-        location_desc: row.location_desc
-      })).sort((a, b) => Math.abs(b.delta_payroll_expense || 0) - Math.abs(a.delta_payroll_expense || 0));
-
-      employeeCompareRows = buildComparisonRows(rows, ["ee_code", "ee_name"], row => ({
-        ee_code: row.ee_code,
-        ee_name: row.ee_name
-      })).sort((a, b) => Math.abs(b.delta_payroll_expense || 0) - Math.abs(a.delta_payroll_expense || 0));
-
-      locationCompareRows = buildComparisonRows(rows, ["location_code", "location_desc"], row => ({
-        location_code: row.location_code,
-        location_desc: row.location_desc
-      })).sort((a, b) => Math.abs(b.delta_hours || 0) - Math.abs(a.delta_hours || 0));
-
-      typeCompareRows = buildComparisonRows(rows, ["register_type_norm"], row => ({
-        register_type: row.register_type_norm
-      })).sort((a, b) => Math.abs(b.delta_register_activity || 0) - Math.abs(a.delta_register_activity || 0));
-
-      codeCompareRows = buildComparisonRows(rows, ["register_type_norm", "typecode", "typedesc"], row => ({
-        register_type: row.register_type_norm,
-        typecode: row.typecode,
-        typedesc: row.typedesc
-      })).sort((a, b) => Math.abs(b.delta_register_activity || 0) - Math.abs(a.delta_register_activity || 0));
-
-      insightRows = buildInsightRows(rows);
-    }
-
-
-    function getComparePeriods(rows) {
-      const periods = [...new Set((rows || []).map(row => row.pay_period_end).filter(Boolean))]
-        .sort((a, b) => String(a).localeCompare(String(b)));
-
-      const current = periods[periods.length - 1] || null;
-      const prior = periods.length > 1 ? periods[periods.length - 2] : null;
-
-      return { current, prior };
-    }
-
-    function buildComparisonRows(rows, keyFields, baseFactory) {
-      const { current, prior } = getComparePeriods(rows);
-
-      if (!current) return [];
-
-      const currentRows = (rows || []).filter(row => row.pay_period_end === current);
-      const priorRows = prior ? (rows || []).filter(row => row.pay_period_end === prior) : [];
-
-      const currentAggs = aggregateRows(currentRows, keyFields, baseFactory);
-      const priorAggs = aggregateRows(priorRows, keyFields, baseFactory);
-
-      const priorMap = new Map();
-      for (const row of priorAggs) {
-        const key = keyFields.map(field => row[field] ?? "").join("||");
-        priorMap.set(key, row);
-      }
-
-      return currentAggs.map(row => {
-        const key = keyFields.map(field => row[field] ?? "").join("||");
-        const priorRow = priorMap.get(key) || emptyAggregate({});
-
-        const out = {
-          ...row,
-          current_period: current,
-          prior_period: prior,
-          current_hours: row.register_hours,
-          prior_hours: priorRow.register_hours || 0,
-          delta_hours: row.register_hours - (priorRow.register_hours || 0),
-          pct_hours: safePct(row.register_hours - (priorRow.register_hours || 0), priorRow.register_hours),
-
-          current_gross_wages: row.gross_wages,
-          prior_gross_wages: priorRow.gross_wages || 0,
-          delta_gross_wages: row.gross_wages - (priorRow.gross_wages || 0),
-          pct_gross_wages: safePct(row.gross_wages - (priorRow.gross_wages || 0), priorRow.gross_wages),
-
-          current_payroll_expense: row.payroll_expense,
-          prior_payroll_expense: priorRow.payroll_expense || 0,
-          delta_payroll_expense: row.payroll_expense - (priorRow.payroll_expense || 0),
-          pct_payroll_expense: safePct(row.payroll_expense - (priorRow.payroll_expense || 0), priorRow.payroll_expense),
-
-          current_wage_rate: row.wage_rate,
-          prior_wage_rate: priorRow.wage_rate || null,
-          delta_wage_rate: (row.wage_rate || 0) - (priorRow.wage_rate || 0),
-
-          current_register_activity: row.register_activity,
-          prior_register_activity: priorRow.register_activity || 0,
-          delta_register_activity: row.register_activity - (priorRow.register_activity || 0),
-          pct_register_activity: safePct(row.register_activity - (priorRow.register_activity || 0), priorRow.register_activity)
-        };
-
-        out.compare_note = comparisonNote(out);
-        return out;
-      });
-    }
-
-    function safePct(delta, prior) {
-      if (!prior) return null;
-      return delta / prior;
-    }
-
-    function comparisonNote(row) {
-      const notes = [];
-      if (Math.abs(row.delta_hours || 0) > 0.01) notes.push(`Hours ${formatDeltaNumber(row.delta_hours)}`);
-      if (Math.abs(row.delta_gross_wages || 0) > 0.01) notes.push(`Gross ${formatDeltaMoney(row.delta_gross_wages)}`);
-      if (Math.abs(row.delta_payroll_expense || 0) > 0.01) notes.push(`Expense ${formatDeltaMoney(row.delta_payroll_expense)}`);
-      if (Math.abs(row.delta_wage_rate || 0) > 0.01) notes.push(`Rate ${formatDeltaMoney(row.delta_wage_rate)}`);
-      return notes.length ? notes.join(" · ") : "Flat vs prior period";
-    }
-
-    function buildInsightRows(rows) {
-      const insights = [];
-      const { current, prior } = getComparePeriods(rows);
-      if (!current) return insights;
-
-      const currentAgg = finalizeAggregate((rows || []).filter(r => r.pay_period_end === current).reduce((acc, r) => {
-        addToAggregate(acc, r);
-        return acc;
-      }, emptyAggregate({ metric: "Current Period" })));
-
-      const priorAgg = finalizeAggregate((rows || []).filter(r => r.pay_period_end === prior).reduce((acc, r) => {
-        addToAggregate(acc, r);
-        return acc;
-      }, emptyAggregate({ metric: "Prior Period" })));
-
-      const deltaHours = currentAgg.register_hours - priorAgg.register_hours;
-      const deltaGross = currentAgg.gross_wages - priorAgg.gross_wages;
-      const deltaExpense = currentAgg.payroll_expense - priorAgg.payroll_expense;
-      const deltaRate = (currentAgg.wage_rate || 0) - (priorAgg.wage_rate || 0);
-
-      insights.push({
-        signal: "Period Movement",
-        severity: Math.abs(deltaExpense) > 25000 ? "High" : Math.abs(deltaExpense) > 10000 ? "Medium" : "Low",
-        metric: "Payroll Expense",
-        detail: `${formatDate(current)} vs ${formatDate(prior)}: ${formatDeltaMoney(deltaExpense)} (${formatPercent(safePct(deltaExpense, priorAgg.payroll_expense))})`,
-        driver: `Hours ${formatDeltaNumber(deltaHours)} · Gross ${formatDeltaMoney(deltaGross)} · Wage Rate ${formatDeltaMoney(deltaRate)}`
-      });
-
-      const topDept = departmentCompareRows[0];
-      if (topDept) {
-        insights.push({
-          signal: "Largest Department Driver",
-          severity: Math.abs(topDept.delta_payroll_expense || 0) > 10000 ? "High" : "Medium",
-          metric: topDept.department_desc || topDept.department_code || "Department",
-          detail: `${formatDeltaMoney(topDept.delta_payroll_expense)} payroll expense vs prior period`,
-          driver: `Hours ${formatDeltaNumber(topDept.delta_hours)} · Rate ${formatDeltaMoney(topDept.delta_wage_rate)}`
-        });
-      }
-
-      const topLoc = locationCompareRows[0];
-      if (topLoc) {
-        insights.push({
-          signal: "Largest Location Hours Move",
-          severity: Math.abs(topLoc.delta_hours || 0) > 250 ? "High" : "Medium",
-          metric: topLoc.location_desc || topLoc.location_code || "Location",
-          detail: `${formatDeltaNumber(topLoc.delta_hours)} hours vs prior period`,
-          driver: `Gross ${formatDeltaMoney(topLoc.delta_gross_wages)} · Expense ${formatDeltaMoney(topLoc.delta_payroll_expense)}`
-        });
-      }
-
-      const adjustedCount = rows.filter(row => row.is_adjusted_bool).length;
-      insights.push({
-        signal: "Adjustment Layer",
-        severity: adjustedCount ? "Medium" : "Low",
-        metric: "Adjusted Rows",
-        detail: `${formatNumber(adjustedCount, 0)} adjusted rows in current filter scope`,
-        driver: adjustedCount ? "Review Adjusted Rows tab before labor call." : "No manual adjustments in selected scope."
-      });
-
-      return insights;
     }
 
     function aggregateRows(rows, keyFields, baseFactory) {
@@ -2003,17 +2006,6 @@
         return;
       }
 
-      if (activeTab === "insights") {
-        renderTable(insightRows, [
-          ["severity", "Priority", "severity"],
-          ["signal", "Signal"],
-          ["metric", "Metric"],
-          ["detail", "Detail"],
-          ["driver", "Driver"]
-        ]);
-        return;
-      }
-
       if (activeTab === "trend") {
         renderTable(trendRows, [
           ["pay_period_end", "Period End", "date"],
@@ -2067,118 +2059,76 @@
         return;
       }
 
-      if (activeTab === "locationCompare") {
-        renderTable(locationCompareRows, [
-          ["location_code", "Loc Code"],
-          ["location_desc", "Location"],
-          ["current_period", "Current Period", "date"],
-          ["prior_period", "Prior Period", "date"],
-          ["current_hours", "Current Hours", "num"],
-          ["prior_hours", "Prior Hours", "num"],
-          ["delta_hours", "Δ Hours", "num"],
-          ["pct_hours", "% Hours", "pct"],
-          ["current_gross_wages", "Current Gross", "money"],
-          ["prior_gross_wages", "Prior Gross", "money"],
-          ["delta_gross_wages", "Δ Gross", "money"],
-          ["pct_gross_wages", "% Gross", "pct"],
-          ["current_wage_rate", "Current Rate", "money"],
-          ["prior_wage_rate", "Prior Rate", "money"],
-          ["delta_wage_rate", "Δ Rate", "money"],
-          ["compare_note", "Notes"]
-        ]);
-        return;
-      }
-
       if (activeTab === "departments") {
-        renderTable(departmentCompareRows, [
+        renderTable(departmentRows, [
           ["department_code", "Dept Code"],
           ["department_desc", "Department"],
           ["location_code", "Loc Code"],
           ["location_desc", "Location"],
-          ["current_period", "Current", "date"],
-          ["prior_period", "Prior", "date"],
-          ["current_hours", "Current Hours", "num"],
-          ["prior_hours", "Prior Hours", "num"],
-          ["delta_hours", "Δ Hours", "num"],
-          ["pct_hours", "% Hours", "pct"],
-          ["current_gross_wages", "Current Gross", "money"],
-          ["prior_gross_wages", "Prior Gross", "money"],
-          ["delta_gross_wages", "Δ Gross", "money"],
-          ["pct_gross_wages", "% Gross", "pct"],
-          ["current_payroll_expense", "Current Expense", "money"],
-          ["prior_payroll_expense", "Prior Expense", "money"],
-          ["delta_payroll_expense", "Δ Expense", "money"],
-          ["pct_payroll_expense", "% Expense", "pct"],
-          ["current_wage_rate", "Current Rate", "money"],
-          ["delta_wage_rate", "Δ Rate", "money"],
-          ["compare_note", "Notes"]
+          ["employee_count", "Employees", "num"],
+          ["register_hours", "Hours/Units", "num"],
+          ["gross_wages", "Gross Wages", "money"],
+          ["employer_taxes", "Employer Taxes", "money"],
+          ["payroll_expense", "Payroll Expense", "money"],
+          ["net_pay", "Net Pay", "money"],
+          ["ee_taxes", "EE Taxes", "money"],
+          ["deductions", "Deductions", "money"],
+          ["wage_rate", "Wage Rate", "money"],
+          ["adjusted_count", "Adjusted", "num"]
         ]);
         return;
       }
 
       if (activeTab === "employees") {
-        renderTable(employeeCompareRows, [
+        renderTable(employeeRows, [
           ["ee_code", "EE Code"],
           ["ee_name", "Employee"],
-          ["current_period", "Current", "date"],
-          ["prior_period", "Prior", "date"],
-          ["current_hours", "Current Hours", "num"],
-          ["prior_hours", "Prior Hours", "num"],
-          ["delta_hours", "Δ Hours", "num"],
-          ["pct_hours", "% Hours", "pct"],
-          ["current_gross_wages", "Current Gross", "money"],
-          ["prior_gross_wages", "Prior Gross", "money"],
-          ["delta_gross_wages", "Δ Gross", "money"],
-          ["pct_gross_wages", "% Gross", "pct"],
-          ["current_payroll_expense", "Current Expense", "money"],
-          ["prior_payroll_expense", "Prior Expense", "money"],
-          ["delta_payroll_expense", "Δ Expense", "money"],
-          ["pct_payroll_expense", "% Expense", "pct"],
-          ["current_wage_rate", "Current Rate", "money"],
-          ["delta_wage_rate", "Δ Rate", "money"],
-          ["compare_note", "Notes"]
+          ["register_hours", "Hours/Units", "num"],
+          ["gross_wages", "Gross Wages", "money"],
+          ["employer_taxes", "Employer Taxes", "money"],
+          ["payroll_expense", "Payroll Expense", "money"],
+          ["net_pay", "Net Pay", "money"],
+          ["ee_taxes", "EE Taxes", "money"],
+          ["deductions", "Deductions", "money"],
+          ["wage_rate", "Wage Rate", "money"],
+          ["adjusted_count", "Adjusted", "num"]
         ]);
         return;
       }
 
       if (activeTab === "types") {
-        renderTable(typeCompareRows, [
+        renderTable(typeRows, [
           ["register_type", "Register Type", "pill"],
-          ["current_period", "Current", "date"],
-          ["prior_period", "Prior", "date"],
-          ["current_register_activity", "Current Activity", "money"],
-          ["prior_register_activity", "Prior Activity", "money"],
-          ["delta_register_activity", "Δ Activity", "money"],
-          ["pct_register_activity", "% Activity", "pct"],
-          ["current_hours", "Current Hours", "num"],
-          ["prior_hours", "Prior Hours", "num"],
-          ["delta_hours", "Δ Hours", "num"],
-          ["current_gross_wages", "Current Gross", "money"],
-          ["delta_gross_wages", "Δ Gross", "money"],
-          ["current_payroll_expense", "Current Expense", "money"],
-          ["delta_payroll_expense", "Δ Expense", "money"],
-          ["compare_note", "Notes"]
+          ["employee_count", "Employees", "num"],
+          ["row_count", "Rows", "num"],
+          ["register_hours", "Hours/Units", "num"],
+          ["gross_wages", "Gross Wages", "money"],
+          ["employer_taxes", "Employer Taxes", "money"],
+          ["net_pay", "Net Pay", "money"],
+          ["ee_taxes", "EE Taxes", "money"],
+          ["deductions", "Deductions", "money"],
+          ["taxable_wage_base", "Taxable Wage Base", "money"],
+          ["register_activity", "Register Activity", "money"],
+          ["adjusted_count", "Adjusted", "num"]
         ]);
         return;
       }
 
       if (activeTab === "codes") {
-        renderTable(codeCompareRows, [
+        renderTable(codeRows, [
           ["register_type", "Register Type", "pill"],
           ["typecode", "Type Code"],
           ["typedesc", "Type Desc"],
-          ["current_period", "Current", "date"],
-          ["prior_period", "Prior", "date"],
-          ["current_register_activity", "Current Activity", "money"],
-          ["prior_register_activity", "Prior Activity", "money"],
-          ["delta_register_activity", "Δ Activity", "money"],
-          ["pct_register_activity", "% Activity", "pct"],
-          ["current_hours", "Current Hours", "num"],
-          ["prior_hours", "Prior Hours", "num"],
-          ["delta_hours", "Δ Hours", "num"],
-          ["current_gross_wages", "Current Gross", "money"],
-          ["delta_gross_wages", "Δ Gross", "money"],
-          ["compare_note", "Notes"]
+          ["employee_count", "Employees", "num"],
+          ["row_count", "Rows", "num"],
+          ["register_hours", "Hours/Units", "num"],
+          ["gross_wages", "Gross Wages", "money"],
+          ["employer_taxes", "Employer Taxes", "money"],
+          ["net_pay", "Net Pay", "money"],
+          ["ee_taxes", "EE Taxes", "money"],
+          ["deductions", "Deductions", "money"],
+          ["register_activity", "Register Activity", "money"],
+          ["adjusted_count", "Adjusted", "num"]
         ]);
         return;
       }
@@ -2731,29 +2681,6 @@
     function toNumber(value) {
       const n = Number(value ?? 0);
       return Number.isFinite(n) ? n : 0;
-    }
-
-
-    function formatDeltaNumber(value, decimals = 2) {
-      if (value === null || value === undefined || value === "") return "—";
-      const n = Number(value);
-      if (!Number.isFinite(n)) return "—";
-      const sign = n > 0 ? "+" : "";
-      return `${sign}${formatNumber(n, decimals)}`;
-    }
-
-    function formatDeltaMoney(value) {
-      if (value === null || value === undefined || value === "") return "—";
-      const n = Number(value);
-      if (!Number.isFinite(n)) return "—";
-      const sign = n > 0 ? "+" : n < 0 ? "-" : "";
-      const abs = Math.abs(n).toLocaleString(undefined, {
-        style: "currency",
-        currency: "USD",
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0
-      });
-      return `${sign}${abs}`;
     }
 
     function formatNumber(value, decimals = 2) {
