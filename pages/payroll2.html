@@ -3,12 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Silo | Payroll Register Workbench</title>
+  <title>Silo | Payroll BI Workbench</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="/pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 
   <style>
     :root {
@@ -24,11 +25,10 @@
       --red: #b91c1c;
       --amber: #b45309;
       --blue: #1d4ed8;
+      --purple: #6d28d9;
     }
 
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
       background: var(--bg);
@@ -98,6 +98,15 @@
       color: #fff;
     }
 
+    .sidebar-foot {
+      margin-top: auto;
+      padding: 10px 12px;
+      color: #94a3b8;
+      font-size: 10px;
+      border-top: 1px solid rgba(255,255,255,.08);
+      line-height: 1.45;
+    }
+
     .main {
       min-width: 0;
       min-height: 0;
@@ -164,9 +173,7 @@
       white-space: nowrap;
     }
 
-    .btn:hover {
-      background: #f8fafc;
-    }
+    .btn:hover { background: #f8fafc; }
 
     .btn.primary {
       background: #111827;
@@ -178,6 +185,22 @@
       background: #0f766e;
       color: #fff;
       border-color: #0f766e;
+    }
+
+    .btn.blue {
+      background: #1d4ed8;
+      color: #fff;
+      border-color: #1d4ed8;
+    }
+
+    .btn.soft {
+      background: #f8fafc;
+    }
+
+    .btn.danger {
+      color: #b91c1c;
+      border-color: #fecaca;
+      background: #fff;
     }
 
     .btn:disabled {
@@ -205,7 +228,7 @@
     .control-panel {
       padding: 8px;
       display: grid;
-      grid-template-columns: 1.25fr .78fr .78fr .9fr .9fr .9fr .9fr 1fr auto;
+      grid-template-columns: 1.25fr .72fr .72fr .9fr .9fr .9fr .9fr .9fr 1.05fr auto;
       gap: 7px;
       align-items: end;
       flex-shrink: 0;
@@ -216,6 +239,7 @@
       flex-direction: column;
       gap: 3px;
       min-width: 0;
+      position: relative;
     }
 
     label {
@@ -242,6 +266,79 @@
     input:focus {
       border-color: #64748b;
       box-shadow: 0 0 0 2px rgba(100, 116, 139, .15);
+    }
+
+    .multi-btn {
+      height: 30px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0 8px;
+      background: #fff;
+      font-size: 11px;
+      min-width: 0;
+      outline: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      gap: 6px;
+    }
+
+    .multi-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .multi-menu {
+      position: absolute;
+      top: 50px;
+      left: 0;
+      min-width: 280px;
+      max-width: 380px;
+      max-height: 360px;
+      overflow: auto;
+      background: #fff;
+      border: 1px solid var(--line);
+      box-shadow: 0 18px 45px rgba(15, 23, 42, .18);
+      border-radius: 12px;
+      padding: 8px;
+      display: none;
+      z-index: 50;
+    }
+
+    .multi-menu.show { display: block; }
+
+    .multi-menu-head {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      margin-bottom: 8px;
+      position: sticky;
+      top: -8px;
+      background: #fff;
+      padding-top: 2px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--line-soft);
+      z-index: 2;
+    }
+
+    .multi-option {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 4px;
+      border-radius: 7px;
+      cursor: pointer;
+      font-size: 11px;
+    }
+
+    .multi-option:hover { background: #f8fafc; }
+
+    .multi-option input {
+      height: auto;
+      width: auto;
+      padding: 0;
     }
 
     .kpi-strip {
@@ -287,6 +384,47 @@
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
+    }
+
+    .chart-grid {
+      display: grid;
+      grid-template-columns: 1.25fr .75fr;
+      gap: 8px;
+      min-height: 210px;
+      max-height: 260px;
+      flex-shrink: 0;
+    }
+
+    .chart-card {
+      padding: 8px;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .chart-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      padding: 0 2px 6px;
+      border-bottom: 1px solid var(--line-soft);
+      flex-shrink: 0;
+    }
+
+    .chart-title {
+      font-size: 11px;
+      font-weight: 900;
+      color: #334155;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+
+    .chart-wrap {
+      position: relative;
+      flex: 1;
+      min-height: 0;
+      padding-top: 6px;
     }
 
     .workbench {
@@ -366,9 +504,7 @@
       vertical-align: middle;
     }
 
-    tbody tr:hover {
-      background: #f8fafc;
-    }
+    tbody tr:hover { background: #f8fafc; }
 
     .num {
       text-align: right;
@@ -386,30 +522,30 @@
       font-size: 10px;
       font-weight: 850;
       border: 1px solid #e2e8f0;
+      gap: 4px;
     }
 
-    .pill.green {
-      background: #ecfdf5;
-      color: #047857;
-      border-color: #a7f3d0;
+    .pill.green { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+    .pill.red { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+    .pill.amber { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+    .pill.blue { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+    .pill.purple { background: #f5f3ff; color: #6d28d9; border-color: #ddd6fe; }
+
+    .edit-input {
+      height: 24px;
+      width: 92px;
+      padding: 0 6px;
+      text-align: right;
+      border-radius: 6px;
+      font-size: 11px;
     }
 
-    .pill.red {
-      background: #fef2f2;
-      color: #b91c1c;
-      border-color: #fecaca;
-    }
-
-    .pill.amber {
-      background: #fffbeb;
-      color: #b45309;
-      border-color: #fde68a;
-    }
-
-    .pill.blue {
-      background: #eff6ff;
-      color: #1d4ed8;
-      border-color: #bfdbfe;
+    .edit-note {
+      height: 24px;
+      width: 220px;
+      padding: 0 6px;
+      border-radius: 6px;
+      font-size: 11px;
     }
 
     .toast {
@@ -417,7 +553,7 @@
       right: 14px;
       bottom: 14px;
       z-index: 100;
-      max-width: 680px;
+      max-width: 760px;
       background: #111827;
       color: white;
       border-radius: 12px;
@@ -428,9 +564,7 @@
       line-height: 1.35;
     }
 
-    .toast.show {
-      display: block;
-    }
+    .toast.show { display: block; }
 
     .modal-backdrop {
       position: fixed;
@@ -443,9 +577,7 @@
       padding: 20px;
     }
 
-    .modal-backdrop.show {
-      display: flex;
-    }
+    .modal-backdrop.show { display: flex; }
 
     .modal {
       width: min(760px, 100%);
@@ -486,9 +618,7 @@
       background: #f8fafc;
     }
 
-    .hidden-file {
-      display: none;
-    }
+    .hidden-file { display: none; }
 
     .empty {
       padding: 26px;
@@ -506,58 +636,30 @@
       flex-shrink: 0;
     }
 
-    .loading-line.show {
-      display: block;
-    }
+    .loading-line.show { display: block; }
 
     @keyframes slide {
-      0% {
-        background-position: 0 0;
-      }
-
-      100% {
-        background-position: 200% 0;
-      }
+      0% { background-position: 0 0; }
+      100% { background-position: 200% 0; }
     }
 
-    @media (max-width: 1300px) {
-      .control-panel {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-      }
+    @media (max-width: 1500px) {
+      .control-panel { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+      .kpi-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
 
-      .kpi-strip {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-      }
+    @media (max-width: 1000px) {
+      .chart-grid { grid-template-columns: 1fr; max-height: none; }
     }
 
     @media (max-width: 800px) {
-      .shell {
-        grid-template-columns: 1fr;
-      }
-
-      .sidebar {
-        display: none;
-      }
-
-      body {
-        overflow: auto;
-      }
-
-      .main {
-        height: 100vh;
-      }
-
-      .control-panel {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
-      .kpi-strip {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-      }
-
-      .modal-body {
-        grid-template-columns: 1fr;
-      }
+      .shell { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      body { overflow: auto; }
+      .main { height: 100vh; }
+      .control-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .modal-body { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -572,7 +674,7 @@
 
       <div class="nav-section">Finance</div>
       <a class="nav-link" href="/finance.html">Finance Home <span>›</span></a>
-      <a class="nav-link active" href="/pages/payroll.html">Payroll <span>›</span></a>
+      <a class="nav-link active" href="/pages/payroll.html">Payroll BI <span>›</span></a>
       <a class="nav-link" href="/pages/ar.html">AR <span>›</span></a>
       <a class="nav-link" href="/pages/statements.html">Statements <span>›</span></a>
 
@@ -581,15 +683,16 @@
       <a class="nav-link" href="/pages/po-builder.html">PO Builder <span>›</span></a>
       <a class="nav-link" href="/pages/factories.html">Factories <span>›</span></a>
 
-      <div class="nav-section">System</div>
-      <a class="nav-link" href="/pages/login.html">Login <span>›</span></a>
+      <div class="sidebar-foot">
+        Register-only payroll BI. Raw Paycom rows can be directly adjusted and marked as adjusted.
+      </div>
     </aside>
 
     <main class="main">
       <div class="topbar">
         <div class="title-wrap">
-          <div class="title">Payroll Register Workbench</div>
-          <div class="subtitle" id="userLine">Loading register workspace...</div>
+          <div class="title">Payroll BI Workbench</div>
+          <div class="subtitle" id="userLine">Loading register BI workspace...</div>
         </div>
 
         <div class="actions">
@@ -622,31 +725,46 @@
           </div>
 
           <div class="field">
-            <label>Department</label>
-            <select id="deptFilter" onchange="applyFilters()">
-              <option value="">All Departments</option>
+            <label>View Preset</label>
+            <select id="presetSelect" onchange="applyPreset()">
+              <option value="">Custom</option>
+              <option value="warehouse">Warehouse / Logistics</option>
+              <option value="admin">Admin</option>
+              <option value="retail">Retail</option>
+              <option value="wpv">WPV Location</option>
             </select>
+          </div>
+
+          <div class="field">
+            <label>Department</label>
+            <button class="multi-btn" onclick="toggleMulti('deptMenu')">
+              <span class="multi-label" id="deptMultiLabel">All Departments</span><span>▾</span>
+            </button>
+            <div class="multi-menu" id="deptMenu"></div>
           </div>
 
           <div class="field">
             <label>Location</label>
-            <select id="locationFilter" onchange="applyFilters()">
-              <option value="">All Locations</option>
-            </select>
+            <button class="multi-btn" onclick="toggleMulti('locationMenu')">
+              <span class="multi-label" id="locationMultiLabel">All Locations</span><span>▾</span>
+            </button>
+            <div class="multi-menu" id="locationMenu"></div>
           </div>
 
           <div class="field">
             <label>Register Type</label>
-            <select id="registerTypeFilter" onchange="applyFilters()">
-              <option value="">All Types</option>
-            </select>
+            <button class="multi-btn" onclick="toggleMulti('typeMenu')">
+              <span class="multi-label" id="typeMultiLabel">All Types</span><span>▾</span>
+            </button>
+            <div class="multi-menu" id="typeMenu"></div>
           </div>
 
           <div class="field">
             <label>Pay Code</label>
-            <select id="payCodeFilter" onchange="applyFilters()">
-              <option value="">All Pay Codes</option>
-            </select>
+            <button class="multi-btn" onclick="toggleMulti('payCodeMenu')">
+              <span class="multi-label" id="payCodeMultiLabel">All Pay Codes</span><span>▾</span>
+            </button>
+            <div class="multi-menu" id="payCodeMenu"></div>
           </div>
 
           <div class="field">
@@ -661,65 +779,46 @@
         </div>
 
         <div class="kpi-strip">
-          <div class="kpi">
-            <div class="label">Employees</div>
-            <div class="value" id="kpiEmployees">—</div>
-            <div class="sub">distinct EE Code</div>
+          <div class="kpi"><div class="label">Employees</div><div class="value" id="kpiEmployees">—</div><div class="sub">distinct EE Code</div></div>
+          <div class="kpi"><div class="label">Register Hours</div><div class="value" id="kpiRegisterHours">—</div><div class="sub">EARN hours only</div></div>
+          <div class="kpi"><div class="label">Gross Wages</div><div class="value" id="kpiGrossWages">—</div><div class="sub">EARN amount</div></div>
+          <div class="kpi"><div class="label">Employer Taxes</div><div class="value" id="kpiEmployerTaxes">—</div><div class="sub">ERTAX amount</div></div>
+          <div class="kpi"><div class="label">Payroll Expense</div><div class="value" id="kpiPayrollExpense">—</div><div class="sub">gross + ER taxes</div></div>
+          <div class="kpi"><div class="label">Net Pay</div><div class="value" id="kpiNetPay">—</div><div class="sub">NET amount</div></div>
+          <div class="kpi"><div class="label">EE Taxes</div><div class="value" id="kpiEmployeeTaxes">—</div><div class="sub">EETAX amount</div></div>
+          <div class="kpi"><div class="label">Deductions</div><div class="value" id="kpiDeductions">—</div><div class="sub">DDUCT amount</div></div>
+        </div>
+
+        <div class="chart-grid" id="chartGrid">
+          <div class="panel chart-card">
+            <div class="chart-head">
+              <div class="chart-title">Hours by Location per Pay Period</div>
+              <button class="btn soft" onclick="setTab('locations')">Open Grid</button>
+            </div>
+            <div class="chart-wrap"><canvas id="hoursChart"></canvas></div>
           </div>
 
-          <div class="kpi">
-            <div class="label">Register Hours</div>
-            <div class="value" id="kpiRegisterHours">—</div>
-            <div class="sub">EARN hours only</div>
-          </div>
-
-          <div class="kpi">
-            <div class="label">Gross Wages</div>
-            <div class="value" id="kpiGrossWages">—</div>
-            <div class="sub">EARN amount</div>
-          </div>
-
-          <div class="kpi">
-            <div class="label">Employer Taxes</div>
-            <div class="value" id="kpiEmployerTaxes">—</div>
-            <div class="sub">ERTAX amount</div>
-          </div>
-
-          <div class="kpi">
-            <div class="label">Payroll Expense</div>
-            <div class="value" id="kpiPayrollExpense">—</div>
-            <div class="sub">gross + ER taxes</div>
-          </div>
-
-          <div class="kpi">
-            <div class="label">Net Pay</div>
-            <div class="value" id="kpiNetPay">—</div>
-            <div class="sub">NET amount</div>
-          </div>
-
-          <div class="kpi">
-            <div class="label">EE Taxes</div>
-            <div class="value" id="kpiEmployeeTaxes">—</div>
-            <div class="sub">EETAX amount</div>
-          </div>
-
-          <div class="kpi">
-            <div class="label">Deductions</div>
-            <div class="value" id="kpiDeductions">—</div>
-            <div class="sub">DDUCT amount</div>
+          <div class="panel chart-card">
+            <div class="chart-head">
+              <div class="chart-title">Selected Scope Trend</div>
+              <button class="btn soft" onclick="setTab('trend')">Compare</button>
+            </div>
+            <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
           </div>
         </div>
 
         <section class="panel workbench">
           <div class="tabs">
             <button class="tab active" data-tab="monthly" onclick="setTab('monthly')">Monthly Register</button>
+            <button class="tab" data-tab="trend" onclick="setTab('trend')">Trend Compare</button>
             <button class="tab" data-tab="periods" onclick="setTab('periods')">Pay Periods</button>
             <button class="tab" data-tab="locations" onclick="setTab('locations')">Hours by Location</button>
             <button class="tab" data-tab="departments" onclick="setTab('departments')">Departments</button>
             <button class="tab" data-tab="employees" onclick="setTab('employees')">Employees</button>
             <button class="tab" data-tab="types" onclick="setTab('types')">Register Types</button>
             <button class="tab" data-tab="codes" onclick="setTab('codes')">Pay Codes</button>
-            <button class="tab" data-tab="detail" onclick="setTab('detail')">Register Detail</button>
+            <button class="tab" data-tab="edit" onclick="setTab('edit')">Detail / Edit</button>
+            <button class="tab" data-tab="adjusted" onclick="setTab('adjusted')">Adjusted Rows</button>
             <button class="tab" data-tab="exceptions" onclick="setTab('exceptions')">Exceptions</button>
           </div>
 
@@ -731,13 +830,7 @@
     </main>
   </div>
 
-  <input
-    class="hidden-file"
-    type="file"
-    id="registerFileInput"
-    accept=".csv,text/csv,.txt"
-    onchange="handleFileSelected(event)"
-  />
+  <input class="hidden-file" type="file" id="registerFileInput" accept=".csv,text/csv,.txt" onchange="handleFileSelected(event)" />
 
   <div class="modal-backdrop" id="batchModal">
     <div class="modal">
@@ -747,30 +840,11 @@
       </div>
 
       <div class="modal-body">
-        <div class="field">
-          <label>Batch Name</label>
-          <input id="batchNameInput" placeholder="Payroll Register 01/01-04/24" />
-        </div>
-
-        <div class="field">
-          <label>Pay Period Start</label>
-          <input id="periodStartInput" type="date" />
-        </div>
-
-        <div class="field">
-          <label>Pay Period End</label>
-          <input id="periodEndInput" type="date" />
-        </div>
-
-        <div class="field">
-          <label>Check Date</label>
-          <input id="checkDateInput" type="date" />
-        </div>
-
-        <div class="field" style="grid-column: span 2;">
-          <label>Notes</label>
-          <input id="notesInput" placeholder="Optional notes" />
-        </div>
+        <div class="field"><label>Batch Name</label><input id="batchNameInput" placeholder="Payroll Register 01/01-04/24" /></div>
+        <div class="field"><label>Pay Period Start</label><input id="periodStartInput" type="date" /></div>
+        <div class="field"><label>Pay Period End</label><input id="periodEndInput" type="date" /></div>
+        <div class="field"><label>Check Date</label><input id="checkDateInput" type="date" /></div>
+        <div class="field" style="grid-column: span 2;"><label>Notes</label><input id="notesInput" placeholder="Optional notes" /></div>
       </div>
 
       <div class="modal-footer">
@@ -797,8 +871,10 @@
 
     let registerRowsRaw = [];
     let registerRows = [];
+    let filteredRows = [];
 
     let monthlyRows = [];
+    let trendRows = [];
     let periodRows = [];
     let locationPivotRows = [];
     let departmentRows = [];
@@ -808,23 +884,46 @@
     let exceptionRows = [];
 
     let currentRenderedRows = [];
+    let hoursChart = null;
+    let trendChart = null;
+
+    const filterState = {
+      departments: new Set(),
+      locations: new Set(),
+      types: new Set(),
+      payCodes: new Set()
+    };
+
+    const filterOptions = {
+      departments: new Map(),
+      locations: new Map(),
+      types: new Map(),
+      payCodes: new Map()
+    };
+
+    const PRESETS = {
+      warehouse: {
+        departmentsIncludes: ["warehouse", "logistics"],
+        locationIncludes: ["warehouse"]
+      },
+      admin: {
+        departmentsIncludes: ["admin", "administration"],
+        locationIncludes: []
+      },
+      retail: {
+        departmentsIncludes: ["retail", "store"],
+        locationIncludes: ["retail", "store"]
+      },
+      wpv: {
+        departmentsIncludes: [],
+        locationIncludes: ["washington park ventures", "wpv"]
+      }
+    };
 
     const REGISTER_HEADERS = [
-      "Department Code",
-      "Department Desc",
-      "Location Code",
-      "Location Desc",
-      "clientcode",
-      "EE Code",
-      "EE Name",
-      "Typecode",
-      "Typedesc",
-      "Register Type",
-      "Amount",
-      "Hours/Units",
-      "Wages",
-      "Pay Period Start",
-      "Pay Period End"
+      "Department Code", "Department Desc", "Location Code", "Location Desc", "clientcode",
+      "EE Code", "EE Name", "Typecode", "Typedesc", "Register Type",
+      "Amount", "Hours/Units", "Wages", "Pay Period Start", "Pay Period End"
     ];
 
     const REGISTER_HEADER_MAP = {
@@ -846,35 +945,23 @@
     };
 
     const NUMERIC_FIELDS = new Set([
-      "amount",
-      "hours_units",
-      "wages",
-      "employee_count",
-      "row_count",
-      "gross_wages",
-      "register_hours",
-      "ee_taxes",
-      "employer_taxes",
-      "net_pay",
-      "deductions",
-      "payroll_expense",
-      "register_activity",
-      "taxable_wage_base",
-      "wage_rate"
+      "amount", "hours_units", "wages", "employee_count", "row_count",
+      "gross_wages", "register_hours", "ee_taxes", "employer_taxes",
+      "net_pay", "deductions", "payroll_expense", "register_activity",
+      "taxable_wage_base", "wage_rate", "delta_hours", "delta_gross_wages",
+      "delta_payroll_expense", "delta_wage_rate", "pct_hours", "pct_gross_wages",
+      "pct_payroll_expense"
     ]);
 
-    const DATE_FIELDS = new Set([
-      "pay_period_start",
-      "pay_period_end",
-      "check_date"
-    ]);
+    const DATE_FIELDS = new Set(["pay_period_start", "pay_period_end", "check_date"]);
 
     document.addEventListener("DOMContentLoaded", init);
+    document.addEventListener("click", closeMenusOnOutsideClick);
 
     async function init() {
       try {
         setLoading(true);
-        renderEmpty("Loading payroll register workspace...");
+        renderEmpty("Loading payroll BI workspace...");
 
         if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
           throw new Error("Missing SUPABASE_URL / SUPABASE_ANON_KEY from /pages/config.js");
@@ -891,8 +978,8 @@
         await loadSelectedData();
       } catch (error) {
         console.error(error);
-        showToast(error.message || "Failed to initialize payroll register page.");
-        renderEmpty(error.message || "Failed to initialize payroll register page.");
+        showToast(error.message || "Failed to initialize payroll BI page.");
+        renderEmpty(error.message || "Failed to initialize payroll BI page.");
       } finally {
         setLoading(false);
       }
@@ -900,13 +987,9 @@
 
     async function requireAuth() {
       const { data, error } = await supabaseClient.auth.getSession();
-
-      if (error) {
-        console.warn("getSession error:", error);
-      }
+      if (error) console.warn("getSession error:", error);
 
       const session = data?.session;
-
       if (!session?.user) {
         window.location.href = "/pages/login.html";
         return;
@@ -920,9 +1003,7 @@
         .eq("id", currentUser.id)
         .maybeSingle();
 
-      if (profileError) {
-        throw profileError;
-      }
+      if (profileError) throw profileError;
 
       currentProfile = profile;
 
@@ -931,50 +1012,31 @@
 
       const isAllowed =
         profile?.is_active === true &&
-        (
-          role === "admin" ||
-          role === "owner" ||
-          role === "superadmin" ||
-          department === "finance"
-        );
+        (role === "admin" || role === "owner" || role === "superadmin" || department === "finance");
 
       if (!isAllowed) {
         showToast("You do not have payroll access.");
-
         setTimeout(() => {
           window.location.href = profile?.default_page || "/pages/login.html";
         }, 1200);
-
         return;
       }
 
       document.getElementById("userLine").textContent =
-        `${currentUser.email || "Signed in"} · ${profile?.role || "user"} · ${profile?.department || "no department"} · register-only payroll reporting`;
+        `${currentUser.email || "Signed in"} · ${profile?.role || "user"} · ${profile?.department || "no department"} · multi-slicer payroll BI`;
     }
 
     function setLoading(isLoading) {
-      const loadingLine = document.getElementById("loadingLine");
+      document.getElementById("loadingLine")?.classList.toggle("show", !!isLoading);
       const uploadRegisterBtn = document.getElementById("uploadRegisterBtn");
-
-      if (loadingLine) {
-        loadingLine.classList.toggle("show", !!isLoading);
-      }
-
-      if (uploadRegisterBtn) {
-        uploadRegisterBtn.disabled = !!isLoading;
-      }
+      if (uploadRegisterBtn) uploadRegisterBtn.disabled = !!isLoading;
     }
 
     function showToast(message) {
       const toast = document.getElementById("toast");
-
-      if (!toast) {
-        return;
-      }
-
+      if (!toast) return;
       toast.textContent = message;
       toast.classList.add("show");
-
       clearTimeout(showToast._timer);
       showToast._timer = setTimeout(() => toast.classList.remove("show"), 6500);
     }
@@ -1035,13 +1097,10 @@
           .select("*")
           .single();
 
-        if (error) {
-          throw error;
-        }
+        if (error) throw error;
 
         closeBatchModal();
         showToast("Payroll register batch created.");
-
         await loadBatches(data.id);
         await loadSelectedData();
       } catch (error) {
@@ -1059,9 +1118,7 @@
         .order("uploaded_at", { ascending: false })
         .limit(250);
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
 
       batches = data || [];
 
@@ -1103,7 +1160,7 @@
       try {
         await loadBatches(selectedBatchId);
         await loadSelectedData();
-        showToast("Payroll register data refreshed.");
+        showToast("Payroll BI data refreshed.");
       } catch (error) {
         console.error(error);
         showToast(error.message || "Failed to refresh.");
@@ -1126,17 +1183,12 @@
         registerRowsRaw = await fetchAllRegisterRows();
         registerRows = registerRowsRaw.map(normalizeRegisterRow);
 
-        debugEarnMonthBuckets("loaded", registerRows);
-
-        buildAggregatesFrom(registerRows);
-        buildExceptions();
         rebuildFilterOptions();
-        updateKpis();
-        renderActiveTab();
+        applyFilters(false);
       } catch (error) {
         console.error(error);
-        showToast(error.message || "Failed to load payroll register reporting.");
-        renderEmpty(error.message || "Failed to load payroll register reporting.");
+        showToast(error.message || "Failed to load payroll BI reporting.");
+        renderEmpty(error.message || "Failed to load payroll BI reporting.");
       } finally {
         setLoading(false);
       }
@@ -1145,7 +1197,6 @@
     async function fetchAllRegisterRows() {
       const dates = getDateFilters();
       const pageSize = 1000;
-
       let from = 0;
       let all = [];
       let guard = 0;
@@ -1172,51 +1223,38 @@
             wages,
             pay_period_start,
             pay_period_end,
-            created_at
+            created_at,
+            is_adjusted,
+            adjusted_at,
+            adjusted_by,
+            adjustment_note,
+            original_amount,
+            original_hours_units,
+            original_wages
           `)
           .order("pay_period_end", { ascending: false, nullsFirst: false })
           .order("id", { ascending: true })
           .range(from, from + pageSize - 1);
 
-        if (selectedBatchId) {
-          query = query.eq("batch_id", selectedBatchId);
-        }
-
-        if (dates.from) {
-          query = query.gte("pay_period_end", dates.from);
-        }
-
-        if (dates.to) {
-          query = query.lte("pay_period_end", dates.to);
-        }
+        if (selectedBatchId) query = query.eq("batch_id", selectedBatchId);
+        if (dates.from) query = query.gte("pay_period_end", dates.from);
+        if (dates.to) query = query.lte("pay_period_end", dates.to);
 
         const { data, error } = await query;
-
-        if (error) {
-          throw error;
-        }
+        if (error) throw error;
 
         const rows = data || [];
         all = all.concat(rows);
 
-        if (rows.length < pageSize) {
-          break;
-        }
-
+        if (rows.length < pageSize) break;
         from += pageSize;
         guard += 1;
-
-        if (guard > 250) {
-          throw new Error("Register query exceeded 250k rows. Add filters before loading.");
-        }
+        if (guard > 250) throw new Error("Register query exceeded 250k rows. Add filters before loading.");
       }
 
       const byId = new Map();
-
       for (const row of all) {
-        if (row.id) {
-          byId.set(row.id, row);
-        }
+        if (row.id) byId.set(row.id, row);
       }
 
       if (byId.size && byId.size !== all.length) {
@@ -1253,7 +1291,7 @@
         ee_taxes: eeTaxes,
         employer_taxes: employerTaxes,
         net_pay: netPay,
-        deductions: deductions,
+        deductions,
         taxable_wage_base: taxableWageBase,
         payroll_expense: payrollExpense,
         register_activity: amount,
@@ -1261,65 +1299,86 @@
         period_label: formatDate(row.pay_period_end),
         location_key: row.location_desc || row.location_code || "Unassigned",
         department_key: row.department_desc || row.department_code || "Unassigned",
-        wage_rate: registerHours ? grossWages / registerHours : null
+        wage_rate: registerHours ? grossWages / registerHours : null,
+        is_adjusted_bool: row.is_adjusted === true
       };
     }
 
-    function buildAggregatesFrom(rows) {
-      monthlyRows = aggregateRows(
-        rows,
-        ["month_key"],
-        row => ({ month: row.month_key })
-      ).sort((a, b) => String(b.month || "").localeCompare(String(a.month || "")));
+    function applyFilters(render = true) {
+      filteredRows = registerRows.filter(rowMatchesFilters);
 
-      periodRows = aggregateRows(
-        rows,
-        ["pay_period_end"],
-        row => ({
-          pay_period_start: row.pay_period_start,
-          pay_period_end: row.pay_period_end
-        })
-      ).sort((a, b) => String(b.pay_period_end || "").localeCompare(String(a.pay_period_end || "")));
+      buildAggregatesFrom(filteredRows);
+      buildExceptions();
+      updateKpis();
+      renderCharts();
+
+      if (render) renderActiveTab();
+      else renderActiveTab();
+    }
+
+    function rowMatchesFilters(row) {
+      const search = document.getElementById("searchInput").value.toLowerCase().trim();
+
+      if (filterState.departments.size && !filterState.departments.has(row.department_code || "")) return false;
+      if (filterState.locations.size && !filterState.locations.has(row.location_code || "")) return false;
+      if (filterState.types.size && !filterState.types.has(row.register_type_norm || "")) return false;
+      if (filterState.payCodes.size && !filterState.payCodes.has(row.typecode || "")) return false;
+
+      if (search) {
+        const haystack = [
+          row.ee_code,
+          row.ee_name,
+          row.department_code,
+          row.department_desc,
+          row.location_code,
+          row.location_desc,
+          row.typecode,
+          row.typedesc,
+          row.register_type_norm,
+          row.source_file_name,
+          row.adjustment_note
+        ].join(" ").toLowerCase();
+
+        if (!haystack.includes(search)) return false;
+      }
+
+      return true;
+    }
+
+    function buildAggregatesFrom(rows) {
+      monthlyRows = aggregateRows(rows, ["month_key"], row => ({ month: row.month_key }))
+        .sort((a, b) => String(b.month || "").localeCompare(String(a.month || "")));
+
+      periodRows = aggregateRows(rows, ["pay_period_end"], row => ({
+        pay_period_start: row.pay_period_start,
+        pay_period_end: row.pay_period_end
+      })).sort((a, b) => String(b.pay_period_end || "").localeCompare(String(a.pay_period_end || "")));
+
+      trendRows = buildTrendRows(periodRows);
 
       locationPivotRows = buildLocationPivotRows(rows);
 
-      departmentRows = aggregateRows(
-        rows,
-        ["department_code", "department_desc", "location_code", "location_desc"],
-        row => ({
-          department_code: row.department_code,
-          department_desc: row.department_desc,
-          location_code: row.location_code,
-          location_desc: row.location_desc
-        })
-      ).sort((a, b) => b.payroll_expense - a.payroll_expense);
+      departmentRows = aggregateRows(rows, ["department_code", "department_desc", "location_code", "location_desc"], row => ({
+        department_code: row.department_code,
+        department_desc: row.department_desc,
+        location_code: row.location_code,
+        location_desc: row.location_desc
+      })).sort((a, b) => b.payroll_expense - a.payroll_expense);
 
-      employeeRows = aggregateRows(
-        rows,
-        ["ee_code", "ee_name"],
-        row => ({
-          ee_code: row.ee_code,
-          ee_name: row.ee_name
-        })
-      ).sort((a, b) => b.payroll_expense - a.payroll_expense);
+      employeeRows = aggregateRows(rows, ["ee_code", "ee_name"], row => ({
+        ee_code: row.ee_code,
+        ee_name: row.ee_name
+      })).sort((a, b) => b.payroll_expense - a.payroll_expense);
 
-      typeRows = aggregateRows(
-        rows,
-        ["register_type_norm"],
-        row => ({
-          register_type: row.register_type_norm
-        })
-      ).sort((a, b) => b.register_activity - a.register_activity);
+      typeRows = aggregateRows(rows, ["register_type_norm"], row => ({
+        register_type: row.register_type_norm
+      })).sort((a, b) => b.register_activity - a.register_activity);
 
-      codeRows = aggregateRows(
-        rows,
-        ["register_type_norm", "typecode", "typedesc"],
-        row => ({
-          register_type: row.register_type_norm,
-          typecode: row.typecode,
-          typedesc: row.typedesc
-        })
-      ).sort((a, b) => b.register_activity - a.register_activity);
+      codeRows = aggregateRows(rows, ["register_type_norm", "typecode", "typedesc"], row => ({
+        register_type: row.register_type_norm,
+        typecode: row.typecode,
+        typedesc: row.typedesc
+      })).sort((a, b) => b.register_activity - a.register_activity);
     }
 
     function aggregateRows(rows, keyFields, baseFactory) {
@@ -1329,8 +1388,7 @@
         const key = keyFields.map(field => row[field] ?? "").join("||");
 
         if (!map.has(key)) {
-          const base = baseFactory(row);
-          map.set(key, emptyAggregate(base));
+          map.set(key, emptyAggregate(baseFactory(row)));
         }
 
         addToAggregate(map.get(key), row);
@@ -1344,6 +1402,7 @@
         ...base,
         employee_count: 0,
         row_count: 0,
+        adjusted_count: 0,
         register_hours: 0,
         gross_wages: 0,
         employer_taxes: 0,
@@ -1360,12 +1419,10 @@
 
     function addToAggregate(agg, row) {
       const empKey = row.ee_code || row.ee_name;
-
-      if (empKey) {
-        agg._employeeSet.add(empKey);
-      }
+      if (empKey) agg._employeeSet.add(empKey);
 
       agg.row_count += 1;
+      agg.adjusted_count += row.is_adjusted_bool ? 1 : 0;
       agg.register_hours += toNumber(row.register_hours);
       agg.gross_wages += toNumber(row.gross_wages);
       agg.employer_taxes += toNumber(row.employer_taxes);
@@ -1385,6 +1442,51 @@
       };
     }
 
+    function buildTrendRows(rows) {
+      const asc = [...rows].sort((a, b) => String(a.pay_period_end || "").localeCompare(String(b.pay_period_end || "")));
+
+      return asc.map((row, index) => {
+        const prior = index > 0 ? asc[index - 1] : null;
+
+        const deltaHours = prior ? row.register_hours - prior.register_hours : null;
+        const deltaGross = prior ? row.gross_wages - prior.gross_wages : null;
+        const deltaExpense = prior ? row.payroll_expense - prior.payroll_expense : null;
+        const deltaRate = prior ? row.wage_rate - prior.wage_rate : null;
+
+        return {
+          ...row,
+          delta_hours: deltaHours,
+          delta_gross_wages: deltaGross,
+          delta_payroll_expense: deltaExpense,
+          delta_wage_rate: deltaRate,
+          pct_hours: prior && prior.register_hours ? deltaHours / prior.register_hours : null,
+          pct_gross_wages: prior && prior.gross_wages ? deltaGross / prior.gross_wages : null,
+          pct_payroll_expense: prior && prior.payroll_expense ? deltaExpense / prior.payroll_expense : null,
+          trend_note: buildTrendNote(row, prior)
+        };
+      }).sort((a, b) => String(b.pay_period_end || "").localeCompare(String(a.pay_period_end || "")));
+    }
+
+    function buildTrendNote(row, prior) {
+      if (!prior) return "Baseline period";
+
+      const parts = [];
+
+      parts.push(`Hours ${signedPct(row.register_hours, prior.register_hours)}`);
+      parts.push(`Gross ${signedPct(row.gross_wages, prior.gross_wages)}`);
+      parts.push(`Expense ${signedPct(row.payroll_expense, prior.payroll_expense)}`);
+      parts.push(`Rate ${signedPct(row.wage_rate, prior.wage_rate)}`);
+
+      return parts.join(" · ");
+    }
+
+    function signedPct(current, prior) {
+      if (!prior) return "—";
+      const pct = (current - prior) / prior;
+      const sign = pct >= 0 ? "+" : "";
+      return `${sign}${(pct * 100).toFixed(1)}%`;
+    }
+
     function buildLocationPivotRows(rows) {
       const earnRows = (rows || []).filter(row => row.register_type_norm === "EARN");
 
@@ -1402,19 +1504,13 @@
             pay_period_end: row.pay_period_end
           });
 
-          for (const loc of locations) {
-            base[loc] = 0;
-          }
-
+          for (const loc of locations) base[loc] = 0;
           map.set(key, base);
         }
 
         const agg = map.get(key);
-
         addToAggregate(agg, row);
-
-        const locKey = row.location_key || "Unassigned";
-        agg[locKey] += toNumber(row.register_hours);
+        agg[row.location_key || "Unassigned"] += toNumber(row.register_hours);
       }
 
       return [...map.values()]
@@ -1425,7 +1521,7 @@
     function buildExceptions() {
       const exceptions = [];
 
-      for (const row of registerRows.filter(rowMatchesFilters)) {
+      for (const row of filteredRows) {
         const base = {
           ee_code: row.ee_code,
           ee_name: row.ee_name,
@@ -1440,177 +1536,178 @@
           amount: row.amount_num
         };
 
-        if (!row.ee_code) {
-          exceptions.push(exception("High", "Missing EE Code", base));
-        }
-
-        if (!row.ee_name) {
-          exceptions.push(exception("Medium", "Missing EE Name", base));
-        }
-
-        if (!row.pay_period_start || !row.pay_period_end) {
-          exceptions.push(exception("High", "Missing Pay Period Dates", base));
-        }
-
-        if (!row.department_code && !row.department_desc) {
-          exceptions.push(exception("Medium", "Missing Department", base));
-        }
-
-        if (!row.location_code && !row.location_desc) {
-          exceptions.push(exception("Medium", "Missing Location", base));
-        }
-
-        if (!row.register_type_norm) {
-          exceptions.push(exception("High", "Missing Register Type", base));
-        }
-
-        if (row.register_type_norm === "EARN" && row.register_hours === 0) {
-          exceptions.push(exception("Medium", "EARN Row With No Hours", base));
-        }
-
-        if (row.register_type_norm === "EARN" && row.gross_wages === 0) {
-          exceptions.push(exception("High", "EARN Row With No Amount", base));
-        }
-
-        if (row.amount_num < 0) {
-          exceptions.push(exception("Medium", "Negative Amount", base));
-        }
+        if (!row.ee_code) exceptions.push(exception("High", "Missing EE Code", base));
+        if (!row.ee_name) exceptions.push(exception("Medium", "Missing EE Name", base));
+        if (!row.pay_period_start || !row.pay_period_end) exceptions.push(exception("High", "Missing Pay Period Dates", base));
+        if (!row.department_code && !row.department_desc) exceptions.push(exception("Medium", "Missing Department", base));
+        if (!row.location_code && !row.location_desc) exceptions.push(exception("Medium", "Missing Location", base));
+        if (!row.register_type_norm) exceptions.push(exception("High", "Missing Register Type", base));
+        if (row.register_type_norm === "EARN" && row.register_hours === 0) exceptions.push(exception("Medium", "EARN Row With No Hours", base));
+        if (row.register_type_norm === "EARN" && row.gross_wages === 0) exceptions.push(exception("High", "EARN Row With No Amount", base));
+        if (row.amount_num < 0) exceptions.push(exception("Medium", "Negative Amount", base));
       }
 
       exceptionRows = exceptions;
     }
 
     function exception(severity, issue, base) {
-      return {
-        severity,
-        issue,
-        ...base
-      };
-    }
-
-    function rowMatchesFilters(row) {
-      const filters = getFilters();
-
-      const deptValue = row.department_code || "";
-      const locationValue = row.location_code || "";
-      const typeValue = row.register_type_norm || row.register_type || "";
-      const payCodeValue = row.typecode || "";
-
-      if (filters.dept && deptValue !== filters.dept) {
-        return false;
-      }
-
-      if (filters.location && locationValue !== filters.location) {
-        return false;
-      }
-
-      if (filters.registerType && typeValue !== filters.registerType) {
-        return false;
-      }
-
-      if (filters.payCode && payCodeValue !== filters.payCode) {
-        return false;
-      }
-
-      if (filters.search) {
-        const haystack = Object.values(row).join(" ").toLowerCase();
-
-        if (!haystack.includes(filters.search)) {
-          return false;
-        }
-      }
-
-      return true;
-    }
-
-    function getFilters() {
-      return {
-        dept: document.getElementById("deptFilter").value,
-        location: document.getElementById("locationFilter").value,
-        registerType: document.getElementById("registerTypeFilter").value,
-        payCode: document.getElementById("payCodeFilter").value,
-        search: document.getElementById("searchInput").value.toLowerCase().trim()
-      };
-    }
-
-    function getFilteredRows() {
-      return registerRows.filter(rowMatchesFilters);
-    }
-
-    function applyFilters() {
-      const filteredRows = getFilteredRows();
-
-      debugEarnMonthBuckets("filtered", filteredRows);
-
-      buildAggregatesFrom(filteredRows);
-      buildExceptions();
-      updateKpis();
-      renderActiveTab();
-    }
-
-    function clearFilters() {
-      document.getElementById("deptFilter").value = "";
-      document.getElementById("locationFilter").value = "";
-      document.getElementById("registerTypeFilter").value = "";
-      document.getElementById("payCodeFilter").value = "";
-      document.getElementById("searchInput").value = "";
-
-      applyFilters();
+      return { severity, issue, ...base };
     }
 
     function rebuildFilterOptions() {
-      const deptSet = new Map();
-      const locationSet = new Map();
-      const typeSet = new Map();
-      const payCodeSet = new Map();
+      filterOptions.departments = new Map();
+      filterOptions.locations = new Map();
+      filterOptions.types = new Map();
+      filterOptions.payCodes = new Map();
 
       for (const row of registerRows) {
-        if (row.department_code) {
-          deptSet.set(row.department_code, `${row.department_code} · ${row.department_desc || ""}`);
-        }
-
-        if (row.location_code) {
-          locationSet.set(row.location_code, `${row.location_code} · ${row.location_desc || ""}`);
-        }
-
-        if (row.register_type_norm) {
-          typeSet.set(row.register_type_norm, row.register_type_norm);
-        }
-
-        if (row.typecode) {
-          payCodeSet.set(row.typecode, `${row.typecode} · ${row.typedesc || ""}`);
-        }
+        if (row.department_code) filterOptions.departments.set(row.department_code, `${row.department_code} · ${row.department_desc || ""}`);
+        if (row.location_code) filterOptions.locations.set(row.location_code, `${row.location_code} · ${row.location_desc || ""}`);
+        if (row.register_type_norm) filterOptions.types.set(row.register_type_norm, row.register_type_norm);
+        if (row.typecode) filterOptions.payCodes.set(row.typecode, `${row.typecode} · ${row.typedesc || ""}`);
       }
 
-      fillSelect("deptFilter", "All Departments", deptSet);
-      fillSelect("locationFilter", "All Locations", locationSet);
-      fillSelect("registerTypeFilter", "All Types", typeSet);
-      fillSelect("payCodeFilter", "All Pay Codes", payCodeSet);
+      renderMultiMenu("deptMenu", filterOptions.departments, filterState.departments, "deptMultiLabel", "All Departments");
+      renderMultiMenu("locationMenu", filterOptions.locations, filterState.locations, "locationMultiLabel", "All Locations");
+      renderMultiMenu("typeMenu", filterOptions.types, filterState.types, "typeMultiLabel", "All Types");
+      renderMultiMenu("payCodeMenu", filterOptions.payCodes, filterState.payCodes, "payCodeMultiLabel", "All Pay Codes");
     }
 
-    function fillSelect(id, defaultLabel, map) {
-      const select = document.getElementById(id);
-      const current = select.value;
+    function renderMultiMenu(menuId, optionsMap, selectedSet, labelId, allLabel) {
+      const menu = document.getElementById(menuId);
+      const entries = [...optionsMap.entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
 
-      select.innerHTML = `<option value="">${defaultLabel}</option>`;
+      menu.innerHTML = `
+        <div class="multi-menu-head">
+          <button class="btn soft" onclick="selectAllMulti('${menuId}')">All</button>
+          <button class="btn soft" onclick="clearMulti('${menuId}')">None</button>
+          <input placeholder="Filter..." oninput="filterMultiMenu('${menuId}', this.value)" />
+        </div>
+        <div class="multi-options">
+          ${entries.map(([value, label]) => `
+            <label class="multi-option" data-label="${escapeHtml(String(label).toLowerCase())}">
+              <input type="checkbox" value="${escapeHtml(value)}" ${selectedSet.has(value) ? "checked" : ""} onchange="multiChanged('${menuId}')">
+              <span>${escapeHtml(label)}</span>
+            </label>
+          `).join("")}
+        </div>
+      `;
 
-      [...map.entries()]
-        .sort((a, b) => String(a[1]).localeCompare(String(b[1])))
-        .forEach(([value, label]) => {
-          const option = document.createElement("option");
-          option.value = value;
-          option.textContent = label;
-          select.appendChild(option);
-        });
+      updateMultiLabel(labelId, selectedSet, optionsMap, allLabel);
+    }
 
-      if ([...map.keys()].includes(current)) {
-        select.value = current;
+    function toggleMulti(menuId) {
+      event.stopPropagation();
+
+      document.querySelectorAll(".multi-menu").forEach(menu => {
+        if (menu.id !== menuId) menu.classList.remove("show");
+      });
+
+      document.getElementById(menuId).classList.toggle("show");
+    }
+
+    function closeMenusOnOutsideClick(event) {
+      if (event.target.closest(".multi-menu") || event.target.closest(".multi-btn")) return;
+      document.querySelectorAll(".multi-menu").forEach(menu => menu.classList.remove("show"));
+    }
+
+    function filterMultiMenu(menuId, term) {
+      const t = String(term || "").toLowerCase();
+      document.querySelectorAll(`#${menuId} .multi-option`).forEach(opt => {
+        opt.style.display = opt.dataset.label.includes(t) ? "flex" : "none";
+      });
+    }
+
+    function selectAllMulti(menuId) {
+      event.stopPropagation();
+      document.querySelectorAll(`#${menuId} input[type="checkbox"]`).forEach(cb => cb.checked = true);
+      multiChanged(menuId);
+    }
+
+    function clearMulti(menuId) {
+      event.stopPropagation();
+      document.querySelectorAll(`#${menuId} input[type="checkbox"]`).forEach(cb => cb.checked = false);
+      multiChanged(menuId);
+    }
+
+    function multiChanged(menuId) {
+      const map = getMultiMap(menuId);
+      if (!map) return;
+
+      map.set.clear();
+
+      document.querySelectorAll(`#${menuId} input[type="checkbox"]:checked`).forEach(cb => {
+        map.set.add(cb.value);
+      });
+
+      document.getElementById("presetSelect").value = "";
+      updateMultiLabel(map.labelId, map.set, map.options, map.allLabel);
+      applyFilters();
+    }
+
+    function getMultiMap(menuId) {
+      if (menuId === "deptMenu") return { set: filterState.departments, options: filterOptions.departments, labelId: "deptMultiLabel", allLabel: "All Departments" };
+      if (menuId === "locationMenu") return { set: filterState.locations, options: filterOptions.locations, labelId: "locationMultiLabel", allLabel: "All Locations" };
+      if (menuId === "typeMenu") return { set: filterState.types, options: filterOptions.types, labelId: "typeMultiLabel", allLabel: "All Types" };
+      if (menuId === "payCodeMenu") return { set: filterState.payCodes, options: filterOptions.payCodes, labelId: "payCodeMultiLabel", allLabel: "All Pay Codes" };
+      return null;
+    }
+
+    function updateMultiLabel(labelId, selectedSet, optionsMap, allLabel) {
+      const label = document.getElementById(labelId);
+      if (!label) return;
+
+      if (!selectedSet.size) {
+        label.textContent = allLabel;
+        return;
       }
+
+      const names = [...selectedSet].slice(0, 2).map(v => optionsMap.get(v) || v);
+      const suffix = selectedSet.size > 2 ? ` +${selectedSet.size - 2}` : "";
+      label.textContent = `${names.join(", ")}${suffix}`;
+    }
+
+    function applyPreset() {
+      const presetKey = document.getElementById("presetSelect").value;
+
+      filterState.departments.clear();
+      filterState.locations.clear();
+
+      if (!presetKey || !PRESETS[presetKey]) {
+        renderAllMultiLabels();
+        applyFilters();
+        return;
+      }
+
+      const preset = PRESETS[presetKey];
+
+      for (const [code, label] of filterOptions.departments.entries()) {
+        const l = String(label || "").toLowerCase();
+        if (preset.departmentsIncludes.some(term => l.includes(term))) {
+          filterState.departments.add(code);
+        }
+      }
+
+      for (const [code, label] of filterOptions.locations.entries()) {
+        const l = String(label || "").toLowerCase();
+        if (preset.locationIncludes.some(term => l.includes(term))) {
+          filterState.locations.add(code);
+        }
+      }
+
+      rebuildFilterOptions();
+      applyFilters();
+    }
+
+    function renderAllMultiLabels() {
+      updateMultiLabel("deptMultiLabel", filterState.departments, filterOptions.departments, "All Departments");
+      updateMultiLabel("locationMultiLabel", filterState.locations, filterOptions.locations, "All Locations");
+      updateMultiLabel("typeMultiLabel", filterState.types, filterOptions.types, "All Types");
+      updateMultiLabel("payCodeMultiLabel", filterState.payCodes, filterOptions.payCodes, "All Pay Codes");
     }
 
     function updateKpis() {
-      const filtered = getFilteredRows();
-      const agg = finalizeAggregate(filtered.reduce((acc, row) => {
+      const agg = finalizeAggregate(filteredRows.reduce((acc, row) => {
         addToAggregate(acc, row);
         return acc;
       }, emptyAggregate()));
@@ -1625,13 +1722,86 @@
       document.getElementById("kpiDeductions").textContent = formatMoney(agg.deductions);
     }
 
+    function renderCharts() {
+      renderHoursChart();
+      renderTrendChart();
+    }
+
+    function renderHoursChart() {
+      const ctx = document.getElementById("hoursChart");
+      if (!ctx || !window.Chart) return;
+
+      const rowsAsc = [...locationPivotRows].sort((a, b) => String(a.pay_period_end || "").localeCompare(String(b.pay_period_end || "")));
+      const locationColumns = getLocationColumns(rowsAsc);
+      const labels = rowsAsc.map(row => formatDate(row.pay_period_end));
+
+      const datasets = locationColumns.map(loc => ({
+        label: loc,
+        data: rowsAsc.map(row => toNumber(row[loc])),
+        stack: "hours"
+      }));
+
+      if (hoursChart) hoursChart.destroy();
+
+      hoursChart = new Chart(ctx, {
+        type: "bar",
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          plugins: {
+            legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } },
+            tooltip: { mode: "index", intersect: false }
+          },
+          scales: {
+            x: { stacked: true, ticks: { font: { size: 10 }, maxRotation: 45, minRotation: 45 } },
+            y: { stacked: true, ticks: { font: { size: 10 } } }
+          }
+        }
+      });
+    }
+
+    function renderTrendChart() {
+      const ctx = document.getElementById("trendChart");
+      if (!ctx || !window.Chart) return;
+
+      const rowsAsc = [...trendRows].sort((a, b) => String(a.pay_period_end || "").localeCompare(String(b.pay_period_end || "")));
+      const labels = rowsAsc.map(row => formatDate(row.pay_period_end));
+
+      if (trendChart) trendChart.destroy();
+
+      trendChart = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            { label: "Gross Wages", data: rowsAsc.map(row => toNumber(row.gross_wages)), yAxisID: "y" },
+            { label: "Hours", data: rowsAsc.map(row => toNumber(row.register_hours)), yAxisID: "y1" }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } }
+          },
+          scales: {
+            x: { ticks: { font: { size: 10 }, maxRotation: 45, minRotation: 45 } },
+            y: { type: "linear", position: "left", ticks: { font: { size: 10 } } },
+            y1: { type: "linear", position: "right", grid: { drawOnChartArea: false }, ticks: { font: { size: 10 } } }
+          }
+        }
+      });
+    }
+
     function setTab(tabName) {
       activeTab = tabName;
-
       document.querySelectorAll(".tab").forEach(tab => {
         tab.classList.toggle("active", tab.dataset.tab === tabName);
       });
-
       renderActiveTab();
     }
 
@@ -1648,7 +1818,28 @@
           ["ee_taxes", "EE Taxes", "money"],
           ["deductions", "Deductions", "money"],
           ["register_activity", "Register Activity", "money"],
-          ["wage_rate", "Wage Rate", "money"]
+          ["wage_rate", "Wage Rate", "money"],
+          ["adjusted_count", "Adjusted", "num"]
+        ]);
+        return;
+      }
+
+      if (activeTab === "trend") {
+        renderTable(trendRows, [
+          ["pay_period_end", "Period End", "date"],
+          ["employee_count", "Employees", "num"],
+          ["register_hours", "Hours", "num"],
+          ["delta_hours", "Δ Hours", "num"],
+          ["pct_hours", "% Hours", "pct"],
+          ["gross_wages", "Gross Wages", "money"],
+          ["delta_gross_wages", "Δ Gross", "money"],
+          ["pct_gross_wages", "% Gross", "pct"],
+          ["payroll_expense", "Payroll Expense", "money"],
+          ["delta_payroll_expense", "Δ Expense", "money"],
+          ["pct_payroll_expense", "% Expense", "pct"],
+          ["wage_rate", "Wage Rate", "money"],
+          ["delta_wage_rate", "Δ Rate", "money"],
+          ["trend_note", "Notes"]
         ]);
         return;
       }
@@ -1666,7 +1857,8 @@
           ["ee_taxes", "EE Taxes", "money"],
           ["deductions", "Deductions", "money"],
           ["register_activity", "Register Activity", "money"],
-          ["wage_rate", "Wage Rate", "money"]
+          ["wage_rate", "Wage Rate", "money"],
+          ["adjusted_count", "Adjusted", "num"]
         ]);
         return;
       }
@@ -1681,7 +1873,6 @@
           ["gross_wages", "Gross Wages", "money"],
           ["wage_rate", "Wage Rate", "money"]
         ];
-
         renderTable(locationPivotRows, cols);
         return;
       }
@@ -1700,7 +1891,8 @@
           ["net_pay", "Net Pay", "money"],
           ["ee_taxes", "EE Taxes", "money"],
           ["deductions", "Deductions", "money"],
-          ["wage_rate", "Wage Rate", "money"]
+          ["wage_rate", "Wage Rate", "money"],
+          ["adjusted_count", "Adjusted", "num"]
         ]);
         return;
       }
@@ -1709,7 +1901,6 @@
         renderTable(employeeRows, [
           ["ee_code", "EE Code"],
           ["ee_name", "Employee"],
-          ["employee_count", "Employee Keys", "num"],
           ["register_hours", "Hours/Units", "num"],
           ["gross_wages", "Gross Wages", "money"],
           ["employer_taxes", "Employer Taxes", "money"],
@@ -1717,7 +1908,8 @@
           ["net_pay", "Net Pay", "money"],
           ["ee_taxes", "EE Taxes", "money"],
           ["deductions", "Deductions", "money"],
-          ["wage_rate", "Wage Rate", "money"]
+          ["wage_rate", "Wage Rate", "money"],
+          ["adjusted_count", "Adjusted", "num"]
         ]);
         return;
       }
@@ -1734,7 +1926,8 @@
           ["ee_taxes", "EE Taxes", "money"],
           ["deductions", "Deductions", "money"],
           ["taxable_wage_base", "Taxable Wage Base", "money"],
-          ["register_activity", "Register Activity", "money"]
+          ["register_activity", "Register Activity", "money"],
+          ["adjusted_count", "Adjusted", "num"]
         ]);
         return;
       }
@@ -1752,34 +1945,19 @@
           ["net_pay", "Net Pay", "money"],
           ["ee_taxes", "EE Taxes", "money"],
           ["deductions", "Deductions", "money"],
-          ["register_activity", "Register Activity", "money"]
+          ["register_activity", "Register Activity", "money"],
+          ["adjusted_count", "Adjusted", "num"]
         ]);
         return;
       }
 
-      if (activeTab === "detail") {
-        renderTable(getFilteredRows(), [
-          ["pay_period_end", "Period End", "date"],
-          ["pay_period_start", "Period Start", "date"],
-          ["ee_code", "EE Code"],
-          ["ee_name", "Employee"],
-          ["department_code", "Dept Code"],
-          ["department_desc", "Department"],
-          ["location_code", "Loc Code"],
-          ["location_desc", "Location"],
-          ["register_type_norm", "Register Type", "pill"],
-          ["typecode", "Type Code"],
-          ["typedesc", "Type Desc"],
-          ["amount_num", "Amount", "money"],
-          ["hours_units_num", "Hours/Units", "num"],
-          ["wages_num", "Wages/Base", "money"],
-          ["gross_wages", "Gross Wages", "money"],
-          ["employer_taxes", "Employer Taxes", "money"],
-          ["net_pay", "Net Pay", "money"],
-          ["ee_taxes", "EE Taxes", "money"],
-          ["deductions", "Deductions", "money"],
-          ["source_file_name", "File"]
-        ]);
+      if (activeTab === "edit") {
+        renderEditableTable(filteredRows);
+        return;
+      }
+
+      if (activeTab === "adjusted") {
+        renderEditableTable(filteredRows.filter(row => row.is_adjusted_bool), true);
         return;
       }
 
@@ -1804,30 +1982,17 @@
 
     function getLocationColumns(rows) {
       const skip = new Set([
-        "pay_period_start",
-        "pay_period_end",
-        "employee_count",
-        "row_count",
-        "register_hours",
-        "gross_wages",
-        "employer_taxes",
-        "payroll_expense",
-        "net_pay",
-        "ee_taxes",
-        "deductions",
-        "taxable_wage_base",
-        "register_activity",
-        "wage_rate",
-        "_employeeSet"
+        "pay_period_start", "pay_period_end", "employee_count", "row_count",
+        "adjusted_count", "register_hours", "gross_wages", "employer_taxes",
+        "payroll_expense", "net_pay", "ee_taxes", "deductions", "taxable_wage_base",
+        "register_activity", "wage_rate", "_employeeSet"
       ]);
 
       const locations = new Set();
 
       for (const row of rows || []) {
         Object.keys(row).forEach(key => {
-          if (!skip.has(key) && typeof row[key] === "number") {
-            locations.add(key);
-          }
+          if (!skip.has(key) && typeof row[key] === "number") locations.add(key);
         });
       }
 
@@ -1845,16 +2010,10 @@
       const html = `
         <table>
           <thead>
-            <tr>
-              ${columns.map(col => `<th class="${isNumericType(col[2]) ? "num" : ""}">${escapeHtml(col[1])}</th>`).join("")}
-            </tr>
+            <tr>${columns.map(col => `<th class="${isNumericType(col[2]) ? "num" : ""}">${escapeHtml(col[1])}</th>`).join("")}</tr>
           </thead>
           <tbody>
-            ${rows.map(row => `
-              <tr>
-                ${columns.map(col => renderCell(row, col)).join("")}
-              </tr>
-            `).join("")}
+            ${rows.map(row => `<tr>${columns.map(col => renderCell(row, col)).join("")}</tr>`).join("")}
           </tbody>
         </table>
       `;
@@ -1862,63 +2021,156 @@
       document.getElementById("tableWrap").innerHTML = html;
     }
 
+    function renderEditableTable(rows) {
+      currentRenderedRows = rows || [];
+
+      if (!rows.length) {
+        renderEmpty("No rows match the current filters.");
+        return;
+      }
+
+      const sorted = [...rows].sort((a, b) => {
+        const d = String(b.pay_period_end || "").localeCompare(String(a.pay_period_end || ""));
+        if (d) return d;
+        return String(a.ee_name || "").localeCompare(String(b.ee_name || ""));
+      });
+
+      const html = `
+        <table>
+          <thead>
+            <tr>
+              <th>Period End</th>
+              <th>Employee</th>
+              <th>Dept</th>
+              <th>Location</th>
+              <th>Type</th>
+              <th>Code</th>
+              <th class="num">Amount</th>
+              <th class="num">Hours/Units</th>
+              <th class="num">Wages/Base</th>
+              <th>Adjusted</th>
+              <th>Note</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sorted.map(row => editableRowHtml(row)).join("")}
+          </tbody>
+        </table>
+      `;
+
+      document.getElementById("tableWrap").innerHTML = html;
+    }
+
+    function editableRowHtml(row) {
+      const id = escapeHtml(row.id);
+      return `
+        <tr data-row-id="${id}">
+          <td>${escapeHtml(formatDate(row.pay_period_end))}</td>
+          <td>
+            <div>${escapeHtml(row.ee_name || "")}</div>
+            <div style="color:#64748b;font-size:10px;">${escapeHtml(row.ee_code || "")}</div>
+          </td>
+          <td>${escapeHtml(row.department_code || "")} · ${escapeHtml(row.department_desc || "")}</td>
+          <td>${escapeHtml(row.location_code || "")} · ${escapeHtml(row.location_desc || "")}</td>
+          <td>${renderPill(row.register_type_norm)}</td>
+          <td>${escapeHtml(row.typecode || "")} · ${escapeHtml(row.typedesc || "")}</td>
+          <td class="num"><input class="edit-input" id="amount-${id}" value="${escapeHtml(row.amount_num)}" /></td>
+          <td class="num"><input class="edit-input" id="hours-${id}" value="${escapeHtml(row.hours_units_num)}" /></td>
+          <td class="num"><input class="edit-input" id="wages-${id}" value="${escapeHtml(row.wages_num)}" /></td>
+          <td>${row.is_adjusted_bool ? '<span class="pill purple">Adjusted</span>' : '<span class="pill">Source</span>'}</td>
+          <td><input class="edit-note" id="note-${id}" value="${escapeHtml(row.adjustment_note || "")}" placeholder="Adjustment note..." /></td>
+          <td><button class="btn blue" onclick="saveRowAdjustment('${id}')">Save</button></td>
+        </tr>
+      `;
+    }
+
+    async function saveRowAdjustment(rowId) {
+      const row = registerRows.find(r => String(r.id) === String(rowId));
+      if (!row) {
+        showToast("Row not found.");
+        return;
+      }
+
+      const amount = parseNumeric(document.getElementById(`amount-${rowId}`)?.value);
+      const hours = parseNumeric(document.getElementById(`hours-${rowId}`)?.value);
+      const wages = parseNumeric(document.getElementById(`wages-${rowId}`)?.value);
+      const note = cleanText(document.getElementById(`note-${rowId}`)?.value) || "Manual adjustment from Payroll BI Workbench";
+
+      const payload = {
+        amount,
+        hours_units: hours,
+        wages,
+        is_adjusted: true,
+        adjusted_at: new Date().toISOString(),
+        adjusted_by: currentUser?.id || null,
+        adjustment_note: note,
+        original_amount: row.original_amount ?? row.amount_num,
+        original_hours_units: row.original_hours_units ?? row.hours_units_num,
+        original_wages: row.original_wages ?? row.wages_num
+      };
+
+      try {
+        setLoading(true);
+
+        const { error } = await supabaseClient
+          .from("payroll_register_lines")
+          .update(payload)
+          .eq("id", rowId);
+
+        if (error) throw error;
+
+        showToast("Payroll row adjusted.");
+        await loadSelectedData();
+        setTab(activeTab);
+      } catch (error) {
+        console.error(error);
+        showToast(error.message || "Failed to save adjustment.");
+      } finally {
+        setLoading(false);
+      }
+    }
+
     function renderCell(row, col) {
       const [field, label, type] = col;
       const value = row[field];
 
-      if (type === "money") {
-        return `<td class="num">${formatMoney(value)}</td>`;
-      }
-
-      if (type === "num") {
-        return `<td class="num">${formatNumber(value, 2)}</td>`;
-      }
-
-      if (type === "date") {
-        return `<td>${escapeHtml(formatDate(value))}</td>`;
-      }
+      if (type === "money") return `<td class="num">${formatMoney(value)}</td>`;
+      if (type === "num") return `<td class="num">${formatNumber(value, 2)}</td>`;
+      if (type === "pct") return `<td class="num">${formatPercent(value)}</td>`;
+      if (type === "date") return `<td>${escapeHtml(formatDate(value))}</td>`;
 
       if (type === "pill") {
-        const text = value || "";
-        let klass = "";
-        const v = String(value || "").toUpperCase();
-
-        if (v === "EARN") {
-          klass = "green";
-        }
-
-        if (v === "ERTAX") {
-          klass = "blue";
-        }
-
-        if (v === "EETAX") {
-          klass = "amber";
-        }
-
-        if (v === "DDUCT") {
-          klass = "red";
-        }
-
-        return `<td><span class="pill ${klass}">${escapeHtml(text)}</span></td>`;
+        return `<td>${renderPill(value)}</td>`;
       }
 
       if (type === "severity") {
         const sev = String(value || "").toLowerCase();
         const klass = sev === "high" ? "red" : sev === "medium" ? "amber" : "";
-
         return `<td><span class="pill ${klass}">${escapeHtml(value || "")}</span></td>`;
       }
 
       return `<td>${escapeHtml(value ?? "")}</td>`;
     }
 
+    function renderPill(value) {
+      const text = value || "";
+      let klass = "";
+      const v = String(value || "").toUpperCase();
+
+      if (v === "EARN") klass = "green";
+      if (v === "ERTAX") klass = "blue";
+      if (v === "EETAX") klass = "amber";
+      if (v === "DDUCT") klass = "red";
+      if (v === "ADJ") klass = "purple";
+
+      return `<span class="pill ${klass}">${escapeHtml(text)}</span>`;
+    }
+
     function renderEmpty(message) {
       currentRenderedRows = [];
       const tableWrap = document.getElementById("tableWrap");
-
-      if (tableWrap) {
-        tableWrap.innerHTML = `<div class="empty">${escapeHtml(message)}</div>`;
-      }
+      if (tableWrap) tableWrap.innerHTML = `<div class="empty">${escapeHtml(message)}</div>`;
     }
 
     function chooseUpload() {
@@ -1934,21 +2186,12 @@
       const file = event.target.files?.[0];
       event.target.value = "";
 
-      if (!file) {
-        return;
-      }
+      if (!file) return;
 
       setLoading(true);
 
       try {
         const rows = await parseCsv(file);
-
-        console.log("Parsed register CSV:", {
-          fileName: file.name,
-          rowCount: rows.length,
-          firstRow: rows[0],
-          headers: Object.keys(rows[0] || {})
-        });
 
         if (!rows.length) {
           showToast("CSV has no rows.");
@@ -2002,7 +2245,9 @@
       const mappedRows = rawRows.map(row => {
         const mapped = {
           batch_id: selectedBatchId,
-          source_file_name: fileName
+          source_file_name: fileName,
+          is_adjusted: false,
+          adjustment_note: null
         };
 
         for (const [csvHeader, dbField] of Object.entries(REGISTER_HEADER_MAP)) {
@@ -2010,23 +2255,23 @@
           mapped[dbField] = normalizeValue(dbField, actualHeader ? row[actualHeader] : null);
         }
 
+        mapped.original_amount = mapped.amount;
+        mapped.original_hours_units = mapped.hours_units;
+        mapped.original_wages = mapped.wages;
+
         return mapped;
       }).filter(row => {
         return row.ee_code || row.ee_name || row.department_code || row.amount || row.hours_units || row.wages;
       });
 
-      if (!mappedRows.length) {
-        throw new Error("No usable register rows found.");
-      }
+      if (!mappedRows.length) throw new Error("No usable register rows found.");
 
       const { error: deleteError } = await supabaseClient
         .from("payroll_register_lines")
         .delete()
         .eq("batch_id", selectedBatchId);
 
-      if (deleteError) {
-        throw deleteError;
-      }
+      if (deleteError) throw deleteError;
 
       await insertInChunks("payroll_register_lines", mappedRows, 500);
 
@@ -2050,19 +2295,14 @@
         })
         .eq("id", selectedBatchId);
 
-      if (error) {
-        throw error;
-      }
+      if (error) throw error;
     }
 
     async function insertInChunks(table, rows, chunkSize) {
       for (let i = 0; i < rows.length; i += chunkSize) {
         const chunk = rows.slice(i, i + chunkSize);
         const { error } = await supabaseClient.from(table).insert(chunk);
-
-        if (error) {
-          throw error;
-        }
+        if (error) throw error;
       }
     }
 
@@ -2074,15 +2314,10 @@
 
       const cleaned = currentRenderedRows.map(row => {
         const out = {};
-
         for (const [key, value] of Object.entries(row)) {
-          if (key.startsWith("_")) {
-            continue;
-          }
-
+          if (key.startsWith("_")) continue;
           out[key] = value instanceof Set ? value.size : value;
         }
-
         return out;
       });
 
@@ -2104,39 +2339,15 @@
       URL.revokeObjectURL(url);
     }
 
-    function debugEarnMonthBuckets(label, rows) {
-      const summary = {};
-
-      for (const row of rows || []) {
-        if (row.register_type_norm !== "EARN") {
-          continue;
-        }
-
-        const month = row.month_key || "blank";
-
-        if (!summary[month]) {
-          summary[month] = {
-            month,
-            gross_wages: 0,
-            hours: 0,
-            rows: 0
-          };
-        }
-
-        summary[month].gross_wages += Number(row.gross_wages || 0);
-        summary[month].hours += Number(row.register_hours || 0);
-        summary[month].rows += 1;
-      }
-
-      console.table(
-        Object.values(summary).sort((a, b) => String(a.month).localeCompare(String(b.month))),
-        ["month", "gross_wages", "hours", "rows"]
-      );
-
-      console.log(`Payroll register ${label}:`, {
-        totalRows: rows?.length || 0,
-        uniqueIds: new Set((rows || []).map(row => row.id).filter(Boolean)).size
-      });
+    function clearFilters() {
+      filterState.departments.clear();
+      filterState.locations.clear();
+      filterState.types.clear();
+      filterState.payCodes.clear();
+      document.getElementById("presetSelect").value = "";
+      document.getElementById("searchInput").value = "";
+      rebuildFilterOptions();
+      applyFilters();
     }
 
     function getValue(row, expectedHeader) {
@@ -2162,15 +2373,10 @@
 
     function buildHeaderLookup(row) {
       const lookup = {};
-
       Object.keys(row || {}).forEach(originalHeader => {
         const key = normalizeHeaderKey(originalHeader);
-
-        if (!lookup[key]) {
-          lookup[key] = originalHeader;
-        }
+        if (!lookup[key]) lookup[key] = originalHeader;
       });
-
       return lookup;
     }
 
@@ -2196,30 +2402,20 @@
         payperiodend: ["payperiodend", "pay period end", "periodend", "payend", "enddate", "periodending", "periodenddate", "payperiodending"]
       };
 
-      if (lookup[key]) {
-        return lookup[key];
-      }
+      if (lookup[key]) return lookup[key];
 
       const aliasList = aliases[key] || [];
-
       for (const alias of aliasList) {
         const aliasKey = normalizeHeaderKey(alias);
-
-        if (lookup[aliasKey]) {
-          return lookup[aliasKey];
-        }
+        if (lookup[aliasKey]) return lookup[aliasKey];
       }
 
       const lookupKeys = Object.keys(lookup);
-
       if (key.length >= 8) {
         const startsWithMatch = lookupKeys.find(actualKey => {
           return actualKey.startsWith(key.slice(0, 8)) || key.startsWith(actualKey.slice(0, 8));
         });
-
-        if (startsWithMatch) {
-          return lookup[startsWithMatch];
-        }
+        if (startsWithMatch) return lookup[startsWithMatch];
       }
 
       return null;
@@ -2232,10 +2428,7 @@
 
       expectedHeaders.forEach(expectedHeader => {
         const found = findCsvHeader(firstRow, expectedHeader);
-
-        if (!found) {
-          missing.push(expectedHeader);
-        }
+        if (!found) missing.push(expectedHeader);
       });
 
       if (missing.length) {
@@ -2246,26 +2439,14 @@
 
     function normalizeValue(field, value) {
       const cleaned = cleanText(value);
-
-      if (cleaned === "") {
-        return null;
-      }
-
-      if (NUMERIC_FIELDS.has(field)) {
-        return parseNumeric(cleaned);
-      }
-
-      if (DATE_FIELDS.has(field)) {
-        return parseDate(cleaned);
-      }
-
+      if (cleaned === "") return null;
+      if (NUMERIC_FIELDS.has(field)) return parseNumeric(cleaned);
+      if (DATE_FIELDS.has(field)) return parseDate(cleaned);
       return cleaned;
     }
 
     function parseNumeric(value) {
-      if (value === null || value === undefined) {
-        return null;
-      }
+      if (value === null || value === undefined) return null;
 
       const cleaned = String(value)
         .replace(/[$,%]/g, "")
@@ -2273,9 +2454,7 @@
         .replace(/\(([^)]+)\)/, "-$1")
         .trim();
 
-      if (cleaned === "") {
-        return null;
-      }
+      if (cleaned === "") return null;
 
       const num = Number(cleaned);
       return Number.isFinite(num) ? num : null;
@@ -2283,28 +2462,17 @@
 
     function parseDate(value) {
       const raw = cleanText(value);
-
-      if (!raw) {
-        return null;
-      }
+      if (!raw) return null;
 
       const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-
-      if (iso) {
-        return `${iso[1]}-${iso[2]}-${iso[3]}`;
-      }
+      if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
 
       const mdy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
-
       if (mdy) {
         const month = String(mdy[1]).padStart(2, "0");
         const day = String(mdy[2]).padStart(2, "0");
         let year = mdy[3];
-
-        if (year.length === 2) {
-          year = Number(year) > 70 ? `19${year}` : `20${year}`;
-        }
-
+        if (year.length === 2) year = Number(year) > 70 ? `19${year}` : `20${year}`;
         return `${year}-${month}-${day}`;
       }
 
@@ -2312,23 +2480,14 @@
     }
 
     function monthKey(value) {
-      if (!value) {
-        return "";
-      }
-
+      if (!value) return "";
       const raw = String(value).trim();
 
       const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-
-      if (iso) {
-        return `${iso[1]}-${iso[2]}`;
-      }
+      if (iso) return `${iso[1]}-${iso[2]}`;
 
       const mdy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-
-      if (mdy) {
-        return `${mdy[3]}-${String(mdy[1]).padStart(2, "0")}`;
-      }
+      if (mdy) return `${mdy[3]}-${String(mdy[1]).padStart(2, "0")}`;
 
       return "";
     }
@@ -2344,11 +2503,7 @@
 
     function formatNumber(value, decimals = 2) {
       const n = Number(value ?? 0);
-
-      if (!Number.isFinite(n)) {
-        return "—";
-      }
-
+      if (!Number.isFinite(n)) return "—";
       return n.toLocaleString(undefined, {
         minimumFractionDigits: decimals,
         maximumFractionDigits: decimals
@@ -2356,16 +2511,9 @@
     }
 
     function formatMoney(value) {
-      if (value === null || value === undefined || value === "") {
-        return "—";
-      }
-
+      if (value === null || value === undefined || value === "") return "—";
       const n = Number(value ?? 0);
-
-      if (!Number.isFinite(n)) {
-        return "—";
-      }
-
+      if (!Number.isFinite(n)) return "—";
       return n.toLocaleString(undefined, {
         style: "currency",
         currency: "USD",
@@ -2374,24 +2522,23 @@
       });
     }
 
-    function formatDate(value) {
-      if (!value) {
-        return "";
-      }
+    function formatPercent(value) {
+      if (value === null || value === undefined || value === "") return "—";
+      const n = Number(value);
+      if (!Number.isFinite(n)) return "—";
+      const sign = n > 0 ? "+" : "";
+      return `${sign}${(n * 100).toFixed(1)}%`;
+    }
 
+    function formatDate(value) {
+      if (!value) return "";
       const raw = String(value).trim();
 
       const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-
-      if (iso) {
-        return `${iso[2]}/${iso[3]}/${iso[1]}`;
-      }
+      if (iso) return `${iso[2]}/${iso[3]}/${iso[1]}`;
 
       const mdy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-
-      if (mdy) {
-        return `${String(mdy[1]).padStart(2, "0")}/${String(mdy[2]).padStart(2, "0")}/${mdy[3]}`;
-      }
+      if (mdy) return `${String(mdy[1]).padStart(2, "0")}/${String(mdy[2]).padStart(2, "0")}/${mdy[3]}`;
 
       return raw;
     }
@@ -2406,7 +2553,7 @@
     }
 
     function isNumericType(type) {
-      return type === "num" || type === "money";
+      return type === "num" || type === "money" || type === "pct";
     }
 
     function escapeHtml(value) {
