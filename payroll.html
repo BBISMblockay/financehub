@@ -1,2038 +1,2802 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Payroll Analytics — Meeting View</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SILO | Payroll BI Workbench</title>
 
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 
   <style>
-    :root{
-      --bg0:#0b1220;
-      --bg1:#0f172a;
-      --panel:rgba(255,255,255,.06);
-      --panel2:rgba(255,255,255,.03);
-      --border:rgba(148,163,184,.18);
-      --border2:rgba(148,163,184,.12);
-      --text:#e5e7eb;
-      --muted:#a7b0c0;
-      --shadow:0 14px 40px rgba(0,0,0,.35);
 
-      --accent:#38bdf8;
-      --green:#22c55e;
-      --amber:#fbbf24;
-      --rose:#fb7185;
-      --violet:#a78bfa;
-
-      --r24:24px;
-      --r18:18px;
-      --r14:14px;
-      --max:1480px;
-
-      --gap:12px;
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --panel2: #f8fafc;
+      --line: #d9dde5;
+      --line-soft: #edf0f4;
+      --text: #172033;
+      --muted: #687385;
+      --dark: #111827;
+      --green: #0f766e;
+      --red: #b91c1c;
+      --amber: #b45309;
+      --blue: #1d4ed8;
+      --purple: #6d28d9;
     }
 
-    *{ box-sizing:border-box; }
-    html,body{ height:100%; }
-    body{
-      margin:0;
-      font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
-      color:var(--text);
+    * { box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 12px;
+      overflow: hidden;
+    }
+
+    .shell {
+      height: 100vh;
+      display: grid;
+      grid-template-columns: 228px minmax(0, 1fr);
+    }
+
+    .sidebar {
+      background: #101827;
+      color: #dbe4f0;
+      border-right: 1px solid #0b1220;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .brand {
+      height: 52px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 16px;
+      border-bottom: 1px solid rgba(255,255,255,.08);
+      font-weight: 850;
+      letter-spacing: .02em;
+    }
+
+    .brand-dot {
+      width: 20px;
+      height: 20px;
+      border-radius: 7px;
+      background: linear-gradient(135deg, #e5e7eb, #64748b);
+    }
+
+    .nav-section {
+      padding: 10px 10px 4px;
+      color: #94a3b8;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      font-weight: 800;
+    }
+
+    .nav-link {
+      margin: 2px 8px;
+      padding: 8px 10px;
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      color: #cbd5e1;
+      text-decoration: none;
+      font-size: 12px;
+    }
+
+    .nav-link:hover,
+    .nav-link.active {
+      background: rgba(255,255,255,.08);
+      color: #fff;
+    }
+
+    .sidebar-foot {
+      margin-top: auto;
+      padding: 10px 12px;
+      color: #94a3b8;
+      font-size: 10px;
+      border-top: 1px solid rgba(255,255,255,.08);
+      line-height: 1.45;
+    }
+
+    .main {
+      min-width: 0;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .topbar {
+      height: 52px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+
+    .title-wrap {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      min-width: 0;
+    }
+
+    .title {
+      font-size: 15px;
+      font-weight: 850;
+      line-height: 1.1;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 900px;
+    }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .btn {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--dark);
+      height: 30px;
+      padding: 0 10px;
+      border-radius: 8px;
+      font-weight: 800;
+      font-size: 11px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .btn:hover { background: #f8fafc; }
+
+    .btn.primary {
+      background: #111827;
+      color: #fff;
+      border-color: #111827;
+    }
+
+    .btn.green {
+      background: #0f766e;
+      color: #fff;
+      border-color: #0f766e;
+    }
+
+    .btn.blue {
+      background: #1d4ed8;
+      color: #fff;
+      border-color: #1d4ed8;
+    }
+
+    .btn.soft {
+      background: #f8fafc;
+    }
+
+    .btn.danger {
+      color: #b91c1c;
+      border-color: #fecaca;
+      background: #fff;
+    }
+
+    .btn:disabled {
+      opacity: .45;
+      cursor: not-allowed;
+    }
+
+    .content {
+      min-height: 0;
+      flex: 1;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      overflow: hidden;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+    }
+
+    .control-panel {
+      padding: 8px;
+      display: grid;
+      grid-template-columns: 1.25fr .72fr .72fr .9fr .9fr .9fr .9fr .9fr 1.05fr auto;
+      gap: 7px;
+      align-items: end;
+      flex-shrink: 0;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 0;
+      position: relative;
+    }
+
+    label {
+      font-size: 10px;
+      font-weight: 850;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+
+    select,
+    input {
+      height: 30px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0 8px;
+      background: #fff;
+      font-size: 11px;
+      min-width: 0;
+      outline: none;
+    }
+
+    select:focus,
+    input:focus {
+      border-color: #64748b;
+      box-shadow: 0 0 0 2px rgba(100, 116, 139, .15);
+    }
+
+    .multi-btn {
+      height: 30px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0 8px;
+      background: #fff;
+      font-size: 11px;
+      min-width: 0;
+      outline: none;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      gap: 6px;
+    }
+
+    .multi-label {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .multi-menu {
+      position: absolute;
+      top: 50px;
+      left: 0;
+      min-width: 280px;
+      max-width: 380px;
+      max-height: 360px;
+      overflow: auto;
+      background: #fff;
+      border: 1px solid var(--line);
+      box-shadow: 0 18px 45px rgba(15, 23, 42, .18);
+      border-radius: 12px;
+      padding: 8px;
+      display: none;
+      z-index: 50;
+    }
+
+    .multi-menu.show { display: block; }
+
+    .multi-menu-head {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      margin-bottom: 8px;
+      position: sticky;
+      top: -8px;
+      background: #fff;
+      padding-top: 2px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--line-soft);
+      z-index: 2;
+    }
+
+    .multi-option {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 5px 4px;
+      border-radius: 7px;
+      cursor: pointer;
+      font-size: 11px;
+    }
+
+    .multi-option:hover { background: #f8fafc; }
+
+    .multi-option input {
+      height: auto;
+      width: auto;
+      padding: 0;
+    }
+
+    .kpi-strip {
+      display: grid;
+      grid-template-columns: repeat(8, minmax(0, 1fr));
+      gap: 7px;
+      flex-shrink: 0;
+    }
+
+    .kpi {
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: #fff;
+      border: 1px solid var(--line);
+      min-width: 0;
+    }
+
+    .kpi .label {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .kpi .value {
+      margin-top: 2px;
+      font-size: 15px;
+      font-weight: 900;
+      line-height: 1.1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .kpi .sub {
+      margin-top: 2px;
+      font-size: 10px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .chart-grid {
+      display: grid;
+      grid-template-columns: 1.25fr .75fr;
+      gap: 8px;
+      min-height: 210px;
+      max-height: 260px;
+      flex-shrink: 0;
+    }
+
+    .chart-card {
+      padding: 8px;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .chart-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      padding: 0 2px 6px;
+      border-bottom: 1px solid var(--line-soft);
+      flex-shrink: 0;
+    }
+
+    .chart-title {
+      font-size: 11px;
+      font-weight: 900;
+      color: #334155;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+
+    .chart-wrap {
+      position: relative;
+      flex: 1;
+      min-height: 0;
+      padding-top: 6px;
+    }
+
+    .workbench {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .tabs {
+      height: 38px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 6px 0;
+      border-bottom: 1px solid var(--line);
+      flex-shrink: 0;
+      overflow-x: auto;
+    }
+
+    .tab {
+      height: 28px;
+      padding: 0 10px;
+      border: 1px solid transparent;
+      border-radius: 8px 8px 0 0;
+      background: transparent;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 850;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .tab.active {
+      background: #fff;
+      color: #111827;
+      border-color: var(--line);
+      border-bottom-color: #fff;
+    }
+
+    .table-wrap {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      background: #fff;
+      border-radius: 0 0 12px 12px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: #f8fafc;
+      border-bottom: 1px solid var(--line);
+      color: #475569;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      font-weight: 900;
+      padding: 7px 8px;
+      text-align: left;
+    }
+
+    tbody td {
+      padding: 5px 8px;
+      border-bottom: 1px solid var(--line-soft);
+      color: #1f2937;
+      vertical-align: middle;
+    }
+
+    tbody tr:hover { background: #f8fafc; }
+
+    .num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      height: 20px;
+      padding: 0 7px;
+      border-radius: 999px;
+      background: #f1f5f9;
+      color: #334155;
+      font-size: 10px;
+      font-weight: 850;
+      border: 1px solid #e2e8f0;
+      gap: 4px;
+    }
+
+    .pill.green { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+    .pill.red { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+    .pill.amber { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+    .pill.blue { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+    .pill.purple { background: #f5f3ff; color: #6d28d9; border-color: #ddd6fe; }
+
+    .edit-input {
+      height: 24px;
+      width: 92px;
+      padding: 0 6px;
+      text-align: right;
+      border-radius: 6px;
+      font-size: 11px;
+    }
+
+    .edit-note {
+      height: 24px;
+      width: 220px;
+      padding: 0 6px;
+      border-radius: 6px;
+      font-size: 11px;
+    }
+
+    .edit-text {
+      height: 24px;
+      width: 150px;
+      padding: 0 6px;
+      border-radius: 6px;
+      font-size: 11px;
+    }
+
+    .edit-code {
+      height: 24px;
+      width: 72px;
+      padding: 0 6px;
+      border-radius: 6px;
+      font-size: 11px;
+    }
+
+    .toast {
+      position: fixed;
+      right: 14px;
+      bottom: 14px;
+      z-index: 100;
+      max-width: 760px;
+      background: #111827;
+      color: white;
+      border-radius: 12px;
+      padding: 10px 12px;
+      box-shadow: 0 14px 40px rgba(15, 23, 42, .25);
+      display: none;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .toast.show { display: block; }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, .45);
+      z-index: 80;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal-backdrop.show { display: flex; }
+
+    .modal {
+      width: min(760px, 100%);
+      background: #fff;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      box-shadow: 0 24px 80px rgba(15, 23, 42, .35);
+      overflow: hidden;
+    }
+
+    .modal-header {
+      height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .modal-title {
+      font-weight: 900;
+      font-size: 14px;
+    }
+
+    .modal-body {
+      padding: 12px;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      padding: 10px 12px;
+      border-top: 1px solid var(--line);
+      background: #f8fafc;
+    }
+
+    .hidden-file { display: none; }
+
+    .empty {
+      padding: 26px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .loading-line {
+      height: 3px;
+      background: linear-gradient(90deg, #111827, #94a3b8, #111827);
+      background-size: 200% 100%;
+      animation: slide 1.1s linear infinite;
+      display: none;
+      flex-shrink: 0;
+    }
+
+    .loading-line.show { display: block; }
+
+    @keyframes slide {
+      0% { background-position: 0 0; }
+      100% { background-position: 200% 0; }
+    }
+
+    @media (max-width: 1500px) {
+      .control-panel { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+      .kpi-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
+
+    @media (max-width: 1000px) {
+      .chart-grid { grid-template-columns: 1fr; max-height: none; }
+    }
+
+    @media (max-width: 800px) {
+      .shell { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      body { overflow: auto; }
+      .main { height: 100vh; }
+      .control-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .kpi-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .modal-body { grid-template-columns: 1fr; }
+    }
+  
+
+
+    /* Iframe/body-only mode for Finance Console.
+       No Silo sidebar, no standalone app shell, no nested menu. */
+
+    :root {
+      --bg: #f4f6fa;
+      --panel: #ffffff;
+      --panel2: #f8fafc;
+      --line: #d9dde5;
+      --line-soft: #edf0f4;
+      --text: #172033;
+      --muted: #687385;
+      --dark: #111827;
+      --green: #0f766e;
+      --red: #b91c1c;
+      --amber: #b45309;
+      --blue: #1d4ed8;
+      --purple: #6d28d9;
+      --border: #e2e8f0;
+      --shadow: 0 14px 32px rgba(15, 23, 42, 0.06);
+    }
+
+    html,
+    body {
+      margin: 0;
+      height: 100%;
+      min-height: 100%;
+      background: transparent;
+      overflow: hidden;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    .payroll-page {
+      height: 100vh;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
       background:
-        radial-gradient(1200px 650px at 10% -10%, rgba(56,189,248,.16), transparent 55%),
-        radial-gradient(900px 520px at 92% 0%, rgba(34,197,94,.10), transparent 55%),
-        radial-gradient(900px 520px at 80% 120%, rgba(167,139,250,.10), transparent 60%),
-        linear-gradient(180deg, var(--bg0), var(--bg1));
+        radial-gradient(circle at top left, rgba(79, 70, 229, 0.06), transparent 26%),
+        linear-gradient(180deg, #f8fafc 0%, #f4f6fa 100%);
     }
 
-    .wrap{ max-width:var(--max); margin:0 auto; padding:18px 14px 34px; }
-    .shell{
-      border:1px solid var(--border);
-      border-radius:var(--r24);
-      background:linear-gradient(180deg, var(--panel), var(--panel2));
-      box-shadow:var(--shadow);
-      overflow:hidden;
-      min-height: calc(100vh - 36px);
-      display:flex;
-      flex-direction:column;
-    }
-
-    .sticky{
-      position:sticky;
-      top:0;
-      z-index:10;
+    .payroll-header {
+      flex: 0 0 auto;
+      padding: 10px 12px 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,0.74);
       backdrop-filter: blur(12px);
-      background: rgba(11,18,32,.78);
-      border-bottom:1px solid rgba(148,163,184,.14);
+      -webkit-backdrop-filter: blur(12px);
     }
 
-    .hdr{
-      padding:14px 16px 10px;
-      display:flex;
-      align-items:flex-end;
-      justify-content:space-between;
-      gap:12px;
-      flex-wrap:wrap;
-    }
-    .title{
-      margin:0;
-      font-size:18px;
-      font-weight:950;
-      letter-spacing:.2px;
-      line-height:1.1;
-    }
-    .sub{
-      margin:6px 0 0;
-      font-size:12.5px;
-      color:var(--muted);
-      line-height:1.25;
+    .payroll-title-wrap {
+      min-width: 0;
     }
 
-    .btn{
-      display:inline-flex; align-items:center; justify-content:center; gap:10px;
-      padding:10px 12px; border-radius:12px;
-      border:1px solid rgba(255,255,255,.14);
-      background:rgba(255,255,255,.08);
-      color:var(--text);
-      font-weight:900; font-size:13px;
-      cursor:pointer; user-select:none;
-      transition: background .15s ease, border-color .15s ease, transform .08s ease;
-      white-space:nowrap;
-    }
-    .btn:hover{ background:rgba(255,255,255,.10); border-color: rgba(56,189,248,.28); transform: translateY(-1px); }
-    .btn.ghost{ background:transparent; border-color: rgba(148,163,184,.22); font-weight:850; }
-    .btn.ghost:hover{ background:rgba(255,255,255,.06); border-color: rgba(255,255,255,.22); }
-    .btn.small{ padding:8px 10px; border-radius:11px; font-size:12.5px; font-weight:900; }
-
-    .toolbar{
-      padding:10px 16px 12px;
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-      align-items:center;
-      justify-content:space-between;
-    }
-    .filters{
-      display:grid;
-      grid-template-columns: 260px 260px 220px 240px 240px 240px 220px;
-      gap:10px;
-      flex: 1 1 auto;
-      align-items:center;
+    .payroll-kicker {
+      font-size: 10px;
+      font-weight: 850;
+      color: #64748b;
+      letter-spacing: .1em;
+      text-transform: uppercase;
     }
 
-    .input, select{
-      appearance:none;
-      padding:10px 12px;
-      border-radius:14px;
-      border:1px solid rgba(255,255,255,.14);
-      background:rgba(255,255,255,.06);
-      color:var(--text);
-      font-weight:750;
-      font-size:13px;
-      outline:none;
-      min-width: 180px;
-    }
-    .input{ width:100%; }
-
-    .tog{
-      display:inline-flex; align-items:center; gap:10px;
-      padding:8px 10px;
-      border-radius:999px;
-      border:1px solid rgba(148,163,184,.18);
-      background:rgba(0,0,0,.16);
-      color:rgba(203,213,225,.92);
-      font-size:12px;
-      font-weight:950;
-      user-select:none;
-      cursor:pointer;
-      white-space:nowrap;
-    }
-    .sw{
-      width:42px; height:22px;
-      border-radius:999px;
-      background:rgba(255,255,255,.10);
-      border:1px solid rgba(255,255,255,.16);
-      position:relative;
-      transition: background .15s ease, border-color .15s ease;
-      flex:0 0 auto;
-    }
-    .sw:before{
-      content:"";
-      position:absolute; top:50%; left:3px;
-      transform:translateY(-50%);
-      width:16px; height:16px; border-radius:50%;
-      background:rgba(255,255,255,.78);
-      box-shadow:0 6px 14px rgba(0,0,0,.35);
-      transition: left .15s ease;
-    }
-    .tog.on .sw{ background: rgba(34,197,94,.18); border-color: rgba(34,197,94,.30); }
-    .tog.on .sw:before{ left: 22px; background: rgba(255,255,255,.90); }
-
-    /* Meeting-friendly summary row */
-    .story{
-      padding:0 16px 14px;
-      display:grid;
-      gap:var(--gap);
-      grid-template-columns: 1.2fr .8fr;
-    }
-    .card{
-      border:1px solid var(--border2);
-      background:rgba(0,0,0,.14);
-      border-radius:var(--r18);
-      overflow:hidden;
-      display:flex;
-      flex-direction:column;
-      min-height:0;
-    }
-    .cardH{
-      padding:10px 12px;
-      border-bottom:1px solid rgba(148,163,184,.12);
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      flex-wrap:wrap;
-    }
-    .cardH b{
-      font-size:12px;
-      letter-spacing:.24px;
-      text-transform:uppercase;
-      color:rgba(203,213,225,.92);
-    }
-    .cardH .tiny{
-      font-size:12px;
-      color:var(--muted);
-      font-weight:850;
-      white-space:nowrap;
-    }
-    .cardC{ padding:12px; }
-
-    .kpis{
-      display:grid;
-      gap:10px;
-      grid-template-columns: repeat(12, 1fr);
-    }
-    .kpi{
-      grid-column: span 3;
-      border:1px solid rgba(148,163,184,.16);
-      background:rgba(255,255,255,.03);
-      border-radius:16px;
-      padding:12px;
-      display:flex;
-      align-items:flex-end;
-      justify-content:space-between;
-      gap:10px;
-      min-height:74px;
-    }
-    .kpi .k{ font-size:11px; font-weight:950; letter-spacing:.25px; color:rgba(203,213,225,.90); text-transform:uppercase; }
-    .kpi .v{ font-size:20px; font-weight:950; letter-spacing:.1px; }
-    .kpi .s{ font-size:12px; font-weight:850; color:var(--muted); margin-top:4px; }
-    .kpi .left{ display:flex; flex-direction:column; gap:2px; min-width:0; }
-
-    .dotLg{ width:11px;height:11px;border-radius:50%; background:var(--accent); box-shadow:0 0 0 4px rgba(56,189,248,.12); }
-    .dotLg.g{ background:var(--green); box-shadow:0 0 0 4px rgba(34,197,94,.12); }
-    .dotLg.a{ background:var(--amber); box-shadow:0 0 0 4px rgba(251,191,36,.12); }
-    .dotLg.r{ background:var(--rose); box-shadow:0 0 0 4px rgba(251,113,133,.12); }
-    .dotLg.v{ background:var(--violet); box-shadow:0 0 0 4px rgba(167,139,250,.12); }
-
-    .compareGrid{
-      display:grid;
-      gap:10px;
-      grid-template-columns: 1fr;
-    }
-    .compareTop{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-      align-items:center;
-      justify-content:space-between;
-    }
-    .compareControls{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-      align-items:center;
-    }
-    .compareTitle{
-      font-weight:950;
-      font-size:16px;
-      letter-spacing:.1px;
-    }
-    .compareSub{
-      margin-top:6px;
-      color:rgba(167,176,192,.92);
-      font-size:12.5px;
-      font-weight:800;
-      line-height:1.35;
+    .payroll-title {
+      margin-top: 2px;
+      font-size: 16px;
+      font-weight: 900;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
     }
 
-    .deltas{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-      align-items:center;
-      justify-content:space-between;
-      margin-top:10px;
-      padding:10px 12px;
-      border-radius:16px;
-      border:1px solid rgba(148,163,184,.14);
-      background:rgba(0,0,0,.16);
-      font-variant-numeric: tabular-nums;
-      font-weight:900;
-      font-size:13px;
-    }
-    .deltas span{ white-space:nowrap; }
-    .deltaUp{ color: rgba(34,197,94,.95); }
-    .deltaDown{ color: rgba(251,113,133,.95); }
-    .deltaFlat{ color: rgba(167,176,192,.95); }
-
-    .trendCanvas{
-      width:100%;
-      height:92px;
-      border-radius:16px;
-      border:1px solid rgba(148,163,184,.14);
-      background:rgba(0,0,0,.14);
-      overflow:hidden;
-      display:block;
-    }
-    .trendMeta{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-      align-items:center;
-      justify-content:space-between;
-      width:100%;
-      margin-top:10px;
-      color:rgba(167,176,192,.92);
-      font-size:12px;
-      font-weight:900;
+    .payroll-sub {
+      margin-top: 2px;
+      color: var(--muted);
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 800px;
     }
 
-    /* Lower area */
-    .main{
-      display:grid;
-      grid-template-columns: 420px 1fr;
-      gap:var(--gap);
-      padding:0 16px 16px;
-      flex:1 1 auto;
-      min-height:0;
+    .payroll-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 7px;
+      flex-wrap: wrap;
+      flex: 0 0 auto;
     }
 
-    .tabs{
-      display:flex;
-      gap:8px;
-      flex-wrap:wrap;
-      align-items:center;
-    }
-    .chip{
-      display:inline-flex; align-items:center; gap:8px;
-      padding:8px 10px;
-      border-radius:999px;
-      border:1px solid rgba(148,163,184,.18);
-      background:rgba(0,0,0,.16);
-      color:rgba(203,213,225,.92);
-      font-size:12px;
-      font-weight:950;
-      cursor:pointer;
-      user-select:none;
-      transition: background .15s ease, border-color .15s ease, transform .08s ease;
-      white-space:nowrap;
-    }
-    .chip:hover{ background:rgba(255,255,255,.05); transform: translateY(-1px); }
-    .chip.active{ border-color: rgba(56,189,248,.35); background: rgba(56,189,248,.10); }
-    .chip .dot{
-      width:8px;height:8px;border-radius:999px;background:var(--accent);
-      box-shadow:0 0 0 4px rgba(56,189,248,.10);
+    .content {
+      flex: 1;
+      min-height: 0;
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      overflow: hidden;
     }
 
-    .list{ display:flex; flex-direction:column; gap:8px; }
-    .row{
-      border:1px solid rgba(148,163,184,.14);
-      background:rgba(255,255,255,.03);
-      border-radius:14px;
-      padding:10px 10px;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:12px;
-      cursor:pointer;
-    }
-    .row:hover{ background:rgba(255,255,255,.05); border-color: rgba(56,189,248,.20); }
-    .row:active{ transform: translateY(1px); }
-    .row .name{
-      font-weight:950;
-      font-size:13px;
-      color:rgba(229,231,235,.95);
-      min-width:0;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
-    }
-    .row .subn{
-      margin-top:4px;
-      font-size:12px;
-      color:var(--muted);
-      font-weight:850;
-      min-width:0;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      white-space:nowrap;
-    }
-    .row .right{
-      text-align:right;
-      font-variant-numeric: tabular-nums;
-      white-space:nowrap;
-    }
-    .row .v1{ font-weight:950; font-size:13px; }
-    .row .v2{ font-size:12px; font-weight:900; color:rgba(203,213,225,.88); margin-top:4px; }
-
-    .pin{
-      padding:10px 12px;
-      display:flex;
-      align-items:center;
-      justify-content:space-between;
-      gap:10px;
-      flex-wrap:wrap;
-      border-bottom:1px solid rgba(148,163,184,.12);
-      background:rgba(0,0,0,.10);
-      position:sticky;
-      top:0;
-      z-index:3;
-      backdrop-filter: blur(10px);
-    }
-    .pin .left{
-      display:flex;
-      gap:10px;
-      flex-wrap:wrap;
-      align-items:center;
-    }
-    .pillKpi{
-      display:flex;
-      align-items:baseline;
-      gap:8px;
-      padding:8px 10px;
-      border-radius:999px;
-      border:1px solid rgba(148,163,184,.16);
-      background:rgba(255,255,255,.03);
-      font-weight:950;
-      white-space:nowrap;
-    }
-    .pillKpi small{
-      color:var(--muted);
-      font-weight:900;
-      font-size:12px;
-    }
-    .pillKpi b{ font-size:13px; }
-
-    .tableWrap{
-      border-top:1px solid rgba(148,163,184,.12);
-      overflow:auto;
-      background:rgba(0,0,0,.08);
-      min-height:0;
-      flex:1 1 auto;
-    }
-    table{
-      width:100%;
-      border-collapse:separate;
-      border-spacing:0;
-      min-width:1200px;
-      font-size:12.5px;
-    }
-    thead th{
-      position:sticky;
-      top:0;
-      z-index:2;
-      text-align:left;
-      padding:10px 10px;
-      background:rgba(15,23,42,.92);
-      border-bottom:1px solid rgba(148,163,184,.18);
-      color:rgba(203,213,225,.96);
-      font-weight:950;
-      white-space:nowrap;
-      cursor:pointer;
-      user-select:none;
-    }
-    thead th:hover{ background: rgba(15,23,42,.98); }
-    thead th .sort{
-      opacity:.65;
-      font-size:11px;
-      margin-left:8px;
-      font-weight:950;
-    }
-    tbody td{
-      padding:10px 10px;
-      border-bottom:1px solid rgba(148,163,184,.12);
-      color:rgba(229,231,235,.92);
-      white-space:nowrap;
-    }
-    tbody tr:hover td{ background:rgba(255,255,255,.04); }
-    .num{ text-align:right; font-variant-numeric: tabular-nums; }
-
-    .pill{
-      display:inline-flex;
-      align-items:center;
-      gap:6px;
-      padding:5px 8px;
-      border-radius:999px;
-      font-weight:950;
-      font-size:11px;
-      border:1px solid rgba(148,163,184,.18);
-      background:rgba(0,0,0,.18);
-      color:rgba(203,213,225,.92);
-    }
-    .pill.earn{ border-color: rgba(34,197,94,.25); background: rgba(34,197,94,.10); }
-    .pill.dd{ border-color: rgba(251,191,36,.25); background: rgba(251,191,36,.10); }
-    .pill.tax{ border-color: rgba(56,189,248,.25); background: rgba(56,189,248,.10); }
-    .pill.net{ border-color: rgba(167,139,250,.28); background: rgba(167,139,250,.12); }
-
-    .status{
-      padding:0 16px 14px;
-      color:var(--muted);
-      font-size:12.5px;
-      font-weight:800;
-      display:flex;
-      justify-content:space-between;
-      gap:10px;
-      flex-wrap:wrap;
+    .panel {
+      background: rgba(255,255,255,0.9);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
     }
 
-    .hint{
-      padding:12px 16px;
-      color:rgba(167,176,192,.95);
-      font-size:12px;
-      border-top:1px solid rgba(148,163,184,.14);
+    .workbench {
+      border-radius: 16px;
+      box-shadow: var(--shadow);
     }
 
-    .error{
-      padding:14px 16px;
-      border-top:1px solid rgba(148,163,184,.14);
-      color:rgba(253,164,175,.95);
-      font-weight:950;
-    }
-    .error small{
-      display:block;
-      margin-top:6px;
-      color:rgba(167,176,192,.95);
-      font-weight:750;
-      line-height:1.3;
-    }
-
-    /* Presentation mode */
-    .present .hint,
-    .present #detailTableCard,
-    .present #rollupsCard{
-      display:none;
-    }
-    .present .main{
-      grid-template-columns: 1fr;
-    }
-    .present .story{
-      grid-template-columns: 1fr 1fr;
+    .btn {
+      border: 1px solid var(--border);
+      background: #fff;
+      color: var(--dark);
+      height: 30px;
+      padding: 0 10px;
+      border-radius: 9px;
+      font-weight: 800;
+      font-size: 11px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      cursor: pointer;
+      white-space: nowrap;
+      text-decoration: none;
+      transition: 0.15s ease;
     }
 
-    @media (max-width: 1320px){
-      .filters{
-        grid-template-columns: 1fr 1fr 1fr 1fr;
+    .btn:hover {
+      background: #f8fafc;
+      transform: translateY(-1px);
+    }
+
+    .btn.primary {
+      background: linear-gradient(135deg, #4f46e5, #2563eb);
+      color: #fff;
+      border-color: transparent;
+    }
+
+    .btn.green {
+      background: linear-gradient(135deg, #0f766e, #0d9488);
+      color: #fff;
+      border-color: transparent;
+    }
+
+    .btn.blue {
+      background: linear-gradient(135deg, #2563eb, #4f46e5);
+      color: #fff;
+      border-color: transparent;
+    }
+
+    .btn.danger {
+      color: #991b1b;
+      border-color: #fecaca;
+      background: #fff;
+    }
+
+    .sidebar,
+    .brand,
+    .nav-section,
+    .nav-link {
+      display: none !important;
+    }
+
+    @media (max-width: 900px) {
+      html,
+      body {
+        overflow: auto;
+      }
+
+      .payroll-page {
+        min-height: 100vh;
+        height: auto;
+      }
+
+      .payroll-header {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .payroll-actions {
+        justify-content: flex-start;
+      }
+
+      .content {
+        height: calc(100vh - 110px);
       }
     }
-    @media (max-width: 980px){
-      .story{ grid-template-columns: 1fr; }
-      .main{ grid-template-columns: 1fr; }
-      .kpi{ grid-column: span 6; }
-      table{ min-width: 980px; }
-    }
-    @media (max-width: 640px){
-      .kpi{ grid-column: span 12; }
-      .filters{ grid-template-columns: 1fr; }
-    }
+
   </style>
 </head>
 
 <body>
-  <div class="wrap">
-    <div class="shell" id="shell">
+  <main class="payroll-page">
+    <header class="payroll-header">
+      <div class="payroll-title-wrap">
+        <div class="payroll-kicker">Finance · Planning</div>
+        <div class="payroll-title">Payroll BI Workbench</div>
+        <div class="payroll-sub" id="userLine">Loading payroll workspace...</div>
+      </div>
 
-      <div class="sticky">
-        <div class="hdr">
-          <div>
-            <h1 class="title">Payroll Analytics</h1>
-            <p class="sub">Meeting view • Story-first rollups for <b>Hours</b> + <b>Gross (EARN)</b>. Other register types shown as totals.</p>
-          </div>
+      <div class="payroll-actions">
+        <button class="btn" onclick="openBatchModal()">New Batch</button>
+        <button class="btn green" onclick="chooseUpload()" id="uploadRegisterBtn">Upload Register CSV</button>
+        <button class="btn" onclick="reloadAll()">Refresh</button>
+        <button class="btn primary" onclick="exportCurrentTable()">Export View</button>
+      </div>
+    </header>
 
-          <div class="actions" style="display:flex; gap:10px; flex-wrap:wrap;">
-            <div class="tog" id="presentToggle" title="Presentation mode hides the table + rollups">
-              <span>Presentation</span>
-              <span class="sw" aria-hidden="true"></span>
-            </div>
-            <button class="btn ghost" id="copyLink" type="button">Copy Link</button>
-            <button class="btn" id="downloadCsv" type="button">Download CSV</button>
-          </div>
-        </div>
+    <div class="loading-line" id="loadingLine"></div>
 
-        <div class="toolbar">
-          <div class="filters">
-            <input id="q" class="input" type="search" placeholder="Search employee, dept, location, code…" />
+    <section class="content">
 
-            <select id="payPeriod">
-              <option value="">All Pay Periods</option>
+        <div class="panel control-panel">
+          <div class="field">
+            <label>Payroll Batch</label>
+            <select id="batchSelect" onchange="handleBatchChange()">
+              <option value="">All Batches</option>
             </select>
+          </div>
 
-            <select id="registerType">
-              <option value="">All Register Types</option>
-              <option value="EARN">EARN (Earnings)</option>
-              <option value="DDUCT">DDUCT (Deductions)</option>
-              <option value="EETAX">EETAX (EE Tax)</option>
-              <option value="ERTAX">ERTAX (ER Tax)</option>
-              <option value="NET">NET (Net Pay)</option>
+          <div class="field">
+            <label>Period From</label>
+            <input id="dateFromInput" type="date" onchange="reloadAll()" />
+          </div>
+
+          <div class="field">
+            <label>Period To</label>
+            <input id="dateToInput" type="date" onchange="reloadAll()" />
+          </div>
+
+          <div class="field">
+            <label>View Preset</label>
+            <select id="presetSelect" onchange="applyPreset()">
+              <option value="">Custom</option>
+              <option value="warehouse">Warehouse / Logistics</option>
+              <option value="admin">Admin</option>
+              <option value="retail">Retail</option>
+              <option value="wpv">WPV Location</option>
             </select>
-
-            <select id="employee"><option value="">All Employees</option></select>
-            <select id="department"><option value="">All Departments</option></select>
-            <select id="location"><option value="">All Locations</option></select>
-            <select id="typecode"><option value="">All Codes</option></select>
           </div>
 
-          <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-            <div class="tog" id="earnOnlyToggle" title="Show EARN lines only in the detail table">
-              <span>Table: EARN only</span>
-              <span class="sw" aria-hidden="true"></span>
+          <div class="field">
+            <label>Department</label>
+            <button class="multi-btn" onclick="toggleMulti('deptMenu')">
+              <span class="multi-label" id="deptMultiLabel">All Departments</span><span>▾</span>
+            </button>
+            <div class="multi-menu" id="deptMenu"></div>
+          </div>
+
+          <div class="field">
+            <label>Location</label>
+            <button class="multi-btn" onclick="toggleMulti('locationMenu')">
+              <span class="multi-label" id="locationMultiLabel">All Locations</span><span>▾</span>
+            </button>
+            <div class="multi-menu" id="locationMenu"></div>
+          </div>
+
+          <div class="field">
+            <label>Register Type</label>
+            <button class="multi-btn" onclick="toggleMulti('typeMenu')">
+              <span class="multi-label" id="typeMultiLabel">All Types</span><span>▾</span>
+            </button>
+            <div class="multi-menu" id="typeMenu"></div>
+          </div>
+
+          <div class="field">
+            <label>Pay Code</label>
+            <button class="multi-btn" onclick="toggleMulti('payCodeMenu')">
+              <span class="multi-label" id="payCodeMultiLabel">All Pay Codes</span><span>▾</span>
+            </button>
+            <div class="multi-menu" id="payCodeMenu"></div>
+          </div>
+
+          <div class="field">
+            <label>Search</label>
+            <input id="searchInput" placeholder="Employee, code, dept..." oninput="applyFilters()" />
+          </div>
+
+          <div class="field">
+            <label>Filters</label>
+            <button class="btn" onclick="clearFilters()">Clear</button>
+          </div>
+        </div>
+
+        <div class="kpi-strip">
+          <div class="kpi"><div class="label">Employees</div><div class="value" id="kpiEmployees">—</div><div class="sub">distinct EE Code</div></div>
+          <div class="kpi"><div class="label">Register Hours</div><div class="value" id="kpiRegisterHours">—</div><div class="sub">EARN hours only</div></div>
+          <div class="kpi"><div class="label">Gross Wages</div><div class="value" id="kpiGrossWages">—</div><div class="sub">EARN amount</div></div>
+          <div class="kpi"><div class="label">Employer Taxes</div><div class="value" id="kpiEmployerTaxes">—</div><div class="sub">ERTAX amount</div></div>
+          <div class="kpi"><div class="label">Payroll Expense</div><div class="value" id="kpiPayrollExpense">—</div><div class="sub">gross + ER taxes</div></div>
+          <div class="kpi"><div class="label">Net Pay</div><div class="value" id="kpiNetPay">—</div><div class="sub">NET amount</div></div>
+          <div class="kpi"><div class="label">EE Taxes</div><div class="value" id="kpiEmployeeTaxes">—</div><div class="sub">EETAX amount</div></div>
+          <div class="kpi"><div class="label">Deductions</div><div class="value" id="kpiDeductions">—</div><div class="sub">DDUCT amount</div></div>
+        </div>
+
+        <div class="chart-grid" id="chartGrid">
+          <div class="panel chart-card">
+            <div class="chart-head">
+              <div class="chart-title">Hours by Location per Pay Period</div>
+              <button class="btn soft" onclick="setTab('locations')">Open Grid</button>
             </div>
-            <button class="btn ghost" id="reset" type="button">Reset</button>
+            <div class="chart-wrap"><canvas id="hoursChart"></canvas></div>
+          </div>
+
+          <div class="panel chart-card">
+            <div class="chart-head">
+              <div class="chart-title">Selected Scope Trend</div>
+              <button class="btn soft" onclick="setTab('trend')">Compare</button>
+            </div>
+            <div class="chart-wrap"><canvas id="trendChart"></canvas></div>
           </div>
         </div>
 
-        <div class="status">
-          <div id="status">Loading…</div>
-          <div id="hint2"></div>
-        </div>
+        <section class="panel workbench">
+          <div class="tabs">
+            <button class="tab active" data-tab="monthly" onclick="setTab('monthly')">Monthly Register</button>
+            <button class="tab" data-tab="trend" onclick="setTab('trend')">Trend Compare</button>
+            <button class="tab" data-tab="periods" onclick="setTab('periods')">Pay Periods</button>
+            <button class="tab" data-tab="locations" onclick="setTab('locations')">Hours by Location</button>
+            <button class="tab" data-tab="departments" onclick="setTab('departments')">Departments</button>
+            <button class="tab" data-tab="employees" onclick="setTab('employees')">Employees</button>
+            <button class="tab" data-tab="types" onclick="setTab('types')">Register Types</button>
+            <button class="tab" data-tab="codes" onclick="setTab('codes')">Pay Codes</button>
+            <button class="tab" data-tab="edit" onclick="setTab('edit')">Detail / Edit</button>
+            <button class="tab" data-tab="adjusted" onclick="setTab('adjusted')">Adjusted Rows</button>
+            <button class="tab" data-tab="exceptions" onclick="setTab('exceptions')">Exceptions</button>
+          </div>
+
+          <div class="table-wrap" id="tableWrap">
+            <div class="empty">Loading...</div>
+          </div>
+        </section>
+      
+    </section>
+  </main>
+
+  <input class="hidden-file" type="file" id="registerFileInput" accept=".csv,text/csv,.txt" onchange="handleFileSelected(event)" />
+
+  <div class="modal-backdrop" id="batchModal">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Create Payroll Register Batch</div>
+        <button class="btn" onclick="closeBatchModal()">Close</button>
       </div>
 
-      <!-- STORY FIRST -->
-      <div class="story">
-
-        <div class="card">
-          <div class="cardH">
-            <b>Headline KPIs</b>
-            <span class="tiny" id="headlineMeta">—</span>
-          </div>
-          <div class="cardC">
-            <div class="kpis">
-              <div class="kpi">
-                <div class="left">
-                  <div class="k">Hours (EARN)</div>
-                  <div class="v" id="mHours">0.00</div>
-                  <div class="s">Hours worked in view</div>
-                </div>
-                <span class="dotLg g"></span>
-              </div>
-              <div class="kpi">
-                <div class="left">
-                  <div class="k">Gross (EARN)</div>
-                  <div class="v" id="mGross">$0.00</div>
-                  <div class="s">Gross earnings in view</div>
-                </div>
-                <span class="dotLg g"></span>
-              </div>
-              <div class="kpi">
-                <div class="left">
-                  <div class="k">$ / Hour</div>
-                  <div class="v" id="mRate">$0.00</div>
-                  <div class="s">Gross ÷ Hours</div>
-                </div>
-                <span class="dotLg"></span>
-              </div>
-              <div class="kpi">
-                <div class="left">
-                  <div class="k">Employees</div>
-                  <div class="v" id="mEmp">0</div>
-                  <div class="s">Unique in view</div>
-                </div>
-                <span class="dotLg a"></span>
-              </div>
-
-              <div class="kpi">
-                <div class="left">
-                  <div class="k">Deductions</div>
-                  <div class="v" id="mDeduct">$0.00</div>
-                  <div class="s">DDUCT total</div>
-                </div>
-                <span class="dotLg a"></span>
-              </div>
-              <div class="kpi">
-                <div class="left">
-                  <div class="k">EE Taxes</div>
-                  <div class="v" id="mEETax">$0.00</div>
-                  <div class="s">EETAX total</div>
-                </div>
-                <span class="dotLg"></span>
-              </div>
-              <div class="kpi">
-                <div class="left">
-                  <div class="k">ER Taxes</div>
-                  <div class="v" id="mERTax">$0.00</div>
-                  <div class="s">ERTAX total</div>
-                </div>
-                <span class="dotLg v"></span>
-              </div>
-              <div class="kpi">
-                <div class="left">
-                  <div class="k">Net Pay</div>
-                  <div class="v" id="mNet">$0.00</div>
-                  <div class="s">NET total</div>
-                </div>
-                <span class="dotLg v"></span>
-              </div>
-
-              <div class="kpi">
-                <div class="left">
-                  <div class="k">Top Employee</div>
-                  <div class="v" id="mTopEmp">—</div>
-                  <div class="s" id="mTopEmpSub">—</div>
-                </div>
-                <span class="dotLg r"></span>
-              </div>
-              <div class="kpi">
-                <div class="left">
-                  <div class="k">Departments</div>
-                  <div class="v" id="mDepts">0</div>
-                  <div class="s">Unique</div>
-                </div>
-                <span class="dotLg a"></span>
-              </div>
-              <div class="kpi">
-                <div class="left">
-                  <div class="k">Locations</div>
-                  <div class="v" id="mLocs">0</div>
-                  <div class="s">Unique</div>
-                </div>
-                <span class="dotLg a"></span>
-              </div>
-              <div class="kpi">
-                <div class="left">
-                  <div class="k">Lines</div>
-                  <div class="v" id="mLines">0</div>
-                  <div class="s">Visible</div>
-                </div>
-                <span class="dotLg"></span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="cardH">
-            <b>Pay Period Story</b>
-            <span class="tiny">Selected vs Baseline + Trend</span>
-          </div>
-          <div class="cardC">
-            <div class="compareGrid">
-              <div class="compareTop">
-                <div>
-                  <div class="compareTitle" id="ppCompareTitle">Select a Pay Period</div>
-                  <div class="compareSub" id="ppCompareSub">Choose a pay period above to show deltas vs previous/custom baseline.</div>
-                </div>
-
-                <div class="compareControls">
-                  <select id="compareMode" title="Compare selected pay period to…">
-                    <option value="prev" selected>Compare to: Previous Period</option>
-                    <option value="custom">Compare to: Custom Period</option>
-                  </select>
-                  <select id="comparePeriod" title="Custom baseline pay period" style="display:none;">
-                    <option value="">Select baseline pay period…</option>
-                  </select>
-                  <select id="trendN" title="Trend window">
-                    <option value="6">Trend: 6</option>
-                    <option value="8" selected>Trend: 8</option>
-                    <option value="12">Trend: 12</option>
-                    <option value="18">Trend: 18</option>
-                  </select>
-                </div>
-              </div>
-
-              <div class="deltas" id="ppDeltaLine">—</div>
-
-              <div>
-                <div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; align-items:center;">
-                  <b style="font-size:12px; letter-spacing:.2px; text-transform:uppercase; color:rgba(203,213,225,.92);">Trend — Hours (EARN)</b>
-                  <span class="tiny" style="color:var(--muted); font-weight:900;">Respects filters except Pay Period • last <span id="trendNLabel">8</span> periods</span>
-                </div>
-                <canvas id="trendHours" class="trendCanvas" height="92"></canvas>
-                <div class="trendMeta">
-                  <span><b>Hours change:</b> <span id="trendHoursLabel">—</span></span>
-                  <span><b>Gross change:</b> <span id="trendGrossLabel">—</span></span>
-                </div>
-              </div>
-
-              <div>
-                <b style="font-size:12px; letter-spacing:.2px; text-transform:uppercase; color:rgba(203,213,225,.92);">Trend — Gross (EARN)</b>
-                <canvas id="trendGross" class="trendCanvas" height="92" style="margin-top:8px;"></canvas>
-              </div>
-            </div>
-          </div>
-        </div>
-
+      <div class="modal-body">
+        <div class="field"><label>Batch Name</label><input id="batchNameInput" placeholder="Payroll Register 01/01-04/24" /></div>
+        <div class="field"><label>Pay Period Start</label><input id="periodStartInput" type="date" /></div>
+        <div class="field"><label>Pay Period End</label><input id="periodEndInput" type="date" /></div>
+        <div class="field"><label>Check Date</label><input id="checkDateInput" type="date" /></div>
+        <div class="field" style="grid-column: span 2;"><label>Notes</label><input id="notesInput" placeholder="Optional notes" /></div>
       </div>
 
-      <!-- DETAILS + ROLLUPS -->
-      <div class="main">
-        <div class="card" id="rollupsCard">
-          <div class="cardH">
-            <div class="tabs" aria-label="Quick views">
-              <div class="chip active" data-view="detail"><span class="dot"></span>Rollups</div>
-              <div class="chip" data-view="employee"><span class="dot"></span>By Employee</div>
-              <div class="chip" data-view="department"><span class="dot"></span>By Department</div>
-              <div class="chip" data-view="location"><span class="dot"></span>By Location</div>
-              <div class="chip" data-view="typecode"><span class="dot"></span>By Code</div>
-            </div>
-
-            <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-              <select id="rollMetric" title="Rollup metric">
-                <option value="amount">Rollup: $ Amount</option>
-                <option value="hours">Rollup: Hours</option>
-                <option value="both">Rollup: Both</option>
-              </select>
-              <select id="topN" title="Top N">
-                <option value="10">Top 10</option>
-                <option value="25" selected>Top 25</option>
-                <option value="50">Top 50</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="cardC" style="padding:12px; overflow:auto; min-height:0;">
-            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
-              <b id="rollupTitle" style="font-size:12px; letter-spacing:.22px; text-transform:uppercase; color:rgba(203,213,225,.92);">Rollups</b>
-              <span class="tiny" id="rollupMeta" style="color:var(--muted); font-weight:900;">—</span>
-            </div>
-            <div class="list" id="rollupList"></div>
-          </div>
-        </div>
-
-        <div class="card" id="detailTableCard">
-          <div class="cardH">
-            <b id="detailTitle">Detail Lines</b>
-            <span class="tiny" id="detailMeta">—</span>
-          </div>
-
-          <div class="pin" aria-label="Pinned totals">
-            <div class="left">
-              <div class="pillKpi"><small>EARN Hours</small> <b id="pinHours">0.00</b></div>
-              <div class="pillKpi"><small>EARN Gross</small> <b id="pinGross">$0.00</b></div>
-              <div class="pillKpi"><small>Avg $/Hr</small> <b id="pinRate">$0.00</b></div>
-              <div class="pillKpi"><small>Lines</small> <b id="pinLines">0</b></div>
-            </div>
-            <div class="right" style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-              <button class="btn small ghost" id="clearDrill" type="button" style="display:none;">Clear Drill</button>
-              <button class="btn small ghost" id="scrollTop" type="button">Top</button>
-            </div>
-          </div>
-
-          <div class="tableWrap" id="tableWrap">
-            <table aria-label="Payroll detail table">
-              <thead>
-                <tr>
-                  <th data-k="EE Name">EE Name <span class="sort" id="s_EEName"></span></th>
-                  <th data-k="Department Desc">Department <span class="sort" id="s_Dept"></span></th>
-                  <th data-k="Location Desc">Location <span class="sort" id="s_Loc"></span></th>
-                  <th data-k="Register Type">Register <span class="sort" id="s_Reg"></span></th>
-                  <th data-k="Typecode">Code <span class="sort" id="s_Code"></span></th>
-                  <th data-k="Typedesc">Description <span class="sort" id="s_Desc"></span></th>
-                  <th data-k="__pp">Pay Period <span class="sort" id="s_PP"></span></th>
-                  <th data-k="Hours/Units" class="num">Hours <span class="sort" id="s_Hours"></span></th>
-                  <th data-k="Amount" class="num">Amount <span class="sort" id="s_Amt"></span></th>
-                  <th data-k="Wages" class="num">Wages <span class="sort" id="s_Wages"></span></th>
-                </tr>
-              </thead>
-              <tbody id="tbody">
-                <tr><td colspan="10" style="padding:14px;color:rgba(167,176,192,.95);font-weight:800;">Loading…</td></tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
+      <div class="modal-footer">
+        <button class="btn" onclick="closeBatchModal()">Cancel</button>
+        <button class="btn primary" onclick="createBatch()">Create Batch</button>
       </div>
-
-      <div class="hint">
-        <b>Math:</b> Hours + Gross are computed from <b>EARN</b> rows only. Other register types shown as separate totals.
-        <br>
-        <b>Trend:</b> respects all filters except Pay Period (so you can see movement across periods).
-        <br>
-        <b>Drill:</b> click any rollup row to drill down; “Copy Link” shares exact state.
-      </div>
-
-      <div id="error" class="error" style="display:none;"></div>
     </div>
   </div>
 
+  <div class="toast" id="toast"></div>
+
   <script>
-    (function(){
-      /**********************
-       * CONFIG (Published CSV)
-       **********************/
-      const PUBLISHED_KEY = "2PACX-1vR0yHQp3zlQKu4tadOA6CAKcmaHarfdIs57I4RS4h4uczP_1McLRJeog2vqqbx9EswrmSxglirfUbX6";
-      const GID = "1896581375";
+const cfg = window.__SILO_CONFIG__ || {};
+    const SUPABASE_URL = cfg.SUPABASE_URL;
+    const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY;
 
-      const CSV_URLS = [
-        `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_KEY}/pub?output=csv`,
-        `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_KEY}/pub?single=true&output=csv`,
-        ...(GID !== null ? [
-          `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_KEY}/pub?gid=${encodeURIComponent(GID)}&single=true&output=csv`,
-          `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_KEY}/pub?gid=${encodeURIComponent(GID)}&output=csv`
-        ] : [
-          `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_KEY}/pub?gid=0&single=true&output=csv`,
-          `https://docs.google.com/spreadsheets/d/e/${PUBLISHED_KEY}/pub?gid=0&output=csv`
-        ])
-      ];
+    let supabaseClient = null;
+    let currentUser = null;
+    let currentProfile = null;
 
-      const HEADERS = [
-        "Department Desc","Location Desc","clientcode",
-        "EE Code","EE Name",
-        "Typecode","Typedesc",
-        "Register Type","Amount","Hours/Units","Wages",
-        "Pay Period Start","Pay Period End"
-      ];
+    let batches = [];
+    let selectedBatchId = "";
+    let activeTab = "monthly";
 
-      /**********************
-       * DOM
-       **********************/
-      const els = {
-        shell: document.getElementById("shell"),
-        presentToggle: document.getElementById("presentToggle"),
+    let registerRowsRaw = [];
+    let registerRows = [];
+    let filteredRows = [];
 
-        q: document.getElementById("q"),
-        payPeriod: document.getElementById("payPeriod"),
-        registerType: document.getElementById("registerType"),
-        employee: document.getElementById("employee"),
-        department: document.getElementById("department"),
-        location: document.getElementById("location"),
-        typecode: document.getElementById("typecode"),
+    let monthlyRows = [];
+    let trendRows = [];
+    let periodRows = [];
+    let locationPivotRows = [];
+    let departmentRows = [];
+    let employeeRows = [];
+    let typeRows = [];
+    let codeRows = [];
+    let exceptionRows = [];
 
-        reset: document.getElementById("reset"),
-        downloadCsv: document.getElementById("downloadCsv"),
-        copyLink: document.getElementById("copyLink"),
+    let currentRenderedRows = [];
+    let hoursChart = null;
+    let trendChart = null;
 
-        rollMetric: document.getElementById("rollMetric"),
-        topN: document.getElementById("topN"),
-        earnOnlyToggle: document.getElementById("earnOnlyToggle"),
-        clearDrill: document.getElementById("clearDrill"),
-        scrollTop: document.getElementById("scrollTop"),
-        tableWrap: document.getElementById("tableWrap"),
+    const filterState = {
+      departments: new Set(),
+      locations: new Set(),
+      types: new Set(),
+      payCodes: new Set()
+    };
 
-        status: document.getElementById("status"),
-        hint2: document.getElementById("hint2"),
-        tbody: document.getElementById("tbody"),
-        error: document.getElementById("error"),
+    const filterOptions = {
+      departments: new Map(),
+      locations: new Map(),
+      types: new Map(),
+      payCodes: new Map()
+    };
 
-        headlineMeta: document.getElementById("headlineMeta"),
+    const PRESETS = {
+      warehouse: {
+        departmentsIncludes: ["warehouse", "logistics"],
+        locationIncludes: ["warehouse"]
+      },
+      admin: {
+        departmentsIncludes: ["admin", "administration"],
+        locationIncludes: []
+      },
+      retail: {
+        departmentsIncludes: ["retail", "store"],
+        locationIncludes: ["retail", "store"]
+      },
+      wpv: {
+        departmentsIncludes: [],
+        locationIncludes: ["washington park ventures", "wpv"]
+      }
+    };
 
-        mEmp: document.getElementById("mEmp"),
-        mDepts: document.getElementById("mDepts"),
-        mLocs: document.getElementById("mLocs"),
-        mLines: document.getElementById("mLines"),
+    const REGISTER_HEADERS = [
+      "Department Code", "Department Desc", "Location Code", "Location Desc", "clientcode",
+      "EE Code", "EE Name", "Typecode", "Typedesc", "Register Type",
+      "Amount", "Hours/Units", "Wages", "Pay Period Start", "Pay Period End"
+    ];
 
-        mHours: document.getElementById("mHours"),
-        mGross: document.getElementById("mGross"),
-        mRate: document.getElementById("mRate"),
-        mDeduct: document.getElementById("mDeduct"),
-        mEETax: document.getElementById("mEETax"),
-        mERTax: document.getElementById("mERTax"),
-        mNet: document.getElementById("mNet"),
-        mTopEmp: document.getElementById("mTopEmp"),
-        mTopEmpSub: document.getElementById("mTopEmpSub"),
+    const REGISTER_HEADER_MAP = {
+      "Department Code": "department_code",
+      "Department Desc": "department_desc",
+      "Location Code": "location_code",
+      "Location Desc": "location_desc",
+      "clientcode": "clientcode",
+      "EE Code": "ee_code",
+      "EE Name": "ee_name",
+      "Typecode": "typecode",
+      "Typedesc": "typedesc",
+      "Register Type": "register_type",
+      "Amount": "amount",
+      "Hours/Units": "hours_units",
+      "Wages": "wages",
+      "Pay Period Start": "pay_period_start",
+      "Pay Period End": "pay_period_end"
+    };
 
-        pinHours: document.getElementById("pinHours"),
-        pinGross: document.getElementById("pinGross"),
-        pinRate: document.getElementById("pinRate"),
-        pinLines: document.getElementById("pinLines"),
+    const NUMERIC_FIELDS = new Set([
+      "amount", "hours_units", "wages", "employee_count", "row_count",
+      "gross_wages", "register_hours", "ee_taxes", "employer_taxes",
+      "net_pay", "deductions", "payroll_expense", "register_activity",
+      "taxable_wage_base", "wage_rate", "delta_hours", "delta_gross_wages",
+      "delta_payroll_expense", "delta_wage_rate", "pct_hours", "pct_gross_wages",
+      "pct_payroll_expense"
+    ]);
 
-        rollupTitle: document.getElementById("rollupTitle"),
-        rollupMeta: document.getElementById("rollupMeta"),
-        rollupList: document.getElementById("rollupList"),
+    const DATE_FIELDS = new Set(["pay_period_start", "pay_period_end", "check_date"]);
 
-        detailMeta: document.getElementById("detailMeta"),
-        detailTitle: document.getElementById("detailTitle"),
-        chips: Array.from(document.querySelectorAll(".chip")),
+    document.addEventListener("DOMContentLoaded", init);
+    document.addEventListener("click", closeMenusOnOutsideClick);
 
-        compareMode: document.getElementById("compareMode"),
-        comparePeriod: document.getElementById("comparePeriod"),
-        trendN: document.getElementById("trendN"),
-        ppDeltaLine: document.getElementById("ppDeltaLine"),
-        ppCompareTitle: document.getElementById("ppCompareTitle"),
-        ppCompareSub: document.getElementById("ppCompareSub"),
-        trendHours: document.getElementById("trendHours"),
-        trendGross: document.getElementById("trendGross"),
-        trendNLabel: document.getElementById("trendNLabel"),
-        trendHoursLabel: document.getElementById("trendHoursLabel"),
-        trendGrossLabel: document.getElementById("trendGrossLabel")
+    async function init() {
+      try {
+        setLoading(true);
+        renderEmpty("Loading payroll BI workspace...");
+
+        if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+          throw new Error("Missing SUPABASE_URL / SUPABASE_ANON_KEY from /pages/config.js");
+        }
+
+        if (!window.supabase?.createClient) {
+          throw new Error("Supabase JS client failed to load.");
+        }
+
+        supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        await requireAuth();
+        await loadBatches();
+        await loadSelectedData();
+      } catch (error) {
+        console.error(error);
+        showToast(error.message || "Failed to initialize payroll BI page.");
+        renderEmpty(error.message || "Failed to initialize payroll BI page.");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function requireAuth() {
+      const { data, error } = await supabaseClient.auth.getSession();
+      if (error) console.warn("getSession error:", error);
+
+      const session = data?.session;
+      if (!session?.user) {
+        window.location.href = "/pages/login.html";
+        return;
+      }
+
+      currentUser = session.user;
+
+      const { data: profile, error: profileError } = await supabaseClient
+        .from("profiles")
+        .select("id,email,role,department,is_active,default_page")
+        .eq("id", currentUser.id)
+        .maybeSingle();
+
+      if (profileError) throw profileError;
+
+      currentProfile = profile;
+
+      const role = String(profile?.role || "").toLowerCase();
+      const department = String(profile?.department || "").toLowerCase();
+
+      const isAllowed =
+        profile?.is_active === true &&
+        (role === "admin" || role === "owner" || role === "superadmin" || department === "finance");
+
+      if (!isAllowed) {
+        showToast("You do not have payroll access.");
+        setTimeout(() => {
+          window.location.href = profile?.default_page || "/pages/login.html";
+        }, 1200);
+        return;
+      }
+
+      const userText = `${currentUser.email || "Signed in"} · ${profile?.role || "user"} · ${profile?.department || "no department"} · payroll BI`;
+      const userLine = document.getElementById("userLine");
+      if (userLine) userLine.textContent = userText;
+    }
+
+    function setLoading(isLoading) {
+      document.getElementById("loadingLine")?.classList.toggle("show", !!isLoading);
+      const uploadRegisterBtn = document.getElementById("uploadRegisterBtn");
+      if (uploadRegisterBtn) uploadRegisterBtn.disabled = !!isLoading;
+    }
+
+    function showToast(message) {
+      const toast = document.getElementById("toast");
+      if (!toast) return;
+      toast.textContent = message;
+      toast.classList.add("show");
+      clearTimeout(showToast._timer);
+      showToast._timer = setTimeout(() => toast.classList.remove("show"), 6500);
+    }
+
+    function openBatchModal() {
+      document.getElementById("batchModal").classList.add("show");
+
+      const today = new Date();
+      const yyyy = today.getFullYear();
+      const mm = String(today.getMonth() + 1).padStart(2, "0");
+      const dd = String(today.getDate()).padStart(2, "0");
+
+      if (!document.getElementById("checkDateInput").value) {
+        document.getElementById("checkDateInput").value = `${yyyy}-${mm}-${dd}`;
+      }
+
+      if (!document.getElementById("batchNameInput").value) {
+        document.getElementById("batchNameInput").value = `Payroll Register ${mm}/${dd}/${yyyy}`;
+      }
+    }
+
+    function closeBatchModal() {
+      document.getElementById("batchModal").classList.remove("show");
+    }
+
+    async function createBatch() {
+      if (!supabaseClient || !currentUser) {
+        showToast("Supabase/auth is not ready yet.");
+        return;
+      }
+
+      const batchName = cleanText(document.getElementById("batchNameInput").value);
+      const payPeriodStart = nullIfBlank(document.getElementById("periodStartInput").value);
+      const payPeriodEnd = nullIfBlank(document.getElementById("periodEndInput").value);
+      const checkDate = nullIfBlank(document.getElementById("checkDateInput").value);
+      const notes = nullIfBlank(document.getElementById("notesInput").value);
+
+      if (!batchName) {
+        showToast("Batch name is required.");
+        return;
+      }
+
+      setLoading(true);
+
+      try {
+        const payload = {
+          batch_name: batchName,
+          pay_period_start: payPeriodStart,
+          pay_period_end: payPeriodEnd,
+          check_date: checkDate,
+          notes,
+          uploaded_by: currentUser.id
+        };
+
+        const { data, error } = await supabaseClient
+          .from("payroll_import_batches")
+          .insert(payload)
+          .select("*")
+          .single();
+
+        if (error) throw error;
+
+        closeBatchModal();
+        showToast("Payroll register batch created.");
+        await loadBatches(data.id);
+        await loadSelectedData();
+      } catch (error) {
+        console.error(error);
+        showToast(error.message || "Failed to create batch.");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function loadBatches(preselectId = null) {
+      const { data, error } = await supabaseClient
+        .from("payroll_import_batches")
+        .select("*")
+        .order("uploaded_at", { ascending: false })
+        .limit(250);
+
+      if (error) throw error;
+
+      batches = data || [];
+
+      const select = document.getElementById("batchSelect");
+      const previous = preselectId ?? selectedBatchId ?? "";
+
+      select.innerHTML = `<option value="">All Batches</option>`;
+
+      for (const batch of batches) {
+        const option = document.createElement("option");
+        option.value = batch.id;
+
+        const period = [
+          formatDate(batch.pay_period_start),
+          formatDate(batch.pay_period_end)
+        ].filter(Boolean).join(" - ");
+
+        option.textContent = `${batch.batch_name || "Payroll Batch"}${period ? " · " + period : ""}`;
+        select.appendChild(option);
+      }
+
+      selectedBatchId = previous;
+      select.value = selectedBatchId;
+    }
+
+    async function handleBatchChange() {
+      selectedBatchId = document.getElementById("batchSelect").value || "";
+      await loadSelectedData();
+    }
+
+    async function reloadAll() {
+      if (!supabaseClient) {
+        showToast("Supabase is not ready.");
+        return;
+      }
+
+      setLoading(true);
+
+      try {
+        await loadBatches(selectedBatchId);
+        await loadSelectedData();
+        showToast("Payroll BI data refreshed.");
+      } catch (error) {
+        console.error(error);
+        showToast(error.message || "Failed to refresh.");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    function getDateFilters() {
+      return {
+        from: nullIfBlank(document.getElementById("dateFromInput").value),
+        to: nullIfBlank(document.getElementById("dateToInput").value)
+      };
+    }
+
+    async function loadSelectedData() {
+      setLoading(true);
+
+      try {
+        registerRowsRaw = await fetchAllRegisterRows();
+        registerRows = registerRowsRaw.map(normalizeRegisterRow);
+
+        rebuildFilterOptions();
+        applyFilters(false);
+      } catch (error) {
+        console.error(error);
+        showToast(error.message || "Failed to load payroll BI reporting.");
+        renderEmpty(error.message || "Failed to load payroll BI reporting.");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    async function fetchAllRegisterRows() {
+      const dates = getDateFilters();
+      const pageSize = 1000;
+      let from = 0;
+      let all = [];
+      let guard = 0;
+
+      while (true) {
+        let query = supabaseClient
+          .from("payroll_register_lines")
+          .select(`
+            id,
+            batch_id,
+            source_file_name,
+            department_code,
+            department_desc,
+            location_code,
+            location_desc,
+            clientcode,
+            ee_code,
+            ee_name,
+            typecode,
+            typedesc,
+            register_type,
+            amount,
+            hours_units,
+            wages,
+            pay_period_start,
+            pay_period_end,
+            created_at,
+            is_adjusted,
+            adjusted_at,
+            adjusted_by,
+            adjustment_note,
+            original_amount,
+            original_hours_units,
+            original_wages
+          `)
+          .order("pay_period_end", { ascending: false, nullsFirst: false })
+          .order("id", { ascending: true })
+          .range(from, from + pageSize - 1);
+
+        if (selectedBatchId) query = query.eq("batch_id", selectedBatchId);
+        if (dates.from) query = query.gte("pay_period_end", dates.from);
+        if (dates.to) query = query.lte("pay_period_end", dates.to);
+
+        const { data, error } = await query;
+        if (error) throw error;
+
+        const rows = data || [];
+        all = all.concat(rows);
+
+        if (rows.length < pageSize) break;
+        from += pageSize;
+        guard += 1;
+        if (guard > 250) throw new Error("Register query exceeded 250k rows. Add filters before loading.");
+      }
+
+      const byId = new Map();
+      for (const row of all) {
+        if (row.id) byId.set(row.id, row);
+      }
+
+      if (byId.size && byId.size !== all.length) {
+        console.warn(`Deduped register fetch rows by id: ${all.length} fetched → ${byId.size} unique`);
+        return [...byId.values()];
+      }
+
+      return all;
+    }
+
+    function normalizeRegisterRow(row) {
+      const type = String(row.register_type || "").trim().toUpperCase();
+      const amount = toNumber(row.amount);
+      const hours = toNumber(row.hours_units);
+      const wages = toNumber(row.wages);
+
+      const grossWages = type === "EARN" ? amount : 0;
+      const registerHours = type === "EARN" ? hours : 0;
+      const eeTaxes = type === "EETAX" ? amount : 0;
+      const employerTaxes = type === "ERTAX" ? amount : 0;
+      const netPay = type === "NET" ? amount : 0;
+      const deductions = type === "DDUCT" ? amount : 0;
+      const taxableWageBase = ["EETAX", "ERTAX", "DDUCT"].includes(type) ? wages : 0;
+      const payrollExpense = grossWages + employerTaxes;
+
+      return {
+        ...row,
+        register_type_norm: type,
+        amount_num: amount,
+        hours_units_num: hours,
+        wages_num: wages,
+        gross_wages: grossWages,
+        register_hours: registerHours,
+        ee_taxes: eeTaxes,
+        employer_taxes: employerTaxes,
+        net_pay: netPay,
+        deductions,
+        taxable_wage_base: taxableWageBase,
+        payroll_expense: payrollExpense,
+        register_activity: amount,
+        month_key: monthKey(row.pay_period_end),
+        period_label: formatDate(row.pay_period_end),
+        location_key: row.location_desc || row.location_code || "Unassigned",
+        department_key: row.department_desc || row.department_code || "Unassigned",
+        wage_rate: registerHours ? grossWages / registerHours : null,
+        is_adjusted_bool: row.is_adjusted === true
+      };
+    }
+
+    function applyFilters(render = true) {
+      filteredRows = registerRows.filter(rowMatchesFilters);
+
+      buildAggregatesFrom(filteredRows);
+      buildExceptions();
+      updateKpis();
+      renderCharts();
+
+      if (render) renderActiveTab();
+      else renderActiveTab();
+    }
+
+    function rowMatchesFilters(row) {
+      const search = document.getElementById("searchInput").value.toLowerCase().trim();
+
+      if (filterState.departments.size && !filterState.departments.has(row.department_code || "")) return false;
+      if (filterState.locations.size && !filterState.locations.has(row.location_code || "")) return false;
+      if (filterState.types.size && !filterState.types.has(row.register_type_norm || "")) return false;
+      if (filterState.payCodes.size && !filterState.payCodes.has(row.typecode || "")) return false;
+
+      if (search) {
+        const haystack = [
+          row.ee_code,
+          row.ee_name,
+          row.department_code,
+          row.department_desc,
+          row.location_code,
+          row.location_desc,
+          row.typecode,
+          row.typedesc,
+          row.register_type_norm,
+          row.source_file_name,
+          row.adjustment_note
+        ].join(" ").toLowerCase();
+
+        if (!haystack.includes(search)) return false;
+      }
+
+      return true;
+    }
+
+    function buildAggregatesFrom(rows) {
+      monthlyRows = aggregateRows(rows, ["month_key"], row => ({ month: row.month_key }))
+        .sort((a, b) => String(b.month || "").localeCompare(String(a.month || "")));
+
+      periodRows = aggregateRows(rows, ["pay_period_end"], row => ({
+        pay_period_start: row.pay_period_start,
+        pay_period_end: row.pay_period_end
+      })).sort((a, b) => String(b.pay_period_end || "").localeCompare(String(a.pay_period_end || "")));
+
+      trendRows = buildTrendRows(periodRows);
+
+      locationPivotRows = buildLocationPivotRows(rows);
+
+      departmentRows = aggregateRows(rows, ["department_code", "department_desc", "location_code", "location_desc"], row => ({
+        department_code: row.department_code,
+        department_desc: row.department_desc,
+        location_code: row.location_code,
+        location_desc: row.location_desc
+      })).sort((a, b) => b.payroll_expense - a.payroll_expense);
+
+      employeeRows = aggregateRows(rows, ["ee_code", "ee_name"], row => ({
+        ee_code: row.ee_code,
+        ee_name: row.ee_name
+      })).sort((a, b) => b.payroll_expense - a.payroll_expense);
+
+      typeRows = aggregateRows(rows, ["register_type_norm"], row => ({
+        register_type: row.register_type_norm
+      })).sort((a, b) => b.register_activity - a.register_activity);
+
+      codeRows = aggregateRows(rows, ["register_type_norm", "typecode", "typedesc"], row => ({
+        register_type: row.register_type_norm,
+        typecode: row.typecode,
+        typedesc: row.typedesc
+      })).sort((a, b) => b.register_activity - a.register_activity);
+    }
+
+    function aggregateRows(rows, keyFields, baseFactory) {
+      const map = new Map();
+
+      for (const row of rows || []) {
+        const key = keyFields.map(field => row[field] ?? "").join("||");
+
+        if (!map.has(key)) {
+          map.set(key, emptyAggregate(baseFactory(row)));
+        }
+
+        addToAggregate(map.get(key), row);
+      }
+
+      return [...map.values()].map(finalizeAggregate);
+    }
+
+    function emptyAggregate(base = {}) {
+      return {
+        ...base,
+        employee_count: 0,
+        row_count: 0,
+        adjusted_count: 0,
+        register_hours: 0,
+        gross_wages: 0,
+        employer_taxes: 0,
+        payroll_expense: 0,
+        net_pay: 0,
+        ee_taxes: 0,
+        deductions: 0,
+        taxable_wage_base: 0,
+        register_activity: 0,
+        wage_rate: null,
+        _employeeSet: new Set()
+      };
+    }
+
+    function addToAggregate(agg, row) {
+      const empKey = row.ee_code || row.ee_name;
+      if (empKey) agg._employeeSet.add(empKey);
+
+      agg.row_count += 1;
+      agg.adjusted_count += row.is_adjusted_bool ? 1 : 0;
+      agg.register_hours += toNumber(row.register_hours);
+      agg.gross_wages += toNumber(row.gross_wages);
+      agg.employer_taxes += toNumber(row.employer_taxes);
+      agg.payroll_expense += toNumber(row.payroll_expense);
+      agg.net_pay += toNumber(row.net_pay);
+      agg.ee_taxes += toNumber(row.ee_taxes);
+      agg.deductions += toNumber(row.deductions);
+      agg.taxable_wage_base += toNumber(row.taxable_wage_base);
+      agg.register_activity += toNumber(row.register_activity);
+    }
+
+    function finalizeAggregate(agg) {
+      return {
+        ...agg,
+        employee_count: agg._employeeSet.size,
+        wage_rate: agg.register_hours ? agg.gross_wages / agg.register_hours : null
+      };
+    }
+
+    function buildTrendRows(rows) {
+      const asc = [...rows].sort((a, b) => String(a.pay_period_end || "").localeCompare(String(b.pay_period_end || "")));
+
+      return asc.map((row, index) => {
+        const prior = index > 0 ? asc[index - 1] : null;
+
+        const deltaHours = prior ? row.register_hours - prior.register_hours : null;
+        const deltaGross = prior ? row.gross_wages - prior.gross_wages : null;
+        const deltaExpense = prior ? row.payroll_expense - prior.payroll_expense : null;
+        const deltaRate = prior ? row.wage_rate - prior.wage_rate : null;
+
+        return {
+          ...row,
+          delta_hours: deltaHours,
+          delta_gross_wages: deltaGross,
+          delta_payroll_expense: deltaExpense,
+          delta_wage_rate: deltaRate,
+          pct_hours: prior && prior.register_hours ? deltaHours / prior.register_hours : null,
+          pct_gross_wages: prior && prior.gross_wages ? deltaGross / prior.gross_wages : null,
+          pct_payroll_expense: prior && prior.payroll_expense ? deltaExpense / prior.payroll_expense : null,
+          trend_note: buildTrendNote(row, prior)
+        };
+      }).sort((a, b) => String(b.pay_period_end || "").localeCompare(String(a.pay_period_end || "")));
+    }
+
+    function buildTrendNote(row, prior) {
+      if (!prior) return "Baseline period";
+
+      const parts = [];
+
+      parts.push(`Hours ${signedPct(row.register_hours, prior.register_hours)}`);
+      parts.push(`Gross ${signedPct(row.gross_wages, prior.gross_wages)}`);
+      parts.push(`Expense ${signedPct(row.payroll_expense, prior.payroll_expense)}`);
+      parts.push(`Rate ${signedPct(row.wage_rate, prior.wage_rate)}`);
+
+      return parts.join(" · ");
+    }
+
+    function signedPct(current, prior) {
+      if (!prior) return "—";
+      const pct = (current - prior) / prior;
+      const sign = pct >= 0 ? "+" : "";
+      return `${sign}${(pct * 100).toFixed(1)}%`;
+    }
+
+    function buildLocationPivotRows(rows) {
+      const earnRows = (rows || []).filter(row => row.register_type_norm === "EARN");
+
+      const locations = [...new Set(earnRows.map(row => row.location_key || "Unassigned"))]
+        .sort((a, b) => String(a).localeCompare(String(b)));
+
+      const map = new Map();
+
+      for (const row of earnRows) {
+        const key = row.pay_period_end || "No Period";
+
+        if (!map.has(key)) {
+          const base = emptyAggregate({
+            pay_period_start: row.pay_period_start,
+            pay_period_end: row.pay_period_end
+          });
+
+          for (const loc of locations) base[loc] = 0;
+          map.set(key, base);
+        }
+
+        const agg = map.get(key);
+        addToAggregate(agg, row);
+        agg[row.location_key || "Unassigned"] += toNumber(row.register_hours);
+      }
+
+      return [...map.values()]
+        .map(finalizeAggregate)
+        .sort((a, b) => String(b.pay_period_end || "").localeCompare(String(a.pay_period_end || "")));
+    }
+
+    function buildExceptions() {
+      const exceptions = [];
+
+      for (const row of filteredRows) {
+        const base = {
+          ee_code: row.ee_code,
+          ee_name: row.ee_name,
+          department_code: row.department_code,
+          department_desc: row.department_desc,
+          location_code: row.location_code,
+          location_desc: row.location_desc,
+          register_type: row.register_type_norm,
+          typecode: row.typecode,
+          typedesc: row.typedesc,
+          pay_period_end: row.pay_period_end,
+          amount: row.amount_num
+        };
+
+        if (!row.ee_code) exceptions.push(exception("High", "Missing EE Code", base));
+        if (!row.ee_name) exceptions.push(exception("Medium", "Missing EE Name", base));
+        if (!row.pay_period_start || !row.pay_period_end) exceptions.push(exception("High", "Missing Pay Period Dates", base));
+        if (!row.department_code && !row.department_desc) exceptions.push(exception("Medium", "Missing Department", base));
+        if (!row.location_code && !row.location_desc) exceptions.push(exception("Medium", "Missing Location", base));
+        if (!row.register_type_norm) exceptions.push(exception("High", "Missing Register Type", base));
+        if (row.register_type_norm === "EARN" && row.register_hours === 0) exceptions.push(exception("Medium", "EARN Row With No Hours", base));
+        if (row.register_type_norm === "EARN" && row.gross_wages === 0) exceptions.push(exception("High", "EARN Row With No Amount", base));
+        if (row.amount_num < 0) exceptions.push(exception("Medium", "Negative Amount", base));
+      }
+
+      exceptionRows = exceptions;
+    }
+
+    function exception(severity, issue, base) {
+      return { severity, issue, ...base };
+    }
+
+    function rebuildFilterOptions() {
+      filterOptions.departments = new Map();
+      filterOptions.locations = new Map();
+      filterOptions.types = new Map();
+      filterOptions.payCodes = new Map();
+
+      for (const row of registerRows) {
+        if (row.department_code) filterOptions.departments.set(row.department_code, `${row.department_code} · ${row.department_desc || ""}`);
+        if (row.location_code) filterOptions.locations.set(row.location_code, `${row.location_code} · ${row.location_desc || ""}`);
+        if (row.register_type_norm) filterOptions.types.set(row.register_type_norm, row.register_type_norm);
+        if (row.typecode) filterOptions.payCodes.set(row.typecode, `${row.typecode} · ${row.typedesc || ""}`);
+      }
+
+      renderMultiMenu("deptMenu", filterOptions.departments, filterState.departments, "deptMultiLabel", "All Departments");
+      renderMultiMenu("locationMenu", filterOptions.locations, filterState.locations, "locationMultiLabel", "All Locations");
+      renderMultiMenu("typeMenu", filterOptions.types, filterState.types, "typeMultiLabel", "All Types");
+      renderMultiMenu("payCodeMenu", filterOptions.payCodes, filterState.payCodes, "payCodeMultiLabel", "All Pay Codes");
+    }
+
+    function renderMultiMenu(menuId, optionsMap, selectedSet, labelId, allLabel) {
+      const menu = document.getElementById(menuId);
+      const entries = [...optionsMap.entries()].sort((a, b) => String(a[1]).localeCompare(String(b[1])));
+
+      menu.innerHTML = `
+        <div class="multi-menu-head">
+          <button class="btn soft" onclick="selectAllMulti('${menuId}')">All</button>
+          <button class="btn soft" onclick="clearMulti('${menuId}')">None</button>
+          <input placeholder="Filter..." oninput="filterMultiMenu('${menuId}', this.value)" />
+        </div>
+        <div class="multi-options">
+          ${entries.map(([value, label]) => `
+            <label class="multi-option" data-label="${escapeHtml(String(label).toLowerCase())}">
+              <input type="checkbox" value="${escapeHtml(value)}" ${selectedSet.has(value) ? "checked" : ""} onchange="multiChanged('${menuId}')">
+              <span>${escapeHtml(label)}</span>
+            </label>
+          `).join("")}
+        </div>
+      `;
+
+      updateMultiLabel(labelId, selectedSet, optionsMap, allLabel);
+    }
+
+    function toggleMulti(menuId) {
+      event.stopPropagation();
+
+      document.querySelectorAll(".multi-menu").forEach(menu => {
+        if (menu.id !== menuId) menu.classList.remove("show");
+      });
+
+      document.getElementById(menuId).classList.toggle("show");
+    }
+
+    function closeMenusOnOutsideClick(event) {
+      if (event.target.closest(".multi-menu") || event.target.closest(".multi-btn")) return;
+      document.querySelectorAll(".multi-menu").forEach(menu => menu.classList.remove("show"));
+    }
+
+    function filterMultiMenu(menuId, term) {
+      const t = String(term || "").toLowerCase();
+      document.querySelectorAll(`#${menuId} .multi-option`).forEach(opt => {
+        opt.style.display = opt.dataset.label.includes(t) ? "flex" : "none";
+      });
+    }
+
+    function selectAllMulti(menuId) {
+      event.stopPropagation();
+      document.querySelectorAll(`#${menuId} input[type="checkbox"]`).forEach(cb => cb.checked = true);
+      multiChanged(menuId);
+    }
+
+    function clearMulti(menuId) {
+      event.stopPropagation();
+      document.querySelectorAll(`#${menuId} input[type="checkbox"]`).forEach(cb => cb.checked = false);
+      multiChanged(menuId);
+    }
+
+    function multiChanged(menuId) {
+      const map = getMultiMap(menuId);
+      if (!map) return;
+
+      map.set.clear();
+
+      document.querySelectorAll(`#${menuId} input[type="checkbox"]:checked`).forEach(cb => {
+        map.set.add(cb.value);
+      });
+
+      document.getElementById("presetSelect").value = "";
+      updateMultiLabel(map.labelId, map.set, map.options, map.allLabel);
+      applyFilters();
+    }
+
+    function getMultiMap(menuId) {
+      if (menuId === "deptMenu") return { set: filterState.departments, options: filterOptions.departments, labelId: "deptMultiLabel", allLabel: "All Departments" };
+      if (menuId === "locationMenu") return { set: filterState.locations, options: filterOptions.locations, labelId: "locationMultiLabel", allLabel: "All Locations" };
+      if (menuId === "typeMenu") return { set: filterState.types, options: filterOptions.types, labelId: "typeMultiLabel", allLabel: "All Types" };
+      if (menuId === "payCodeMenu") return { set: filterState.payCodes, options: filterOptions.payCodes, labelId: "payCodeMultiLabel", allLabel: "All Pay Codes" };
+      return null;
+    }
+
+    function updateMultiLabel(labelId, selectedSet, optionsMap, allLabel) {
+      const label = document.getElementById(labelId);
+      if (!label) return;
+
+      if (!selectedSet.size) {
+        label.textContent = allLabel;
+        return;
+      }
+
+      const names = [...selectedSet].slice(0, 2).map(v => optionsMap.get(v) || v);
+      const suffix = selectedSet.size > 2 ? ` +${selectedSet.size - 2}` : "";
+      label.textContent = `${names.join(", ")}${suffix}`;
+    }
+
+    function applyPreset() {
+      const presetKey = document.getElementById("presetSelect").value;
+
+      filterState.departments.clear();
+      filterState.locations.clear();
+
+      if (!presetKey || !PRESETS[presetKey]) {
+        renderAllMultiLabels();
+        applyFilters();
+        return;
+      }
+
+      const preset = PRESETS[presetKey];
+
+      for (const [code, label] of filterOptions.departments.entries()) {
+        const l = String(label || "").toLowerCase();
+        if (preset.departmentsIncludes.some(term => l.includes(term))) {
+          filterState.departments.add(code);
+        }
+      }
+
+      for (const [code, label] of filterOptions.locations.entries()) {
+        const l = String(label || "").toLowerCase();
+        if (preset.locationIncludes.some(term => l.includes(term))) {
+          filterState.locations.add(code);
+        }
+      }
+
+      rebuildFilterOptions();
+      applyFilters();
+    }
+
+    function renderAllMultiLabels() {
+      updateMultiLabel("deptMultiLabel", filterState.departments, filterOptions.departments, "All Departments");
+      updateMultiLabel("locationMultiLabel", filterState.locations, filterOptions.locations, "All Locations");
+      updateMultiLabel("typeMultiLabel", filterState.types, filterOptions.types, "All Types");
+      updateMultiLabel("payCodeMultiLabel", filterState.payCodes, filterOptions.payCodes, "All Pay Codes");
+    }
+
+    function updateKpis() {
+      const agg = finalizeAggregate(filteredRows.reduce((acc, row) => {
+        addToAggregate(acc, row);
+        return acc;
+      }, emptyAggregate()));
+
+      document.getElementById("kpiEmployees").textContent = formatNumber(agg.employee_count, 0);
+      document.getElementById("kpiRegisterHours").textContent = formatNumber(agg.register_hours, 2);
+      document.getElementById("kpiGrossWages").textContent = formatMoney(agg.gross_wages);
+      document.getElementById("kpiEmployerTaxes").textContent = formatMoney(agg.employer_taxes);
+      document.getElementById("kpiPayrollExpense").textContent = formatMoney(agg.payroll_expense);
+      document.getElementById("kpiNetPay").textContent = formatMoney(agg.net_pay);
+      document.getElementById("kpiEmployeeTaxes").textContent = formatMoney(agg.ee_taxes);
+      document.getElementById("kpiDeductions").textContent = formatMoney(agg.deductions);
+    }
+
+    function renderCharts() {
+      renderHoursChart();
+      renderTrendChart();
+    }
+
+    function renderHoursChart() {
+      const ctx = document.getElementById("hoursChart");
+      if (!ctx || !window.Chart) return;
+
+      const rowsAsc = [...locationPivotRows].sort((a, b) => String(a.pay_period_end || "").localeCompare(String(b.pay_period_end || "")));
+      const locationColumns = getLocationColumns(rowsAsc);
+      const labels = rowsAsc.map(row => formatDate(row.pay_period_end));
+
+      const datasets = locationColumns.map(loc => ({
+        label: loc,
+        data: rowsAsc.map(row => toNumber(row[loc])),
+        stack: "hours"
+      }));
+
+      if (hoursChart) hoursChart.destroy();
+
+      hoursChart = new Chart(ctx, {
+        type: "bar",
+        data: { labels, datasets },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          plugins: {
+            legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } },
+            tooltip: { mode: "index", intersect: false }
+          },
+          scales: {
+            x: { stacked: true, ticks: { font: { size: 10 }, maxRotation: 45, minRotation: 45 } },
+            y: { stacked: true, ticks: { font: { size: 10 } } }
+          }
+        }
+      });
+    }
+
+    function renderTrendChart() {
+      const ctx = document.getElementById("trendChart");
+      if (!ctx || !window.Chart) return;
+
+      const rowsAsc = [...trendRows].sort((a, b) => String(a.pay_period_end || "").localeCompare(String(b.pay_period_end || "")));
+      const labels = rowsAsc.map(row => formatDate(row.pay_period_end));
+
+      if (trendChart) trendChart.destroy();
+
+      trendChart = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            { label: "Gross Wages", data: rowsAsc.map(row => toNumber(row.gross_wages)), yAxisID: "y" },
+            { label: "Hours", data: rowsAsc.map(row => toNumber(row.register_hours)), yAxisID: "y1" }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          animation: false,
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } }
+          },
+          scales: {
+            x: { ticks: { font: { size: 10 }, maxRotation: 45, minRotation: 45 } },
+            y: { type: "linear", position: "left", ticks: { font: { size: 10 } } },
+            y1: { type: "linear", position: "right", grid: { drawOnChartArea: false }, ticks: { font: { size: 10 } } }
+          }
+        }
+      });
+    }
+
+    function setTab(tabName) {
+      activeTab = tabName;
+      document.querySelectorAll(".tab").forEach(tab => {
+        tab.classList.toggle("active", tab.dataset.tab === tabName);
+      });
+      renderActiveTab();
+    }
+
+    function renderActiveTab() {
+      if (activeTab === "monthly") {
+        renderTable(monthlyRows, [
+          ["month", "Month"],
+          ["employee_count", "Employees", "num"],
+          ["register_hours", "Hours/Units", "num"],
+          ["gross_wages", "Gross Wages", "money"],
+          ["employer_taxes", "Employer Taxes", "money"],
+          ["payroll_expense", "Payroll Expense", "money"],
+          ["net_pay", "Net Pay", "money"],
+          ["ee_taxes", "EE Taxes", "money"],
+          ["deductions", "Deductions", "money"],
+          ["register_activity", "Register Activity", "money"],
+          ["wage_rate", "Wage Rate", "money"],
+          ["adjusted_count", "Adjusted", "num"]
+        ]);
+        return;
+      }
+
+      if (activeTab === "trend") {
+        renderTable(trendRows, [
+          ["pay_period_end", "Period End", "date"],
+          ["employee_count", "Employees", "num"],
+          ["register_hours", "Hours", "num"],
+          ["delta_hours", "Δ Hours", "num"],
+          ["pct_hours", "% Hours", "pct"],
+          ["gross_wages", "Gross Wages", "money"],
+          ["delta_gross_wages", "Δ Gross", "money"],
+          ["pct_gross_wages", "% Gross", "pct"],
+          ["payroll_expense", "Payroll Expense", "money"],
+          ["delta_payroll_expense", "Δ Expense", "money"],
+          ["pct_payroll_expense", "% Expense", "pct"],
+          ["wage_rate", "Wage Rate", "money"],
+          ["delta_wage_rate", "Δ Rate", "money"],
+          ["trend_note", "Notes"]
+        ]);
+        return;
+      }
+
+      if (activeTab === "periods") {
+        renderTable(periodRows, [
+          ["pay_period_end", "Period End", "date"],
+          ["pay_period_start", "Period Start", "date"],
+          ["employee_count", "Employees", "num"],
+          ["register_hours", "Hours/Units", "num"],
+          ["gross_wages", "Gross Wages", "money"],
+          ["employer_taxes", "Employer Taxes", "money"],
+          ["payroll_expense", "Payroll Expense", "money"],
+          ["net_pay", "Net Pay", "money"],
+          ["ee_taxes", "EE Taxes", "money"],
+          ["deductions", "Deductions", "money"],
+          ["register_activity", "Register Activity", "money"],
+          ["wage_rate", "Wage Rate", "money"],
+          ["adjusted_count", "Adjusted", "num"]
+        ]);
+        return;
+      }
+
+      if (activeTab === "locations") {
+        const locationColumns = getLocationColumns(locationPivotRows);
+        const cols = [
+          ["pay_period_end", "Period End", "date"],
+          ...locationColumns.map(loc => [loc, loc, "num"]),
+          ["employee_count", "Employees", "num"],
+          ["register_hours", "Total Hours", "num"],
+          ["gross_wages", "Gross Wages", "money"],
+          ["wage_rate", "Wage Rate", "money"]
+        ];
+        renderTable(locationPivotRows, cols);
+        return;
+      }
+
+      if (activeTab === "departments") {
+        renderTable(departmentRows, [
+          ["department_code", "Dept Code"],
+          ["department_desc", "Department"],
+          ["location_code", "Loc Code"],
+          ["location_desc", "Location"],
+          ["employee_count", "Employees", "num"],
+          ["register_hours", "Hours/Units", "num"],
+          ["gross_wages", "Gross Wages", "money"],
+          ["employer_taxes", "Employer Taxes", "money"],
+          ["payroll_expense", "Payroll Expense", "money"],
+          ["net_pay", "Net Pay", "money"],
+          ["ee_taxes", "EE Taxes", "money"],
+          ["deductions", "Deductions", "money"],
+          ["wage_rate", "Wage Rate", "money"],
+          ["adjusted_count", "Adjusted", "num"]
+        ]);
+        return;
+      }
+
+      if (activeTab === "employees") {
+        renderTable(employeeRows, [
+          ["ee_code", "EE Code"],
+          ["ee_name", "Employee"],
+          ["register_hours", "Hours/Units", "num"],
+          ["gross_wages", "Gross Wages", "money"],
+          ["employer_taxes", "Employer Taxes", "money"],
+          ["payroll_expense", "Payroll Expense", "money"],
+          ["net_pay", "Net Pay", "money"],
+          ["ee_taxes", "EE Taxes", "money"],
+          ["deductions", "Deductions", "money"],
+          ["wage_rate", "Wage Rate", "money"],
+          ["adjusted_count", "Adjusted", "num"]
+        ]);
+        return;
+      }
+
+      if (activeTab === "types") {
+        renderTable(typeRows, [
+          ["register_type", "Register Type", "pill"],
+          ["employee_count", "Employees", "num"],
+          ["row_count", "Rows", "num"],
+          ["register_hours", "Hours/Units", "num"],
+          ["gross_wages", "Gross Wages", "money"],
+          ["employer_taxes", "Employer Taxes", "money"],
+          ["net_pay", "Net Pay", "money"],
+          ["ee_taxes", "EE Taxes", "money"],
+          ["deductions", "Deductions", "money"],
+          ["taxable_wage_base", "Taxable Wage Base", "money"],
+          ["register_activity", "Register Activity", "money"],
+          ["adjusted_count", "Adjusted", "num"]
+        ]);
+        return;
+      }
+
+      if (activeTab === "codes") {
+        renderTable(codeRows, [
+          ["register_type", "Register Type", "pill"],
+          ["typecode", "Type Code"],
+          ["typedesc", "Type Desc"],
+          ["employee_count", "Employees", "num"],
+          ["row_count", "Rows", "num"],
+          ["register_hours", "Hours/Units", "num"],
+          ["gross_wages", "Gross Wages", "money"],
+          ["employer_taxes", "Employer Taxes", "money"],
+          ["net_pay", "Net Pay", "money"],
+          ["ee_taxes", "EE Taxes", "money"],
+          ["deductions", "Deductions", "money"],
+          ["register_activity", "Register Activity", "money"],
+          ["adjusted_count", "Adjusted", "num"]
+        ]);
+        return;
+      }
+
+      if (activeTab === "edit") {
+        renderEditableTable(filteredRows);
+        return;
+      }
+
+      if (activeTab === "adjusted") {
+        renderEditableTable(filteredRows.filter(row => row.is_adjusted_bool), true);
+        return;
+      }
+
+      if (activeTab === "exceptions") {
+        renderTable(exceptionRows, [
+          ["severity", "Severity", "severity"],
+          ["issue", "Issue"],
+          ["pay_period_end", "Period End", "date"],
+          ["ee_code", "EE Code"],
+          ["ee_name", "Employee"],
+          ["department_code", "Dept Code"],
+          ["department_desc", "Department"],
+          ["location_code", "Loc Code"],
+          ["location_desc", "Location"],
+          ["register_type", "Register Type", "pill"],
+          ["typecode", "Type Code"],
+          ["typedesc", "Type Desc"],
+          ["amount", "Amount", "money"]
+        ]);
+      }
+    }
+
+    function getLocationColumns(rows) {
+      const skip = new Set([
+        "pay_period_start", "pay_period_end", "employee_count", "row_count",
+        "adjusted_count", "register_hours", "gross_wages", "employer_taxes",
+        "payroll_expense", "net_pay", "ee_taxes", "deductions", "taxable_wage_base",
+        "register_activity", "wage_rate", "_employeeSet"
+      ]);
+
+      const locations = new Set();
+
+      for (const row of rows || []) {
+        Object.keys(row).forEach(key => {
+          if (!skip.has(key) && typeof row[key] === "number") locations.add(key);
+        });
+      }
+
+      return [...locations].sort((a, b) => String(a).localeCompare(String(b)));
+    }
+
+    function renderTable(rows, columns) {
+      currentRenderedRows = rows || [];
+
+      if (!rows.length) {
+        renderEmpty("No rows match the current filters.");
+        return;
+      }
+
+      const html = `
+        <table>
+          <thead>
+            <tr>${columns.map(col => `<th class="${isNumericType(col[2]) ? "num" : ""}">${escapeHtml(col[1])}</th>`).join("")}</tr>
+          </thead>
+          <tbody>
+            ${rows.map(row => `<tr>${columns.map(col => renderCell(row, col)).join("")}</tr>`).join("")}
+          </tbody>
+        </table>
+      `;
+
+      document.getElementById("tableWrap").innerHTML = html;
+    }
+
+    function renderEditableTable(rows) {
+      currentRenderedRows = rows || [];
+
+      if (!rows.length) {
+        renderEmpty("No rows match the current filters.");
+        return;
+      }
+
+      const sorted = [...rows].sort((a, b) => {
+        const d = String(b.pay_period_end || "").localeCompare(String(a.pay_period_end || ""));
+        if (d) return d;
+        return String(a.ee_name || "").localeCompare(String(b.ee_name || ""));
+      });
+
+      const html = `
+        <table>
+          <thead>
+            <tr>
+              <th>Period End</th>
+              <th>Employee</th>
+              <th>Dept Code</th>
+              <th>Dept Desc</th>
+              <th>Loc Code</th>
+              <th>Loc Desc</th>
+              <th>Type</th>
+              <th>Code</th>
+              <th class="num">Amount</th>
+              <th class="num">Hours/Units</th>
+              <th class="num">Wages/Base</th>
+              <th>Adjusted</th>
+              <th>Note</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${sorted.map(row => editableRowHtml(row)).join("")}
+          </tbody>
+        </table>
+      `;
+
+      document.getElementById("tableWrap").innerHTML = html;
+    }
+
+    function editableRowHtml(row) {
+      const id = escapeHtml(row.id);
+      return `
+        <tr data-row-id="${id}">
+          <td>${escapeHtml(formatDate(row.pay_period_end))}</td>
+          <td>
+            <div>${escapeHtml(row.ee_name || "")}</div>
+            <div style="color:#64748b;font-size:10px;">${escapeHtml(row.ee_code || "")}</div>
+          </td>
+          <td><input class="edit-code" id="dept-code-${id}" value="${escapeHtml(row.department_code || "")}" /></td>
+          <td><input class="edit-text" id="dept-desc-${id}" value="${escapeHtml(row.department_desc || "")}" /></td>
+          <td><input class="edit-code" id="loc-code-${id}" value="${escapeHtml(row.location_code || "")}" /></td>
+          <td><input class="edit-text" id="loc-desc-${id}" value="${escapeHtml(row.location_desc || "")}" /></td>
+          <td>${renderPill(row.register_type_norm)}</td>
+          <td>${escapeHtml(row.typecode || "")} · ${escapeHtml(row.typedesc || "")}</td>
+          <td class="num"><input class="edit-input" id="amount-${id}" value="${escapeHtml(row.amount_num)}" /></td>
+          <td class="num"><input class="edit-input" id="hours-${id}" value="${escapeHtml(row.hours_units_num)}" /></td>
+          <td class="num"><input class="edit-input" id="wages-${id}" value="${escapeHtml(row.wages_num)}" /></td>
+          <td>${row.is_adjusted_bool ? '<span class="pill purple">Adjusted</span>' : '<span class="pill">Source</span>'}</td>
+          <td><input class="edit-note" id="note-${id}" value="${escapeHtml(row.adjustment_note || "")}" placeholder="Adjustment note..." /></td>
+          <td><button class="btn blue" onclick="saveRowAdjustment('${id}')">Save</button></td>
+        </tr>
+      `;
+    }
+
+    async function saveRowAdjustment(rowId) {
+      const row = registerRows.find(r => String(r.id) === String(rowId));
+      if (!row) {
+        showToast("Row not found.");
+        return;
+      }
+
+      const amount = parseNumeric(document.getElementById(`amount-${rowId}`)?.value);
+      const hours = parseNumeric(document.getElementById(`hours-${rowId}`)?.value);
+      const wages = parseNumeric(document.getElementById(`wages-${rowId}`)?.value);
+      const note = cleanText(document.getElementById(`note-${rowId}`)?.value) || "Manual adjustment from Payroll BI Workbench";
+      const departmentCode = cleanText(document.getElementById(`dept-code-${rowId}`)?.value);
+      const departmentDesc = cleanText(document.getElementById(`dept-desc-${rowId}`)?.value);
+      const locationCode = cleanText(document.getElementById(`loc-code-${rowId}`)?.value);
+      const locationDesc = cleanText(document.getElementById(`loc-desc-${rowId}`)?.value);
+
+      const allocationChanged =
+        departmentCode !== cleanText(row.department_code) ||
+        departmentDesc !== cleanText(row.department_desc) ||
+        locationCode !== cleanText(row.location_code) ||
+        locationDesc !== cleanText(row.location_desc);
+
+      const numericChanged =
+        toNumber(amount) !== toNumber(row.amount_num) ||
+        toNumber(hours) !== toNumber(row.hours_units_num) ||
+        toNumber(wages) !== toNumber(row.wages_num);
+
+      if (!allocationChanged && !numericChanged && note === cleanText(row.adjustment_note || "Manual adjustment from Payroll BI Workbench")) {
+        showToast("No changes detected.");
+        return;
+      }
+
+      const payload = {
+        department_code: departmentCode || null,
+        department_desc: departmentDesc || null,
+        location_code: locationCode || null,
+        location_desc: locationDesc || null,
+        amount,
+        hours_units: hours,
+        wages,
+        is_adjusted: true,
+        adjusted_at: new Date().toISOString(),
+        adjusted_by: currentUser?.id || null,
+        adjustment_note: note,
+        original_amount: row.original_amount ?? row.amount_num,
+        original_hours_units: row.original_hours_units ?? row.hours_units_num,
+        original_wages: row.original_wages ?? row.wages_num
       };
 
-      /**********************
-       * STATE
-       **********************/
-      let RAW = [];
-      let VIEW = [];
-      let activeView = "detail";
-      let earnOnlyTable = false;
-      let presentMode = false;
+      try {
+        setLoading(true);
 
-      let drill = null;
-      let sortKey = "";
-      let sortDir = "desc";
+        const { error } = await supabaseClient
+          .from("payroll_register_lines")
+          .update(payload)
+          .eq("id", rowId);
 
-      let PERIODS = [];
-      let PERIOD_INDEX = new Map();
+        if (error) throw error;
 
-      /**********************
-       * UTILS
-       **********************/
-      const debounce = (fn, d=220)=>{ let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),d); } };
-      function cleanHeader(s){ return String(s||"").trim().replace(/\s+/g," ").toLowerCase(); }
-      function esc(s){
-        return String(s ?? "")
-          .replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">", "&gt;")
-          .replaceAll('"',"&quot;").replaceAll("'","&#039;");
+        showToast(allocationChanged && !numericChanged ? "Payroll allocation adjusted. Company totals unchanged." : "Payroll row adjusted.");
+        await loadSelectedData();
+        setTab(activeTab);
+      } catch (error) {
+        console.error(error);
+        showToast(error.message || "Failed to save adjustment.");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    function renderCell(row, col) {
+      const [field, label, type] = col;
+      const value = row[field];
+
+      if (type === "money") return `<td class="num">${formatMoney(value)}</td>`;
+      if (type === "num") return `<td class="num">${formatNumber(value, 2)}</td>`;
+      if (type === "pct") return `<td class="num">${formatPercent(value)}</td>`;
+      if (type === "date") return `<td>${escapeHtml(formatDate(value))}</td>`;
+
+      if (type === "pill") {
+        return `<td>${renderPill(value)}</td>`;
       }
 
-      function parseMoney(v){
-        let s = String(v ?? "").trim();
-        if(!s) return 0;
-        let neg = false;
-        if(s.includes("(") && s.includes(")")) { neg = true; s = s.replace(/[()]/g,""); }
-        s = s.replace(/\$/g,"").replace(/,/g,"").replace(/\s+/g,"");
-        if(s.startsWith("-")){ neg = true; s = s.slice(1); }
-        const n = Number(s);
-        if(!isFinite(n)) return 0;
-        return neg ? -n : n;
-      }
-      function parseNumber(v){
-        let s = String(v ?? "").trim();
-        if(!s) return 0;
-        s = s.replace(/,/g,"").replace(/\s+/g,"");
-        const n = Number(s);
-        return isFinite(n) ? n : 0;
-      }
-      function fmtNum(n){
-        const v = Number(n);
-        if(!isFinite(v)) return "0.00";
-        return v.toLocaleString(undefined,{ minimumFractionDigits:2, maximumFractionDigits:2 });
-      }
-      function fmtUSD(n){
-        const v = Number(n);
-        if(!isFinite(v)) return "$0.00";
-        const abs = Math.abs(v);
-        const str = abs.toLocaleString(undefined,{ minimumFractionDigits:2, maximumFractionDigits:2 });
-        return (v < 0) ? `-$${str}` : `$${str}`;
-      }
-      function fmtPct(n){
-        const v = Number(n);
-        if(!isFinite(v)) return "0.0%";
-        const sign = v > 0 ? "+" : "";
-        return `${sign}${v.toFixed(1)}%`;
-      }
-      function setError(msg, detail){
-        els.error.style.display = "block";
-        els.error.innerHTML = `${msg}<small>${detail || ""}</small>`;
-      }
-      function clearError(){ els.error.style.display = "none"; els.error.textContent = ""; }
-
-      function uniq(arr){
-        return Array.from(new Set(arr.filter(Boolean))).sort((a,b)=> a.localeCompare(b));
+      if (type === "severity") {
+        const sev = String(value || "").toLowerCase();
+        const klass = sev === "high" ? "red" : sev === "medium" ? "amber" : "";
+        return `<td><span class="pill ${klass}">${escapeHtml(value || "")}</span></td>`;
       }
 
-      function parseDateLoose(s){
-        const t = String(s||"").trim();
-        if(!t) return NaN;
-        let ms = Date.parse(t);
-        if(isFinite(ms)) return ms;
+      return `<td>${escapeHtml(value ?? "")}</td>`;
+    }
 
-        const m = t.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
-        if(m){
-          const mm = parseInt(m[1],10);
-          const dd = parseInt(m[2],10);
-          let yy = parseInt(m[3],10);
-          if(yy < 100) yy = 2000 + yy;
-          return new Date(Date.UTC(yy, mm-1, dd)).getTime();
-        }
-        const m2 = t.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/);
-        if(m2){
-          const yy = parseInt(m2[1],10);
-          const mm = parseInt(m2[2],10);
-          const dd = parseInt(m2[3],10);
-          return new Date(Date.UTC(yy, mm-1, dd)).getTime();
-        }
-        return NaN;
+    function renderPill(value) {
+      const text = value || "";
+      let klass = "";
+      const v = String(value || "").toUpperCase();
+
+      if (v === "EARN") klass = "green";
+      if (v === "ERTAX") klass = "blue";
+      if (v === "EETAX") klass = "amber";
+      if (v === "DDUCT") klass = "red";
+      if (v === "ADJ") klass = "purple";
+
+      return `<span class="pill ${klass}">${escapeHtml(text)}</span>`;
+    }
+
+    function renderEmpty(message) {
+      currentRenderedRows = [];
+      const tableWrap = document.getElementById("tableWrap");
+      if (tableWrap) tableWrap.innerHTML = `<div class="empty">${escapeHtml(message)}</div>`;
+    }
+
+    function chooseUpload() {
+      if (!selectedBatchId) {
+        showToast("Select a specific payroll batch before uploading. Reporting can use All Batches, but uploads need a batch.");
+        return;
       }
 
-      function labelPeriod(r){
-        const s = (r["Pay Period Start"]||"").trim();
-        const e = (r["Pay Period End"]||"").trim();
-        return (s||e) ? `${s} → ${e}` : "";
-      }
-      function pillClass(rt){
-        const x = String(rt||"").toUpperCase();
-        if(x === "EARN") return "earn";
-        if(x === "DDUCT") return "dd";
-        if(x === "EETAX" || x === "ERTAX") return "tax";
-        if(x === "NET") return "net";
-        return "";
-      }
+      document.getElementById("registerFileInput").click();
+    }
 
-      function groupAgg(rows, keyFn){
-        const m = new Map();
-        for(const r of rows){
-          const k = keyFn(r);
-          if(!k) continue;
-          const cur = m.get(k) || { hours:0, amount:0, lines:0 };
-          cur.hours += parseNumber(r["Hours/Units"]);
-          cur.amount += parseMoney(r["Amount"]);
-          cur.lines += 1;
-          m.set(k, cur);
-        }
-        return m;
-      }
+    async function handleFileSelected(event) {
+      const file = event.target.files?.[0];
+      event.target.value = "";
 
-      function topN(map, n, metric){
-        const arr = Array.from(map.entries()).map(([k,v])=>({k, v}));
-        arr.sort((a,b)=>{
-          const av = metric === "hours" ? a.v.hours : a.v.amount;
-          const bv = metric === "hours" ? b.v.hours : b.v.amount;
-          return bv - av;
-        });
-        return arr.slice(0,n);
-      }
+      if (!file) return;
 
-      function setChip(view){
-        activeView = view;
-        els.chips.forEach(c=>{
-          c.classList.toggle("active", c.dataset.view === view);
-        });
-        if(activeView === "detail" && !sortKey){
-          sortKey = "Amount";
-          sortDir = "desc";
-        }
-        render();
-      }
+      setLoading(true);
 
-      function setDrill(kind, value){
-        drill = { kind, value };
-        els.clearDrill.style.display = "inline-flex";
-        els.detailTitle.textContent = `Detail Lines (Drill: ${kind})`;
-        if(kind === "employee") els.employee.value = value;
-        if(kind === "department") els.department.value = value;
-        if(kind === "location") els.location.value = value;
-        if(kind === "typecode") els.typecode.value = value;
-        apply();
-        els.tableWrap.scrollTo({ top: 0, behavior: "smooth" });
-      }
-      function clearDrill(){
-        drill = null;
-        els.clearDrill.style.display = "none";
-        els.detailTitle.textContent = "Detail Lines";
-        apply();
-      }
+      try {
+        const rows = await parseCsv(file);
 
-      function isRegisterTypeAll(){
-        return String(els.registerType.value || "").trim() === "";
-      }
-      function rowsForRollups(rows){
-        if(!isRegisterTypeAll()) return rows;
-        return rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "EARN");
-      }
-
-      function delta(a, b){
-        const d = a - b;
-        const pct = b ? (d / b) * 100 : (a ? 100 : 0);
-        return { d, pct };
-      }
-      function deltaClass(v){
-        if(v > 0) return "deltaUp";
-        if(v < 0) return "deltaDown";
-        return "deltaFlat";
-      }
-
-      /**********************
-       * CSV PARSER
-       **********************/
-      function parseCSV(text){
-        const rows = [];
-        let cur = [];
-        let val = "";
-        let i = 0;
-        let inQuotes = false;
-
-        while(i < text.length){
-          const c = text[i];
-          if(inQuotes){
-            if(c === '"'){
-              if(text[i+1] === '"'){ val += '"'; i += 2; continue; }
-              inQuotes = false; i++; continue;
-            }
-            val += c; i++; continue;
-          } else {
-            if(c === '"'){ inQuotes = true; i++; continue; }
-            if(c === ","){ cur.push(val); val=""; i++; continue; }
-            if(c === "\r"){ i++; continue; }
-            if(c === "\n"){ cur.push(val); rows.push(cur); cur=[]; val=""; i++; continue; }
-            val += c; i++; continue;
-          }
-        }
-        cur.push(val);
-        rows.push(cur);
-        return rows.filter(r => r.some(x => String(x||"").trim() !== ""));
-      }
-
-      function mapRows(rows){
-        const headerRow = rows[0].map(h => String(h||"").trim());
-        const headerMap = new Map();
-        headerRow.forEach((h, idx)=> headerMap.set(cleanHeader(h), idx));
-
-        const missing = HEADERS.filter(h => !headerMap.has(cleanHeader(h)));
-        if(missing.length){
-          return { ok:false, reason:`Missing headers: ${missing.join(", ")}` };
-        }
-
-        const data = rows.slice(1).map(r=>{
-          const obj = {};
-          HEADERS.forEach(h=>{
-            const idx = headerMap.get(cleanHeader(h));
-            obj[h] = (idx != null && idx < r.length) ? r[idx] : "";
-          });
-          obj.__pp = "";
-          obj.__ppStartMs = NaN;
-          obj.__ppEndMs = NaN;
-          obj.__amt = 0;
-          obj.__hrs = 0;
-          obj.__wgs = 0;
-          return obj;
-        });
-
-        return { ok:true, data };
-      }
-
-      async function fetchFirstWorkingCSV(){
-        let lastErr = "";
-        for(const url of CSV_URLS){
-          try{
-            const res = await fetch(url, { cache:"no-store" });
-            if(!res.ok) throw new Error(`HTTP ${res.status}`);
-            const text = await res.text();
-            const rows = parseCSV(text);
-            if(rows.length < 2) throw new Error("No data rows");
-            const mapped = mapRows(rows);
-            if(!mapped.ok) throw new Error(mapped.reason);
-            return { url, data: mapped.data };
-          } catch(e){
-            lastErr = `${url} — ${e.message || e}`;
-          }
-        }
-        throw new Error(lastErr || "Unable to load published CSV");
-      }
-
-      /**********************
-       * FILTER LISTS + PERIODS
-       **********************/
-      function computePeriods(){
-        const m = new Map();
-        for(const r of RAW){
-          const pp = r.__pp;
-          if(!pp) continue;
-          const startMs = isFinite(r.__ppStartMs) ? r.__ppStartMs : parseDateLoose(r["Pay Period Start"]);
-          const endMs = isFinite(r.__ppEndMs) ? r.__ppEndMs : parseDateLoose(r["Pay Period End"]);
-          const cur = m.get(pp) || { pp, startMs, endMs };
-          if(isFinite(startMs) && (!isFinite(cur.startMs) || startMs < cur.startMs)) cur.startMs = startMs;
-          if(isFinite(endMs) && (!isFinite(cur.endMs) || endMs > cur.endMs)) cur.endMs = endMs;
-          m.set(pp, cur);
-        }
-        PERIODS = Array.from(m.values()).sort((a,b)=>{
-          const av = isFinite(a.startMs) ? a.startMs : -Infinity;
-          const bv = isFinite(b.startMs) ? b.startMs : -Infinity;
-          return bv - av;
-        });
-        PERIOD_INDEX = new Map();
-        PERIODS.forEach((p, idx)=> PERIOD_INDEX.set(p.pp, idx));
-      }
-
-      function buildFilters(){
-        const emps = uniq(RAW.map(r => (r["EE Name"]||"").trim()));
-        els.employee.innerHTML = ['<option value="">All Employees</option>', ...emps.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`)].join("");
-
-        const depts = uniq(RAW.map(r => (r["Department Desc"]||"").trim()));
-        els.department.innerHTML = ['<option value="">All Departments</option>', ...depts.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`)].join("");
-
-        const locs = uniq(RAW.map(r => (r["Location Desc"]||"").trim()));
-        els.location.innerHTML = ['<option value="">All Locations</option>', ...locs.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`)].join("");
-
-        const codes = uniq(RAW.map(r => (r["Typecode"]||"").trim()));
-        els.typecode.innerHTML = ['<option value="">All Codes</option>', ...codes.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`)].join("");
-
-        computePeriods();
-
-        const periods = PERIODS.map(p => p.pp);
-        els.payPeriod.innerHTML = ['<option value="">All Pay Periods</option>', ...periods.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`)].join("");
-        els.comparePeriod.innerHTML = ['<option value="">Select baseline pay period…</option>', ...periods.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`)].join("");
-      }
-
-      /**********************
-       * FILTERING
-       **********************/
-      function filterRows(opts){
-        const ignorePayPeriod = !!(opts && opts.ignorePayPeriod);
-
-        const q = (els.q.value || "").trim().toLowerCase();
-        const pp = (els.payPeriod.value || "").trim();
-        const rt = (els.registerType.value || "").trim().toUpperCase();
-        const emp = (els.employee.value || "").trim();
-        const dept = (els.department.value || "").trim();
-        const loc = (els.location.value || "").trim();
-        const code = (els.typecode.value || "").trim();
-
-        return RAW.filter(r=>{
-          if(!ignorePayPeriod && pp && r.__pp !== pp) return false;
-          if(rt && String(r["Register Type"]||"").toUpperCase() !== rt) return false;
-
-          if(emp && (r["EE Name"]||"").trim() !== emp) return false;
-          if(dept && (r["Department Desc"]||"").trim() !== dept) return false;
-          if(loc && (r["Location Desc"]||"").trim() !== loc) return false;
-          if(code && (r["Typecode"]||"").trim() !== code) return false;
-
-          if(drill){
-            if(drill.kind === "employee" && (r["EE Name"]||"").trim() !== drill.value) return false;
-            if(drill.kind === "department" && (r["Department Desc"]||"").trim() !== drill.value) return false;
-            if(drill.kind === "location" && (r["Location Desc"]||"").trim() !== drill.value) return false;
-            if(drill.kind === "typecode" && (r["Typecode"]||"").trim() !== drill.value) return false;
-          }
-
-          if(q){
-            const hay = [
-              r["EE Name"], r["EE Code"],
-              r["Department Desc"], r["Location Desc"],
-              r["Register Type"], r["Typecode"], r["Typedesc"],
-              r["Pay Period Start"], r["Pay Period End"]
-            ].join(" ").toLowerCase();
-            if(!hay.includes(q)) return false;
-          }
-          return true;
-        });
-      }
-
-      function apply(){
-        VIEW = filterRows({ ignorePayPeriod:false });
-        render();
-      }
-
-      function computeEarnKpis(rows){
-        const earnRows = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "EARN");
-        const hours = earnRows.reduce((s,r)=> s + r.__hrs, 0);
-        const gross = earnRows.reduce((s,r)=> s + r.__amt, 0);
-        const rate = hours ? (gross / hours) : 0;
-        return { hours, gross, rate, lines: rows.length };
-      }
-
-      function resolveBaselinePeriod(selectedPp){
-        if(!selectedPp) return "";
-        const mode = String(els.compareMode.value || "prev");
-        if(mode === "custom"){
-          const custom = String(els.comparePeriod.value || "").trim();
-          return custom && custom !== selectedPp ? custom : "";
-        }
-        const idx = PERIOD_INDEX.get(selectedPp);
-        if(idx == null) return "";
-        const prev = PERIODS[idx + 1];
-        return prev ? prev.pp : "";
-      }
-
-      function buildPeriodSeries(rowsIgnoringPayPeriod){
-        const agg = new Map();
-        for(const r of rowsIgnoringPayPeriod){
-          const pp = r.__pp;
-          if(!pp) continue;
-          if(String(r["Register Type"]||"").toUpperCase() !== "EARN") continue;
-          const cur = agg.get(pp) || { hours:0, gross:0 };
-          cur.hours += r.__hrs;
-          cur.gross += r.__amt;
-          agg.set(pp, cur);
-        }
-
-        const n = Math.max(3, parseInt(els.trendN.value || "8", 10) || 8);
-        const ordered = PERIODS
-          .filter(p => agg.has(p.pp))
-          .slice(0, n)
-          .map(p => ({ pp: p.pp, ...agg.get(p.pp) }));
-
-        return ordered.reverse(); // oldest -> newest
-      }
-
-      function drawMiniLine(canvas, points){
-        const ctx = canvas.getContext("2d");
-        const dpr = Math.max(1, window.devicePixelRatio || 1);
-        const cssW = canvas.clientWidth || canvas.width;
-        const cssH = canvas.height;
-
-        canvas.width = Math.floor(cssW * dpr);
-        canvas.height = Math.floor(cssH * dpr);
-        ctx.setTransform(dpr,0,0,dpr,0,0);
-
-        const w = cssW;
-        const h = cssH;
-
-        ctx.clearRect(0,0,w,h);
-
-        ctx.strokeStyle = "rgba(148,163,184,.16)";
-        ctx.lineWidth = 1;
-        ctx.strokeRect(0.5,0.5,w-1,h-1);
-
-        if(!points.length){
-          ctx.fillStyle = "rgba(167,176,192,.85)";
-          ctx.font = "900 12px Inter, system-ui, sans-serif";
-          ctx.fillText("No trend data for current filters.", 12, 24);
+        if (!rows.length) {
+          showToast("CSV has no rows.");
           return;
         }
 
-        const padX = 12;
-        const padY = 12;
+        await uploadRegisterRows(file.name, rows);
+        await loadBatches(selectedBatchId);
+        await loadSelectedData();
 
-        const minY = Math.min(...points);
-        const maxY = Math.max(...points);
-        const spanY = (maxY - minY) || 1;
-
-        const xFor = (i)=>{
-          if(points.length === 1) return padX;
-          return padX + (i * (w - padX*2)) / (points.length - 1);
-        };
-        const yFor = (v)=>{
-          const t = (v - minY) / spanY;
-          return (h - padY) - t * (h - padY*2);
-        };
-
-        ctx.beginPath();
-        ctx.moveTo(xFor(0), h - padY);
-        for(let i=0;i<points.length;i++){
-          ctx.lineTo(xFor(i), yFor(points[i]));
-        }
-        ctx.lineTo(xFor(points.length-1), h - padY);
-        ctx.closePath();
-        ctx.fillStyle = "rgba(56,189,248,.08)";
-        ctx.fill();
-
-        ctx.beginPath();
-        for(let i=0;i<points.length;i++){
-          const x = xFor(i);
-          const y = yFor(points[i]);
-          if(i === 0) ctx.moveTo(x,y);
-          else ctx.lineTo(x,y);
-        }
-        ctx.strokeStyle = "rgba(56,189,248,.88)";
-        ctx.lineWidth = 2;
-        ctx.stroke();
-
-        const lx = xFor(points.length-1);
-        const ly = yFor(points[points.length-1]);
-        ctx.beginPath();
-        ctx.arc(lx, ly, 4, 0, Math.PI*2);
-        ctx.fillStyle = "rgba(34,197,94,.95)";
-        ctx.fill();
+        showToast(`${file.name} uploaded and saved.`);
+      } catch (error) {
+        console.error(error);
+        showToast(error.message || "Upload failed.");
+      } finally {
+        setLoading(false);
       }
-
-      function renderComparisonAndTrend(){
-        const selectedPp = String(els.payPeriod.value || "").trim();
-        const mode = String(els.compareMode.value || "prev");
-        els.comparePeriod.style.display = (mode === "custom") ? "inline-block" : "none";
-
-        const baseRows = filterRows({ ignorePayPeriod:true });
-        const series = buildPeriodSeries(baseRows);
-
-        const n = Math.max(3, parseInt(els.trendN.value || "8", 10) || 8);
-        els.trendNLabel.textContent = String(n);
-
-        const hoursPts = series.map(p => p.hours);
-        const grossPts = series.map(p => p.gross);
-
-        drawMiniLine(els.trendHours, hoursPts);
-        drawMiniLine(els.trendGross, grossPts);
-
-        if(series.length){
-          const first = series[0];
-          const last = series[series.length-1];
-          const dh = delta(last.hours, first.hours);
-          const dg = delta(last.gross, first.gross);
-
-          els.trendHoursLabel.innerHTML = `<span class="${deltaClass(dh.d)}">${fmtPct(dh.pct)}</span> (${fmtNum(first.hours)} → ${fmtNum(last.hours)})`;
-          els.trendGrossLabel.innerHTML = `<span class="${deltaClass(dg.d)}">${fmtPct(dg.pct)}</span> (${fmtUSD(first.gross)} → ${fmtUSD(last.gross)})`;
-        } else {
-          els.trendHoursLabel.textContent = "—";
-          els.trendGrossLabel.textContent = "—";
-        }
-
-        if(!selectedPp){
-          els.ppCompareTitle.textContent = "Select a Pay Period";
-          els.ppCompareSub.textContent = "Choose a pay period above to show deltas vs previous/custom baseline.";
-          els.ppDeltaLine.textContent = "—";
-          return;
-        }
-
-        const baselinePp = resolveBaselinePeriod(selectedPp);
-
-        const selectedRows = baseRows.filter(r => r.__pp === selectedPp);
-        const selected = computeEarnKpis(selectedRows);
-
-        if(!baselinePp){
-          els.ppCompareTitle.textContent = `Selected: ${selectedPp}`;
-          els.ppCompareSub.textContent = `EARN • ${fmtNum(selected.hours)} hrs • ${fmtUSD(selected.gross)} gross • ${fmtUSD(selected.rate)}/hr`;
-          els.ppDeltaLine.textContent = "No baseline available (choose custom baseline or ensure previous period exists).";
-          return;
-        }
-
-        const baselineRows = baseRows.filter(r => r.__pp === baselinePp);
-        const baseline = computeEarnKpis(baselineRows);
-
-        const dh = delta(selected.hours, baseline.hours);
-        const dg = delta(selected.gross, baseline.gross);
-        const dr = delta(selected.rate, baseline.rate);
-
-        els.ppCompareTitle.textContent = "Selected vs Baseline";
-        els.ppCompareSub.innerHTML =
-          `Selected: <b>${esc(selectedPp)}</b> • ${fmtNum(selected.hours)} hrs • ${fmtUSD(selected.gross)} gross • ${fmtUSD(selected.rate)}/hr
-           <span style="opacity:.55;"> | </span>
-           Baseline: <b>${esc(baselinePp)}</b> • ${fmtNum(baseline.hours)} hrs • ${fmtUSD(baseline.gross)} gross • ${fmtUSD(baseline.rate)}/hr`;
-
-        els.ppDeltaLine.innerHTML =
-          `<span><b>Δ Hours:</b> <span class="${deltaClass(dh.d)}">${dh.d >= 0 ? "+" : ""}${fmtNum(dh.d)} (${fmtPct(dh.pct)})</span></span>
-           <span><b>Δ Gross:</b> <span class="${deltaClass(dg.d)}">${dg.d >= 0 ? "+" : ""}${fmtUSD(dg.d)} (${fmtPct(dg.pct)})</span></span>
-           <span><b>Δ $/Hr:</b> <span class="${deltaClass(dr.d)}">${dr.d >= 0 ? "+" : ""}${fmtUSD(dr.d)} (${fmtPct(dr.pct)})</span></span>`;
-      }
-
-      /**********************
-       * RENDER
-       **********************/
-      function render(){
-        clearError();
-
-        const rows = VIEW;
-        const earnRows = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "EARN");
-
-        const uniqueEmployees = new Set(rows.map(r => (r["EE Name"]||"").trim()).filter(Boolean));
-        const uniqueDepts = new Set(rows.map(r => (r["Department Desc"]||"").trim()).filter(Boolean));
-        const uniqueLocs  = new Set(rows.map(r => (r["Location Desc"]||"").trim()).filter(Boolean));
-
-        const hoursEarn = earnRows.reduce((s,r)=> s + r.__hrs, 0);
-        const grossEarn = earnRows.reduce((s,r)=> s + r.__amt, 0);
-        const rate = hoursEarn ? (grossEarn / hoursEarn) : 0;
-
-        const deduct = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "DDUCT").reduce((s,r)=> s + r.__amt, 0);
-        const eeTax = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "EETAX").reduce((s,r)=> s + r.__amt, 0);
-        const erTax = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "ERTAX").reduce((s,r)=> s + r.__amt, 0);
-        const net = rows.filter(r => String(r["Register Type"]||"").toUpperCase() === "NET").reduce((s,r)=> s + r.__amt, 0);
-
-        const empEarnAgg = groupAgg(earnRows, r => (r["EE Name"]||"").trim());
-        const topEmp = topN(empEarnAgg, 1, "amount")[0];
-
-        els.mEmp.textContent = uniqueEmployees.size.toLocaleString();
-        els.mDepts.textContent = uniqueDepts.size.toLocaleString();
-        els.mLocs.textContent = uniqueLocs.size.toLocaleString();
-        els.mLines.textContent = rows.length.toLocaleString();
-
-        els.mHours.textContent = fmtNum(hoursEarn);
-        els.mGross.textContent = fmtUSD(grossEarn);
-        els.mRate.textContent = fmtUSD(rate);
-
-        els.mDeduct.textContent = fmtUSD(deduct);
-        els.mEETax.textContent = fmtUSD(eeTax);
-        els.mERTax.textContent = fmtUSD(erTax);
-        els.mNet.textContent = fmtUSD(net);
-
-        if(topEmp){
-          els.mTopEmp.textContent = topEmp.k;
-          els.mTopEmpSub.textContent = `${fmtUSD(topEmp.v.amount)} • ${fmtNum(topEmp.v.hours)} hrs`;
-        } else {
-          els.mTopEmp.textContent = "—";
-          els.mTopEmpSub.textContent = "—";
-        }
-
-        els.pinHours.textContent = fmtNum(hoursEarn);
-        els.pinGross.textContent = fmtUSD(grossEarn);
-        els.pinRate.textContent = fmtUSD(rate);
-        els.pinLines.textContent = rows.length.toLocaleString();
-
-        const pp = (els.payPeriod.value || "").trim();
-        els.headlineMeta.textContent = pp ? `Pay Period: ${pp}` : "All Pay Periods";
-
-        els.status.textContent = rows.length ? "" : "No matching rows.";
-        els.hint2.textContent = rows.length
-          ? `View: ${activeView.toUpperCase()} • Rollup: ${els.rollMetric.value.toUpperCase()} • Top ${els.topN.value}`
-          : "";
-
-        els.detailMeta.textContent = rows.length ? `${rows.length.toLocaleString()} lines` : "—";
-
-        renderComparisonAndTrend();
-        renderRollup(rows);
-        renderTable(rows);
-        updateSortIndicators();
-      }
-
-      function rollKeyFn(view){
-        if(view === "employee") return (r)=> (r["EE Name"]||"").trim();
-        if(view === "department") return (r)=> (r["Department Desc"]||"").trim();
-        if(view === "location") return (r)=> (r["Location Desc"]||"").trim();
-        if(view === "typecode") return (r)=> (r["Typecode"]||"").trim();
-        return (r)=> (r["EE Name"]||"").trim();
-      }
-
-      function rollTitle(view){
-        if(view === "employee") return "By Employee";
-        if(view === "department") return "By Department";
-        if(view === "location") return "By Location";
-        if(view === "typecode") return "By Code";
-        return "Rollups";
-      }
-
-      function rollSubLabel(view, key){
-        if(view === "typecode"){
-          const r = RAW.find(x => (x["Typecode"]||"").trim() === key);
-          const d = r ? (r["Typedesc"]||"").trim() : "";
-          return d ? d : "Code";
-        }
-        return "Click to drill in";
-      }
-
-      function renderRollup(rows){
-        const view = (activeView === "detail") ? "employee" : activeView;
-        els.rollupTitle.textContent = rollTitle(view);
-
-        const baseRows = rowsForRollups(rows);
-        const agg = groupAgg(baseRows, rollKeyFn(view));
-
-        els.rollupMeta.textContent = `${agg.size.toLocaleString()} groups`;
-
-        if(!agg.size){
-          const note = isRegisterTypeAll() ? "No EARN rows in view." : "No rollups.";
-          els.rollupList.innerHTML = `<div style="color:rgba(167,176,192,.95);font-weight:900;">${esc(note)}</div>`;
-          return;
-        }
-
-        const metricMode = els.rollMetric.value;
-        const primary = (metricMode === "hours") ? "hours" : "amount";
-        const limit = Math.max(5, parseInt(els.topN.value || "25", 10) || 25);
-
-        const items = topN(agg, limit, primary);
-        const denom = Array.from(agg.values()).reduce((s,v)=> s + (primary === "hours" ? v.hours : v.amount), 0) || 1;
-
-        els.rollupList.innerHTML = items.map(({k,v})=>{
-          const primaryVal = (primary === "hours") ? v.hours : v.amount;
-          const pct = Math.round((primaryVal/denom)*1000)/10;
-          const v1 = (primary === "hours") ? `${fmtNum(v.hours)} hrs` : `${fmtUSD(v.amount)}`;
-          let v2 = `${pct}%`;
-          if(metricMode === "both"){
-            v2 = (primary === "hours") ? `${fmtUSD(v.amount)}` : `${fmtNum(v.hours)} hrs`;
-          }
-          const sub = rollSubLabel(view, k);
-          const label = (view === "typecode") ? `${k} — ${sub}` : k;
-
-          return `
-            <div class="row" data-drill-kind="${esc(view)}" data-drill-value="${esc(k)}" title="Click to drill into ${esc(label)}">
-              <div style="min-width:0;">
-                <div class="name">${esc(label)}</div>
-                <div class="subn">${esc(metricMode === "both" ? "Hours + Amount" : (primary === "hours" ? "Share of hours" : "Share of amount"))}</div>
-              </div>
-              <div class="right">
-                <div class="v1">${esc(v1)}</div>
-                <div class="v2">${esc(v2)}</div>
-              </div>
-            </div>
-          `;
-        }).join("");
-
-        Array.from(els.rollupList.querySelectorAll(".row")).forEach(el=>{
-          el.addEventListener("click", ()=>{
-            setDrill(el.getAttribute("data-drill-kind"), el.getAttribute("data-drill-value"));
-          });
-        });
-      }
-
-      function sortValue(r, key){
-        if(key === "__pp") return r.__pp || "";
-        if(key === "Amount") return r.__amt;
-        if(key === "Hours/Units") return r.__hrs;
-        if(key === "Wages") return r.__wgs;
-        return String((r[key] ?? "")).toLowerCase();
-      }
-
-      function getSortedRows(rows){
-        if(!sortKey) return rows;
-        const dir = sortDir === "asc" ? 1 : -1;
-        const key = sortKey;
-
-        return rows.map((r,i)=>({r,i})).sort((a,b)=>{
-          const av = sortValue(a.r, key);
-          const bv = sortValue(b.r, key);
-
-          if(typeof av === "number" && typeof bv === "number"){
-            if(av === bv) return a.i - b.i;
-            return (av > bv ? 1 : -1) * dir;
-          }
-          if(av === bv) return a.i - b.i;
-          return (av > bv ? 1 : -1) * dir;
-        }).map(x=>x.r);
-      }
-
-      function renderTable(rows){
-        let tableRows = rows;
-        if(earnOnlyTable){
-          tableRows = tableRows.filter(r => String(r["Register Type"]||"").toUpperCase() === "EARN");
-        }
-        tableRows = getSortedRows(tableRows);
-
-        if(!tableRows.length){
-          els.tbody.innerHTML = `<tr><td colspan="10" style="padding:14px;color:rgba(167,176,192,.95);font-weight:900;">No rows found.</td></tr>`;
-          return;
-        }
-
-        const limit = 1400;
-        const slice = tableRows.slice(0, limit);
-
-        els.tbody.innerHTML = slice.map(r=>{
-          const rt = String(r["Register Type"]||"").toUpperCase();
-          const code = (r["Typecode"]||"").trim();
-          const desc = (r["Typedesc"]||"").trim();
-          return `
-            <tr>
-              <td>${esc(r["EE Name"])}</td>
-              <td>${esc(r["Department Desc"])}</td>
-              <td>${esc(r["Location Desc"])}</td>
-              <td><span class="pill ${pillClass(rt)}">${esc(rt || "—")}</span></td>
-              <td>${esc(code)}</td>
-              <td title="${esc(desc)}">${esc(desc)}</td>
-              <td>${esc(r.__pp)}</td>
-              <td class="num">${esc(r["Hours/Units"])}</td>
-              <td class="num">${esc(r["Amount"])}</td>
-              <td class="num">${esc(r["Wages"])}</td>
-            </tr>
-          `;
-        }).join("");
-
-        if(tableRows.length > limit){
-          const extra = tableRows.length - limit;
-          els.tbody.insertAdjacentHTML("beforeend",
-            `<tr><td colspan="10" style="padding:12px;color:rgba(167,176,192,.95);font-weight:900;">
-              Showing first ${limit.toLocaleString()} rows. ${extra.toLocaleString()} more available in CSV download.
-            </td></tr>`
-          );
-        }
-      }
-
-      function updateSortIndicators(){
-        const ids = ["s_EEName","s_Dept","s_Loc","s_Reg","s_Code","s_Desc","s_PP","s_Hours","s_Amt","s_Wages"];
-        ids.forEach(id=>{ const el = document.getElementById(id); if(el) el.textContent = ""; });
-        if(!sortKey) return;
-
-        const arrow = sortDir === "asc" ? "▲" : "▼";
-        const map = {
-          "EE Name": "s_EEName",
-          "Department Desc": "s_Dept",
-          "Location Desc": "s_Loc",
-          "Register Type": "s_Reg",
-          "Typecode": "s_Code",
-          "Typedesc": "s_Desc",
-          "__pp": "s_PP",
-          "Hours/Units": "s_Hours",
-          "Amount": "s_Amt",
-          "Wages": "s_Wages"
-        };
-
-        const id = map[sortKey];
-        if(id){
-          const el = document.getElementById(id);
-          if(el) el.textContent = arrow;
-        }
-      }
-
-      function toggleEarnOnly(){
-        earnOnlyTable = !earnOnlyTable;
-        els.earnOnlyToggle.classList.toggle("on", earnOnlyTable);
-        render();
-        writeQS();
-      }
-
-      function togglePresent(){
-        presentMode = !presentMode;
-        els.presentToggle.classList.toggle("on", presentMode);
-        els.shell.classList.toggle("present", presentMode);
-        writeQS();
-      }
-
-      /**********************
-       * EXPORT
-       **********************/
-      const EXPORT_HEADERS = [
-        "Department Desc","Location Desc","clientcode","EE Code","EE Name",
-        "Register Type","Typecode","Typedesc","Amount","Hours/Units","Wages",
-        "Pay Period Start","Pay Period End"
-      ];
-
-      function toCSV(rows){
-        const escCSV = (s)=> `"${String(s??"").replaceAll('"','""')}"`;
-        const header = EXPORT_HEADERS.map(escCSV).join(",");
-        const lines = rows.map(r => EXPORT_HEADERS.map(h => escCSV(r[h])).join(","));
-        return [header, ...lines].join("\n");
-      }
-
-      function downloadBlob(filename, text){
-        const blob = new Blob([text], { type:"text/csv;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-      }
-
-      /**********************
-       * SHARE LINK (querystring)
-       **********************/
-      function readQS(){
-        const p = new URLSearchParams(location.search);
-        const get = (k)=> (p.get(k) || "").trim();
-        return {
-          q: get("q"),
-          payPeriod: get("payPeriod"),
-          registerType: get("registerType"),
-          employee: get("employee"),
-          department: get("department"),
-          location: get("location"),
-          typecode: get("typecode"),
-          view: get("view") || "detail",
-          rollMetric: get("rollMetric") || "amount",
-          topN: get("topN") || "25",
-          earnOnly: get("earnOnly") || "",
-          present: get("present") || "",
-          drillKind: get("drillKind") || "",
-          drillValue: get("drillValue") || "",
-          sortKey: get("sortKey") || "",
-          sortDir: get("sortDir") || "",
-          compareMode: get("compareMode") || "prev",
-          comparePeriod: get("comparePeriod") || "",
-          trendN: get("trendN") || "8"
-        };
-      }
-
-      function writeQS(){
-        const p = new URLSearchParams();
-        const set = (k,v)=>{ if(v && String(v).trim()!=="") p.set(k, v); };
-
-        set("q", els.q.value);
-        set("payPeriod", els.payPeriod.value);
-        set("registerType", els.registerType.value);
-        set("employee", els.employee.value);
-        set("department", els.department.value);
-        set("location", els.location.value);
-        set("typecode", els.typecode.value);
-
-        if(activeView && activeView !== "detail") set("view", activeView);
-        if(els.rollMetric.value && els.rollMetric.value !== "amount") set("rollMetric", els.rollMetric.value);
-        if(els.topN.value && els.topN.value !== "25") set("topN", els.topN.value);
-
-        if(earnOnlyTable) set("earnOnly", "1");
-        if(presentMode) set("present", "1");
-        if(drill){ set("drillKind", drill.kind); set("drillValue", drill.value); }
-
-        if(sortKey) set("sortKey", sortKey);
-        if(sortDir && sortDir !== "desc") set("sortDir", sortDir);
-
-        if(els.compareMode.value && els.compareMode.value !== "prev") set("compareMode", els.compareMode.value);
-        if(els.comparePeriod.value) set("comparePeriod", els.comparePeriod.value);
-        if(els.trendN.value && els.trendN.value !== "8") set("trendN", els.trendN.value);
-
-        const newUrl = `${location.pathname}${p.toString() ? ("?"+p.toString()) : ""}`;
-        history.replaceState(null, "", newUrl);
-      }
-
-      async function copyShareLink(){
-        writeQS();
-        const url = location.href;
-        try{
-          await navigator.clipboard.writeText(url);
-          els.copyLink.textContent = "Copied ✓";
-          setTimeout(()=> els.copyLink.textContent = "Copy Link", 1200);
-        } catch(e){
-          prompt("Copy this link:", url);
-        }
-      }
-
-      /**********************
-       * EVENTS
-       **********************/
-      const onChange = ()=>{ apply(); writeQS(); };
-
-      els.q.addEventListener("input", debounce(onChange, 220));
-      els.payPeriod.addEventListener("change", onChange);
-      els.registerType.addEventListener("change", onChange);
-
-      els.employee.addEventListener("change", ()=>{ drill=null; els.clearDrill.style.display="none"; els.detailTitle.textContent="Detail Lines"; onChange(); });
-      els.department.addEventListener("change", ()=>{ drill=null; els.clearDrill.style.display="none"; els.detailTitle.textContent="Detail Lines"; onChange(); });
-      els.location.addEventListener("change", ()=>{ drill=null; els.clearDrill.style.display="none"; els.detailTitle.textContent="Detail Lines"; onChange(); });
-      els.typecode.addEventListener("change", ()=>{ drill=null; els.clearDrill.style.display="none"; els.detailTitle.textContent="Detail Lines"; onChange(); });
-
-      els.rollMetric.addEventListener("change", ()=>{ renderRollup(VIEW); writeQS(); });
-      els.topN.addEventListener("change", ()=>{ renderRollup(VIEW); writeQS(); });
-
-      els.compareMode.addEventListener("change", ()=>{ render(); writeQS(); });
-      els.comparePeriod.addEventListener("change", ()=>{ render(); writeQS(); });
-      els.trendN.addEventListener("change", ()=>{ render(); writeQS(); });
-
-      els.presentToggle.addEventListener("click", togglePresent);
-      els.earnOnlyToggle.addEventListener("click", toggleEarnOnly);
-
-      els.reset.addEventListener("click", ()=>{
-        els.q.value = "";
-        els.payPeriod.value = "";
-        els.registerType.value = "";
-        els.employee.value = "";
-        els.department.value = "";
-        els.location.value = "";
-        els.typecode.value = "";
-
-        els.compareMode.value = "prev";
-        els.comparePeriod.value = "";
-        els.comparePeriod.style.display = "none";
-        els.trendN.value = "8";
-
-        drill = null;
-        els.clearDrill.style.display = "none";
-        els.detailTitle.textContent = "Detail Lines";
-
-        earnOnlyTable = false;
-        els.earnOnlyToggle.classList.remove("on");
-
-        presentMode = false;
-        els.presentToggle.classList.remove("on");
-        els.shell.classList.remove("present");
-
-        sortKey = "Amount";
-        sortDir = "desc";
-
-        setChip("detail");
-        VIEW = RAW.slice();
-        render();
-        writeQS();
-      });
-
-      els.downloadCsv.addEventListener("click", ()=>{
-        const rows = VIEW.length ? VIEW : RAW;
-        downloadBlob(`payroll_meeting_${new Date().toISOString().slice(0,10)}.csv`, toCSV(rows));
-      });
-
-      els.copyLink.addEventListener("click", copyShareLink);
-
-      els.chips.forEach(c=>{
-        c.addEventListener("click", ()=>{
-          setChip(c.dataset.view);
-          writeQS();
+    }
+
+    function parseCsv(file) {
+      return new Promise((resolve, reject) => {
+        Papa.parse(file, {
+          header: true,
+          skipEmptyLines: "greedy",
+          delimiter: "",
+          newline: "",
+          dynamicTyping: false,
+          transformHeader: h => cleanHeader(h),
+          transform: value => typeof value === "string" ? value.replace(/\uFEFF/g, "").trim() : value,
+          complete: results => {
+            console.log("Papa Parse results:", {
+              meta: results.meta,
+              errors: results.errors,
+              rowCount: results.data?.length || 0,
+              firstRow: results.data?.[0],
+              headers: Object.keys(results.data?.[0] || {})
+            });
+
+            resolve((results.data || []).filter(row => {
+              return Object.values(row || {}).some(v => String(v ?? "").trim() !== "");
+            }));
+          },
+          error: reject
         });
       });
+    }
 
-      els.clearDrill.addEventListener("click", ()=>{ clearDrill(); writeQS(); });
-      els.scrollTop.addEventListener("click", ()=>{ els.tableWrap.scrollTo({ top: 0, behavior: "smooth" }); });
+    async function uploadRegisterRows(fileName, rawRows) {
+      validateHeaders(rawRows, REGISTER_HEADERS, "register");
 
-      Array.from(document.querySelectorAll("thead th[data-k]")).forEach(th=>{
-        th.addEventListener("click", ()=>{
-          const k = th.getAttribute("data-k");
-          if(!k) return;
+      const mappedRows = rawRows.map(row => {
+        const mapped = {
+          batch_id: selectedBatchId,
+          source_file_name: fileName,
+          is_adjusted: false,
+          adjustment_note: null
+        };
 
-          if(sortKey === k){
-            sortDir = (sortDir === "desc") ? "asc" : "desc";
-          } else {
-            sortKey = k;
-            sortDir = (k === "EE Name" || k === "Department Desc" || k === "Location Desc" || k === "Register Type" || k === "Typecode" || k === "Typedesc" || k === "__pp")
-              ? "asc"
-              : "desc";
-          }
-          render();
-          writeQS();
-        });
+        for (const [csvHeader, dbField] of Object.entries(REGISTER_HEADER_MAP)) {
+          const actualHeader = findCsvHeader(row, csvHeader);
+          mapped[dbField] = normalizeValue(dbField, actualHeader ? row[actualHeader] : null);
+        }
+
+        mapped.original_amount = mapped.amount;
+        mapped.original_hours_units = mapped.hours_units;
+        mapped.original_wages = mapped.wages;
+
+        return mapped;
+      }).filter(row => {
+        return row.ee_code || row.ee_name || row.department_code || row.amount || row.hours_units || row.wages;
       });
 
-      window.addEventListener("resize", debounce(()=> renderComparisonAndTrend(), 120));
+      if (!mappedRows.length) throw new Error("No usable register rows found.");
 
-      /**********************
-       * LOAD
-       **********************/
-      (async function init(){
-        try{
-          els.status.textContent = "Loading…";
-          const { data } = await fetchFirstWorkingCSV();
+      const { error: deleteError } = await supabaseClient
+        .from("payroll_register_lines")
+        .delete()
+        .eq("batch_id", selectedBatchId);
 
-          RAW = data.map(r=>{
-            r.__pp = labelPeriod(r);
-            r.__ppStartMs = parseDateLoose(r["Pay Period Start"]);
-            r.__ppEndMs = parseDateLoose(r["Pay Period End"]);
-            r.__amt = parseMoney(r["Amount"]);
-            r.__hrs = parseNumber(r["Hours/Units"]);
-            r.__wgs = parseMoney(r["Wages"]);
-            return r;
-          });
+      if (deleteError) throw deleteError;
 
-          VIEW = RAW.slice();
-          buildFilters();
+      await insertInChunks("payroll_register_lines", mappedRows, 500);
 
-          const qs = readQS();
-          if(qs.q) els.q.value = qs.q;
-          if(qs.payPeriod) els.payPeriod.value = qs.payPeriod;
-          if(qs.registerType) els.registerType.value = qs.registerType;
-          if(qs.employee) els.employee.value = qs.employee;
-          if(qs.department) els.department.value = qs.department;
-          if(qs.location) els.location.value = qs.location;
-          if(qs.typecode) els.typecode.value = qs.typecode;
+      const norm = mappedRows.map(row => normalizeRegisterRow(row));
+      const earnRows = norm.filter(row => row.register_type_norm === "EARN");
+      const totalRegisterHours = sum(earnRows, "register_hours");
+      const totalGrossWages = sum(earnRows, "gross_wages");
 
-          if(qs.rollMetric) els.rollMetric.value = qs.rollMetric;
-          if(qs.topN) els.topN.value = qs.topN;
+      const starts = norm.map(row => row.pay_period_start).filter(Boolean).sort();
+      const ends = norm.map(row => row.pay_period_end).filter(Boolean).sort();
 
-          if(qs.earnOnly === "1"){
-            earnOnlyTable = true;
-            els.earnOnlyToggle.classList.add("on");
-          }
+      const { error } = await supabaseClient
+        .from("payroll_import_batches")
+        .update({
+          register_file_name: fileName,
+          register_row_count: mappedRows.length,
+          total_hours: totalRegisterHours,
+          total_wages: totalGrossWages,
+          pay_period_start: starts[0] || null,
+          pay_period_end: ends[ends.length - 1] || null
+        })
+        .eq("id", selectedBatchId);
 
-          if(qs.present === "1"){
-            presentMode = true;
-            els.presentToggle.classList.add("on");
-            els.shell.classList.add("present");
-          }
+      if (error) throw error;
+    }
 
-          if(qs.sortKey){
-            sortKey = qs.sortKey;
-            sortDir = qs.sortDir || "desc";
-          } else {
-            sortKey = "Amount";
-            sortDir = "desc";
-          }
+    async function insertInChunks(table, rows, chunkSize) {
+      for (let i = 0; i < rows.length; i += chunkSize) {
+        const chunk = rows.slice(i, i + chunkSize);
+        const { error } = await supabaseClient.from(table).insert(chunk);
+        if (error) throw error;
+      }
+    }
 
-          if(qs.view) setChip(qs.view);
+    function exportCurrentTable() {
+      if (!currentRenderedRows.length) {
+        showToast("No rows to export.");
+        return;
+      }
 
-          if(qs.drillKind && qs.drillValue){
-            drill = { kind: qs.drillKind, value: qs.drillValue };
-            els.clearDrill.style.display = "inline-flex";
-            els.detailTitle.textContent = `Detail Lines (Drill: ${qs.drillKind})`;
-          }
-
-          if(qs.compareMode) els.compareMode.value = qs.compareMode;
-          if(qs.comparePeriod) els.comparePeriod.value = qs.comparePeriod;
-          if(qs.trendN) els.trendN.value = qs.trendN;
-
-          els.comparePeriod.style.display = (els.compareMode.value === "custom") ? "inline-block" : "none";
-
-          const employees = new Set(RAW.map(r => (r["EE Name"]||"").trim()).filter(Boolean)).size;
-          els.status.textContent = `Loaded ${RAW.length.toLocaleString()} lines • ${employees.toLocaleString()} employees`;
-          apply();
-        } catch(err){
-          console.error(err);
-          els.status.textContent = "";
-          els.tbody.innerHTML = `<tr><td colspan="10" style="padding:14px;color:rgba(167,176,192,.95);font-weight:900;">Unable to load payroll.</td></tr>`;
-          setError("Payroll report unavailable.", "Confirm the sheet is published and accessible.");
+      const cleaned = currentRenderedRows.map(row => {
+        const out = {};
+        for (const [key, value] of Object.entries(row)) {
+          if (key.startsWith("_")) continue;
+          out[key] = value instanceof Set ? value.size : value;
         }
-      })();
-    })();
+        return out;
+      });
+
+      const csv = Papa.unparse(cleaned);
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+
+      const batch = batches.find(b => b.id === selectedBatchId);
+      const batchName = batch?.batch_name || (selectedBatchId ? "payroll-batch" : "all-batches");
+      const fileName = `${slugify(batchName)}-${activeTab}.csv`;
+
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      URL.revokeObjectURL(url);
+    }
+
+    function clearFilters() {
+      filterState.departments.clear();
+      filterState.locations.clear();
+      filterState.types.clear();
+      filterState.payCodes.clear();
+      document.getElementById("presetSelect").value = "";
+      document.getElementById("searchInput").value = "";
+      rebuildFilterOptions();
+      applyFilters();
+    }
+
+    function getValue(row, expectedHeader) {
+      const actualHeader = findCsvHeader(row, expectedHeader);
+      return actualHeader ? row[actualHeader] : null;
+    }
+
+    function normalizeHeaderKey(value) {
+      return String(value || "")
+        .replace(/\uFEFF/g, "")
+        .replace(/[\s._/%-]+/g, "")
+        .replace(/[^a-zA-Z0-9]/g, "")
+        .toLowerCase()
+        .trim();
+    }
+
+    function cleanHeader(value) {
+      return String(value || "")
+        .replace(/\uFEFF/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    function buildHeaderLookup(row) {
+      const lookup = {};
+      Object.keys(row || {}).forEach(originalHeader => {
+        const key = normalizeHeaderKey(originalHeader);
+        if (!lookup[key]) lookup[key] = originalHeader;
+      });
+      return lookup;
+    }
+
+    function findCsvHeader(row, expectedHeader) {
+      const lookup = buildHeaderLookup(row);
+      const key = normalizeHeaderKey(expectedHeader);
+
+      const aliases = {
+        departmentcode: ["departmentcode", "department code", "deptcode", "dept code", "department"],
+        departmentdesc: ["departmentdesc", "department desc", "deptdesc", "departmentdescription"],
+        locationcode: ["locationcode", "location code", "loccode", "location"],
+        locationdesc: ["locationdesc", "location desc", "locdesc", "locationdescription"],
+        clientcode: ["clientcode", "client"],
+        eecode: ["eecode", "ee code", "ee_code", "eecod", "employeecode", "employeenumber", "empcode", "empid"],
+        eename: ["eename", "ee name", "eenam", "employeename", "employee", "name"],
+        typecode: ["typecode", "type code", "typecd", "paytypecode"],
+        typedesc: ["typedesc", "type desc", "typedescription", "paytypedesc", "paytypedescription"],
+        registertype: ["registertype", "register type", "register"],
+        amount: ["amount", "amt"],
+        hoursunits: ["hoursunits", "hours units", "hours/units", "hoursunit", "hoursorunits", "hours", "units"],
+        wages: ["wages", "wage", "grosswages", "grosspay"],
+        payperiodstart: ["payperiodstart", "pay period start", "periodstart", "paystart", "startdate", "periodbegin", "payperiodbegin"],
+        payperiodend: ["payperiodend", "pay period end", "periodend", "payend", "enddate", "periodending", "periodenddate", "payperiodending"]
+      };
+
+      if (lookup[key]) return lookup[key];
+
+      const aliasList = aliases[key] || [];
+      for (const alias of aliasList) {
+        const aliasKey = normalizeHeaderKey(alias);
+        if (lookup[aliasKey]) return lookup[aliasKey];
+      }
+
+      const lookupKeys = Object.keys(lookup);
+      if (key.length >= 8) {
+        const startsWithMatch = lookupKeys.find(actualKey => {
+          return actualKey.startsWith(key.slice(0, 8)) || key.startsWith(actualKey.slice(0, 8));
+        });
+        if (startsWithMatch) return lookup[startsWithMatch];
+      }
+
+      return null;
+    }
+
+    function validateHeaders(rows, expectedHeaders, label) {
+      const firstRow = rows[0] || {};
+      const actualHeaders = Object.keys(firstRow || {});
+      const missing = [];
+
+      expectedHeaders.forEach(expectedHeader => {
+        const found = findCsvHeader(firstRow, expectedHeader);
+        if (!found) missing.push(expectedHeader);
+      });
+
+      if (missing.length) {
+        console.log(`${label} actual headers:`, actualHeaders);
+        throw new Error(`Missing ${label} headers: ${missing.join(", ")}`);
+      }
+    }
+
+    function normalizeValue(field, value) {
+      const cleaned = cleanText(value);
+      if (cleaned === "") return null;
+      if (NUMERIC_FIELDS.has(field)) return parseNumeric(cleaned);
+      if (DATE_FIELDS.has(field)) return parseDate(cleaned);
+      return cleaned;
+    }
+
+    function parseNumeric(value) {
+      if (value === null || value === undefined) return null;
+
+      const cleaned = String(value)
+        .replace(/[$,%]/g, "")
+        .replace(/,/g, "")
+        .replace(/\(([^)]+)\)/, "-$1")
+        .trim();
+
+      if (cleaned === "") return null;
+
+      const num = Number(cleaned);
+      return Number.isFinite(num) ? num : null;
+    }
+
+    function parseDate(value) {
+      const raw = cleanText(value);
+      if (!raw) return null;
+
+      const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+
+      const mdy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+      if (mdy) {
+        const month = String(mdy[1]).padStart(2, "0");
+        const day = String(mdy[2]).padStart(2, "0");
+        let year = mdy[3];
+        if (year.length === 2) year = Number(year) > 70 ? `19${year}` : `20${year}`;
+        return `${year}-${month}-${day}`;
+      }
+
+      return null;
+    }
+
+    function monthKey(value) {
+      if (!value) return "";
+      const raw = String(value).trim();
+
+      const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (iso) return `${iso[1]}-${iso[2]}`;
+
+      const mdy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+      if (mdy) return `${mdy[3]}-${String(mdy[1]).padStart(2, "0")}`;
+
+      return "";
+    }
+
+    function sum(rows, field) {
+      return (rows || []).reduce((acc, row) => acc + toNumber(row[field]), 0);
+    }
+
+    function toNumber(value) {
+      const n = Number(value ?? 0);
+      return Number.isFinite(n) ? n : 0;
+    }
+
+    function formatNumber(value, decimals = 2) {
+      const n = Number(value ?? 0);
+      if (!Number.isFinite(n)) return "—";
+      return n.toLocaleString(undefined, {
+        minimumFractionDigits: decimals,
+        maximumFractionDigits: decimals
+      });
+    }
+
+    function formatMoney(value) {
+      if (value === null || value === undefined || value === "") return "—";
+      const n = Number(value ?? 0);
+      if (!Number.isFinite(n)) return "—";
+      return n.toLocaleString(undefined, {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0
+      });
+    }
+
+    function formatPercent(value) {
+      if (value === null || value === undefined || value === "") return "—";
+      const n = Number(value);
+      if (!Number.isFinite(n)) return "—";
+      const sign = n > 0 ? "+" : "";
+      return `${sign}${(n * 100).toFixed(1)}%`;
+    }
+
+    function formatDate(value) {
+      if (!value) return "";
+      const raw = String(value).trim();
+
+      const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (iso) return `${iso[2]}/${iso[3]}/${iso[1]}`;
+
+      const mdy = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+      if (mdy) return `${String(mdy[1]).padStart(2, "0")}/${String(mdy[2]).padStart(2, "0")}/${mdy[3]}`;
+
+      return raw;
+    }
+
+    function cleanText(value) {
+      return String(value ?? "").replace(/\s+/g, " ").trim();
+    }
+
+    function nullIfBlank(value) {
+      const cleaned = cleanText(value);
+      return cleaned || null;
+    }
+
+    function isNumericType(type) {
+      return type === "num" || type === "money" || type === "pct";
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function slugify(value) {
+      return String(value || "export")
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+    }
   </script>
 </body>
 </html>
