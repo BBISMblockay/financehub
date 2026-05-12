@@ -550,6 +550,22 @@
       font-size: 11px;
     }
 
+    .edit-text {
+      height: 24px;
+      width: 150px;
+      padding: 0 6px;
+      border-radius: 6px;
+      font-size: 11px;
+    }
+
+    .edit-code {
+      height: 24px;
+      width: 72px;
+      padding: 0 6px;
+      border-radius: 6px;
+      font-size: 11px;
+    }
+
     .toast {
       position: fixed;
       right: 14px;
@@ -871,8 +887,8 @@
     <header class="payroll-header">
       <div class="payroll-title-wrap">
         <div class="payroll-kicker">Finance · Planning</div>
-        <div class="payroll-title">Payroll BI Workbench</div>
-        <div class="payroll-sub" id="userLine">Loading payroll workspace...</div>
+        <div class="payroll-title">Payroll BI Workbench <span style="font-size:11px;color:#4f46e5;font-weight:900;">Allocation Edit v2</span></div>
+        <div class="payroll-sub" id="userLine">Loading payroll workspace... allocation edit v2</div>
       </div>
 
       <div class="payroll-actions">
@@ -998,7 +1014,7 @@
             <button class="tab" data-tab="employees" onclick="setTab('employees')">Employees</button>
             <button class="tab" data-tab="types" onclick="setTab('types')">Register Types</button>
             <button class="tab" data-tab="codes" onclick="setTab('codes')">Pay Codes</button>
-            <button class="tab" data-tab="edit" onclick="setTab('edit')">Detail / Edit</button>
+            <button class="tab" data-tab="edit" onclick="setTab('edit')">Detail / Allocation Edit</button>
             <button class="tab" data-tab="adjusted" onclick="setTab('adjusted')">Adjusted Rows</button>
             <button class="tab" data-tab="exceptions" onclick="setTab('exceptions')">Exceptions</button>
           </div>
@@ -1136,6 +1152,7 @@ const cfg = window.__SILO_CONFIG__ || {};
 
     const DATE_FIELDS = new Set(["pay_period_start", "pay_period_end", "check_date"]);
 
+    console.log("Payroll BI Allocation Edit v2 loaded - dept/location inputs enabled");
     document.addEventListener("DOMContentLoaded", init);
     document.addEventListener("click", closeMenusOnOutsideClick);
 
@@ -2223,8 +2240,10 @@ const cfg = window.__SILO_CONFIG__ || {};
             <tr>
               <th>Period End</th>
               <th>Employee</th>
-              <th>Dept</th>
-              <th>Location</th>
+              <th>Dept Code</th>
+              <th>Dept Desc</th>
+              <th>Loc Code</th>
+              <th>Loc Desc</th>
               <th>Type</th>
               <th>Code</th>
               <th class="num">Amount</th>
@@ -2253,8 +2272,10 @@ const cfg = window.__SILO_CONFIG__ || {};
             <div>${escapeHtml(row.ee_name || "")}</div>
             <div style="color:#64748b;font-size:10px;">${escapeHtml(row.ee_code || "")}</div>
           </td>
-          <td>${escapeHtml(row.department_code || "")} · ${escapeHtml(row.department_desc || "")}</td>
-          <td>${escapeHtml(row.location_code || "")} · ${escapeHtml(row.location_desc || "")}</td>
+          <td><input class="edit-code" id="dept-code-${id}" value="${escapeHtml(row.department_code || "")}" /></td>
+          <td><input class="edit-text" id="dept-desc-${id}" value="${escapeHtml(row.department_desc || "")}" /></td>
+          <td><input class="edit-code" id="loc-code-${id}" value="${escapeHtml(row.location_code || "")}" /></td>
+          <td><input class="edit-text" id="loc-desc-${id}" value="${escapeHtml(row.location_desc || "")}" /></td>
           <td>${renderPill(row.register_type_norm)}</td>
           <td>${escapeHtml(row.typecode || "")} · ${escapeHtml(row.typedesc || "")}</td>
           <td class="num"><input class="edit-input" id="amount-${id}" value="${escapeHtml(row.amount_num)}" /></td>
@@ -2278,8 +2299,32 @@ const cfg = window.__SILO_CONFIG__ || {};
       const hours = parseNumeric(document.getElementById(`hours-${rowId}`)?.value);
       const wages = parseNumeric(document.getElementById(`wages-${rowId}`)?.value);
       const note = cleanText(document.getElementById(`note-${rowId}`)?.value) || "Manual adjustment from Payroll BI Workbench";
+      const departmentCode = cleanText(document.getElementById(`dept-code-${rowId}`)?.value);
+      const departmentDesc = cleanText(document.getElementById(`dept-desc-${rowId}`)?.value);
+      const locationCode = cleanText(document.getElementById(`loc-code-${rowId}`)?.value);
+      const locationDesc = cleanText(document.getElementById(`loc-desc-${rowId}`)?.value);
+
+      const allocationChanged =
+        departmentCode !== cleanText(row.department_code) ||
+        departmentDesc !== cleanText(row.department_desc) ||
+        locationCode !== cleanText(row.location_code) ||
+        locationDesc !== cleanText(row.location_desc);
+
+      const numericChanged =
+        toNumber(amount) !== toNumber(row.amount_num) ||
+        toNumber(hours) !== toNumber(row.hours_units_num) ||
+        toNumber(wages) !== toNumber(row.wages_num);
+
+      if (!allocationChanged && !numericChanged && note === cleanText(row.adjustment_note || "Manual adjustment from Payroll BI Workbench")) {
+        showToast("No changes detected.");
+        return;
+      }
 
       const payload = {
+        department_code: departmentCode || null,
+        department_desc: departmentDesc || null,
+        location_code: locationCode || null,
+        location_desc: locationDesc || null,
         amount,
         hours_units: hours,
         wages,
@@ -2302,7 +2347,7 @@ const cfg = window.__SILO_CONFIG__ || {};
 
         if (error) throw error;
 
-        showToast("Payroll row adjusted.");
+        showToast(allocationChanged && !numericChanged ? "Payroll allocation adjusted. Company totals unchanged." : "Payroll row adjusted.");
         await loadSelectedData();
         setTab(activeTab);
       } catch (error) {
