@@ -810,9 +810,11 @@
         <section class="panel workbench">
           <div class="tabs">
             <button class="tab active" data-tab="monthly" onclick="setTab('monthly')">Monthly Register</button>
+            <button class="tab" data-tab="insights" onclick="setTab('insights')">Insights</button>
             <button class="tab" data-tab="trend" onclick="setTab('trend')">Trend Compare</button>
             <button class="tab" data-tab="periods" onclick="setTab('periods')">Pay Periods</button>
             <button class="tab" data-tab="locations" onclick="setTab('locations')">Hours by Location</button>
+            <button class="tab" data-tab="locationCompare" onclick="setTab('locationCompare')">Location Compare</button>
             <button class="tab" data-tab="departments" onclick="setTab('departments')">Departments</button>
             <button class="tab" data-tab="employees" onclick="setTab('employees')">Employees</button>
             <button class="tab" data-tab="types" onclick="setTab('types')">Register Types</button>
@@ -881,6 +883,12 @@
     let employeeRows = [];
     let typeRows = [];
     let codeRows = [];
+    let departmentCompareRows = [];
+    let employeeCompareRows = [];
+    let locationCompareRows = [];
+    let typeCompareRows = [];
+    let codeCompareRows = [];
+    let insightRows = [];
     let exceptionRows = [];
 
     let currentRenderedRows = [];
@@ -1379,6 +1387,177 @@
         typecode: row.typecode,
         typedesc: row.typedesc
       })).sort((a, b) => b.register_activity - a.register_activity);
+
+      departmentCompareRows = buildComparisonRows(rows, ["department_code", "department_desc", "location_code", "location_desc"], row => ({
+        department_code: row.department_code,
+        department_desc: row.department_desc,
+        location_code: row.location_code,
+        location_desc: row.location_desc
+      })).sort((a, b) => Math.abs(b.delta_payroll_expense || 0) - Math.abs(a.delta_payroll_expense || 0));
+
+      employeeCompareRows = buildComparisonRows(rows, ["ee_code", "ee_name"], row => ({
+        ee_code: row.ee_code,
+        ee_name: row.ee_name
+      })).sort((a, b) => Math.abs(b.delta_payroll_expense || 0) - Math.abs(a.delta_payroll_expense || 0));
+
+      locationCompareRows = buildComparisonRows(rows, ["location_code", "location_desc"], row => ({
+        location_code: row.location_code,
+        location_desc: row.location_desc
+      })).sort((a, b) => Math.abs(b.delta_hours || 0) - Math.abs(a.delta_hours || 0));
+
+      typeCompareRows = buildComparisonRows(rows, ["register_type_norm"], row => ({
+        register_type: row.register_type_norm
+      })).sort((a, b) => Math.abs(b.delta_register_activity || 0) - Math.abs(a.delta_register_activity || 0));
+
+      codeCompareRows = buildComparisonRows(rows, ["register_type_norm", "typecode", "typedesc"], row => ({
+        register_type: row.register_type_norm,
+        typecode: row.typecode,
+        typedesc: row.typedesc
+      })).sort((a, b) => Math.abs(b.delta_register_activity || 0) - Math.abs(a.delta_register_activity || 0));
+
+      insightRows = buildInsightRows(rows);
+    }
+
+
+    function getComparePeriods(rows) {
+      const periods = [...new Set((rows || []).map(row => row.pay_period_end).filter(Boolean))]
+        .sort((a, b) => String(a).localeCompare(String(b)));
+
+      const current = periods[periods.length - 1] || null;
+      const prior = periods.length > 1 ? periods[periods.length - 2] : null;
+
+      return { current, prior };
+    }
+
+    function buildComparisonRows(rows, keyFields, baseFactory) {
+      const { current, prior } = getComparePeriods(rows);
+
+      if (!current) return [];
+
+      const currentRows = (rows || []).filter(row => row.pay_period_end === current);
+      const priorRows = prior ? (rows || []).filter(row => row.pay_period_end === prior) : [];
+
+      const currentAggs = aggregateRows(currentRows, keyFields, baseFactory);
+      const priorAggs = aggregateRows(priorRows, keyFields, baseFactory);
+
+      const priorMap = new Map();
+      for (const row of priorAggs) {
+        const key = keyFields.map(field => row[field] ?? "").join("||");
+        priorMap.set(key, row);
+      }
+
+      return currentAggs.map(row => {
+        const key = keyFields.map(field => row[field] ?? "").join("||");
+        const priorRow = priorMap.get(key) || emptyAggregate({});
+
+        const out = {
+          ...row,
+          current_period: current,
+          prior_period: prior,
+          current_hours: row.register_hours,
+          prior_hours: priorRow.register_hours || 0,
+          delta_hours: row.register_hours - (priorRow.register_hours || 0),
+          pct_hours: safePct(row.register_hours - (priorRow.register_hours || 0), priorRow.register_hours),
+
+          current_gross_wages: row.gross_wages,
+          prior_gross_wages: priorRow.gross_wages || 0,
+          delta_gross_wages: row.gross_wages - (priorRow.gross_wages || 0),
+          pct_gross_wages: safePct(row.gross_wages - (priorRow.gross_wages || 0), priorRow.gross_wages),
+
+          current_payroll_expense: row.payroll_expense,
+          prior_payroll_expense: priorRow.payroll_expense || 0,
+          delta_payroll_expense: row.payroll_expense - (priorRow.payroll_expense || 0),
+          pct_payroll_expense: safePct(row.payroll_expense - (priorRow.payroll_expense || 0), priorRow.payroll_expense),
+
+          current_wage_rate: row.wage_rate,
+          prior_wage_rate: priorRow.wage_rate || null,
+          delta_wage_rate: (row.wage_rate || 0) - (priorRow.wage_rate || 0),
+
+          current_register_activity: row.register_activity,
+          prior_register_activity: priorRow.register_activity || 0,
+          delta_register_activity: row.register_activity - (priorRow.register_activity || 0),
+          pct_register_activity: safePct(row.register_activity - (priorRow.register_activity || 0), priorRow.register_activity)
+        };
+
+        out.compare_note = comparisonNote(out);
+        return out;
+      });
+    }
+
+    function safePct(delta, prior) {
+      if (!prior) return null;
+      return delta / prior;
+    }
+
+    function comparisonNote(row) {
+      const notes = [];
+      if (Math.abs(row.delta_hours || 0) > 0.01) notes.push(`Hours ${formatDeltaNumber(row.delta_hours)}`);
+      if (Math.abs(row.delta_gross_wages || 0) > 0.01) notes.push(`Gross ${formatDeltaMoney(row.delta_gross_wages)}`);
+      if (Math.abs(row.delta_payroll_expense || 0) > 0.01) notes.push(`Expense ${formatDeltaMoney(row.delta_payroll_expense)}`);
+      if (Math.abs(row.delta_wage_rate || 0) > 0.01) notes.push(`Rate ${formatDeltaMoney(row.delta_wage_rate)}`);
+      return notes.length ? notes.join(" · ") : "Flat vs prior period";
+    }
+
+    function buildInsightRows(rows) {
+      const insights = [];
+      const { current, prior } = getComparePeriods(rows);
+      if (!current) return insights;
+
+      const currentAgg = finalizeAggregate((rows || []).filter(r => r.pay_period_end === current).reduce((acc, r) => {
+        addToAggregate(acc, r);
+        return acc;
+      }, emptyAggregate({ metric: "Current Period" })));
+
+      const priorAgg = finalizeAggregate((rows || []).filter(r => r.pay_period_end === prior).reduce((acc, r) => {
+        addToAggregate(acc, r);
+        return acc;
+      }, emptyAggregate({ metric: "Prior Period" })));
+
+      const deltaHours = currentAgg.register_hours - priorAgg.register_hours;
+      const deltaGross = currentAgg.gross_wages - priorAgg.gross_wages;
+      const deltaExpense = currentAgg.payroll_expense - priorAgg.payroll_expense;
+      const deltaRate = (currentAgg.wage_rate || 0) - (priorAgg.wage_rate || 0);
+
+      insights.push({
+        signal: "Period Movement",
+        severity: Math.abs(deltaExpense) > 25000 ? "High" : Math.abs(deltaExpense) > 10000 ? "Medium" : "Low",
+        metric: "Payroll Expense",
+        detail: `${formatDate(current)} vs ${formatDate(prior)}: ${formatDeltaMoney(deltaExpense)} (${formatPercent(safePct(deltaExpense, priorAgg.payroll_expense))})`,
+        driver: `Hours ${formatDeltaNumber(deltaHours)} · Gross ${formatDeltaMoney(deltaGross)} · Wage Rate ${formatDeltaMoney(deltaRate)}`
+      });
+
+      const topDept = departmentCompareRows[0];
+      if (topDept) {
+        insights.push({
+          signal: "Largest Department Driver",
+          severity: Math.abs(topDept.delta_payroll_expense || 0) > 10000 ? "High" : "Medium",
+          metric: topDept.department_desc || topDept.department_code || "Department",
+          detail: `${formatDeltaMoney(topDept.delta_payroll_expense)} payroll expense vs prior period`,
+          driver: `Hours ${formatDeltaNumber(topDept.delta_hours)} · Rate ${formatDeltaMoney(topDept.delta_wage_rate)}`
+        });
+      }
+
+      const topLoc = locationCompareRows[0];
+      if (topLoc) {
+        insights.push({
+          signal: "Largest Location Hours Move",
+          severity: Math.abs(topLoc.delta_hours || 0) > 250 ? "High" : "Medium",
+          metric: topLoc.location_desc || topLoc.location_code || "Location",
+          detail: `${formatDeltaNumber(topLoc.delta_hours)} hours vs prior period`,
+          driver: `Gross ${formatDeltaMoney(topLoc.delta_gross_wages)} · Expense ${formatDeltaMoney(topLoc.delta_payroll_expense)}`
+        });
+      }
+
+      const adjustedCount = rows.filter(row => row.is_adjusted_bool).length;
+      insights.push({
+        signal: "Adjustment Layer",
+        severity: adjustedCount ? "Medium" : "Low",
+        metric: "Adjusted Rows",
+        detail: `${formatNumber(adjustedCount, 0)} adjusted rows in current filter scope`,
+        driver: adjustedCount ? "Review Adjusted Rows tab before labor call." : "No manual adjustments in selected scope."
+      });
+
+      return insights;
     }
 
     function aggregateRows(rows, keyFields, baseFactory) {
@@ -1824,6 +2003,17 @@
         return;
       }
 
+      if (activeTab === "insights") {
+        renderTable(insightRows, [
+          ["severity", "Priority", "severity"],
+          ["signal", "Signal"],
+          ["metric", "Metric"],
+          ["detail", "Detail"],
+          ["driver", "Driver"]
+        ]);
+        return;
+      }
+
       if (activeTab === "trend") {
         renderTable(trendRows, [
           ["pay_period_end", "Period End", "date"],
@@ -1877,76 +2067,118 @@
         return;
       }
 
+      if (activeTab === "locationCompare") {
+        renderTable(locationCompareRows, [
+          ["location_code", "Loc Code"],
+          ["location_desc", "Location"],
+          ["current_period", "Current Period", "date"],
+          ["prior_period", "Prior Period", "date"],
+          ["current_hours", "Current Hours", "num"],
+          ["prior_hours", "Prior Hours", "num"],
+          ["delta_hours", "Δ Hours", "num"],
+          ["pct_hours", "% Hours", "pct"],
+          ["current_gross_wages", "Current Gross", "money"],
+          ["prior_gross_wages", "Prior Gross", "money"],
+          ["delta_gross_wages", "Δ Gross", "money"],
+          ["pct_gross_wages", "% Gross", "pct"],
+          ["current_wage_rate", "Current Rate", "money"],
+          ["prior_wage_rate", "Prior Rate", "money"],
+          ["delta_wage_rate", "Δ Rate", "money"],
+          ["compare_note", "Notes"]
+        ]);
+        return;
+      }
+
       if (activeTab === "departments") {
-        renderTable(departmentRows, [
+        renderTable(departmentCompareRows, [
           ["department_code", "Dept Code"],
           ["department_desc", "Department"],
           ["location_code", "Loc Code"],
           ["location_desc", "Location"],
-          ["employee_count", "Employees", "num"],
-          ["register_hours", "Hours/Units", "num"],
-          ["gross_wages", "Gross Wages", "money"],
-          ["employer_taxes", "Employer Taxes", "money"],
-          ["payroll_expense", "Payroll Expense", "money"],
-          ["net_pay", "Net Pay", "money"],
-          ["ee_taxes", "EE Taxes", "money"],
-          ["deductions", "Deductions", "money"],
-          ["wage_rate", "Wage Rate", "money"],
-          ["adjusted_count", "Adjusted", "num"]
+          ["current_period", "Current", "date"],
+          ["prior_period", "Prior", "date"],
+          ["current_hours", "Current Hours", "num"],
+          ["prior_hours", "Prior Hours", "num"],
+          ["delta_hours", "Δ Hours", "num"],
+          ["pct_hours", "% Hours", "pct"],
+          ["current_gross_wages", "Current Gross", "money"],
+          ["prior_gross_wages", "Prior Gross", "money"],
+          ["delta_gross_wages", "Δ Gross", "money"],
+          ["pct_gross_wages", "% Gross", "pct"],
+          ["current_payroll_expense", "Current Expense", "money"],
+          ["prior_payroll_expense", "Prior Expense", "money"],
+          ["delta_payroll_expense", "Δ Expense", "money"],
+          ["pct_payroll_expense", "% Expense", "pct"],
+          ["current_wage_rate", "Current Rate", "money"],
+          ["delta_wage_rate", "Δ Rate", "money"],
+          ["compare_note", "Notes"]
         ]);
         return;
       }
 
       if (activeTab === "employees") {
-        renderTable(employeeRows, [
+        renderTable(employeeCompareRows, [
           ["ee_code", "EE Code"],
           ["ee_name", "Employee"],
-          ["register_hours", "Hours/Units", "num"],
-          ["gross_wages", "Gross Wages", "money"],
-          ["employer_taxes", "Employer Taxes", "money"],
-          ["payroll_expense", "Payroll Expense", "money"],
-          ["net_pay", "Net Pay", "money"],
-          ["ee_taxes", "EE Taxes", "money"],
-          ["deductions", "Deductions", "money"],
-          ["wage_rate", "Wage Rate", "money"],
-          ["adjusted_count", "Adjusted", "num"]
+          ["current_period", "Current", "date"],
+          ["prior_period", "Prior", "date"],
+          ["current_hours", "Current Hours", "num"],
+          ["prior_hours", "Prior Hours", "num"],
+          ["delta_hours", "Δ Hours", "num"],
+          ["pct_hours", "% Hours", "pct"],
+          ["current_gross_wages", "Current Gross", "money"],
+          ["prior_gross_wages", "Prior Gross", "money"],
+          ["delta_gross_wages", "Δ Gross", "money"],
+          ["pct_gross_wages", "% Gross", "pct"],
+          ["current_payroll_expense", "Current Expense", "money"],
+          ["prior_payroll_expense", "Prior Expense", "money"],
+          ["delta_payroll_expense", "Δ Expense", "money"],
+          ["pct_payroll_expense", "% Expense", "pct"],
+          ["current_wage_rate", "Current Rate", "money"],
+          ["delta_wage_rate", "Δ Rate", "money"],
+          ["compare_note", "Notes"]
         ]);
         return;
       }
 
       if (activeTab === "types") {
-        renderTable(typeRows, [
+        renderTable(typeCompareRows, [
           ["register_type", "Register Type", "pill"],
-          ["employee_count", "Employees", "num"],
-          ["row_count", "Rows", "num"],
-          ["register_hours", "Hours/Units", "num"],
-          ["gross_wages", "Gross Wages", "money"],
-          ["employer_taxes", "Employer Taxes", "money"],
-          ["net_pay", "Net Pay", "money"],
-          ["ee_taxes", "EE Taxes", "money"],
-          ["deductions", "Deductions", "money"],
-          ["taxable_wage_base", "Taxable Wage Base", "money"],
-          ["register_activity", "Register Activity", "money"],
-          ["adjusted_count", "Adjusted", "num"]
+          ["current_period", "Current", "date"],
+          ["prior_period", "Prior", "date"],
+          ["current_register_activity", "Current Activity", "money"],
+          ["prior_register_activity", "Prior Activity", "money"],
+          ["delta_register_activity", "Δ Activity", "money"],
+          ["pct_register_activity", "% Activity", "pct"],
+          ["current_hours", "Current Hours", "num"],
+          ["prior_hours", "Prior Hours", "num"],
+          ["delta_hours", "Δ Hours", "num"],
+          ["current_gross_wages", "Current Gross", "money"],
+          ["delta_gross_wages", "Δ Gross", "money"],
+          ["current_payroll_expense", "Current Expense", "money"],
+          ["delta_payroll_expense", "Δ Expense", "money"],
+          ["compare_note", "Notes"]
         ]);
         return;
       }
 
       if (activeTab === "codes") {
-        renderTable(codeRows, [
+        renderTable(codeCompareRows, [
           ["register_type", "Register Type", "pill"],
           ["typecode", "Type Code"],
           ["typedesc", "Type Desc"],
-          ["employee_count", "Employees", "num"],
-          ["row_count", "Rows", "num"],
-          ["register_hours", "Hours/Units", "num"],
-          ["gross_wages", "Gross Wages", "money"],
-          ["employer_taxes", "Employer Taxes", "money"],
-          ["net_pay", "Net Pay", "money"],
-          ["ee_taxes", "EE Taxes", "money"],
-          ["deductions", "Deductions", "money"],
-          ["register_activity", "Register Activity", "money"],
-          ["adjusted_count", "Adjusted", "num"]
+          ["current_period", "Current", "date"],
+          ["prior_period", "Prior", "date"],
+          ["current_register_activity", "Current Activity", "money"],
+          ["prior_register_activity", "Prior Activity", "money"],
+          ["delta_register_activity", "Δ Activity", "money"],
+          ["pct_register_activity", "% Activity", "pct"],
+          ["current_hours", "Current Hours", "num"],
+          ["prior_hours", "Prior Hours", "num"],
+          ["delta_hours", "Δ Hours", "num"],
+          ["current_gross_wages", "Current Gross", "money"],
+          ["delta_gross_wages", "Δ Gross", "money"],
+          ["compare_note", "Notes"]
         ]);
         return;
       }
@@ -2499,6 +2731,29 @@
     function toNumber(value) {
       const n = Number(value ?? 0);
       return Number.isFinite(n) ? n : 0;
+    }
+
+
+    function formatDeltaNumber(value, decimals = 2) {
+      if (value === null || value === undefined || value === "") return "—";
+      const n = Number(value);
+      if (!Number.isFinite(n)) return "—";
+      const sign = n > 0 ? "+" : "";
+      return `${sign}${formatNumber(n, decimals)}`;
+    }
+
+    function formatDeltaMoney(value) {
+      if (value === null || value === undefined || value === "") return "—";
+      const n = Number(value);
+      if (!Number.isFinite(n)) return "—";
+      const sign = n > 0 ? "+" : n < 0 ? "-" : "";
+      const abs = Math.abs(n).toLocaleString(undefined, {
+        style: "currency",
+        currency: "USD",
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0
+      });
+      return `${sign}${abs}`;
     }
 
     function formatNumber(value, decimals = 2) {
