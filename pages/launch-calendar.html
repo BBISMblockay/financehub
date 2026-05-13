@@ -7,7 +7,7 @@
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="/pages/config.js?v=launch-v2"></script>
+  <script src="/pages/config.js?v=launch-v3"></script>
 
   <style>
     :root{
@@ -82,7 +82,7 @@
     .pill{display:inline-flex;align-items:center;border:1px solid var(--b);border-radius:999px;padding:3px 8px;font-size:10px;font-weight:900;color:var(--m);white-space:nowrap}
     .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.58);backdrop-filter:blur(6px);z-index:50;padding:18px}
     .modal.on{display:flex}
-    .sheet{width:min(980px,96vw);max-height:90vh;overflow:hidden}
+    .sheet{width:min(1040px,96vw);max-height:90vh;overflow:hidden}
     .mh{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--b)}
     .mb{padding:14px;overflow:auto;max-height:calc(90vh - 58px)}
     .drawer{position:fixed;right:0;top:0;height:100dvh;width:min(600px,96vw);background:var(--bg);border-left:1px solid var(--b);box-shadow:-20px 0 60px rgba(0,0,0,.35);z-index:40;transform:translateX(105%);transition:.18s ease;overflow:auto}
@@ -94,6 +94,11 @@
     .kv{border:1px solid var(--b);border-radius:13px;padding:8px;background:var(--surf)}
     .kv .k{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--m);font-weight:900}
     .kv .v{margin-top:3px;font-weight:800;word-break:break-word}
+    .lookup-box{border:1px solid var(--b);background:var(--surf);border-radius:16px;padding:10px;margin-top:8px}
+    .lookup-result{border-top:1px solid var(--b);padding:8px 0;cursor:pointer}
+    .lookup-result:hover{background:color-mix(in oklab,var(--a) 7%, transparent)}
+    .lookup-result:first-child{border-top:0}
+    .hidden{display:none!important}
     a{color:var(--a);font-weight:900;text-decoration:none}
     @media(max-width:980px){
       .app{grid-template-columns:1fr}
@@ -110,7 +115,7 @@
   <header class="top">
     <div>
       <h1>Silo Launch Calendar</h1>
-      <div class="sub">Silo-native marketing, product, and release planning · Supabase V2</div>
+      <div class="sub">Silo-native marketing, product, and release planning · Supabase V3</div>
     </div>
     <div class="row" style="flex-wrap:wrap;justify-content:flex-end">
       <span class="chip">Signed in <b id="signedIn">—</b></span>
@@ -165,8 +170,8 @@
     </div>
 
     <div class="section">
-      <div class="lbl" style="margin-top:0">V2 Scope</div>
-      <div class="mini">Adds SKU, PO, vendor, inventory tag, readiness, expected units/value, and flexible Silo Links.</div>
+      <div class="lbl" style="margin-top:0">V3 Scope</div>
+      <div class="mini">Adds manual, existing product, and PO/incoming product lookup modes. Incomplete future products can still be planned.</div>
     </div>
   </aside>
 
@@ -275,6 +280,26 @@
 
           <div><div class="lbl">Campaign type</div><input id="campaignInput" class="in" placeholder="Drop, promo, seasonal..." /></div>
           <div><div class="lbl">Collection</div><input id="collectionInput" class="in" placeholder="Collection / drop name" /></div>
+
+          <div class="md:col-span-2">
+            <div class="lbl">Product Source</div>
+            <select id="productSourceInput" class="in">
+              <option value="manual">Manual / Placeholder</option>
+              <option value="existing_product">Existing Product</option>
+              <option value="po_incoming">PO / Incoming Product</option>
+            </select>
+
+            <div id="lookupBox" class="lookup-box hidden">
+              <div class="row">
+                <input id="lookupSearchInput" class="in" placeholder="Search SKU, product title, PO, vendor..." />
+                <button type="button" class="btn p" id="lookupSearchBtn">Search</button>
+              </div>
+              <div id="lookupResults" style="margin-top:8px"></div>
+              <div class="mini" style="margin-top:6px">
+                Existing products pull from product master. PO/incoming products can be incomplete and still used as launch placeholders.
+              </div>
+            </div>
+          </div>
 
           <div><div class="lbl">SKU</div><input id="skuInput" class="in" placeholder="Product SKU" /></div>
           <div><div class="lbl">Product title</div><input id="productTitleInput" class="in" placeholder="Product title" /></div>
@@ -458,6 +483,21 @@
     $("closeModal").onclick = closeLaunchModal;
     $("cancelModal").onclick = closeLaunchModal;
     $("launchForm").onsubmit = saveLaunch;
+
+    $("productSourceInput").onchange = () => {
+      const source = $("productSourceInput").value;
+      $("lookupBox").classList.toggle("hidden", source === "manual");
+      $("lookupResults").innerHTML = "";
+      $("lookupSearchInput").value = "";
+    };
+
+    $("lookupSearchBtn").onclick = runProductLookup;
+    $("lookupSearchInput").addEventListener("keydown", e => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        runProductLookup();
+      }
+    });
 
     $("refreshBtn").onclick = loadAll;
     $("resetBtn").onclick = () => {
@@ -711,10 +751,154 @@
     $("assetsInput").value = x?.assets_needed || "";
     $("detailsInput").value = x?.details || "";
     $("notesInput").value = x?.notes || "";
+
+    $("productSourceInput").value = "manual";
+    $("lookupBox").classList.add("hidden");
+    $("lookupResults").innerHTML = "";
+    $("lookupSearchInput").value = "";
+
     $("launchModal").classList.add("on");
   }
 
   function closeLaunchModal(){ $("launchModal").classList.remove("on"); }
+
+  async function runProductLookup(){
+    const source = $("productSourceInput").value;
+    const q = $("lookupSearchInput").value.trim();
+
+    if (!q) {
+      $("lookupResults").innerHTML = `<div class="mini">Enter a SKU, title, PO, or vendor.</div>`;
+      return;
+    }
+
+    $("lookupResults").innerHTML = `<div class="mini">Searching...</div>`;
+
+    if (source === "existing_product") {
+      await searchProductsMaster(q);
+      return;
+    }
+
+    if (source === "po_incoming") {
+      await searchIncomingPOs(q);
+      return;
+    }
+
+    $("lookupResults").innerHTML = `<div class="mini">Manual mode does not search. Type directly into the fields below.</div>`;
+  }
+
+  async function searchProductsMaster(q){
+    const clean = q.replaceAll("%", "").trim();
+
+    const { data, error } = await supabaseClient
+      .from("products_master")
+      .select("id, sku, product_title, variant_title, product_type, vendor_original, image_url")
+      .or(`sku.ilike.%${clean}%,product_title.ilike.%${clean}%,variant_title.ilike.%${clean}%`)
+      .limit(20);
+
+    if (error) {
+      console.warn(error);
+      $("lookupResults").innerHTML = `<div class="mini">Could not search products_master. Manual entry still works.</div>`;
+      return;
+    }
+
+    if (!data?.length) {
+      $("lookupResults").innerHTML = `<div class="mini">No matching products found. Use manual placeholder fields below.</div>`;
+      return;
+    }
+
+    $("lookupResults").innerHTML = data.map(row => `
+      <div class="lookup-result" data-product="${encodeURIComponent(JSON.stringify(row))}">
+        <b>${esc(row.product_title || row.sku || "Product")}</b>
+        <div class="mini">
+          ${esc([row.sku, row.variant_title, row.product_type, row.vendor_original].filter(Boolean).join(" · "))}
+        </div>
+      </div>
+    `).join("");
+
+    document.querySelectorAll("[data-product]").forEach(el => {
+      el.onclick = () => {
+        const row = JSON.parse(decodeURIComponent(el.dataset.product));
+        $("skuInput").value = row.sku || "";
+        $("productTitleInput").value = row.product_title || row.variant_title || "";
+        $("productTypeInput").value = row.product_type || "";
+        $("vendorInput").value = row.vendor_original || "";
+        if (row.image_url && !$("imageInput").value) $("imageInput").value = row.image_url;
+        $("lookupResults").innerHTML = `<div class="mini">Product applied from products_master.</div>`;
+      };
+    });
+  }
+
+  async function searchIncomingPOs(q){
+    const clean = q.replaceAll("%", "").trim();
+
+    const candidateTables = [
+      {
+        table: "po_lines",
+        select: "id, sku, title, product_title, product_type, vendor_name, po_number, qty, retail_price, unit_cost"
+      },
+      {
+        table: "purchase_order_lines",
+        select: "id, sku, title, product_title, product_type, vendor_name, po_number, qty, retail_price, unit_cost"
+      },
+      {
+        table: "po_import_lines",
+        select: "id, sku, title, product_title, product_type, vendor_name, po_number, qty, retail_price, unit_cost"
+      },
+      {
+        table: "purchase_order_items",
+        select: "id, sku, title, product_title, product_type, vendor_name, po_number, qty, retail_price, unit_cost"
+      }
+    ];
+
+    for (const candidate of candidateTables) {
+      const res = await supabaseClient
+        .from(candidate.table)
+        .select(candidate.select)
+        .or(`sku.ilike.%${clean}%,title.ilike.%${clean}%,product_title.ilike.%${clean}%,po_number.ilike.%${clean}%,vendor_name.ilike.%${clean}%`)
+        .limit(20);
+
+      if (!res.error && res.data?.length) {
+        renderPOResults(res.data, candidate.table);
+        return;
+      }
+    }
+
+    $("lookupResults").innerHTML = `
+      <div class="mini">
+        No PO/incoming records found in common PO line tables. Manual placeholder entry still works.
+      </div>
+    `;
+  }
+
+  function renderPOResults(rows, tableName){
+    $("lookupResults").innerHTML = rows.map(row => `
+      <div class="lookup-result" data-po="${encodeURIComponent(JSON.stringify(row))}">
+        <b>${esc(row.title || row.product_title || row.sku || "Incoming Product")}</b>
+        <div class="mini">
+          ${esc([row.po_number, row.sku, row.product_type, row.vendor_name, row.qty ? `${row.qty} units` : null].filter(Boolean).join(" · "))}
+        </div>
+      </div>
+    `).join("");
+
+    document.querySelectorAll("[data-po]").forEach(el => {
+      el.onclick = () => {
+        const row = JSON.parse(decodeURIComponent(el.dataset.po));
+
+        $("skuInput").value = row.sku || "";
+        $("productTitleInput").value = row.product_title || row.title || "";
+        $("productTypeInput").value = row.product_type || "";
+        $("poNumberInput").value = row.po_number || "";
+        $("vendorInput").value = row.vendor_name || "";
+        $("expectedUnitsInput").value = row.qty || "";
+
+        if (row.qty && row.retail_price) {
+          $("expectedRetailInput").value = Number(row.qty) * Number(row.retail_price);
+        }
+
+        $("lookupResults").innerHTML = `<div class="mini">Incoming PO product applied from ${esc(tableName)}.</div>`;
+      };
+    });
+  }
 
   async function saveLaunch(e){
     e.preventDefault();
