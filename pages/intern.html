@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Silo | Intern Workbench</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/pages/config.js"></script>
+
+  <style>
+    body {
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f8fafc;
+    }
+
+    .card {
+      background: white;
+      border: 1px solid #e5e7eb;
+      border-radius: 16px;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
+    }
+
+    .input {
+      width: 100%;
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      padding: 9px 11px;
+      font-size: 13px;
+      background: white;
+      outline: none;
+    }
+
+    .input:focus {
+      border-color: #111827;
+      box-shadow: 0 0 0 2px rgba(17, 24, 39, 0.08);
+    }
+
+    .btn {
+      border-radius: 10px;
+      padding: 9px 14px;
+      font-size: 13px;
+      font-weight: 700;
+      border: 1px solid transparent;
+    }
+
+    .btn-dark {
+      background: #111827;
+      color: white;
+    }
+
+    .btn-light {
+      background: white;
+      color: #111827;
+      border-color: #d1d5db;
+    }
+
+    .pill {
+      border-radius: 999px;
+      padding: 3px 8px;
+      font-size: 11px;
+      font-weight: 700;
+      border: 1px solid #e5e7eb;
+      background: #f9fafb;
+    }
+
+    .status-open { color: #92400e; background: #fffbeb; border-color: #fde68a; }
+    .status-review { color: #1d4ed8; background: #eff6ff; border-color: #bfdbfe; }
+    .status-done { color: #166534; background: #f0fdf4; border-color: #bbf7d0; }
+  </style>
+</head>
+
+<body class="text-slate-900">
+  <div class="min-h-screen flex">
+
+    <aside class="w-64 bg-slate-950 text-white hidden lg:flex flex-col">
+      <div class="p-5 border-b border-white/10">
+        <div class="text-lg font-black tracking-tight">Silo</div>
+        <div class="text-xs text-slate-400 mt-1">Intern Workbench</div>
+      </div>
+
+      <nav class="p-3 space-y-1 text-sm">
+        <a href="/finance.html" class="block px-3 py-2 rounded-lg text-slate-300 hover:bg-white/10">Finance</a>
+        <a href="/ops.html" class="block px-3 py-2 rounded-lg text-slate-300 hover:bg-white/10">Ops</a>
+        <a href="/pages/intern.html" class="block px-3 py-2 rounded-lg bg-white/10 font-semibold">Intern Workbench</a>
+      </nav>
+
+      <div class="mt-auto p-4 text-xs text-slate-500">
+        Safe QA, notes, screenshots, and page review only.
+      </div>
+    </aside>
+
+    <main class="flex-1 p-4 lg:p-6">
+      <header class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-5">
+        <div>
+          <h1 class="text-2xl font-black tracking-tight">Intern Workbench</h1>
+          <p class="text-sm text-slate-500 mt-1">
+            Safe place to log QA issues, page notes, cleanup ideas, and screenshots.
+          </p>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <button id="refreshBtn" class="btn btn-light">Refresh</button>
+          <button id="logoutBtn" class="btn btn-light">Logout</button>
+        </div>
+      </header>
+
+      <section class="grid grid-cols-1 lg:grid-cols-4 gap-3 mb-5">
+        <div class="card p-4">
+          <div class="text-xs text-slate-500 font-bold uppercase">Open</div>
+          <div id="kpiOpen" class="text-2xl font-black mt-1">0</div>
+        </div>
+        <div class="card p-4">
+          <div class="text-xs text-slate-500 font-bold uppercase">In Review</div>
+          <div id="kpiReview" class="text-2xl font-black mt-1">0</div>
+        </div>
+        <div class="card p-4">
+          <div class="text-xs text-slate-500 font-bold uppercase">Done</div>
+          <div id="kpiDone" class="text-2xl font-black mt-1">0</div>
+        </div>
+        <div class="card p-4">
+          <div class="text-xs text-slate-500 font-bold uppercase">Total Logged</div>
+          <div id="kpiTotal" class="text-2xl font-black mt-1">0</div>
+        </div>
+      </section>
+
+      <section class="grid grid-cols-1 xl:grid-cols-3 gap-5">
+        <div class="card p-5 xl:col-span-1">
+          <h2 class="text-base font-black mb-4">Log Item</h2>
+
+          <form id="itemForm" class="space-y-3">
+            <div>
+              <label class="text-xs font-bold text-slate-600">Title</label>
+              <input id="title" class="input mt-1" placeholder="Example: PO page table overflows on mobile" required />
+            </div>
+
+            <div>
+              <label class="text-xs font-bold text-slate-600">Page / Path</label>
+              <input id="pagePath" class="input mt-1" placeholder="/pages/payroll.html" />
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="text-xs font-bold text-slate-600">Type</label>
+                <select id="itemType" class="input mt-1">
+                  <option value="qa">QA Issue</option>
+                  <option value="mobile">Mobile Issue</option>
+                  <option value="data">Data Question</option>
+                  <option value="ui">UI Cleanup</option>
+                  <option value="idea">Idea</option>
+                  <option value="documentation">Documentation</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="text-xs font-bold text-slate-600">Severity</label>
+                <select id="severity" class="input mt-1">
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="blocker">Blocker</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label class="text-xs font-bold text-slate-600">Screenshot URL</label>
+              <input id="screenshotUrl" class="input mt-1" placeholder="Optional link to screenshot" />
+            </div>
+
+            <div>
+              <label class="text-xs font-bold text-slate-600">Notes</label>
+              <textarea id="notes" class="input mt-1 min-h-[110px]" placeholder="What happened? What did you expect? Steps to recreate?"></textarea>
+            </div>
+
+            <button class="btn btn-dark w-full" type="submit">Submit Item</button>
+
+            <div id="formMsg" class="text-xs text-slate-500"></div>
+          </form>
+        </div>
+
+        <div class="card p-5 xl:col-span-2">
+          <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
+            <h2 class="text-base font-black">Logged Items</h2>
+
+            <div class="flex gap-2">
+              <select id="statusFilter" class="input">
+                <option value="">All Statuses</option>
+                <option value="open">Open</option>
+                <option value="review">Review</option>
+                <option value="done">Done</option>
+              </select>
+
+              <select id="typeFilter" class="input">
+                <option value="">All Types</option>
+                <option value="qa">QA</option>
+                <option value="mobile">Mobile</option>
+                <option value="data">Data</option>
+                <option value="ui">UI</option>
+                <option value="idea">Idea</option>
+                <option value="documentation">Docs</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="text-xs uppercase text-slate-500 border-b">
+                <tr>
+                  <th class="text-left py-2 pr-3">Item</th>
+                  <th class="text-left py-2 pr-3">Page</th>
+                  <th class="text-left py-2 pr-3">Type</th>
+                  <th class="text-left py-2 pr-3">Severity</th>
+                  <th class="text-left py-2 pr-3">Status</th>
+                  <th class="text-left py-2 pr-3">Date</th>
+                </tr>
+              </thead>
+              <tbody id="itemsBody" class="divide-y"></tbody>
+            </table>
+          </div>
+
+          <div id="emptyState" class="hidden text-center py-12 text-sm text-slate-500">
+            No items logged yet.
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    let supabaseClient;
+    let currentUser = null;
+    let allItems = [];
+
+    const els = {
+      form: document.getElementById("itemForm"),
+      title: document.getElementById("title"),
+      pagePath: document.getElementById("pagePath"),
+      itemType: document.getElementById("itemType"),
+      severity: document.getElementById("severity"),
+      screenshotUrl: document.getElementById("screenshotUrl"),
+      notes: document.getElementById("notes"),
+      formMsg: document.getElementById("formMsg"),
+      itemsBody: document.getElementById("itemsBody"),
+      emptyState: document.getElementById("emptyState"),
+      refreshBtn: document.getElementById("refreshBtn"),
+      logoutBtn: document.getElementById("logoutBtn"),
+      statusFilter: document.getElementById("statusFilter"),
+      typeFilter: document.getElementById("typeFilter"),
+      kpiOpen: document.getElementById("kpiOpen"),
+      kpiReview: document.getElementById("kpiReview"),
+      kpiDone: document.getElementById("kpiDone"),
+      kpiTotal: document.getElementById("kpiTotal")
+    };
+
+    function getConfigValue(keys) {
+      for (const key of keys) {
+        if (window[key]) return window[key];
+      }
+
+      if (window.SILO_CONFIG) {
+        for (const key of keys) {
+          if (window.SILO_CONFIG[key]) return window.SILO_CONFIG[key];
+        }
+      }
+
+      return null;
+    }
+
+    async function init() {
+      const supabaseUrl = getConfigValue(["SUPABASE_URL", "SILO_SUPABASE_URL"]);
+      const supabaseAnonKey = getConfigValue(["SUPABASE_ANON_KEY", "SILO_SUPABASE_ANON_KEY"]);
+
+      if (!supabaseUrl || !supabaseAnonKey) {
+        document.body.innerHTML = `
+          <div style="padding:24px;font-family:system-ui">
+            <h1>Missing Supabase config</h1>
+            <p>Check /pages/config.js for SUPABASE_URL and SUPABASE_ANON_KEY.</p>
+          </div>
+        `;
+        return;
+      }
+
+      supabaseClient = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
+
+      const { data, error } = await supabaseClient.auth.getUser();
+
+      if (error || !data?.user) {
+        window.location.href = "/pages/login.html";
+        return;
+      }
+
+      currentUser = data.user;
+
+      bindEvents();
+      await loadItems();
+    }
+
+    function bindEvents() {
+      els.form.addEventListener("submit", submitItem);
+      els.refreshBtn.addEventListener("click", loadItems);
+      els.statusFilter.addEventListener("change", renderItems);
+      els.typeFilter.addEventListener("change", renderItems);
+
+      els.logoutBtn.addEventListener("click", async () => {
+        await supabaseClient.auth.signOut();
+        window.location.href = "/pages/login.html";
+      });
+    }
+
+    async function submitItem(event) {
+      event.preventDefault();
+
+      els.formMsg.textContent = "Saving...";
+
+      const payload = {
+        created_by: currentUser.id,
+        title: els.title.value.trim(),
+        page_path: els.pagePath.value.trim() || null,
+        item_type: els.itemType.value,
+        severity: els.severity.value,
+        status: "open",
+        screenshot_url: els.screenshotUrl.value.trim() || null,
+        notes: els.notes.value.trim() || null
+      };
+
+      if (!payload.title) {
+        els.formMsg.textContent = "Title is required.";
+        return;
+      }
+
+      const { error } = await supabaseClient
+        .from("intern_workbench_items")
+        .insert(payload);
+
+      if (error) {
+        console.error(error);
+        els.formMsg.textContent = "Error saving item.";
+        return;
+      }
+
+      els.form.reset();
+      els.formMsg.textContent = "Saved.";
+      await loadItems();
+    }
+
+    async function loadItems() {
+      const { data, error } = await supabaseClient
+        .from("intern_workbench_items")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error(error);
+        els.itemsBody.innerHTML = `
+          <tr>
+            <td colspan="6" class="py-6 text-red-600">
+              Error loading items.
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      allItems = data || [];
+      renderKpis();
+      renderItems();
+    }
+
+    function renderKpis() {
+      els.kpiOpen.textContent = allItems.filter(x => x.status === "open").length;
+      els.kpiReview.textContent = allItems.filter(x => x.status === "review").length;
+      els.kpiDone.textContent = allItems.filter(x => x.status === "done").length;
+      els.kpiTotal.textContent = allItems.length;
+    }
+
+    function renderItems() {
+      const status = els.statusFilter.value;
+      const type = els.typeFilter.value;
+
+      const filtered = allItems.filter(item => {
+        if (status && item.status !== status) return false;
+        if (type && item.item_type !== type) return false;
+        return true;
+      });
+
+      els.emptyState.classList.toggle("hidden", filtered.length > 0);
+      els.itemsBody.innerHTML = "";
+
+      filtered.forEach(item => {
+        const tr = document.createElement("tr");
+
+        const date = item.created_at
+          ? new Date(item.created_at).toLocaleDateString()
+          : "";
+
+        const screenshot = item.screenshot_url
+          ? `<a href="${escapeHtml(item.screenshot_url)}" target="_blank" class="text-blue-700 font-bold">Screenshot</a>`
+          : "";
+
+        tr.innerHTML = `
+          <td class="py-3 pr-3 align-top min-w-[260px]">
+            <div class="font-bold text-slate-900">${escapeHtml(item.title)}</div>
+            ${item.notes ? `<div class="text-xs text-slate-500 mt-1 line-clamp-2">${escapeHtml(item.notes)}</div>` : ""}
+            ${screenshot ? `<div class="text-xs mt-1">${screenshot}</div>` : ""}
+          </td>
+
+          <td class="py-3 pr-3 align-top text-xs text-slate-600 min-w-[160px]">
+            ${escapeHtml(item.page_path || "—")}
+          </td>
+
+          <td class="py-3 pr-3 align-top">
+            <span class="pill">${escapeHtml(item.item_type || "qa")}</span>
+          </td>
+
+          <td class="py-3 pr-3 align-top">
+            <span class="pill">${escapeHtml(item.severity || "low")}</span>
+          </td>
+
+          <td class="py-3 pr-3 align-top min-w-[120px]">
+            <select class="input status-select text-xs" data-id="${item.id}">
+              <option value="open" ${item.status === "open" ? "selected" : ""}>Open</option>
+              <option value="review" ${item.status === "review" ? "selected" : ""}>Review</option>
+              <option value="done" ${item.status === "done" ? "selected" : ""}>Done</option>
+            </select>
+          </td>
+
+          <td class="py-3 pr-3 align-top text-xs text-slate-500">
+            ${date}
+          </td>
+        `;
+
+        els.itemsBody.appendChild(tr);
+      });
+
+      document.querySelectorAll(".status-select").forEach(select => {
+        select.addEventListener("change", async event => {
+          await updateStatus(event.target.dataset.id, event.target.value);
+        });
+      });
+    }
+
+    async function updateStatus(id, status) {
+      const { error } = await supabaseClient
+        .from("intern_workbench_items")
+        .update({ status })
+        .eq("id", id);
+
+      if (error) {
+        console.error(error);
+        alert("Could not update status.");
+        return;
+      }
+
+      await loadItems();
+    }
+
+    function escapeHtml(value) {
+      return String(value || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    init();
+  </script>
+</body>
+</html>
