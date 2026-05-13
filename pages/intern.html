@@ -43,6 +43,7 @@
       font-size: 13px;
       font-weight: 700;
       border: 1px solid transparent;
+      cursor: pointer;
     }
 
     .btn-dark {
@@ -63,11 +64,8 @@
       font-weight: 700;
       border: 1px solid #e5e7eb;
       background: #f9fafb;
+      white-space: nowrap;
     }
-
-    .status-open { color: #92400e; background: #fffbeb; border-color: #fde68a; }
-    .status-review { color: #1d4ed8; background: #eff6ff; border-color: #bfdbfe; }
-    .status-done { color: #166534; background: #f0fdf4; border-color: #bbf7d0; }
   </style>
 </head>
 
@@ -175,7 +173,6 @@
             </div>
 
             <button class="btn btn-dark w-full" type="submit">Submit Item</button>
-
             <div id="formMsg" class="text-xs text-slate-500"></div>
           </form>
         </div>
@@ -254,29 +251,40 @@
       kpiTotal: document.getElementById("kpiTotal")
     };
 
-    function getConfigValue(keys) {
-      for (const key of keys) {
-        if (window[key]) return window[key];
-      }
+    function getSupabaseConfig() {
+      return {
+        url:
+          window.SUPABASE_URL ||
+          window.supabaseUrl ||
+          window.SILO_SUPABASE_URL ||
+          window.SUPABASE_CONFIG?.url ||
+          window.CONFIG?.SUPABASE_URL ||
+          window.CONFIG?.supabaseUrl ||
+          window.SILO_CONFIG?.SUPABASE_URL ||
+          window.SILO_CONFIG?.url,
 
-      if (window.SILO_CONFIG) {
-        for (const key of keys) {
-          if (window.SILO_CONFIG[key]) return window.SILO_CONFIG[key];
-        }
-      }
-
-      return null;
+        anonKey:
+          window.SUPABASE_ANON_KEY ||
+          window.supabaseKey ||
+          window.SILO_SUPABASE_ANON_KEY ||
+          window.SUPABASE_CONFIG?.anonKey ||
+          window.SUPABASE_CONFIG?.anon_key ||
+          window.CONFIG?.SUPABASE_ANON_KEY ||
+          window.CONFIG?.supabaseAnonKey ||
+          window.CONFIG?.supabaseKey ||
+          window.SILO_CONFIG?.SUPABASE_ANON_KEY ||
+          window.SILO_CONFIG?.anonKey
+      };
     }
 
     async function init() {
-      const supabaseUrl = getConfigValue(["SUPABASE_URL", "SILO_SUPABASE_URL"]);
-      const supabaseAnonKey = getConfigValue(["SUPABASE_ANON_KEY", "SILO_SUPABASE_ANON_KEY"]);
+      const { url: supabaseUrl, anonKey: supabaseAnonKey } = getSupabaseConfig();
 
       if (!supabaseUrl || !supabaseAnonKey) {
         document.body.innerHTML = `
           <div style="padding:24px;font-family:system-ui">
-            <h1>Missing Supabase config</h1>
-            <p>Check /pages/config.js for SUPABASE_URL and SUPABASE_ANON_KEY.</p>
+            <h1 style="font-size:24px;font-weight:800;margin-bottom:8px;">Missing Supabase config</h1>
+            <p>Check /pages/config.js for your Supabase URL and anon key variable names.</p>
           </div>
         `;
         return;
@@ -336,7 +344,7 @@
 
       if (error) {
         console.error(error);
-        els.formMsg.textContent = "Error saving item.";
+        els.formMsg.textContent = "Error saving item. Check RLS/table permissions.";
         return;
       }
 
@@ -356,7 +364,7 @@
         els.itemsBody.innerHTML = `
           <tr>
             <td colspan="6" class="py-6 text-red-600">
-              Error loading items.
+              Error loading items. Check table name and RLS policies.
             </td>
           </tr>
         `;
@@ -402,7 +410,7 @@
         tr.innerHTML = `
           <td class="py-3 pr-3 align-top min-w-[260px]">
             <div class="font-bold text-slate-900">${escapeHtml(item.title)}</div>
-            ${item.notes ? `<div class="text-xs text-slate-500 mt-1 line-clamp-2">${escapeHtml(item.notes)}</div>` : ""}
+            ${item.notes ? `<div class="text-xs text-slate-500 mt-1">${escapeHtml(item.notes)}</div>` : ""}
             ${screenshot ? `<div class="text-xs mt-1">${screenshot}</div>` : ""}
           </td>
 
