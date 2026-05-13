@@ -7,7 +7,7 @@
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="/pages/config.js?v=launch-v1"></script>
+  <script src="/pages/config.js?v=launch-v2"></script>
 
   <style>
     :root{
@@ -50,7 +50,6 @@
     .btn{border:1px solid var(--b);background:var(--surf);border-radius:14px;padding:9px 11px;font-weight:900;cursor:pointer}
     .btn:hover{border-color:var(--b2)}
     .btn.p{background:color-mix(in oklab,var(--a) 16%, var(--surf));border-color:color-mix(in oklab,var(--a) 45%, var(--b))}
-    .btn.danger{background:color-mix(in oklab,var(--r) 14%, var(--surf));border-color:color-mix(in oklab,var(--r) 35%, var(--b))}
     .chip{display:inline-flex;gap:7px;align-items:center;border:1px solid var(--b);background:var(--surf);border-radius:999px;padding:7px 10px;color:var(--m);font-weight:800}
     .chip b{color:var(--t)}
     .kpis{display:flex;gap:8px;flex-wrap:wrap}
@@ -77,26 +76,31 @@
     .ev .t{font-size:11px;font-weight:900;line-height:1.18;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
     .ev .m{font-size:10px;color:var(--m);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
     .agenda{display:none;padding:12px 14px}
-    .arow{display:grid;grid-template-columns:120px 1fr 190px;gap:12px;align-items:center;border-top:1px solid var(--b);padding:10px 6px;cursor:pointer}
+    .arow{display:grid;grid-template-columns:120px 1fr 220px;gap:12px;align-items:center;border-top:1px solid var(--b);padding:10px 6px;cursor:pointer}
     .arow:hover{background:color-mix(in oklab,var(--a) 6%, transparent)}
     .muted{color:var(--m)}
     .pill{display:inline-flex;align-items:center;border:1px solid var(--b);border-radius:999px;padding:3px 8px;font-size:10px;font-weight:900;color:var(--m);white-space:nowrap}
     .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.58);backdrop-filter:blur(6px);z-index:50;padding:18px}
     .modal.on{display:flex}
-    .sheet{width:min(880px,96vw);max-height:90vh;overflow:hidden}
+    .sheet{width:min(980px,96vw);max-height:90vh;overflow:hidden}
     .mh{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--b)}
     .mb{padding:14px;overflow:auto;max-height:calc(90vh - 58px)}
-    .drawer{position:fixed;right:0;top:0;height:100dvh;width:min(560px,96vw);background:var(--bg);border-left:1px solid var(--b);box-shadow:-20px 0 60px rgba(0,0,0,.35);z-index:40;transform:translateX(105%);transition:.18s ease;overflow:auto}
+    .drawer{position:fixed;right:0;top:0;height:100dvh;width:min(600px,96vw);background:var(--bg);border-left:1px solid var(--b);box-shadow:-20px 0 60px rgba(0,0,0,.35);z-index:40;transform:translateX(105%);transition:.18s ease;overflow:auto}
     .drawer.on{transform:translateX(0)}
     .section{border:1px solid var(--b);background:var(--panel);border-radius:16px;padding:12px;margin-top:10px}
     .mini{font-size:11px;color:var(--m)}
     .task{display:flex;justify-content:space-between;gap:10px;border-top:1px solid var(--b);padding:8px 0}
+    .kvgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
+    .kv{border:1px solid var(--b);border-radius:13px;padding:8px;background:var(--surf)}
+    .kv .k{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--m);font-weight:900}
+    .kv .v{margin-top:3px;font-weight:800;word-break:break-word}
     a{color:var(--a);font-weight:900;text-decoration:none}
     @media(max-width:980px){
       .app{grid-template-columns:1fr}
       .side{position:relative;height:auto}
       .arow{grid-template-columns:90px 1fr}
       .arow .right{grid-column:2}
+      .kvgrid{grid-template-columns:1fr}
     }
   </style>
 </head>
@@ -106,7 +110,7 @@
   <header class="top">
     <div>
       <h1>Silo Launch Calendar</h1>
-      <div class="sub">Silo-native marketing, product, and release planning · Supabase V1</div>
+      <div class="sub">Silo-native marketing, product, and release planning · Supabase V2</div>
     </div>
     <div class="row" style="flex-wrap:wrap;justify-content:flex-end">
       <span class="chip">Signed in <b id="signedIn">—</b></span>
@@ -119,7 +123,7 @@
     <button class="btn p" id="newLaunchBtn" style="width:100%">+ New Launch</button>
 
     <div class="lbl">Search</div>
-    <input id="q" class="in" placeholder="Launch, designer, notes..." />
+    <input id="q" class="in" placeholder="Launch, SKU, PO, designer..." />
 
     <div class="lbl">Filters</div>
     <div class="row">
@@ -132,14 +136,20 @@
         <option value="launched">Launched</option>
         <option value="blocked">Blocked</option>
       </select>
-      <select id="typeFilter" class="in">
-        <option value="">All types</option>
-      </select>
+      <select id="typeFilter" class="in"><option value="">All types</option></select>
     </div>
 
     <div class="lbl">Designer</div>
-    <select id="designerFilter" class="in">
-      <option value="">All designers</option>
+    <select id="designerFilter" class="in"><option value="">All designers</option></select>
+
+    <div class="lbl">Readiness</div>
+    <select id="readinessFilter" class="in">
+      <option value="">All readiness</option>
+      <option value="not_reviewed">Not Reviewed</option>
+      <option value="at_risk">At Risk</option>
+      <option value="needs_inventory">Needs Inventory</option>
+      <option value="needs_assets">Needs Assets</option>
+      <option value="ready">Ready</option>
     </select>
 
     <div class="lbl">Date range</div>
@@ -155,8 +165,8 @@
     </div>
 
     <div class="section">
-      <div class="lbl" style="margin-top:0">V1 Scope</div>
-      <div class="mini">Launches, tasks, assets, and comments only. No Google Sheets. Product/PO/inventory links come later.</div>
+      <div class="lbl" style="margin-top:0">V2 Scope</div>
+      <div class="mini">Adds SKU, PO, vendor, inventory tag, readiness, expected units/value, and flexible Silo Links.</div>
     </div>
   </aside>
 
@@ -167,6 +177,7 @@
         <span class="chip">This month <b id="kMonth">0</b></span>
         <span class="chip">Next 7d <b id="k7">0</b></span>
         <span class="chip">Open tasks <b id="kTasks">0</b></span>
+        <span class="chip">At risk <b id="kRisk">0</b></span>
       </div>
       <div class="tabs">
         <button class="tab on" data-view="month">Month</button>
@@ -178,7 +189,7 @@
       <div class="calh">
         <div>
           <div class="title" id="monthTitle">—</div>
-          <div class="mini">Click a launch to open details</div>
+          <div class="mini">Click a launch to open connected Silo details</div>
         </div>
         <div class="row">
           <button class="btn" id="prevMonth">← Prev</button>
@@ -222,21 +233,10 @@
             <input id="titleInput" class="in" required placeholder="Launch title" />
           </div>
 
-          <div>
-            <div class="lbl">Launch date</div>
-            <input id="dateInput" class="in" type="date" required />
-          </div>
+          <div><div class="lbl">Launch date</div><input id="dateInput" class="in" type="date" required /></div>
+          <div><div class="lbl">Launch time</div><input id="timeInput" class="in" type="time" /></div>
 
-          <div>
-            <div class="lbl">Launch time</div>
-            <input id="timeInput" class="in" type="time" />
-          </div>
-
-          <div>
-            <div class="lbl">Launch type</div>
-            <input id="typeInput" class="in" placeholder="Main, Filler, Campaign..." />
-          </div>
-
+          <div><div class="lbl">Launch type</div><input id="typeInput" class="in" placeholder="Main, Filler, Campaign..." /></div>
           <div>
             <div class="lbl">Status</div>
             <select id="statusInput" class="in">
@@ -260,44 +260,43 @@
           </div>
 
           <div>
-            <div class="lbl">Designer</div>
-            <input id="designerInput" class="in" placeholder="Designer / owner" />
+            <div class="lbl">Launch readiness</div>
+            <select id="readinessInput" class="in">
+              <option value="not_reviewed">Not Reviewed</option>
+              <option value="at_risk">At Risk</option>
+              <option value="needs_inventory">Needs Inventory</option>
+              <option value="needs_assets">Needs Assets</option>
+              <option value="ready">Ready</option>
+            </select>
           </div>
 
-          <div>
-            <div class="lbl">Marketing channel</div>
-            <input id="channelInput" class="in" placeholder="Email, social, site, retail..." />
-          </div>
+          <div><div class="lbl">Designer</div><input id="designerInput" class="in" placeholder="Designer / owner" /></div>
+          <div><div class="lbl">Marketing channel</div><input id="channelInput" class="in" placeholder="Email, social, site..." /></div>
 
-          <div>
-            <div class="lbl">Campaign type</div>
-            <input id="campaignInput" class="in" placeholder="Drop, promo, seasonal..." />
-          </div>
+          <div><div class="lbl">Campaign type</div><input id="campaignInput" class="in" placeholder="Drop, promo, seasonal..." /></div>
+          <div><div class="lbl">Collection</div><input id="collectionInput" class="in" placeholder="Collection / drop name" /></div>
 
-          <div class="md:col-span-2">
-            <div class="lbl">Launch image URL</div>
-            <input id="imageInput" class="in" placeholder="https://..." />
-          </div>
+          <div><div class="lbl">SKU</div><input id="skuInput" class="in" placeholder="Product SKU" /></div>
+          <div><div class="lbl">Product title</div><input id="productTitleInput" class="in" placeholder="Product title" /></div>
 
-          <div class="md:col-span-2">
-            <div class="lbl">Assets needed</div>
-            <textarea id="assetsInput" class="in" placeholder="Email hero, social graphics, PDP image, collection banner..."></textarea>
-          </div>
+          <div><div class="lbl">Product type</div><input id="productTypeInput" class="in" placeholder="Cap, tee, hoodie..." /></div>
+          <div><div class="lbl">Inventory tag</div><input id="inventoryTagInput" class="in" placeholder="launch, seasonal, keep..." /></div>
 
-          <div class="md:col-span-2">
-            <div class="lbl">Details</div>
-            <textarea id="detailsInput" class="in" placeholder="Launch details, product notes, timing, blockers..."></textarea>
-          </div>
+          <div><div class="lbl">PO number</div><input id="poNumberInput" class="in" placeholder="PO # / internal PO" /></div>
+          <div><div class="lbl">Vendor</div><input id="vendorInput" class="in" placeholder="Vendor name" /></div>
 
-          <div class="md:col-span-2">
-            <div class="lbl">Notes</div>
-            <textarea id="notesInput" class="in" placeholder="Internal notes"></textarea>
-          </div>
+          <div><div class="lbl">Expected units</div><input id="expectedUnitsInput" class="in" type="number" min="0" step="1" /></div>
+          <div><div class="lbl">Expected retail value</div><input id="expectedRetailInput" class="in" type="number" min="0" step="0.01" /></div>
+
+          <div class="md:col-span-2"><div class="lbl">Launch image URL</div><input id="imageInput" class="in" placeholder="https://..." /></div>
+          <div class="md:col-span-2"><div class="lbl">Assets needed</div><textarea id="assetsInput" class="in"></textarea></div>
+          <div class="md:col-span-2"><div class="lbl">Details</div><textarea id="detailsInput" class="in"></textarea></div>
+          <div class="md:col-span-2"><div class="lbl">Notes</div><textarea id="notesInput" class="in"></textarea></div>
         </div>
 
         <div class="row" style="justify-content:flex-end;margin-top:12px">
           <button type="button" class="btn" id="cancelModal">Cancel</button>
-          <button type="submit" class="btn p" id="saveLaunchBtn">Save Launch</button>
+          <button type="submit" class="btn p">Save Launch</button>
         </div>
         <div class="mini" id="formMsg"></div>
       </form>
@@ -321,6 +320,41 @@
     </div>
 
     <div class="section" id="launchMeta"></div>
+    <div class="section" id="systemMeta"></div>
+
+    <div class="section">
+      <div class="row" style="justify-content:space-between">
+        <div class="title">Silo Links</div>
+        <button class="btn" id="addSystemLinkBtn">+ Link</button>
+      </div>
+      <div id="systemLinksList" style="margin-top:8px"></div>
+
+      <form id="systemLinkForm" class="hidden" style="margin-top:10px">
+        <div class="row">
+          <select id="linkType" class="in">
+            <option value="product">Product</option>
+            <option value="po">PO</option>
+            <option value="inventory_tag">Inventory Tag</option>
+            <option value="planning_scenario">Planning Scenario</option>
+            <option value="report">Report</option>
+            <option value="collection">Collection</option>
+            <option value="campaign">Campaign</option>
+            <option value="other">Other</option>
+          </select>
+          <input id="linkLabel" class="in" placeholder="Label" />
+        </div>
+        <div class="row" style="margin-top:8px">
+          <input id="linkTable" class="in" placeholder="ref_table, optional" />
+          <input id="linkRefId" class="in" placeholder="ref_id, optional" />
+        </div>
+        <input id="linkUrl" class="in" style="margin-top:8px" placeholder="URL / page path, optional" />
+        <textarea id="linkNotes" class="in" style="margin-top:8px" placeholder="Notes"></textarea>
+        <div class="row" style="margin-top:8px;justify-content:flex-end">
+          <button type="button" class="btn" id="cancelSystemLinkBtn">Cancel</button>
+          <button class="btn p">Save Link</button>
+        </div>
+      </form>
+    </div>
 
     <div class="section">
       <div class="row" style="justify-content:space-between">
@@ -355,7 +389,7 @@
       <form id="assetForm" class="hidden" style="margin-top:10px">
         <input id="assetName" class="in" placeholder="Asset name" />
         <input id="assetUrl" class="in" style="margin-top:8px" placeholder="https://..." required />
-        <input id="assetType" class="in" style="margin-top:8px" placeholder="Asset type: image, drive, brief..." />
+        <input id="assetType" class="in" style="margin-top:8px" placeholder="Asset type" />
         <textarea id="assetNotes" class="in" style="margin-top:8px" placeholder="Asset notes"></textarea>
         <div class="row" style="margin-top:8px;justify-content:flex-end">
           <button type="button" class="btn" id="cancelAssetBtn">Cancel</button>
@@ -379,16 +413,8 @@
 
 <script>
 (() => {
-  const SUPABASE_URL =
-    window.__SILO_CONFIG__?.SUPABASE_URL ||
-    window.SUPABASE_URL ||
-    window.CONFIG?.SUPABASE_URL;
-
-  const SUPABASE_ANON_KEY =
-    window.__SILO_CONFIG__?.SUPABASE_ANON_KEY ||
-    window.__SILO_CONFIG__?.SUPABASE_KEY ||
-    window.SUPABASE_ANON_KEY ||
-    window.CONFIG?.SUPABASE_ANON_KEY;
+  const SUPABASE_URL = window.__SILO_CONFIG__?.SUPABASE_URL || window.SUPABASE_URL || window.CONFIG?.SUPABASE_URL;
+  const SUPABASE_ANON_KEY = window.__SILO_CONFIG__?.SUPABASE_ANON_KEY || window.__SILO_CONFIG__?.SUPABASE_KEY || window.SUPABASE_ANON_KEY || window.CONFIG?.SUPABASE_ANON_KEY;
 
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
     document.body.innerHTML = "<div style='padding:24px;font-family:system-ui'>Missing Supabase config.</div>";
@@ -398,49 +424,36 @@
   const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   let currentUser = null;
-  let launches = [];
-  let tasks = [];
-  let assets = [];
-  let comments = [];
-  let filtered = [];
+  let launches = [], tasks = [], assets = [], comments = [], systemLinks = [], filtered = [];
   let activeLaunch = null;
   let view = "month";
   let monthAnchor = startOfMonth(new Date());
   let agendaAnchor = startOfDay(new Date());
+  const F = { q:"", status:"", type:"", designer:"", readiness:"", from:"", to:"" };
 
-  const F = { q:"", status:"", type:"", designer:"", from:"", to:"" };
   const $ = id => document.getElementById(id);
   const esc = v => String(v ?? "").replace(/[&<>"']/g, m => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;" }[m]));
-  const iso = d => {
-    d = startOfDay(d);
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
-  };
+  const money = v => Number(v || 0).toLocaleString("en-US", { style:"currency", currency:"USD", maximumFractionDigits:0 });
+  const iso = d => { d = startOfDay(d); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`; };
   const fmt = d => d ? new Date(d + "T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "—";
   const addDays = (d,n) => { d=new Date(d); d.setDate(d.getDate()+n); return d; };
   const addMonths = (d,n) => startOfMonth(new Date(d.getFullYear(), d.getMonth()+n, 1));
   function startOfDay(d){ d=new Date(d); d.setHours(0,0,0,0); return d; }
   function startOfMonth(d){ d=startOfDay(d); d.setDate(1); return d; }
+  function debounce(fn,ms){ let t; return (...args) => { clearTimeout(t); t=setTimeout(() => fn(...args), ms); }; }
 
   async function init(){
     const { data, error } = await supabaseClient.auth.getUser();
     if (error) throw error;
     currentUser = data?.user || null;
-    if (!currentUser) {
-      location.href = "/pages/login.html";
-      return;
-    }
-
+    if (!currentUser) { location.href = "/pages/login.html"; return; }
     $("signedIn").textContent = currentUser.email || "user";
     bind();
     await loadAll();
   }
 
   function bind(){
-    $("logoutBtn").onclick = async () => {
-      await supabaseClient.auth.signOut();
-      location.href = "/pages/login.html";
-    };
-
+    $("logoutBtn").onclick = async () => { await supabaseClient.auth.signOut(); location.href = "/pages/login.html"; };
     $("newLaunchBtn").onclick = () => openLaunchModal();
     $("closeModal").onclick = closeLaunchModal;
     $("cancelModal").onclick = closeLaunchModal;
@@ -448,8 +461,8 @@
 
     $("refreshBtn").onclick = loadAll;
     $("resetBtn").onclick = () => {
-      Object.assign(F,{q:"",status:"",type:"",designer:"",from:"",to:""});
-      ["q","statusFilter","typeFilter","designerFilter","fromFilter","toFilter"].forEach(id => $(id).value = "");
+      Object.assign(F,{q:"",status:"",type:"",designer:"",readiness:"",from:"",to:""});
+      ["q","statusFilter","typeFilter","designerFilter","readinessFilter","fromFilter","toFilter"].forEach(id => $(id).value = "");
       applyFilters(); render();
     };
 
@@ -457,15 +470,14 @@
     $("statusFilter").onchange = e => { F.status = e.target.value; applyFilters(); render(); };
     $("typeFilter").onchange = e => { F.type = e.target.value; applyFilters(); render(); };
     $("designerFilter").onchange = e => { F.designer = e.target.value; applyFilters(); render(); };
+    $("readinessFilter").onchange = e => { F.readiness = e.target.value; applyFilters(); render(); };
     $("fromFilter").onchange = e => { F.from = e.target.value; applyFilters(); render(); };
     $("toFilter").onchange = e => { F.to = e.target.value; applyFilters(); render(); };
 
-    document.querySelectorAll(".tab").forEach(btn => {
-      btn.onclick = () => {
-        view = btn.dataset.view;
-        document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === btn));
-        render();
-      };
+    document.querySelectorAll(".tab").forEach(btn => btn.onclick = () => {
+      view = btn.dataset.view;
+      document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === btn));
+      render();
     });
 
     $("prevMonth").onclick = () => { monthAnchor = addMonths(monthAnchor,-1); render(); };
@@ -479,6 +491,10 @@
     $("closeDrawer").onclick = closeDrawer;
     $("editLaunchBtn").onclick = () => activeLaunch && openLaunchModal(activeLaunch);
     $("refreshDetailBtn").onclick = async () => { await loadAll(false); if(activeLaunch) openDrawer(activeLaunch.id); };
+
+    $("addSystemLinkBtn").onclick = () => $("systemLinkForm").classList.remove("hidden");
+    $("cancelSystemLinkBtn").onclick = () => $("systemLinkForm").classList.add("hidden");
+    $("systemLinkForm").onsubmit = saveSystemLink;
 
     $("addTaskBtn").onclick = () => $("taskForm").classList.remove("hidden");
     $("cancelTaskBtn").onclick = () => $("taskForm").classList.add("hidden");
@@ -504,22 +520,25 @@
   }
 
   async function loadAll(shouldRender = true){
-    const [l,t,a,c] = await Promise.all([
+    const [l,t,a,c,s] = await Promise.all([
       supabaseClient.from("launch_calendar").select("*").order("launch_date",{ascending:true}),
       supabaseClient.from("launch_tasks").select("*").order("created_at",{ascending:false}),
       supabaseClient.from("launch_assets").select("*").order("created_at",{ascending:false}),
-      supabaseClient.from("launch_comments").select("*").order("created_at",{ascending:false})
+      supabaseClient.from("launch_comments").select("*").order("created_at",{ascending:false}),
+      supabaseClient.from("launch_system_links").select("*").order("created_at",{ascending:false})
     ]);
 
     if (l.error) throw l.error;
     if (t.error) console.warn(t.error);
     if (a.error) console.warn(a.error);
     if (c.error) console.warn(c.error);
+    if (s.error) console.warn(s.error);
 
     launches = l.data || [];
     tasks = t.data || [];
     assets = a.data || [];
     comments = c.data || [];
+    systemLinks = s.data || [];
 
     fillFilterOptions();
     applyFilters();
@@ -541,10 +560,16 @@
       if (F.status && x.status !== F.status) return false;
       if (F.type && x.launch_type !== F.type) return false;
       if (F.designer && x.designer !== F.designer) return false;
+      if (F.readiness && x.launch_readiness !== F.readiness) return false;
       if (F.from && x.launch_date < F.from) return false;
       if (F.to && x.launch_date > F.to) return false;
       if (q) {
-        const blob = [x.title,x.launch_type,x.designer,x.marketing_channel,x.campaign_type,x.assets_needed,x.details,x.notes].join(" ").toLowerCase();
+        const blob = [
+          x.title,x.launch_type,x.designer,x.marketing_channel,x.campaign_type,
+          x.assets_needed,x.details,x.notes,x.product_sku,x.product_title,
+          x.product_type,x.collection_name,x.po_number,x.vendor_name,x.inventory_tag,
+          x.launch_readiness
+        ].join(" ").toLowerCase();
         if (!blob.includes(q)) return false;
       }
       return true;
@@ -562,17 +587,16 @@
     const mStart = iso(monthAnchor);
     const mEnd = iso(new Date(monthAnchor.getFullYear(), monthAnchor.getMonth()+1, 0));
     $("kMonth").textContent = filtered.filter(x => x.launch_date >= mStart && x.launch_date <= mEnd).length;
-
     const today = iso(new Date());
     const next7 = iso(addDays(new Date(),7));
     $("k7").textContent = filtered.filter(x => x.launch_date >= today && x.launch_date < next7).length;
     $("kTasks").textContent = tasks.filter(x => x.status !== "done" && x.status !== "complete").length;
+    $("kRisk").textContent = filtered.filter(x => ["at_risk","needs_inventory","needs_assets"].includes(x.launch_readiness)).length;
   }
 
   function renderMonth(){
     $("monthView").style.display = "";
     $("agendaView").style.display = "none";
-
     $("monthTitle").textContent = monthAnchor.toLocaleDateString("en-US",{month:"long",year:"numeric"});
     const grid = $("calendarGrid");
     grid.innerHTML = "";
@@ -598,13 +622,11 @@
     });
 
     const today = iso(new Date());
-
     for (let d = new Date(start); d <= end; d = addDays(d,1)) {
       const key = iso(d);
       const items = byDate.get(key) || [];
       const cell = document.createElement("div");
       cell.className = "cell" + (d.getMonth() === m ? "" : " off");
-
       cell.innerHTML = `
         <div class="day">
           <b>${d.getDate()} ${key === today ? `<span class="badge">Today</span>` : ""}</b>
@@ -615,22 +637,18 @@
           ${items.length > 4 ? `<div class="mini">+ ${items.length - 4} more</div>` : ""}
         </div>
       `;
-
-      cell.querySelectorAll("[data-launch]").forEach(el => {
-        el.onclick = () => openDrawer(el.dataset.launch);
-      });
-
+      cell.querySelectorAll("[data-launch]").forEach(el => el.onclick = () => openDrawer(el.dataset.launch));
       grid.appendChild(cell);
     }
   }
 
   function evCard(x){
     const taskCount = tasks.filter(t => t.launch_id === x.id && t.status !== "done").length;
-    const cls = x.status === "launched" ? "done" : x.status === "blocked" ? "blocked" : x.status === "ready" ? "review" : "";
+    const cls = x.status === "launched" ? "done" : x.status === "blocked" || x.launch_readiness === "at_risk" ? "blocked" : x.status === "ready" || x.launch_readiness === "ready" ? "review" : "";
     return `
       <div class="ev ${cls}" data-launch="${x.id}">
         <div class="t">${esc(x.title)}</div>
-        <div class="m">${esc([x.launch_type, x.designer, taskCount ? `${taskCount} tasks` : null].filter(Boolean).join(" • "))}</div>
+        <div class="m">${esc([x.launch_type, x.product_sku, x.po_number, taskCount ? `${taskCount} tasks` : null].filter(Boolean).join(" • "))}</div>
       </div>
     `;
   }
@@ -638,7 +656,6 @@
   function renderAgenda(){
     $("monthView").style.display = "none";
     $("agendaView").style.display = "block";
-
     const start = iso(agendaAnchor);
     const end = iso(addDays(agendaAnchor,14));
     $("agendaTitle").textContent = `Agenda — ${fmt(start)} → ${fmt(iso(addDays(agendaAnchor,13)))}`;
@@ -654,10 +671,10 @@
         <div><b>${esc(fmt(x.launch_date))}</b></div>
         <div>
           <div style="font-weight:900">${esc(x.title)}</div>
-          <div class="mini">${esc([x.launch_type, x.designer, x.marketing_channel].filter(Boolean).join(" • "))}</div>
+          <div class="mini">${esc([x.launch_type, x.product_sku, x.po_number, x.designer].filter(Boolean).join(" • "))}</div>
         </div>
         <div class="right row" style="justify-content:flex-end;flex-wrap:wrap">
-          <span class="pill">${esc(x.status || "planned")}</span>
+          <span class="pill">${esc(x.launch_readiness || "not_reviewed")}</span>
           <span class="pill">${taskCount} open tasks</span>
         </div>
       `;
@@ -677,9 +694,19 @@
     $("typeInput").value = x?.launch_type || "";
     $("statusInput").value = x?.status || "planned";
     $("priorityInput").value = x?.priority || "normal";
+    $("readinessInput").value = x?.launch_readiness || "not_reviewed";
     $("designerInput").value = x?.designer || "";
     $("channelInput").value = x?.marketing_channel || "";
     $("campaignInput").value = x?.campaign_type || "";
+    $("collectionInput").value = x?.collection_name || "";
+    $("skuInput").value = x?.product_sku || "";
+    $("productTitleInput").value = x?.product_title || "";
+    $("productTypeInput").value = x?.product_type || "";
+    $("inventoryTagInput").value = x?.inventory_tag || "";
+    $("poNumberInput").value = x?.po_number || "";
+    $("vendorInput").value = x?.vendor_name || "";
+    $("expectedUnitsInput").value = x?.expected_units || "";
+    $("expectedRetailInput").value = x?.expected_retail_value || "";
     $("imageInput").value = x?.launch_image_url || "";
     $("assetsInput").value = x?.assets_needed || "";
     $("detailsInput").value = x?.details || "";
@@ -687,9 +714,7 @@
     $("launchModal").classList.add("on");
   }
 
-  function closeLaunchModal(){
-    $("launchModal").classList.remove("on");
-  }
+  function closeLaunchModal(){ $("launchModal").classList.remove("on"); }
 
   async function saveLaunch(e){
     e.preventDefault();
@@ -703,9 +728,19 @@
       launch_type: $("typeInput").value.trim() || null,
       status: $("statusInput").value,
       priority: $("priorityInput").value,
+      launch_readiness: $("readinessInput").value,
       designer: $("designerInput").value.trim() || null,
       marketing_channel: $("channelInput").value.trim() || null,
       campaign_type: $("campaignInput").value.trim() || null,
+      collection_name: $("collectionInput").value.trim() || null,
+      product_sku: $("skuInput").value.trim() || null,
+      product_title: $("productTitleInput").value.trim() || null,
+      product_type: $("productTypeInput").value.trim() || null,
+      inventory_tag: $("inventoryTagInput").value.trim() || null,
+      po_number: $("poNumberInput").value.trim() || null,
+      vendor_name: $("vendorInput").value.trim() || null,
+      expected_units: $("expectedUnitsInput").value ? Number($("expectedUnitsInput").value) : null,
+      expected_retail_value: $("expectedRetailInput").value ? Number($("expectedRetailInput").value) : null,
       launch_image_url: $("imageInput").value.trim() || null,
       assets_needed: $("assetsInput").value.trim() || null,
       details: $("detailsInput").value.trim() || null,
@@ -713,9 +748,8 @@
     };
 
     let res;
-    if (id) {
-      res = await supabaseClient.from("launch_calendar").update(payload).eq("id", id).select().single();
-    } else {
+    if (id) res = await supabaseClient.from("launch_calendar").update(payload).eq("id", id).select().single();
+    else {
       payload.created_by = currentUser.id;
       res = await supabaseClient.from("launch_calendar").insert(payload).select().single();
     }
@@ -737,25 +771,58 @@
 
     $("detailDrawer").classList.add("on");
     $("drawerTitle").textContent = activeLaunch.title;
-    $("drawerSub").textContent = `${fmt(activeLaunch.launch_date)} · ${activeLaunch.status || "planned"}`;
+    $("drawerSub").textContent = `${fmt(activeLaunch.launch_date)} · ${activeLaunch.launch_readiness || "not_reviewed"}`;
 
     const launchTasks = tasks.filter(x => x.launch_id === id);
     const launchAssets = assets.filter(x => x.launch_id === id);
     const launchComments = comments.filter(x => x.launch_id === id);
+    const launchSystemLinks = systemLinks.filter(x => x.launch_id === id);
 
     $("launchMeta").innerHTML = `
       <div class="title">Launch Details</div>
-      <div class="mini" style="margin-top:8px">
-        <b>Status:</b> ${esc(activeLaunch.status || "planned")} · 
-        <b>Priority:</b> ${esc(activeLaunch.priority || "normal")} ·
-        <b>Type:</b> ${esc(activeLaunch.launch_type || "—")}
-      </div>
+      <div class="mini" style="margin-top:8px"><b>Status:</b> ${esc(activeLaunch.status || "planned")} · <b>Priority:</b> ${esc(activeLaunch.priority || "normal")} · <b>Readiness:</b> ${esc(activeLaunch.launch_readiness || "not_reviewed")}</div>
       <div class="mini" style="margin-top:6px"><b>Designer:</b> ${esc(activeLaunch.designer || "—")}</div>
       <div class="mini" style="margin-top:6px"><b>Channel:</b> ${esc(activeLaunch.marketing_channel || "—")}</div>
       <div style="margin-top:10px">${esc(activeLaunch.details || activeLaunch.notes || "No details yet.")}</div>
       ${activeLaunch.launch_image_url ? `<div style="margin-top:10px"><a href="${esc(activeLaunch.launch_image_url)}" target="_blank">Open launch image</a></div>` : ""}
     `;
 
+    $("systemMeta").innerHTML = `
+      <div class="title">Connected Silo References</div>
+      <div class="kvgrid">
+        <div class="kv"><div class="k">SKU</div><div class="v">${esc(activeLaunch.product_sku || "—")}</div></div>
+        <div class="kv"><div class="k">Product</div><div class="v">${esc(activeLaunch.product_title || "—")}</div></div>
+        <div class="kv"><div class="k">Product Type</div><div class="v">${esc(activeLaunch.product_type || "—")}</div></div>
+        <div class="kv"><div class="k">Collection</div><div class="v">${esc(activeLaunch.collection_name || "—")}</div></div>
+        <div class="kv"><div class="k">PO Number</div><div class="v">${esc(activeLaunch.po_number || "—")}</div></div>
+        <div class="kv"><div class="k">Vendor</div><div class="v">${esc(activeLaunch.vendor_name || "—")}</div></div>
+        <div class="kv"><div class="k">Inventory Tag</div><div class="v">${esc(activeLaunch.inventory_tag || "—")}</div></div>
+        <div class="kv"><div class="k">Expected Units</div><div class="v">${activeLaunch.expected_units ?? "—"}</div></div>
+        <div class="kv"><div class="k">Expected Retail Value</div><div class="v">${activeLaunch.expected_retail_value ? money(activeLaunch.expected_retail_value) : "—"}</div></div>
+      </div>
+    `;
+
+    $("systemLinksList").innerHTML = launchSystemLinks.length ? "" : `<div class="mini">No Silo links yet.</div>`;
+    launchSystemLinks.forEach(link => {
+      const div = document.createElement("div");
+      div.className = "task";
+      div.innerHTML = `
+        <div>
+          <b>${esc(link.ref_label || link.link_type || "Silo Link")}</b>
+          <div class="mini">${esc([link.link_type, link.ref_table, link.ref_id].filter(Boolean).join(" · "))}</div>
+          ${link.ref_url ? `<a href="${esc(link.ref_url)}" target="_blank">${esc(link.ref_url)}</a>` : ""}
+          ${link.notes ? `<div class="mini">${esc(link.notes)}</div>` : ""}
+        </div>
+      `;
+      $("systemLinksList").appendChild(div);
+    });
+
+    renderTasks(launchTasks);
+    renderAssets(launchAssets);
+    renderComments(launchComments);
+  }
+
+  function renderTasks(launchTasks){
     $("taskList").innerHTML = launchTasks.length ? "" : `<div class="mini">No tasks yet.</div>`;
     launchTasks.forEach(t => {
       const div = document.createElement("div");
@@ -785,7 +852,9 @@
         render();
       };
     });
+  }
 
+  function renderAssets(launchAssets){
     $("assetList").innerHTML = launchAssets.length ? "" : `<div class="mini">No assets yet.</div>`;
     launchAssets.forEach(a => {
       const div = document.createElement("div");
@@ -799,17 +868,14 @@
       `;
       $("assetList").appendChild(div);
     });
+  }
 
+  function renderComments(launchComments){
     $("commentList").innerHTML = launchComments.length ? "" : `<div class="mini">No comments yet.</div>`;
     launchComments.forEach(c => {
       const div = document.createElement("div");
       div.className = "task";
-      div.innerHTML = `
-        <div>
-          <div>${esc(c.comment)}</div>
-          <div class="mini">${new Date(c.created_at).toLocaleString()}</div>
-        </div>
-      `;
+      div.innerHTML = `<div><div>${esc(c.comment)}</div><div class="mini">${new Date(c.created_at).toLocaleString()}</div></div>`;
       $("commentList").appendChild(div);
     });
   }
@@ -819,10 +885,33 @@
     activeLaunch = null;
   }
 
-  async function saveTask(e){
+  async function saveSystemLink(e){
     e.preventDefault();
     if (!activeLaunch) return;
 
+    const payload = {
+      launch_id: activeLaunch.id,
+      link_type: $("linkType").value,
+      ref_table: $("linkTable").value.trim() || null,
+      ref_id: $("linkRefId").value.trim() || null,
+      ref_label: $("linkLabel").value.trim() || null,
+      ref_url: $("linkUrl").value.trim() || null,
+      notes: $("linkNotes").value.trim() || null,
+      created_by: currentUser.id
+    };
+
+    const { error } = await supabaseClient.from("launch_system_links").insert(payload);
+    if (error) return alert(error.message);
+
+    $("systemLinkForm").reset();
+    $("systemLinkForm").classList.add("hidden");
+    await loadAll(false);
+    openDrawer(activeLaunch.id);
+  }
+
+  async function saveTask(e){
+    e.preventDefault();
+    if (!activeLaunch) return;
     const payload = {
       launch_id: activeLaunch.id,
       task_title: $("taskTitle").value.trim(),
@@ -831,10 +920,8 @@
       due_date: $("taskDue").value || null,
       notes: $("taskNotes").value.trim() || null
     };
-
     const { error } = await supabaseClient.from("launch_tasks").insert(payload);
     if (error) return alert(error.message);
-
     $("taskForm").reset();
     $("taskForm").classList.add("hidden");
     await loadAll(false);
@@ -845,7 +932,6 @@
   async function saveAsset(e){
     e.preventDefault();
     if (!activeLaunch) return;
-
     const payload = {
       launch_id: activeLaunch.id,
       asset_name: $("assetName").value.trim() || null,
@@ -854,10 +940,8 @@
       notes: $("assetNotes").value.trim() || null,
       uploaded_by: currentUser.id
     };
-
     const { error } = await supabaseClient.from("launch_assets").insert(payload);
     if (error) return alert(error.message);
-
     $("assetForm").reset();
     $("assetForm").classList.add("hidden");
     await loadAll(false);
@@ -867,27 +951,16 @@
   async function saveComment(e){
     e.preventDefault();
     if (!activeLaunch) return;
-
     const payload = {
       launch_id: activeLaunch.id,
       user_id: currentUser.id,
       comment: $("commentInput").value.trim()
     };
-
     const { error } = await supabaseClient.from("launch_comments").insert(payload);
     if (error) return alert(error.message);
-
     $("commentForm").reset();
     await loadAll(false);
     openDrawer(activeLaunch.id);
-  }
-
-  function debounce(fn,ms){
-    let t;
-    return (...args) => {
-      clearTimeout(t);
-      t = setTimeout(() => fn(...args), ms);
-    };
   }
 
   init();
