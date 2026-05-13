@@ -226,254 +226,206 @@
   </div>
 
   <script>
-    let supabaseClient;
-    let currentUser = null;
-    let allItems = [];
+  const SUPABASE_URL =
+    window.__SILO_CONFIG__?.SUPABASE_URL ||
+    window.SUPABASE_URL ||
+    window.CONFIG?.SUPABASE_URL;
 
-    const els = {
-      form: document.getElementById("itemForm"),
-      title: document.getElementById("title"),
-      pagePath: document.getElementById("pagePath"),
-      itemType: document.getElementById("itemType"),
-      severity: document.getElementById("severity"),
-      screenshotUrl: document.getElementById("screenshotUrl"),
-      notes: document.getElementById("notes"),
-      formMsg: document.getElementById("formMsg"),
-      itemsBody: document.getElementById("itemsBody"),
-      emptyState: document.getElementById("emptyState"),
-      refreshBtn: document.getElementById("refreshBtn"),
-      logoutBtn: document.getElementById("logoutBtn"),
-      statusFilter: document.getElementById("statusFilter"),
-      typeFilter: document.getElementById("typeFilter"),
-      kpiOpen: document.getElementById("kpiOpen"),
-      kpiReview: document.getElementById("kpiReview"),
-      kpiDone: document.getElementById("kpiDone"),
-      kpiTotal: document.getElementById("kpiTotal")
+  const SUPABASE_ANON_KEY =
+    window.__SILO_CONFIG__?.SUPABASE_ANON_KEY ||
+    window.__SILO_CONFIG__?.SUPABASE_KEY ||
+    window.SUPABASE_ANON_KEY ||
+    window.CONFIG?.SUPABASE_ANON_KEY;
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    throw new Error("Missing Supabase config on page.");
+  }
+
+  const supabaseClient = window.supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_ANON_KEY
+  );
+
+  let currentUser = null;
+  let allItems = [];
+
+  const els = {
+    form: document.getElementById("itemForm"),
+    title: document.getElementById("title"),
+    pagePath: document.getElementById("pagePath"),
+    itemType: document.getElementById("itemType"),
+    severity: document.getElementById("severity"),
+    screenshotUrl: document.getElementById("screenshotUrl"),
+    notes: document.getElementById("notes"),
+    formMsg: document.getElementById("formMsg"),
+    itemsBody: document.getElementById("itemsBody"),
+    emptyState: document.getElementById("emptyState"),
+    refreshBtn: document.getElementById("refreshBtn"),
+    logoutBtn: document.getElementById("logoutBtn"),
+    statusFilter: document.getElementById("statusFilter"),
+    typeFilter: document.getElementById("typeFilter"),
+    kpiOpen: document.getElementById("kpiOpen"),
+    kpiReview: document.getElementById("kpiReview"),
+    kpiDone: document.getElementById("kpiDone"),
+    kpiTotal: document.getElementById("kpiTotal")
+  };
+
+  async function ensureAuth() {
+    const { data, error } = await supabaseClient.auth.getUser();
+
+    if (error) throw error;
+
+    currentUser = data?.user || null;
+
+    if (!currentUser) {
+      window.location.href = "/pages/login.html";
+      return false;
+    }
+
+    return true;
+  }
+
+  function bindEvents() {
+    els.form.addEventListener("submit", submitItem);
+    els.refreshBtn.addEventListener("click", loadItems);
+
+    els.statusFilter.addEventListener("change", renderItems);
+    els.typeFilter.addEventListener("change", renderItems);
+
+    els.logoutBtn.addEventListener("click", async () => {
+      await supabaseClient.auth.signOut();
+      window.location.href = "/pages/login.html";
+    });
+  }
+
+  async function submitItem(event) {
+    event.preventDefault();
+
+    els.formMsg.textContent = "Saving...";
+
+    const payload = {
+      created_by: currentUser.id,
+      title: els.title.value.trim(),
+      page_path: els.pagePath.value.trim() || null,
+      item_type: els.itemType.value,
+      severity: els.severity.value,
+      status: "open",
+      screenshot_url: els.screenshotUrl.value.trim() || null,
+      notes: els.notes.value.trim() || null
     };
 
-    function getSupabaseConfig() {
-      return {
-        url:
-          window.SUPABASE_URL ||
-          window.supabaseUrl ||
-          window.SILO_SUPABASE_URL ||
-          window.SUPABASE_CONFIG?.url ||
-          window.CONFIG?.SUPABASE_URL ||
-          window.CONFIG?.supabaseUrl ||
-          window.SILO_CONFIG?.SUPABASE_URL ||
-          window.SILO_CONFIG?.url,
+    const { error } = await supabaseClient
+      .from("intern_workbench_items")
+      .insert(payload);
 
-        anonKey:
-          window.SUPABASE_ANON_KEY ||
-          window.supabaseKey ||
-          window.SILO_SUPABASE_ANON_KEY ||
-          window.SUPABASE_CONFIG?.anonKey ||
-          window.SUPABASE_CONFIG?.anon_key ||
-          window.CONFIG?.SUPABASE_ANON_KEY ||
-          window.CONFIG?.supabaseAnonKey ||
-          window.CONFIG?.supabaseKey ||
-          window.SILO_CONFIG?.SUPABASE_ANON_KEY ||
-          window.SILO_CONFIG?.anonKey
-      };
+    if (error) {
+      console.error(error);
+      els.formMsg.textContent = "Error saving item.";
+      return;
     }
 
-    async function init() {
-      const { url: supabaseUrl, anonKey: supabaseAnonKey } = getSupabaseConfig();
+    els.form.reset();
+    els.formMsg.textContent = "Saved.";
 
-      if (!supabaseUrl || !supabaseAnonKey) {
-        document.body.innerHTML = `
-          <div style="padding:24px;font-family:system-ui">
-            <h1 style="font-size:24px;font-weight:800;margin-bottom:8px;">Missing Supabase config</h1>
-            <p>Check /pages/config.js for your Supabase URL and anon key variable names.</p>
+    await loadItems();
+  }
+
+  async function loadItems() {
+    const { data, error } = await supabaseClient
+      .from("intern_workbench_items")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error(error);
+      return;
+    }
+
+    allItems = data || [];
+
+    renderKpis();
+    renderItems();
+  }
+
+  function renderKpis() {
+    els.kpiOpen.textContent =
+      allItems.filter(x => x.status === "open").length;
+
+    els.kpiReview.textContent =
+      allItems.filter(x => x.status === "review").length;
+
+    els.kpiDone.textContent =
+      allItems.filter(x => x.status === "done").length;
+
+    els.kpiTotal.textContent = allItems.length;
+  }
+
+  function renderItems() {
+    const status = els.statusFilter.value;
+    const type = els.typeFilter.value;
+
+    const filtered = allItems.filter(item => {
+      if (status && item.status !== status) return false;
+      if (type && item.item_type !== type) return false;
+      return true;
+    });
+
+    els.emptyState.classList.toggle("hidden", filtered.length > 0);
+
+    els.itemsBody.innerHTML = "";
+
+    filtered.forEach(item => {
+      const tr = document.createElement("tr");
+
+      tr.innerHTML = `
+        <td class="py-3 pr-3 align-top">
+          <div class="font-bold">${escapeHtml(item.title)}</div>
+          <div class="text-xs text-slate-500 mt-1">
+            ${escapeHtml(item.notes || "")}
           </div>
-        `;
-        return;
-      }
+        </td>
 
-      supabaseClient = window.supabase.createClient(supabaseUrl, supabaseAnonKey);
+        <td class="py-3 pr-3 align-top text-xs">
+          ${escapeHtml(item.page_path || "—")}
+        </td>
 
-      const { data, error } = await supabaseClient.auth.getUser();
+        <td class="py-3 pr-3 align-top">
+          <span class="pill">${escapeHtml(item.item_type || "qa")}</span>
+        </td>
 
-      if (error || !data?.user) {
-        window.location.href = "/pages/login.html";
-        return;
-      }
+        <td class="py-3 pr-3 align-top">
+          <span class="pill">${escapeHtml(item.severity || "low")}</span>
+        </td>
 
-      currentUser = data.user;
+        <td class="py-3 pr-3 align-top">
+          ${escapeHtml(item.status || "open")}
+        </td>
 
-      bindEvents();
-      await loadItems();
-    }
+        <td class="py-3 pr-3 align-top text-xs text-slate-500">
+          ${new Date(item.created_at).toLocaleDateString()}
+        </td>
+      `;
 
-    function bindEvents() {
-      els.form.addEventListener("submit", submitItem);
-      els.refreshBtn.addEventListener("click", loadItems);
-      els.statusFilter.addEventListener("change", renderItems);
-      els.typeFilter.addEventListener("change", renderItems);
+      els.itemsBody.appendChild(tr);
+    });
+  }
 
-      els.logoutBtn.addEventListener("click", async () => {
-        await supabaseClient.auth.signOut();
-        window.location.href = "/pages/login.html";
-      });
-    }
+  function escapeHtml(value) {
+    return String(value || "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
 
-    async function submitItem(event) {
-      event.preventDefault();
+  async function init() {
+    await ensureAuth();
+    bindEvents();
+    await loadItems();
+  }
 
-      els.formMsg.textContent = "Saving...";
-
-      const payload = {
-        created_by: currentUser.id,
-        title: els.title.value.trim(),
-        page_path: els.pagePath.value.trim() || null,
-        item_type: els.itemType.value,
-        severity: els.severity.value,
-        status: "open",
-        screenshot_url: els.screenshotUrl.value.trim() || null,
-        notes: els.notes.value.trim() || null
-      };
-
-      if (!payload.title) {
-        els.formMsg.textContent = "Title is required.";
-        return;
-      }
-
-      const { error } = await supabaseClient
-        .from("intern_workbench_items")
-        .insert(payload);
-
-      if (error) {
-        console.error(error);
-        els.formMsg.textContent = "Error saving item. Check RLS/table permissions.";
-        return;
-      }
-
-      els.form.reset();
-      els.formMsg.textContent = "Saved.";
-      await loadItems();
-    }
-
-    async function loadItems() {
-      const { data, error } = await supabaseClient
-        .from("intern_workbench_items")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        console.error(error);
-        els.itemsBody.innerHTML = `
-          <tr>
-            <td colspan="6" class="py-6 text-red-600">
-              Error loading items. Check table name and RLS policies.
-            </td>
-          </tr>
-        `;
-        return;
-      }
-
-      allItems = data || [];
-      renderKpis();
-      renderItems();
-    }
-
-    function renderKpis() {
-      els.kpiOpen.textContent = allItems.filter(x => x.status === "open").length;
-      els.kpiReview.textContent = allItems.filter(x => x.status === "review").length;
-      els.kpiDone.textContent = allItems.filter(x => x.status === "done").length;
-      els.kpiTotal.textContent = allItems.length;
-    }
-
-    function renderItems() {
-      const status = els.statusFilter.value;
-      const type = els.typeFilter.value;
-
-      const filtered = allItems.filter(item => {
-        if (status && item.status !== status) return false;
-        if (type && item.item_type !== type) return false;
-        return true;
-      });
-
-      els.emptyState.classList.toggle("hidden", filtered.length > 0);
-      els.itemsBody.innerHTML = "";
-
-      filtered.forEach(item => {
-        const tr = document.createElement("tr");
-
-        const date = item.created_at
-          ? new Date(item.created_at).toLocaleDateString()
-          : "";
-
-        const screenshot = item.screenshot_url
-          ? `<a href="${escapeHtml(item.screenshot_url)}" target="_blank" class="text-blue-700 font-bold">Screenshot</a>`
-          : "";
-
-        tr.innerHTML = `
-          <td class="py-3 pr-3 align-top min-w-[260px]">
-            <div class="font-bold text-slate-900">${escapeHtml(item.title)}</div>
-            ${item.notes ? `<div class="text-xs text-slate-500 mt-1">${escapeHtml(item.notes)}</div>` : ""}
-            ${screenshot ? `<div class="text-xs mt-1">${screenshot}</div>` : ""}
-          </td>
-
-          <td class="py-3 pr-3 align-top text-xs text-slate-600 min-w-[160px]">
-            ${escapeHtml(item.page_path || "—")}
-          </td>
-
-          <td class="py-3 pr-3 align-top">
-            <span class="pill">${escapeHtml(item.item_type || "qa")}</span>
-          </td>
-
-          <td class="py-3 pr-3 align-top">
-            <span class="pill">${escapeHtml(item.severity || "low")}</span>
-          </td>
-
-          <td class="py-3 pr-3 align-top min-w-[120px]">
-            <select class="input status-select text-xs" data-id="${item.id}">
-              <option value="open" ${item.status === "open" ? "selected" : ""}>Open</option>
-              <option value="review" ${item.status === "review" ? "selected" : ""}>Review</option>
-              <option value="done" ${item.status === "done" ? "selected" : ""}>Done</option>
-            </select>
-          </td>
-
-          <td class="py-3 pr-3 align-top text-xs text-slate-500">
-            ${date}
-          </td>
-        `;
-
-        els.itemsBody.appendChild(tr);
-      });
-
-      document.querySelectorAll(".status-select").forEach(select => {
-        select.addEventListener("change", async event => {
-          await updateStatus(event.target.dataset.id, event.target.value);
-        });
-      });
-    }
-
-    async function updateStatus(id, status) {
-      const { error } = await supabaseClient
-        .from("intern_workbench_items")
-        .update({ status })
-        .eq("id", id);
-
-      if (error) {
-        console.error(error);
-        alert("Could not update status.");
-        return;
-      }
-
-      await loadItems();
-    }
-
-    function escapeHtml(value) {
-      return String(value || "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-    }
-
-    init();
-  </script>
+  init();
+</script>
 </body>
 </html>
