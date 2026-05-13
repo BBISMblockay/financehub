@@ -1,0 +1,897 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Silo | Launch Calendar</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="/pages/config.js?v=launch-v1"></script>
+
+  <style>
+    :root{
+      color-scheme: dark;
+      --bg:#070a12; --panel:rgba(255,255,255,.045); --surf:rgba(255,255,255,.035);
+      --b:rgba(255,255,255,.11); --b2:rgba(255,255,255,.18);
+      --t:rgba(255,255,255,.92); --m:rgba(255,255,255,.58);
+      --a:#4fd1ff; --g:#6ee7b7; --y:#facc15; --r:#fb7185;
+      --radius:18px;
+    }
+    :root[data-theme="light"]{
+      color-scheme: light;
+      --bg:#f6f7fb; --panel:rgba(255,255,255,.9); --surf:rgba(15,23,42,.035);
+      --b:rgba(15,23,42,.12); --b2:rgba(15,23,42,.2);
+      --t:#0f172a; --m:#64748b; --a:#007aff; --g:#16a34a; --y:#ca8a04; --r:#e11d48;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font:13px/1.45 Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      color:var(--t);
+      background:
+        radial-gradient(900px 480px at 18% 8%, color-mix(in oklab,var(--a) 13%, transparent), transparent 48%),
+        radial-gradient(800px 480px at 82% 10%, color-mix(in oklab,var(--g) 10%, transparent), transparent 46%),
+        var(--bg);
+    }
+    .app{max-width:1500px;margin:0 auto;padding:16px;display:grid;grid-template-columns:300px 1fr;gap:14px}
+    .card{background:var(--panel);border:1px solid var(--b);border-radius:var(--radius);box-shadow:0 14px 36px rgba(0,0,0,.16);backdrop-filter:blur(10px)}
+    .side{position:sticky;top:12px;height:calc(100dvh - 24px);overflow:auto;padding:12px}
+    .main{min-width:0}
+    .top{grid-column:1/-1;display:flex;justify-content:space-between;gap:12px;align-items:flex-end;padding:2px 4px}
+    h1{margin:0;font-size:23px;font-weight:900;letter-spacing:-.03em}
+    .sub{color:var(--m);font-size:12px;margin-top:3px}
+    .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.09em;font-weight:900;color:var(--m);margin:10px 0 7px}
+    input,select,textarea,button{font:inherit;color:inherit}
+    .in{width:100%;border:1px solid var(--b);background:var(--surf);border-radius:14px;padding:10px 11px;outline:none}
+    .in:focus{border-color:color-mix(in oklab,var(--a) 50%, var(--b));box-shadow:0 0 0 4px color-mix(in oklab,var(--a) 12%, transparent)}
+    textarea.in{min-height:92px;resize:vertical}
+    .row{display:flex;gap:8px;align-items:center}
+    .btn{border:1px solid var(--b);background:var(--surf);border-radius:14px;padding:9px 11px;font-weight:900;cursor:pointer}
+    .btn:hover{border-color:var(--b2)}
+    .btn.p{background:color-mix(in oklab,var(--a) 16%, var(--surf));border-color:color-mix(in oklab,var(--a) 45%, var(--b))}
+    .btn.danger{background:color-mix(in oklab,var(--r) 14%, var(--surf));border-color:color-mix(in oklab,var(--r) 35%, var(--b))}
+    .chip{display:inline-flex;gap:7px;align-items:center;border:1px solid var(--b);background:var(--surf);border-radius:999px;padding:7px 10px;color:var(--m);font-weight:800}
+    .chip b{color:var(--t)}
+    .kpis{display:flex;gap:8px;flex-wrap:wrap}
+    .tabs{display:flex;gap:8px;flex-wrap:wrap}
+    .tab{border:1px solid var(--b);background:var(--surf);border-radius:999px;padding:8px 12px;font-weight:900;color:var(--m);cursor:pointer}
+    .tab.on{color:var(--t);border-color:color-mix(in oklab,var(--a) 55%, var(--b));background:color-mix(in oklab,var(--a) 12%, var(--surf))}
+    .bar{padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+    .cal{padding:12px 14px}
+    .calh{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+    .title{font-weight:900;font-size:15px}
+    .grid{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}
+    .dow{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--m);font-weight:900;padding:2px}
+    .cell{min-height:128px;border:1px solid var(--b);border-radius:16px;background:var(--surf);padding:9px;overflow:hidden}
+    .cell.off{opacity:.45}
+    .day{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
+    .badge{font-size:10px;border:1px solid var(--b);border-radius:999px;padding:2px 7px;color:var(--m)}
+    .items{display:flex;flex-direction:column;gap:7px;max-height:92px;overflow:auto}
+    .ev{position:relative;border:1px solid var(--b);border-radius:13px;background:color-mix(in oklab,var(--surf) 88%, transparent);padding:8px 9px 8px 11px;cursor:pointer;overflow:hidden}
+    .ev:hover{border-color:var(--b2)}
+    .ev:before{content:"";position:absolute;left:0;top:7px;bottom:7px;width:3px;border-radius:99px;background:var(--a)}
+    .ev.done:before{background:var(--g)}
+    .ev.review:before{background:var(--y)}
+    .ev.blocked:before{background:var(--r)}
+    .ev .t{font-size:11px;font-weight:900;line-height:1.18;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .ev .m{font-size:10px;color:var(--m);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
+    .agenda{display:none;padding:12px 14px}
+    .arow{display:grid;grid-template-columns:120px 1fr 190px;gap:12px;align-items:center;border-top:1px solid var(--b);padding:10px 6px;cursor:pointer}
+    .arow:hover{background:color-mix(in oklab,var(--a) 6%, transparent)}
+    .muted{color:var(--m)}
+    .pill{display:inline-flex;align-items:center;border:1px solid var(--b);border-radius:999px;padding:3px 8px;font-size:10px;font-weight:900;color:var(--m);white-space:nowrap}
+    .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.58);backdrop-filter:blur(6px);z-index:50;padding:18px}
+    .modal.on{display:flex}
+    .sheet{width:min(880px,96vw);max-height:90vh;overflow:hidden}
+    .mh{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--b)}
+    .mb{padding:14px;overflow:auto;max-height:calc(90vh - 58px)}
+    .drawer{position:fixed;right:0;top:0;height:100dvh;width:min(560px,96vw);background:var(--bg);border-left:1px solid var(--b);box-shadow:-20px 0 60px rgba(0,0,0,.35);z-index:40;transform:translateX(105%);transition:.18s ease;overflow:auto}
+    .drawer.on{transform:translateX(0)}
+    .section{border:1px solid var(--b);background:var(--panel);border-radius:16px;padding:12px;margin-top:10px}
+    .mini{font-size:11px;color:var(--m)}
+    .task{display:flex;justify-content:space-between;gap:10px;border-top:1px solid var(--b);padding:8px 0}
+    a{color:var(--a);font-weight:900;text-decoration:none}
+    @media(max-width:980px){
+      .app{grid-template-columns:1fr}
+      .side{position:relative;height:auto}
+      .arow{grid-template-columns:90px 1fr}
+      .arow .right{grid-column:2}
+    }
+  </style>
+</head>
+
+<body>
+<div class="app">
+  <header class="top">
+    <div>
+      <h1>Silo Launch Calendar</h1>
+      <div class="sub">Silo-native marketing, product, and release planning · Supabase V1</div>
+    </div>
+    <div class="row" style="flex-wrap:wrap;justify-content:flex-end">
+      <span class="chip">Signed in <b id="signedIn">—</b></span>
+      <button class="chip" id="themeBtn">Theme <b id="themeLabel">Dark</b></button>
+      <button class="btn" id="logoutBtn">Logout</button>
+    </div>
+  </header>
+
+  <aside class="card side">
+    <button class="btn p" id="newLaunchBtn" style="width:100%">+ New Launch</button>
+
+    <div class="lbl">Search</div>
+    <input id="q" class="in" placeholder="Launch, designer, notes..." />
+
+    <div class="lbl">Filters</div>
+    <div class="row">
+      <select id="statusFilter" class="in">
+        <option value="">All status</option>
+        <option value="planned">Planned</option>
+        <option value="in_progress">In Progress</option>
+        <option value="assets_needed">Assets Needed</option>
+        <option value="ready">Ready</option>
+        <option value="launched">Launched</option>
+        <option value="blocked">Blocked</option>
+      </select>
+      <select id="typeFilter" class="in">
+        <option value="">All types</option>
+      </select>
+    </div>
+
+    <div class="lbl">Designer</div>
+    <select id="designerFilter" class="in">
+      <option value="">All designers</option>
+    </select>
+
+    <div class="lbl">Date range</div>
+    <div class="row">
+      <input id="fromFilter" class="in" type="date" />
+      <input id="toFilter" class="in" type="date" />
+    </div>
+
+    <div class="lbl">Actions</div>
+    <div class="row">
+      <button class="btn" id="resetBtn" style="flex:1">Reset</button>
+      <button class="btn" id="refreshBtn" style="flex:1">Refresh</button>
+    </div>
+
+    <div class="section">
+      <div class="lbl" style="margin-top:0">V1 Scope</div>
+      <div class="mini">Launches, tasks, assets, and comments only. No Google Sheets. Product/PO/inventory links come later.</div>
+    </div>
+  </aside>
+
+  <main class="main">
+    <section class="card bar">
+      <div class="kpis">
+        <span class="chip">Filtered <b id="kCount">0</b></span>
+        <span class="chip">This month <b id="kMonth">0</b></span>
+        <span class="chip">Next 7d <b id="k7">0</b></span>
+        <span class="chip">Open tasks <b id="kTasks">0</b></span>
+      </div>
+      <div class="tabs">
+        <button class="tab on" data-view="month">Month</button>
+        <button class="tab" data-view="agenda">Agenda</button>
+      </div>
+    </section>
+
+    <section id="monthView" class="card cal">
+      <div class="calh">
+        <div>
+          <div class="title" id="monthTitle">—</div>
+          <div class="mini">Click a launch to open details</div>
+        </div>
+        <div class="row">
+          <button class="btn" id="prevMonth">← Prev</button>
+          <button class="btn" id="todayMonth">Today</button>
+          <button class="btn" id="nextMonth">Next →</button>
+        </div>
+      </div>
+      <div class="grid" id="calendarGrid"></div>
+    </section>
+
+    <section id="agendaView" class="card agenda">
+      <div class="calh">
+        <div>
+          <div class="title" id="agendaTitle">Agenda</div>
+          <div class="mini">14-day rolling launch view</div>
+        </div>
+        <div class="row">
+          <button class="btn" id="prevAgenda">← Prev</button>
+          <button class="btn" id="todayAgenda">Today</button>
+          <button class="btn" id="nextAgenda">Next →</button>
+        </div>
+      </div>
+      <div id="agendaList"></div>
+    </section>
+  </main>
+</div>
+
+<div id="launchModal" class="modal">
+  <div class="card sheet">
+    <div class="mh">
+      <div class="title" id="modalTitle">New Launch</div>
+      <button class="btn" id="closeModal">Close</button>
+    </div>
+    <div class="mb">
+      <form id="launchForm" class="space-y-3">
+        <input type="hidden" id="launchId" />
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div class="md:col-span-2">
+            <div class="lbl">Title</div>
+            <input id="titleInput" class="in" required placeholder="Launch title" />
+          </div>
+
+          <div>
+            <div class="lbl">Launch date</div>
+            <input id="dateInput" class="in" type="date" required />
+          </div>
+
+          <div>
+            <div class="lbl">Launch time</div>
+            <input id="timeInput" class="in" type="time" />
+          </div>
+
+          <div>
+            <div class="lbl">Launch type</div>
+            <input id="typeInput" class="in" placeholder="Main, Filler, Campaign..." />
+          </div>
+
+          <div>
+            <div class="lbl">Status</div>
+            <select id="statusInput" class="in">
+              <option value="planned">Planned</option>
+              <option value="in_progress">In Progress</option>
+              <option value="assets_needed">Assets Needed</option>
+              <option value="ready">Ready</option>
+              <option value="launched">Launched</option>
+              <option value="blocked">Blocked</option>
+            </select>
+          </div>
+
+          <div>
+            <div class="lbl">Priority</div>
+            <select id="priorityInput" class="in">
+              <option value="low">Low</option>
+              <option value="normal">Normal</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+          </div>
+
+          <div>
+            <div class="lbl">Designer</div>
+            <input id="designerInput" class="in" placeholder="Designer / owner" />
+          </div>
+
+          <div>
+            <div class="lbl">Marketing channel</div>
+            <input id="channelInput" class="in" placeholder="Email, social, site, retail..." />
+          </div>
+
+          <div>
+            <div class="lbl">Campaign type</div>
+            <input id="campaignInput" class="in" placeholder="Drop, promo, seasonal..." />
+          </div>
+
+          <div class="md:col-span-2">
+            <div class="lbl">Launch image URL</div>
+            <input id="imageInput" class="in" placeholder="https://..." />
+          </div>
+
+          <div class="md:col-span-2">
+            <div class="lbl">Assets needed</div>
+            <textarea id="assetsInput" class="in" placeholder="Email hero, social graphics, PDP image, collection banner..."></textarea>
+          </div>
+
+          <div class="md:col-span-2">
+            <div class="lbl">Details</div>
+            <textarea id="detailsInput" class="in" placeholder="Launch details, product notes, timing, blockers..."></textarea>
+          </div>
+
+          <div class="md:col-span-2">
+            <div class="lbl">Notes</div>
+            <textarea id="notesInput" class="in" placeholder="Internal notes"></textarea>
+          </div>
+        </div>
+
+        <div class="row" style="justify-content:flex-end;margin-top:12px">
+          <button type="button" class="btn" id="cancelModal">Cancel</button>
+          <button type="submit" class="btn p" id="saveLaunchBtn">Save Launch</button>
+        </div>
+        <div class="mini" id="formMsg"></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<aside id="detailDrawer" class="drawer">
+  <div class="mh">
+    <div>
+      <div class="title" id="drawerTitle">Launch</div>
+      <div class="mini" id="drawerSub">—</div>
+    </div>
+    <button class="btn" id="closeDrawer">Close</button>
+  </div>
+
+  <div style="padding:14px">
+    <div class="row" style="flex-wrap:wrap">
+      <button class="btn p" id="editLaunchBtn">Edit Launch</button>
+      <button class="btn" id="refreshDetailBtn">Refresh</button>
+    </div>
+
+    <div class="section" id="launchMeta"></div>
+
+    <div class="section">
+      <div class="row" style="justify-content:space-between">
+        <div class="title">Tasks</div>
+        <button class="btn" id="addTaskBtn">+ Task</button>
+      </div>
+      <div id="taskList" style="margin-top:8px"></div>
+      <form id="taskForm" class="hidden" style="margin-top:10px">
+        <input id="taskTitle" class="in" placeholder="Task title" required />
+        <div class="row" style="margin-top:8px">
+          <input id="taskDue" class="in" type="date" />
+          <select id="taskPriority" class="in">
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
+            <option value="critical">Critical</option>
+          </select>
+        </div>
+        <textarea id="taskNotes" class="in" style="margin-top:8px" placeholder="Task notes"></textarea>
+        <div class="row" style="margin-top:8px;justify-content:flex-end">
+          <button type="button" class="btn" id="cancelTaskBtn">Cancel</button>
+          <button class="btn p">Save Task</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="section">
+      <div class="row" style="justify-content:space-between">
+        <div class="title">Assets / Links</div>
+        <button class="btn" id="addAssetBtn">+ Asset</button>
+      </div>
+      <div id="assetList" style="margin-top:8px"></div>
+      <form id="assetForm" class="hidden" style="margin-top:10px">
+        <input id="assetName" class="in" placeholder="Asset name" />
+        <input id="assetUrl" class="in" style="margin-top:8px" placeholder="https://..." required />
+        <input id="assetType" class="in" style="margin-top:8px" placeholder="Asset type: image, drive, brief..." />
+        <textarea id="assetNotes" class="in" style="margin-top:8px" placeholder="Asset notes"></textarea>
+        <div class="row" style="margin-top:8px;justify-content:flex-end">
+          <button type="button" class="btn" id="cancelAssetBtn">Cancel</button>
+          <button class="btn p">Save Asset</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="section">
+      <div class="title">Comments</div>
+      <div id="commentList" style="margin-top:8px"></div>
+      <form id="commentForm" style="margin-top:10px">
+        <textarea id="commentInput" class="in" placeholder="Add comment..." required></textarea>
+        <div class="row" style="justify-content:flex-end;margin-top:8px">
+          <button class="btn p">Post Comment</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</aside>
+
+<script>
+(() => {
+  const SUPABASE_URL =
+    window.__SILO_CONFIG__?.SUPABASE_URL ||
+    window.SUPABASE_URL ||
+    window.CONFIG?.SUPABASE_URL;
+
+  const SUPABASE_ANON_KEY =
+    window.__SILO_CONFIG__?.SUPABASE_ANON_KEY ||
+    window.__SILO_CONFIG__?.SUPABASE_KEY ||
+    window.SUPABASE_ANON_KEY ||
+    window.CONFIG?.SUPABASE_ANON_KEY;
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.body.innerHTML = "<div style='padding:24px;font-family:system-ui'>Missing Supabase config.</div>";
+    throw new Error("Missing Supabase config.");
+  }
+
+  const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  let currentUser = null;
+  let launches = [];
+  let tasks = [];
+  let assets = [];
+  let comments = [];
+  let filtered = [];
+  let activeLaunch = null;
+  let view = "month";
+  let monthAnchor = startOfMonth(new Date());
+  let agendaAnchor = startOfDay(new Date());
+
+  const F = { q:"", status:"", type:"", designer:"", from:"", to:"" };
+  const $ = id => document.getElementById(id);
+  const esc = v => String(v ?? "").replace(/[&<>"']/g, m => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;" }[m]));
+  const iso = d => {
+    d = startOfDay(d);
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+  };
+  const fmt = d => d ? new Date(d + "T00:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "—";
+  const addDays = (d,n) => { d=new Date(d); d.setDate(d.getDate()+n); return d; };
+  const addMonths = (d,n) => startOfMonth(new Date(d.getFullYear(), d.getMonth()+n, 1));
+  function startOfDay(d){ d=new Date(d); d.setHours(0,0,0,0); return d; }
+  function startOfMonth(d){ d=startOfDay(d); d.setDate(1); return d; }
+
+  async function init(){
+    const { data, error } = await supabaseClient.auth.getUser();
+    if (error) throw error;
+    currentUser = data?.user || null;
+    if (!currentUser) {
+      location.href = "/pages/login.html";
+      return;
+    }
+
+    $("signedIn").textContent = currentUser.email || "user";
+    bind();
+    await loadAll();
+  }
+
+  function bind(){
+    $("logoutBtn").onclick = async () => {
+      await supabaseClient.auth.signOut();
+      location.href = "/pages/login.html";
+    };
+
+    $("newLaunchBtn").onclick = () => openLaunchModal();
+    $("closeModal").onclick = closeLaunchModal;
+    $("cancelModal").onclick = closeLaunchModal;
+    $("launchForm").onsubmit = saveLaunch;
+
+    $("refreshBtn").onclick = loadAll;
+    $("resetBtn").onclick = () => {
+      Object.assign(F,{q:"",status:"",type:"",designer:"",from:"",to:""});
+      ["q","statusFilter","typeFilter","designerFilter","fromFilter","toFilter"].forEach(id => $(id).value = "");
+      applyFilters(); render();
+    };
+
+    $("q").oninput = debounce(e => { F.q = e.target.value; applyFilters(); render(); }, 180);
+    $("statusFilter").onchange = e => { F.status = e.target.value; applyFilters(); render(); };
+    $("typeFilter").onchange = e => { F.type = e.target.value; applyFilters(); render(); };
+    $("designerFilter").onchange = e => { F.designer = e.target.value; applyFilters(); render(); };
+    $("fromFilter").onchange = e => { F.from = e.target.value; applyFilters(); render(); };
+    $("toFilter").onchange = e => { F.to = e.target.value; applyFilters(); render(); };
+
+    document.querySelectorAll(".tab").forEach(btn => {
+      btn.onclick = () => {
+        view = btn.dataset.view;
+        document.querySelectorAll(".tab").forEach(x => x.classList.toggle("on", x === btn));
+        render();
+      };
+    });
+
+    $("prevMonth").onclick = () => { monthAnchor = addMonths(monthAnchor,-1); render(); };
+    $("nextMonth").onclick = () => { monthAnchor = addMonths(monthAnchor,1); render(); };
+    $("todayMonth").onclick = () => { monthAnchor = startOfMonth(new Date()); render(); };
+
+    $("prevAgenda").onclick = () => { agendaAnchor = addDays(agendaAnchor,-14); render(); };
+    $("nextAgenda").onclick = () => { agendaAnchor = addDays(agendaAnchor,14); render(); };
+    $("todayAgenda").onclick = () => { agendaAnchor = startOfDay(new Date()); render(); };
+
+    $("closeDrawer").onclick = closeDrawer;
+    $("editLaunchBtn").onclick = () => activeLaunch && openLaunchModal(activeLaunch);
+    $("refreshDetailBtn").onclick = async () => { await loadAll(false); if(activeLaunch) openDrawer(activeLaunch.id); };
+
+    $("addTaskBtn").onclick = () => $("taskForm").classList.remove("hidden");
+    $("cancelTaskBtn").onclick = () => $("taskForm").classList.add("hidden");
+    $("taskForm").onsubmit = saveTask;
+
+    $("addAssetBtn").onclick = () => $("assetForm").classList.remove("hidden");
+    $("cancelAssetBtn").onclick = () => $("assetForm").classList.add("hidden");
+    $("assetForm").onsubmit = saveAsset;
+
+    $("commentForm").onsubmit = saveComment;
+
+    $("themeBtn").onclick = () => {
+      const cur = document.documentElement.getAttribute("data-theme") || "dark";
+      setTheme(cur === "dark" ? "light" : "dark");
+    };
+    setTheme(localStorage.getItem("silo_launch_theme") || "dark");
+  }
+
+  function setTheme(t){
+    document.documentElement.setAttribute("data-theme", t);
+    $("themeLabel").textContent = t[0].toUpperCase() + t.slice(1);
+    localStorage.setItem("silo_launch_theme", t);
+  }
+
+  async function loadAll(shouldRender = true){
+    const [l,t,a,c] = await Promise.all([
+      supabaseClient.from("launch_calendar").select("*").order("launch_date",{ascending:true}),
+      supabaseClient.from("launch_tasks").select("*").order("created_at",{ascending:false}),
+      supabaseClient.from("launch_assets").select("*").order("created_at",{ascending:false}),
+      supabaseClient.from("launch_comments").select("*").order("created_at",{ascending:false})
+    ]);
+
+    if (l.error) throw l.error;
+    if (t.error) console.warn(t.error);
+    if (a.error) console.warn(a.error);
+    if (c.error) console.warn(c.error);
+
+    launches = l.data || [];
+    tasks = t.data || [];
+    assets = a.data || [];
+    comments = c.data || [];
+
+    fillFilterOptions();
+    applyFilters();
+    if (shouldRender) render();
+  }
+
+  function fillFilterOptions(){
+    const types = [...new Set(launches.map(x => x.launch_type).filter(Boolean))].sort();
+    const designers = [...new Set(launches.map(x => x.designer).filter(Boolean))].sort();
+    $("typeFilter").innerHTML = `<option value="">All types</option>` + types.map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join("");
+    $("designerFilter").innerHTML = `<option value="">All designers</option>` + designers.map(x => `<option value="${esc(x)}">${esc(x)}</option>`).join("");
+    $("typeFilter").value = F.type;
+    $("designerFilter").value = F.designer;
+  }
+
+  function applyFilters(){
+    const q = F.q.toLowerCase().trim();
+    filtered = launches.filter(x => {
+      if (F.status && x.status !== F.status) return false;
+      if (F.type && x.launch_type !== F.type) return false;
+      if (F.designer && x.designer !== F.designer) return false;
+      if (F.from && x.launch_date < F.from) return false;
+      if (F.to && x.launch_date > F.to) return false;
+      if (q) {
+        const blob = [x.title,x.launch_type,x.designer,x.marketing_channel,x.campaign_type,x.assets_needed,x.details,x.notes].join(" ").toLowerCase();
+        if (!blob.includes(q)) return false;
+      }
+      return true;
+    });
+  }
+
+  function render(){
+    renderKpis();
+    if (view === "month") renderMonth();
+    else renderAgenda();
+  }
+
+  function renderKpis(){
+    $("kCount").textContent = filtered.length;
+    const mStart = iso(monthAnchor);
+    const mEnd = iso(new Date(monthAnchor.getFullYear(), monthAnchor.getMonth()+1, 0));
+    $("kMonth").textContent = filtered.filter(x => x.launch_date >= mStart && x.launch_date <= mEnd).length;
+
+    const today = iso(new Date());
+    const next7 = iso(addDays(new Date(),7));
+    $("k7").textContent = filtered.filter(x => x.launch_date >= today && x.launch_date < next7).length;
+    $("kTasks").textContent = tasks.filter(x => x.status !== "done" && x.status !== "complete").length;
+  }
+
+  function renderMonth(){
+    $("monthView").style.display = "";
+    $("agendaView").style.display = "none";
+
+    $("monthTitle").textContent = monthAnchor.toLocaleDateString("en-US",{month:"long",year:"numeric"});
+    const grid = $("calendarGrid");
+    grid.innerHTML = "";
+
+    ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].forEach(d => {
+      const el = document.createElement("div");
+      el.className = "dow";
+      el.textContent = d;
+      grid.appendChild(el);
+    });
+
+    const y = monthAnchor.getFullYear();
+    const m = monthAnchor.getMonth();
+    const first = new Date(y,m,1);
+    const start = addDays(first, -first.getDay());
+    const last = new Date(y,m+1,0);
+    const end = addDays(last, 6-last.getDay());
+
+    const byDate = new Map();
+    filtered.forEach(x => {
+      if (!byDate.has(x.launch_date)) byDate.set(x.launch_date, []);
+      byDate.get(x.launch_date).push(x);
+    });
+
+    const today = iso(new Date());
+
+    for (let d = new Date(start); d <= end; d = addDays(d,1)) {
+      const key = iso(d);
+      const items = byDate.get(key) || [];
+      const cell = document.createElement("div");
+      cell.className = "cell" + (d.getMonth() === m ? "" : " off");
+
+      cell.innerHTML = `
+        <div class="day">
+          <b>${d.getDate()} ${key === today ? `<span class="badge">Today</span>` : ""}</b>
+          <span class="badge">${items.length || "—"}</span>
+        </div>
+        <div class="items">
+          ${items.slice(0,4).map(evCard).join("")}
+          ${items.length > 4 ? `<div class="mini">+ ${items.length - 4} more</div>` : ""}
+        </div>
+      `;
+
+      cell.querySelectorAll("[data-launch]").forEach(el => {
+        el.onclick = () => openDrawer(el.dataset.launch);
+      });
+
+      grid.appendChild(cell);
+    }
+  }
+
+  function evCard(x){
+    const taskCount = tasks.filter(t => t.launch_id === x.id && t.status !== "done").length;
+    const cls = x.status === "launched" ? "done" : x.status === "blocked" ? "blocked" : x.status === "ready" ? "review" : "";
+    return `
+      <div class="ev ${cls}" data-launch="${x.id}">
+        <div class="t">${esc(x.title)}</div>
+        <div class="m">${esc([x.launch_type, x.designer, taskCount ? `${taskCount} tasks` : null].filter(Boolean).join(" • "))}</div>
+      </div>
+    `;
+  }
+
+  function renderAgenda(){
+    $("monthView").style.display = "none";
+    $("agendaView").style.display = "block";
+
+    const start = iso(agendaAnchor);
+    const end = iso(addDays(agendaAnchor,14));
+    $("agendaTitle").textContent = `Agenda — ${fmt(start)} → ${fmt(iso(addDays(agendaAnchor,13)))}`;
+
+    const items = filtered.filter(x => x.launch_date >= start && x.launch_date < end);
+    $("agendaList").innerHTML = items.length ? "" : `<div class="muted" style="padding:12px">No launches in this range.</div>`;
+
+    items.forEach(x => {
+      const taskCount = tasks.filter(t => t.launch_id === x.id && t.status !== "done").length;
+      const row = document.createElement("div");
+      row.className = "arow";
+      row.innerHTML = `
+        <div><b>${esc(fmt(x.launch_date))}</b></div>
+        <div>
+          <div style="font-weight:900">${esc(x.title)}</div>
+          <div class="mini">${esc([x.launch_type, x.designer, x.marketing_channel].filter(Boolean).join(" • "))}</div>
+        </div>
+        <div class="right row" style="justify-content:flex-end;flex-wrap:wrap">
+          <span class="pill">${esc(x.status || "planned")}</span>
+          <span class="pill">${taskCount} open tasks</span>
+        </div>
+      `;
+      row.onclick = () => openDrawer(x.id);
+      $("agendaList").appendChild(row);
+    });
+  }
+
+  function openLaunchModal(x = null){
+    $("launchForm").reset();
+    $("formMsg").textContent = "";
+    $("modalTitle").textContent = x ? "Edit Launch" : "New Launch";
+    $("launchId").value = x?.id || "";
+    $("titleInput").value = x?.title || "";
+    $("dateInput").value = x?.launch_date || iso(new Date());
+    $("timeInput").value = x?.launch_time || "";
+    $("typeInput").value = x?.launch_type || "";
+    $("statusInput").value = x?.status || "planned";
+    $("priorityInput").value = x?.priority || "normal";
+    $("designerInput").value = x?.designer || "";
+    $("channelInput").value = x?.marketing_channel || "";
+    $("campaignInput").value = x?.campaign_type || "";
+    $("imageInput").value = x?.launch_image_url || "";
+    $("assetsInput").value = x?.assets_needed || "";
+    $("detailsInput").value = x?.details || "";
+    $("notesInput").value = x?.notes || "";
+    $("launchModal").classList.add("on");
+  }
+
+  function closeLaunchModal(){
+    $("launchModal").classList.remove("on");
+  }
+
+  async function saveLaunch(e){
+    e.preventDefault();
+    $("formMsg").textContent = "Saving...";
+
+    const id = $("launchId").value;
+    const payload = {
+      title: $("titleInput").value.trim(),
+      launch_date: $("dateInput").value,
+      launch_time: $("timeInput").value || null,
+      launch_type: $("typeInput").value.trim() || null,
+      status: $("statusInput").value,
+      priority: $("priorityInput").value,
+      designer: $("designerInput").value.trim() || null,
+      marketing_channel: $("channelInput").value.trim() || null,
+      campaign_type: $("campaignInput").value.trim() || null,
+      launch_image_url: $("imageInput").value.trim() || null,
+      assets_needed: $("assetsInput").value.trim() || null,
+      details: $("detailsInput").value.trim() || null,
+      notes: $("notesInput").value.trim() || null
+    };
+
+    let res;
+    if (id) {
+      res = await supabaseClient.from("launch_calendar").update(payload).eq("id", id).select().single();
+    } else {
+      payload.created_by = currentUser.id;
+      res = await supabaseClient.from("launch_calendar").insert(payload).select().single();
+    }
+
+    if (res.error) {
+      console.error(res.error);
+      $("formMsg").textContent = res.error.message || "Save failed.";
+      return;
+    }
+
+    closeLaunchModal();
+    await loadAll();
+    openDrawer(res.data.id);
+  }
+
+  function openDrawer(id){
+    activeLaunch = launches.find(x => x.id === id);
+    if (!activeLaunch) return;
+
+    $("detailDrawer").classList.add("on");
+    $("drawerTitle").textContent = activeLaunch.title;
+    $("drawerSub").textContent = `${fmt(activeLaunch.launch_date)} · ${activeLaunch.status || "planned"}`;
+
+    const launchTasks = tasks.filter(x => x.launch_id === id);
+    const launchAssets = assets.filter(x => x.launch_id === id);
+    const launchComments = comments.filter(x => x.launch_id === id);
+
+    $("launchMeta").innerHTML = `
+      <div class="title">Launch Details</div>
+      <div class="mini" style="margin-top:8px">
+        <b>Status:</b> ${esc(activeLaunch.status || "planned")} · 
+        <b>Priority:</b> ${esc(activeLaunch.priority || "normal")} ·
+        <b>Type:</b> ${esc(activeLaunch.launch_type || "—")}
+      </div>
+      <div class="mini" style="margin-top:6px"><b>Designer:</b> ${esc(activeLaunch.designer || "—")}</div>
+      <div class="mini" style="margin-top:6px"><b>Channel:</b> ${esc(activeLaunch.marketing_channel || "—")}</div>
+      <div style="margin-top:10px">${esc(activeLaunch.details || activeLaunch.notes || "No details yet.")}</div>
+      ${activeLaunch.launch_image_url ? `<div style="margin-top:10px"><a href="${esc(activeLaunch.launch_image_url)}" target="_blank">Open launch image</a></div>` : ""}
+    `;
+
+    $("taskList").innerHTML = launchTasks.length ? "" : `<div class="mini">No tasks yet.</div>`;
+    launchTasks.forEach(t => {
+      const div = document.createElement("div");
+      div.className = "task";
+      div.innerHTML = `
+        <div>
+          <b>${esc(t.task_title)}</b>
+          <div class="mini">${esc([t.priority, t.due_date ? `Due ${fmt(t.due_date)}` : null].filter(Boolean).join(" · "))}</div>
+          ${t.notes ? `<div class="mini">${esc(t.notes)}</div>` : ""}
+        </div>
+        <select class="in task-status" data-id="${t.id}" style="width:130px">
+          ${["open","in_progress","done"].map(s => `<option value="${s}" ${t.status === s ? "selected" : ""}>${s}</option>`).join("")}
+        </select>
+      `;
+      $("taskList").appendChild(div);
+    });
+
+    document.querySelectorAll(".task-status").forEach(el => {
+      el.onchange = async () => {
+        await supabaseClient.from("launch_tasks").update({
+          status: el.value,
+          completed_at: el.value === "done" ? new Date().toISOString() : null,
+          completed_by: el.value === "done" ? currentUser.id : null
+        }).eq("id", el.dataset.id);
+        await loadAll(false);
+        openDrawer(activeLaunch.id);
+        render();
+      };
+    });
+
+    $("assetList").innerHTML = launchAssets.length ? "" : `<div class="mini">No assets yet.</div>`;
+    launchAssets.forEach(a => {
+      const div = document.createElement("div");
+      div.className = "task";
+      div.innerHTML = `
+        <div>
+          <b>${esc(a.asset_name || a.asset_type || "Asset")}</b>
+          <div class="mini">${esc(a.asset_type || "")}</div>
+          ${a.asset_url ? `<a href="${esc(a.asset_url)}" target="_blank">${esc(a.asset_url)}</a>` : ""}
+        </div>
+      `;
+      $("assetList").appendChild(div);
+    });
+
+    $("commentList").innerHTML = launchComments.length ? "" : `<div class="mini">No comments yet.</div>`;
+    launchComments.forEach(c => {
+      const div = document.createElement("div");
+      div.className = "task";
+      div.innerHTML = `
+        <div>
+          <div>${esc(c.comment)}</div>
+          <div class="mini">${new Date(c.created_at).toLocaleString()}</div>
+        </div>
+      `;
+      $("commentList").appendChild(div);
+    });
+  }
+
+  function closeDrawer(){
+    $("detailDrawer").classList.remove("on");
+    activeLaunch = null;
+  }
+
+  async function saveTask(e){
+    e.preventDefault();
+    if (!activeLaunch) return;
+
+    const payload = {
+      launch_id: activeLaunch.id,
+      task_title: $("taskTitle").value.trim(),
+      status: "open",
+      priority: $("taskPriority").value,
+      due_date: $("taskDue").value || null,
+      notes: $("taskNotes").value.trim() || null
+    };
+
+    const { error } = await supabaseClient.from("launch_tasks").insert(payload);
+    if (error) return alert(error.message);
+
+    $("taskForm").reset();
+    $("taskForm").classList.add("hidden");
+    await loadAll(false);
+    openDrawer(activeLaunch.id);
+    render();
+  }
+
+  async function saveAsset(e){
+    e.preventDefault();
+    if (!activeLaunch) return;
+
+    const payload = {
+      launch_id: activeLaunch.id,
+      asset_name: $("assetName").value.trim() || null,
+      asset_url: $("assetUrl").value.trim(),
+      asset_type: $("assetType").value.trim() || null,
+      notes: $("assetNotes").value.trim() || null,
+      uploaded_by: currentUser.id
+    };
+
+    const { error } = await supabaseClient.from("launch_assets").insert(payload);
+    if (error) return alert(error.message);
+
+    $("assetForm").reset();
+    $("assetForm").classList.add("hidden");
+    await loadAll(false);
+    openDrawer(activeLaunch.id);
+  }
+
+  async function saveComment(e){
+    e.preventDefault();
+    if (!activeLaunch) return;
+
+    const payload = {
+      launch_id: activeLaunch.id,
+      user_id: currentUser.id,
+      comment: $("commentInput").value.trim()
+    };
+
+    const { error } = await supabaseClient.from("launch_comments").insert(payload);
+    if (error) return alert(error.message);
+
+    $("commentForm").reset();
+    await loadAll(false);
+    openDrawer(activeLaunch.id);
+  }
+
+  function debounce(fn,ms){
+    let t;
+    return (...args) => {
+      clearTimeout(t);
+      t = setTimeout(() => fn(...args), ms);
+    };
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
