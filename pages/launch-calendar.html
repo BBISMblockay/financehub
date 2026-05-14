@@ -3,21 +3,21 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Silo | Launch Planning</title>
+  <title>Silo | Launch Workbench</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="/pages/config.js?v=launch-v4"></script>
+  <script src="/pages/config.js?v=launch-v6"></script>
 
   <style>
     :root{
-      color-scheme: dark;
+      color-scheme:dark;
       --bg:#070a12;
-      --panel:rgba(255,255,255,.05);
+      --panel:rgba(255,255,255,.052);
       --panel2:rgba(255,255,255,.075);
       --surf:rgba(255,255,255,.035);
       --b:rgba(255,255,255,.11);
-      --b2:rgba(255,255,255,.2);
+      --b2:rgba(255,255,255,.22);
       --t:rgba(255,255,255,.93);
       --m:rgba(255,255,255,.58);
       --a:#4fd1ff;
@@ -29,10 +29,10 @@
     }
 
     :root[data-theme="light"]{
-      color-scheme: light;
+      color-scheme:light;
       --bg:#f6f7fb;
       --panel:rgba(255,255,255,.92);
-      --panel2:rgba(255,255,255,1);
+      --panel2:#fff;
       --surf:rgba(15,23,42,.035);
       --b:rgba(15,23,42,.12);
       --b2:rgba(15,23,42,.2);
@@ -49,316 +49,125 @@
     html,body{min-height:100%}
     body{
       margin:0;
-      font:13px/1.45 Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      font:13px/1.4 Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
       color:var(--t);
       background:
-        radial-gradient(900px 480px at 18% 8%, color-mix(in oklab,var(--a) 13%, transparent), transparent 48%),
-        radial-gradient(800px 480px at 82% 10%, color-mix(in oklab,var(--g) 10%, transparent), transparent 46%),
+        radial-gradient(1000px 520px at 12% 5%, color-mix(in oklab,var(--a) 13%, transparent), transparent 45%),
+        radial-gradient(900px 520px at 90% 4%, color-mix(in oklab,var(--g) 10%, transparent), transparent 44%),
         var(--bg);
     }
 
-    .app{
-      max-width:1540px;
-      margin:0 auto;
-      padding:14px;
-      display:grid;
-      grid-template-columns:300px 1fr;
-      gap:14px;
-    }
-
-    .top{
-      grid-column:1/-1;
-      display:flex;
-      justify-content:space-between;
-      gap:12px;
-      align-items:flex-end;
-      padding:2px 4px;
-    }
-
+    .app{max-width:1580px;margin:0 auto;padding:14px;display:grid;grid-template-columns:292px 1fr;gap:14px}
+    .top{grid-column:1/-1;display:flex;justify-content:space-between;align-items:flex-end;gap:12px;padding:2px 4px}
     h1{margin:0;font-size:23px;font-weight:950;letter-spacing:-.035em}
     .sub{color:var(--m);font-size:12px;margin-top:3px}
-
-    .card{
-      background:var(--panel);
-      border:1px solid var(--b);
-      border-radius:var(--radius);
-      box-shadow:0 16px 42px rgba(0,0,0,.18);
-      backdrop-filter:blur(10px);
-    }
-
-    .side{
-      position:sticky;
-      top:12px;
-      height:calc(100dvh - 24px);
-      overflow:auto;
-      padding:12px;
-    }
-
+    .card{background:var(--panel);border:1px solid var(--b);border-radius:var(--radius);box-shadow:0 16px 42px rgba(0,0,0,.18);backdrop-filter:blur(10px)}
+    .side{position:sticky;top:12px;height:calc(100dvh - 24px);overflow:auto;padding:12px}
     .main{min-width:0}
-
-    .lbl{
-      font-size:10px;
-      text-transform:uppercase;
-      letter-spacing:.09em;
-      font-weight:950;
-      color:var(--m);
-      margin:10px 0 7px;
-    }
-
+    .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.09em;font-weight:950;color:var(--m);margin:10px 0 7px}
     input,select,textarea,button{font:inherit;color:inherit}
-    .in{
-      width:100%;
-      border:1px solid var(--b);
-      background:var(--surf);
-      border-radius:13px;
-      padding:9px 10px;
-      outline:none;
-    }
-
-    .in:focus{
-      border-color:color-mix(in oklab,var(--a) 50%, var(--b));
-      box-shadow:0 0 0 4px color-mix(in oklab,var(--a) 12%, transparent);
-    }
-
-    textarea.in{min-height:86px;resize:vertical}
+    .in{width:100%;border:1px solid var(--b);background:var(--surf);border-radius:13px;padding:9px 10px;outline:none}
+    .in:focus{border-color:color-mix(in oklab,var(--a) 52%, var(--b));box-shadow:0 0 0 4px color-mix(in oklab,var(--a) 12%, transparent)}
+    textarea.in{min-height:82px;resize:vertical}
     .row{display:flex;gap:8px;align-items:center}
     .wrap{flex-wrap:wrap}
-
-    .btn{
-      border:1px solid var(--b);
-      background:var(--surf);
-      border-radius:13px;
-      padding:8px 10px;
-      font-weight:950;
-      cursor:pointer;
-      white-space:nowrap;
-    }
-
+    .btn{border:1px solid var(--b);background:var(--surf);border-radius:13px;padding:8px 10px;font-weight:950;cursor:pointer;white-space:nowrap}
     .btn:hover{border-color:var(--b2)}
-    .btn.p{
-      background:color-mix(in oklab,var(--a) 16%, var(--surf));
-      border-color:color-mix(in oklab,var(--a) 45%, var(--b));
-    }
-
-    .chip{
-      display:inline-flex;
-      gap:7px;
-      align-items:center;
-      border:1px solid var(--b);
-      background:var(--surf);
-      border-radius:999px;
-      padding:6px 10px;
-      color:var(--m);
-      font-weight:850;
-    }
-
+    .btn.p{background:color-mix(in oklab,var(--a) 16%, var(--surf));border-color:color-mix(in oklab,var(--a) 45%, var(--b))}
+    .btn.good{background:color-mix(in oklab,var(--g) 14%, var(--surf));border-color:color-mix(in oklab,var(--g) 35%, var(--b))}
+    .btn.warn{background:color-mix(in oklab,var(--y) 12%, var(--surf));border-color:color-mix(in oklab,var(--y) 32%, var(--b))}
+    .chip{display:inline-flex;gap:7px;align-items:center;border:1px solid var(--b);background:var(--surf);border-radius:999px;padding:6px 10px;color:var(--m);font-weight:850}
     .chip b{color:var(--t)}
-    .kpis{display:flex;gap:8px;flex-wrap:wrap}
-    .tabs{display:flex;gap:8px;flex-wrap:wrap}
-
-    .tab{
-      border:1px solid var(--b);
-      background:var(--surf);
-      border-radius:999px;
-      padding:8px 12px;
-      font-weight:950;
-      color:var(--m);
-      cursor:pointer;
-    }
-
-    .tab.on{
-      color:var(--t);
-      border-color:color-mix(in oklab,var(--a) 55%, var(--b));
-      background:color-mix(in oklab,var(--a) 12%, var(--surf));
-    }
-
-    .bar{
-      padding:11px 13px;
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      gap:10px;
-      flex-wrap:wrap;
-      margin-bottom:14px;
-    }
+    .bar{padding:11px 13px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+    .kpis,.tabs{display:flex;gap:8px;flex-wrap:wrap}
+    .tab{border:1px solid var(--b);background:var(--surf);border-radius:999px;padding:8px 12px;font-weight:950;color:var(--m);cursor:pointer}
+    .tab.on{color:var(--t);border-color:color-mix(in oklab,var(--a) 55%, var(--b));background:color-mix(in oklab,var(--a) 12%, var(--surf))}
+    .section{border:1px solid var(--b);background:var(--panel);border-radius:16px;padding:12px;margin-top:10px}
+    .section.hot{background:linear-gradient(180deg,color-mix(in oklab,var(--a) 8%,var(--panel)),var(--panel));border-color:color-mix(in oklab,var(--a) 24%,var(--b))}
+    .mini{font-size:11px;color:var(--m)}
+    .title{font-weight:950;font-size:15px}
+    .muted{color:var(--m)}
+    details.filter details{margin-top:8px}
+    details > summary{cursor:pointer;list-style:none}
+    details > summary::-webkit-details-marker{display:none}
+    .sum{display:flex;justify-content:space-between;align-items:center;gap:8px;font-weight:950}
+    .sum span{color:var(--m);font-size:11px}
 
     .cal{padding:12px 14px}
     .calh{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
-    .title{font-weight:950;font-size:15px}
-    .mini{font-size:11px;color:var(--m)}
-    .muted{color:var(--m)}
-
-    .grid{display:grid;grid-template-columns:repeat(7,1fr);gap:10px}
+    .grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
     .dow{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--m);font-weight:950;padding:2px}
-
-    .cell{
-      min-height:132px;
-      border:1px solid var(--b);
-      border-radius:16px;
-      background:var(--surf);
-      padding:9px;
-      overflow:hidden;
-    }
-
-    .cell.off{opacity:.45}
+    .cell{min-height:146px;border:1px solid var(--b);border-radius:16px;background:var(--surf);padding:8px;overflow:hidden}
+    .cell.off{opacity:.42}
+    .cell.today{border-color:color-mix(in oklab,var(--a) 42%,var(--b));box-shadow:inset 0 0 0 1px color-mix(in oklab,var(--a) 12%,transparent)}
     .day{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px}
     .badge{font-size:10px;border:1px solid var(--b);border-radius:999px;padding:2px 7px;color:var(--m)}
-
-    .items{display:flex;flex-direction:column;gap:7px;max-height:96px;overflow:auto}
-
-    .ev{
-      position:relative;
-      border:1px solid var(--b);
-      border-radius:13px;
-      background:color-mix(in oklab,var(--surf) 88%, transparent);
-      padding:8px 9px 8px 11px;
-      cursor:pointer;
-      overflow:hidden;
-    }
-
-    .ev:hover{border-color:var(--b2)}
+    .items{display:flex;flex-direction:column;gap:6px;max-height:110px;overflow:auto;padding-right:2px}
+    .ev{position:relative;border:1px solid var(--b);border-radius:13px;background:color-mix(in oklab,var(--surf) 88%,transparent);padding:8px 9px 8px 11px;cursor:pointer;overflow:hidden}
+    .ev:hover{border-color:var(--b2);transform:translateY(-1px)}
     .ev:before{content:"";position:absolute;left:0;top:7px;bottom:7px;width:3px;border-radius:99px;background:var(--a)}
     .ev.done:before{background:var(--g)}
     .ev.review:before{background:var(--y)}
     .ev.blocked:before{background:var(--r)}
     .ev.po:before{background:var(--p)}
+    .ev .t{font-size:11px;font-weight:950;line-height:1.16;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+    .ev .m{font-size:10px;color:var(--m);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:3px}
 
-    .ev .t{
-      font-size:11px;
-      font-weight:950;
-      line-height:1.18;
-      display:-webkit-box;
-      -webkit-line-clamp:2;
-      -webkit-box-orient:vertical;
-      overflow:hidden;
-    }
+    .feed{display:none;padding:12px 14px}
+    .feedrow{display:grid;grid-template-columns:98px 1fr;gap:12px;border-top:1px solid var(--b);padding:12px 4px;cursor:pointer}
+    .feedrow:hover{background:color-mix(in oklab,var(--a) 6%,transparent)}
+    .feeddate{font-weight:950}
+    .feedtitle{font-weight:950;font-size:14px;letter-spacing:-.01em}
+    .feedmeta{margin-top:3px;color:var(--m);font-size:11px}
+    .feedchips{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
 
-    .ev .m{
-      font-size:10px;
-      color:var(--m);
-      white-space:nowrap;
-      overflow:hidden;
-      text-overflow:ellipsis;
-      margin-top:3px;
-    }
+    .pill{display:inline-flex;align-items:center;border:1px solid var(--b);border-radius:999px;padding:3px 8px;font-size:10px;font-weight:950;color:var(--m);white-space:nowrap}
+    .pill.ready{color:var(--g);border-color:color-mix(in oklab,var(--g) 34%,var(--b));background:color-mix(in oklab,var(--g) 9%,transparent)}
+    .pill.risk{color:var(--r);border-color:color-mix(in oklab,var(--r) 34%,var(--b));background:color-mix(in oklab,var(--r) 9%,transparent)}
+    .pill.po{color:var(--p);border-color:color-mix(in oklab,var(--p) 34%,var(--b));background:color-mix(in oklab,var(--p) 9%,transparent)}
+    .pill.task{color:var(--a);border-color:color-mix(in oklab,var(--a) 34%,var(--b));background:color-mix(in oklab,var(--a) 9%,transparent)}
+    .pill.channel{color:var(--y);border-color:color-mix(in oklab,var(--y) 34%,var(--b));background:color-mix(in oklab,var(--y) 9%,transparent)}
 
-    .agenda{display:none;padding:12px 14px}
+    .drawer{position:fixed;right:0;top:0;height:100dvh;width:min(760px,96vw);background:var(--bg);border-left:1px solid var(--b);box-shadow:-20px 0 60px rgba(0,0,0,.35);z-index:40;transform:translateX(105%);transition:.18s ease;overflow:auto}
+    .drawer.on{transform:translateX(0)}
+    .dh{position:sticky;top:0;background:color-mix(in oklab,var(--bg) 92%,transparent);backdrop-filter:blur(12px);z-index:2;border-bottom:1px solid var(--b);padding:12px 14px}
+    .layer-tabs{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
+    .layer-tab{border:1px solid var(--b);background:var(--surf);border-radius:999px;padding:6px 10px;font-size:11px;font-weight:950;color:var(--m);cursor:pointer}
+    .layer-tab.on{color:var(--t);background:color-mix(in oklab,var(--a) 12%,var(--surf));border-color:color-mix(in oklab,var(--a) 44%,var(--b))}
+    .panel{display:none;padding:14px}
+    .panel.on{display:block}
+    .kvgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:8px}
+    .kv{border:1px solid var(--b);border-radius:13px;padding:8px;background:var(--surf)}
+    .kv .k{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--m);font-weight:950}
+    .kv .v{margin-top:3px;font-weight:850;word-break:break-word}
+    .item{display:flex;justify-content:space-between;gap:10px;border-top:1px solid var(--b);padding:10px 0}
+    .item:first-child{border-top:0}
+    .item-title{font-weight:950}
+    .item-meta{font-size:11px;color:var(--m);margin-top:3px;white-space:pre-wrap}
+    .inline-form{border:1px solid var(--b);background:var(--surf);border-radius:15px;padding:10px;margin-top:10px}
+    .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
 
-    .arow{
-      display:grid;
-      grid-template-columns:120px 1fr 240px;
-      gap:12px;
-      align-items:center;
-      border-top:1px solid var(--b);
-      padding:10px 6px;
-      cursor:pointer;
-    }
-
-    .arow:hover{background:color-mix(in oklab,var(--a) 6%, transparent)}
-
-    .pill{
-      display:inline-flex;
-      align-items:center;
-      border:1px solid var(--b);
-      border-radius:999px;
-      padding:3px 8px;
-      font-size:10px;
-      font-weight:950;
-      color:var(--m);
-      white-space:nowrap;
-    }
-
-    .pill.ready{color:var(--g);border-color:color-mix(in oklab,var(--g) 34%, var(--b));background:color-mix(in oklab,var(--g) 9%, transparent)}
-    .pill.risk{color:var(--r);border-color:color-mix(in oklab,var(--r) 34%, var(--b));background:color-mix(in oklab,var(--r) 9%, transparent)}
-    .pill.po{color:var(--p);border-color:color-mix(in oklab,var(--p) 34%, var(--b));background:color-mix(in oklab,var(--p) 9%, transparent)}
-
-    .modal{
-      position:fixed;
-      inset:0;
-      display:none;
-      align-items:center;
-      justify-content:center;
-      background:rgba(0,0,0,.58);
-      backdrop-filter:blur(6px);
-      z-index:50;
-      padding:18px;
-    }
-
+    .modal{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.58);backdrop-filter:blur(6px);z-index:50;padding:18px}
     .modal.on{display:flex}
     .sheet{width:min(1080px,96vw);max-height:90vh;overflow:hidden}
     .mh{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--b)}
     .mb{padding:14px;overflow:auto;max-height:calc(90vh - 58px)}
-
-    .drawer{
-      position:fixed;
-      right:0;
-      top:0;
-      height:100dvh;
-      width:min(620px,96vw);
-      background:var(--bg);
-      border-left:1px solid var(--b);
-      box-shadow:-20px 0 60px rgba(0,0,0,.35);
-      z-index:40;
-      transform:translateX(105%);
-      transition:.18s ease;
-      overflow:auto;
-    }
-
-    .drawer.on{transform:translateX(0)}
-
-    .section{
-      border:1px solid var(--b);
-      background:var(--panel);
-      border-radius:16px;
-      padding:12px;
-      margin-top:10px;
-    }
-
-    .section.hot{
-      background:linear-gradient(180deg, color-mix(in oklab,var(--a) 8%, var(--panel)), var(--panel));
-      border-color:color-mix(in oklab,var(--a) 24%, var(--b));
-    }
-
-    .task{display:flex;justify-content:space-between;gap:10px;border-top:1px solid var(--b);padding:8px 0}
-    .task:first-child{border-top:0}
-
-    .kvgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
-    .kv{border:1px solid var(--b);border-radius:13px;padding:8px;background:var(--surf)}
-    .kv .k{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--m);font-weight:950}
-    .kv .v{margin-top:3px;font-weight:850;word-break:break-word}
-
-    .lookup-box{
-      border:1px solid color-mix(in oklab,var(--a) 25%, var(--b));
-      background:color-mix(in oklab,var(--a) 7%, var(--surf));
-      border-radius:16px;
-      padding:10px;
-      margin-top:8px;
-    }
-
-    .lookup-result{
-      border-top:1px solid var(--b);
-      padding:9px 0;
-      cursor:pointer;
-    }
-
-    .lookup-result:hover{background:color-mix(in oklab,var(--a) 7%, transparent)}
+    .lookup-box{border:1px solid color-mix(in oklab,var(--a) 25%,var(--b));background:color-mix(in oklab,var(--a) 7%,var(--surf));border-radius:16px;padding:10px;margin-top:8px}
+    .lookup-result{border-top:1px solid var(--b);padding:9px 0;cursor:pointer}
+    .lookup-result:hover{background:color-mix(in oklab,var(--a) 7%,transparent)}
     .lookup-result:first-child{border-top:0}
-    .lookup-result b{font-size:12px}
-
-    .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-    .three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
     .hidden{display:none!important}
     a{color:var(--a);font-weight:950;text-decoration:none}
     a:hover{text-decoration:underline}
 
-    @media(max-width:980px){
+    @media(max-width:1020px){
       .app{grid-template-columns:1fr}
       .side{position:relative;height:auto}
-      .arow{grid-template-columns:90px 1fr}
-      .arow .right{grid-column:2}
+      .feedrow{grid-template-columns:80px 1fr}
       .kvgrid,.two,.three{grid-template-columns:1fr}
       .grid{gap:6px}
-      .cell{min-height:118px;padding:7px}
+      .cell{min-height:120px;padding:7px}
     }
   </style>
 </head>
@@ -367,8 +176,8 @@
 <div class="app">
   <header class="top">
     <div>
-      <h1>Silo Launch Planning</h1>
-      <div class="sub">Product-title level calendar · PO-aware · Silo-native workflow</div>
+      <h1>Silo Launch Workbench</h1>
+      <div class="sub">Calendar + product readiness + initiatives + tasks · product-title level planning</div>
     </div>
     <div class="row wrap" style="justify-content:flex-end">
       <span class="chip">Signed in <b id="signedIn">—</b></span>
@@ -378,54 +187,58 @@
   </header>
 
   <aside class="card side">
-    <button class="btn p" id="newLaunchBtn" style="width:100%">+ New Launch</button>
+    <button class="btn p" id="newLaunchBtn" style="width:100%">+ New Launch Container</button>
 
-    <div class="lbl">Search</div>
-    <input id="q" class="in" placeholder="Launch, product title, PO, vendor..." />
+    <details class="filter" open>
+      <summary class="sum" style="margin-top:12px">Filters <span>collapse</span></summary>
 
-    <div class="lbl">Filters</div>
-    <div class="row">
-      <select id="statusFilter" class="in">
-        <option value="">All status</option>
-        <option value="planned">Planned</option>
-        <option value="in_progress">In Progress</option>
-        <option value="assets_needed">Assets Needed</option>
-        <option value="ready">Ready</option>
-        <option value="launched">Launched</option>
-        <option value="blocked">Blocked</option>
-      </select>
-      <select id="typeFilter" class="in"><option value="">All types</option></select>
-    </div>
+      <div class="lbl">Search</div>
+      <input id="q" class="in" placeholder="Launch, product title, PO, vendor..." />
 
-    <div class="lbl">Designer</div>
-    <select id="designerFilter" class="in"><option value="">All designers</option></select>
+      <div class="lbl">Status / Type</div>
+      <div class="row">
+        <select id="statusFilter" class="in">
+          <option value="">All status</option>
+          <option value="planned">Planned</option>
+          <option value="in_progress">In Progress</option>
+          <option value="assets_needed">Assets Needed</option>
+          <option value="ready">Ready</option>
+          <option value="launched">Launched</option>
+          <option value="blocked">Blocked</option>
+        </select>
+        <select id="typeFilter" class="in"><option value="">All types</option></select>
+      </div>
 
-    <div class="lbl">Readiness</div>
-    <select id="readinessFilter" class="in">
-      <option value="">All readiness</option>
-      <option value="not_reviewed">Not Reviewed</option>
-      <option value="at_risk">At Risk</option>
-      <option value="needs_inventory">Needs Inventory</option>
-      <option value="needs_assets">Needs Assets</option>
-      <option value="ready">Ready</option>
-    </select>
+      <div class="lbl">Designer / Readiness</div>
+      <div class="row">
+        <select id="designerFilter" class="in"><option value="">All designers</option></select>
+        <select id="readinessFilter" class="in">
+          <option value="">All readiness</option>
+          <option value="not_reviewed">Not Reviewed</option>
+          <option value="at_risk">At Risk</option>
+          <option value="needs_inventory">Needs Inventory</option>
+          <option value="needs_assets">Needs Assets</option>
+          <option value="ready">Ready</option>
+        </select>
+      </div>
 
-    <div class="lbl">Date range</div>
-    <div class="row">
-      <input id="fromFilter" class="in" type="date" />
-      <input id="toFilter" class="in" type="date" />
-    </div>
+      <div class="lbl">Date range</div>
+      <div class="row">
+        <input id="fromFilter" class="in" type="date" />
+        <input id="toFilter" class="in" type="date" />
+      </div>
 
-    <div class="lbl">Actions</div>
-    <div class="row">
-      <button class="btn" id="resetBtn" style="flex:1">Reset</button>
-      <button class="btn" id="refreshBtn" style="flex:1">Refresh</button>
-    </div>
+      <div class="lbl">Actions</div>
+      <div class="row">
+        <button class="btn" id="resetBtn" style="flex:1">Reset</button>
+        <button class="btn" id="refreshBtn" style="flex:1">Refresh</button>
+      </div>
+    </details>
 
     <div class="section hot">
-      <div class="lbl" style="margin-top:0">Flow</div>
-      <div class="mini">
-        Plan launches at product-title level. Pull from incoming PO product groups, existing product master, or type a future placeholder manually.
+      <div class="title">Launch = Container</div>
+      <div class="mini" style="margin-top:5px">
+        Add multiple products, channel initiatives, tasks, links, assets, and comments under one launch.
       </div>
     </div>
   </aside>
@@ -436,12 +249,14 @@
         <span class="chip">Filtered <b id="kCount">0</b></span>
         <span class="chip">This month <b id="kMonth">0</b></span>
         <span class="chip">Next 7d <b id="k7">0</b></span>
+        <span class="chip">Products <b id="kProducts">0</b></span>
+        <span class="chip">Channels <b id="kChannels">0</b></span>
         <span class="chip">Open tasks <b id="kTasks">0</b></span>
         <span class="chip">At risk <b id="kRisk">0</b></span>
       </div>
       <div class="tabs">
-        <button class="tab on" data-view="month">Month</button>
-        <button class="tab" data-view="agenda">Agenda</button>
+        <button class="tab on" data-view="month">Calendar</button>
+        <button class="tab" data-view="feed">Agenda Feed</button>
       </div>
     </section>
 
@@ -449,7 +264,7 @@
       <div class="calh">
         <div>
           <div class="title" id="monthTitle">—</div>
-          <div class="mini">Click a launch to open linked product, PO, tasks, assets, and comments</div>
+          <div class="mini">Click a launch to manage product/readiness, channel initiatives, tasks, assets, links, and comments</div>
         </div>
         <div class="row">
           <button class="btn" id="prevMonth">← Prev</button>
@@ -460,19 +275,19 @@
       <div class="grid" id="calendarGrid"></div>
     </section>
 
-    <section id="agendaView" class="card agenda">
+    <section id="feedView" class="card feed">
       <div class="calh">
         <div>
-          <div class="title" id="agendaTitle">Agenda</div>
-          <div class="mini">14-day rolling launch view</div>
+          <div class="title" id="feedTitle">Agenda Feed</div>
+          <div class="mini">RSS-style launch stream with operational context</div>
         </div>
         <div class="row">
-          <button class="btn" id="prevAgenda">← Prev</button>
-          <button class="btn" id="todayAgenda">Today</button>
-          <button class="btn" id="nextAgenda">Next →</button>
+          <button class="btn" id="prevFeed">← Prev</button>
+          <button class="btn" id="todayFeed">Today</button>
+          <button class="btn" id="nextFeed">Next →</button>
         </div>
       </div>
-      <div id="agendaList"></div>
+      <div id="feedList"></div>
     </section>
   </main>
 </div>
@@ -481,8 +296,8 @@
   <div class="card sheet">
     <div class="mh">
       <div>
-        <div class="title" id="modalTitle">New Launch</div>
-        <div class="mini">Use lookup to prefill as much as possible, or plan placeholders manually.</div>
+        <div class="title" id="modalTitle">New Launch Container</div>
+        <div class="mini">Create the launch shell first. Add multiple products and initiatives from the drawer.</div>
       </div>
       <button class="btn" id="closeModal">Close</button>
     </div>
@@ -492,12 +307,12 @@
         <input type="hidden" id="launchId" />
 
         <div class="section hot" style="margin-top:0">
-          <div class="title">Product Planning Source</div>
-          <div class="mini" style="margin-top:4px">Launches are planned at product-title level. SKU is optional/sample context only.</div>
+          <div class="title">Optional Prefill</div>
+          <div class="mini" style="margin-top:4px">Pull a PO product group or product master item to prefill the launch shell.</div>
 
           <div class="two" style="margin-top:10px">
             <div>
-              <div class="lbl">Product Source</div>
+              <div class="lbl">Source</div>
               <select id="productSourceInput" class="in">
                 <option value="manual">Manual / Placeholder</option>
                 <option value="po_incoming">PO / Incoming Product</option>
@@ -505,7 +320,7 @@
               </select>
             </div>
             <div>
-              <div class="lbl">Lookup Search</div>
+              <div class="lbl">Lookup</div>
               <div class="row">
                 <input id="lookupSearchInput" class="in" placeholder="Product title, PO, vendor..." />
                 <button type="button" class="btn p" id="lookupSearchBtn">Search</button>
@@ -515,24 +330,15 @@
 
           <div id="lookupBox" class="lookup-box hidden">
             <div id="lookupResults"></div>
-            <div class="mini" style="margin-top:8px">
-              PO lookup uses product-title grouped incoming PO records. Existing product uses product master. Manual mode still works for future products.
-            </div>
           </div>
         </div>
 
         <div class="section">
-          <div class="title">Launch Setup</div>
+          <div class="title">Launch Shell</div>
 
           <div class="two" style="margin-top:8px">
-            <div>
-              <div class="lbl">Launch title</div>
-              <input id="titleInput" class="in" required placeholder="Launch title" />
-            </div>
-            <div>
-              <div class="lbl">Product title</div>
-              <input id="productTitleInput" class="in" placeholder="Product title / drop item" />
-            </div>
+            <div><div class="lbl">Launch title</div><input id="titleInput" class="in" required placeholder="July 4th Drop / Fall Campaign" /></div>
+            <div><div class="lbl">Primary product title</div><input id="productTitleInput" class="in" placeholder="Optional primary product" /></div>
           </div>
 
           <div class="three" style="margin-top:8px">
@@ -563,7 +369,7 @@
               </select>
             </div>
             <div>
-              <div class="lbl">Launch readiness</div>
+              <div class="lbl">Readiness</div>
               <select id="readinessInput" class="in">
                 <option value="not_reviewed">Not Reviewed</option>
                 <option value="at_risk">At Risk</option>
@@ -582,43 +388,34 @@
         </div>
 
         <div class="section">
-          <div class="title">Silo References</div>
+          <div class="title">Primary References</div>
+
+          <div class="three" style="margin-top:8px">
+            <div><div class="lbl">Collection / Drop</div><input id="collectionInput" class="in" /></div>
+            <div><div class="lbl">Product type</div><input id="productTypeInput" class="in" /></div>
+            <div><div class="lbl">Inventory tag</div><input id="inventoryTagInput" class="in" /></div>
+          </div>
+
+          <div class="three" style="margin-top:8px">
+            <div><div class="lbl">PO number</div><input id="poNumberInput" class="in" /></div>
+            <div><div class="lbl">Vendor / Factory</div><input id="vendorInput" class="in" /></div>
+            <div><div class="lbl">Sample SKU</div><input id="skuInput" class="in" placeholder="Optional" /></div>
+          </div>
 
           <div class="two" style="margin-top:8px">
-            <div><div class="lbl">Collection / Drop</div><input id="collectionInput" class="in" placeholder="Collection / drop name" /></div>
-            <div><div class="lbl">Product type</div><input id="productTypeInput" class="in" placeholder="Cap, tee, hoodie..." /></div>
-          </div>
-
-          <div class="three" style="margin-top:8px">
-            <div><div class="lbl">PO number</div><input id="poNumberInput" class="in" placeholder="PO # / internal PO" /></div>
-            <div><div class="lbl">Vendor / Factory</div><input id="vendorInput" class="in" placeholder="Vendor / factory" /></div>
-            <div><div class="lbl">Inventory tag</div><input id="inventoryTagInput" class="in" placeholder="launch, seasonal, keep..." /></div>
-          </div>
-
-          <div class="three" style="margin-top:8px">
             <div><div class="lbl">Expected units</div><input id="expectedUnitsInput" class="in" type="number" min="0" step="1" /></div>
             <div><div class="lbl">Expected retail value</div><input id="expectedRetailInput" class="in" type="number" min="0" step="0.01" /></div>
-            <div><div class="lbl">Sample SKU / optional</div><input id="skuInput" class="in" placeholder="Optional sample SKU" /></div>
           </div>
         </div>
 
         <div class="section">
           <div class="title">Creative / Notes</div>
-
-          <div style="margin-top:8px">
-            <div class="lbl">Launch image URL</div>
-            <input id="imageInput" class="in" placeholder="https://..." />
-          </div>
-
+          <div style="margin-top:8px"><div class="lbl">Launch image URL</div><input id="imageInput" class="in" placeholder="https://..." /></div>
           <div class="two" style="margin-top:8px">
             <div><div class="lbl">Assets needed</div><textarea id="assetsInput" class="in"></textarea></div>
             <div><div class="lbl">Details</div><textarea id="detailsInput" class="in"></textarea></div>
           </div>
-
-          <div style="margin-top:8px">
-            <div class="lbl">Notes</div>
-            <textarea id="notesInput" class="in"></textarea>
-          </div>
+          <div style="margin-top:8px"><div class="lbl">Notes</div><textarea id="notesInput" class="in"></textarea></div>
         </div>
 
         <div class="row" style="justify-content:flex-end;margin-top:12px">
@@ -632,31 +429,208 @@
 </div>
 
 <aside id="detailDrawer" class="drawer">
-  <div class="mh">
-    <div>
-      <div class="title" id="drawerTitle">Launch</div>
-      <div class="mini" id="drawerSub">—</div>
+  <div class="dh">
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
+      <div>
+        <div class="title" id="drawerTitle">Launch</div>
+        <div class="mini" id="drawerSub">—</div>
+      </div>
+      <button class="btn" id="closeDrawer">Close</button>
     </div>
-    <button class="btn" id="closeDrawer">Close</button>
-  </div>
 
-  <div style="padding:14px">
-    <div class="row wrap">
-      <button class="btn p" id="editLaunchBtn">Edit Launch</button>
+    <div class="row wrap" style="margin-top:10px">
+      <button class="btn p" id="editLaunchBtn">Edit Shell</button>
       <button class="btn" id="refreshDetailBtn">Refresh</button>
     </div>
 
+    <div class="layer-tabs">
+      <button class="layer-tab on" data-panel="overviewPanel">Overview</button>
+      <button class="layer-tab" data-panel="productsPanel">Products</button>
+      <button class="layer-tab" data-panel="channelsPanel">Initiatives</button>
+      <button class="layer-tab" data-panel="tasksPanel">Tasks</button>
+      <button class="layer-tab" data-panel="assetsPanel">Assets</button>
+      <button class="layer-tab" data-panel="linksPanel">Links</button>
+      <button class="layer-tab" data-panel="commentsPanel">Comments</button>
+    </div>
+  </div>
+
+  <div id="overviewPanel" class="panel on">
     <div class="section hot" id="launchMeta"></div>
     <div class="section" id="systemMeta"></div>
+  </div>
 
-    <div class="section">
+  <div id="productsPanel" class="panel">
+    <div class="section hot">
+      <div class="row" style="justify-content:space-between">
+        <div>
+          <div class="title">Products / Readiness</div>
+          <div class="mini">Add multiple product-title level readiness rows under this launch.</div>
+        </div>
+        <button class="btn p" id="showProductFormBtn">+ Product</button>
+      </div>
+
+      <form id="productForm" class="inline-form hidden">
+        <div class="row">
+          <input id="prodLookupInput" class="in" placeholder="Search incoming PO product title..." />
+          <button type="button" class="btn" id="prodLookupBtn">Lookup</button>
+        </div>
+        <div id="prodLookupResults" style="margin-top:8px"></div>
+
+        <div class="two" style="margin-top:8px">
+          <input id="prodTitle" class="in" placeholder="Product title" required />
+          <input id="prodType" class="in" placeholder="Product type" />
+        </div>
+        <div class="two" style="margin-top:8px">
+          <input id="prodCollection" class="in" placeholder="Collection" />
+          <input id="prodManufacturer" class="in" placeholder="Manufacturer / factory" />
+        </div>
+        <div class="three" style="margin-top:8px">
+          <input id="prodPo" class="in" placeholder="PO number" />
+          <input id="prodEta" class="in" type="date" />
+          <input id="prodUnits" class="in" type="number" min="0" placeholder="Expected units" />
+        </div>
+        <div class="three" style="margin-top:8px">
+          <select id="prodReadyStatus" class="in">
+            <option value="not_reviewed">Not Reviewed</option>
+            <option value="at_risk">At Risk</option>
+            <option value="blocked">Blocked</option>
+            <option value="ready">Ready</option>
+          </select>
+          <select id="prodShotStatus" class="in">
+            <option value="not_started">Product Shots: Not Started</option>
+            <option value="needed">Product Shots: Needed</option>
+            <option value="scheduled">Product Shots: Scheduled</option>
+            <option value="complete">Product Shots: Complete</option>
+          </select>
+          <select id="prodCopyStatus" class="in">
+            <option value="not_started">Copy: Not Started</option>
+            <option value="drafting">Copy: Drafting</option>
+            <option value="complete">Copy: Complete</option>
+          </select>
+        </div>
+        <textarea id="prodNotes" class="in" style="margin-top:8px" placeholder="Readiness notes"></textarea>
+        <div class="row" style="justify-content:flex-end;margin-top:8px">
+          <button type="button" class="btn" id="cancelProductBtn">Cancel</button>
+          <button class="btn p">Save Product</button>
+        </div>
+      </form>
+
+      <div id="productList" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+  <div id="channelsPanel" class="panel">
+    <div class="section hot">
+      <div class="row" style="justify-content:space-between">
+        <div>
+          <div class="title">Channel Initiatives</div>
+          <div class="mini">Email, SMS, organic, Meta, website, retail, or other execution layers.</div>
+        </div>
+        <button class="btn p" id="showChannelFormBtn">+ Initiative</button>
+      </div>
+
+      <form id="channelForm" class="inline-form hidden">
+        <div class="two">
+          <select id="channelName" class="in">
+            <option value="email">Email</option>
+            <option value="sms">SMS</option>
+            <option value="organic">Organic</option>
+            <option value="meta">Meta</option>
+            <option value="website">Website</option>
+            <option value="retail">Retail</option>
+            <option value="other">Other</option>
+          </select>
+          <input id="channelTitle" class="in" placeholder="Initiative title" required />
+        </div>
+        <div class="three" style="margin-top:8px">
+          <input id="channelDate" class="in" type="date" />
+          <input id="channelTime" class="in" type="time" />
+          <select id="channelStatus" class="in">
+            <option value="planned">Planned</option>
+            <option value="drafting">Drafting</option>
+            <option value="ready">Ready</option>
+            <option value="scheduled">Scheduled</option>
+            <option value="live">Live</option>
+            <option value="blocked">Blocked</option>
+          </select>
+        </div>
+        <div class="two" style="margin-top:8px">
+          <input id="channelOwner" class="in" placeholder="Owner" />
+          <input id="channelUrl" class="in" placeholder="Link / URL" />
+        </div>
+        <textarea id="channelNotes" class="in" style="margin-top:8px" placeholder="Copy, notes, CTA, etc."></textarea>
+        <div class="row" style="justify-content:flex-end;margin-top:8px">
+          <button type="button" class="btn" id="cancelChannelBtn">Cancel</button>
+          <button class="btn p">Save Initiative</button>
+        </div>
+      </form>
+
+      <div id="channelList" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+  <div id="tasksPanel" class="panel">
+    <div class="section hot">
+      <div class="row" style="justify-content:space-between">
+        <div class="title">Tasks</div>
+        <button class="btn p" id="showTaskFormBtn">+ Task</button>
+      </div>
+      <form id="taskForm" class="inline-form hidden">
+        <input id="taskTitle" class="in" placeholder="Task title" required />
+        <div class="three" style="margin-top:8px">
+          <input id="taskDue" class="in" type="date" />
+          <select id="taskPriority" class="in">
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
+            <option value="critical">Critical</option>
+          </select>
+          <select id="taskType" class="in">
+            <option value="">Task Type</option>
+            <option value="creative">Creative</option>
+            <option value="inventory">Inventory</option>
+            <option value="website">Website</option>
+            <option value="email">Email</option>
+            <option value="sms">SMS</option>
+            <option value="qa">QA</option>
+          </select>
+        </div>
+        <textarea id="taskNotes" class="in" style="margin-top:8px" placeholder="Task notes"></textarea>
+        <div class="row" style="justify-content:flex-end;margin-top:8px">
+          <button type="button" class="btn" id="cancelTaskBtn">Cancel</button>
+          <button class="btn p">Save Task</button>
+        </div>
+      </form>
+      <div id="taskList" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+  <div id="assetsPanel" class="panel">
+    <div class="section hot">
+      <div class="row" style="justify-content:space-between">
+        <div class="title">Assets / Files / Links</div>
+        <button class="btn p" id="showAssetFormBtn">+ Asset</button>
+      </div>
+      <form id="assetForm" class="inline-form hidden">
+        <input id="assetName" class="in" placeholder="Asset name" />
+        <input id="assetUrl" class="in" style="margin-top:8px" placeholder="https://..." required />
+        <input id="assetType" class="in" style="margin-top:8px" placeholder="Asset type" />
+        <textarea id="assetNotes" class="in" style="margin-top:8px" placeholder="Asset notes"></textarea>
+        <div class="row" style="justify-content:flex-end;margin-top:8px">
+          <button type="button" class="btn" id="cancelAssetBtn">Cancel</button>
+          <button class="btn p">Save Asset</button>
+        </div>
+      </form>
+      <div id="assetList" style="margin-top:10px"></div>
+    </div>
+  </div>
+
+  <div id="linksPanel" class="panel">
+    <div class="section hot">
       <div class="row" style="justify-content:space-between">
         <div class="title">Silo Links</div>
-        <button class="btn" id="addSystemLinkBtn">+ Link</button>
+        <button class="btn p" id="showSystemLinkFormBtn">+ Link</button>
       </div>
-      <div id="systemLinksList" style="margin-top:8px"></div>
-
-      <form id="systemLinkForm" class="hidden" style="margin-top:10px">
+      <form id="systemLinkForm" class="inline-form hidden">
         <div class="row">
           <select id="linkType" class="in">
             <option value="product">Product</option>
@@ -671,69 +645,30 @@
           <input id="linkLabel" class="in" placeholder="Label" />
         </div>
         <div class="row" style="margin-top:8px">
-          <input id="linkTable" class="in" placeholder="ref_table, optional" />
-          <input id="linkRefId" class="in" placeholder="ref_id, optional" />
+          <input id="linkTable" class="in" placeholder="ref_table" />
+          <input id="linkRefId" class="in" placeholder="ref_id" />
         </div>
-        <input id="linkUrl" class="in" style="margin-top:8px" placeholder="URL / page path, optional" />
+        <input id="linkUrl" class="in" style="margin-top:8px" placeholder="URL / page path" />
         <textarea id="linkNotes" class="in" style="margin-top:8px" placeholder="Notes"></textarea>
-        <div class="row" style="margin-top:8px;justify-content:flex-end">
+        <div class="row" style="justify-content:flex-end;margin-top:8px">
           <button type="button" class="btn" id="cancelSystemLinkBtn">Cancel</button>
           <button class="btn p">Save Link</button>
         </div>
       </form>
+      <div id="systemLinksList" style="margin-top:10px"></div>
     </div>
+  </div>
 
-    <div class="section">
-      <div class="row" style="justify-content:space-between">
-        <div class="title">Tasks</div>
-        <button class="btn" id="addTaskBtn">+ Task</button>
-      </div>
-      <div id="taskList" style="margin-top:8px"></div>
-      <form id="taskForm" class="hidden" style="margin-top:10px">
-        <input id="taskTitle" class="in" placeholder="Task title" required />
-        <div class="row" style="margin-top:8px">
-          <input id="taskDue" class="in" type="date" />
-          <select id="taskPriority" class="in">
-            <option value="normal">Normal</option>
-            <option value="high">High</option>
-            <option value="critical">Critical</option>
-          </select>
-        </div>
-        <textarea id="taskNotes" class="in" style="margin-top:8px" placeholder="Task notes"></textarea>
-        <div class="row" style="margin-top:8px;justify-content:flex-end">
-          <button type="button" class="btn" id="cancelTaskBtn">Cancel</button>
-          <button class="btn p">Save Task</button>
-        </div>
-      </form>
-    </div>
-
-    <div class="section">
-      <div class="row" style="justify-content:space-between">
-        <div class="title">Assets / Links</div>
-        <button class="btn" id="addAssetBtn">+ Asset</button>
-      </div>
-      <div id="assetList" style="margin-top:8px"></div>
-      <form id="assetForm" class="hidden" style="margin-top:10px">
-        <input id="assetName" class="in" placeholder="Asset name" />
-        <input id="assetUrl" class="in" style="margin-top:8px" placeholder="https://..." required />
-        <input id="assetType" class="in" style="margin-top:8px" placeholder="Asset type" />
-        <textarea id="assetNotes" class="in" style="margin-top:8px" placeholder="Asset notes"></textarea>
-        <div class="row" style="margin-top:8px;justify-content:flex-end">
-          <button type="button" class="btn" id="cancelAssetBtn">Cancel</button>
-          <button class="btn p">Save Asset</button>
-        </div>
-      </form>
-    </div>
-
-    <div class="section">
+  <div id="commentsPanel" class="panel">
+    <div class="section hot">
       <div class="title">Comments</div>
-      <div id="commentList" style="margin-top:8px"></div>
       <form id="commentForm" style="margin-top:10px">
         <textarea id="commentInput" class="in" placeholder="Add comment..." required></textarea>
         <div class="row" style="justify-content:flex-end;margin-top:8px">
           <button class="btn p">Post Comment</button>
         </div>
       </form>
+      <div id="commentList" style="margin-top:10px"></div>
     </div>
   </div>
 </aside>
@@ -751,11 +686,11 @@
   const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
   let currentUser = null;
-  let launches = [], tasks = [], assets = [], comments = [], systemLinks = [], filtered = [];
+  let launches = [], tasks = [], assets = [], comments = [], systemLinks = [], channels = [], products = [], filtered = [];
   let activeLaunch = null;
   let view = "month";
   let monthAnchor = startOfMonth(new Date());
-  let agendaAnchor = startOfDay(new Date());
+  let feedAnchor = startOfDay(new Date());
   const F = { q:"", status:"", type:"", designer:"", readiness:"", from:"", to:"" };
 
   const $ = id => document.getElementById(id);
@@ -781,24 +716,22 @@
 
   function bind(){
     $("logoutBtn").onclick = async () => { await supabaseClient.auth.signOut(); location.href = "/pages/login.html"; };
+    $("themeBtn").onclick = () => setTheme((document.documentElement.getAttribute("data-theme") || "dark") === "dark" ? "light" : "dark");
+    setTheme(localStorage.getItem("silo_launch_theme") || "dark");
+
     $("newLaunchBtn").onclick = () => openLaunchModal();
     $("closeModal").onclick = closeLaunchModal;
     $("cancelModal").onclick = closeLaunchModal;
     $("launchForm").onsubmit = saveLaunch;
 
     $("productSourceInput").onchange = () => {
-      const source = $("productSourceInput").value;
-      $("lookupBox").classList.toggle("hidden", source === "manual");
+      $("lookupBox").classList.toggle("hidden", $("productSourceInput").value === "manual");
       $("lookupResults").innerHTML = "";
       $("lookupSearchInput").value = "";
     };
-
     $("lookupSearchBtn").onclick = runProductLookup;
     $("lookupSearchInput").addEventListener("keydown", e => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        runProductLookup();
-      }
+      if (e.key === "Enter") { e.preventDefault(); runProductLookup(); }
     });
 
     $("refreshBtn").onclick = loadAll;
@@ -825,34 +758,41 @@
     $("prevMonth").onclick = () => { monthAnchor = addMonths(monthAnchor,-1); render(); };
     $("nextMonth").onclick = () => { monthAnchor = addMonths(monthAnchor,1); render(); };
     $("todayMonth").onclick = () => { monthAnchor = startOfMonth(new Date()); render(); };
-
-    $("prevAgenda").onclick = () => { agendaAnchor = addDays(agendaAnchor,-14); render(); };
-    $("nextAgenda").onclick = () => { agendaAnchor = addDays(agendaAnchor,14); render(); };
-    $("todayAgenda").onclick = () => { agendaAnchor = startOfDay(new Date()); render(); };
+    $("prevFeed").onclick = () => { feedAnchor = addDays(feedAnchor,-14); render(); };
+    $("nextFeed").onclick = () => { feedAnchor = addDays(feedAnchor,14); render(); };
+    $("todayFeed").onclick = () => { feedAnchor = startOfDay(new Date()); render(); };
 
     $("closeDrawer").onclick = closeDrawer;
     $("editLaunchBtn").onclick = () => activeLaunch && openLaunchModal(activeLaunch);
     $("refreshDetailBtn").onclick = async () => { await loadAll(false); if(activeLaunch) openDrawer(activeLaunch.id); };
 
-    $("addSystemLinkBtn").onclick = () => $("systemLinkForm").classList.remove("hidden");
-    $("cancelSystemLinkBtn").onclick = () => $("systemLinkForm").classList.add("hidden");
-    $("systemLinkForm").onsubmit = saveSystemLink;
+    document.querySelectorAll(".layer-tab").forEach(btn => btn.onclick = () => {
+      document.querySelectorAll(".layer-tab").forEach(x => x.classList.toggle("on", x === btn));
+      document.querySelectorAll(".panel").forEach(x => x.classList.toggle("on", x.id === btn.dataset.panel));
+    });
 
-    $("addTaskBtn").onclick = () => $("taskForm").classList.remove("hidden");
+    $("showProductFormBtn").onclick = () => $("productForm").classList.remove("hidden");
+    $("cancelProductBtn").onclick = () => $("productForm").classList.add("hidden");
+    $("productForm").onsubmit = saveProductReadiness;
+    $("prodLookupBtn").onclick = lookupProductForReadiness;
+
+    $("showChannelFormBtn").onclick = () => $("channelForm").classList.remove("hidden");
+    $("cancelChannelBtn").onclick = () => $("channelForm").classList.add("hidden");
+    $("channelForm").onsubmit = saveChannelItem;
+
+    $("showTaskFormBtn").onclick = () => $("taskForm").classList.remove("hidden");
     $("cancelTaskBtn").onclick = () => $("taskForm").classList.add("hidden");
     $("taskForm").onsubmit = saveTask;
 
-    $("addAssetBtn").onclick = () => $("assetForm").classList.remove("hidden");
+    $("showAssetFormBtn").onclick = () => $("assetForm").classList.remove("hidden");
     $("cancelAssetBtn").onclick = () => $("assetForm").classList.add("hidden");
     $("assetForm").onsubmit = saveAsset;
 
-    $("commentForm").onsubmit = saveComment;
+    $("showSystemLinkFormBtn").onclick = () => $("systemLinkForm").classList.remove("hidden");
+    $("cancelSystemLinkBtn").onclick = () => $("systemLinkForm").classList.add("hidden");
+    $("systemLinkForm").onsubmit = saveSystemLink;
 
-    $("themeBtn").onclick = () => {
-      const cur = document.documentElement.getAttribute("data-theme") || "dark";
-      setTheme(cur === "dark" ? "light" : "dark");
-    };
-    setTheme(localStorage.getItem("silo_launch_theme") || "dark");
+    $("commentForm").onsubmit = saveComment;
   }
 
   function setTheme(t){
@@ -862,12 +802,14 @@
   }
 
   async function loadAll(shouldRender = true){
-    const [l,t,a,c,s] = await Promise.all([
+    const [l,t,a,c,s,ch,p] = await Promise.all([
       supabaseClient.from("launch_calendar").select("*").order("launch_date",{ascending:true}),
       supabaseClient.from("launch_tasks").select("*").order("created_at",{ascending:false}),
       supabaseClient.from("launch_assets").select("*").order("created_at",{ascending:false}),
       supabaseClient.from("launch_comments").select("*").order("created_at",{ascending:false}),
-      supabaseClient.from("launch_system_links").select("*").order("created_at",{ascending:false})
+      supabaseClient.from("launch_system_links").select("*").order("created_at",{ascending:false}),
+      supabaseClient.from("launch_channel_items").select("*").order("scheduled_date",{ascending:true}),
+      supabaseClient.from("launch_product_readiness").select("*").order("created_at",{ascending:false})
     ]);
 
     if (l.error) throw l.error;
@@ -875,12 +817,16 @@
     if (a.error) console.warn(a.error);
     if (c.error) console.warn(c.error);
     if (s.error) console.warn(s.error);
+    if (ch.error) console.warn(ch.error);
+    if (p.error) console.warn(p.error);
 
     launches = l.data || [];
     tasks = t.data || [];
     assets = a.data || [];
     comments = c.data || [];
     systemLinks = s.data || [];
+    channels = ch.data || [];
+    products = p.data || [];
 
     fillFilterOptions();
     applyFilters();
@@ -906,11 +852,12 @@
       if (F.from && x.launch_date < F.from) return false;
       if (F.to && x.launch_date > F.to) return false;
       if (q) {
+        const childProducts = products.filter(p => p.launch_id === x.id).map(p => p.product_title).join(" ");
+        const childChannels = channels.filter(c => c.launch_id === x.id).map(c => c.item_title + " " + c.channel).join(" ");
         const blob = [
-          x.title,x.launch_type,x.designer,x.marketing_channel,x.campaign_type,
-          x.assets_needed,x.details,x.notes,x.product_sku,x.product_title,
-          x.product_type,x.collection_name,x.po_number,x.vendor_name,x.inventory_tag,
-          x.launch_readiness
+          x.title,x.launch_type,x.designer,x.marketing_channel,x.campaign_type,x.assets_needed,x.details,x.notes,
+          x.product_sku,x.product_title,x.product_type,x.collection_name,x.po_number,x.vendor_name,x.inventory_tag,
+          x.launch_readiness, childProducts, childChannels
         ].join(" ").toLowerCase();
         if (!blob.includes(q)) return false;
       }
@@ -921,24 +868,28 @@
   function render(){
     renderKpis();
     if (view === "month") renderMonth();
-    else renderAgenda();
+    else renderFeed();
   }
 
   function renderKpis(){
     $("kCount").textContent = filtered.length;
+    const ids = new Set(filtered.map(x => x.id));
     const mStart = iso(monthAnchor);
     const mEnd = iso(new Date(monthAnchor.getFullYear(), monthAnchor.getMonth()+1, 0));
-    $("kMonth").textContent = filtered.filter(x => x.launch_date >= mStart && x.launch_date <= mEnd).length;
     const today = iso(new Date());
     const next7 = iso(addDays(new Date(),7));
+    $("kMonth").textContent = filtered.filter(x => x.launch_date >= mStart && x.launch_date <= mEnd).length;
     $("k7").textContent = filtered.filter(x => x.launch_date >= today && x.launch_date < next7).length;
-    $("kTasks").textContent = tasks.filter(x => x.status !== "done" && x.status !== "complete").length;
-    $("kRisk").textContent = filtered.filter(x => ["at_risk","needs_inventory","needs_assets"].includes(x.launch_readiness)).length;
+    $("kProducts").textContent = products.filter(x => ids.has(x.launch_id)).length;
+    $("kChannels").textContent = channels.filter(x => ids.has(x.launch_id)).length;
+    $("kTasks").textContent = tasks.filter(x => ids.has(x.launch_id) && !["done","complete"].includes(x.status)).length;
+    $("kRisk").textContent = filtered.filter(x => ["at_risk","needs_inventory","needs_assets"].includes(x.launch_readiness)).length
+      + products.filter(x => ids.has(x.launch_id) && ["at_risk","blocked"].includes(x.readiness_status)).length;
   }
 
   function renderMonth(){
     $("monthView").style.display = "";
-    $("agendaView").style.display = "none";
+    $("feedView").style.display = "none";
     $("monthTitle").textContent = monthAnchor.toLocaleDateString("en-US",{month:"long",year:"numeric"});
     const grid = $("calendarGrid");
     grid.innerHTML = "";
@@ -956,27 +907,28 @@
     const start = addDays(first, -first.getDay());
     const last = new Date(y,m+1,0);
     const end = addDays(last, 6-last.getDay());
-
     const byDate = new Map();
+
     filtered.forEach(x => {
       if (!byDate.has(x.launch_date)) byDate.set(x.launch_date, []);
       byDate.get(x.launch_date).push(x);
     });
 
     const today = iso(new Date());
+
     for (let d = new Date(start); d <= end; d = addDays(d,1)) {
       const key = iso(d);
       const items = byDate.get(key) || [];
       const cell = document.createElement("div");
-      cell.className = "cell" + (d.getMonth() === m ? "" : " off");
+      cell.className = "cell" + (d.getMonth() === m ? "" : " off") + (key === today ? " today" : "");
       cell.innerHTML = `
         <div class="day">
           <b>${d.getDate()} ${key === today ? `<span class="badge">Today</span>` : ""}</b>
           <span class="badge">${items.length || "—"}</span>
         </div>
         <div class="items">
-          ${items.slice(0,4).map(evCard).join("")}
-          ${items.length > 4 ? `<div class="mini">+ ${items.length - 4} more</div>` : ""}
+          ${items.slice(0,5).map(evCard).join("")}
+          ${items.length > 5 ? `<div class="mini">+ ${items.length - 5} more</div>` : ""}
         </div>
       `;
       cell.querySelectorAll("[data-launch]").forEach(el => el.onclick = () => openDrawer(el.dataset.launch));
@@ -985,59 +937,75 @@
   }
 
   function evCard(x){
-    const taskCount = tasks.filter(t => t.launch_id === x.id && t.status !== "done").length;
+    const taskCount = tasks.filter(t => t.launch_id === x.id && !["done","complete"].includes(t.status)).length;
+    const prodCount = products.filter(p => p.launch_id === x.id).length;
+    const channelCount = channels.filter(c => c.launch_id === x.id).length;
     const cls =
       x.status === "launched" ? "done" :
       x.status === "blocked" || x.launch_readiness === "at_risk" ? "blocked" :
-      x.po_number ? "po" :
+      x.po_number || prodCount ? "po" :
       x.status === "ready" || x.launch_readiness === "ready" ? "review" :
       "";
 
     return `
       <div class="ev ${cls}" data-launch="${x.id}">
         <div class="t">${esc(x.title || x.product_title || "Untitled Launch")}</div>
-        <div class="m">${esc([x.product_title, x.po_number, x.vendor_name, taskCount ? `${taskCount} tasks` : null].filter(Boolean).join(" • "))}</div>
+        <div class="m">${esc([
+          prodCount ? `${prodCount} products` : x.product_title,
+          channelCount ? `${channelCount} channels` : null,
+          taskCount ? `${taskCount} tasks` : null
+        ].filter(Boolean).join(" • "))}</div>
       </div>
     `;
   }
 
-  function renderAgenda(){
+  function renderFeed(){
     $("monthView").style.display = "none";
-    $("agendaView").style.display = "block";
-    const start = iso(agendaAnchor);
-    const end = iso(addDays(agendaAnchor,14));
-    $("agendaTitle").textContent = `Agenda — ${fmt(start)} → ${fmt(iso(addDays(agendaAnchor,13)))}`;
+    $("feedView").style.display = "block";
 
-    const items = filtered.filter(x => x.launch_date >= start && x.launch_date < end);
-    $("agendaList").innerHTML = items.length ? "" : `<div class="muted" style="padding:12px">No launches in this range.</div>`;
+    const start = iso(feedAnchor);
+    const end = iso(addDays(feedAnchor,21));
+    $("feedTitle").textContent = `Agenda Feed — ${fmt(start)} → ${fmt(iso(addDays(feedAnchor,20)))}`;
+
+    const items = filtered
+      .filter(x => x.launch_date >= start && x.launch_date < end)
+      .sort((a,b) => a.launch_date.localeCompare(b.launch_date));
+
+    $("feedList").innerHTML = items.length ? "" : `<div class="muted" style="padding:12px">No launches in this range.</div>`;
 
     items.forEach(x => {
-      const taskCount = tasks.filter(t => t.launch_id === x.id && t.status !== "done").length;
+      const taskCount = tasks.filter(t => t.launch_id === x.id && !["done","complete"].includes(t.status)).length;
+      const prodCount = products.filter(p => p.launch_id === x.id).length;
+      const channelCount = channels.filter(c => c.launch_id === x.id).length;
       const riskCls = ["at_risk","needs_inventory","needs_assets"].includes(x.launch_readiness) ? "risk" : x.launch_readiness === "ready" ? "ready" : "";
       const row = document.createElement("div");
-      row.className = "arow";
+      row.className = "feedrow";
       row.innerHTML = `
-        <div><b>${esc(fmt(x.launch_date))}</b></div>
         <div>
-          <div style="font-weight:950">${esc(x.title || x.product_title || "Untitled Launch")}</div>
-          <div class="mini">${esc([x.product_title, x.product_type, x.po_number, x.vendor_name].filter(Boolean).join(" • "))}</div>
+          <div class="feeddate">${esc(fmt(x.launch_date))}</div>
+          <div class="mini">${esc(x.launch_time || "")}</div>
         </div>
-        <div class="right row" style="justify-content:flex-end;flex-wrap:wrap">
-          ${x.po_number ? `<span class="pill po">${esc(x.po_number)}</span>` : ""}
-          <span class="pill ${riskCls}">${esc(x.launch_readiness || "not_reviewed")}</span>
-          <span class="pill">${taskCount} tasks</span>
+        <div>
+          <div class="feedtitle">${esc(x.title || x.product_title || "Untitled Launch")}</div>
+          <div class="feedmeta">${esc([x.product_title, x.product_type, x.po_number, x.vendor_name, x.designer].filter(Boolean).join(" • "))}</div>
+          <div class="feedchips">
+            <span class="pill ${riskCls}">${esc(x.launch_readiness || "not_reviewed")}</span>
+            ${x.po_number ? `<span class="pill po">${esc(x.po_number)}</span>` : ""}
+            <span class="pill po">${prodCount} products</span>
+            <span class="pill channel">${channelCount} initiatives</span>
+            <span class="pill task">${taskCount} tasks</span>
+          </div>
         </div>
       `;
       row.onclick = () => openDrawer(x.id);
-      $("agendaList").appendChild(row);
+      $("feedList").appendChild(row);
     });
   }
 
   function openLaunchModal(x = null){
     $("launchForm").reset();
     $("formMsg").textContent = "";
-    $("modalTitle").textContent = x ? "Edit Launch" : "New Launch";
-
+    $("modalTitle").textContent = x ? "Edit Launch Container" : "New Launch Container";
     $("launchId").value = x?.id || "";
     $("titleInput").value = x?.title || "";
     $("dateInput").value = x?.launch_date || iso(new Date());
@@ -1062,12 +1030,10 @@
     $("assetsInput").value = x?.assets_needed || "";
     $("detailsInput").value = x?.details || "";
     $("notesInput").value = x?.notes || "";
-
     $("productSourceInput").value = "manual";
     $("lookupBox").classList.add("hidden");
     $("lookupResults").innerHTML = "";
     $("lookupSearchInput").value = "";
-
     $("launchModal").classList.add("on");
   }
 
@@ -1076,36 +1042,25 @@
   async function runProductLookup(){
     const source = $("productSourceInput").value;
     const q = $("lookupSearchInput").value.trim();
+    $("lookupBox").classList.remove("hidden");
 
     if (source === "manual") {
-      $("lookupBox").classList.remove("hidden");
       $("lookupResults").innerHTML = `<div class="mini">Manual mode: type directly into the launch fields below.</div>`;
       return;
     }
 
     if (!q) {
-      $("lookupBox").classList.remove("hidden");
       $("lookupResults").innerHTML = `<div class="mini">Enter a product title, PO, vendor, or keyword.</div>`;
       return;
     }
 
-    $("lookupBox").classList.remove("hidden");
     $("lookupResults").innerHTML = `<div class="mini">Searching...</div>`;
-
-    if (source === "po_incoming") {
-      await searchIncomingPOProducts(q);
-      return;
-    }
-
-    if (source === "existing_product") {
-      await searchProductsMaster(q);
-      return;
-    }
+    if (source === "po_incoming") await searchIncomingPOProducts(q, applyPOToShell, "lookupResults");
+    if (source === "existing_product") await searchProductsMaster(q, applyProductToShell, "lookupResults");
   }
 
-  async function searchIncomingPOProducts(q){
+  async function searchIncomingPOProducts(q, applyFn, targetId){
     const clean = q.replaceAll("%", "").trim();
-
     const { data, error } = await supabaseClient
       .from("v_launch_po_product_lookup")
       .select("*")
@@ -1115,59 +1070,93 @@
 
     if (error) {
       console.warn(error);
-      $("lookupResults").innerHTML = `<div class="mini">Could not search PO product lookup view. Manual placeholder entry still works.</div>`;
+      $(targetId).innerHTML = `<div class="mini">Could not search PO product lookup view.</div>`;
       return;
     }
 
     if (!data?.length) {
-      $("lookupResults").innerHTML = `<div class="mini">No incoming PO products found. Use manual placeholder fields below.</div>`;
+      $(targetId).innerHTML = `<div class="mini">No incoming PO products found.</div>`;
       return;
     }
 
-    $("lookupResults").innerHTML = data.map(row => `
+    $(targetId).innerHTML = data.map(row => `
       <div class="lookup-result" data-po-product="${encodeURIComponent(JSON.stringify(row))}">
         <b>${esc(row.product_title || "Incoming Product")}</b>
-        <div class="mini">
-          ${esc([
-            row.po_name,
-            row.product_type,
-            row.factory_name,
-            row.total_units ? `${row.total_units} units` : null,
-            row.expected_arrival_date ? `ETA ${row.expected_arrival_date}` : null,
-            row.is_new_product_po ? "New Product PO" : null
-          ].filter(Boolean).join(" · "))}
-        </div>
+        <div class="mini">${esc([
+          row.po_name,
+          row.product_type,
+          row.factory_name,
+          row.total_units ? `${row.total_units} units` : null,
+          row.expected_arrival_date ? `ETA ${row.expected_arrival_date}` : null,
+          row.is_new_product_po ? "New Product PO" : null
+        ].filter(Boolean).join(" · "))}</div>
       </div>
     `).join("");
 
-    document.querySelectorAll("[data-po-product]").forEach(el => {
-      el.onclick = () => {
-        const row = JSON.parse(decodeURIComponent(el.dataset.poProduct));
-        applyPOProduct(row);
-      };
+    document.querySelectorAll(`#${targetId} [data-po-product]`).forEach(el => {
+      el.onclick = () => applyFn(JSON.parse(decodeURIComponent(el.dataset.poProduct)));
     });
   }
 
-  function applyPOProduct(row){
+  async function searchProductsMaster(q, applyFn, targetId){
+    const clean = q.replaceAll("%", "").trim();
+    const { data, error } = await supabaseClient
+      .from("products_master")
+      .select("id, sku, product_title, variant_title, product_type, vendor_original, image_url")
+      .or(`product_title.ilike.%${clean}%,variant_title.ilike.%${clean}%,sku.ilike.%${clean}%`)
+      .limit(30);
+
+    if (error) {
+      console.warn(error);
+      $(targetId).innerHTML = `<div class="mini">Could not search products_master.</div>`;
+      return;
+    }
+
+    const grouped = groupProductsByTitle(data || []);
+    if (!grouped.length) {
+      $(targetId).innerHTML = `<div class="mini">No matching products found.</div>`;
+      return;
+    }
+
+    $(targetId).innerHTML = grouped.map(row => `
+      <div class="lookup-result" data-product="${encodeURIComponent(JSON.stringify(row))}">
+        <b>${esc(row.product_title || "Product")}</b>
+        <div class="mini">${esc([row.product_type,row.vendor_original,row.variant_count ? `${row.variant_count} variants` : null,row.sample_sku ? `Sample ${row.sample_sku}` : null].filter(Boolean).join(" · "))}</div>
+      </div>
+    `).join("");
+
+    document.querySelectorAll(`#${targetId} [data-product]`).forEach(el => {
+      el.onclick = () => applyFn(JSON.parse(decodeURIComponent(el.dataset.product)));
+    });
+  }
+
+  function groupProductsByTitle(rows){
+    const map = new Map();
+    rows.forEach(r => {
+      const key = String(r.product_title || r.variant_title || r.sku || "").trim();
+      if (!key) return;
+      if (!map.has(key)) {
+        map.set(key, { product_title:key, product_type:r.product_type || null, vendor_original:r.vendor_original || null, image_url:r.image_url || null, sample_sku:r.sku || null, variant_count:0 });
+      }
+      const x = map.get(key);
+      x.variant_count += 1;
+      if (!x.sample_sku && r.sku) x.sample_sku = r.sku;
+      if (!x.image_url && r.image_url) x.image_url = r.image_url;
+      if (!x.product_type && r.product_type) x.product_type = r.product_type;
+      if (!x.vendor_original && r.vendor_original) x.vendor_original = r.vendor_original;
+    });
+    return [...map.values()].sort((a,b) => a.product_title.localeCompare(b.product_title));
+  }
+
+  function applyPOToShell(row){
     $("productTitleInput").value = row.product_title || "";
     $("productTypeInput").value = row.product_type || "";
     $("poNumberInput").value = row.po_name || "";
     $("vendorInput").value = row.factory_name || "";
     $("expectedUnitsInput").value = row.total_units || "";
     $("expectedRetailInput").value = row.total_retail_value || "";
-
-    if (!$("titleInput").value) {
-      $("titleInput").value = row.product_title || "";
-    }
-
-    if (!$("typeInput").value) {
-      $("typeInput").value = row.is_new_product_po ? "New Product Launch" : "Product Launch";
-    }
-
-    if (!$("readinessInput").value || $("readinessInput").value === "not_reviewed") {
-      $("readinessInput").value = row.expected_arrival_date ? "needs_assets" : "needs_inventory";
-    }
-
+    if (!$("titleInput").value) $("titleInput").value = row.product_title || "";
+    if (!$("typeInput").value) $("typeInput").value = row.is_new_product_po ? "New Product Launch" : "Product Launch";
     if (!$("detailsInput").value) {
       $("detailsInput").value = [
         row.expected_arrival_date ? `Expected arrival: ${row.expected_arrival_date}` : null,
@@ -1178,106 +1167,43 @@
         row.pdf_url ? `PO PDF: ${row.pdf_url}` : null
       ].filter(Boolean).join("\n");
     }
-
-    if (!$("notesInput").value && row.internal_notes) {
-      $("notesInput").value = row.internal_notes;
-    }
-
-    $("lookupResults").innerHTML = `<div class="mini">Incoming PO product applied at product-title level.</div>`;
+    $("lookupResults").innerHTML = `<div class="mini">Incoming PO product applied to launch shell.</div>`;
   }
 
-  async function searchProductsMaster(q){
-    const clean = q.replaceAll("%", "").trim();
-
-    const { data, error } = await supabaseClient
-      .from("products_master")
-      .select("id, sku, product_title, variant_title, product_type, vendor_original, image_url")
-      .or(`product_title.ilike.%${clean}%,variant_title.ilike.%${clean}%,sku.ilike.%${clean}%`)
-      .limit(30);
-
-    if (error) {
-      console.warn(error);
-      $("lookupResults").innerHTML = `<div class="mini">Could not search products_master. Manual entry still works.</div>`;
-      return;
-    }
-
-    if (!data?.length) {
-      $("lookupResults").innerHTML = `<div class="mini">No matching products found. Use manual placeholder fields below.</div>`;
-      return;
-    }
-
-    const grouped = groupProductsByTitle(data);
-
-    $("lookupResults").innerHTML = grouped.map(row => `
-      <div class="lookup-result" data-product="${encodeURIComponent(JSON.stringify(row))}">
-        <b>${esc(row.product_title || "Product")}</b>
-        <div class="mini">
-          ${esc([
-            row.product_type,
-            row.vendor_original,
-            row.variant_count ? `${row.variant_count} variants` : null,
-            row.sample_sku ? `Sample SKU ${row.sample_sku}` : null
-          ].filter(Boolean).join(" · "))}
-        </div>
-      </div>
-    `).join("");
-
-    document.querySelectorAll("[data-product]").forEach(el => {
-      el.onclick = () => {
-        const row = JSON.parse(decodeURIComponent(el.dataset.product));
-        applyExistingProduct(row);
-      };
-    });
-  }
-
-  function groupProductsByTitle(rows){
-    const map = new Map();
-
-    rows.forEach(r => {
-      const key = String(r.product_title || r.variant_title || r.sku || "").trim();
-      if (!key) return;
-
-      if (!map.has(key)) {
-        map.set(key, {
-          product_title: key,
-          product_type: r.product_type || null,
-          vendor_original: r.vendor_original || null,
-          image_url: r.image_url || null,
-          sample_sku: r.sku || null,
-          variant_count: 0
-        });
-      }
-
-      const existing = map.get(key);
-      existing.variant_count += 1;
-      if (!existing.sample_sku && r.sku) existing.sample_sku = r.sku;
-      if (!existing.image_url && r.image_url) existing.image_url = r.image_url;
-      if (!existing.product_type && r.product_type) existing.product_type = r.product_type;
-      if (!existing.vendor_original && r.vendor_original) existing.vendor_original = r.vendor_original;
-    });
-
-    return [...map.values()].sort((a,b) => a.product_title.localeCompare(b.product_title));
-  }
-
-  function applyExistingProduct(row){
+  function applyProductToShell(row){
     $("productTitleInput").value = row.product_title || "";
     $("productTypeInput").value = row.product_type || "";
     $("vendorInput").value = row.vendor_original || "";
     $("skuInput").value = row.sample_sku || "";
+    if (!$("titleInput").value) $("titleInput").value = row.product_title || "";
+    if (row.image_url && !$("imageInput").value) $("imageInput").value = row.image_url;
+    if (!$("typeInput").value) $("typeInput").value = "Product Launch";
+    $("lookupResults").innerHTML = `<div class="mini">Existing product applied to launch shell.</div>`;
+  }
 
-    if (!$("titleInput").value) {
-      $("titleInput").value = row.product_title || "";
+  function applyPOToProductForm(row){
+    $("prodTitle").value = row.product_title || "";
+    $("prodType").value = row.product_type || "";
+    $("prodManufacturer").value = row.factory_name || "";
+    $("prodPo").value = row.po_name || "";
+    $("prodEta").value = row.expected_arrival_date || "";
+    $("prodUnits").value = row.total_units || "";
+    $("prodNotes").value = [
+      row.variants ? `Variants: ${row.variants}` : null,
+      row.sample_skus ? `Sample SKUs: ${row.sample_skus}` : null,
+      row.total_retail_value ? `Retail value: ${money(row.total_retail_value)}` : null
+    ].filter(Boolean).join("\n");
+    $("prodLookupResults").innerHTML = `<div class="mini">PO product applied to readiness form.</div>`;
+  }
+
+  async function lookupProductForReadiness(){
+    const q = $("prodLookupInput").value.trim();
+    if (!q) {
+      $("prodLookupResults").innerHTML = `<div class="mini">Enter product title, PO, or vendor.</div>`;
+      return;
     }
-
-    if (row.image_url && !$("imageInput").value) {
-      $("imageInput").value = row.image_url;
-    }
-
-    if (!$("typeInput").value) {
-      $("typeInput").value = "Product Launch";
-    }
-
-    $("lookupResults").innerHTML = `<div class="mini">Existing product applied at product-title level.</div>`;
+    $("prodLookupResults").innerHTML = `<div class="mini">Searching...</div>`;
+    await searchIncomingPOProducts(q, applyPOToProductForm, "prodLookupResults");
   }
 
   async function saveLaunch(e){
@@ -1317,9 +1243,8 @@
     }
 
     let res;
-    if (id) {
-      res = await supabaseClient.from("launch_calendar").update(payload).eq("id", id).select().single();
-    } else {
+    if (id) res = await supabaseClient.from("launch_calendar").update(payload).eq("id", id).select().single();
+    else {
       payload.created_by = currentUser.id;
       res = await supabaseClient.from("launch_calendar").insert(payload).select().single();
     }
@@ -1347,15 +1272,28 @@
     const launchAssets = assets.filter(x => x.launch_id === id);
     const launchComments = comments.filter(x => x.launch_id === id);
     const launchSystemLinks = systemLinks.filter(x => x.launch_id === id);
+    const launchChannels = channels.filter(x => x.launch_id === id);
+    const launchProducts = products.filter(x => x.launch_id === id);
 
+    renderOverview(launchProducts, launchChannels, launchTasks);
+    renderProductReadiness(launchProducts);
+    renderChannels(launchChannels);
+    renderTasks(launchTasks);
+    renderAssets(launchAssets);
+    renderSystemLinks(launchSystemLinks);
+    renderComments(launchComments);
+  }
+
+  function renderOverview(launchProducts, launchChannels, launchTasks){
     const riskCls = ["at_risk","needs_inventory","needs_assets"].includes(activeLaunch.launch_readiness) ? "risk" : activeLaunch.launch_readiness === "ready" ? "ready" : "";
-
     $("launchMeta").innerHTML = `
-      <div class="title">${esc(activeLaunch.product_title || activeLaunch.title || "Launch")}</div>
+      <div class="title">${esc(activeLaunch.title || "Launch")}</div>
       <div class="row wrap" style="margin-top:8px">
         <span class="pill">${esc(activeLaunch.status || "planned")}</span>
         <span class="pill ${riskCls}">${esc(activeLaunch.launch_readiness || "not_reviewed")}</span>
-        ${activeLaunch.po_number ? `<span class="pill po">${esc(activeLaunch.po_number)}</span>` : ""}
+        <span class="pill po">${launchProducts.length} products</span>
+        <span class="pill channel">${launchChannels.length} initiatives</span>
+        <span class="pill task">${launchTasks.filter(t => !["done","complete"].includes(t.status)).length} open tasks</span>
       </div>
       <div class="mini" style="margin-top:8px"><b>Designer:</b> ${esc(activeLaunch.designer || "—")} · <b>Channel:</b> ${esc(activeLaunch.marketing_channel || "—")}</div>
       <div style="margin-top:10px;white-space:pre-wrap">${esc(activeLaunch.details || activeLaunch.notes || "No details yet.")}</div>
@@ -1363,52 +1301,68 @@
     `;
 
     $("systemMeta").innerHTML = `
-      <div class="title">Connected Silo References</div>
+      <div class="title">Primary References</div>
       <div class="kvgrid">
-        <div class="kv"><div class="k">Product Title</div><div class="v">${esc(activeLaunch.product_title || "—")}</div></div>
+        <div class="kv"><div class="k">Primary Product</div><div class="v">${esc(activeLaunch.product_title || "—")}</div></div>
         <div class="kv"><div class="k">Product Type</div><div class="v">${esc(activeLaunch.product_type || "—")}</div></div>
         <div class="kv"><div class="k">Collection</div><div class="v">${esc(activeLaunch.collection_name || "—")}</div></div>
         <div class="kv"><div class="k">PO Number</div><div class="v">${esc(activeLaunch.po_number || "—")}</div></div>
         <div class="kv"><div class="k">Vendor / Factory</div><div class="v">${esc(activeLaunch.vendor_name || "—")}</div></div>
-        <div class="kv"><div class="k">Inventory Tag</div><div class="v">${esc(activeLaunch.inventory_tag || "—")}</div></div>
         <div class="kv"><div class="k">Expected Units</div><div class="v">${activeLaunch.expected_units ?? "—"}</div></div>
         <div class="kv"><div class="k">Expected Retail</div><div class="v">${activeLaunch.expected_retail_value ? money(activeLaunch.expected_retail_value) : "—"}</div></div>
         <div class="kv"><div class="k">Sample SKU</div><div class="v">${esc(activeLaunch.product_sku || "—")}</div></div>
       </div>
     `;
-
-    $("systemLinksList").innerHTML = launchSystemLinks.length ? "" : `<div class="mini">No Silo links yet.</div>`;
-    launchSystemLinks.forEach(link => {
-      const div = document.createElement("div");
-      div.className = "task";
-      div.innerHTML = `
-        <div>
-          <b>${esc(link.ref_label || link.link_type || "Silo Link")}</b>
-          <div class="mini">${esc([link.link_type, link.ref_table, link.ref_id].filter(Boolean).join(" · "))}</div>
-          ${link.ref_url ? `<a href="${esc(link.ref_url)}" target="_blank">${esc(link.ref_url)}</a>` : ""}
-          ${link.notes ? `<div class="mini">${esc(link.notes)}</div>` : ""}
-        </div>
-      `;
-      $("systemLinksList").appendChild(div);
-    });
-
-    renderTasks(launchTasks);
-    renderAssets(launchAssets);
-    renderComments(launchComments);
   }
 
-  function renderTasks(launchTasks){
-    $("taskList").innerHTML = launchTasks.length ? "" : `<div class="mini">No tasks yet.</div>`;
-    launchTasks.forEach(t => {
+  function renderProductReadiness(rows){
+    $("productList").innerHTML = rows.length ? "" : `<div class="mini">No product readiness rows yet.</div>`;
+    rows.forEach(x => {
+      const riskCls = ["at_risk","blocked"].includes(x.readiness_status) ? "risk" : x.readiness_status === "ready" ? "ready" : "";
       const div = document.createElement("div");
-      div.className = "task";
+      div.className = "item";
       div.innerHTML = `
         <div>
-          <b>${esc(t.task_title)}</b>
-          <div class="mini">${esc([t.priority, t.due_date ? `Due ${fmt(t.due_date)}` : null].filter(Boolean).join(" · "))}</div>
-          ${t.notes ? `<div class="mini">${esc(t.notes)}</div>` : ""}
+          <div class="item-title">${esc(x.product_title)}</div>
+          <div class="item-meta">${esc([x.product_type, x.po_number, x.vendor_name || x.manufacturer, x.bulk_eta ? `ETA ${x.bulk_eta}` : null, x.expected_units ? `${x.expected_units} units` : null].filter(Boolean).join(" · "))}</div>
+          ${x.notes ? `<div class="item-meta">${esc(x.notes)}</div>` : ""}
         </div>
-        <select class="in task-status" data-id="${t.id}" style="width:130px">
+        <span class="pill ${riskCls}">${esc(x.readiness_status || "not_reviewed")}</span>
+      `;
+      $("productList").appendChild(div);
+    });
+  }
+
+  function renderChannels(rows){
+    $("channelList").innerHTML = rows.length ? "" : `<div class="mini">No channel initiatives yet.</div>`;
+    rows.forEach(x => {
+      const div = document.createElement("div");
+      div.className = "item";
+      div.innerHTML = `
+        <div>
+          <div class="item-title">${esc(x.item_title)}</div>
+          <div class="item-meta">${esc([x.channel, x.scheduled_date, x.scheduled_time, x.owner, x.status].filter(Boolean).join(" · "))}</div>
+          ${x.notes ? `<div class="item-meta">${esc(x.notes)}</div>` : ""}
+          ${x.link_url ? `<div class="item-meta"><a href="${esc(x.link_url)}" target="_blank">${esc(x.link_url)}</a></div>` : ""}
+        </div>
+        <span class="pill channel">${esc(x.status || "planned")}</span>
+      `;
+      $("channelList").appendChild(div);
+    });
+  }
+
+  function renderTasks(rows){
+    $("taskList").innerHTML = rows.length ? "" : `<div class="mini">No tasks yet.</div>`;
+    rows.forEach(t => {
+      const div = document.createElement("div");
+      div.className = "item";
+      div.innerHTML = `
+        <div>
+          <div class="item-title">${esc(t.task_title)}</div>
+          <div class="item-meta">${esc([t.task_type, t.priority, t.due_date ? `Due ${fmt(t.due_date)}` : null].filter(Boolean).join(" · "))}</div>
+          ${t.notes ? `<div class="item-meta">${esc(t.notes)}</div>` : ""}
+        </div>
+        <select class="in task-status" data-id="${t.id}" style="width:135px">
           ${["open","in_progress","done"].map(s => `<option value="${s}" ${t.status === s ? "selected" : ""}>${s}</option>`).join("")}
         </select>
       `;
@@ -1429,15 +1383,15 @@
     });
   }
 
-  function renderAssets(launchAssets){
-    $("assetList").innerHTML = launchAssets.length ? "" : `<div class="mini">No assets yet.</div>`;
-    launchAssets.forEach(a => {
+  function renderAssets(rows){
+    $("assetList").innerHTML = rows.length ? "" : `<div class="mini">No assets yet.</div>`;
+    rows.forEach(a => {
       const div = document.createElement("div");
-      div.className = "task";
+      div.className = "item";
       div.innerHTML = `
         <div>
-          <b>${esc(a.asset_name || a.asset_type || "Asset")}</b>
-          <div class="mini">${esc(a.asset_type || "")}</div>
+          <div class="item-title">${esc(a.asset_name || a.asset_type || "Asset")}</div>
+          <div class="item-meta">${esc(a.asset_type || "")}</div>
           ${a.asset_url ? `<a href="${esc(a.asset_url)}" target="_blank">${esc(a.asset_url)}</a>` : ""}
         </div>
       `;
@@ -1445,12 +1399,29 @@
     });
   }
 
-  function renderComments(launchComments){
-    $("commentList").innerHTML = launchComments.length ? "" : `<div class="mini">No comments yet.</div>`;
-    launchComments.forEach(c => {
+  function renderSystemLinks(rows){
+    $("systemLinksList").innerHTML = rows.length ? "" : `<div class="mini">No Silo links yet.</div>`;
+    rows.forEach(link => {
       const div = document.createElement("div");
-      div.className = "task";
-      div.innerHTML = `<div><div>${esc(c.comment)}</div><div class="mini">${new Date(c.created_at).toLocaleString()}</div></div>`;
+      div.className = "item";
+      div.innerHTML = `
+        <div>
+          <div class="item-title">${esc(link.ref_label || link.link_type || "Silo Link")}</div>
+          <div class="item-meta">${esc([link.link_type, link.ref_table, link.ref_id].filter(Boolean).join(" · "))}</div>
+          ${link.ref_url ? `<a href="${esc(link.ref_url)}" target="_blank">${esc(link.ref_url)}</a>` : ""}
+          ${link.notes ? `<div class="item-meta">${esc(link.notes)}</div>` : ""}
+        </div>
+      `;
+      $("systemLinksList").appendChild(div);
+    });
+  }
+
+  function renderComments(rows){
+    $("commentList").innerHTML = rows.length ? "" : `<div class="mini">No comments yet.</div>`;
+    rows.forEach(c => {
+      const div = document.createElement("div");
+      div.className = "item";
+      div.innerHTML = `<div><div>${esc(c.comment)}</div><div class="item-meta">${new Date(c.created_at).toLocaleString()}</div></div>`;
       $("commentList").appendChild(div);
     });
   }
@@ -1460,28 +1431,63 @@
     activeLaunch = null;
   }
 
-  async function saveSystemLink(e){
+  async function saveProductReadiness(e){
     e.preventDefault();
     if (!activeLaunch) return;
 
     const payload = {
       launch_id: activeLaunch.id,
-      link_type: $("linkType").value,
-      ref_table: $("linkTable").value.trim() || null,
-      ref_id: $("linkRefId").value.trim() || null,
-      ref_label: $("linkLabel").value.trim() || null,
-      ref_url: $("linkUrl").value.trim() || null,
-      notes: $("linkNotes").value.trim() || null,
+      product_title: $("prodTitle").value.trim(),
+      product_type: $("prodType").value.trim() || null,
+      collection_name: $("prodCollection").value.trim() || null,
+      manufacturer: $("prodManufacturer").value.trim() || null,
+      vendor_name: $("prodManufacturer").value.trim() || null,
+      po_number: $("prodPo").value.trim() || null,
+      bulk_eta: $("prodEta").value || null,
+      expected_units: $("prodUnits").value ? Number($("prodUnits").value) : null,
+      readiness_status: $("prodReadyStatus").value,
+      product_shot_status: $("prodShotStatus").value,
+      copy_status: $("prodCopyStatus").value,
+      notes: $("prodNotes").value.trim() || null,
       created_by: currentUser.id
     };
 
-    const { error } = await supabaseClient.from("launch_system_links").insert(payload);
+    const { error } = await supabaseClient.from("launch_product_readiness").insert(payload);
     if (error) return alert(error.message);
 
-    $("systemLinkForm").reset();
-    $("systemLinkForm").classList.add("hidden");
+    $("productForm").reset();
+    $("prodLookupResults").innerHTML = "";
+    $("productForm").classList.add("hidden");
     await loadAll(false);
     openDrawer(activeLaunch.id);
+    render();
+  }
+
+  async function saveChannelItem(e){
+    e.preventDefault();
+    if (!activeLaunch) return;
+
+    const payload = {
+      launch_id: activeLaunch.id,
+      channel: $("channelName").value,
+      item_title: $("channelTitle").value.trim(),
+      scheduled_date: $("channelDate").value || null,
+      scheduled_time: $("channelTime").value || null,
+      status: $("channelStatus").value,
+      owner: $("channelOwner").value.trim() || null,
+      link_url: $("channelUrl").value.trim() || null,
+      notes: $("channelNotes").value.trim() || null,
+      created_by: currentUser.id
+    };
+
+    const { error } = await supabaseClient.from("launch_channel_items").insert(payload);
+    if (error) return alert(error.message);
+
+    $("channelForm").reset();
+    $("channelForm").classList.add("hidden");
+    await loadAll(false);
+    openDrawer(activeLaunch.id);
+    render();
   }
 
   async function saveTask(e){
@@ -1491,6 +1497,7 @@
     const payload = {
       launch_id: activeLaunch.id,
       task_title: $("taskTitle").value.trim(),
+      task_type: $("taskType").value || null,
       status: "open",
       priority: $("taskPriority").value,
       due_date: $("taskDue").value || null,
@@ -1525,6 +1532,30 @@
 
     $("assetForm").reset();
     $("assetForm").classList.add("hidden");
+    await loadAll(false);
+    openDrawer(activeLaunch.id);
+  }
+
+  async function saveSystemLink(e){
+    e.preventDefault();
+    if (!activeLaunch) return;
+
+    const payload = {
+      launch_id: activeLaunch.id,
+      link_type: $("linkType").value,
+      ref_table: $("linkTable").value.trim() || null,
+      ref_id: $("linkRefId").value.trim() || null,
+      ref_label: $("linkLabel").value.trim() || null,
+      ref_url: $("linkUrl").value.trim() || null,
+      notes: $("linkNotes").value.trim() || null,
+      created_by: currentUser.id
+    };
+
+    const { error } = await supabaseClient.from("launch_system_links").insert(payload);
+    if (error) return alert(error.message);
+
+    $("systemLinkForm").reset();
+    $("systemLinkForm").classList.add("hidden");
     await loadAll(false);
     openDrawer(activeLaunch.id);
   }
