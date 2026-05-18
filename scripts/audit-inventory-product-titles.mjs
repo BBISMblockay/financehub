@@ -123,17 +123,26 @@ function rowsToObjects(csvText) {
   return { headers, rows };
 }
 
-function pickCsvColumn(raw, aliases) {
-  for (const alias of aliases) {
-    if (raw[alias] !== undefined && norm(raw[alias]) !== "") return norm(raw[alias]);
+function pickLoose(row, candidates) {
+  const normalized = {};
+  for (const [key, value] of Object.entries(row || {})) {
+    const cleanKey = String(key || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+    normalized[cleanKey] = value;
   }
-  const keys = Object.keys(raw || {});
-  for (const alias of aliases) {
-    const wanted = norm(alias).toLowerCase();
-    const found = keys.find((k) => norm(k).toLowerCase() === wanted);
-    if (found && norm(raw[found]) !== "") return norm(raw[found]);
+  for (const candidate of candidates) {
+    const cleanCandidate = String(candidate || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+    const value = normalized[cleanCandidate];
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
+      return String(value).trim();
+    }
   }
-  return "";
+  return null;
 }
 
 async function loadCsvTitlesBySku() {
@@ -146,21 +155,16 @@ async function loadCsvTitlesBySku() {
     const parsed = rowsToObjects(csvText);
 
     for (const raw of parsed.rows) {
-      const sku = pickCsvColumn(raw, ["Variant SKU", "SKU", "sku"]);
+      const sku = pickLoose(raw, ["Variant SKU", "SKU"]);
       if (!sku || !SKUS.includes(sku)) continue;
 
-      const title = pickCsvColumn(raw, [
-        "Product title",
-        "Product Title",
-        "Product name",
-        "product_title",
-      ]);
+      const title = pickLoose(raw, ["Product title", "Product name"]);
 
       bySku.set(`${source.location_tag}::${sku}`, {
         location_tag: source.location_tag,
         sku,
         csv_product_title: title || null,
-        csv_variant_title: pickCsvColumn(raw, ["Variant title", "Variant Title"]) || null,
+        csv_variant_title: pickLoose(raw, ["Variant title"]) || null,
       });
     }
   }
