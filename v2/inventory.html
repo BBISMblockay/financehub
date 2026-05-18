@@ -1,550 +1,650 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full" data-theme="light">
+<html lang="en" class="h-full">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Silo ERP — Inventory Workbench</title>
-
+  <title>Silo · Inventory Workbench</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="/pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
-
   <style>
-    :root{ color-scheme: light; }
-    body{ font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
-    .mono{ font-variant-numeric: tabular-nums; font-feature-settings:"tnum" 1; }
-    .stickyHead thead th{ position: sticky; top: 0; z-index: 20; }
-    .thin-scroll::-webkit-scrollbar{ height: 10px; width: 10px; }
-    .thin-scroll::-webkit-scrollbar-thumb{ background: rgba(15,23,42,.18); border-radius: 999px; }
-    .thin-scroll::-webkit-scrollbar-track{ background: rgba(15,23,42,.06); }
+    :root {
+      --bg: #0b1220;
+      --rail: #0f172a;
+      --rail-border: rgba(255,255,255,0.07);
+      --rail-text: #e2e8f0;
+      --rail-muted: #94a3b8;
+      --canvas: #f1f5f9;
+      --card: #ffffff;
+      --line: #e2e8f0;
+      --text: #0f172a;
+      --muted: #64748b;
+      --accent: #3b82f6;
+      --accent-deep: #1d4ed8;
+      --good: #059669;
+      --warn: #d97706;
+      --danger: #dc2626;
+      --dock-w: 300px;
+      --rail-w: 272px;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body.inv-v2 {
+      font-family: Inter, system-ui, sans-serif;
+      color: var(--text);
+      background: var(--canvas);
+    }
+    button, input, select { font: inherit; }
+    .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
 
-    .shadow-soft{ box-shadow: 0 10px 30px rgba(2,6,23,.08); }
-    .seg{ border: 1px solid rgba(15,23,42,.14); background: #fff; }
-    .seg button{ padding: 8px 10px; font-size: 12px; font-weight: 800; border-radius: 10px; }
-    .seg button.active{ background: #0f172a; color: #fff; }
-    .seg button:not(.active):hover{ background: rgba(15,23,42,.03); }
-
-    .kbd{ border:1px solid rgba(15,23,42,.18); background:rgba(15,23,42,.03); border-bottom-width:2px; border-radius:8px; padding:2px 6px; font-size:11px; }
-    .btn{ border:1px solid rgba(15,23,42,.14); background:#fff; }
-    .btn:hover{ background: rgba(15,23,42,.03); }
-    .btn-dark{ background:#0f172a; color:#fff; border:1px solid #0f172a; }
-    .btn-dark:hover{ background:#0b1220; }
-    .pill{ border:1px solid rgba(15,23,42,.14); background:#fff; border-radius:999px; }
-    .pill:hover{ background: rgba(15,23,42,.03); }
-
-    .badge{
-      display:inline-flex; align-items:center; gap:.35rem;
-      border:1px solid rgba(15,23,42,.14);
-      background:#fff; border-radius:999px;
-      padding:2px 8px; font-size:11px; font-weight:800;
-      white-space: nowrap;
-    }
-
-    details > summary{ list-style:none; }
-    details > summary::-webkit-details-marker{ display:none; }
-
-    .click-link{
-      color:#0f172a;
-      font-weight:600;
-      text-decoration:none;
-      cursor:pointer;
-    }
-    .click-link:hover{ text-decoration:underline; }
-
-    .surface{
-      border:1px solid rgba(15,23,42,.10);
-      background:#fff;
-      border-radius:14px;
-    }
-
-    .top-chip{
-      border:1px solid rgba(15,23,42,.14);
-      background:#fff;
-      border-radius:999px;
-      padding:6px 10px;
-      font-size:12px;
-      font-weight:700;
-    }
-
-    .drawer-card{
-      border:1px solid rgba(15,23,42,.10);
-      background:#fff;
-      border-radius:14px;
-    }
-
-    /* —— v2: tighter workbench chrome (logic unchanged) —— */
-    body.inv-v2{
-      background:
-        radial-gradient(circle at 100% 0%, rgba(37, 99, 235, 0.06), transparent 26%),
-        #f1f5f9;
-    }
-    body.inv-v2 .app-header{
-      position: sticky;
-      top: 0;
-      z-index: 40;
-      border-bottom: 1px solid rgba(15, 23, 42, 0.08);
-      background: rgba(255, 255, 255, 0.9);
-      backdrop-filter: blur(14px);
-      -webkit-backdrop-filter: blur(14px);
-    }
-    body.inv-v2 .surface{
-      border-radius: 12px;
-      box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-    }
-    body.inv-v2 .seg{ border-radius: 10px; padding: 2px; }
-    body.inv-v2 .seg button{
-      padding: 6px 9px;
-      font-size: 11px;
-      border-radius: 8px;
-    }
-    body.inv-v2 .seg button.active{
-      background: linear-gradient(135deg, #1d4ed8, #2563eb);
-      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.22);
-    }
-    body.inv-v2 .btn-dark{
-      background: linear-gradient(135deg, #1e293b, #0f172a);
-      border-color: #0f172a;
-    }
-    body.inv-v2 .top-chip{
-      padding: 4px 9px;
-      font-size: 11px;
-      font-weight: 600;
-    }
-    body.inv-v2 .top-chip[aria-pressed="true"]{
-      background: #eff6ff;
-      border-color: #93c5fd;
-      color: #1d4ed8;
-    }
-    body.inv-v2 :is(input, select).rounded-lg{
-      padding-top: 0.4rem !important;
-      padding-bottom: 0.4rem !important;
-      font-size: 12px !important;
-      border-radius: 8px !important;
-      border-color: rgba(15, 23, 42, 0.12) !important;
-    }
-    body.inv-v2 :is(button).rounded-lg{
-      padding-top: 0.4rem !important;
-      padding-bottom: 0.4rem !important;
-      font-size: 12px !important;
-      border-radius: 8px !important;
-    }
-    body.inv-v2 #mainTable thead th{
-      padding: 0.4rem 0.55rem !important;
-      font-size: 10px !important;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      color: #64748b !important;
-      background: #f8fafc !important;
-      border-bottom: 1px solid #e2e8f0;
-    }
-    body.inv-v2 #mainTable tbody td{
-      padding: 0.35rem 0.55rem !important;
-      font-size: 12px !important;
-      vertical-align: middle;
-    }
-    body.inv-v2 #mainTable tbody tr:hover{ background: rgba(37, 99, 235, 0.03) !important; }
-    body.inv-v2 .kpi-strip{
+    .app-shell {
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 8px;
+      grid-template-columns: var(--rail-w) 1fr;
+      grid-template-rows: 100vh;
+      min-height: 100vh;
     }
-    @media (min-width: 768px){ body.inv-v2 .kpi-strip{ grid-template-columns: repeat(4, minmax(0, 1fr)); } }
-    @media (min-width: 1280px){ body.inv-v2 .kpi-strip{ grid-template-columns: repeat(8, minmax(0, 1fr)); } }
-    body.inv-v2 .kpi-cell{
-      border: 1px solid rgba(15, 23, 42, 0.08);
+
+    /* —— Filter rail —— */
+    .filter-rail {
+      background: linear-gradient(180deg, var(--rail) 0%, var(--bg) 100%);
+      color: var(--rail-text);
+      border-right: 1px solid var(--rail-border);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      z-index: 30;
+    }
+    .rail-brand {
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid var(--rail-border);
+    }
+    .rail-brand-mark {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      display: grid; place-items: center;
+      font-size: 13px; font-weight: 800; color: #fff;
+      margin-bottom: 10px;
+    }
+    .rail-brand h1 {
+      margin: 0; font-size: 14px; font-weight: 800; letter-spacing: -0.02em;
+    }
+    .rail-brand p {
+      margin: 4px 0 0; font-size: 11px; color: var(--rail-muted); line-height: 1.4;
+    }
+    .rail-brand a { color: #93c5fd; font-weight: 600; text-decoration: none; }
+    .rail-brand a:hover { text-decoration: underline; }
+
+    .rail-scroll {
+      flex: 1; overflow-y: auto; padding: 12px 14px 14px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .rail-scroll::-webkit-scrollbar { width: 6px; }
+    .rail-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 99px; }
+
+    .filter-block { display: flex; flex-direction: column; gap: 8px; }
+    .filter-label {
+      font-size: 10px; font-weight: 800; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--rail-muted);
+      padding: 0 2px;
+    }
+
+    .seg {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
+      padding: 4px; border-radius: 10px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--rail-border);
+    }
+    .seg button {
+      border: 1px solid transparent; background: transparent;
+      color: var(--rail-muted); border-radius: 8px;
+      padding: 8px 6px; font-size: 11px; font-weight: 700;
+      cursor: pointer; transition: 0.15s ease; line-height: 1.2;
+    }
+    .seg button:hover { background: rgba(255,255,255,0.06); color: #fff; }
+    .seg button.active {
+      background: linear-gradient(135deg, var(--accent-deep), var(--accent));
+      color: #fff; border-color: rgba(255,255,255,0.12);
+      box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
+    }
+
+    .field, .filter-rail select {
+      width: 100%; height: 36px;
+      border: 1px solid var(--rail-border);
+      background: rgba(255,255,255,0.05);
+      color: #fff; border-radius: 9px;
+      padding: 0 10px; font-size: 12px; outline: none;
+    }
+    .field::placeholder { color: rgba(148,163,184,0.85); }
+    .field:focus, .filter-rail select:focus {
+      border-color: rgba(59,130,246,0.8);
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.2);
+    }
+    .filter-rail select option { color: #0f172a; background: #fff; }
+
+    .search-wrap { position: relative; }
+    .search-wrap svg {
+      position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+      width: 15px; height: 15px; color: var(--rail-muted); pointer-events: none;
+    }
+    .search-wrap .field { padding-left: 32px; }
+
+    .lens-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+    }
+    .top-chip {
+      border: 1px solid var(--rail-border);
+      background: rgba(255,255,255,0.04);
+      color: var(--rail-text);
+      border-radius: 8px; padding: 7px 8px;
+      font-size: 11px; font-weight: 700; cursor: pointer;
+      transition: 0.15s ease; text-align: center;
+    }
+    .top-chip:hover { background: rgba(255,255,255,0.08); }
+    .top-chip[aria-pressed="true"] {
+      background: rgba(59,130,246,0.2);
+      border-color: rgba(96,165,250,0.5);
+      color: #bfdbfe;
+    }
+
+    .thresh-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+    .thresh-grid .field { height: 34px; padding: 0 8px; font-size: 11px; text-align: center; }
+
+    .rail-acc {
+      border: 1px solid var(--rail-border);
+      border-radius: 10px; overflow: hidden;
+      background: rgba(255,255,255,0.02);
+    }
+    .rail-acc > summary {
+      list-style: none; cursor: pointer;
+      padding: 10px 12px; font-size: 12px; font-weight: 700;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .rail-acc > summary::-webkit-details-marker { display: none; }
+    .rail-acc > summary span { color: var(--rail-muted); font-size: 10px; font-weight: 600; }
+    .rail-acc-body { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 10px; }
+
+    .rail-foot {
+      padding: 12px 14px; border-top: 1px solid var(--rail-border);
+      display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+      background: rgba(0,0,0,0.15);
+    }
+    .btn {
+      height: 36px; border-radius: 9px; border: 1px solid var(--line);
+      background: var(--card); color: var(--text);
+      font-size: 12px; font-weight: 700; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center;
+      padding: 0 12px; transition: 0.15s ease;
+    }
+    .btn:hover { background: #f8fafc; }
+    .btn-dark {
+      background: linear-gradient(135deg, var(--accent-deep), var(--accent));
+      border-color: transparent; color: #fff;
+    }
+    .btn-dark:hover { filter: brightness(1.05); }
+    .btn-ghost-rail {
+      background: rgba(255,255,255,0.06); border-color: var(--rail-border); color: #fff;
+    }
+    .btn-ghost-rail:hover { background: rgba(255,255,255,0.1); }
+
+    .lbl { font-size: 11px; font-weight: 600; color: var(--rail-muted); margin-bottom: 4px; display: block; }
+    .lbl-light { font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 4px; display: block; }
+
+    /* —— Workspace —— */
+    .workspace {
+      display: flex; flex-direction: column; min-width: 0; min-height: 0;
+    }
+
+    .workspace-top {
+      flex: 0 0 auto;
+      background: rgba(255,255,255,0.88);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--line);
+      padding: 12px 16px;
+      display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px;
+    }
+    .workspace-title { min-width: 0; flex: 1; }
+    .workspace-title h2 {
+      margin: 0; font-size: 18px; font-weight: 800; letter-spacing: -0.03em;
+    }
+    #statusLine { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    #modeLine { font-size: 11px; color: var(--accent-deep); margin-top: 2px; font-weight: 600; }
+
+    .top-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    #authEmail { font-size: 11px; color: var(--muted); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .metrics-bar {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      padding: 10px 16px;
+      background: #fff;
+      border-bottom: 1px solid var(--line);
+    }
+    @media (min-width: 1100px) {
+      .metrics-bar { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+    }
+    .metric {
+      border: 1px solid var(--line);
       border-radius: 10px;
       padding: 8px 10px;
+      background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
+    }
+    .metric-lbl {
+      font-size: 9px; font-weight: 800; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .metric-val {
+      margin-top: 3px; font-size: 16px; font-weight: 800;
+      letter-spacing: -0.02em; line-height: 1.1;
+    }
+    .metric-val.accent { color: var(--accent-deep); }
+    .metric-val.warn { color: var(--warn); }
+
+    .command-bar {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: 10px; padding: 10px 16px;
+      background: #fff; border-bottom: 1px solid var(--line);
+    }
+    .command-bar .btn-group { display: flex; flex-wrap: wrap; gap: 6px; }
+    .command-bar .sel-actions { display: flex; gap: 6px; }
+
+    .workspace-body {
+      flex: 1; min-height: 0;
+      display: grid;
+      grid-template-columns: 1fr var(--dock-w);
+    }
+
+    .data-panel {
+      display: flex; flex-direction: column; min-width: 0; min-height: 0;
+    }
+    .table-wrap {
+      flex: 1; min-height: 0; overflow: auto;
       background: #fff;
     }
-    body.inv-v2 .kpi-cell .kpi-val{
-      font-size: 15px;
-      font-weight: 800;
-      letter-spacing: -0.02em;
-      line-height: 1.15;
-    }
-    body.inv-v2 .kpi-cell .kpi-lbl{
-      font-size: 10px;
-      font-weight: 600;
-      color: #64748b;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-    body.inv-v2 .panel-title{
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: -0.01em;
-    }
-    body.inv-v2 details > summary{ padding: 10px 12px !important; }
-    body.inv-v2 details .p-4{ padding: 12px !important; }
-    body.inv-v2 img.h-9.w-9{ height: 2rem; width: 2rem; }
-    body.inv-v2 .v2-classic{
-      font-size: 11px;
-      font-weight: 600;
-      color: #64748b;
-    }
-    body.inv-v2 .v2-classic a{ color: #2563eb; }
-    body.inv-v2 .v2-classic a:hover{ text-decoration: underline; }
-    body.inv-v2 #mainTable{ font-size: 12px; }
-    body.inv-v2 .stickyHead thead th{ box-shadow: 0 1px 0 #e2e8f0; }
-    body.inv-v2 button[data-details]{
-      padding: 0.25rem 0.5rem !important;
+    .table-wrap::-webkit-scrollbar { height: 10px; width: 10px; }
+    .table-wrap::-webkit-scrollbar-thumb { background: rgba(15,23,42,0.18); border-radius: 99px; }
+
+    .stickyHead thead th {
+      position: sticky; top: 0; z-index: 10;
+      background: #f8fafc !important;
+      border-bottom: 1px solid var(--line) !important;
       font-size: 10px !important;
-      border-radius: 6px !important;
+      font-weight: 800 !important;
+      letter-spacing: 0.05em !important;
+      text-transform: uppercase !important;
+      color: var(--muted) !important;
+      padding: 8px 10px !important;
+      white-space: nowrap;
+    }
+    #mainTable tbody td {
+      padding: 7px 10px !important;
+      font-size: 12px !important;
+      border-bottom: 1px solid #f1f5f9;
+      vertical-align: middle;
+    }
+    #mainTable tbody tr:hover td { background: rgba(59,130,246,0.04) !important; }
+
+    .table-foot {
+      flex: 0 0 auto;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 16px; gap: 12px;
+      background: #f8fafc; border-top: 1px solid var(--line);
+    }
+    #pagerInfo { font-size: 12px; color: var(--muted); font-weight: 500; }
+    .pager-btns { display: flex; gap: 6px; }
+
+    /* —— Draft dock —— */
+    .draft-dock {
+      background: #fff;
+      border-left: 1px solid var(--line);
+      display: flex; flex-direction: column;
+      min-height: 0; overflow: hidden;
+    }
+    .draft-head {
+      padding: 14px 14px 10px;
+      border-bottom: 1px solid var(--line);
+    }
+    .draft-head h3 { margin: 0; font-size: 13px; font-weight: 800; }
+    .draft-head p { margin: 6px 0 0; font-size: 11px; color: var(--muted); line-height: 1.45; }
+    .draft-body {
+      flex: 1; overflow-y: auto; padding: 12px 14px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .draft-body .field, .draft-body select {
+      width: 100%; height: 36px;
+      border: 1px solid var(--line); border-radius: 9px;
+      padding: 0 10px; font-size: 12px;
+      background: #fff; color: var(--text);
+    }
+    .draft-peek {
+      border: 1px solid var(--line); border-radius: 10px;
+      background: #f8fafc; padding: 10px;
+    }
+    .draft-peek-label {
+      font-size: 10px; font-weight: 800; letter-spacing: 0.06em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    #draftPeek {
+      margin: 8px 0 0; font-size: 11px; line-height: 1.45;
+      color: #334155; max-height: 140px; overflow: auto;
+    }
+    .thin-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
+    .thin-scroll::-webkit-scrollbar-thumb { background: rgba(15,23,42,0.15); border-radius: 99px; }
+
+    #kpiNote {
+      font-size: 10px; color: var(--muted); line-height: 1.4;
+      padding: 0 16px 8px; background: #fff;
+      border-bottom: 1px solid var(--line);
+    }
+
+    /* JS-rendered helpers */
+    .badge {
+      display: inline-flex; align-items: center; gap: 0.35rem;
+      border: 1px solid var(--line); background: #fff;
+      border-radius: 999px; padding: 2px 8px;
+      font-size: 11px; font-weight: 800; white-space: nowrap;
+    }
+    .kbd {
+      border: 1px solid var(--line); background: #f8fafc;
+      border-radius: 6px; padding: 1px 5px; font-size: 10px;
+    }
+    .click-link { color: var(--accent-deep); font-weight: 600; cursor: pointer; text-decoration: none; }
+    .click-link:hover { text-decoration: underline; }
+    .shadow-soft { box-shadow: 0 20px 50px rgba(15,23,42,0.15); }
+
+    /* Modal */
+    #modal.hidden { display: none !important; }
+    #modal .modal-card {
+      border-radius: 14px; overflow: hidden;
+      background: #fff; border: 1px solid var(--line);
+    }
+
+    @media (max-width: 1100px) {
+      .app-shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+      .filter-rail {
+        max-height: 42vh;
+        border-right: none;
+        border-bottom: 1px solid var(--rail-border);
+      }
+      .workspace-body { grid-template-columns: 1fr; }
+      .draft-dock {
+        border-left: none; border-top: 1px solid var(--line);
+        max-height: 38vh;
+      }
     }
   </style>
 </head>
+<body class="h-full inv-v2">
+  <div class="app-shell">
+    <aside class="filter-rail" aria-label="Filters and planning">
+      <div class="rail-brand">
+        <div class="rail-brand-mark">INV</div>
+        <h1>Inventory</h1>
+        <p>Planning workbench · <a href="/inventory.html">Classic UI</a></p>
+      </div>
 
-<body class="h-full inv-v2 text-slate-900">
-  <div class="min-h-full">
-    <header class="app-header">
-      <div class="mx-auto max-w-[1900px] px-3 py-2.5 flex items-center justify-between gap-3">
-        <div class="flex items-center gap-2.5 min-w-0">
-          <div class="h-8 w-8 rounded-lg bg-gradient-to-br from-blue-600 to-indigo-600 text-white grid place-items-center shrink-0">
-            <span class="text-xs font-extrabold">S</span>
-          </div>
-          <div class="min-w-0">
-            <div class="text-[13px] font-bold tracking-tight truncate">Inventory Workbench</div>
-            <div class="text-[11px] text-slate-500 truncate">
-              Type → product → SKU → location · <span class="mono">inventory_workboard_v</span>
-            </div>
+      <div class="rail-scroll thin-scroll">
+        <div class="filter-block">
+          <div class="filter-label">View level</div>
+          <div class="seg">
+            <button id="btnModeType" class="active" type="button">Type</button>
+            <button id="btnModeProduct" type="button">Product</button>
+            <button id="btnModeSku" type="button">SKU</button>
+            <button id="btnModeLocation" type="button">Location</button>
           </div>
         </div>
 
-        <div class="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
-          <span class="v2-classic hidden lg:inline">v2 · <a href="/inventory.html">classic</a></span>
-          <span id="authEmail" class="hidden md:inline text-[11px] text-slate-500 max-w-[180px] truncate"></span>
-          <button id="btnReload" class="rounded-lg px-3 py-2 text-sm font-medium btn">Reload</button>
-          <button id="btnColumns" class="rounded-lg px-3 py-2 text-sm font-medium btn">Columns</button>
-          <button id="btnExportFiltered" class="rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Export</button>
-          <button id="logoutBtn" class="rounded-lg px-3 py-2 text-sm font-medium btn">Logout</button>
+        <div class="filter-block">
+          <div class="filter-label">Search</div>
+          <div class="search-wrap">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M21 21l-4.3-4.3m1.8-5.2a7 7 0 11-14 0 7 7 0 0114 0z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            <input id="txtSearch" type="text" class="field" placeholder="Type, product, SKU, barcode…" />
+          </div>
+          <p style="margin:0;font-size:10px;color:var(--rail-muted)">Press Enter to run filters</p>
+        </div>
+
+        <div class="filter-block">
+          <div class="filter-label">Scope</div>
+          <select id="selLocation" class="field">
+            <option value="__ALL__">All locations</option>
+          </select>
+          <select id="selProductTypeFilter" class="field">
+            <option value="__ALL__">All product types</option>
+          </select>
+        </div>
+
+        <div class="filter-block">
+          <div class="filter-label">Tags &amp; indicators</div>
+          <select id="selTagFilter" class="field">
+            <option value="__ALL__">All tags</option>
+          </select>
+          <select id="selSubTagFilter" class="field">
+            <option value="__ALL__">All sub tags</option>
+          </select>
+          <select id="selIndicatorFilter" class="field">
+            <option value="__ALL__">All indicators</option>
+          </select>
+        </div>
+
+        <div class="filter-block">
+          <div class="filter-label">Quick lenses</div>
+          <div class="lens-grid">
+            <button data-chip="oos7" class="top-chip" type="button">≤ 7 days</button>
+            <button data-chip="oos14" class="top-chip" type="button">≤ 14 days</button>
+            <button data-chip="low10" class="top-chip" type="button">Qty ≤ 10</button>
+            <button data-chip="stale" class="top-chip" type="button">Stale</button>
+          </div>
+          <button data-chip="clear" class="top-chip" type="button" style="width:100%">Clear lenses</button>
+        </div>
+
+        <div class="filter-block">
+          <div class="filter-label">Focus thresholds</div>
+          <div class="thresh-grid">
+            <input id="numMaxDays" type="number" min="0" step="1" placeholder="Max days" class="field mono" />
+            <input id="numMaxQty" type="number" min="0" step="1" placeholder="Max qty" class="field mono" />
+            <input id="numMinSold30" type="number" min="0" step="1" placeholder="Min 30d" class="field mono" />
+          </div>
+        </div>
+
+        <div class="filter-block">
+          <div class="filter-label">Sort by</div>
+          <select id="selSort" class="field">
+            <option value="suggested_desc">Buy / Mix Priority (desc)</option>
+            <option value="days_asc">Days Cover / OOS (asc)</option>
+            <option value="days_desc">Days Cover / OOS (desc)</option>
+            <option value="qty_asc">On Hand (asc)</option>
+            <option value="qty_desc">On Hand (desc)</option>
+            <option value="sold7_desc">Sold 7d (desc)</option>
+            <option value="sold30_desc">Sold 30d (desc)</option>
+            <option value="sold365_desc">Sold 365d (desc)</option>
+            <option value="value_desc">Retail Value (desc)</option>
+            <option value="risk_value_desc">Retail Risk (≤ threshold + value)</option>
+            <option value="stale_desc">Stale (last sold oldest)</option>
+            <option value="name_asc">Name / SKU (A→Z)</option>
+          </select>
+        </div>
+
+        <details class="rail-acc">
+          <summary>Planning engine <span>cover · strategy</span></summary>
+          <div class="rail-acc-body">
+            <div class="seg" style="grid-template-columns: repeat(3, 1fr);">
+              <button id="btnStratRepl" class="active" type="button">Replenish</button>
+              <button id="btnStratGrowth" type="button">Growth</button>
+              <button id="btnStratHybrid" type="button">Hybrid</button>
+            </div>
+            <label class="lbl">Target days cover</label>
+            <input id="numTargetCover" type="number" min="1" step="1" value="45" class="field mono" />
+            <div class="thresh-grid">
+              <div>
+                <label class="lbl">Safety</label>
+                <input id="numSafetyDays" type="number" min="0" step="1" value="7" class="field mono" />
+              </div>
+              <div>
+                <label class="lbl">Min reorder</label>
+                <input id="numMinReorder" type="number" min="0" step="1" value="0" class="field mono" />
+              </div>
+              <div>
+                <label class="lbl">Risk days</label>
+                <input id="numRiskDays" type="number" min="1" step="1" value="14" class="field mono" />
+              </div>
+            </div>
+            <label class="lbl">Growth uplift %</label>
+            <input id="numGrowthPct" type="number" min="0" step="1" value="20" class="field mono" />
+            <label class="lbl">Seed avg / day (new SKU)</label>
+            <input id="numSeedAvgDay" type="number" min="0" step="0.01" value="0.25" class="field mono" />
+          </div>
+        </details>
+
+        <details class="rail-acc">
+          <summary>Tag selected rows <span>Supabase</span></summary>
+          <div class="rail-acc-body">
+            <label class="lbl">Tag as</label>
+            <select id="selDriver" class="field">
+              <option value="">Blank</option>
+              <option value="core">Core</option>
+              <option value="hero">Hero</option>
+              <option value="new">New</option>
+              <option value="influencer">Influencer</option>
+              <option value="wholesale">Wholesale</option>
+              <option value="promo">Promo</option>
+              <option value="seasonal">Seasonal</option>
+              <option value="hold">Hold</option>
+              <option value="keep">Keep</option>
+              <option value="review">Review</option>
+            </select>
+            <label class="lbl">Sub tag</label>
+            <input id="txtSupabaseSubTag" type="text" class="field" placeholder="optional" />
+            <label class="lbl">Indicator group</label>
+            <select id="selIndicatorGroup" class="field">
+              <option value="">Blank</option>
+              <option value="Situational">Situational</option>
+              <option value="Brand Direction">Brand Direction</option>
+              <option value="Urgency">Urgency</option>
+              <option value="Growth">Growth</option>
+              <option value="Planning">Planning</option>
+            </select>
+            <button id="btnApplyTag" type="button" class="btn btn-dark" style="width:100%">Apply tags</button>
+            <button id="btnClearTags" type="button" class="btn btn-ghost-rail" style="width:100%">Clear tag fields</button>
+          </div>
+        </details>
+      </div>
+
+      <div class="rail-foot">
+        <button id="btnClear" type="button" class="btn btn-ghost-rail">Reset</button>
+        <button id="btnApply" type="button" class="btn btn-dark">Run filters</button>
+      </div>
+    </aside>
+
+    <div class="workspace">
+      <header class="workspace-top">
+        <div class="workspace-title">
+          <h2>Workbench</h2>
+          <div id="statusLine">—</div>
+          <div id="modeLine" class="mono">Mode: Product Type Planning</div>
+        </div>
+        <div class="top-actions">
+          <span id="authEmail"></span>
+          <button id="btnReload" type="button" class="btn">Reload</button>
+          <button id="btnColumns" type="button" class="btn">Columns</button>
+          <button id="btnExportFiltered" type="button" class="btn btn-dark">Export CSV</button>
+          <button id="logoutBtn" type="button" class="btn">Logout</button>
+        </div>
+      </header>
+
+      <div class="metrics-bar" aria-label="Key metrics">
+        <div class="metric"><div class="metric-lbl">Rows</div><div id="kRows" class="metric-val mono">0</div></div>
+        <div class="metric"><div class="metric-lbl">Units OH</div><div id="kUnits" class="metric-val mono">0</div></div>
+        <div class="metric"><div class="metric-lbl">Retail OH</div><div id="kRetailValue" class="metric-val mono">$0</div></div>
+        <div class="metric"><div class="metric-lbl">Suggested</div><div id="kSuggested" class="metric-val mono accent">0</div></div>
+        <div class="metric"><div class="metric-lbl">Sold 30d</div><div id="kSold30" class="metric-val mono">0</div></div>
+        <div class="metric"><div class="metric-lbl">Avg cover</div><div id="kAvgDays" class="metric-val mono">—</div></div>
+        <div class="metric"><div class="metric-lbl">At risk $</div><div id="kRiskRetail" class="metric-val mono warn">$0</div></div>
+        <div class="metric"><div class="metric-lbl">Selected</div><div id="kSelected" class="metric-val mono">0</div></div>
+      </div>
+      <div id="kpiNote">Product/type rows are planning rollups. SKU and location modes remain available for size curves and transfer detail.</div>
+
+      <div class="command-bar">
+        <div class="btn-group">
+          <button id="btnSuggestPO" type="button" class="btn">Suggest PO</button>
+          <button id="btnTagSelected" type="button" class="btn">Tag selected</button>
+          <button id="btnAddSelectedToDraft" type="button" class="btn btn-dark">Add → draft</button>
+        </div>
+        <div class="sel-actions">
+          <button id="btnExportSelected" type="button" class="btn">Export selected</button>
+          <button id="btnClearSelection" type="button" class="btn">Clear selection</button>
         </div>
       </div>
-    </header>
 
-    <main class="mx-auto max-w-[1900px] px-3 py-3 space-y-3">
-      <section class="surface p-3 space-y-3">
-        <div class="flex flex-col xl:flex-row xl:items-center gap-3">
-          <div class="flex items-center gap-2 flex-wrap min-w-0 flex-1">
-            <div class="seg rounded-xl p-1 flex items-center gap-1 flex-wrap">
-              <button id="btnModeType" class="active" type="button">Product Type</button>
-              <button id="btnModeProduct" type="button">Product</button>
-              <button id="btnModeSku" type="button">SKU Detail</button>
-              <button id="btnModeLocation" type="button">Location Detail</button>
+      <div class="workspace-body">
+        <section class="data-panel">
+          <div class="table-wrap thin-scroll">
+            <table id="mainTable" class="min-w-[2600px] w-full text-sm stickyHead">
+              <thead><tr id="theadRow"></tr></thead>
+              <tbody id="tbody"></tbody>
+            </table>
+          </div>
+          <footer class="table-foot">
+            <div id="pagerInfo">—</div>
+            <div class="pager-btns">
+              <button id="btnPrev" type="button" class="btn">Prev</button>
+              <button id="btnNext" type="button" class="btn">Next</button>
             </div>
+          </footer>
+        </section>
 
-            <div class="w-full lg:w-[380px]">
-              <div class="relative">
-                <input id="txtSearch" type="text" placeholder="Search product type, product, SKU, barcode… (Enter)"
-                  class="w-full rounded-lg border border-slate-200 pl-9 pr-3 py-2 text-sm" />
-                <svg class="absolute left-3 top-2.5 h-4 w-4 text-slate-400" viewBox="0 0 24 24" fill="none">
-                  <path d="M21 21l-4.3-4.3m1.8-5.2a7 7 0 11-14 0 7 7 0 0114 0z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-              </div>
-            </div>
-
-            <div class="w-full lg:w-[260px]">
-              <select id="selLocation" class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                <option value="__ALL__">All locations</option>
-              </select>
-            </div>
+        <aside class="draft-dock" aria-label="PO draft">
+          <div class="draft-head">
+            <h3>PO draft</h3>
+            <p>Local batch — review SKU/size in row details before exporting.</p>
           </div>
-
-          <div class="flex items-center gap-2 flex-wrap">
-            <button id="btnSuggestPO" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Suggest PO</button>
-            <button id="btnTagSelected" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Tag Selected</button>
-            <button id="btnAddSelectedToDraft" class="rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Add → Draft</button>
-          </div>
-        </div>
-
-        <div class="flex flex-col 2xl:flex-row 2xl:items-center gap-3">
-          <div class="flex items-center gap-2 flex-wrap flex-1">
-            <select id="selProductTypeFilter" class="rounded-lg border border-slate-200 px-3 py-2 text-sm min-w-[170px]">
-              <option value="__ALL__">All product types</option>
-            </select>
-
-            <select id="selTagFilter" class="rounded-lg border border-slate-200 px-3 py-2 text-sm min-w-[150px]">
-              <option value="__ALL__">All tags</option>
-            </select>
-
-            <select id="selSubTagFilter" class="rounded-lg border border-slate-200 px-3 py-2 text-sm min-w-[150px]">
-              <option value="__ALL__">All sub tags</option>
-            </select>
-
-            <select id="selIndicatorFilter" class="rounded-lg border border-slate-200 px-3 py-2 text-sm min-w-[160px]">
-              <option value="__ALL__">All indicators</option>
-            </select>
-
-            <select id="selSort" class="rounded-lg border border-slate-200 px-3 py-2 text-sm min-w-[220px]">
-              <option value="suggested_desc">Buy / Mix Priority (desc)</option>
-              <option value="days_asc">Days Cover / OOS (asc)</option>
-              <option value="days_desc">Days Cover / OOS (desc)</option>
-              <option value="qty_asc">On Hand (asc)</option>
-              <option value="qty_desc">On Hand (desc)</option>
-              <option value="sold7_desc">Sold 7d (desc)</option>
-              <option value="sold30_desc">Sold 30d (desc)</option>
-              <option value="sold365_desc">Sold 365d (desc)</option>
-              <option value="value_desc">Retail Value (desc)</option>
-              <option value="risk_value_desc">Retail Risk (≤ threshold + value)</option>
-              <option value="stale_desc">Stale (last sold oldest)</option>
-              <option value="name_asc">Name / SKU (A→Z)</option>
-            </select>
-
-            <input id="numMaxDays" type="number" min="0" step="1" placeholder="Max days"
-              class="rounded-lg border border-slate-200 px-3 py-2 text-sm w-[110px] mono" />
-
-            <input id="numMaxQty" type="number" min="0" step="1" placeholder="Max qty"
-              class="rounded-lg border border-slate-200 px-3 py-2 text-sm w-[110px] mono" />
-
-            <input id="numMinSold30" type="number" min="0" step="1" placeholder="Min 30d sold"
-              class="rounded-lg border border-slate-200 px-3 py-2 text-sm w-[120px] mono" />
-
-            <button data-chip="oos7" class="top-chip">≤ 7 days</button>
-            <button data-chip="oos14" class="top-chip">≤ 14 days</button>
-            <button data-chip="low10" class="top-chip">Qty ≤ 10</button>
-            <button data-chip="stale" class="top-chip">Stale</button>
-            <button data-chip="clear" class="top-chip">Clear</button>
-          </div>
-
-          <div class="flex items-center gap-2">
-            <button id="btnApply" class="rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Apply</button>
-            <button id="btnClear" class="rounded-lg px-3 py-2 text-sm font-medium btn">Reset</button>
-          </div>
-        </div>
-
-        <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
-          <details class="surface p-0 overflow-hidden">
-            <summary class="px-3 py-2.5 cursor-pointer flex items-center justify-between gap-3 bg-slate-50 border-b border-slate-200">
-              <div>
-                <div class="panel-title">Planning</div>
-                <div class="text-xs text-slate-500">Strategy, cover, safety, growth, seed demand</div>
-              </div>
-              <div class="text-xs text-slate-500">toggle</div>
-            </summary>
-            <div class="p-4 space-y-3">
-              <div class="flex items-center justify-between gap-2 flex-wrap">
-                <div class="text-xs font-semibold text-slate-800">PO Strategy</div>
-                <div class="seg rounded-xl p-1 flex items-center gap-1">
-                  <button id="btnStratRepl" class="active" type="button">Replenish</button>
-                  <button id="btnStratGrowth" type="button">Growth</button>
-                  <button id="btnStratHybrid" type="button">Hybrid</button>
-                </div>
-              </div>
-
-              <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-                <div>
-                  <label class="block text-xs font-semibold text-slate-700 mb-1">Target Days Cover</label>
-                  <input id="numTargetCover" type="number" min="1" step="1" value="45"
-                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
-                </div>
-                <div>
-                  <label class="block text-xs font-semibold text-slate-700 mb-1">Safety Stock</label>
-                  <input id="numSafetyDays" type="number" min="0" step="1" value="7"
-                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
-                </div>
-                <div>
-                  <label class="block text-xs font-semibold text-slate-700 mb-1">Min Reorder</label>
-                  <input id="numMinReorder" type="number" min="0" step="1" value="0"
-                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
-                </div>
-                <div>
-                  <label class="block text-xs font-semibold text-slate-700 mb-1">Risk Threshold</label>
-                  <input id="numRiskDays" type="number" min="1" step="1" value="14"
-                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
-                </div>
-              </div>
-
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                  <label class="block text-xs font-semibold text-slate-700 mb-1">Growth uplift default %</label>
-                  <input id="numGrowthPct" type="number" min="0" step="1" value="20"
-                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
-                </div>
-                <div>
-                  <label class="block text-xs font-semibold text-slate-700 mb-1">New / low-history seed avg/day</label>
-                  <input id="numSeedAvgDay" type="number" min="0" step="0.01" value="0.25"
-                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
-                </div>
-              </div>
-
-              <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-                Product Type/Product rows split clean buying from mix pressure. <span class="kbd">Category/Product Buy</span> uses aggregate cover so we do not overbuy heavy categories. <span class="kbd">Mix Shortage / SKU Pressure</span> shows child SKU/location shortages that need review, transfer, or size-curve cleanup.
-              </div>
-            </div>
-          </details>
-
-          <details class="surface p-0 overflow-hidden">
-            <summary class="px-3 py-2.5 cursor-pointer flex items-center justify-between gap-3 bg-slate-50 border-b border-slate-200">
-              <div>
-                <div class="panel-title">Metadata</div>
-                <div class="text-xs text-slate-500">Write tag, sub tag, and indicator back to Supabase product_tags</div>
-              </div>
-              <div class="text-xs text-slate-500">toggle</div>
-            </summary>
-            <div class="p-4 space-y-3">
-              <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-                <div class="md:col-span-4">
-                  <label class="block text-xs font-semibold text-slate-700 mb-1">Tag selected as…</label>
-                  <select id="selDriver" class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                    <option value="">Blank</option>
-                    <option value="core">Core</option>
-                    <option value="hero">Hero</option>
-                    <option value="new">New</option>
-                    <option value="influencer">Influencer</option>
-                    <option value="wholesale">Wholesale</option>
-                    <option value="promo">Promo</option>
-                    <option value="seasonal">Seasonal</option>
-                    <option value="hold">Hold</option>
-                    <option value="keep">Keep</option>
-                    <option value="review">Review</option>
-                  </select>
-                </div>
-
-                <div class="md:col-span-4">
-                  <label class="block text-xs font-semibold text-slate-700 mb-1">Sub Tag</label>
-                  <input id="txtSupabaseSubTag" type="text" placeholder="optional"
-                    class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
-                </div>
-
-                <div class="md:col-span-3">
-                  <label class="block text-xs font-semibold text-slate-700 mb-1">Indicator Group</label>
-                  <select id="selIndicatorGroup" class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                    <option value="">Blank</option>
-                    <option value="Situational">Situational</option>
-                    <option value="Brand Direction">Brand Direction</option>
-                    <option value="Urgency">Urgency</option>
-                    <option value="Growth">Growth</option>
-                    <option value="Planning">Planning</option>
-                  </select>
-                </div>
-
-                <div class="md:col-span-1">
-                  <button id="btnApplyTag" class="w-full rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Apply</button>
-                </div>
-              </div>
-
-              <div class="flex items-center gap-2 flex-wrap">
-                <button id="btnClearTags" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Clear Selected Tag Fields</button>
-                <div class="text-xs text-slate-500">
-                  Product type/product selections apply tag updates to child product rows.
-                </div>
-              </div>
-            </div>
-          </details>
-        </div>
-      </section>
-
-      <section class="grid grid-cols-1 lg:grid-cols-12 gap-3">
-        <div class="lg:col-span-8 surface p-3">
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <div class="panel-title">KPI snapshot</div>
-              <div id="statusLine" class="text-[11px] text-slate-600 mt-1">—</div>
-              <div id="modeLine" class="text-[11px] text-slate-500 mt-0.5 mono">Mode: Product Type Planning</div>
-              <div id="kpiNote" class="hidden xl:block text-[10px] text-slate-500 mt-1 leading-relaxed">
-                Product/type rows are planning rollups. SKU and location modes remain available for size curves and transfer detail.
-              </div>
-            </div>
-            <div class="flex items-center gap-1.5 shrink-0">
-              <button id="btnExportSelected" class="rounded-lg px-3 py-2 text-sm font-medium btn">Export sel.</button>
-              <button id="btnClearSelection" class="rounded-lg px-3 py-2 text-sm font-medium btn">Clear sel.</button>
-            </div>
-          </div>
-
-          <div class="mt-2.5 kpi-strip">
-            <div class="kpi-cell"><div class="kpi-lbl">Rows</div><div id="kRows" class="kpi-val mono">0</div></div>
-            <div class="kpi-cell"><div class="kpi-lbl">Units</div><div id="kUnits" class="kpi-val mono">0</div></div>
-            <div class="kpi-cell"><div class="kpi-lbl">Retail OH</div><div id="kRetailValue" class="kpi-val mono">$0</div></div>
-            <div class="kpi-cell"><div class="kpi-lbl">Suggested</div><div id="kSuggested" class="kpi-val mono">0</div></div>
-            <div class="kpi-cell"><div class="kpi-lbl">Sold 30d</div><div id="kSold30" class="kpi-val mono">0</div></div>
-            <div class="kpi-cell"><div class="kpi-lbl">Avg cover</div><div id="kAvgDays" class="kpi-val mono">—</div></div>
-            <div class="kpi-cell"><div class="kpi-lbl">At risk</div><div id="kRiskRetail" class="kpi-val mono">$0</div></div>
-            <div class="kpi-cell"><div class="kpi-lbl">Selected</div><div id="kSelected" class="kpi-val mono">0</div></div>
-          </div>
-        </div>
-
-        <div class="lg:col-span-4 surface p-3">
-          <div class="flex items-center justify-between gap-2">
-            <div class="panel-title">PO draft</div>
-            <div class="text-[10px] text-slate-500 mono uppercase tracking-wide">local</div>
-          </div>
-          <div class="text-[11px] text-slate-600 mt-1 leading-snug">
-            Rollup lines from product/type selections. Open row details before final buy.
-          </div>
-
-          <div class="mt-2.5 grid grid-cols-1 gap-2">
+          <div class="draft-body thin-scroll">
             <div>
-              <label class="block text-xs font-semibold text-slate-700 mb-1">PO Name / Batch</label>
-              <input id="txtPoName" type="text" placeholder="ex: PO-2026-02-17 Company"
-                class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+              <label class="lbl-light" for="txtPoName">Batch name</label>
+              <input id="txtPoName" type="text" class="field" placeholder="PO-2026-02-17 Company" />
             </div>
-
-            <div class="grid grid-cols-2 gap-2">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
               <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">Vendor</label>
-                <input id="txtVendor" type="text" placeholder="optional"
-                  class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm" />
+                <label class="lbl-light" for="txtVendor">Vendor</label>
+                <input id="txtVendor" type="text" class="field" placeholder="optional" />
               </div>
               <div>
-                <label class="block text-xs font-semibold text-slate-700 mb-1">ETA</label>
-                <input id="txtEta" type="date"
-                  class="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm mono" />
+                <label class="lbl-light" for="txtEta">ETA</label>
+                <input id="txtEta" type="date" class="field mono" />
               </div>
             </div>
-
-            <div class="flex gap-2">
-              <button id="btnViewDraft" class="w-full rounded-lg px-3 py-2 text-sm font-semibold btn">View Draft</button>
-              <button id="btnExportDraft" class="w-full rounded-lg px-3 py-2 text-sm font-semibold btn-dark">Export Draft</button>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+              <button id="btnViewDraft" type="button" class="btn">View</button>
+              <button id="btnExportDraft" type="button" class="btn btn-dark">Export</button>
             </div>
-
-            <button id="btnClearDraft" class="rounded-lg px-3 py-2 text-sm font-semibold btn">Clear Draft</button>
-
-            <div class="rounded-lg border border-slate-200 bg-slate-50 p-2.5">
-              <div class="text-[10px] font-semibold uppercase tracking-wide text-slate-600">Draft peek</div>
-              <pre id="draftPeek" class="mt-1.5 text-[11px] text-slate-700 max-h-32 overflow-auto thin-scroll leading-relaxed">Draft empty.</pre>
+            <button id="btnClearDraft" type="button" class="btn" style="width:100%">Clear draft</button>
+            <div class="draft-peek thin-scroll">
+              <div class="draft-peek-label">Peek</div>
+              <pre id="draftPeek">Draft empty.</pre>
             </div>
           </div>
-        </div>
-      </section>
-
-      <section class="surface overflow-hidden">
-        <div class="overflow-auto thin-scroll">
-          <table id="mainTable" class="min-w-[2600px] w-full text-sm stickyHead">
-            <thead class="bg-slate-50 border-b border-slate-200">
-              <tr id="theadRow"></tr>
-            </thead>
-            <tbody id="tbody" class="divide-y divide-slate-100"></tbody>
-          </table>
-        </div>
-
-        <div class="flex items-center justify-between gap-3 px-3 py-2 border-t border-slate-200 bg-slate-50/80">
-          <div class="text-[11px] text-slate-600"><span id="pagerInfo">—</span></div>
-          <div class="flex items-center gap-2">
-            <button id="btnPrev" class="rounded-lg px-3 py-2 text-sm font-medium btn">Prev</button>
-            <button id="btnNext" class="rounded-lg px-3 py-2 text-sm font-medium btn">Next</button>
-          </div>
-        </div>
-      </section>
-
-      <div id="modal" class="fixed inset-0 hidden z-50">
-        <div class="absolute inset-0 bg-black/40" data-modal-overlay="1"></div>
-        <div class="absolute inset-x-0 top-10 mx-auto max-w-7xl px-4">
-          <div class="rounded-xl bg-white border border-slate-200 shadow-soft overflow-hidden">
-            <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-              <div class="text-sm font-semibold" id="modalTitle">Modal</div>
-              <button id="btnCloseModal" class="rounded-lg px-3 py-1.5 text-sm font-medium btn">Close</button>
-            </div>
-            <div id="modalBody" class="p-4 text-sm max-h-[82vh] overflow-auto thin-scroll"></div>
-          </div>
-        </div>
+        </aside>
       </div>
-    </main>
+    </div>
   </div>
 
-  <script>
+  <div id="modal" class="fixed inset-0 hidden z-50">
+    <div class="absolute inset-0 bg-black/40" data-modal-overlay="1"></div>
+    <div class="absolute inset-x-0 top-10 mx-auto max-w-7xl px-4">
+      <div class="modal-card shadow-soft">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+          <div class="text-sm font-semibold" id="modalTitle">Modal</div>
+          <button id="btnCloseModal" type="button" class="btn">Close</button>
+        </div>
+        <div id="modalBody" class="p-4 text-sm max-h-[82vh] overflow-auto thin-scroll"></div>
+      </div>
+    </div>
+  </div>
+
+
+<script>
     const cfg = window.__SILO_CONFIG__ || {};
     const SUPABASE_URL = cfg.SUPABASE_URL || "";
     const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || "";
