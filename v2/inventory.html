@@ -27,8 +27,10 @@
       --good: #059669;
       --warn: #d97706;
       --danger: #dc2626;
-      --dock-w: 300px;
+      --dock-w: 320px;
       --rail-w: 272px;
+      --silo-edge-w: 44px;
+      --silo-nav-w: 248px;
     }
     * { box-sizing: border-box; }
     html, body { height: 100%; margin: 0; }
@@ -42,13 +44,118 @@
 
     .app-shell {
       display: grid;
-      grid-template-columns: var(--rail-w) 1fr;
+      grid-template-columns: var(--silo-edge-w) auto 1fr;
       grid-template-rows: 100vh;
       min-height: 100vh;
     }
 
+    /* —— Silo app menu (layer above filter rail) —— */
+    .silo-edge {
+      background: #0b1220;
+      border-right: 1px solid var(--rail-border);
+      display: flex; flex-direction: column; align-items: center;
+      padding: 10px 0; gap: 8px; z-index: 35;
+    }
+    .silo-edge-btn {
+      width: 32px; height: 32px; border-radius: 9px;
+      border: 1px solid var(--rail-border);
+      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      color: #fff; font-size: 11px; font-weight: 800;
+      cursor: pointer; display: grid; place-items: center;
+    }
+    .silo-edge-btn:hover { filter: brightness(1.08); }
+    .silo-edge-label {
+      writing-mode: vertical-rl; transform: rotate(180deg);
+      font-size: 9px; font-weight: 800; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--rail-muted);
+    }
+
+    .panel-backdrop {
+      position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45);
+      opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
+      z-index: 55;
+    }
+    body.silo-nav-open .panel-backdrop.silo-backdrop,
+    body.draft-open .panel-backdrop.draft-backdrop {
+      opacity: 1; pointer-events: auto;
+    }
+
+    .silo-nav-panel {
+      position: fixed; left: var(--silo-edge-w); top: 0; bottom: 0;
+      width: var(--silo-nav-w);
+      background: linear-gradient(180deg, #0f172a 0%, #0b1220 100%);
+      border-right: 1px solid var(--rail-border);
+      color: var(--rail-text);
+      z-index: 60;
+      transform: translateX(-110%);
+      transition: transform 0.22s ease;
+      display: flex; flex-direction: column;
+      box-shadow: 12px 0 40px rgba(0, 0, 0, 0.35);
+    }
+    body.silo-nav-open .silo-nav-panel { transform: translateX(0); }
+
+    .silo-nav-head {
+      padding: 14px 14px 10px;
+      border-bottom: 1px solid var(--rail-border);
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    }
+    .silo-nav-head h2 { margin: 0; font-size: 14px; font-weight: 800; }
+    .silo-nav-head p { margin: 4px 0 0; font-size: 11px; color: var(--rail-muted); }
+    .silo-nav-close {
+      border: 1px solid var(--rail-border); background: rgba(255,255,255,0.06);
+      color: #fff; border-radius: 8px; width: 30px; height: 30px;
+      cursor: pointer; font-size: 16px; line-height: 1;
+    }
+    .silo-nav-scroll {
+      flex: 1; overflow-y: auto; padding: 10px 12px 16px;
+    }
+    .silo-nav-section { margin-bottom: 14px; }
+    .silo-nav-section h3 {
+      margin: 0 0 6px; padding: 0 6px;
+      font-size: 10px; font-weight: 800; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--rail-muted);
+    }
+    .silo-nav-link {
+      display: block; padding: 8px 10px; border-radius: 8px;
+      font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.88);
+      text-decoration: none; border: 1px solid transparent;
+    }
+    .silo-nav-link:hover {
+      background: rgba(255,255,255,0.07); color: #fff;
+    }
+    .silo-nav-link.active {
+      background: rgba(59,130,246,0.18);
+      border-color: rgba(96,165,250,0.35);
+      color: #fff;
+    }
+    .silo-nav-link .sub {
+      display: block; font-size: 10px; font-weight: 500;
+      color: var(--rail-muted); margin-top: 2px;
+    }
+
+    .left-cluster {
+      display: flex; min-width: 0; min-height: 0;
+      position: relative;
+    }
+    .filter-rail-toggle {
+      position: absolute; right: -12px; top: 72px; z-index: 25;
+      width: 24px; height: 48px; border-radius: 0 8px 8px 0;
+      border: 1px solid var(--line); border-left: none;
+      background: #fff; color: var(--muted);
+      font-size: 14px; font-weight: 800; cursor: pointer;
+      box-shadow: 4px 0 12px rgba(15,23,42,0.08);
+    }
+    body.filter-rail-collapsed .filter-rail-toggle { right: auto; left: 0; border-radius: 0 8px 8px 0; border-left: 1px solid var(--line); }
+    body.filter-rail-collapsed .left-cluster { width: 0; overflow: visible; }
+    body.filter-rail-collapsed .filter-rail {
+      width: 0; min-width: 0; padding: 0; border: none; overflow: hidden; opacity: 0;
+    }
+
     /* —— Filter rail —— */
     .filter-rail {
+      width: var(--rail-w);
+      min-width: var(--rail-w);
+      transition: width 0.2s ease, min-width 0.2s ease, opacity 0.2s ease;
       background: linear-gradient(180deg, var(--rail) 0%, var(--bg) 100%);
       color: var(--rail-text);
       border-right: 1px solid var(--rail-border);
@@ -253,8 +360,8 @@
 
     .workspace-body {
       flex: 1; min-height: 0;
-      display: grid;
-      grid-template-columns: 1fr var(--dock-w);
+      display: flex; flex-direction: column;
+      min-width: 0;
     }
 
     .data-panel {
@@ -271,21 +378,92 @@
       position: sticky; top: 0; z-index: 10;
       background: #f8fafc !important;
       border-bottom: 1px solid var(--line) !important;
-      font-size: 10px !important;
-      font-weight: 800 !important;
-      letter-spacing: 0.05em !important;
-      text-transform: uppercase !important;
-      color: var(--muted) !important;
-      padding: 8px 10px !important;
-      white-space: nowrap;
     }
-    #mainTable tbody td {
-      padding: 7px 10px !important;
-      font-size: 12px !important;
-      border-bottom: 1px solid #f1f5f9;
+    #mainTable {
+      table-layout: fixed;
+      width: max-content;
+      max-width: 100%;
+      font-size: 11px;
+    }
+    #mainTable .th-compact,
+    #mainTable .td-compact {
+      padding: 4px 6px !important;
+      font-size: 11px !important;
+      line-height: 1.25;
       vertical-align: middle;
     }
+    #mainTable thead .th-compact {
+      font-size: 9px !important;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    #mainTable .cell-clip {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #mainTable .badge {
+      font-size: 9px !important;
+      padding: 1px 5px !important;
+      max-width: 100%;
+    }
+    #mainTable button[data-details] {
+      padding: 2px 6px !important;
+      font-size: 9px !important;
+      border-radius: 5px !important;
+      line-height: 1.2;
+    }
+    #mainTable img.h-7 { width: 1.75rem; height: 1.75rem; }
+    #mainTable tbody td {
+      border-bottom: 1px solid #f1f5f9;
+    }
     #mainTable tbody tr:hover td { background: rgba(59,130,246,0.04) !important; }
+    #mainTable [data-col="_select"] { width: 30px !important; }
+    #mainTable [data-col="_details"] { width: 44px !important; }
+    #mainTable [data-col="image"] { width: 38px !important; }
+    #mainTable [data-col="product"] { width: 120px !important; }
+    #mainTable [data-col="product_type"] { width: 88px !important; }
+    #mainTable [data-col="location"] { width: 72px !important; }
+    #mainTable [data-col="sku"] { width: 88px !important; }
+    #mainTable [data-col="barcode"] { width: 80px !important; }
+    #mainTable [data-col="variant"] { width: 56px !important; }
+    #mainTable [data-col="tag"],
+    #mainTable [data-col="sub_tag"],
+    #mainTable [data-col="collection"],
+    #mainTable [data-col="indicator_group"],
+    #mainTable [data-col="source"] { width: 64px !important; }
+    #mainTable [data-col="driver"],
+    #mainTable [data-col="action_flag"],
+    #mainTable [data-col="planner_flag"],
+    #mainTable [data-col="risk_flag"],
+    #mainTable [data-col="transfer_flag"] { width: 72px !important; }
+    #mainTable [data-col="last_sold_date"] { width: 68px !important; }
+    #mainTable [data-col="velocity_basis"] { width: 52px !important; }
+    #mainTable [data-col="products_count"],
+    #mainTable [data-col="sku_count"],
+    #mainTable [data-col="variant_count"],
+    #mainTable [data-col="locations_count"],
+    #mainTable [data-col="risk_count"],
+    #mainTable [data-col="stale_count"],
+    #mainTable [data-col="negative_count"] { width: 48px !important; }
+    #mainTable [data-col="avail_qty"],
+    #mainTable [data-col="qty_7d"],
+    #mainTable [data-col="sold_30"],
+    #mainTable [data-col="qty_90d"],
+    #mainTable [data-col="qty_120d"],
+    #mainTable [data-col="qty_365d"],
+    #mainTable [data-col="avg_day"],
+    #mainTable [data-col="avg_day_7"],
+    #mainTable [data-col="avg_day_90"],
+    #mainTable [data-col="avg_day_120"],
+    #mainTable [data-col="avg_day_365"],
+    #mainTable [data-col="days_oos"],
+    #mainTable [data-col="category_buy"],
+    #mainTable [data-col="mix_shortage"],
+    #mainTable [data-col="suggested_po"],
+    #mainTable [data-col="inv_value"] { width: 56px !important; }
 
     .table-foot {
       flex: 0 0 auto;
@@ -296,19 +474,32 @@
     #pagerInfo { font-size: 12px; color: var(--muted); font-weight: 500; }
     .pager-btns { display: flex; gap: 6px; }
 
-    /* —— Draft dock —— */
-    .draft-dock {
+    /* —— PO draft drawer (hidden until opened) —— */
+    .draft-drawer {
+      position: fixed; top: 0; right: 0; bottom: 0;
+      width: min(var(--dock-w), 92vw);
       background: #fff;
       border-left: 1px solid var(--line);
+      z-index: 70;
       display: flex; flex-direction: column;
-      min-height: 0; overflow: hidden;
+      transform: translateX(105%);
+      transition: transform 0.24s ease;
+      box-shadow: -16px 0 48px rgba(15, 23, 42, 0.12);
     }
+    body.draft-open .draft-drawer { transform: translateX(0); }
+
     .draft-head {
       padding: 14px 14px 10px;
       border-bottom: 1px solid var(--line);
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
     }
     .draft-head h3 { margin: 0; font-size: 13px; font-weight: 800; }
     .draft-head p { margin: 6px 0 0; font-size: 11px; color: var(--muted); line-height: 1.45; }
+    .draft-close {
+      border: 1px solid var(--line); background: #fff;
+      border-radius: 8px; width: 30px; height: 30px;
+      cursor: pointer; font-size: 16px; color: var(--muted); flex-shrink: 0;
+    }
     .draft-body {
       flex: 1; overflow-y: auto; padding: 12px 14px;
       display: flex; flex-direction: column; gap: 10px;
@@ -329,7 +520,10 @@
     }
     #draftPeek {
       margin: 8px 0 0; font-size: 11px; line-height: 1.45;
-      color: #334155; max-height: 140px; overflow: auto;
+      color: #334155; max-height: 200px; overflow: auto;
+    }
+    .btn-draft-fab {
+      position: relative;
     }
     .thin-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
     .thin-scroll::-webkit-scrollbar-thumb { background: rgba(15,23,42,0.15); border-radius: 99px; }
@@ -363,29 +557,73 @@
     }
 
     @media (max-width: 1100px) {
-      .app-shell { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+      .app-shell {
+        grid-template-columns: var(--silo-edge-w) 1fr;
+        grid-template-rows: auto 1fr;
+      }
+      .left-cluster { grid-column: 1 / -1; }
       .filter-rail {
-        max-height: 42vh;
+        max-height: 40vh;
         border-right: none;
         border-bottom: 1px solid var(--rail-border);
       }
-      .workspace-body { grid-template-columns: 1fr; }
-      .draft-dock {
-        border-left: none; border-top: 1px solid var(--line);
-        max-height: 38vh;
-      }
+      .workspace { grid-column: 1 / -1; }
+      .silo-nav-panel { left: 0; width: min(280px, 88vw); }
     }
   </style>
 </head>
 <body class="h-full inv-v2">
   <div class="app-shell">
-    <aside class="filter-rail" aria-label="Filters and planning">
+    <div class="silo-edge">
+      <button id="btnSiloNavToggle" type="button" class="silo-edge-btn" aria-label="Open Silo menu" title="Silo menu">S</button>
+      <span class="silo-edge-label">Silo</span>
+    </div>
+
+    <nav id="siloNavPanel" class="silo-nav-panel" aria-label="Silo navigation" aria-hidden="true">
+      <div class="silo-nav-head">
+        <div>
+          <h2>Silo</h2>
+          <p>Leave inventory · department hubs</p>
+        </div>
+        <button id="btnSiloNavClose" type="button" class="silo-nav-close" aria-label="Close Silo menu">×</button>
+      </div>
+      <div class="silo-nav-scroll thin-scroll">
+        <div class="silo-nav-section">
+          <h3>Home</h3>
+          <a class="silo-nav-link" href="/index.html">SILO entry</a>
+        </div>
+        <div class="silo-nav-section">
+          <h3>Department hubs</h3>
+          <a class="silo-nav-link" href="/finance.html">Finance console</a>
+          <a class="silo-nav-link" href="/ops.html">Ops / logistics</a>
+          <a class="silo-nav-link" href="/marketing.html">Marketing</a>
+          <a class="silo-nav-link" href="/retail.html">Retail</a>
+        </div>
+        <div class="silo-nav-section">
+          <h3>Inventory</h3>
+          <a class="silo-nav-link active" href="/v2/inventory.html">Workbench <span class="sub">v2 · current</span></a>
+          <a class="silo-nav-link" href="/inventory.html">Classic workbench</a>
+          <a class="silo-nav-link" href="/pages/product-manager.html">Product tags</a>
+        </div>
+        <div class="silo-nav-section">
+          <h3>Planning</h3>
+          <a class="silo-nav-link" href="/executive.html">Executive</a>
+          <a class="silo-nav-link" href="/pages/po-builder.html">PO builder</a>
+          <a class="silo-nav-link" href="/planner.html">PO calendar</a>
+          <a class="silo-nav-link" href="/calendar.html">Launch calendar</a>
+        </div>
+      </div>
+    </nav>
+    <div id="siloNavBackdrop" class="panel-backdrop silo-backdrop" aria-hidden="true"></div>
+
+    <div class="left-cluster">
+      <button id="btnFilterRailToggle" type="button" class="filter-rail-toggle" aria-label="Toggle filters" title="Toggle filters">‹</button>
+      <aside id="filterRail" class="filter-rail" aria-label="Filters and planning">
       <div class="rail-brand">
         <div class="rail-brand-mark">INV</div>
-        <h1>Inventory</h1>
-        <p>Planning workbench · <a href="/inventory.html">Classic UI</a></p>
+        <h1>Filters</h1>
+        <p>Inventory workbench</p>
       </div>
-
       <div class="rail-scroll thin-scroll">
         <div class="filter-block">
           <div class="filter-label">View level</div>
@@ -537,6 +775,7 @@
         <button id="btnApply" type="button" class="btn btn-dark">Run filters</button>
       </div>
     </aside>
+    </div>
 
     <div class="workspace">
       <header class="workspace-top">
@@ -546,6 +785,7 @@
           <div id="modeLine" class="mono">Mode: Product Type Planning</div>
         </div>
         <div class="top-actions">
+          <button id="btnFilterRailToggleTop" type="button" class="btn" title="Toggle filter panel">Filters</button>
           <span id="authEmail"></span>
           <button id="btnReload" type="button" class="btn">Reload</button>
           <button id="btnColumns" type="button" class="btn">Columns</button>
@@ -571,6 +811,7 @@
           <button id="btnSuggestPO" type="button" class="btn">Suggest PO</button>
           <button id="btnTagSelected" type="button" class="btn">Tag selected</button>
           <button id="btnAddSelectedToDraft" type="button" class="btn btn-dark">Add → draft</button>
+          <button id="btnDraftDrawerToggle" type="button" class="btn btn-draft-fab">PO draft</button>
         </div>
         <div class="sel-actions">
           <button id="btnExportSelected" type="button" class="btn">Export selected</button>
@@ -581,7 +822,7 @@
       <div class="workspace-body">
         <section class="data-panel">
           <div class="table-wrap thin-scroll">
-            <table id="mainTable" class="min-w-[2600px] w-full text-sm stickyHead">
+            <table id="mainTable" class="w-max text-sm stickyHead table-compact">
               <thead><tr id="theadRow"></tr></thead>
               <tbody id="tbody"></tbody>
             </table>
@@ -595,40 +836,45 @@
           </footer>
         </section>
 
-        <aside class="draft-dock" aria-label="PO draft">
-          <div class="draft-head">
-            <h3>PO draft</h3>
-            <p>Local batch — review SKU/size in row details before exporting.</p>
-          </div>
-          <div class="draft-body thin-scroll">
-            <div>
-              <label class="lbl-light" for="txtPoName">Batch name</label>
-              <input id="txtPoName" type="text" class="field" placeholder="PO-2026-02-17 Company" />
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-              <div>
-                <label class="lbl-light" for="txtVendor">Vendor</label>
-                <input id="txtVendor" type="text" class="field" placeholder="optional" />
-              </div>
-              <div>
-                <label class="lbl-light" for="txtEta">ETA</label>
-                <input id="txtEta" type="date" class="field mono" />
-              </div>
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-              <button id="btnViewDraft" type="button" class="btn">View</button>
-              <button id="btnExportDraft" type="button" class="btn btn-dark">Export</button>
-            </div>
-            <button id="btnClearDraft" type="button" class="btn" style="width:100%">Clear draft</button>
-            <div class="draft-peek thin-scroll">
-              <div class="draft-peek-label">Peek</div>
-              <pre id="draftPeek">Draft empty.</pre>
-            </div>
-          </div>
-        </aside>
       </div>
     </div>
   </div>
+
+  <aside id="draftDrawer" class="draft-drawer" aria-label="PO draft" aria-hidden="true">
+    <div class="draft-head">
+      <div>
+        <h3>PO draft</h3>
+        <p>Local batch — review SKU/size in row details before exporting.</p>
+      </div>
+      <button id="btnDraftDrawerClose" type="button" class="draft-close" aria-label="Close PO draft">×</button>
+    </div>
+    <div class="draft-body thin-scroll">
+      <div>
+        <label class="lbl-light" for="txtPoName">Batch name</label>
+        <input id="txtPoName" type="text" class="field" placeholder="PO-2026-02-17 Company" />
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div>
+          <label class="lbl-light" for="txtVendor">Vendor</label>
+          <input id="txtVendor" type="text" class="field" placeholder="optional" />
+        </div>
+        <div>
+          <label class="lbl-light" for="txtEta">ETA</label>
+          <input id="txtEta" type="date" class="field mono" />
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button id="btnViewDraft" type="button" class="btn">View</button>
+        <button id="btnExportDraft" type="button" class="btn btn-dark">Export</button>
+      </div>
+      <button id="btnClearDraft" type="button" class="btn" style="width:100%">Clear draft</button>
+      <div class="draft-peek thin-scroll">
+        <div class="draft-peek-label">Peek</div>
+        <pre id="draftPeek">Draft empty.</pre>
+      </div>
+    </div>
+  </aside>
+  <div id="draftBackdrop" class="panel-backdrop draft-backdrop" aria-hidden="true"></div>
 
   <div id="modal" class="fixed inset-0 hidden z-50">
     <div class="absolute inset-0 bg-black/40" data-modal-overlay="1"></div>
@@ -642,6 +888,57 @@
       </div>
     </div>
   </div>
+
+
+<script>
+(function initInvV2Chrome() {
+  const body = document.body;
+  const siloPanel = document.getElementById("siloNavPanel");
+  const siloBackdrop = document.getElementById("siloNavBackdrop");
+  const draftDrawer = document.getElementById("draftDrawer");
+  const draftBackdrop = document.getElementById("draftBackdrop");
+  const filterToggle = document.getElementById("btnFilterRailToggle");
+  const filterToggleTop = document.getElementById("btnFilterRailToggleTop");
+
+  function setSiloNav(open) {
+    body.classList.toggle("silo-nav-open", open);
+    if (siloPanel) {
+      siloPanel.setAttribute("aria-hidden", open ? "false" : "true");
+    }
+  }
+  function setDraft(open) {
+    body.classList.toggle("draft-open", open);
+    if (draftDrawer) draftDrawer.setAttribute("aria-hidden", open ? "false" : "true");
+  }
+  function toggleFilterRail() {
+    body.classList.toggle("filter-rail-collapsed");
+    const collapsed = body.classList.contains("filter-rail-collapsed");
+    if (filterToggle) filterToggle.textContent = collapsed ? "›" : "‹";
+  }
+
+  document.getElementById("btnSiloNavToggle")?.addEventListener("click", () => setSiloNav(true));
+  document.getElementById("btnSiloNavClose")?.addEventListener("click", () => setSiloNav(false));
+  siloBackdrop?.addEventListener("click", () => setSiloNav(false));
+
+  document.getElementById("btnDraftDrawerToggle")?.addEventListener("click", () => setDraft(true));
+  document.getElementById("btnDraftDrawerClose")?.addEventListener("click", () => setDraft(false));
+  draftBackdrop?.addEventListener("click", () => setDraft(false));
+
+  filterToggle?.addEventListener("click", toggleFilterRail);
+  filterToggleTop?.addEventListener("click", toggleFilterRail);
+
+  document.getElementById("btnAddSelectedToDraft")?.addEventListener("click", () => {
+    window.setTimeout(() => setDraft(true), 0);
+  }, true);
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      setSiloNav(false);
+      setDraft(false);
+    }
+  });
+})();
+</script>
 
 
 <script>
@@ -768,6 +1065,45 @@
       { key: "action_flag", label: "Action", default: true },
       { key: "_details", label: "", default: true }
     ];
+
+    const COL_LABEL_SHORT = {
+      product_type: "Type",
+      products_count: "Prods",
+      sku_count: "SKUs",
+      variant_count: "Vars",
+      locations_count: "Locs",
+      inv_value: "Retail",
+      avail_qty: "OH",
+      qty_7d: "7d",
+      sold_30: "30d",
+      qty_90d: "90d",
+      qty_120d: "120d",
+      qty_365d: "365d",
+      avg_day: "Avg30",
+      avg_day_7: "Avg7",
+      avg_day_90: "Avg90",
+      avg_day_365: "Avg365",
+      days_oos: "Cover",
+      category_buy: "Cat buy",
+      mix_shortage: "Mix Δ",
+      suggested_po: "Sug",
+      risk_count: "Risk#",
+      stale_count: "Stale#",
+      negative_count: "Neg#",
+      last_sold_date: "Last",
+      indicator_group: "Ind",
+      velocity_basis: "Basis",
+      transfer_flag: "Xfr"
+    };
+    const COL_CLIP = new Set([
+      "product", "product_type", "location", "sku", "barcode", "variant",
+      "tag", "sub_tag", "collection", "indicator_group", "source"
+    ]);
+    const TABLE_MIN_W = { type: 1180, product: 1520, sku: 1680, location: 1760 };
+
+    function colHeaderLabel(c){ return COL_LABEL_SHORT[c.key] || c.label; }
+    function colClipClass(key){ return COL_CLIP.has(key) ? " cell-clip" : ""; }
+    function colAlignClass(c){ return c.align === "right" ? "text-right" : "text-left"; }
 
     const COLS_LOCATION = [
       { key: "_select", label: "", default: true },
@@ -2276,11 +2612,11 @@
       for (const c of cols){
         if (!c || !c.key || !VISIBLE[c.key]) continue;
         if (c.key === "_select"){
-          tr.innerHTML += `<th class="px-3 py-2 text-left text-xs font-semibold text-slate-600 w-10"><input id="chkAll" type="checkbox" class="h-4 w-4 align-middle" /></th>`;
+          tr.innerHTML += `<th data-col="_select" class="th-compact text-left"><input id="chkAll" type="checkbox" class="h-3.5 w-3.5 align-middle" /></th>`;
           continue;
         }
-        const align = c.align === "right" ? "text-right" : "text-left";
-        tr.innerHTML += `<th class="px-3 py-2 ${align} text-xs font-semibold text-slate-600">${escapeHtml(c.label)}</th>`;
+        const align = colAlignClass(c);
+        tr.innerHTML += `<th data-col="${escapeHtml(c.key)}" class="th-compact ${align}" title="${escapeHtml(c.label)}">${escapeHtml(colHeaderLabel(c))}</th>`;
       }
 
       const chkAll = document.getElementById("chkAll");
@@ -2365,51 +2701,51 @@
     function renderCell(c, r, checked, sug, riskBadge, planner, driverBadge, thumb, detailsBtn, lastSoldTxt){
       const align = c.align === "right" ? "text-right" : "text-left";
       const key = c.key;
-      if (key === "_select") return `<td class="px-3 py-2"><input data-rowchk="1" data-id="${escapeHtml(r._id)}" type="checkbox" class="h-4 w-4" ${checked ? "checked" : ""}/></td>`;
-      if (key === "image") return `<td class="px-3 py-2 ${align}">${thumb}</td>`;
-      if (key === "source") return `<td class="px-3 py-2 ${align} text-xs text-slate-600">${escapeHtml(r.source_label || "—")}</td>`;
-      if (key === "location") return `<td class="px-3 py-2 ${align} text-xs">${escapeHtml(r.location || "—")}</td>`;
-      if (key === "sku") return `<td class="px-3 py-2 ${align} mono text-xs font-semibold">${escapeHtml(r.sku || "—")}</td>`;
-      if (key === "barcode") return `<td class="px-3 py-2 ${align} mono text-xs">${escapeHtml(r.barcode || "—")}</td>`;
-      if (key === "variant") return `<td class="px-3 py-2 ${align} text-xs">${escapeHtml(r.variant || "—")}</td>`;
-      if (key === "product") return `<td class="px-3 py-2 ${align} text-xs"><button data-details="${escapeHtml(r._id)}" class="click-link text-left">${escapeHtml(r.product || "—")}</button></td>`;
-      if (key === "product_type") return `<td class="px-3 py-2 ${align} text-xs"><button data-details="${escapeHtml(r._id)}" class="click-link text-left">${escapeHtml(r.product_type || "—")}</button></td>`;
-      if (key === "tag") return `<td class="px-3 py-2 ${align} text-xs">${escapeHtml(r.tag || "—")}</td>`;
-      if (key === "sub_tag") return `<td class="px-3 py-2 ${align} text-xs">${escapeHtml(r.sub_tag || "—")}</td>`;
-      if (key === "indicator_group") return `<td class="px-3 py-2 ${align} text-xs">${escapeHtml(r.indicator_group || "—")}</td>`;
-      if (key === "collection") return `<td class="px-3 py-2 ${align} text-xs">${escapeHtml(r.collection || "—")}</td>`;
-      if (key === "driver") return `<td class="px-3 py-2 ${align}">${driverBadge}</td>`;
-      if (key === "products_count") return `<td class="px-3 py-2 ${align} mono">${num(r.products_count).toLocaleString()}</td>`;
-      if (key === "sku_count") return `<td class="px-3 py-2 ${align} mono">${num(r.sku_count).toLocaleString()}</td>`;
-      if (key === "variant_count") return `<td class="px-3 py-2 ${align} mono">${num(r.variant_count).toLocaleString()}</td>`;
-      if (key === "locations_count") return `<td class="px-3 py-2 ${align} mono">${num(r.locations_count).toLocaleString()}</td>`;
-      if (key === "avail_qty") return `<td class="px-3 py-2 ${align} mono font-semibold">${num(r.avail_qty).toLocaleString()}</td>`;
-      if (key === "inv_value") return `<td class="px-3 py-2 ${align} mono">${money(r.inv_value)}</td>`;
-      if (key === "qty_7d") return `<td class="px-3 py-2 ${align} mono">${num(r.qty_7d).toLocaleString()}</td>`;
-      if (key === "sold_30") return `<td class="px-3 py-2 ${align} mono">${num(r.sold_30).toLocaleString()}</td>`;
-      if (key === "qty_90d") return `<td class="px-3 py-2 ${align} mono">${num(r.qty_90d).toLocaleString()}</td>`;
-      if (key === "qty_120d") return `<td class="px-3 py-2 ${align} mono">${num(r.qty_120d).toLocaleString()}</td>`;
-      if (key === "qty_365d") return `<td class="px-3 py-2 ${align} mono">${num(r.qty_365d).toLocaleString()}</td>`;
-      if (key === "avg_day_7") return `<td class="px-3 py-2 ${align} mono">${num(r.avg_day_7).toFixed(2)}</td>`;
-      if (key === "avg_day") return `<td class="px-3 py-2 ${align} mono">${num(r.avg_day).toFixed(2)}</td>`;
-      if (key === "avg_day_90") return `<td class="px-3 py-2 ${align} mono">${num(r.avg_day_90).toFixed(2)}</td>`;
-      if (key === "avg_day_120") return `<td class="px-3 py-2 ${align} mono">${num(r.avg_day_120).toFixed(2)}</td>`;
-      if (key === "avg_day_365") return `<td class="px-3 py-2 ${align} mono">${num(r.avg_day_365).toFixed(2)}</td>`;
-      if (key === "velocity_basis") return `<td class="px-3 py-2 ${align} text-xs mono">${escapeHtml(r.velocity_basis || "none")}</td>`;
-      if (key === "days_oos") return `<td class="px-3 py-2 ${align} mono">${num(r.days_oos) ? num(r.days_oos).toFixed(0) : "—"}</td>`;
-      if (key === "last_sold_date") return `<td class="px-3 py-2 ${align} text-xs mono">${lastSoldTxt}</td>`;
-      if (key === "planner_flag") return `<td class="px-3 py-2 ${align}">${planner}</td>`;
-      if (key === "risk_flag") return `<td class="px-3 py-2 ${align}">${riskBadge}</td>`;
-      if (key === "risk_count") return `<td class="px-3 py-2 ${align} mono">${num(r.risk_count).toLocaleString()}</td>`;
-      if (key === "stale_count") return `<td class="px-3 py-2 ${align} mono">${num(r.stale_count).toLocaleString()}</td>`;
-      if (key === "negative_count") return `<td class="px-3 py-2 ${align} mono">${num(r.negative_count).toLocaleString()}</td>`;
-      if (key === "category_buy") return `<td class="px-3 py-2 ${align} mono font-semibold">${num(r.category_buy ?? r.suggested_po).toLocaleString()}</td>`;
-      if (key === "mix_shortage") return `<td class="px-3 py-2 ${align} mono ${num(r.mix_shortage) > 0 ? "font-semibold text-violet-900" : ""}">${num(r.mix_shortage).toLocaleString()}</td>`;
-      if (key === "transfer_flag") return `<td class="px-3 py-2 ${align}">${actionFlag(r).t === "TRANSFER FIRST" ? actionBadge(r) : `<span class="badge border-slate-200 bg-white text-slate-600">—</span>`}</td>`;
-      if (key === "suggested_po") return `<td class="px-3 py-2 ${align} mono font-semibold">${sug === null ? "—" : num(sug).toLocaleString()}</td>`;
-      if (key === "action_flag") return `<td class="px-3 py-2 ${align}">${actionBadge(r)}</td>`;
-      if (key === "_details") return `<td class="px-3 py-2 ${align}">${detailsBtn}</td>`;
-      return `<td class="px-3 py-2 ${align}"></td>`;
+      if (key === "_select") return `<td data-col="_select" class="td-compact"><input data-rowchk="1" data-id="${escapeHtml(r._id)}" type="checkbox" class="h-3.5 w-3.5" ${checked ? "checked" : ""}/></td>`;
+      if (key === "image") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)}">${thumb}</td>`;
+      if (key === "source") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} text-xs text-slate-600">${escapeHtml(r.source_label || "—")}</td>`;
+      if (key === "location") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} text-xs">${escapeHtml(r.location || "—")}</td>`;
+      if (key === "sku") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono text-xs font-semibold">${escapeHtml(r.sku || "—")}</td>`;
+      if (key === "barcode") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono text-xs">${escapeHtml(r.barcode || "—")}</td>`;
+      if (key === "variant") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} text-xs">${escapeHtml(r.variant || "—")}</td>`;
+      if (key === "product") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} text-xs"><button data-details="${escapeHtml(r._id)}" class="click-link text-left">${escapeHtml(r.product || "—")}</button></td>`;
+      if (key === "product_type") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} text-xs"><button data-details="${escapeHtml(r._id)}" class="click-link text-left">${escapeHtml(r.product_type || "—")}</button></td>`;
+      if (key === "tag") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} text-xs">${escapeHtml(r.tag || "—")}</td>`;
+      if (key === "sub_tag") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} text-xs">${escapeHtml(r.sub_tag || "—")}</td>`;
+      if (key === "indicator_group") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} text-xs">${escapeHtml(r.indicator_group || "—")}</td>`;
+      if (key === "collection") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} text-xs">${escapeHtml(r.collection || "—")}</td>`;
+      if (key === "driver") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)}">${driverBadge}</td>`;
+      if (key === "products_count") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.products_count).toLocaleString()}</td>`;
+      if (key === "sku_count") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.sku_count).toLocaleString()}</td>`;
+      if (key === "variant_count") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.variant_count).toLocaleString()}</td>`;
+      if (key === "locations_count") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.locations_count).toLocaleString()}</td>`;
+      if (key === "avail_qty") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono font-semibold">${num(r.avail_qty).toLocaleString()}</td>`;
+      if (key === "inv_value") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${money(r.inv_value)}</td>`;
+      if (key === "qty_7d") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.qty_7d).toLocaleString()}</td>`;
+      if (key === "sold_30") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.sold_30).toLocaleString()}</td>`;
+      if (key === "qty_90d") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.qty_90d).toLocaleString()}</td>`;
+      if (key === "qty_120d") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.qty_120d).toLocaleString()}</td>`;
+      if (key === "qty_365d") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.qty_365d).toLocaleString()}</td>`;
+      if (key === "avg_day_7") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.avg_day_7).toFixed(2)}</td>`;
+      if (key === "avg_day") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.avg_day).toFixed(2)}</td>`;
+      if (key === "avg_day_90") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.avg_day_90).toFixed(2)}</td>`;
+      if (key === "avg_day_120") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.avg_day_120).toFixed(2)}</td>`;
+      if (key === "avg_day_365") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.avg_day_365).toFixed(2)}</td>`;
+      if (key === "velocity_basis") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} text-xs mono">${escapeHtml(r.velocity_basis || "none")}</td>`;
+      if (key === "days_oos") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.days_oos) ? num(r.days_oos).toFixed(0) : "—"}</td>`;
+      if (key === "last_sold_date") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} text-xs mono">${lastSoldTxt}</td>`;
+      if (key === "planner_flag") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)}">${planner}</td>`;
+      if (key === "risk_flag") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)}">${riskBadge}</td>`;
+      if (key === "risk_count") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.risk_count).toLocaleString()}</td>`;
+      if (key === "stale_count") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.stale_count).toLocaleString()}</td>`;
+      if (key === "negative_count") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono">${num(r.negative_count).toLocaleString()}</td>`;
+      if (key === "category_buy") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono font-semibold">${num(r.category_buy ?? r.suggested_po).toLocaleString()}</td>`;
+      if (key === "mix_shortage") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono ${num(r.mix_shortage) > 0 ? "font-semibold text-violet-900" : ""}">${num(r.mix_shortage).toLocaleString()}</td>`;
+      if (key === "transfer_flag") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)}">${actionFlag(r).t === "TRANSFER FIRST" ? actionBadge(r) : `<span class="badge border-slate-200 bg-white text-slate-600">—</span>`}</td>`;
+      if (key === "suggested_po") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)} mono font-semibold">${sug === null ? "—" : num(sug).toLocaleString()}</td>`;
+      if (key === "action_flag") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)}">${actionBadge(r)}</td>`;
+      if (key === "_details") return `<td data-col="${key}" class="td-compact ${align}${colClipClass(key)}">${detailsBtn}</td>`;
+      return `<td data-col="${key}" class="td-compact ${align}"></td>`;
     }
 
     function render(){
@@ -2439,9 +2775,9 @@
           ? `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border border-amber-200 bg-amber-50 text-amber-800">RISK</span>`
           : `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border border-slate-200 bg-white text-slate-500">OK</span>`;
         const thumb = r.image_url
-          ? `<button data-img="${escapeHtml(r.image_url)}" class="flex items-center gap-2"><img src="${escapeHtml(r.image_url)}" alt="" class="h-9 w-9 rounded-md border border-slate-200 object-cover bg-white" loading="lazy" /></button>`
-          : `<div class="h-9 w-9 rounded-md border border-slate-200 bg-slate-50 grid place-items-center text-[10px] text-slate-400">—</div>`;
-        const detailsBtn = `<button data-details="${escapeHtml(r._id)}" class="rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold hover:bg-slate-50">Details</button>`;
+          ? `<button data-img="${escapeHtml(r.image_url)}" class="flex items-center"><img src="${escapeHtml(r.image_url)}" alt="" class="h-7 w-7 rounded border border-slate-200 object-cover bg-white" loading="lazy" /></button>`
+          : `<div class="h-7 w-7 rounded border border-slate-200 bg-slate-50 grid place-items-center text-[9px] text-slate-400">—</div>`;
+        const detailsBtn = `<button data-details="${escapeHtml(r._id)}" type="button" title="Details">···</button>`;
         const planner = plannerBadge(r);
         const lastSoldTxt = r.last_sold_date ? escapeHtml(r.last_sold_date) : "—";
         const driverBadge = driverBadgeForRow(r);
@@ -2497,9 +2833,9 @@
       };
       Object.keys(map).forEach(k => el(map[k][0]).classList.toggle("active", k === nextMode));
       el("modeLine").textContent = map[nextMode][1];
-      if (nextMode === "type") el("mainTable").className = "min-w-[1900px] w-full text-sm stickyHead";
-      else if (nextMode === "product") el("mainTable").className = "min-w-[2600px] w-full text-sm stickyHead";
-      else el("mainTable").className = "min-w-[3200px] w-full text-sm stickyHead";
+      const tw = TABLE_MIN_W[nextMode] || 1520;
+      el("mainTable").className = `w-max text-sm stickyHead table-compact`;
+      el("mainTable").style.minWidth = `${tw}px`;
       applyFilters();
     }
 
