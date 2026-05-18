@@ -1174,62 +1174,6 @@
         .replace(/^-+|-+$/g, "")
         .replace(/-+/g, "-");
     }
-
-    const SKU_CHANNEL_PREFIXES = new Set(["fm", "mlb", "jr"]);
-    const SKU_SIZE_TOKENS = new Set([
-      "xs", "s", "m", "l", "xl", "2xl", "3xl",
-      "small", "medium", "large", "xlarge",
-      "snap", "snapback"
-    ]);
-    const SKU_TYPE_SUFFIXES = new Set(["cap", "mens", "men", "meshshorts", "womens", "youth", "kids"]);
-
-    function isSkuHatSizeToken(tok){
-      const t = String(tok || "").trim();
-      return t === "8" || /^\d+(\/\d+)?$/.test(t);
-    }
-
-    function isSkuSizeToken(tok){
-      const t = String(tok || "").trim().toLowerCase();
-      return SKU_SIZE_TOKENS.has(t) || isSkuHatSizeToken(tok);
-    }
-
-    function isSkuTypeSuffix(seg, productType){
-      const s = String(seg || "").trim().toLowerCase().replace(/\s/g, "");
-      if (!s) return false;
-      if (SKU_TYPE_SUFFIXES.has(s)) return true;
-      const pt = String(productType || "").trim().toLowerCase().replace(/\s/g, "");
-      if (!pt) return false;
-      if (s === pt) return true;
-      if (pt.includes("cap") && s === "cap") return true;
-      if (pt.includes("shirt") && (s === "mens" || s === "men")) return true;
-      if (pt.includes("short") && s.includes("short")) return true;
-      return false;
-    }
-
-    /** Derive a display product name from variant SKU when product_title is missing. */
-    function productTitleFromSku(sku, productType){
-      const raw = norm(sku);
-      if (!raw) return "";
-      const parts = raw.split("-").map(p => p.trim()).filter(Boolean);
-      if (parts.length <= 1) return parts[0] || "";
-
-      if (isSkuTypeSuffix(parts[parts.length - 1], productType)) parts.pop();
-
-      while (parts.length > 1){
-        const head = parts[0].toLowerCase();
-        if (SKU_CHANNEL_PREFIXES.has(head)){
-          parts.shift();
-          continue;
-        }
-        if (isSkuSizeToken(parts[0])){
-          parts.shift();
-          continue;
-        }
-        break;
-      }
-
-      return parts.join(" ").trim() || raw;
-    }
     function makeSourceId(value){
       return String(value || "unknown")
         .toLowerCase()
@@ -1621,11 +1565,10 @@
 
       const sku = norm(pick(o, ["variant_sku", "sku", "SKU", "Variant SKU"]));
       const barcode = norm(pick(o, ["variant_barcode", "barcode", "Variant Barcode"]));
+      const productFromView = norm(pick(o, ["product_title", "product_name", "title", "Product title", "Product name"]));
+      const product = productFromView || sku || barcode || "Untitled product";
       const variant = norm(pick(o, ["variant_title", "variant_name", "Variant title"]));
       const productType = norm(pick(o, ["product_type", "product_category", "category", "Product type"], "Uncategorized")) || "Uncategorized";
-      const productFromView = norm(pick(o, ["product_title", "product_name", "title", "Product title", "Product name"]));
-      const productFromSku = productTitleFromSku(sku, productType);
-      const product = productFromView || productFromSku || sku || barcode || "Untitled product";
 
       const avail = num(pick(o, [
         "total_available_quantity", "available_quantity", "avail_qty", "quantity_available", "quantity_on_hand", "on_hand", "qty_on_hand", "Total available quantity"

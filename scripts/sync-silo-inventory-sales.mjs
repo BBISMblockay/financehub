@@ -61,6 +61,13 @@ const INV_HEADERS = {
   sku: "Variant SKU",
   barcode: "Variant Barcode",
   product: "Product title",
+  productAliases: [
+    "Product title",
+    "Product Title",
+    "Product name",
+    "Product Name",
+    "product_title",
+  ],
   productType: "Product type",
   variant: "Variant title",
   availQty: "Total available quantity",
@@ -98,6 +105,27 @@ function norm(value) {
     .replace(/\uFEFF/g, "")
     .replace(/\u00A0/g, " ")
     .trim();
+}
+
+/** Match CSV column by exact or case-insensitive header (Better Reports exports vary). */
+function pickCsvColumn(raw, aliases) {
+  for (const alias of aliases) {
+    const exact = raw[alias];
+    if (exact !== undefined && exact !== null && norm(exact) !== "") {
+      return norm(exact);
+    }
+  }
+
+  const keys = Object.keys(raw || {});
+  for (const alias of aliases) {
+    const wanted = norm(alias).toLowerCase();
+    const found = keys.find((k) => norm(k).toLowerCase() === wanted);
+    if (found && norm(raw[found]) !== "") {
+      return norm(raw[found]);
+    }
+  }
+
+  return "";
 }
 
 function num(value) {
@@ -483,24 +511,29 @@ function collapseSalesRows(mappedRows) {
 }
 
 function mapInventoryRow(source, raw) {
-  const variantSku = norm(raw[INV_HEADERS.sku]);
+  const variantSku = pickCsvColumn(raw, [INV_HEADERS.sku, "Variant SKU", "SKU", "sku"]);
   if (!variantSku) return null;
+
+  const productTitle = pickCsvColumn(raw, INV_HEADERS.productAliases);
 
   return {
     location_tag: source.location_tag,
     location_name: source.location_name,
     source: "better_reports",
-    location: norm(raw[INV_HEADERS.location]) || null,
-    product_title: norm(raw[INV_HEADERS.product]) || null,
-    variant_title: norm(raw[INV_HEADERS.variant]) || null,
+    location: pickCsvColumn(raw, [INV_HEADERS.location, "Location"]) || null,
+    product_title: productTitle || null,
+    variant_title: pickCsvColumn(raw, [INV_HEADERS.variant, "Variant title", "Variant Title"]) || null,
     variant_sku: variantSku,
-    shop_domain: norm(raw[INV_HEADERS.shopDomain]) || source.shop_domain || null,
-    variant_barcode: norm(raw[INV_HEADERS.barcode]) || null,
+    shop_domain:
+      pickCsvColumn(raw, [INV_HEADERS.shopDomain, "Shop MyShopify Domain"]) ||
+      source.shop_domain ||
+      null,
+    variant_barcode: pickCsvColumn(raw, [INV_HEADERS.barcode, "Variant Barcode"]) || null,
     est_oos_date: null,
     variant_created_at: null,
-    product_type: norm(raw[INV_HEADERS.productType]) || null,
-    product_image: norm(raw[INV_HEADERS.image]) || null,
-    product_image_url: norm(raw[INV_HEADERS.image]) || null,
+    product_type: pickCsvColumn(raw, [INV_HEADERS.productType, "Product type"]) || null,
+    product_image: pickCsvColumn(raw, [INV_HEADERS.image, "Product Image url"]) || null,
+    product_image_url: pickCsvColumn(raw, [INV_HEADERS.image, "Product Image url"]) || null,
     total_available_quantity: intNum(raw[INV_HEADERS.availQty]),
     total_available_inventory_value: num(raw[INV_HEADERS.invValue]),
     qty_sold_30d: intNum(raw[INV_HEADERS.sold30]),
@@ -583,6 +616,28 @@ async function syncInventory() {
     const parsed = rowsToObjects(csvText);
     const mapped = parsed.rows.map((r) => mapInventoryRow(source, r)).filter(Boolean);
     const collapsed = collapseInventoryRows(mapped);
+    const missingTitles = collapsed.filter((r) => !r.product_title).length;
+    const sampleMissing = collapsed
+      .filter((r) => !r.product_title)
+      .slice(0, 3)
+      .map((r) => r.variant_sku);
+
+    if (missingTitles > 0) {
+      console.warn(
+        `[inventory warn] ${source.location_tag}: ${missingTitles}/${collapsed.length} rows missing product_title after CSV map` +
+          (sampleMissing.length ? ` (e.g. ${sampleMissing.join(", ")})` : "")
+      );
+    }
+
+    const headerKeys = parsed.headers || [];
+    const hasProductHeader = INV_HEADERS.productAliases.some((h) =>
+      headerKeys.some((k) => norm(k).toLowerCase() === norm(h).toLowerCase())
+    );
+    if (!hasProductHeader && parsed.rows.length > 0) {
+      console.warn(
+        `[inventory warn] ${source.location_tag}: CSV has no product title column. Headers: ${headerKeys.slice(0, 12).join(" | ")}`
+      );
+    }
 
     allRows.push(...collapsed);
 
@@ -591,6 +646,7 @@ async function syncInventory() {
       raw_rows: parsed.rows.length,
       mapped_rows: mapped.length,
       collapsed_rows: collapsed.length,
+      missing_product_title: missingTitles,
     });
 
     console.log(
