@@ -55,6 +55,7 @@ const SKIP_INVENTORY = process.env.SILO_SKIP_INVENTORY === "true";
 const SKIP_SALES = process.env.SILO_SKIP_SALES === "true";
 const SKIP_SUMMARY_REFRESH = process.env.SILO_SKIP_SUMMARY_REFRESH === "true";
 
+// Legacy exact keys kept for reference; inventory mapping uses pickLoose below.
 const INV_HEADERS = {
   location: "Location",
   shopDomain: "Shop MyShopify Domain",
@@ -98,6 +99,57 @@ function norm(value) {
     .replace(/\uFEFF/g, "")
     .replace(/\u00A0/g, " ")
     .trim();
+}
+
+function pick(row, candidates) {
+  for (const key of candidates) {
+    const value = row[key];
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
+      return String(value).trim();
+    }
+  }
+  return null;
+}
+
+/** Case-insensitive CSV header match (e.g. "Product title" vs "Product Title"). */
+function pickLoose(row, candidates) {
+  const normalized = {};
+
+  for (const [key, value] of Object.entries(row || {})) {
+    const cleanKey = String(key || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+
+    normalized[cleanKey] = value;
+  }
+
+  for (const candidate of candidates) {
+    const cleanCandidate = String(candidate || "")
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, " ");
+
+    const value = normalized[cleanCandidate];
+
+    if (value !== undefined && value !== null && String(value).trim() !== "") {
+      return String(value).trim();
+    }
+  }
+
+  return null;
+}
+
+function normalizeHeaderKey(key) {
+  return String(key || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function csvHasLooseHeader(headers, candidate) {
+  const wanted = normalizeHeaderKey(candidate);
+  return (headers || []).some((h) => normalizeHeaderKey(h) === wanted);
 }
 
 function num(value) {
@@ -392,6 +444,10 @@ function collapseInventoryRows(mappedRows) {
       existing.product_image_url = row.product_image_url;
     }
 
+    if (!existing.variant_created_at && row.variant_created_at) {
+      existing.variant_created_at = row.variant_created_at;
+    }
+
     if (!existing.shop_domain && row.shop_domain) {
       existing.shop_domain = row.shop_domain;
     }
@@ -483,29 +539,54 @@ function collapseSalesRows(mappedRows) {
 }
 
 function mapInventoryRow(source, raw) {
-  const variantSku = norm(raw[INV_HEADERS.sku]);
+  const variantSku = pickLoose(raw, ["Variant SKU", "SKU"]);
   if (!variantSku) return null;
+
+  const productTitle = pickLoose(raw, [
+    "Product title",
+    "Product name",
+    "Title",
+    "Product",
+    "Name",
+  ]);
+
+  const variantCreatedAt = pickLoose(raw, [
+    "DAY Variant created at",
+    "DAY Product Created at",
+  ]);
+
+  const productImageUrl = pickLoose(raw, ["Product Image url", "Product Image"]);
 
   return {
     location_tag: source.location_tag,
     location_name: source.location_name,
     source: "better_reports",
-    location: norm(raw[INV_HEADERS.location]) || null,
-    product_title: norm(raw[INV_HEADERS.product]) || null,
-    variant_title: norm(raw[INV_HEADERS.variant]) || null,
+    location: pickLoose(raw, ["Location"]),
+    product_title: productTitle,
+    variant_title: pickLoose(raw, ["Variant title"]),
     variant_sku: variantSku,
-    shop_domain: norm(raw[INV_HEADERS.shopDomain]) || source.shop_domain || null,
-    variant_barcode: norm(raw[INV_HEADERS.barcode]) || null,
+    shop_domain: pickLoose(raw, ["Shop MyShopify Domain"]) || source.shop_domain || null,
+    variant_barcode: pickLoose(raw, ["Variant Barcode"]),
     est_oos_date: null,
-    variant_created_at: null,
-    product_type: norm(raw[INV_HEADERS.productType]) || null,
-    product_image: norm(raw[INV_HEADERS.image]) || null,
-    product_image_url: norm(raw[INV_HEADERS.image]) || null,
-    total_available_quantity: intNum(raw[INV_HEADERS.availQty]),
-    total_available_inventory_value: num(raw[INV_HEADERS.invValue]),
-    qty_sold_30d: intNum(raw[INV_HEADERS.sold30]),
-    avg_qty_sold_per_day: num(raw[INV_HEADERS.avgDay]),
-    est_days_before_oos: num(raw[INV_HEADERS.daysOos]),
+    variant_created_at: variantCreatedAt,
+    product_type: pickLoose(raw, ["Product type"]),
+    product_image: productImageUrl,
+    product_image_url: productImageUrl,
+    total_available_quantity: intNum(
+      pickLoose(raw, ["Total available quantity"])
+    ),
+    total_available_inventory_value: num(
+      pickLoose(raw, ["Total available inventory value"])
+    ),
+    qty_sold_30d: intNum(
+      pickLoose(raw, ["SUM Variant Quantity sold over the last 30 days"])
+    ),
+    avg_qty_sold_per_day: num(
+      pickLoose(raw, ["SUM Variant Average quantity sold per day"])
+    ),
+    est_days_before_oos: num(
+      pickLoose(raw, ["SUM Variant Estimated days before out of stock"])
+    ),
     snapshot_at: SNAPSHOT_AT,
     sync_batch_id: BATCH_ID,
     row_hash: null,
@@ -583,6 +664,26 @@ async function syncInventory() {
     const parsed = rowsToObjects(csvText);
     const mapped = parsed.rows.map((r) => mapInventoryRow(source, r)).filter(Boolean);
     const collapsed = collapseInventoryRows(mapped);
+    const missingTitles = collapsed.filter((r) => !r.product_title).length;
+    const sampleMissing = collapsed
+      .filter((r) => !r.product_title)
+      .slice(0, 3)
+      .map((r) => r.variant_sku);
+
+    if (missingTitles > 0) {
+      console.warn(
+        `[inventory warn] ${source.location_tag}: ${missingTitles}/${collapsed.length} rows missing product_title after CSV map` +
+          (sampleMissing.length ? ` (e.g. ${sampleMissing.join(", ")})` : "")
+      );
+    }
+
+    const headerKeys = parsed.headers || [];
+    const hasProductHeader = csvHasLooseHeader(headerKeys, "Product title");
+    if (!hasProductHeader && parsed.rows.length > 0) {
+      console.warn(
+        `[inventory warn] ${source.location_tag}: CSV has no product title column. Headers: ${headerKeys.slice(0, 12).join(" | ")}`
+      );
+    }
 
     allRows.push(...collapsed);
 
@@ -591,6 +692,7 @@ async function syncInventory() {
       raw_rows: parsed.rows.length,
       mapped_rows: mapped.length,
       collapsed_rows: collapsed.length,
+      missing_product_title: missingTitles,
     });
 
     console.log(
