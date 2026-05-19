@@ -416,9 +416,9 @@
         <div class="mt-4 flex flex-col gap-2">
           <a id="openRiskInventoryBtn"
              class="btn btn-primary w-full"
-             href="inventory.html?maxDays=14"
+             href="/v2/inventory.html?maxDays=14"
              target="_blank" rel="noreferrer">
-            Open Inventory (At Risk)
+            Open inventory workbench (at risk)
           </a>
 
           <button id="breakdownBtn" class="btn w-full">Breakdown by location</button>
@@ -2044,7 +2044,7 @@ if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
       renderMarketing("all");
 
       setText("lastUpdated", new Date().toLocaleString());
-      openRiskInventoryBtn.href = `inventory.html?maxDays=${encodeURIComponent(String(state.thresholdDays))}`;
+      openRiskInventoryBtn.href = `/v2/inventory.html?maxDays=${encodeURIComponent(String(state.thresholdDays))}`;
     }
 
     // ====== UI ======
@@ -2071,7 +2071,7 @@ if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
         computeApAndRender();
         renderStatus();
         setText("lastUpdated", new Date().toLocaleString());
-        openRiskInventoryBtn.href = `inventory.html?maxDays=${encodeURIComponent(String(state.thresholdDays))}`;
+        openRiskInventoryBtn.href = `/v2/inventory.html?maxDays=${encodeURIComponent(String(state.thresholdDays))}`;
       });
 
       reloadBtn.addEventListener("click", () => loadAll());

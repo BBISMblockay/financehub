@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Silo ERP — Inventory Planning Workbench</title>
+  <title>Silo ERP — Legacy inventory workbench</title>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -87,9 +87,9 @@
             <span class="text-sm font-extrabold">S</span>
           </div>
           <div class="min-w-0">
-            <div class="text-sm font-semibold truncate">Silo ERP — Inventory Planning Workbench</div>
+            <div class="text-sm font-semibold truncate">Silo ERP — Legacy inventory workbench</div>
             <div class="text-xs text-slate-500 truncate">
-              Product type → product family → SKU/size → location allocation, powered by Supabase inventory_workboard_v
+              Superseded by the inventory workbench under /v2 — same data model (inventory_workboard_v), retained for compatibility
             </div>
           </div>
         </div>
@@ -103,6 +103,12 @@
         </div>
       </div>
     </header>
+
+    <div class="mx-auto max-w-[1900px] px-4 pt-3">
+      <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 flex flex-wrap items-center gap-2">
+        <span><strong>Legacy</strong> workbench — use the current <a class="font-semibold underline" href="/v2/inventory.html">inventory workbench</a> unless you need this layout.</span>
+      </div>
+    </div>
 
     <main class="mx-auto max-w-[1900px] px-4 py-5 space-y-4">
       <section class="surface p-4 space-y-4">

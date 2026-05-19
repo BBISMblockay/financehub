@@ -601,8 +601,8 @@
         </div>
         <div class="silo-nav-section">
           <h3>Inventory</h3>
-          <a class="silo-nav-link active" href="/v2/inventory.html">Workbench <span class="sub">v2 · current</span></a>
-          <a class="silo-nav-link" href="/inventory.html">Classic workbench</a>
+          <a class="silo-nav-link active" href="/v2/inventory.html">Inventory workbench</a>
+          <a class="silo-nav-link" href="/inventory.html">Legacy workbench</a>
           <a class="silo-nav-link" href="/pages/product-manager.html">Product tags</a>
         </div>
         <div class="silo-nav-section">
@@ -3094,6 +3094,16 @@
       initVisible();
       updateDraftPeek();
       bindUiEvents();
+      try {
+        const params = new URLSearchParams(window.location.search || "");
+        const md = params.get("maxDays");
+        if (md != null && md !== "" && el("numMaxDays")) {
+          const n = Number(md);
+          if (Number.isFinite(n) && n >= 0) el("numMaxDays").value = String(n);
+        }
+      } catch (e) {
+        console.warn("URL filter params:", e);
+      }
       APP_READY = true;
       await loadAll();
     })();
