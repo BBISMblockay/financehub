@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SILO — How to use</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --text: #0f172a;
+      --muted: #475569;
+      --faint: #94a3b8;
+      --border: #e2e8f0;
+      --accent: #4338ca;
+      --accent-soft: #eef2ff;
+      --ok-bg: #ecfdf5;
+      --ok-border: #6ee7b7;
+      --tip-bg: #eff6ff;
+      --tip-border: #93c5fd;
+      --radius: 14px;
+      --shadow: 0 4px 24px rgba(15, 23, 42, 0.06);
+      --max: 720px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      font-family: "DM Sans", system-ui, -apple-system, sans-serif;
+      font-size: 17px;
+      line-height: 1.65;
+      color: var(--text);
+      background: linear-gradient(180deg, #ecfdf5 0%, var(--bg) 22%, var(--bg) 100%);
+      min-height: 100vh;
+    }
+
+    .wrap {
+      max-width: var(--max);
+      margin: 0 auto;
+      padding: 2.25rem 1.25rem 3.5rem;
+    }
+
+    header { margin-bottom: 2rem; }
+
+    .badge {
+      display: inline-block;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      color: #047857;
+      background: #d1fae5;
+      border: 1px solid #6ee7b7;
+      padding: 0.35rem 0.65rem;
+      border-radius: 999px;
+      margin-bottom: 0.75rem;
+    }
+
+    h1 {
+      font-size: clamp(1.65rem, 4vw, 2.1rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+      margin: 0 0 0.5rem;
+    }
+
+    .lede {
+      color: var(--muted);
+      font-size: 1.05rem;
+      margin: 0;
+      max-width: 52ch;
+    }
+
+    .meta-links {
+      margin-top: 1rem;
+      font-size: 0.95rem;
+    }
+
+    .meta-links a {
+      color: var(--accent);
+      font-weight: 600;
+      text-decoration: none;
+    }
+
+    .meta-links a:hover { text-decoration: underline; }
+
+    nav.toc {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.15rem 1.35rem;
+      margin-bottom: 1.5rem;
+      box-shadow: var(--shadow);
+    }
+
+    nav.toc strong {
+      display: block;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--faint);
+      margin-bottom: 0.65rem;
+    }
+
+    nav.toc ul {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    nav.toc li { margin-bottom: 0.35rem; }
+
+    nav.toc a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+
+    nav.toc a:hover { text-decoration: underline; }
+
+    section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.35rem 1.4rem 1.45rem;
+      margin-bottom: 1rem;
+      box-shadow: var(--shadow);
+    }
+
+    section h2 {
+      font-size: 1.12rem;
+      font-weight: 700;
+      margin: 0 0 0.65rem;
+      padding-bottom: 0.45rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    section h3 {
+      font-size: 0.98rem;
+      font-weight: 600;
+      margin: 1.1rem 0 0.4rem;
+    }
+
+    section p {
+      margin: 0 0 0.75rem;
+      color: var(--muted);
+    }
+
+    section p:last-child { margin-bottom: 0; }
+
+    ol.steps, ul.bullets {
+      margin: 0 0 0.75rem;
+      padding-left: 1.25rem;
+      color: var(--muted);
+    }
+
+    ol.steps li, ul.bullets li { margin-bottom: 0.45rem; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+      margin: 0.5rem 0 0;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 0.5rem 0.55rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+
+    th {
+      font-weight: 600;
+      color: var(--text);
+      background: #f8fafc;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    td { color: var(--muted); }
+
+    code {
+      font-family: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, monospace;
+      font-size: 0.84em;
+      background: #f1f5f9;
+      padding: 0.1em 0.35em;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+
+    .callout {
+      border-radius: 10px;
+      padding: 0.85rem 1rem;
+      font-size: 0.92rem;
+      margin-top: 0.75rem;
+    }
+
+    .callout.tip {
+      background: var(--tip-bg);
+      border: 1px solid var(--tip-border);
+      color: #1e3a8a;
+    }
+
+    .callout.ok {
+      background: var(--ok-bg);
+      border: 1px solid var(--ok-border);
+      color: #065f46;
+    }
+
+    .callout strong { color: inherit; }
+
+    footer {
+      margin-top: 1.75rem;
+      font-size: 0.85rem;
+      color: var(--faint);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <span class="badge">User guide</span>
+      <h1>How to use SILO</h1>
+      <p class="lede">
+        SILO is your company’s internal web hub: finance, inventory, purchasing, and more.
+        This page walks through signing in, where you land, and how to get around—without technical jargon.
+      </p>
+      <p class="meta-links">
+        <a href="app-status.html">Technical overview &amp; architecture</a>
+        ·
+        <a href="/pages/login.html">Go to login</a>
+      </p>
+    </header>
+
+    <nav class="toc" aria-label="Guide sections">
+      <strong>In this guide</strong>
+      <ul>
+        <li><a href="#start">Getting started</a></li>
+        <li><a href="#signin">Signing in</a></li>
+        <li><a href="#first-time">Invites, passwords, and magic links</a></li>
+        <li><a href="#where-you-land">Where you land after login</a></li>
+        <li><a href="#hubs">Department hubs (sidebar &amp; tools)</a></li>
+        <li><a href="#finance-tasks">Finance hub: what you can open</a></li>
+        <li><a href="#other-hubs">Ops, Retail, and Marketing hubs</a></li>
+        <li><a href="#standalone">Standalone pages worth bookmarking</a></li>
+        <li><a href="#help">When something goes wrong</a></li>
+      </ul>
+    </nav>
+
+    <section id="start">
+      <h2>Getting started</h2>
+      <ol class="steps">
+        <li>Ask your admin for a SILO account (they create your profile and, if needed, send a Supabase invite email).</li>
+        <li>Bookmark your company’s SILO URL (the site root and <a href="/pages/login.html"><code>/pages/login.html</code></a> both work).</li>
+        <li>Open the login page, sign in, and wait for the automatic redirect into your department hub or home tool.</li>
+      </ol>
+      <div class="callout tip">
+        <strong>Tip:</strong> Many tools open inside an embedded frame in your hub. If something looks cramped, use <strong>Open in new tab</strong> (where available) for a full-width window.
+      </div>
+    </section>
+
+    <section id="signin">
+      <h2>Signing in</h2>
+      <p>
+        SILO uses <strong>email-based sign-in</strong> backed by Supabase. On <a href="/pages/login.html">the login page</a> you can switch between:
+      </p>
+      <ul class="bullets">
+        <li><strong>Password</strong> — enter the email and password you set (or that you chose after an invite).</li>
+        <li><strong>Magic link</strong> — enter your email; SILO emails you a one-time link. Check spam, and complete email confirmation first if your org requires it.</li>
+      </ul>
+      <p>
+        If you need an account, use <strong>Create account</strong> on the login page only when your team has enabled self-sign-up; otherwise ask an admin.
+      </p>
+    </section>
+
+    <section id="first-time">
+      <h2>Invites, passwords, and magic links</h2>
+      <h3>Invite or “reset password” from email</h3>
+      <p>
+        If your link contains a long fragment in the address bar (often <code>type=invite</code>, <code>recovery</code>, or <code>magiclink</code>),
+        open it normally. The site’s entry page (<a href="/index.html"><code>/index.html</code></a>) detects that and sends you to
+        <a href="/pages/set-password.html"><code>/pages/set-password.html</code></a> to finish setup before you use the rest of SILO.
+      </p>
+      <h3>After setup</h3>
+      <p>
+        Once your password is saved (or magic link session is active), sign in again from the login page if prompted. You should then be routed into the right area for your role.
+      </p>
+    </section>
+
+    <section id="where-you-land">
+      <h2>Where you land after login</h2>
+      <p>
+        After a successful sign-in, SILO looks up your <strong>profile</strong> (role and department) and sends you to a default home.
+        Admins can also set a custom <strong>default page</strong> on your profile.
+      </p>
+      <table>
+        <thead>
+          <tr>
+            <th>Your profile</th>
+            <th>Typical first screen</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Owner, or Finance / Exec department</td>
+            <td><a href="/finance.html"><code>/finance.html</code></a> (Finance hub)</td>
+          </tr>
+          <tr>
+            <td>Operations department</td>
+            <td><a href="/ops.html"><code>/ops.html</code></a> (Ops hub)</td>
+          </tr>
+          <tr>
+            <td>Retail department</td>
+            <td><a href="/retail.html"><code>/retail.html</code></a> (Retail hub)</td>
+          </tr>
+          <tr>
+            <td>Marketing department</td>
+            <td><a href="/marketing.html"><code>/marketing.html</code></a> (Marketing hub)</td>
+          </tr>
+          <tr>
+            <td>Other departments</td>
+            <td>Usually <a href="/finance.html"><code>/finance.html</code></a> or the fallback set in <code>pages/config.js</code> — ask your admin if unsure.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="callout ok">
+        <strong>Home from the site root:</strong> visiting <a href="/index.html"><code>/index.html</code></a> while signed in runs the same routing logic and forwards you to the right hub automatically.
+      </div>
+    </section>
+
+    <section id="hubs">
+      <h2>Department hubs (sidebar &amp; tools)</h2>
+      <p>
+        Hubs such as <strong>Finance</strong>, <strong>Ops</strong>, <strong>Retail</strong>, and <strong>Marketing</strong> share the same idea:
+        a <strong>sidebar</strong> lists approved tools; the main area shows the selected tool. You stay signed in across tools in that session.
+      </p>
+      <ul class="bullets">
+        <li><strong>Search</strong> (Finance) — filters the menu when you have many links.</li>
+        <li><strong>Reload</strong> — refreshes the current tool (useful after saving data in a form).</li>
+        <li><strong>Open in new tab</strong> — opens the current tool in a separate browser tab.</li>
+        <li><strong>Sign out</strong> — ends your session; use this on shared computers.</li>
+      </ul>
+      <p>
+        Some menu items open <strong>external</strong> sites (for example Jotform grids or Power BI). Those may show an “External” label—your browser may ask to allow pop-ups or third-party cookies for those sites.
+      </p>
+    </section>
+
+    <section id="finance-tasks">
+      <h2>Finance hub: what you can open</h2>
+      <p>
+        From <a href="/finance.html"><code>/finance.html</code></a>, the sidebar is organized by topic. Use this table as a quick map of names to tasks (exact labels match the menu).
+      </p>
+      <table>
+        <thead>
+          <tr><th>Section</th><th>Examples</th><th>Use when you…</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Overview</td>
+            <td>Dashboard, Executive</td>
+            <td>Need a high-level internal view or exec summaries.</td>
+          </tr>
+          <tr>
+            <td>Payables</td>
+            <td>AP Manager, Mailroom Inbox, BBISM Payables</td>
+            <td>Work vendor bills, mailroom items, or payables reporting.</td>
+          </tr>
+          <tr>
+            <td>Receivables</td>
+            <td>BBISM Receivables, WPV Receivables</td>
+            <td>Manage wholesale / AR queues and related customer work.</td>
+          </tr>
+          <tr>
+            <td>Requests</td>
+            <td>Travel Requests, Bars Requests, Travel Report</td>
+            <td>Submit or review travel and bars workflows (some links go to Jotform).</td>
+          </tr>
+          <tr>
+            <td>Planning</td>
+            <td>Revenue Projection, calendars, PO Builder, Factories</td>
+            <td>Plan buys, launches, and factory records.</td>
+          </tr>
+          <tr>
+            <td>Inventory</td>
+            <td>Inventory Manager, Product Tags</td>
+            <td>Review stock and maintain product tagging.</td>
+          </tr>
+          <tr>
+            <td>Reports</td>
+            <td>BI Sales Dashboard, Payroll BI</td>
+            <td>Open analytics (Power BI) or payroll-oriented reports.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="other-hubs">
+      <h2>Ops, Retail, and Marketing hubs</h2>
+      <p>
+        These hubs use category tabs (for example <strong>Core</strong>, <strong>Planning</strong>) to group a shorter list of tools.
+      </p>
+      <h3>Ops (<code>/ops.html</code>)</h3>
+      <ul class="bullets">
+        <li>Baseballism (employee hub), Inventory, Sales Dashboard (Power BI)</li>
+        <li>Launch Calendar, PO Builder, Factories, PO Calendar</li>
+      </ul>
+      <h3>Retail (<code>/retail.html</code>)</h3>
+      <ul class="bullets">
+        <li>Baseballism, Sales Dashboard, Launch Calendar, Requests Status (external grid)</li>
+      </ul>
+      <h3>Marketing (<code>/marketing.html</code>)</h3>
+      <ul class="bullets">
+        <li>Baseballism, Inventory, Sales Dashboard, Launch Calendar, Model Applications</li>
+      </ul>
+    </section>
+
+    <section id="standalone">
+      <h2>Standalone pages worth bookmarking</h2>
+      <p>
+        Not every tool lives in a hub menu. Your team may share direct links for specialized workflows, for example:
+      </p>
+      <ul class="bullets">
+        <li><a href="/pages/sales-verification.html"><code>/pages/sales-verification.html</code></a> — sales verification workflows</li>
+        <li><a href="/pages/purchase-request.html"><code>/pages/purchase-request.html</code></a> — purchase requests</li>
+        <li><a href="/pages/request-manager.html"><code>/pages/request-manager.html</code></a> — reviewing payment / request queues</li>
+        <li><a href="/pages/launch-calendar.html"><code>/pages/launch-calendar.html</code></a> — detailed launch calendar (when not opened from a hub)</li>
+      </ul>
+      <p>If a link shows a blank screen or “no access,” your profile may not include permission for that table—ask an admin to adjust your role or department.</p>
+    </section>
+
+    <section id="help">
+      <h2>When something goes wrong</h2>
+      <ul class="bullets">
+        <li><strong>“Account is inactive”</strong> — your login exists but <code>profiles.is_active</code> is off. Contact an admin to activate you.</li>
+        <li><strong>Stuck at login after success</strong> — try a hard refresh, or clear site data for SILO, then sign in again.</li>
+        <li><strong>Embedded tool is blank</strong> — try <strong>Open in new tab</strong>, disable strict blockers for that session, or check whether the external site requires a separate login.</li>
+        <li><strong>Wrong department / wrong home page</strong> — ask an admin to update your <strong>department</strong> or <strong>default page</strong> on your profile.</li>
+        <li><strong>Data looks stale</strong> — many numbers come from scheduled syncs or spreadsheets; ask finance or ops when the last refresh ran (see <a href="app-status.html">technical overview</a> for pipelines).</li>
+      </ul>
+      <div class="callout tip">
+        <strong>Who to ask:</strong> for access and profile fixes, your SILO administrator or IT contact. For business process questions (what to enter in a form), use your team’s SOP or manager.
+      </div>
+    </section>
+
+    <footer>
+      SILO user guide · For architecture and integrations see <a href="app-status.html">app-status.html</a>
+    </footer>
+  </div>
+</body>
+</html>
