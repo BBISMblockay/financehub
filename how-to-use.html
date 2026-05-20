@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SILO — How to use</title>
+  <title>SILO — How to use (business guide)</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet" />
@@ -21,9 +21,11 @@
       --ok-border: #6ee7b7;
       --tip-bg: #eff6ff;
       --tip-border: #93c5fd;
+      --warn-bg: #fffbeb;
+      --warn-border: #fcd34d;
       --radius: 14px;
       --shadow: 0 4px 24px rgba(15, 23, 42, 0.06);
-      --max: 720px;
+      --max: 820px;
     }
 
     * { box-sizing: border-box; }
@@ -35,7 +37,7 @@
       font-size: 17px;
       line-height: 1.65;
       color: var(--text);
-      background: linear-gradient(180deg, #ecfdf5 0%, var(--bg) 22%, var(--bg) 100%);
+      background: linear-gradient(180deg, #ecfdf5 0%, var(--bg) 18%, var(--bg) 100%);
       min-height: 100vh;
     }
 
@@ -73,7 +75,7 @@
       color: var(--muted);
       font-size: 1.05rem;
       margin: 0;
-      max-width: 52ch;
+      max-width: 58ch;
     }
 
     .meta-links {
@@ -111,15 +113,21 @@
       margin: 0;
       padding: 0;
       list-style: none;
+      columns: 2;
+      column-gap: 1.25rem;
     }
 
-    nav.toc li { margin-bottom: 0.35rem; }
+    @media (max-width: 640px) {
+      nav.toc ul { columns: 1; }
+    }
+
+    nav.toc li { margin-bottom: 0.35rem; break-inside: avoid; }
 
     nav.toc a {
       color: var(--accent);
       text-decoration: none;
       font-weight: 600;
-      font-size: 0.95rem;
+      font-size: 0.92rem;
     }
 
     nav.toc a:hover { text-decoration: underline; }
@@ -144,7 +152,8 @@
     section h3 {
       font-size: 0.98rem;
       font-weight: 600;
-      margin: 1.1rem 0 0.4rem;
+      margin: 1.15rem 0 0.45rem;
+      color: var(--text);
     }
 
     section p {
@@ -154,19 +163,49 @@
 
     section p:last-child { margin-bottom: 0; }
 
-    ol.steps, ul.bullets {
+    ol.steps {
+      margin: 0 0 0.85rem;
+      padding-left: 1.35rem;
+      color: var(--muted);
+    }
+
+    ol.steps li { margin-bottom: 0.5rem; }
+
+    ul.bullets {
       margin: 0 0 0.75rem;
       padding-left: 1.25rem;
       color: var(--muted);
     }
 
-    ol.steps li, ul.bullets li { margin-bottom: 0.45rem; }
+    ul.bullets li { margin-bottom: 0.4rem; }
+
+    ul.check {
+      margin: 0.5rem 0 0.85rem;
+      padding-left: 0;
+      list-style: none;
+      color: var(--muted);
+    }
+
+    ul.check li {
+      margin-bottom: 0.45rem;
+      padding-left: 1.35rem;
+      position: relative;
+    }
+
+    ul.check li::before {
+      content: "✓";
+      position: absolute;
+      left: 0;
+      color: #059669;
+      font-weight: 800;
+      font-size: 0.85em;
+    }
 
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.88rem;
-      margin: 0.5rem 0 0;
+      font-size: 0.86rem;
+      margin: 0.5rem 0 0.75rem;
     }
 
     th, td {
@@ -200,7 +239,7 @@
       border-radius: 10px;
       padding: 0.85rem 1rem;
       font-size: 0.92rem;
-      margin-top: 0.75rem;
+      margin-top: 0.65rem;
     }
 
     .callout.tip {
@@ -215,7 +254,19 @@
       color: #065f46;
     }
 
+    .callout.warn {
+      background: var(--warn-bg);
+      border: 1px solid var(--warn-border);
+      color: #92400e;
+    }
+
     .callout strong { color: inherit; }
+
+    .tool-ref {
+      font-size: 0.82rem;
+      color: var(--faint);
+      margin-top: 0.35rem;
+    }
 
     footer {
       margin-top: 1.75rem;
@@ -228,231 +279,235 @@
 <body>
   <div class="wrap">
     <header>
-      <span class="badge">User guide</span>
-      <h1>How to use SILO</h1>
+      <span class="badge">Business guide</span>
+      <h1>How to use SILO the right way</h1>
       <p class="lede">
-        SILO is your company’s internal web hub: finance, inventory, purchasing, and more.
-        This page walks through signing in, where you land, and how to get around—without technical jargon.
+        This guide is for people doing real work in SILO: verifying sales, moving money requests, buying product, collecting receivables, and keeping inventory honest.
+        It explains <em>what each area is for</em>, <em>the correct order of operations</em>, and <em>how to avoid the mistakes that break reporting downstream</em>.
       </p>
       <p class="meta-links">
-        <a href="app-status.html">Technical overview &amp; architecture</a>
+        <a href="app-status.html">Technical overview</a>
         ·
-        <a href="/pages/login.html">Go to login</a>
+        <a href="/pages/login.html">Sign in</a>
+        ·
+        <a href="#access">Access &amp; hubs (short)</a>
       </p>
     </header>
 
     <nav class="toc" aria-label="Guide sections">
       <strong>In this guide</strong>
       <ul>
-        <li><a href="#start">Getting started</a></li>
-        <li><a href="#signin">Signing in</a></li>
-        <li><a href="#first-time">Invites, passwords, and magic links</a></li>
-        <li><a href="#where-you-land">Where you land after login</a></li>
-        <li><a href="#hubs">Department hubs (sidebar &amp; tools)</a></li>
-        <li><a href="#finance-tasks">Finance hub: what you can open</a></li>
-        <li><a href="#other-hubs">Ops, Retail, and Marketing hubs</a></li>
-        <li><a href="#standalone">Standalone pages worth bookmarking</a></li>
-        <li><a href="#help">When something goes wrong</a></li>
+        <li><a href="#principles">Working principles</a></li>
+        <li><a href="#hubs">Using department hubs</a></li>
+        <li><a href="#sales-verification">Sales verification</a></li>
+        <li><a href="#payment-requests">Payment requests (submit)</a></li>
+        <li><a href="#payment-workbench">Payment queue (AP)</a></li>
+        <li><a href="#po-builder">PO Builder</a></li>
+        <li><a href="#wholesale-ar">Wholesale AR</a></li>
+        <li><a href="#inventory">Inventory &amp; tags</a></li>
+        <li><a href="#planning-reports">Planning &amp; external reports</a></li>
+        <li><a href="#access">Access &amp; hubs</a></li>
       </ul>
     </nav>
 
-    <section id="start">
-      <h2>Getting started</h2>
-      <ol class="steps">
-        <li>Ask your admin for a SILO account (they create your profile and, if needed, send a Supabase invite email).</li>
-        <li>Bookmark your company’s SILO URL (the site root and <a href="/pages/login.html"><code>/pages/login.html</code></a> both work).</li>
-        <li>Open the login page, sign in, and wait for the automatic redirect into your department hub or home tool.</li>
-      </ol>
-      <div class="callout tip">
-        <strong>Tip:</strong> Many tools open inside an embedded frame in your hub. If something looks cramped, use <strong>Open in new tab</strong> (where available) for a full-width window.
-      </div>
-    </section>
-
-    <section id="signin">
-      <h2>Signing in</h2>
-      <p>
-        SILO uses <strong>email-based sign-in</strong> backed by Supabase. On <a href="/pages/login.html">the login page</a> you can switch between:
-      </p>
-      <ul class="bullets">
-        <li><strong>Password</strong> — enter the email and password you set (or that you chose after an invite).</li>
-        <li><strong>Magic link</strong> — enter your email; SILO emails you a one-time link. Check spam, and complete email confirmation first if your org requires it.</li>
+    <section id="principles">
+      <h2>Working principles (read once)</h2>
+      <p>SILO is the system of record for the workflows below. Treat every save as something finance, ops, or retail may rely on later.</p>
+      <ul class="check">
+        <li><strong>One business event, one record.</strong> Do not submit duplicate payment requests for the same invoice. If something changed, add a note or ask AP to reopen—do not create parallel requests unless your SOP says so.</li>
+        <li><strong>Prove it with attachments.</strong> For vendor pay and reimbursements, upload the invoice, receipt, or approval email. AP should not chase missing source documents.</li>
+        <li><strong>Pick the right category.</strong> Request types drive reporting and queue filters. Mis-typing (for example vendor payment vs customer refund) slows everyone down.</li>
+        <li><strong>Reference numbers matter.</strong> Use invoice #, internal PO #, Flex ID, and due date when your process requires them—they tie SILO to external systems.</li>
+        <li><strong>Status fields are communication.</strong> In workbenches (payment queue, PO Builder, AR), update status and notes so the next person knows what happened without Slack archaeology.</li>
+        <li><strong>Do not “fix” data outside the tool without recording it.</strong> If you adjust something in a spreadsheet or in Shopify, ensure the canonical SILO tables or syncs still reflect reality, or finance will see a mismatch.</li>
       </ul>
-      <p>
-        If you need an account, use <strong>Create account</strong> on the login page only when your team has enabled self-sign-up; otherwise ask an admin.
-      </p>
-    </section>
-
-    <section id="first-time">
-      <h2>Invites, passwords, and magic links</h2>
-      <h3>Invite or “reset password” from email</h3>
-      <p>
-        If your link contains a long fragment in the address bar (often <code>type=invite</code>, <code>recovery</code>, or <code>magiclink</code>),
-        open it normally. The site’s entry page (<a href="/index.html"><code>/index.html</code></a>) detects that and sends you to
-        <a href="/pages/set-password.html"><code>/pages/set-password.html</code></a> to finish setup before you use the rest of SILO.
-      </p>
-      <h3>After setup</h3>
-      <p>
-        Once your password is saved (or magic link session is active), sign in again from the login page if prompted. You should then be routed into the right area for your role.
-      </p>
-    </section>
-
-    <section id="where-you-land">
-      <h2>Where you land after login</h2>
-      <p>
-        After a successful sign-in, SILO looks up your <strong>profile</strong> (role and department) and sends you to a default home.
-        Admins can also set a custom <strong>default page</strong> on your profile.
-      </p>
-      <table>
-        <thead>
-          <tr>
-            <th>Your profile</th>
-            <th>Typical first screen</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>Owner, or Finance / Exec department</td>
-            <td><a href="/finance.html"><code>/finance.html</code></a> (Finance hub)</td>
-          </tr>
-          <tr>
-            <td>Operations department</td>
-            <td><a href="/ops.html"><code>/ops.html</code></a> (Ops hub)</td>
-          </tr>
-          <tr>
-            <td>Retail department</td>
-            <td><a href="/retail.html"><code>/retail.html</code></a> (Retail hub)</td>
-          </tr>
-          <tr>
-            <td>Marketing department</td>
-            <td><a href="/marketing.html"><code>/marketing.html</code></a> (Marketing hub)</td>
-          </tr>
-          <tr>
-            <td>Other departments</td>
-            <td>Usually <a href="/finance.html"><code>/finance.html</code></a> or the fallback set in <code>pages/config.js</code> — ask your admin if unsure.</td>
-          </tr>
-        </tbody>
-      </table>
-      <div class="callout ok">
-        <strong>Home from the site root:</strong> visiting <a href="/index.html"><code>/index.html</code></a> while signed in runs the same routing logic and forwards you to the right hub automatically.
+      <div class="callout warn">
+        <strong>Confidentiality:</strong> customer lists, receivables balances, and payroll views are sensitive. Use SILO on trusted devices; sign out on shared PCs.
       </div>
     </section>
 
     <section id="hubs">
-      <h2>Department hubs (sidebar &amp; tools)</h2>
+      <h2>Using department hubs</h2>
       <p>
-        Hubs such as <strong>Finance</strong>, <strong>Ops</strong>, <strong>Retail</strong>, and <strong>Marketing</strong> share the same idea:
-        a <strong>sidebar</strong> lists approved tools; the main area shows the selected tool. You stay signed in across tools in that session.
+        Most daily tools open from <strong>Finance</strong> (<code>/finance.html</code>), <strong>Ops</strong>, <strong>Retail</strong>, or <strong>Marketing</strong> sidebars. The selected page loads inside an embedded viewer.
       </p>
-      <ul class="bullets">
-        <li><strong>Search</strong> (Finance) — filters the menu when you have many links.</li>
-        <li><strong>Reload</strong> — refreshes the current tool (useful after saving data in a form).</li>
-        <li><strong>Open in new tab</strong> — opens the current tool in a separate browser tab.</li>
-        <li><strong>Sign out</strong> — ends your session; use this on shared computers.</li>
-      </ul>
-      <p>
-        Some menu items open <strong>external</strong> sites (for example Jotform grids or Power BI). Those may show an “External” label—your browser may ask to allow pop-ups or third-party cookies for those sites.
-      </p>
+      <ol class="steps">
+        <li>Use the sidebar to switch tools; use <strong>Reload</strong> after you save data in a form so the embedded page picks up fresh values.</li>
+        <li>Use <strong>Open in new tab</strong> when you need printing, multiple monitors, or a less cramped layout.</li>
+        <li>Use sidebar <strong>Search</strong> on Finance when you already know the name of the tool.</li>
+      </ol>
+      <div class="callout tip">
+        <strong>Who lands where:</strong> finance and exec roles usually start in Finance; operations in Ops; retail in Retail; marketing in Marketing. If your landing page feels wrong, ask an admin to adjust your <strong>department</strong> or <strong>default page</strong> on your profile.
+      </div>
     </section>
 
-    <section id="finance-tasks">
-      <h2>Finance hub: what you can open</h2>
+    <section id="sales-verification">
+      <h2>Sales verification</h2>
+      <p class="tool-ref">Tool: <code>/pages/sales-verification.html</code> (also related: <code>/pages/sales-db.html</code>)</p>
       <p>
-        From <a href="/finance.html"><code>/finance.html</code></a>, the sidebar is organized by topic. Use this table as a quick map of names to tasks (exact labels match the menu).
+        <strong>Business purpose:</strong> imported sales rows (from Shopify and/or store spreadsheets) land in SILO. This screen is for <strong>trust but verify</strong>: confirm totals, spot exceptions, and compare locations before you rely on numbers in commentary or decisions.
       </p>
+      <h3>Recommended review flow</h3>
+      <ol class="steps">
+        <li>Choose a <strong>preset window</strong> (last 30 / 90 days, YTD, or custom). Match the period you are actually closing or questioning—do not leave “all history” on unless you intend a full audit.</li>
+        <li>Narrow by <strong>location</strong> when the question is store-specific (one bad tab in a sheet shows up as one location).</li>
+        <li>Click <strong>Apply</strong> so KPIs and rollups recalc on the <em>full filtered dataset</em>, not only the visible page of rows.</li>
+        <li>Use <strong>quick filters</strong> for exception hunting: refund discrepancies, blank SKUs, negative net. Clear those filters when you return to normal browsing.</li>
+        <li>Read <strong>Location verification</strong> first (rolled up by site). If a location looks off, drill into <strong>Row review</strong> and paginate through line detail.</li>
+        <li>Use <strong>Search</strong> (SKU, product, vendor) when someone sends you a specific item to investigate.</li>
+        <li>When you find a true data issue, fix it <strong>at the source</strong> (POS / sheet / Shopify / sync owner)—not by asking someone to “ignore” SILO. Note the date and SKU in your team channel so sync owners can confirm the next run.</li>
+      </ol>
+      <div class="callout ok">
+        <strong>Good habit:</strong> hit <strong>Refresh</strong> after you know a nightly sync completed, so you are not reviewing stale totals during month-end.
+      </div>
+    </section>
+
+    <section id="payment-requests">
+      <h2>Payment requests (submitting)</h2>
+      <p class="tool-ref">Tool: <code>/pages/purchase-request.html</code> — “Baseballism Payment Request”</p>
+      <p>
+        <strong>Business purpose:</strong> this is the front door into AP. You are building a packet AP can pay from: vendor, amount, type, references, and proof.
+      </p>
+      <h3>Before you start</h3>
+      <ul class="bullets">
+        <li>Sign in so your request is stamped to your user and your email can pre-fill.</li>
+        <li>Have PDFs or images ready (invoice, receipt, signed approval). Multiple files are allowed.</li>
+      </ul>
+      <h3>Choosing request type (do not guess)</h3>
       <table>
         <thead>
-          <tr><th>Section</th><th>Examples</th><th>Use when you…</th></tr>
+          <tr><th>Type</th><th>Use when</th></tr>
         </thead>
         <tbody>
-          <tr>
-            <td>Overview</td>
-            <td>Dashboard, Executive</td>
-            <td>Need a high-level internal view or exec summaries.</td>
-          </tr>
-          <tr>
-            <td>Payables</td>
-            <td>AP Manager, Mailroom Inbox, BBISM Payables</td>
-            <td>Work vendor bills, mailroom items, or payables reporting.</td>
-          </tr>
-          <tr>
-            <td>Receivables</td>
-            <td>BBISM Receivables, WPV Receivables</td>
-            <td>Manage wholesale / AR queues and related customer work.</td>
-          </tr>
-          <tr>
-            <td>Requests</td>
-            <td>Travel Requests, Bars Requests, Travel Report</td>
-            <td>Submit or review travel and bars workflows (some links go to Jotform).</td>
-          </tr>
-          <tr>
-            <td>Planning</td>
-            <td>Revenue Projection, calendars, PO Builder, Factories</td>
-            <td>Plan buys, launches, and factory records.</td>
-          </tr>
-          <tr>
-            <td>Inventory</td>
-            <td>Inventory Manager, Product Tags</td>
-            <td>Review stock and maintain product tagging.</td>
-          </tr>
-          <tr>
-            <td>Reports</td>
-            <td>BI Sales Dashboard, Payroll BI</td>
-            <td>Open analytics (Power BI) or payroll-oriented reports.</td>
-          </tr>
+          <tr><td>Invoice / vendor payment</td><td>A supplier sent an invoice for goods or services and you are requesting payment against that invoice.</td></tr>
+          <tr><td>Inventory deposit</td><td>Finance-directed deposits tied to inventory programs (use per your internal definition).</td></tr>
+          <tr><td>Inventory balance</td><td>Settlements or true-ups related to inventory balances (not the same as a normal vendor invoice).</td></tr>
+          <tr><td>Employee reimbursement</td><td>An employee paid out of pocket for an approved company expense.</td></tr>
+          <tr><td>Customer refund</td><td>You are returning money to a customer per policy—not paying a vendor.</td></tr>
         </tbody>
       </table>
+      <h3>Completing the form correctly</h3>
+      <ol class="steps">
+        <li><strong>Vendor:</strong> start typing; pick a prior vendor when it is the same counterparty to keep naming consistent. If it is genuinely new, type the legal payee name.</li>
+        <li><strong>Amount due:</strong> enter the amount you are requesting <em>now</em> (match the invoice or approved total; do not net terms in the amount field unless that is your documented process).</li>
+        <li><strong>References:</strong> fill invoice #, Flex ID, internal PO #, and <strong>due date</strong> whenever they exist—AP uses these to avoid duplicate pay and late fees.</li>
+        <li><strong>Location / department:</strong> add the store or department context if it helps routing.</li>
+        <li><strong>Notes:</strong> explain anything non-obvious (partial pay, credit memo pending, rush reason). If nothing is unusual, a short “standard terms” note is fine.</li>
+        <li>Submit once. If you made a mistake, do not submit five copies; contact AP or use the workbench process your team defines.</li>
+      </ol>
+      <p>After submit, internal fields (assignment, payment detail, completion) are handled in the <strong>Payment Requests Workbench</strong>—not on this page.</p>
     </section>
 
-    <section id="other-hubs">
-      <h2>Ops, Retail, and Marketing hubs</h2>
+    <section id="payment-workbench">
+      <h2>Payment queue (AP review)</h2>
+      <p class="tool-ref">Tool: <code>/pages/request-manager.html</code> — “Payment Requests Workbench” / Payment Queue</p>
       <p>
-        These hubs use category tabs (for example <strong>Core</strong>, <strong>Planning</strong>) to group a shorter list of tools.
+        <strong>Business purpose:</strong> compact queue for <strong>review, assignment, document checks, payment completion, and reporting</strong>. This is where submitted requests become paid, rejected, or sent back for info.
       </p>
-      <h3>Ops (<code>/ops.html</code>)</h3>
-      <ul class="bullets">
-        <li>Baseballism (employee hub), Inventory, Sales Dashboard (Power BI)</li>
-        <li>Launch Calendar, PO Builder, Factories, PO Calendar</li>
-      </ul>
-      <h3>Retail (<code>/retail.html</code>)</h3>
-      <ul class="bullets">
-        <li>Baseballism, Sales Dashboard, Launch Calendar, Requests Status (external grid)</li>
-      </ul>
-      <h3>Marketing (<code>/marketing.html</code>)</h3>
-      <ul class="bullets">
-        <li>Baseballism, Inventory, Sales Dashboard, Launch Calendar, Model Applications</li>
-      </ul>
-    </section>
-
-    <section id="standalone">
-      <h2>Standalone pages worth bookmarking</h2>
-      <p>
-        Not every tool lives in a hub menu. Your team may share direct links for specialized workflows, for example:
-      </p>
-      <ul class="bullets">
-        <li><a href="/pages/sales-verification.html"><code>/pages/sales-verification.html</code></a> — sales verification workflows</li>
-        <li><a href="/pages/purchase-request.html"><code>/pages/purchase-request.html</code></a> — purchase requests</li>
-        <li><a href="/pages/request-manager.html"><code>/pages/request-manager.html</code></a> — reviewing payment / request queues</li>
-        <li><a href="/pages/launch-calendar.html"><code>/pages/launch-calendar.html</code></a> — detailed launch calendar (when not opened from a hub)</li>
-      </ul>
-      <p>If a link shows a blank screen or “no access,” your profile may not include permission for that table—ask an admin to adjust your role or department.</p>
-    </section>
-
-    <section id="help">
-      <h2>When something goes wrong</h2>
-      <ul class="bullets">
-        <li><strong>“Account is inactive”</strong> — your login exists but <code>profiles.is_active</code> is off. Contact an admin to activate you.</li>
-        <li><strong>Stuck at login after success</strong> — try a hard refresh, or clear site data for SILO, then sign in again.</li>
-        <li><strong>Embedded tool is blank</strong> — try <strong>Open in new tab</strong>, disable strict blockers for that session, or check whether the external site requires a separate login.</li>
-        <li><strong>Wrong department / wrong home page</strong> — ask an admin to update your <strong>department</strong> or <strong>default page</strong> on your profile.</li>
-        <li><strong>Data looks stale</strong> — many numbers come from scheduled syncs or spreadsheets; ask finance or ops when the last refresh ran (see <a href="app-status.html">technical overview</a> for pipelines).</li>
-      </ul>
+      <h3>Daily AP flow</h3>
+      <ol class="steps">
+        <li><strong>Refresh data</strong> when you start a session or after you know submitters have been active.</li>
+        <li>Use <strong>Working queues</strong> (and the status / priority / due filters) to focus “new”, “needs info”, or “due soon” buckets—not the whole company at once.</li>
+        <li>Open a row into the <strong>drawer</strong>. Verify attachments, match invoice totals to the request, and confirm the request type aligns with reality.</li>
+        <li>Move status with discipline:
+          <ul class="bullets">
+            <li><strong>New → In review</strong> when someone owns it.</li>
+            <li><strong>Needs info</strong> when you are waiting on the requester (be specific in notes).</li>
+            <li><strong>Approved → Processing → Paid</strong> only when payment actually left (or your exact SOP says so).</li>
+            <li><strong>Rejected / Cancelled</strong> with a clear note so reporting and the submitter understand why.</li>
+          </ul>
+        </li>
+        <li>Use the <strong>Activity</strong> tab for audit context—what changed, when, and by whom—before you argue about a number.</li>
+        <li>Use <strong>Reporting</strong> for turnaround and due-bucket views; export when finance asks for a frozen snapshot.</li>
+      </ol>
       <div class="callout tip">
-        <strong>Who to ask:</strong> for access and profile fixes, your SILO administrator or IT contact. For business process questions (what to enter in a form), use your team’s SOP or manager.
+        <strong>Assignment:</strong> if your team uses “assigned to”, keep ownership current so the same request is not worked twice or not at all.
+      </div>
+    </section>
+
+    <section id="po-builder">
+      <h2>PO Builder (purchasing)</h2>
+      <p class="tool-ref">Tool: <code>/pages/po-builder.html</code></p>
+      <p>
+        <strong>Business purpose:</strong> build purchase orders tied to the <strong>product catalog</strong>, edit line matrices, bulk-add SKUs, duplicate an order when repeating buys, and output vendor-facing PDFs. Lines autosave—still treat status changes as formal handoffs.
+      </p>
+      <h3>Correct lifecycle usage</h3>
+      <p>POs move through statuses such as <strong>Draft</strong> → <strong>Approved</strong> → <strong>Sent to Factory</strong> → <strong>Confirmed</strong> → <strong>In production</strong> → shipping / transit / partial receipts → <strong>Received</strong> or <strong>Closed</strong> (or <strong>Cancelled</strong>). Advance the status when the <em>business fact</em> changed, not when you “hope” it will.</p>
+      <ul class="check">
+        <li><strong>Draft:</strong> buyers edit freely. Use clear PO names and factory/bucket fields so others can find the order later.</li>
+        <li><strong>Approved:</strong> only after internal sign-off per your threshold (dollar limit, margin check, etc.).</li>
+        <li><strong>Sent to factory / Confirmed / In production:</strong> align with factory acknowledgements—do not jump ahead or factories and finance will disagree.</li>
+        <li><strong>Shipped / In transit / Partially received:</strong> reflect logistics reality; partial receipts matter for inventory timing.</li>
+        <li><strong>Received / Closed:</strong> close the loop when product and invoices are reconciled.</li>
+      </ul>
+      <h3>Line grid habits</h3>
+      <ul class="bullets">
+        <li>Watch the per-line autosave indicator; fix errors immediately so you do not build 40 lines on a bad SKU.</li>
+        <li>Use <strong>catalog pick</strong> and bulk tools instead of free-typing SKUs when possible—fewer typos, cleaner receipts.</li>
+        <li><strong>Duplicate PO</strong> for repeat buys with small deltas; <strong>New PO</strong> when season, terms, or vendor differ.</li>
+      </ul>
+      <p>Maintain <strong>Factories</strong> (<code>/pages/factories.html</code>) accurately—PO Builder and reporting depend on clean factory metadata.</p>
+    </section>
+
+    <section id="wholesale-ar">
+      <h2>Wholesale AR (collecting money)</h2>
+      <p class="tool-ref">Tool: <code>/pages/baseballismwholesale.html</code> — “Baseballism Wholesale AR”</p>
+      <p>
+        <strong>Business purpose:</strong> wholesale customers, invoices, and follow-ups in one workbench. Customer and invoice data is fed in part by a <strong>nightly sync</strong>—assume yesterday’s state unless you have refreshed.
+      </p>
+      <h3>How to work the tabs</h3>
+      <ul class="bullets">
+        <li><strong>Queue:</strong> your daily call list—who needs a touch, which actions are overdue. Work top-down by priority or aging per your playbook.</li>
+        <li><strong>Customers:</strong> relationship view—terms, contacts, and rollup context before you call or email.</li>
+        <li><strong>Orders / invoices:</strong> validate open balances against real invoices and credits before you promise a payoff date.</li>
+        <li><strong>Activity:</strong> log calls and outcomes so the next collector (or finance during audit) sees the story.</li>
+      </ul>
+      <h3>Business rules collectors should follow</h3>
+      <ul class="check">
+        <li>Log <strong>every meaningful touch</strong> (promise to pay, dispute, bankruptcy notice) in activity—not only payments.</li>
+        <li>When a dispute is valid, move the process in your SOP (credit memo, adjustment)—do not mark collected in SILO without matching cash.</li>
+        <li>Use <strong>export</strong> for management summaries; note the export time in email so everyone uses the same snapshot.</li>
+      </ul>
+    </section>
+
+    <section id="inventory">
+      <h2>Inventory &amp; product tags</h2>
+      <p class="tool-ref">Tools: <code>/inventory.html</code> (Inventory Manager / workbench), <code>/pages/product-manager.html</code> (Product tags)</p>
+      <p>
+        <strong>Business purpose:</strong> inventory is for <strong>operational truth</strong> (what is on hand, where it is short, what to move). Product tags are for <strong>how you classify and merchandise</strong> product in data—not the same as a PO line.
+      </p>
+      <h3>Inventory workbench</h3>
+      <ul class="bullets">
+        <li>Start from the <strong>filter rail</strong>: narrow to the slice you are actioning (location, vendor, risk flags) instead of scrolling the whole company.</li>
+        <li>Use tags and planning fields consistently with the merchandising taxonomy your team agreed on—mixed naming breaks downstream dashboards.</li>
+        <li>When you open a <strong>draft</strong> or adjustment panel, complete it or cancel explicitly; half-saved intent creates phantom buys.</li>
+        <li>If quantities disagree with the sales floor, verify physical count <em>before</em> bulk edits; SILO numbers may feed purchasing.</li>
+      </ul>
+      <h3>Product tags (merchandising)</h3>
+      <p>Use Product tags for attributes collections, campaigns, and reporting expect (collections, caps, gender splits, etc.). Edit in one place; do not maintain a shadow spreadsheet of tags.</p>
+    </section>
+
+    <section id="planning-reports">
+      <h2>Planning, calendars, and external reports</h2>
+      <p><strong>Revenue projections</strong> (<code>/projections.html</code>): enter assumptions your finance lead defines—do not overwrite someone else’s scenario without coordination; copy rows or use version discipline if the tool allows.</p>
+      <p><strong>Calendars</strong> (marketing, PO, launch): use them as the shared timeline—if a date slips, update SILO so retail and ops do not plan against a ghost date.</p>
+      <p><strong>Power BI</strong> links from the menu are <strong>read-only analytics</strong>. Treat them as presentation of SILO and other feeds; if BI disagrees with SILO detail screens, trust the <em>detail screen for the transaction line</em> and open a data investigation.</p>
+      <p><strong>Jotform</strong> grids (travel, bars, etc.): submit structured requests there when that is the official intake; do not duplicate the same spend in SILO payment requests unless process says to.</p>
+      <p><strong>Payroll BI</strong> (<code>/pages/payroll.html</code>): use for authorized payroll review only; never export full registers to personal email.</p>
+    </section>
+
+    <section id="access">
+      <h2>Access &amp; hubs (short)</h2>
+      <p><strong>Sign in:</strong> <code>/pages/login.html</code> — password or magic link. Invite / recovery links hit <code>/index.html</code> first, then <code>/pages/set-password.html</code> when needed.</p>
+      <p><strong>Inactive account:</strong> you will see a message that your profile is not active—only an admin can turn on <code>is_active</code>.</p>
+      <p><strong>Deep links</strong> you may still bookmark for daily work: <code>/pages/sales-verification.html</code>, <code>/pages/purchase-request.html</code>, <code>/pages/request-manager.html</code>, <code>/pages/launch-calendar.html</code>.</p>
+      <div class="callout tip">
+        If an embedded tool is blank, try <strong>Open in new tab</strong> from the hub or allow cookies for embedded external apps.
       </div>
     </section>
 
     <footer>
-      SILO user guide · For architecture and integrations see <a href="app-status.html">app-status.html</a>
+      SILO business guide · Syncs and tables: <a href="app-status.html">app-status.html</a>
     </footer>
   </div>
 </body>
