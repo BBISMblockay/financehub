@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Silo ERP — Revenue Projections</title>
+  <title>Silo · Revenue projections</title>
 
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="/pages/config.js"></script>
@@ -71,9 +71,9 @@
     body.themeable { min-height: 100vh; }
 
     .shell {
-      max-width: 93%;
+      max-width: 1280px;
       margin: 0 auto;
-      padding: 10px;
+      padding: 16px 18px 28px;
     }
 
     .glass {
@@ -231,22 +231,22 @@
     }
 
     .metric {
-      padding: 18px 18px 16px;
-      border-radius: 18px;
+      padding: 12px 14px 10px;
+      border-radius: 14px;
       background: color-mix(in oklab, var(--panel-solid) 92%, transparent);
       border: 1px solid var(--border);
+    }
+    .metric .value {
+      font-size: 22px;
+      line-height: 1.05;
+      letter-spacing: -0.04em;
+      font-weight: 800;
+      margin-top: 6px;
     }
     .metric .label {
       font-size: 12px;
       color: var(--muted);
       font-weight: 700;
-    }
-    .metric .value {
-      font-size: 28px;
-      line-height: 1.05;
-      letter-spacing: -0.04em;
-      font-weight: 800;
-      margin-top: 10px;
     }
     .metric .sub {
       font-size: 12px;
@@ -266,7 +266,7 @@
       width: 100%;
       border-collapse: separate;
       border-spacing: 0;
-      min-width: 1260px;
+      min-width: 720px;
     }
 
     .matrix-table thead th {
@@ -275,21 +275,21 @@
       z-index: 3;
       background: color-mix(in oklab, var(--panel-soft) 92%, transparent);
       color: var(--muted2);
-      font-size: 11px;
+      font-size: 10px;
       text-transform: uppercase;
-      letter-spacing: .12em;
+      letter-spacing: .1em;
       font-weight: 800;
       text-align: left;
-      padding: 14px 16px;
+      padding: 10px 10px;
       border-bottom: 1px solid var(--border);
       white-space: nowrap;
     }
 
     .matrix-table tbody td {
-      padding: 14px 16px;
+      padding: 8px 10px;
       border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
       vertical-align: middle;
-      font-size: 14px;
+      font-size: 13px;
       white-space: nowrap;
     }
 
@@ -313,7 +313,8 @@
     }
 
     .launch-col {
-      min-width: 260px;
+      min-width: 168px;
+      max-width: 220px;
       white-space: normal !important;
     }
 
@@ -330,31 +331,21 @@
     }
 
     .quick-edit {
-      display: grid;
-      grid-template-columns: minmax(92px, 1fr) minmax(74px, .8fr) auto;
-      gap: 8px;
-      align-items: end;
-      min-width: 270px;
-    }
-
-    .quick-field { min-width: 0; }
-
-    .quick-field span {
-      display: block;
-      margin-bottom: 4px;
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: .1em;
-      font-weight: 800;
-      color: var(--muted2);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
     }
 
     .quick-input {
-      width: 100%;
-      height: 34px;
+      width: 7.5rem;
+      min-width: 0;
+      flex: 1 1 7rem;
+      height: 32px;
       border: 1px solid var(--border);
-      border-radius: 11px;
-      padding: 0 10px;
+      border-radius: 10px;
+      padding: 0 8px;
       background: color-mix(in oklab, var(--panel-solid) 88%, transparent);
       color: var(--text);
       font-size: 13px;
@@ -368,10 +359,11 @@
     }
 
     .quick-save {
-      height: 34px;
-      padding: 0 10px;
-      border-radius: 11px;
-      font-size: 12px;
+      height: 32px;
+      padding: 0 8px;
+      border-radius: 10px;
+      font-size: 11px;
+      font-weight: 800;
     }
 
     .mini-link {
@@ -563,23 +555,52 @@
       padding: 14px;
     }
 
-    .sticky-side {
-      position: sticky;
-      top: 20px;
-    }
-
     .toolbar-grid {
       display: grid;
-      grid-template-columns: 1.1fr 1.1fr 1.2fr 1fr 1fr 1.3fr auto auto auto;
-      gap: 10px;
+      grid-template-columns: repeat(6, minmax(0, 1fr)) repeat(3, auto);
+      gap: 8px 10px;
       align-items: end;
     }
 
-    .layout-grid {
+    .layout-main {
       display: grid;
-      grid-template-columns: minmax(0, 1fr) 380px;
-      gap: 18px;
+      grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
+      gap: 14px;
       align-items: start;
+    }
+
+    .edit-rail {
+      position: sticky;
+      top: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      max-height: calc(100dvh - 28px);
+      overflow: auto;
+    }
+
+    .main-col {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .insight-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .insight-card {
+      padding: 14px 16px;
+    }
+
+    .insight-card h3 {
+      margin: 0;
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
     }
 
     .header-row {
@@ -628,11 +649,15 @@
       .action-bar {
         justify-content: flex-start;
       }
-      .layout-grid {
+      .layout-main {
         grid-template-columns: 1fr;
       }
-      .sticky-side {
+      .edit-rail {
         position: static;
+        max-height: none;
+      }
+      .insight-strip {
+        grid-template-columns: 1fr;
       }
     }
 
@@ -684,6 +709,7 @@
           <button id="reloadBtn" class="btn">Reload</button>
         </div>
         <div class="action-group" aria-label="Import, export, and audit tools">
+          <button id="openWorkbenchBtn" type="button" class="btn">Launch workbench</button>
           <button id="exportBtn" class="btn">Export CSV</button>
           <label for="importFile" class="btn">Import CSV</label>
           <input id="importFile" type="file" accept=".csv,text/csv" class="hidden" />
@@ -731,162 +757,148 @@
       </div>
     </div>
 
-    <div class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+    <div class="mt-3 grid grid-cols-2 lg:grid-cols-4 gap-3">
       <div class="metric card">
-        <div class="label">Filtered projections</div>
+        <div class="label">Filtered rows</div>
         <div id="kpiRows" class="mono value">—</div>
-        <div id="kpiRowsSub" class="sub">Matching current filters</div>
-      </div>
-      <div class="metric card">
-        <div class="label">Projected units</div>
-        <div id="kpiUnits" class="mono value">—</div>
-        <div id="kpiUnitsSub" class="sub">Sum of filtered units</div>
+        <div id="kpiRowsSub" class="sub">Matching filters</div>
       </div>
       <div class="metric card">
         <div class="label">Projected sales</div>
         <div id="kpiSales" class="mono value">—</div>
-        <div id="kpiSalesSub" class="sub">Sum of filtered sales</div>
+        <div id="kpiSalesSub" class="sub">Sum in view</div>
       </div>
       <div class="metric card">
-        <div class="label">Locations shown</div>
+        <div class="label">Locations</div>
         <div id="kpiLocations" class="mono value">—</div>
-        <div id="kpiLocationsSub" class="sub">Distinct locations in matrix</div>
+        <div id="kpiLocationsSub" class="sub">Distinct in matrix</div>
       </div>
       <div class="metric card">
-        <div class="label">Launch events in view</div>
+        <div class="label">Launch events</div>
         <div id="kpiLaunchEvents" class="mono value">—</div>
-        <div id="kpiLaunchEventsSub" class="sub">Calendar events on visible dates</div>
+        <div id="kpiLaunchEventsSub" class="sub">On visible dates</div>
       </div>
     </div>
 
-    <div class="layout-grid mt-4">
-      <section class="card p-4">
-        <div class="flex items-start justify-between gap-4 flex-wrap mb-4">
-          <div>
-            <div class="section-label">Matrix view</div>
-            <div class="mt-2" style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em;">Projected sales by date and location</div>
-            <div class="subtle mt-1">Inline sales and units edits keep common adjustments fast; launch context comes from Silo Launch Workbench.</div>
-          </div>
-          <div class="text-sm" style="color: var(--muted);">
-            Dates shown: <span id="tableCount" class="mono">0</span> · Updated <span id="lastUpdated" class="mono">—</span>
-          </div>
-        </div>
-
-        <div class="matrix-wrap scrollbar">
-          <table class="matrix-table">
-            <thead id="projectionMatrixHead">
-              <tr><th class="sticky-col sticky-col-top">Date</th><th class="launch-col">Launch / Marketing</th><th>Total</th></tr>
-            </thead>
-            <tbody id="projectionTableBody">
-              <tr><td colspan="3" class="empty-state">Loading…</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <aside class="sticky-side flex flex-col gap-4">
-        <div class="card p-5">
-          <div class="flex items-center justify-between gap-3 flex-wrap">
+    <div class="layout-main mt-4">
+      <aside id="editRail" class="edit-rail">
+        <div class="card p-4">
+          <div class="flex items-center justify-between gap-2 flex-wrap">
             <div>
-              <div class="section-label">Edit projection</div>
-              <div class="mt-2" style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em;">Create or adjust</div>
-              <div class="subtle mt-1">One active row per date and location. Coordinate scenarios before overwriting shared assumptions.</div>
+              <div class="section-label">Editor</div>
+              <div class="mt-1 text-lg font-extrabold tracking-tight">Date · location · sales</div>
+              <p class="subtle mt-1 text-sm leading-snug">One row per date and location. Sales-first; units remain in the database for CSV imports.</p>
             </div>
-            <div class="pill" id="editingPill">Mode: New</div>
+            <div class="pill text-xs" id="editingPill">New</div>
           </div>
 
-          <div class="mt-4 space-y-3">
+          <div class="mt-3 space-y-3">
             <div>
-              <label class="section-label mb-2 block">Projection date</label>
+              <label class="section-label mb-1.5 block">Date</label>
               <input id="formProjectionDate" type="date" class="field" />
             </div>
 
             <div>
-              <label class="section-label mb-2 block">Location</label>
+              <label class="section-label mb-1.5 block">Location</label>
               <select id="formLocation" class="select">
                 <option value="">Select location</option>
               </select>
             </div>
 
-            <div class="grid grid-cols-2 gap-3">
-              <div>
-                <label class="section-label mb-2 block">Projected units</label>
-                <input id="formProjectedUnits" type="number" min="0" step="1" class="field mono" placeholder="0" />
-              </div>
-              <div>
-                <label class="section-label mb-2 block">Projected sales</label>
-                <input id="formProjectedSales" type="number" min="0" step="0.01" class="field mono" placeholder="0.00" />
-              </div>
+            <div>
+              <label class="section-label mb-1.5 block">Projected sales (USD)</label>
+              <input id="formProjectedSales" type="number" min="0" step="0.01" class="field mono" placeholder="0.00" />
             </div>
+            <input type="hidden" id="formProjectedUnits" value="0" />
 
             <div>
-              <label class="section-label mb-2 block">Source</label>
-              <input id="formSource" type="text" class="field" placeholder="manual, import, forecast_model" />
+              <label class="section-label mb-1.5 block">Source</label>
+              <input id="formSource" type="text" class="field text-sm" placeholder="manual" />
             </div>
 
             <div class="calendar-box">
               <div class="flex items-center justify-between gap-2 flex-wrap">
                 <div>
-                  <div class="section-label">Launch Workbench tie-in</div>
-                  <div style="font-size:14px; font-weight:700; margin-top:4px;">Events on selected date</div>
+                  <div class="section-label">Workbench</div>
+                  <div class="text-sm font-bold mt-0.5">Launches on this date</div>
                 </div>
-                <button id="appendCalendarToNotesBtn" type="button" class="btn">Use in notes</button>
+                <button id="appendCalendarToNotesBtn" type="button" class="btn text-xs py-1.5 h-8">Add to notes</button>
               </div>
-              <div id="calendarTieField" class="mt-3 calendar-helper">Choose a projection date to pull launch and marketing context.</div>
+              <div id="calendarTieField" class="mt-2 calendar-helper text-sm">Pick a date to load launch context.</div>
             </div>
 
             <div>
-              <label class="section-label mb-2 block">Notes</label>
-              <textarea id="formNotes" class="textarea" placeholder="Context, assumptions, promo timing, overrides, commentary"></textarea>
+              <label class="section-label mb-1.5 block">Notes</label>
+              <textarea id="formNotes" class="textarea min-h-[88px] text-sm" placeholder="Assumptions, promos, overrides…"></textarea>
             </div>
           </div>
 
-          <div class="mt-4 flex flex-wrap gap-2">
-            <button id="saveProjectionBtn" class="btn btn-primary">Save projection</button>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button id="saveProjectionBtn" class="btn btn-primary">Save</button>
             <button id="clearFormBtn" class="btn">Clear</button>
             <button id="deleteProjectionBtn" class="btn btn-danger hidden">Delete</button>
-            <button id="viewSelectedHistoryBtn" class="btn">Audit selected</button>
-          </div>
-        </div>
-
-        <div class="card p-5">
-          <div class="section-label">Location summary</div>
-          <div class="mt-2" style="font-size: 18px; font-weight: 700; letter-spacing: -0.03em;">Column totals</div>
-          <div class="summary-list mt-4" id="locationSummary">
-            <div class="empty-state">Loading…</div>
-          </div>
-        </div>
-
-        <div class="card p-5">
-          <div class="section-label">Launch summary</div>
-          <div class="mt-2" style="font-size: 18px; font-weight: 700; letter-spacing: -0.03em;">Calendar in range</div>
-          <div class="summary-list mt-4" id="launchSummary">
-            <div class="empty-state">Loading…</div>
-          </div>
-        </div>
-
-        <div class="card p-5">
-          <div class="section-label">Data health</div>
-          <div class="mt-2" style="font-size: 18px; font-weight: 700; letter-spacing: -0.03em;">Checks</div>
-          <div class="mt-4 space-y-2" id="healthSummary">
-            <div class="status">Waiting for data…</div>
-          </div>
-        </div>
-
-        <div class="card p-5">
-          <div class="flex items-center justify-between gap-3 flex-wrap">
-            <div>
-              <div class="section-label">Audit + import</div>
-              <div class="mt-2" style="font-size: 18px; font-weight: 700; letter-spacing: -0.03em;">Recent import results</div>
-            </div>
-            <button id="openWorkbenchBtn" class="btn">Open Launch Workbench</button>
-          </div>
-
-          <div class="mt-4" id="importSummary">
-            <div class="empty-state">No import run yet.</div>
+            <button id="viewSelectedHistoryBtn" class="btn">Row audit</button>
           </div>
         </div>
       </aside>
+
+      <div class="main-col">
+        <section class="card p-4">
+          <div class="flex items-start justify-between gap-3 flex-wrap mb-3">
+            <div>
+              <div class="section-label">Matrix</div>
+              <h2 class="text-lg font-extrabold tracking-tight mt-1 m-0">Sales by date × location</h2>
+              <p class="subtle mt-1 text-sm m-0">Edit projected sales inline; save per cell. Launch column is read-only context from <span class="font-semibold">Launch workbench</span>.</p>
+            </div>
+            <div class="text-xs font-semibold" style="color: var(--muted);">
+              <span id="tableCount" class="mono">0</span> dates · <span id="lastUpdated" class="mono">—</span>
+            </div>
+          </div>
+
+          <div class="matrix-wrap scrollbar">
+            <table class="matrix-table">
+              <thead id="projectionMatrixHead">
+                <tr><th class="sticky-col sticky-col-top">Date</th><th class="launch-col">Launch</th><th>Total</th></tr>
+              </thead>
+              <tbody id="projectionTableBody">
+                <tr><td colspan="3" class="empty-state">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <div class="insight-strip">
+          <div class="card insight-card">
+            <div class="section-label">By location</div>
+            <h3 class="mt-1">Sales roll-up</h3>
+            <div class="summary-list mt-2 max-h-52 overflow-y-auto scrollbar" id="locationSummary">
+              <div class="empty-state py-6">Loading…</div>
+            </div>
+          </div>
+          <div class="card insight-card">
+            <div class="section-label">Launches</div>
+            <h3 class="mt-1">In filtered dates</h3>
+            <div class="summary-list mt-2 max-h-52 overflow-y-auto scrollbar" id="launchSummary">
+              <div class="empty-state py-6">Loading…</div>
+            </div>
+          </div>
+          <div class="card insight-card">
+            <div class="section-label">Checks</div>
+            <h3 class="mt-1">Data health</h3>
+            <div class="mt-2 space-y-2 max-h-52 overflow-y-auto scrollbar" id="healthSummary">
+              <div class="status text-sm">Waiting…</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card p-4">
+          <div class="section-label">CSV import</div>
+          <p class="subtle text-sm mt-1 mb-2 m-0">Last import outcome (units column still supported in file).</p>
+          <div id="importSummary">
+            <div class="empty-state py-4 text-sm">No import yet.</div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1241,7 +1253,7 @@
     }
 
     function setEditingMode(isEdit) {
-      editingPill.textContent = `Mode: ${isEdit ? "Edit" : "New"}`;
+      editingPill.textContent = isEdit ? "Edit" : "New";
       deleteProjectionBtn.classList.toggle("hidden", !isEdit);
     }
 
@@ -1549,23 +1561,20 @@
 
     function renderKpis() {
       const rows = state.filtered;
-      const totalUnits = rows.reduce((s, r) => s + toNumber(r.projected_units), 0);
       const totalSales = rows.reduce((s, r) => s + toNumber(r.projected_sales), 0);
       const locationCount = new Set(rows.map(r => String(r.location_id))).size;
       const visibleDates = new Set(rows.map(r => String(r.projection_date || "")).filter(Boolean));
       const launchEventCount = state.filteredCalendarEvents.filter(ev => visibleDates.has(ev.date_iso)).length;
 
       setText("kpiRows", fmtInt(rows.length));
-      setText("kpiUnits", fmtInt(totalUnits));
       setText("kpiSales", fmtMoney(totalSales));
       setText("kpiLocations", fmtInt(locationCount));
       setText("kpiLaunchEvents", fmtInt(launchEventCount));
 
-      setText("kpiRowsSub", rows.length ? `Across ${fmtInt(getMatrixDates().length)} date row(s)` : "No rows in current view");
-      setText("kpiUnitsSub", rows.length ? `Average ${fmtNum(totalUnits / Math.max(rows.length, 1), 1)} units per cell` : "No rows in current view");
-      setText("kpiSalesSub", rows.length ? `Average ${fmtMoney(totalSales / Math.max(rows.length, 1))} per cell` : "No rows in current view");
-      setText("kpiLocationsSub", rows.length ? `${fmtInt(locationCount)} distinct locations represented` : "No rows in current view");
-      setText("kpiLaunchEventsSub", launchEventCount ? `Across ${fmtInt(visibleDates.size)} visible date row(s)` : "No launch events on visible dates");
+      setText("kpiRowsSub", rows.length ? `${fmtInt(getMatrixDates().length)} date row(s)` : "No rows");
+      setText("kpiSalesSub", rows.length ? `Avg ${fmtMoney(totalSales / Math.max(rows.length, 1))} / cell` : "—");
+      setText("kpiLocationsSub", rows.length ? `${fmtInt(locationCount)} in matrix` : "—");
+      setText("kpiLaunchEventsSub", launchEventCount ? `${fmtInt(visibleDates.size)} dates` : "None on visible dates");
     }
 
     function renderLocationSummary() {
@@ -1596,12 +1605,11 @@
       locationSummary.innerHTML = items.map(item => `
         <div class="summary-row">
           <div>
-            <div style="font-size:14px; font-weight:700;">${escapeHtml(item.location_name)}</div>
-            <div style="font-size:12px; color: var(--muted2); margin-top: 4px;">${fmtInt(item.rows)} day(s) with projections</div>
+            <div class="text-sm font-bold">${escapeHtml(item.location_name)}</div>
+            <div class="text-xs mt-0.5" style="color: var(--muted2);">${fmtInt(item.rows)} day(s)</div>
           </div>
-          <div style="text-align:right;">
-            <div class="mono" style="font-size:14px; font-weight:700;">${fmtMoney(item.projected_sales)}</div>
-            <div style="font-size:12px; color: var(--muted2); margin-top: 4px;">${fmtInt(item.projected_units)} units</div>
+          <div class="text-right">
+            <div class="mono text-sm font-extrabold">${fmtMoney(item.projected_sales)}</div>
           </div>
         </div>
       `).join("");
@@ -1675,15 +1683,16 @@
         return `<td class="launch-col" style="color: var(--muted2);">—</td>`;
       }
 
-      const preview = summary.events.slice(0, 2).map(ev => `
+      const ev0 = summary.events[0];
+      const preview = ev0 ? `
         <div class="launch-item">
-          <div class="launch-item-title">${escapeHtml(shorten(ev.event || "Untitled launch", 72))}</div>
-          <div class="launch-item-meta">${escapeHtml(shorten(formatCalendarEventLine(ev), 96) || "Calendar event")}</div>
+          <div class="launch-item-title">${escapeHtml(shorten(ev0.event || "Untitled launch", 48))}</div>
+          <div class="launch-item-meta">${escapeHtml(shorten(formatCalendarEventLine(ev0), 72) || "Launch")}</div>
         </div>
-      `).join("");
+      ` : "";
 
-      const hidden = summary.events.length > 2
-        ? `<div class="calendar-helper">+ ${escapeHtml(String(summary.events.length - 2))} more event(s)</div>`
+      const hidden = summary.events.length > 1
+        ? `<div class="calendar-helper">+${escapeHtml(String(summary.events.length - 1))} more</div>`
         : "";
 
       const tooltip = summary.events.map(ev => {
@@ -1764,26 +1773,19 @@
             <td class="mono">
               <div class="matrix-value">
                 <div class="quick-edit">
-                  <label class="quick-field">
-                    <span>Sales</span>
-                    <input class="quick-input mono" type="number" min="0" step="0.01" value="${escapeHtml(Number(sales).toFixed(2))}" data-action="quick-sales" data-id="${escapeHtml(String(row.id))}" aria-label="Projected sales for ${escapeHtml(row.location_name || getLocationNameById(row.location_id))} on ${escapeHtml(date)}" />
-                  </label>
-                  <label class="quick-field">
-                    <span>Units</span>
-                    <input class="quick-input mono" type="number" min="0" step="1" value="${escapeHtml(String(toNumber(row.projected_units)))}" data-action="quick-units" data-id="${escapeHtml(String(row.id))}" aria-label="Projected units for ${escapeHtml(row.location_name || getLocationNameById(row.location_id))} on ${escapeHtml(date)}" />
-                  </label>
+                  <input class="quick-input mono" type="number" min="0" step="0.01" value="${escapeHtml(Number(sales).toFixed(2))}" data-action="quick-sales" data-id="${escapeHtml(String(row.id))}" aria-label="Projected sales ${escapeHtml(row.location_name || getLocationNameById(row.location_id))} ${escapeHtml(date)}" title="Projected sales (USD)" />
                   <button class="btn quick-save" type="button" data-action="quick-save" data-id="${escapeHtml(String(row.id))}">Save</button>
                 </div>
                 <div class="cell-note-wrap">
                   ${(hasNote || launchSummary.count) ? `
                     <span class="cell-note-flag">i</span>
                     <div class="cell-tooltip">
-                      <span class="cell-tooltip-label">Projection + launch note</span>
+                      <span class="cell-tooltip-label">Notes + launch</span>
                       ${escapeHtml(combinedTooltip || "No note")}
                     </div>
                   ` : ``}
                 </div>
-                <a href="#" class="mini-link" data-action="edit-cell" data-id="${escapeHtml(String(row.id))}">Notes / details</a>
+                <a href="#" class="mini-link" data-action="edit-cell" data-id="${escapeHtml(String(row.id))}">Details</a>
               </div>
             </td>
           `;
@@ -1840,7 +1842,7 @@
       state.selectedProjection = null;
       if (resetDate || !formProjectionDate.value) formProjectionDate.value = todayIso();
       formLocation.value = "";
-      formProjectedUnits.value = "";
+      formProjectedUnits.value = "0";
       formProjectedSales.value = "";
       formSource.value = "manual";
       formNotes.value = "";
@@ -1855,13 +1857,13 @@
       state.selectedProjection = row;
       formProjectionDate.value = row.projection_date || "";
       formLocation.value = String(row.location_id || "");
-      formProjectedUnits.value = toNumber(row.projected_units);
+      formProjectedUnits.value = String(Math.max(0, Math.round(toNumber(row.projected_units))));
       formProjectedSales.value = Number(toNumber(row.projected_sales)).toFixed(2);
       formSource.value = row.source || "manual";
       formNotes.value = row.notes || "";
       renderCalendarTieField();
       setEditingMode(true);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      el("editRail")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
 
     function appendCalendarContextToNotes() {
@@ -1985,7 +1987,7 @@
         setStatus(`Save failed: ${e.message || e}`, "danger");
       } finally {
         saveProjectionBtn.disabled = false;
-        saveProjectionBtn.textContent = "Save projection";
+        saveProjectionBtn.textContent = "Save";
       }
     }
 
@@ -2002,13 +2004,12 @@
       }
 
       const salesInput = getQuickEditNode(id, "quick-sales");
-      const unitsInput = getQuickEditNode(id, "quick-units");
       const saveBtn = getQuickEditNode(id, "quick-save");
-      const units = Math.round(toNumber(unitsInput?.value));
+      const units = Math.max(0, Math.round(toNumber(row.projected_units)));
       const sales = Number(toNumber(salesInput?.value).toFixed(2));
 
-      if (units < 0 || sales < 0) {
-        setStatus("Quick edits cannot use negative units or sales.", "danger");
+      if (sales < 0) {
+        setStatus("Sales cannot be negative.", "danger");
         return;
       }
 
@@ -2128,9 +2129,8 @@
                   <span class="pill">${escapeHtml(locName)}</span>
                 </div>
                 <div class="mt-3 subtle">
-                  Units <span class="mono">${fmtInt(item.projected_units)}</span> ·
-                  Sales <span class="mono">${fmtMoney2(item.projected_sales)}</span> ·
-                  Source <span class="mono">${escapeHtml(item.source || "—")}</span>
+                  <span class="mono">${fmtMoney2(item.projected_sales)}</span>
+                  <span class="text-xs" style="color: var(--muted2);"> · ${escapeHtml(item.source || "—")}</span>
                 </div>
                 <div class="mt-1" style="font-size:12px; color: var(--muted2);">
                   Changed ${escapeHtml(fmtDateTime(item.changed_at))}
@@ -2477,7 +2477,7 @@
       });
 
       projectionTableBody.addEventListener("keydown", async (e) => {
-        const input = e.target.closest('[data-action="quick-sales"], [data-action="quick-units"]');
+        const input = e.target.closest('[data-action="quick-sales"]');
         if (!input || String(e.key || "").toLowerCase() !== "enter") return;
         e.preventDefault();
         await saveQuickEdit(input.getAttribute("data-id"));
