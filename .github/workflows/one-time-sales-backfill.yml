@@ -33,7 +33,6 @@ jobs:
           SILO_ONLY_SOURCE: ${{ inputs.location_tag }}
           SILO_SKIP_INVENTORY: "true"
           SILO_SKIP_SALES: "false"
-          SILO_SKIP_SUMMARY_REFRESH: "true"
         run: |
           echo "Requested location_tag=${{ inputs.location_tag }}"
           echo "SILO_SALES_SYNC_MODE=$SILO_SALES_SYNC_MODE"

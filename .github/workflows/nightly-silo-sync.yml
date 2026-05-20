@@ -33,6 +33,4 @@ jobs:
         run: npm install
 
       - name: Run Silo inventory + sales sync
-        env:
-          SILO_SKIP_SUMMARY_REFRESH: "true"
         run: node scripts/sync-silo-inventory-sales.mjs

@@ -343,7 +343,7 @@ flowchart TB
       <h3>Nightly Silo (Sheets → Supabase)</h3>
       <p>
         <code>scripts/sync-silo-inventory-sales.mjs</code> reads CSV export URLs from <code>config/silo-sources.mjs</code> (one row per retail location plus online).
-        It upserts inventory and daily sales into tables such as <code>inventory_on_hand</code> and <code>sales_by_day</code>, and can refresh verification summaries.
+        It upserts inventory and daily sales into tables such as <code>inventory_on_hand</code> and <code>sales_by_day</code>, then calls <code>refresh_sales_verification_store_comp_summary</code> so <code>sales_verification_store_comp_summary</code> matches the latest Silo data (set <code>SILO_SKIP_SUMMARY_REFRESH=true</code> to skip).
       </p>
       <div class="mermaid-wrap">
         <pre class="mermaid">
