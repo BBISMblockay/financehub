@@ -24,6 +24,10 @@
       --good:#166534;
       --warn:#b45309;
       --bad:#b91c1c;
+      --soft-blue:#edf5ff;
+      --soft-tan:#f7efe8;
+      --soft-green:#eaf6f1;
+      --soft-slate:#f8fafc;
     }
     *{box-sizing:border-box}
     html,body{
@@ -196,6 +200,90 @@
       border-radius:18px;
       padding:.75rem .9rem;
     }
+    .matrix-table{
+      width:max-content;
+      min-width:100%;
+      border-collapse:separate;
+      border-spacing:0;
+    }
+    .matrix-table thead tr:first-child th{
+      font-size:10px;
+      text-transform:uppercase;
+      letter-spacing:.18em;
+      color:#64748b;
+      padding:10px 8px;
+      border-bottom:1px solid rgba(148,163,184,.22);
+      text-align:center;
+      position:sticky;
+      top:0;
+      z-index:3;
+      background:rgba(248,250,252,.98);
+    }
+    .matrix-table thead tr:nth-child(2) th{
+      font-size:10px;
+      text-transform:uppercase;
+      letter-spacing:.12em;
+      color:#64748b;
+      padding:10px 8px;
+      border-bottom:1px solid rgba(148,163,184,.18);
+      text-align:right;
+      position:sticky;
+      top:38px;
+      z-index:3;
+      background:rgba(248,250,252,.98);
+    }
+    .matrix-table thead th:first-child,
+    .matrix-table tbody td:first-child{
+      position:sticky;
+      left:0;
+      z-index:4;
+      background:white;
+    }
+    .matrix-table tbody td{
+      font-size:12px;
+      padding:9px 8px;
+      border-bottom:1px solid rgba(148,163,184,.14);
+      white-space:nowrap;
+    }
+    .matrix-table tbody tr:hover td{background:rgba(248,250,252,.72)}
+    .matrix-table .store-col{
+      min-width:165px;
+      font-weight:700;
+      color:#0f172a;
+      text-align:left !important;
+    }
+    .matrix-table .group-day{background:var(--soft-blue)}
+    .matrix-table .group-mtd{background:var(--soft-tan)}
+    .matrix-table .group-ytd{background:var(--soft-green)}
+    .matrix-table .group-meta{background:var(--soft-slate)}
+    .provisional{
+      display:flex;
+      align-items:flex-start;
+      gap:.55rem;
+      border:1px solid #fde68a;
+      background:#fffbeb;
+      color:#92400e;
+      border-radius:18px;
+      padding:.9rem 1rem;
+      font-size:.9rem;
+      font-weight:600;
+    }
+    .hidden{display:none!important}
+    details.onboard summary{
+      cursor:pointer;
+      font-weight:800;
+      color:#0f172a;
+      list-style:none;
+    }
+    details.onboard summary::-webkit-details-marker{display:none}
+    details.comps summary{
+      cursor:pointer;
+      font-weight:800;
+      color:#0f172a;
+      font-size:1.02rem;
+      list-style:none;
+    }
+    details.comps summary::-webkit-details-marker{display:none}
   </style>
 </head>
 <body>
@@ -207,7 +295,7 @@
             <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Silo Sales</div>
             <div class="mt-1 text-2xl font-extrabold tracking-tight text-slate-900 sm:text-3xl">Sales Verification</div>
             <div class="mt-2 max-w-4xl text-sm text-slate-500">
-              Server-safe verification view for imported sales rows with filtered rollups, exception checks, and paginated detail review.
+              One workflow: choose a time window and filters, review location rollups and KPIs on <strong>every matching row</strong>, then page through line-level detail. Optional store comps (below) add year-over-year context without changing how filters work.
             </div>
           </div>
           <div class="flex flex-wrap items-center gap-2">
@@ -216,6 +304,21 @@
           </div>
         </div>
       </header>
+
+      <details class="glass onboard px-5 py-4 sm:px-6">
+        <summary class="text-sm">How to use this page (click to expand)</summary>
+        <ol class="mt-3 list-decimal space-y-2 pl-5 text-sm text-slate-600">
+          <li><strong>Pick a preset</strong> (or custom dates), optional location, and quick filters for known issues—then <strong>Apply</strong>. KPIs and the location table always reflect the <em>entire</em> filtered set, not just the detail page you see.</li>
+          <li><strong>Scan Location verification</strong> for outliers by location before opening line detail.</li>
+          <li><strong>Optional store comps</strong>: open the section below only when you need current vs prior-year day / MTD / YTD—it reads a pre-built summary table and may feel faster on wide views.</li>
+          <li><strong>Row review</strong> is paginated; use search and sort there for SKU-level proof.</li>
+        </ol>
+      </details>
+
+      <div id="provisionalBanner" class="hidden provisional">
+        <span aria-hidden="true">⚠</span>
+        <span id="provisionalText">When your date range includes today, totals can still change after the next sync—treat current-day figures as provisional.</span>
+      </div>
 
       <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <div class="glass p-5">
@@ -347,6 +450,40 @@
             </div>
           </section>
 
+          <details class="glass comps p-4 sm:p-5" id="storeCompsPanel">
+            <summary class="px-1 py-1">Optional: store year-over-year comps (pre-built summary)</summary>
+            <p class="mt-3 text-sm text-slate-600 max-w-4xl">
+              This block is <strong>separate from the filters above</strong>: it always reads the latest <span class="mono text-xs">sales_verification_store_comp_summary</span> row per store (respecting the location dropdown only).
+              Use it for leadership-style day / MTD / YTD comparisons; keep using filtered <span class="mono text-xs">sales_by_day</span> above for operational drilldowns.
+            </p>
+            <div class="mt-4 flex flex-wrap items-end gap-3">
+              <div>
+                <label class="muted-label">Metric display</label>
+                <select id="metricMode" class="w-full min-w-[200px] px-4 py-3 text-sm">
+                  <option value="sales" selected>Sales focus</option>
+                  <option value="units">Units focus</option>
+                  <option value="both">Sales + units</option>
+                </select>
+              </div>
+              <div id="matrixMeta" class="text-xs font-semibold text-slate-500 pb-2"></div>
+            </div>
+            <div class="mt-3 flex flex-col gap-2 border-b border-slate-200 pb-3 md:flex-row md:items-end md:justify-between">
+              <div>
+                <div class="section-title">Store verification matrix</div>
+                <div class="section-sub">Current vs prior-year same-period comps (summary table).</div>
+              </div>
+              <div id="matrixCount" class="text-sm font-semibold text-slate-500">Open this section to load</div>
+            </div>
+            <div class="mt-3 table-wrap soft-scroll">
+              <table class="matrix-table">
+                <thead id="matrixHead"></thead>
+                <tbody id="matrixBody">
+                  <tr><td colspan="20" class="px-3 py-8 text-center text-sm text-slate-500">Expand this section to load comps…</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </details>
+
           <section class="glass p-4 sm:p-5">
             <div class="flex flex-col gap-3 border-b border-slate-200 pb-4 md:flex-row md:items-end md:justify-between">
               <div>
@@ -458,6 +595,7 @@
               <li>• Detail table is paginated so the browser does not try to load the entire table at once.</li>
               <li>• “All history” works, but will take longer because it scans filtered rows in chunks.</li>
               <li>• Blank SKU rows and refund discrepancy rows remain visible for operational review.</li>
+              <li>• <strong>Optional comps</strong> (collapsed by default) use a different pre-aggregated table for year-over-year store views; they do not replace the filters above.</li>
             </ul>
           </section>
         </aside>
@@ -494,6 +632,8 @@
       totalRows: 0,
       summary: null,
       detailRows: [],
+      matrixRows: [],
+      summaryRefreshedAt: null,
       quickFilter: 'all',
       lastRefreshAt: null,
       isLoading: false
@@ -536,15 +676,33 @@
       detailCount: document.getElementById('detailCount'),
       loadedLocationsList: document.getElementById('loadedLocationsList'),
       pageMeta: document.getElementById('pageMeta'),
-      pageIndicator: document.getElementById('pageIndicator')
+      pageIndicator: document.getElementById('pageIndicator'),
+
+      provisionalBanner: document.getElementById('provisionalBanner'),
+      provisionalText: document.getElementById('provisionalText'),
+      storeCompsPanel: document.getElementById('storeCompsPanel'),
+      metricMode: document.getElementById('metricMode'),
+      matrixHead: document.getElementById('matrixHead'),
+      matrixBody: document.getElementById('matrixBody'),
+      matrixCount: document.getElementById('matrixCount'),
+      matrixMeta: document.getElementById('matrixMeta')
     };
 
     function money(v) {
       return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(v || 0));
     }
 
+    function moneyWhole(v) {
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(Number(v || 0));
+    }
+
     function numberFmt(v) {
       return Number(v || 0).toLocaleString();
+    }
+
+    function pctFmt(v) {
+      if (v === null || v === undefined || Number.isNaN(Number(v))) return '—';
+      return `${(Number(v) * 100).toFixed(1)}%`;
     }
 
     function fmtDate(v) {
@@ -564,6 +722,13 @@
       if (!ts) return '—';
       const d = new Date(ts);
       if (Number.isNaN(d.getTime())) return '—';
+      return d.toLocaleString();
+    }
+
+    function formatTimestamp(ts) {
+      if (!ts) return '—';
+      const d = new Date(ts);
+      if (Number.isNaN(d.getTime())) return String(ts);
       return d.toLocaleString();
     }
 
@@ -873,6 +1038,173 @@
       return data || [];
     }
 
+    function filtersMayIncludeCurrentDay() {
+      const f = getFilterState();
+      const today = todayLocalDateString();
+      if (f.preset === 'all' && !f.dateFrom && !f.dateTo) return false;
+      if (f.dateTo && f.dateTo >= today) return true;
+      if (!f.dateTo && f.preset !== 'all' && f.preset !== 'custom') return true;
+      if (f.preset === 'custom' && !f.dateTo && f.dateFrom && f.dateFrom <= today) return true;
+      return false;
+    }
+
+    async function loadMatrix() {
+      let q = sb
+        .from('sales_verification_store_comp_summary')
+        .select('*')
+        .order('location_tag', { ascending: true });
+
+      const location = el.locationFilter.value.trim();
+      if (location) q = q.eq('location_tag', location);
+
+      const { data, error } = await q;
+      if (error) throw error;
+
+      state.matrixRows = data || [];
+      state.summaryRefreshedAt = data?.[0]?.refreshed_at || null;
+    }
+
+    function buildMatrixHead() {
+      const mode = el.metricMode.value;
+      let cols = '';
+
+      if (mode === 'sales' || mode === 'both') {
+        cols += `
+          <th class="group-day">CY Net</th>
+          <th class="group-day">PY Net</th>
+          <th class="group-day">Var %</th>
+          <th class="group-mtd">CY Net</th>
+          <th class="group-mtd">PY Net</th>
+          <th class="group-mtd">Var %</th>
+          <th class="group-ytd">CY Net</th>
+          <th class="group-ytd">PY Net</th>
+          <th class="group-ytd">Var %</th>
+        `;
+      }
+
+      if (mode === 'units' || mode === 'both') {
+        cols += `
+          <th class="group-day">CY Units</th>
+          <th class="group-day">PY Units</th>
+          <th class="group-day">Var %</th>
+          <th class="group-mtd">CY Units</th>
+          <th class="group-mtd">PY Units</th>
+          <th class="group-mtd">Var %</th>
+          <th class="group-ytd">CY Units</th>
+          <th class="group-ytd">PY Units</th>
+          <th class="group-ytd">Var %</th>
+        `;
+      }
+
+      cols += `
+        <th class="group-meta">Rows</th>
+        <th class="group-meta">Blank SKU</th>
+        <th class="group-meta">Discrepancy</th>
+        <th class="group-meta">Min Date</th>
+        <th class="group-meta">Max Date</th>
+      `;
+
+      el.matrixHead.innerHTML = `
+        <tr>
+          <th class="store-col" rowspan="2">Store</th>
+          <th class="group-day" colspan="${mode === 'both' ? 6 : 3}">Day</th>
+          <th class="group-mtd" colspan="${mode === 'both' ? 6 : 3}">MTD</th>
+          <th class="group-ytd" colspan="${mode === 'both' ? 6 : 3}">YTD</th>
+          <th class="group-meta" colspan="5">Verification</th>
+        </tr>
+        <tr>
+          ${cols}
+        </tr>
+      `;
+    }
+
+    function renderMatrix() {
+      const rows = state.matrixRows || [];
+      const mode = el.metricMode.value;
+      buildMatrixHead();
+
+      if (!rows.length) {
+        el.matrixCount.textContent = '0 stores';
+        el.matrixBody.innerHTML = `<tr><td colspan="30" class="px-3 py-10 text-center text-sm text-slate-500">No comp rows found for this location filter.</td></tr>`;
+        el.matrixMeta.textContent = '';
+        return;
+      }
+
+      el.matrixCount.textContent = `${rows.length} store${rows.length === 1 ? '' : 's'}`;
+      const asOf = rows[0]?.as_of_date || '—';
+      const pyAsOf = rows[0]?.py_as_of_date || '—';
+      el.matrixMeta.textContent = state.summaryRefreshedAt
+        ? `Refreshed ${formatTimestamp(state.summaryRefreshedAt)} · CY as-of ${asOf} · PY as-of ${pyAsOf}`
+        : `CY as-of ${asOf} · PY as-of ${pyAsOf}`;
+
+      el.matrixBody.innerHTML = rows.map(r => {
+        let html = `<tr><td class="store-col">${escapeHtml(r.location_tag)}</td>`;
+
+        if (mode === 'sales' || mode === 'both') {
+          html += `
+            <td class="group-day num mono">${moneyWhole(r.cur_day_net)}</td>
+            <td class="group-day num mono">${moneyWhole(r.py_day_net)}</td>
+            <td class="group-day num mono">${pctFmt(r.day_net_var_pct)}</td>
+
+            <td class="group-mtd num mono">${moneyWhole(r.cur_mtd_net)}</td>
+            <td class="group-mtd num mono">${moneyWhole(r.py_mtd_net)}</td>
+            <td class="group-mtd num mono">${pctFmt(r.mtd_net_var_pct)}</td>
+
+            <td class="group-ytd num mono">${moneyWhole(r.cur_ytd_net)}</td>
+            <td class="group-ytd num mono">${moneyWhole(r.py_ytd_net)}</td>
+            <td class="group-ytd num mono">${pctFmt(r.ytd_net_var_pct)}</td>
+          `;
+        }
+
+        if (mode === 'units' || mode === 'both') {
+          html += `
+            <td class="group-day num mono">${numberFmt(r.cur_day_qty)}</td>
+            <td class="group-day num mono">${numberFmt(r.py_day_qty)}</td>
+            <td class="group-day num mono">${pctFmt(r.day_qty_var_pct)}</td>
+
+            <td class="group-mtd num mono">${numberFmt(r.cur_mtd_qty)}</td>
+            <td class="group-mtd num mono">${numberFmt(r.py_mtd_qty)}</td>
+            <td class="group-mtd num mono">${pctFmt(r.mtd_qty_var_pct)}</td>
+
+            <td class="group-ytd num mono">${numberFmt(r.cur_ytd_qty)}</td>
+            <td class="group-ytd num mono">${numberFmt(r.py_ytd_qty)}</td>
+            <td class="group-ytd num mono">${pctFmt(r.ytd_qty_var_pct)}</td>
+          `;
+        }
+
+        html += `
+          <td class="group-meta num mono">${numberFmt(r.row_count)}</td>
+          <td class="group-meta num mono">${numberFmt(r.blank_sku_rows)}</td>
+          <td class="group-meta num mono">${numberFmt(r.refund_discrepancy_rows)}</td>
+          <td class="group-meta mono">${fmtDate(r.min_day_date)}</td>
+          <td class="group-meta mono">${fmtDate(r.max_day_date)}</td>
+        </tr>
+        `;
+        return html;
+      }).join('');
+    }
+
+    function renderProvisionalBanner() {
+      const today = todayLocalDateString();
+      const matrixAsOf = state.matrixRows?.[0]?.as_of_date || null;
+
+      if (matrixAsOf && matrixAsOf === today && state.matrixRows?.length) {
+        el.provisionalText.textContent =
+          `Comp summary as-of ${matrixAsOf}: if Better Reports had not fully finished before the sync, current-day values may still be incomplete.`;
+        el.provisionalBanner.classList.remove('hidden');
+        return;
+      }
+
+      if (filtersMayIncludeCurrentDay()) {
+        el.provisionalText.textContent =
+          'Your date filters include today (or a recent preset). Totals can change after the next sync—treat current-day numbers as provisional.';
+        el.provisionalBanner.classList.remove('hidden');
+        return;
+      }
+
+      el.provisionalBanner.classList.add('hidden');
+    }
+
     function renderKpis() {
       const s = state.summary;
       if (!s) return;
@@ -1020,8 +1352,23 @@
           ? `Loaded ${numberFmt(summary.totalRows)} filtered rows across ${numberFmt(summary.locationCount)} location${summary.locationCount === 1 ? '' : 's'}.`
           : 'No rows matched current filters.'
         );
-        setProgress('Complete');
+
         renderAll();
+        renderProvisionalBanner();
+
+        if (el.storeCompsPanel.open) {
+          setProgress('Refreshing optional comps');
+          try {
+            await loadMatrix();
+            renderMatrix();
+          } catch (e) {
+            console.error(e);
+            setStatus(`Detail loaded; comps refresh failed: ${e.message || 'Unknown error'}`);
+          }
+        }
+
+        renderProvisionalBanner();
+        setProgress('Complete');
       } catch (e) {
         console.error(e);
         setStatus(`Load failed: ${e.message || 'Unknown error'}`);
@@ -1115,6 +1462,27 @@
       if (el.presetFilter.value !== 'custom') {
         applyPresetDates();
       }
+    });
+
+    el.storeCompsPanel.addEventListener('toggle', async () => {
+      if (!el.storeCompsPanel.open) return;
+      setLoading(true);
+      setProgress('Loading store comps');
+      try {
+        await loadMatrix();
+        renderMatrix();
+        renderProvisionalBanner();
+      } catch (e) {
+        console.error(e);
+        alert(e.message || 'Comps load failed');
+      } finally {
+        setLoading(false);
+        setProgress('Complete');
+      }
+    });
+
+    el.metricMode.addEventListener('change', () => {
+      if (el.storeCompsPanel.open) renderMatrix();
     });
 
     document.addEventListener('click', async (ev) => {
