@@ -98,6 +98,25 @@
       padding: 14px;
     }
 
+    .action-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .action-group {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 6px;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: color-mix(in oklab, var(--panel-solid) 78%, transparent);
+    }
+
     .section-label {
       font-size: 11px;
       text-transform: uppercase;
@@ -308,6 +327,51 @@
       align-items: center;
       gap: 8px;
       flex-wrap: wrap;
+    }
+
+    .quick-edit {
+      display: grid;
+      grid-template-columns: minmax(92px, 1fr) minmax(74px, .8fr) auto;
+      gap: 8px;
+      align-items: end;
+      min-width: 270px;
+    }
+
+    .quick-field { min-width: 0; }
+
+    .quick-field span {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      font-weight: 800;
+      color: var(--muted2);
+    }
+
+    .quick-input {
+      width: 100%;
+      height: 34px;
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      padding: 0 10px;
+      background: color-mix(in oklab, var(--panel-solid) 88%, transparent);
+      color: var(--text);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .quick-input:focus {
+      outline: none;
+      border-color: color-mix(in oklab, var(--accent) 34%, var(--border));
+      box-shadow: 0 0 0 3px var(--ring);
+    }
+
+    .quick-save {
+      height: 34px;
+      padding: 0 10px;
+      border-radius: 11px;
+      font-size: 12px;
     }
 
     .mini-link {
@@ -561,6 +625,9 @@
       .toolbar-grid {
         grid-template-columns: repeat(3, minmax(0,1fr));
       }
+      .action-bar {
+        justify-content: flex-start;
+      }
       .layout-grid {
         grid-template-columns: 1fr;
       }
@@ -605,19 +672,24 @@
     <div class="header-row">
       <div>
         <div class="section-label">Revenue Planning</div>
-        <h1 class="headline mt-2">Projections</h1>
+        <h1 class="headline mt-2">Silo Revenue Projections</h1>
         <div class="subtle mt-2">
-          Revenue plan tied to launch and marketing calendar context by date.
+          Practical finance and ops planning tied to Silo Launch Workbench context by date.
         </div>
       </div>
 
-      <div class="flex items-center gap-2 flex-wrap">
-        <button id="reloadBtn" class="btn">Reload</button>
-        <button id="downloadTemplateBtn" class="btn">Template</button>
-        <button id="exportBtn" class="btn">Export CSV</button>
-        <label for="importFile" class="btn">Import CSV</label>
-        <input id="importFile" type="file" accept=".csv,text/csv" class="hidden" />
-        <button id="newProjectionBtn" class="btn btn-primary">New projection</button>
+      <div class="action-bar">
+        <div class="action-group" aria-label="Primary projection actions">
+          <button id="newProjectionBtn" class="btn btn-primary">New projection</button>
+          <button id="reloadBtn" class="btn">Reload</button>
+        </div>
+        <div class="action-group" aria-label="Import, export, and audit tools">
+          <button id="exportBtn" class="btn">Export CSV</button>
+          <label for="importFile" class="btn">Import CSV</label>
+          <input id="importFile" type="file" accept=".csv,text/csv" class="hidden" />
+          <button id="downloadTemplateBtn" class="btn">Template</button>
+          <button id="openHistoryDrawerBtn" class="btn">Audit</button>
+        </div>
       </div>
     </div>
 
@@ -693,7 +765,7 @@
           <div>
             <div class="section-label">Matrix view</div>
             <div class="mt-2" style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em;">Projected sales by date and location</div>
-            <div class="subtle mt-1">Launch calendar now sits inside the matrix so each row can be tied back to release and marketing activity.</div>
+            <div class="subtle mt-1">Inline sales and units edits keep common adjustments fast; launch context comes from Silo Launch Workbench.</div>
           </div>
           <div class="text-sm" style="color: var(--muted);">
             Dates shown: <span id="tableCount" class="mono">0</span> · Updated <span id="lastUpdated" class="mono">—</span>
@@ -718,7 +790,7 @@
             <div>
               <div class="section-label">Edit projection</div>
               <div class="mt-2" style="font-size: 20px; font-weight: 700; letter-spacing: -0.03em;">Create or adjust</div>
-              <div class="subtle mt-1">One active row per date and location.</div>
+              <div class="subtle mt-1">One active row per date and location. Coordinate scenarios before overwriting shared assumptions.</div>
             </div>
             <div class="pill" id="editingPill">Mode: New</div>
           </div>
@@ -755,7 +827,7 @@
             <div class="calendar-box">
               <div class="flex items-center justify-between gap-2 flex-wrap">
                 <div>
-                  <div class="section-label">Launch calendar tie-in</div>
+                  <div class="section-label">Launch Workbench tie-in</div>
                   <div style="font-size:14px; font-weight:700; margin-top:4px;">Events on selected date</div>
                 </div>
                 <button id="appendCalendarToNotesBtn" type="button" class="btn">Use in notes</button>
@@ -805,9 +877,9 @@
           <div class="flex items-center justify-between gap-3 flex-wrap">
             <div>
               <div class="section-label">Audit + import</div>
-              <div class="mt-2" style="font-size: 18px; font-weight: 700; letter-spacing: -0.03em;">Recent tools</div>
+              <div class="mt-2" style="font-size: 18px; font-weight: 700; letter-spacing: -0.03em;">Recent import results</div>
             </div>
-            <button id="openHistoryDrawerBtn" class="btn">Open audit</button>
+            <button id="openWorkbenchBtn" class="btn">Open Launch Workbench</button>
           </div>
 
           <div class="mt-4" id="importSummary">
@@ -857,6 +929,7 @@
   <script>
     const cfg = window.__SILO_CONFIG__ || {};
     let supabaseClient = null;
+    const LAUNCH_WORKBENCH_URL = "/pages/launch-calendar.html";
 
     const state = {
       themeKey: "silo_projections_theme_v5",
@@ -869,13 +942,8 @@
       calendarEvents: [],
       filteredCalendarEvents: [],
       launchTypes: [],
-      launchSheetUrl: "https://docs.google.com/spreadsheets/d/1r2xGCz6hRDek7YHHzLCqV5BMyCVSTSh4A5FPOEvpQsc/edit#gid=0"
+      launchWorkbenchUrl: LAUNCH_WORKBENCH_URL
     };
-
-    const CALENDAR_SHEET_ID = "1r2xGCz6hRDek7YHHzLCqV5BMyCVSTSh4A5FPOEvpQsc";
-    const CALENDAR_GID = "0";
-    const CALENDAR_GVIZ = `https://docs.google.com/spreadsheets/d/${CALENDAR_SHEET_ID}/gviz/tq?gid=${CALENDAR_GID}&tqx=out:json`;
-    const CALENDAR_CSV = `https://docs.google.com/spreadsheets/d/${CALENDAR_SHEET_ID}/export?format=csv&gid=${CALENDAR_GID}`;
 
     const el = (id) => document.getElementById(id);
     const setText = (id, text) => { const n = el(id); if (n) n.textContent = text; };
@@ -892,6 +960,7 @@
     const downloadTemplateBtn = el("downloadTemplateBtn");
     const importFile = el("importFile");
     const openHistoryDrawerBtn = el("openHistoryDrawerBtn");
+    const openWorkbenchBtn = el("openWorkbenchBtn");
 
     const thisMonthBtn = el("thisMonthBtn");
     const next30Btn = el("next30Btn");
@@ -1057,44 +1126,62 @@
       return null;
     }
 
-    function parseGvizJson(text) {
-      const start = text.indexOf("{");
-      const end = text.lastIndexOf("}");
-      if (start === -1 || end === -1) return null;
-      try {
-        return JSON.parse(text.slice(start, end + 1));
-      } catch {
-        return null;
-      }
-    }
-
-    function parseSheetDate(value) {
-      if (!value) return null;
-      if (value instanceof Date) return value;
+    function normalizeIsoDate(value) {
+      if (!value) return "";
       const s = String(value).trim();
-
-      const gvizMatch = s.match(/Date\((\d{4}),\s*(\d{1,2}),\s*(\d{1,2})/i);
-      if (gvizMatch) return new Date(+gvizMatch[1], +gvizMatch[2], +gvizMatch[3]);
-
-      const us = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-      if (us) {
-        const y = us[3].length === 2 ? (+us[3] + 2000) : +us[3];
-        return new Date(y, +us[1] - 1, +us[2]);
-      }
-
-      const iso = Date.parse(s);
-      if (!Number.isNaN(iso)) return new Date(iso);
-
-      return null;
+      const direct = s.match(/^(\d{4}-\d{2}-\d{2})/);
+      if (direct) return direct[1];
+      const parsed = new Date(s);
+      if (Number.isNaN(parsed.getTime())) return "";
+      return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
     }
 
-    function toIsoDate(value) {
-      const d = parseSheetDate(value);
-      if (!d || Number.isNaN(d.getTime())) return "";
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, "0");
-      const day = String(d.getDate()).padStart(2, "0");
-      return `${y}-${m}-${day}`;
+    function detailLine(label, value) {
+      const text = String(value ?? "").trim();
+      return text ? `${label}: ${text}` : "";
+    }
+
+    function buildLaunchDetails(row) {
+      return [
+        detailLine("Details", row.details),
+        detailLine("Notes", row.notes),
+        detailLine("Channel", row.marketing_channel),
+        detailLine("Campaign", row.campaign_type),
+        detailLine("Readiness", row.launch_readiness),
+        detailLine("Status", row.status),
+        detailLine("Priority", row.priority),
+        detailLine("Product", row.product_title),
+        detailLine("SKU", row.product_sku),
+        detailLine("Product type", row.product_type),
+        detailLine("Collection", row.collection_name),
+        detailLine("PO", row.po_number),
+        detailLine("Vendor", row.vendor_name),
+        detailLine("Inventory tag", row.inventory_tag),
+        row.expected_units !== null && row.expected_units !== undefined ? detailLine("Expected units", row.expected_units) : "",
+        row.expected_retail_value !== null && row.expected_retail_value !== undefined ? detailLine("Expected retail", fmtMoney(row.expected_retail_value)) : ""
+      ].filter(Boolean).join(" | ");
+    }
+
+    function mapLaunchCalendarRow(row) {
+      const dateIso = normalizeIsoDate(row.launch_date);
+      if (!dateIso) return null;
+
+      const item = {
+        id: String(row.id ?? `${dateIso}|${row.title || row.product_title || ""}`),
+        day: "",
+        date_iso: dateIso,
+        event: String(row.title || row.product_title || "Untitled launch").trim(),
+        type: String(row.launch_type || "").trim(),
+        des: String(row.designer || "").trim(),
+        assets: String(row.assets_needed || "").trim(),
+        details: buildLaunchDetails(row),
+        time: String(row.launch_time || "").trim(),
+        tz: String(row.timezone || row.time_zone || "").trim(),
+        img: String(row.launch_image_url || "").trim(),
+        files: []
+      };
+
+      return calendarEventHasContent(item) ? item : null;
     }
 
     function calendarEventHasContent(e) {
@@ -1322,110 +1409,43 @@
       applyFilters();
     }
 
-    async function loadCalendarEvents() {
-      const cacheBust = `_=${Date.now()}`;
-      let events = [];
-
-      try {
-        const text = await (await fetch(`${CALENDAR_GVIZ}&${cacheBust}`, { cache: "no-store" })).text();
-        const json = parseGvizJson(text);
-        const cols = json?.table?.cols?.map(c => String(c.label || "").trim()) || [];
-        const rows = json?.table?.rows || [];
-
-        if (rows.length) {
-          const lowerCols = cols.map(c => c.toLowerCase());
-          const idx = (label) => lowerCols.indexOf(label.toLowerCase());
-          const fileIdx = cols.map((c, i) => /^file\s*\d+/i.test(c) ? i : -1).filter(i => i >= 0);
-          const cell = (arr, i) => {
-            const x = arr[i];
-            return x ? (x.v ?? x.f ?? "") : "";
-          };
-
-          const colMap = {
-            day: idx("Day"),
-            date: idx("Date"),
-            event: idx("Event"),
-            type: idx("Launch Type"),
-            des: idx("Designer"),
-            assets: idx("Design Assets Needed"),
-            details: idx("Details"),
-            time: idx("Time"),
-            tz: idx("Time Zone"),
-            img: idx("Launch img")
-          };
-
-          events = rows.map((r, ri) => {
-            const c = r.c || [];
-            const dateIso = toIsoDate(cell(c, colMap.date));
-            if (!dateIso) return null;
-
-            const item = {
-              id: btoa(unescape(encodeURIComponent(`${dateIso}|${cell(c, colMap.event)}|${ri}`))).replace(/=+$/,""),
-              day: String(cell(c, colMap.day) || "").trim(),
-              date_iso: dateIso,
-              event: String(cell(c, colMap.event) || "").trim(),
-              type: String(cell(c, colMap.type) || "").trim(),
-              des: String(cell(c, colMap.des) || "").trim(),
-              assets: String(cell(c, colMap.assets) || "").trim(),
-              details: String(cell(c, colMap.details) || "").trim(),
-              time: String(cell(c, colMap.time) || "").trim(),
-              tz: String(cell(c, colMap.tz) || "").trim(),
-              img: String(cell(c, colMap.img) || "").trim(),
-              files: fileIdx.map(i => String(cell(c, i) || "").trim()).filter(Boolean)
-            };
-
-            return calendarEventHasContent(item) ? item : null;
-          }).filter(Boolean);
-        }
-      } catch (err) {
-        console.warn("Calendar gviz load failed, falling back to CSV.", err);
+    function getLaunchQueryBounds(override = {}) {
+      if (override.dateFrom || override.dateTo) {
+        return {
+          dateFrom: override.dateFrom || override.dateTo || "",
+          dateTo: override.dateTo || override.dateFrom || ""
+        };
       }
 
-      if (!events.length) {
-        const text = await (await fetch(`${CALENDAR_CSV}&${cacheBust}`, { cache: "no-store" })).text();
-        const rows = parseCsv(text);
-        const headerRowIdx = (() => {
-          const need = ["day", "date", "event"];
-          const max = Math.min(8, rows.length);
-          for (let i = 0; i < max; i++) {
-            const r = (rows[i] || []).map(x => String(x || "").trim().toLowerCase());
-            if (need.every(k => r.includes(k))) return i;
-          }
-          return 0;
-        })();
+      const dates = state.projections.map(r => String(r.projection_date || "")).filter(Boolean).sort((a, b) => a.localeCompare(b));
+      return {
+        dateFrom: dates[0] || "",
+        dateTo: dates[dates.length - 1] || ""
+      };
+    }
 
-        const headers = rows[headerRowIdx] || [];
-        const hIdx = buildHeaderIndex(headers);
-        const fileIdx = headers.map((c, i) => /^file\s*\d+/i.test(String(c || "")) ? i : -1).filter(i => i >= 0);
+    async function loadCalendarEvents(options = {}) {
+      const { dateFrom, dateTo } = getLaunchQueryBounds(options);
+      let query = supabaseClient
+        .from("launch_calendar")
+        .select("*")
+        .order("launch_date", { ascending: true })
+        .range(0, 5000);
 
-        events = rows.slice(headerRowIdx + 1).map((row, ri) => {
-          const dateIso = toIsoDate(row[findHeader(hIdx, ["date"])]);
-          if (!dateIso) return null;
+      if (dateFrom) query = query.gte("launch_date", dateFrom);
+      if (dateTo) query = query.lte("launch_date", dateTo);
 
-          const item = {
-            id: btoa(unescape(encodeURIComponent(`${dateIso}|${row[findHeader(hIdx, ["event"])] || ""}|${ri}`))).replace(/=+$/,""),
-            day: String(row[findHeader(hIdx, ["day"])] || "").trim(),
-            date_iso: dateIso,
-            event: String(row[findHeader(hIdx, ["event"])] || "").trim(),
-            type: String(row[findHeader(hIdx, ["launch type", "type"])] || "").trim(),
-            des: String(row[findHeader(hIdx, ["designer"])] || "").trim(),
-            assets: String(row[findHeader(hIdx, ["design assets needed", "assets"])] || "").trim(),
-            details: String(row[findHeader(hIdx, ["details"])] || "").trim(),
-            time: String(row[findHeader(hIdx, ["time"])] || "").trim(),
-            tz: String(row[findHeader(hIdx, ["time zone", "tz"])] || "").trim(),
-            img: String(row[findHeader(hIdx, ["launch img", "image"])] || "").trim(),
-            files: fileIdx.map(i => String(row[i] || "").trim()).filter(Boolean)
-          };
+      const { data, error } = await query;
+      if (error) throw error;
 
-          return calendarEventHasContent(item) ? item : null;
-        }).filter(Boolean);
-      }
-
-      state.calendarEvents = events.sort((a, b) => {
-        const d = String(a.date_iso || "").localeCompare(String(b.date_iso || ""));
-        if (d !== 0) return d;
-        return String(a.event || "").localeCompare(String(b.event || ""));
-      });
+      state.calendarEvents = (data || [])
+        .map(mapLaunchCalendarRow)
+        .filter(Boolean)
+        .sort((a, b) => {
+          const d = String(a.date_iso || "").localeCompare(String(b.date_iso || ""));
+          if (d !== 0) return d;
+          return String(a.event || "").localeCompare(String(b.event || ""));
+        });
 
       populateLaunchTypeFilter();
       applyFilters();
@@ -1459,7 +1479,9 @@
             ev.assets,
             ev.details,
             ev.time,
-            ev.tz
+            ev.tz,
+            ev.img,
+            ...(Array.isArray(ev.files) ? ev.files : [])
           ].map(v => String(v || "").toLowerCase()).join(" ");
           if (!hay.includes(f.search)) return false;
         }
@@ -1491,7 +1513,9 @@
             ev.assets,
             ev.details,
             ev.time,
-            ev.tz
+            ev.tz,
+            ev.img,
+            ...(Array.isArray(ev.files) ? ev.files : [])
           ].join(" ")).join(" ").toLowerCase();
 
           if (!(projectionHay + " " + calendarHay).includes(f.search)) return false;
@@ -1678,7 +1702,7 @@
             <div class="launch-stack" style="width:100%;">
               <div class="flex items-center gap-2 flex-wrap">
                 <span class="launch-badge">${fmtInt(summary.count)} event(s)</span>
-                <a href="${escapeHtml(state.launchSheetUrl)}" target="_blank" rel="noopener" class="mini-link">Sheet</a>
+                <a href="${escapeHtml(state.launchWorkbenchUrl)}" target="_blank" rel="noopener" class="mini-link">Workbench</a>
               </div>
               ${preview}
               ${hidden}
@@ -1739,8 +1763,18 @@
           return `
             <td class="mono">
               <div class="matrix-value">
+                <div class="quick-edit">
+                  <label class="quick-field">
+                    <span>Sales</span>
+                    <input class="quick-input mono" type="number" min="0" step="0.01" value="${escapeHtml(Number(sales).toFixed(2))}" data-action="quick-sales" data-id="${escapeHtml(String(row.id))}" aria-label="Projected sales for ${escapeHtml(row.location_name || getLocationNameById(row.location_id))} on ${escapeHtml(date)}" />
+                  </label>
+                  <label class="quick-field">
+                    <span>Units</span>
+                    <input class="quick-input mono" type="number" min="0" step="1" value="${escapeHtml(String(toNumber(row.projected_units)))}" data-action="quick-units" data-id="${escapeHtml(String(row.id))}" aria-label="Projected units for ${escapeHtml(row.location_name || getLocationNameById(row.location_id))} on ${escapeHtml(date)}" />
+                  </label>
+                  <button class="btn quick-save" type="button" data-action="quick-save" data-id="${escapeHtml(String(row.id))}">Save</button>
+                </div>
                 <div class="cell-note-wrap">
-                  <span>${fmtMoney2(sales)}</span>
                   ${(hasNote || launchSummary.count) ? `
                     <span class="cell-note-flag">i</span>
                     <div class="cell-tooltip">
@@ -1749,7 +1783,7 @@
                     </div>
                   ` : ``}
                 </div>
-                <a href="#" class="mini-link" data-action="edit-cell" data-id="${escapeHtml(String(row.id))}">Edit</a>
+                <a href="#" class="mini-link" data-action="edit-cell" data-id="${escapeHtml(String(row.id))}">Notes / details</a>
               </div>
             </td>
           `;
@@ -1942,6 +1976,7 @@
         }
 
         populateSourceFilter();
+        await loadCalendarEvents();
         applyFilters();
         loadProjectionIntoForm(mapped.id);
         setStatus("Projection saved.", "good");
@@ -1954,6 +1989,65 @@
       }
     }
 
+    function getQuickEditNode(id, action) {
+      return Array.from(projectionTableBody.querySelectorAll(`[data-action="${action}"]`))
+        .find(node => String(node.getAttribute("data-id")) === String(id));
+    }
+
+    async function saveQuickEdit(id) {
+      const row = state.projections.find(r => String(r.id) === String(id));
+      if (!row) {
+        setStatus("Projection row no longer exists. Reload and try again.", "warn");
+        return;
+      }
+
+      const salesInput = getQuickEditNode(id, "quick-sales");
+      const unitsInput = getQuickEditNode(id, "quick-units");
+      const saveBtn = getQuickEditNode(id, "quick-save");
+      const units = Math.round(toNumber(unitsInput?.value));
+      const sales = Number(toNumber(salesInput?.value).toFixed(2));
+
+      if (units < 0 || sales < 0) {
+        setStatus("Quick edits cannot use negative units or sales.", "danger");
+        return;
+      }
+
+      const payload = {
+        projection_date: row.projection_date,
+        location_id: Number(row.location_id),
+        projected_units: units,
+        projected_sales: sales,
+        notes: String(row.notes || "").trim() || null,
+        source: String(row.source || "manual").trim() || "manual",
+        scenario: "active"
+      };
+
+      if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.textContent = "Saving";
+      }
+
+      try {
+        const { error } = await supabaseClient
+          .from("revenue_projections")
+          .upsert([payload], { onConflict: "projection_date,location_id" });
+
+        if (error) throw error;
+        await loadProjections();
+        if (state.selectedProjection && String(state.selectedProjection.id) === String(id)) {
+          loadProjectionIntoForm(id);
+        }
+        setStatus("Projection quick edit saved.", "good");
+      } catch (e) {
+        console.error(e);
+        setStatus(`Quick save failed: ${e.message || e}`, "danger");
+      } finally {
+        if (saveBtn) {
+          saveBtn.disabled = false;
+          saveBtn.textContent = "Save";
+        }
+      }
+    }
     async function deleteSelectedProjection() {
       if (!state.selectedProjection?.id) {
         setStatus("Select a row before deleting.", "warn");
@@ -2298,10 +2392,8 @@
       setStatus("Loading…");
       try {
         await loadLocations();
-        await Promise.all([
-          loadProjections(),
-          loadCalendarEvents()
-        ]);
+        await loadProjections();
+        await loadCalendarEvents();
         setStatus("Ready.", "good");
       } catch (e) {
         console.error(e);
@@ -2364,7 +2456,7 @@
       deleteProjectionBtn.addEventListener("click", deleteSelectedProjection);
       viewSelectedHistoryBtn.addEventListener("click", openSelectedHistory);
 
-      projectionTableBody.addEventListener("click", (e) => {
+      projectionTableBody.addEventListener("click", async (e) => {
         const btn = e.target.closest("[data-action]");
         if (!btn) return;
 
@@ -2375,7 +2467,20 @@
         if (action === "edit-cell") {
           e.preventDefault();
           loadProjectionIntoForm(id);
+          return;
         }
+
+        if (action === "quick-save") {
+          e.preventDefault();
+          await saveQuickEdit(id);
+        }
+      });
+
+      projectionTableBody.addEventListener("keydown", async (e) => {
+        const input = e.target.closest('[data-action="quick-sales"], [data-action="quick-units"]');
+        if (!input || String(e.key || "").toLowerCase() !== "enter") return;
+        e.preventDefault();
+        await saveQuickEdit(input.getAttribute("data-id"));
       });
 
       exportBtn.addEventListener("click", exportFilteredCsv);
@@ -2383,6 +2488,10 @@
       importFile.addEventListener("change", async () => {
         const file = importFile.files?.[0];
         if (file) await importCsvFile(file);
+      });
+
+      openWorkbenchBtn.addEventListener("click", () => {
+        window.open(state.launchWorkbenchUrl, "_blank", "noopener");
       });
 
       openHistoryDrawerBtn.addEventListener("click", async () => {
