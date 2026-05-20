@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SILO — App status &amp; overview</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "base",
+      themeVariables: {
+        primaryColor: "#e0e7ff",
+        primaryTextColor: "#0f172a",
+        primaryBorderColor: "#6366f1",
+        lineColor: "#64748b",
+        secondaryColor: "#f1f5f9",
+        tertiaryColor: "#fff",
+        fontFamily: "DM Sans, system-ui, sans-serif",
+      },
+      flowchart: { curve: "basis", padding: 12 },
+    });
+  </script>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --text: #0f172a;
+      --muted: #475569;
+      --faint: #94a3b8;
+      --border: #e2e8f0;
+      --accent: #4338ca;
+      --accent-soft: #eef2ff;
+      --warn-bg: #fffbeb;
+      --warn-border: #fcd34d;
+      --code-bg: #f1f5f9;
+      --radius: 14px;
+      --shadow: 0 4px 24px rgba(15, 23, 42, 0.06);
+      --max: 920px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      font-family: "DM Sans", system-ui, -apple-system, sans-serif;
+      font-size: 16px;
+      line-height: 1.65;
+      color: var(--text);
+      background: linear-gradient(180deg, #eef2ff 0%, var(--bg) 28%, var(--bg) 100%);
+      min-height: 100vh;
+    }
+
+    .wrap {
+      max-width: var(--max);
+      margin: 0 auto;
+      padding: 2.5rem 1.25rem 4rem;
+    }
+
+    header {
+      margin-bottom: 2.5rem;
+    }
+
+    .badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--accent);
+      background: var(--accent-soft);
+      border: 1px solid #c7d2fe;
+      padding: 0.35rem 0.65rem;
+      border-radius: 999px;
+      margin-bottom: 0.75rem;
+    }
+
+    h1 {
+      font-size: clamp(1.75rem, 4vw, 2.35rem);
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+      margin: 0 0 0.5rem;
+    }
+
+    .lede {
+      color: var(--muted);
+      font-size: 1.05rem;
+      max-width: 62ch;
+      margin: 0;
+    }
+
+    nav.toc {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 2.5rem;
+      box-shadow: var(--shadow);
+    }
+
+    nav.toc strong {
+      display: block;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--faint);
+      margin-bottom: 0.75rem;
+    }
+
+    nav.toc ul {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      columns: 2;
+      column-gap: 1.5rem;
+    }
+
+    @media (max-width: 560px) {
+      nav.toc ul { columns: 1; }
+    }
+
+    nav.toc a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 0.95rem;
+    }
+
+    nav.toc a:hover { text-decoration: underline; }
+
+    nav.toc li { margin-bottom: 0.4rem; break-inside: avoid; }
+
+    section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem 1.5rem 1.65rem;
+      margin-bottom: 1.25rem;
+      box-shadow: var(--shadow);
+    }
+
+    section h2 {
+      font-size: 1.2rem;
+      font-weight: 700;
+      margin: 0 0 0.75rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+      letter-spacing: -0.01em;
+    }
+
+    section h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin: 1.25rem 0 0.5rem;
+      color: var(--text);
+    }
+
+    section p { margin: 0 0 0.85rem; color: var(--muted); }
+    section p:last-child { margin-bottom: 0; }
+
+    ul.dense {
+      margin: 0 0 0.85rem;
+      padding-left: 1.2rem;
+      color: var(--muted);
+    }
+
+    ul.dense li { margin-bottom: 0.35rem; }
+
+    code, .mono {
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 0.84em;
+      background: var(--code-bg);
+      padding: 0.12em 0.38em;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+    }
+
+    pre.code {
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 0.8rem;
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 1rem 1.1rem;
+      border-radius: 10px;
+      overflow-x: auto;
+      margin: 0.75rem 0 0;
+      line-height: 1.5;
+    }
+
+    pre.code code {
+      background: none;
+      border: 0;
+      padding: 0;
+      color: inherit;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      margin: 0.75rem 0 0;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 0.55rem 0.65rem;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+
+    th {
+      font-weight: 600;
+      color: var(--text);
+      background: #f8fafc;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    td { color: var(--muted); }
+
+    .note {
+      background: var(--warn-bg);
+      border: 1px solid var(--warn-border);
+      border-radius: 10px;
+      padding: 0.85rem 1rem;
+      font-size: 0.92rem;
+      color: #78350f;
+      margin-top: 0.85rem;
+    }
+
+    .note strong { color: #92400e; }
+
+    .mermaid-wrap {
+      margin: 1rem 0;
+      padding: 1rem;
+      background: #fafafa;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      overflow-x: auto;
+    }
+
+    footer {
+      margin-top: 2rem;
+      font-size: 0.85rem;
+      color: var(--faint);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <span class="badge">Living document</span>
+      <h1>App status, architecture, and how SILO works</h1>
+      <p class="lede">
+        This repository powers <strong>SILO</strong> (Silo ERP): mostly static HTML tools for operations, finance, inventory, purchasing, and wholesale workflows.
+        Data lives in <strong>Supabase</strong> (PostgreSQL). Scheduled jobs and a small Node service move data in from <strong>Google Sheets</strong> and <strong>Shopify</strong>.
+        This page is the friendly map for anyone onboarding or debugging the system.
+      </p>
+    </header>
+
+    <nav class="toc" aria-label="On this page">
+      <strong>On this page</strong>
+      <ul>
+        <li><a href="#essence">What SILO is</a></li>
+        <li><a href="#architecture">Big picture</a></li>
+        <li><a href="#flows">Data flows</a></li>
+        <li><a href="#frontend">HTML apps &amp; modules</a></li>
+        <li><a href="#server">Shopify sync service</a></li>
+        <li><a href="#scripts">Scripts &amp; config</a></li>
+        <li><a href="#ci">Automation (GitHub Actions)</a></li>
+        <li><a href="#stack">Technology stack</a></li>
+        <li><a href="#notes">Important notes</a></li>
+        <li><a href="#maintain">Keeping this page current</a></li>
+      </ul>
+    </nav>
+
+    <section id="essence">
+      <h2>What SILO does</h2>
+      <p>
+        SILO is an internal web suite: dashboards and forms implemented as plain HTML pages with client-side JavaScript.
+        People sign in with <strong>Supabase Auth</strong> (see <code>pages/login.html</code> and shared <code>pages/config.js</code> for project URL and anon key).
+        After login, pages query tables and views directly with the Supabase JS client, filtered by Row Level Security policies defined in the database.
+      </p>
+      <p>
+        Separately from the static site, <strong>Node.js</strong> scripts and a small <strong>Express</strong> API synchronize operational data: retail-style sales and inventory snapshots from Shopify,
+        and multi-location “Silo” spreadsheets into the same Supabase project so the HTML tools stay consistent.
+      </p>
+    </section>
+
+    <section id="architecture">
+      <h2>Big picture architecture</h2>
+      <p>
+        Think of three lanes: <strong>human-facing static pages</strong> (GitHub Pages or similar), <strong>background sync</strong> (GitHub Actions + optional hosted API),
+        and <strong>Supabase</strong> as the single source of truth for app data.
+      </p>
+      <div class="mermaid-wrap">
+        <pre class="mermaid">
+flowchart TB
+  subgraph users [People]
+    U[Browser]
+  end
+  subgraph static [Static site]
+    GH[HTML pages + JS]
+  end
+  subgraph supa [Supabase]
+    DB[(PostgreSQL + Auth + RLS)]
+  end
+  subgraph automation [Automation]
+    GHA[GitHub Actions]
+    SCR[Node scripts]
+    API[Express: silo-shopify-sync]
+  end
+  subgraph external [External systems]
+    SH[Shopify Admin API]
+    GS[Google Sheets CSV export]
+  end
+  U --> GH
+  GH -->|Supabase JS anon| DB
+  GHA --> SCR
+  SCR -->|service role| DB
+  API -->|service role| DB
+  API --> SH
+  SCR --> GS
+        </pre>
+      </div>
+    </section>
+
+    <section id="flows">
+      <h2>How data flows</h2>
+
+      <h3>Nightly Silo (Sheets → Supabase)</h3>
+      <p>
+        <code>scripts/sync-silo-inventory-sales.mjs</code> reads CSV export URLs from <code>config/silo-sources.mjs</code> (one row per retail location plus online).
+        It upserts inventory and daily sales into tables such as <code>inventory_on_hand</code> and <code>sales_by_day</code>, and can refresh verification summaries.
+      </p>
+      <div class="mermaid-wrap">
+        <pre class="mermaid">
+flowchart LR
+  A[Google Sheets tabs] -->|published CSV URLs| B[sync-silo-inventory-sales.mjs]
+  B --> C[inventory_on_hand]
+  B --> D[sales_by_day]
+  B --> E[sales_verification_store_comp_summary]
+        </pre>
+      </div>
+
+      <h3>Shopify → Supabase</h3>
+      <p>
+        <code>server/index.mjs</code> exposes HTTP endpoints that pull orders, products, variants, locations, and inventory levels from one or more Shopify stores,
+        then writes <code>products_master</code>, <code>sales_by_day</code>, <code>inventory_on_hand</code> (append snapshots), and <code>sync_state</code> per shop.
+        Configure stores via environment variables (<code>SHOPIFY_CONNECTIONS</code> JSON or legacy <code>SHOPIFY_STORE</code> / <code>SHOPIFY_TOKEN</code>).
+      </p>
+      <div class="mermaid-wrap">
+        <pre class="mermaid">
+flowchart TB
+  S[Shopify REST Admin API] -->|orders products variants inventory| N[Express server]
+  N --> P[products_master]
+  N --> Q[sales_by_day]
+  N --> R[inventory_on_hand snapshots]
+  N --> T[sync_state]
+        </pre>
+      </div>
+
+      <h3>Accounts receivable (Sheets → Supabase)</h3>
+      <p>
+        <code>server/ar-sync.mjs</code> (run via <code>npm run sync:ar</code>) fetches published CSVs from Google Sheets, normalizes customers and invoices,
+        and upserts into <code>ar_customers</code>, <code>ar_invoices</code>, and job bookkeeping in <code>job_sync_state</code>.
+      </p>
+    </section>
+
+    <section id="frontend">
+      <h2>HTML apps and feature areas</h2>
+      <p>
+        Most tools are standalone pages. Root-level files (for example <code>finance.html</code>, <code>inventory.html</code>) and <code>pages/*.html</code> mirror each other in some cases;
+        use whichever path your hosting maps to. Common pattern: Tailwind via CDN, Supabase v2 from CDN, session from Supabase Auth.
+      </p>
+
+      <h3>Representative modules</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Area</th>
+            <th>Examples</th>
+            <th>Typical data</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Auth &amp; access</td>
+            <td><code>pages/login.html</code>, <code>pages/login2.html</code>, <code>pages/set-password.html</code>, <code>pages/department-access.html</code></td>
+            <td><code>profiles</code>, <code>access_requests</code></td>
+          </tr>
+          <tr>
+            <td>Finance &amp; cash</td>
+            <td><code>finance.html</code>, <code>cashflow.html</code>, <code>executive.html</code>, <code>ap-report.html</code>, <code>accountspayable.html</code></td>
+            <td><code>profiles</code>, finance views as built in SQL</td>
+          </tr>
+          <tr>
+            <td>Inventory &amp; tags</td>
+            <td><code>inventory.html</code>, <code>pages/product-manager.html</code>, <code>pages/product-tags.html</code></td>
+            <td><code>product_tags</code>, <code>products_master</code>, <code>inventory_on_hand</code></td>
+          </tr>
+          <tr>
+            <td>Sales &amp; verification</td>
+            <td><code>pages/sales-verification.html</code>, <code>pages/sales-db.html</code>, <code>pages/sales-reports.html</code></td>
+            <td><code>sales_by_day</code>, <code>sales_verification_store_comp_summary</code></td>
+          </tr>
+          <tr>
+            <td>Purchasing &amp; POs</td>
+            <td><code>pages/po-builder.html</code>, <code>pages/po-report.html</code>, <code>pages/purchase-request.html</code>, <code>pages/request-manager.html</code></td>
+            <td><code>po_headers</code>, <code>po_lines</code>, <code>factories</code>, <code>payment_requests</code></td>
+          </tr>
+          <tr>
+            <td>Wholesale / AR</td>
+            <td><code>pages/baseballismwholesale.html</code></td>
+            <td><code>ar_customers</code>, <code>ar_invoices</code>, queue and rollup views</td>
+          </tr>
+          <tr>
+            <td>Launch &amp; planning</td>
+            <td><code>pages/launch-calendar.html</code>, <code>planner.html</code>, <code>projections.html</code>, <code>pages/planning-scenarios.html</code></td>
+            <td><code>launch_*</code> tables, <code>revenue_projections</code>, <code>locations</code></td>
+          </tr>
+          <tr>
+            <td>People &amp; payroll</td>
+            <td><code>payroll.html</code>, <code>pages/payroll.html</code>, <code>employeehub.html</code>, <code>pages/intern.html</code></td>
+            <td><code>payroll_register_lines</code>, <code>payroll_import_batches</code>, <code>intern_workbench_items</code></td>
+          </tr>
+          <tr>
+            <td>Ops &amp; misc</td>
+            <td><code>ops.html</code>, <code>mailroom.html</code>, <code>calendar.html</code>, <code>index.html</code> (landing)</td>
+            <td>Varies by page</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="note">
+        <strong>Security:</strong> the anon key in <code>pages/config.js</code> is public by design, but RLS in Supabase must enforce who can read or write each table.
+        Never paste service role keys into static HTML or commit them to the repo.
+      </div>
+    </section>
+
+    <section id="server">
+      <h2>Shopify sync service (<code>server/index.mjs</code>)</h2>
+      <p>
+        Package name: <code>silo-shopify-sync</code>. Start with <code>npm start</code> (runs <code>node server/index.mjs</code>).
+        Requires <code>SUPABASE_URL</code> and <code>SUPABASE_SERVICE_ROLE_KEY</code>. Optional tuning: <code>SHOPIFY_API_VER</code>, <code>SHOPIFY_PULL_MODE</code> (<code>created</code> vs <code>updated</code>),
+        <code>SHOPIFY_DAYS_BACK</code>, and multi-store <code>SHOPIFY_CONNECTIONS</code>.
+      </p>
+      <table>
+        <thead>
+          <tr><th>Route</th><th>Method</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>/</code></td><td>GET</td><td>JSON service banner and route list</td></tr>
+          <tr><td><code>/health</code></td><td>GET</td><td>Simple alive check</td></tr>
+          <tr><td><code>/api/sync/shopify</code></td><td>POST</td><td>Run sync; optional JSON body (<code>since</code>, <code>days_back</code>, <code>mode</code>)</td></tr>
+          <tr><td><code>/api/sync/shopify/run</code></td><td>GET</td><td>Same sync via query string (handy for cron or manual GET)</td></tr>
+        </tbody>
+      </table>
+      <p>
+        The server uses <code>node-fetch</code> with retry on HTTP 429, paginates Shopify “Link” headers, and chunks Supabase writes (500 rows) for reliability.
+      </p>
+    </section>
+
+    <section id="scripts">
+      <h2>Scripts and supporting config</h2>
+      <ul class="dense">
+        <li><code>scripts/sync-silo-inventory-sales.mjs</code> — nightly Silo pipeline; env flags documented in the file header (<code>SILO_SALES_SYNC_MODE</code>, <code>SILO_ONLY_SOURCE</code>, skips, etc.).</li>
+        <li><code>config/silo-sources.mjs</code> — inventory and sales CSV URLs per <code>location_tag</code>; validated on startup.</li>
+        <li><code>server/ar-sync.mjs</code> + <code>server/run-ar-sync.mjs</code> — AR import from Sheets; <code>npm run sync:ar</code>.</li>
+        <li><code>scripts/audit-inventory-product-titles.mjs</code>, <code>scripts/backfill-inventory-titles-from-sheets.mjs</code> — maintenance utilities.</li>
+        <li><code>scripts/sql/*.sql</code> — ad hoc checks (for example inventory workboard title validation).</li>
+      </ul>
+    </section>
+
+    <section id="ci">
+      <h2>Automation (GitHub Actions)</h2>
+      <table>
+        <thead>
+          <tr><th>Workflow</th><th>Trigger</th><th>What it runs</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>nightly-silo-sync.yml</code></td>
+            <td>Schedule (cron) and manual dispatch</td>
+            <td><code>node scripts/sync-silo-inventory-sales.mjs</code> with repo secrets for Supabase</td>
+          </tr>
+          <tr>
+            <td><code>ar-sync.yml</code></td>
+            <td>Schedule and manual dispatch</td>
+            <td><code>npm run sync:ar</code></td>
+          </tr>
+          <tr>
+            <td><code>one-time-sales-backfill.yml</code></td>
+            <td>Manual dispatch with <code>location_tag</code> input</td>
+            <td>Sales backfill mode for a single location (skips inventory)</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>Required repository secrets: <code>SUPABASE_URL</code>, <code>SUPABASE_SERVICE_ROLE_KEY</code>.</p>
+    </section>
+
+    <section id="stack">
+      <h2>Technology summary</h2>
+      <ul class="dense">
+        <li><strong>Runtime:</strong> Node.js (ES modules: <code>"type": "module"</code> in <code>package.json</code>).</li>
+        <li><strong>HTTP:</strong> Express 4, CORS enabled, JSON body up to 10&nbsp;MB for sync payloads.</li>
+        <li><strong>Database &amp; auth:</strong> Supabase JS v2 (<code>@supabase/supabase-js</code>) for service writes in Node and anon auth on static pages.</li>
+        <li><strong>Integrations:</strong> Shopify Admin REST API; Google Sheets as CSV sources (no Sheets API key required when using published export URLs).</li>
+        <li><strong>Parsing:</strong> Papa Parse for CSV in AR sync.</li>
+        <li><strong>Frontend:</strong> Static HTML; Tailwind and Supabase often loaded from CDNs; no bundler required for deployment.</li>
+        <li><strong>Hosting hint:</strong> <code>CNAME</code> points to <code>silo-baseballism.com</code> (GitHub Pages or similar static hosting).</li>
+      </ul>
+    </section>
+
+    <section id="notes">
+      <h2>Important notes</h2>
+      <ul class="dense">
+        <li><strong>Two ways into sales/inventory data:</strong> Shopify sync service and Silo spreadsheet sync both target overlapping tables; know which job owns “truth” for a given channel (online vs stores).</li>
+        <li><strong><code>sales_by_day.row_hash</code>:</strong> Shopify upserts use a deterministic hash; Silo script uses its own hashing rules — both are designed to avoid duplicate rows for their source.</li>
+        <li><strong>Inventory snapshots:</strong> Shopify path inserts new snapshot rows; understand retention or deduplication in your reporting views.</li>
+        <li><strong>Overlap windows:</strong> Shopify incremental sync subtracts a small day overlap from last sync time to avoid missing edge orders.</li>
+        <li><strong>Config.js:</strong> update <code>pages/config.js</code> carefully; it ships to every user’s browser.</li>
+      </ul>
+    </section>
+
+    <section id="maintain">
+      <h2>Keeping this page current</h2>
+      <p>
+        Update <code>app-status.html</code> when you add a major HTML surface, a new Supabase table dependency, a new GitHub Action, or a new external integration.
+        If diagrams become wrong, adjust the Mermaid blocks in the “Big picture” and “Data flows” sections.
+      </p>
+      <pre class="code"><code># Local preview (any static server)
+npx --yes serve .   # then open /app-status.html</code></pre>
+    </section>
+
+    <footer>
+      SILO repository overview · Static reference page · Not an authenticated admin API
+    </footer>
+  </div>
+</body>
+</html>
