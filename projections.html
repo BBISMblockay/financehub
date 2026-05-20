@@ -73,7 +73,7 @@
     .shell {
       max-width: 1280px;
       margin: 0 auto;
-      padding: 16px 18px 28px;
+      padding: 10px 16px 24px;
     }
 
     .glass {
@@ -231,28 +231,28 @@
     }
 
     .metric {
-      padding: 12px 14px 10px;
-      border-radius: 14px;
+      padding: 9px 12px 8px;
+      border-radius: 12px;
       background: color-mix(in oklab, var(--panel-solid) 92%, transparent);
       border: 1px solid var(--border);
     }
     .metric .value {
-      font-size: 22px;
+      font-size: 20px;
       line-height: 1.05;
       letter-spacing: -0.04em;
       font-weight: 800;
-      margin-top: 6px;
+      margin-top: 3px;
     }
     .metric .label {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--muted);
       font-weight: 700;
     }
     .metric .sub {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--muted2);
-      margin-top: 7px;
-      line-height: 1.45;
+      margin-top: 4px;
+      line-height: 1.4;
     }
 
     .matrix-wrap {
@@ -609,13 +609,13 @@
       justify-content: space-between;
       gap: 16px;
       flex-wrap: wrap;
-      margin-bottom: 18px;
+      margin-bottom: 10px;
     }
 
     .topbar {
-      border-radius: 22px;
-      padding: 14px 16px;
-      margin-bottom: 18px;
+      border-radius: 20px;
+      padding: 9px 14px;
+      margin-bottom: 10px;
     }
 
     .topbar-row {
@@ -642,30 +642,110 @@
     }
     .summary-row:last-child { border-bottom: 0; }
 
+    /* ── Filter bar ── */
+    .filter-bar {
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .filter-main {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex: 1 1 0;
+      min-width: 0;
+      flex-wrap: wrap;
+    }
+    .filter-search-wrap { flex: 2 1 180px; min-width: 0; }
+    .filter-search, .filter-date, .filter-select {
+      height: 36px;
+      font-size: 13px;
+      border-radius: 10px;
+    }
+    .filter-search { width: 100%; }
+    .filter-date { width: 130px; flex: 0 0 auto; }
+    .filter-sep { font-size: 12px; color: var(--muted2); flex: 0 0 auto; }
+    .filter-select { flex: 1 1 110px; min-width: 90px; }
+    .filter-chips { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+
+    .chip {
+      height: 30px;
+      padding: 0 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      border: 1px solid var(--border);
+      background: color-mix(in oklab, var(--panel-solid) 72%, transparent);
+      color: var(--muted);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: .12s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .chip:hover { border-color: var(--border-strong); color: var(--text); }
+    .chip.active {
+      background: var(--accent-soft);
+      border-color: color-mix(in oklab, var(--accent) 34%, var(--border));
+      color: var(--accent);
+    }
+    .filter-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      border-radius: 999px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 800;
+    }
+    .filter-badge.hidden { display: none; }
+
+    /* ── Matrix tfoot totals ── */
+    .matrix-table tfoot td {
+      position: sticky;
+      bottom: 0;
+      z-index: 2;
+      background: color-mix(in oklab, var(--panel-solid) 97%, transparent);
+      border-top: 2px solid var(--border);
+      padding: 7px 10px;
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .matrix-table tfoot .sticky-col {
+      z-index: 3;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      color: var(--muted2);
+      font-weight: 800;
+    }
+
     @media (max-width: 1320px) {
-      .toolbar-grid {
-        grid-template-columns: repeat(3, minmax(0,1fr));
-      }
-      .action-bar {
-        justify-content: flex-start;
-      }
-      .layout-main {
-        grid-template-columns: 1fr;
-      }
-      .edit-rail {
-        position: static;
-        max-height: none;
-      }
-      .insight-strip {
-        grid-template-columns: 1fr;
-      }
+      .action-bar { justify-content: flex-start; }
+      .layout-main { grid-template-columns: 1fr; }
+      .edit-rail { position: static; max-height: none; }
+      .insight-strip { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 900px) {
+      .filter-main { flex-wrap: wrap; }
+      .filter-date { width: 120px; }
     }
 
     @media (max-width: 760px) {
-      .shell { padding: 14px; }
-      .toolbar-grid { grid-template-columns: 1fr; }
-      .headline { font-size: 24px; }
-      .metric .value { font-size: 24px; }
+      .shell { padding: 8px 10px 20px; }
+      .filter-bar { flex-direction: column; align-items: stretch; }
+      .filter-chips { flex-wrap: wrap; }
+      .headline { font-size: 22px; }
+      .metric .value { font-size: 18px; }
       .drawer .panel {
         top: 8px;
         right: 8px;
@@ -719,41 +799,30 @@
       </div>
     </div>
 
-    <div class="card toolbar p-4">
-      <div class="toolbar-grid">
-        <div>
-          <label class="section-label mb-2 block">Date from</label>
-          <input id="filterDateFrom" type="date" class="field" />
+    <div class="card filter-bar">
+      <div class="filter-main">
+        <div class="filter-search-wrap">
+          <input id="filterSearch" type="text" class="field filter-search" placeholder="Search location, notes, launch…" aria-label="Search" />
         </div>
-        <div>
-          <label class="section-label mb-2 block">Date to</label>
-          <input id="filterDateTo" type="date" class="field" />
-        </div>
-        <div>
-          <label class="section-label mb-2 block">Location</label>
-          <select id="filterLocation" class="select">
-            <option value="">All locations</option>
-          </select>
-        </div>
-        <div>
-          <label class="section-label mb-2 block">Source</label>
-          <select id="filterSource" class="select">
-            <option value="">All sources</option>
-          </select>
-        </div>
-        <div>
-          <label class="section-label mb-2 block">Launch type</label>
-          <select id="filterLaunchType" class="select">
-            <option value="">All launch types</option>
-          </select>
-        </div>
-        <div>
-          <label class="section-label mb-2 block">Search</label>
-          <input id="filterSearch" type="text" class="field" placeholder="Notes, location, launch, designer" />
-        </div>
-        <button id="thisMonthBtn" class="btn">This month</button>
-        <button id="next30Btn" class="btn">Next 30 days</button>
-        <button id="clearFiltersBtn" class="btn">Clear</button>
+        <input id="filterDateFrom" type="date" class="field filter-date" aria-label="Date from" />
+        <span class="filter-sep" aria-hidden="true">→</span>
+        <input id="filterDateTo" type="date" class="field filter-date" aria-label="Date to" />
+        <select id="filterLocation" class="select filter-select" aria-label="Location">
+          <option value="">All locations</option>
+        </select>
+        <select id="filterSource" class="select filter-select" aria-label="Source">
+          <option value="">All sources</option>
+        </select>
+        <select id="filterLaunchType" class="select filter-select" aria-label="Launch type">
+          <option value="">All types</option>
+        </select>
+      </div>
+      <div class="filter-chips">
+        <button id="todayBtn" class="chip" type="button">Today</button>
+        <button id="thisWeekBtn" class="chip" type="button">Week</button>
+        <button id="thisMonthBtn" class="chip" type="button">Month</button>
+        <button id="next30Btn" class="chip" type="button">30d</button>
+        <button id="clearFiltersBtn" class="chip" type="button">Clear <span id="activeFilterCount" class="filter-badge hidden">0</span></button>
       </div>
     </div>
 
@@ -974,6 +1043,8 @@
     const openHistoryDrawerBtn = el("openHistoryDrawerBtn");
     const openWorkbenchBtn = el("openWorkbenchBtn");
 
+    const todayBtn = el("todayBtn");
+    const thisWeekBtn = el("thisWeekBtn");
     const thisMonthBtn = el("thisMonthBtn");
     const next30Btn = el("next30Btn");
     const clearFiltersBtn = el("clearFiltersBtn");
@@ -1074,6 +1145,39 @@
       const m = String(d.getMonth() + 1).padStart(2, "0");
       const day = String(d.getDate()).padStart(2, "0");
       return `${y}-${m}-${day}`;
+    }
+
+    function debounce(fn, delay) {
+      let t;
+      return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), delay); };
+    }
+
+    const FILTER_STORE_KEY = "silo_proj_filters_v2";
+
+    function saveFilterState() {
+      try {
+        localStorage.setItem(FILTER_STORE_KEY, JSON.stringify({
+          dateFrom: filterDateFrom.value,
+          dateTo: filterDateTo.value,
+          location: filterLocation.value,
+          source: filterSource.value,
+          launchType: filterLaunchType.value,
+          search: filterSearch.value
+        }));
+      } catch (_) {}
+    }
+
+    function restoreFilterState() {
+      try {
+        const s = JSON.parse(localStorage.getItem(FILTER_STORE_KEY) || "{}");
+        if (s.dateFrom) filterDateFrom.value = s.dateFrom;
+        if (s.dateTo) filterDateTo.value = s.dateTo;
+        if (s.search) filterSearch.value = s.search;
+        // selects restored after data loads via populateXxx fns which preserve value
+        if (s.location) filterLocation.value = s.location;
+        if (s.source) filterSource.value = s.source;
+        if (s.launchType) filterLaunchType.value = s.launchType;
+      } catch (_) {}
     }
 
     function firstDayOfMonthIso(date = new Date()) {
@@ -1264,8 +1368,10 @@
         .map(loc => `<option value="${escapeHtml(String(loc.id))}">${escapeHtml(loc.location_name)}${loc.location_code ? ` (${escapeHtml(loc.location_code)})` : ""}</option>`)
         .join("");
 
+      const prevFilter = filterLocation.value;
       formLocation.innerHTML = `<option value="">Select location</option>${options}`;
       filterLocation.innerHTML = `<option value="">All locations</option>${options}`;
+      if (prevFilter) filterLocation.value = prevFilter;
     }
 
     function populateSourceFilter() {
@@ -1545,6 +1651,13 @@
       renderCalendarTieField();
       setText("tableCount", String(getMatrixDates().length));
       setText("lastUpdated", new Date().toLocaleString());
+
+      const f2 = getFilters();
+      const activeCount = [f2.dateFrom, f2.dateTo, f2.locationId, f2.source, f2.launchType, f2.search].filter(Boolean).length;
+      const badge = el("activeFilterCount");
+      if (badge) { badge.textContent = String(activeCount); badge.classList.toggle("hidden", activeCount === 0); }
+
+      saveFilterState();
     }
 
     function renderSelectionPill() {
@@ -1728,6 +1841,10 @@
 
     function renderProjectionMatrix() {
       const { locations, dates, cellMap } = buildMatrixData();
+      const matrixTable = projectionTableBody.closest("table");
+
+      // Remove existing tfoot
+      matrixTable?.querySelector("tfoot")?.remove();
 
       if (!dates.length || !locations.length) {
         projectionMatrixHead.innerHTML = `
@@ -1750,6 +1867,10 @@
         </tr>
       `;
 
+      // Track column totals
+      const colTotals = new Map(locations.map(loc => [String(loc.id), 0]));
+      let grandTotal = 0;
+
       projectionTableBody.innerHTML = dates.map(date => {
         let rowTotal = 0;
 
@@ -1759,6 +1880,7 @@
           const row = cellMap.get(`${date}||${loc.id}`);
           const sales = row ? toNumber(row.projected_sales) : 0;
           rowTotal += sales;
+          colTotals.set(String(loc.id), (colTotals.get(String(loc.id)) || 0) + sales);
 
           if (!row) {
             return `<td class="mono" style="color: var(--muted2);">—</td>`;
@@ -1791,11 +1913,13 @@
           `;
         }).join("");
 
+        grandTotal += rowTotal;
+
         return `
           <tr>
             <td class="sticky-col">
               <div style="font-weight:700;">${escapeHtml(fmtShortDate(date))}</div>
-              <div style="font-size:12px; color: var(--muted2); margin-top: 4px;" class="mono">${escapeHtml(date)}</div>
+              <div style="font-size:11px; color: var(--muted2); margin-top: 2px;" class="mono">${escapeHtml(date)}</div>
             </td>
             ${launchCell}
             ${cells}
@@ -1803,6 +1927,20 @@
           </tr>
         `;
       }).join("");
+
+      // Append totals footer
+      if (matrixTable) {
+        const tfoot = document.createElement("tfoot");
+        tfoot.innerHTML = `
+          <tr>
+            <td class="sticky-col">Totals</td>
+            <td class="launch-col"></td>
+            ${locations.map(loc => `<td class="mono total-col">${fmtMoney(colTotals.get(String(loc.id)) || 0)}</td>`).join("")}
+            <td class="mono total-col">${fmtMoney(grandTotal)}</td>
+          </tr>
+        `;
+        matrixTable.appendChild(tfoot);
+      }
     }
 
     function renderCalendarTieField() {
@@ -2391,8 +2529,57 @@
     async function loadEverything() {
       setStatus("Loading…");
       try {
-        await loadLocations();
-        await loadProjections();
+        // Fetch locations and projections in parallel — saves one round trip
+        const [locRes, projRes] = await Promise.all([
+          supabaseClient
+            .from("locations")
+            .select("id, location_code, location_name, domain, store_type, is_active")
+            .eq("is_active", true)
+            .order("location_name", { ascending: true }),
+          supabaseClient
+            .from("revenue_projections")
+            .select(`
+              id,
+              projection_date,
+              location_id,
+              projected_units,
+              projected_sales,
+              notes,
+              source,
+              scenario,
+              created_at,
+              updated_at,
+              created_by,
+              updated_by,
+              locations (
+                id,
+                location_name,
+                location_code,
+                domain,
+                store_type
+              )
+            `)
+            .eq("scenario", "active")
+            .order("projection_date", { ascending: true })
+            .range(0, 5000)
+        ]);
+
+        if (locRes.error) throw locRes.error;
+        if (projRes.error) throw projRes.error;
+
+        state.locations = locRes.data || [];
+        populateLocationSelects();
+
+        state.projections = (projRes.data || []).map(row => ({
+          ...row,
+          location_name: row.locations?.location_name || getLocationNameById(row.location_id),
+          location_code: row.locations?.location_code || getLocationCodeById(row.location_id),
+          domain: row.locations?.domain || "",
+          store_type: row.locations?.store_type || ""
+        }));
+        populateSourceFilter();
+        applyFilters();
+
         await loadCalendarEvents();
         setStatus("Ready.", "good");
       } catch (e) {
@@ -2417,6 +2604,24 @@
       newProjectionBtn.addEventListener("click", () => {
         clearForm(true);
         formProjectionDate.focus();
+      });
+
+      todayBtn?.addEventListener("click", () => {
+        const t = todayIso();
+        filterDateFrom.value = t;
+        filterDateTo.value = t;
+        applyFilters();
+      });
+
+      thisWeekBtn?.addEventListener("click", () => {
+        const now = new Date();
+        const diff = (now.getDay() + 6) % 7;
+        const mon = new Date(now); mon.setDate(now.getDate() - diff);
+        const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+        const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+        filterDateFrom.value = fmt(mon);
+        filterDateTo.value = fmt(sun);
+        applyFilters();
       });
 
       thisMonthBtn.addEventListener("click", () => {
@@ -2446,7 +2651,7 @@
       [filterDateFrom, filterDateTo, filterLocation, filterSource, filterLaunchType].forEach(node => {
         node.addEventListener("change", applyFilters);
       });
-      filterSearch.addEventListener("input", applyFilters);
+      filterSearch.addEventListener("input", debounce(applyFilters, 180));
 
       formProjectionDate.addEventListener("change", renderCalendarTieField);
       appendCalendarToNotesBtn.addEventListener("click", appendCalendarContextToNotes);
@@ -2526,6 +2731,13 @@
           return;
         }
 
+        if ((e.ctrlKey || e.metaKey) && key === "f") {
+          e.preventDefault();
+          filterSearch.focus();
+          filterSearch.select();
+          return;
+        }
+
         if ((e.ctrlKey || e.metaKey) && key === "s") {
           e.preventDefault();
           await saveProjection();
@@ -2565,6 +2777,7 @@
       bindEvents();
       applyTheme(localStorage.getItem(state.themeKey) || "light");
       clearForm(true);
+      restoreFilterState();
       await loadEverything();
     }
 
