@@ -4,94 +4,67 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>SILO · Revenue projections</title>
-
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link id="silo-font-link" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-
   <link rel="stylesheet" href="beacon.css" />
-
   <script src="../pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
-
   <style>
-    /* page-local extras */
-    .ed-launch-list { display: flex; flex-direction: column; gap: 8px; }
+    .ed-launch-list { display:flex; flex-direction:column; gap:8px; }
 
-    /* audit drawer */
-    .silo-drawer-overlay {
-      position: fixed; inset: 0;
-      background: rgba(10,16,30,.48);
-      z-index: 90; opacity: 0;
-      pointer-events: none;
-      transition: opacity .18s ease;
+    /* ── inline cell quick-edit ── */
+    .td-cell { cursor:pointer; }
+    .td-cell--empty { cursor:default; }
+    .cell-inline { display:flex; align-items:center; gap:3px; }
+    .cell-quick-in {
+      width:6rem; height:26px; padding:0 6px;
+      border:1px solid var(--bcn-accent); border-radius:5px;
+      background:var(--bcn-surface); color:var(--bcn-ink);
+      font-family:var(--bcn-mono); font-size:12px; min-width:0;
     }
-    .silo-drawer-overlay.open { opacity: 1; pointer-events: auto; }
-    .silo-drawer {
-      position: fixed; top: 0; right: 0; bottom: 0;
-      width: min(640px, 100vw);
-      background: var(--bcn-surface);
-      border-left: 1px solid var(--bcn-border-strong);
-      z-index: 91;
-      display: flex; flex-direction: column;
-      transform: translateX(100%);
-      transition: transform .18s ease;
+    .cell-quick-in:focus { outline:none; box-shadow:0 0 0 2px var(--bcn-accent-soft); }
+    .cell-quick-ok {
+      height:26px; padding:0 7px;
+      background:var(--bcn-accent); color:#fff;
+      border:none; border-radius:5px;
+      font-size:10px; font-weight:700; cursor:pointer; font-family:var(--bcn-mono);
     }
-    .silo-drawer.open { transform: translateX(0); }
-    .silo-drawer-head {
-      padding: 14px 16px 12px;
-      border-bottom: 1px solid var(--bcn-border);
-      flex-shrink: 0;
-      display: flex; flex-direction: column; gap: 10px;
+    .cell-quick-ok:hover { opacity:.85; }
+    .cell-quick-ok:disabled { opacity:.4; cursor:not-allowed; }
+    .cell-quick-cancel {
+      height:26px; width:26px; padding:0;
+      background:none; color:var(--bcn-ink-3);
+      border:1px solid var(--bcn-border); border-radius:5px;
+      font-size:11px; cursor:pointer;
     }
-    .silo-drawer-title {
-      display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    }
-    .silo-drawer-h { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
-    .silo-drawer-filters {
-      display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end;
-    }
-    .silo-drawer-body {
-      flex: 1; overflow-y: auto; padding: 14px 16px;
-      display: flex; flex-direction: column; gap: 8px;
-    }
-    .silo-drawer-body::-webkit-scrollbar { width: 6px; }
-    .silo-drawer-body::-webkit-scrollbar-thumb { background: var(--bcn-border-strong); }
-    .audit-row {
-      border: 1px solid var(--bcn-border);
-      padding: 12px 14px; display: flex; flex-direction: column; gap: 6px;
-    }
-    .audit-row-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .audit-row-detail { font-family: var(--bcn-mono); font-size: 11.5px; color: var(--bcn-ink-2); }
-    .audit-row-notes { font-size: 12.5px; color: var(--bcn-ink-2); padding-top: 6px; border-top: 1px solid var(--bcn-border); }
+    .cell-quick-cancel:hover { color:var(--bcn-neg); border-color:var(--bcn-neg); }
 
-    /* import zone */
-    .import-zone {
-      border: 1px dashed var(--bcn-border-strong);
-      padding: 12px 14px;
-      font-family: var(--bcn-mono); font-size: 11px; color: var(--bcn-ink-3);
-      text-align: center; cursor: pointer;
-      transition: background .12s ease;
+    /* ── in-page tab bar ── */
+    .pg-tab-bar {
+      display:flex; align-items:stretch;
+      border-bottom:1px solid var(--bcn-border);
+      margin-top:6px;
     }
-    .import-zone:hover { background: var(--bcn-accent-soft); }
-    .import-result { font-family: var(--bcn-mono); font-size: 11.5px; display: flex; flex-direction: column; gap: 4px; }
-    .import-result-row { display: flex; align-items: center; gap: 8px; color: var(--bcn-ink-2); }
-    .import-result-row b { color: var(--bcn-ink); font-weight: 600; }
-    .import-errors { font-size: 10.5px; color: var(--bcn-neg); line-height: 1.6; margin-top: 4px; }
+    .pg-tab {
+      height:36px; padding:0 16px;
+      font-size:11px; font-weight:700; letter-spacing:.07em;
+      font-family:var(--bcn-mono); color:var(--bcn-ink-3);
+      background:none; border:none; border-bottom:2px solid transparent;
+      margin-bottom:-1px; cursor:pointer;
+      transition:color .12s ease, border-color .12s ease;
+    }
+    .pg-tab:hover { color:var(--bcn-ink); }
+    .pg-tab--active { color:var(--bcn-accent); border-bottom-color:var(--bcn-accent); }
 
-    /* quick-edit cell overlay — small badge on top-right of hovered cell */
-    .td-cell .cell-edit-hint {
-      position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
-      font-size: 9px; color: var(--bcn-accent); font-family: var(--bcn-mono);
-      opacity: 0; pointer-events: none; letter-spacing: 0.04em;
+    /* ── audit pane ── */
+    .audit-pane-head {
+      display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+      padding:10px 14px; border-bottom:1px solid var(--bcn-border);
     }
-    .td-cell:hover .cell-edit-hint { opacity: 1; }
-
-    /* header actions secondary group */
-    .bcn-header-actions { flex-wrap: wrap; }
-    .bcn-header-actions-secondary {
-      display: flex; gap: 6px; flex-shrink: 0;
-    }
+    .audit-pane-body { max-height:calc(100vh - 340px); overflow-y:auto; }
+    .audit-pane-body::-webkit-scrollbar { width:6px; }
+    .audit-pane-body::-webkit-scrollbar-thumb { background:var(--bcn-border-strong); }
   </style>
 </head>
 <body>
@@ -99,7 +72,6 @@
 <div class="silo-app" id="silo-app">
   <main class="silo-main">
 
-    <!-- page tabs -->
     <nav class="bcn-tabs" aria-label="Planning">
       <a class="bcn-tab" href="/pages/launch-calendar.html">Launch calendar</a>
       <a class="bcn-tab bcn-tab--active" href="/v2/projections.html" aria-current="page">Revenue projections</a>
@@ -108,7 +80,6 @@
       <span class="bcn-tabs-meta" data-page-meta>—</span>
     </nav>
 
-    <!-- header -->
     <header class="bcn-header">
       <div style="flex:1;min-width:0;">
         <div class="bcn-header-title">
@@ -122,19 +93,16 @@
       </div>
       <div class="bcn-header-actions">
         <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" data-action="reload">RELOAD</button>
-        <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" data-action="audit">AUDIT</button>
         <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" data-action="template">TEMPLATE</button>
-        <label class="bcn-btn bcn-btn--ghost bcn-btn--mono" for="import-file" style="cursor:pointer;" title="Import CSV">IMPORT</label>
+        <label class="bcn-btn bcn-btn--ghost bcn-btn--mono" for="import-file" style="cursor:pointer;">IMPORT</label>
         <input type="file" id="import-file" accept=".csv,text/csv" style="display:none;" />
         <button class="bcn-btn bcn-btn--mono" type="button" data-action="export">EXPORT CSV</button>
         <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" data-action="new">+ NEW</button>
       </div>
     </header>
 
-    <!-- inline status banner -->
     <div class="bcn-status" id="page-status" hidden></div>
 
-    <!-- KPI band -->
     <section class="bcn-kpi-band" aria-label="Key metrics">
       <div class="bcn-kpi">
         <div class="bcn-kpi-label">PROJ SALES · SUM</div>
@@ -168,7 +136,6 @@
       </div>
     </section>
 
-    <!-- filter bar -->
     <section class="bcn-filter-bar" aria-label="Filters">
       <div class="bcn-filter">
         <span class="bcn-filter-k">FROM</span>
@@ -205,134 +172,121 @@
       </div>
     </section>
 
-    <!-- content grid -->
-    <div class="bcn-content">
+    <!-- in-page tab bar -->
+    <div class="pg-tab-bar" role="tablist">
+      <button class="pg-tab pg-tab--active" type="button" data-tab="matrix" role="tab" aria-selected="true">MATRIX</button>
+      <button class="pg-tab" type="button" data-tab="audit" role="tab" aria-selected="false">AUDIT</button>
+    </div>
 
-      <!-- MATRIX -->
-      <div class="bcn-matrix-wrap">
-        <section class="bcn-card" aria-label="Sales matrix">
-          <header class="bcn-card-header">
-            <span class="bcn-pill bcn-pill--dark">MATRIX</span>
-            <h2>Sales by date × location</h2>
-            <span class="bcn-card-meta" data-meta="cells">—</span>
+    <!-- MATRIX PANE -->
+    <div id="pane-matrix">
+      <div class="bcn-content">
+
+        <div class="bcn-matrix-wrap">
+          <section class="bcn-card" aria-label="Sales matrix">
+            <header class="bcn-card-header">
+              <span class="bcn-pill bcn-pill--dark">MATRIX</span>
+              <h2>Sales by date × location</h2>
+              <span class="bcn-card-meta" data-meta="cells">—</span>
+              <div style="flex:1"></div>
+              <a class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="/pages/launch-calendar.html">WORKBENCH →</a>
+            </header>
+            <div class="bcn-matrix-scroll">
+              <table class="bcn-table" id="matrix-table">
+                <colgroup id="matrix-cols">
+                  <col style="width:104px" />
+                  <col style="width:200px" />
+                  <col style="width:90px" />
+                </colgroup>
+                <thead>
+                  <tr id="matrix-head">
+                    <th class="bcn-th-left">DATE</th>
+                    <th class="bcn-th-left">LAUNCH</th>
+                    <th>TOTAL</th>
+                  </tr>
+                </thead>
+                <tbody id="matrix-body">
+                  <tr><td colspan="3" class="bcn-empty">Loading…</td></tr>
+                </tbody>
+                <tfoot id="matrix-foot"></tfoot>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <!-- editor — always visible -->
+        <section class="bcn-card" aria-label="Editor">
+          <header class="bcn-card-header bcn-card-header--dark">
+            <span class="bcn-pill bcn-pill--dark" style="border-color:rgba(255,255,255,.2)">EDITOR</span>
             <div style="flex:1"></div>
-            <a class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="/pages/launch-calendar.html">WORKBENCH →</a>
+            <span class="bcn-pill" data-editor-pill>SELECT A CELL</span>
           </header>
-          <div class="bcn-matrix-scroll">
-            <table class="bcn-table" id="matrix-table">
-              <colgroup id="matrix-cols">
-                <col style="width:104px" />
-                <col style="width:200px" />
-                <col style="width:90px" />
-              </colgroup>
-              <thead>
-                <tr id="matrix-head">
-                  <th class="bcn-th-left">DATE</th>
-                  <th class="bcn-th-left">LAUNCH</th>
-                  <th>TOTAL</th>
-                </tr>
-              </thead>
-              <tbody id="matrix-body">
-                <tr><td colspan="3" class="bcn-empty">Loading…</td></tr>
-              </tbody>
-              <tfoot id="matrix-foot"></tfoot>
-            </table>
+          <div class="bcn-card-body">
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="form-date">DATE</label>
+              <input class="bcn-field bcn-field--mono" type="date" id="form-date" />
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="form-location">LOCATION</label>
+              <select class="bcn-field" id="form-location"><option value="">Select location</option></select>
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="form-sales">PROJECTED SALES (USD)</label>
+              <input class="bcn-field bcn-field--mono bcn-field--hero" type="number" step="0.01" min="0" id="form-sales" placeholder="0.00" />
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="form-units">PROJECTED UNITS</label>
+              <input class="bcn-field bcn-field--mono" type="number" step="1" min="0" id="form-units" placeholder="0" />
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="form-source">SOURCE</label>
+              <input class="bcn-field bcn-field--mono" type="text" id="form-source" placeholder="manual" />
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="form-notes">NOTES</label>
+              <textarea class="bcn-field" id="form-notes" rows="2" placeholder="Optional notes…"></textarea>
+            </div>
+            <div class="bcn-field-group" id="form-launches-wrap" hidden>
+              <span class="bcn-label" id="form-launches-count">LAUNCHES · 0</span>
+              <div class="ed-launch-list" id="form-launches"></div>
+            </div>
+          </div>
+          <div class="bcn-card-foot">
+            <button class="bcn-btn bcn-btn--danger bcn-btn--mono" type="button" data-action="delete" disabled>DELETE</button>
+            <div style="flex:1"></div>
+            <button class="bcn-btn bcn-btn--mono" type="button" data-action="cancel">CANCEL</button>
+            <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" data-action="save">SAVE ⏎</button>
           </div>
         </section>
+
       </div>
+    </div>
 
-      <!-- EDITOR -->
-      <section class="bcn-card" aria-label="Editor">
-        <header class="bcn-card-header bcn-card-header--dark">
-          <span class="bcn-pill bcn-pill--dark" style="border-color:rgba(255,255,255,.2)">EDITOR</span>
+    <!-- AUDIT PANE -->
+    <div id="pane-audit" hidden>
+      <section class="bcn-card" style="margin-top:12px;" aria-label="Audit history">
+        <div class="audit-pane-head">
+          <span class="bcn-pill bcn-pill--dark">AUDIT HISTORY</span>
+          <span id="audit-pane-subtitle" class="bcn-card-meta">—</span>
           <div style="flex:1"></div>
-          <span class="bcn-pill" data-editor-pill>NO ROW</span>
-        </header>
-        <div class="bcn-card-body">
-          <div class="bcn-field-group">
-            <label class="bcn-label" for="form-date">DATE</label>
-            <input class="bcn-field bcn-field--mono" type="date" id="form-date" />
-          </div>
-          <div class="bcn-field-group">
-            <label class="bcn-label" for="form-location">LOCATION</label>
-            <select class="bcn-field" id="form-location"><option value="">Select location</option></select>
-          </div>
-          <div class="bcn-field-group">
-            <label class="bcn-label" for="form-sales">PROJECTED SALES (USD)</label>
-            <input class="bcn-field bcn-field--mono bcn-field--hero" type="number" step="0.01" min="0" id="form-sales" placeholder="0.00" />
-          </div>
-          <div class="bcn-field-group">
-            <label class="bcn-label" for="form-units">PROJECTED UNITS</label>
-            <input class="bcn-field bcn-field--mono" type="number" step="1" min="0" id="form-units" placeholder="0" />
-          </div>
-          <div class="bcn-field-group">
-            <label class="bcn-label" for="form-source">SOURCE</label>
-            <input class="bcn-field bcn-field--mono" type="text" id="form-source" placeholder="manual" />
-          </div>
-          <div class="bcn-field-group">
-            <label class="bcn-label" for="form-notes">NOTES</label>
-            <textarea class="bcn-field" id="form-notes" rows="2" placeholder="Optional notes…"></textarea>
-          </div>
-          <div class="bcn-field-group" id="form-launches-wrap" hidden>
-            <span class="bcn-label" id="form-launches-count">LAUNCHES · 0</span>
-            <div class="ed-launch-list" id="form-launches"></div>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+            <span class="bcn-filter-k">FROM</span>
+            <input type="date" id="hist-from" class="bcn-field bcn-field--mono" style="width:136px;height:30px;" />
+            <span class="bcn-filter-k">TO</span>
+            <input type="date" id="hist-to" class="bcn-field bcn-field--mono" style="width:136px;height:30px;" />
+            <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="reload-history">RELOAD</button>
           </div>
         </div>
-        <div class="bcn-card-foot">
-          <button class="bcn-btn bcn-btn--danger bcn-btn--mono" type="button" data-action="delete" disabled>DELETE</button>
-          <div style="flex:1"></div>
-          <button class="bcn-btn bcn-btn--mono" type="button" data-action="cancel">CANCEL</button>
-          <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" data-action="save">SAVE ⏎</button>
+        <div id="audit-pane-body" class="audit-pane-body">
+          <div class="bcn-empty" style="padding:28px;">Click RELOAD to load history.</div>
         </div>
       </section>
+    </div>
 
-      <!-- AUDIT TAIL -->
-      <section class="bcn-card" aria-label="Audit tail">
-        <header class="bcn-card-header" style="background:var(--bcn-sunken)">
-          <span class="bcn-pill bcn-pill--dark">AUDIT TAIL</span>
-          <span class="bcn-card-meta">LIVE · LAST 5</span>
-          <div style="flex:1"></div>
-          <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" data-action="audit">VIEW ALL →</button>
-        </header>
-        <table class="bcn-audit-table" id="audit-table">
-          <tbody id="audit-body">
-            <tr><td colspan="5" class="bcn-empty" style="padding:14px">No recent activity.</td></tr>
-          </tbody>
-        </table>
-      </section>
-
-    </div><!-- /bcn-content -->
   </main>
-</div><!-- /silo-app -->
-
-<!-- Audit drawer -->
-<div class="silo-drawer-overlay" id="drawer-overlay"></div>
-<div class="silo-drawer" id="audit-drawer" role="dialog" aria-label="Audit history" aria-hidden="true">
-  <div class="silo-drawer-head">
-    <div class="silo-drawer-title">
-      <h2 class="silo-drawer-h">Audit history</h2>
-      <button class="bcn-btn bcn-btn--mono" type="button" id="drawer-close">CLOSE ✕</button>
-    </div>
-    <div id="drawer-subtitle" style="font-family:var(--bcn-mono);font-size:11px;color:var(--bcn-ink-3);">Most recent changes across revenue projections.</div>
-    <div class="silo-drawer-filters">
-      <div class="bcn-field-group">
-        <label class="bcn-label" for="hist-from">DATE FROM</label>
-        <input class="bcn-field bcn-field--mono" type="date" id="hist-from" />
-      </div>
-      <div class="bcn-field-group">
-        <label class="bcn-label" for="hist-to">DATE TO</label>
-        <input class="bcn-field bcn-field--mono" type="date" id="hist-to" />
-      </div>
-      <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" id="reload-history">RELOAD</button>
-    </div>
-  </div>
-  <div class="silo-drawer-body" id="drawer-history-list">
-    <div class="bcn-empty">Loading…</div>
-  </div>
 </div>
 
 <script src="silo-chrome.js"></script>
-
 <script>
 /* ---- DEMO MODE -------------------------------------------------------- */
 const __SILO_DEMO__ = (function () {
@@ -345,103 +299,101 @@ const __SILO_DEMO__ = (function () {
 if (__SILO_DEMO__) {
   window.__SILO_CONFIG__ = { SUPABASE_URL: 'demo', SUPABASE_ANON_KEY: 'demo' };
   const today = new Date();
-  const iso = (d) => { const x = new Date(d); return x.toISOString().slice(0,10); };
-  const offset = (n) => { const d = new Date(today); d.setDate(d.getDate() + n); return iso(d); };
+  const iso = d => new Date(d).toISOString().slice(0,10);
+  const offset = n => { const d = new Date(today); d.setDate(d.getDate()+n); return iso(d); };
   const LOCS = [
-    { id: 1, location_code: 'NSH', location_name: 'Nashville',    domain: 'retail', store_type: 'Retail',    is_active: true },
-    { id: 2, location_code: 'COO', location_name: 'Cooperstown',  domain: 'retail', store_type: 'Retail',    is_active: true },
-    { id: 3, location_code: 'STL', location_name: 'St. Louis',    domain: 'retail', store_type: 'Retail',    is_active: true },
-    { id: 4, location_code: 'WPT', location_name: 'Williamsport', domain: 'retail', store_type: 'Retail',    is_active: true },
-    { id: 5, location_code: 'BOS', location_name: 'Boston',       domain: 'retail', store_type: 'Retail',    is_active: true },
-    { id: 6, location_code: 'DTC', location_name: 'Online (DTC)', domain: 'ecom',   store_type: 'Ecom',      is_active: true },
-    { id: 7, location_code: 'WHL', location_name: 'Wholesale',    domain: 'b2b',    store_type: 'Wholesale', is_active: true },
+    { id:1, location_code:'FOD', location_name:'Field of Dreams', domain:'retail', store_type:'Retail',    is_active:true },
+    { id:2, location_code:'ONL', location_name:'Online',          domain:'ecom',   store_type:'Ecom',      is_active:true },
+    { id:3, location_code:'STL', location_name:'Scottsdale',      domain:'retail', store_type:'Retail',    is_active:true },
+    { id:4, location_code:'WHL', location_name:'Wholesale',       domain:'b2b',    store_type:'Wholesale', is_active:true },
   ];
   const SEED = [
-    [ 4820,  3110,  2740,  1980,  3640, 18420,     0 ],
-    [ 4410,  2980,  2510,  1820,  3290, 17110,  6400 ],
-    [ 5120,  6240,  2890,  2050,  3810, 22480,     0 ],
-    [ 5680,  5410,  3320,  2380,  4170, 24960,     0 ],
-    [ 8240,  6810,  4920,  3640,  5970, 41280, 12800 ],
-    [ 9620,  7480,  5740,  4210,  6840, 28910,     0 ],
-    [ 8110,  6240,  4980,  3520,  5910, 21640,     0 ],
-    [ 5240,  3420,  3010,  2180,  3940, 19840,  4200 ],
-    [ 4810,  3180,  2680,  1940,  3520, 17680,     0 ],
-    [ 5040,  3290,  2810,  2030,  3640, 18210,     0 ],
+    [1370, 63000, 1970,     0],
+    [1680, 50200, 2900,  6400],
+    [1220, 65900, 1030,     0],
+    [3300, 50000, 2930,     0],
+    [4130, 78200, 1210, 12800],
+    [4360, 68200, 3570,     0],
+    [2450, 59000, 1730,     0],
+    [ 853, 60900, 1350,  4200],
+    [1440, 64300, 1290,     0],
+    [2160, 67700,  977,     0],
   ];
-  const PROJ = [];
-  let pid = 1;
+  const PROJ = []; let pid = 1;
   SEED.forEach((row, di) => {
     const date = offset(di - 5);
     row.forEach((v, li) => {
-      if (v === 0) return;
+      if (!v) return;
       const loc = LOCS[li];
-      PROJ.push({
-        id: pid++, projection_date: date, location_id: loc.id,
-        projected_units: Math.round(v / 42), projected_sales: v, notes: di===4 ? 'Father\'s Day launch week' : null,
-        source: di === 4 ? 'workbench' : 'manual', scenario: 'active',
-        created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-        created_by: 'demo', updated_by: 'demo',
-        locations: { id: loc.id, location_name: loc.location_name, location_code: loc.location_code, domain: loc.domain, store_type: loc.store_type },
+      PROJ.push({ id:pid++, projection_date:date, location_id:loc.id,
+        projected_units:Math.round(v/42), projected_sales:v,
+        notes: di===4 ? "Father's Day launch week" : null,
+        source: di===4 ? 'workbench' : 'manual', scenario:'active',
+        created_at:new Date().toISOString(), updated_at:new Date().toISOString(),
+        created_by:'demo', updated_by:'demo',
+        locations:{ id:loc.id, location_name:loc.location_name, location_code:loc.location_code, domain:loc.domain, store_type:loc.store_type },
       });
     });
   });
   const CAL = [
-    { id: 1, launch_date: offset(-3), title: 'Cooperstown Capsule', launch_type: 'soft drop', designer: 'Owen', launch_time: '09:00', timezone: 'CT' },
-    { id: 2, launch_date: offset(-1), title: 'Father\'s Day Tee', launch_type: 'DTC + retail', designer: 'Studio', launch_time: '09:00', timezone: 'CT' },
-    { id: 3, launch_date: offset(2),  title: 'Throwback Jerseys restock', launch_type: 'restock', designer: 'Studio', launch_time: '12:00', timezone: 'CT' },
+    { id:1, launch_date:offset(-3), title:'Cooperstown Capsule',       launch_type:'soft drop',    designer:'Owen',   launch_time:'09:00', timezone:'CT' },
+    { id:2, launch_date:offset(-1), title:"Father's Day Tee",          launch_type:'DTC + retail', designer:'Studio', launch_time:'09:00', timezone:'CT' },
+    { id:3, launch_date:offset(2),  title:'Throwback Jerseys restock', launch_type:'restock',      designer:'Studio', launch_time:'12:00', timezone:'CT' },
   ];
   const HIST = [
-    { history_id: 1, action_type: 'UPDATE', changed_at: new Date(Date.now()-1000*60*4).toISOString(),  changed_by: 'drew', projection_date: offset(-1), location_id: 6, projected_sales: 41280, projected_units: 983, notes: 'Father\'s Day launch week', source: 'workbench' },
-    { history_id: 2, action_type: 'INSERT', changed_at: new Date(Date.now()-1000*60*9).toISOString(),  changed_by: 'drew', projection_date: offset(-1), location_id: 1, projected_sales: 8240, projected_units: 196, notes: null, source: 'manual' },
-    { history_id: 3, action_type: 'UPDATE', changed_at: new Date(Date.now()-1000*60*17).toISOString(), changed_by: 'gen',  projection_date: offset(-2), location_id: 3, projected_sales: 3320, projected_units: 79, notes: null, source: 'manual' },
-    { history_id: 4, action_type: 'INSERT', changed_at: new Date(Date.now()-1000*60*42).toISOString(), changed_by: 'gen',  projection_date: offset(-2), location_id: 5, projected_sales: 4170, projected_units: 99, notes: null, source: 'manual' },
-    { history_id: 5, action_type: 'DELETE', changed_at: new Date(Date.now()-1000*60*65).toISOString(), changed_by: 'drew', projection_date: offset(-7), location_id: 7, projected_sales: 0, projected_units: 0, notes: null, source: 'manual' },
+    { history_id:1, action_type:'UPDATE', changed_at:new Date(Date.now()-240000).toISOString(),  changed_by:'drew', projection_date:offset(-1), location_id:2, projected_sales:63000, projected_units:1500, notes:"Father's Day launch week", source:'workbench' },
+    { history_id:2, action_type:'INSERT', changed_at:new Date(Date.now()-540000).toISOString(),  changed_by:'drew', projection_date:offset(-1), location_id:1, projected_sales:4130, projected_units:98, notes:null, source:'manual' },
+    { history_id:3, action_type:'UPDATE', changed_at:new Date(Date.now()-1020000).toISOString(), changed_by:'gen',  projection_date:offset(-2), location_id:3, projected_sales:2930, projected_units:70, notes:null, source:'manual' },
+    { history_id:4, action_type:'INSERT', changed_at:new Date(Date.now()-2520000).toISOString(), changed_by:'gen',  projection_date:offset(-2), location_id:1, projected_sales:3300, projected_units:79, notes:null, source:'manual' },
+    { history_id:5, action_type:'DELETE', changed_at:new Date(Date.now()-3900000).toISOString(), changed_by:'drew', projection_date:offset(-7), location_id:4, projected_sales:0,    projected_units:0,  notes:null, source:'manual' },
   ];
-  const TABLES = { locations: LOCS, revenue_projections: PROJ, launch_calendar: CAL, revenue_projection_history: HIST };
+  const TABLES = { locations:LOCS, revenue_projections:PROJ, launch_calendar:CAL, revenue_projection_history:HIST };
 
   function makeQuery(table) {
-    let rows = (TABLES[table] || []).slice();
-    let _eq = [], _gte = [], _lte = [], _order = null, _range = null;
+    let rows = (TABLES[table]||[]).slice();
+    let _eq=[], _gte=[], _lte=[], _order=null, _range=null;
     const api = {
-      select() { return api; },
+      select(){ return api; },
       eq(k,v)  { _eq.push([k,v]); return api; },
       gte(k,v) { _gte.push([k,v]); return api; },
       lte(k,v) { _lte.push([k,v]); return api; },
-      order(k, o = { ascending: true }) { _order = [k, o.ascending !== false]; return api; },
-      range(a,b) { _range = [a,b]; return api; },
-      limit(n) { _range = [0, n-1]; return api; },
+      order(k, o={ascending:true}) { _order=[k, o.ascending!==false]; return api; },
+      range(a,b) { _range=[a,b]; return api; },
+      limit(n)   { _range=[0,n-1]; return api; },
       _exec() {
         let r = rows;
-        _eq.forEach(([k,v]) => r = r.filter(x => String(x[k]) === String(v)));
-        _gte.forEach(([k,v]) => r = r.filter(x => String(x[k] || '') >= String(v)));
-        _lte.forEach(([k,v]) => r = r.filter(x => String(x[k] || '') <= String(v)));
-        if (_order) { const [k,asc] = _order; r = r.slice().sort((a,b) => (String(a[k]||'') > String(b[k]||'') ? 1 : -1) * (asc?1:-1)); }
-        if (_range) r = r.slice(_range[0], _range[1] + 1);
-        return Promise.resolve({ data: r, error: null });
+        _eq.forEach(([k,v])  => r=r.filter(x => String(x[k])===String(v)));
+        _gte.forEach(([k,v]) => r=r.filter(x => String(x[k]||'')>=String(v)));
+        _lte.forEach(([k,v]) => r=r.filter(x => String(x[k]||'')<=String(v)));
+        if (_order) { const [k,asc]=_order; r=r.slice().sort((a,b)=>(String(a[k]||'')>String(b[k]||'')?1:-1)*(asc?1:-1)); }
+        if (_range) r=r.slice(_range[0],_range[1]+1);
+        return Promise.resolve({ data:r, error:null });
       },
-      then(res, rej) { return api._exec().then(res, rej); },
+      then(res,rej) { return api._exec().then(res,rej); },
       async upsert(arr) {
         for (const p of arr) {
-          const i = (TABLES.revenue_projections).findIndex(x => x.projection_date === p.projection_date && x.location_id === p.location_id);
-          const loc = LOCS.find(l => l.id === p.location_id);
-          const merged = { ...p, id: i>=0 ? TABLES.revenue_projections[i].id : (pid++),
-            locations: loc ? { id: loc.id, location_name: loc.location_name, location_code: loc.location_code, domain: loc.domain, store_type: loc.store_type } : null,
-            updated_at: new Date().toISOString() };
-          if (i>=0) TABLES.revenue_projections[i] = merged; else TABLES.revenue_projections.push(merged);
-          HIST.unshift({ history_id: Date.now(), action_type: i>=0?'UPDATE':'INSERT', changed_at: new Date().toISOString(), changed_by: 'demo', projection_date: p.projection_date, location_id: p.location_id, projected_sales: p.projected_sales, projected_units: p.projected_units, notes: p.notes, source: p.source });
+          const i = TABLES.revenue_projections.findIndex(x => x.projection_date===p.projection_date && x.location_id===p.location_id);
+          const loc = LOCS.find(l => l.id===p.location_id);
+          const merged = { ...p, id:i>=0?TABLES.revenue_projections[i].id:(pid++),
+            locations:loc?{id:loc.id,location_name:loc.location_name,location_code:loc.location_code,domain:loc.domain,store_type:loc.store_type}:null,
+            updated_at:new Date().toISOString() };
+          if (i>=0) TABLES.revenue_projections[i]=merged; else TABLES.revenue_projections.push(merged);
+          HIST.unshift({ history_id:Date.now(), action_type:i>=0?'UPDATE':'INSERT', changed_at:new Date().toISOString(), changed_by:'demo',
+            projection_date:p.projection_date, location_id:p.location_id, projected_sales:p.projected_sales, projected_units:p.projected_units, notes:p.notes, source:p.source });
         }
-        return { data: arr, error: null };
+        return { data:arr, error:null };
       },
       delete() {
-        return { eq: async (k, v) => {
-          const i = TABLES.revenue_projections.findIndex(x => x[k] === v);
+        return { eq: async (k,v) => {
+          const i = TABLES.revenue_projections.findIndex(x => x[k]===v);
           if (i>=0) {
             const r = TABLES.revenue_projections[i];
-            HIST.unshift({ history_id: Date.now(), action_type: 'DELETE', changed_at: new Date().toISOString(), changed_by: 'demo', projection_date: r.projection_date, location_id: r.location_id, projected_sales: 0, projected_units: 0, notes: null, source: r.source });
+            HIST.unshift({ history_id:Date.now(), action_type:'DELETE', changed_at:new Date().toISOString(), changed_by:'demo',
+              projection_date:r.projection_date, location_id:r.location_id, projected_sales:0, projected_units:0, notes:null, source:r.source });
             TABLES.revenue_projections.splice(i,1);
           }
-          return { data: null, error: null };
-        } };
+          return { data:null, error:null };
+        }};
       },
     };
     return api;
@@ -450,17 +402,17 @@ if (__SILO_DEMO__) {
     createClient() {
       return {
         auth: {
-          getSession: async () => ({ data: { session: { user: { email: 'demo@baseballism.com' } } }, error: null }),
-          signOut: async () => ({ error: null }),
+          getSession: async () => ({ data:{ session:{ user:{ email:'demo@baseballism.com' } } }, error:null }),
+          signOut: async () => ({ error:null }),
         },
-        from: (t) => makeQuery(t),
+        from: t => makeQuery(t),
       };
     },
   };
 }
 
 /* ========================================================================
-   PROJECTIONS v2 · controller
+   PROJECTIONS v2
    ======================================================================== */
 
 const cfg = window.__SILO_CONFIG__ || {};
@@ -469,40 +421,31 @@ let db = null;
 const FILTER_KEY = 'silo_v2_proj_filters_v1';
 
 const state = {
-  locations: [],
-  projections: [],
-  byKey: new Map(),
-  calendar: [],
-  calendarTypes: [],
-  audit: [],
+  locations: [], projections: [], byKey: new Map(),
+  calendar: [], calendarTypes: [], fullHistory: [],
   filters: { from:'', to:'', locationId:'', source:'', launchType:'', search:'', range:'all' },
   selectedKey: null,
-  visibleDates: [],
-  filtered: [],
-  user: null,
+  inlineKey: null,
+  visibleDates: [], filtered: [],
+  user: null, activeTab: 'matrix',
 };
 
 const els = {};
-
-/* ---- boot ------------------------------------------------------------- */
 
 document.addEventListener('DOMContentLoaded', boot);
 
 async function boot() {
   cacheEls();
-  if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
-    setStatus('Missing config.js Supabase keys', 'neg'); return;
-  }
+  if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) { setStatus('Missing Supabase config.', 'neg'); return; }
   db = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
-  const { data: sess, error: sessErr } = await db.auth.getSession();
-  if (sessErr) console.warn('getSession error:', sessErr);
+  const { data:sess, error:sessErr } = await db.auth.getSession();
+  if (sessErr) console.warn('getSession:', sessErr);
   if (!sess?.session) { window.location.href = '/pages/login.html'; return; }
   state.user = sess.session.user || null;
 
   if (window.SiloChrome) {
     window.SiloChrome.mount({
-      appEl: '#silo-app',
-      active: 'planning/revenue-projections',
+      appEl: '#silo-app', active: 'planning/revenue-projections',
       user: { email: state.user?.email, role: 'OWNER' },
       crumbs: ['Planning', 'Revenue projections'],
       supabaseClient: db,
@@ -511,15 +454,14 @@ async function boot() {
 
   wireEvents();
   restoreFilters();
-
   try {
-    await Promise.all([loadLocations(), loadProjections(), loadAudit()]);
+    await Promise.all([loadLocations(), loadProjections()]);
     await loadCalendarEvents();
     applyFiltersAndRender();
     setStatus('Ready.', 'pos', 1600);
   } catch (e) {
     console.error(e);
-    setStatus('Failed to load data: ' + (e?.message || e), 'neg');
+    setStatus('Failed to load: ' + (e?.message || e), 'neg');
   }
 }
 
@@ -528,7 +470,6 @@ function cacheEls() {
   els.matrixHead  = document.getElementById('matrix-head');
   els.matrixFoot  = document.getElementById('matrix-foot');
   els.matrixCols  = document.getElementById('matrix-cols');
-  els.auditBody   = document.getElementById('audit-body');
   els.status      = document.getElementById('page-status');
   els.fFrom       = document.getElementById('filter-from');
   els.fTo         = document.getElementById('filter-to');
@@ -547,44 +488,40 @@ function cacheEls() {
   els.formLaunchCount = document.getElementById('form-launches-count');
   els.editorPill  = document.querySelector('[data-editor-pill]');
   els.deleteBtn   = document.querySelector('[data-action="delete"]');
-  els.drawerOverlay = document.getElementById('drawer-overlay');
-  els.drawer        = document.getElementById('audit-drawer');
-  els.drawerHistList = document.getElementById('drawer-history-list');
-  els.drawerSubtitle = document.getElementById('drawer-subtitle');
+  els.importFile  = document.getElementById('import-file');
   els.histFrom    = document.getElementById('hist-from');
   els.histTo      = document.getElementById('hist-to');
-  els.importFile  = document.getElementById('import-file');
+  els.auditPaneBody     = document.getElementById('audit-pane-body');
+  els.auditPaneSubtitle = document.getElementById('audit-pane-subtitle');
 }
 
 /* ---- events ----------------------------------------------------------- */
 
 function wireEvents() {
-  // header actions
   document.querySelector('[data-action="reload"]').addEventListener('click', async () => {
     setStatus('Reloading…', 'info');
-    await Promise.all([loadProjections(), loadCalendarEvents(), loadAudit()]);
+    await Promise.all([loadProjections(), loadCalendarEvents()]);
     applyFiltersAndRender();
     setStatus('Reloaded.', 'pos', 1600);
   });
   document.querySelector('[data-action="new"]').addEventListener('click', () => {
-    state.selectedKey = null; clearEditor(true);
+    state.selectedKey = null; state.inlineKey = null;
+    clearEditor(true); renderMatrix();
   });
   document.querySelectorAll('[data-action="cancel"]').forEach(b => b.addEventListener('click', () => {
-    state.selectedKey = null; clearEditor(false); renderMatrix();
+    state.selectedKey = null; state.inlineKey = null;
+    clearEditor(false); renderMatrix();
   }));
   document.querySelector('[data-action="save"]').addEventListener('click', saveProjection);
   document.querySelector('[data-action="delete"]').addEventListener('click', deleteProjection);
   document.querySelector('[data-action="export"]').addEventListener('click', exportCsv);
   document.querySelector('[data-action="template"]').addEventListener('click', downloadTemplate);
-  document.querySelectorAll('[data-action="audit"]').forEach(b => b.addEventListener('click', openAuditDrawer));
 
-  // import CSV
   els.importFile.addEventListener('change', async () => {
     const file = els.importFile.files?.[0];
     if (file) { await importCsv(file); els.importFile.value = ''; }
   });
 
-  // filters
   const applyDebounced = debounce(syncFiltersAndApply, 180);
   [els.fFrom, els.fTo, els.fLoc, els.fSrc, els.fLaunchType].forEach(el => el.addEventListener('change', syncFiltersAndApply));
   els.fSearch.addEventListener('input', applyDebounced);
@@ -598,8 +535,8 @@ function wireEvents() {
         els.fFrom.value = ''; els.fTo.value = '';
         state.filters.from = ''; state.filters.to = '';
       } else {
-        const t = new Date();
-        const f = new Date(t); f.setDate(t.getDate() - (Number(r) - 1));
+        const t = new Date(), f = new Date(t);
+        f.setDate(t.getDate() - (Number(r) - 1));
         els.fFrom.value = state.filters.from = isoDate(f);
         els.fTo.value   = state.filters.to   = isoDate(t);
       }
@@ -607,24 +544,115 @@ function wireEvents() {
     });
   });
 
+  // in-page tabs
+  document.querySelectorAll('.pg-tab').forEach(btn => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+  });
+  document.getElementById('reload-history').addEventListener('click', async () => {
+    await loadFullHistory(); renderAuditPane();
+  });
+
   // keyboard
-  document.addEventListener('keydown', (e) => {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+  document.addEventListener('keydown', e => {
+    if ((e.metaKey||e.ctrlKey) && e.key==='Enter') {
       if (e.target.closest('.bcn-card-body')) { e.preventDefault(); saveProjection(); }
     }
-    if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); document.querySelector('[data-action="reload"]').click(); }
-    if (e.key === 'Escape') {
-      if (els.drawer.classList.contains('open')) { closeAuditDrawer(); return; }
-      if (e.target.closest('.bcn-card-body')) { state.selectedKey = null; clearEditor(false); renderMatrix(); }
+    if ((e.metaKey||e.ctrlKey) && e.key==='k') { e.preventDefault(); document.querySelector('[data-action="reload"]').click(); }
+    if (e.key==='Escape') {
+      if (state.inlineKey) { state.inlineKey=null; renderMatrix(); return; }
+      if (e.target.closest('.bcn-card-body')) { state.selectedKey=null; clearEditor(false); renderMatrix(); }
     }
   });
 
-  // drawer
-  document.getElementById('drawer-close').addEventListener('click', closeAuditDrawer);
-  els.drawerOverlay.addEventListener('click', closeAuditDrawer);
-  document.getElementById('reload-history').addEventListener('click', async () => {
-    await loadFullHistory(); renderFullHistory();
+  // matrix inline edit delegation
+  els.matrixBody.addEventListener('click', e => {
+    const okBtn = e.target.closest('.cell-quick-ok');
+    if (okBtn) {
+      e.stopPropagation();
+      const td = okBtn.closest('.td-cell');
+      const input = td.querySelector('.cell-quick-in');
+      quickSave(td.dataset.key, td.dataset.date, Number(td.dataset.loc), input);
+      return;
+    }
+    if (e.target.closest('.cell-quick-cancel')) {
+      e.stopPropagation();
+      state.inlineKey = null; renderMatrix(); return;
+    }
+    if (e.target.closest('.cell-inline')) return;
+
+    const td = e.target.closest('.td-cell');
+    if (!td) return;
+    const key = td.dataset.key, date = td.dataset.date, locId = Number(td.dataset.loc);
+    const isEmpty = td.classList.contains('td-cell--empty');
+
+    state.selectedKey = key;
+    state.inlineKey = isEmpty ? null : key;
+    fillEditor({ date, locationId: locId, row: state.byKey.get(key) || null });
+    renderMatrix();
+
+    if (!isEmpty) {
+      requestAnimationFrame(() => {
+        const inp = els.matrixBody.querySelector('.cell-quick-in');
+        if (inp) { inp.focus(); inp.select(); }
+      });
+    }
   });
+
+  els.matrixBody.addEventListener('keydown', e => {
+    if (!e.target.classList.contains('cell-quick-in')) return;
+    const td = e.target.closest('.td-cell');
+    if (e.key === 'Enter') { e.preventDefault(); quickSave(td.dataset.key, td.dataset.date, Number(td.dataset.loc), e.target); }
+    if (e.key === 'Escape') { state.inlineKey = null; renderMatrix(); }
+  });
+}
+
+/* ---- tab switching ---------------------------------------------------- */
+
+function switchTab(name) {
+  state.activeTab = name;
+  document.querySelectorAll('.pg-tab').forEach(b => {
+    b.classList.toggle('pg-tab--active', b.dataset.tab === name);
+    b.setAttribute('aria-selected', b.dataset.tab === name ? 'true' : 'false');
+  });
+  document.getElementById('pane-matrix').hidden = (name !== 'matrix');
+  document.getElementById('pane-audit').hidden  = (name !== 'audit');
+  if (name === 'audit') loadFullHistory().then(() => renderAuditPane());
+}
+
+/* ---- inline quick save ------------------------------------------------ */
+
+async function quickSave(key, date, locId, input) {
+  const sales = Number(input.value);
+  if (!Number.isFinite(sales) || sales < 0) { setStatus('Sales must be ≥ 0.', 'neg'); return; }
+
+  const existing = state.byKey.get(key);
+  const payload = {
+    projection_date: date, location_id: locId,
+    projected_units: existing ? Number(existing.projected_units||0) : 0,
+    projected_sales: Number(sales.toFixed(2)),
+    notes: existing?.notes || null,
+    source: existing?.source || 'manual',
+    scenario: 'active',
+  };
+
+  const okBtn = input.closest('.td-cell')?.querySelector('.cell-quick-ok');
+  if (okBtn) okBtn.disabled = true;
+  setStatus('Saving…', 'info');
+
+  try {
+    const { error } = await db.from('revenue_projections').upsert([payload], { onConflict: 'projection_date,location_id' });
+    if (error) throw error;
+    setStatus(`Saved · ${date} · ${locName(locId)} · ${fmtUSD(sales)}`, 'pos', 1600);
+    state.inlineKey = null;
+    await loadProjections();
+    state.selectedKey = keyFor(date, locId);
+    applyFiltersAndRender();
+    fillEditor({ date, locationId: locId, row: state.byKey.get(state.selectedKey) || null });
+  } catch(e) {
+    console.error(e);
+    setStatus('Save failed: ' + (e?.message || e), 'neg');
+    if (okBtn) okBtn.disabled = false;
+  }
 }
 
 function syncFiltersAndApply() {
@@ -635,53 +663,54 @@ function syncFiltersAndApply() {
   state.filters.launchType = els.fLaunchType.value;
   state.filters.search     = els.fSearch.value.trim().toLowerCase();
   if (state.filters.from || state.filters.to) { state.filters.range = ''; setRangePressed(null); }
-  saveFilters();
-  applyFiltersAndRender();
+  saveFilters(); applyFiltersAndRender();
 }
 
 function setRangePressed(r) {
-  document.querySelectorAll('[data-range]').forEach(b => b.setAttribute('aria-pressed', r && b.getAttribute('data-range') === r ? 'true' : 'false'));
+  document.querySelectorAll('[data-range]').forEach(b =>
+    b.setAttribute('aria-pressed', r && b.getAttribute('data-range')===r ? 'true' : 'false'));
 }
 
 /* ---- filter persistence ----------------------------------------------- */
 
 function saveFilters() {
-  try { localStorage.setItem(FILTER_KEY, JSON.stringify(state.filters)); } catch (_) {}
+  try { localStorage.setItem(FILTER_KEY, JSON.stringify(state.filters)); } catch(_) {}
 }
 
 function restoreFilters() {
   try {
     const s = JSON.parse(localStorage.getItem(FILTER_KEY) || '{}');
-    if (s.from)       { state.filters.from = s.from; els.fFrom.value = s.from; }
-    if (s.to)         { state.filters.to = s.to;     els.fTo.value = s.to; }
-    if (s.search)     { state.filters.search = s.search; els.fSearch.value = s.search; }
-    if (s.range)      { state.filters.range = s.range; setRangePressed(s.range); }
-    // selects restored after data loads in populate* functions
+    if (s.from)   { state.filters.from = s.from; els.fFrom.value = s.from; }
+    if (s.to)     { state.filters.to = s.to;     els.fTo.value = s.to; }
+    if (s.search) { state.filters.search = s.search; els.fSearch.value = s.search; }
+    if (s.range)  { state.filters.range = s.range; setRangePressed(s.range); }
     state.filters._pending_location   = s.locationId;
     state.filters._pending_source     = s.source;
     state.filters._pending_launchType = s.launchType;
-  } catch (_) {}
+  } catch(_) {}
 }
 
 /* ---- loaders ---------------------------------------------------------- */
 
 async function loadLocations() {
-  const { data, error } = await db.from('locations').select('id, location_code, location_name, domain, store_type, is_active').eq('is_active', true).order('location_name', { ascending: true });
+  const { data, error } = await db.from('locations')
+    .select('id, location_code, location_name, domain, store_type, is_active')
+    .eq('is_active', true).order('location_name', { ascending: true });
   if (error) throw error;
   state.locations = data || [];
-  els.fLoc.innerHTML = '<option value="">ALL</option>' + state.locations.map(l => `<option value="${l.id}">${esc(l.location_code || l.location_name)}</option>`).join('');
-  els.formLoc.innerHTML = '<option value="">Select location</option>' + state.locations.map(l => `<option value="${l.id}">${esc(l.location_name)}</option>`).join('');
+  els.fLoc.innerHTML = '<option value="">ALL</option>' +
+    state.locations.map(l => `<option value="${l.id}">${esc(l.location_code || l.location_name)}</option>`).join('');
+  els.formLoc.innerHTML = '<option value="">Select location</option>' +
+    state.locations.map(l => `<option value="${l.id}">${esc(l.location_name)}</option>`).join('');
   if (state.filters._pending_location) { els.fLoc.value = state.filters._pending_location; state.filters.locationId = els.fLoc.value; }
 }
 
 async function loadProjections() {
   const { data, error } = await db.from('revenue_projections')
-    .select(`id, projection_date, location_id, projected_units, projected_sales, notes, source, scenario, created_at, updated_at, created_by, updated_by, locations ( id, location_name, location_code, domain, store_type )`)
-    .eq('scenario', 'active')
-    .order('projection_date', { ascending: true })
-    .range(0, 5000);
+    .select('id, projection_date, location_id, projected_units, projected_sales, notes, source, scenario, created_at, updated_at, created_by, updated_by, locations(id,location_name,location_code,domain,store_type)')
+    .eq('scenario', 'active').order('projection_date', { ascending: true }).range(0, 5000);
   if (error) throw error;
-  state.projections = (data || []).map(r => ({
+  state.projections = (data||[]).map(r => ({
     ...r,
     location_name: r.locations?.location_name || locName(r.location_id),
     location_code: r.locations?.location_code || locCode(r.location_id),
@@ -690,43 +719,34 @@ async function loadProjections() {
   for (const r of state.projections) state.byKey.set(keyFor(r.projection_date, r.location_id), r);
 
   const sources = Array.from(new Set(state.projections.map(r => r.source).filter(Boolean))).sort();
-  els.fSrc.innerHTML = '<option value="">ALL</option>' + sources.map(s => `<option value="${esc(s)}">${esc(s.toUpperCase())}</option>`).join('');
+  els.fSrc.innerHTML = '<option value="">ALL</option>' +
+    sources.map(s => `<option value="${esc(s)}">${esc(s.toUpperCase())}</option>`).join('');
   if (state.filters._pending_source) { els.fSrc.value = state.filters._pending_source; state.filters.source = els.fSrc.value; }
 }
 
 async function loadCalendarEvents() {
   const dates = state.projections.map(r => r.projection_date).filter(Boolean).sort();
-  const dateFrom = dates[0] || ''; const dateTo = dates[dates.length - 1] || '';
-  let q = db.from('launch_calendar').select('*').order('launch_date', { ascending: true }).range(0, 5000);
+  const dateFrom = dates[0]||'', dateTo = dates[dates.length-1]||'';
+  let q = db.from('launch_calendar').select('*').order('launch_date', { ascending:true }).range(0,5000);
   if (dateFrom) q = q.gte('launch_date', dateFrom);
   if (dateTo)   q = q.lte('launch_date', dateTo);
   const { data, error } = await q;
   if (error) throw error;
-  state.calendar = (data || [])
-    .map(r => ({ id: r.id, date: normDate(r.launch_date), title: String(r.title || r.product_title || 'Untitled').trim(), type: String(r.launch_type || '').trim(), designer: String(r.designer || '').trim(), time: String(r.launch_time || '').trim(), tz: String(r.timezone || r.time_zone || '').trim() }))
+  state.calendar = (data||[])
+    .map(r => ({ id:r.id, date:normDate(r.launch_date), title:String(r.title||r.product_title||'Untitled').trim(), type:String(r.launch_type||'').trim(), designer:String(r.designer||'').trim(), time:String(r.launch_time||'').trim(), tz:String(r.timezone||r.time_zone||'').trim() }))
     .filter(e => e.date && e.title);
-
   const types = Array.from(new Set(state.calendar.map(e => e.type).filter(Boolean))).sort();
   state.calendarTypes = types;
-  els.fLaunchType.innerHTML = '<option value="">ALL</option>' + types.map(t => `<option value="${esc(t)}">${esc(t.toUpperCase())}</option>`).join('');
+  els.fLaunchType.innerHTML = '<option value="">ALL</option>' +
+    types.map(t => `<option value="${esc(t)}">${esc(t.toUpperCase())}</option>`).join('');
   if (state.filters._pending_launchType) { els.fLaunchType.value = state.filters._pending_launchType; state.filters.launchType = els.fLaunchType.value; }
 }
 
-async function loadAudit() {
-  const { data, error } = await db.from('revenue_projection_history')
-    .select('history_id, action_type, changed_at, changed_by, projection_date, location_id, projected_sales, projected_units')
-    .order('changed_at', { ascending: false })
-    .limit(5);
-  if (error) { console.warn('audit history unavailable:', error.message); state.audit = []; return; }
-  state.audit = data || [];
-}
-
 async function loadFullHistory() {
-  const from = els.histFrom.value; const to = els.histTo.value;
+  const from = els.histFrom.value, to = els.histTo.value;
   let q = db.from('revenue_projection_history')
-    .select('history_id, revenue_projection_id, action_type, changed_at, changed_by, projection_date, location_id, projected_units, projected_sales, notes, source')
-    .order('changed_at', { ascending: false })
-    .limit(200);
+    .select('history_id, action_type, changed_at, changed_by, projection_date, location_id, projected_units, projected_sales, notes, source')
+    .order('changed_at', { ascending: false }).limit(200);
   if (from) q = q.gte('projection_date', from);
   if (to)   q = q.lte('projection_date', to);
   const { data, error } = await q;
@@ -743,7 +763,7 @@ function applyFiltersAndRender() {
     if (f.from && d < f.from) return false;
     if (f.to   && d > f.to)   return false;
     if (f.locationId && String(r.location_id) !== String(f.locationId)) return false;
-    if (f.source && (r.source || '') !== f.source) return false;
+    if (f.source && (r.source||'') !== f.source) return false;
     const calOnDate = state.calendar.filter(e => e.date === d);
     if (f.launchType && !calOnDate.some(e => e.type === f.launchType)) return false;
     if (f.search) {
@@ -758,25 +778,22 @@ function applyFiltersAndRender() {
   renderKpis();
   renderFilterMeta();
   renderMatrix();
-  renderAudit();
 }
 
 /* ---- header / KPIs ---------------------------------------------------- */
 
 function renderScopePill() {
-  const d = state.visibleDates.length;
-  const l = state.locations.length;
+  const d = state.visibleDates.length, l = state.locations.length;
   document.querySelector('[data-scope-pill]').textContent = `${d} DATE${d===1?'':'S'} · ${l} LOC`;
   document.querySelector('[data-page-meta]').textContent  = `${d}D · ${l}LOC · ${state.filtered.length} ROWS`;
 }
 
 function renderKpis() {
-  const grand = state.filtered.reduce((s, r) => s + Number(r.projected_sales || 0), 0);
-  const units = state.filtered.reduce((s, r) => s + Number(r.projected_units || 0), 0);
+  const grand = state.filtered.reduce((s,r) => s+Number(r.projected_sales||0), 0);
+  const units = state.filtered.reduce((s,r) => s+Number(r.projected_units||0), 0);
   const launches = state.calendar.filter(e => state.visibleDates.includes(e.date)).length;
   const dates = state.visibleDates.length;
-  const avg = dates ? grand / dates : 0;
-
+  const avg = dates ? grand/dates : 0;
   setText('[data-kpi="grand"]',       fmtUSD(grand));
   setText('[data-kpi="grand-delta"]', grand > 0 ? `${state.filtered.length} CELLS IN VIEW` : '—');
   setText('[data-kpi="units"]',       fmtInt(units));
@@ -793,89 +810,84 @@ function renderKpis() {
 function countByType() {
   const counts = {};
   for (const l of state.locations) {
-    const t = (l.store_type || '').toUpperCase().slice(0, 6) || 'OTHER';
-    counts[t] = (counts[t] || 0) + 1;
+    const t = (l.store_type||'').toUpperCase().slice(0,6) || 'OTHER';
+    counts[t] = (counts[t]||0) + 1;
   }
   return Object.entries(counts).map(([k,v]) => `${v} ${k}`).join(' · ') || '—';
 }
 
 function renderFilterMeta() {
-  const grand = state.filtered.reduce((s,r) => s + Number(r.projected_sales || 0), 0);
+  const grand = state.filtered.reduce((s,r) => s+Number(r.projected_sales||0), 0);
   document.querySelector('[data-meta="rows"]').textContent  = `${state.filtered.length} ROWS`;
-  document.querySelector('[data-meta="grand"]').textContent = fmtUSD(grand, { compact: true });
+  document.querySelector('[data-meta="grand"]').textContent = fmtUSD(grand, { compact:true });
 }
 
 /* ---- matrix ----------------------------------------------------------- */
 
 function renderMatrix() {
-  const locs  = state.locations;
-  const dates = state.visibleDates;
+  const locs = state.locations, dates = state.visibleDates;
 
   els.matrixCols.innerHTML =
     '<col style="width:104px"/><col style="width:200px"/>' +
-    locs.map(() => '<col/>').join('') +
-    '<col style="width:90px"/>';
+    locs.map(() => '<col/>').join('') + '<col style="width:90px"/>';
 
   els.matrixHead.innerHTML = `
     <th class="bcn-th-left">DATE</th>
     <th class="bcn-th-left">LAUNCH</th>
-    ${locs.map(l => `
-      <th>
-        <div class="loc-code">${esc(l.location_code || (l.location_name||'').slice(0,3).toUpperCase())}</div>
-        <div class="loc-name">${esc(l.location_name||'')}</div>
-      </th>`).join('')}
-    <th>TOTAL</th>
-  `;
+    ${locs.map(l => `<th><div class="loc-code">${esc(l.location_code||(l.location_name||'').slice(0,3).toUpperCase())}</div><div class="loc-name">${esc(l.location_name||'')}</div></th>`).join('')}
+    <th>TOTAL</th>`;
 
   if (!dates.length) {
-    els.matrixBody.innerHTML = `<tr><td colspan="${locs.length + 3}" class="bcn-empty">No projections. Pick a date + location in the editor and save.</td></tr>`;
+    els.matrixBody.innerHTML = `<tr><td colspan="${locs.length+3}" class="bcn-empty">No projections. Pick a date + location in the editor and save.</td></tr>`;
     els.matrixFoot.innerHTML = '';
     document.querySelector('[data-meta="cells"]').textContent = `0D × ${locs.length}LOC`;
     return;
   }
 
-  const allVals = state.filtered.map(r => Number(r.projected_sales||0)).filter(v => v > 0);
+  const allVals = state.filtered.map(r => Number(r.projected_sales||0)).filter(v => v>0);
   const max = Math.max(1, ...allVals);
 
   const rows = dates.map(d => {
-    const launches = state.calendar.filter(e => e.date === d);
-    const launchTitle = launches[0] ? launches[0].title + (launches.length > 1 ? ` +${launches.length-1}` : '') : null;
+    const launches = state.calendar.filter(e => e.date===d);
+    const launchTitle = launches[0] ? launches[0].title+(launches.length>1?` +${launches.length-1}`:'') : null;
     const cells = locs.map(l => {
       const r = state.byKey.get(keyFor(d, l.id));
-      return { v: r ? Number(r.projected_sales||0) : null, units: r ? Number(r.projected_units||0) : null, row: r, locId: l.id };
+      return { v:r?Number(r.projected_sales||0):null, units:r?Number(r.projected_units||0):null, row:r, locId:l.id };
     });
-    return { date: d, dow: dowShort(d), launches, launchTitle, cells, total: cells.reduce((s,c) => s+(c.v||0), 0) };
+    return { date:d, dow:dowShort(d), launches, launchTitle, cells, total:cells.reduce((s,c)=>s+(c.v||0),0) };
   });
 
-  const colTotals = locs.map((_, i) => rows.reduce((s,r) => s+(r.cells[i].v||0), 0));
-  const grand     = colTotals.reduce((a,b) => a+b, 0);
+  const colTotals = locs.map((_,i) => rows.reduce((s,r) => s+(r.cells[i].v||0), 0));
+  const grand = colTotals.reduce((a,b) => a+b, 0);
 
   els.matrixBody.innerHTML = rows.map(r => {
-    const isRowSel = state.selectedKey && state.selectedKey.startsWith(r.date + '|');
+    const isRowSel = state.selectedKey && state.selectedKey.startsWith(r.date+'|');
     return `<tr class="${isRowSel?'row-selected':''}" data-row-date="${r.date}">
-      <td class="td-date">
-        <div>${r.date}</div>
-        <div class="dow">${r.dow}</div>
-      </td>
-      <td class="td-launch">
-        ${r.launchTitle
-          ? `<span class="bcn-launch-chip"><span class="bcn-dot bcn-dot--accent"></span>${esc(r.launchTitle)}</span>`
-          : '<span class="bcn-launch-chip"><span class="empty">—</span></span>'}
-      </td>
+      <td class="td-date"><div>${r.date}</div><div class="dow">${r.dow}</div></td>
+      <td class="td-launch">${r.launchTitle
+        ? `<span class="bcn-launch-chip"><span class="bcn-dot bcn-dot--accent"></span>${esc(r.launchTitle)}</span>`
+        : '<span class="bcn-launch-chip"><span class="empty">—</span></span>'}</td>
       ${r.cells.map(c => {
-        const a = c.v ? (c.v / max) : 0;
         const key = keyFor(r.date, c.locId);
+        const isInline = state.inlineKey === key;
         const sel = state.selectedKey === key;
         const empty = c.v == null;
-        return `<td class="td-cell ${sel?'td-cell--selected':''}"
+        const a = c.v ? c.v/max : 0;
+        const bg = !empty && !isInline ? `background:oklch(0.55 0.20 245 / ${a*0.28})` : '';
+        const fw = !empty && !isInline && a>0.7 ? 'font-weight:600;color:var(--bcn-accent)' : '';
+        return `<td class="td-cell${sel?' td-cell--selected':''}${empty?' td-cell--empty':''}"
               data-key="${key}" data-date="${r.date}" data-loc="${c.locId}"
-              style="background:${empty?'':`oklch(0.55 0.20 245 / ${a*0.28})`};
-                     font-weight:${a>0.7?'600':''};
-                     color:${a>0.7?'var(--bcn-accent)':''};">
-          ${empty
-            ? '<span style="color:var(--bcn-ink-4)">—</span>'
-            : `<div>${fmtUSD(c.v,{compact:true})}</div>${c.units ? `<div style="font-size:9.5px;color:var(--bcn-ink-3);margin-top:1px;">${fmtInt(c.units)}u</div>` : ''}`}
-          <span class="cell-edit-hint">EDIT</span>
+              style="${bg};${fw}">
+          ${isInline
+            ? `<div class="cell-inline">
+                <input class="cell-quick-in" type="number" step="0.01" min="0" value="${c.v!=null?c.v.toFixed(2):'0.00'}" data-ik="${key}" />
+                <button class="cell-quick-ok" type="button">✓</button>
+                <button class="cell-quick-cancel" type="button">✕</button>
+               </div>`
+            : empty
+              ? '<span style="color:var(--bcn-ink-4)">—</span>'
+              : `<div>${fmtUSD(c.v,{compact:true})}</div>${c.units?`<div style="font-size:9.5px;color:var(--bcn-ink-3);margin-top:1px;">${fmtInt(c.units)}u</div>`:''}`
+          }
         </td>`;
       }).join('')}
       <td class="td-total">${fmtUSD(r.total,{compact:true})}</td>
@@ -889,17 +901,7 @@ function renderMatrix() {
       <td class="td-grand-total">${fmtUSD(grand,{compact:true})}</td>
     </tr>`;
 
-  document.querySelector('[data-meta="cells"]').textContent = `${dates.length}D × ${locs.length}LOC · ${dates.length * locs.length} CELLS`;
-
-  els.matrixBody.querySelectorAll('.td-cell').forEach(td => {
-    td.addEventListener('click', () => selectCell(td.getAttribute('data-key'), td.getAttribute('data-date'), Number(td.getAttribute('data-loc'))));
-  });
-}
-
-function selectCell(key, date, locId) {
-  state.selectedKey = key;
-  fillEditor({ date, locationId: locId, row: state.byKey.get(key) || null });
-  renderMatrix();
+  document.querySelector('[data-meta="cells"]').textContent = `${dates.length}D × ${locs.length}LOC · ${dates.length*locs.length} CELLS`;
 }
 
 /* ---- editor ----------------------------------------------------------- */
@@ -909,12 +911,12 @@ function fillEditor({ date, locationId, row }) {
   els.formLoc.value    = locationId != null ? String(locationId) : '';
   els.formSales.value  = row ? Number(row.projected_sales||0).toFixed(2) : '';
   els.formUnits.value  = row ? String(Math.max(0, Math.round(Number(row.projected_units||0)))) : '';
-  els.formSource.value = row ? (row.source || 'manual') : 'manual';
-  els.formNotes.value  = row ? (row.notes || '') : '';
-  els.editorPill.textContent = `${date||'—'} · ${locName(locationId)||'—'}`;
+  els.formSource.value = row ? (row.source||'manual') : 'manual';
+  els.formNotes.value  = row ? (row.notes||'') : '';
+  els.editorPill.textContent = date ? `${date} · ${locName(locationId)||'—'}` : 'SELECT A CELL';
   els.deleteBtn.disabled = !row;
 
-  const launches = state.calendar.filter(e => e.date === date);
+  const launches = state.calendar.filter(e => e.date===date);
   if (launches.length) {
     els.formLaunchWrap.hidden = false;
     els.formLaunchCount.textContent = `LAUNCHES · ${launches.length}`;
@@ -926,8 +928,8 @@ function fillEditor({ date, locationId, row }) {
           ${l.type ? `<span class="bcn-pill bcn-pill--accent">${esc(l.type)}</span>` : ''}
         </div>
         <div class="bcn-launch-preview-meta">
-          ${l.time ? `<span>DROP · ${esc(l.time)}${l.tz?' '+esc(l.tz):''}</span>` : '<span>—</span>'}
-          ${l.designer ? `<span>DSGN · ${esc(l.designer)}</span>` : '<span>—</span>'}
+          ${l.time ? `<span>DROP · ${esc(l.time)}${l.tz?' '+esc(l.tz):''}</span>` : ''}
+          ${l.designer ? `<span>DSGN · ${esc(l.designer)}</span>` : ''}
         </div>
       </div>`).join('');
   } else {
@@ -937,44 +939,43 @@ function fillEditor({ date, locationId, row }) {
 }
 
 function clearEditor(prefillToday) {
-  if (prefillToday) { fillEditor({ date: isoDate(new Date()), locationId: null, row: null }); els.formSales.focus(); }
-  else fillEditor({ date: '', locationId: null, row: null });
+  if (prefillToday) { fillEditor({ date:isoDate(new Date()), locationId:null, row:null }); els.formSales.focus(); }
+  else fillEditor({ date:'', locationId:null, row:null });
 }
 
 async function saveProjection() {
-  const date = els.formDate.value;
-  const locationId = Number(els.formLoc.value);
+  const date = els.formDate.value, locationId = Number(els.formLoc.value);
   const sales = Number(els.formSales.value);
-  const units = Math.max(0, Math.round(Number(els.formUnits.value) || 0));
+  const units = Math.max(0, Math.round(Number(els.formUnits.value)||0));
   const notes = els.formNotes.value.trim() || null;
   const source = els.formSource.value.trim() || 'manual';
 
   const errs = [];
-  if (!date) errs.push('Date is required.');
-  if (!locationId) errs.push('Location is required.');
+  if (!date) errs.push('Date required.');
+  if (!locationId) errs.push('Location required.');
   if (!Number.isFinite(sales) || sales < 0) errs.push('Sales must be ≥ 0.');
   if (errs.length) { setStatus(errs.join(' '), 'neg'); return; }
 
-  const payload = { projection_date: date, location_id: locationId, projected_units: units, projected_sales: Number(sales.toFixed(2)), notes, source, scenario: 'active' };
-
+  const payload = { projection_date:date, location_id:locationId, projected_units:units, projected_sales:Number(sales.toFixed(2)), notes, source, scenario:'active' };
   setStatus('Saving…', 'info');
   const saveBtn = document.querySelector('[data-action="save"]');
   saveBtn.disabled = true;
   try {
-    const { error } = await db.from('revenue_projections').upsert([payload], { onConflict: 'projection_date,location_id' });
+    const { error } = await db.from('revenue_projections').upsert([payload], { onConflict:'projection_date,location_id' });
     if (error) throw error;
     setStatus(`Saved · ${date} · ${locName(locationId)} · ${fmtUSD(sales)}`, 'pos', 2200);
-    await loadProjections(); await loadAudit();
+    await loadProjections();
     state.selectedKey = keyFor(date, locationId);
+    state.inlineKey = null;
     applyFiltersAndRender();
-    fillEditor({ date, locationId, row: state.byKey.get(state.selectedKey) || null });
-  } catch (e) {
-    console.error(e); setStatus('Save failed: ' + (e?.message || e), 'neg');
+    fillEditor({ date, locationId, row:state.byKey.get(state.selectedKey)||null });
+  } catch(e) {
+    console.error(e); setStatus('Save failed: '+(e?.message||e), 'neg');
   } finally { saveBtn.disabled = false; }
 }
 
 async function deleteProjection() {
-  const date = els.formDate.value; const locationId = Number(els.formLoc.value);
+  const date = els.formDate.value, locationId = Number(els.formLoc.value);
   if (!date || !locationId) return;
   const existing = state.byKey.get(keyFor(date, locationId));
   if (!existing) return;
@@ -984,72 +985,34 @@ async function deleteProjection() {
     const { error } = await db.from('revenue_projections').delete().eq('id', existing.id);
     if (error) throw error;
     setStatus(`Deleted · ${date} · ${locName(locationId)}`, 'pos', 2200);
-    state.selectedKey = null; await loadProjections(); await loadAudit();
-    applyFiltersAndRender(); clearEditor(false);
-  } catch (e) { console.error(e); setStatus('Delete failed: ' + (e?.message || e), 'neg'); }
+    state.selectedKey = null; state.inlineKey = null;
+    await loadProjections(); applyFiltersAndRender(); clearEditor(false);
+  } catch(e) { console.error(e); setStatus('Delete failed: '+(e?.message||e), 'neg'); }
 }
 
-/* ---- audit drawer ----------------------------------------------------- */
+/* ---- audit pane ------------------------------------------------------- */
 
-async function openAuditDrawer() {
-  els.drawer.classList.add('open');
-  els.drawerOverlay.classList.add('open');
-  els.drawer.setAttribute('aria-hidden', 'false');
-  await loadFullHistory();
-  renderFullHistory();
-}
-
-function closeAuditDrawer() {
-  els.drawer.classList.remove('open');
-  els.drawerOverlay.classList.remove('open');
-  els.drawer.setAttribute('aria-hidden', 'true');
-}
-
-function renderFullHistory() {
+function renderAuditPane() {
   const rows = state.fullHistory || [];
   if (!rows.length) {
-    els.drawerHistList.innerHTML = '<div class="bcn-empty">No audit history found.</div>';
-    els.drawerSubtitle.textContent = 'No records found for this date range.';
+    els.auditPaneBody.innerHTML = '<div class="bcn-empty" style="padding:28px;">No audit history found.</div>';
+    els.auditPaneSubtitle.textContent = '0 records';
     return;
   }
-  els.drawerSubtitle.textContent = `${rows.length} records · most recent first`;
-  els.drawerHistList.innerHTML = rows.map(r => {
-    const toneClass = r.action_type === 'DELETE' ? 'bcn-pill--neg' : r.action_type === 'INSERT' ? 'bcn-pill--pos' : '';
-    const loc = locName(r.location_id) || `LOC ${r.location_id}`;
-    return `<div class="audit-row">
-      <div class="audit-row-head">
-        <span class="bcn-pill ${toneClass}">${esc(r.action_type||'EDIT')}</span>
-        <span class="bcn-pill">${esc(r.projection_date||'')}</span>
-        <span class="bcn-pill">${esc(loc)}</span>
-        ${r.changed_by ? `<span class="bcn-pill">${esc(r.changed_by)}</span>` : ''}
-      </div>
-      <div class="audit-row-detail">
-        ${fmtUSD(r.projected_sales)} · ${r.projected_units!=null?fmtInt(r.projected_units)+' UNITS':''} · ${esc((r.source||'').toUpperCase())}
-        <span style="color:var(--bcn-ink-4);margin-left:10px;">${esc(fmtDateTime(r.changed_at))}</span>
-      </div>
-      ${r.notes ? `<div class="audit-row-notes">${esc(r.notes)}</div>` : ''}
-    </div>`;
-  }).join('');
-}
-
-/* ---- audit tail ------------------------------------------------------- */
-
-function renderAudit() {
-  const rows = state.audit.slice(0, 5);
-  if (!rows.length) { els.auditBody.innerHTML = `<tr><td colspan="5" class="bcn-empty" style="padding:14px">No recent activity.</td></tr>`; return; }
-  els.auditBody.innerHTML = rows.map(r => {
-    const t = (r.changed_at||'').slice(11,19);
-    const kind = (r.action_type||'EDIT').toUpperCase();
-    const loc = locName(r.location_id) || `LOC ${r.location_id}`;
-    const tone = kind === 'DELETE' ? 'bcn-pill--neg' : kind === 'INSERT' ? 'bcn-pill--pos' : '';
-    return `<tr>
-      <td class="bcn-audit-time">${esc(t||'—')}</td>
-      <td class="bcn-audit-kind">${esc(kind)}</td>
-      <td class="bcn-audit-src">${esc(r.projection_date||'')}</td>
-      <td class="bcn-audit-st"><span class="bcn-pill ${tone}">${esc(kind==='DELETE'?'DEL':'OK')}</span></td>
-      <td class="bcn-audit-msg">${esc(fmtUSD(r.projected_sales))} · ${esc(loc)}</td>
-    </tr>`;
-  }).join('');
+  els.auditPaneSubtitle.textContent = `${rows.length} records · most recent first`;
+  els.auditPaneBody.innerHTML = `<table class="bcn-audit-table" style="width:100%"><tbody>${
+    rows.map(r => {
+      const tone = r.action_type==='DELETE' ? 'bcn-pill--neg' : r.action_type==='INSERT' ? 'bcn-pill--pos' : '';
+      const loc = locName(r.location_id) || `LOC ${r.location_id}`;
+      return `<tr>
+        <td class="bcn-audit-time" style="white-space:nowrap;">${esc(fmtDateTime(r.changed_at))}</td>
+        <td class="bcn-audit-kind"><span class="bcn-pill ${tone}">${esc(r.action_type||'EDIT')}</span></td>
+        <td class="bcn-audit-src">${esc(r.projection_date||'')} · ${esc(loc)}</td>
+        <td class="bcn-audit-st">${r.changed_by?`<span class="bcn-pill">${esc(r.changed_by)}</span>`:'—'}</td>
+        <td class="bcn-audit-msg">${fmtUSD(r.projected_sales)} · ${r.projected_units!=null?fmtInt(r.projected_units)+' UNITS':''} ${r.notes?`<span style="color:var(--bcn-ink-4)">· ${esc(r.notes.slice(0,50))}</span>`:''}</td>
+      </tr>`;
+    }).join('')
+  }</tbody></table>`;
 }
 
 /* ---- CSV export ------------------------------------------------------- */
@@ -1079,167 +1042,103 @@ async function importCsv(file) {
   setStatus('Importing…', 'info');
   const text = await file.text();
   const rows = parseCsv(text);
-  if (rows.length < 2) { setStatus('Import file is empty or has no data rows.', 'neg'); return; }
+  if (rows.length < 2) { setStatus('Empty or no data rows.', 'neg'); return; }
 
-  const header = rows[0];
-  const idx = buildHeaderIdx(header);
+  const header = rows[0], idx = buildHeaderIdx(header);
   const dateIdx  = findCol(idx, ['projection_date','date']);
   const salesIdx = findCol(idx, ['projected_sales','sales','projected_revenue']);
   const unitsIdx = findCol(idx, ['projected_units','units']);
   const srcIdx   = findCol(idx, ['source']);
   const notesIdx = findCol(idx, ['notes','note']);
 
-  if (dateIdx === null || salesIdx === null) { setStatus('CSV must have projection_date and projected_sales columns.', 'neg'); return; }
+  if (dateIdx===null || salesIdx===null) { setStatus('CSV needs projection_date and projected_sales columns.', 'neg'); return; }
 
-  const result = { total: 0, prepared: 0, skipped: 0, errors: [] };
-  const payload = []; const seen = new Set();
+  const result = { total:0, prepared:0, skipped:0, errors:[] };
+  const payload = [], seen = new Set();
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     if (!row || row.every(c => !String(c||'').trim())) continue;
     result.total++;
-
-    const date  = String(row[dateIdx] || '').trim();
+    const date  = String(row[dateIdx]||'').trim();
     const sales = Number(String(row[salesIdx]||'').replace(/[$,]/g,''));
-    const units = unitsIdx !== null ? Math.max(0, Math.round(Number(String(row[unitsIdx]||'').replace(/[$,]/g,''))||0)) : 0;
-    const src   = srcIdx   !== null ? (String(row[srcIdx]||'').trim()||'import') : 'import';
-    const notes = notesIdx !== null ? (String(row[notesIdx]||'').trim()||null) : null;
-
+    const units = unitsIdx!==null ? Math.max(0, Math.round(Number(String(row[unitsIdx]||'').replace(/[$,]/g,''))||0)) : 0;
+    const src   = srcIdx!==null ? (String(row[srcIdx]||'').trim()||'import') : 'import';
+    const notes = notesIdx!==null ? (String(row[notesIdx]||'').trim()||null) : null;
     if (!date) { result.skipped++; result.errors.push(`Row ${i+1}: missing date.`); continue; }
 
-    // resolve location
     const locNameIdx = findCol(idx, ['location_name','location','store_name','store']);
     const locCodeIdx = findCol(idx, ['location_code','store_code','code']);
     const locIdIdx   = findCol(idx, ['location_id']);
-    const rawName = locNameIdx !== null ? String(row[locNameIdx]||'').trim().toLowerCase() : '';
-    const rawCode = locCodeIdx !== null ? String(row[locCodeIdx]||'').trim().toLowerCase() : '';
-    const rawId   = locIdIdx   !== null ? String(row[locIdIdx]||'').trim() : '';
+    const rawName = locNameIdx!==null ? String(row[locNameIdx]||'').trim().toLowerCase() : '';
+    const rawCode = locCodeIdx!==null ? String(row[locCodeIdx]||'').trim().toLowerCase() : '';
+    const rawId   = locIdIdx!==null   ? String(row[locIdIdx]||'').trim() : '';
 
-    const loc = rawId   ? state.locations.find(l => String(l.id) === rawId)
-              : rawCode ? state.locations.find(l => (l.location_code||'').toLowerCase() === rawCode)
-              : rawName ? state.locations.find(l => (l.location_name||'').toLowerCase() === rawName)
+    const loc = rawId   ? state.locations.find(l => String(l.id)===rawId)
+              : rawCode ? state.locations.find(l => (l.location_code||'').toLowerCase()===rawCode)
+              : rawName ? state.locations.find(l => (l.location_name||'').toLowerCase()===rawName)
               : null;
-
     if (!loc) { result.skipped++; result.errors.push(`Row ${i+1}: location not found.`); continue; }
     const key = `${date}||${loc.id}`;
-    if (seen.has(key)) { result.skipped++; result.errors.push(`Row ${i+1}: duplicate date/location.`); continue; }
+    if (seen.has(key)) { result.skipped++; result.errors.push(`Row ${i+1}: duplicate.`); continue; }
     seen.add(key);
-    payload.push({ projection_date: date, location_id: Number(loc.id), projected_units: units, projected_sales: Math.max(0, Number(sales.toFixed(2))), notes, source: src, scenario: 'active' });
+    payload.push({ projection_date:date, location_id:Number(loc.id), projected_units:units, projected_sales:Math.max(0,Number(sales.toFixed(2))), notes, source:src, scenario:'active' });
     result.prepared++;
   }
 
-  if (!payload.length) { setStatus(`No valid rows to import. ${result.errors.slice(0,3).join(' ')}`, 'neg'); return; }
-
+  if (!payload.length) { setStatus(`No valid rows. ${result.errors.slice(0,2).join(' ')}`, 'neg'); return; }
   try {
-    const { error } = await db.from('revenue_projections').upsert(payload, { onConflict: 'projection_date,location_id' });
+    const { error } = await db.from('revenue_projections').upsert(payload, { onConflict:'projection_date,location_id' });
     if (error) throw error;
-    setStatus(`Imported ${result.prepared} of ${result.total} rows.${result.skipped?` Skipped ${result.skipped}.`:''}`, 'pos', 3000);
+    setStatus(`Imported ${result.prepared}/${result.total} rows.${result.skipped?` Skipped ${result.skipped}.`:''}`, 'pos', 3000);
     await loadProjections(); applyFiltersAndRender();
-  } catch (e) {
-    console.error(e); setStatus('Import failed: ' + (e?.message || e), 'neg');
-  }
+  } catch(e) { console.error(e); setStatus('Import failed: '+(e?.message||e), 'neg'); }
 }
 
 /* ---- helpers ---------------------------------------------------------- */
 
 function keyFor(date, locId) { return `${date}|${locId}`; }
-function locName(id) { return state.locations.find(x => x.id === Number(id))?.location_name || ''; }
-function locCode(id) { return state.locations.find(x => x.id === Number(id))?.location_code || ''; }
+function locName(id) { return state.locations.find(x => x.id===Number(id))?.location_name || ''; }
+function locCode(id) { return state.locations.find(x => x.id===Number(id))?.location_code || ''; }
 
-function fmtUSD(n, opts = {}) {
-  if (n == null || isNaN(n)) return '$—';
-  if (opts.compact && Math.abs(n) >= 1000) return '$' + (n/1000).toFixed(Math.abs(n)>=10000?1:2) + 'k';
-  if (opts.compact) return '$' + Math.round(n);
-  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+function fmtUSD(n, opts={}) {
+  if (n==null||isNaN(n)) return '$—';
+  if (opts.compact && Math.abs(n)>=1000) return '$'+(n/1000).toFixed(Math.abs(n)>=10000?1:2)+'k';
+  if (opts.compact) return '$'+Math.round(n);
+  return n.toLocaleString('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2});
 }
-
 function fmtInt(n) { return Number.isFinite(Number(n)) ? Math.round(Number(n)).toLocaleString() : '—'; }
-function fmtNum(n, d=1) { return Number.isFinite(Number(n)) ? Number(n).toFixed(d) : '—'; }
-
-function fmtDateTime(v) {
-  if (!v) return '—';
-  const d = new Date(v); return isNaN(+d) ? String(v) : d.toLocaleString();
+function fmtNum(n,d=1) { return Number.isFinite(Number(n)) ? Number(n).toFixed(d) : '—'; }
+function fmtDateTime(v) { if (!v) return '—'; const d=new Date(v); return isNaN(+d)?String(v):d.toLocaleString(); }
+function isoDate(d) { return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function addDays(s,n) { const d=new Date(s+'T00:00:00'); d.setDate(d.getDate()+n); return isoDate(d); }
+function normDate(s) { if (!s) return ''; if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10); const d=new Date(s); return isNaN(+d)?'':isoDate(d); }
+function dowShort(s) { const d=new Date(s+'T00:00:00'); return isNaN(+d)?'':['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()]; }
+function nowHHMM() { const d=new Date(); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+function setText(sel,text) { const el=document.querySelector(sel); if(el) el.textContent=text; }
+function esc(s) { return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function debounce(fn,ms) { let t; return (...a)=>{ clearTimeout(t); t=setTimeout(()=>fn(...a),ms); }; }
+function blobDownload(content,type,name) { const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([content],{type})); a.download=name; document.body.appendChild(a); a.click(); a.remove(); }
+function setStatus(msg,tone='info',autoMs=0) {
+  els.status.className='bcn-status bcn-status--'+tone;
+  els.status.textContent=msg; els.status.hidden=false;
+  if(autoMs){ clearTimeout(setStatus._t); setStatus._t=setTimeout(()=>{ els.status.hidden=true; },autoMs); }
 }
-
-function isoDate(d) {
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-
-function addDays(isoStr, n) {
-  const d = new Date(isoStr + 'T00:00:00'); d.setDate(d.getDate() + n); return isoDate(d);
-}
-
-function normDate(s) {
-  if (!s) return '';
-  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-  const d = new Date(s); return isNaN(+d) ? '' : isoDate(d);
-}
-
-function dowShort(s) {
-  const d = new Date(s + 'T00:00:00');
-  return isNaN(+d) ? '' : ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
-}
-
-function nowHHMM() {
-  const d = new Date();
-  return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
-}
-
-function setText(sel, text) { const el = document.querySelector(sel); if (el) el.textContent = text; }
-
-function esc(s) {
-  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
-
-function blobDownload(content, type, name) {
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([content], { type }));
-  a.download = name; document.body.appendChild(a); a.click(); a.remove();
-}
-
-function setStatus(msg, tone='info', autoMs=0) {
-  els.status.className = 'bcn-status bcn-status--' + tone;
-  els.status.textContent = msg; els.status.hidden = false;
-  if (autoMs) { clearTimeout(setStatus._t); setStatus._t = setTimeout(() => { els.status.hidden = true; }, autoMs); }
-}
-
-/* ---- CSV parse -------------------------------------------------------- */
-
 function parseCsv(text) {
-  const rows = []; let row = [], cur = '', inQ = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i], nx = text[i+1];
-    if (inQ) { if (ch==='"'&&nx==='"'){cur+='"';i++;} else if (ch==='"') inQ=false; else cur+=ch; continue; }
-    if (ch==='"'){inQ=true;continue;} if (ch===','){row.push(cur);cur='';continue;}
-    if (ch==='\r') continue;
-    if (ch==='\n'){row.push(cur);rows.push(row);row=[];cur='';continue;}
-    cur+=ch;
+  const rows=[]; let row=[],cur='',inQ=false;
+  for(let i=0;i<text.length;i++){
+    const ch=text[i],nx=text[i+1];
+    if(inQ){if(ch==='"'&&nx==='"'){cur+='"';i++;}else if(ch==='"')inQ=false;else cur+=ch;continue;}
+    if(ch==='"'){inQ=true;continue;}if(ch===','){row.push(cur);cur='';continue;}
+    if(ch==='\r')continue;if(ch==='\n'){row.push(cur);rows.push(row);row=[];cur='';continue;}cur+=ch;
   }
-  row.push(cur); rows.push(row);
-  while (rows.length && rows[rows.length-1].every(c=>!String(c||'').trim())) rows.pop();
+  row.push(cur);rows.push(row);
+  while(rows.length&&rows[rows.length-1].every(c=>!String(c||'').trim()))rows.pop();
   return rows;
 }
-
-function buildHeaderIdx(header) {
-  const m = new Map();
-  header.forEach((h, i) => m.set(String(h||'').trim().toLowerCase(), i));
-  return m;
-}
-
-function findCol(idx, aliases) {
-  for (const a of aliases) { if (idx.has(a.toLowerCase())) return idx.get(a.toLowerCase()); }
-  return null;
-}
-
-function csvCell(v) {
-  if (v==null) return '';
-  const s = String(v);
-  if (/[",\n]/.test(s)) return '"'+s.replace(/"/g,'""')+'"';
-  return s;
-}
+function buildHeaderIdx(header) { const m=new Map(); header.forEach((h,i)=>m.set(String(h||'').trim().toLowerCase(),i)); return m; }
+function findCol(idx,aliases) { for(const a of aliases){if(idx.has(a.toLowerCase()))return idx.get(a.toLowerCase());}return null; }
+function csvCell(v) { if(v==null)return''; const s=String(v); if(/[",\n]/.test(s))return'"'+s.replace(/"/g,'""')+'"'; return s; }
 </script>
-
 </body>
 </html>
