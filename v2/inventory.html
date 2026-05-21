@@ -1,14 +1,12 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full">
+<html lang="en" class="h-full" data-theme="light">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Silo · Inventory Workbench</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <title>SILO · Inventory workbench</title>
+  <link rel="stylesheet" href="beacon.css" />
   <script src="https://cdn.tailwindcss.com"></script>
-  <script src="/pages/config.js"></script>
+  <script src="../pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
   <style>
     :root {
@@ -571,6 +569,9 @@
       .silo-nav-panel { left: 0; width: min(280px, 88vw); }
     }
   </style>
+  <link rel="stylesheet" href="inventory-v2-theme.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
 </head>
 <body class="h-full inv-v2">
   <div class="app-shell">
@@ -601,8 +602,8 @@
         </div>
         <div class="silo-nav-section">
           <h3>Inventory</h3>
-          <a class="silo-nav-link" href="/v2/inventory.html">Workbench <span class="sub">Beacon v2</span></a>
-          <a class="silo-nav-link active" href="/inventory.html">Classic workbench</a>
+          <a class="silo-nav-link active" href="/v2/inventory.html">Workbench <span class="sub">Beacon v2</span></a>
+          <a class="silo-nav-link" href="/inventory.html">Classic workbench</a>
           <a class="silo-nav-link" href="/pages/product-manager.html">Product tags</a>
         </div>
         <div class="silo-nav-section">
