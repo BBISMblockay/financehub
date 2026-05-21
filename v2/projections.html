@@ -130,6 +130,37 @@
     .audit-pane-body { max-height:calc(100vh - 360px); overflow-y:auto; }
     .audit-pane-body::-webkit-scrollbar { width:5px; }
     .audit-pane-body::-webkit-scrollbar-thumb { background:var(--bcn-border-strong); border-radius:3px; }
+
+    /* matrix pane: fill remaining vertical space so bcn-matrix-scroll can actually scroll */
+    #pane-matrix {
+      flex:1; min-height:0; display:flex; flex-direction:column;
+      overflow:hidden; margin-top:12px;
+    }
+    #pane-matrix .bcn-card {
+      flex:1; display:flex; flex-direction:column; min-height:0;
+    }
+
+    /* DAILY | MONTHLY view toggle */
+    .view-toggle { display:flex; align-items:center; gap:3px; }
+    .view-toggle-btn {
+      height:28px; padding:0 10px;
+      font-size:10px; font-weight:700; letter-spacing:.07em;
+      font-family:var(--bcn-mono);
+      border:1px solid var(--bcn-border); border-radius:4px;
+      background:none; color:var(--bcn-ink-3); cursor:pointer;
+      transition:background .12s, color .12s;
+    }
+    .view-toggle-btn.active { background:var(--bcn-accent); color:#fff; border-color:var(--bcn-accent); }
+
+    /* gap cell: empty in a partially-filled row */
+    .td-cell--gap { background:oklch(0.55 0.15 45 / 0.08) !important; }
+
+    /* monthly view row */
+    .tr-month .td-date { font-weight:700; }
+    .coverage-chip {
+      font-family:var(--bcn-mono); font-size:10.5px; font-weight:700;
+      color:var(--bcn-accent); letter-spacing:.04em;
+    }
   </style>
 </head>
 <body>
@@ -221,14 +252,19 @@
       <button class="pg-tab" type="button" data-tab="audit" role="tab" aria-selected="false">AUDIT</button>
     </div>
 
-    <!-- MATRIX PANE — full width, scrollable -->
-    <div id="pane-matrix" style="margin-top:12px;">
+    <!-- MATRIX PANE — full width, scrollable (margin-top via CSS) -->
+    <div id="pane-matrix">
       <section class="bcn-card" aria-label="Sales matrix">
         <header class="bcn-card-header">
           <span class="bcn-pill bcn-pill--dark">MATRIX</span>
           <h2>Sales by date × location</h2>
           <span class="bcn-card-meta" data-meta="cells">—</span>
+          <span class="coverage-chip" data-meta="coverage"></span>
           <div style="flex:1"></div>
+          <div class="view-toggle">
+            <button class="view-toggle-btn active" type="button" data-view="daily">DAILY</button>
+            <button class="view-toggle-btn" type="button" data-view="monthly">MONTHLY</button>
+          </div>
           <a class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="/pages/launch-calendar.html">WORKBENCH →</a>
         </header>
         <div class="bcn-matrix-scroll">
@@ -464,7 +500,7 @@ const state = {
   filters: { from:'', to:'', locationId:'', source:'', launchType:'', search:'', range:'all' },
   selectedKey: null, inlineKey: null,
   visibleDates: [], filtered: [],
-  user: null, activeTab: 'matrix',
+  user: null, activeTab: 'matrix', viewMode: 'daily',
 };
 
 const els = {};
@@ -580,6 +616,15 @@ function wireEvents() {
         els.fTo.value   = state.filters.to   = isoDate(end);
       }
       saveFilters(); applyFiltersAndRender();
+    });
+  });
+
+  // DAILY | MONTHLY view toggle
+  document.querySelectorAll('[data-view]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      state.viewMode = btn.dataset.view;
+      document.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('active', b===btn));
+      renderMatrix();
     });
   });
 
@@ -845,7 +890,8 @@ function renderKpis() {
   setText('[data-kpi="launches"]',    String(launches));
   setText('[data-kpi="launches-sub"]',launches ? `${dates} DATES` : 'NONE VISIBLE');
   setText('[data-kpi="avg"]',         fmtUSD(avg));
-  setText('[data-kpi="avg-sub"]',     `SYNC ${nowHHMM()}`);
+  const pace30 = avg * 30;
+  setText('[data-kpi="avg-sub"]',     avg > 0 ? `→ ${fmtUSD(pace30,{compact:true})}/30D PACE` : `SYNC ${nowHHMM()}`);
 }
 
 function renderFilterMeta() {
@@ -857,6 +903,8 @@ function renderFilterMeta() {
 /* ---- matrix ----------------------------------------------------------- */
 
 function renderMatrix() {
+  if (state.viewMode === 'monthly') { renderMatrixMonthly(); return; }
+
   const locs=state.locations, dates=state.visibleDates;
 
   els.matrixCols.innerHTML =
@@ -873,6 +921,7 @@ function renderMatrix() {
     els.matrixBody.innerHTML = `<tr><td colspan="${locs.length+3}" class="bcn-empty">No projections match the current filter.</td></tr>`;
     els.matrixFoot.innerHTML = '';
     document.querySelector('[data-meta="cells"]').textContent = `0D × ${locs.length}LOC`;
+    document.querySelector('[data-meta="coverage"]').textContent = '';
     return;
   }
 
@@ -889,11 +938,19 @@ function renderMatrix() {
     return { date:d, dow:dowShort(d), launches, launchTitle, cells, total:cells.reduce((s,c)=>s+(c.v||0),0) };
   });
 
+  // coverage
+  const totalCells = dates.length * locs.length;
+  const filledCells = state.filtered.length;
+  const pct = totalCells > 0 ? Math.round(filledCells/totalCells*100) : 0;
+  document.querySelector('[data-meta="cells"]').textContent = `${dates.length}D × ${locs.length}LOC`;
+  document.querySelector('[data-meta="coverage"]').textContent = `${pct}% FILLED`;
+
   const colTotals = locs.map((_,i)=>rows.reduce((s,r)=>s+(r.cells[i].v||0),0));
   const grand = colTotals.reduce((a,b)=>a+b,0);
 
   els.matrixBody.innerHTML = rows.map(r => {
     const isRowSel = state.selectedKey && state.selectedKey.startsWith(r.date+'|');
+    const hasFilled = r.cells.some(c => c.v != null);
     return `<tr class="${isRowSel?'row-selected':''}" data-row-date="${r.date}">
       <td class="td-date"><div>${r.date}</div><div class="dow">${r.dow}</div></td>
       <td class="td-launch">${r.launchTitle
@@ -905,10 +962,11 @@ function renderMatrix() {
         const isInline = state.inlineKey===key;
         const sel = state.selectedKey===key;
         const empty = c.v==null;
+        const isGap = empty && hasFilled;
         const a = c.v ? c.v/max : 0;
         const bg = !empty&&!isInline ? `background:oklch(0.55 0.20 245 / ${a*0.28})` : '';
         const fw = !empty&&!isInline&&a>0.7 ? 'font-weight:600;color:var(--bcn-accent)' : '';
-        return `<td class="td-cell${sel?' td-cell--selected':''}${empty?' td-cell--empty':''}"
+        return `<td class="td-cell${sel?' td-cell--selected':''}${empty?' td-cell--empty':''}${isGap?' td-cell--gap':''}"
               data-key="${key}" data-date="${r.date}" data-loc="${c.locId}"
               style="${bg};${fw}">
           ${isInline
@@ -918,7 +976,7 @@ function renderMatrix() {
                 <button class="cell-quick-cancel" type="button">✕</button>
                </div>`
             : empty
-              ? '<span style="color:var(--bcn-ink-4)">—</span>'
+              ? `<span style="color:${isGap?'var(--bcn-ink-3)':'var(--bcn-ink-4)'}">—</span>`
               : `<div>${fmtUSD(c.v,{compact:true})}</div>`
           }
         </td>`;
@@ -933,8 +991,74 @@ function renderMatrix() {
       ${colTotals.map(c=>`<td>${fmtUSD(c,{compact:true})}</td>`).join('')}
       <td class="td-grand-total">${fmtUSD(grand,{compact:true})}</td>
     </tr>`;
+}
 
-  document.querySelector('[data-meta="cells"]').textContent = `${dates.length}D × ${locs.length}LOC · ${dates.length*locs.length} CELLS`;
+/* ---- monthly rollup view ---------------------------------------------- */
+
+function renderMatrixMonthly() {
+  const locs = state.locations;
+
+  els.matrixCols.innerHTML =
+    '<col style="width:120px"/>' +
+    locs.map(()=>'<col/>').join('') + '<col style="width:100px"/>';
+
+  els.matrixHead.innerHTML = `
+    <th class="bcn-th-left">MONTH</th>
+    ${locs.map(l=>`<th><div class="loc-code">${esc(l.location_code||(l.location_name||'').slice(0,3).toUpperCase())}</div><div class="loc-name">${esc(l.location_name||'')}</div></th>`).join('')}
+    <th>TOTAL</th>`;
+
+  const months = {};
+  for (const r of state.filtered) {
+    const m = r.projection_date.slice(0,7);
+    if (!months[m]) months[m] = { month:m, byLoc:{}, dayCount:new Set() };
+    months[m].byLoc[r.location_id] = (months[m].byLoc[r.location_id]||0) + Number(r.projected_sales||0);
+    months[m].dayCount.add(r.projection_date);
+  }
+  const sorted = Object.values(months).sort((a,b)=>a.month.localeCompare(b.month));
+
+  document.querySelector('[data-meta="cells"]').textContent = `${sorted.length} MONTHS × ${locs.length}LOC`;
+  document.querySelector('[data-meta="coverage"]').textContent = '';
+
+  if (!sorted.length) {
+    els.matrixBody.innerHTML = `<tr><td colspan="${locs.length+2}" class="bcn-empty">No projections match the current filter.</td></tr>`;
+    els.matrixFoot.innerHTML = '';
+    return;
+  }
+
+  const allVals = sorted.flatMap(m=>locs.map(l=>m.byLoc[l.id]||0)).filter(v=>v>0);
+  const max = Math.max(1,...allVals);
+  const colTotals = locs.map(l=>sorted.reduce((s,m)=>s+(m.byLoc[l.id]||0),0));
+  const grand = colTotals.reduce((a,b)=>a+b,0);
+
+  els.matrixBody.innerHTML = sorted.map(m => {
+    const rowTotal = locs.reduce((s,l)=>s+(m.byLoc[l.id]||0),0);
+    return `<tr class="tr-month">
+      <td class="td-date"><div>${fmtMonth(m.month)}</div><div class="dow">${m.dayCount.size}D</div></td>
+      ${locs.map(l => {
+        const v = m.byLoc[l.id]||0;
+        const a = v/max;
+        const bg = v>0 ? `background:oklch(0.55 0.20 245 / ${a*0.28})` : '';
+        const fw = v>0&&a>0.7 ? 'font-weight:600;color:var(--bcn-accent)' : '';
+        return `<td class="td-cell td-cell--empty" style="${bg};${fw}">
+          ${v>0?`<div>${fmtUSD(v,{compact:true})}</div>`:'<span style="color:var(--bcn-ink-4)">—</span>'}
+        </td>`;
+      }).join('')}
+      <td class="td-total">${fmtUSD(rowTotal,{compact:true})}</td>
+    </tr>`;
+  }).join('');
+
+  els.matrixFoot.innerHTML = `
+    <tr class="row-totals">
+      <td class="td-totals-label">TOTALS</td>
+      ${colTotals.map(c=>`<td>${fmtUSD(c,{compact:true})}</td>`).join('')}
+      <td class="td-grand-total">${fmtUSD(grand,{compact:true})}</td>
+    </tr>`;
+}
+
+function fmtMonth(ym) {
+  const [y,m] = ym.split('-');
+  const names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${names[parseInt(m,10)-1]} ${y}`;
 }
 
 /* ---- editor ----------------------------------------------------------- */
