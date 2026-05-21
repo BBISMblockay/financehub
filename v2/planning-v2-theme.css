@@ -1,0 +1,49 @@
+/* Planner + external Sheets calendar — Beacon bridge for light/dark */
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: var(--bcn-bg);
+  --panel: color-mix(in oklab, var(--bcn-surface) 88%, transparent);
+  --surf: color-mix(in oklab, var(--bcn-ink) 4%, transparent);
+  --surf2: color-mix(in oklab, var(--bcn-ink) 7%, transparent);
+  --b: var(--bcn-border);
+  --b2: var(--bcn-border-strong);
+  --t: var(--bcn-ink);
+  --m: var(--bcn-ink-3);
+  --a: var(--bcn-accent);
+  --g: var(--bcn-pos);
+  --y: var(--bcn-warn);
+  --r: var(--bcn-neg);
+  --sh: 0 14px 36px color-mix(in oklab, var(--bcn-ink) 10%, transparent);
+  --sh2: 0 10px 22px color-mix(in oklab, var(--bcn-ink) 8%, transparent);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: var(--bcn-bg);
+  --panel: color-mix(in oklab, var(--bcn-surface) 85%, transparent);
+  --surf: color-mix(in oklab, var(--bcn-ink) 6%, transparent);
+  --surf2: color-mix(in oklab, var(--bcn-ink) 10%, transparent);
+  --b: var(--bcn-border);
+  --b2: var(--bcn-border-strong);
+  --t: var(--bcn-ink);
+  --m: var(--bcn-ink-3);
+  --a: var(--bcn-accent);
+  --g: var(--bcn-pos);
+  --y: var(--bcn-warn);
+  --r: var(--bcn-neg);
+  --sh: 0 16px 46px color-mix(in oklab, #000 45%, transparent);
+  --sh2: 0 12px 26px color-mix(in oklab, #000 35%, transparent);
+}
+
+/* Calendar file also uses --a2 */
+:root[data-theme="light"] {
+  --a2: var(--bcn-pos);
+}
+:root[data-theme="dark"] {
+  --a2: var(--bcn-pos);
+}
+
+html body {
+  font-family: var(--bcn-font), system-ui, sans-serif !important;
+}

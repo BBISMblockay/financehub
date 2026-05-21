@@ -23,10 +23,11 @@
 
     { id: 'finance', label: 'Finance', icon: 'finance', children: [
       { id: 'finance/cashflow',   label: 'Cash flow',     href: '/cashflow.html' },
-      { id: 'finance/executive',  label: 'Executive',     href: '/executive.html' },
+      { id: 'finance/executive',  label: 'Executive',     href: '/v2/executive.html' },
       { id: 'finance/ap',         label: 'AP report',     href: '/ap-report.html' },
       { id: 'finance/recon',      label: 'Recon',         href: '/recon.html' },
-      { id: 'finance/finance',    label: 'Finance home',  href: '/finance.html' },
+      { id: 'finance/finance',    label: 'Finance home',  href: '/v2/finance.html' },
+      { id: 'finance/backend',    label: 'Backend hub',   href: '/v2/backend.html' },
     ]},
 
     { id: 'inventory', label: 'Inventory', icon: 'inventory', children: [
@@ -41,8 +42,8 @@
     ]},
 
     { id: 'purchasing', label: 'Purchasing', icon: 'purchasing', children: [
-      { id: 'purchasing/po-builder',  label: 'PO builder',  href: '/pages/po-builder.html' },
-      { id: 'purchasing/po-report',   label: 'PO report',   href: '/pages/po-report.html' },
+      { id: 'purchasing/po-builder',  label: 'PO builder',  href: '/v2/po-builder.html' },
+      { id: 'purchasing/po-report',   label: 'PO report',   href: '/v2/po-report.html' },
       { id: 'purchasing/requests',    label: 'Requests',    href: '/v2/purchase_request.html' },
       { id: 'purchasing/req-mgr',     label: 'Request mgr', href: '/v2/request_manager.html' },
     ]},
@@ -53,21 +54,22 @@
     ]},
 
     { id: 'planning', label: 'Planning', icon: 'planning', children: [
-      { id: 'planning/launch-calendar',    label: 'Launch calendar',    href: '/pages/launch-calendar.html' },
-      { id: 'planning/revenue-projections',label: 'Revenue projections',href: '/projections.html' },
+      { id: 'planning/launch-calendar',    label: 'Launch calendar',    href: '/v2/launch-calendar.html' },
+      { id: 'planning/revenue-projections',label: 'Revenue projections',href: '/v2/projections.html' },
       { id: 'planning/scenarios',          label: 'Scenarios',          href: '/pages/planning-scenarios.html' },
-      { id: 'planning/planner',            label: 'Cash flow planner',  href: '/planner.html' },
+      { id: 'planning/planner',            label: 'PO planner',         href: '/v2/planner.html' },
+      { id: 'planning/sheets-calendar',    label: 'Marketing calendar', href: '/v2/calendar.html' },
     ]},
 
     { id: 'people', label: 'People', icon: 'people', children: [
       { id: 'people/payroll',     label: 'Payroll',       href: '/payroll.html' },
-      { id: 'people/employees',   label: 'Employee hub',  href: '/employeehub.html' },
-      { id: 'people/access',      label: 'Dept access',   href: '/pages/department-access.html' },
+      { id: 'people/employees',   label: 'Employee hub',  href: '/v2/employeehub.html' },
+      { id: 'people/access',      label: 'Dept access',   href: '/v2/department-access.html' },
     ]},
 
     { id: 'ops', label: 'Ops', icon: 'ops', children: [
       { id: 'ops/mailroom',  label: 'Mailroom',   href: '/mailroom.html' },
-      { id: 'ops/calendar',  label: 'Calendar',   href: '/calendar.html' },
+      { id: 'ops/calendar',  label: 'Calendar',   href: '/v2/calendar.html' },
       { id: 'ops/status',    label: 'App status', href: '/app-status.html' },
     ]},
   ];
