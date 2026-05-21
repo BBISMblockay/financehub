@@ -6,6 +6,32 @@
 @media (max-width: 900px) {
   html {
     -webkit-text-size-adjust: 100%;
+    /* Avoid sideways rubber-band when inner regions scroll horizontally */
+    overflow-x: clip;
+  }
+
+  body {
+    overflow-x: clip;
+    overscroll-behavior-x: none;
+    -webkit-tap-highlight-color: color-mix(in oklab, var(--bcn-accent, #3b82f6) 18%, transparent);
+  }
+
+  /* Momentum scrolling on common scroll surfaces (iOS) */
+  .table-wrap,
+  .thin-scroll,
+  .rail-scroll,
+  .nav-scroll,
+  .workspace-body,
+  .data-panel,
+  .bcn-matrix-scroll,
+  .rm-table-scroll,
+  .ed-panel-body,
+  .lf-body,
+  .pr-page,
+  .silo-main,
+  .silo-sb-nav,
+  .cal-scroll {
+    -webkit-overflow-scrolling: touch;
   }
 
   /* ---- Beacon page chrome (projections, launch calendar, etc.) -------- */
@@ -111,7 +137,7 @@
   }
 
   .rm-table-scroll {
-    max-height: min(52vh, 420px);
+    max-height: min(52dvh, 420px);
   }
 
   /* ---- Launch calendar ------------------------------------------------ */
@@ -205,5 +231,174 @@
 
   .viewer-shell {
     min-height: 50vh;
+  }
+
+  /* ---- Inventory mirror (full workbench) -------------------------------- */
+
+  body.inv-v2,
+  body.inv-v2.h-full {
+    height: auto !important;
+    min-height: 100dvh;
+    min-height: 100vh;
+  }
+
+  body.inv-v2 .app-shell {
+    min-height: 100dvh;
+    min-height: 100vh;
+    height: auto !important;
+    max-height: none;
+    overscroll-behavior-y: contain;
+  }
+
+  body.inv-v2 .workspace {
+    min-height: 0;
+  }
+
+  body.inv-v2 .workspace-body {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  body.inv-v2 .table-wrap {
+    flex: 1;
+    min-height: min(52dvh, 520px);
+    overscroll-behavior: contain;
+  }
+
+  body.inv-v2 .filter-rail {
+    max-height: min(38dvh, 320px);
+    overscroll-behavior: contain;
+  }
+
+  body.inv-v2 .silo-edge-btn,
+  body.inv-v2 .filter-rail-toggle {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  body.inv-v2 .draft-drawer,
+  body.inv-v2 .silo-nav-panel {
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  }
+
+  body.inv-v2 .workspace-top,
+  body.inv-v2 .metrics-bar,
+  body.inv-v2 .command-bar {
+    padding-left: max(12px, env(safe-area-inset-left, 0px));
+    padding-right: max(12px, env(safe-area-inset-right, 0px));
+  }
+
+  /* ---- Finance + employee hub (sidebar + iframe) ------------------------ */
+
+  body.v2-mirror--hub .app {
+    min-height: 100dvh;
+    min-height: 100vh;
+  }
+
+  body.v2-mirror--hub .main {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    flex: 1;
+  }
+
+  body.v2-mirror--hub .viewer-shell {
+    height: auto !important;
+    flex: 1;
+    min-height: min(58dvh, 640px);
+    display: flex;
+    flex-direction: column;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  body.v2-mirror--hub .viewer-card,
+  body.v2-mirror--hub .viewer-shell iframe {
+    flex: 1;
+    min-height: min(52dvh, 560px);
+    width: 100%;
+    border: 0;
+  }
+
+  body.v2-mirror--hub .topbar,
+  body.v2-mirror--hub .sidebar-foot {
+    padding-left: max(12px, env(safe-area-inset-left, 0px));
+    padding-right: max(12px, env(safe-area-inset-right, 0px));
+  }
+
+  body.v2-mirror--hub .mobile-toggle,
+  body.v2-mirror--hub .topbar .btn {
+    min-height: 40px;
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  /* ---- PO workbench (Tailwind + glass) ---------------------------------- */
+
+  html:has(body.v2-mirror--po) {
+    overflow-x: clip;
+  }
+
+  body.v2-mirror--po .min-h-screen {
+    min-height: 100dvh;
+    min-height: 100vh;
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  }
+
+  body.v2-mirror--po .compact-page-head .btn,
+  body.v2-mirror--po #btnRefresh,
+  body.v2-mirror--po #btnNewPO {
+    min-height: 40px;
+  }
+
+  /* ---- Executive / backend (dense tables) ------------------------------- */
+
+  body.themeable .container,
+  body.themeable .main {
+    padding-left: max(12px, env(safe-area-inset-left, 0px));
+    padding-right: max(12px, env(safe-area-inset-right, 0px));
+    padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  }
+
+  body.themeable .scrollbar {
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* ---- Planner + Sheets calendar ---------------------------------------- */
+
+  html.v2-mirror-planning .app {
+    min-height: 100dvh;
+    min-height: 100vh;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  html.v2-mirror-planning .side {
+    max-height: min(42dvh, 360px);
+    overscroll-behavior: contain;
+  }
+
+  /* ---- Auth gate (employee hub) ----------------------------------------- */
+
+  .auth-boot {
+    padding-left: max(20px, env(safe-area-inset-left, 0px));
+    padding-right: max(20px, env(safe-area-inset-right, 0px));
+    padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Very small phones: primary controls only (does not target table micro-buttons)
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 480px) {
+  .bcn-btn,
+  .bcn-header-actions .bcn-btn,
+  .filter-rail-toggle,
+  .silo-edge-btn,
+  .mobile-toggle,
+  .pg-tab,
+  .drawer-tab {
+    min-height: 40px;
   }
 }
