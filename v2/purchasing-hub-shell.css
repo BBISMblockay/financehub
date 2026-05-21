@@ -1,7 +1,7 @@
 /* ========================================================================
    Purchasing v2 shell — Finance-console menu IA + Beacon design tokens
    (Same mental model as /finance.html: search, sections, row chevrons,
-   external pills, mono labels — not the Employee Hub card nav.)
+   external pills — typography follows v2-fonts + beacon.css.)
    ======================================================================== */
 
 .ps-app {
@@ -40,10 +40,10 @@
   place-items: center;
   background: var(--bcn-accent);
   color: #fff;
-  font-family: var(--bcn-mono);
-  font-weight: 700;
-  font-size: 12px;
-  letter-spacing: 0.06em;
+  font-family: var(--bcn-font);
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0;
   flex-shrink: 0;
 }
 
@@ -52,10 +52,10 @@
 }
 
 .ps-brand-title {
-  font-family: var(--bcn-mono);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+  font-family: var(--bcn-font);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--bcn-band-ink);
   line-height: 1.2;
@@ -97,8 +97,8 @@
   color: var(--bcn-band-ink);
   padding: 0 10px 0 28px;
   outline: none;
-  font-family: var(--bcn-mono);
-  font-size: 11px;
+  font-family: var(--bcn-font);
+  font-size: 12px;
 }
 
 .ps-search::placeholder {
@@ -124,12 +124,12 @@
 .ps-nav-heading {
   margin: 0 0 6px;
   padding: 0 8px;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.11em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--bcn-band-ink-3);
-  font-family: var(--bcn-mono);
+  font-family: var(--bcn-font);
 }
 
 .ps-nav-list {
@@ -182,10 +182,10 @@
 
 .ps-nav-pill {
   display: none;
-  font-family: var(--bcn-mono);
-  font-size: 9px;
+  font-family: var(--bcn-font);
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.03em;
   padding: 2px 6px;
   border-radius: 2px;
   border: 1px solid rgba(255, 255, 255, 0.16);
@@ -204,8 +204,8 @@
 }
 
 .ps-nav-chev {
-  font-family: var(--bcn-mono);
-  font-size: 11px;
+  font-family: var(--bcn-font);
+  font-size: 12px;
   color: var(--bcn-band-ink-3);
 }
 
@@ -217,9 +217,9 @@
   padding: 10px 12px 12px;
   border-top: 1px solid var(--bcn-band-hi);
   color: var(--bcn-band-ink-3);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.45;
-  font-family: var(--bcn-mono);
+  font-family: var(--bcn-font);
   flex-shrink: 0;
 }
 
@@ -258,12 +258,12 @@
 }
 
 .ps-page-kicker {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.11em;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--bcn-ink-3);
-  font-family: var(--bcn-mono);
+  font-family: var(--bcn-font);
 }
 
 .ps-page-title {
@@ -296,9 +296,9 @@
   border-radius: var(--bcn-radius-sm);
   border: 1px solid var(--bcn-border);
   background: var(--bcn-surface);
-  font-family: var(--bcn-mono);
-  font-size: 11px;
-  font-weight: 700;
+  font-family: var(--bcn-font);
+  font-size: 12px;
+  font-weight: 600;
   color: var(--bcn-ink);
   cursor: pointer;
 }
@@ -309,9 +309,9 @@
   border-radius: var(--bcn-radius-sm);
   border: 1px solid var(--bcn-border);
   background: var(--bcn-sunken);
-  font-family: var(--bcn-mono);
-  font-size: 11px;
-  font-weight: 700;
+  font-family: var(--bcn-font);
+  font-size: 12px;
+  font-weight: 600;
   color: var(--bcn-ink);
   cursor: pointer;
 }
