@@ -38,20 +38,28 @@
     .cal-events { display:flex; flex-direction:column; gap:2px; flex:1; overflow:hidden; }
     .cal-overflow { font-size:9.5px; color:var(--bcn-ink-4); padding:1px 0; font-family:var(--bcn-mono); }
 
+    /* calendar grid auto-rows keep cells uniform */
+    .cal-grid { grid-auto-rows: 104px; }
+
     /* event chip inside calendar cell */
     .ev-chip {
       position:relative; border:1px solid var(--bcn-border); border-radius:5px;
-      padding:3px 5px 3px 8px; cursor:pointer; background:var(--bcn-surface-2,oklch(0.97 0.005 245));
-      overflow:hidden; transition:border-color .1s, transform .1s;
+      padding:3px 18px 3px 8px; cursor:pointer; background:var(--bcn-surface-2,oklch(0.97 0.005 245));
+      overflow:hidden; transition:border-color .1s;
     }
-    .ev-chip:hover { border-color:var(--bcn-border-strong); transform:translateY(-1px); }
+    .ev-chip:hover { border-color:var(--bcn-border-strong); background:oklch(0.95 0.008 245); }
     .ev-chip::before { content:''; position:absolute; left:0; top:3px; bottom:3px; width:3px; border-radius:2px; background:var(--bcn-accent); }
     .ev-chip.s-launched::before   { background:oklch(0.55 0.18 145); }
     .ev-chip.s-blocked::before    { background:oklch(0.55 0.22 15); }
     .ev-chip.s-ready::before      { background:oklch(0.58 0.16 145); }
     .ev-chip.s-in_progress::before { background:oklch(0.60 0.18 75); }
     .ev-chip.s-assets_needed::before { background:oklch(0.62 0.18 75); }
-    .ev-chip-thumb { width:100%; height:20px; object-fit:cover; border-radius:3px; margin-bottom:2px; display:block; }
+    /* edit pencil — top-right of chip, shown on hover */
+    .ev-chip-edit { position:absolute; right:3px; top:50%; transform:translateY(-50%); width:14px; height:14px; display:flex; align-items:center; justify-content:center; font-size:9px; opacity:0; transition:opacity .12s; color:var(--bcn-ink-3); pointer-events:auto; background:var(--bcn-surface); border:1px solid var(--bcn-border); border-radius:3px; z-index:2; }
+    .ev-chip:hover .ev-chip-edit { opacity:1; }
+    .ev-chip-edit:hover { background:var(--bcn-accent); color:#fff; border-color:var(--bcn-accent); }
+    /* no images in calendar chips — too small; images show in agenda */
+    .ev-chip-thumb { display:none; }
     .ev-chip-title { font-size:10.5px; font-weight:600; line-height:1.15; display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; overflow:hidden; }
     .ev-chip-meta { font-size:9.5px; color:var(--bcn-ink-3); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
@@ -311,7 +319,7 @@
       <button class="ed-close-btn" id="closeDrawer" aria-label="Close">✕</button>
     </div>
     <div class="ed-actions">
-      <button class="ed-ghost-btn" type="button" id="editLaunchBtn">EDIT</button>
+      <button class="ed-ghost-btn" type="button" id="editLaunchBtn" style="background:var(--bcn-accent);color:#fff;border-color:var(--bcn-accent);">✏ EDIT LAUNCH</button>
       <button class="ed-ghost-btn" type="button" id="refreshDetailBtn">REFRESH</button>
     </div>
   </div>
@@ -617,7 +625,7 @@ if (__SILO_DEMO__) {
     { id:2, title:"Father's Day Tee",   launch_date:off(5),  launch_time:'09:00', launch_type:'DTC + Retail', status:'in_progress',  priority:'high',    launch_readiness:'needs_assets', designer:'Studio', marketing_channel:'email',  campaign_type:'Holiday',  launch_image_url:null, notes:"Father's Day hero tee. Email at 9am CT.", details:'Email + social push.', po_number:null, vendor_name:null, expected_units:500, expected_retail_value:24500, product_title:"Father's Day Tee", product_type:'T-Shirt', collection_name:'Holiday', created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
     { id:3, title:'Throwback Jerseys',   launch_date:off(10), launch_time:'12:00', launch_type:'Restock',     status:'planned',      priority:'normal',  launch_readiness:'not_reviewed', designer:'Studio', marketing_channel:'social', campaign_type:'Restock',  launch_image_url:null, notes:'Restock of classic jerseys.', details:null, po_number:'PO-2024-092', vendor_name:'Majestic', expected_units:200, expected_retail_value:15800, product_title:'Throwback Jersey', product_type:'Jersey', collection_name:'Classics', created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
     { id:4, title:'Summer Sale Promo',   launch_date:off(14), launch_time:'08:00', launch_type:'Promotion',   status:'planned',      priority:'normal',  launch_readiness:'not_reviewed', designer:'Owen',   marketing_channel:'email',  campaign_type:'Promo',    launch_image_url:null, notes:'Site-wide summer sale.', details:'20% off sitewide, email + SMS.', po_number:null, vendor_name:null, expected_units:null, expected_retail_value:null, product_title:null, product_type:null, collection_name:'Summer', created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
-    { id:5, title:'MLB Collab Drop',     launch_date:off(-2), launch_time:'10:00', launch_type:'Collab',      status:'launched',     priority:'critical',launch_readiness:'ready',        designer:'Owen',   marketing_channel:'email',  campaign_type:'Collab',   launch_image_url:null, notes:'MLB partnership launch. Went well.', details:'Full media push.', po_number:'PO-2024-077', vendor_name:'MLB Licensing', expected_units:1000, expected_retail_value:59000, product_title:'MLB Collab Tee', product_type:'T-Shirt', collection_name:'MLB Collab', created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
+    { id:5, title:'MLB Collab Drop',     launch_date:off(-2), launch_time:'10:00', launch_type:'Collab',      status:'launched',     priority:'critical',launch_readiness:'ready',        designer:'Owen',   marketing_channel:'email',  campaign_type:'Collab',   launch_image_url:'https://images.unsplash.com/photo-1566576912321-d58ddd7a6088?w=400&q=80', notes:'MLB partnership launch. Went well.', details:'Full media push.', po_number:'PO-2024-077', vendor_name:'MLB Licensing', expected_units:1000, expected_retail_value:59000, product_title:'MLB Collab Tee', product_type:'T-Shirt', collection_name:'MLB Collab', created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
   ];
   const TASKS = [
     { id:1, launch_id:1, task_title:'Finalize product shots', task_type:'creative', status:'in_progress', priority:'high', due_date:off(1), notes:null },
@@ -911,8 +919,8 @@ function applyFilters(){
     if(F.from&&x.launch_date<F.from) return false;
     if(F.to&&x.launch_date>F.to) return false;
     if(q){
-      const cp=products.filter(p=>p.launch_id===x.id).map(p=>p.product_title).join(' ');
-      const cc=channels.filter(c=>c.launch_id===x.id).map(c=>c.item_title+' '+c.channel).join(' ');
+      const cp=products.filter(p=>String(p.launch_id)===String(x.id)).map(p=>p.product_title).join(' ');
+      const cc=channels.filter(c=>String(c.launch_id)===String(x.id)).map(c=>c.item_title+' '+c.channel).join(' ');
       const blob=[x.title,x.launch_type,x.designer,x.marketing_channel,x.campaign_type,x.assets_needed,x.details,x.notes,x.product_sku,x.product_title,x.product_type,x.collection_name,x.po_number,x.vendor_name,x.inventory_tag,x.launch_readiness,cp,cc].join(' ').toLowerCase();
       if(!blob.includes(q)) return false;
     }
@@ -925,19 +933,19 @@ function applyFilters(){
 function render(){ renderKpis(); if(view==='calendar') renderMonth(); else renderAgenda(); }
 
 function renderKpis(){
-  const ids=new Set(filtered.map(x=>x.id));
+  const ids=new Set(filtered.map(x=>String(x.id)));
   const mStart=iso(monthAnchor), mEnd=iso(new Date(monthAnchor.getFullYear(),monthAnchor.getMonth()+1,0));
   const todayStr=iso(new Date()), next7=iso(addDays(new Date(),7));
   setText('[data-kpi="count"]',  filtered.length);
   setText('[data-kpi="month"]',  filtered.filter(x=>x.launch_date>=mStart&&x.launch_date<=mEnd).length+' THIS MONTH');
   setText('[data-kpi="next7"]',  filtered.filter(x=>x.launch_date>=todayStr&&x.launch_date<next7).length);
-  setText('[data-kpi="products"]',products.filter(x=>ids.has(x.launch_id)).length+' PRODUCTS');
-  const openTasks=tasks.filter(x=>ids.has(x.launch_id)&&!['done','complete'].includes(x.status)).length;
-  const atRisk=filtered.filter(x=>['at_risk','needs_inventory','needs_assets'].includes(x.launch_readiness)).length+products.filter(x=>ids.has(x.launch_id)&&['at_risk','blocked'].includes(x.readiness_status)).length;
+  setText('[data-kpi="products"]',products.filter(x=>ids.has(String(x.launch_id))).length+' PRODUCTS');
+  const openTasks=tasks.filter(x=>ids.has(String(x.launch_id))&&!['done','complete'].includes(x.status)).length;
+  const atRisk=filtered.filter(x=>['at_risk','needs_inventory','needs_assets'].includes(x.launch_readiness)).length+products.filter(x=>ids.has(String(x.launch_id))&&['at_risk','blocked'].includes(x.readiness_status)).length;
   setText('[data-kpi="tasks"]',  openTasks);
   setText('[data-kpi="risk"]',   atRisk+' AT RISK');
-  const allCh=channels.filter(x=>ids.has(x.launch_id)).length;
-  const chWeek=channels.filter(x=>ids.has(x.launch_id)&&x.scheduled_date>=todayStr&&x.scheduled_date<next7).length;
+  const allCh=channels.filter(x=>ids.has(String(x.launch_id))).length;
+  const chWeek=channels.filter(x=>ids.has(String(x.launch_id))&&x.scheduled_date>=todayStr&&x.scheduled_date<next7).length;
   setText('[data-kpi="channels"]', allCh);
   setText('[data-kpi="chweek"]',   chWeek+' THIS WEEK');
 }
@@ -980,19 +988,24 @@ function renderMonth(){
         ${shown.map(x=>evChip(x)).join('')}
         ${more>0?`<div class="cal-overflow">+${more} more</div>`:''}
       </div>`;
-    cell.querySelectorAll('[data-lid]').forEach(el=>el.onclick=()=>openDrawer(Number(el.dataset.lid)));
+    cell.querySelectorAll('[data-lid]').forEach(el=>el.onclick=()=>openDrawer(el.dataset.lid));
+    cell.querySelectorAll('[data-edit]').forEach(el=>el.onclick=e=>{
+      e.stopPropagation();
+      const launch=launches.find(x=>String(x.id)===String(el.dataset.edit));
+      if(launch) openLaunchModal(launch);
+    });
     grid.appendChild(cell);
   }
 }
 
 function evChip(x){
   const cls = x.status==='launched'?'s-launched':x.status==='blocked'||x.launch_readiness==='at_risk'?'s-blocked':x.status==='ready'?'s-ready':x.status==='in_progress'?'s-in_progress':x.status==='assets_needed'?'s-assets_needed':'';
-  const taskCount=tasks.filter(t=>t.launch_id===x.id&&!['done','complete'].includes(t.status)).length;
+  const taskCount=tasks.filter(t=>String(t.launch_id)===String(x.id)&&!['done','complete'].includes(t.status)).length;
   const meta=[x.launch_time?x.launch_time.slice(0,5):null, x.launch_type, taskCount?`${taskCount}T`:null].filter(Boolean).join(' · ');
   return `<div class="ev-chip ${cls}" data-lid="${x.id}">
-    ${x.launch_image_url?`<img class="ev-chip-thumb" src="${esc(x.launch_image_url)}" alt="" loading="lazy" />`:''}
     <div class="ev-chip-title">${esc(x.title||x.product_title||'Untitled')}</div>
     ${meta?`<div class="ev-chip-meta">${esc(meta)}</div>`:''}
+    <span class="ev-chip-edit" data-edit="${x.id}" title="Edit launch">✏</span>
   </div>`;
 }
 
@@ -1004,9 +1017,9 @@ function renderAgenda(){
   const list=$('feedList');
   if(!items.length){ list.innerHTML=`<div class="bcn-empty" style="padding:24px;">No launches in this range.</div>`; return; }
   list.innerHTML=items.map(x=>{
-    const taskCount=tasks.filter(t=>t.launch_id===x.id&&!['done','complete'].includes(t.status)).length;
-    const prodCount=products.filter(p=>p.launch_id===x.id).length;
-    const chCount=channels.filter(c=>c.launch_id===x.id).length;
+    const taskCount=tasks.filter(t=>String(t.launch_id)===String(x.id)&&!['done','complete'].includes(t.status)).length;
+    const prodCount=products.filter(p=>String(p.launch_id)===String(x.id)).length;
+    const chCount=channels.filter(c=>String(c.launch_id)===String(x.id)).length;
     const rCls=['at_risk','needs_inventory','needs_assets'].includes(x.launch_readiness)?'pill-risk':x.launch_readiness==='ready'?'pill-launched':'';
     const imgEl=x.launch_image_url
       ?`<img class="agenda-img" src="${esc(x.launch_image_url)}" alt="" loading="lazy" />`
@@ -1014,8 +1027,11 @@ function renderAgenda(){
     return `<div class="agenda-row" data-lid="${x.id}">
       <div><div class="agenda-date">${esc(fmt(x.launch_date))}</div><div class="agenda-time-txt">${esc(x.launch_time||'')}</div></div>
       ${imgEl}
-      <div>
-        <div class="agenda-title">${esc(x.title||x.product_title||'Untitled')}</div>
+      <div style="min-width:0;">
+        <div style="display:flex;align-items:flex-start;gap:8px;">
+          <div class="agenda-title" style="flex:1;min-width:0;">${esc(x.title||x.product_title||'Untitled')}</div>
+          <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-edit-lid="${x.id}" style="flex-shrink:0;height:26px;font-size:10px;padding:0 8px;" onclick="event.stopPropagation()">✏ EDIT</button>
+        </div>
         <div class="agenda-meta">${esc([x.product_title,x.product_type,x.po_number,x.designer].filter(Boolean).join(' · '))}</div>
         <div class="agenda-pills">
           <span class="bcn-pill ${rCls}">${esc(x.launch_readiness||'not_reviewed')}</span>
@@ -1027,20 +1043,24 @@ function renderAgenda(){
       </div>
     </div>`;
   }).join('');
-  list.querySelectorAll('[data-lid]').forEach(el=>el.onclick=()=>openDrawer(Number(el.dataset.lid)));
+  list.querySelectorAll('[data-lid]').forEach(el=>el.onclick=()=>openDrawer(el.dataset.lid));
+  list.querySelectorAll('[data-edit-lid]').forEach(el=>el.onclick=e=>{
+    e.stopPropagation();
+    const launch=launches.find(x=>String(x.id)===String(el.dataset.editLid));
+    if(launch) openLaunchModal(launch);
+  });
 }
 
 /* ---- drawer ------------------------------------------------------------ */
 
 function openDrawer(id){
-  activeLaunch=launches.find(x=>x.id===id);
+  activeLaunch=launches.find(x=>String(x.id)===String(id));
   if(!activeLaunch) return;
   $('drawerTitle').textContent=activeLaunch.title||activeLaunch.product_title||'Launch';
   $('drawerSub').textContent=`${fmt(activeLaunch.launch_date)} · ${activeLaunch.launch_readiness||'not_reviewed'}`;
   $('detailDrawer').classList.add('open');
   $('drawerOverlay').classList.add('open');
   $('detailDrawer').setAttribute('aria-hidden','false');
-  // reset to overview tab
   document.querySelectorAll('.drawer-tab').forEach(x=>x.classList.toggle('active',x.dataset.dp==='dp-overview'));
   document.querySelectorAll('.dp').forEach(x=>x.classList.toggle('active',x.id==='dp-overview'));
   renderDrawer();
@@ -1053,14 +1073,15 @@ function closeDrawer(){
 }
 function renderDrawer(){
   if(!activeLaunch) return;
-  const id=activeLaunch.id;
-  renderOverview(products.filter(x=>x.launch_id===id),channels.filter(x=>x.launch_id===id),tasks.filter(x=>x.launch_id===id));
-  renderProductReadiness(products.filter(x=>x.launch_id===id));
-  renderChannels(channels.filter(x=>x.launch_id===id));
-  renderTasks(tasks.filter(x=>x.launch_id===id));
-  renderAssets(assets.filter(x=>x.launch_id===id));
-  renderSystemLinks(systemLinks.filter(x=>x.launch_id===id));
-  renderComments(comments.filter(x=>x.launch_id===id));
+  const sid=String(activeLaunch.id);
+  const flt=arr=>arr.filter(x=>String(x.launch_id)===sid);
+  renderOverview(flt(products),flt(channels),flt(tasks));
+  renderProductReadiness(flt(products));
+  renderChannels(flt(channels));
+  renderTasks(flt(tasks));
+  renderAssets(flt(assets));
+  renderSystemLinks(flt(systemLinks));
+  renderComments(flt(comments));
 }
 
 function renderOverview(prods,chans,tsks){
@@ -1238,13 +1259,13 @@ async function saveLaunch(){
     };
     if(!payload.title||!payload.launch_date){ $('formMsg').textContent='Title and date are required.'; return; }
     let res;
-    if(id) res=await db.from('launch_calendar').update(payload).eq('id',id);
-    else { payload.created_by=currentUser.id; res=await db.from('launch_calendar').insert([payload]); }
+    if(id) res=await db.from('launch_calendar').update(payload).eq('id',id).select().single();
+    else { payload.created_by=currentUser.id; res=await db.from('launch_calendar').insert(payload).select().single(); }
     if(res?.error) throw res.error;
+    const savedId=res.data?.id||id;
     closeLaunchModal();
     await loadAll();
-    const saved=launches.find(x=>id?String(x.id)===String(id):x.launch_date===payload.launch_date&&x.title===payload.title);
-    if(saved) openDrawer(saved.id);
+    if(savedId) openDrawer(savedId);
     setStatus(`Saved · ${payload.title}`,'pos',2000);
   } catch(e){
     console.error(e);
