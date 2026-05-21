@@ -7,7 +7,6 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <!-- font is injected by silo-fonts.js at boot; this is a no-FOUC fallback for first paint -->
   <link id="silo-font-link" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="beacon.css" />
@@ -16,22 +15,94 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 
   <style>
-    /* page-local: editor launch list spacing only */
+    /* page-local extras */
     .ed-launch-list { display: flex; flex-direction: column; gap: 8px; }
+
+    /* audit drawer */
+    .silo-drawer-overlay {
+      position: fixed; inset: 0;
+      background: rgba(10,16,30,.48);
+      z-index: 90; opacity: 0;
+      pointer-events: none;
+      transition: opacity .18s ease;
+    }
+    .silo-drawer-overlay.open { opacity: 1; pointer-events: auto; }
+    .silo-drawer {
+      position: fixed; top: 0; right: 0; bottom: 0;
+      width: min(640px, 100vw);
+      background: var(--bcn-surface);
+      border-left: 1px solid var(--bcn-border-strong);
+      z-index: 91;
+      display: flex; flex-direction: column;
+      transform: translateX(100%);
+      transition: transform .18s ease;
+    }
+    .silo-drawer.open { transform: translateX(0); }
+    .silo-drawer-head {
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid var(--bcn-border);
+      flex-shrink: 0;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .silo-drawer-title {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+    }
+    .silo-drawer-h { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; margin: 0; }
+    .silo-drawer-filters {
+      display: grid; grid-template-columns: 1fr 1fr auto; gap: 8px; align-items: end;
+    }
+    .silo-drawer-body {
+      flex: 1; overflow-y: auto; padding: 14px 16px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .silo-drawer-body::-webkit-scrollbar { width: 6px; }
+    .silo-drawer-body::-webkit-scrollbar-thumb { background: var(--bcn-border-strong); }
+    .audit-row {
+      border: 1px solid var(--bcn-border);
+      padding: 12px 14px; display: flex; flex-direction: column; gap: 6px;
+    }
+    .audit-row-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .audit-row-detail { font-family: var(--bcn-mono); font-size: 11.5px; color: var(--bcn-ink-2); }
+    .audit-row-notes { font-size: 12.5px; color: var(--bcn-ink-2); padding-top: 6px; border-top: 1px solid var(--bcn-border); }
+
+    /* import zone */
+    .import-zone {
+      border: 1px dashed var(--bcn-border-strong);
+      padding: 12px 14px;
+      font-family: var(--bcn-mono); font-size: 11px; color: var(--bcn-ink-3);
+      text-align: center; cursor: pointer;
+      transition: background .12s ease;
+    }
+    .import-zone:hover { background: var(--bcn-accent-soft); }
+    .import-result { font-family: var(--bcn-mono); font-size: 11.5px; display: flex; flex-direction: column; gap: 4px; }
+    .import-result-row { display: flex; align-items: center; gap: 8px; color: var(--bcn-ink-2); }
+    .import-result-row b { color: var(--bcn-ink); font-weight: 600; }
+    .import-errors { font-size: 10.5px; color: var(--bcn-neg); line-height: 1.6; margin-top: 4px; }
+
+    /* quick-edit cell overlay — small badge on top-right of hovered cell */
+    .td-cell .cell-edit-hint {
+      position: absolute; right: 4px; top: 50%; transform: translateY(-50%);
+      font-size: 9px; color: var(--bcn-accent); font-family: var(--bcn-mono);
+      opacity: 0; pointer-events: none; letter-spacing: 0.04em;
+    }
+    .td-cell:hover .cell-edit-hint { opacity: 1; }
+
+    /* header actions secondary group */
+    .bcn-header-actions { flex-wrap: wrap; }
+    .bcn-header-actions-secondary {
+      display: flex; gap: 6px; flex-shrink: 0;
+    }
   </style>
 </head>
 <body>
 
 <div class="silo-app" id="silo-app">
-  <!-- chrome (sidebar) injected by silo-chrome.js -->
-
   <main class="silo-main">
-    <!-- utility bar injected by silo-chrome.js -->
 
-    <!-- page tabs (sub-nav within Planning) -->
+    <!-- page tabs -->
     <nav class="bcn-tabs" aria-label="Planning">
       <a class="bcn-tab" href="/pages/launch-calendar.html">Launch calendar</a>
-      <a class="bcn-tab bcn-tab--active" href="/projections.html" aria-current="page">Revenue projections</a>
+      <a class="bcn-tab bcn-tab--active" href="/v2/projections.html" aria-current="page">Revenue projections</a>
       <a class="bcn-tab" href="/pages/planning-scenarios.html">Scenarios</a>
       <a class="bcn-tab" href="/planner.html">Cash flow</a>
       <span class="bcn-tabs-meta" data-page-meta>—</span>
@@ -39,7 +110,7 @@
 
     <!-- header -->
     <header class="bcn-header">
-      <div style="flex:1; min-width:0;">
+      <div style="flex:1;min-width:0;">
         <div class="bcn-header-title">
           <h1>Revenue projections</h1>
           <span class="bcn-pill bcn-pill--pos" data-status-pill><span class="bcn-dot bcn-dot--pos"></span>READY</span>
@@ -52,49 +123,48 @@
       <div class="bcn-header-actions">
         <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" data-action="reload">RELOAD</button>
         <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" data-action="audit">AUDIT</button>
+        <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" data-action="template">TEMPLATE</button>
+        <label class="bcn-btn bcn-btn--ghost bcn-btn--mono" for="import-file" style="cursor:pointer;" title="Import CSV">IMPORT</label>
+        <input type="file" id="import-file" accept=".csv,text/csv" style="display:none;" />
         <button class="bcn-btn bcn-btn--mono" type="button" data-action="export">EXPORT CSV</button>
-        <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" data-action="new">+ NEW PROJECTION</button>
+        <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" data-action="new">+ NEW</button>
       </div>
     </header>
 
-    <!-- inline status banner (errors, info) -->
+    <!-- inline status banner -->
     <div class="bcn-status" id="page-status" hidden></div>
 
     <!-- KPI band -->
     <section class="bcn-kpi-band" aria-label="Key metrics">
       <div class="bcn-kpi">
-        <div class="bcn-kpi-label">PROJ · SUM IN VIEW</div>
-        <div class="bcn-kpi-value" data-kpi="grand">$—</div>
+        <div class="bcn-kpi-label">PROJ SALES · SUM</div>
+        <div class="bcn-kpi-value bcn-mono" data-kpi="grand">$—</div>
         <div class="bcn-kpi-delta" data-kpi="grand-delta">—</div>
       </div>
       <div class="bcn-kpi">
+        <div class="bcn-kpi-label">PROJ UNITS · SUM</div>
+        <div class="bcn-kpi-value bcn-mono" data-kpi="units">—</div>
+        <div class="bcn-kpi-delta" data-kpi="units-sub">—</div>
+      </div>
+      <div class="bcn-kpi">
         <div class="bcn-kpi-label">FILTERED ROWS</div>
-        <div class="bcn-kpi-value" data-kpi="rows">—</div>
+        <div class="bcn-kpi-value bcn-mono" data-kpi="rows">—</div>
         <div class="bcn-kpi-delta" data-kpi="rows-sub">—</div>
       </div>
       <div class="bcn-kpi">
         <div class="bcn-kpi-label">LAUNCH EVENTS</div>
-        <div class="bcn-kpi-value" data-kpi="launches">—</div>
+        <div class="bcn-kpi-value bcn-mono" data-kpi="launches">—</div>
         <div class="bcn-kpi-delta" data-kpi="launches-sub">ON VISIBLE DATES</div>
       </div>
       <div class="bcn-kpi">
         <div class="bcn-kpi-label">LOCATIONS</div>
-        <div class="bcn-kpi-value" data-kpi="locs">—</div>
+        <div class="bcn-kpi-value bcn-mono" data-kpi="locs">—</div>
         <div class="bcn-kpi-delta" data-kpi="locs-sub">—</div>
       </div>
       <div class="bcn-kpi">
         <div class="bcn-kpi-label">AVG / DAY</div>
-        <div class="bcn-kpi-value" data-kpi="avg">$—</div>
-        <div class="bcn-kpi-delta" data-kpi="avg-sub">PER DATE IN VIEW</div>
-      </div>
-      <div class="bcn-kpi" style="min-width:170px;">
-        <div class="bcn-kpi-label">DATA HEALTH</div>
-        <div class="bcn-kpi-health" data-kpi="health">
-          <span class="bcn-pill bcn-pill--pos">·PASS</span>
-          <span class="bcn-pill bcn-pill--pos">·PASS</span>
-          <span class="bcn-pill bcn-pill--pos">·PASS</span>
-        </div>
-        <div class="bcn-kpi-delta bcn-mono" data-kpi="health-sub">LAST SYNC —</div>
+        <div class="bcn-kpi-value bcn-mono" data-kpi="avg">$—</div>
+        <div class="bcn-kpi-delta bcn-mono" data-kpi="health-sub">SYNC —</div>
       </div>
     </section>
 
@@ -117,21 +187,25 @@
         <select id="filter-source"><option value="">ALL</option></select>
       </div>
       <div class="bcn-filter">
+        <span class="bcn-filter-k">LAUNCH TYPE</span>
+        <select id="filter-launch-type"><option value="">ALL</option></select>
+      </div>
+      <div class="bcn-filter">
         <span class="bcn-filter-k">SEARCH</span>
-        <input type="text" id="filter-search" placeholder="notes · launch · location" style="min-width:160px;" />
+        <input type="text" id="filter-search" placeholder="notes · launch · location" style="min-width:140px;" />
       </div>
       <div class="bcn-range-segmented" role="group" aria-label="Quick range">
-        <button type="button" data-range="7"  aria-pressed="false">7D</button>
-        <button type="button" data-range="14" aria-pressed="false">14D</button>
-        <button type="button" data-range="30" aria-pressed="false">30D</button>
+        <button type="button" data-range="7"   aria-pressed="false">7D</button>
+        <button type="button" data-range="14"  aria-pressed="false">14D</button>
+        <button type="button" data-range="30"  aria-pressed="false">30D</button>
         <button type="button" data-range="all" aria-pressed="true">ALL</button>
       </div>
       <div class="bcn-filter-meta">
-        <span data-meta="rows">— ROWS</span> · GRAND <b data-meta="grand">$—</b>
+        <span data-meta="rows">— ROWS</span> · <b data-meta="grand">$—</b>
       </div>
     </section>
 
-    <!-- content -->
+    <!-- content grid -->
     <div class="bcn-content">
 
       <!-- MATRIX -->
@@ -188,6 +262,10 @@
             <input class="bcn-field bcn-field--mono bcn-field--hero" type="number" step="0.01" min="0" id="form-sales" placeholder="0.00" />
           </div>
           <div class="bcn-field-group">
+            <label class="bcn-label" for="form-units">PROJECTED UNITS</label>
+            <input class="bcn-field bcn-field--mono" type="number" step="1" min="0" id="form-units" placeholder="0" />
+          </div>
+          <div class="bcn-field-group">
             <label class="bcn-label" for="form-source">SOURCE</label>
             <input class="bcn-field bcn-field--mono" type="text" id="form-source" placeholder="manual" />
           </div>
@@ -204,7 +282,7 @@
           <button class="bcn-btn bcn-btn--danger bcn-btn--mono" type="button" data-action="delete" disabled>DELETE</button>
           <div style="flex:1"></div>
           <button class="bcn-btn bcn-btn--mono" type="button" data-action="cancel">CANCEL</button>
-          <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" data-action="save">SAVE ROW ⏎</button>
+          <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" data-action="save">SAVE ⏎</button>
         </div>
       </section>
 
@@ -214,7 +292,7 @@
           <span class="bcn-pill bcn-pill--dark">AUDIT TAIL</span>
           <span class="bcn-card-meta">LIVE · LAST 5</span>
           <div style="flex:1"></div>
-          <a class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="#" data-action="audit">VIEW ALL →</a>
+          <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" data-action="audit">VIEW ALL →</button>
         </header>
         <table class="bcn-audit-table" id="audit-table">
           <tbody id="audit-body">
@@ -223,17 +301,40 @@
         </table>
       </section>
 
-    </div>
+    </div><!-- /bcn-content -->
   </main>
+</div><!-- /silo-app -->
+
+<!-- Audit drawer -->
+<div class="silo-drawer-overlay" id="drawer-overlay"></div>
+<div class="silo-drawer" id="audit-drawer" role="dialog" aria-label="Audit history" aria-hidden="true">
+  <div class="silo-drawer-head">
+    <div class="silo-drawer-title">
+      <h2 class="silo-drawer-h">Audit history</h2>
+      <button class="bcn-btn bcn-btn--mono" type="button" id="drawer-close">CLOSE ✕</button>
+    </div>
+    <div id="drawer-subtitle" style="font-family:var(--bcn-mono);font-size:11px;color:var(--bcn-ink-3);">Most recent changes across revenue projections.</div>
+    <div class="silo-drawer-filters">
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="hist-from">DATE FROM</label>
+        <input class="bcn-field bcn-field--mono" type="date" id="hist-from" />
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="hist-to">DATE TO</label>
+        <input class="bcn-field bcn-field--mono" type="date" id="hist-to" />
+      </div>
+      <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" id="reload-history">RELOAD</button>
+    </div>
+  </div>
+  <div class="silo-drawer-body" id="drawer-history-list">
+    <div class="bcn-empty">Loading…</div>
+  </div>
 </div>
 
 <script src="silo-chrome.js"></script>
 
 <script>
 /* ---- DEMO MODE -------------------------------------------------------- */
-/* Auto-activates in the design preview, OR when explicitly requested with
-   ?demo=1. Bypasses Supabase auth and uses mock data. Production
-   (silo-baseballism.com / your custom domain) is never affected. */
 const __SILO_DEMO__ = (function () {
   if (new URLSearchParams(location.search).get('demo') === '1') return true;
   const h = location.hostname || '';
@@ -276,7 +377,7 @@ if (__SILO_DEMO__) {
       const loc = LOCS[li];
       PROJ.push({
         id: pid++, projection_date: date, location_id: loc.id,
-        projected_units: 0, projected_sales: v, notes: null,
+        projected_units: Math.round(v / 42), projected_sales: v, notes: di===4 ? 'Father\'s Day launch week' : null,
         source: di === 4 ? 'workbench' : 'manual', scenario: 'active',
         created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
         created_by: 'demo', updated_by: 'demo',
@@ -286,15 +387,15 @@ if (__SILO_DEMO__) {
   });
   const CAL = [
     { id: 1, launch_date: offset(-3), title: 'Cooperstown Capsule', launch_type: 'soft drop', designer: 'Owen', launch_time: '09:00', timezone: 'CT' },
-    { id: 2, launch_date: offset(-1), title: 'Father\u2019s Day Tee', launch_type: 'DTC + retail', designer: 'Studio', launch_time: '09:00', timezone: 'CT' },
+    { id: 2, launch_date: offset(-1), title: 'Father\'s Day Tee', launch_type: 'DTC + retail', designer: 'Studio', launch_time: '09:00', timezone: 'CT' },
     { id: 3, launch_date: offset(2),  title: 'Throwback Jerseys restock', launch_type: 'restock', designer: 'Studio', launch_time: '12:00', timezone: 'CT' },
   ];
   const HIST = [
-    { history_id: 1, action_type: 'UPDATE', changed_at: new Date(Date.now()-1000*60*4).toISOString(),  changed_by: 'drew', projection_date: offset(-1), location_id: 6, projected_sales: 41280 },
-    { history_id: 2, action_type: 'INSERT', changed_at: new Date(Date.now()-1000*60*9).toISOString(),  changed_by: 'drew', projection_date: offset(-1), location_id: 1, projected_sales: 8240 },
-    { history_id: 3, action_type: 'UPDATE', changed_at: new Date(Date.now()-1000*60*17).toISOString(), changed_by: 'gen',  projection_date: offset(-2), location_id: 3, projected_sales: 3320 },
-    { history_id: 4, action_type: 'INSERT', changed_at: new Date(Date.now()-1000*60*42).toISOString(), changed_by: 'gen',  projection_date: offset(-2), location_id: 5, projected_sales: 4170 },
-    { history_id: 5, action_type: 'DELETE', changed_at: new Date(Date.now()-1000*60*65).toISOString(), changed_by: 'drew', projection_date: offset(-7), location_id: 7, projected_sales: 0 },
+    { history_id: 1, action_type: 'UPDATE', changed_at: new Date(Date.now()-1000*60*4).toISOString(),  changed_by: 'drew', projection_date: offset(-1), location_id: 6, projected_sales: 41280, projected_units: 983, notes: 'Father\'s Day launch week', source: 'workbench' },
+    { history_id: 2, action_type: 'INSERT', changed_at: new Date(Date.now()-1000*60*9).toISOString(),  changed_by: 'drew', projection_date: offset(-1), location_id: 1, projected_sales: 8240, projected_units: 196, notes: null, source: 'manual' },
+    { history_id: 3, action_type: 'UPDATE', changed_at: new Date(Date.now()-1000*60*17).toISOString(), changed_by: 'gen',  projection_date: offset(-2), location_id: 3, projected_sales: 3320, projected_units: 79, notes: null, source: 'manual' },
+    { history_id: 4, action_type: 'INSERT', changed_at: new Date(Date.now()-1000*60*42).toISOString(), changed_by: 'gen',  projection_date: offset(-2), location_id: 5, projected_sales: 4170, projected_units: 99, notes: null, source: 'manual' },
+    { history_id: 5, action_type: 'DELETE', changed_at: new Date(Date.now()-1000*60*65).toISOString(), changed_by: 'drew', projection_date: offset(-7), location_id: 7, projected_sales: 0, projected_units: 0, notes: null, source: 'manual' },
   ];
   const TABLES = { locations: LOCS, revenue_projections: PROJ, launch_calendar: CAL, revenue_projection_history: HIST };
 
@@ -308,6 +409,7 @@ if (__SILO_DEMO__) {
       lte(k,v) { _lte.push([k,v]); return api; },
       order(k, o = { ascending: true }) { _order = [k, o.ascending !== false]; return api; },
       range(a,b) { _range = [a,b]; return api; },
+      limit(n) { _range = [0, n-1]; return api; },
       _exec() {
         let r = rows;
         _eq.forEach(([k,v]) => r = r.filter(x => String(x[k]) === String(v)));
@@ -326,7 +428,7 @@ if (__SILO_DEMO__) {
             locations: loc ? { id: loc.id, location_name: loc.location_name, location_code: loc.location_code, domain: loc.domain, store_type: loc.store_type } : null,
             updated_at: new Date().toISOString() };
           if (i>=0) TABLES.revenue_projections[i] = merged; else TABLES.revenue_projections.push(merged);
-          HIST.unshift({ history_id: Date.now(), action_type: i>=0?'UPDATE':'INSERT', changed_at: new Date().toISOString(), changed_by: 'demo', projection_date: p.projection_date, location_id: p.location_id, projected_sales: p.projected_sales });
+          HIST.unshift({ history_id: Date.now(), action_type: i>=0?'UPDATE':'INSERT', changed_at: new Date().toISOString(), changed_by: 'demo', projection_date: p.projection_date, location_id: p.location_id, projected_sales: p.projected_sales, projected_units: p.projected_units, notes: p.notes, source: p.source });
         }
         return { data: arr, error: null };
       },
@@ -335,7 +437,7 @@ if (__SILO_DEMO__) {
           const i = TABLES.revenue_projections.findIndex(x => x[k] === v);
           if (i>=0) {
             const r = TABLES.revenue_projections[i];
-            HIST.unshift({ history_id: Date.now(), action_type: 'DELETE', changed_at: new Date().toISOString(), changed_by: 'demo', projection_date: r.projection_date, location_id: r.location_id, projected_sales: 0 });
+            HIST.unshift({ history_id: Date.now(), action_type: 'DELETE', changed_at: new Date().toISOString(), changed_by: 'demo', projection_date: r.projection_date, location_id: r.location_id, projected_sales: 0, projected_units: 0, notes: null, source: r.source });
             TABLES.revenue_projections.splice(i,1);
           }
           return { data: null, error: null };
@@ -358,21 +460,25 @@ if (__SILO_DEMO__) {
 }
 
 /* ========================================================================
-   PROJECTIONS · controller
+   PROJECTIONS v2 · controller
    ======================================================================== */
 
 const cfg = window.__SILO_CONFIG__ || {};
-let supabaseClient = null;
+let db = null;
+
+const FILTER_KEY = 'silo_v2_proj_filters_v1';
 
 const state = {
   locations: [],
-  projections: [],          // raw rows from Supabase
-  byKey: new Map(),         // `${date}|${location_id}` -> projection row
-  calendar: [],             // launch_calendar mapped rows
-  audit: [],                // last 5 history entries
-  filters: { from:'', to:'', locationId:'', source:'', search:'', range:'all' },
-  selectedKey: null,        // currently selected (date|loc)
-  visibleDates: [],         // dates in current view (after filters)
+  projections: [],
+  byKey: new Map(),
+  calendar: [],
+  calendarTypes: [],
+  audit: [],
+  filters: { from:'', to:'', locationId:'', source:'', launchType:'', search:'', range:'all' },
+  selectedKey: null,
+  visibleDates: [],
+  filtered: [],
   user: null,
 };
 
@@ -385,35 +491,32 @@ document.addEventListener('DOMContentLoaded', boot);
 async function boot() {
   cacheEls();
   if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
-    setStatus('Missing config.js Supabase keys', 'neg');
-    return;
+    setStatus('Missing config.js Supabase keys', 'neg'); return;
   }
-
-  supabaseClient = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
-
-  const { data: sess, error: sessErr } = await supabaseClient.auth.getSession();
+  db = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+  const { data: sess, error: sessErr } = await db.auth.getSession();
   if (sessErr) console.warn('getSession error:', sessErr);
-  if (!sess?.session) {
-    window.location.href = '/pages/login.html';
-    return;
-  }
+  if (!sess?.session) { window.location.href = '/pages/login.html'; return; }
   state.user = sess.session.user || null;
 
-  // mount chrome (sidebar + utility)
-  window.SiloChrome.mount({
-    appEl: '#silo-app',
-    active: 'planning/revenue-projections',
-    user: { email: state.user.email, role: 'OWNER' },
-    crumbs: ['Planning', 'Revenue projections'],
-    supabaseClient,
-  });
+  if (window.SiloChrome) {
+    window.SiloChrome.mount({
+      appEl: '#silo-app',
+      active: 'planning/revenue-projections',
+      user: { email: state.user?.email, role: 'OWNER' },
+      crumbs: ['Planning', 'Revenue projections'],
+      supabaseClient: db,
+    });
+  }
 
   wireEvents();
+  restoreFilters();
 
   try {
     await Promise.all([loadLocations(), loadProjections(), loadAudit()]);
     await loadCalendarEvents();
     applyFiltersAndRender();
+    setStatus('Ready.', 'pos', 1600);
   } catch (e) {
     console.error(e);
     setStatus('Failed to load data: ' + (e?.message || e), 'neg');
@@ -431,10 +534,12 @@ function cacheEls() {
   els.fTo         = document.getElementById('filter-to');
   els.fLoc        = document.getElementById('filter-location');
   els.fSrc        = document.getElementById('filter-source');
+  els.fLaunchType = document.getElementById('filter-launch-type');
   els.fSearch     = document.getElementById('filter-search');
   els.formDate    = document.getElementById('form-date');
   els.formLoc     = document.getElementById('form-location');
   els.formSales   = document.getElementById('form-sales');
+  els.formUnits   = document.getElementById('form-units');
   els.formSource  = document.getElementById('form-source');
   els.formNotes   = document.getElementById('form-notes');
   els.formLaunchWrap  = document.getElementById('form-launches-wrap');
@@ -442,48 +547,47 @@ function cacheEls() {
   els.formLaunchCount = document.getElementById('form-launches-count');
   els.editorPill  = document.querySelector('[data-editor-pill]');
   els.deleteBtn   = document.querySelector('[data-action="delete"]');
+  els.drawerOverlay = document.getElementById('drawer-overlay');
+  els.drawer        = document.getElementById('audit-drawer');
+  els.drawerHistList = document.getElementById('drawer-history-list');
+  els.drawerSubtitle = document.getElementById('drawer-subtitle');
+  els.histFrom    = document.getElementById('hist-from');
+  els.histTo      = document.getElementById('hist-to');
+  els.importFile  = document.getElementById('import-file');
 }
 
+/* ---- events ----------------------------------------------------------- */
+
 function wireEvents() {
+  // header actions
   document.querySelector('[data-action="reload"]').addEventListener('click', async () => {
-    await loadProjections(); await loadCalendarEvents(); await loadAudit();
+    setStatus('Reloading…', 'info');
+    await Promise.all([loadProjections(), loadCalendarEvents(), loadAudit()]);
     applyFiltersAndRender();
-    setStatus('Reloaded.', 'pos', 1800);
+    setStatus('Reloaded.', 'pos', 1600);
   });
   document.querySelector('[data-action="new"]').addEventListener('click', () => {
-    state.selectedKey = null;
-    clearEditor(true);
+    state.selectedKey = null; clearEditor(true);
   });
-  document.querySelector('[data-action="cancel"]').addEventListener('click', () => {
-    state.selectedKey = null;
-    clearEditor(false);
-    renderMatrix();
-  });
+  document.querySelectorAll('[data-action="cancel"]').forEach(b => b.addEventListener('click', () => {
+    state.selectedKey = null; clearEditor(false); renderMatrix();
+  }));
   document.querySelector('[data-action="save"]').addEventListener('click', saveProjection);
   document.querySelector('[data-action="delete"]').addEventListener('click', deleteProjection);
   document.querySelector('[data-action="export"]').addEventListener('click', exportCsv);
-  document.querySelectorAll('[data-action="audit"]').forEach(b => b.addEventListener('click', (e) => {
-    e.preventDefault();
-    setStatus('Full audit modal — coming with the audit page rebuild.', 'info', 2400);
-  }));
+  document.querySelector('[data-action="template"]').addEventListener('click', downloadTemplate);
+  document.querySelectorAll('[data-action="audit"]').forEach(b => b.addEventListener('click', openAuditDrawer));
+
+  // import CSV
+  els.importFile.addEventListener('change', async () => {
+    const file = els.importFile.files?.[0];
+    if (file) { await importCsv(file); els.importFile.value = ''; }
+  });
 
   // filters
-  ['change','input'].forEach(evt => {
-    [els.fFrom, els.fTo, els.fLoc, els.fSrc, els.fSearch].forEach(el => {
-      el.addEventListener(evt, () => {
-        state.filters.from = els.fFrom.value;
-        state.filters.to   = els.fTo.value;
-        state.filters.locationId = els.fLoc.value;
-        state.filters.source     = els.fSrc.value;
-        state.filters.search     = els.fSearch.value.trim().toLowerCase();
-        if (state.filters.from || state.filters.to) {
-          state.filters.range = '';
-          setRangePressed(null);
-        }
-        applyFiltersAndRender();
-      });
-    });
-  });
+  const applyDebounced = debounce(syncFiltersAndApply, 180);
+  [els.fFrom, els.fTo, els.fLoc, els.fSrc, els.fLaunchType].forEach(el => el.addEventListener('change', syncFiltersAndApply));
+  els.fSearch.addEventListener('input', applyDebounced);
 
   document.querySelectorAll('[data-range]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -494,64 +598,85 @@ function wireEvents() {
         els.fFrom.value = ''; els.fTo.value = '';
         state.filters.from = ''; state.filters.to = '';
       } else {
-        const today = new Date();
-        const from = new Date(today);
-        from.setDate(today.getDate() - (Number(r) - 1));
-        els.fFrom.value = iso(from);
-        els.fTo.value   = iso(today);
-        state.filters.from = els.fFrom.value;
-        state.filters.to   = els.fTo.value;
+        const t = new Date();
+        const f = new Date(t); f.setDate(t.getDate() - (Number(r) - 1));
+        els.fFrom.value = state.filters.from = isoDate(f);
+        els.fTo.value   = state.filters.to   = isoDate(t);
       }
-      applyFiltersAndRender();
+      saveFilters(); applyFiltersAndRender();
     });
   });
 
-  // keyboard save
+  // keyboard
   document.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-      const inEditor = e.target.closest('.bcn-card-body');
-      if (inEditor) { e.preventDefault(); saveProjection(); }
+      if (e.target.closest('.bcn-card-body')) { e.preventDefault(); saveProjection(); }
     }
-    if (e.key === 'Escape' && document.activeElement && document.activeElement.closest('.bcn-card-body')) {
-      state.selectedKey = null;
-      clearEditor(false);
-      renderMatrix();
+    if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); document.querySelector('[data-action="reload"]').click(); }
+    if (e.key === 'Escape') {
+      if (els.drawer.classList.contains('open')) { closeAuditDrawer(); return; }
+      if (e.target.closest('.bcn-card-body')) { state.selectedKey = null; clearEditor(false); renderMatrix(); }
     }
+  });
+
+  // drawer
+  document.getElementById('drawer-close').addEventListener('click', closeAuditDrawer);
+  els.drawerOverlay.addEventListener('click', closeAuditDrawer);
+  document.getElementById('reload-history').addEventListener('click', async () => {
+    await loadFullHistory(); renderFullHistory();
   });
 }
 
+function syncFiltersAndApply() {
+  state.filters.from       = els.fFrom.value;
+  state.filters.to         = els.fTo.value;
+  state.filters.locationId = els.fLoc.value;
+  state.filters.source     = els.fSrc.value;
+  state.filters.launchType = els.fLaunchType.value;
+  state.filters.search     = els.fSearch.value.trim().toLowerCase();
+  if (state.filters.from || state.filters.to) { state.filters.range = ''; setRangePressed(null); }
+  saveFilters();
+  applyFiltersAndRender();
+}
+
 function setRangePressed(r) {
-  document.querySelectorAll('[data-range]').forEach(b => {
-    b.setAttribute('aria-pressed', r && b.getAttribute('data-range') === r ? 'true' : 'false');
-  });
+  document.querySelectorAll('[data-range]').forEach(b => b.setAttribute('aria-pressed', r && b.getAttribute('data-range') === r ? 'true' : 'false'));
+}
+
+/* ---- filter persistence ----------------------------------------------- */
+
+function saveFilters() {
+  try { localStorage.setItem(FILTER_KEY, JSON.stringify(state.filters)); } catch (_) {}
+}
+
+function restoreFilters() {
+  try {
+    const s = JSON.parse(localStorage.getItem(FILTER_KEY) || '{}');
+    if (s.from)       { state.filters.from = s.from; els.fFrom.value = s.from; }
+    if (s.to)         { state.filters.to = s.to;     els.fTo.value = s.to; }
+    if (s.search)     { state.filters.search = s.search; els.fSearch.value = s.search; }
+    if (s.range)      { state.filters.range = s.range; setRangePressed(s.range); }
+    // selects restored after data loads in populate* functions
+    state.filters._pending_location   = s.locationId;
+    state.filters._pending_source     = s.source;
+    state.filters._pending_launchType = s.launchType;
+  } catch (_) {}
 }
 
 /* ---- loaders ---------------------------------------------------------- */
 
 async function loadLocations() {
-  const { data, error } = await supabaseClient
-    .from('locations')
-    .select('id, location_code, location_name, domain, store_type, is_active')
-    .eq('is_active', true)
-    .order('location_name', { ascending: true });
+  const { data, error } = await db.from('locations').select('id, location_code, location_name, domain, store_type, is_active').eq('is_active', true).order('location_name', { ascending: true });
   if (error) throw error;
   state.locations = data || [];
-
-  // fill location filter + form select
-  els.fLoc.innerHTML = '<option value="">ALL</option>' +
-    state.locations.map(l => `<option value="${l.id}">${escapeHtml(l.location_code || l.location_name)}</option>`).join('');
-  els.formLoc.innerHTML = '<option value="">Select location</option>' +
-    state.locations.map(l => `<option value="${l.id}">${escapeHtml(l.location_name)}</option>`).join('');
+  els.fLoc.innerHTML = '<option value="">ALL</option>' + state.locations.map(l => `<option value="${l.id}">${esc(l.location_code || l.location_name)}</option>`).join('');
+  els.formLoc.innerHTML = '<option value="">Select location</option>' + state.locations.map(l => `<option value="${l.id}">${esc(l.location_name)}</option>`).join('');
+  if (state.filters._pending_location) { els.fLoc.value = state.filters._pending_location; state.filters.locationId = els.fLoc.value; }
 }
 
 async function loadProjections() {
-  const { data, error } = await supabaseClient
-    .from('revenue_projections')
-    .select(`
-      id, projection_date, location_id, projected_units, projected_sales,
-      notes, source, scenario, created_at, updated_at, created_by, updated_by,
-      locations ( id, location_name, location_code, domain, store_type )
-    `)
+  const { data, error } = await db.from('revenue_projections')
+    .select(`id, projection_date, location_id, projected_units, projected_sales, notes, source, scenario, created_at, updated_at, created_by, updated_by, locations ( id, location_name, location_code, domain, store_type )`)
     .eq('scenario', 'active')
     .order('projection_date', { ascending: true })
     .range(0, 5000);
@@ -561,55 +686,52 @@ async function loadProjections() {
     location_name: r.locations?.location_name || locName(r.location_id),
     location_code: r.locations?.location_code || locCode(r.location_id),
   }));
-
-  // rebuild map
   state.byKey.clear();
-  for (const r of state.projections) {
-    state.byKey.set(keyFor(r.projection_date, r.location_id), r);
-  }
+  for (const r of state.projections) state.byKey.set(keyFor(r.projection_date, r.location_id), r);
 
-  // source filter options
   const sources = Array.from(new Set(state.projections.map(r => r.source).filter(Boolean))).sort();
-  els.fSrc.innerHTML = '<option value="">ALL</option>' +
-    sources.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(String(s).toUpperCase())}</option>`).join('');
+  els.fSrc.innerHTML = '<option value="">ALL</option>' + sources.map(s => `<option value="${esc(s)}">${esc(s.toUpperCase())}</option>`).join('');
+  if (state.filters._pending_source) { els.fSrc.value = state.filters._pending_source; state.filters.source = els.fSrc.value; }
 }
 
 async function loadCalendarEvents() {
   const dates = state.projections.map(r => r.projection_date).filter(Boolean).sort();
-  const dateFrom = dates[0] || '';
-  const dateTo   = dates[dates.length - 1] || '';
-  let q = supabaseClient.from('launch_calendar').select('*')
-    .order('launch_date', { ascending: true }).range(0, 5000);
+  const dateFrom = dates[0] || ''; const dateTo = dates[dates.length - 1] || '';
+  let q = db.from('launch_calendar').select('*').order('launch_date', { ascending: true }).range(0, 5000);
   if (dateFrom) q = q.gte('launch_date', dateFrom);
   if (dateTo)   q = q.lte('launch_date', dateTo);
   const { data, error } = await q;
   if (error) throw error;
   state.calendar = (data || [])
-    .map(r => ({
-      id: r.id,
-      date: normalizeDate(r.launch_date),
-      title: String(r.title || r.product_title || 'Untitled launch').trim(),
-      type: String(r.launch_type || '').trim(),
-      designer: String(r.designer || '').trim(),
-      time: String(r.launch_time || '').trim(),
-      tz: String(r.timezone || r.time_zone || '').trim(),
-    }))
+    .map(r => ({ id: r.id, date: normDate(r.launch_date), title: String(r.title || r.product_title || 'Untitled').trim(), type: String(r.launch_type || '').trim(), designer: String(r.designer || '').trim(), time: String(r.launch_time || '').trim(), tz: String(r.timezone || r.time_zone || '').trim() }))
     .filter(e => e.date && e.title);
+
+  const types = Array.from(new Set(state.calendar.map(e => e.type).filter(Boolean))).sort();
+  state.calendarTypes = types;
+  els.fLaunchType.innerHTML = '<option value="">ALL</option>' + types.map(t => `<option value="${esc(t)}">${esc(t.toUpperCase())}</option>`).join('');
+  if (state.filters._pending_launchType) { els.fLaunchType.value = state.filters._pending_launchType; state.filters.launchType = els.fLaunchType.value; }
 }
 
 async function loadAudit() {
-  const { data, error } = await supabaseClient
-    .from('revenue_projection_history')
-    .select('history_id, action_type, changed_at, changed_by, projection_date, location_id, projected_sales')
+  const { data, error } = await db.from('revenue_projection_history')
+    .select('history_id, action_type, changed_at, changed_by, projection_date, location_id, projected_sales, projected_units')
     .order('changed_at', { ascending: false })
-    .range(0, 4);
-  if (error) {
-    // history table may not exist for all setups — soft-fail
-    console.warn('audit history unavailable:', error.message);
-    state.audit = [];
-    return;
-  }
+    .limit(5);
+  if (error) { console.warn('audit history unavailable:', error.message); state.audit = []; return; }
   state.audit = data || [];
+}
+
+async function loadFullHistory() {
+  const from = els.histFrom.value; const to = els.histTo.value;
+  let q = db.from('revenue_projection_history')
+    .select('history_id, revenue_projection_id, action_type, changed_at, changed_by, projection_date, location_id, projected_units, projected_sales, notes, source')
+    .order('changed_at', { ascending: false })
+    .limit(200);
+  if (from) q = q.gte('projection_date', from);
+  if (to)   q = q.lte('projection_date', to);
+  const { data, error } = await q;
+  if (error) { setStatus('History load failed: ' + error.message, 'neg'); return; }
+  state.fullHistory = data || [];
 }
 
 /* ---- filtering -------------------------------------------------------- */
@@ -622,18 +744,17 @@ function applyFiltersAndRender() {
     if (f.to   && d > f.to)   return false;
     if (f.locationId && String(r.location_id) !== String(f.locationId)) return false;
     if (f.source && (r.source || '') !== f.source) return false;
+    const calOnDate = state.calendar.filter(e => e.date === d);
+    if (f.launchType && !calOnDate.some(e => e.type === f.launchType)) return false;
     if (f.search) {
       const hay = [d, r.location_name, r.location_code, r.notes, r.source].join(' ').toLowerCase();
-      const launchHay = (state.calendar.filter(e => e.date === d).map(e => `${e.title} ${e.type}`).join(' ')).toLowerCase();
-      if (!(hay + ' ' + launchHay).includes(f.search)) return false;
+      const lhay = calOnDate.map(e => `${e.title} ${e.type}`).join(' ').toLowerCase();
+      if (!(hay + ' ' + lhay).includes(f.search)) return false;
     }
     return true;
   });
-
-  // unique visible dates (sorted)
   state.visibleDates = Array.from(new Set(state.filtered.map(r => r.projection_date))).sort();
-
-  renderHeader();
+  renderScopePill();
   renderKpis();
   renderFilterMeta();
   renderMatrix();
@@ -642,33 +763,31 @@ function applyFiltersAndRender() {
 
 /* ---- header / KPIs ---------------------------------------------------- */
 
-function renderHeader() {
+function renderScopePill() {
   const d = state.visibleDates.length;
   const l = state.locations.length;
-  document.querySelector('[data-scope-pill]').textContent =
-    `${d} DATE${d===1?'':'S'} · ${l} LOC`;
-  document.querySelector('[data-page-meta]').textContent =
-    `${d}D · ${l}LOC · ${state.filtered.length} ROWS`;
+  document.querySelector('[data-scope-pill]').textContent = `${d} DATE${d===1?'':'S'} · ${l} LOC`;
+  document.querySelector('[data-page-meta]').textContent  = `${d}D · ${l}LOC · ${state.filtered.length} ROWS`;
 }
 
 function renderKpis() {
   const grand = state.filtered.reduce((s, r) => s + Number(r.projected_sales || 0), 0);
+  const units = state.filtered.reduce((s, r) => s + Number(r.projected_units || 0), 0);
   const launches = state.calendar.filter(e => state.visibleDates.includes(e.date)).length;
   const dates = state.visibleDates.length;
   const avg = dates ? grand / dates : 0;
 
-  setText('[data-kpi="grand"]',    fmtUSD(grand));
-  setText('[data-kpi="rows"]',     String(state.filtered.length));
-  setText('[data-kpi="rows-sub"]', `${dates}D × ${state.locations.length}LOC`);
-  setText('[data-kpi="launches"]', String(launches));
-  setText('[data-kpi="locs"]',     String(state.locations.length));
-
-  const types = countByType();
-  setText('[data-kpi="locs-sub"]', types || '—');
-
-  setText('[data-kpi="avg"]',      fmtUSD(avg));
-  setText('[data-kpi="grand-delta"]', grand > 0 ? `▲ ${state.filtered.length} cells in view` : '—');
-  setText('[data-kpi="health-sub"]', `LAST SYNC ${nowHHMM()}`);
+  setText('[data-kpi="grand"]',       fmtUSD(grand));
+  setText('[data-kpi="grand-delta"]', grand > 0 ? `${state.filtered.length} CELLS IN VIEW` : '—');
+  setText('[data-kpi="units"]',       fmtInt(units));
+  setText('[data-kpi="units-sub"]',   units > 0 ? `AVG ${fmtNum(units/Math.max(state.filtered.length,1),1)} / CELL` : '—');
+  setText('[data-kpi="rows"]',        String(state.filtered.length));
+  setText('[data-kpi="rows-sub"]',    `${dates}D × ${state.locations.length}LOC`);
+  setText('[data-kpi="launches"]',    String(launches));
+  setText('[data-kpi="locs"]',        String(state.locations.length));
+  setText('[data-kpi="locs-sub"]',    countByType());
+  setText('[data-kpi="avg"]',         fmtUSD(avg));
+  setText('[data-kpi="health-sub"]',  `SYNC ${nowHHMM()}`);
 }
 
 function countByType() {
@@ -677,7 +796,7 @@ function countByType() {
     const t = (l.store_type || '').toUpperCase().slice(0, 6) || 'OTHER';
     counts[t] = (counts[t] || 0) + 1;
   }
-  return Object.entries(counts).map(([k,v]) => `${v} ${k}`).join(' · ');
+  return Object.entries(counts).map(([k,v]) => `${v} ${k}`).join(' · ') || '—';
 }
 
 function renderFilterMeta() {
@@ -689,116 +808,97 @@ function renderFilterMeta() {
 /* ---- matrix ----------------------------------------------------------- */
 
 function renderMatrix() {
-  const locs = state.locations;
+  const locs  = state.locations;
   const dates = state.visibleDates;
 
-  // colgroup: date, launch, …each loc, total
   els.matrixCols.innerHTML =
     '<col style="width:104px"/><col style="width:200px"/>' +
     locs.map(() => '<col/>').join('') +
     '<col style="width:90px"/>';
 
-  // header row
-  const headHtml = `
+  els.matrixHead.innerHTML = `
     <th class="bcn-th-left">DATE</th>
     <th class="bcn-th-left">LAUNCH</th>
     ${locs.map(l => `
       <th>
-        <div class="loc-code">${escapeHtml(l.location_code || l.location_name?.slice(0,3).toUpperCase() || '?')}</div>
-        <div class="loc-name">${escapeHtml(l.location_name || '')}</div>
-      </th>
-    `).join('')}
+        <div class="loc-code">${esc(l.location_code || (l.location_name||'').slice(0,3).toUpperCase())}</div>
+        <div class="loc-name">${esc(l.location_name||'')}</div>
+      </th>`).join('')}
     <th>TOTAL</th>
   `;
-  els.matrixHead.innerHTML = headHtml;
 
-  // matrix cells: rows = visibleDates
   if (!dates.length) {
-    els.matrixBody.innerHTML = `<tr><td colspan="${locs.length + 3}" class="bcn-empty">No projections in this view. Pick a date + location and add one →</td></tr>`;
+    els.matrixBody.innerHTML = `<tr><td colspan="${locs.length + 3}" class="bcn-empty">No projections. Pick a date + location in the editor and save.</td></tr>`;
     els.matrixFoot.innerHTML = '';
     document.querySelector('[data-meta="cells"]').textContent = `0D × ${locs.length}LOC`;
     return;
   }
 
-  // compute max for heatmap intensity, per-row totals, per-col totals
-  const allVals = [];
+  const allVals = state.filtered.map(r => Number(r.projected_sales||0)).filter(v => v > 0);
+  const max = Math.max(1, ...allVals);
+
   const rows = dates.map(d => {
-    const dow = dayOfWeekShort(d);
     const launches = state.calendar.filter(e => e.date === d);
     const launchTitle = launches[0] ? launches[0].title + (launches.length > 1 ? ` +${launches.length-1}` : '') : null;
     const cells = locs.map(l => {
       const r = state.byKey.get(keyFor(d, l.id));
-      const v = r ? Number(r.projected_sales || 0) : null;
-      if (v != null) allVals.push(v);
-      return { v, row: r, locId: l.id };
+      return { v: r ? Number(r.projected_sales||0) : null, units: r ? Number(r.projected_units||0) : null, row: r, locId: l.id };
     });
-    const total = cells.reduce((s,c) => s + (c.v || 0), 0);
-    return { date: d, dow, launchTitle, launches, cells, total };
+    return { date: d, dow: dowShort(d), launches, launchTitle, cells, total: cells.reduce((s,c) => s+(c.v||0), 0) };
   });
-  const max = Math.max(1, ...allVals);
 
-  const colTotals = locs.map((_, i) => rows.reduce((s,r) => s + (r.cells[i].v || 0), 0));
+  const colTotals = locs.map((_, i) => rows.reduce((s,r) => s+(r.cells[i].v||0), 0));
   const grand     = colTotals.reduce((a,b) => a+b, 0);
 
-  const bodyHtml = rows.map(r => {
+  els.matrixBody.innerHTML = rows.map(r => {
     const isRowSel = state.selectedKey && state.selectedKey.startsWith(r.date + '|');
-    return `
-      <tr class="${isRowSel ? 'row-selected' : ''}" data-row-date="${r.date}">
-        <td class="td-date">
-          <div>${r.date}</div>
-          <div class="dow">${r.dow}</div>
-        </td>
-        <td class="td-launch">
-          ${r.launchTitle
-            ? `<span class="bcn-launch-chip"><span class="bcn-dot bcn-dot--accent"></span>${escapeHtml(r.launchTitle)}</span>`
-            : '<span class="bcn-launch-chip"><span class="empty">—</span></span>'}
-        </td>
-        ${r.cells.map(c => {
-          const a = c.v ? (c.v / max) : 0;
-          const key = keyFor(r.date, c.locId);
-          const sel = state.selectedKey === key;
-          const empty = c.v == null;
-          return `
-            <td class="td-cell ${sel ? 'td-cell--selected' : ''}"
-                data-key="${key}" data-date="${r.date}" data-loc="${c.locId}"
-                style="background:${empty ? '' : `oklch(0.55 0.20 245 / ${a * 0.32})`}; color:${a > 0.7 ? 'var(--bcn-accent)' : ''}; font-weight:${a > 0.7 ? '600' : ''};">
-              ${empty ? '<span style="color:var(--bcn-ink-4)">—</span>' : fmtUSD(c.v, { compact: true })}
-            </td>
-          `;
-        }).join('')}
-        <td class="td-total">${fmtUSD(r.total, { compact: true })}</td>
-      </tr>
-    `;
+    return `<tr class="${isRowSel?'row-selected':''}" data-row-date="${r.date}">
+      <td class="td-date">
+        <div>${r.date}</div>
+        <div class="dow">${r.dow}</div>
+      </td>
+      <td class="td-launch">
+        ${r.launchTitle
+          ? `<span class="bcn-launch-chip"><span class="bcn-dot bcn-dot--accent"></span>${esc(r.launchTitle)}</span>`
+          : '<span class="bcn-launch-chip"><span class="empty">—</span></span>'}
+      </td>
+      ${r.cells.map(c => {
+        const a = c.v ? (c.v / max) : 0;
+        const key = keyFor(r.date, c.locId);
+        const sel = state.selectedKey === key;
+        const empty = c.v == null;
+        return `<td class="td-cell ${sel?'td-cell--selected':''}"
+              data-key="${key}" data-date="${r.date}" data-loc="${c.locId}"
+              style="background:${empty?'':`oklch(0.55 0.20 245 / ${a*0.28})`};
+                     font-weight:${a>0.7?'600':''};
+                     color:${a>0.7?'var(--bcn-accent)':''};">
+          ${empty
+            ? '<span style="color:var(--bcn-ink-4)">—</span>'
+            : `<div>${fmtUSD(c.v,{compact:true})}</div>${c.units ? `<div style="font-size:9.5px;color:var(--bcn-ink-3);margin-top:1px;">${fmtInt(c.units)}u</div>` : ''}`}
+          <span class="cell-edit-hint">EDIT</span>
+        </td>`;
+      }).join('')}
+      <td class="td-total">${fmtUSD(r.total,{compact:true})}</td>
+    </tr>`;
   }).join('');
-  els.matrixBody.innerHTML = bodyHtml;
 
-  // totals row
   els.matrixFoot.innerHTML = `
     <tr class="row-totals">
       <td class="td-totals-label" colspan="2">COLUMN TOTALS</td>
-      ${colTotals.map(c => `<td>${fmtUSD(c, { compact: true })}</td>`).join('')}
-      <td class="td-grand-total">${fmtUSD(grand, { compact: true })}</td>
-    </tr>
-  `;
+      ${colTotals.map(c => `<td>${fmtUSD(c,{compact:true})}</td>`).join('')}
+      <td class="td-grand-total">${fmtUSD(grand,{compact:true})}</td>
+    </tr>`;
 
-  document.querySelector('[data-meta="cells"]').textContent =
-    `${dates.length}D × ${locs.length}LOC · ${dates.length * locs.length} CELLS`;
+  document.querySelector('[data-meta="cells"]').textContent = `${dates.length}D × ${locs.length}LOC · ${dates.length * locs.length} CELLS`;
 
-  // cell click → load into editor (or open new)
   els.matrixBody.querySelectorAll('.td-cell').forEach(td => {
-    td.addEventListener('click', () => {
-      const key = td.getAttribute('data-key');
-      const date = td.getAttribute('data-date');
-      const locId = Number(td.getAttribute('data-loc'));
-      selectCell(key, date, locId);
-    });
+    td.addEventListener('click', () => selectCell(td.getAttribute('data-key'), td.getAttribute('data-date'), Number(td.getAttribute('data-loc'))));
   });
 }
 
 function selectCell(key, date, locId) {
   state.selectedKey = key;
-  const row = state.byKey.get(key);
-  fillEditor({ date, locationId: locId, row });
+  fillEditor({ date, locationId: locId, row: state.byKey.get(key) || null });
   renderMatrix();
 }
 
@@ -807,13 +907,13 @@ function selectCell(key, date, locId) {
 function fillEditor({ date, locationId, row }) {
   els.formDate.value   = date || '';
   els.formLoc.value    = locationId != null ? String(locationId) : '';
-  els.formSales.value  = row ? Number(row.projected_sales || 0).toFixed(2) : '';
+  els.formSales.value  = row ? Number(row.projected_sales||0).toFixed(2) : '';
+  els.formUnits.value  = row ? String(Math.max(0, Math.round(Number(row.projected_units||0)))) : '';
   els.formSource.value = row ? (row.source || 'manual') : 'manual';
   els.formNotes.value  = row ? (row.notes || '') : '';
-  els.editorPill.textContent = `${date || '—'} · ${locName(locationId) || '—'}`;
+  els.editorPill.textContent = `${date||'—'} · ${locName(locationId)||'—'}`;
   els.deleteBtn.disabled = !row;
 
-  // launches on this date
   const launches = state.calendar.filter(e => e.date === date);
   if (launches.length) {
     els.formLaunchWrap.hidden = false;
@@ -822,15 +922,14 @@ function fillEditor({ date, locationId, row }) {
       <div class="bcn-launch-preview">
         <div class="bcn-launch-preview-head">
           <span class="bcn-dot bcn-dot--accent"></span>
-          <span class="bcn-launch-preview-name">${escapeHtml(l.title)}</span>
-          ${l.type ? `<span class="bcn-pill bcn-pill--accent">${escapeHtml(l.type)}</span>` : ''}
+          <span class="bcn-launch-preview-name">${esc(l.title)}</span>
+          ${l.type ? `<span class="bcn-pill bcn-pill--accent">${esc(l.type)}</span>` : ''}
         </div>
         <div class="bcn-launch-preview-meta">
-          ${l.time ? `<span>DROP · ${escapeHtml(l.time)}${l.tz ? ' '+escapeHtml(l.tz):''}</span>` : '<span>—</span>'}
-          ${l.designer ? `<span>DSGN · ${escapeHtml(l.designer)}</span>` : '<span>—</span>'}
+          ${l.time ? `<span>DROP · ${esc(l.time)}${l.tz?' '+esc(l.tz):''}</span>` : '<span>—</span>'}
+          ${l.designer ? `<span>DSGN · ${esc(l.designer)}</span>` : '<span>—</span>'}
         </div>
-      </div>
-    `).join('');
+      </div>`).join('');
   } else {
     els.formLaunchWrap.hidden = true;
     els.formLaunchList.innerHTML = '';
@@ -838,167 +937,245 @@ function fillEditor({ date, locationId, row }) {
 }
 
 function clearEditor(prefillToday) {
-  if (prefillToday) {
-    fillEditor({ date: iso(new Date()), locationId: null, row: null });
-    els.formSales.focus();
-  } else {
-    fillEditor({ date: '', locationId: null, row: null });
-  }
+  if (prefillToday) { fillEditor({ date: isoDate(new Date()), locationId: null, row: null }); els.formSales.focus(); }
+  else fillEditor({ date: '', locationId: null, row: null });
 }
 
 async function saveProjection() {
   const date = els.formDate.value;
   const locationId = Number(els.formLoc.value);
   const sales = Number(els.formSales.value);
+  const units = Math.max(0, Math.round(Number(els.formUnits.value) || 0));
   const notes = els.formNotes.value.trim() || null;
   const source = els.formSource.value.trim() || 'manual';
 
   const errs = [];
   if (!date) errs.push('Date is required.');
   if (!locationId) errs.push('Location is required.');
-  if (!Number.isFinite(sales) || sales < 0) errs.push('Projected sales must be ≥ 0.');
+  if (!Number.isFinite(sales) || sales < 0) errs.push('Sales must be ≥ 0.');
   if (errs.length) { setStatus(errs.join(' '), 'neg'); return; }
 
-  const existing = state.byKey.get(keyFor(date, locationId));
-  const payload = {
-    projection_date: date,
-    location_id: locationId,
-    projected_units: existing ? Number(existing.projected_units || 0) : 0,
-    projected_sales: Number(sales.toFixed(2)),
-    notes,
-    source,
-    scenario: 'active',
-  };
+  const payload = { projection_date: date, location_id: locationId, projected_units: units, projected_sales: Number(sales.toFixed(2)), notes, source, scenario: 'active' };
 
   setStatus('Saving…', 'info');
   const saveBtn = document.querySelector('[data-action="save"]');
   saveBtn.disabled = true;
   try {
-    const { error } = await supabaseClient
-      .from('revenue_projections')
-      .upsert([payload], { onConflict: 'projection_date,location_id' });
+    const { error } = await db.from('revenue_projections').upsert([payload], { onConflict: 'projection_date,location_id' });
     if (error) throw error;
     setStatus(`Saved · ${date} · ${locName(locationId)} · ${fmtUSD(sales)}`, 'pos', 2200);
-    await loadProjections();
-    await loadAudit();
+    await loadProjections(); await loadAudit();
     state.selectedKey = keyFor(date, locationId);
     applyFiltersAndRender();
-    const refreshed = state.byKey.get(state.selectedKey);
-    fillEditor({ date, locationId, row: refreshed || null });
+    fillEditor({ date, locationId, row: state.byKey.get(state.selectedKey) || null });
   } catch (e) {
-    console.error(e);
-    setStatus('Save failed: ' + (e?.message || e), 'neg');
-  } finally {
-    saveBtn.disabled = false;
-  }
+    console.error(e); setStatus('Save failed: ' + (e?.message || e), 'neg');
+  } finally { saveBtn.disabled = false; }
 }
 
 async function deleteProjection() {
-  const date = els.formDate.value;
-  const locationId = Number(els.formLoc.value);
+  const date = els.formDate.value; const locationId = Number(els.formLoc.value);
   if (!date || !locationId) return;
   const existing = state.byKey.get(keyFor(date, locationId));
   if (!existing) return;
   if (!confirm(`Delete projection for ${date} · ${locName(locationId)}?`)) return;
   setStatus('Deleting…', 'info');
   try {
-    const { error } = await supabaseClient
-      .from('revenue_projections')
-      .delete()
-      .eq('id', existing.id);
+    const { error } = await db.from('revenue_projections').delete().eq('id', existing.id);
     if (error) throw error;
     setStatus(`Deleted · ${date} · ${locName(locationId)}`, 'pos', 2200);
-    state.selectedKey = null;
-    await loadProjections();
-    await loadAudit();
-    applyFiltersAndRender();
-    clearEditor(false);
-  } catch (e) {
-    console.error(e);
-    setStatus('Delete failed: ' + (e?.message || e), 'neg');
-  }
+    state.selectedKey = null; await loadProjections(); await loadAudit();
+    applyFiltersAndRender(); clearEditor(false);
+  } catch (e) { console.error(e); setStatus('Delete failed: ' + (e?.message || e), 'neg'); }
 }
 
-/* ---- audit ------------------------------------------------------------ */
+/* ---- audit drawer ----------------------------------------------------- */
 
-function renderAudit() {
-  const rows = state.audit.slice(0, 5);
+async function openAuditDrawer() {
+  els.drawer.classList.add('open');
+  els.drawerOverlay.classList.add('open');
+  els.drawer.setAttribute('aria-hidden', 'false');
+  await loadFullHistory();
+  renderFullHistory();
+}
+
+function closeAuditDrawer() {
+  els.drawer.classList.remove('open');
+  els.drawerOverlay.classList.remove('open');
+  els.drawer.setAttribute('aria-hidden', 'true');
+}
+
+function renderFullHistory() {
+  const rows = state.fullHistory || [];
   if (!rows.length) {
-    els.auditBody.innerHTML = `<tr><td colspan="5" class="bcn-empty" style="padding:14px">No recent activity.</td></tr>`;
+    els.drawerHistList.innerHTML = '<div class="bcn-empty">No audit history found.</div>';
+    els.drawerSubtitle.textContent = 'No records found for this date range.';
     return;
   }
-  els.auditBody.innerHTML = rows.map(r => {
-    const t = (r.changed_at || '').slice(11, 19);
-    const kind = (r.action_type || 'EDIT').toUpperCase();
+  els.drawerSubtitle.textContent = `${rows.length} records · most recent first`;
+  els.drawerHistList.innerHTML = rows.map(r => {
+    const toneClass = r.action_type === 'DELETE' ? 'bcn-pill--neg' : r.action_type === 'INSERT' ? 'bcn-pill--pos' : '';
     const loc = locName(r.location_id) || `LOC ${r.location_id}`;
-    const sales = r.projected_sales != null ? fmtUSD(r.projected_sales) : '—';
-    const tone = kind === 'DELETE' ? 'neg' : kind === 'INSERT' || kind === 'CREATE' ? 'pos' : 'neutral';
-    return `
-      <tr>
-        <td class="bcn-audit-time">${escapeHtml(t || '—')}</td>
-        <td class="bcn-audit-kind">${escapeHtml(kind)}</td>
-        <td class="bcn-audit-src">${escapeHtml(r.projection_date || '')}</td>
-        <td class="bcn-audit-st"><span class="bcn-pill ${tone==='neutral' ? '' : 'bcn-pill--'+tone}">${escapeHtml(kind === 'DELETE' ? 'DEL' : 'OK')}</span></td>
-        <td class="bcn-audit-msg">${escapeHtml(sales)} · ${escapeHtml(loc)}</td>
-      </tr>
-    `;
+    return `<div class="audit-row">
+      <div class="audit-row-head">
+        <span class="bcn-pill ${toneClass}">${esc(r.action_type||'EDIT')}</span>
+        <span class="bcn-pill">${esc(r.projection_date||'')}</span>
+        <span class="bcn-pill">${esc(loc)}</span>
+        ${r.changed_by ? `<span class="bcn-pill">${esc(r.changed_by)}</span>` : ''}
+      </div>
+      <div class="audit-row-detail">
+        ${fmtUSD(r.projected_sales)} · ${r.projected_units!=null?fmtInt(r.projected_units)+' UNITS':''} · ${esc((r.source||'').toUpperCase())}
+        <span style="color:var(--bcn-ink-4);margin-left:10px;">${esc(fmtDateTime(r.changed_at))}</span>
+      </div>
+      ${r.notes ? `<div class="audit-row-notes">${esc(r.notes)}</div>` : ''}
+    </div>`;
   }).join('');
 }
 
-/* ---- export ----------------------------------------------------------- */
+/* ---- audit tail ------------------------------------------------------- */
+
+function renderAudit() {
+  const rows = state.audit.slice(0, 5);
+  if (!rows.length) { els.auditBody.innerHTML = `<tr><td colspan="5" class="bcn-empty" style="padding:14px">No recent activity.</td></tr>`; return; }
+  els.auditBody.innerHTML = rows.map(r => {
+    const t = (r.changed_at||'').slice(11,19);
+    const kind = (r.action_type||'EDIT').toUpperCase();
+    const loc = locName(r.location_id) || `LOC ${r.location_id}`;
+    const tone = kind === 'DELETE' ? 'bcn-pill--neg' : kind === 'INSERT' ? 'bcn-pill--pos' : '';
+    return `<tr>
+      <td class="bcn-audit-time">${esc(t||'—')}</td>
+      <td class="bcn-audit-kind">${esc(kind)}</td>
+      <td class="bcn-audit-src">${esc(r.projection_date||'')}</td>
+      <td class="bcn-audit-st"><span class="bcn-pill ${tone}">${esc(kind==='DELETE'?'DEL':'OK')}</span></td>
+      <td class="bcn-audit-msg">${esc(fmtUSD(r.projected_sales))} · ${esc(loc)}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* ---- CSV export ------------------------------------------------------- */
 
 function exportCsv() {
   const cols = ['projection_date','location_id','location_code','location_name','projected_sales','projected_units','source','notes','scenario'];
   const lines = [cols.join(',')];
-  state.filtered.forEach(r => {
-    lines.push(cols.map(c => csvCell(r[c])).join(','));
-  });
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `revenue_projections_${iso(new Date())}.csv`;
-  document.body.appendChild(a); a.click(); a.remove();
-  URL.revokeObjectURL(url);
+  state.filtered.forEach(r => lines.push(cols.map(c => csvCell(r[c])).join(',')));
+  blobDownload(lines.join('\n'), 'text/csv', `revenue_projections_${isoDate(new Date())}.csv`);
   setStatus(`Exported ${state.filtered.length} rows.`, 'pos', 1800);
 }
 
-function csvCell(v) {
-  if (v == null) return '';
-  const s = String(v);
-  if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
-  return s;
+function downloadTemplate() {
+  const today = isoDate(new Date());
+  const lines = [
+    'projection_date,location_name,projected_units,projected_sales,source,notes',
+    `${today},Online (DTC),100,5000.00,manual,Promo week example`,
+    `${addDays(today,1)},Nashville,65,3200.00,manual,Normal daily pace`,
+  ];
+  blobDownload(lines.join('\n'), 'text/csv', `silo_projections_template_${today}.csv`);
+  setStatus('Template downloaded.', 'pos', 1600);
+}
+
+/* ---- CSV import ------------------------------------------------------- */
+
+async function importCsv(file) {
+  setStatus('Importing…', 'info');
+  const text = await file.text();
+  const rows = parseCsv(text);
+  if (rows.length < 2) { setStatus('Import file is empty or has no data rows.', 'neg'); return; }
+
+  const header = rows[0];
+  const idx = buildHeaderIdx(header);
+  const dateIdx  = findCol(idx, ['projection_date','date']);
+  const salesIdx = findCol(idx, ['projected_sales','sales','projected_revenue']);
+  const unitsIdx = findCol(idx, ['projected_units','units']);
+  const srcIdx   = findCol(idx, ['source']);
+  const notesIdx = findCol(idx, ['notes','note']);
+
+  if (dateIdx === null || salesIdx === null) { setStatus('CSV must have projection_date and projected_sales columns.', 'neg'); return; }
+
+  const result = { total: 0, prepared: 0, skipped: 0, errors: [] };
+  const payload = []; const seen = new Set();
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row || row.every(c => !String(c||'').trim())) continue;
+    result.total++;
+
+    const date  = String(row[dateIdx] || '').trim();
+    const sales = Number(String(row[salesIdx]||'').replace(/[$,]/g,''));
+    const units = unitsIdx !== null ? Math.max(0, Math.round(Number(String(row[unitsIdx]||'').replace(/[$,]/g,''))||0)) : 0;
+    const src   = srcIdx   !== null ? (String(row[srcIdx]||'').trim()||'import') : 'import';
+    const notes = notesIdx !== null ? (String(row[notesIdx]||'').trim()||null) : null;
+
+    if (!date) { result.skipped++; result.errors.push(`Row ${i+1}: missing date.`); continue; }
+
+    // resolve location
+    const locNameIdx = findCol(idx, ['location_name','location','store_name','store']);
+    const locCodeIdx = findCol(idx, ['location_code','store_code','code']);
+    const locIdIdx   = findCol(idx, ['location_id']);
+    const rawName = locNameIdx !== null ? String(row[locNameIdx]||'').trim().toLowerCase() : '';
+    const rawCode = locCodeIdx !== null ? String(row[locCodeIdx]||'').trim().toLowerCase() : '';
+    const rawId   = locIdIdx   !== null ? String(row[locIdIdx]||'').trim() : '';
+
+    const loc = rawId   ? state.locations.find(l => String(l.id) === rawId)
+              : rawCode ? state.locations.find(l => (l.location_code||'').toLowerCase() === rawCode)
+              : rawName ? state.locations.find(l => (l.location_name||'').toLowerCase() === rawName)
+              : null;
+
+    if (!loc) { result.skipped++; result.errors.push(`Row ${i+1}: location not found.`); continue; }
+    const key = `${date}||${loc.id}`;
+    if (seen.has(key)) { result.skipped++; result.errors.push(`Row ${i+1}: duplicate date/location.`); continue; }
+    seen.add(key);
+    payload.push({ projection_date: date, location_id: Number(loc.id), projected_units: units, projected_sales: Math.max(0, Number(sales.toFixed(2))), notes, source: src, scenario: 'active' });
+    result.prepared++;
+  }
+
+  if (!payload.length) { setStatus(`No valid rows to import. ${result.errors.slice(0,3).join(' ')}`, 'neg'); return; }
+
+  try {
+    const { error } = await db.from('revenue_projections').upsert(payload, { onConflict: 'projection_date,location_id' });
+    if (error) throw error;
+    setStatus(`Imported ${result.prepared} of ${result.total} rows.${result.skipped?` Skipped ${result.skipped}.`:''}`, 'pos', 3000);
+    await loadProjections(); applyFiltersAndRender();
+  } catch (e) {
+    console.error(e); setStatus('Import failed: ' + (e?.message || e), 'neg');
+  }
 }
 
 /* ---- helpers ---------------------------------------------------------- */
 
 function keyFor(date, locId) { return `${date}|${locId}`; }
-function locName(id) { const l = state.locations.find(x => x.id === Number(id)); return l ? l.location_name : ''; }
-function locCode(id) { const l = state.locations.find(x => x.id === Number(id)); return l ? l.location_code : ''; }
+function locName(id) { return state.locations.find(x => x.id === Number(id))?.location_name || ''; }
+function locCode(id) { return state.locations.find(x => x.id === Number(id))?.location_code || ''; }
 
 function fmtUSD(n, opts = {}) {
   if (n == null || isNaN(n)) return '$—';
-  const compact = opts.compact;
-  if (compact && Math.abs(n) >= 1000) {
-    return '$' + (n/1000).toFixed(Math.abs(n) >= 10000 ? 1 : 2) + 'k';
-  }
-  if (compact) return '$' + Math.round(n);
+  if (opts.compact && Math.abs(n) >= 1000) return '$' + (n/1000).toFixed(Math.abs(n)>=10000?1:2) + 'k';
+  if (opts.compact) return '$' + Math.round(n);
   return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 }
 
-function iso(d) {
-  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
-  return `${y}-${m}-${day}`;
+function fmtInt(n) { return Number.isFinite(Number(n)) ? Math.round(Number(n)).toLocaleString() : '—'; }
+function fmtNum(n, d=1) { return Number.isFinite(Number(n)) ? Number(n).toFixed(d) : '—'; }
+
+function fmtDateTime(v) {
+  if (!v) return '—';
+  const d = new Date(v); return isNaN(+d) ? String(v) : d.toLocaleString();
 }
 
-function normalizeDate(s) {
+function isoDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function addDays(isoStr, n) {
+  const d = new Date(isoStr + 'T00:00:00'); d.setDate(d.getDate() + n); return isoDate(d);
+}
+
+function normDate(s) {
   if (!s) return '';
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
-  const d = new Date(s);
-  return isNaN(+d) ? '' : iso(d);
+  const d = new Date(s); return isNaN(+d) ? '' : isoDate(d);
 }
 
-function dayOfWeekShort(s) {
+function dowShort(s) {
   const d = new Date(s + 'T00:00:00');
   return isNaN(+d) ? '' : ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
 }
@@ -1008,24 +1185,59 @@ function nowHHMM() {
   return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
 }
 
-function setStatus(message, tone = 'info', autoHideMs = 0) {
+function setText(sel, text) { const el = document.querySelector(sel); if (el) el.textContent = text; }
+
+function esc(s) {
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+
+function blobDownload(content, type, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([content], { type }));
+  a.download = name; document.body.appendChild(a); a.click(); a.remove();
+}
+
+function setStatus(msg, tone='info', autoMs=0) {
   els.status.className = 'bcn-status bcn-status--' + tone;
-  els.status.textContent = message;
-  els.status.hidden = false;
-  if (autoHideMs) {
-    clearTimeout(setStatus._t);
-    setStatus._t = setTimeout(() => { els.status.hidden = true; }, autoHideMs);
+  els.status.textContent = msg; els.status.hidden = false;
+  if (autoMs) { clearTimeout(setStatus._t); setStatus._t = setTimeout(() => { els.status.hidden = true; }, autoMs); }
+}
+
+/* ---- CSV parse -------------------------------------------------------- */
+
+function parseCsv(text) {
+  const rows = []; let row = [], cur = '', inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i], nx = text[i+1];
+    if (inQ) { if (ch==='"'&&nx==='"'){cur+='"';i++;} else if (ch==='"') inQ=false; else cur+=ch; continue; }
+    if (ch==='"'){inQ=true;continue;} if (ch===','){row.push(cur);cur='';continue;}
+    if (ch==='\r') continue;
+    if (ch==='\n'){row.push(cur);rows.push(row);row=[];cur='';continue;}
+    cur+=ch;
   }
+  row.push(cur); rows.push(row);
+  while (rows.length && rows[rows.length-1].every(c=>!String(c||'').trim())) rows.pop();
+  return rows;
 }
 
-function setText(sel, text) {
-  const el = document.querySelector(sel);
-  if (el) el.textContent = text;
+function buildHeaderIdx(header) {
+  const m = new Map();
+  header.forEach((h, i) => m.set(String(h||'').trim().toLowerCase(), i));
+  return m;
 }
 
-function escapeHtml(s) {
-  return String(s == null ? '' : s)
-    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+function findCol(idx, aliases) {
+  for (const a of aliases) { if (idx.has(a.toLowerCase())) return idx.get(a.toLowerCase()); }
+  return null;
+}
+
+function csvCell(v) {
+  if (v==null) return '';
+  const s = String(v);
+  if (/[",\n]/.test(s)) return '"'+s.replace(/"/g,'""')+'"';
+  return s;
 }
 </script>
 
