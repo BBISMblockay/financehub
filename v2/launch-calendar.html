@@ -39,13 +39,14 @@
     .cal-overflow { font-size:9.5px; color:var(--bcn-ink-4); padding:1px 0; font-family:var(--bcn-mono); }
 
     /* calendar grid auto-rows keep cells uniform */
-    .cal-grid { grid-auto-rows: 104px; }
+    .cal-grid { grid-auto-rows: minmax(104px, auto); }
 
     /* event chip inside calendar cell */
     .ev-chip {
       position:relative; border:1px solid var(--bcn-border); border-radius:5px;
       padding:3px 18px 3px 8px; cursor:pointer; background:var(--bcn-surface-2,oklch(0.97 0.005 245));
       overflow:hidden; transition:border-color .1s;
+      display:flex; align-items:center; gap:5px;
     }
     .ev-chip:hover { border-color:var(--bcn-border-strong); background:oklch(0.95 0.008 245); }
     .ev-chip::before { content:''; position:absolute; left:0; top:3px; bottom:3px; width:3px; border-radius:2px; background:var(--bcn-accent); }
@@ -58,8 +59,9 @@
     .ev-chip-edit { position:absolute; right:3px; top:50%; transform:translateY(-50%); width:14px; height:14px; display:flex; align-items:center; justify-content:center; font-size:9px; opacity:0; transition:opacity .12s; color:var(--bcn-ink-3); pointer-events:auto; background:var(--bcn-surface); border:1px solid var(--bcn-border); border-radius:3px; z-index:2; }
     .ev-chip:hover .ev-chip-edit { opacity:1; }
     .ev-chip-edit:hover { background:var(--bcn-accent); color:#fff; border-color:var(--bcn-accent); }
-    /* no images in calendar chips — too small; images show in agenda */
-    .ev-chip-thumb { display:none; }
+    /* small square thumbnail on left of chip */
+    .ev-chip-thumb { width:22px; height:22px; object-fit:cover; border-radius:3px; flex-shrink:0; display:block; }
+    .ev-chip-body { flex:1; min-width:0; }
     .ev-chip-title { font-size:10.5px; font-weight:600; line-height:1.15; display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; overflow:hidden; }
     .ev-chip-meta { font-size:9.5px; color:var(--bcn-ink-3); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
@@ -1003,8 +1005,11 @@ function evChip(x){
   const taskCount=tasks.filter(t=>String(t.launch_id)===String(x.id)&&!['done','complete'].includes(t.status)).length;
   const meta=[x.launch_time?x.launch_time.slice(0,5):null, x.launch_type, taskCount?`${taskCount}T`:null].filter(Boolean).join(' · ');
   return `<div class="ev-chip ${cls}" data-lid="${x.id}">
-    <div class="ev-chip-title">${esc(x.title||x.product_title||'Untitled')}</div>
-    ${meta?`<div class="ev-chip-meta">${esc(meta)}</div>`:''}
+    ${x.launch_image_url?`<img class="ev-chip-thumb" src="${esc(x.launch_image_url)}" alt="" loading="lazy" />`:''}
+    <div class="ev-chip-body">
+      <div class="ev-chip-title">${esc(x.title||x.product_title||'Untitled')}</div>
+      ${meta?`<div class="ev-chip-meta">${esc(meta)}</div>`:''}
+    </div>
     <span class="ev-chip-edit" data-edit="${x.id}" title="Edit launch">✏</span>
   </div>`;
 }
