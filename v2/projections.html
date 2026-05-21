@@ -1260,11 +1260,18 @@ function keyFor(date,locId) { return `${date}|${locId}`; }
 function locName(id) { return state.locations.find(x=>x.id===Number(id))?.location_name||''; }
 function locCode(id) { return state.locations.find(x=>x.id===Number(id))?.location_code||''; }
 
-function fmtUSD(n,opts={}) {
-  if (n==null||isNaN(n)) return '$—';
-  if (opts.compact&&Math.abs(n)>=1000) return '$'+(n/1000).toFixed(Math.abs(n)>=10000?1:2)+'k';
-  if (opts.compact) return '$'+Math.round(n);
-  return n.toLocaleString('en-US',{style:'currency',currency:'USD',maximumFractionDigits:2});
+function fmtUSD(n, opts = {}) {
+  if (n == null || isNaN(n)) return '$—';
+  const neg = n < 0;
+  const v = Math.abs(n);
+  if (opts.compact && v >= 1e6) {
+    return (neg ? '-' : '') + '$' + (v / 1e6).toFixed(2) + 'M';
+  }
+  if (opts.compact && v >= 1000) {
+    return (neg ? '-' : '') + '$' + (v / 1000).toFixed(v >= 10000 ? 1 : 2) + 'k';
+  }
+  if (opts.compact) return (neg ? '-' : '') + '$' + Math.round(v);
+  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 }
 function fmtInt(n) { return Number.isFinite(Number(n))?Math.round(Number(n)).toLocaleString():'—'; }
 function fmtDateTime(v) { if(!v)return'—'; const d=new Date(v); return isNaN(+d)?String(v):d.toLocaleString(); }
