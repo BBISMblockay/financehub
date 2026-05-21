@@ -30,7 +30,7 @@
     ]},
 
     { id: 'inventory', label: 'Inventory', icon: 'inventory', children: [
-      { id: 'inventory/workboard',  label: 'Workboard',       href: '/inventory.html' },
+      { id: 'inventory/workboard',  label: 'Workboard',       href: '/v2/inventory.html' },
       { id: 'inventory/products',   label: 'Product manager', href: '/pages/product-manager.html' },
       { id: 'inventory/tags',       label: 'Product tags',    href: '/pages/product-tags.html' },
     ]},
