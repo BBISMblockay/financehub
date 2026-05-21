@@ -1,0 +1,1033 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SILO · Revenue projections</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <!-- font is injected by silo-fonts.js at boot; this is a no-FOUC fallback for first paint -->
+  <link id="silo-font-link" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <link rel="stylesheet" href="beacon.css" />
+
+  <script src="../pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+
+  <style>
+    /* page-local: editor launch list spacing only */
+    .ed-launch-list { display: flex; flex-direction: column; gap: 8px; }
+  </style>
+</head>
+<body>
+
+<div class="silo-app" id="silo-app">
+  <!-- chrome (sidebar) injected by silo-chrome.js -->
+
+  <main class="silo-main">
+    <!-- utility bar injected by silo-chrome.js -->
+
+    <!-- page tabs (sub-nav within Planning) -->
+    <nav class="bcn-tabs" aria-label="Planning">
+      <a class="bcn-tab" href="/pages/launch-calendar.html">Launch calendar</a>
+      <a class="bcn-tab bcn-tab--active" href="/projections.html" aria-current="page">Revenue projections</a>
+      <a class="bcn-tab" href="/pages/planning-scenarios.html">Scenarios</a>
+      <a class="bcn-tab" href="/planner.html">Cash flow</a>
+      <span class="bcn-tabs-meta" data-page-meta>—</span>
+    </nav>
+
+    <!-- header -->
+    <header class="bcn-header">
+      <div style="flex:1; min-width:0;">
+        <div class="bcn-header-title">
+          <h1>Revenue projections</h1>
+          <span class="bcn-pill bcn-pill--pos" data-status-pill><span class="bcn-dot bcn-dot--pos"></span>READY</span>
+          <span class="bcn-pill" data-scope-pill>— DATES · — LOC</span>
+        </div>
+        <div class="bcn-header-sub">
+          Date × location matrix · tied to <a href="/pages/launch-calendar.html">Launch workbench</a> · cell-level edit + audit
+        </div>
+      </div>
+      <div class="bcn-header-actions">
+        <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" data-action="reload">RELOAD</button>
+        <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" data-action="audit">AUDIT</button>
+        <button class="bcn-btn bcn-btn--mono" type="button" data-action="export">EXPORT CSV</button>
+        <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" data-action="new">+ NEW PROJECTION</button>
+      </div>
+    </header>
+
+    <!-- inline status banner (errors, info) -->
+    <div class="bcn-status" id="page-status" hidden></div>
+
+    <!-- KPI band -->
+    <section class="bcn-kpi-band" aria-label="Key metrics">
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">PROJ · SUM IN VIEW</div>
+        <div class="bcn-kpi-value" data-kpi="grand">$—</div>
+        <div class="bcn-kpi-delta" data-kpi="grand-delta">—</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">FILTERED ROWS</div>
+        <div class="bcn-kpi-value" data-kpi="rows">—</div>
+        <div class="bcn-kpi-delta" data-kpi="rows-sub">—</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">LAUNCH EVENTS</div>
+        <div class="bcn-kpi-value" data-kpi="launches">—</div>
+        <div class="bcn-kpi-delta" data-kpi="launches-sub">ON VISIBLE DATES</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">LOCATIONS</div>
+        <div class="bcn-kpi-value" data-kpi="locs">—</div>
+        <div class="bcn-kpi-delta" data-kpi="locs-sub">—</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">AVG / DAY</div>
+        <div class="bcn-kpi-value" data-kpi="avg">$—</div>
+        <div class="bcn-kpi-delta" data-kpi="avg-sub">PER DATE IN VIEW</div>
+      </div>
+      <div class="bcn-kpi" style="min-width:170px;">
+        <div class="bcn-kpi-label">DATA HEALTH</div>
+        <div class="bcn-kpi-health" data-kpi="health">
+          <span class="bcn-pill bcn-pill--pos">·PASS</span>
+          <span class="bcn-pill bcn-pill--pos">·PASS</span>
+          <span class="bcn-pill bcn-pill--pos">·PASS</span>
+        </div>
+        <div class="bcn-kpi-delta bcn-mono" data-kpi="health-sub">LAST SYNC —</div>
+      </div>
+    </section>
+
+    <!-- filter bar -->
+    <section class="bcn-filter-bar" aria-label="Filters">
+      <div class="bcn-filter">
+        <span class="bcn-filter-k">FROM</span>
+        <input type="date" id="filter-from" />
+      </div>
+      <div class="bcn-filter">
+        <span class="bcn-filter-k">TO</span>
+        <input type="date" id="filter-to" />
+      </div>
+      <div class="bcn-filter">
+        <span class="bcn-filter-k">LOC</span>
+        <select id="filter-location"><option value="">ALL</option></select>
+      </div>
+      <div class="bcn-filter">
+        <span class="bcn-filter-k">SOURCE</span>
+        <select id="filter-source"><option value="">ALL</option></select>
+      </div>
+      <div class="bcn-filter">
+        <span class="bcn-filter-k">SEARCH</span>
+        <input type="text" id="filter-search" placeholder="notes · launch · location" style="min-width:160px;" />
+      </div>
+      <div class="bcn-range-segmented" role="group" aria-label="Quick range">
+        <button type="button" data-range="7"  aria-pressed="false">7D</button>
+        <button type="button" data-range="14" aria-pressed="false">14D</button>
+        <button type="button" data-range="30" aria-pressed="false">30D</button>
+        <button type="button" data-range="all" aria-pressed="true">ALL</button>
+      </div>
+      <div class="bcn-filter-meta">
+        <span data-meta="rows">— ROWS</span> · GRAND <b data-meta="grand">$—</b>
+      </div>
+    </section>
+
+    <!-- content -->
+    <div class="bcn-content">
+
+      <!-- MATRIX -->
+      <div class="bcn-matrix-wrap">
+        <section class="bcn-card" aria-label="Sales matrix">
+          <header class="bcn-card-header">
+            <span class="bcn-pill bcn-pill--dark">MATRIX</span>
+            <h2>Sales by date × location</h2>
+            <span class="bcn-card-meta" data-meta="cells">—</span>
+            <div style="flex:1"></div>
+            <a class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="/pages/launch-calendar.html">WORKBENCH →</a>
+          </header>
+          <div class="bcn-matrix-scroll">
+            <table class="bcn-table" id="matrix-table">
+              <colgroup id="matrix-cols">
+                <col style="width:104px" />
+                <col style="width:200px" />
+                <col style="width:90px" />
+              </colgroup>
+              <thead>
+                <tr id="matrix-head">
+                  <th class="bcn-th-left">DATE</th>
+                  <th class="bcn-th-left">LAUNCH</th>
+                  <th>TOTAL</th>
+                </tr>
+              </thead>
+              <tbody id="matrix-body">
+                <tr><td colspan="3" class="bcn-empty">Loading…</td></tr>
+              </tbody>
+              <tfoot id="matrix-foot"></tfoot>
+            </table>
+          </div>
+        </section>
+      </div>
+
+      <!-- EDITOR -->
+      <section class="bcn-card" aria-label="Editor">
+        <header class="bcn-card-header bcn-card-header--dark">
+          <span class="bcn-pill bcn-pill--dark" style="border-color:rgba(255,255,255,.2)">EDITOR</span>
+          <div style="flex:1"></div>
+          <span class="bcn-pill" data-editor-pill>NO ROW</span>
+        </header>
+        <div class="bcn-card-body">
+          <div class="bcn-field-group">
+            <label class="bcn-label" for="form-date">DATE</label>
+            <input class="bcn-field bcn-field--mono" type="date" id="form-date" />
+          </div>
+          <div class="bcn-field-group">
+            <label class="bcn-label" for="form-location">LOCATION</label>
+            <select class="bcn-field" id="form-location"><option value="">Select location</option></select>
+          </div>
+          <div class="bcn-field-group">
+            <label class="bcn-label" for="form-sales">PROJECTED SALES (USD)</label>
+            <input class="bcn-field bcn-field--mono bcn-field--hero" type="number" step="0.01" min="0" id="form-sales" placeholder="0.00" />
+          </div>
+          <div class="bcn-field-group">
+            <label class="bcn-label" for="form-source">SOURCE</label>
+            <input class="bcn-field bcn-field--mono" type="text" id="form-source" placeholder="manual" />
+          </div>
+          <div class="bcn-field-group">
+            <label class="bcn-label" for="form-notes">NOTES</label>
+            <textarea class="bcn-field" id="form-notes" rows="2" placeholder="Optional notes…"></textarea>
+          </div>
+          <div class="bcn-field-group" id="form-launches-wrap" hidden>
+            <span class="bcn-label" id="form-launches-count">LAUNCHES · 0</span>
+            <div class="ed-launch-list" id="form-launches"></div>
+          </div>
+        </div>
+        <div class="bcn-card-foot">
+          <button class="bcn-btn bcn-btn--danger bcn-btn--mono" type="button" data-action="delete" disabled>DELETE</button>
+          <div style="flex:1"></div>
+          <button class="bcn-btn bcn-btn--mono" type="button" data-action="cancel">CANCEL</button>
+          <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" data-action="save">SAVE ROW ⏎</button>
+        </div>
+      </section>
+
+      <!-- AUDIT TAIL -->
+      <section class="bcn-card" aria-label="Audit tail">
+        <header class="bcn-card-header" style="background:var(--bcn-sunken)">
+          <span class="bcn-pill bcn-pill--dark">AUDIT TAIL</span>
+          <span class="bcn-card-meta">LIVE · LAST 5</span>
+          <div style="flex:1"></div>
+          <a class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="#" data-action="audit">VIEW ALL →</a>
+        </header>
+        <table class="bcn-audit-table" id="audit-table">
+          <tbody id="audit-body">
+            <tr><td colspan="5" class="bcn-empty" style="padding:14px">No recent activity.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<script src="silo-chrome.js"></script>
+
+<script>
+/* ---- DEMO MODE -------------------------------------------------------- */
+/* Auto-activates in the design preview, OR when explicitly requested with
+   ?demo=1. Bypasses Supabase auth and uses mock data. Production
+   (silo-baseballism.com / your custom domain) is never affected. */
+const __SILO_DEMO__ = (function () {
+  if (new URLSearchParams(location.search).get('demo') === '1') return true;
+  const h = location.hostname || '';
+  if (h.includes('claudeusercontent') || h.includes('usercontent') ||
+      h.includes('localhost') || h === '127.0.0.1' || location.protocol === 'file:') return true;
+  return false;
+})();
+if (__SILO_DEMO__) {
+  window.__SILO_CONFIG__ = { SUPABASE_URL: 'demo', SUPABASE_ANON_KEY: 'demo' };
+  const today = new Date();
+  const iso = (d) => { const x = new Date(d); return x.toISOString().slice(0,10); };
+  const offset = (n) => { const d = new Date(today); d.setDate(d.getDate() + n); return iso(d); };
+  const LOCS = [
+    { id: 1, location_code: 'NSH', location_name: 'Nashville',    domain: 'retail', store_type: 'Retail',    is_active: true },
+    { id: 2, location_code: 'COO', location_name: 'Cooperstown',  domain: 'retail', store_type: 'Retail',    is_active: true },
+    { id: 3, location_code: 'STL', location_name: 'St. Louis',    domain: 'retail', store_type: 'Retail',    is_active: true },
+    { id: 4, location_code: 'WPT', location_name: 'Williamsport', domain: 'retail', store_type: 'Retail',    is_active: true },
+    { id: 5, location_code: 'BOS', location_name: 'Boston',       domain: 'retail', store_type: 'Retail',    is_active: true },
+    { id: 6, location_code: 'DTC', location_name: 'Online (DTC)', domain: 'ecom',   store_type: 'Ecom',      is_active: true },
+    { id: 7, location_code: 'WHL', location_name: 'Wholesale',    domain: 'b2b',    store_type: 'Wholesale', is_active: true },
+  ];
+  const SEED = [
+    [ 4820,  3110,  2740,  1980,  3640, 18420,     0 ],
+    [ 4410,  2980,  2510,  1820,  3290, 17110,  6400 ],
+    [ 5120,  6240,  2890,  2050,  3810, 22480,     0 ],
+    [ 5680,  5410,  3320,  2380,  4170, 24960,     0 ],
+    [ 8240,  6810,  4920,  3640,  5970, 41280, 12800 ],
+    [ 9620,  7480,  5740,  4210,  6840, 28910,     0 ],
+    [ 8110,  6240,  4980,  3520,  5910, 21640,     0 ],
+    [ 5240,  3420,  3010,  2180,  3940, 19840,  4200 ],
+    [ 4810,  3180,  2680,  1940,  3520, 17680,     0 ],
+    [ 5040,  3290,  2810,  2030,  3640, 18210,     0 ],
+  ];
+  const PROJ = [];
+  let pid = 1;
+  SEED.forEach((row, di) => {
+    const date = offset(di - 5);
+    row.forEach((v, li) => {
+      if (v === 0) return;
+      const loc = LOCS[li];
+      PROJ.push({
+        id: pid++, projection_date: date, location_id: loc.id,
+        projected_units: 0, projected_sales: v, notes: null,
+        source: di === 4 ? 'workbench' : 'manual', scenario: 'active',
+        created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+        created_by: 'demo', updated_by: 'demo',
+        locations: { id: loc.id, location_name: loc.location_name, location_code: loc.location_code, domain: loc.domain, store_type: loc.store_type },
+      });
+    });
+  });
+  const CAL = [
+    { id: 1, launch_date: offset(-3), title: 'Cooperstown Capsule', launch_type: 'soft drop', designer: 'Owen', launch_time: '09:00', timezone: 'CT' },
+    { id: 2, launch_date: offset(-1), title: 'Father\u2019s Day Tee', launch_type: 'DTC + retail', designer: 'Studio', launch_time: '09:00', timezone: 'CT' },
+    { id: 3, launch_date: offset(2),  title: 'Throwback Jerseys restock', launch_type: 'restock', designer: 'Studio', launch_time: '12:00', timezone: 'CT' },
+  ];
+  const HIST = [
+    { history_id: 1, action_type: 'UPDATE', changed_at: new Date(Date.now()-1000*60*4).toISOString(),  changed_by: 'drew', projection_date: offset(-1), location_id: 6, projected_sales: 41280 },
+    { history_id: 2, action_type: 'INSERT', changed_at: new Date(Date.now()-1000*60*9).toISOString(),  changed_by: 'drew', projection_date: offset(-1), location_id: 1, projected_sales: 8240 },
+    { history_id: 3, action_type: 'UPDATE', changed_at: new Date(Date.now()-1000*60*17).toISOString(), changed_by: 'gen',  projection_date: offset(-2), location_id: 3, projected_sales: 3320 },
+    { history_id: 4, action_type: 'INSERT', changed_at: new Date(Date.now()-1000*60*42).toISOString(), changed_by: 'gen',  projection_date: offset(-2), location_id: 5, projected_sales: 4170 },
+    { history_id: 5, action_type: 'DELETE', changed_at: new Date(Date.now()-1000*60*65).toISOString(), changed_by: 'drew', projection_date: offset(-7), location_id: 7, projected_sales: 0 },
+  ];
+  const TABLES = { locations: LOCS, revenue_projections: PROJ, launch_calendar: CAL, revenue_projection_history: HIST };
+
+  function makeQuery(table) {
+    let rows = (TABLES[table] || []).slice();
+    let _eq = [], _gte = [], _lte = [], _order = null, _range = null;
+    const api = {
+      select() { return api; },
+      eq(k,v)  { _eq.push([k,v]); return api; },
+      gte(k,v) { _gte.push([k,v]); return api; },
+      lte(k,v) { _lte.push([k,v]); return api; },
+      order(k, o = { ascending: true }) { _order = [k, o.ascending !== false]; return api; },
+      range(a,b) { _range = [a,b]; return api; },
+      _exec() {
+        let r = rows;
+        _eq.forEach(([k,v]) => r = r.filter(x => String(x[k]) === String(v)));
+        _gte.forEach(([k,v]) => r = r.filter(x => String(x[k] || '') >= String(v)));
+        _lte.forEach(([k,v]) => r = r.filter(x => String(x[k] || '') <= String(v)));
+        if (_order) { const [k,asc] = _order; r = r.slice().sort((a,b) => (String(a[k]||'') > String(b[k]||'') ? 1 : -1) * (asc?1:-1)); }
+        if (_range) r = r.slice(_range[0], _range[1] + 1);
+        return Promise.resolve({ data: r, error: null });
+      },
+      then(res, rej) { return api._exec().then(res, rej); },
+      async upsert(arr) {
+        for (const p of arr) {
+          const i = (TABLES.revenue_projections).findIndex(x => x.projection_date === p.projection_date && x.location_id === p.location_id);
+          const loc = LOCS.find(l => l.id === p.location_id);
+          const merged = { ...p, id: i>=0 ? TABLES.revenue_projections[i].id : (pid++),
+            locations: loc ? { id: loc.id, location_name: loc.location_name, location_code: loc.location_code, domain: loc.domain, store_type: loc.store_type } : null,
+            updated_at: new Date().toISOString() };
+          if (i>=0) TABLES.revenue_projections[i] = merged; else TABLES.revenue_projections.push(merged);
+          HIST.unshift({ history_id: Date.now(), action_type: i>=0?'UPDATE':'INSERT', changed_at: new Date().toISOString(), changed_by: 'demo', projection_date: p.projection_date, location_id: p.location_id, projected_sales: p.projected_sales });
+        }
+        return { data: arr, error: null };
+      },
+      delete() {
+        return { eq: async (k, v) => {
+          const i = TABLES.revenue_projections.findIndex(x => x[k] === v);
+          if (i>=0) {
+            const r = TABLES.revenue_projections[i];
+            HIST.unshift({ history_id: Date.now(), action_type: 'DELETE', changed_at: new Date().toISOString(), changed_by: 'demo', projection_date: r.projection_date, location_id: r.location_id, projected_sales: 0 });
+            TABLES.revenue_projections.splice(i,1);
+          }
+          return { data: null, error: null };
+        } };
+      },
+    };
+    return api;
+  }
+  window.supabase = {
+    createClient() {
+      return {
+        auth: {
+          getSession: async () => ({ data: { session: { user: { email: 'demo@baseballism.com' } } }, error: null }),
+          signOut: async () => ({ error: null }),
+        },
+        from: (t) => makeQuery(t),
+      };
+    },
+  };
+}
+
+/* ========================================================================
+   PROJECTIONS · controller
+   ======================================================================== */
+
+const cfg = window.__SILO_CONFIG__ || {};
+let supabaseClient = null;
+
+const state = {
+  locations: [],
+  projections: [],          // raw rows from Supabase
+  byKey: new Map(),         // `${date}|${location_id}` -> projection row
+  calendar: [],             // launch_calendar mapped rows
+  audit: [],                // last 5 history entries
+  filters: { from:'', to:'', locationId:'', source:'', search:'', range:'all' },
+  selectedKey: null,        // currently selected (date|loc)
+  visibleDates: [],         // dates in current view (after filters)
+  user: null,
+};
+
+const els = {};
+
+/* ---- boot ------------------------------------------------------------- */
+
+document.addEventListener('DOMContentLoaded', boot);
+
+async function boot() {
+  cacheEls();
+  if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
+    setStatus('Missing config.js Supabase keys', 'neg');
+    return;
+  }
+
+  supabaseClient = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+
+  const { data: sess, error: sessErr } = await supabaseClient.auth.getSession();
+  if (sessErr) console.warn('getSession error:', sessErr);
+  if (!sess?.session) {
+    window.location.href = '/pages/login.html';
+    return;
+  }
+  state.user = sess.session.user || null;
+
+  // mount chrome (sidebar + utility)
+  window.SiloChrome.mount({
+    appEl: '#silo-app',
+    active: 'planning/revenue-projections',
+    user: { email: state.user.email, role: 'OWNER' },
+    crumbs: ['Planning', 'Revenue projections'],
+    supabaseClient,
+  });
+
+  wireEvents();
+
+  try {
+    await Promise.all([loadLocations(), loadProjections(), loadAudit()]);
+    await loadCalendarEvents();
+    applyFiltersAndRender();
+  } catch (e) {
+    console.error(e);
+    setStatus('Failed to load data: ' + (e?.message || e), 'neg');
+  }
+}
+
+function cacheEls() {
+  els.matrixBody  = document.getElementById('matrix-body');
+  els.matrixHead  = document.getElementById('matrix-head');
+  els.matrixFoot  = document.getElementById('matrix-foot');
+  els.matrixCols  = document.getElementById('matrix-cols');
+  els.auditBody   = document.getElementById('audit-body');
+  els.status      = document.getElementById('page-status');
+  els.fFrom       = document.getElementById('filter-from');
+  els.fTo         = document.getElementById('filter-to');
+  els.fLoc        = document.getElementById('filter-location');
+  els.fSrc        = document.getElementById('filter-source');
+  els.fSearch     = document.getElementById('filter-search');
+  els.formDate    = document.getElementById('form-date');
+  els.formLoc     = document.getElementById('form-location');
+  els.formSales   = document.getElementById('form-sales');
+  els.formSource  = document.getElementById('form-source');
+  els.formNotes   = document.getElementById('form-notes');
+  els.formLaunchWrap  = document.getElementById('form-launches-wrap');
+  els.formLaunchList  = document.getElementById('form-launches');
+  els.formLaunchCount = document.getElementById('form-launches-count');
+  els.editorPill  = document.querySelector('[data-editor-pill]');
+  els.deleteBtn   = document.querySelector('[data-action="delete"]');
+}
+
+function wireEvents() {
+  document.querySelector('[data-action="reload"]').addEventListener('click', async () => {
+    await loadProjections(); await loadCalendarEvents(); await loadAudit();
+    applyFiltersAndRender();
+    setStatus('Reloaded.', 'pos', 1800);
+  });
+  document.querySelector('[data-action="new"]').addEventListener('click', () => {
+    state.selectedKey = null;
+    clearEditor(true);
+  });
+  document.querySelector('[data-action="cancel"]').addEventListener('click', () => {
+    state.selectedKey = null;
+    clearEditor(false);
+    renderMatrix();
+  });
+  document.querySelector('[data-action="save"]').addEventListener('click', saveProjection);
+  document.querySelector('[data-action="delete"]').addEventListener('click', deleteProjection);
+  document.querySelector('[data-action="export"]').addEventListener('click', exportCsv);
+  document.querySelectorAll('[data-action="audit"]').forEach(b => b.addEventListener('click', (e) => {
+    e.preventDefault();
+    setStatus('Full audit modal — coming with the audit page rebuild.', 'info', 2400);
+  }));
+
+  // filters
+  ['change','input'].forEach(evt => {
+    [els.fFrom, els.fTo, els.fLoc, els.fSrc, els.fSearch].forEach(el => {
+      el.addEventListener(evt, () => {
+        state.filters.from = els.fFrom.value;
+        state.filters.to   = els.fTo.value;
+        state.filters.locationId = els.fLoc.value;
+        state.filters.source     = els.fSrc.value;
+        state.filters.search     = els.fSearch.value.trim().toLowerCase();
+        if (state.filters.from || state.filters.to) {
+          state.filters.range = '';
+          setRangePressed(null);
+        }
+        applyFiltersAndRender();
+      });
+    });
+  });
+
+  document.querySelectorAll('[data-range]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const r = btn.getAttribute('data-range');
+      state.filters.range = r;
+      setRangePressed(r);
+      if (r === 'all') {
+        els.fFrom.value = ''; els.fTo.value = '';
+        state.filters.from = ''; state.filters.to = '';
+      } else {
+        const today = new Date();
+        const from = new Date(today);
+        from.setDate(today.getDate() - (Number(r) - 1));
+        els.fFrom.value = iso(from);
+        els.fTo.value   = iso(today);
+        state.filters.from = els.fFrom.value;
+        state.filters.to   = els.fTo.value;
+      }
+      applyFiltersAndRender();
+    });
+  });
+
+  // keyboard save
+  document.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      const inEditor = e.target.closest('.bcn-card-body');
+      if (inEditor) { e.preventDefault(); saveProjection(); }
+    }
+    if (e.key === 'Escape' && document.activeElement && document.activeElement.closest('.bcn-card-body')) {
+      state.selectedKey = null;
+      clearEditor(false);
+      renderMatrix();
+    }
+  });
+}
+
+function setRangePressed(r) {
+  document.querySelectorAll('[data-range]').forEach(b => {
+    b.setAttribute('aria-pressed', r && b.getAttribute('data-range') === r ? 'true' : 'false');
+  });
+}
+
+/* ---- loaders ---------------------------------------------------------- */
+
+async function loadLocations() {
+  const { data, error } = await supabaseClient
+    .from('locations')
+    .select('id, location_code, location_name, domain, store_type, is_active')
+    .eq('is_active', true)
+    .order('location_name', { ascending: true });
+  if (error) throw error;
+  state.locations = data || [];
+
+  // fill location filter + form select
+  els.fLoc.innerHTML = '<option value="">ALL</option>' +
+    state.locations.map(l => `<option value="${l.id}">${escapeHtml(l.location_code || l.location_name)}</option>`).join('');
+  els.formLoc.innerHTML = '<option value="">Select location</option>' +
+    state.locations.map(l => `<option value="${l.id}">${escapeHtml(l.location_name)}</option>`).join('');
+}
+
+async function loadProjections() {
+  const { data, error } = await supabaseClient
+    .from('revenue_projections')
+    .select(`
+      id, projection_date, location_id, projected_units, projected_sales,
+      notes, source, scenario, created_at, updated_at, created_by, updated_by,
+      locations ( id, location_name, location_code, domain, store_type )
+    `)
+    .eq('scenario', 'active')
+    .order('projection_date', { ascending: true })
+    .range(0, 5000);
+  if (error) throw error;
+  state.projections = (data || []).map(r => ({
+    ...r,
+    location_name: r.locations?.location_name || locName(r.location_id),
+    location_code: r.locations?.location_code || locCode(r.location_id),
+  }));
+
+  // rebuild map
+  state.byKey.clear();
+  for (const r of state.projections) {
+    state.byKey.set(keyFor(r.projection_date, r.location_id), r);
+  }
+
+  // source filter options
+  const sources = Array.from(new Set(state.projections.map(r => r.source).filter(Boolean))).sort();
+  els.fSrc.innerHTML = '<option value="">ALL</option>' +
+    sources.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(String(s).toUpperCase())}</option>`).join('');
+}
+
+async function loadCalendarEvents() {
+  const dates = state.projections.map(r => r.projection_date).filter(Boolean).sort();
+  const dateFrom = dates[0] || '';
+  const dateTo   = dates[dates.length - 1] || '';
+  let q = supabaseClient.from('launch_calendar').select('*')
+    .order('launch_date', { ascending: true }).range(0, 5000);
+  if (dateFrom) q = q.gte('launch_date', dateFrom);
+  if (dateTo)   q = q.lte('launch_date', dateTo);
+  const { data, error } = await q;
+  if (error) throw error;
+  state.calendar = (data || [])
+    .map(r => ({
+      id: r.id,
+      date: normalizeDate(r.launch_date),
+      title: String(r.title || r.product_title || 'Untitled launch').trim(),
+      type: String(r.launch_type || '').trim(),
+      designer: String(r.designer || '').trim(),
+      time: String(r.launch_time || '').trim(),
+      tz: String(r.timezone || r.time_zone || '').trim(),
+    }))
+    .filter(e => e.date && e.title);
+}
+
+async function loadAudit() {
+  const { data, error } = await supabaseClient
+    .from('revenue_projection_history')
+    .select('history_id, action_type, changed_at, changed_by, projection_date, location_id, projected_sales')
+    .order('changed_at', { ascending: false })
+    .range(0, 4);
+  if (error) {
+    // history table may not exist for all setups — soft-fail
+    console.warn('audit history unavailable:', error.message);
+    state.audit = [];
+    return;
+  }
+  state.audit = data || [];
+}
+
+/* ---- filtering -------------------------------------------------------- */
+
+function applyFiltersAndRender() {
+  const f = state.filters;
+  state.filtered = state.projections.filter(r => {
+    const d = r.projection_date || '';
+    if (f.from && d < f.from) return false;
+    if (f.to   && d > f.to)   return false;
+    if (f.locationId && String(r.location_id) !== String(f.locationId)) return false;
+    if (f.source && (r.source || '') !== f.source) return false;
+    if (f.search) {
+      const hay = [d, r.location_name, r.location_code, r.notes, r.source].join(' ').toLowerCase();
+      const launchHay = (state.calendar.filter(e => e.date === d).map(e => `${e.title} ${e.type}`).join(' ')).toLowerCase();
+      if (!(hay + ' ' + launchHay).includes(f.search)) return false;
+    }
+    return true;
+  });
+
+  // unique visible dates (sorted)
+  state.visibleDates = Array.from(new Set(state.filtered.map(r => r.projection_date))).sort();
+
+  renderHeader();
+  renderKpis();
+  renderFilterMeta();
+  renderMatrix();
+  renderAudit();
+}
+
+/* ---- header / KPIs ---------------------------------------------------- */
+
+function renderHeader() {
+  const d = state.visibleDates.length;
+  const l = state.locations.length;
+  document.querySelector('[data-scope-pill]').textContent =
+    `${d} DATE${d===1?'':'S'} · ${l} LOC`;
+  document.querySelector('[data-page-meta]').textContent =
+    `${d}D · ${l}LOC · ${state.filtered.length} ROWS`;
+}
+
+function renderKpis() {
+  const grand = state.filtered.reduce((s, r) => s + Number(r.projected_sales || 0), 0);
+  const launches = state.calendar.filter(e => state.visibleDates.includes(e.date)).length;
+  const dates = state.visibleDates.length;
+  const avg = dates ? grand / dates : 0;
+
+  setText('[data-kpi="grand"]',    fmtUSD(grand));
+  setText('[data-kpi="rows"]',     String(state.filtered.length));
+  setText('[data-kpi="rows-sub"]', `${dates}D × ${state.locations.length}LOC`);
+  setText('[data-kpi="launches"]', String(launches));
+  setText('[data-kpi="locs"]',     String(state.locations.length));
+
+  const types = countByType();
+  setText('[data-kpi="locs-sub"]', types || '—');
+
+  setText('[data-kpi="avg"]',      fmtUSD(avg));
+  setText('[data-kpi="grand-delta"]', grand > 0 ? `▲ ${state.filtered.length} cells in view` : '—');
+  setText('[data-kpi="health-sub"]', `LAST SYNC ${nowHHMM()}`);
+}
+
+function countByType() {
+  const counts = {};
+  for (const l of state.locations) {
+    const t = (l.store_type || '').toUpperCase().slice(0, 6) || 'OTHER';
+    counts[t] = (counts[t] || 0) + 1;
+  }
+  return Object.entries(counts).map(([k,v]) => `${v} ${k}`).join(' · ');
+}
+
+function renderFilterMeta() {
+  const grand = state.filtered.reduce((s,r) => s + Number(r.projected_sales || 0), 0);
+  document.querySelector('[data-meta="rows"]').textContent  = `${state.filtered.length} ROWS`;
+  document.querySelector('[data-meta="grand"]').textContent = fmtUSD(grand, { compact: true });
+}
+
+/* ---- matrix ----------------------------------------------------------- */
+
+function renderMatrix() {
+  const locs = state.locations;
+  const dates = state.visibleDates;
+
+  // colgroup: date, launch, …each loc, total
+  els.matrixCols.innerHTML =
+    '<col style="width:104px"/><col style="width:200px"/>' +
+    locs.map(() => '<col/>').join('') +
+    '<col style="width:90px"/>';
+
+  // header row
+  const headHtml = `
+    <th class="bcn-th-left">DATE</th>
+    <th class="bcn-th-left">LAUNCH</th>
+    ${locs.map(l => `
+      <th>
+        <div class="loc-code">${escapeHtml(l.location_code || l.location_name?.slice(0,3).toUpperCase() || '?')}</div>
+        <div class="loc-name">${escapeHtml(l.location_name || '')}</div>
+      </th>
+    `).join('')}
+    <th>TOTAL</th>
+  `;
+  els.matrixHead.innerHTML = headHtml;
+
+  // matrix cells: rows = visibleDates
+  if (!dates.length) {
+    els.matrixBody.innerHTML = `<tr><td colspan="${locs.length + 3}" class="bcn-empty">No projections in this view. Pick a date + location and add one →</td></tr>`;
+    els.matrixFoot.innerHTML = '';
+    document.querySelector('[data-meta="cells"]').textContent = `0D × ${locs.length}LOC`;
+    return;
+  }
+
+  // compute max for heatmap intensity, per-row totals, per-col totals
+  const allVals = [];
+  const rows = dates.map(d => {
+    const dow = dayOfWeekShort(d);
+    const launches = state.calendar.filter(e => e.date === d);
+    const launchTitle = launches[0] ? launches[0].title + (launches.length > 1 ? ` +${launches.length-1}` : '') : null;
+    const cells = locs.map(l => {
+      const r = state.byKey.get(keyFor(d, l.id));
+      const v = r ? Number(r.projected_sales || 0) : null;
+      if (v != null) allVals.push(v);
+      return { v, row: r, locId: l.id };
+    });
+    const total = cells.reduce((s,c) => s + (c.v || 0), 0);
+    return { date: d, dow, launchTitle, launches, cells, total };
+  });
+  const max = Math.max(1, ...allVals);
+
+  const colTotals = locs.map((_, i) => rows.reduce((s,r) => s + (r.cells[i].v || 0), 0));
+  const grand     = colTotals.reduce((a,b) => a+b, 0);
+
+  const bodyHtml = rows.map(r => {
+    const isRowSel = state.selectedKey && state.selectedKey.startsWith(r.date + '|');
+    return `
+      <tr class="${isRowSel ? 'row-selected' : ''}" data-row-date="${r.date}">
+        <td class="td-date">
+          <div>${r.date}</div>
+          <div class="dow">${r.dow}</div>
+        </td>
+        <td class="td-launch">
+          ${r.launchTitle
+            ? `<span class="bcn-launch-chip"><span class="bcn-dot bcn-dot--accent"></span>${escapeHtml(r.launchTitle)}</span>`
+            : '<span class="bcn-launch-chip"><span class="empty">—</span></span>'}
+        </td>
+        ${r.cells.map(c => {
+          const a = c.v ? (c.v / max) : 0;
+          const key = keyFor(r.date, c.locId);
+          const sel = state.selectedKey === key;
+          const empty = c.v == null;
+          return `
+            <td class="td-cell ${sel ? 'td-cell--selected' : ''}"
+                data-key="${key}" data-date="${r.date}" data-loc="${c.locId}"
+                style="background:${empty ? '' : `oklch(0.55 0.20 245 / ${a * 0.32})`}; color:${a > 0.7 ? 'var(--bcn-accent)' : ''}; font-weight:${a > 0.7 ? '600' : ''};">
+              ${empty ? '<span style="color:var(--bcn-ink-4)">—</span>' : fmtUSD(c.v, { compact: true })}
+            </td>
+          `;
+        }).join('')}
+        <td class="td-total">${fmtUSD(r.total, { compact: true })}</td>
+      </tr>
+    `;
+  }).join('');
+  els.matrixBody.innerHTML = bodyHtml;
+
+  // totals row
+  els.matrixFoot.innerHTML = `
+    <tr class="row-totals">
+      <td class="td-totals-label" colspan="2">COLUMN TOTALS</td>
+      ${colTotals.map(c => `<td>${fmtUSD(c, { compact: true })}</td>`).join('')}
+      <td class="td-grand-total">${fmtUSD(grand, { compact: true })}</td>
+    </tr>
+  `;
+
+  document.querySelector('[data-meta="cells"]').textContent =
+    `${dates.length}D × ${locs.length}LOC · ${dates.length * locs.length} CELLS`;
+
+  // cell click → load into editor (or open new)
+  els.matrixBody.querySelectorAll('.td-cell').forEach(td => {
+    td.addEventListener('click', () => {
+      const key = td.getAttribute('data-key');
+      const date = td.getAttribute('data-date');
+      const locId = Number(td.getAttribute('data-loc'));
+      selectCell(key, date, locId);
+    });
+  });
+}
+
+function selectCell(key, date, locId) {
+  state.selectedKey = key;
+  const row = state.byKey.get(key);
+  fillEditor({ date, locationId: locId, row });
+  renderMatrix();
+}
+
+/* ---- editor ----------------------------------------------------------- */
+
+function fillEditor({ date, locationId, row }) {
+  els.formDate.value   = date || '';
+  els.formLoc.value    = locationId != null ? String(locationId) : '';
+  els.formSales.value  = row ? Number(row.projected_sales || 0).toFixed(2) : '';
+  els.formSource.value = row ? (row.source || 'manual') : 'manual';
+  els.formNotes.value  = row ? (row.notes || '') : '';
+  els.editorPill.textContent = `${date || '—'} · ${locName(locationId) || '—'}`;
+  els.deleteBtn.disabled = !row;
+
+  // launches on this date
+  const launches = state.calendar.filter(e => e.date === date);
+  if (launches.length) {
+    els.formLaunchWrap.hidden = false;
+    els.formLaunchCount.textContent = `LAUNCHES · ${launches.length}`;
+    els.formLaunchList.innerHTML = launches.map(l => `
+      <div class="bcn-launch-preview">
+        <div class="bcn-launch-preview-head">
+          <span class="bcn-dot bcn-dot--accent"></span>
+          <span class="bcn-launch-preview-name">${escapeHtml(l.title)}</span>
+          ${l.type ? `<span class="bcn-pill bcn-pill--accent">${escapeHtml(l.type)}</span>` : ''}
+        </div>
+        <div class="bcn-launch-preview-meta">
+          ${l.time ? `<span>DROP · ${escapeHtml(l.time)}${l.tz ? ' '+escapeHtml(l.tz):''}</span>` : '<span>—</span>'}
+          ${l.designer ? `<span>DSGN · ${escapeHtml(l.designer)}</span>` : '<span>—</span>'}
+        </div>
+      </div>
+    `).join('');
+  } else {
+    els.formLaunchWrap.hidden = true;
+    els.formLaunchList.innerHTML = '';
+  }
+}
+
+function clearEditor(prefillToday) {
+  if (prefillToday) {
+    fillEditor({ date: iso(new Date()), locationId: null, row: null });
+    els.formSales.focus();
+  } else {
+    fillEditor({ date: '', locationId: null, row: null });
+  }
+}
+
+async function saveProjection() {
+  const date = els.formDate.value;
+  const locationId = Number(els.formLoc.value);
+  const sales = Number(els.formSales.value);
+  const notes = els.formNotes.value.trim() || null;
+  const source = els.formSource.value.trim() || 'manual';
+
+  const errs = [];
+  if (!date) errs.push('Date is required.');
+  if (!locationId) errs.push('Location is required.');
+  if (!Number.isFinite(sales) || sales < 0) errs.push('Projected sales must be ≥ 0.');
+  if (errs.length) { setStatus(errs.join(' '), 'neg'); return; }
+
+  const existing = state.byKey.get(keyFor(date, locationId));
+  const payload = {
+    projection_date: date,
+    location_id: locationId,
+    projected_units: existing ? Number(existing.projected_units || 0) : 0,
+    projected_sales: Number(sales.toFixed(2)),
+    notes,
+    source,
+    scenario: 'active',
+  };
+
+  setStatus('Saving…', 'info');
+  const saveBtn = document.querySelector('[data-action="save"]');
+  saveBtn.disabled = true;
+  try {
+    const { error } = await supabaseClient
+      .from('revenue_projections')
+      .upsert([payload], { onConflict: 'projection_date,location_id' });
+    if (error) throw error;
+    setStatus(`Saved · ${date} · ${locName(locationId)} · ${fmtUSD(sales)}`, 'pos', 2200);
+    await loadProjections();
+    await loadAudit();
+    state.selectedKey = keyFor(date, locationId);
+    applyFiltersAndRender();
+    const refreshed = state.byKey.get(state.selectedKey);
+    fillEditor({ date, locationId, row: refreshed || null });
+  } catch (e) {
+    console.error(e);
+    setStatus('Save failed: ' + (e?.message || e), 'neg');
+  } finally {
+    saveBtn.disabled = false;
+  }
+}
+
+async function deleteProjection() {
+  const date = els.formDate.value;
+  const locationId = Number(els.formLoc.value);
+  if (!date || !locationId) return;
+  const existing = state.byKey.get(keyFor(date, locationId));
+  if (!existing) return;
+  if (!confirm(`Delete projection for ${date} · ${locName(locationId)}?`)) return;
+  setStatus('Deleting…', 'info');
+  try {
+    const { error } = await supabaseClient
+      .from('revenue_projections')
+      .delete()
+      .eq('id', existing.id);
+    if (error) throw error;
+    setStatus(`Deleted · ${date} · ${locName(locationId)}`, 'pos', 2200);
+    state.selectedKey = null;
+    await loadProjections();
+    await loadAudit();
+    applyFiltersAndRender();
+    clearEditor(false);
+  } catch (e) {
+    console.error(e);
+    setStatus('Delete failed: ' + (e?.message || e), 'neg');
+  }
+}
+
+/* ---- audit ------------------------------------------------------------ */
+
+function renderAudit() {
+  const rows = state.audit.slice(0, 5);
+  if (!rows.length) {
+    els.auditBody.innerHTML = `<tr><td colspan="5" class="bcn-empty" style="padding:14px">No recent activity.</td></tr>`;
+    return;
+  }
+  els.auditBody.innerHTML = rows.map(r => {
+    const t = (r.changed_at || '').slice(11, 19);
+    const kind = (r.action_type || 'EDIT').toUpperCase();
+    const loc = locName(r.location_id) || `LOC ${r.location_id}`;
+    const sales = r.projected_sales != null ? fmtUSD(r.projected_sales) : '—';
+    const tone = kind === 'DELETE' ? 'neg' : kind === 'INSERT' || kind === 'CREATE' ? 'pos' : 'neutral';
+    return `
+      <tr>
+        <td class="bcn-audit-time">${escapeHtml(t || '—')}</td>
+        <td class="bcn-audit-kind">${escapeHtml(kind)}</td>
+        <td class="bcn-audit-src">${escapeHtml(r.projection_date || '')}</td>
+        <td class="bcn-audit-st"><span class="bcn-pill ${tone==='neutral' ? '' : 'bcn-pill--'+tone}">${escapeHtml(kind === 'DELETE' ? 'DEL' : 'OK')}</span></td>
+        <td class="bcn-audit-msg">${escapeHtml(sales)} · ${escapeHtml(loc)}</td>
+      </tr>
+    `;
+  }).join('');
+}
+
+/* ---- export ----------------------------------------------------------- */
+
+function exportCsv() {
+  const cols = ['projection_date','location_id','location_code','location_name','projected_sales','projected_units','source','notes','scenario'];
+  const lines = [cols.join(',')];
+  state.filtered.forEach(r => {
+    lines.push(cols.map(c => csvCell(r[c])).join(','));
+  });
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `revenue_projections_${iso(new Date())}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+  setStatus(`Exported ${state.filtered.length} rows.`, 'pos', 1800);
+}
+
+function csvCell(v) {
+  if (v == null) return '';
+  const s = String(v);
+  if (/[",\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+
+/* ---- helpers ---------------------------------------------------------- */
+
+function keyFor(date, locId) { return `${date}|${locId}`; }
+function locName(id) { const l = state.locations.find(x => x.id === Number(id)); return l ? l.location_name : ''; }
+function locCode(id) { const l = state.locations.find(x => x.id === Number(id)); return l ? l.location_code : ''; }
+
+function fmtUSD(n, opts = {}) {
+  if (n == null || isNaN(n)) return '$—';
+  const compact = opts.compact;
+  if (compact && Math.abs(n) >= 1000) {
+    return '$' + (n/1000).toFixed(Math.abs(n) >= 10000 ? 1 : 2) + 'k';
+  }
+  if (compact) return '$' + Math.round(n);
+  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+}
+
+function iso(d) {
+  const y = d.getFullYear(), m = String(d.getMonth()+1).padStart(2,'0'), day = String(d.getDate()).padStart(2,'0');
+  return `${y}-${m}-${day}`;
+}
+
+function normalizeDate(s) {
+  if (!s) return '';
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const d = new Date(s);
+  return isNaN(+d) ? '' : iso(d);
+}
+
+function dayOfWeekShort(s) {
+  const d = new Date(s + 'T00:00:00');
+  return isNaN(+d) ? '' : ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+}
+
+function nowHHMM() {
+  const d = new Date();
+  return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+
+function setStatus(message, tone = 'info', autoHideMs = 0) {
+  els.status.className = 'bcn-status bcn-status--' + tone;
+  els.status.textContent = message;
+  els.status.hidden = false;
+  if (autoHideMs) {
+    clearTimeout(setStatus._t);
+    setStatus._t = setTimeout(() => { els.status.hidden = true; }, autoHideMs);
+  }
+}
+
+function setText(sel, text) {
+  const el = document.querySelector(sel);
+  if (el) el.textContent = text;
+}
+
+function escapeHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+
+</body>
+</html>
