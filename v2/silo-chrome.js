@@ -205,15 +205,20 @@
     }).join('');
     return `
       <div class="silo-utility">
+        <button class="silo-icon-btn silo-mobile-menu" type="button" data-silo-action="mobile-nav" aria-label="Open navigation" style="display:none;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="15" height="15">
+            <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+          </svg>
+        </button>
         <div class="silo-crumbs">${crumbs}</div>
         <div class="silo-utility-spacer"></div>
-        <div class="silo-status" data-silo-utility-status>
+        <div class="silo-status silo-status--desktop" data-silo-utility-status>
           <span><span class="bcn-dot bcn-dot--pos"></span>SUPABASE OK</span>
           <span><span class="bcn-dot bcn-dot--pos"></span>SHOPIFY 200</span>
           <span><span class="bcn-dot bcn-dot--warn"></span>AR · 6H STALE</span>
           <span style="color:var(--bcn-ink-4)" data-silo-last-sync>LAST SYNC ${nowHHMM()}</span>
         </div>
-        <div class="silo-utility-divider"></div>
+        <div class="silo-utility-divider silo-status--desktop"></div>
         <span class="bcn-pill" data-silo-rls>RLS · ${escHtml(opts.user && opts.user.role || 'MEMBER')}</span>
         <button class="silo-icon-btn" type="button" data-silo-action="theme" aria-label="Toggle theme" data-silo-theme-icon>${ICONS.moon}</button>
         <button class="silo-icon-btn" type="button" data-silo-action="bell" aria-label="Notifications">${ICONS.bell}</button>
@@ -265,11 +270,9 @@
       }
       const item = e.target.closest('.silo-sb-item');
       if (item && item.dataset.hasChildren === 'true') {
-        // let click follow link but also expand if it's not the active group
         const group = item.closest('.silo-sb-group');
         const sublist = group && group.querySelector('.silo-sb-children');
         if (sublist && !item.classList.contains('silo-sb-item--active')) {
-          // soft-toggle: expand on click without navigating, if caret was clicked
           if (e.target.closest('.silo-sb-item-caret')) {
             e.preventDefault();
             const open = item.getAttribute('data-open') === 'true';
@@ -278,6 +281,11 @@
           }
         }
       }
+      // Close mobile nav overlay when a child link is clicked
+      const childLink = e.target.closest('.silo-sb-child');
+      if (childLink && appEl.getAttribute('data-nav-open') === 'true') {
+        toggleMobileNav(appEl);
+      }
     });
 
     if (mainEl) {
@@ -285,11 +293,19 @@
         const t = e.target.closest('[data-silo-action]');
         if (!t) return;
         const action = t.getAttribute('data-silo-action');
-        if (action === 'theme') { e.preventDefault(); toggleTheme(); }
-        if (action === 'signout') { e.preventDefault(); signOut(opts); }
-        if (action === 'bell') { e.preventDefault(); /* notifications hook */ }
+        if (action === 'theme')      { e.preventDefault(); toggleTheme(); }
+        if (action === 'signout')    { e.preventDefault(); signOut(opts); }
+        if (action === 'bell')       { e.preventDefault(); }
+        if (action === 'mobile-nav') { e.preventDefault(); toggleMobileNav(appEl); }
       });
     }
+
+    // Close nav when tapping the overlay backdrop on mobile
+    appEl.addEventListener('click', (e) => {
+      if (appEl.getAttribute('data-nav-open') !== 'true') return;
+      const sidebar = appEl.querySelector('.silo-sidebar');
+      if (sidebar && !sidebar.contains(e.target)) toggleMobileNav(appEl);
+    });
 
     // ⌘K -> alert for now (real palette later)
     document.addEventListener('keydown', (e) => {
@@ -321,6 +337,12 @@
     const next = appEl.getAttribute('data-collapsed') !== 'true';
     appEl.setAttribute('data-collapsed', next ? 'true' : 'false');
     localStorage.setItem(LS_COLLAPSED, next ? '1' : '0');
+  }
+
+  function toggleMobileNav(appEl) {
+    const open = appEl.getAttribute('data-nav-open') === 'true';
+    appEl.setAttribute('data-nav-open', open ? 'false' : 'true');
+    document.body.style.overflow = open ? '' : 'hidden';
   }
 
   function toggleTheme() {

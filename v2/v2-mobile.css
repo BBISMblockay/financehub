@@ -93,11 +93,37 @@
     min-height: 0;
   }
 
+  /* Mobile sidebar: hidden off-screen by default, slides in as overlay */
   .silo-sidebar {
-    flex: 0 0 200px;
-    width: 200px;
-    max-width: 42vw;
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 60;
+    width: 272px;
+    max-width: 88vw;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease, box-shadow 0.22s ease;
+    box-shadow: none;
+    overflow-y: auto;
+    overscroll-behavior: contain;
   }
+
+  .silo-app[data-nav-open="true"] .silo-sidebar {
+    transform: translateX(0);
+    box-shadow: 4px 0 32px rgba(0,0,0,0.45);
+  }
+
+  /* Dim backdrop when nav is open */
+  .silo-app[data-nav-open="true"]::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.38);
+    z-index: 59;
+  }
+
+  /* Show hamburger, hide desktop status strip */
+  .silo-mobile-menu { display: flex !important; }
+  .silo-status--desktop { display: none !important; }
 
   .pr-page,
   .pr-page--wide {
