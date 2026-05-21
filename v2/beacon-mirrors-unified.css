@@ -1,0 +1,432 @@
+/**
+ * SILO v2 — unified Beacon skin for full-page mirrors (inventory, finance hub,
+ * executive, backend, planner, Sheets calendar, PO tools, employee hub).
+ *
+ * Load order: beacon.css → page inline <style> → this file → v2-mobile.css
+ *
+ * Scoping avoids cross-page variable clashes when one stylesheet is cached:
+ *   - Inventory: body.inv-v2
+ *   - Finance + employee hub: body.v2-mirror--hub
+ *   - Executive + backend panel apps: body.themeable (+ html data-theme)
+ *   - Planner + marketing calendar: html.v2-mirror-planning
+ *   - PO builder + PO report: body.v2-mirror--po
+ */
+
+/* -------------------------------------------------------------------------- */
+/* Inventory workbench (body.inv-v2)                                          */
+/* -------------------------------------------------------------------------- */
+
+:root:has(body.inv-v2) {
+  --bg: var(--bcn-band);
+  --rail: var(--bcn-band-hi);
+  --rail-border: color-mix(in oklab, var(--bcn-band-ink) 14%, transparent);
+  --rail-text: var(--bcn-band-ink);
+  --rail-muted: var(--bcn-band-ink-3);
+  --canvas: var(--bcn-bg);
+  --card: var(--bcn-surface);
+  --line: var(--bcn-border);
+  --text: var(--bcn-ink);
+  --muted: var(--bcn-ink-3);
+  --accent: var(--bcn-accent);
+  --accent-deep: color-mix(in oklab, var(--bcn-accent) 62%, black);
+  --good: var(--bcn-pos);
+  --warn: var(--bcn-warn);
+  --danger: var(--bcn-neg);
+}
+
+body.inv-v2 {
+  font-family: var(--bcn-font), system-ui, sans-serif;
+}
+
+body.inv-v2 .mono {
+  font-family: var(--bcn-mono), ui-monospace, monospace;
+}
+
+body.inv-v2 .silo-edge {
+  background: var(--bcn-band);
+}
+
+body.inv-v2 .silo-edge-btn {
+  background: linear-gradient(
+    135deg,
+    var(--bcn-accent),
+    color-mix(in oklab, var(--bcn-accent) 55%, oklch(0.55 0.18 290))
+  );
+  color: #fff;
+}
+
+body.inv-v2 .silo-nav-panel {
+  background: linear-gradient(180deg, var(--bcn-band-hi) 0%, var(--bcn-band) 100%);
+}
+
+body.inv-v2 .silo-nav-link:hover {
+  background: color-mix(in oklab, var(--bcn-band-ink) 10%, transparent);
+  color: var(--bcn-band-ink);
+}
+
+body.inv-v2 .silo-nav-link.active {
+  background: color-mix(in oklab, var(--bcn-accent) 22%, transparent);
+  border-color: color-mix(in oklab, var(--bcn-accent) 45%, transparent);
+  color: var(--bcn-band-ink);
+}
+
+body.inv-v2 .rail-brand-mark {
+  background: linear-gradient(
+    135deg,
+    var(--bcn-accent),
+    color-mix(in oklab, var(--bcn-accent) 50%, oklch(0.55 0.18 290))
+  );
+  color: #fff;
+}
+
+body.inv-v2 .rail-brand a {
+  color: color-mix(in oklab, var(--bcn-accent) 82%, white);
+}
+
+body.inv-v2 .filter-rail-toggle {
+  background: var(--bcn-surface);
+  box-shadow: 4px 0 12px color-mix(in oklab, var(--bcn-ink) 8%, transparent);
+}
+
+body.inv-v2 .seg button.active {
+  box-shadow: 0 6px 16px color-mix(in oklab, var(--bcn-accent) 35%, transparent);
+}
+
+body.inv-v2 .field:focus,
+body.inv-v2 .filter-rail select:focus {
+  border-color: color-mix(in oklab, var(--bcn-accent) 75%, white);
+  box-shadow: 0 0 0 3px var(--bcn-accent-soft);
+}
+
+body.inv-v2 .filter-rail select option {
+  color: var(--bcn-ink);
+  background: var(--bcn-surface);
+}
+
+body.inv-v2 .top-chip[aria-pressed="true"] {
+  background: color-mix(in oklab, var(--bcn-accent) 20%, transparent);
+  border-color: color-mix(in oklab, var(--bcn-accent) 48%, transparent);
+  color: color-mix(in oklab, var(--bcn-accent) 78%, white);
+}
+
+body.inv-v2 .btn:hover {
+  background: var(--bcn-sunken);
+}
+
+body.inv-v2 .workspace-top {
+  background: color-mix(in oklab, var(--bcn-surface) 88%, transparent);
+}
+
+body.inv-v2 .metrics-bar {
+  background: var(--bcn-surface);
+}
+
+body.inv-v2 .metric {
+  background: linear-gradient(180deg, var(--bcn-surface) 0%, var(--bcn-sunken) 100%);
+}
+
+body.inv-v2 .command-bar {
+  background: var(--bcn-surface);
+}
+
+body.inv-v2 .table-wrap {
+  background: var(--bcn-surface);
+}
+
+body.inv-v2 .stickyHead thead th {
+  background: var(--bcn-sunken) !important;
+}
+
+body.inv-v2 #mainTable tbody td {
+  border-bottom-color: var(--bcn-border);
+}
+
+body.inv-v2 #mainTable tbody tr:hover td {
+  background: var(--bcn-accent-soft) !important;
+}
+
+body.inv-v2 .table-foot {
+  background: var(--bcn-sunken);
+}
+
+body.inv-v2 .draft-drawer {
+  background: var(--bcn-surface);
+  box-shadow: -16px 0 48px color-mix(in oklab, var(--bcn-ink) 12%, transparent);
+}
+
+body.inv-v2 .draft-close {
+  background: var(--bcn-surface);
+}
+
+body.inv-v2 .draft-body .field,
+body.inv-v2 .draft-body select {
+  background: var(--bcn-surface);
+}
+
+body.inv-v2 .draft-peek {
+  background: var(--bcn-sunken);
+}
+
+body.inv-v2 #draftPeek {
+  color: var(--bcn-ink-2);
+}
+
+body.inv-v2 #kpiNote {
+  background: var(--bcn-surface);
+}
+
+body.inv-v2 .badge {
+  background: var(--bcn-surface);
+}
+
+body.inv-v2 .kbd {
+  background: var(--bcn-sunken);
+}
+
+body.inv-v2 #modal .modal-card {
+  background: var(--bcn-surface);
+}
+
+body.inv-v2 .panel-backdrop {
+  background: color-mix(in oklab, var(--bcn-ink) 42%, transparent);
+}
+
+body.inv-v2 .table-wrap::-webkit-scrollbar-thumb,
+body.inv-v2 .thin-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--bcn-ink) 18%, transparent);
+}
+
+body.inv-v2 .shadow-soft {
+  box-shadow: 0 20px 50px color-mix(in oklab, var(--bcn-ink) 14%, transparent);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Finance console + employee hub (body.v2-mirror--hub)                       */
+/* -------------------------------------------------------------------------- */
+
+:root:has(body.v2-mirror--hub) {
+  --bg: var(--bcn-bg);
+  --surface: var(--bcn-surface);
+  --surface-2: var(--bcn-sunken);
+  --text: var(--bcn-ink);
+  --muted: var(--bcn-ink-3);
+  --border: var(--bcn-border);
+  --border-2: var(--bcn-border-strong);
+  --accent: var(--bcn-accent);
+  --accent-2: color-mix(in oklab, var(--bcn-accent) 70%, oklch(0.55 0.18 290));
+  --nav: var(--bcn-band);
+  --nav-border: color-mix(in oklab, var(--bcn-band-ink) 10%, transparent);
+  --nav-text: var(--bcn-band-ink);
+  --nav-muted: var(--bcn-band-ink-3);
+  --nav-hover: color-mix(in oklab, var(--bcn-band-ink) 8%, transparent);
+  --nav-active: color-mix(in oklab, var(--bcn-accent) 24%, transparent);
+  --shadow: 0 18px 45px color-mix(in oklab, var(--bcn-ink) 8%, transparent);
+}
+
+html[data-theme="light"]:has(body.v2-mirror--hub) body {
+  font-family: var(--bcn-font), system-ui, sans-serif;
+}
+
+html[data-theme="light"]:has(body.v2-mirror--hub) .brand-mark {
+  background: linear-gradient(135deg, var(--bcn-accent), color-mix(in oklab, var(--bcn-accent) 55%, oklch(0.55 0.18 290)));
+  color: #fff;
+  box-shadow: 0 14px 28px color-mix(in oklab, var(--bcn-accent) 22%, transparent);
+}
+
+html[data-theme="light"]:has(body.v2-mirror--hub) .search:focus {
+  border-color: color-mix(in oklab, var(--bcn-accent) 65%, white);
+  box-shadow: 0 0 0 4px var(--bcn-accent-soft);
+}
+
+html[data-theme="light"]:has(body.v2-mirror--hub) .nav-link.active {
+  background: color-mix(in oklab, var(--bcn-accent) 20%, transparent);
+  border-color: color-mix(in oklab, var(--bcn-accent) 35%, transparent);
+}
+
+/* Employee hub — sign-in gate + profile strip */
+.auth-boot {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bcn-bg);
+  color: var(--bcn-ink);
+}
+
+.auth-boot-card {
+  max-width: 420px;
+  width: 100%;
+  border-radius: 16px;
+  border: 1px solid var(--bcn-border);
+  background: var(--bcn-surface);
+  box-shadow: var(--bcn-shadow);
+  padding: 22px 20px;
+  text-align: center;
+}
+
+.auth-boot-title {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.auth-boot-sub {
+  margin: 10px 0 16px;
+  font-size: 13px;
+  color: var(--bcn-ink-3);
+  line-height: 1.45;
+}
+
+.auth-boot-err {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--bcn-neg);
+}
+
+body.v2-mirror--hub .profile-card {
+  margin: 0 18px 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--nav-border);
+  background: rgba(255, 255, 255, 0.05);
+  flex: 0 0 auto;
+}
+
+body.v2-mirror--hub .profile-name {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--nav-text);
+  line-height: 1.2;
+}
+
+body.v2-mirror--hub .profile-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--nav-muted);
+  line-height: 1.35;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Executive + backend panel apps (body.themeable)                            */
+/* -------------------------------------------------------------------------- */
+
+:root[data-theme="light"]:has(body.themeable) {
+  --bg: var(--bcn-bg);
+  --panel: var(--bcn-surface);
+  --panel2: var(--bcn-sunken);
+  --panel3: color-mix(in oklab, var(--bcn-sunken) 88%, var(--bcn-border));
+  --border: var(--bcn-border);
+  --text: var(--bcn-ink);
+  --muted: var(--bcn-ink-3);
+  --muted2: var(--bcn-ink-4);
+  --shadow1: var(--bcn-shadow);
+  --shadow2: 0 8px 18px color-mix(in oklab, var(--bcn-ink) 8%, transparent);
+  --ring: color-mix(in oklab, var(--bcn-accent) 22%, transparent);
+  --accent: var(--bcn-accent);
+  --danger: var(--bcn-neg);
+  --warn: var(--bcn-warn);
+  --good: var(--bcn-pos);
+}
+
+:root[data-theme="dark"]:has(body.themeable) {
+  --bg: var(--bcn-bg);
+  --panel: var(--bcn-surface);
+  --panel2: var(--bcn-sunken);
+  --panel3: color-mix(in oklab, var(--bcn-surface) 70%, var(--bcn-border));
+  --border: var(--bcn-border);
+  --text: var(--bcn-ink);
+  --muted: var(--bcn-ink-3);
+  --muted2: var(--bcn-ink-4);
+  --shadow1: var(--bcn-shadow);
+  --shadow2: 0 10px 22px color-mix(in oklab, #000 40%, transparent);
+  --ring: color-mix(in oklab, var(--bcn-accent) 25%, transparent);
+  --accent: var(--bcn-accent);
+  --danger: var(--bcn-neg);
+  --warn: var(--bcn-warn);
+  --good: var(--bcn-pos);
+}
+
+body.themeable {
+  font-family: var(--bcn-font), system-ui, sans-serif;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Planner + Sheets calendar (html.v2-mirror-planning)                        */
+/* -------------------------------------------------------------------------- */
+
+html.v2-mirror-planning[data-theme="light"] {
+  color-scheme: light;
+  --bg: var(--bcn-bg);
+  --panel: color-mix(in oklab, var(--bcn-surface) 88%, transparent);
+  --surf: color-mix(in oklab, var(--bcn-ink) 4%, transparent);
+  --surf2: color-mix(in oklab, var(--bcn-ink) 7%, transparent);
+  --b: var(--bcn-border);
+  --b2: var(--bcn-border-strong);
+  --t: var(--bcn-ink);
+  --m: var(--bcn-ink-3);
+  --a: var(--bcn-accent);
+  --g: var(--bcn-pos);
+  --y: var(--bcn-warn);
+  --r: var(--bcn-neg);
+  --a2: var(--bcn-pos);
+  --sh: 0 14px 36px color-mix(in oklab, var(--bcn-ink) 10%, transparent);
+  --sh2: 0 10px 22px color-mix(in oklab, var(--bcn-ink) 8%, transparent);
+}
+
+html.v2-mirror-planning[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: var(--bcn-bg);
+  --panel: color-mix(in oklab, var(--bcn-surface) 85%, transparent);
+  --surf: color-mix(in oklab, var(--bcn-ink) 6%, transparent);
+  --surf2: color-mix(in oklab, var(--bcn-ink) 10%, transparent);
+  --b: var(--bcn-border);
+  --b2: var(--bcn-border-strong);
+  --t: var(--bcn-ink);
+  --m: var(--bcn-ink-3);
+  --a: var(--bcn-accent);
+  --g: var(--bcn-pos);
+  --y: var(--bcn-warn);
+  --r: var(--bcn-neg);
+  --a2: var(--bcn-pos);
+  --sh: 0 16px 46px color-mix(in oklab, #000 45%, transparent);
+  --sh2: 0 12px 26px color-mix(in oklab, #000 35%, transparent);
+}
+
+html.v2-mirror-planning body {
+  font-family: var(--bcn-font), system-ui, sans-serif !important;
+}
+
+/* -------------------------------------------------------------------------- */
+/* PO builder + PO report (body.v2-mirror--po)                               */
+/* -------------------------------------------------------------------------- */
+
+:root:has(body.v2-mirror--po) {
+  --bg: var(--bcn-bg);
+  --card: color-mix(in oklab, var(--bcn-surface) 94%, transparent);
+  --line: color-mix(in oklab, var(--bcn-ink) 8%, transparent);
+  --text: var(--bcn-ink);
+  --muted: var(--bcn-ink-3);
+  --shadow: 0 8px 22px color-mix(in oklab, var(--bcn-ink) 6%, transparent);
+  --brand: var(--bcn-band);
+}
+
+html[data-theme="light"]:has(body.v2-mirror--po) body {
+  font-family: var(--bcn-font), system-ui, sans-serif;
+  background: linear-gradient(180deg, var(--bcn-sunken) 0%, var(--bcn-bg) 100%) !important;
+}
+
+html[data-theme="light"]:has(body.v2-mirror--po) .btn-primary {
+  background: var(--bcn-accent) !important;
+  color: #fff !important;
+}
+
+html[data-theme="light"]:has(body.v2-mirror--po) .btn-primary:hover:not(:disabled) {
+  filter: brightness(0.95);
+}
+
+html[data-theme="light"]:has(body.v2-mirror--po) input:focus,
+html[data-theme="light"]:has(body.v2-mirror--po) select:focus,
+html[data-theme="light"]:has(body.v2-mirror--po) textarea:focus {
+  border-color: var(--bcn-accent) !important;
+  box-shadow: 0 0 0 3px var(--bcn-accent-soft) !important;
+}
