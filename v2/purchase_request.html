@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SILO · Payment request (v2)</title>
+
+  <link rel="stylesheet" href="beacon.css" />
+  <script src="../pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    :root { color-scheme: light; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bcn-canvas, #f4f6fa);
+      color: #0f172a;
+    }
+    .shell { max-width: 1120px; margin: 0 auto; padding: 18px; }
+
+    .card {
+      background: rgba(255,255,255,.94);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(226,232,240,.95);
+      border-radius: 24px;
+      box-shadow:
+        0 1px 2px rgba(15,23,42,.04),
+        0 10px 30px rgba(15,23,42,.05);
+    }
+
+    .hero {
+      background:
+        linear-gradient(135deg, rgba(15,23,42,.98), rgba(30,41,59,.97) 55%, rgba(51,65,85,.96));
+      color: #fff;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 28px;
+      box-shadow:
+        0 18px 50px rgba(15,23,42,.18),
+        inset 0 1px 0 rgba(255,255,255,.08);
+    }
+
+    .hero-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.06);
+      color: rgba(255,255,255,.86);
+      border-radius: 999px;
+      padding: .45rem .75rem;
+      font-size: .74rem;
+      font-weight: 700;
+      letter-spacing: .02em;
+    }
+
+    .section-card {
+      border: 1px solid #e5e7eb;
+      border-radius: 22px;
+      background: linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(250,252,255,1) 100%);
+      padding: 18px;
+    }
+
+    .section-title {
+      font-size: 1rem;
+      font-weight: 800;
+      color: #0f172a;
+    }
+
+    .section-sub {
+      margin-top: 4px;
+      font-size: .82rem;
+      color: #64748b;
+    }
+
+    .input, .select, .textarea, .file-input {
+      width: 100%;
+      border-radius: 16px;
+      border: 1px solid #dbe2ea;
+      background: #fff;
+      padding: .88rem .98rem;
+      font-size: .95rem;
+      outline: none;
+      transition: .18s ease;
+      color: #0f172a;
+    }
+
+    .textarea {
+      min-height: 130px;
+      resize: vertical;
+    }
+
+    .input:focus, .select:focus, .textarea:focus, .file-input:focus {
+      border-color: #0f172a;
+      box-shadow: 0 0 0 4px rgba(15,23,42,.08);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: .5rem;
+      border-radius: 16px;
+      padding: .9rem 1.05rem;
+      font-weight: 800;
+      font-size: .92rem;
+      transition: .18s ease;
+      border: 1px solid #dbe2ea;
+      background: #fff;
+      color: #0f172a;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .btn:hover { transform: translateY(-1px); }
+    .btn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+
+    .btn-primary {
+      background: #0f172a;
+      color: #fff;
+      border-color: #0f172a;
+      box-shadow: 0 10px 22px rgba(15,23,42,.15);
+    }
+
+    .btn-soft {
+      background: #f8fafc;
+      color: #0f172a;
+    }
+
+    .help {
+      font-size: .78rem;
+      color: #64748b;
+      margin-top: .5rem;
+      line-height: 1.45;
+    }
+
+    .notice {
+      border-radius: 18px;
+      border: 1px solid #e2e8f0;
+      background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+      padding: 14px 16px;
+      font-size: .88rem;
+      color: #334155;
+    }
+
+    .status {
+      border-radius: 16px;
+      padding: .82rem .95rem;
+      font-size: .88rem;
+      font-weight: 700;
+      border: 1px solid transparent;
+    }
+    .status-info {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border-color: #bfdbfe;
+    }
+    .status-success {
+      background: #ecfdf5;
+      color: #166534;
+      border-color: #bbf7d0;
+    }
+    .status-error {
+      background: #fef2f2;
+      color: #b91c1c;
+      border-color: #fecaca;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: .26rem .6rem;
+      font-size: .7rem;
+      font-weight: 700;
+      border: 1px solid #cbd5e1;
+      color: #475569;
+      background: #f8fafc;
+    }
+
+    .mono {
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum" 1;
+    }
+
+    .required-dot {
+      color: #dc2626;
+      font-weight: 800;
+      margin-left: 2px;
+    }
+
+    .upload-box {
+      border: 1px dashed #cbd5e1;
+      border-radius: 18px;
+      background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+      padding: 16px;
+    }
+
+    .success-grid {
+      display: grid;
+      grid-template-columns: repeat(1, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    @media (min-width: 768px) {
+      .success-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+  </style>
+</head>
+<body class="min-h-full">
+<div class="silo-app" id="silo-app">
+  <main class="silo-main" style="overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;">
+  <div class="shell">
+    <div class="space-y-5">
+      <div class="hero p-5 lg:p-6">
+        <div class="space-y-3">
+          <div class="hero-chip">SILO · payment request intake</div>
+          <div>
+            <h1 class="text-3xl lg:text-4xl font-extrabold tracking-tight">Baseballism Payment Request</h1>
+            <p class="mt-2 max-w-3xl text-sm text-slate-200/80">
+              Submit a payment request into SILO for vendor payments, reimbursements, deposits, balances, or refunds. Requests are stored & routed into the internal workbench for review and processing.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div id="authCard" class="card p-5 hidden">
+        <div class="section-title">Authentication required</div>
+        <div class="section-sub">You must be signed in to submit requests.</div>
+        <div class="mt-4 notice">
+          This page is connected to Supabase auth. Once signed in, your email can auto-fill and your request will be stamped to your user account.
+        </div>
+      </div>
+
+      <div id="appCard" class="card p-5 hidden">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div class="section-title"></div>
+            <div class="section-sub"></div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 text-sm">
+            <span id="signedInAs" class="pill">Signed in</span>
+          </div>
+        </div>
+
+        <div id="statusBox" class="mt-4 hidden"></div>
+
+        <form id="requestForm" class="mt-5 space-y-5">
+          <div class="section-card">
+            <div class="section-title">Vendor Information</div>
+            <div class="section-sub"></div>
+
+            <div class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div class="md:col-span-2">
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Vendor<span class="required-dot">*</span></label>
+                <input
+                  id="vendorName"
+                  class="input"
+                  list="vendorOptions"
+                  placeholder="Select existing vendor or type new vendor"
+                  autocomplete="off"
+                  required
+                />
+                <datalist id="vendorOptions"></datalist>
+                <input id="vendorNameManual" type="hidden" value="" />
+                <div class="help">Start typing to select a vendor used on prior requests, or enter a new vendor name.</div>
+              </div>
+
+              <div>
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Request type<span class="required-dot">*</span></label>
+                <select id="requestType" class="select" required>
+                  <option value="">Select request type</option>
+                  <option value="invoice_vendor_payment">Invoice / vendor payment</option>
+                  <option value="inventory_deposit">Inventory deposit</option>
+                  <option value="inventory_balance">Inventory balance</option>
+                  <option value="employee_reimbursement">Employee reimbursement</option>
+                  <option value="customer_refund">Customer refund</option>
+                </select>
+              </div>
+
+              <div>
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Amount due<span class="required-dot">*</span></label>
+                <input id="amountDue" type="number" min="0" step="0.01" class="input mono" placeholder="0.00" required />
+              </div>
+            </div>
+          </div>
+
+          <div class="section-card">
+            <div class="section-title">Reference information</div>
+            <div class="section-sub"></div>
+
+            <div class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div>
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Invoice #</label>
+                <input id="invoiceNumber" class="input" placeholder="Invoice reference" />
+              </div>
+
+              <div>
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Flex ID #</label>
+                <input id="flexId" class="input" placeholder="Flex reference" />
+              </div>
+
+              <div>
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Internal PO #</label>
+                <input id="internalPoNumber" class="input" placeholder="Internal PO number" />
+              </div>
+
+              <div>
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Due date</label>
+                <input id="dueDate" type="date" class="input" />
+              </div>
+            </div>
+          </div>
+
+          <div class="section-card">
+            <div class="section-title">Requester and support details</div>
+            <div class="section-sub">Please attach any supporting files.</div>
+
+            <div class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div>
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Requester email<span class="required-dot">*</span></label>
+                <input id="requesterEmail" type="email" class="input" placeholder="you@company.com" required />
+              </div>
+
+              <div>
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Location</label>
+                <input id="locationName" class="input" placeholder="Store / department / location" />
+              </div>
+
+              <div class="md:col-span-2">
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Upload documents</label>
+                <div class="upload-box">
+                  <input
+                    id="requestFile"
+                    type="file"
+                    class="file-input"
+                    accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.doc,.docx"
+                    multiple
+                  />
+                  <div class="help">Accepted examples: invoice PDFs, images, spreadsheets, or supporting documents. You may attach multiple files.</div>
+                </div>
+              </div>
+
+              <div class="md:col-span-2">
+                <label class="mb-2 block text-sm font-semibold text-slate-700">Notes / comments</label>
+                <textarea id="notesComments" class="textarea" placeholder="Anything AP/ops should know about this request..."></textarea>
+              </div>
+            </div>
+          </div>
+
+          <div class="notice">
+            Internal fields like payment type, completed status, payment detail, assignment, and review notes will be handled in the payment requests workbench after submission.
+          </div>
+
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div class="text-sm text-slate-500">
+              Requests are stamped with created/updated timestamps & saved into SILO for processing & tracking.
+            </div>
+            <div class="flex gap-3">
+              <button id="resetBtn" type="button" class="btn btn-soft">Clear</button>
+              <button id="submitBtn" type="submit" class="btn btn-primary">Submit request</button>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <div id="successCard" class="card p-5 hidden">
+        <div class="section-title">Request submitted</div>
+        <div class="section-sub">The request was saved successfully and is now available in the payment requests workbench.</div>
+        <div class="mt-4 success-grid">
+          <div class="notice">
+            <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Request ID</div>
+            <div id="successRequestId" class="mt-2 font-bold mono text-slate-900">—</div>
+          </div>
+          <div class="notice">
+            <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Files uploaded</div>
+            <div id="successFileName" class="mt-2 font-bold text-slate-900">No files</div>
+          </div>
+        </div>
+        <div class="mt-4 flex gap-3">
+          <button id="newRequestBtn" class="btn btn-primary">Submit another</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  </main>
+</div>
+
+  <script src="silo-chrome.js"></script>
+  <script>
+    const SUPABASE_URL =
+      window.__SILO_CONFIG__?.SUPABASE_URL ||
+      window.SUPABASE_URL ||
+      window.CONFIG?.SUPABASE_URL;
+
+    const SUPABASE_ANON_KEY =
+      window.__SILO_CONFIG__?.SUPABASE_ANON_KEY ||
+      window.__SILO_CONFIG__?.SUPABASE_KEY ||
+      window.SUPABASE_ANON_KEY ||
+      window.CONFIG?.SUPABASE_ANON_KEY;
+
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      throw new Error("Missing Supabase config on page.");
+    }
+
+    const BUCKET = "payment-request-files";
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const els = {
+      authCard: document.getElementById("authCard"),
+      appCard: document.getElementById("appCard"),
+      successCard: document.getElementById("successCard"),
+      signedInAs: document.getElementById("signedInAs"),
+      statusBox: document.getElementById("statusBox"),
+
+      requestForm: document.getElementById("requestForm"),
+      vendorName: document.getElementById("vendorName"),
+      vendorNameManual: document.getElementById("vendorNameManual"),
+      requestType: document.getElementById("requestType"),
+      invoiceNumber: document.getElementById("invoiceNumber"),
+      flexId: document.getElementById("flexId"),
+      internalPoNumber: document.getElementById("internalPoNumber"),
+      amountDue: document.getElementById("amountDue"),
+      dueDate: document.getElementById("dueDate"),
+      requesterEmail: document.getElementById("requesterEmail"),
+      locationName: document.getElementById("locationName"),
+      requestFile: document.getElementById("requestFile"),
+      notesComments: document.getElementById("notesComments"),
+
+      resetBtn: document.getElementById("resetBtn"),
+      submitBtn: document.getElementById("submitBtn"),
+      newRequestBtn: document.getElementById("newRequestBtn"),
+
+      successRequestId: document.getElementById("successRequestId"),
+      successFileName: document.getElementById("successFileName")
+    };
+
+    const VENDORS = [
+      "21 In Right, Inc.",
+      "Addison Holub",
+      "Aiden McIntyre/Motive LA",
+      "Alec Sellers",
+      "Alex Hale- Baseballism Ambassador",
+      "AM Testing & Services",
+      "Amazon",
+      "Amy Gutierrez- Baseballism Ambassador",
+      "Anderson Air LLC",
+      "Andes Logistics",
+      "Angie Ivie- Baseballism Ambassador",
+      "Arco",
+      "Aric Vasquez- Baseballism Ambassador",
+      "Arizona Diamondbacks",
+      "ARTIGIFTS PREMIUM CO. LIMITED",
+      "Athletically Declined- Baseballism Ambassador",
+      "Attentive",
+      "Austin Schultz- Baseballism Ambassador",
+      "Baden Sports Inc.",
+      "Bat Bros LLC",
+      "Bay Alarm",
+      "Ben Atkinson",
+      "Bend Elks",
+      "Best Buy",
+      "BKM Management Company",
+      "BKM Property Management",
+      "Blake Evetts",
+      "Blake Mallet- Baseballism Ambassador",
+      "Bobby O'Neill- Baseballism Ambassador",
+      "Brett Davis",
+      "Brian Caprino",
+      "Brunt Work Pty Ltd",
+      "BruntWork Singapore Pte. Ltd.",
+      "Bryan Campbell",
+      "Cade Bell",
+      "Central Oregon Breeze",
+      "Chau Huynh- Baseballism Ambassador",
+      "Chris Clements",
+      "Christian Engel",
+      "Christian Lara- Baseballism Ambassador",
+      "Cincor Marroquinera",
+      "City of Arlington",
+      "City of Portland",
+      "Clancy Estate Care",
+      "Class 5 Technologies",
+      "Cobb County",
+      "Colin Anderson",
+      "Colton Beck",
+      "Connor Harris",
+      "Connor Webb- Baseballism Ambassador",
+      "Corey Wilmoth",
+      "Cox Internet",
+      "Creytex",
+      "Crystal Hosiery DBA FINEXPO INC",
+      "Daniel Lopez",
+      "David Ring- Baseballism Ambassador",
+      "Delaney Construction",
+      "Diamond Baseball Holdings",
+      "Dicks Sporting Goods",
+      "DJ/Nicole Maher",
+      "DOOR SERVICE, INC",
+      "Doug Hughes- Baseballism Ambassador",
+      "Echo Global Logistics Inc.",
+      "Elias Fidel",
+      "Employers Overload",
+      "Erik Hernandez",
+      "Everbest Corporation",
+      "Fanatics",
+      "Fedex",
+      "Fraîche Design Thinking S.A.S.",
+      "Fred F. Collin & Sons, INC",
+      "Frisco RoughRiders, LP",
+      "G&S Construction",
+      "Gader Ibrahim- Baseballism Ambassador",
+      "George K. Griffey, Jr",
+      "Gil Hernandez",
+      "Gladys Lopez- Baseballism Ambassador",
+      "Gov X",
+      "Grand & Benedicts",
+      "Gregory F.X. Daly",
+      "GUANGZHOU WANGBULIAO LEATHER CO.,LTD.",
+      "Guangzhou Xinyi Printing Company",
+      "Guangzhou Yilun Jewelry Co., Ltd.",
+      "Harry Jones Jr.- Baseballism Ambassador",
+      "Hat Back Collective",
+      "Hayden Millen- Baseballism Ambassador",
+      "Hillsboro hops",
+      "HK RUIJIA INTER TRADE LIMITED",
+      "HK Silver City Jewelry Co., Limited",
+      "Home Depot",
+      "HONG KONG YUNPO TRADING LIMITED",
+      "Horizon Sign Company",
+      "Illinois Department of Revenue",
+      "Image Pressworks",
+      "IMG",
+      "Jack Dugan- Baseballism Ambassador",
+      "Jackson Brewer- Baseballism Ambassador",
+      "Jacob Young",
+      "Jameson Commercial",
+      "Jenna Nimtz",
+      "Jessi Meeks- Baseballism Ambassador",
+      "Jiangmen SENPOLO Leather Co.,Ltd.",
+      "John Maddalone",
+      "Jordan Outdoor Enterprises",
+      "Josh Clark",
+      "Josh Wilson- Baseballism Ambassador",
+      "Joshua Clark",
+      "Justin Moore",
+      "Kalin",
+      "Kalin Boodman",
+      "Karla Olmos (Baseballism Ambassador)",
+      "Kennedy Brezenski",
+      "Kevin Chan - Baseballism Ambassador",
+      "Kurt Russel Marcelino",
+      "LA Gamo- Baseballism Ambassador",
+      "Lahti Helfgott LLC",
+      "LAZ Parking",
+      "Logo Brands",
+      "Lovett Inc.",
+      "Low and Inside",
+      "Luminary Group",
+      "Madison Rice",
+      "Make Plays Media LLC",
+      "Mark Farris",
+      "Master Industrial Ltd.",
+      "MazGlass",
+      "McCoy Russell",
+      "Megan Rembielak (Baseballism Ambassador)",
+      "Meta",
+      "Mia Willoughby- Baseballism Ambassador",
+      "Michael Tamayo",
+      "Miller Nash LLP",
+      "MLB Advanced Media, L.P.",
+      "MTAR LLC",
+      "North Portland Little League",
+      "Oakland A's",
+      "Omaha Baseball Village",
+      "OpSec Security, Inc.",
+      "Oregon Department of Revenue",
+      "Orion Fire Systems",
+      "Other",
+      "Ovations Merchandise Services, LP",
+      "Pacific Office Automation",
+      "Peyton Eise",
+      "POD 4 Print",
+      "Premier Press",
+      "Preston Chatman- Baseballism Ambassador",
+      "Pride Staff",
+      "Principal",
+      "Rachele Pence- Baseballism Ambassador",
+      "Rebel Child Journeys",
+      "Rick Barnes, Tax Assessor-Collector",
+      "Riley Chavez- Baseballism Ambassador",
+      "River City Stadium Management, LLC",
+      "Russ Smith",
+      "Ryan Dee",
+      "Scappoose High School",
+      "Scheels Corporate Office",
+      "School Tax Collector",
+      "Scott Grigg , TAC",
+      "SEG Systems",
+      "Sesame Collective",
+      "Seventh Inning Stretch",
+      "Shaoxing Keen Dragon Imp&Exp Co.,Ltd",
+      "SHAOXING TIANYUN GARMENT-MAKING CO.,LTD.",
+      "Sheehan Kreifels",
+      "Sign Effectz",
+      "SoCal Retail Services, Inc.",
+      "Southwest Sign Company",
+      "Space age",
+      "SQWAD",
+      "SSC Signs and Lighting",
+      "Stephanie Shirley- Baseballism Ambassador",
+      "Strategy Labs",
+      "Super Crown",
+      "Textiles Acrilan",
+      "Toru Zen Tanizawa",
+      "Travis Chock",
+      "Tyler Goodro",
+      "Tyler Goodro- Baseballism Ambassador",
+      "Uncanny Brands LLC",
+      "Universal Studios Licensing LLC",
+      "USA Baseball",
+      "Vertechs Electric",
+      "Village of Cooperstown",
+      "Vincent Chapman- Baseballism Ambassador",
+      "Visual Icon",
+      "Wall and Wall",
+      "Washington County",
+      "West Newbury Riverhawks",
+      "WORLDWIDE EXPRESS",
+      "YANTAI HAIXIANG FOREIGN TRADE CO., LTD",
+      "YIN HWA USA CORP",
+      "Zack Vreeland",
+      "ZHANJIA INT'L LIMITED"
+    ];
+
+    let currentUser = null;
+
+    function escapeAttr(value) {
+      return String(value || "").replace(/[&<>"]/g, m => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;"
+      }[m]));
+    }
+
+    function normalizeName(value) {
+      return String(value || "")
+        .trim()
+        .toLowerCase()
+        .replace(/&/g, "and")
+        .replace(/[^\w\s]/g, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
+    function normalizeEmail(value) {
+      return String(value || "").trim().toLowerCase();
+    }
+
+    async function fetchPriorVendors() {
+      const { data, error } = await supabaseClient
+        .from("payment_requests")
+        .select("vendor_name, vendor_name_manual")
+        .order("created_at", { ascending: false })
+        .limit(1000);
+
+      if (error) throw error;
+
+      const vendorMap = new Map();
+
+      (data || []).forEach(row => {
+        [row.vendor_name, row.vendor_name_manual].forEach(name => {
+          const clean = String(name || "").trim();
+          if (!clean) return;
+
+          const key = normalizeName(clean);
+          if (key && !vendorMap.has(key)) vendorMap.set(key, clean);
+        });
+      });
+
+      return Array.from(vendorMap.values()).sort((a, b) => a.localeCompare(b));
+    }
+
+    async function populateVendorOptions() {
+      const vendorOptions = document.getElementById("vendorOptions");
+      if (!vendorOptions) return;
+
+      try {
+        const priorVendors = await fetchPriorVendors();
+        const vendorMap = new Map();
+
+        [...priorVendors, ...VENDORS].forEach(name => {
+          const clean = String(name || "").trim();
+          if (!clean) return;
+          const key = normalizeName(clean);
+          if (key && !vendorMap.has(key)) vendorMap.set(key, clean);
+        });
+
+        vendorOptions.innerHTML = Array.from(vendorMap.values())
+          .sort((a, b) => a.localeCompare(b))
+          .map(v => `<option value="${escapeAttr(v)}"></option>`)
+          .join("");
+      } catch (error) {
+        console.error("Vendor load failed:", error);
+
+        vendorOptions.innerHTML = VENDORS
+          .slice()
+          .sort((a, b) => a.localeCompare(b))
+          .map(v => `<option value="${escapeAttr(v)}"></option>`)
+          .join("");
+      }
+    }
+
+    function showStatus(message, type = "info") {
+      els.statusBox.className = `status status-${type}`;
+      els.statusBox.textContent = message;
+      els.statusBox.classList.remove("hidden");
+    }
+
+    function clearStatus() {
+      els.statusBox.classList.add("hidden");
+      els.statusBox.textContent = "";
+    }
+
+    function setSubmitting(isSubmitting) {
+      els.submitBtn.disabled = isSubmitting;
+      els.resetBtn.disabled = isSubmitting;
+      els.submitBtn.textContent = isSubmitting ? "Submitting..." : "Submit request";
+    }
+
+    function resetForm() {
+      els.requestForm.reset();
+      if (currentUser?.email) {
+        els.requesterEmail.value = currentUser.email;
+      }
+      clearStatus();
+      els.successCard.classList.add("hidden");
+      els.appCard.classList.remove("hidden");
+    }
+
+    async function ensureAuth() {
+      const { data, error } = await supabaseClient.auth.getUser();
+      if (error) throw error;
+
+      currentUser = data?.user || null;
+
+      if (!currentUser) {
+        els.authCard.classList.remove("hidden");
+        els.appCard.classList.add("hidden");
+        return false;
+      }
+
+      els.authCard.classList.add("hidden");
+      els.appCard.classList.remove("hidden");
+      els.signedInAs.textContent = `Signed in: ${currentUser.email || "user"}`;
+
+      if (!els.requesterEmail.value && currentUser.email) {
+        els.requesterEmail.value = currentUser.email;
+      }
+
+      return true;
+    }
+
+    async function uploadFiles(fileList, requestId) {
+      const files = Array.from(fileList || []);
+      if (!files.length) return [];
+
+      const uploaded = [];
+
+      for (let index = 0; index < files.length; index += 1) {
+        const file = files[index];
+        const safeName = file.name.replace(/[^\w.\-]/g, "_");
+        const path = `${requestId}/${Date.now()}-${index + 1}-${safeName}`;
+
+        const { error: uploadError } = await supabaseClient.storage
+          .from(BUCKET)
+          .upload(path, file, {
+            cacheControl: "3600",
+            upsert: false
+          });
+
+        if (uploadError) throw uploadError;
+
+        uploaded.push({
+          payment_request_id: requestId,
+          file_name: file.name,
+          file_path: path,
+          file_url: null,
+          file_size: file.size || null,
+          mime_type: file.type || null,
+          sort_order: index + 1,
+          created_by: currentUser?.id || null
+        });
+      }
+
+      return uploaded;
+    }
+
+    async function createPaymentRequest(event) {
+      event.preventDefault();
+      clearStatus();
+
+      const authed = await ensureAuth();
+      if (!authed) {
+        showStatus("You must be signed in to submit a request.", "error");
+        return;
+      }
+
+      const vendorName = els.vendorName.value.trim();
+      const requesterEmail = els.requesterEmail.value.trim();
+      const requestType = els.requestType.value;
+      const amountDue = Number(els.amountDue.value);
+
+      if (!vendorName) {
+        showStatus("Vendor is required.", "error");
+        return;
+      }
+
+      if (!requestType) {
+        showStatus("Please select a request type.", "error");
+        return;
+      }
+
+      if (!requesterEmail) {
+        showStatus("Requester email is required.", "error");
+        return;
+      }
+
+      if (!Number.isFinite(amountDue) || amountDue < 0) {
+        showStatus("Amount due must be a valid number.", "error");
+        return;
+      }
+
+      setSubmitting(true);
+
+      try {
+        const requestId = crypto.randomUUID();
+        const uploadedFiles = await uploadFiles(els.requestFile.files, requestId);
+
+        const primaryFile = uploadedFiles[0] || {
+          file_name: null,
+          file_path: null,
+          file_url: null
+        };
+
+        const payload = {
+          id: requestId,
+          vendor_name: vendorName || null,
+          vendor_name_norm: normalizeName(vendorName),
+          vendor_name_manual: null,
+          vendor_name_manual_norm: normalizeName(vendorName),
+          request_type: requestType,
+          invoice_number: els.invoiceNumber.value.trim() || null,
+          flex_id: els.flexId.value.trim() || null,
+          internal_po_number: els.internalPoNumber.value.trim() || null,
+          amount_due: amountDue,
+          due_date: els.dueDate.value || null,
+          requester_email: requesterEmail,
+          requester_email_norm: normalizeEmail(requesterEmail),
+          location_name: els.locationName.value.trim() || null,
+          notes_comments: els.notesComments.value.trim() || null,
+          file_name: primaryFile.file_name,
+          file_path: primaryFile.file_path,
+          file_url: primaryFile.file_url,
+          workflow_status: "new",
+          completed: false,
+          created_by: currentUser?.id || null,
+          updated_by: currentUser?.id || null
+        };
+
+        const { error: insertError } = await supabaseClient
+          .from("payment_requests")
+          .insert(payload);
+
+        if (insertError) throw insertError;
+
+        if (uploadedFiles.length) {
+          const { error: fileRowsError } = await supabaseClient
+            .from("payment_request_files")
+            .insert(uploadedFiles);
+
+          if (fileRowsError) throw fileRowsError;
+        }
+
+        els.successRequestId.textContent = requestId;
+        els.successFileName.textContent = uploadedFiles.length
+          ? `${uploadedFiles.length} file${uploadedFiles.length === 1 ? "" : "s"} attached`
+          : "No files attached";
+
+        els.appCard.classList.add("hidden");
+        els.successCard.classList.remove("hidden");
+        showStatus("Payment request submitted successfully.", "success");
+      } catch (error) {
+        console.error(error);
+        showStatus(error?.message || "Request submission failed.", "error");
+      } finally {
+        setSubmitting(false);
+      }
+    }
+
+    async function init() {
+      await ensureAuth();
+
+      if (window.SiloChrome) {
+        window.SiloChrome.mount({
+          appEl: "#silo-app",
+          active: "purchasing/requests",
+          user: { email: currentUser?.email || "", role: "OWNER" },
+          crumbs: ["Purchasing", "Payment request"],
+          supabaseClient,
+        });
+      }
+
+      await populateVendorOptions();
+
+      els.requestForm.addEventListener("submit", createPaymentRequest);
+      els.resetBtn.addEventListener("click", resetForm);
+      els.newRequestBtn.addEventListener("click", resetForm);
+
+      supabaseClient.auth.onAuthStateChange(async () => {
+        await ensureAuth();
+        await populateVendorOptions();
+      });
+    }
+
+    init();
+  </script>
+</body>
+</html>
