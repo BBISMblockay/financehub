@@ -38,20 +38,28 @@
     .cal-events { display:flex; flex-direction:column; gap:2px; flex:1; overflow:hidden; }
     .cal-overflow { font-size:9.5px; color:var(--bcn-ink-4); padding:1px 0; font-family:var(--bcn-mono); }
 
+    /* calendar grid auto-rows keep cells uniform */
+    .cal-grid { grid-auto-rows: 104px; }
+
     /* event chip inside calendar cell */
     .ev-chip {
       position:relative; border:1px solid var(--bcn-border); border-radius:5px;
-      padding:3px 5px 3px 8px; cursor:pointer; background:var(--bcn-surface-2,oklch(0.97 0.005 245));
-      overflow:hidden; transition:border-color .1s, transform .1s;
+      padding:3px 18px 3px 8px; cursor:pointer; background:var(--bcn-surface-2,oklch(0.97 0.005 245));
+      overflow:hidden; transition:border-color .1s;
     }
-    .ev-chip:hover { border-color:var(--bcn-border-strong); transform:translateY(-1px); }
+    .ev-chip:hover { border-color:var(--bcn-border-strong); background:oklch(0.95 0.008 245); }
     .ev-chip::before { content:''; position:absolute; left:0; top:3px; bottom:3px; width:3px; border-radius:2px; background:var(--bcn-accent); }
     .ev-chip.s-launched::before   { background:oklch(0.55 0.18 145); }
     .ev-chip.s-blocked::before    { background:oklch(0.55 0.22 15); }
     .ev-chip.s-ready::before      { background:oklch(0.58 0.16 145); }
     .ev-chip.s-in_progress::before { background:oklch(0.60 0.18 75); }
     .ev-chip.s-assets_needed::before { background:oklch(0.62 0.18 75); }
-    .ev-chip-thumb { width:100%; height:20px; object-fit:cover; border-radius:3px; margin-bottom:2px; display:block; }
+    /* edit pencil — top-right of chip, shown on hover */
+    .ev-chip-edit { position:absolute; right:3px; top:50%; transform:translateY(-50%); width:14px; height:14px; display:flex; align-items:center; justify-content:center; font-size:9px; opacity:0; transition:opacity .12s; color:var(--bcn-ink-3); pointer-events:auto; background:var(--bcn-surface); border:1px solid var(--bcn-border); border-radius:3px; z-index:2; }
+    .ev-chip:hover .ev-chip-edit { opacity:1; }
+    .ev-chip-edit:hover { background:var(--bcn-accent); color:#fff; border-color:var(--bcn-accent); }
+    /* no images in calendar chips — too small; images show in agenda */
+    .ev-chip-thumb { display:none; }
     .ev-chip-title { font-size:10.5px; font-weight:600; line-height:1.15; display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; overflow:hidden; }
     .ev-chip-meta { font-size:9.5px; color:var(--bcn-ink-3); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 
@@ -311,7 +319,7 @@
       <button class="ed-close-btn" id="closeDrawer" aria-label="Close">✕</button>
     </div>
     <div class="ed-actions">
-      <button class="ed-ghost-btn" type="button" id="editLaunchBtn">EDIT</button>
+      <button class="ed-ghost-btn" type="button" id="editLaunchBtn" style="background:var(--bcn-accent);color:#fff;border-color:var(--bcn-accent);">✏ EDIT LAUNCH</button>
       <button class="ed-ghost-btn" type="button" id="refreshDetailBtn">REFRESH</button>
     </div>
   </div>
@@ -617,7 +625,7 @@ if (__SILO_DEMO__) {
     { id:2, title:"Father's Day Tee",   launch_date:off(5),  launch_time:'09:00', launch_type:'DTC + Retail', status:'in_progress',  priority:'high',    launch_readiness:'needs_assets', designer:'Studio', marketing_channel:'email',  campaign_type:'Holiday',  launch_image_url:null, notes:"Father's Day hero tee. Email at 9am CT.", details:'Email + social push.', po_number:null, vendor_name:null, expected_units:500, expected_retail_value:24500, product_title:"Father's Day Tee", product_type:'T-Shirt', collection_name:'Holiday', created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
     { id:3, title:'Throwback Jerseys',   launch_date:off(10), launch_time:'12:00', launch_type:'Restock',     status:'planned',      priority:'normal',  launch_readiness:'not_reviewed', designer:'Studio', marketing_channel:'social', campaign_type:'Restock',  launch_image_url:null, notes:'Restock of classic jerseys.', details:null, po_number:'PO-2024-092', vendor_name:'Majestic', expected_units:200, expected_retail_value:15800, product_title:'Throwback Jersey', product_type:'Jersey', collection_name:'Classics', created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
     { id:4, title:'Summer Sale Promo',   launch_date:off(14), launch_time:'08:00', launch_type:'Promotion',   status:'planned',      priority:'normal',  launch_readiness:'not_reviewed', designer:'Owen',   marketing_channel:'email',  campaign_type:'Promo',    launch_image_url:null, notes:'Site-wide summer sale.', details:'20% off sitewide, email + SMS.', po_number:null, vendor_name:null, expected_units:null, expected_retail_value:null, product_title:null, product_type:null, collection_name:'Summer', created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
-    { id:5, title:'MLB Collab Drop',     launch_date:off(-2), launch_time:'10:00', launch_type:'Collab',      status:'launched',     priority:'critical',launch_readiness:'ready',        designer:'Owen',   marketing_channel:'email',  campaign_type:'Collab',   launch_image_url:null, notes:'MLB partnership launch. Went well.', details:'Full media push.', po_number:'PO-2024-077', vendor_name:'MLB Licensing', expected_units:1000, expected_retail_value:59000, product_title:'MLB Collab Tee', product_type:'T-Shirt', collection_name:'MLB Collab', created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
+    { id:5, title:'MLB Collab Drop',     launch_date:off(-2), launch_time:'10:00', launch_type:'Collab',      status:'launched',     priority:'critical',launch_readiness:'ready',        designer:'Owen',   marketing_channel:'email',  campaign_type:'Collab',   launch_image_url:'https://images.unsplash.com/photo-1566576912321-d58ddd7a6088?w=400&q=80', notes:'MLB partnership launch. Went well.', details:'Full media push.', po_number:'PO-2024-077', vendor_name:'MLB Licensing', expected_units:1000, expected_retail_value:59000, product_title:'MLB Collab Tee', product_type:'T-Shirt', collection_name:'MLB Collab', created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
   ];
   const TASKS = [
     { id:1, launch_id:1, task_title:'Finalize product shots', task_type:'creative', status:'in_progress', priority:'high', due_date:off(1), notes:null },
@@ -981,6 +989,12 @@ function renderMonth(){
         ${more>0?`<div class="cal-overflow">+${more} more</div>`:''}
       </div>`;
     cell.querySelectorAll('[data-lid]').forEach(el=>el.onclick=()=>openDrawer(Number(el.dataset.lid)));
+    cell.querySelectorAll('[data-edit]').forEach(el=>el.onclick=e=>{
+      e.stopPropagation();
+      const lid=Number(el.dataset.edit);
+      const launch=launches.find(x=>x.id===lid);
+      if(launch) openLaunchModal(launch);
+    });
     grid.appendChild(cell);
   }
 }
@@ -990,9 +1004,9 @@ function evChip(x){
   const taskCount=tasks.filter(t=>t.launch_id===x.id&&!['done','complete'].includes(t.status)).length;
   const meta=[x.launch_time?x.launch_time.slice(0,5):null, x.launch_type, taskCount?`${taskCount}T`:null].filter(Boolean).join(' · ');
   return `<div class="ev-chip ${cls}" data-lid="${x.id}">
-    ${x.launch_image_url?`<img class="ev-chip-thumb" src="${esc(x.launch_image_url)}" alt="" loading="lazy" />`:''}
     <div class="ev-chip-title">${esc(x.title||x.product_title||'Untitled')}</div>
     ${meta?`<div class="ev-chip-meta">${esc(meta)}</div>`:''}
+    <span class="ev-chip-edit" data-edit="${x.id}" title="Edit launch">✏</span>
   </div>`;
 }
 
