@@ -919,8 +919,8 @@ function applyFilters(){
     if(F.from&&x.launch_date<F.from) return false;
     if(F.to&&x.launch_date>F.to) return false;
     if(q){
-      const cp=products.filter(p=>p.launch_id===x.id).map(p=>p.product_title).join(' ');
-      const cc=channels.filter(c=>c.launch_id===x.id).map(c=>c.item_title+' '+c.channel).join(' ');
+      const cp=products.filter(p=>String(p.launch_id)===String(x.id)).map(p=>p.product_title).join(' ');
+      const cc=channels.filter(c=>String(c.launch_id)===String(x.id)).map(c=>c.item_title+' '+c.channel).join(' ');
       const blob=[x.title,x.launch_type,x.designer,x.marketing_channel,x.campaign_type,x.assets_needed,x.details,x.notes,x.product_sku,x.product_title,x.product_type,x.collection_name,x.po_number,x.vendor_name,x.inventory_tag,x.launch_readiness,cp,cc].join(' ').toLowerCase();
       if(!blob.includes(q)) return false;
     }
@@ -933,19 +933,19 @@ function applyFilters(){
 function render(){ renderKpis(); if(view==='calendar') renderMonth(); else renderAgenda(); }
 
 function renderKpis(){
-  const ids=new Set(filtered.map(x=>x.id));
+  const ids=new Set(filtered.map(x=>String(x.id)));
   const mStart=iso(monthAnchor), mEnd=iso(new Date(monthAnchor.getFullYear(),monthAnchor.getMonth()+1,0));
   const todayStr=iso(new Date()), next7=iso(addDays(new Date(),7));
   setText('[data-kpi="count"]',  filtered.length);
   setText('[data-kpi="month"]',  filtered.filter(x=>x.launch_date>=mStart&&x.launch_date<=mEnd).length+' THIS MONTH');
   setText('[data-kpi="next7"]',  filtered.filter(x=>x.launch_date>=todayStr&&x.launch_date<next7).length);
-  setText('[data-kpi="products"]',products.filter(x=>ids.has(x.launch_id)).length+' PRODUCTS');
-  const openTasks=tasks.filter(x=>ids.has(x.launch_id)&&!['done','complete'].includes(x.status)).length;
-  const atRisk=filtered.filter(x=>['at_risk','needs_inventory','needs_assets'].includes(x.launch_readiness)).length+products.filter(x=>ids.has(x.launch_id)&&['at_risk','blocked'].includes(x.readiness_status)).length;
+  setText('[data-kpi="products"]',products.filter(x=>ids.has(String(x.launch_id))).length+' PRODUCTS');
+  const openTasks=tasks.filter(x=>ids.has(String(x.launch_id))&&!['done','complete'].includes(x.status)).length;
+  const atRisk=filtered.filter(x=>['at_risk','needs_inventory','needs_assets'].includes(x.launch_readiness)).length+products.filter(x=>ids.has(String(x.launch_id))&&['at_risk','blocked'].includes(x.readiness_status)).length;
   setText('[data-kpi="tasks"]',  openTasks);
   setText('[data-kpi="risk"]',   atRisk+' AT RISK');
-  const allCh=channels.filter(x=>ids.has(x.launch_id)).length;
-  const chWeek=channels.filter(x=>ids.has(x.launch_id)&&x.scheduled_date>=todayStr&&x.scheduled_date<next7).length;
+  const allCh=channels.filter(x=>ids.has(String(x.launch_id))).length;
+  const chWeek=channels.filter(x=>ids.has(String(x.launch_id))&&x.scheduled_date>=todayStr&&x.scheduled_date<next7).length;
   setText('[data-kpi="channels"]', allCh);
   setText('[data-kpi="chweek"]',   chWeek+' THIS WEEK');
 }
@@ -988,11 +988,10 @@ function renderMonth(){
         ${shown.map(x=>evChip(x)).join('')}
         ${more>0?`<div class="cal-overflow">+${more} more</div>`:''}
       </div>`;
-    cell.querySelectorAll('[data-lid]').forEach(el=>el.onclick=()=>openDrawer(Number(el.dataset.lid)));
+    cell.querySelectorAll('[data-lid]').forEach(el=>el.onclick=()=>openDrawer(el.dataset.lid));
     cell.querySelectorAll('[data-edit]').forEach(el=>el.onclick=e=>{
       e.stopPropagation();
-      const lid=Number(el.dataset.edit);
-      const launch=launches.find(x=>x.id===lid);
+      const launch=launches.find(x=>String(x.id)===String(el.dataset.edit));
       if(launch) openLaunchModal(launch);
     });
     grid.appendChild(cell);
@@ -1001,7 +1000,7 @@ function renderMonth(){
 
 function evChip(x){
   const cls = x.status==='launched'?'s-launched':x.status==='blocked'||x.launch_readiness==='at_risk'?'s-blocked':x.status==='ready'?'s-ready':x.status==='in_progress'?'s-in_progress':x.status==='assets_needed'?'s-assets_needed':'';
-  const taskCount=tasks.filter(t=>t.launch_id===x.id&&!['done','complete'].includes(t.status)).length;
+  const taskCount=tasks.filter(t=>String(t.launch_id)===String(x.id)&&!['done','complete'].includes(t.status)).length;
   const meta=[x.launch_time?x.launch_time.slice(0,5):null, x.launch_type, taskCount?`${taskCount}T`:null].filter(Boolean).join(' · ');
   return `<div class="ev-chip ${cls}" data-lid="${x.id}">
     <div class="ev-chip-title">${esc(x.title||x.product_title||'Untitled')}</div>
@@ -1018,9 +1017,9 @@ function renderAgenda(){
   const list=$('feedList');
   if(!items.length){ list.innerHTML=`<div class="bcn-empty" style="padding:24px;">No launches in this range.</div>`; return; }
   list.innerHTML=items.map(x=>{
-    const taskCount=tasks.filter(t=>t.launch_id===x.id&&!['done','complete'].includes(t.status)).length;
-    const prodCount=products.filter(p=>p.launch_id===x.id).length;
-    const chCount=channels.filter(c=>c.launch_id===x.id).length;
+    const taskCount=tasks.filter(t=>String(t.launch_id)===String(x.id)&&!['done','complete'].includes(t.status)).length;
+    const prodCount=products.filter(p=>String(p.launch_id)===String(x.id)).length;
+    const chCount=channels.filter(c=>String(c.launch_id)===String(x.id)).length;
     const rCls=['at_risk','needs_inventory','needs_assets'].includes(x.launch_readiness)?'pill-risk':x.launch_readiness==='ready'?'pill-launched':'';
     const imgEl=x.launch_image_url
       ?`<img class="agenda-img" src="${esc(x.launch_image_url)}" alt="" loading="lazy" />`
@@ -1028,8 +1027,11 @@ function renderAgenda(){
     return `<div class="agenda-row" data-lid="${x.id}">
       <div><div class="agenda-date">${esc(fmt(x.launch_date))}</div><div class="agenda-time-txt">${esc(x.launch_time||'')}</div></div>
       ${imgEl}
-      <div>
-        <div class="agenda-title">${esc(x.title||x.product_title||'Untitled')}</div>
+      <div style="min-width:0;">
+        <div style="display:flex;align-items:flex-start;gap:8px;">
+          <div class="agenda-title" style="flex:1;min-width:0;">${esc(x.title||x.product_title||'Untitled')}</div>
+          <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-edit-lid="${x.id}" style="flex-shrink:0;height:26px;font-size:10px;padding:0 8px;" onclick="event.stopPropagation()">✏ EDIT</button>
+        </div>
         <div class="agenda-meta">${esc([x.product_title,x.product_type,x.po_number,x.designer].filter(Boolean).join(' · '))}</div>
         <div class="agenda-pills">
           <span class="bcn-pill ${rCls}">${esc(x.launch_readiness||'not_reviewed')}</span>
@@ -1041,20 +1043,24 @@ function renderAgenda(){
       </div>
     </div>`;
   }).join('');
-  list.querySelectorAll('[data-lid]').forEach(el=>el.onclick=()=>openDrawer(Number(el.dataset.lid)));
+  list.querySelectorAll('[data-lid]').forEach(el=>el.onclick=()=>openDrawer(el.dataset.lid));
+  list.querySelectorAll('[data-edit-lid]').forEach(el=>el.onclick=e=>{
+    e.stopPropagation();
+    const launch=launches.find(x=>String(x.id)===String(el.dataset.editLid));
+    if(launch) openLaunchModal(launch);
+  });
 }
 
 /* ---- drawer ------------------------------------------------------------ */
 
 function openDrawer(id){
-  activeLaunch=launches.find(x=>x.id===id);
+  activeLaunch=launches.find(x=>String(x.id)===String(id));
   if(!activeLaunch) return;
   $('drawerTitle').textContent=activeLaunch.title||activeLaunch.product_title||'Launch';
   $('drawerSub').textContent=`${fmt(activeLaunch.launch_date)} · ${activeLaunch.launch_readiness||'not_reviewed'}`;
   $('detailDrawer').classList.add('open');
   $('drawerOverlay').classList.add('open');
   $('detailDrawer').setAttribute('aria-hidden','false');
-  // reset to overview tab
   document.querySelectorAll('.drawer-tab').forEach(x=>x.classList.toggle('active',x.dataset.dp==='dp-overview'));
   document.querySelectorAll('.dp').forEach(x=>x.classList.toggle('active',x.id==='dp-overview'));
   renderDrawer();
@@ -1067,14 +1073,15 @@ function closeDrawer(){
 }
 function renderDrawer(){
   if(!activeLaunch) return;
-  const id=activeLaunch.id;
-  renderOverview(products.filter(x=>x.launch_id===id),channels.filter(x=>x.launch_id===id),tasks.filter(x=>x.launch_id===id));
-  renderProductReadiness(products.filter(x=>x.launch_id===id));
-  renderChannels(channels.filter(x=>x.launch_id===id));
-  renderTasks(tasks.filter(x=>x.launch_id===id));
-  renderAssets(assets.filter(x=>x.launch_id===id));
-  renderSystemLinks(systemLinks.filter(x=>x.launch_id===id));
-  renderComments(comments.filter(x=>x.launch_id===id));
+  const sid=String(activeLaunch.id);
+  const flt=arr=>arr.filter(x=>String(x.launch_id)===sid);
+  renderOverview(flt(products),flt(channels),flt(tasks));
+  renderProductReadiness(flt(products));
+  renderChannels(flt(channels));
+  renderTasks(flt(tasks));
+  renderAssets(flt(assets));
+  renderSystemLinks(flt(systemLinks));
+  renderComments(flt(comments));
 }
 
 function renderOverview(prods,chans,tsks){
@@ -1252,13 +1259,13 @@ async function saveLaunch(){
     };
     if(!payload.title||!payload.launch_date){ $('formMsg').textContent='Title and date are required.'; return; }
     let res;
-    if(id) res=await db.from('launch_calendar').update(payload).eq('id',id);
-    else { payload.created_by=currentUser.id; res=await db.from('launch_calendar').insert([payload]); }
+    if(id) res=await db.from('launch_calendar').update(payload).eq('id',id).select().single();
+    else { payload.created_by=currentUser.id; res=await db.from('launch_calendar').insert(payload).select().single(); }
     if(res?.error) throw res.error;
+    const savedId=res.data?.id||id;
     closeLaunchModal();
     await loadAll();
-    const saved=launches.find(x=>id?String(x.id)===String(id):x.launch_date===payload.launch_date&&x.title===payload.title);
-    if(saved) openDrawer(saved.id);
+    if(savedId) openDrawer(savedId);
     setStatus(`Saved · ${payload.title}`,'pos',2000);
   } catch(e){
     console.error(e);
