@@ -2,11 +2,10 @@
    SILO chrome v2 — sidebar + utility bar.
    Every SILO page mounts this once. Active branch auto-expands.
 
-     <div class="silo-app" id="silo-app">
-       <!-- chrome injected here -->
-       <main class="silo-main"> ...page content... </main>
-     </div>
-     <script src="/v2/silo-chrome.js"></script>
+   Include on each page (after beacon.css + inline styles):
+     <link rel="stylesheet" href="v2-mobile.css" />
+     <script src="v2-shell.js" defer></script>
+     <script src="silo-chrome.js"></script>
      <script>
        SiloChrome.mount({
          appEl: '#silo-app',
