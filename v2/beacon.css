@@ -1,7 +1,9 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap");
+
 /* ========================================================================
    BEACON · SILO design system v2
    Tokens + components shared across every SILO page.
-   UI: Plus Jakarta Sans · figures / code: IBM Plex Mono (load v2-fonts.css).
+   Fonts: Plus Jakarta Sans (UI) + IBM Plex Mono (mono) — loaded above.
    ======================================================================== */
 
 /* ---- TOKENS ------------------------------------------------------------ */
