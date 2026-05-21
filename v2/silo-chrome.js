@@ -23,35 +23,40 @@
     { id: 'hub', label: 'Hub', icon: 'hub', href: '/index.html' },
 
     { id: 'finance', label: 'Finance', icon: 'finance', children: [
-      { id: 'finance/cashflow',   label: 'Cash flow',     href: '/cashflow.html' },
-      { id: 'finance/executive',  label: 'Executive',     href: '/v2/executive.html' },
-      { id: 'finance/ap',         label: 'AP report',     href: '/ap-report.html' },
-      { id: 'finance/recon',      label: 'Recon',         href: '/recon.html' },
-      { id: 'finance/finance',    label: 'Finance home',  href: '/v2/finance.html' },
-      { id: 'finance/backend',    label: 'Backend hub',   href: '/v2/backend.html' },
+      { id: 'finance/cashflow',    label: 'Cash flow',     href: '/v2/cashflow.html' },
+      { id: 'finance/executive',   label: 'Executive',     href: '/v2/executive.html' },
+      { id: 'finance/checkwriter', label: 'Check writer',  href: '/v2/checkwriter.html' },
+      { id: 'finance/allocation',  label: 'Allocation',    href: '/v2/allocation.html' },
+      { id: 'finance/travel',      label: 'Travel & exp',  href: '/v2/travel.html' },
+      { id: 'finance/recon',       label: 'Reconciliation',href: '/v2/recon.html' },
+      { id: 'finance/aprio',       label: 'Aprio',         href: '/v2/aprio.html' },
+      { id: 'finance/ap',          label: 'AP report',     href: '/ap-report.html' },
+      { id: 'finance/finance',     label: 'Finance home',  href: '/v2/finance.html' },
+      { id: 'finance/backend',     label: 'Backend hub',   href: '/v2/backend.html' },
     ]},
 
     { id: 'inventory', label: 'Inventory', icon: 'inventory', children: [
       { id: 'inventory/workboard',  label: 'Workboard',       href: '/v2/inventory.html' },
-      { id: 'inventory/products',   label: 'Product manager', href: '/pages/product-manager.html' },
+      { id: 'inventory/products',   label: 'Product manager', href: '/v2/product-manager.html' },
       { id: 'inventory/tags',       label: 'Product tags',    href: '/pages/product-tags.html' },
     ]},
 
     { id: 'sales', label: 'Sales', icon: 'sales', children: [
-      { id: 'sales/verification',   label: 'Sales verification', href: '/pages/sales-verification.html' },
+      { id: 'sales/verification',   label: 'Sales verification', href: '/v2/sales-verification.html' },
       { id: 'sales/reports',        label: 'Sales reports',      href: '/pages/sales-reports.html' },
     ]},
 
     { id: 'purchasing', label: 'Purchasing', icon: 'purchasing', children: [
       { id: 'purchasing/po-builder',  label: 'PO builder',  href: '/v2/po-builder.html' },
       { id: 'purchasing/po-report',   label: 'PO report',   href: '/v2/po-report.html' },
+      { id: 'purchasing/buyer',       label: 'Buyer',       href: '/v2/buyer.html' },
       { id: 'purchasing/requests',    label: 'Requests',    href: '/v2/purchase_request.html' },
       { id: 'purchasing/req-mgr',     label: 'Request mgr', href: '/v2/request_manager.html' },
     ]},
 
     { id: 'wholesale', label: 'Wholesale', icon: 'wholesale', children: [
-      { id: 'wholesale/customers',   label: 'Customers / AR', href: '/pages/baseballismwholesale.html' },
-      { id: 'wholesale/queue',       label: 'Wholesale',      href: '/pages/wholesale.html' },
+      { id: 'wholesale/customers',   label: 'Customers / AR', href: '/v2/baseballismwholesale.html' },
+      { id: 'wholesale/queue',       label: 'Orders',         href: '/v2/wholesale.html' },
     ]},
 
     { id: 'planning', label: 'Planning', icon: 'planning', children: [
@@ -63,15 +68,16 @@
     ]},
 
     { id: 'people', label: 'People', icon: 'people', children: [
-      { id: 'people/payroll',     label: 'Payroll',       href: '/payroll.html' },
+      { id: 'people/payroll',     label: 'Payroll',       href: '/v2/payroll.html' },
       { id: 'people/employees',   label: 'Employee hub',  href: '/v2/employeehub.html' },
       { id: 'people/access',      label: 'Dept access',   href: '/v2/department-access.html' },
     ]},
 
     { id: 'ops', label: 'Ops', icon: 'ops', children: [
-      { id: 'ops/mailroom',  label: 'Mailroom',   href: '/mailroom.html' },
-      { id: 'ops/calendar',  label: 'Calendar',   href: '/v2/calendar.html' },
-      { id: 'ops/status',    label: 'App status', href: '/app-status.html' },
+      { id: 'ops/mailroom',   label: 'Mailroom',   href: '/v2/mailroom.html' },
+      { id: 'ops/modelapps',  label: 'Model apps', href: '/v2/modelapps.html' },
+      { id: 'ops/calendar',   label: 'Calendar',   href: '/v2/calendar.html' },
+      { id: 'ops/status',     label: 'App status', href: '/app-status.html' },
     ]},
   ];
 
