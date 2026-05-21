@@ -125,7 +125,7 @@
 
     const items = NAV.map(item => {
       const isActiveTop = item.id === activeTop;
-      const open = isActiveTop && item.children;
+      const open = !!item.children;
       const childHtml = item.children ? item.children.map(c => `
         <a class="silo-sb-child${c.id === activeChild ? ' silo-sb-child--active' : ''}"
            href="${escHtml(c.href)}">${escHtml(c.label)}</a>
