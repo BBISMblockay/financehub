@@ -171,7 +171,7 @@
     const SUPABASE_URL = config.SUPABASE_URL;
     const SUPABASE_ANON_KEY = config.SUPABASE_ANON_KEY;
 
-    const DEFAULT_APP_PAGE = "/finance.html";
+    const DEFAULT_APP_PAGE = "/v2/cashflow.html";
     const LOGIN_PAGE = "/pages/login.html";
     const SET_PASSWORD_PAGE = "/pages/set-password.html";
 
@@ -223,6 +223,9 @@
       if (path === "/" || path === "/index.html") return "";
       if (path === LOGIN_PAGE) return "";
       if (path === "/pages/department-access.html") return "";
+      if (path === "/v2/department-access.html") return "";
+      if (path === "/finance.html" || path === "/v2/finance.html") return "";
+      if (path === "/ops.html" || path === "/marketing.html" || path === "/retail.html") return "";
 
       return path;
     }
@@ -240,13 +243,12 @@
 
       if (defaultPage) return defaultPage;
 
-      // Keep signed-in users off login/department-access. Finance is the current stable SILO landing.
+      // v2 landing pages — access enforced by Supabase RLS on data; profile drives routing.
       if (role === "owner" || role === "admin") return DEFAULT_APP_PAGE;
       if (department === "finance" || department === "exec" || department === "executive") return DEFAULT_APP_PAGE;
-      if (department === "ops" || department === "operations") return "/ops.html";
-      if (department === "planning") return "/planning.html";
-      if (department === "marketing") return "/marketing.html";
-      if (department === "retail") return "/retail.html";
+      if (department === "ops" || department === "operations") return "/v2/mailroom.html";
+      if (department === "planning") return "/v2/planner.html";
+      if (department === "marketing" || department === "retail") return "/v2/employeehub.html";
 
       return DEFAULT_APP_PAGE;
     }

@@ -31,7 +31,6 @@
       { id: 'finance/recon',       label: 'Reconciliation',href: '/v2/recon.html' },
       { id: 'finance/aprio',       label: 'Aprio',         href: '/v2/aprio.html' },
       { id: 'finance/ap',          label: 'AP report',     href: '/ap-report.html' },
-      { id: 'finance/finance',     label: 'Finance home',  href: '/v2/finance.html' },
       { id: 'finance/backend',     label: 'Backend hub',   href: '/v2/backend.html' },
     ]},
 
@@ -70,7 +69,6 @@
     { id: 'people', label: 'People', icon: 'people', children: [
       { id: 'people/payroll',     label: 'Payroll',       href: '/v2/payroll.html' },
       { id: 'people/employees',   label: 'Employee hub',  href: '/v2/employeehub.html' },
-      { id: 'people/access',      label: 'Dept access',   href: '/v2/department-access.html' },
     ]},
 
     { id: 'ops', label: 'Ops', icon: 'ops', children: [

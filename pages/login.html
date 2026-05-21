@@ -149,7 +149,7 @@
       const CFG = window.__SILO_CONFIG__ || {};
       const SUPABASE_URL = (CFG.SUPABASE_URL || "").trim();
       const SUPABASE_ANON_KEY = (CFG.SUPABASE_ANON_KEY || "").trim();
-      const REDIRECT_TO = (CFG.REDIRECT_TO || "/finance.html").trim();
+      const REDIRECT_TO = (CFG.REDIRECT_TO || "/v2/cashflow.html").trim();
       const EXPECT_EMAIL_CONFIRMATION = !!CFG.EXPECT_EMAIL_CONFIRMATION;
 
       const statusEl = document.getElementById("status");
@@ -157,11 +157,14 @@
       const btnSignout = document.getElementById("btnSignout");
 
       const ROUTE_BY_DEPARTMENT = {
-        exec: "/finance.html",
-        finance: "/finance.html",
-        ops: "/ops.html",
-        marketing: "/marketing.html",
-        retail: "/retail.html"
+        exec: "/v2/cashflow.html",
+        finance: "/v2/cashflow.html",
+        executive: "/v2/cashflow.html",
+        ops: "/v2/mailroom.html",
+        operations: "/v2/mailroom.html",
+        planning: "/v2/planner.html",
+        marketing: "/v2/employeehub.html",
+        retail: "/v2/employeehub.html"
       };
 
       function showStatus(msg, type = "info") {
@@ -232,8 +235,8 @@
         const role = (profile.role || "").toLowerCase();
         const department = (profile.department || "").toLowerCase();
 
-        if (role === "owner") return "/finance.html";
-        if (role === "admin" && department === "exec") return "/finance.html";
+        if (role === "owner") return "/v2/cashflow.html";
+        if (role === "admin" && department === "exec") return "/v2/cashflow.html";
 
         return ROUTE_BY_DEPARTMENT[department] || REDIRECT_TO;
       }
