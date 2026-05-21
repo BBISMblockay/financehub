@@ -146,7 +146,7 @@
       <div class="ps-page-copy">
         <div class="ps-page-kicker">SILO · purchasing</div>
         <div class="ps-page-title">Payment request</div>
-        <div class="ps-page-sub">Intake form — routes into the payment request workbench.</div>
+        <div class="ps-page-sub">Send a request to AP — we will follow up in the workbench.</div>
       </div>
       <div class="ps-actions">
         <button type="button" class="ps-tb-btn ps-tb-btn--primary" id="psReloadBtn" hidden>Reload</button>
@@ -154,17 +154,17 @@
       </div>
     </header>
     <div class="ps-viewport">
-  <div class="shell pr-page">
+  <div class="shell pr-page pr-page--intake">
     <div class="pr-stack">
       <section class="bcn-card pr-intro">
         <header class="bcn-card-header bcn-card-header--dark">
-          <span class="bcn-pill">INTAKE</span>
-          <h2>Baseballism payment request</h2>
-          <span class="bcn-card-meta">SILO · vendor payables, reimbursements, deposits, balances, refunds</span>
+          <span class="bcn-pill">Payment request</span>
+          <h2>Vendor payments &amp; reimbursements</h2>
+          <span class="bcn-card-meta">Vendors, deposits, balances, refunds, and team reimbursements</span>
         </header>
         <div class="bcn-card-body">
           <p class="pr-intro-lead">
-            Submit a payment request into SILO for vendor payments, reimbursements, deposits, balances, or refunds. Requests are stored and routed into the internal workbench for review and processing.
+            Use this form for anything that needs to be paid or reimbursed through AP. Your request is saved to SILO and appears in the payment request workbench for the team to review.
           </p>
         </div>
       </section>
@@ -172,11 +172,11 @@
       <div id="authCard" class="card hidden">
         <div class="pr-stack">
           <div>
-            <div class="section-title">Authentication required</div>
-            <div class="section-sub">You must be signed in to submit requests.</div>
+            <div class="section-title">Sign in to continue</div>
+            <div class="section-sub">This form is only available to signed-in users.</div>
           </div>
           <div class="pr-callout">
-            This page uses Supabase auth. After you sign in, your email can auto-fill and the request is stamped to your user account.
+            Sign in with your SILO account. We will pre-fill your email where we can and attach this request to your profile.
           </div>
         </div>
       </div>
@@ -184,8 +184,8 @@
       <div id="appCard" class="card hidden">
         <div class="pr-card-toolbar">
           <div>
-            <div class="section-title">New payment request</div>
-            <div class="section-sub">Fields marked with <span class="pr-req">*</span> are required.</div>
+            <div class="section-title">Tell us what you need paid</div>
+            <div class="section-sub"><span class="pr-req">*</span> indicates a required field.</div>
           </div>
           <span id="signedInAs" class="pill">Signed in</span>
         </div>
@@ -194,7 +194,7 @@
 
         <form id="requestForm" class="pr-form-stack">
           <div class="pr-section-card">
-            <div class="section-title">Vendor information</div>
+            <div class="section-title">Vendor and amount</div>
             <div class="pr-form-grid">
               <div class="pr-span-2">
                 <label class="bcn-label" for="vendorName">Vendor<span class="pr-req">*</span></label>
@@ -208,7 +208,7 @@
                 />
                 <datalist id="vendorOptions"></datalist>
                 <input id="vendorNameManual" type="hidden" value="" />
-                <div class="pr-help">Start typing to select a vendor used on prior requests, or enter a new vendor name.</div>
+                <div class="pr-help">Pick a name from the list as you type, or enter a new vendor if they are not on the list yet.</div>
               </div>
 
               <div>
@@ -231,7 +231,7 @@
           </div>
 
           <div class="pr-section-card">
-            <div class="section-title">Reference information</div>
+            <div class="section-title">Invoice and references</div>
             <div class="pr-form-grid">
               <div>
                 <label class="bcn-label" for="invoiceNumber">Invoice #</label>
@@ -256,8 +256,8 @@
           </div>
 
           <div class="pr-section-card">
-            <div class="section-title">Requester and support details</div>
-            <div class="section-sub">Please attach any supporting files.</div>
+            <div class="section-title">Your details and attachments</div>
+            <div class="section-sub">Add files if they help AP understand the request (invoice PDFs, receipts, etc.).</div>
             <div class="pr-form-grid">
               <div>
                 <label class="bcn-label" for="requesterEmail">Requester email<span class="pr-req">*</span></label>
@@ -278,7 +278,7 @@
                     accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.doc,.docx"
                     multiple
                   />
-                  <div class="pr-help">Accepted examples: invoice PDFs, images, spreadsheets, or supporting documents. You may attach multiple files.</div>
+                  <div class="pr-help">PDFs, images, spreadsheets, and Word documents are fine. You can attach more than one file.</div>
                 </div>
               </div>
 
@@ -290,34 +290,34 @@
           </div>
 
           <div class="pr-callout">
-            Internal fields like payment type, completed status, payment detail, assignment, and review notes are handled in the payment requests workbench after submission.
+            You do not need to enter routing, assignment, or payment status here — AP completes those steps in the workbench after you submit.
           </div>
 
           <div class="pr-form-actions">
-            <div class="pr-muted">Requests are stamped with created/updated timestamps and saved into SILO for processing and tracking.</div>
+            <div class="pr-muted">We save a timestamp with your request so AP can track it from submission through payment.</div>
             <div class="pr-btn-row">
-              <button id="resetBtn" type="button" class="btn btn-soft">Clear</button>
-              <button id="submitBtn" type="submit" class="btn btn-primary">Submit request</button>
+              <button id="resetBtn" type="button" class="btn btn-soft">Start over</button>
+              <button id="submitBtn" type="submit" class="btn btn-primary">Submit to AP</button>
             </div>
           </div>
         </form>
       </div>
 
       <div id="successCard" class="card hidden">
-        <div class="section-title">Request submitted</div>
-        <div class="section-sub">The request was saved successfully and is now available in the payment requests workbench.</div>
+        <div class="section-title">You are all set</div>
+        <div class="section-sub">AP can see your request in the workbench and will take it from here.</div>
         <div class="pr-success-grid">
           <div class="pr-callout">
-            <div class="pr-kv-label">Request ID</div>
+            <div class="pr-kv-label">Reference number</div>
             <div id="successRequestId" class="pr-kv-value">—</div>
           </div>
           <div class="pr-callout">
-            <div class="pr-kv-label">Files uploaded</div>
+            <div class="pr-kv-label">Attachments</div>
             <div id="successFileName" class="pr-kv-value">No files</div>
           </div>
         </div>
         <div class="pr-btn-row pr-success-actions">
-          <button id="newRequestBtn" type="button" class="btn btn-primary">Submit another</button>
+          <button id="newRequestBtn" type="button" class="btn btn-primary">Submit another request</button>
         </div>
       </div>
     </div>
@@ -700,7 +700,7 @@
     function setSubmitting(isSubmitting) {
       els.submitBtn.disabled = isSubmitting;
       els.resetBtn.disabled = isSubmitting;
-      els.submitBtn.textContent = isSubmitting ? "Submitting..." : "Submit request";
+      els.submitBtn.textContent = isSubmitting ? "Submitting…" : "Submit to AP";
     }
 
     function resetForm() {
@@ -780,7 +780,7 @@
 
       const authed = await ensureAuth();
       if (!authed) {
-        showStatus("You must be signed in to submit a request.", "error");
+        showStatus("Please sign in first, then try again.", "error");
         return;
       }
 
@@ -790,22 +790,22 @@
       const amountDue = Number(els.amountDue.value);
 
       if (!vendorName) {
-        showStatus("Vendor is required.", "error");
+        showStatus("Add a vendor name so AP knows who to pay.", "error");
         return;
       }
 
       if (!requestType) {
-        showStatus("Please select a request type.", "error");
+        showStatus("Choose what kind of request this is.", "error");
         return;
       }
 
       if (!requesterEmail) {
-        showStatus("Requester email is required.", "error");
+        showStatus("We need an email in case AP has questions.", "error");
         return;
       }
 
       if (!Number.isFinite(amountDue) || amountDue < 0) {
-        showStatus("Amount due must be a valid number.", "error");
+        showStatus("Enter a valid dollar amount (zero or more).", "error");
         return;
       }
 
@@ -867,10 +867,10 @@
 
         els.appCard.classList.add("hidden");
         els.successCard.classList.remove("hidden");
-        showStatus("Payment request submitted successfully.", "success");
+        showStatus("Your request was sent to AP.", "success");
       } catch (error) {
         console.error(error);
-        showStatus(error?.message || "Request submission failed.", "error");
+        showStatus(error?.message || "Something went wrong while saving. Please try again.", "error");
       } finally {
         setSubmitting(false);
       }
