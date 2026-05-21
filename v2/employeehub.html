@@ -1,16 +1,12 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Baseballism • Employee Hub</title>
-
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <title>SILO · Employee hub</title>
+  <link rel="stylesheet" href="beacon.css" />
 
   <style>
-    @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap");
-
     :root {
       --bg: #f4f6fa;
       --surface: #ffffff;
@@ -496,11 +492,21 @@
       .page-sub { white-space: normal; }
     }
   </style>
+  <link rel="stylesheet" href="employeehub-v2-theme.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
 </head>
 <body>
-  <div class="app" id="appShell">
+  <div id="authBoot" class="auth-boot">
+    <div class="auth-boot-card">
+      <div class="auth-boot-title">Employee hub</div>
+      <p class="auth-boot-sub">Sign in with your SILO account. Tools are filtered from your profile role and departments.</p>
+      <a class="btn primary" id="authSignIn" href="/pages/login.html">Sign in</a>
+      <p class="auth-boot-err" id="authBootErr" hidden></p>
+    </div>
+  </div>
+
+  <div class="app" id="appShell" hidden>
     <aside class="sidebar" aria-label="Employee hub navigation">
       <div class="brand-block">
         <img
@@ -512,6 +518,11 @@
           <div class="brand-title">Employee Hub</div>
           <div class="brand-sub">Internal tools &amp; requests</div>
         </div>
+      </div>
+
+      <div class="profile-card" id="profileCard">
+        <div class="profile-name" id="profileName">—</div>
+        <div class="profile-meta" id="profileMeta">Loading profile…</div>
       </div>
 
       <div class="pathway-hint" id="pathwayHint">
@@ -535,7 +546,7 @@
       <nav class="nav-scroll" id="sidebarNav" aria-label="Tools by pathway"></nav>
 
       <div class="sidebar-foot">
-        Design preview (v2). Classic layout:
+        Signed-in experience · Classic layout:
         <a href="/employeehub.html">employeehub.html</a>
       </div>
     </aside>
@@ -551,6 +562,7 @@
         </div>
 
         <div class="actions">
+          <button class="btn" id="signOutBtn" type="button">Sign out</button>
           <button class="btn" id="reloadBtn" type="button" disabled>Reload</button>
           <a class="btn primary" id="openNewTab" href="#" target="_blank" rel="noopener" aria-disabled="true">Open ↗</a>
         </div>
@@ -574,7 +586,19 @@
     </main>
   </div>
 
+  <script src="../pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
   <script>
+    const LOGIN_PATH = "/pages/login.html?next=" + encodeURIComponent((location.pathname + location.search) || "/v2/employeehub.html");
+
+    let supabaseClient = null;
+    const CURRENT_USER = {
+      id: null,
+      email: null,
+      role: null,
+      departments: []
+    };
+
     const TOOLS = [
       {
         id: "purchase",
@@ -583,8 +607,9 @@
         icon: "🧾",
         tags: ["Request", "Portal"],
         pathway: "submit",
+        access: ["admin", "finance", "operations", "retail", "marketing", "logistics", "buyer"],
         url: "/v2/purchase_request.html",
-        embed: "/pages/purchase-request.html"
+        embed: "/v2/purchase_request.html"
       },
       {
         id: "receipt",
@@ -593,6 +618,7 @@
         icon: "📤",
         tags: ["Upload", "Jotform"],
         pathway: "submit",
+        access: ["all"],
         url: "https://form.jotform.com/202585858721161",
         embed: "https://form.jotform.com/202585858721161"
       },
@@ -603,6 +629,7 @@
         icon: "✈️",
         tags: ["Travel"],
         pathway: "submit",
+        access: ["all"],
         url: "https://form.jotform.com/93366858544169",
         embed: "https://form.jotform.com/93366858544169"
       },
@@ -613,6 +640,7 @@
         icon: "💵",
         tags: ["Google Form"],
         pathway: "submit",
+        access: ["admin", "finance"],
         url: "https://docs.google.com/forms/d/e/1FAIpQLSckmYA0pninVJLOyPduZnMQ__b7gByaFJxoGCVYlKUVgQZcLA/viewform",
         embed: "https://docs.google.com/forms/d/e/1FAIpQLSckmYA0pninVJLOyPduZnMQ__b7gByaFJxoGCVYlKUVgQZcLA/viewform?embedded=true"
       },
@@ -623,6 +651,7 @@
         icon: "📦",
         tags: ["Operations"],
         pathway: "operations",
+        access: ["admin", "operations", "logistics", "retail"],
         url: "https://form.jotform.com/221717017586054",
         embed: "https://form.jotform.com/221717017586054"
       },
@@ -633,6 +662,7 @@
         icon: "📊",
         tags: ["Analytics"],
         pathway: "insights",
+        access: ["admin", "finance", "marketing", "operations"],
         url: "https://wpvportal.weebly.com/analytics-login---bbism.html",
         embed: "https://wpvportal.weebly.com/analytics-login---bbism.html"
       },
@@ -643,30 +673,25 @@
         icon: "🗂️",
         tags: ["Requests"],
         pathway: "insights",
+        access: ["admin", "finance", "operations"],
         url: "https://www.jotform.com/grid/200496570228052",
         embed: "https://www.jotform.com/grid/200496570228052"
       }
     ];
 
     const PATHWAYS = [
-      {
-        id: "submit",
-        label: "Submit & request",
-        hint: "Invoices, receipts, travel, and cash forms"
-      },
-      {
-        id: "operations",
-        label: "Operations & logistics",
-        hint: "Shipping and warehouse workflows"
-      },
-      {
-        id: "insights",
-        label: "Reporting & tracking",
-        hint: "Analytics dashboards and request grids"
-      }
+      { id: "submit", label: "Submit & request", hint: "Invoices, receipts, travel, and cash forms" },
+      { id: "operations", label: "Operations & logistics", hint: "Shipping and warehouse workflows" },
+      { id: "insights", label: "Reporting & tracking", hint: "Analytics dashboards and request grids" }
     ];
 
     const els = {
+      authBoot: document.getElementById("authBoot"),
+      authErr: document.getElementById("authBootErr"),
+      authSignIn: document.getElementById("authSignIn"),
+      appShell: document.getElementById("appShell"),
+      profileName: document.getElementById("profileName"),
+      profileMeta: document.getElementById("profileMeta"),
       sidebarNav: document.getElementById("sidebarNav"),
       toolSearch: document.getElementById("toolSearch"),
       pathwayHint: document.getElementById("pathwayHint"),
@@ -678,7 +703,8 @@
       pageKicker: document.getElementById("pageKicker"),
       openNewTab: document.getElementById("openNewTab"),
       reloadBtn: document.getElementById("reloadBtn"),
-      mobileMenuBtn: document.getElementById("mobileMenuBtn")
+      mobileMenuBtn: document.getElementById("mobileMenuBtn"),
+      signOutBtn: document.getElementById("signOutBtn")
     };
 
     let activeToolId = null;
@@ -686,6 +712,33 @@
 
     function normalize(value) {
       return String(value || "").trim().toLowerCase();
+    }
+
+    function normalizeList(values) {
+      return [...new Set(
+        values
+          .flat()
+          .filter(Boolean)
+          .map(normalize)
+          .filter(Boolean)
+      )];
+    }
+
+    function userCanAccessTool(tool) {
+      const acc = tool.access;
+      if (!acc || !acc.length) return true;
+      if (acc.map(normalize).includes("all")) return true;
+      const role = normalize(CURRENT_USER.role);
+      if (role === "admin") return true;
+      if (acc.map(normalize).includes(role)) return true;
+      const departments = CURRENT_USER.departments || [];
+      return departments.some(dept =>
+        acc.some(allowed => {
+          const a = normalize(allowed);
+          const d = normalize(dept);
+          return d === a || d.includes(a) || a.includes(d);
+        })
+      );
     }
 
     function toolMatchesSearch(tool) {
@@ -700,7 +753,7 @@
     }
 
     function getVisibleTools() {
-      return TOOLS.filter(toolMatchesSearch);
+      return TOOLS.filter(t => userCanAccessTool(t) && toolMatchesSearch(t));
     }
 
     function renderSidebar() {
@@ -708,7 +761,7 @@
       els.sidebarNav.innerHTML = "";
 
       if (!visible.length) {
-        els.sidebarNav.innerHTML = `<div class="empty-nav">No tools match your search.</div>`;
+        els.sidebarNav.innerHTML = `<div class="empty-nav">No tools match your access level or search.</div>`;
         return;
       }
 
@@ -753,7 +806,7 @@
     function renderPathwayChips() {
       els.pathwayChips.innerHTML = "";
       PATHWAYS.forEach(pathway => {
-        const first = TOOLS.find(t => t.pathway === pathway.id);
+        const first = getVisibleTools().find(t => t.pathway === pathway.id);
         if (!first) return;
         const chip = document.createElement("button");
         chip.type = "button";
@@ -780,6 +833,7 @@
     }
 
     function loadTool(tool) {
+      if (!userCanAccessTool(tool)) return;
       activeToolId = tool.id;
       setPathwayHint(tool);
 
@@ -799,29 +853,111 @@
       document.body.classList.remove("nav-open");
     }
 
-    els.toolSearch.addEventListener("input", e => {
-      searchTerm = normalize(e.target.value);
+    async function boot() {
+      if (els.authSignIn) els.authSignIn.href = LOGIN_PATH;
+
+      const cfg = window.__SILO_CONFIG__ || {};
+      if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
+        els.authErr.hidden = false;
+        els.authErr.textContent = "Missing Supabase config (../pages/config.js).";
+        return;
+      }
+      if (!window.supabase || !window.supabase.createClient) {
+        els.authErr.hidden = false;
+        els.authErr.textContent = "Supabase client failed to load.";
+        return;
+      }
+
+      supabaseClient = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+      const { data: sessionData } = await supabaseClient.auth.getSession();
+      if (!sessionData?.session?.user) {
+        els.authBoot.style.display = "";
+        els.appShell.hidden = true;
+        return;
+      }
+
+      const authUser = sessionData.session.user;
+      const { data: profile, error: profileError } = await supabaseClient
+        .from("profiles")
+        .select("*")
+        .eq("id", authUser.id)
+        .maybeSingle();
+
+      if (profileError || !profile) {
+        els.authErr.hidden = false;
+        els.authErr.textContent = profileError
+          ? "Could not load your profile (check RLS)."
+          : "No profile row for this account.";
+        els.authBoot.style.display = "";
+        els.appShell.hidden = true;
+        return;
+      }
+
+      const role =
+        profile.role ||
+        profile.app_role ||
+        profile.user_role ||
+        profile.account_role ||
+        "user";
+
+      const rawDepartments = [
+        profile.department,
+        profile.dept,
+        profile.department_key,
+        profile.primary_department,
+        Array.isArray(profile.departments) ? profile.departments : [],
+        Array.isArray(profile.allowed_departments) ? profile.allowed_departments : [],
+        Array.isArray(profile.department_access) ? profile.department_access : []
+      ];
+
+      CURRENT_USER.id = authUser.id;
+      CURRENT_USER.email = authUser.email || profile.email || "";
+      CURRENT_USER.role = role;
+      CURRENT_USER.departments = normalizeList(rawDepartments);
+
+      els.profileName.textContent = profile.name || profile.full_name || CURRENT_USER.email || "Team member";
+      els.profileMeta.textContent = [
+        CURRENT_USER.email,
+        CURRENT_USER.role ? `Role · ${CURRENT_USER.role}` : "",
+        CURRENT_USER.departments.length ? `Departments · ${CURRENT_USER.departments.join(", ")}` : ""
+      ].filter(Boolean).join(" · ");
+
+      els.authBoot.style.display = "none";
+      els.appShell.hidden = false;
+
+      els.toolSearch.addEventListener("input", e => {
+        searchTerm = normalize(e.target.value);
+        renderSidebar();
+      });
+
+      els.reloadBtn.addEventListener("click", () => {
+        if (!activeToolId) return;
+        els.frame.src = els.frame.src;
+      });
+
+      els.mobileMenuBtn.addEventListener("click", () => {
+        document.body.classList.toggle("nav-open");
+      });
+
+      els.signOutBtn.addEventListener("click", async () => {
+        try {
+          await supabaseClient.auth.signOut();
+        } catch (e) { console.warn(e); }
+        location.href = "/pages/login.html";
+      });
+
+      renderPathwayChips();
       renderSidebar();
-    });
 
-    els.reloadBtn.addEventListener("click", () => {
-      if (!activeToolId) return;
-      els.frame.src = els.frame.src;
-    });
-
-    els.mobileMenuBtn.addEventListener("click", () => {
-      document.body.classList.toggle("nav-open");
-    });
-
-    renderPathwayChips();
-    renderSidebar();
-
-    const params = new URLSearchParams(location.search);
-    const initial = params.get("tool");
-    if (initial) {
-      const tool = TOOLS.find(t => t.id === initial);
-      if (tool) loadTool(tool);
+      const params = new URLSearchParams(location.search);
+      const initial = params.get("tool");
+      if (initial) {
+        const tool = TOOLS.find(t => t.id === initial);
+        if (tool && userCanAccessTool(tool)) loadTool(tool);
+      }
     }
-  </script>
+
+    boot();
+
 </body>
 </html>

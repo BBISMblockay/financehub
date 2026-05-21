@@ -1,0 +1,32 @@
+/* PO Builder / PO Report — Beacon token bridge */
+
+:root {
+  --bg: var(--bcn-bg);
+  --card: color-mix(in oklab, var(--bcn-surface) 94%, transparent);
+  --line: color-mix(in oklab, var(--bcn-ink) 8%, transparent);
+  --text: var(--bcn-ink);
+  --muted: var(--bcn-ink-3);
+  --shadow: 0 8px 22px color-mix(in oklab, var(--bcn-ink) 6%, transparent);
+  --brand: var(--bcn-band);
+}
+
+html[data-theme="light"] body {
+  font-family: var(--bcn-font), system-ui, sans-serif;
+  background: linear-gradient(180deg, var(--bcn-sunken) 0%, var(--bcn-bg) 100%) !important;
+}
+
+html[data-theme="light"] .btn-primary {
+  background: var(--bcn-accent) !important;
+  color: #fff !important;
+}
+
+html[data-theme="light"] .btn-primary:hover:not(:disabled) {
+  filter: brightness(0.95);
+}
+
+html[data-theme="light"] input:focus,
+html[data-theme="light"] select:focus,
+html[data-theme="light"] textarea:focus {
+  border-color: var(--bcn-accent) !important;
+  box-shadow: 0 0 0 3px var(--bcn-accent-soft) !important;
+}
