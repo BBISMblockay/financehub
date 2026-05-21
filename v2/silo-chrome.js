@@ -44,8 +44,8 @@
     { id: 'purchasing', label: 'Purchasing', icon: 'purchasing', children: [
       { id: 'purchasing/po-builder',  label: 'PO builder',  href: '/pages/po-builder.html' },
       { id: 'purchasing/po-report',   label: 'PO report',   href: '/pages/po-report.html' },
-      { id: 'purchasing/requests',    label: 'Requests',    href: '/pages/purchase-request.html' },
-      { id: 'purchasing/req-mgr',     label: 'Request mgr', href: '/pages/request-manager.html' },
+      { id: 'purchasing/requests',    label: 'Requests',    href: '/v2/purchase_request.html' },
+      { id: 'purchasing/req-mgr',     label: 'Request mgr', href: '/v2/request_manager.html' },
     ]},
 
     { id: 'wholesale', label: 'Wholesale', icon: 'wholesale', children: [

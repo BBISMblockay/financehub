@@ -1,0 +1,2187 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Silo v2 · Payment requests workbench</title>
+
+  <link rel="stylesheet" href="beacon.css" />
+  <script src="../pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    :root { color-scheme: light; }
+    html, body { height: 100%; }
+    body {
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bcn-canvas, #f4f6fa);
+      color: #0f172a;
+    }
+
+    .shell { max-width: 1640px; margin: 0 auto; padding: 20px; }
+    .card {
+      background: rgba(255,255,255,.92);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(226,232,240,.95);
+      border-radius: 24px;
+      box-shadow:
+        0 1px 2px rgba(15,23,42,.04),
+        0 10px 30px rgba(15,23,42,.05);
+    }
+    .hero {
+      background:
+        linear-gradient(135deg, rgba(15,23,42,.98), rgba(30,41,59,.97) 55%, rgba(51,65,85,.96));
+      color: #fff;
+      border: 1px solid rgba(255,255,255,.08);
+      border-radius: 28px;
+      box-shadow:
+        0 18px 50px rgba(15,23,42,.18),
+        inset 0 1px 0 rgba(255,255,255,.08);
+    }
+    .hero-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.06);
+      color: rgba(255,255,255,.86);
+      border-radius: 999px;
+      padding: .45rem .75rem;
+      font-size: .74rem;
+      font-weight: 700;
+      letter-spacing: .02em;
+    }
+
+    .input, .select, .textarea {
+      width: 100%;
+      border-radius: 16px;
+      border: 1px solid #dbe2ea;
+      background: #fff;
+      padding: .82rem .95rem;
+      font-size: .92rem;
+      outline: none;
+      transition: .18s ease;
+      color: #0f172a;
+    }
+    .textarea { min-height: 110px; resize: vertical; }
+    .input:focus, .select:focus, .textarea:focus {
+      border-color: #0f172a;
+      box-shadow: 0 0 0 4px rgba(15,23,42,.08);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: .5rem;
+      border-radius: 14px;
+      padding: .78rem 1rem;
+      font-weight: 800;
+      font-size: .9rem;
+      transition: .18s ease;
+      border: 1px solid #dbe2ea;
+      background: #fff;
+      color: #0f172a;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .btn:hover { transform: translateY(-1px); }
+    .btn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+    .btn-primary {
+      background: #0f172a;
+      color: #fff;
+      border-color: #0f172a;
+      box-shadow: 0 10px 22px rgba(15,23,42,.15);
+    }
+    .btn-soft { background: #f8fafc; color: #0f172a; }
+    .btn-xs {
+      border-radius: 12px;
+      padding: .42rem .66rem;
+      font-size: .73rem;
+      font-weight: 800;
+    }
+
+    .section-title { font-size: 1rem; font-weight: 800; color: #0f172a; }
+    .section-sub { margin-top: 2px; font-size: .82rem; color: #64748b; }
+    .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
+
+    .tabs {
+      display: inline-flex;
+      gap: 6px;
+      padding: 6px;
+      border-radius: 999px;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      flex-wrap: wrap;
+    }
+    .tabs button {
+      border: 0;
+      background: transparent;
+      color: #475569;
+      border-radius: 999px;
+      padding: .55rem .95rem;
+      font-size: .82rem;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .tabs button.active {
+      background: #0f172a;
+      color: #fff;
+      box-shadow: 0 8px 18px rgba(15,23,42,.14);
+    }
+
+    .view-panel { display: none; }
+    .view-panel.active { display: block; }
+
+    .kpi {
+      border: 1px solid #e5e7eb;
+      border-radius: 20px;
+      padding: 16px 16px 14px;
+      background: linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(248,250,252,1) 100%);
+      min-height: 104px;
+    }
+    .kpi-label {
+      font-size: .68rem;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: #64748b;
+      font-weight: 800;
+    }
+    .kpi-value {
+      margin-top: 9px;
+      font-size: 1.45rem;
+      line-height: 1.02;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .kpi-sub {
+      margin-top: 6px;
+      font-size: .75rem;
+      color: #64748b;
+    }
+
+    .mini-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .mini-card {
+      border: 1px solid #e5e7eb;
+      border-radius: 18px;
+      padding: 12px;
+      background: #fff;
+    }
+    .mini-card .label {
+      font-size: .68rem;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: #64748b;
+      font-weight: 800;
+    }
+    .mini-card .value {
+      margin-top: 8px;
+      font-size: 1.08rem;
+      font-weight: 800;
+      color: #0f172a;
+    }
+
+    .table-wrap {
+      overflow: auto;
+      border: 1px solid #e5e7eb;
+      border-radius: 20px;
+      background: #fff;
+    }
+    table { width: 100%; border-collapse: separate; border-spacing: 0; }
+    thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      background: #f8fafc;
+      color: #64748b;
+      font-size: .72rem;
+      text-transform: uppercase;
+      letter-spacing: .05em;
+      font-weight: 800;
+      padding: .82rem .85rem;
+      border-bottom: 1px solid #e5e7eb;
+      text-align: left;
+      white-space: nowrap;
+    }
+    tbody td {
+      padding: .82rem .85rem;
+      border-bottom: 1px solid #f1f5f9;
+      font-size: .89rem;
+      vertical-align: top;
+      color: #0f172a;
+    }
+    tbody tr:hover td { background: #fafcff; }
+    .right { text-align: right; }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: .24rem .55rem;
+      font-size: .71rem;
+      font-weight: 700;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+    .badge-new { background: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
+    .badge-in_review { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+    .badge-needs_info { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
+    .badge-approved { background: #ecfdf5; color: #166534; border-color: #bbf7d0; }
+    .badge-processing { background: #ecfeff; color: #155e75; border-color: #a5f3fc; }
+    .badge-paid { background: #ecfdf5; color: #166534; border-color: #bbf7d0; }
+    .badge-rejected { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+    .badge-cancelled { background: #f8fafc; color: #475569; border-color: #cbd5e1; }
+    .badge-priority-low { background: #f8fafc; color: #475569; border-color: #cbd5e1; }
+    .badge-priority-normal { background: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
+    .badge-priority-high { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
+    .badge-priority-urgent { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+    .badge-complete { background: #ecfdf5; color: #166534; border-color: #bbf7d0; }
+    .badge-open { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
+    .badge-overdue { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+    .badge-due_soon { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
+    .badge-current { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+
+    .list-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 11px 0;
+      border-bottom: 1px solid #eef2f7;
+    }
+    .list-row:last-child { border-bottom: 0; }
+
+    .drawer-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(15,23,42,.34);
+      backdrop-filter: blur(3px);
+      z-index: 80;
+      display: none;
+    }
+    .drawer-backdrop.open { display: block; }
+
+    .drawer {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: min(760px, 100vw);
+      height: 100vh;
+      background: #fff;
+      z-index: 90;
+      border-left: 1px solid #e5e7eb;
+      box-shadow: -20px 0 40px rgba(15,23,42,.12);
+      transform: translateX(100%);
+      transition: transform .22s ease;
+      display: flex;
+      flex-direction: column;
+    }
+    .drawer.open { transform: translateX(0); }
+    .drawer-head {
+      padding: 20px 22px;
+      border-bottom: 1px solid #e5e7eb;
+      background: #fff;
+    }
+    .drawer-body {
+      flex: 1;
+      overflow: auto;
+      padding: 20px 22px 110px;
+    }
+    .drawer-foot {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      padding: 16px 22px;
+      background: rgba(255,255,255,.94);
+      backdrop-filter: blur(8px);
+      border-top: 1px solid #e5e7eb;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0,1fr));
+      gap: 14px;
+    }
+    .field-grid .full { grid-column: 1 / -1; }
+
+    .activity-item {
+      border: 1px solid #e5e7eb;
+      border-radius: 18px;
+      padding: 12px;
+      background: #fff;
+    }
+
+    .file-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 100%;
+    }
+    .file-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      border: 1px solid #e5e7eb;
+      border-radius: 14px;
+      background: #f8fafc;
+      padding: 8px 10px;
+    }
+    .file-row-name {
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: .82rem;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .file-row-meta {
+      margin-top: 1px;
+      font-size: .7rem;
+      color: #64748b;
+    }
+
+    .toast-wrap {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      z-index: 120;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      pointer-events: none;
+    }
+    .toast {
+      min-width: 260px;
+      max-width: 420px;
+      background: rgba(15,23,42,.96);
+      color: #fff;
+      border-radius: 16px;
+      padding: 12px 14px;
+      box-shadow: 0 16px 40px rgba(15,23,42,.22);
+      font-size: .88rem;
+      font-weight: 700;
+      pointer-events: auto;
+    }
+    .toast.error { background: rgba(127,29,29,.96); }
+
+    @media (max-width: 1180px) {
+      .shell { padding: 14px; }
+      .mini-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 760px) {
+      .field-grid { grid-template-columns: 1fr; }
+      .tabs { width: 100%; }
+    }
+
+
+    /* Compact 2026 workbench override: tighter queues, slimmer filters, denser tables */
+    .shell { max-width: 1440px; padding: 12px; }
+    .space-y-5 > :not([hidden]) ~ :not([hidden]) { margin-top: .75rem; }
+    .card { border-radius: 16px; box-shadow: 0 1px 2px rgba(15,23,42,.035); }
+    .hero { border-radius: 18px; box-shadow: 0 10px 26px rgba(15,23,42,.14); }
+    .hero.p-5, .hero.lg\:p-6 { padding: 14px 16px !important; }
+    .hero h1 { font-size: 1.35rem !important; line-height: 1.15 !important; }
+    .hero p { margin-top: .3rem !important; font-size: .75rem !important; max-width: 44rem; }
+    .hero-chip { padding: .25rem .55rem; font-size: .62rem; letter-spacing: .08em; text-transform: uppercase; }
+    .card.p-4, .card.lg\:p-5 { padding: 12px !important; }
+    label { font-size: .68rem !important; margin-bottom: .28rem !important; }
+    .input, .select, .textarea { border-radius: 10px; padding: .52rem .62rem; font-size: .78rem; }
+    .textarea { min-height: 76px; }
+    .btn { border-radius: 10px; padding: .52rem .72rem; font-size: .76rem; font-weight: 800; }
+    .btn-xs { border-radius: 8px; padding: .28rem .45rem; font-size: .66rem; }
+    .section-title { font-size: .86rem; }
+    .section-sub { font-size: .70rem; }
+    .tabs { padding: 3px; gap: 3px; }
+    .tabs button { padding: .36rem .68rem; font-size: .72rem; }
+    .kpi { border-radius: 14px; padding: 10px 11px 9px; min-height: 70px; }
+    .kpi-label { font-size: .58rem; letter-spacing: .075em; }
+    .kpi-value { margin-top: 5px; font-size: 1.05rem; }
+    .kpi-sub { margin-top: 3px; font-size: .64rem; }
+    .mini-grid { gap: 7px; }
+    .mini-card { border-radius: 12px; padding: 8px 9px; }
+    .mini-card .label { font-size: .58rem; }
+    .mini-card .value { margin-top: 4px; font-size: .9rem; }
+    .queue-card { width: 100%; text-align: left; cursor: pointer; transition: .16s ease; }
+    .queue-card:hover { border-color:#cbd5e1; background:#f8fafc; transform: translateY(-1px); }
+    .queue-card.active { border-color:#0f172a; background:#0f172a; color:#fff; }
+    .queue-card.active .label, .queue-card.active .value, .queue-card.active .queue-sub { color:#fff; }
+    .table-wrap { border-radius: 14px; }
+    thead th { font-size: .62rem; padding: .52rem .58rem; }
+    tbody td { padding: .50rem .58rem; font-size: .76rem; }
+    tbody tr:hover td { background: #f8fafc; }
+    .badge { padding: .14rem .42rem; font-size: .61rem; }
+    .list-row { padding: 8px 0; }
+    .activity-item { border-radius: 12px; padding: 9px; }
+    .drawer { width: min(640px, 100vw); }
+    .drawer-head { padding: 14px 16px; }
+    .drawer-body { padding: 14px 16px 86px; }
+    .drawer-foot { padding: 10px 16px; }
+    .field-grid { gap: 9px; }
+    .compact-toolbar { position: sticky; top: 0; z-index: 20; }
+    .truncate-220 { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .truncate-160 { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    @media (max-width: 760px) { .shell { padding: 8px; } }
+  </style>
+</head>
+<body class="min-h-full">
+<div class="silo-app" id="silo-app">
+  <main class="silo-main" style="overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch;">
+  <div class="shell">
+    <div class="space-y-5">
+
+      <div class="hero p-5 lg:p-6">
+        <div class="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+          <div class="space-y-3">
+            <div class="hero-chip">SILO · payment requests workbench</div>
+            <div>
+              <h1 class="text-3xl lg:text-4xl font-extrabold tracking-tight">Payment Queue</h1>
+              <p class="mt-2 max-w-3xl text-sm text-slate-200/80">
+                Compact AP queue for review, owner assignment, document checks, payment completion, and reporting filters.
+              </p>
+            </div>
+          </div>
+          <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+            <a class="btn btn-soft" href="./purchase_request.html">New request</a>
+            <a class="btn btn-soft" href="/pages/request-manager.html">Classic workbench</a>
+            <button id="refreshBtn" class="btn">Refresh data</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card p-4 lg:p-5">
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-12">
+          <div class="lg:col-span-2">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Status</label>
+            <select id="statusFilter" class="select">
+              <option value="">All</option>
+              <option value="new">New</option>
+              <option value="in_review">In review</option>
+              <option value="needs_info">Needs info</option>
+              <option value="approved">Approved</option>
+              <option value="processing">Processing</option>
+              <option value="paid">Paid</option>
+              <option value="rejected">Rejected</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </div>
+
+          <div class="lg:col-span-2">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Priority</label>
+            <select id="priorityFilter" class="select">
+              <option value="">All</option>
+              <option value="low">Low</option>
+              <option value="normal">Normal</option>
+              <option value="high">High</option>
+              <option value="urgent">Urgent</option>
+            </select>
+          </div>
+
+          <div class="lg:col-span-2">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Completed</label>
+            <select id="completedFilter" class="select">
+              <option value="">All</option>
+              <option value="open">Open only</option>
+              <option value="complete">Completed only</option>
+            </select>
+          </div>
+
+          <div class="lg:col-span-2">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Assigned</label>
+            <select id="assignedFilter" class="select">
+              <option value="">All</option>
+            </select>
+          </div>
+
+          <div class="lg:col-span-2">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Request type</label>
+            <select id="typeFilter" class="select">
+              <option value="">All</option>
+              <option value="invoice_vendor_payment">Invoice / vendor payment</option>
+              <option value="inventory_deposit">Inventory deposit</option>
+              <option value="inventory_balance">Inventory balance</option>
+              <option value="employee_reimbursement">Employee reimbursement</option>
+              <option value="customer_refund">Customer refund</option>
+            </select>
+          </div>
+
+          <div class="lg:col-span-2">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Due date</label>
+            <select id="dueFilter" class="select">
+              <option value="">All</option>
+              <option value="overdue">Overdue</option>
+              <option value="today">Due today</option>
+              <option value="next7">Next 7 days</option>
+              <option value="next14">Next 14 days</option>
+              <option value="nodue">No due date</option>
+            </select>
+          </div>
+
+          <div class="lg:col-span-4">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Search</label>
+            <input id="searchInput" class="input" placeholder="Vendor, requester, PO, invoice, notes..." />
+          </div>
+
+          <div class="lg:col-span-2">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Submitted after</label>
+            <input id="startDate" type="date" class="input" />
+          </div>
+
+          <div class="lg:col-span-2">
+            <label class="mb-2 block text-sm font-semibold text-slate-700">Submitted before</label>
+            <input id="endDate" type="date" class="input" />
+          </div>
+
+          <div class="lg:col-span-2 flex items-end">
+            <button id="clearFiltersBtn" class="btn btn-soft w-full">Clear filters</button>
+          </div>
+
+          <div id="statusText" class="lg:col-span-12 text-xs text-slate-500">
+            Loading queue data.
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-8">
+        <div class="kpi"><div class="kpi-label">Requests</div><div id="kpiRequests" class="kpi-value mono">0</div><div class="kpi-sub">Filtered rows</div></div>
+        <div class="kpi"><div class="kpi-label">Submitted amount</div><div id="kpiSubmittedAmount" class="kpi-value mono">$0.00</div><div class="kpi-sub">All filtered requests</div></div>
+        <div class="kpi"><div class="kpi-label">Open amount</div><div id="kpiOpenAmount" class="kpi-value mono">$0.00</div><div class="kpi-sub">Not completed</div></div>
+        <div class="kpi"><div class="kpi-label">Completed amount</div><div id="kpiCompletedAmount" class="kpi-value mono">$0.00</div><div class="kpi-sub">Marked paid</div></div>
+        <div class="kpi"><div class="kpi-label">Overdue</div><div id="kpiOverdue" class="kpi-value mono">0</div><div class="kpi-sub">Past due date</div></div>
+        <div class="kpi"><div class="kpi-label">Due 7 days</div><div id="kpiDue7" class="kpi-value mono">0</div><div class="kpi-sub">Open and upcoming</div></div>
+        <div class="kpi"><div class="kpi-label">Unassigned</div><div id="kpiUnassigned" class="kpi-value mono">0</div><div class="kpi-sub">Needs owner</div></div>
+        <div class="kpi"><div class="kpi-label">Avg days open</div><div id="kpiAvgDaysOpen" class="kpi-value mono">0</div><div class="kpi-sub">Open requests only</div></div>
+      </div>
+
+      <div class="card p-4 lg:p-5">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div class="section-title">Sections</div>
+            <div class="section-sub">Queue first. Reporting and activity stay one click away.</div>
+          </div>
+          <div class="tabs">
+            <button id="tabRequestsBtn" class="active">Requests</button>
+            <button id="tabReportingBtn">Reporting</button>
+            <button id="tabActivityBtn">Activity</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="viewRequests" class="view-panel active">
+        <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
+          <div class="xl:col-span-9">
+            <div class="card p-4 lg:p-5">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="section-title">Requests</div>
+                  <div class="section-sub">Review, open file, edit, and process payment requests.</div>
+                </div>
+                <div class="text-xs text-slate-500"><span id="rowCount">0</span> rows</div>
+              </div>
+
+              <div class="mt-3 table-wrap max-h-[620px]">
+                <table>
+                  <thead id="mainHead"></thead>
+                  <tbody id="mainBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="xl:col-span-3 space-y-5">
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">Working queues</div>
+              <div class="section-sub">Click a queue to focus the table.</div>
+              <div class="mini-grid mt-4" id="summaryCards"></div>
+            </div>
+
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">Recent requests</div>
+              <div class="section-sub">Newest submissions in current filter.</div>
+              <div id="recentRequests" class="mt-4 space-y-3"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="viewReporting" class="view-panel">
+        <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
+          <div class="xl:col-span-4 space-y-5">
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">Due bucket reporting</div>
+              <div class="section-sub">Open requests grouped by due timing.</div>
+              <div class="mt-4 space-y-3" id="dueBucketReport"></div>
+            </div>
+
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">Turnaround</div>
+              <div class="mini-grid mt-4" id="turnaroundCards"></div>
+            </div>
+          </div>
+
+          <div class="xl:col-span-4 space-y-5">
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">By request type</div>
+              <div class="section-sub">Counts and dollars by request category.</div>
+              <div class="mt-4 table-wrap max-h-[360px]">
+                <table>
+                  <thead id="typeHead"></thead>
+                  <tbody id="typeBody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">By location</div>
+              <div class="section-sub">Volume and dollars by location.</div>
+              <div class="mt-4 table-wrap max-h-[360px]">
+                <table>
+                  <thead id="locationHead"></thead>
+                  <tbody id="locationBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="xl:col-span-4 space-y-5">
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">By assignee</div>
+              <div class="section-sub">Open and overdue work by owner.</div>
+              <div class="mt-4 table-wrap max-h-[360px]">
+                <table>
+                  <thead id="assigneeHead"></thead>
+                  <tbody id="assigneeBody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">By requester</div>
+              <div class="section-sub">Submission volume by requester email.</div>
+              <div class="mt-4 table-wrap max-h-[360px]">
+                <table>
+                  <thead id="requesterHead"></thead>
+                  <tbody id="requesterBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="viewActivity" class="view-panel">
+        <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
+          <div class="xl:col-span-8">
+            <div class="card p-4 lg:p-5">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="section-title">Recent activity</div>
+                  <div class="section-sub">Request submission and workflow update history.</div>
+                </div>
+                <div class="text-xs text-slate-500"><span id="activityRowCount">0</span> rows</div>
+              </div>
+              <div class="mt-4 space-y-3" id="activityFeed"></div>
+            </div>
+          </div>
+
+          <div class="xl:col-span-4 space-y-5">
+            <div class="card p-4 lg:p-5">
+              <div class="section-title">Activity summary</div>
+              <div class="mini-grid mt-4" id="activitySummaryCards"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  </main>
+</div>
+
+  <div id="drawerBackdrop" class="drawer-backdrop"></div>
+
+  <aside id="workbenchDrawer" class="drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="text-xs uppercase tracking-[.12em] text-slate-500 font-extrabold">Payment request</div>
+          <h2 id="drawerTitle" class="mt-1 text-xl font-extrabold text-slate-900">Request</h2>
+          <p id="drawerSub" class="mt-1 text-sm text-slate-500">Review source details, document, internal processing, and activity history.</p>
+        </div>
+        <button id="closeDrawerBtn" class="btn btn-soft btn-xs">Close</button>
+      </div>
+    </div>
+
+    <div class="drawer-body">
+      <div class="space-y-6">
+        <div class="card p-4">
+          <div class="section-title">Snapshot</div>
+          <div id="drawerSnapshot" class="mt-4 grid grid-cols-2 gap-3 text-sm"></div>
+        </div>
+
+        <div class="card p-4">
+          <div class="section-title">Submitted details</div>
+          <div class="field-grid mt-4">
+            <div class="full">
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Effective vendor</label>
+              <input id="fEffectiveVendor" class="input" disabled />
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Requester email</label>
+              <input id="fRequesterEmail" class="input" disabled />
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Location</label>
+              <input id="fLocationName" class="input" disabled />
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Request type</label>
+              <input id="fRequestTypeDisplay" class="input" disabled />
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Invoice #</label>
+              <input id="fInvoiceNumber" class="input" disabled />
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Flex ID #</label>
+              <input id="fFlexId" class="input" disabled />
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Internal PO #</label>
+              <input id="fPoNumber" class="input" disabled />
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Amount due</label>
+              <input id="fAmountDue" class="input mono" disabled />
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Due date</label>
+              <input id="fDueDate" class="input" disabled />
+            </div>
+
+            <div class="full">
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Submitted notes</label>
+              <textarea id="fSubmittedNotes" class="textarea" disabled></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="card p-4">
+          <div class="section-title">Document</div>
+          <div class="mt-4 flex flex-wrap gap-3">
+            <button id="openFileBtn" class="btn btn-soft" type="button">Open file</button>
+            <div id="fileMeta" class="text-sm text-slate-500 self-center flex-1">No file attached</div>
+          </div>
+        </div>
+
+        <div class="card p-4">
+          <div class="section-title">Internal processing</div>
+          <div class="field-grid mt-4">
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Workflow status</label>
+              <select id="fWorkflowStatus" class="select">
+                <option value="new">New</option>
+                <option value="in_review">In review</option>
+                <option value="needs_info">Needs info</option>
+                <option value="approved">Approved</option>
+                <option value="processing">Processing</option>
+                <option value="paid">Paid</option>
+                <option value="rejected">Rejected</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Assigned to</label>
+              <select id="fAssignedTo" class="select">
+                <option value="">Unassigned</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Priority</label>
+              <select id="fPriority" class="select">
+                <option value="low">Low</option>
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Payment type</label>
+              <select id="fPaymentType" class="select">
+                <option value="">Select payment type</option>
+                <option value="check">Check</option>
+                <option value="wire">Wire</option>
+                <option value="flexfin">FlexFin</option>
+                <option value="credit_card">Credit card</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Completed</label>
+              <select id="fCompleted" class="select">
+                <option value="false">Open</option>
+                <option value="true">Completed</option>
+              </select>
+            </div>
+
+            <div>
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Date completed</label>
+              <input id="fDateCompleted" type="date" class="input" />
+            </div>
+
+            <div class="full">
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Payment detail</label>
+              <input id="fPaymentDetail" class="input" placeholder="Check #, wire detail, reimbursed via..., etc." />
+            </div>
+
+            <div class="full">
+              <label class="mb-2 block text-sm font-semibold text-slate-700">Internal notes</label>
+              <textarea id="fInternalNotes" class="textarea" placeholder="Approval notes, follow-up, resolution details..."></textarea>
+            </div>
+          </div>
+        </div>
+
+        <div class="card p-4">
+          <div class="section-title">Activity history</div>
+          <div class="section-sub">Saved request history and workflow changes.</div>
+          <div id="drawerActivity" class="mt-4 space-y-3"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="drawer-foot">
+      <div class="flex gap-2">
+        <button id="markPaidBtn" class="btn btn-soft" type="button">Quick mark paid</button>
+      </div>
+      <div class="flex gap-2">
+        <button id="saveDrawerBtn" class="btn btn-primary" type="button">Save changes</button>
+      </div>
+    </div>
+  </aside>
+
+  <div id="toastWrap" class="toast-wrap"></div>
+
+  <script src="silo-chrome.js"></script>
+  <script>
+    const SUPABASE_URL =
+      window.__SILO_CONFIG__?.SUPABASE_URL ||
+      window.SUPABASE_URL ||
+      window.CONFIG?.SUPABASE_URL;
+
+    const SUPABASE_ANON_KEY =
+      window.__SILO_CONFIG__?.SUPABASE_ANON_KEY ||
+      window.__SILO_CONFIG__?.SUPABASE_KEY ||
+      window.SUPABASE_ANON_KEY ||
+      window.CONFIG?.SUPABASE_ANON_KEY;
+
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      throw new Error("Missing Supabase config on page.");
+    }
+
+    const BUCKET = "payment-request-files";
+    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const state = {
+      rows: [],
+      filteredRows: [],
+      profiles: [],
+      currentUser: null,
+      currentRow: null,
+      activityRows: [],
+      filteredActivityRows: [],
+      files: [],
+      activeTab: "requests",
+      queueFilter: "open"
+    };
+
+    const els = {
+      refreshBtn: document.getElementById("refreshBtn"),
+      clearFiltersBtn: document.getElementById("clearFiltersBtn"),
+      statusText: document.getElementById("statusText"),
+
+      tabRequestsBtn: document.getElementById("tabRequestsBtn"),
+      tabReportingBtn: document.getElementById("tabReportingBtn"),
+      tabActivityBtn: document.getElementById("tabActivityBtn"),
+      viewRequests: document.getElementById("viewRequests"),
+      viewReporting: document.getElementById("viewReporting"),
+      viewActivity: document.getElementById("viewActivity"),
+
+      statusFilter: document.getElementById("statusFilter"),
+      priorityFilter: document.getElementById("priorityFilter"),
+      completedFilter: document.getElementById("completedFilter"),
+      assignedFilter: document.getElementById("assignedFilter"),
+      typeFilter: document.getElementById("typeFilter"),
+      dueFilter: document.getElementById("dueFilter"),
+      searchInput: document.getElementById("searchInput"),
+      startDate: document.getElementById("startDate"),
+      endDate: document.getElementById("endDate"),
+
+      kpiRequests: document.getElementById("kpiRequests"),
+      kpiSubmittedAmount: document.getElementById("kpiSubmittedAmount"),
+      kpiOpenAmount: document.getElementById("kpiOpenAmount"),
+      kpiCompletedAmount: document.getElementById("kpiCompletedAmount"),
+      kpiOverdue: document.getElementById("kpiOverdue"),
+      kpiDue7: document.getElementById("kpiDue7"),
+      kpiUnassigned: document.getElementById("kpiUnassigned"),
+      kpiAvgDaysOpen: document.getElementById("kpiAvgDaysOpen"),
+
+      rowCount: document.getElementById("rowCount"),
+      mainHead: document.getElementById("mainHead"),
+      mainBody: document.getElementById("mainBody"),
+
+      summaryCards: document.getElementById("summaryCards"),
+      recentRequests: document.getElementById("recentRequests"),
+
+      dueBucketReport: document.getElementById("dueBucketReport"),
+      turnaroundCards: document.getElementById("turnaroundCards"),
+
+      typeHead: document.getElementById("typeHead"),
+      typeBody: document.getElementById("typeBody"),
+      locationHead: document.getElementById("locationHead"),
+      locationBody: document.getElementById("locationBody"),
+      assigneeHead: document.getElementById("assigneeHead"),
+      assigneeBody: document.getElementById("assigneeBody"),
+      requesterHead: document.getElementById("requesterHead"),
+      requesterBody: document.getElementById("requesterBody"),
+
+      activityRowCount: document.getElementById("activityRowCount"),
+      activityFeed: document.getElementById("activityFeed"),
+      activitySummaryCards: document.getElementById("activitySummaryCards"),
+
+      drawerBackdrop: document.getElementById("drawerBackdrop"),
+      workbenchDrawer: document.getElementById("workbenchDrawer"),
+      closeDrawerBtn: document.getElementById("closeDrawerBtn"),
+      drawerTitle: document.getElementById("drawerTitle"),
+      drawerSub: document.getElementById("drawerSub"),
+      drawerSnapshot: document.getElementById("drawerSnapshot"),
+
+      fEffectiveVendor: document.getElementById("fEffectiveVendor"),
+      fRequesterEmail: document.getElementById("fRequesterEmail"),
+      fLocationName: document.getElementById("fLocationName"),
+      fRequestTypeDisplay: document.getElementById("fRequestTypeDisplay"),
+      fInvoiceNumber: document.getElementById("fInvoiceNumber"),
+      fFlexId: document.getElementById("fFlexId"),
+      fPoNumber: document.getElementById("fPoNumber"),
+      fAmountDue: document.getElementById("fAmountDue"),
+      fDueDate: document.getElementById("fDueDate"),
+      fSubmittedNotes: document.getElementById("fSubmittedNotes"),
+
+      openFileBtn: document.getElementById("openFileBtn"),
+      fileMeta: document.getElementById("fileMeta"),
+
+      fWorkflowStatus: document.getElementById("fWorkflowStatus"),
+      fAssignedTo: document.getElementById("fAssignedTo"),
+      fPriority: document.getElementById("fPriority"),
+      fPaymentType: document.getElementById("fPaymentType"),
+      fCompleted: document.getElementById("fCompleted"),
+      fDateCompleted: document.getElementById("fDateCompleted"),
+      fPaymentDetail: document.getElementById("fPaymentDetail"),
+      fInternalNotes: document.getElementById("fInternalNotes"),
+
+      drawerActivity: document.getElementById("drawerActivity"),
+
+      markPaidBtn: document.getElementById("markPaidBtn"),
+      saveDrawerBtn: document.getElementById("saveDrawerBtn"),
+
+      toastWrap: document.getElementById("toastWrap")
+    };
+
+    function formatMoney(value) {
+      return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(Number(value || 0));
+    }
+
+    function formatNumber(value) {
+      return new Intl.NumberFormat("en-US").format(Number(value || 0));
+    }
+
+    function formatBytes(value) {
+      const bytes = Number(value || 0);
+      if (!bytes) return "";
+      if (bytes < 1024) return `${bytes} B`;
+      const kb = bytes / 1024;
+      if (kb < 1024) return `${kb.toFixed(kb >= 10 ? 0 : 1)} KB`;
+      const mb = kb / 1024;
+      return `${mb.toFixed(mb >= 10 ? 1 : 2)} MB`;
+    }
+
+    function parseDate(value) {
+      if (!value) return null;
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    function formatDate(value) {
+      const d = parseDate(value);
+      return d ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" }).format(d) : "—";
+    }
+
+    function formatDateTime(value) {
+      const d = parseDate(value);
+      return d ? new Intl.DateTimeFormat("en-US", {
+        month: "short", day: "numeric", year: "numeric",
+        hour: "numeric", minute: "2-digit"
+      }).format(d) : "—";
+    }
+
+    function escapeHtml(str) {
+      return String(str ?? "").replace(/[&<>"']/g, m => ({
+        "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;"
+      }[m]));
+    }
+
+    function normalize(v) {
+      return String(v || "").trim().toLowerCase();
+    }
+
+    function showToast(message, isError = false) {
+      const el = document.createElement("div");
+      el.className = `toast ${isError ? "error" : ""}`;
+      el.textContent = message;
+      els.toastWrap.appendChild(el);
+      setTimeout(() => el.remove(), 3200);
+    }
+
+    function setStatus(message, isError = false) {
+      els.statusText.textContent = message;
+      els.statusText.className = `lg:col-span-12 text-xs ${isError ? "text-red-600" : "text-slate-500"}`;
+    }
+
+    function requestTypeLabel(v) {
+      const map = {
+        invoice_vendor_payment: "Invoice / vendor payment",
+        inventory_deposit: "Inventory deposit",
+        inventory_balance: "Inventory balance",
+        employee_reimbursement: "Employee reimbursement",
+        customer_refund: "Customer refund"
+      };
+      return map[v] || v || "—";
+    }
+
+    function badgeHtmlStatus(status) {
+      const s = normalize(status);
+      const cls = {
+        new: "badge-new",
+        in_review: "badge-in_review",
+        needs_info: "badge-needs_info",
+        approved: "badge-approved",
+        processing: "badge-processing",
+        paid: "badge-paid",
+        rejected: "badge-rejected",
+        cancelled: "badge-cancelled"
+      }[s] || "badge-cancelled";
+      return `<span class="badge ${cls}">${escapeHtml(s || "unknown")}</span>`;
+    }
+
+    function badgeHtmlPriority(priority) {
+      const p = normalize(priority);
+      const cls = {
+        low: "badge-priority-low",
+        normal: "badge-priority-normal",
+        high: "badge-priority-high",
+        urgent: "badge-priority-urgent"
+      }[p] || "badge-priority-normal";
+      return `<span class="badge ${cls}">${escapeHtml(p || "normal")}</span>`;
+    }
+
+    function badgeHtmlCompleted(val) {
+      return val
+        ? `<span class="badge badge-complete">Completed</span>`
+        : `<span class="badge badge-open">Open</span>`;
+    }
+
+    function dueBucket(row) {
+      if (row.completed) return "completed";
+      if (!row.due_date) return "no_due";
+      const today = new Date(new Date().toDateString());
+      const due = new Date(row.due_date + "T00:00:00");
+      const diff = Math.floor((due - today) / 86400000);
+      if (diff < 0) return "overdue";
+      if (diff === 0) return "today";
+      if (diff <= 7) return "next7";
+      if (diff <= 14) return "next14";
+      return "later";
+    }
+
+    function dueBucketLabel(bucket) {
+      const map = {
+        overdue: "Overdue",
+        today: "Due today",
+        next7: "Due 1–7 days",
+        next14: "Due 8–14 days",
+        later: "Later",
+        no_due: "No due date",
+        completed: "Completed"
+      };
+      return map[bucket] || bucket;
+    }
+
+    function dueBucketBadge(bucket) {
+      const cls = {
+        overdue: "badge-overdue",
+        today: "badge-due_soon",
+        next7: "badge-due_soon",
+        next14: "badge-current",
+        later: "badge-current",
+        no_due: "badge-cancelled",
+        completed: "badge-complete"
+      }[bucket] || "badge-cancelled";
+      return `<span class="badge ${cls}">${escapeHtml(dueBucketLabel(bucket))}</span>`;
+    }
+
+    function activityTypeLabel(type) {
+      const map = {
+        submitted: "Submitted",
+        status_changed: "Status changed",
+        assignment_changed: "Assignment changed",
+        priority_changed: "Priority changed",
+        payment_type_changed: "Payment type changed",
+        completed_changed: "Completed changed",
+        note_added: "Note added",
+        file_opened: "File opened",
+        updated: "Updated"
+      };
+      return map[type] || type || "Activity";
+    }
+
+    function activityMessage(row) {
+      if (row.message) return row.message;
+      if (row.field_name && (row.old_value || row.new_value)) {
+        return `${row.field_name}: ${row.old_value || "—"} → ${row.new_value || "—"}`;
+      }
+      return activityTypeLabel(row.activity_type);
+    }
+
+    async function getCurrentUser() {
+      const { data, error } = await supabaseClient.auth.getUser();
+      if (error) throw error;
+      return data?.user || null;
+    }
+
+    async function fetchProfiles() {
+      const { data, error } = await supabaseClient
+        .from("profiles")
+        .select("id, name, email, is_active")
+        .eq("is_active", true)
+        .order("name", { ascending: true });
+
+      if (error) throw error;
+      return data || [];
+    }
+
+    async function fetchRows() {
+      let all = [];
+      let from = 0;
+      const size = 1000;
+
+      while (true) {
+        const { data, error } = await supabaseClient
+          .from("payment_requests_v")
+          .select("*")
+          .order("submitted_at", { ascending: false })
+          .range(from, from + size - 1);
+
+        if (error) throw error;
+        all = all.concat(data || []);
+        if (!data || data.length < size) break;
+        from += size;
+      }
+
+      return all;
+    }
+
+    async function fetchActivityRows() {
+      let all = [];
+      let from = 0;
+      const size = 1000;
+
+      while (true) {
+        const { data, error } = await supabaseClient
+          .from("payment_request_activity_v")
+          .select("*")
+          .order("created_at", { ascending: false })
+          .range(from, from + size - 1);
+
+        if (error) throw error;
+        all = all.concat(data || []);
+        if (!data || data.length < size) break;
+        from += size;
+      }
+
+      return all;
+    }
+
+    async function fetchRequestFiles() {
+      let all = [];
+      let from = 0;
+      const size = 1000;
+
+      while (true) {
+        const { data, error } = await supabaseClient
+          .from("payment_request_files")
+          .select("id, payment_request_id, file_name, file_path, file_url, file_size, mime_type, sort_order, created_at")
+          .order("sort_order", { ascending: true })
+          .order("created_at", { ascending: true })
+          .range(from, from + size - 1);
+
+        if (error) throw error;
+        all = all.concat(data || []);
+        if (!data || data.length < size) break;
+        from += size;
+      }
+
+      return all;
+    }
+
+    function filesForRequest(row) {
+      if (!row?.id) return [];
+
+      const attached = state.files
+        .filter(file => file.payment_request_id === row.id && file.file_path)
+        .sort((a, b) => Number(a.sort_order || 9999) - Number(b.sort_order || 9999));
+
+      if (attached.length) return attached;
+
+      if (row.file_path) {
+        return [{
+          id: `legacy-${row.id}`,
+          payment_request_id: row.id,
+          file_name: row.file_name || "Attached file",
+          file_path: row.file_path,
+          file_size: null,
+          mime_type: null,
+          sort_order: 1,
+          legacy: true
+        }];
+      }
+
+      return [];
+    }
+
+    function fileButtonLabel(row) {
+      const count = filesForRequest(row).length;
+      if (!count) return "";
+      return count === 1 ? "File" : `Files ${count}`;
+    }
+
+    function renderAssignedOptions() {
+      els.assignedFilter.innerHTML = ['<option value="">All</option>']
+        .concat(
+          state.profiles.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name || p.email)}</option>`)
+        )
+        .join("");
+
+      els.fAssignedTo.innerHTML = ['<option value="">Unassigned</option>']
+        .concat(
+          state.profiles.map(p => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name || p.email)}</option>`)
+        )
+        .join("");
+    }
+
+    function assignedName(id) {
+      if (!id) return "—";
+      const p = state.profiles.find(x => x.id === id);
+      return p?.name || p?.email || "Assigned";
+    }
+
+    async function loadData() {
+      els.refreshBtn.disabled = true;
+      setStatus("Loading payment requests...");
+
+      try {
+        const [user, profiles, rows, activityRows, files] = await Promise.all([
+          getCurrentUser(),
+          fetchProfiles(),
+          fetchRows(),
+          fetchActivityRows(),
+          fetchRequestFiles()
+        ]);
+
+        state.currentUser = user;
+        state.profiles = profiles;
+        state.rows = rows || [];
+        state.activityRows = activityRows || [];
+        state.files = files || [];
+
+        renderAssignedOptions();
+        refreshAll();
+        setStatus(`Loaded ${formatNumber(state.rows.length)} payment requests and ${formatNumber(state.files.length)} file attachment rows.`);
+      } catch (err) {
+        console.error(err);
+        setStatus(`Load failed: ${err.message || "Unknown error"}`, true);
+        showToast(`Load failed: ${err.message || "Unknown error"}`, true);
+      } finally {
+        els.refreshBtn.disabled = false;
+      }
+    }
+
+    function refreshAll() {
+      const q = normalize(els.searchInput.value);
+      const status = els.statusFilter.value;
+      const priority = els.priorityFilter.value;
+      const completed = els.completedFilter.value;
+      const assigned = els.assignedFilter.value;
+      const type = els.typeFilter.value;
+      const due = els.dueFilter.value;
+      const queue = state.queueFilter || "all";
+      const start = els.startDate.value ? new Date(els.startDate.value) : null;
+      const end = els.endDate.value ? new Date(els.endDate.value + "T23:59:59") : null;
+
+      state.filteredRows = state.rows.filter(r => {
+        const submitted = r.submitted_at ? new Date(r.submitted_at) : null;
+        const hay = [
+          r.effective_vendor_name,
+          r.vendor_name,
+          r.vendor_name_manual,
+          r.requester_email,
+          r.location_name,
+          r.invoice_number,
+          r.flex_id,
+          r.internal_po_number,
+          r.notes_comments,
+          r.internal_notes,
+          r.payment_detail
+        ].join(" ").toLowerCase();
+
+        if (q && !hay.includes(q)) return false;
+        if (status && r.workflow_status !== status) return false;
+        if (priority && r.priority !== priority) return false;
+        if (assigned && (r.assigned_to || "") !== assigned) return false;
+        if (type && r.request_type !== type) return false;
+        if (completed === "open" && !!r.completed) return false;
+        if (completed === "complete" && !r.completed) return false;
+
+        const bucket = dueBucket(r);
+
+        if (queue === "open" && !!r.completed) return false;
+        if (queue === "new" && r.workflow_status !== "new") return false;
+        if (queue === "needs_info" && r.workflow_status !== "needs_info") return false;
+        if (queue === "overdue" && bucket !== "overdue") return false;
+        if (queue === "due7" && !["today", "next7"].includes(bucket)) return false;
+        if (queue === "unassigned" && !!r.assigned_to) return false;
+        if (queue === "paid" && !(r.workflow_status === "paid" || r.completed)) return false;
+
+        if (due === "overdue" && bucket !== "overdue") return false;
+        if (due === "today" && bucket !== "today") return false;
+        if (due === "next7" && bucket !== "next7") return false;
+        if (due === "next14" && bucket !== "next14") return false;
+        if (due === "nodue" && bucket !== "no_due") return false;
+
+        if (start && (!submitted || submitted < start)) return false;
+        if (end && (!submitted || submitted > end)) return false;
+
+        return true;
+      });
+
+      const filteredIds = new Set(state.filteredRows.map(r => r.id));
+      state.filteredActivityRows = state.activityRows.filter(a => filteredIds.has(a.payment_request_id));
+
+      renderKpis();
+      renderSummaryCards();
+      renderRecentRequests();
+      renderTable();
+      renderReporting();
+      renderActivity();
+    }
+
+    function renderKpis() {
+      const openRows = state.filteredRows.filter(r => !r.completed);
+      const overdueRows = openRows.filter(r => dueBucket(r) === "overdue");
+      const due7Rows = openRows.filter(r => ["today", "next7"].includes(dueBucket(r)));
+      const completedRows = state.filteredRows.filter(r => !!r.completed);
+
+      const avgDaysOpen = openRows.length
+        ? Math.round(openRows.reduce((sum, r) => {
+            const submitted = parseDate(r.submitted_at);
+            if (!submitted) return sum;
+            const today = new Date();
+            return sum + Math.max(0, Math.floor((today - submitted) / 86400000));
+          }, 0) / openRows.length)
+        : 0;
+
+      els.kpiRequests.textContent = formatNumber(state.filteredRows.length);
+      els.kpiSubmittedAmount.textContent = formatMoney(state.filteredRows.reduce((s, r) => s + Number(r.amount_due || 0), 0));
+      els.kpiOpenAmount.textContent = formatMoney(openRows.reduce((s, r) => s + Number(r.amount_due || 0), 0));
+      els.kpiCompletedAmount.textContent = formatMoney(completedRows.reduce((s, r) => s + Number(r.amount_due || 0), 0));
+      els.kpiOverdue.textContent = formatNumber(overdueRows.length);
+      els.kpiDue7.textContent = formatNumber(due7Rows.length);
+      els.kpiUnassigned.textContent = formatNumber(state.filteredRows.filter(r => !r.assigned_to).length);
+      els.kpiAvgDaysOpen.textContent = formatNumber(avgDaysOpen);
+    }
+
+    function renderSummaryCards() {
+      const openRows = state.rows.filter(r => !r.completed);
+      const queues = [
+        ["open", "Open", openRows.length, "All active work"],
+        ["new", "New", state.rows.filter(r => r.workflow_status === "new").length, "Fresh submissions"],
+        ["needs_info", "Needs info", state.rows.filter(r => r.workflow_status === "needs_info").length, "Waiting on follow-up"],
+        ["overdue", "Overdue", openRows.filter(r => dueBucket(r) === "overdue").length, "Past due"],
+        ["due7", "Due 7", openRows.filter(r => ["today", "next7"].includes(dueBucket(r))).length, "Today + next 7"],
+        ["unassigned", "Unassigned", state.rows.filter(r => !r.assigned_to && !r.completed).length, "Needs owner"],
+        ["paid", "Paid", state.rows.filter(r => r.workflow_status === "paid" || r.completed).length, "Completed"],
+        ["all", "All", state.rows.length, "Every request"]
+      ];
+
+      els.summaryCards.innerHTML = queues.map(([key, label, value, sub]) => `
+        <button type="button" class="mini-card queue-card ${state.queueFilter === key ? "active" : ""}" data-queue="${escapeHtml(key)}">
+          <div class="label">${escapeHtml(label)}</div>
+          <div class="value mono">${escapeHtml(formatNumber(value))}</div>
+          <div class="queue-sub mt-1 text-[11px] text-slate-500">${escapeHtml(sub)}</div>
+        </button>
+      `).join("");
+
+      document.querySelectorAll(".queue-card").forEach(btn => {
+        btn.addEventListener("click", () => {
+          state.queueFilter = btn.getAttribute("data-queue") || "all";
+          refreshAll();
+        });
+      });
+    }
+
+    function renderRecentRequests() {
+      els.recentRequests.innerHTML = state.filteredRows.slice(0, 6).map(r => `
+        <div class="border border-slate-200 rounded-xl p-2.5">
+          <div class="font-semibold text-slate-900">${escapeHtml(r.effective_vendor_name || "Unknown vendor")}</div>
+          <div class="mt-1 text-xs text-slate-500">${escapeHtml(requestTypeLabel(r.request_type))}</div>
+          <div class="mt-2 flex items-center justify-between gap-3">
+            <div class="font-extrabold mono text-slate-900">${escapeHtml(formatMoney(r.amount_due))}</div>
+            <button class="btn btn-soft btn-xs open-drawer-btn" data-id="${escapeHtml(r.id)}">Open</button>
+          </div>
+        </div>
+      `).join("") || `<div class="text-sm text-slate-500">No requests in current filter.</div>`;
+
+      document.querySelectorAll(".open-drawer-btn").forEach(btn => {
+        btn.addEventListener("click", () => openDrawer(btn.getAttribute("data-id")));
+      });
+    }
+
+    function renderTable() {
+      els.rowCount.textContent = formatNumber(state.filteredRows.length);
+
+      els.mainHead.innerHTML = `<tr>
+        <th>Vendor / requester</th>
+        <th>Refs</th>
+        <th class="right">Amount</th>
+        <th>Due</th>
+        <th>Status</th>
+        <th>Owner</th>
+        <th>Actions</th>
+      </tr>`;
+
+      els.mainBody.innerHTML = state.filteredRows.map(r => `
+        <tr>
+          <td>
+            <div class="font-semibold text-slate-900 truncate-220">${escapeHtml(r.effective_vendor_name || "Unknown vendor")}</div>
+            <div class="text-xs text-slate-500 truncate-220">${escapeHtml(r.requester_email || "—")}</div>
+            <div class="text-xs text-slate-500 truncate-160">${escapeHtml(r.location_name || "No location")}</div>
+          </td>
+          <td>
+            <div class="font-semibold text-slate-900 truncate-220">${escapeHtml(requestTypeLabel(r.request_type))}</div>
+            <div class="text-xs text-slate-500">Inv ${escapeHtml(r.invoice_number || "—")} · PO ${escapeHtml(r.internal_po_number || "—")}</div>
+            <div class="text-xs text-slate-500">${escapeHtml(formatDateTime(r.submitted_at))}</div>
+          </td>
+          <td class="right mono font-extrabold">${formatMoney(r.amount_due)}</td>
+          <td>
+            <div class="font-semibold text-slate-900">${escapeHtml(formatDate(r.due_date))}</div>
+            <div class="mt-1">${dueBucketBadge(dueBucket(r))}</div>
+          </td>
+          <td>
+            <div class="flex flex-wrap gap-1">
+              ${badgeHtmlStatus(r.workflow_status)}
+              ${badgeHtmlPriority(r.priority)}
+              ${badgeHtmlCompleted(r.completed)}
+            </div>
+          </td>
+          <td>
+            <div class="font-semibold text-slate-900 truncate-160">${escapeHtml(assignedName(r.assigned_to))}</div>
+          </td>
+          <td>
+            <div class="flex flex-wrap gap-1.5">
+              <button class="btn btn-soft btn-xs open-drawer-btn" data-id="${escapeHtml(r.id)}">Edit</button>
+              ${filesForRequest(r).length
+                ? `<button class="btn btn-soft btn-xs open-file-btn" data-id="${escapeHtml(r.id)}">${escapeHtml(fileButtonLabel(r))}</button>`
+                : ``}
+              ${r.completed ? `<button class="btn btn-soft btn-xs" disabled>Paid</button>` : `<button class="btn btn-soft btn-xs quick-paid-btn" data-id="${escapeHtml(r.id)}">Paid</button>`}
+            </div>
+          </td>
+        </tr>
+      `).join("") || `<tr><td colspan="7" class="py-10 text-center text-slate-500">No payment requests match the current filters.</td></tr>`;
+
+      document.querySelectorAll(".open-drawer-btn").forEach(btn => {
+        btn.addEventListener("click", () => openDrawer(btn.getAttribute("data-id")));
+      });
+
+      document.querySelectorAll(".quick-paid-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          await quickMarkPaid(btn.getAttribute("data-id"));
+        });
+      });
+
+      document.querySelectorAll(".open-file-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          await openFileForRow(btn.getAttribute("data-id"));
+        });
+      });
+    }
+
+    function aggregateBy(rows, keyFn, labelFn) {
+      const map = new Map();
+      rows.forEach(r => {
+        const key = keyFn(r);
+        if (!map.has(key)) {
+          map.set(key, {
+            key,
+            label: labelFn(r, key),
+            count: 0,
+            amount: 0,
+            openCount: 0,
+            openAmount: 0,
+            completedCount: 0,
+            completedAmount: 0,
+            overdueCount: 0
+          });
+        }
+        const item = map.get(key);
+        const amt = Number(r.amount_due || 0);
+        item.count += 1;
+        item.amount += amt;
+        if (r.completed) {
+          item.completedCount += 1;
+          item.completedAmount += amt;
+        } else {
+          item.openCount += 1;
+          item.openAmount += amt;
+        }
+        if (!r.completed && dueBucket(r) === "overdue") {
+          item.overdueCount += 1;
+        }
+      });
+      return Array.from(map.values()).sort((a, b) => b.amount - a.amount);
+    }
+
+    function renderReporting() {
+      const buckets = ["overdue", "today", "next7", "next14", "later", "no_due", "completed"].map(bucket => {
+        const rows = state.filteredRows.filter(r => dueBucket(r) === bucket);
+        return {
+          bucket,
+          label: dueBucketLabel(bucket),
+          count: rows.length,
+          amount: rows.reduce((s, r) => s + Number(r.amount_due || 0), 0)
+        };
+      });
+
+      els.dueBucketReport.innerHTML = buckets.map(b => `
+        <div class="list-row">
+          <div>
+            <div class="font-semibold text-slate-900">${escapeHtml(b.label)}</div>
+            <div class="text-xs text-slate-500">${formatNumber(b.count)} requests</div>
+          </div>
+          <div class="text-right">
+            <div class="font-extrabold mono text-slate-900">${formatMoney(b.amount)}</div>
+            <div class="mt-1">${dueBucketBadge(b.bucket)}</div>
+          </div>
+        </div>
+      `).join("");
+
+      const openRows = state.filteredRows.filter(r => !r.completed);
+      const completedRows = state.filteredRows.filter(r => r.completed && r.date_completed && r.submitted_at);
+
+      const avgDaysOpen = openRows.length
+        ? Math.round(openRows.reduce((sum, r) => {
+            const submitted = parseDate(r.submitted_at);
+            if (!submitted) return sum;
+            return sum + Math.max(0, Math.floor((new Date() - submitted) / 86400000));
+          }, 0) / openRows.length)
+        : 0;
+
+      const avgDaysToComplete = completedRows.length
+        ? Math.round(completedRows.reduce((sum, r) => {
+            const start = parseDate(r.submitted_at);
+            const end = parseDate(r.date_completed);
+            if (!start || !end) return sum;
+            return sum + Math.max(0, Math.floor((end - start) / 86400000));
+          }, 0) / completedRows.length)
+        : 0;
+
+      const oldestOpen = openRows.length
+        ? Math.max(...openRows.map(r => {
+            const submitted = parseDate(r.submitted_at);
+            return submitted ? Math.max(0, Math.floor((new Date() - submitted) / 86400000)) : 0;
+          }))
+        : 0;
+
+      const dueSoonAmount = openRows
+        .filter(r => ["today", "next7"].includes(dueBucket(r)))
+        .reduce((s, r) => s + Number(r.amount_due || 0), 0);
+
+      els.turnaroundCards.innerHTML = [
+        ["Avg days open", formatNumber(avgDaysOpen), "Open requests"],
+        ["Avg days to complete", formatNumber(avgDaysToComplete), "Completed requests"],
+        ["Oldest open", formatNumber(oldestOpen), "Days since submit"],
+        ["Due soon amount", formatMoney(dueSoonAmount), "Today + next 7 days"]
+      ].map(([label, value, sub]) => `
+        <div class="mini-card">
+          <div class="label">${escapeHtml(label)}</div>
+          <div class="value mono">${escapeHtml(value)}</div>
+          <div class="mt-1 text-xs text-slate-500">${escapeHtml(sub)}</div>
+        </div>
+      `).join("");
+
+      const byType = aggregateBy(state.filteredRows, r => r.request_type || "unknown", (r, key) => requestTypeLabel(key));
+      const byLocation = aggregateBy(state.filteredRows, r => r.location_name || "No location", (r, key) => key);
+      const byAssignee = aggregateBy(state.filteredRows, r => r.assigned_to || "unassigned", (r, key) => key === "unassigned" ? "Unassigned" : assignedName(key));
+      const byRequester = aggregateBy(state.filteredRows, r => r.requester_email || "No requester", (r, key) => key);
+
+      els.typeHead.innerHTML = `<tr><th>Type</th><th class="right">Count</th><th class="right">Open</th><th class="right">Amount</th></tr>`;
+      els.typeBody.innerHTML = byType.map(r => `
+        <tr>
+          <td>${escapeHtml(r.label)}</td>
+          <td class="right mono">${formatNumber(r.count)}</td>
+          <td class="right mono">${formatNumber(r.openCount)}</td>
+          <td class="right mono font-extrabold">${formatMoney(r.amount)}</td>
+        </tr>
+      `).join("") || `<tr><td colspan="4" class="py-8 text-center text-slate-500">No data.</td></tr>`;
+
+      els.locationHead.innerHTML = `<tr><th>Location</th><th class="right">Count</th><th class="right">Open</th><th class="right">Amount</th></tr>`;
+      els.locationBody.innerHTML = byLocation.map(r => `
+        <tr>
+          <td>${escapeHtml(r.label)}</td>
+          <td class="right mono">${formatNumber(r.count)}</td>
+          <td class="right mono">${formatNumber(r.openCount)}</td>
+          <td class="right mono font-extrabold">${formatMoney(r.amount)}</td>
+        </tr>
+      `).join("") || `<tr><td colspan="4" class="py-8 text-center text-slate-500">No data.</td></tr>`;
+
+      els.assigneeHead.innerHTML = `<tr><th>Assignee</th><th class="right">Open</th><th class="right">Overdue</th><th class="right">Open amount</th></tr>`;
+      els.assigneeBody.innerHTML = byAssignee.map(r => `
+        <tr>
+          <td>${escapeHtml(r.label)}</td>
+          <td class="right mono">${formatNumber(r.openCount)}</td>
+          <td class="right mono">${formatNumber(r.overdueCount)}</td>
+          <td class="right mono font-extrabold">${formatMoney(r.openAmount)}</td>
+        </tr>
+      `).join("") || `<tr><td colspan="4" class="py-8 text-center text-slate-500">No data.</td></tr>`;
+
+      els.requesterHead.innerHTML = `<tr><th>Requester</th><th class="right">Count</th><th class="right">Open</th><th class="right">Amount</th></tr>`;
+      els.requesterBody.innerHTML = byRequester.slice(0, 25).map(r => `
+        <tr>
+          <td>${escapeHtml(r.label)}</td>
+          <td class="right mono">${formatNumber(r.count)}</td>
+          <td class="right mono">${formatNumber(r.openCount)}</td>
+          <td class="right mono font-extrabold">${formatMoney(r.amount)}</td>
+        </tr>
+      `).join("") || `<tr><td colspan="4" class="py-8 text-center text-slate-500">No data.</td></tr>`;
+    }
+
+    function renderActivity() {
+      els.activityRowCount.textContent = formatNumber(state.filteredActivityRows.length);
+
+      els.activityFeed.innerHTML = state.filteredActivityRows.slice(0, 100).map(a => {
+        const request = state.rows.find(r => r.id === a.payment_request_id);
+        return `
+          <div class="activity-item">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="font-semibold text-slate-900">${escapeHtml(request?.effective_vendor_name || "Unknown vendor")}</div>
+                <div class="mt-1 text-xs text-slate-500">${escapeHtml(activityTypeLabel(a.activity_type))}</div>
+              </div>
+              <div class="text-xs text-slate-500">${escapeHtml(formatDateTime(a.created_at))}</div>
+            </div>
+            <div class="mt-2 text-sm text-slate-700">${escapeHtml(activityMessage(a))}</div>
+            <div class="mt-2 flex flex-wrap items-center gap-2">
+              <span class="badge badge-current">${escapeHtml(a.created_by_name || a.created_by_email || "System")}</span>
+              ${request ? `<button class="btn btn-soft btn-xs open-drawer-btn" data-id="${escapeHtml(request.id)}">Open request</button>` : ""}
+            </div>
+          </div>
+        `;
+      }).join("") || `<div class="text-sm text-slate-500">No activity in current filter.</div>`;
+
+      document.querySelectorAll("#activityFeed .open-drawer-btn").forEach(btn => {
+        btn.addEventListener("click", () => openDrawer(btn.getAttribute("data-id")));
+      });
+
+      const summary = aggregateBy(
+        state.filteredActivityRows,
+        a => a.activity_type || "updated",
+        (a, key) => activityTypeLabel(key)
+      );
+
+      els.activitySummaryCards.innerHTML = summary.slice(0, 8).map(item => `
+        <div class="mini-card">
+          <div class="label">${escapeHtml(item.label)}</div>
+          <div class="value mono">${formatNumber(item.count)}</div>
+          <div class="mt-1 text-xs text-slate-500">Recent activity</div>
+        </div>
+      `).join("") || `<div class="text-sm text-slate-500">No activity.</div>`;
+    }
+
+    async function createSignedUrl(filePath) {
+      const { data, error } = await supabaseClient.storage
+        .from(BUCKET)
+        .createSignedUrl(filePath, 60 * 10);
+
+      if (error) throw error;
+      return data?.signedUrl;
+    }
+
+    async function logActivity({ requestId, activityType, fieldName = null, oldValue = null, newValue = null, message = null }) {
+      const { error } = await supabaseClient
+        .from("payment_request_activity")
+        .insert({
+          payment_request_id: requestId,
+          activity_type: activityType,
+          field_name: fieldName,
+          old_value: oldValue,
+          new_value: newValue,
+          message,
+          created_by: state.currentUser?.id || null
+        });
+
+      if (error) throw error;
+    }
+
+    async function openFilePath(filePath, fileName = "attached document", requestId = null, shouldLog = true) {
+      try {
+        if (!filePath) {
+          showToast("No file attached.");
+          return;
+        }
+
+        const url = await createSignedUrl(filePath);
+        if (!url) throw new Error("No signed URL returned.");
+
+        if (shouldLog && requestId) {
+          try {
+            await logActivity({
+              requestId,
+              activityType: "file_opened",
+              message: `Opened file: ${fileName || "attached document"}`
+            });
+            await loadData();
+          } catch (logErr) {
+            console.error(logErr);
+          }
+        }
+
+        window.open(url, "_blank", "noopener,noreferrer");
+      } catch (err) {
+        console.error(err);
+        showToast(`File open failed: ${err.message || "Unknown error"}`, true);
+      }
+    }
+
+    async function openFileForRow(id, shouldLog = true) {
+      const row = state.rows.find(r => r.id === id);
+      if (!row) return;
+
+      const files = filesForRequest(row);
+      if (!files.length) {
+        showToast("No file attached.");
+        return;
+      }
+
+      const first = files[0];
+      await openFilePath(first.file_path, first.file_name || "attached document", row.id, shouldLog);
+    }
+
+    async function openDrawer(id) {
+      const row = state.rows.find(r => r.id === id);
+      if (!row) return;
+
+      state.currentRow = row;
+      els.drawerTitle.textContent = row.effective_vendor_name || "Unknown vendor";
+      els.drawerSub.textContent = `${requestTypeLabel(row.request_type)} · ${formatMoney(row.amount_due)} · submitted ${formatDateTime(row.submitted_at)}`;
+
+      els.fEffectiveVendor.value = row.effective_vendor_name || "";
+      els.fRequesterEmail.value = row.requester_email || "";
+      els.fLocationName.value = row.location_name || "";
+      els.fRequestTypeDisplay.value = requestTypeLabel(row.request_type);
+      els.fInvoiceNumber.value = row.invoice_number || "";
+      els.fFlexId.value = row.flex_id || "";
+      els.fPoNumber.value = row.internal_po_number || "";
+      els.fAmountDue.value = formatMoney(row.amount_due);
+      els.fDueDate.value = formatDate(row.due_date);
+      els.fSubmittedNotes.value = row.notes_comments || "";
+
+      els.fWorkflowStatus.value = row.workflow_status || "new";
+      els.fAssignedTo.value = row.assigned_to || "";
+      els.fPriority.value = row.priority || "normal";
+      els.fPaymentType.value = row.payment_type || "";
+      els.fCompleted.value = String(!!row.completed);
+      els.fDateCompleted.value = row.date_completed || "";
+      els.fPaymentDetail.value = row.payment_detail || "";
+      els.fInternalNotes.value = row.internal_notes || "";
+
+      const rowFiles = filesForRequest(row);
+
+      els.fileMeta.innerHTML = rowFiles.length
+        ? `<div class="file-list">${rowFiles.map((file, index) => `
+            <div class="file-row">
+              <div class="min-w-0">
+                <div class="file-row-name">${escapeHtml(file.file_name || `File ${index + 1}`)}</div>
+                <div class="file-row-meta">${escapeHtml([formatBytes(file.file_size), file.mime_type || "", file.legacy ? "legacy" : ""].filter(Boolean).join(" · ") || "Attachment")}</div>
+              </div>
+              <button
+                class="btn btn-soft btn-xs open-drawer-file-btn"
+                type="button"
+                data-path="${escapeHtml(file.file_path)}"
+                data-name="${escapeHtml(file.file_name || `File ${index + 1}`)}"
+              >Open</button>
+            </div>
+          `).join("")}</div>`
+        : "No file attached";
+
+      document.querySelectorAll(".open-drawer-file-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          await openFilePath(
+            btn.getAttribute("data-path"),
+            btn.getAttribute("data-name"),
+            row.id,
+            true
+          );
+        });
+      });
+
+      els.openFileBtn.disabled = !rowFiles.length;
+      els.openFileBtn.textContent = rowFiles.length > 1 ? `Open first file (${rowFiles.length})` : "Open file";
+
+      els.drawerSnapshot.innerHTML = `
+        <div class="mini-card">
+          <div class="label">Amount due</div>
+          <div class="value mono">${formatMoney(row.amount_due)}</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">Submitted</div>
+          <div class="value">${escapeHtml(formatDateTime(row.submitted_at))}</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">Status</div>
+          <div class="value">${badgeHtmlStatus(row.workflow_status)}</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">Completed</div>
+          <div class="value">${badgeHtmlCompleted(row.completed)}</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">Assigned</div>
+          <div class="value">${escapeHtml(assignedName(row.assigned_to))}</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">Files</div>
+          <div class="value mono">${formatNumber(rowFiles.length)}</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">Due bucket</div>
+          <div class="value">${dueBucketBadge(dueBucket(row))}</div>
+        </div>
+      `;
+
+      const rowActivity = state.activityRows
+        .filter(a => a.payment_request_id === row.id)
+        .slice(0, 20);
+
+      els.drawerActivity.innerHTML = rowActivity.length
+        ? rowActivity.map(a => `
+            <div class="activity-item">
+              <div class="flex items-start justify-between gap-3">
+                <div class="font-semibold text-slate-900">${escapeHtml(activityTypeLabel(a.activity_type))}</div>
+                <div class="text-xs text-slate-500">${escapeHtml(formatDateTime(a.created_at))}</div>
+              </div>
+              <div class="mt-2 text-sm text-slate-700">${escapeHtml(activityMessage(a))}</div>
+              <div class="mt-2 text-xs text-slate-500">By ${escapeHtml(a.created_by_name || a.created_by_email || "System")}</div>
+            </div>
+          `).join("")
+        : `<div class="text-sm text-slate-500">No activity yet.</div>`;
+
+      els.drawerBackdrop.classList.add("open");
+      els.workbenchDrawer.classList.add("open");
+      els.workbenchDrawer.setAttribute("aria-hidden", "false");
+    }
+
+    function closeDrawer() {
+      els.drawerBackdrop.classList.remove("open");
+      els.workbenchDrawer.classList.remove("open");
+      els.workbenchDrawer.setAttribute("aria-hidden", "true");
+      state.currentRow = null;
+    }
+
+    async function updatePaymentRequestOrThrow(id, payload) {
+      const { data, error } = await supabaseClient
+        .from("payment_requests")
+        .update(payload)
+        .eq("id", id)
+        .select("id")
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data?.id) {
+        throw new Error("No row was updated. This usually means RLS/auth blocked the update or the request id does not match the base payment_requests row.");
+      }
+
+      return data;
+    }
+
+    async function saveRow({ markPaid = false } = {}) {
+      if (!state.currentRow) return;
+
+      els.saveDrawerBtn.disabled = true;
+      els.markPaidBtn.disabled = true;
+
+      try {
+        const oldRow = { ...state.currentRow };
+
+        const completed = markPaid ? true : els.fCompleted.value === "true";
+        const workflowStatus = markPaid ? "paid" : els.fWorkflowStatus.value;
+        const dateCompleted = markPaid
+          ? new Date().toISOString().slice(0, 10)
+          : (els.fDateCompleted.value || null);
+
+        const payload = {
+          workflow_status: workflowStatus,
+          assigned_to: els.fAssignedTo.value || null,
+          priority: els.fPriority.value,
+          payment_type: els.fPaymentType.value || null,
+          completed: completed,
+          date_completed: completed ? dateCompleted : null,
+          payment_detail: els.fPaymentDetail.value.trim() || null,
+          internal_notes: els.fInternalNotes.value.trim() || null,
+          updated_by: state.currentUser?.id || null
+        };
+
+        await updatePaymentRequestOrThrow(state.currentRow.id, payload);
+
+        state.rows = state.rows.map(r => r.id === state.currentRow.id ? { ...r, ...payload } : r);
+        refreshAll();
+
+        const activityPromises = [];
+
+        if (oldRow.workflow_status !== payload.workflow_status) {
+          activityPromises.push(logActivity({
+            requestId: oldRow.id,
+            activityType: "status_changed",
+            fieldName: "workflow_status",
+            oldValue: oldRow.workflow_status || "",
+            newValue: payload.workflow_status || "",
+            message: `Status changed from ${oldRow.workflow_status || "—"} to ${payload.workflow_status || "—"}`
+          }));
+        }
+
+        if ((oldRow.assigned_to || "") !== (payload.assigned_to || "")) {
+          activityPromises.push(logActivity({
+            requestId: oldRow.id,
+            activityType: "assignment_changed",
+            fieldName: "assigned_to",
+            oldValue: assignedName(oldRow.assigned_to),
+            newValue: assignedName(payload.assigned_to),
+            message: `Assignment changed from ${assignedName(oldRow.assigned_to)} to ${assignedName(payload.assigned_to)}`
+          }));
+        }
+
+        if ((oldRow.priority || "") !== (payload.priority || "")) {
+          activityPromises.push(logActivity({
+            requestId: oldRow.id,
+            activityType: "priority_changed",
+            fieldName: "priority",
+            oldValue: oldRow.priority || "",
+            newValue: payload.priority || "",
+            message: `Priority changed from ${oldRow.priority || "—"} to ${payload.priority || "—"}`
+          }));
+        }
+
+        if ((oldRow.payment_type || "") !== (payload.payment_type || "")) {
+          activityPromises.push(logActivity({
+            requestId: oldRow.id,
+            activityType: "payment_type_changed",
+            fieldName: "payment_type",
+            oldValue: oldRow.payment_type || "",
+            newValue: payload.payment_type || "",
+            message: `Payment type changed from ${oldRow.payment_type || "—"} to ${payload.payment_type || "—"}`
+          }));
+        }
+
+        if (!!oldRow.completed !== !!payload.completed) {
+          activityPromises.push(logActivity({
+            requestId: oldRow.id,
+            activityType: "completed_changed",
+            fieldName: "completed",
+            oldValue: oldRow.completed ? "Completed" : "Open",
+            newValue: payload.completed ? "Completed" : "Open",
+            message: payload.completed ? "Request marked completed." : "Request reopened."
+          }));
+        }
+
+        if ((oldRow.internal_notes || "").trim() !== (payload.internal_notes || "").trim() && (payload.internal_notes || "").trim()) {
+          activityPromises.push(logActivity({
+            requestId: oldRow.id,
+            activityType: "note_added",
+            fieldName: "internal_notes",
+            oldValue: "",
+            newValue: "",
+            message: `Internal note updated: ${(payload.internal_notes || "").slice(0, 200)}`
+          }));
+        }
+
+        if (!activityPromises.length) {
+          activityPromises.push(logActivity({
+            requestId: oldRow.id,
+            activityType: "updated",
+            message: markPaid ? "Request updated and marked paid." : "Request updated."
+          }));
+        }
+
+        await Promise.all(activityPromises);
+
+        await loadData();
+        await openDrawer(oldRow.id);
+        showToast(markPaid ? "Request marked paid." : "Request updated.");
+      } catch (err) {
+        console.error(err);
+        showToast(`Save failed: ${err.message || "Unknown error"}`, true);
+      } finally {
+        els.saveDrawerBtn.disabled = false;
+        els.markPaidBtn.disabled = false;
+      }
+    }
+
+    async function quickMarkPaid(id) {
+      try {
+        const row = state.rows.find(r => r.id === id);
+        const payload = {
+          workflow_status: "paid",
+          completed: true,
+          date_completed: new Date().toISOString().slice(0, 10),
+          updated_by: state.currentUser?.id || null
+        };
+
+        await updatePaymentRequestOrThrow(id, payload);
+
+        state.rows = state.rows.map(r => r.id === id ? { ...r, ...payload } : r);
+        refreshAll();
+
+        await logActivity({
+          requestId: id,
+          activityType: "completed_changed",
+          fieldName: "completed",
+          oldValue: row?.completed ? "Completed" : "Open",
+          newValue: "Completed",
+          message: "Request marked paid from workbench quick action."
+        });
+
+        await loadData();
+        showToast("Request marked paid.");
+      } catch (err) {
+        console.error(err);
+        showToast(`Quick mark paid failed: ${err.message || "Unknown error"}`, true);
+      }
+    }
+
+    function clearFilters() {
+      els.statusFilter.value = "";
+      els.priorityFilter.value = "";
+      els.completedFilter.value = "";
+      els.assignedFilter.value = "";
+      els.typeFilter.value = "";
+      els.dueFilter.value = "";
+      els.searchInput.value = "";
+      els.startDate.value = "";
+      els.endDate.value = "";
+      state.queueFilter = "open";
+      refreshAll();
+      setStatus(`Loaded ${formatNumber(state.rows.length)} payment requests and ${formatNumber(state.files.length)} file attachment rows.`);
+    }
+
+    function setActiveTab(tab) {
+      state.activeTab = tab;
+      const map = {
+        requests: [els.tabRequestsBtn, els.viewRequests],
+        reporting: [els.tabReportingBtn, els.viewReporting],
+        activity: [els.tabActivityBtn, els.viewActivity]
+      };
+      Object.entries(map).forEach(([key, [btn, panel]]) => {
+        btn.classList.toggle("active", key === tab);
+        panel.classList.toggle("active", key === tab);
+      });
+    }
+
+    function wireEvents() {
+      els.refreshBtn.addEventListener("click", loadData);
+      els.clearFiltersBtn.addEventListener("click", clearFilters);
+
+      els.tabRequestsBtn.addEventListener("click", () => setActiveTab("requests"));
+      els.tabReportingBtn.addEventListener("click", () => setActiveTab("reporting"));
+      els.tabActivityBtn.addEventListener("click", () => setActiveTab("activity"));
+
+      [
+        els.statusFilter,
+        els.priorityFilter,
+        els.completedFilter,
+        els.assignedFilter,
+        els.typeFilter,
+        els.dueFilter,
+        els.searchInput,
+        els.startDate,
+        els.endDate
+      ].forEach(el => {
+        el.addEventListener("input", refreshAll);
+        el.addEventListener("change", refreshAll);
+      });
+
+      els.closeDrawerBtn.addEventListener("click", closeDrawer);
+      els.drawerBackdrop.addEventListener("click", closeDrawer);
+      els.saveDrawerBtn.addEventListener("click", () => saveRow());
+      els.markPaidBtn.addEventListener("click", () => saveRow({ markPaid: true }));
+      els.openFileBtn.addEventListener("click", async () => {
+        if (state.currentRow?.id) await openFileForRow(state.currentRow.id, true);
+      });
+    }
+
+    async function init() {
+      try {
+        state.currentUser = await getCurrentUser();
+        if (!state.currentUser) {
+          window.location.href = "/pages/login.html";
+          return;
+        }
+
+        if (window.SiloChrome) {
+          window.SiloChrome.mount({
+            appEl: "#silo-app",
+            active: "purchasing/req-mgr",
+            user: { email: state.currentUser?.email || "", role: "OWNER" },
+            crumbs: ["Purchasing", "Request manager"],
+            supabaseClient,
+          });
+        }
+
+        wireEvents();
+        await loadData();
+      } catch (err) {
+        console.error(err);
+        setStatus(`Init failed: ${err.message || "Unknown error"}`, true);
+      }
+    }
+
+    init();
+  </script>
+</body>
+</html>
