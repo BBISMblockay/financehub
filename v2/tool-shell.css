@@ -1,0 +1,196 @@
+/* ========================================================================
+   SILO v2 — tool-shell
+   Used by /v2/*.html pages that embed an existing /financehub tool inside
+   the Beacon chrome.  Pairs with tool-shell.js.
+   ======================================================================== */
+
+.silo-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bcn-bg);
+}
+
+/* Header (auto-rendered by tool-shell.js) */
+.ts-header {
+  flex-shrink: 0;
+  padding: 14px 18px;
+  background: var(--bcn-surface);
+  border-bottom: 1px solid var(--bcn-border);
+  display: flex;
+  align-items: flex-end;
+  gap: 20px;
+}
+
+.ts-header-block {
+  flex: 1;
+  min-width: 0;
+}
+
+.ts-header-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.ts-header-title h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  line-height: 1.1;
+  color: var(--bcn-ink);
+}
+
+.ts-header-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: var(--bcn-radius-sm);
+  background: var(--bcn-sunken);
+  color: var(--bcn-ink-3);
+  border: 1px solid var(--bcn-border);
+  font-family: var(--bcn-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ts-header-status-pill[data-state="ready"] { color: var(--bcn-pos); border-color: var(--bcn-pos-border); background: var(--bcn-pos-soft); }
+.ts-header-status-pill[data-state="loading"] { color: var(--bcn-accent); border-color: var(--bcn-accent-border); background: var(--bcn-accent-soft); }
+.ts-header-status-pill[data-state="error"] { color: var(--bcn-neg); border-color: var(--bcn-neg-border); background: var(--bcn-neg-soft); }
+
+.ts-header-sub {
+  font-size: 12.5px;
+  color: var(--bcn-ink-2);
+  max-width: 720px;
+}
+
+.ts-header-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Viewer body */
+.ts-body {
+  flex: 1;
+  min-height: 0;
+  padding: 14px;
+  display: flex;
+}
+
+.ts-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bcn-surface);
+  border: 1px solid var(--bcn-border-strong);
+  border-radius: var(--bcn-radius);
+  overflow: hidden;
+  box-shadow: var(--bcn-shadow);
+  position: relative;
+}
+
+.ts-frame {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--bcn-surface);
+  display: block;
+  min-height: 0;
+}
+
+.ts-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: var(--bcn-surface);
+  color: var(--bcn-ink-3);
+  font-family: var(--bcn-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  z-index: 1;
+}
+
+.ts-loading[hidden] { display: none; }
+
+.ts-spin {
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--bcn-border-strong);
+  border-top-color: var(--bcn-accent);
+  border-radius: 50%;
+  animation: ts-spin 0.7s linear infinite;
+}
+
+@keyframes ts-spin { to { transform: rotate(360deg); } }
+
+.ts-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: var(--bcn-surface);
+  padding: 40px 24px;
+  text-align: center;
+  z-index: 1;
+}
+
+.ts-error[hidden] { display: none; }
+
+.ts-error-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--bcn-ink);
+}
+
+.ts-error-sub {
+  font-size: 12.5px;
+  color: var(--bcn-ink-2);
+  max-width: 460px;
+  line-height: 1.5;
+}
+
+/* Mobile */
+@media (max-width: 900px) {
+  .ts-header {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    padding: 12px 14px;
+    gap: 12px;
+  }
+  .ts-header h1 { font-size: 17px; }
+  .ts-header-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .ts-body {
+    padding: 10px;
+    flex: 1;
+    min-height: min(72dvh, 720px);
+  }
+  .ts-card {
+    flex: 1;
+    min-height: min(70dvh, 680px);
+  }
+  .ts-frame {
+    min-height: min(70dvh, 680px);
+  }
+}
+
