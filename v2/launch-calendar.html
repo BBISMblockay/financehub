@@ -1,0 +1,1378 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SILO · Launch Workbench</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="beacon.css" />
+  <script src="../pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+  <style>
+    /* calendar pane fills remaining height */
+    #pane-calendar {
+      flex:1; min-height:0; display:flex; flex-direction:column;
+      overflow:hidden; margin-top:12px;
+    }
+    #pane-calendar .bcn-card { flex:1; display:flex; flex-direction:column; min-height:0; }
+    .cal-scroll { flex:1; overflow:auto; min-height:0; padding:12px; }
+    .cal-scroll::-webkit-scrollbar { width:8px; height:8px; }
+    .cal-scroll::-webkit-scrollbar-thumb { background:var(--bcn-border-strong); border-radius:4px; }
+
+    /* calendar grid */
+    .cal-grid { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:6px; min-width:680px; }
+    .cal-dow { padding:4px 6px 8px; font-size:10px; font-weight:700; letter-spacing:.1em; color:var(--bcn-ink-3); font-family:var(--bcn-mono); text-transform:uppercase; }
+    .cal-cell {
+      min-height:148px; border:1px solid var(--bcn-border); border-radius:10px;
+      background:var(--bcn-surface); padding:8px;
+      display:flex; flex-direction:column;
+    }
+    .cal-cell.off { opacity:.3; }
+    .cal-cell.today { border-color:var(--bcn-accent); box-shadow:inset 0 0 0 1px oklch(0.60 0.20 245 / 0.10); }
+    .cal-cell-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:5px; }
+    .cal-daynum { height:22px; min-width:22px; display:inline-flex; align-items:center; justify-content:center; border-radius:50%; font-weight:700; font-size:12px; }
+    .cal-cell.today .cal-daynum { background:var(--bcn-accent); color:#fff; }
+    .cal-count { font-size:10px; font-family:var(--bcn-mono); color:var(--bcn-ink-4); font-weight:700; }
+    .cal-events { display:flex; flex-direction:column; gap:4px; flex:1; overflow:hidden; }
+    .cal-overflow { font-size:10px; color:var(--bcn-ink-4); padding:2px 0; font-family:var(--bcn-mono); }
+
+    /* event chip inside calendar cell */
+    .ev-chip {
+      position:relative; border:1px solid var(--bcn-border); border-radius:7px;
+      padding:5px 7px 5px 10px; cursor:pointer; background:var(--bcn-surface-2,oklch(0.97 0.005 245));
+      overflow:hidden; transition:border-color .1s, transform .1s;
+    }
+    .ev-chip:hover { border-color:var(--bcn-border-strong); transform:translateY(-1px); }
+    .ev-chip::before { content:''; position:absolute; left:0; top:4px; bottom:4px; width:3px; border-radius:2px; background:var(--bcn-accent); }
+    .ev-chip.s-launched::before   { background:oklch(0.55 0.18 145); }
+    .ev-chip.s-blocked::before    { background:oklch(0.55 0.22 15); }
+    .ev-chip.s-ready::before      { background:oklch(0.58 0.16 145); }
+    .ev-chip.s-in_progress::before { background:oklch(0.60 0.18 75); }
+    .ev-chip.s-assets_needed::before { background:oklch(0.62 0.18 75); }
+    .ev-chip-thumb { width:100%; height:32px; object-fit:cover; border-radius:4px; margin-bottom:4px; display:block; }
+    .ev-chip-title { font-size:11px; font-weight:600; line-height:1.2; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+    .ev-chip-meta { font-size:10px; color:var(--bcn-ink-3); margin-top:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+    /* agenda feed */
+    #pane-agenda { margin-top:12px; }
+    .agenda-row {
+      display:grid; grid-template-columns:110px 72px 1fr;
+      gap:12px; align-items:center;
+      padding:12px 16px; border-bottom:1px solid var(--bcn-border);
+      cursor:pointer; transition:background .1s;
+    }
+    .agenda-row:last-child { border-bottom:none; }
+    .agenda-row:hover { background:oklch(0.97 0.005 245); }
+    .agenda-date { font-weight:700; font-size:13px; }
+    .agenda-time-txt { font-size:11px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); }
+    .agenda-img { width:72px; height:52px; object-fit:cover; border-radius:7px; display:block; }
+    .agenda-img-empty { width:72px; height:52px; border-radius:7px; background:var(--bcn-border); display:flex; align-items:center; justify-content:center; font-size:9px; color:var(--bcn-ink-4); font-family:var(--bcn-mono); letter-spacing:.06em; }
+    .agenda-title { font-weight:700; font-size:14px; }
+    .agenda-meta { font-size:11px; color:var(--bcn-ink-3); margin-top:2px; }
+    .agenda-pills { display:flex; gap:5px; flex-wrap:wrap; margin-top:6px; }
+
+    /* in-page tabs */
+    .pg-tab-bar { display:flex; align-items:stretch; border-bottom:1px solid var(--bcn-border); margin-top:6px; }
+    .pg-tab { height:36px; padding:0 16px; font-size:11px; font-weight:700; letter-spacing:.07em; font-family:var(--bcn-mono); color:var(--bcn-ink-3); background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-1px; cursor:pointer; transition:color .12s, border-color .12s; }
+    .pg-tab:hover { color:var(--bcn-ink); }
+    .pg-tab--active { color:var(--bcn-accent); border-bottom-color:var(--bcn-accent); }
+
+    /* DETAIL DRAWER */
+    .ed-overlay { position:fixed; inset:0; background:rgba(10,16,30,.46); z-index:90; opacity:0; pointer-events:none; transition:opacity .18s ease; }
+    .ed-overlay.open { opacity:1; pointer-events:auto; }
+    .ed-panel { position:fixed; top:0; right:0; bottom:0; width:min(780px,100vw); background:var(--bcn-surface); border-left:1px solid var(--bcn-border-strong); z-index:91; display:flex; flex-direction:column; transform:translateX(100%); transition:transform .2s ease; box-shadow:-6px 0 32px rgba(0,0,0,.14); }
+    .ed-panel.open { transform:translateX(0); }
+
+    .ed-panel-head { background:var(--bcn-band); padding:14px 16px; border-bottom:1px solid rgba(255,255,255,.08); flex-shrink:0; }
+    .ed-head-row { display:flex; align-items:flex-start; gap:10px; }
+    .ed-panel-label { font-size:10px; font-weight:700; letter-spacing:.1em; color:var(--bcn-band-ink-3); font-family:var(--bcn-mono); margin-bottom:2px; }
+    .ed-panel-title { font-size:15px; font-weight:700; color:#fff; line-height:1.2; }
+    .ed-panel-sub { font-size:11.5px; color:rgba(255,255,255,.55); margin-top:2px; }
+    .ed-close-btn { width:28px; height:28px; padding:0; flex-shrink:0; background:rgba(255,255,255,.1); color:rgba(255,255,255,.65); border:1px solid rgba(255,255,255,.14); border-radius:6px; font-size:13px; cursor:pointer; line-height:1; }
+    .ed-close-btn:hover { background:rgba(255,255,255,.2); color:#fff; }
+    .ed-actions { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+    .ed-ghost-btn { background:rgba(255,255,255,.08); color:rgba(255,255,255,.75); border:1px solid rgba(255,255,255,.16); border-radius:6px; padding:0 12px; height:30px; font-size:10px; font-weight:700; letter-spacing:.07em; font-family:var(--bcn-mono); cursor:pointer; }
+    .ed-ghost-btn:hover { background:rgba(255,255,255,.16); }
+
+    /* drawer tab bar */
+    .drawer-tab-bar { display:flex; overflow-x:auto; border-bottom:1px solid var(--bcn-border); flex-shrink:0; scrollbar-width:none; }
+    .drawer-tab-bar::-webkit-scrollbar { display:none; }
+    .drawer-tab { height:36px; padding:0 14px; font-size:10.5px; font-weight:700; letter-spacing:.07em; font-family:var(--bcn-mono); color:var(--bcn-ink-3); background:none; border:none; border-bottom:2px solid transparent; margin-bottom:-1px; cursor:pointer; white-space:nowrap; transition:color .12s, border-color .12s; }
+    .drawer-tab:hover { color:var(--bcn-ink); }
+    .drawer-tab.active { color:var(--bcn-accent); border-bottom-color:var(--bcn-accent); }
+
+    /* drawer body + panels */
+    .ed-panel-body { flex:1; overflow-y:auto; }
+    .ed-panel-body::-webkit-scrollbar { width:5px; }
+    .ed-panel-body::-webkit-scrollbar-thumb { background:var(--bcn-border-strong); border-radius:3px; }
+    .dp { display:none; padding:14px; flex-direction:column; gap:10px; }
+    .dp.active { display:flex; }
+    .dp-section { border:1px solid var(--bcn-border); border-radius:10px; padding:12px; }
+    .dp-sec-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+    .dp-title { font-size:13px; font-weight:700; }
+    .dp-sub { font-size:11px; color:var(--bcn-ink-3); margin-top:2px; }
+    .dp-inline-form { border:1px solid var(--bcn-border); border-radius:8px; padding:12px; margin-top:8px; display:flex; flex-direction:column; gap:8px; }
+    .dp-g2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .dp-g3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
+    .dp-item { display:flex; justify-content:space-between; gap:10px; border-top:1px solid var(--bcn-border); padding:10px 0; align-items:flex-start; }
+    .dp-item:first-child { border-top:none; }
+    .dp-item-title { font-weight:700; font-size:13px; }
+    .dp-item-meta { font-size:11px; color:var(--bcn-ink-3); margin-top:2px; white-space:pre-wrap; }
+
+    /* overview */
+    .launch-hero-img { width:100%; max-height:200px; object-fit:cover; border-radius:8px; margin-bottom:10px; display:block; }
+    .kv-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin-top:10px; }
+    .kv-cell { border:1px solid var(--bcn-border); border-radius:7px; padding:7px 9px; }
+    .kv-k { font-size:10px; text-transform:uppercase; letter-spacing:.07em; color:var(--bcn-ink-3); font-weight:700; }
+    .kv-v { margin-top:2px; font-weight:600; font-size:12px; word-break:break-word; }
+
+    /* LAUNCH FORM MODAL */
+    .lf-modal { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(10,16,30,.54); backdrop-filter:blur(4px); z-index:95; padding:16px; opacity:0; pointer-events:none; transition:opacity .18s ease; }
+    .lf-modal.open { opacity:1; pointer-events:auto; }
+    .lf-sheet { width:min(1000px,100%); max-height:90vh; background:var(--bcn-surface); border-radius:14px; border:1px solid var(--bcn-border-strong); box-shadow:0 24px 80px rgba(0,0,0,.22); display:flex; flex-direction:column; overflow:hidden; }
+    .lf-head { background:var(--bcn-band); padding:14px 18px; display:flex; align-items:center; gap:12px; border-bottom:1px solid rgba(255,255,255,.08); flex-shrink:0; }
+    .lf-head-title { font-size:14px; font-weight:700; color:#fff; flex:1; }
+    .lf-head-sub { font-size:11px; color:rgba(255,255,255,.55); margin-top:2px; }
+    .lf-body { flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:12px; }
+    .lf-body::-webkit-scrollbar { width:5px; }
+    .lf-body::-webkit-scrollbar-thumb { background:var(--bcn-border-strong); border-radius:3px; }
+    .lf-foot { padding:12px 18px; border-top:1px solid var(--bcn-border); display:flex; gap:8px; align-items:center; flex-shrink:0; }
+    .lf-sec { border:1px solid var(--bcn-border); border-radius:10px; padding:14px; }
+    .lf-sec-title { font-size:10px; font-weight:700; letter-spacing:.08em; font-family:var(--bcn-mono); color:var(--bcn-ink-3); margin-bottom:10px; }
+    .lf-g2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .lf-g3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
+
+    /* image upload zone */
+    .upload-zone { border:2px dashed var(--bcn-border); border-radius:8px; padding:16px; text-align:center; cursor:pointer; transition:border-color .12s, background .12s; font-size:12px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); user-select:none; }
+    .upload-zone:hover, .upload-zone.drag { border-color:var(--bcn-accent); background:oklch(0.60 0.20 245 / 0.06); }
+    .upload-preview { width:100%; max-height:160px; object-fit:cover; border-radius:8px; margin-bottom:6px; display:block; }
+    .upload-remove-btn { font-size:10px; color:var(--bcn-neg,#e11d48); cursor:pointer; background:none; border:none; font-family:var(--bcn-mono); font-weight:700; padding:0; }
+
+    /* status pill tones */
+    .pill-launched { background:oklch(0.92 0.10 145); color:oklch(0.38 0.20 145); border-color:oklch(0.78 0.16 145); }
+    .pill-blocked  { background:oklch(0.93 0.08 15);  color:oklch(0.40 0.20 15);  border-color:oklch(0.80 0.14 15); }
+    .pill-ready    { background:oklch(0.92 0.10 145); color:oklch(0.38 0.18 145); border-color:oklch(0.78 0.14 145); }
+    .pill-risk     { background:oklch(0.93 0.08 30);  color:oklch(0.42 0.18 30);  border-color:oklch(0.80 0.14 30); }
+    .pill-channel  { background:oklch(0.92 0.10 65);  color:oklch(0.40 0.20 65);  border-color:oklch(0.80 0.14 65); }
+    .pill-task     { background:oklch(0.92 0.10 245); color:oklch(0.40 0.20 245); border-color:oklch(0.80 0.14 245); }
+
+    @media(max-width:700px) {
+      .lf-g2,.lf-g3,.dp-g2,.dp-g3 { grid-template-columns:1fr; }
+      .agenda-row { grid-template-columns:90px 56px 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="silo-app" id="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0;">
+        <div class="bcn-header-title"><h1>Launch Workbench</h1></div>
+        <div class="bcn-header-sub">Product launch containers · calendar · product readiness · channel initiatives</div>
+      </div>
+      <div class="bcn-header-actions">
+        <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="refreshBtn">REFRESH</button>
+        <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" id="newLaunchBtn">+ NEW LAUNCH</button>
+      </div>
+    </header>
+
+    <div class="bcn-status" id="page-status" hidden></div>
+
+    <section class="bcn-kpi-band" aria-label="Key metrics">
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">LAUNCHES</div>
+        <div class="bcn-kpi-value bcn-mono" data-kpi="count">—</div>
+        <div class="bcn-kpi-delta" data-kpi="month">— THIS MONTH</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">NEXT 7 DAYS</div>
+        <div class="bcn-kpi-value bcn-mono" data-kpi="next7">—</div>
+        <div class="bcn-kpi-delta" data-kpi="products">— PRODUCTS</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">OPEN TASKS</div>
+        <div class="bcn-kpi-value bcn-mono" data-kpi="tasks">—</div>
+        <div class="bcn-kpi-delta" data-kpi="risk">— AT RISK</div>
+      </div>
+    </section>
+
+    <section class="bcn-filter-bar" aria-label="Filters">
+      <div class="bcn-filter">
+        <span class="bcn-filter-k">SEARCH</span>
+        <input type="text" id="q" placeholder="title, product, PO, vendor…" style="min-width:160px;" />
+      </div>
+      <div class="bcn-filter">
+        <span class="bcn-filter-k">STATUS</span>
+        <select id="statusFilter">
+          <option value="">All</option>
+          <option value="planned">Planned</option>
+          <option value="in_progress">In Progress</option>
+          <option value="assets_needed">Assets Needed</option>
+          <option value="ready">Ready</option>
+          <option value="launched">Launched</option>
+          <option value="blocked">Blocked</option>
+        </select>
+      </div>
+      <div class="bcn-filter">
+        <span class="bcn-filter-k">TYPE</span>
+        <select id="typeFilter"><option value="">All types</option></select>
+      </div>
+      <div class="bcn-filter">
+        <span class="bcn-filter-k">DESIGNER</span>
+        <select id="designerFilter"><option value="">All</option></select>
+      </div>
+      <div class="bcn-filter">
+        <span class="bcn-filter-k">READINESS</span>
+        <select id="readinessFilter">
+          <option value="">All</option>
+          <option value="not_reviewed">Not Reviewed</option>
+          <option value="at_risk">At Risk</option>
+          <option value="needs_inventory">Needs Inventory</option>
+          <option value="needs_assets">Needs Assets</option>
+          <option value="ready">Ready</option>
+        </select>
+      </div>
+      <div class="bcn-filter">
+        <span class="bcn-filter-k">FROM</span>
+        <input type="date" id="fromFilter" />
+      </div>
+      <div class="bcn-filter">
+        <span class="bcn-filter-k">TO</span>
+        <input type="date" id="toFilter" />
+      </div>
+      <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="resetBtn">RESET</button>
+    </section>
+
+    <div class="pg-tab-bar" role="tablist">
+      <button class="pg-tab pg-tab--active" type="button" data-tab="calendar" role="tab">CALENDAR</button>
+      <button class="pg-tab" type="button" data-tab="agenda" role="tab">AGENDA</button>
+    </div>
+
+    <!-- CALENDAR PANE -->
+    <div id="pane-calendar">
+      <section class="bcn-card" aria-label="Launch calendar">
+        <header class="bcn-card-header">
+          <span class="bcn-pill bcn-pill--dark" id="monthTitle">—</span>
+          <span class="bcn-card-meta" id="calMeta">—</span>
+          <div style="flex:1"></div>
+          <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="prevMonth">← PREV</button>
+          <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="todayMonth">TODAY</button>
+          <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="nextMonth">NEXT →</button>
+        </header>
+        <div class="cal-scroll">
+          <div class="cal-grid" id="calendarGrid"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- AGENDA PANE -->
+    <div id="pane-agenda" hidden style="margin-top:12px;">
+      <section class="bcn-card" aria-label="Agenda feed">
+        <header class="bcn-card-header">
+          <span class="bcn-pill bcn-pill--dark">AGENDA</span>
+          <span class="bcn-card-meta" id="feedTitle">—</span>
+          <div style="flex:1"></div>
+          <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="prevFeed">← PREV 2W</button>
+          <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="todayFeed">TODAY</button>
+          <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="nextFeed">NEXT 2W →</button>
+        </header>
+        <div id="feedList" style="padding:0;"></div>
+      </section>
+    </div>
+
+  </main>
+</div>
+
+<!-- DETAIL DRAWER -->
+<div class="ed-overlay" id="drawerOverlay"></div>
+<div class="ed-panel" id="detailDrawer" role="dialog" aria-hidden="true">
+  <div class="ed-panel-head">
+    <div class="ed-head-row">
+      <div style="flex:1;min-width:0;">
+        <div class="ed-panel-label">LAUNCH</div>
+        <div class="ed-panel-title" id="drawerTitle">—</div>
+        <div class="ed-panel-sub" id="drawerSub">—</div>
+      </div>
+      <button class="ed-close-btn" id="closeDrawer" aria-label="Close">✕</button>
+    </div>
+    <div class="ed-actions">
+      <button class="ed-ghost-btn" type="button" id="editLaunchBtn">EDIT</button>
+      <button class="ed-ghost-btn" type="button" id="refreshDetailBtn">REFRESH</button>
+    </div>
+  </div>
+
+  <div class="drawer-tab-bar">
+    <button class="drawer-tab active" data-dp="dp-overview">OVERVIEW</button>
+    <button class="drawer-tab" data-dp="dp-products">PRODUCTS</button>
+    <button class="drawer-tab" data-dp="dp-channels">INITIATIVES</button>
+    <button class="drawer-tab" data-dp="dp-tasks">TASKS</button>
+    <button class="drawer-tab" data-dp="dp-assets">ASSETS</button>
+    <button class="drawer-tab" data-dp="dp-links">LINKS</button>
+    <button class="drawer-tab" data-dp="dp-comments">COMMENTS</button>
+  </div>
+
+  <div class="ed-panel-body">
+
+    <div class="dp active" id="dp-overview">
+      <div id="drawerLaunchMeta"></div>
+      <div id="drawerSystemMeta"></div>
+    </div>
+
+    <div class="dp" id="dp-products">
+      <div class="dp-section">
+        <div class="dp-sec-head">
+          <div><div class="dp-title">Products / Readiness</div><div class="dp-sub">Manual, PO/Incoming, or Existing Silo Product.</div></div>
+          <button class="bcn-btn bcn-btn--mono" type="button" id="showProductFormBtn">+ PRODUCT</button>
+        </div>
+        <form id="productForm" style="display:none;">
+          <div class="dp-inline-form">
+            <div class="dp-g2">
+              <div class="bcn-field-group"><label class="bcn-label">SOURCE</label><select class="bcn-field" id="prodSource"><option value="manual">Manual</option><option value="po_incoming">PO / Incoming</option><option value="existing_product">Existing Silo Product</option></select></div>
+              <div class="bcn-field-group"><label class="bcn-label">LOOKUP</label><div style="display:flex;gap:6px;"><input class="bcn-field" id="prodLookupInput" placeholder="Title, PO, vendor…" style="flex:1;" /><button class="bcn-btn bcn-btn--mono" type="button" id="prodLookupBtn">GO</button></div></div>
+            </div>
+            <div id="prodLookupResults"></div>
+            <div class="dp-g2">
+              <div class="bcn-field-group"><label class="bcn-label">PRODUCT TITLE *</label><input class="bcn-field" id="prodTitle" required placeholder="Product name" /></div>
+              <div class="bcn-field-group"><label class="bcn-label">TYPE</label><input class="bcn-field" id="prodType" /></div>
+            </div>
+            <div class="dp-g2">
+              <div class="bcn-field-group"><label class="bcn-label">COLLECTION</label><input class="bcn-field" id="prodCollection" /></div>
+              <div class="bcn-field-group"><label class="bcn-label">MANUFACTURER</label><input class="bcn-field" id="prodManufacturer" /></div>
+            </div>
+            <div class="dp-g3">
+              <div class="bcn-field-group"><label class="bcn-label">PO #</label><input class="bcn-field bcn-field--mono" id="prodPo" /></div>
+              <div class="bcn-field-group"><label class="bcn-label">ETA</label><input class="bcn-field" id="prodEta" type="date" /></div>
+              <div class="bcn-field-group"><label class="bcn-label">UNITS</label><input class="bcn-field bcn-field--mono" id="prodUnits" type="number" min="0" /></div>
+            </div>
+            <div class="dp-g3">
+              <div class="bcn-field-group"><label class="bcn-label">READINESS</label><select class="bcn-field" id="prodReadyStatus"><option value="not_reviewed">Not Reviewed</option><option value="at_risk">At Risk</option><option value="blocked">Blocked</option><option value="ready">Ready</option></select></div>
+              <div class="bcn-field-group"><label class="bcn-label">PRODUCT SHOTS</label><select class="bcn-field" id="prodShotStatus"><option value="not_started">Not Started</option><option value="needed">Needed</option><option value="scheduled">Scheduled</option><option value="complete">Complete</option></select></div>
+              <div class="bcn-field-group"><label class="bcn-label">COPY</label><select class="bcn-field" id="prodCopyStatus"><option value="not_started">Not Started</option><option value="drafting">Drafting</option><option value="complete">Complete</option></select></div>
+            </div>
+            <div class="bcn-field-group"><label class="bcn-label">NOTES</label><textarea class="bcn-field" id="prodNotes" rows="2"></textarea></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+              <button class="bcn-btn bcn-btn--mono" type="button" id="cancelProductBtn">CANCEL</button>
+              <button class="bcn-btn bcn-btn--primary bcn-btn--mono">SAVE</button>
+            </div>
+          </div>
+        </form>
+        <div id="productList"></div>
+      </div>
+    </div>
+
+    <div class="dp" id="dp-channels">
+      <div class="dp-section">
+        <div class="dp-sec-head">
+          <div><div class="dp-title">Channel Initiatives</div><div class="dp-sub">Email, SMS, social, retail, website…</div></div>
+          <button class="bcn-btn bcn-btn--mono" type="button" id="showChannelFormBtn">+ INITIATIVE</button>
+        </div>
+        <form id="channelForm" style="display:none;">
+          <div class="dp-inline-form">
+            <div class="dp-g2">
+              <div class="bcn-field-group"><label class="bcn-label">CHANNEL</label><select class="bcn-field" id="channelName"><option value="email">Email</option><option value="sms">SMS</option><option value="organic">Organic</option><option value="meta">Meta</option><option value="website">Website</option><option value="retail">Retail</option><option value="other">Other</option></select></div>
+              <div class="bcn-field-group"><label class="bcn-label">TITLE *</label><input class="bcn-field" id="channelTitle" required /></div>
+            </div>
+            <div class="dp-g3">
+              <div class="bcn-field-group"><label class="bcn-label">DATE</label><input class="bcn-field" id="channelDate" type="date" /></div>
+              <div class="bcn-field-group"><label class="bcn-label">TIME</label><input class="bcn-field" id="channelTime" type="time" /></div>
+              <div class="bcn-field-group"><label class="bcn-label">STATUS</label><select class="bcn-field" id="channelStatus"><option value="planned">Planned</option><option value="drafting">Drafting</option><option value="ready">Ready</option><option value="scheduled">Scheduled</option><option value="live">Live</option><option value="blocked">Blocked</option></select></div>
+            </div>
+            <div class="dp-g2">
+              <div class="bcn-field-group"><label class="bcn-label">OWNER</label><input class="bcn-field" id="channelOwner" /></div>
+              <div class="bcn-field-group"><label class="bcn-label">URL</label><input class="bcn-field bcn-field--mono" id="channelUrl" type="url" /></div>
+            </div>
+            <div class="bcn-field-group"><label class="bcn-label">NOTES</label><textarea class="bcn-field" id="channelNotes" rows="2"></textarea></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+              <button class="bcn-btn bcn-btn--mono" type="button" id="cancelChannelBtn">CANCEL</button>
+              <button class="bcn-btn bcn-btn--primary bcn-btn--mono">SAVE</button>
+            </div>
+          </div>
+        </form>
+        <div id="channelList"></div>
+      </div>
+    </div>
+
+    <div class="dp" id="dp-tasks">
+      <div class="dp-section">
+        <div class="dp-sec-head">
+          <div class="dp-title">Tasks</div>
+          <button class="bcn-btn bcn-btn--mono" type="button" id="showTaskFormBtn">+ TASK</button>
+        </div>
+        <form id="taskForm" style="display:none;">
+          <div class="dp-inline-form">
+            <div class="bcn-field-group"><label class="bcn-label">TASK TITLE *</label><input class="bcn-field" id="taskTitle" required /></div>
+            <div class="dp-g3">
+              <div class="bcn-field-group"><label class="bcn-label">DUE DATE</label><input class="bcn-field" id="taskDue" type="date" /></div>
+              <div class="bcn-field-group"><label class="bcn-label">PRIORITY</label><select class="bcn-field" id="taskPriority"><option value="normal">Normal</option><option value="high">High</option><option value="critical">Critical</option></select></div>
+              <div class="bcn-field-group"><label class="bcn-label">TYPE</label><select class="bcn-field" id="taskType"><option value="">Type</option><option value="creative">Creative</option><option value="inventory">Inventory</option><option value="website">Website</option><option value="email">Email</option><option value="sms">SMS</option><option value="qa">QA</option></select></div>
+            </div>
+            <div class="bcn-field-group"><label class="bcn-label">NOTES</label><textarea class="bcn-field" id="taskNotes" rows="2"></textarea></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+              <button class="bcn-btn bcn-btn--mono" type="button" id="cancelTaskBtn">CANCEL</button>
+              <button class="bcn-btn bcn-btn--primary bcn-btn--mono">SAVE</button>
+            </div>
+          </div>
+        </form>
+        <div id="taskList"></div>
+      </div>
+    </div>
+
+    <div class="dp" id="dp-assets">
+      <div class="dp-section">
+        <div class="dp-sec-head">
+          <div><div class="dp-title">Assets / Files</div><div class="dp-sub">Links, images, PDFs, references.</div></div>
+          <button class="bcn-btn bcn-btn--mono" type="button" id="showAssetFormBtn">+ ASSET</button>
+        </div>
+        <form id="assetForm" style="display:none;">
+          <div class="dp-inline-form">
+            <div class="dp-g2">
+              <div class="bcn-field-group"><label class="bcn-label">NAME</label><input class="bcn-field" id="assetName" /></div>
+              <div class="bcn-field-group"><label class="bcn-label">TYPE</label><input class="bcn-field" id="assetType" placeholder="hero image, PDF…" /></div>
+            </div>
+            <div class="bcn-field-group"><label class="bcn-label">URL *</label><input class="bcn-field bcn-field--mono" id="assetUrl" type="url" required placeholder="https://…" /></div>
+            <div class="bcn-field-group"><label class="bcn-label">NOTES</label><textarea class="bcn-field" id="assetNotes" rows="2"></textarea></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+              <button class="bcn-btn bcn-btn--mono" type="button" id="cancelAssetBtn">CANCEL</button>
+              <button class="bcn-btn bcn-btn--primary bcn-btn--mono">SAVE</button>
+            </div>
+          </div>
+        </form>
+        <div id="assetList"></div>
+      </div>
+    </div>
+
+    <div class="dp" id="dp-links">
+      <div class="dp-section">
+        <div class="dp-sec-head">
+          <div class="dp-title">Silo Links</div>
+          <button class="bcn-btn bcn-btn--mono" type="button" id="showSystemLinkFormBtn">+ LINK</button>
+        </div>
+        <form id="systemLinkForm" style="display:none;">
+          <div class="dp-inline-form">
+            <div class="dp-g2">
+              <div class="bcn-field-group"><label class="bcn-label">LINK TYPE</label><select class="bcn-field" id="linkType"><option value="product">Product</option><option value="po">PO</option><option value="inventory_tag">Inventory Tag</option><option value="planning_scenario">Planning Scenario</option><option value="report">Report</option><option value="collection">Collection</option><option value="campaign">Campaign</option><option value="other">Other</option></select></div>
+              <div class="bcn-field-group"><label class="bcn-label">LABEL</label><input class="bcn-field" id="linkLabel" /></div>
+            </div>
+            <div class="dp-g2">
+              <div class="bcn-field-group"><label class="bcn-label">REF TABLE</label><input class="bcn-field bcn-field--mono" id="linkTable" /></div>
+              <div class="bcn-field-group"><label class="bcn-label">REF ID</label><input class="bcn-field bcn-field--mono" id="linkRefId" /></div>
+            </div>
+            <div class="bcn-field-group"><label class="bcn-label">URL</label><input class="bcn-field bcn-field--mono" id="linkUrl" type="url" /></div>
+            <div class="bcn-field-group"><label class="bcn-label">NOTES</label><textarea class="bcn-field" id="linkNotes" rows="2"></textarea></div>
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+              <button class="bcn-btn bcn-btn--mono" type="button" id="cancelSystemLinkBtn">CANCEL</button>
+              <button class="bcn-btn bcn-btn--primary bcn-btn--mono">SAVE</button>
+            </div>
+          </div>
+        </form>
+        <div id="systemLinksList"></div>
+      </div>
+    </div>
+
+    <div class="dp" id="dp-comments">
+      <div class="dp-section">
+        <div class="dp-title" style="margin-bottom:10px;">Comments</div>
+        <form id="commentForm">
+          <div class="bcn-field-group"><textarea class="bcn-field" id="commentInput" rows="3" placeholder="Add a comment…" required></textarea></div>
+          <div style="display:flex;justify-content:flex-end;margin-top:8px;"><button class="bcn-btn bcn-btn--primary bcn-btn--mono">POST COMMENT</button></div>
+        </form>
+        <div id="commentList" style="margin-top:10px;"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- LAUNCH FORM MODAL -->
+<div class="lf-modal" id="launchModal">
+  <div class="lf-sheet">
+    <div class="lf-head">
+      <div style="flex:1;">
+        <div class="lf-head-title" id="modalTitle">New Launch Container</div>
+        <div class="lf-head-sub">Create the shell first. Add products and initiatives from the detail drawer.</div>
+      </div>
+      <button class="ed-close-btn" id="closeModal" type="button">✕</button>
+    </div>
+    <div class="lf-body">
+      <form id="launchForm">
+        <input type="hidden" id="launchId" />
+
+        <div class="lf-sec">
+          <div class="lf-sec-title">OPTIONAL PREFILL</div>
+          <div class="lf-g2">
+            <div class="bcn-field-group"><label class="bcn-label">SOURCE</label><select class="bcn-field" id="productSourceInput"><option value="manual">Manual / Placeholder</option><option value="po_incoming">PO / Incoming Product</option><option value="existing_product">Existing Silo Product</option></select></div>
+            <div class="bcn-field-group"><label class="bcn-label">LOOKUP</label><div style="display:flex;gap:6px;"><input class="bcn-field" id="lookupSearchInput" placeholder="Product title, PO, vendor…" style="flex:1;" /><button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="lookupSearchBtn">SEARCH</button></div></div>
+          </div>
+          <div id="lookupBox" style="display:none;margin-top:8px;border:1px solid var(--bcn-border);border-radius:8px;max-height:180px;overflow-y:auto;"><div id="lookupResults" style="padding:8px;"></div></div>
+        </div>
+
+        <div class="lf-sec" style="margin-top:12px;">
+          <div class="lf-sec-title">LAUNCH SHELL</div>
+          <div class="lf-g2">
+            <div class="bcn-field-group"><label class="bcn-label">LAUNCH TITLE *</label><input class="bcn-field" id="titleInput" required placeholder="July 4th Drop / Fall Campaign" /></div>
+            <div class="bcn-field-group"><label class="bcn-label">PRIMARY PRODUCT TITLE</label><input class="bcn-field" id="productTitleInput" placeholder="Optional" /></div>
+          </div>
+          <div class="lf-g3" style="margin-top:10px;">
+            <div class="bcn-field-group"><label class="bcn-label">LAUNCH DATE *</label><input class="bcn-field" id="dateInput" type="date" required /></div>
+            <div class="bcn-field-group"><label class="bcn-label">LAUNCH TIME</label><input class="bcn-field bcn-field--mono" id="timeInput" type="time" /></div>
+            <div class="bcn-field-group"><label class="bcn-label">LAUNCH TYPE</label><input class="bcn-field" id="typeInput" placeholder="Main, Filler, Campaign…" /></div>
+          </div>
+          <div class="lf-g3" style="margin-top:10px;">
+            <div class="bcn-field-group"><label class="bcn-label">STATUS</label><select class="bcn-field" id="statusInput"><option value="planned">Planned</option><option value="in_progress">In Progress</option><option value="assets_needed">Assets Needed</option><option value="ready">Ready</option><option value="launched">Launched</option><option value="blocked">Blocked</option></select></div>
+            <div class="bcn-field-group"><label class="bcn-label">PRIORITY</label><select class="bcn-field" id="priorityInput"><option value="low">Low</option><option value="normal" selected>Normal</option><option value="high">High</option><option value="critical">Critical</option></select></div>
+            <div class="bcn-field-group"><label class="bcn-label">READINESS</label><select class="bcn-field" id="readinessInput"><option value="not_reviewed">Not Reviewed</option><option value="at_risk">At Risk</option><option value="needs_inventory">Needs Inventory</option><option value="needs_assets">Needs Assets</option><option value="ready">Ready</option></select></div>
+          </div>
+          <div class="lf-g3" style="margin-top:10px;">
+            <div class="bcn-field-group"><label class="bcn-label">DESIGNER</label><input class="bcn-field" id="designerInput" /></div>
+            <div class="bcn-field-group"><label class="bcn-label">MARKETING CHANNEL</label><input class="bcn-field" id="channelInput" placeholder="Email, social, site…" /></div>
+            <div class="bcn-field-group"><label class="bcn-label">CAMPAIGN TYPE</label><input class="bcn-field" id="campaignInput" placeholder="Drop, promo, seasonal…" /></div>
+          </div>
+        </div>
+
+        <div class="lf-sec" style="margin-top:12px;">
+          <div class="lf-sec-title">PRIMARY REFERENCES</div>
+          <div class="lf-g3">
+            <div class="bcn-field-group"><label class="bcn-label">COLLECTION / DROP</label><input class="bcn-field" id="collectionInput" /></div>
+            <div class="bcn-field-group"><label class="bcn-label">PRODUCT TYPE</label><input class="bcn-field" id="productTypeInput" /></div>
+            <div class="bcn-field-group"><label class="bcn-label">INVENTORY TAG</label><input class="bcn-field bcn-field--mono" id="inventoryTagInput" /></div>
+          </div>
+          <div class="lf-g3" style="margin-top:10px;">
+            <div class="bcn-field-group"><label class="bcn-label">PO NUMBER</label><input class="bcn-field bcn-field--mono" id="poNumberInput" /></div>
+            <div class="bcn-field-group"><label class="bcn-label">VENDOR / FACTORY</label><input class="bcn-field" id="vendorInput" /></div>
+            <div class="bcn-field-group"><label class="bcn-label">SAMPLE SKU</label><input class="bcn-field bcn-field--mono" id="skuInput" /></div>
+          </div>
+          <div class="lf-g2" style="margin-top:10px;">
+            <div class="bcn-field-group"><label class="bcn-label">EXPECTED UNITS</label><input class="bcn-field bcn-field--mono" id="expectedUnitsInput" type="number" min="0" /></div>
+            <div class="bcn-field-group"><label class="bcn-label">EXPECTED RETAIL VALUE ($)</label><input class="bcn-field bcn-field--mono" id="expectedRetailInput" type="number" min="0" step="0.01" /></div>
+          </div>
+        </div>
+
+        <div class="lf-sec" style="margin-top:12px;">
+          <div class="lf-sec-title">CREATIVE / NOTES</div>
+          <div class="bcn-field-group">
+            <label class="bcn-label">LAUNCH IMAGE</label>
+            <div id="imgPreviewWrap" style="display:none;margin-bottom:8px;">
+              <img id="imgPreview" class="upload-preview" src="" alt="Preview" />
+              <button type="button" class="upload-remove-btn" id="imgRemoveBtn">✕ Remove image</button>
+            </div>
+            <label class="upload-zone" id="uploadZone" for="imgFileInput">
+              <div style="font-size:22px;margin-bottom:5px;">↑</div>
+              <div>Drop an image here or <u>click to upload</u></div>
+              <div style="margin-top:4px;font-size:10px;">JPG · PNG · GIF · WebP · max 10MB</div>
+            </label>
+            <input type="file" id="imgFileInput" accept="image/*" style="display:none;" />
+            <div class="bcn-field-group" style="margin-top:8px;">
+              <label class="bcn-label">OR PASTE IMAGE URL</label>
+              <input class="bcn-field bcn-field--mono" id="imageInput" placeholder="https://…" />
+            </div>
+          </div>
+          <div class="lf-g2" style="margin-top:10px;">
+            <div class="bcn-field-group"><label class="bcn-label">ASSETS NEEDED</label><textarea class="bcn-field" id="assetsInput" rows="3"></textarea></div>
+            <div class="bcn-field-group"><label class="bcn-label">DETAILS</label><textarea class="bcn-field" id="detailsInput" rows="3"></textarea></div>
+          </div>
+          <div class="bcn-field-group" style="margin-top:10px;"><label class="bcn-label">NOTES</label><textarea class="bcn-field" id="notesInput" rows="2"></textarea></div>
+        </div>
+      </form>
+    </div>
+    <div class="lf-foot">
+      <div id="formMsg" style="font-size:12px;color:var(--bcn-neg,#e11d48);flex:1;"></div>
+      <button class="bcn-btn bcn-btn--mono" type="button" id="cancelModal">CANCEL</button>
+      <button class="bcn-btn bcn-btn--primary bcn-btn--mono" id="submitFormBtn" type="button">SAVE LAUNCH</button>
+    </div>
+  </div>
+</div>
+
+<script src="silo-chrome.js"></script>
+<script>
+/* ---- DEMO MODE -------------------------------------------------------- */
+const __SILO_DEMO__ = (() => {
+  if (new URLSearchParams(location.search).get('demo')==='1') return true;
+  const h = location.hostname||'';
+  return h.includes('claudeusercontent')||h.includes('localhost')||h==='127.0.0.1'||location.protocol==='file:';
+})();
+
+if (__SILO_DEMO__) {
+  window.__SILO_CONFIG__ = { SUPABASE_URL:'demo', SUPABASE_ANON_KEY:'demo' };
+  const today = new Date();
+  const iso = d => { const x=new Date(d); return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`; };
+  const off = n => { const d=new Date(today); d.setDate(d.getDate()+n); return iso(d); };
+
+  const LAUNCHES = [
+    { id:1, title:'Cooperstown Capsule', launch_date:off(2),  launch_time:'09:00', launch_type:'DTC Drop',    status:'ready',       priority:'high',    launch_readiness:'ready',        designer:'Owen',   marketing_channel:'email',  campaign_type:'Drop',     launch_image_url:null, notes:'Core collection drop — limited run.', details:'30 items, FOD + online.', po_number:'PO-2024-081', vendor_name:'Champion', expected_units:300, expected_retail_value:14700, product_title:'Cooperstown Tee', product_type:'T-Shirt', collection_name:'Cooperstown', created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
+    { id:2, title:"Father's Day Tee",   launch_date:off(5),  launch_time:'09:00', launch_type:'DTC + Retail', status:'in_progress',  priority:'high',    launch_readiness:'needs_assets', designer:'Studio', marketing_channel:'email',  campaign_type:'Holiday',  launch_image_url:null, notes:"Father's Day hero tee. Email at 9am CT.", details:'Email + social push.', po_number:null, vendor_name:null, expected_units:500, expected_retail_value:24500, product_title:"Father's Day Tee", product_type:'T-Shirt', collection_name:'Holiday', created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
+    { id:3, title:'Throwback Jerseys',   launch_date:off(10), launch_time:'12:00', launch_type:'Restock',     status:'planned',      priority:'normal',  launch_readiness:'not_reviewed', designer:'Studio', marketing_channel:'social', campaign_type:'Restock',  launch_image_url:null, notes:'Restock of classic jerseys.', details:null, po_number:'PO-2024-092', vendor_name:'Majestic', expected_units:200, expected_retail_value:15800, product_title:'Throwback Jersey', product_type:'Jersey', collection_name:'Classics', created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
+    { id:4, title:'Summer Sale Promo',   launch_date:off(14), launch_time:'08:00', launch_type:'Promotion',   status:'planned',      priority:'normal',  launch_readiness:'not_reviewed', designer:'Owen',   marketing_channel:'email',  campaign_type:'Promo',    launch_image_url:null, notes:'Site-wide summer sale.', details:'20% off sitewide, email + SMS.', po_number:null, vendor_name:null, expected_units:null, expected_retail_value:null, product_title:null, product_type:null, collection_name:'Summer', created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
+    { id:5, title:'MLB Collab Drop',     launch_date:off(-2), launch_time:'10:00', launch_type:'Collab',      status:'launched',     priority:'critical',launch_readiness:'ready',        designer:'Owen',   marketing_channel:'email',  campaign_type:'Collab',   launch_image_url:null, notes:'MLB partnership launch. Went well.', details:'Full media push.', po_number:'PO-2024-077', vendor_name:'MLB Licensing', expected_units:1000, expected_retail_value:59000, product_title:'MLB Collab Tee', product_type:'T-Shirt', collection_name:'MLB Collab', created_at:new Date().toISOString(), updated_at:new Date().toISOString() },
+  ];
+  const TASKS = [
+    { id:1, launch_id:1, task_title:'Finalize product shots', task_type:'creative', status:'in_progress', priority:'high', due_date:off(1), notes:null },
+    { id:2, launch_id:1, task_title:'Write email copy', task_type:'email', status:'open', priority:'normal', due_date:off(1), notes:'Subject: Limited run drops tomorrow' },
+    { id:3, launch_id:2, task_title:'Upload banner assets', task_type:'creative', status:'open', priority:'high', due_date:off(3), notes:null },
+    { id:4, launch_id:2, task_title:'QA email flow', task_type:'qa', status:'open', priority:'high', due_date:off(4), notes:null },
+    { id:5, launch_id:3, task_title:'Confirm restock qty', task_type:'inventory', status:'open', priority:'normal', due_date:off(8), notes:null },
+  ];
+  const ASSETS = [
+    { id:1, launch_id:1, asset_name:'Email Hero',   asset_type:'image', asset_url:'https://example.com/hero.jpg', notes:null, uploaded_by:'demo', created_at:new Date().toISOString() },
+    { id:2, launch_id:5, asset_name:'Campaign PDF', asset_type:'pdf',   asset_url:'https://example.com/collab.pdf', notes:'Final brief', uploaded_by:'demo', created_at:new Date().toISOString() },
+  ];
+  const COMMENTS = [
+    { id:1, launch_id:2, comment:"Assets still needed from Owen — chasing.", created_at:new Date(Date.now()-7200000).toISOString() },
+    { id:2, launch_id:5, comment:"Launched clean. Sales tracking strong.",    created_at:new Date(Date.now()-172800000).toISOString() },
+  ];
+  const LINKS = [];
+  const CHANNELS = [
+    { id:1, launch_id:1, channel:'email', item_title:'Pre-launch teaser',     scheduled_date:off(1), scheduled_time:'08:00', status:'ready',    owner:'Drew', link_url:null, notes:'Subject line: Tomorrow…', created_at:new Date().toISOString() },
+    { id:2, launch_id:2, channel:'email', item_title:"Father's Day email",    scheduled_date:off(5), scheduled_time:'09:00', status:'drafting', owner:'Drew', link_url:null, notes:'Hero + CTA block', created_at:new Date().toISOString() },
+    { id:3, launch_id:2, channel:'sms',   item_title:'SMS blast at 10am',     scheduled_date:off(5), scheduled_time:'10:00', status:'planned',  owner:'Gen',  link_url:null, notes:null, created_at:new Date().toISOString() },
+  ];
+  const PRODUCTS = [
+    { id:1, launch_id:1, product_title:'Cooperstown Tee', product_type:'T-Shirt', collection_name:'Cooperstown', manufacturer:'Champion', vendor_name:'Champion', po_number:'PO-2024-081', bulk_eta:off(0), expected_units:300, readiness_status:'ready', product_shot_status:'complete', copy_status:'complete', notes:null, created_at:new Date().toISOString() },
+    { id:2, launch_id:2, product_title:"Father's Day Tee", product_type:'T-Shirt', collection_name:'Holiday', manufacturer:null, vendor_name:null, po_number:null, bulk_eta:off(3), expected_units:500, readiness_status:'at_risk', product_shot_status:'needed', copy_status:'drafting', notes:'Shots not done yet', created_at:new Date().toISOString() },
+  ];
+  const TABLES = { launch_calendar:LAUNCHES, launch_tasks:TASKS, launch_assets:ASSETS, launch_comments:COMMENTS, launch_system_links:LINKS, launch_channel_items:CHANNELS, launch_product_readiness:PRODUCTS };
+  let nextId = 100;
+
+  function makeQ(table) {
+    let rows=(TABLES[table]||[]).slice(), _eq=[], _gte=[], _lte=[], _ord=null, _lim=null;
+    const api={
+      select(){return api;},
+      eq(k,v){_eq.push([k,v]);return api;},
+      gte(k,v){_gte.push([k,v]);return api;},
+      lte(k,v){_lte.push([k,v]);return api;},
+      order(k,o={}){_ord=[k,o.ascending!==false];return api;},
+      limit(n){_lim=n;return api;},
+      range(a,b){_lim=b+1;return api;},
+      or(){return api;},
+      _run(){
+        let r=rows;
+        _eq.forEach(([k,v])=>r=r.filter(x=>String(x[k]??'')===String(v)));
+        _gte.forEach(([k,v])=>r=r.filter(x=>String(x[k]??'')>=String(v)));
+        _lte.forEach(([k,v])=>r=r.filter(x=>String(x[k]??'')<=String(v)));
+        if(_ord){const[k,asc]=_ord;r=r.slice().sort((a,b)=>(String(a[k]??'')>String(b[k]??'')?1:-1)*(asc?1:-1));}
+        if(_lim)r=r.slice(0,_lim);
+        return Promise.resolve({data:r,error:null});
+      },
+      then(res,rej){return api._run().then(res,rej);},
+      single(){return api._run().then(r=>({data:r.data[0]||null,error:null}));},
+      async insert(arr){
+        const items=Array.isArray(arr)?arr:[arr];
+        const added=items.map(p=>({...p,id:nextId++,created_at:new Date().toISOString(),updated_at:new Date().toISOString()}));
+        TABLES[table].push(...added);
+        return{data:added,error:null};
+      },
+      async update(patch){
+        return{eq:async(k,v)=>{
+          const i=TABLES[table].findIndex(x=>String(x[k])===String(v));
+          if(i>=0)TABLES[table][i]={...TABLES[table][i],...patch,updated_at:new Date().toISOString()};
+          return{data:TABLES[table][i]??null,error:null};
+        }};
+      },
+    };
+    return api;
+  }
+  window.supabase={createClient(){return{
+    auth:{
+      getUser:async()=>({data:{user:{id:'demo',email:'demo@baseballism.com'}},error:null}),
+      signOut:async()=>({error:null}),
+    },
+    from:t=>makeQ(t),
+    storage:{from(bucket){return{
+      upload:async(path,file)=>({data:{path},error:null}),
+      getPublicUrl:(path)=>({data:{publicUrl:URL.createObjectURL(file)}}),
+    };},},
+  };}};
+}
+
+/* ======================================================================
+   LAUNCH WORKBENCH v2
+   ====================================================================== */
+
+const cfg = window.__SILO_CONFIG__||{};
+let db = null;
+
+let currentUser = null;
+let launches=[], tasks=[], assets=[], comments=[], systemLinks=[], channels=[], products=[], filtered=[];
+let activeLaunch = null;
+let view = 'calendar';
+let monthAnchor = startOfMonth(new Date());
+let feedAnchor  = startOfDay(new Date());
+const F = { q:'', status:'', type:'', designer:'', readiness:'', from:'', to:'' };
+let pendingImageFile = null;
+
+const $ = id => document.getElementById(id);
+const esc = v => String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+const money = v => Number(v||0).toLocaleString('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0});
+const iso = d => { d=startOfDay(new Date(d)); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+const fmt = d => d ? new Date(d+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+const addDays = (d,n) => { d=new Date(d); d.setDate(d.getDate()+n); return d; };
+const addMonths = (d,n) => startOfMonth(new Date(d.getFullYear(),d.getMonth()+n,1));
+function startOfDay(d){ d=new Date(d); d.setHours(0,0,0,0); return d; }
+function startOfMonth(d){ d=startOfDay(d); d.setDate(1); return d; }
+function debounce(fn,ms){ let t; return (...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms);}; }
+function setText(sel,v){ const el=document.querySelector(sel); if(el)el.textContent=v; }
+function setStatus(msg,tone='info',autoMs=0){
+  const el=$('page-status');
+  el.className='bcn-status bcn-status--'+tone;
+  el.textContent=msg; el.hidden=false;
+  if(autoMs){clearTimeout(setStatus._t);setStatus._t=setTimeout(()=>{el.hidden=true;},autoMs);}
+}
+
+document.addEventListener('DOMContentLoaded', boot);
+
+async function boot(){
+  if(!cfg.SUPABASE_URL||!cfg.SUPABASE_ANON_KEY){ setStatus('Missing Supabase config.','neg'); return; }
+  db = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+  const {data,error} = await db.auth.getUser();
+  if(error||!data?.user){ location.href='/pages/login.html'; return; }
+  currentUser = data.user;
+
+  if(window.SiloChrome){
+    window.SiloChrome.mount({
+      appEl:'#silo-app', active:'planning/launch-calendar',
+      user:{email:currentUser.email, role:'OWNER'},
+      crumbs:['Planning','Launch Workbench'],
+      supabaseClient:db,
+    });
+  }
+
+  bind();
+  try {
+    await loadAll();
+    setStatus('Ready.','pos',1400);
+  } catch(e){
+    console.error(e);
+    setStatus('Load failed: '+(e?.message||e),'neg');
+  }
+}
+
+function bind(){
+  $('newLaunchBtn').onclick = () => openLaunchModal();
+  $('refreshBtn').onclick   = () => loadAll();
+  $('closeModal').onclick   = closeLaunchModal;
+  $('cancelModal').onclick  = closeLaunchModal;
+  $('submitFormBtn').onclick = saveLaunch;
+
+  $('closeDrawer').onclick      = closeDrawer;
+  $('drawerOverlay').onclick    = closeDrawer;
+  $('editLaunchBtn').onclick    = () => activeLaunch && openLaunchModal(activeLaunch);
+  $('refreshDetailBtn').onclick = async () => { await loadAll(false); if(activeLaunch) openDrawer(activeLaunch.id); };
+
+  $('prevMonth').onclick  = () => { monthAnchor=addMonths(monthAnchor,-1); render(); };
+  $('nextMonth').onclick  = () => { monthAnchor=addMonths(monthAnchor,1);  render(); };
+  $('todayMonth').onclick = () => { monthAnchor=startOfMonth(new Date());  render(); };
+  $('prevFeed').onclick   = () => { feedAnchor=addDays(feedAnchor,-14); render(); };
+  $('nextFeed').onclick   = () => { feedAnchor=addDays(feedAnchor,14);  render(); };
+  $('todayFeed').onclick  = () => { feedAnchor=startOfDay(new Date());  render(); };
+
+  $('resetBtn').onclick = () => {
+    Object.assign(F,{q:'',status:'',type:'',designer:'',readiness:'',from:'',to:''});
+    ['q','statusFilter','typeFilter','designerFilter','readinessFilter','fromFilter','toFilter'].forEach(id=>$(id).value='');
+    applyFilters(); render();
+  };
+
+  const applyD = debounce(()=>{syncF();applyFilters();render();},180);
+  $('q').oninput = applyD;
+  ['statusFilter','typeFilter','designerFilter','readinessFilter','fromFilter','toFilter']
+    .forEach(id=>$(id).onchange=()=>{syncF();applyFilters();render();});
+
+  document.querySelectorAll('[data-tab]').forEach(btn=>btn.addEventListener('click',()=>switchTab(btn.dataset.tab)));
+
+  // drawer tabs
+  document.querySelectorAll('.drawer-tab').forEach(btn=>btn.onclick=()=>{
+    document.querySelectorAll('.drawer-tab').forEach(x=>x.classList.toggle('active',x===btn));
+    document.querySelectorAll('.dp').forEach(x=>x.classList.toggle('active',x.id===btn.dataset.dp));
+  });
+
+  // product form
+  $('showProductFormBtn').onclick  = ()=>$('productForm').style.display='';
+  $('cancelProductBtn').onclick    = ()=>{ $('productForm').style.display='none'; $('productForm').reset(); };
+  $('productForm').onsubmit        = saveProductReadiness;
+  $('prodLookupBtn').onclick       = lookupProductBySource;
+
+  // channel form
+  $('showChannelFormBtn').onclick  = ()=>$('channelForm').style.display='';
+  $('cancelChannelBtn').onclick    = ()=>{ $('channelForm').style.display='none'; $('channelForm').reset(); };
+  $('channelForm').onsubmit        = saveChannelItem;
+
+  // task form
+  $('showTaskFormBtn').onclick     = ()=>$('taskForm').style.display='';
+  $('cancelTaskBtn').onclick       = ()=>{ $('taskForm').style.display='none'; $('taskForm').reset(); };
+  $('taskForm').onsubmit           = saveTask;
+
+  // asset form
+  $('showAssetFormBtn').onclick    = ()=>$('assetForm').style.display='';
+  $('cancelAssetBtn').onclick      = ()=>{ $('assetForm').style.display='none'; $('assetForm').reset(); };
+  $('assetForm').onsubmit          = saveAsset;
+
+  // link form
+  $('showSystemLinkFormBtn').onclick = ()=>$('systemLinkForm').style.display='';
+  $('cancelSystemLinkBtn').onclick   = ()=>{ $('systemLinkForm').style.display='none'; $('systemLinkForm').reset(); };
+  $('systemLinkForm').onsubmit       = saveSystemLink;
+
+  $('commentForm').onsubmit = saveComment;
+
+  // lookup
+  $('productSourceInput').onchange = ()=>{ $('lookupBox').style.display='none'; $('lookupResults').innerHTML=''; $('lookupSearchInput').value=''; };
+  $('lookupSearchBtn').onclick = runProductLookup;
+  $('lookupSearchInput').addEventListener('keydown',e=>{ if(e.key==='Enter'){e.preventDefault();runProductLookup();} });
+
+  // image upload
+  const zone = $('uploadZone');
+  zone.addEventListener('dragover', e=>{ e.preventDefault(); zone.classList.add('drag'); });
+  zone.addEventListener('dragleave', ()=>zone.classList.remove('drag'));
+  zone.addEventListener('drop', async e=>{
+    e.preventDefault(); zone.classList.remove('drag');
+    const file=e.dataTransfer.files?.[0];
+    if(file&&file.type.startsWith('image/')) handleImageFile(file);
+  });
+  $('imgFileInput').addEventListener('change', ()=>{
+    const file=$('imgFileInput').files?.[0];
+    if(file) handleImageFile(file);
+    $('imgFileInput').value='';
+  });
+  $('imageInput').addEventListener('input', ()=>{
+    const url=$('imageInput').value.trim();
+    if(url) showImgPreview(url); else hideImgPreview();
+  });
+  $('imgRemoveBtn').onclick = ()=>{ hideImgPreview(); pendingImageFile=null; };
+
+  document.addEventListener('keydown',e=>{
+    if(e.key==='Escape'){
+      if($('launchModal').classList.contains('open')){ closeLaunchModal(); return; }
+      if($('detailDrawer').classList.contains('open')){ closeDrawer(); return; }
+    }
+  });
+}
+
+function syncF(){
+  F.q=$('q').value; F.status=$('statusFilter').value; F.type=$('typeFilter').value;
+  F.designer=$('designerFilter').value; F.readiness=$('readinessFilter').value;
+  F.from=$('fromFilter').value; F.to=$('toFilter').value;
+}
+
+function switchTab(name){
+  view=name;
+  document.querySelectorAll('[data-tab]').forEach(b=>b.classList.toggle('pg-tab--active',b.dataset.tab===name));
+  $('pane-calendar').style.display = name==='calendar' ? '' : 'none';
+  // fix: pane-calendar uses flex, need to restore
+  if(name==='calendar') $('pane-calendar').style.display='';
+  $('pane-agenda').hidden = name!=='agenda';
+}
+
+/* ---- data loading ------------------------------------------------------ */
+
+async function loadAll(shouldRender=true){
+  const [l,t,a,c,s,ch,p] = await Promise.all([
+    db.from('launch_calendar').select('*').order('launch_date',{ascending:true}),
+    db.from('launch_tasks').select('*').order('created_at',{ascending:false}),
+    db.from('launch_assets').select('*').order('created_at',{ascending:false}),
+    db.from('launch_comments').select('*').order('created_at',{ascending:false}),
+    db.from('launch_system_links').select('*').order('created_at',{ascending:false}),
+    db.from('launch_channel_items').select('*').order('scheduled_date',{ascending:true}),
+    db.from('launch_product_readiness').select('*').order('created_at',{ascending:false}),
+  ]);
+  if(l.error) throw l.error;
+  launches=l.data||[]; tasks=t.data||[]; assets=a.data||[]; comments=c.data||[];
+  systemLinks=s.data||[]; channels=ch.data||[]; products=p.data||[];
+  fillFilterOptions(); applyFilters();
+  if(shouldRender) render();
+}
+
+function fillFilterOptions(){
+  const types=[...new Set(launches.map(x=>x.launch_type).filter(Boolean))].sort();
+  const designers=[...new Set(launches.map(x=>x.designer).filter(Boolean))].sort();
+  $('typeFilter').innerHTML=`<option value="">All types</option>`+types.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');
+  $('designerFilter').innerHTML=`<option value="">All</option>`+designers.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');
+  $('typeFilter').value=F.type; $('designerFilter').value=F.designer;
+}
+
+function applyFilters(){
+  const q=F.q.toLowerCase().trim();
+  filtered=launches.filter(x=>{
+    if(F.status&&x.status!==F.status) return false;
+    if(F.type&&x.launch_type!==F.type) return false;
+    if(F.designer&&x.designer!==F.designer) return false;
+    if(F.readiness&&x.launch_readiness!==F.readiness) return false;
+    if(F.from&&x.launch_date<F.from) return false;
+    if(F.to&&x.launch_date>F.to) return false;
+    if(q){
+      const cp=products.filter(p=>p.launch_id===x.id).map(p=>p.product_title).join(' ');
+      const cc=channels.filter(c=>c.launch_id===x.id).map(c=>c.item_title+' '+c.channel).join(' ');
+      const blob=[x.title,x.launch_type,x.designer,x.marketing_channel,x.campaign_type,x.assets_needed,x.details,x.notes,x.product_sku,x.product_title,x.product_type,x.collection_name,x.po_number,x.vendor_name,x.inventory_tag,x.launch_readiness,cp,cc].join(' ').toLowerCase();
+      if(!blob.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+/* ---- render ------------------------------------------------------------ */
+
+function render(){ renderKpis(); if(view==='calendar') renderMonth(); else renderAgenda(); }
+
+function renderKpis(){
+  const ids=new Set(filtered.map(x=>x.id));
+  const mStart=iso(monthAnchor), mEnd=iso(new Date(monthAnchor.getFullYear(),monthAnchor.getMonth()+1,0));
+  const todayStr=iso(new Date()), next7=iso(addDays(new Date(),7));
+  setText('[data-kpi="count"]',  filtered.length);
+  setText('[data-kpi="month"]',  filtered.filter(x=>x.launch_date>=mStart&&x.launch_date<=mEnd).length+' THIS MONTH');
+  setText('[data-kpi="next7"]',  filtered.filter(x=>x.launch_date>=todayStr&&x.launch_date<next7).length);
+  setText('[data-kpi="products"]',products.filter(x=>ids.has(x.launch_id)).length+' PRODUCTS');
+  const openTasks=tasks.filter(x=>ids.has(x.launch_id)&&!['done','complete'].includes(x.status)).length;
+  const atRisk=filtered.filter(x=>['at_risk','needs_inventory','needs_assets'].includes(x.launch_readiness)).length+products.filter(x=>ids.has(x.launch_id)&&['at_risk','blocked'].includes(x.readiness_status)).length;
+  setText('[data-kpi="tasks"]',  openTasks);
+  setText('[data-kpi="risk"]',   atRisk+' AT RISK');
+}
+
+function renderMonth(){
+  $('pane-calendar').style.display='';
+  $('monthTitle').textContent = monthAnchor.toLocaleDateString('en-US',{month:'long',year:'numeric'}).toUpperCase();
+  const y=monthAnchor.getFullYear(), m=monthAnchor.getMonth();
+  const first=new Date(y,m,1);
+  const start=addDays(first,-first.getDay());
+  const last=new Date(y,m+1,0);
+  const end=addDays(last,6-last.getDay());
+  const todayStr=iso(new Date());
+  const byDate=new Map();
+  filtered.forEach(x=>{ if(!byDate.has(x.launch_date))byDate.set(x.launch_date,[]); byDate.get(x.launch_date).push(x); });
+
+  const inMonth=filtered.filter(x=>x.launch_date>=iso(first)&&x.launch_date<=iso(last)).length;
+  $('calMeta').textContent=`${inMonth} LAUNCHES THIS MONTH`;
+
+  const grid=$('calendarGrid');
+  grid.innerHTML='';
+  ['SUN','MON','TUE','WED','THU','FRI','SAT'].forEach(d=>{
+    const el=document.createElement('div'); el.className='cal-dow'; el.textContent=d; grid.appendChild(el);
+  });
+
+  for(let d=new Date(start);d<=end;d=addDays(d,1)){
+    const key=iso(d);
+    const items=byDate.get(key)||[];
+    const isOff=d.getMonth()!==m, isToday=key===todayStr;
+    const cell=document.createElement('div');
+    cell.className='cal-cell'+(isOff?' off':'')+(isToday?' today':'');
+    const shown=items.slice(0,4);
+    const more=items.length-shown.length;
+    cell.innerHTML=`
+      <div class="cal-cell-head">
+        <span class="cal-daynum">${d.getDate()}</span>
+        ${items.length?`<span class="cal-count">${items.length}</span>`:''}
+      </div>
+      <div class="cal-events">
+        ${shown.map(x=>evChip(x)).join('')}
+        ${more>0?`<div class="cal-overflow">+${more} more</div>`:''}
+      </div>`;
+    cell.querySelectorAll('[data-lid]').forEach(el=>el.onclick=()=>openDrawer(Number(el.dataset.lid)));
+    grid.appendChild(cell);
+  }
+}
+
+function evChip(x){
+  const cls = x.status==='launched'?'s-launched':x.status==='blocked'||x.launch_readiness==='at_risk'?'s-blocked':x.status==='ready'?'s-ready':x.status==='in_progress'?'s-in_progress':x.status==='assets_needed'?'s-assets_needed':'';
+  const taskCount=tasks.filter(t=>t.launch_id===x.id&&!['done','complete'].includes(t.status)).length;
+  const meta=[x.launch_time?x.launch_time.slice(0,5):null, x.launch_type, taskCount?`${taskCount}T`:null].filter(Boolean).join(' · ');
+  return `<div class="ev-chip ${cls}" data-lid="${x.id}">
+    ${x.launch_image_url?`<img class="ev-chip-thumb" src="${esc(x.launch_image_url)}" alt="" loading="lazy" />`:''}
+    <div class="ev-chip-title">${esc(x.title||x.product_title||'Untitled')}</div>
+    ${meta?`<div class="ev-chip-meta">${esc(meta)}</div>`:''}
+  </div>`;
+}
+
+function renderAgenda(){
+  $('pane-agenda').hidden=false;
+  const start=iso(feedAnchor), end=iso(addDays(feedAnchor,21));
+  $('feedTitle').textContent=`${fmt(start)} → ${fmt(iso(addDays(feedAnchor,20)))}`;
+  const items=filtered.filter(x=>x.launch_date>=start&&x.launch_date<end).sort((a,b)=>a.launch_date.localeCompare(b.launch_date));
+  const list=$('feedList');
+  if(!items.length){ list.innerHTML=`<div class="bcn-empty" style="padding:24px;">No launches in this range.</div>`; return; }
+  list.innerHTML=items.map(x=>{
+    const taskCount=tasks.filter(t=>t.launch_id===x.id&&!['done','complete'].includes(t.status)).length;
+    const prodCount=products.filter(p=>p.launch_id===x.id).length;
+    const chCount=channels.filter(c=>c.launch_id===x.id).length;
+    const rCls=['at_risk','needs_inventory','needs_assets'].includes(x.launch_readiness)?'pill-risk':x.launch_readiness==='ready'?'pill-launched':'';
+    const imgEl=x.launch_image_url
+      ?`<img class="agenda-img" src="${esc(x.launch_image_url)}" alt="" loading="lazy" />`
+      :`<div class="agenda-img-empty">NO IMG</div>`;
+    return `<div class="agenda-row" data-lid="${x.id}">
+      <div><div class="agenda-date">${esc(fmt(x.launch_date))}</div><div class="agenda-time-txt">${esc(x.launch_time||'')}</div></div>
+      ${imgEl}
+      <div>
+        <div class="agenda-title">${esc(x.title||x.product_title||'Untitled')}</div>
+        <div class="agenda-meta">${esc([x.product_title,x.product_type,x.po_number,x.designer].filter(Boolean).join(' · '))}</div>
+        <div class="agenda-pills">
+          <span class="bcn-pill ${rCls}">${esc(x.launch_readiness||'not_reviewed')}</span>
+          ${x.po_number?`<span class="bcn-pill" style="color:var(--bcn-accent)">${esc(x.po_number)}</span>`:''}
+          <span class="bcn-pill">${prodCount} products</span>
+          <span class="bcn-pill">${chCount} initiatives</span>
+          <span class="bcn-pill">${taskCount} open tasks</span>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+  list.querySelectorAll('[data-lid]').forEach(el=>el.onclick=()=>openDrawer(Number(el.dataset.lid)));
+}
+
+/* ---- drawer ------------------------------------------------------------ */
+
+function openDrawer(id){
+  activeLaunch=launches.find(x=>x.id===id);
+  if(!activeLaunch) return;
+  $('drawerTitle').textContent=activeLaunch.title||activeLaunch.product_title||'Launch';
+  $('drawerSub').textContent=`${fmt(activeLaunch.launch_date)} · ${activeLaunch.launch_readiness||'not_reviewed'}`;
+  $('detailDrawer').classList.add('open');
+  $('drawerOverlay').classList.add('open');
+  $('detailDrawer').setAttribute('aria-hidden','false');
+  // reset to overview tab
+  document.querySelectorAll('.drawer-tab').forEach(x=>x.classList.toggle('active',x.dataset.dp==='dp-overview'));
+  document.querySelectorAll('.dp').forEach(x=>x.classList.toggle('active',x.id==='dp-overview'));
+  renderDrawer();
+}
+function closeDrawer(){
+  $('detailDrawer').classList.remove('open');
+  $('drawerOverlay').classList.remove('open');
+  $('detailDrawer').setAttribute('aria-hidden','true');
+  activeLaunch=null;
+}
+function renderDrawer(){
+  if(!activeLaunch) return;
+  const id=activeLaunch.id;
+  renderOverview(products.filter(x=>x.launch_id===id),channels.filter(x=>x.launch_id===id),tasks.filter(x=>x.launch_id===id));
+  renderProductReadiness(products.filter(x=>x.launch_id===id));
+  renderChannels(channels.filter(x=>x.launch_id===id));
+  renderTasks(tasks.filter(x=>x.launch_id===id));
+  renderAssets(assets.filter(x=>x.launch_id===id));
+  renderSystemLinks(systemLinks.filter(x=>x.launch_id===id));
+  renderComments(comments.filter(x=>x.launch_id===id));
+}
+
+function renderOverview(prods,chans,tsks){
+  const x=activeLaunch;
+  const rCls=['at_risk','needs_inventory','needs_assets'].includes(x.launch_readiness)?'pill-risk':x.launch_readiness==='ready'?'pill-launched':'';
+  $('drawerLaunchMeta').innerHTML=`
+    <div class="dp-section">
+      ${x.launch_image_url?`<img class="launch-hero-img" src="${esc(x.launch_image_url)}" alt="" />`:''}
+      <div class="dp-title">${esc(x.title||'Launch')}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">
+        <span class="bcn-pill">${esc(x.status||'planned')}</span>
+        <span class="bcn-pill ${rCls}">${esc(x.launch_readiness||'not_reviewed')}</span>
+        ${x.launch_type?`<span class="bcn-pill">${esc(x.launch_type)}</span>`:''}
+        <span class="bcn-pill">${prods.length} products</span>
+        <span class="bcn-pill">${chans.length} initiatives</span>
+        <span class="bcn-pill">${tsks.filter(t=>!['done','complete'].includes(t.status)).length} open tasks</span>
+      </div>
+      ${x.designer||x.marketing_channel?`<div class="dp-item-meta" style="margin-top:8px;">${[x.designer?`Designer: ${x.designer}`:null,x.marketing_channel?`Channel: ${x.marketing_channel}`:null].filter(Boolean).join(' · ')}</div>`:''}
+      ${x.details||x.notes?`<div style="margin-top:8px;font-size:13px;white-space:pre-wrap;">${esc(x.details||x.notes)}</div>`:''}
+    </div>`;
+  $('drawerSystemMeta').innerHTML=`
+    <div class="dp-section">
+      <div class="dp-title">Primary References</div>
+      <div class="kv-grid">
+        <div class="kv-cell"><div class="kv-k">Product</div><div class="kv-v">${esc(x.product_title||'—')}</div></div>
+        <div class="kv-cell"><div class="kv-k">Type</div><div class="kv-v">${esc(x.product_type||'—')}</div></div>
+        <div class="kv-cell"><div class="kv-k">Collection</div><div class="kv-v">${esc(x.collection_name||'—')}</div></div>
+        <div class="kv-cell"><div class="kv-k">PO Number</div><div class="kv-v">${esc(x.po_number||'—')}</div></div>
+        <div class="kv-cell"><div class="kv-k">Vendor</div><div class="kv-v">${esc(x.vendor_name||'—')}</div></div>
+        <div class="kv-cell"><div class="kv-k">Expected Units</div><div class="kv-v">${x.expected_units??'—'}</div></div>
+        <div class="kv-cell"><div class="kv-k">Expected Retail</div><div class="kv-v">${x.expected_retail_value?money(x.expected_retail_value):'—'}</div></div>
+        <div class="kv-cell"><div class="kv-k">Sample SKU</div><div class="kv-v">${esc(x.product_sku||'—')}</div></div>
+      </div>
+    </div>`;
+}
+
+function renderProductReadiness(rows){
+  $('productList').innerHTML=rows.length?'':empStr('No product rows yet.');
+  rows.forEach(x=>{
+    const rCls=['at_risk','blocked'].includes(x.readiness_status)?'pill-risk':x.readiness_status==='ready'?'pill-launched':'';
+    const div=document.createElement('div'); div.className='dp-item';
+    div.innerHTML=`<div><div class="dp-item-title">${esc(x.product_title)}</div><div class="dp-item-meta">${esc([x.product_type,x.po_number,x.manufacturer||x.vendor_name,x.bulk_eta?`ETA ${x.bulk_eta}`:null,x.expected_units?`${x.expected_units} units`:null].filter(Boolean).join(' · '))}</div>${x.notes?`<div class="dp-item-meta">${esc(x.notes)}</div>`:''}</div><span class="bcn-pill ${rCls}">${esc(x.readiness_status||'not_reviewed')}</span>`;
+    $('productList').appendChild(div);
+  });
+}
+function renderChannels(rows){
+  $('channelList').innerHTML=rows.length?'':empStr('No channel initiatives yet.');
+  rows.forEach(x=>{
+    const div=document.createElement('div'); div.className='dp-item';
+    div.innerHTML=`<div><div class="dp-item-title">${esc(x.item_title)}</div><div class="dp-item-meta">${esc([x.channel,x.scheduled_date,x.scheduled_time,x.owner,x.status].filter(Boolean).join(' · '))}</div>${x.notes?`<div class="dp-item-meta">${esc(x.notes)}</div>`:''}</div><span class="bcn-pill">${esc(x.status||'planned')}</span>`;
+    $('channelList').appendChild(div);
+  });
+}
+function renderTasks(rows){
+  $('taskList').innerHTML=rows.length?'':empStr('No tasks yet.');
+  rows.forEach(t=>{
+    const div=document.createElement('div'); div.className='dp-item';
+    div.innerHTML=`<div style="flex:1"><div class="dp-item-title">${esc(t.task_title)}</div><div class="dp-item-meta">${esc([t.task_type,t.priority,t.due_date?`Due ${fmt(t.due_date)}`:null].filter(Boolean).join(' · '))}</div>${t.notes?`<div class="dp-item-meta">${esc(t.notes)}</div>`:''}</div><select class="bcn-field" data-tid="${t.id}" style="width:120px;height:30px;font-size:11px;">${['open','in_progress','done'].map(s=>`<option value="${s}"${t.status===s?' selected':''}>${s}</option>`).join('')}</select>`;
+    $('taskList').appendChild(div);
+  });
+  $('taskList').querySelectorAll('[data-tid]').forEach(el=>{
+    el.onchange=async()=>{
+      await db.from('launch_tasks').update({status:el.value,completed_at:el.value==='done'?new Date().toISOString():null}).eq('id',el.dataset.tid);
+      await loadAll(false); openDrawer(activeLaunch.id); render();
+    };
+  });
+}
+function renderAssets(rows){
+  $('assetList').innerHTML=rows.length?'':empStr('No assets yet.');
+  rows.forEach(a=>{
+    const div=document.createElement('div'); div.className='dp-item';
+    div.innerHTML=`<div><div class="dp-item-title">${esc(a.asset_name||a.asset_type||'Asset')}</div>${a.asset_type?`<div class="dp-item-meta">${esc(a.asset_type)}</div>`:''} ${a.asset_url?`<div><a href="${esc(a.asset_url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--bcn-accent)">${esc(a.asset_url.length>60?a.asset_url.slice(0,57)+'…':a.asset_url)}</a></div>`:''}</div>`;
+    $('assetList').appendChild(div);
+  });
+}
+function renderSystemLinks(rows){
+  $('systemLinksList').innerHTML=rows.length?'':empStr('No Silo links yet.');
+  rows.forEach(l=>{
+    const div=document.createElement('div'); div.className='dp-item';
+    div.innerHTML=`<div><div class="dp-item-title">${esc(l.ref_label||l.link_type||'Link')}</div><div class="dp-item-meta">${esc([l.link_type,l.ref_table,l.ref_id].filter(Boolean).join(' · '))}</div>${l.ref_url?`<a href="${esc(l.ref_url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--bcn-accent)">${esc(l.ref_url)}</a>`:''}</div>`;
+    $('systemLinksList').appendChild(div);
+  });
+}
+function renderComments(rows){
+  $('commentList').innerHTML=rows.length?'':empStr('No comments yet.');
+  rows.forEach(c=>{
+    const div=document.createElement('div'); div.className='dp-item';
+    div.innerHTML=`<div><div style="font-size:13px;">${esc(c.comment)}</div><div class="dp-item-meta">${new Date(c.created_at).toLocaleString()}</div></div>`;
+    $('commentList').appendChild(div);
+  });
+}
+function empStr(msg){ return `<div class="bcn-empty" style="padding:12px;">${msg}</div>`; }
+
+/* ---- launch form ------------------------------------------------------- */
+
+function openLaunchModal(x=null){
+  $('launchForm').reset();
+  $('formMsg').textContent='';
+  $('modalTitle').textContent=x?'Edit Launch Container':'New Launch Container';
+  $('launchId').value=x?.id||'';
+  if(x){
+    $('titleInput').value=x.title||'';
+    $('productTitleInput').value=x.product_title||'';
+    $('dateInput').value=x.launch_date||'';
+    $('timeInput').value=x.launch_time||'';
+    $('typeInput').value=x.launch_type||'';
+    $('statusInput').value=x.status||'planned';
+    $('priorityInput').value=x.priority||'normal';
+    $('readinessInput').value=x.launch_readiness||'not_reviewed';
+    $('designerInput').value=x.designer||'';
+    $('channelInput').value=x.marketing_channel||'';
+    $('campaignInput').value=x.campaign_type||'';
+    $('collectionInput').value=x.collection_name||'';
+    $('productTypeInput').value=x.product_type||'';
+    $('inventoryTagInput').value=x.inventory_tag||'';
+    $('poNumberInput').value=x.po_number||'';
+    $('vendorInput').value=x.vendor_name||'';
+    $('skuInput').value=x.product_sku||'';
+    $('expectedUnitsInput').value=x.expected_units||'';
+    $('expectedRetailInput').value=x.expected_retail_value||'';
+    $('assetsInput').value=x.assets_needed||'';
+    $('detailsInput').value=x.details||'';
+    $('notesInput').value=x.notes||'';
+    $('imageInput').value=x.launch_image_url||'';
+    if(x.launch_image_url) showImgPreview(x.launch_image_url); else hideImgPreview();
+  } else {
+    $('dateInput').value=iso(new Date());
+    hideImgPreview();
+  }
+  pendingImageFile=null;
+  $('lookupBox').style.display='none'; $('lookupResults').innerHTML=''; $('lookupSearchInput').value='';
+  $('productSourceInput').value='manual';
+  $('launchModal').classList.add('open');
+}
+function closeLaunchModal(){ $('launchModal').classList.remove('open'); pendingImageFile=null; hideImgPreview(); }
+
+async function saveLaunch(){
+  const id=$('launchId').value;
+  $('formMsg').textContent='Saving…';
+  $('submitFormBtn').disabled=true;
+  try {
+    let imageUrl=$('imageInput').value.trim()||null;
+    if(pendingImageFile){
+      imageUrl=await uploadImageFile(pendingImageFile, id||'new');
+    }
+    const payload={
+      title:$('titleInput').value.trim()||$('productTitleInput').value.trim(),
+      launch_date:$('dateInput').value,
+      launch_time:$('timeInput').value||null,
+      launch_type:$('typeInput').value.trim()||null,
+      status:$('statusInput').value,
+      priority:$('priorityInput').value,
+      launch_readiness:$('readinessInput').value,
+      designer:$('designerInput').value.trim()||null,
+      marketing_channel:$('channelInput').value.trim()||null,
+      campaign_type:$('campaignInput').value.trim()||null,
+      collection_name:$('collectionInput').value.trim()||null,
+      product_sku:$('skuInput').value.trim()||null,
+      product_title:$('productTitleInput').value.trim()||null,
+      product_type:$('productTypeInput').value.trim()||null,
+      inventory_tag:$('inventoryTagInput').value.trim()||null,
+      po_number:$('poNumberInput').value.trim()||null,
+      vendor_name:$('vendorInput').value.trim()||null,
+      expected_units:$('expectedUnitsInput').value?Number($('expectedUnitsInput').value):null,
+      expected_retail_value:$('expectedRetailInput').value?Number($('expectedRetailInput').value):null,
+      launch_image_url:imageUrl,
+      assets_needed:$('assetsInput').value.trim()||null,
+      details:$('detailsInput').value.trim()||null,
+      notes:$('notesInput').value.trim()||null,
+    };
+    if(!payload.title||!payload.launch_date){ $('formMsg').textContent='Title and date are required.'; return; }
+    let res;
+    if(id) res=await db.from('launch_calendar').update(payload).eq('id',id);
+    else { payload.created_by=currentUser.id; res=await db.from('launch_calendar').insert([payload]); }
+    const err=res?.error||res?.eq?.error;
+    if(err) throw err;
+    closeLaunchModal();
+    await loadAll();
+    const saved=launches.find(x=>id?String(x.id)===String(id):x.launch_date===payload.launch_date&&x.title===payload.title);
+    if(saved) openDrawer(saved.id);
+    setStatus(`Saved · ${payload.title}`,'pos',2000);
+  } catch(e){
+    console.error(e);
+    $('formMsg').textContent='Save failed: '+(e?.message||e);
+  } finally { $('submitFormBtn').disabled=false; }
+}
+
+/* ---- image upload ------------------------------------------------------ */
+
+function handleImageFile(file){
+  if(file.size>10*1024*1024){ setStatus('Image too large (max 10MB).','neg',2000); return; }
+  pendingImageFile=file;
+  const reader=new FileReader();
+  reader.onload=e=>{ $('imageInput').value=''; showImgPreview(e.target.result); };
+  reader.readAsDataURL(file);
+}
+
+async function uploadImageFile(file, launchId){
+  if(__SILO_DEMO__){
+    return new Promise(res=>{ const r=new FileReader(); r.onload=e=>res(e.target.result); r.readAsDataURL(file); });
+  }
+  const ext=file.name.split('.').pop().toLowerCase();
+  const path=`launches/${launchId}-${Date.now()}.${ext}`;
+  const {data,error}=await db.storage.from('launch-images').upload(path,file,{upsert:true,contentType:file.type});
+  if(error) throw error;
+  const {data:ud}=db.storage.from('launch-images').getPublicUrl(data.path);
+  return ud.publicUrl;
+}
+
+function showImgPreview(url){ $('imgPreview').src=url; $('imgPreviewWrap').style.display=''; }
+function hideImgPreview(){ $('imgPreviewWrap').style.display='none'; $('imgPreview').src=''; $('imageInput').value=''; }
+
+/* ---- sub-form saves ---------------------------------------------------- */
+
+async function saveProductReadiness(e){
+  e.preventDefault(); if(!activeLaunch) return;
+  const payload={ launch_id:activeLaunch.id, product_title:$('prodTitle').value.trim(), product_type:$('prodType').value.trim()||null, collection_name:$('prodCollection').value.trim()||null, manufacturer:$('prodManufacturer').value.trim()||null, vendor_name:$('prodManufacturer').value.trim()||null, po_number:$('prodPo').value.trim()||null, bulk_eta:$('prodEta').value||null, expected_units:$('prodUnits').value?Number($('prodUnits').value):null, readiness_status:$('prodReadyStatus').value, product_shot_status:$('prodShotStatus').value, copy_status:$('prodCopyStatus').value, notes:$('prodNotes').value.trim()||null, created_by:currentUser.id };
+  if(!payload.product_title){ alert('Product title required.'); return; }
+  const {error}=await db.from('launch_product_readiness').insert([payload]);
+  if(error){ alert(error.message); return; }
+  $('productForm').reset(); $('productForm').style.display='none'; $('prodLookupResults').innerHTML='';
+  await loadAll(false); renderDrawer(); render();
+}
+
+async function saveChannelItem(e){
+  e.preventDefault(); if(!activeLaunch) return;
+  const payload={ launch_id:activeLaunch.id, channel:$('channelName').value, item_title:$('channelTitle').value.trim(), scheduled_date:$('channelDate').value||null, scheduled_time:$('channelTime').value||null, status:$('channelStatus').value, owner:$('channelOwner').value.trim()||null, link_url:$('channelUrl').value.trim()||null, notes:$('channelNotes').value.trim()||null, created_by:currentUser.id };
+  const {error}=await db.from('launch_channel_items').insert([payload]);
+  if(error){ alert(error.message); return; }
+  $('channelForm').reset(); $('channelForm').style.display='none';
+  await loadAll(false); renderDrawer(); render();
+}
+
+async function saveTask(e){
+  e.preventDefault(); if(!activeLaunch) return;
+  const payload={ launch_id:activeLaunch.id, task_title:$('taskTitle').value.trim(), task_type:$('taskType').value||null, status:'open', priority:$('taskPriority').value, due_date:$('taskDue').value||null, notes:$('taskNotes').value.trim()||null };
+  const {error}=await db.from('launch_tasks').insert([payload]);
+  if(error){ alert(error.message); return; }
+  $('taskForm').reset(); $('taskForm').style.display='none';
+  await loadAll(false); renderDrawer(); render();
+}
+
+async function saveAsset(e){
+  e.preventDefault(); if(!activeLaunch) return;
+  const payload={ launch_id:activeLaunch.id, asset_name:$('assetName').value.trim()||null, asset_url:$('assetUrl').value.trim(), asset_type:$('assetType').value.trim()||null, notes:$('assetNotes').value.trim()||null, uploaded_by:currentUser.id };
+  const {error}=await db.from('launch_assets').insert([payload]);
+  if(error){ alert(error.message); return; }
+  $('assetForm').reset(); $('assetForm').style.display='none';
+  await loadAll(false); renderDrawer();
+}
+
+async function saveSystemLink(e){
+  e.preventDefault(); if(!activeLaunch) return;
+  const payload={ launch_id:activeLaunch.id, link_type:$('linkType').value, ref_table:$('linkTable').value.trim()||null, ref_id:$('linkRefId').value.trim()||null, ref_label:$('linkLabel').value.trim()||null, ref_url:$('linkUrl').value.trim()||null, notes:$('linkNotes').value.trim()||null, created_by:currentUser.id };
+  const {error}=await db.from('launch_system_links').insert([payload]);
+  if(error){ alert(error.message); return; }
+  $('systemLinkForm').reset(); $('systemLinkForm').style.display='none';
+  await loadAll(false); renderDrawer();
+}
+
+async function saveComment(e){
+  e.preventDefault(); if(!activeLaunch) return;
+  const payload={ launch_id:activeLaunch.id, user_id:currentUser.id, comment:$('commentInput').value.trim() };
+  const {error}=await db.from('launch_comments').insert([payload]);
+  if(error){ alert(error.message); return; }
+  $('commentForm').reset();
+  await loadAll(false); renderDrawer();
+}
+
+/* ---- product lookup ---------------------------------------------------- */
+
+async function runProductLookup(){
+  const source=$('productSourceInput').value, q=$('lookupSearchInput').value.trim();
+  $('lookupBox').style.display='';
+  if(source==='manual'){ $('lookupResults').innerHTML=`<div class="bcn-empty">Manual mode — fill fields below.</div>`; return; }
+  if(!q){ $('lookupResults').innerHTML=`<div class="bcn-empty">Enter a product, PO, or vendor.</div>`; return; }
+  $('lookupResults').innerHTML=`<div class="bcn-empty">Searching…</div>`;
+  if(source==='po_incoming') await searchPOProducts(q,applyPOToShell);
+  if(source==='existing_product') await searchProductsMaster(q,applyProductToShell);
+}
+
+async function searchPOProducts(q,applyFn){
+  const clean=q.replaceAll('%','').trim();
+  const {data,error}=await db.from('v_launch_po_product_lookup').select('*')
+    .or(`product_title.ilike.%${clean}%,po_name.ilike.%${clean}%,factory_name.ilike.%${clean}%`)
+    .order('expected_arrival_date',{ascending:true}).limit(30);
+  if(error||!data?.length){ $('lookupResults').innerHTML=`<div class="bcn-empty">${error?error.message:'No PO products found.'}</div>`; return; }
+  $('lookupResults').innerHTML=data.map(row=>`
+    <div style="border-top:1px solid var(--bcn-border);padding:8px 0;cursor:pointer;" data-row="${esc(JSON.stringify(row))}">
+      <div style="font-weight:700;font-size:12px;">${esc(row.product_title||'Incoming Product')}</div>
+      <div style="font-size:11px;color:var(--bcn-ink-3);">${esc([row.po_name,row.product_type,row.factory_name,row.total_units?`${row.total_units} units`:null,row.expected_arrival_date?`ETA ${row.expected_arrival_date}`:null].filter(Boolean).join(' · '))}</div>
+    </div>`).join('');
+  $('lookupResults').querySelectorAll('[data-row]').forEach(el=>el.onclick=()=>applyFn(JSON.parse(el.dataset.row)));
+}
+
+async function searchProductsMaster(q,applyFn){
+  const clean=q.replaceAll('%','').trim();
+  const {data,error}=await db.from('products_master').select('id,sku,product_title,variant_title,product_type,vendor_original,image_url')
+    .or(`product_title.ilike.%${clean}%,sku.ilike.%${clean}%`).limit(30);
+  if(error||!data?.length){ $('lookupResults').innerHTML=`<div class="bcn-empty">${error?error.message:'No products found.'}</div>`; return; }
+  const grouped=groupByTitle(data||[]);
+  $('lookupResults').innerHTML=grouped.map(row=>`
+    <div style="border-top:1px solid var(--bcn-border);padding:8px 0;cursor:pointer;" data-row="${esc(JSON.stringify(row))}">
+      <div style="font-weight:700;font-size:12px;">${esc(row.product_title)}</div>
+      <div style="font-size:11px;color:var(--bcn-ink-3);">${esc([row.product_type,row.vendor_original,row.variant_count?`${row.variant_count} variants`:null].filter(Boolean).join(' · '))}</div>
+    </div>`).join('');
+  $('lookupResults').querySelectorAll('[data-row]').forEach(el=>el.onclick=()=>applyFn(JSON.parse(el.dataset.row)));
+}
+
+async function lookupProductBySource(){
+  const source=$('prodSource').value, q=$('prodLookupInput').value.trim();
+  if(source==='manual'){ $('prodLookupResults').innerHTML=`<div class="bcn-empty">Enter details below.</div>`; return; }
+  if(!q){ $('prodLookupResults').innerHTML=`<div class="bcn-empty">Enter a search term.</div>`; return; }
+  $('prodLookupResults').innerHTML=`<div class="bcn-empty">Searching…</div>`;
+  if(source==='po_incoming') await searchPOProducts(q,applyPOToProductForm,'prodLookupResults');
+  if(source==='existing_product') await searchProductsMaster(q,applyProductToProductForm,'prodLookupResults');
+}
+
+function groupByTitle(rows){
+  const map=new Map();
+  rows.forEach(r=>{ const k=String(r.product_title||r.variant_title||r.sku||'').trim(); if(!k)return; if(!map.has(k))map.set(k,{product_title:k,product_type:r.product_type||null,vendor_original:r.vendor_original||null,image_url:r.image_url||null,sample_sku:r.sku||null,variant_count:0}); const x=map.get(k); x.variant_count+=1; if(!x.sample_sku&&r.sku)x.sample_sku=r.sku; if(!x.image_url&&r.image_url)x.image_url=r.image_url; });
+  return [...map.values()].sort((a,b)=>a.product_title.localeCompare(b.product_title));
+}
+function applyPOToShell(r){ $('productTitleInput').value=r.product_title||''; $('productTypeInput').value=r.product_type||''; $('poNumberInput').value=r.po_name||''; $('vendorInput').value=r.factory_name||''; $('expectedUnitsInput').value=r.total_units||''; if(!$('titleInput').value)$('titleInput').value=r.product_title||''; $('lookupBox').style.display='none'; }
+function applyProductToShell(r){ $('productTitleInput').value=r.product_title||''; $('productTypeInput').value=r.product_type||''; $('vendorInput').value=r.vendor_original||''; $('skuInput').value=r.sample_sku||''; if(!$('titleInput').value)$('titleInput').value=r.product_title||''; if(r.image_url&&!$('imageInput').value){$('imageInput').value=r.image_url;showImgPreview(r.image_url);} $('lookupBox').style.display='none'; }
+function applyPOToProductForm(r){ $('prodTitle').value=r.product_title||''; $('prodType').value=r.product_type||''; $('prodManufacturer').value=r.factory_name||''; $('prodPo').value=r.po_name||''; $('prodEta').value=r.expected_arrival_date||''; $('prodUnits').value=r.total_units||''; $('prodLookupResults').innerHTML=''; }
+function applyProductToProductForm(r){ $('prodTitle').value=r.product_title||''; $('prodType').value=r.product_type||''; $('prodManufacturer').value=r.vendor_original||''; $('prodLookupResults').innerHTML=''; }
+</script>
+</body>
+</html>
