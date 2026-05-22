@@ -7,152 +7,11 @@
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
+  <link rel="stylesheet" href="po-workbench.css" />
   <script src="v2-shell.js" defer></script>
   <script src="../pages/config.js"></script>
   <script src="../pages/po-costing-lib.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
-  <style>
-    .cost-grid {
-      display: grid;
-      gap: 14px;
-      grid-template-columns: minmax(260px, 300px) 1fr;
-      padding: 0 16px 24px;
-      align-items: start;
-    }
-    @media (max-width: 1000px) { .cost-grid { grid-template-columns: 1fr; } }
-    .cost-card {
-      background: var(--bcn-surface);
-      border: 1px solid var(--bcn-border);
-      border-radius: 12px;
-      padding: 14px 16px;
-    }
-    .cost-card h2 {
-      margin: 0 0 10px;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: .1em;
-      text-transform: uppercase;
-      color: var(--bcn-ink-3);
-      font-family: var(--bcn-mono);
-    }
-    .field { margin-bottom: 10px; }
-    .field label {
-      display: block;
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: .08em;
-      text-transform: uppercase;
-      color: var(--bcn-ink-3);
-      margin-bottom: 4px;
-      font-family: var(--bcn-mono);
-    }
-    .field input, .field select, .field textarea {
-      width: 100%;
-      padding: 8px 10px;
-      border: 1px solid var(--bcn-border);
-      border-radius: 8px;
-      font-size: 13px;
-      background: var(--bcn-surface);
-      color: var(--bcn-ink);
-    }
-    .kpi-row {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-      gap: 8px;
-      margin-top: 8px;
-    }
-    .kpi {
-      padding: 8px 10px;
-      border: 1px solid var(--bcn-border);
-      border-radius: 10px;
-      background: var(--bcn-surface-2);
-    }
-    .kpi .lbl { font-size: 10px; font-weight: 700; letter-spacing: .08em; color: var(--bcn-ink-3); text-transform: uppercase; font-family: var(--bcn-mono); }
-    .kpi .val { margin-top: 4px; font-size: 16px; font-weight: 800; font-family: var(--bcn-mono); }
-    .po-pick { max-height: 48vh; overflow: auto; }
-    .po-pick button {
-      display: block;
-      width: 100%;
-      text-align: left;
-      padding: 8px 10px;
-      margin-bottom: 6px;
-      border: 1px solid var(--bcn-border);
-      border-radius: 8px;
-      background: var(--bcn-surface);
-      cursor: pointer;
-      font-size: 12px;
-    }
-    .po-pick button.active { border-color: var(--bcn-accent); background: var(--bcn-accent-soft); }
-    .hint { font-size: 11px; color: var(--bcn-ink-3); line-height: 1.45; margin-top: 8px; }
-    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; align-items: center; }
-    .line-table-wrap { overflow: auto; max-height: min(52vh, 520px); border: 1px solid var(--bcn-border); border-radius: 10px; }
-    .line-table { width: 100%; border-collapse: collapse; font-size: 11px; }
-    .line-table th {
-      position: sticky;
-      top: 0;
-      background: var(--bcn-surface-2);
-      text-align: left;
-      padding: 6px 8px;
-      font-size: 9px;
-      letter-spacing: .08em;
-      text-transform: uppercase;
-      color: var(--bcn-ink-3);
-      font-family: var(--bcn-mono);
-      border-bottom: 1px solid var(--bcn-border);
-      white-space: nowrap;
-    }
-    .line-table td {
-      padding: 4px 6px;
-      border-bottom: 1px solid var(--bcn-border);
-      vertical-align: middle;
-    }
-    .line-table tr:hover { background: var(--bcn-surface-2); }
-    .line-table tr.line-focus { outline: 2px solid var(--bcn-accent); outline-offset: -2px; }
-    .line-table input[type="number"] {
-      width: 72px;
-      padding: 4px 6px;
-      border: 1px solid var(--bcn-border);
-      border-radius: 6px;
-      font-size: 11px;
-      font-family: var(--bcn-mono);
-    }
-    .line-table input.wide { width: 88px; }
-    .prior-pill {
-      font-size: 10px;
-      color: var(--bcn-ink-3);
-      font-family: var(--bcn-mono);
-    }
-    .prior-pill strong { color: var(--bcn-accent); }
-    #status { font-size: 12px; color: var(--bcn-ink-3); min-height: 18px; }
-    .chk-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--bcn-ink-2); }
-    .chk-row input { width: auto; }
-    .phase-bar { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
-    .phase-btn {
-      padding: 6px 12px;
-      border: 1px solid var(--bcn-border);
-      border-radius: 8px;
-      background: var(--bcn-surface);
-      font-size: 11px;
-      font-weight: 700;
-      font-family: var(--bcn-mono);
-      cursor: pointer;
-      color: var(--bcn-ink-2);
-    }
-    .phase-btn.active { border-color: var(--bcn-accent); background: var(--bcn-accent-soft); color: var(--bcn-accent); }
-    .phase-btn.done { color: var(--bcn-pos); }
-    .phase-panel[hidden] { display: none !important; }
-    .persist-pill {
-      display: inline-block;
-      font-size: 10px;
-      font-weight: 700;
-      padding: 3px 8px;
-      border-radius: 999px;
-      font-family: var(--bcn-mono);
-      background: var(--bcn-surface-2);
-      border: 1px solid var(--bcn-border);
-      margin-left: 8px;
-    }
-  </style>
 </head>
 <body class="v2-mirror--po">
   <div class="silo-app" id="silo-app">
@@ -162,21 +21,28 @@
           <div class="bcn-header-title"><h1>PO landed cost</h1></div>
           <div class="bcn-header-sub">After PO builder: cost FOB from prior SKUs or factory invoice → mark shipped → add freight split per unit. Data persists to <code>po_costing</code> tables.</div>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <div class="toolbar" style="margin:0;">
+          <button id="btnTogglePoDrawer" class="bcn-btn bcn-btn--ghost" type="button">PO list <span id="poCount" class="po-count-pill">0</span></button>
           <a class="bcn-btn bcn-btn--ghost" href="/pages/po-builder.html" title="Classic v1">Classic v1</a>
           <a class="bcn-btn bcn-btn--ghost" href="/v2/po-builder.html" id="linkBuilder">PO builder</a>
           <a class="bcn-btn bcn-btn--ghost" href="/v2/po-report.html">PO report</a>
         </div>
       </header>
 
-      <div class="cost-grid">
-        <aside class="cost-card">
+      <div id="poDrawerBackdrop" class="po-drawer-backdrop" aria-hidden="true"></div>
+      <aside id="poDrawer" class="po-drawer" aria-label="Purchase orders" aria-hidden="true">
+        <div class="po-drawer-head">
           <h2>Select PO</h2>
-          <input type="search" id="poSearch" placeholder="Search PO or factory…" />
-          <div class="po-pick" id="poList" style="margin-top:8px;"></div>
-        </aside>
+          <button id="btnClosePoDrawer" class="bcn-btn bcn-btn--ghost" type="button">Close</button>
+        </div>
+        <div class="po-drawer-body">
+          <div class="field" style="margin-bottom:8px;"><label>Search</label><input type="search" id="poSearch" placeholder="Search PO or factory…" /></div>
+          <div class="po-pick" id="poList"></div>
+        </div>
+      </aside>
 
-        <div>
+      <div class="po-wb-page">
+        <div class="cost-grid">
           <section class="cost-card" id="detailPanel" hidden>
             <h2><span id="poTitleText">—</span> <span class="persist-pill" id="persistPill">—</span></h2>
             <div class="phase-bar">
@@ -270,7 +136,7 @@
           </section>
 
           <section class="cost-card" id="emptyPanel">
-            <p class="hint">Select a purchase order to adjust line-level landed cost.</p>
+            <p class="hint">Open PO list to select a purchase order for landed cost.</p>
           </section>
         </div>
       </div>
@@ -500,12 +366,26 @@
       els.inAlloc.value = ctx.headerInputs.alloc_method || 'proportional';
     }
 
+    function setPoDrawerOpen(open) {
+      const drawer = document.getElementById('poDrawer');
+      const backdrop = document.getElementById('poDrawerBackdrop');
+      if (!drawer || !backdrop) return;
+      drawer.classList.toggle('is-open', !!open);
+      backdrop.classList.toggle('is-open', !!open);
+      drawer.setAttribute('aria-hidden', open ? 'false' : 'true');
+      backdrop.setAttribute('aria-hidden', open ? 'false' : 'true');
+      document.body.style.overflow = open ? 'hidden' : '';
+    }
+
     function renderPoList() {
       const q = (els.poSearch.value || '').trim().toLowerCase();
       const rows = poRows.filter(r => {
         if (!q) return true;
         return [r.po_name, r.factory_name, r.status].join(' ').toLowerCase().includes(q);
       }).slice(0, 80);
+
+      const countEl = document.getElementById('poCount');
+      if (countEl) countEl.textContent = String(poRows.length);
 
       els.poList.innerHTML = rows.length
         ? rows.map(r => `<button type="button" class="${ctx?.header?.id === r.id ? 'active' : ''}" data-po-id="${esc(r.id)}">
@@ -537,6 +417,7 @@
       updatePhaseUi();
       els.status.textContent = '';
       renderPoList();
+      setPoDrawerOpen(false);
     }
 
     async function saveFobStage() {
@@ -636,6 +517,16 @@
       document.querySelectorAll('[data-cost-header]').forEach(el => {
         el.addEventListener('change', () => recalc());
         el.addEventListener('input', () => recalc());
+      });
+
+      document.getElementById('btnTogglePoDrawer')?.addEventListener('click', () => {
+        const drawer = document.getElementById('poDrawer');
+        setPoDrawerOpen(!drawer?.classList.contains('is-open'));
+      });
+      document.getElementById('btnClosePoDrawer')?.addEventListener('click', () => setPoDrawerOpen(false));
+      document.getElementById('poDrawerBackdrop')?.addEventListener('click', () => setPoDrawerOpen(false));
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') setPoDrawerOpen(false);
       });
 
       els.poSearch.addEventListener('input', renderPoList);
