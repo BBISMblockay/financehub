@@ -265,7 +265,7 @@
                 <tbody id="lineBody"></tbody>
               </table>
             </div>
-            <p class="hint">Run SQL migration <code>supabase/migrations/20260521120000_po_costing_module.sql</code> for full persistence. Without it, data falls back to <code>internal_notes</code>.</p>
+            <p class="hint" id="persistHint">Costing saves to SILO when database tables are enabled; otherwise a temporary copy is kept on the PO record.</p>
           </section>
 
           <section class="cost-card" id="emptyPanel">
@@ -461,7 +461,13 @@
       const phase = pc?.phase || Lib.PHASE.FOB;
       const shipped = !!(pc?.shipped_at);
 
-      els.persistPill.textContent = ctx?.persistence === 'database' ? 'DB' : 'Notes fallback';
+      els.persistPill.textContent = ctx?.persistence === 'database' ? 'Saved in SILO' : 'Draft on PO';
+      const persistHint = document.getElementById('persistHint');
+      if (persistHint) {
+        persistHint.textContent = ctx.persistence === 'database'
+          ? 'Costing is stored in SILO and linked to this purchase order.'
+          : 'Costing is kept on the PO as a draft until your admin enables full database storage.';
+      }
       els.phaseHint.textContent = Lib.phaseLabel(phase) +
         (shipped ? ' · Shipped ' + new Date(pc.shipped_at).toLocaleDateString() : ' · Not shipped yet');
 

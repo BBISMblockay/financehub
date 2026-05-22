@@ -302,8 +302,8 @@
 
       if (error) {
         els.loadErr.hidden = false;
-        els.loadErr.innerHTML = `<p><strong>Could not load profile row</strong> (RLS or schema).</p><p class="hint" style="margin-top:8px;">${esc(error.message)}</p><p class="hint" style="margin-top:8px;">Run <code>supabase/migrations/20260521130000_profiles_self_service.sql</code> so users can read their own row.</p>`;
-        profile = null;
+        els.loadErr.innerHTML = `<p><strong>Your SILO profile record could not be loaded.</strong></p><p class="hint" style="margin-top:8px;">You are signed in as <strong>${esc(authUser.email)}</strong>. An admin may need to enable profile access in Supabase, or approve your account in <a href="/v2/backend.html">Backend hub</a>.</p><p class="hint" style="margin-top:8px;font-family:var(--bcn-mono);font-size:10px;">${esc(error.message)}</p>`;
+        profile = { email: authUser.email, id: authUser.id };
         fillForm();
         showPanels(false);
         mountChrome();
@@ -349,7 +349,7 @@
       if (error) {
         els.saveStatus.textContent = '';
         alert('Could not save profile.\n\n' + (error.message || error) +
-          '\n\nIf RLS blocked this, run profiles_self_service.sql in Supabase.');
+          '\n\nAsk an admin to allow profile updates in Supabase, or use Backend hub.');
         return;
       }
       profile = { ...profile, ...payload };
