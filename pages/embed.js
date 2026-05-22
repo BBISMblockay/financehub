@@ -78,6 +78,17 @@ html.silo-embed :root {
 }
 `;
 
+  function injectBeaconEmbedAssets() {
+    const head = document.head || document.documentElement;
+    if (!document.getElementById('silo-embed-beacon-css')) {
+      const link = document.createElement('link');
+      link.id = 'silo-embed-beacon-css';
+      link.rel = 'stylesheet';
+      link.href = '/pages/embed-beacon.css';
+      head.appendChild(link);
+    }
+  }
+
   function applyEmbedMode() {
     if (!isEmbedded()) return false;
     const root = document.documentElement;
@@ -89,6 +100,7 @@ html.silo-embed :root {
       style.textContent = EMBED_CSS;
       (document.head || root).appendChild(style);
     }
+    injectBeaconEmbedAssets();
     return true;
   }
 

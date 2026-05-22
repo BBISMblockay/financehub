@@ -5,179 +5,135 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>SILO · Department access</title>
   <link rel="stylesheet" href="beacon.css" />
-
-    <link rel="stylesheet" href="silo-brand.css" />
-<style>
-    :root {
-      --bg: var(--bcn-bg);
-      --text: var(--bcn-ink);
-      --muted: var(--bcn-ink-3);
-      --accent: var(--bcn-accent);
-      --border: var(--bcn-border);
-    }
-
-    * { box-sizing: border-box; }
-
-    body {
-      margin: 0;
-      background: var(--bcn-bg);
-      font-family: var(--bcn-font), system-ui, sans-serif;
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <style>
+    .dept-access-wrap {
       display: flex;
       align-items: center;
       justify-content: center;
-      height: 100vh;
-      color: var(--bcn-ink);
+      flex: 1;
+      padding: 24px 16px;
+      min-height: 0;
     }
-
-    .card {
-      background: var(--bcn-surface);
-      border: 1px solid var(--bcn-border);
-      border-radius: 12px;
-      padding: 32px 26px;
+    .dept-access-card {
       max-width: 400px;
       width: 100%;
-      box-shadow: var(--bcn-shadow);
     }
-
-    h1 {
-      font-size: 20px;
-      font-weight: 700;
-      margin: 0 0 6px;
+    .dept-access-card .bcn-card-body {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
     }
-
-    p {
+    .dept-access-card p {
+      margin: 0 0 4px;
       font-size: 14px;
-      color: var(--muted);
-      margin: 0 0 20px;
+      color: var(--bcn-ink-3);
     }
-
-    select,
-    input {
-      width: 100%;
-      font-size: 14px;
-      padding: 12px;
-      margin-bottom: 12px;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-    }
-
-    select:focus,
-    input:focus {
-      outline: none;
-      border-color: var(--accent);
-    }
-
-    button {
-      width: 100%;
-      padding: 12px;
-      background: var(--accent);
-      color: white;
-      font-weight: 600;
-      font-size: 14px;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-    }
-
-    button:hover {
-      opacity: .95;
-    }
-
-    .error {
-      margin-top: 8px;
+    .dept-access-error {
+      margin-top: 4px;
       color: var(--bcn-neg);
       font-size: 13px;
       display: none;
     }
   </style>
-  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
-  <link rel="stylesheet" href="v2-mobile.css" />
-  <script src="v2-shell.js" defer></script>
 </head>
-
 <body class="silo-brand">
-
-  <div class="card">
-    <h1>Welcome</h1>
-    <p>Select a department to continue.</p>
-
-    <select id="deptSelect">
-      <option value="">Select Department</option>
-      <option value="finance">Finance</option>
-      <option value="ops">Logistics</option>
-      <option value="marketing">Marketing</option>
-      <option value="retail">Retail</option>
-    </select>
-
-    <input
-      id="passwordInput"
-      type="password"
-      placeholder="Department password"
-      autocomplete="current-password"
-    />
-
-    <button id="loginBtn">Unlock</button>
-
-    <div id="errorMsg" class="error">
-      Invalid department or password
-    </div>
+  <div id="silo-app" class="silo-app">
+    <main class="silo-main">
+      <header class="bcn-header">
+        <div style="flex:1;min-width:0;">
+          <div class="bcn-header-title"><h1>Department access</h1></div>
+          <div class="bcn-header-sub">Unlock a department console — session only, no account required.</div>
+        </div>
+      </header>
+      <div class="dept-access-wrap">
+        <section class="bcn-card dept-access-card" aria-label="Department unlock">
+          <header class="bcn-card-header bcn-card-header--dark">
+            <span class="bcn-pill">ACCESS</span>
+            <h2>Welcome</h2>
+          </header>
+          <div class="bcn-card-body">
+            <p>Select a department and enter the department password to continue.</p>
+            <label class="bcn-label" for="deptSelect">Department</label>
+            <select id="deptSelect" class="bcn-field">
+              <option value="">Select department</option>
+              <option value="finance">Finance</option>
+              <option value="ops">Logistics</option>
+              <option value="marketing">Marketing</option>
+              <option value="retail">Retail</option>
+            </select>
+            <label class="bcn-label" for="passwordInput">Password</label>
+            <input
+              id="passwordInput"
+              class="bcn-field"
+              type="password"
+              placeholder="Department password"
+              autocomplete="current-password"
+            />
+            <button id="loginBtn" class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button">UNLOCK</button>
+            <div id="errorMsg" class="dept-access-error">Invalid department or password</div>
+          </div>
+        </section>
+      </div>
+    </main>
   </div>
-
+  <script src="silo-chrome.js"></script>
   <script>
-    /**
-     * SINGLE SOURCE OF TRUTH
-     * Edit here only
-     */
+    if (window.SiloChrome) {
+      window.SiloChrome.mount({
+        appEl: '#silo-app',
+        active: 'hub',
+        user: { email: 'Guest', role: 'MEMBER' },
+        crumbs: ['SILO', 'Department access'],
+      });
+    }
+
     const DEPARTMENTS = {
       finance: {
-        password: "finance-temp",
-        destination: "/v2/finance.html"
+        password: 'finance-temp',
+        destination: '/v2/finance.html',
       },
       ops: {
-        password: "logistics-temp",
-        destination: "/ops.html"
+        password: 'logistics-temp',
+        destination: '/ops.html',
       },
       marketing: {
-        password: "marketing-temp",
-        destination: "/marketing.html"
+        password: 'marketing-temp',
+        destination: '/marketing.html',
       },
       retail: {
-        password: "retail-temp",
-        destination: "/retail.html"
-      }
+        password: 'retail-temp',
+        destination: '/retail.html',
+      },
     };
 
-    const SESSION_KEY = "dept_access";
-
-    const deptSelect    = document.getElementById("deptSelect");
-    const passwordInput = document.getElementById("passwordInput");
-    const loginBtn      = document.getElementById("loginBtn");
-    const errorMsg      = document.getElementById("errorMsg");
+    const SESSION_KEY = 'dept_access';
+    const deptSelect = document.getElementById('deptSelect');
+    const passwordInput = document.getElementById('passwordInput');
+    const loginBtn = document.getElementById('loginBtn');
+    const errorMsg = document.getElementById('errorMsg');
 
     function attemptLogin() {
       const dept = deptSelect.value;
-      const pwd  = passwordInput.value.trim();
-
+      const pwd = passwordInput.value.trim();
       const config = DEPARTMENTS[dept];
 
       if (!config || pwd !== config.password) {
-        errorMsg.style.display = "block";
+        errorMsg.style.display = 'block';
         return;
       }
 
-      // ✅ session-only access token
       sessionStorage.setItem(SESSION_KEY, dept);
-
-      // ✅ redirect to correct department hub
       window.location.href = config.destination;
     }
 
-    loginBtn.addEventListener("click", attemptLogin);
-
-    passwordInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") attemptLogin();
+    loginBtn.addEventListener('click', attemptLogin);
+    passwordInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') attemptLogin();
     });
   </script>
-
 </body>
 </html>

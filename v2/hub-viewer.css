@@ -1,0 +1,73 @@
+/* Department hub iframe viewer — pairs with hub-viewer.js */
+
+.hub-viewer-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.hub-viewer-body {
+  flex: 1;
+  min-height: 0;
+  padding: 14px;
+  display: flex;
+}
+
+.hub-viewer-card {
+  flex: 1;
+  min-height: 0;
+}
+
+.hub-viewer-card .bcn-card-body {
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.hub-viewer-frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: var(--bcn-surface);
+  min-height: 0;
+}
+
+.hub-viewer-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 24px;
+  text-align: center;
+  color: var(--bcn-ink-3);
+}
+
+.hub-viewer-empty h2 {
+  margin: 0 0 8px;
+  font-size: 16px;
+  color: var(--bcn-ink);
+}
+
+.hub-viewer-empty p {
+  margin: 0;
+  font-size: 13px;
+  max-width: 420px;
+  line-height: 1.5;
+}
+
+.hub-viewer-status {
+  font-family: var(--bcn-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.hub-viewer-status[data-state="ready"] { color: var(--bcn-pos); }
+.hub-viewer-status[data-state="loading"] { color: var(--bcn-accent); }
+.hub-viewer-status[data-state="error"] { color: var(--bcn-neg); }

@@ -49,8 +49,10 @@ Use `tool-shell.js` + `data-tool` on `.silo-main` (see `v2/cashflow.html`). The 
 
 | Pattern | Pages |
 |--------|--------|
-| Full Beacon shell | `projections.html`, `launch-calendar.html`, `profile.html`, `po-builder.html` |
-| Tool shell (iframe) | Finance, sales, wholesale, ops, purchasing mirrors (`cashflow.html`, etc.) |
-| Custom layout + mirrors CSS | `inventory.html`, `finance.html`, `employeehub.html`, `executive.html`, `planner.html`, `calendar.html` |
+| Full Beacon shell | `projections.html`, `launch-calendar.html`, `profile.html`, `po-builder.html`, `po-costing.html`, `po-report.html`, `purchase_request.html`, `request_manager.html`, `department-access.html` |
+| Hub viewer (SiloChrome + iframe card) | `finance.html`, `employeehub.html` — routes in `hub-routes.js`, viewer in `hub-viewer.js` |
+| Tool shell (iframe) | AP mirrors (`ap-manager.html`, `ap-payables.html`), sales, wholesale, ops mirrors (`cashflow.html`, etc.) |
+| Custom layout + mirrors CSS | `inventory.html`, `executive.html`, `planner.html`, `calendar.html` |
+| Legacy embed styling | `pages/embed.js` + `pages/embed-beacon.css` on tools loaded in hub/tool-shell iframes |
 
 Legacy `.profile-card` / `.cost-card` inside `.silo-main` are harmonized via `silo-brand.css` until each page is rebuilt on `bcn-card`.

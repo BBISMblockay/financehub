@@ -1,0 +1,144 @@
+/**
+ * Beacon token harmonization for legacy tools in embed mode (?embed=1).
+ * Loaded automatically by pages/embed.js
+ */
+
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap");
+
+html.silo-embed {
+  --bcn-font: "Plus Jakarta Sans", system-ui, sans-serif;
+  --bcn-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --bcn-bg: oklch(0.985 0.002 240);
+  --bcn-surface: #ffffff;
+  --bcn-sunken: oklch(0.965 0.003 240);
+  --bcn-border: oklch(0.89 0.005 240);
+  --bcn-border-strong: oklch(0.82 0.008 240);
+  --bcn-ink: oklch(0.15 0.012 240);
+  --bcn-ink-2: oklch(0.38 0.012 240);
+  --bcn-ink-3: oklch(0.55 0.01 240);
+  --bcn-accent: oklch(0.55 0.2 245);
+  --bcn-accent-soft: oklch(0.96 0.04 245);
+  --bcn-pos: oklch(0.58 0.16 145);
+  --bcn-neg: oklch(0.58 0.2 25);
+  --bcn-radius: 4px;
+  --bcn-radius-sm: 3px;
+}
+
+html.silo-embed body {
+  font-family: var(--bcn-font) !important;
+  color: var(--bcn-ink) !important;
+  background: var(--bcn-bg) !important;
+}
+
+html.silo-embed .panel,
+html.silo-embed .glass,
+html.silo-embed .card,
+html.silo-embed .viewer-card,
+html.silo-embed [class*="rounded-"][class*="border"],
+html.silo-embed .boot-card {
+  background: var(--bcn-surface) !important;
+  border-color: var(--bcn-border-strong) !important;
+  border-radius: var(--bcn-radius) !important;
+  box-shadow: none !important;
+}
+
+html.silo-embed .btn,
+html.silo-embed button.btn,
+html.silo-embed .btn-primary,
+html.silo-embed .btn-dark,
+html.silo-embed .bcn-btn {
+  font-family: var(--bcn-font) !important;
+  border-radius: var(--bcn-radius-sm) !important;
+}
+
+html.silo-embed .btn-primary,
+html.silo-embed .btn-dark,
+html.silo-embed button.primary {
+  background: var(--bcn-accent) !important;
+  border-color: var(--bcn-accent) !important;
+  color: #fff !important;
+}
+
+html.silo-embed .btn-secondary,
+html.silo-embed .btn-light,
+html.silo-embed .btn-ghost {
+  background: var(--bcn-surface) !important;
+  border-color: var(--bcn-border-strong) !important;
+  color: var(--bcn-ink) !important;
+}
+
+html.silo-embed input,
+html.silo-embed select,
+html.silo-embed textarea,
+html.silo-embed .input,
+html.silo-embed .search {
+  font-family: var(--bcn-font) !important;
+  border-color: var(--bcn-border-strong) !important;
+  border-radius: var(--bcn-radius-sm) !important;
+  background: var(--bcn-surface) !important;
+  color: var(--bcn-ink) !important;
+}
+
+html.silo-embed input:focus,
+html.silo-embed select:focus,
+html.silo-embed textarea:focus {
+  border-color: var(--bcn-accent) !important;
+  box-shadow: 0 0 0 1px var(--bcn-accent) inset !important;
+  outline: none !important;
+}
+
+html.silo-embed .label,
+html.silo-embed .muted-label,
+html.silo-embed label {
+  font-family: var(--bcn-mono) !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.08em !important;
+  text-transform: uppercase !important;
+  color: var(--bcn-ink-3) !important;
+}
+
+html.silo-embed table th {
+  background: var(--bcn-sunken) !important;
+  color: var(--bcn-ink-3) !important;
+  font-weight: 600 !important;
+}
+
+html.silo-embed table td {
+  border-color: var(--bcn-border) !important;
+}
+
+html.silo-embed .kpi-title,
+html.silo-embed .kpi-label {
+  font-family: var(--bcn-mono) !important;
+  font-size: 10px !important;
+  text-transform: uppercase !important;
+  color: var(--bcn-ink-3) !important;
+}
+
+html.silo-embed .kpi-value {
+  font-family: var(--bcn-mono) !important;
+  color: var(--bcn-ink) !important;
+}
+
+html.silo-embed .mono,
+html.silo-embed .tabular {
+  font-family: var(--bcn-mono) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+html.silo-embed body.inv-v2 .silo-edge,
+html.silo-embed body.inv-v2 .filter-rail-toggle {
+  display: none !important;
+}
+
+html.silo-embed body.inv-v2 .app-shell {
+  grid-template-columns: 1fr !important;
+}
+
+html.silo-embed body.inv-v2 .filter-rail {
+  position: relative !important;
+  transform: none !important;
+  width: 100% !important;
+  max-width: none !important;
+}

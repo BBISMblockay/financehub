@@ -9,8 +9,8 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
-  <link rel="stylesheet" href="purchasing-hub-shell.css" />
   <link rel="stylesheet" href="purchasing-page-content.css" />
+  <link rel="stylesheet" href="po-workbench.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
@@ -19,139 +19,21 @@
   <script src="https://cdn.tailwindcss.com"></script>
 
 </head>
-<body class="min-h-full">
-<div class="ps-app" id="ps-app">
-  <aside class="ps-sidebar" id="psSidebar" aria-label="SILO purchasing menu">
-    <div class="ps-brand-block">
-      <div class="ps-brand-mark" aria-hidden="true">S</div>
-      <div class="ps-brand-copy">
-        <div class="ps-brand-title">SILO</div>
-        <div class="ps-brand-sub">Purchasing · v2 console</div>
+<body class="silo-brand min-h-full">
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0;">
+        <div class="bcn-header-title"><h1>Request workbench</h1></div>
+        <div class="bcn-header-sub">AP queue — assign, complete, and report. <a href="/v2/purchase_request.html">New request</a> · <a href="/pages/request-manager.html">Classic workbench</a></div>
       </div>
-    </div>
-    <div class="ps-sidebar-search">
-      <div class="ps-search-wrap">
-        <span class="ps-search-icon" aria-hidden="true">⌕</span>
-        <input id="psMenuSearch" class="ps-search" type="search" placeholder="Search menu…" autocomplete="off" />
-      </div>
-    </div>
-    <nav class="ps-nav-scroll" aria-label="Purchasing routes">
-      <div class="ps-nav-section" data-ps-nav-section>
-        <div class="ps-nav-heading">Purchasing · v2</div>
-        <div class="ps-nav-list">
-          <a class="ps-nav-link ps-nav-link--pill-v2" href="./purchase_request.html" data-ps-search="payment request intake v2 silo">
-            <span class="ps-nav-label">Payment request</span>
-            <span class="ps-nav-meta">
-              <span class="ps-nav-pill ps-nav-pill--v2">V2</span>
-              <span class="ps-nav-chev" aria-hidden="true">›</span>
-            </span>
-          </a>
-          <a class="ps-nav-link ps-nav-link--active ps-nav-link--pill-v2" href="./request_manager.html" aria-current="page" data-ps-search="request workbench queue ap manager v2">
-            <span class="ps-nav-label">Request workbench</span>
-            <span class="ps-nav-meta">
-              <span class="ps-nav-pill ps-nav-pill--v2">V2</span>
-              <span class="ps-nav-chev" aria-hidden="true">›</span>
-            </span>
-          </a>
-        </div>
-      </div>
-      <div class="ps-nav-section" data-ps-nav-section>
-        <div class="ps-nav-heading">Classic payables</div>
-        <div class="ps-nav-list">
-          <a class="ps-nav-link" href="/accountspayable.html" data-ps-search="ap manager accounts payable">
-            <span class="ps-nav-label">AP manager</span>
-            <span class="ps-nav-meta"><span class="ps-nav-chev" aria-hidden="true">›</span></span>
-          </a>
-          <a class="ps-nav-link" href="/mailroom.html" data-ps-search="mailroom inbox">
-            <span class="ps-nav-label">Mailroom inbox</span>
-            <span class="ps-nav-meta"><span class="ps-nav-chev" aria-hidden="true">›</span></span>
-          </a>
-          <a class="ps-nav-link" href="/ap-report.html" data-ps-search="bbism payables ap report">
-            <span class="ps-nav-label">BBISM payables</span>
-            <span class="ps-nav-meta"><span class="ps-nav-chev" aria-hidden="true">›</span></span>
-          </a>
-        </div>
-      </div>
-      <div class="ps-nav-section" data-ps-nav-section>
-        <div class="ps-nav-heading">Request grids</div>
-        <div class="ps-nav-list">
-          <a class="ps-nav-link" href="https://www.jotform.com/grid/200496754119055" target="_blank" rel="noopener" data-external="true" data-ps-search="travel requests jotform">
-            <span class="ps-nav-label">Travel requests</span>
-            <span class="ps-nav-meta">
-              <span class="ps-nav-pill ps-nav-pill--ext">EXT</span>
-              <span class="ps-nav-chev" aria-hidden="true">↗</span>
-            </span>
-          </a>
-          <a class="ps-nav-link" href="https://www.jotform.com/grid/222686658265065" target="_blank" rel="noopener" data-external="true" data-ps-search="bars requests jotform">
-            <span class="ps-nav-label">Bars requests</span>
-            <span class="ps-nav-meta">
-              <span class="ps-nav-pill ps-nav-pill--ext">EXT</span>
-              <span class="ps-nav-chev" aria-hidden="true">↗</span>
-            </span>
-          </a>
-          <a class="ps-nav-link" href="/travel.html" data-ps-search="travel report">
-            <span class="ps-nav-label">Travel report</span>
-            <span class="ps-nav-meta"><span class="ps-nav-chev" aria-hidden="true">›</span></span>
-          </a>
-        </div>
-      </div>
-      <div class="ps-nav-section" data-ps-nav-section>
-        <div class="ps-nav-heading">Planning</div>
-        <div class="ps-nav-list">
-          <a class="ps-nav-link ps-nav-link--pill-v2" href="/v2/projections.html" data-ps-search="revenue projections planning">
-            <span class="ps-nav-label">Revenue projections</span>
-            <span class="ps-nav-meta">
-              <span class="ps-nav-pill ps-nav-pill--v2">V2</span>
-              <span class="ps-nav-chev" aria-hidden="true">›</span>
-            </span>
-          </a>
-        </div>
-      </div>
-      <div class="ps-nav-section" data-ps-nav-section>
-        <div class="ps-nav-heading">Consoles</div>
-        <div class="ps-nav-list">
-          <a class="ps-nav-link" href="/finance.html" data-ps-search="finance department console hub">
-            <span class="ps-nav-label">Finance console</span>
-            <span class="ps-nav-meta"><span class="ps-nav-chev" aria-hidden="true">›</span></span>
-          </a>
-          <a class="ps-nav-link" href="./employeehub.html" data-ps-search="employee hub v2 tools">
-            <span class="ps-nav-label">Employee hub v2</span>
-            <span class="ps-nav-meta"><span class="ps-nav-chev" aria-hidden="true">›</span></span>
-          </a>
-          <a class="ps-nav-link" href="/pages/purchase-request.html" data-ps-search="classic payment request intake">
-            <span class="ps-nav-label">Classic payment request</span>
-            <span class="ps-nav-meta"><span class="ps-nav-chev" aria-hidden="true">›</span></span>
-          </a>
-          <a class="ps-nav-link" href="/pages/request-manager.html" data-ps-search="classic request manager workbench">
-            <span class="ps-nav-label">Classic request manager</span>
-            <span class="ps-nav-meta"><span class="ps-nav-chev" aria-hidden="true">›</span></span>
-          </a>
-          <a class="ps-nav-link" href="/app-status.html" data-ps-search="app status">
-            <span class="ps-nav-label">App status</span>
-            <span class="ps-nav-meta"><span class="ps-nav-chev" aria-hidden="true">›</span></span>
-          </a>
-        </div>
-      </div>
-    </nav>
-    <div class="ps-sidebar-foot">
-      Purchasing v2 shell
-      <div class="ps-user-line" id="psUserLine">Loading…</div>
-    </div>
-  </aside>
-  <div class="ps-main">
-    <header class="ps-topbar">
-      <button type="button" class="ps-mobile-toggle" id="psMobileMenuBtn" aria-controls="psSidebar">Menu</button>
-      <div class="ps-page-copy">
-        <div class="ps-page-kicker">SILO · purchasing</div>
-        <div class="ps-page-title">Request workbench</div>
-        <div class="ps-page-sub">AP queue — same fields as classic, Beacon shell + finance-style menu.</div>
-      </div>
-      <div class="ps-actions">
-        <button type="button" class="ps-tb-btn ps-tb-btn--primary" id="psReloadBtn">Reload</button>
-        <button type="button" class="ps-tb-btn ps-tb-btn--danger" id="psSignOutBtn">Sign out</button>
+      <div class="bcn-header-actions">
+        <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="psReloadBtn">RELOAD</button>
+        <a class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="/v2/purchase_request.html">NEW REQUEST</a>
+        <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="psSignOutBtn">SIGN OUT</button>
       </div>
     </header>
-    <div class="ps-viewport">
+    <div class="profile-wrap" style="max-width:none;">
   <div class="shell pr-page pr-page--wide">
     <div class="pr-stack">
 
@@ -419,7 +301,7 @@
     </div>
   </div>
     </div>
-  </div>
+  </main>
 </div>
 
   <div id="drawerBackdrop" class="drawer-backdrop"></div>
@@ -597,6 +479,7 @@
 
   <div id="toastWrap" class="toast-wrap"></div>
 
+  <script src="silo-chrome.js"></script>
   <script>
     const SUPABASE_URL =
       window.__SILO_CONFIG__?.SUPABASE_URL ||
@@ -616,12 +499,6 @@
     const BUCKET = "payment-request-files";
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    document.getElementById("psMobileMenuBtn")?.addEventListener("click", () => {
-      document.body.classList.toggle("ps-nav-open");
-    });
-    document.querySelectorAll(".ps-nav-link").forEach((a) => {
-      a.addEventListener("click", () => document.body.classList.remove("ps-nav-open"));
-    });
     document.getElementById("psSignOutBtn")?.addEventListener("click", async (e) => {
       e.preventDefault();
       try {
@@ -633,25 +510,16 @@
       document.getElementById("refreshBtn")?.click();
     });
 
-    (function wirePurchasingShellMenuSearch() {
-      const search = document.getElementById("psMenuSearch");
-      if (!search) return;
-      const run = () => {
-        const q = search.value.trim().toLowerCase();
-        document.querySelectorAll("[data-ps-nav-section]").forEach((section) => {
-          let any = false;
-          section.querySelectorAll(".ps-nav-link").forEach((link) => {
-            const hay = (link.getAttribute("data-ps-search") || link.textContent || "").toLowerCase();
-            const show = !q || hay.includes(q);
-            link.style.display = show ? "" : "none";
-            if (show) any = true;
-          });
-          section.style.display = any ? "" : "none";
-        });
-      };
-      search.addEventListener("input", run);
-      search.addEventListener("change", run);
-    })();
+    async function mountChrome() {
+      if (!window.SiloChrome || !state.currentUser) return;
+      window.SiloChrome.mount({
+        appEl: '#silo-app',
+        active: 'purchasing/request-workbench',
+        user: { email: state.currentUser.email, role: 'MEMBER' },
+        crumbs: ['Purchasing', 'Request workbench'],
+        supabaseClient,
+      });
+    }
 
     const state = {
       rows: [],
@@ -1917,9 +1785,7 @@
           return;
         }
 
-        const uLine = document.getElementById("psUserLine");
-        if (uLine) uLine.textContent = state.currentUser?.email || "—";
-
+        await mountChrome();
         wireEvents();
         await loadData();
       } catch (err) {
