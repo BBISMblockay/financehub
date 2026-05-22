@@ -145,6 +145,7 @@
             <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Silo Purchasing</div>
             <div class="mt-0 text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">PO Builder</div>
             <div class="mt-1 text-xs text-slate-500">Catalog-linked POs, editable line matrix, bulk SKU add, imports, duplicate PO, and vendor PDF output.</div>
+            <div id="costingPhaseMeta" class="mt-1 text-xs font-semibold text-indigo-700"></div>
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <a id="btnCosting" class="btn btn-secondary no-underline" href="/v2/po-costing.html">Landed cost</a>
@@ -408,7 +409,14 @@
       if(!Lib||!state.currentPO?.id){ state.costingCtx=null; if(el.kpiLanded) el.kpiLanded.textContent='—'; return; }
       try{
         state.costingCtx=await Lib.loadPoCostingContext(sb, state.currentPO.id);
-        if(el.kpiLanded) el.kpiLanded.textContent=state.costingCtx?.saved ? money(state.costingCtx.result.landed_total) : '—';
+        const pc=state.costingCtx?.costing;
+        const landed=state.costingCtx?.result?.landed_total;
+        if(el.kpiLanded){
+          el.kpiLanded.textContent=(pc||state.costingCtx?.saved) && landed ? money(landed) : '—';
+          el.kpiLanded.title=pc ? Lib.phaseLabel(pc.phase) : 'Open Landed cost to start costing';
+        }
+        const meta=document.getElementById('costingPhaseMeta');
+        if(meta) meta.textContent=pc ? `Costing: ${Lib.phaseLabel(pc.phase)}` : 'No costing record — open Landed cost after lines are added';
       }catch(e){
         console.warn('refreshCosting', e);
         state.costingCtx=null;

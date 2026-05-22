@@ -126,6 +126,32 @@
     #status { font-size: 12px; color: var(--bcn-ink-3); min-height: 18px; }
     .chk-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--bcn-ink-2); }
     .chk-row input { width: auto; }
+    .phase-bar { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+    .phase-btn {
+      padding: 6px 12px;
+      border: 1px solid var(--bcn-border);
+      border-radius: 8px;
+      background: var(--bcn-surface);
+      font-size: 11px;
+      font-weight: 700;
+      font-family: var(--bcn-mono);
+      cursor: pointer;
+      color: var(--bcn-ink-2);
+    }
+    .phase-btn.active { border-color: var(--bcn-accent); background: var(--bcn-accent-soft); color: var(--bcn-accent); }
+    .phase-btn.done { color: var(--bcn-pos); }
+    .phase-panel[hidden] { display: none !important; }
+    .persist-pill {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 999px;
+      font-family: var(--bcn-mono);
+      background: var(--bcn-surface-2);
+      border: 1px solid var(--bcn-border);
+      margin-left: 8px;
+    }
   </style>
 </head>
 <body class="v2-mirror--po">
@@ -134,7 +160,7 @@
       <header class="bcn-header">
         <div style="flex:1;min-width:0;">
           <div class="bcn-header-title"><h1>PO landed cost</h1></div>
-          <div class="bcn-header-sub">Header freight/duty plus per-line FOB, allocation overrides, and landed unit cost. Pull costs from prior POs by SKU.</div>
+          <div class="bcn-header-sub">After PO builder: cost FOB from prior SKUs or factory invoice → mark shipped → add freight split per unit. Data persists to <code>po_costing</code> tables.</div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <a class="bcn-btn bcn-btn--ghost" href="/v2/po-builder.html" id="linkBuilder">PO builder</a>
@@ -151,7 +177,13 @@
 
         <div>
           <section class="cost-card" id="detailPanel" hidden>
-            <h2 id="poTitle">—</h2>
+            <h2><span id="poTitleText">—</span> <span class="persist-pill" id="persistPill">—</span></h2>
+            <div class="phase-bar">
+              <button type="button" class="phase-btn active" data-phase-tab="fob">1 · FOB / factory invoice</button>
+              <button type="button" class="phase-btn" data-phase-tab="ship">2 · Shipped</button>
+              <button type="button" class="phase-btn" data-phase-tab="freight">3 · Freight & landed</button>
+            </div>
+            <p class="hint" id="phaseHint"></p>
             <div class="kpi-row">
               <div class="kpi"><div class="lbl">FOB</div><div class="val" id="kpiFob">$0</div></div>
               <div class="kpi"><div class="lbl">Freight</div><div class="val" id="kpiFreight">$0</div></div>
@@ -160,43 +192,62 @@
               <div class="kpi"><div class="lbl">Landed</div><div class="val" id="kpiLanded">$0</div></div>
             </div>
 
-            <div style="margin-top:12px;display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));">
-              <div class="field"><label>Freight ($)</label><input type="number" step="0.01" min="0" id="inFreight" data-cost-header /></div>
-              <div class="field"><label>Duty (% FOB)</label><input type="number" step="0.01" min="0" id="inDutyPct" data-cost-header /></div>
-              <div class="field"><label>Misc ($)</label><input type="number" step="0.01" min="0" id="inMisc" data-cost-header /></div>
-              <div class="field">
-                <label>Allocate pool</label>
-                <select id="inAlloc" data-cost-header>
-                  <option value="proportional">By line FOB</option>
-                  <option value="per_unit">Per unit</option>
-                </select>
+            <div id="panelFob" class="phase-panel">
+              <div style="display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-top:8px;">
+                <div class="field">
+                  <label>Cost source</label>
+                  <select id="inCostSource">
+                    <option value="">—</option>
+                    <option value="prior_sku">Prior SKU costs</option>
+                    <option value="factory_invoice">Factory invoice</option>
+                    <option value="manual">Manual / mixed</option>
+                    <option value="mixed">Prior + invoice</option>
+                  </select>
+                </div>
+                <div class="field"><label>Factory invoice #</label><input type="text" id="inFactoryRef" placeholder="INV-2026-…" /></div>
+                <div class="field"><label>Invoice date</label><input type="date" id="inFactoryDate" /></div>
+                <div class="field"><label>Invoice total ($)</label><input type="number" step="0.01" id="inFactoryAmount" /></div>
               </div>
+              <div class="field"><label>FOB notes</label><textarea id="inFobNotes" rows="2" placeholder="Factory quote, payment terms…"></textarea></div>
+              <div class="toolbar">
+                <button type="button" class="bcn-btn bcn-btn--ghost" id="btnApplyAllPrior">Apply all prior FOB</button>
+                <button type="button" class="bcn-btn bcn-btn--ghost" id="btnClearLineOverrides">Clear overrides</button>
+                <button type="button" class="bcn-btn" id="btnSaveFob">Save FOB stage</button>
+              </div>
+              <label class="chk-row"><input type="checkbox" id="chkPushFob" checked /> Update PO line <code>unit_cost</code> from FOB</label>
             </div>
 
-            <div class="field" style="margin-top:8px;">
-              <label>Costing notes</label>
-              <textarea id="inNotes" rows="2" placeholder="Forwarder, container, invoice…"></textarea>
+            <div id="panelShip" class="phase-panel" hidden>
+              <p class="hint">Mark the PO shipped when goods leave the factory. Freight can be added after this step.</p>
+              <p id="shippedAtLabel" class="hint"></p>
+              <button type="button" class="bcn-btn" id="btnMarkShipped">Mark as shipped</button>
             </div>
 
-            <div class="toolbar">
-              <button type="button" class="bcn-btn bcn-btn--ghost" id="btnApplyAllPrior">Apply all prior FOB</button>
-              <button type="button" class="bcn-btn bcn-btn--ghost" id="btnClearLineOverrides">Clear line overrides</button>
-              <button type="button" class="bcn-btn" id="btnRecalc">Recalculate</button>
-              <button type="button" class="bcn-btn" id="btnSave">Save costing</button>
+            <div id="panelFreight" class="phase-panel" hidden>
+              <div style="display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-top:8px;">
+                <div class="field"><label>Freight invoice #</label><input type="text" id="inFreightRef" placeholder="Forwarder ref" /></div>
+                <div class="field"><label>Freight ($)</label><input type="number" step="0.01" min="0" id="inFreight" data-cost-header /></div>
+                <div class="field"><label>Duty (% FOB)</label><input type="number" step="0.01" min="0" id="inDutyPct" data-cost-header /></div>
+                <div class="field"><label>Misc ($)</label><input type="number" step="0.01" min="0" id="inMisc" data-cost-header /></div>
+                <div class="field">
+                  <label>Split freight by</label>
+                  <select id="inAlloc" data-cost-header>
+                    <option value="proportional">Line FOB (proportional)</option>
+                    <option value="per_unit">Per unit (even)</option>
+                  </select>
+                </div>
+              </div>
+              <div class="field"><label>Freight notes</label><textarea id="inFreightNotes" rows="2" placeholder="Container, forwarder, actual freight bill…"></textarea></div>
+              <div class="toolbar">
+                <button type="button" class="bcn-btn bcn-btn--ghost" id="btnRecalc">Recalculate split</button>
+                <button type="button" class="bcn-btn" id="btnSaveFreight">Save freight & landed</button>
+              </div>
+              <label class="chk-row"><input type="checkbox" id="chkPushLanded" checked /> Update PO line <code>unit_cost</code> to landed unit</label>
             </div>
-
-            <label class="chk-row">
-              <input type="checkbox" id="chkPushFob" />
-              Also update PO line <code>unit_cost</code> from line FOB overrides
-            </label>
-            <label class="chk-row">
-              <input type="checkbox" id="chkPushLanded" />
-              Update PO line <code>unit_cost</code> from landed unit (replaces FOB on lines)
-            </label>
 
             <div id="status" style="margin-top:8px;"></div>
 
-            <h2 style="margin-top:16px;">Line adjustments</h2>
+            <h2 style="margin-top:16px;">Line costing</h2>
             <div class="line-table-wrap">
               <table class="line-table">
                 <thead>
@@ -214,7 +265,7 @@
                 <tbody id="lineBody"></tbody>
               </table>
             </div>
-            <p class="hint">Open from PO builder via <strong>Landed cost</strong>, or <code>?po_id=</code> and <code>#line=&lt;id&gt;</code>. Saved in <code>internal_notes</code> until dedicated columns exist.</p>
+            <p class="hint">Run SQL migration <code>supabase/migrations/20260521120000_po_costing_module.sql</code> for full persistence. Without it, data falls back to <code>internal_notes</code>.</p>
           </section>
 
           <section class="cost-card" id="emptyPanel">
@@ -230,29 +281,45 @@
     const Lib = window.PoCostingLib;
     const cfg = window.__SILO_CONFIG__ || {};
     let db = null;
+    let authUser = null;
     let poRows = [];
     let ctx = null;
     let lineOverrides = {};
+    let activeTab = 'fob';
 
     const els = {
       poSearch: document.getElementById('poSearch'),
       poList: document.getElementById('poList'),
       detailPanel: document.getElementById('detailPanel'),
       emptyPanel: document.getElementById('emptyPanel'),
-      poTitle: document.getElementById('poTitle'),
+      poTitleText: document.getElementById('poTitleText'),
+      persistPill: document.getElementById('persistPill'),
+      phaseHint: document.getElementById('phaseHint'),
       kpiFob: document.getElementById('kpiFob'),
       kpiFreight: document.getElementById('kpiFreight'),
       kpiDuty: document.getElementById('kpiDuty'),
       kpiMisc: document.getElementById('kpiMisc'),
       kpiLanded: document.getElementById('kpiLanded'),
+      inCostSource: document.getElementById('inCostSource'),
+      inFactoryRef: document.getElementById('inFactoryRef'),
+      inFactoryDate: document.getElementById('inFactoryDate'),
+      inFactoryAmount: document.getElementById('inFactoryAmount'),
+      inFobNotes: document.getElementById('inFobNotes'),
+      inFreightRef: document.getElementById('inFreightRef'),
+      inFreightNotes: document.getElementById('inFreightNotes'),
       inFreight: document.getElementById('inFreight'),
       inDutyPct: document.getElementById('inDutyPct'),
       inMisc: document.getElementById('inMisc'),
       inAlloc: document.getElementById('inAlloc'),
-      inNotes: document.getElementById('inNotes'),
+      panelFob: document.getElementById('panelFob'),
+      panelShip: document.getElementById('panelShip'),
+      panelFreight: document.getElementById('panelFreight'),
+      shippedAtLabel: document.getElementById('shippedAtLabel'),
       lineBody: document.getElementById('lineBody'),
       btnRecalc: document.getElementById('btnRecalc'),
-      btnSave: document.getElementById('btnSave'),
+      btnSaveFob: document.getElementById('btnSaveFob'),
+      btnMarkShipped: document.getElementById('btnMarkShipped'),
+      btnSaveFreight: document.getElementById('btnSaveFreight'),
       btnApplyAllPrior: document.getElementById('btnApplyAllPrior'),
       btnClearLineOverrides: document.getElementById('btnClearLineOverrides'),
       chkPushFob: document.getElementById('chkPushFob'),
@@ -350,7 +417,12 @@
       const sku = String(line.sku_snapshot || '').trim();
       const prior = sku && ctx.priorBySku ? ctx.priorBySku[sku] : null;
       if (!prior) return;
-      ensureOverride(lineId).fob_unit = prior.unit_cost;
+      const o = ensureOverride(lineId);
+      o.fob_unit = prior.unit_cost;
+      o.cost_source = 'prior_sku';
+      o.prior_po_header_id = prior.po_header_id;
+      o.prior_unit_cost = prior.unit_cost;
+      if (prior.landed_unit != null) o.prior_landed_unit = prior.landed_unit;
       recalc();
     }
 
@@ -361,12 +433,64 @@
         const sku = String(line.sku_snapshot || '').trim();
         const prior = sku && ctx.priorBySku ? ctx.priorBySku[sku] : null;
         if (prior) {
-          ensureOverride(line.id).fob_unit = prior.unit_cost;
+          const o = ensureOverride(line.id);
+          o.fob_unit = prior.unit_cost;
+          o.cost_source = 'prior_sku';
+          o.prior_po_header_id = prior.po_header_id;
+          o.prior_unit_cost = prior.unit_cost;
           n++;
         }
       });
+      if (n) els.inCostSource.value = n === ctx.lines.length ? 'prior_sku' : 'mixed';
       els.status.textContent = n ? `Applied prior FOB to ${n} line(s).` : 'No prior costs found for SKUs on this PO.';
       recalc();
+    }
+
+    function setPhaseTab(tab) {
+      activeTab = tab;
+      document.querySelectorAll('[data-phase-tab]').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-phase-tab') === tab);
+      });
+      els.panelFob.hidden = tab !== 'fob';
+      els.panelShip.hidden = tab !== 'ship';
+      els.panelFreight.hidden = tab !== 'freight';
+    }
+
+    function updatePhaseUi() {
+      const pc = ctx?.costing;
+      const phase = pc?.phase || Lib.PHASE.FOB;
+      const shipped = !!(pc?.shipped_at);
+
+      els.persistPill.textContent = ctx?.persistence === 'database' ? 'DB' : 'Notes fallback';
+      els.phaseHint.textContent = Lib.phaseLabel(phase) +
+        (shipped ? ' · Shipped ' + new Date(pc.shipped_at).toLocaleDateString() : ' · Not shipped yet');
+
+      els.shippedAtLabel.textContent = shipped
+        ? 'Shipped: ' + new Date(pc.shipped_at).toLocaleString()
+        : 'Not marked shipped — add freight after marking shipped.';
+
+      document.querySelectorAll('[data-phase-tab]').forEach(btn => {
+        const t = btn.getAttribute('data-phase-tab');
+        btn.classList.toggle('done', (t === 'fob' && pc?.fob_locked_at) || (t === 'ship' && shipped) || (t === 'freight' && pc?.freight_applied_at));
+      });
+
+      if (!shipped && activeTab === 'freight') setPhaseTab('ship');
+      els.btnMarkShipped.disabled = shipped;
+    }
+
+    function fillFormFromCtx() {
+      const pc = ctx.costing;
+      els.inCostSource.value = pc?.cost_source || ctx.saved?.cost_source || '';
+      els.inFactoryRef.value = pc?.factory_invoice_ref || '';
+      els.inFactoryDate.value = pc?.factory_invoice_date || '';
+      els.inFactoryAmount.value = pc?.factory_invoice_amount ?? '';
+      els.inFobNotes.value = pc?.fob_notes || '';
+      els.inFreightRef.value = pc?.freight_invoice_ref || '';
+      els.inFreightNotes.value = pc?.freight_notes || ctx.saved?.notes || '';
+      els.inFreight.value = ctx.headerInputs.freight ?? '';
+      els.inDutyPct.value = ctx.headerInputs.duty_pct ?? '';
+      els.inMisc.value = ctx.headerInputs.misc ?? '';
+      els.inAlloc.value = ctx.headerInputs.alloc_method || 'proportional';
     }
 
     function renderPoList() {
@@ -378,8 +502,9 @@
 
       els.poList.innerHTML = rows.length
         ? rows.map(r => `<button type="button" class="${ctx?.header?.id === r.id ? 'active' : ''}" data-po-id="${esc(r.id)}">
-            <strong>${esc(r.po_name || 'Untitled')}</strong><br>
-            <span style="color:var(--bcn-ink-3);font-size:11px;">${esc(r.factory_name || '—')} · ${esc(r.status || '')}</span>
+            <strong>${esc(r.po_name || 'Untitled')}</strong>
+            ${r.costing_phase ? `<span class="persist-pill" style="margin-left:4px;">${esc(r.costing_phase)}</span>` : ''}<br>
+            <span style="color:var(--bcn-ink-3);font-size:11px;">${esc(r.factory_name || '—')} · ${esc(r.status || '')}${r.landed_total ? ' · ' + money(r.landed_total) : ''}</span>
           </button>`).join('')
         : '<p class="hint">No POs match.</p>';
 
@@ -396,58 +521,86 @@
       els.linkBuilder.href = `/v2/po-builder.html?po_id=${encodeURIComponent(poId)}`;
       els.detailPanel.hidden = false;
       els.emptyPanel.hidden = true;
-      els.poTitle.textContent = ctx.header?.po_name || 'Untitled PO';
+      els.poTitleText.textContent = ctx.header?.po_name || 'Untitled PO';
 
-      els.inFreight.value = ctx.headerInputs.freight || '';
-      els.inDutyPct.value = ctx.headerInputs.duty_pct || '';
-      els.inMisc.value = ctx.headerInputs.misc || '';
-      els.inAlloc.value = ctx.headerInputs.alloc_method || 'proportional';
-      els.inNotes.value = ctx.saved?.notes || '';
-
+      fillFormFromCtx();
+      const phase = ctx.costing?.phase || Lib.PHASE.FOB;
+      setPhaseTab(ctx.costing?.shipped_at ? (phase === Lib.PHASE.FOB ? 'ship' : 'freight') : 'fob');
       recalc();
+      updatePhaseUi();
       els.status.textContent = '';
       renderPoList();
     }
 
-    async function pushLineCosts(mode) {
-      const result = ctx.result || recalc();
-      if (!result) return;
-      for (const row of result.lines) {
-        const o = lineOverrides[row.line_id] || {};
-        let unit = null;
-        if (mode === 'landed') unit = row.landed_unit;
-        else if (o.fob_unit != null && o.fob_unit !== '') unit = Lib.num(o.fob_unit);
-        if (unit == null) continue;
-        const { error } = await db.from('po_lines').update({ unit_cost: unit }).eq('id', row.line_id);
-        if (error) throw error;
-      }
-    }
-
-    async function saveCosting() {
+    async function saveFobStage() {
       if (!ctx?.header?.id) return;
       recalc();
-      const payload = Lib.buildCostingPayload(ctx.lines, headerInputs(), lineOverrides, els.inNotes.value.trim());
+      const out = await Lib.savePoCosting(db, ctx, headerInputs(), lineOverrides, {
+        phase: Lib.PHASE.FOB,
+        costSource: els.inCostSource.value || null,
+        factoryInvoice: {
+          ref: els.inFactoryRef.value.trim(),
+          date: els.inFactoryDate.value || null,
+          amount: els.inFactoryAmount.value,
+        },
+        fobNotes: els.inFobNotes.value.trim(),
+        lockFob: true,
+        pushFobToPoLines: els.chkPushFob.checked,
+        userId: authUser?.id,
+      });
+      ctx = await Lib.loadPoCostingContext(db, ctx.header.id);
+      lineOverrides = { ...ctx.lineOverrides };
+      fillFormFromCtx();
+      recalc();
+      updatePhaseUi();
+      els.status.textContent = `FOB saved (${out.persistence}).`;
+    }
 
-      const merged = Lib.mergeCostingBlock(ctx.header.internal_notes, payload);
-      const { error } = await db.from('po_headers').update({ internal_notes: merged }).eq('id', ctx.header.id);
-      if (error) throw error;
-
-      if (els.chkPushFob.checked) await pushLineCosts('fob');
-      if (els.chkPushLanded.checked) await pushLineCosts('landed');
-
-      ctx.header.internal_notes = merged;
-      els.status.textContent = 'Saved costing' +
-        (els.chkPushFob.checked || els.chkPushLanded.checked ? ' and updated PO line costs.' : '.');
+    async function saveFreightStage() {
+      if (!ctx?.header?.id) return;
+      if (!ctx.costing?.shipped_at) {
+        if (!confirm('PO is not marked shipped yet. Save freight anyway?')) return;
+      }
+      recalc();
+      const out = await Lib.savePoCosting(db, ctx, headerInputs(), lineOverrides, {
+        phase: Lib.PHASE.FINAL,
+        freightInvoice: { ref: els.inFreightRef.value.trim() },
+        freightNotes: els.inFreightNotes.value.trim(),
+        pushLandedToPoLines: els.chkPushLanded.checked,
+        userId: authUser?.id,
+      });
+      ctx = await Lib.loadPoCostingContext(db, ctx.header.id);
+      lineOverrides = { ...ctx.lineOverrides };
+      fillFormFromCtx();
+      recalc();
+      updatePhaseUi();
+      els.status.textContent = `Freight & landed saved (${out.persistence}).`;
     }
 
     async function loadPos() {
-      const { data, error } = await db
-        .from('v_po_header_summary')
-        .select('id, po_name, factory_name, status')
-        .order('created_at', { ascending: false })
-        .limit(300);
+      let data = null;
+      let error = null;
+      ({ data, error } = await db
+        .from('v_po_costing_summary')
+        .select('po_header_id, po_name, po_status, costing_phase, landed_total, shipped_at')
+        .order('costing_updated_at', { ascending: false, nullsFirst: false })
+        .limit(300));
+      if (error) {
+        ({ data, error } = await db
+          .from('v_po_header_summary')
+          .select('id, po_name, factory_name, status')
+          .order('created_at', { ascending: false })
+          .limit(300));
+      }
       if (error) throw error;
-      poRows = data || [];
+      poRows = (data || []).map(r => ({
+        id: r.po_header_id || r.id,
+        po_name: r.po_name,
+        factory_name: r.factory_name,
+        status: r.po_status || r.status,
+        costing_phase: r.costing_phase,
+        landed_total: r.landed_total,
+      }));
       renderPoList();
     }
 
@@ -461,6 +614,7 @@
         location.href = '/pages/login.html?next=' + encodeURIComponent(location.pathname + location.search);
         return;
       }
+      authUser = sess.session.user;
 
       if (window.SiloChrome) {
         window.SiloChrome.mount({
@@ -485,7 +639,23 @@
         recalc();
         els.status.textContent = 'Cleared line overrides.';
       });
-      els.btnSave.addEventListener('click', () => saveCosting().catch(e => alert(e.message || e)));
+      els.btnSaveFob.addEventListener('click', () => saveFobStage().catch(e => alert(e.message || e)));
+      els.btnSaveFreight.addEventListener('click', () => saveFreightStage().catch(e => alert(e.message || e)));
+      els.btnMarkShipped.addEventListener('click', () => {
+        Lib.markPoShipped(db, ctx, authUser?.id)
+          .then(async () => {
+            ctx = await Lib.loadPoCostingContext(db, ctx.header.id);
+            lineOverrides = { ...ctx.lineOverrides };
+            fillFormFromCtx();
+            updatePhaseUi();
+            setPhaseTab('freight');
+            els.status.textContent = 'Marked shipped. Add freight when the forwarder invoice arrives.';
+          })
+          .catch(e => alert(e.message || e));
+      });
+      document.querySelectorAll('[data-phase-tab]').forEach(btn => {
+        btn.addEventListener('click', () => setPhaseTab(btn.getAttribute('data-phase-tab')));
+      });
 
       await loadPos();
 
