@@ -1,5 +1,17 @@
 # Supabase migrations (SILO)
 
+**Merging PR #40 does not run SQL.** The live database only updates when you paste scripts into the Supabase SQL Editor.
+
+## Post-merge (one shot)
+
+1. Run **`verify_v2_schema.sql`** — see what is `MISSING`.
+2. Run **`apply_all_post_merge.sql`** — full PO builder + costing + profiles (safe to re-run).
+3. Run **`verify_v2_schema.sql`** again — everything should be `ok`.
+
+Or run the three files under `migrations/` in numeric order (same content as `apply_all_post_merge.sql`).
+
+---
+
 Run these in the Supabase SQL Editor in order (Dashboard → SQL → New query → paste → Run).
 
 ## 1. PO builder (required first)
