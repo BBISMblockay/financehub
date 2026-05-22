@@ -7,64 +7,12 @@
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="po-workbench.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
   <script src="../pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
   <style>
-    .profile-wrap { padding: 0 16px 28px; max-width: 720px; }
-    .profile-card {
-      background: var(--bcn-surface);
-      border: 1px solid var(--bcn-border);
-      border-radius: 12px;
-      padding: 16px 18px;
-      margin-bottom: 14px;
-    }
-    .profile-card h2 {
-      margin: 0 0 12px;
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: .12em;
-      text-transform: uppercase;
-      color: var(--bcn-ink-3);
-      font-family: var(--bcn-mono);
-    }
-    .profile-card--err { border-color: var(--bcn-neg); background: var(--bcn-neg-soft); }
-    .profile-card--warn { border-color: var(--bcn-warn, #f59e0b); background: #fffbeb; }
-    .field { margin-bottom: 12px; }
-    .field label {
-      display: block;
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: .1em;
-      text-transform: uppercase;
-      color: var(--bcn-ink-3);
-      margin-bottom: 5px;
-      font-family: var(--bcn-mono);
-    }
-    .field input, .field select {
-      width: 100%;
-      height: 36px;
-      padding: 0 10px;
-      border: 1px solid var(--bcn-border);
-      border-radius: 8px;
-      font-size: 13px;
-      background: var(--bcn-surface);
-      color: var(--bcn-ink);
-    }
-    .field input:disabled, .field select:disabled {
-      background: var(--bcn-surface-2);
-      color: var(--bcn-ink-2);
-    }
-    .field .hint { margin-top: 5px; font-size: 11px; color: var(--bcn-ink-3); line-height: 1.4; }
-    .summary-grid {
-      display: grid;
-      grid-template-columns: 120px 1fr;
-      gap: 6px 12px;
-      font-size: 13px;
-    }
-    .summary-grid dt { color: var(--bcn-ink-3); font-family: var(--bcn-mono); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
-    .summary-grid dd { margin: 0; font-weight: 600; word-break: break-word; }
     .status-pill {
       display: inline-flex;
       align-items: center;
@@ -77,7 +25,6 @@
     }
     .status-pill--active { background: var(--bcn-pos-soft); color: var(--bcn-pos); }
     .status-pill--inactive { background: var(--bcn-neg-soft); color: var(--bcn-neg); }
-    .profile-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
     #bootStatus { font-size: 12px; color: var(--bcn-ink-3); padding: 8px 0; }
   </style>
 </head>
@@ -93,60 +40,85 @@
 
       <div class="profile-wrap">
         <p id="bootStatus">Loading profile…</p>
-        <div id="loadErr" class="profile-card profile-card--err" hidden></div>
-        <div id="loadWarn" class="profile-card profile-card--warn" hidden></div>
+        <div id="loadErr" class="bcn-card bcn-card--err" hidden><div class="bcn-card-body"></div></div>
+        <div id="loadWarn" class="bcn-card bcn-card--warn" hidden><div class="bcn-card-body"></div></div>
 
-        <section class="profile-card" id="summaryCard" hidden>
-          <h2>Signed in as</h2>
-          <dl class="summary-grid" id="summaryDl"></dl>
-        </section>
-
-        <section class="profile-card" id="formCard" hidden>
-          <h2>Account</h2>
-          <div class="field">
-            <label>Email</label>
-            <input id="fEmail" type="email" disabled />
-          </div>
-          <div class="field">
-            <label>Display name</label>
-            <input id="fName" type="text" placeholder="Your name" />
-          </div>
-          <div class="field">
-            <label>Status</label>
-            <div id="fStatus"></div>
+        <section class="bcn-card" id="summaryCard" hidden>
+          <header class="bcn-card-header bcn-card-header--dark">
+            <span class="bcn-pill bcn-pill--dark">ACCOUNT</span>
+            <h2>Signed in as</h2>
+          </header>
+          <div class="bcn-card-body">
+            <dl class="profile-summary-grid" id="summaryDl"></dl>
           </div>
         </section>
 
-        <section class="profile-card" id="orgCard" hidden>
-          <h2>Organization</h2>
-          <div class="field">
-            <label>Role</label>
-            <input id="fRole" type="text" disabled />
-            <div class="hint">Role changes are managed by an admin in Backend hub.</div>
-          </div>
-          <div class="field">
-            <label>Department</label>
-            <input id="fDepartment" type="text" disabled />
+        <section class="bcn-card" id="formCard" hidden>
+          <header class="bcn-card-header">
+            <span class="bcn-pill">PROFILE</span>
+            <h2>Account</h2>
+          </header>
+          <div class="bcn-card-body">
+            <div class="bcn-field-group">
+              <label class="bcn-label">Email</label>
+              <input id="fEmail" class="bcn-field" type="email" disabled />
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label">Display name</label>
+              <input id="fName" class="bcn-field" type="text" placeholder="Your name" />
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label">Status</label>
+              <div id="fStatus"></div>
+            </div>
           </div>
         </section>
 
-        <section class="profile-card" id="navCard" hidden>
-          <h2>Navigation</h2>
-          <div class="field">
-            <label>Default landing page</label>
-            <select id="fDefaultPage"></select>
-            <div class="hint">Used after sign-in when set. Otherwise department defaults apply.</div>
+        <section class="bcn-card" id="orgCard" hidden>
+          <header class="bcn-card-header">
+            <span class="bcn-pill">ORG</span>
+            <h2>Organization</h2>
+          </header>
+          <div class="bcn-card-body">
+            <div class="bcn-field-group">
+              <label class="bcn-label">Role</label>
+              <input id="fRole" class="bcn-field" type="text" disabled />
+              <p class="hint">Role changes are managed by an admin in Backend hub.</p>
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label">Department</label>
+              <input id="fDepartment" class="bcn-field" type="text" disabled />
+            </div>
           </div>
         </section>
 
-        <section class="profile-card" id="actionsCard" hidden>
-          <h2>Actions</h2>
-          <div class="profile-actions">
-            <button type="button" class="bcn-btn" id="btnSave">Save changes</button>
-            <a class="bcn-btn bcn-btn--ghost" href="/pages/set-password.html">Change password</a>
-            <button type="button" class="bcn-btn bcn-btn--ghost" id="btnReload">Reload</button>
+        <section class="bcn-card" id="navCard" hidden>
+          <header class="bcn-card-header">
+            <span class="bcn-pill bcn-pill--accent">NAV</span>
+            <h2>Navigation</h2>
+          </header>
+          <div class="bcn-card-body">
+            <div class="bcn-field-group">
+              <label class="bcn-label">Default landing page</label>
+              <select id="fDefaultPage" class="bcn-field bcn-field--mono"></select>
+              <p class="hint">Used after sign-in when set. Otherwise department defaults apply.</p>
+            </div>
           </div>
-          <div id="saveStatus" style="margin-top:10px;font-size:12px;color:var(--bcn-ink-3);"></div>
+        </section>
+
+        <section class="bcn-card" id="actionsCard" hidden>
+          <header class="bcn-card-header bcn-card-header--dark">
+            <span class="bcn-pill bcn-pill--dark">ACTIONS</span>
+            <h2>Save</h2>
+          </header>
+          <footer class="bcn-card-foot">
+            <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="btnSave">SAVE</button>
+            <a class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="/pages/set-password.html">PASSWORD</a>
+            <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnReload">RELOAD</button>
+          </footer>
+          <div class="bcn-card-body" style="padding-top:0;">
+            <div id="saveStatus" class="hint"></div>
+          </div>
         </section>
       </div>
     </main>

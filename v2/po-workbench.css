@@ -637,3 +637,202 @@ body.v2-mirror--po .silo-main {
 .prior-pill { font-size: 10px; color: var(--bcn-ink-3); font-family: var(--bcn-mono); }
 .prior-pill strong { color: var(--bcn-accent); }
 #status { font-size: 12px; color: var(--bcn-ink-3); min-height: 18px; }
+
+/* ---- PO costing (projections-family layout) ----------------------------- */
+
+.po-costing-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  overflow: auto;
+}
+
+.bcn-phase-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 14px 12px;
+}
+
+.bcn-phase-bar .phase-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--bcn-border-strong);
+  border-radius: var(--bcn-radius-sm);
+  background: var(--bcn-surface);
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--bcn-mono);
+  cursor: pointer;
+  color: var(--bcn-ink-2);
+}
+
+.bcn-phase-bar .phase-btn.active {
+  border-color: var(--bcn-accent);
+  background: var(--bcn-accent-soft);
+  color: var(--bcn-accent);
+}
+
+.bcn-phase-bar .phase-btn.done {
+  border-color: var(--bcn-pos-border);
+  color: var(--bcn-pos);
+}
+
+.po-costing-card .bcn-card-body .bcn-field-group label,
+.po-costing-card .field label {
+  font-family: var(--bcn-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--bcn-ink-3);
+}
+
+.po-costing-fields {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
+}
+
+.po-costing-card .field input,
+.po-costing-card .field select,
+.po-costing-card .field textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--bcn-border-strong);
+  background: var(--bcn-surface);
+  color: var(--bcn-ink);
+  font-size: 13px;
+}
+
+.line-table.bcn-table,
+table.line-table.bcn-table {
+  min-width: 900px;
+}
+
+.line-table.bcn-table input {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--bcn-border-strong);
+  background: var(--bcn-surface);
+  font-family: var(--bcn-mono);
+  font-size: 12px;
+}
+
+.line-table.bcn-table tr.line-focus td {
+  background: var(--bcn-accent-soft);
+}
+
+/* ---- PO report grid ----------------------------------------------------- */
+
+.po-report-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  overflow: auto;
+}
+
+.po-report-filters .bcn-card-body {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+}
+
+.po-report-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr 1fr;
+  min-height: 0;
+}
+
+@media (max-width: 1100px) {
+  .po-report-grid { grid-template-columns: 1fr; }
+}
+
+.po-report-card .bcn-matrix-scroll {
+  max-height: min(58vh, 560px);
+}
+
+.po-report-card table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.po-report-card table th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--bcn-sunken);
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--bcn-ink-3);
+  border-bottom: 1px solid var(--bcn-border-strong);
+  text-align: left;
+}
+
+.po-report-card table th.right,
+.po-report-card table td.right {
+  text-align: right;
+}
+
+.po-report-card table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--bcn-border);
+  vertical-align: top;
+}
+
+.po-report-card table tbody tr:hover td {
+  background: var(--bcn-sunken);
+}
+
+/* Profile page cards */
+.profile-wrap {
+  flex: 1;
+  overflow: auto;
+  padding: 0 16px 28px;
+  max-width: 720px;
+}
+
+.profile-wrap .bcn-card {
+  margin-bottom: 12px;
+}
+
+.profile-wrap .bcn-card--err {
+  border-color: var(--bcn-neg);
+  background: var(--bcn-neg-soft);
+}
+
+.profile-wrap .bcn-card--warn {
+  border-color: var(--bcn-warn);
+  background: #fffbeb;
+}
+
+.profile-summary-grid {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 6px 12px;
+  font-size: 13px;
+}
+
+.profile-summary-grid dt {
+  color: var(--bcn-ink-3);
+  font-family: var(--bcn-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.profile-summary-grid dd {
+  margin: 0;
+  font-weight: 600;
+  word-break: break-word;
+}
