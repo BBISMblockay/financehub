@@ -78,25 +78,125 @@
     border-right: none;
   }
 
-  /* ---- Silo chrome layout (projections / launch calendar) ------------ */
+  /* ---- Silo chrome: content column + overlay nav drawer ------------ */
 
   .silo-app {
-    height: auto;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
     min-height: 100vh;
     min-height: 100dvh;
+    overflow: hidden;
     overflow-x: hidden;
-    overflow-y: auto;
   }
 
   .silo-main {
-    overflow: visible;
+    flex: 1;
     min-height: 0;
+    overflow: auto;
+    overflow-x: hidden;
   }
 
   .silo-sidebar {
-    flex: 0 0 200px;
-    width: 200px;
-    max-width: 42vw;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 220;
+    flex: none;
+    width: min(300px, 88vw);
+    max-width: 88vw;
+    transform: translateX(-105%);
+    transition: transform 0.2s ease;
+    box-shadow: 8px 0 32px rgba(0, 0, 0, 0.22);
+  }
+
+  .silo-app.silo-nav-open .silo-sidebar {
+    transform: translateX(0);
+  }
+
+  .silo-app[data-collapsed="true"] .silo-sidebar {
+    width: min(300px, 88vw);
+    flex: none;
+  }
+
+  .silo-app[data-collapsed="true"] .silo-sb-links {
+    display: flex;
+  }
+
+  .silo-app[data-collapsed="true"] .silo-sb-link-label,
+  .silo-app[data-collapsed="true"] .silo-sb-link-ext {
+    display: inline;
+  }
+
+  .silo-nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 210;
+    background: rgba(10, 16, 30, 0.46);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease;
+  }
+
+  .silo-nav-backdrop[hidden] {
+    display: block !important;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .silo-app.silo-nav-open .silo-nav-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .silo-nav-toggle {
+    display: grid !important;
+    flex-shrink: 0;
+  }
+
+  .silo-sb-nav {
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .silo-sb-link {
+    min-height: 44px;
+    padding-top: 11px;
+    padding-bottom: 11px;
+    font-size: 13px;
+  }
+
+  .silo-sb-section-label {
+    font-size: 10px;
+    padding-top: 10px;
+  }
+
+  .silo-utility {
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 38px;
+    padding-top: max(8px, env(safe-area-inset-top, 0px));
+    padding-left: max(10px, env(safe-area-inset-left, 0px));
+    padding-right: max(10px, env(safe-area-inset-right, 0px));
+    gap: 8px;
+  }
+
+  .silo-crumbs {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .silo-status,
+  .silo-utility .silo-utility-divider {
+    display: none;
+  }
+
+  .silo-utility .bcn-pill {
+    display: none;
   }
 
   .pr-page,

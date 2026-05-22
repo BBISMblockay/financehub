@@ -20,68 +20,73 @@
    ======================================================================== */
 
 (function () {
-  const NAV = [
-    { id: 'hub', label: 'Hub', icon: 'hub', href: '/index.html' },
-
-    { id: 'finance', label: 'Finance', icon: 'finance', children: [
-      { id: 'finance/cashflow',    label: 'Cash flow',     href: '/v2/cashflow.html' },
-      { id: 'finance/executive',   label: 'Executive',     href: '/v2/executive.html' },
-      { id: 'finance/checkwriter', label: 'Check writer',  href: '/v2/checkwriter.html' },
-      { id: 'finance/allocation',  label: 'Allocation',    href: '/v2/allocation.html' },
-      { id: 'finance/travel',      label: 'Travel & exp',  href: '/v2/travel.html' },
-      { id: 'finance/recon',       label: 'Reconciliation',href: '/v2/recon.html' },
-      { id: 'finance/aprio',       label: 'Aprio',         href: '/v2/aprio.html' },
-      { id: 'finance/ap',          label: 'AP report',     href: '/ap-report.html' },
-      { id: 'finance/finance',     label: 'Finance home',  href: '/v2/finance.html' },
-      { id: 'finance/backend',     label: 'Backend hub',   href: '/v2/backend.html' },
-    ]},
-
-    { id: 'inventory', label: 'Inventory', icon: 'inventory', children: [
-      { id: 'inventory/workboard',  label: 'Workboard',       href: '/v2/inventory.html' },
-      { id: 'inventory/products',   label: 'Product manager', href: '/v2/product-manager.html' },
-      { id: 'inventory/tags',       label: 'Product tags',    href: '/pages/product-tags.html' },
-    ]},
-
-    { id: 'sales', label: 'Sales', icon: 'sales', children: [
-      { id: 'sales/verification',   label: 'Sales verification', href: '/v2/sales-verification.html' },
-      { id: 'sales/reports',        label: 'Sales reports',      href: '/pages/sales-reports.html' },
-    ]},
-
-    { id: 'purchasing', label: 'Purchasing', icon: 'purchasing', children: [
-      { id: 'purchasing/po-builder',  label: 'PO builder',  href: '/v2/po-builder.html' },
-      { id: 'purchasing/po-costing',  label: 'PO landed cost', href: '/v2/po-costing.html' },
-      { id: 'purchasing/po-report',   label: 'PO report',   href: '/v2/po-report.html' },
-      { id: 'purchasing/buyer',       label: 'Buyer',       href: '/v2/buyer.html' },
-      { id: 'purchasing/requests',    label: 'Requests',    href: '/v2/purchase_request.html' },
-      { id: 'purchasing/req-mgr',     label: 'Request mgr', href: '/v2/request_manager.html' },
-    ]},
-
-    { id: 'wholesale', label: 'Wholesale', icon: 'wholesale', children: [
-      { id: 'wholesale/customers',   label: 'Customers / AR', href: '/v2/baseballismwholesale.html' },
-      { id: 'wholesale/queue',       label: 'Orders',         href: '/v2/wholesale.html' },
-    ]},
-
-    { id: 'planning', label: 'Planning', icon: 'planning', children: [
-      { id: 'planning/launch-calendar',    label: 'Launch calendar',    href: '/v2/launch-calendar.html' },
-      { id: 'planning/revenue-projections',label: 'Revenue projections',href: '/v2/projections.html' },
-      { id: 'planning/scenarios',          label: 'Scenarios',          href: '/pages/planning-scenarios.html' },
-      { id: 'planning/planner',            label: 'PO planner',         href: '/v2/planner.html' },
-      { id: 'planning/sheets-calendar',    label: 'Marketing calendar', href: '/v2/calendar.html' },
-    ]},
-
-    { id: 'people', label: 'People', icon: 'people', children: [
-      { id: 'people/payroll',     label: 'Payroll',       href: '/v2/payroll.html' },
-      { id: 'people/employees',   label: 'Employee hub',  href: '/v2/employeehub.html' },
-      { id: 'people/profile',     label: 'My profile',    href: '/v2/profile.html' },
-      { id: 'people/access',      label: 'Dept access',   href: '/v2/department-access.html' },
-    ]},
-
-    { id: 'ops', label: 'Ops', icon: 'ops', children: [
-      { id: 'ops/mailroom',   label: 'Mailroom',   href: '/v2/mailroom.html' },
-      { id: 'ops/modelapps',  label: 'Model apps', href: '/v2/modelapps.html' },
-      { id: 'ops/calendar',   label: 'Calendar',   href: '/v2/calendar.html' },
-      { id: 'ops/status',     label: 'App status', href: '/app-status.html' },
-    ]},
+  /** Same sections + order as v2/finance.html; v2 hrefs where a mirror exists. */
+  const NAV_SECTIONS = [
+    {
+      section: 'Start',
+      items: [
+        { id: 'hub', label: 'SILO home', href: '/index.html' },
+        { id: 'finance/menu', label: 'Finance department', href: '/v2/finance.html' },
+        { id: 'people/profile', label: 'My profile', href: '/v2/profile.html' },
+      ],
+    },
+    {
+      section: 'Overview',
+      items: [
+        { id: 'people/dashboard', label: 'Dashboard', href: '/v2/employeehub.html' },
+        { id: 'finance/executive', label: 'Executive', href: '/v2/executive.html' },
+      ],
+    },
+    {
+      section: 'Payables',
+      items: [
+        { id: 'finance/ap-manager', label: 'AP Manager', href: '/accountspayable.html' },
+        { id: 'finance/mailroom', label: 'Mailroom Inbox', href: '/v2/mailroom.html' },
+        { id: 'finance/ap', label: 'BBISM Payables', href: '/ap-report.html' },
+      ],
+    },
+    {
+      section: 'Receivables',
+      items: [
+        { id: 'wholesale/customers', label: 'BBISM Receivables', href: '/v2/baseballismwholesale.html' },
+        { id: 'wholesale/wpv', label: 'WPV Receivables', href: '/wpvaccounts.html' },
+      ],
+    },
+    {
+      section: 'Requests',
+      items: [
+        { id: 'finance/travel-requests', label: 'Travel Requests', href: 'https://www.jotform.com/grid/200496754119055', external: true },
+        { id: 'finance/bars-requests', label: 'Bars Requests', href: 'https://www.jotform.com/grid/222686658265065', external: true },
+        { id: 'finance/travel', label: 'Travel Report', href: '/v2/travel.html' },
+      ],
+    },
+    {
+      section: 'Planning',
+      items: [
+        { id: 'planning/revenue-projections', label: 'Revenue Projection', href: '/v2/projections.html' },
+        { id: 'planning/sheets-calendar', label: 'Marketing Calendar', href: '/v2/calendar.html' },
+        { id: 'planning/launch-calendar', label: 'Launch calendar', href: '/v2/launch-calendar.html' },
+        { id: 'planning/planner', label: 'PO Calendar', href: '/v2/planner.html' },
+        { id: 'purchasing/po-builder', label: 'PO Builder', href: '/v2/po-builder.html' },
+        { id: 'purchasing/po-costing', label: 'PO Landed Cost', href: '/v2/po-costing.html' },
+        { id: 'purchasing/po-report', label: 'PO Report', href: '/v2/po-report.html' },
+        { id: 'purchasing/factories', label: 'Factories', href: '/pages/factories.html' },
+      ],
+    },
+    {
+      section: 'Inventory',
+      items: [
+        { id: 'inventory/workboard', label: 'Inventory Manager', href: '/v2/inventory.html' },
+        { id: 'inventory/products', label: 'Product Tags', href: '/v2/product-manager.html' },
+      ],
+    },
+    {
+      section: 'Reports',
+      items: [
+        { id: 'finance/sales-bi', label: 'BI Sales Dashboard', href: 'https://app.powerbi.com/view?r=eyJrIjoiY2U0MWI2ZmMtMTY3MS00MDY3LTg5NjctN2VlYjk0NGMxNzUzIiwidCI6IjIzYTkzNDJkLTFjODEtNGJkNS1hY2U0LThmYWY4ZWVlNTZiZCJ9', external: true },
+        { id: 'people/payroll', label: 'Payroll BI', href: '/v2/payroll.html' },
+      ],
+    },
   ];
 
   const ICONS = {
@@ -98,7 +103,6 @@
     bell:       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M6 8a6 6 0 1 1 12 0c0 4 2 5 2 7H4c0-2 2-3 2-7z"/><path d="M10 21a2 2 0 0 0 4 0"/></svg>',
     sun:        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>',
     moon:       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
-    chev:       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><polyline points="9 6 15 12 9 18"/></svg>',
     collapse:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="15 18 9 12 15 6"/></svg>',
   };
 
@@ -116,40 +120,34 @@
       .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  function activeParts(activeId) {
-    if (!activeId) return { top: null, child: null };
-    const [top, ...rest] = activeId.split('/');
-    return { top, child: rest.length ? `${top}/${rest.join('/')}` : null };
+  function renderNavSections(active) {
+    return NAV_SECTIONS.map(sec => {
+      const links = sec.items.map(item => {
+        const isActive = item.id === active;
+        const ext = item.external ? ' target="_blank" rel="noopener noreferrer"' : '';
+        return `
+          <a class="silo-sb-link${isActive ? ' silo-sb-link--active' : ''}"
+             href="${escHtml(item.href)}"
+             data-nav-id="${escHtml(item.id)}"${ext}>
+            <span class="silo-sb-link-label">${escHtml(item.label)}</span>
+            ${item.external ? '<span class="silo-sb-link-ext" aria-hidden="true">EXT</span>' : ''}
+          </a>
+        `;
+      }).join('');
+      return `
+        <div class="silo-sb-section">
+          <div class="silo-sb-section-label">${escHtml(sec.section)}</div>
+          <div class="silo-sb-links">${links}</div>
+        </div>
+      `;
+    }).join('');
   }
 
   function renderSidebar(opts) {
     const { active, user } = opts;
-    const { top: activeTop, child: activeChild } = activeParts(active);
-
-    const items = NAV.map(item => {
-      const isActiveTop = item.id === activeTop;
-      const open = !!item.children;
-      const childHtml = item.children ? item.children.map(c => `
-        <a class="silo-sb-child${c.id === activeChild ? ' silo-sb-child--active' : ''}"
-           href="${escHtml(c.href)}">${escHtml(c.label)}</a>
-      `).join('') : '';
-      return `
-        <div class="silo-sb-group" data-id="${escHtml(item.id)}">
-          <a class="silo-sb-item${isActiveTop ? ' silo-sb-item--active' : ''}"
-             data-open="${open ? 'true' : 'false'}"
-             href="${escHtml(item.href || (item.children && item.children[0] && item.children[0].href) || '#')}"
-             data-has-children="${item.children ? 'true' : 'false'}">
-            <span class="silo-sb-item-icon">${ICONS[item.icon] || ''}</span>
-            <span class="silo-sb-item-label">${escHtml(item.label)}</span>
-            ${item.children ? `<span class="silo-sb-item-caret">${ICONS.chev}</span>` : ''}
-          </a>
-          ${item.children ? `<div class="silo-sb-children" ${open ? '' : 'hidden'}>${childHtml}</div>` : ''}
-        </div>
-      `;
-    }).join('');
 
     return `
-      <aside class="silo-sidebar" role="navigation">
+      <aside class="silo-sidebar" role="navigation" aria-label="SILO menu">
         <div class="silo-sb-brand">
           <div style="display:flex; align-items:center; gap:9px; min-width:0;">
             <div class="silo-sb-logo">S</div>
@@ -171,9 +169,8 @@
           </div>
         </div>
 
-        <nav class="silo-sb-nav">
-          <div class="silo-sb-section-label">Workboards</div>
-          ${items}
+        <nav class="silo-sb-nav" id="siloSbNav">
+          ${renderNavSections(active)}
         </nav>
 
         <div class="silo-sb-footer">
@@ -208,6 +205,9 @@
     }).join('');
     return `
       <div class="silo-utility">
+        <button class="silo-icon-btn silo-nav-toggle" type="button" data-silo-action="nav-toggle" aria-label="Open menu" aria-expanded="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" width="14" height="14"><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/></svg>
+        </button>
         <div class="silo-crumbs">${crumbs}</div>
         <div class="silo-utility-spacer"></div>
         <div class="silo-status" data-silo-utility-status>
@@ -247,9 +247,10 @@
     const theme = localStorage.getItem(LS_THEME) || 'light';
     document.documentElement.setAttribute('data-theme', theme);
 
-    // render sidebar (prepend to app), utility goes inside main
     const sidebar = el(renderSidebar(opts));
+    const backdrop = el('<div class="silo-nav-backdrop" data-silo-nav-backdrop hidden></div>');
     appEl.prepend(sidebar);
+    appEl.prepend(backdrop);
 
     const mainEl = appEl.querySelector('.silo-main');
     if (mainEl) {
@@ -258,7 +259,14 @@
       updateThemeIcon();
     }
 
-    // wire interactions
+    function setNavOpen(open) {
+      appEl.classList.toggle('silo-nav-open', !!open);
+      backdrop.hidden = !open;
+      const toggle = appEl.querySelector('[data-silo-action="nav-toggle"]');
+      if (toggle) toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      document.body.style.overflow = open ? 'hidden' : '';
+    }
+
     sidebar.addEventListener('click', (e) => {
       const collapseBtn = e.target.closest('[data-silo-action="collapse"]');
       if (collapseBtn) {
@@ -266,39 +274,32 @@
         toggleCollapse(appEl);
         return;
       }
-      const item = e.target.closest('.silo-sb-item');
-      if (item && item.dataset.hasChildren === 'true') {
-        // let click follow link but also expand if it's not the active group
-        const group = item.closest('.silo-sb-group');
-        const sublist = group && group.querySelector('.silo-sb-children');
-        if (sublist && !item.classList.contains('silo-sb-item--active')) {
-          // soft-toggle: expand on click without navigating, if caret was clicked
-          if (e.target.closest('.silo-sb-item-caret')) {
-            e.preventDefault();
-            const open = item.getAttribute('data-open') === 'true';
-            item.setAttribute('data-open', open ? 'false' : 'true');
-            if (open) sublist.setAttribute('hidden',''); else sublist.removeAttribute('hidden');
-          }
-        }
+      if (e.target.closest('.silo-sb-link')) {
+        setNavOpen(false);
       }
     });
+
+    backdrop.addEventListener('click', () => setNavOpen(false));
 
     if (mainEl) {
       mainEl.addEventListener('click', (e) => {
         const t = e.target.closest('[data-silo-action]');
         if (!t) return;
         const action = t.getAttribute('data-silo-action');
+        if (action === 'nav-toggle') { e.preventDefault(); setNavOpen(!appEl.classList.contains('silo-nav-open')); }
         if (action === 'theme') { e.preventDefault(); toggleTheme(); }
         if (action === 'signout') { e.preventDefault(); signOut(opts); }
         if (action === 'bell') { e.preventDefault(); /* notifications hook */ }
       });
     }
 
-    // ⌘K -> alert for now (real palette later)
     document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && appEl.classList.contains('silo-nav-open')) {
+        setNavOpen(false);
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
         e.preventDefault();
-        // hook here for the future command palette
         const searchEl = sidebar.querySelector('[data-silo-action="search"]');
         searchEl && searchEl.focus && searchEl.focus();
       }
