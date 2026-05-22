@@ -6,6 +6,10 @@
   <title>SILO · Incoming PO report</title>
 
   <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="silo-chrome.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="../pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -165,13 +169,22 @@
     .soft-scroll::-webkit-scrollbar-track{background:transparent}
     .drawer-backdrop{background:rgba(15,23,42,.42)}
     .hidden-safe{display:none!important}
+    .v2-classic-bar {
+      margin: 0 0 8px;
+      padding: 8px 12px;
+      font-size: 11px;
+      color: #475569;
+      background: #f8fafc;
+      border: 1px solid rgba(15,23,42,.08);
+      border-radius: 10px;
+    }
+    .v2-classic-bar a { color: #4f46e5; font-weight: 700; text-decoration: none; }
   </style>
-  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
-  <link rel="stylesheet" href="v2-mobile.css" />
-  <script src="v2-shell.js" defer></script>
 </head>
 
 <body class="v2-mirror--po">
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main">
   <div class="min-h-screen px-2 py-2 sm:px-3 lg:px-3">
     <div class="mx-auto max-w-[1920px] space-y-2">
 
@@ -188,8 +201,9 @@
             <button id="btnRefresh" class="btn btn-secondary">Refresh</button>
             <button id="btnExportPOs" class="btn btn-good">Export PO Summary</button>
             <button id="btnExportProducts" class="btn btn-good">Export Product Rollup</button>
-            <a href="./po-builder.html" class="btn btn-primary no-underline">Open PO Builder</a>
-            <a href="./po-costing.html" class="btn btn-secondary no-underline">Landed cost</a>
+            <a href="/pages/po-report.html" class="btn btn-secondary no-underline text-xs" title="Legacy v1 report">Classic v1</a>
+            <a href="/v2/po-builder.html" class="btn btn-primary no-underline">PO builder</a>
+            <a href="/v2/po-costing.html" class="btn btn-secondary no-underline">Landed cost</a>
           </div>
         </div>
       </header>
@@ -370,6 +384,8 @@
         </div>
       </section>
     </div>
+  </div>
+    </main>
   </div>
 
   <script>
@@ -663,7 +679,7 @@
           <td class="right font-bold">${money(r.total_estimated_cost)}</td>
           <td class="right">${money(r.retail_cost_spread)}</td>
           <td>
-            <a class="pill hover:bg-slate-50" href="./po-builder.html" title="Open builder and select this PO manually">Builder</a>
+            <a class="pill hover:bg-slate-50" href="/v2/po-builder.html?po_id=${encodeURIComponent(r.id)}" title="Open in v2 PO builder">Builder</a>
           </td>
         </tr>
       `).join('');
@@ -787,14 +803,32 @@
       downloadCsv(`silo-incoming-po-product-rollup-${new Date().toISOString().slice(0,10)}.csv`, rows);
     }
 
+    async function mountChrome(session){
+      if(!window.SiloChrome || !session?.user) return;
+      let role = 'MEMBER';
+      try{
+        const { data: prof } = await sb.from('profiles').select('role').eq('id', session.user.id).maybeSingle();
+        if(prof?.role) role = prof.role;
+      }catch(_){}
+      window.SiloChrome.mount({
+        appEl: '#silo-app',
+        active: 'purchasing/po-report',
+        user: { email: session.user.email, role },
+        crumbs: ['Purchasing', 'PO report'],
+        supabaseClient: sb,
+      });
+    }
+
     async function boot(){
       if(REQUIRE_AUTH){
         const { data, error } = await sb.auth.getSession();
         if(error) throw error;
         if(!data?.session){
-          window.location.href = REDIRECT_TO;
+          const next = encodeURIComponent(location.pathname + location.search);
+          window.location.href = REDIRECT_TO || ('/pages/login.html?next=' + next);
           return;
         }
+        await mountChrome(data.session);
       }
 
       await loadData();

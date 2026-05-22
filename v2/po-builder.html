@@ -131,12 +131,27 @@
     .line-autosave-state.is-saved{color:#166534}
     .line-autosave-state.is-error{color:#be123c}
 
+    .v2-classic-bar {
+      margin: 0 0 8px;
+      padding: 8px 12px;
+      font-size: 11px;
+      color: #475569;
+      background: #f8fafc;
+      border: 1px solid rgba(15,23,42,.08);
+      border-radius: 10px;
+    }
+    .v2-classic-bar a { color: #4f46e5; font-weight: 700; text-decoration: none; }
+    .v2-classic-bar a:hover { text-decoration: underline; }
 </style>
+<link rel="stylesheet" href="beacon.css" />
 <link rel="stylesheet" href="beacon-mirrors-unified.css" />
 <link rel="stylesheet" href="v2-mobile.css" />
 <script src="v2-shell.js" defer></script>
+<script src="silo-chrome.js"></script>
 </head>
 <body class="v2-mirror--po">
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main">
   <div class="min-h-screen px-2 py-2 sm:px-3 lg:px-3">
     <div class="mx-auto max-w-[1920px] space-y-2">
       <header class="glass px-3 py-2 sm:px-3 compact-page-head">
@@ -144,10 +159,11 @@
           <div>
             <div class="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">Silo Purchasing</div>
             <div class="mt-0 text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">PO Builder</div>
-            <div class="mt-1 text-xs text-slate-500">Catalog-linked POs, editable line matrix, bulk SKU add, imports, duplicate PO, and vendor PDF output.</div>
+            <div class="mt-1 text-xs text-slate-500">Catalog-linked POs, editable line matrix, bulk SKU add, imports, duplicate PO, and vendor PDF output. Same Supabase tables as classic <code>/pages/po-builder.html</code>.</div>
             <div id="costingPhaseMeta" class="mt-1 text-xs font-semibold text-indigo-700"></div>
           </div>
           <div class="flex flex-wrap items-center gap-2">
+            <a class="btn btn-secondary no-underline text-xs" href="/pages/po-builder.html" title="Legacy v1 PO builder (unchanged until promotion)">Classic v1</a>
             <a id="btnCosting" class="btn btn-secondary no-underline" href="/v2/po-costing.html">Landed cost</a>
             <button id="btnPriorFob" class="btn btn-secondary" type="button" title="Apply latest unit cost from prior POs by SKU">Prior FOB</button>
             <button id="btnRefresh" class="btn btn-secondary">Refresh</button>
@@ -255,6 +271,8 @@
         </main>
       </section>
     </div>
+  </div>
+    </main>
   </div>
 
   <div id="catalogModal" class="fixed inset-0 z-40 hidden-safe items-center justify-center p-4">
@@ -1177,9 +1195,40 @@
       const closeBtn=ev.target.closest('[data-close]'); if(closeBtn){ const node=document.getElementById(closeBtn.getAttribute('data-close')); if(node) modalClose(node); }
     });
 
+    async function mountChrome(session){
+      if(!window.SiloChrome || !session?.user) return;
+      let role = 'MEMBER';
+      try{
+        const { data: prof } = await sb.from('profiles').select('role').eq('id', session.user.id).maybeSingle();
+        if(prof?.role) role = prof.role;
+      }catch(_){ /* profiles optional for chrome label */ }
+      window.SiloChrome.mount({
+        appEl: '#silo-app',
+        active: 'purchasing/po-builder',
+        user: { email: session.user.email, role },
+        crumbs: ['Purchasing', 'PO builder'],
+        supabaseClient: sb,
+      });
+    }
+
     async function boot(){
       renderStatusOptions(); resetEditorForNew();
-      if(REQUIRE_AUTH){ try{ const {data,error}=await sb.auth.getSession(); if(error) throw error; if(!data?.session){ if(REDIRECT_TO){ window.location.href=REDIRECT_TO; return; } document.body.innerHTML=`<div class="min-h-screen flex items-center justify-center p-6"><div class="glass max-w-xl p-6 text-center"><div class="text-xl font-bold text-slate-900">Authentication required</div><div class="mt-2 text-sm text-slate-500">Sign in before loading this page.</div></div></div>`; return; } }catch(e){ console.error(e); alert(e.message||'Auth check failed'); return; } }
+      if(REQUIRE_AUTH){
+        try{
+          const { data, error } = await sb.auth.getSession();
+          if(error) throw error;
+          if(!data?.session){
+            const next = encodeURIComponent(location.pathname + location.search);
+            window.location.href = REDIRECT_TO || ('/pages/login.html?next=' + next);
+            return;
+          }
+          await mountChrome(data.session);
+        }catch(e){
+          console.error(e);
+          alert(e.message||'Auth check failed');
+          return;
+        }
+      }
       try{
         await loadCatalogProducts();
         await refreshAll();

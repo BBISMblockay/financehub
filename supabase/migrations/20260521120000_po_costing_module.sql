@@ -192,7 +192,7 @@ as $$
     from public.profiles p
     where p.id = auth.uid()
       and coalesce(p.is_active, true) = true
-      and lower(coalesce(p.role, p.app_role, 'user')) in (
+      and lower(coalesce(p.role::text, 'user')) in (
         'owner', 'admin', 'finance', 'exec', 'executive', 'buyer', 'purchasing', 'operations'
       )
   );
