@@ -4,13 +4,10 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SILO · PO builder</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
-  <link rel="stylesheet" href="po-builder-beacon.css" />
+  <link rel="stylesheet" href="po-workbench.css" />
   <script src="v2-shell.js" defer></script>
   <script src="../pages/config.js"></script>
   <script src="../pages/po-costing-lib.js"></script>
@@ -20,65 +17,62 @@
 <body class="v2-mirror--po">
   <div class="silo-app" id="silo-app">
     <main class="silo-main">
-      <header class="po-wb-hero">
-        <div class="po-wb-hero-inner">
-          <div class="po-wb-hero-copy">
-            <span class="po-wb-kicker">Silo Purchasing</span>
-            <h1 class="po-wb-hero-title">PO Builder</h1>
-            <p class="po-wb-hero-sub">Catalog-linked POs, line matrix, bulk SKU, imports, duplicate PO, and vendor PDF.</p>
-            <div id="costingPhaseMeta" class="po-wb-meta"></div>
-          </div>
-          <div class="po-wb-toolbar po-wb-toolbar--hero">
-            <a class="btn btn-secondary" href="/pages/po-builder.html" title="Classic v1 until promotion">Classic v1</a>
-            <a class="btn btn-secondary" href="/v2/po-report.html">PO report</a>
-            <a id="btnCosting" class="btn btn-secondary" href="/v2/po-costing.html">Landed cost</a>
-            <button id="btnPriorFob" class="btn btn-secondary" type="button" title="Apply latest unit cost from prior POs by SKU">Prior FOB</button>
-            <button id="btnRefresh" class="btn btn-secondary" type="button">Refresh</button>
-            <button id="btnNewPO" class="btn btn-primary" type="button">New PO</button>
-          </div>
+      <header class="bcn-header">
+        <div style="flex:1;min-width:0;">
+          <div class="bcn-header-title"><h1>PO builder</h1></div>
+          <div class="bcn-header-sub">Catalog-linked POs, line matrix, bulk SKU, imports, duplicate PO, and vendor PDF.</div>
+          <div id="costingPhaseMeta" class="hint" style="margin-top:4px;color:var(--bcn-accent);font-weight:600;"></div>
+        </div>
+        <div class="toolbar" style="margin:0;">
+          <button id="btnTogglePoDrawer" class="bcn-btn bcn-btn--ghost" type="button">PO list <span id="poCount" class="po-count-pill">0</span></button>
+          <a class="bcn-btn bcn-btn--ghost" href="/pages/po-builder.html" title="Classic v1">Classic v1</a>
+          <a class="bcn-btn bcn-btn--ghost" href="/v2/po-report.html">PO report</a>
+          <a id="btnCosting" class="bcn-btn bcn-btn--ghost" href="/v2/po-costing.html">Landed cost</a>
+          <button id="btnPriorFob" class="bcn-btn bcn-btn--ghost" type="button" title="Apply latest unit cost from prior POs by SKU">Prior FOB</button>
+          <button id="btnRefresh" class="bcn-btn bcn-btn--ghost" type="button">Refresh</button>
+          <button id="btnNewPO" class="bcn-btn" type="button">New PO</button>
         </div>
       </header>
 
-      <div class="po-wb">
-        <div class="po-wb-layout">
-          <aside class="po-wb-card po-wb-glass">
-            <div class="po-wb-card-head">
-              <div>
-                <h2 class="po-wb-section-title">PO List</h2>
-                <p class="po-wb-card-sub">Recent purchase orders</p>
-              </div>
-              <span id="poCount" class="po-wb-pill">0 POs</span>
-            </div>
-            <div class="field"><label>Search</label><input id="poSearch" type="search" placeholder="PO name, factory, bucket…" /></div>
-            <div class="po-wb-fields" style="margin-top:8px;">
-              <div class="field"><label>Status</label><select id="poStatusFilter"><option value="">All statuses</option></select></div>
-              <div class="field"><label>Factory</label><select id="poFactoryFilter"><option value="">All factories</option></select></div>
-            </div>
-            <div class="po-wb-list-scroll soft-scroll" id="poList"></div>
-          </aside>
+      <div id="poDrawerBackdrop" class="po-drawer-backdrop" aria-hidden="true"></div>
+      <aside id="poDrawer" class="po-drawer" aria-label="Purchase orders" aria-hidden="true">
+        <div class="po-drawer-head">
+          <h2>Select PO</h2>
+          <button id="btnClosePoDrawer" class="bcn-btn bcn-btn--ghost" type="button">Close</button>
+        </div>
+        <div class="po-drawer-body">
+          <div class="field" style="margin-bottom:8px;"><label>Search</label><input id="poSearch" type="search" placeholder="PO name, factory, bucket…" /></div>
+          <div class="po-drawer-filters">
+            <div class="field"><label>Status</label><select id="poStatusFilter"><option value="">All</option></select></div>
+            <div class="field"><label>Factory</label><select id="poFactoryFilter"><option value="">All</option></select></div>
+          </div>
+          <div class="po-pick" id="poList"></div>
+        </div>
+      </aside>
 
-          <div class="po-wb-main">
-            <section class="po-wb-card po-wb-glass">
-              <div class="po-wb-detail-head">
+      <div class="po-wb-page">
+        <div class="cost-grid">
+            <section class="cost-card">
+              <div class="detail-head">
                 <div>
-                  <div class="po-wb-detail-title-row">
-                    <h2 id="detailTitle" class="po-wb-detail-title">No PO selected</h2>
+                  <div class="detail-title-row">
+                    <h2 id="detailTitle" class="detail-title">No PO selected</h2>
                     <div id="detailStatusWrap"></div>
                   </div>
-                  <p id="detailMeta" class="po-wb-detail-meta">Create a new PO or select one from the list.</p>
+                  <p id="detailMeta" class="detail-meta">Open PO list to pick a PO, or create a new one.</p>
                 </div>
-                <div class="po-wb-toolbar po-wb-toolbar--actions">
-                  <button id="btnSaveHeader" class="btn btn-primary" type="button" disabled>Save header</button>
-                  <button id="btnGeneratePdf" class="btn btn-success" type="button" disabled>Vendor PDF</button>
-                  <button id="btnDuplicatePO" class="btn btn-warn" type="button" disabled>Duplicate</button>
-                  <button id="btnAddCatalogLine" class="btn btn-secondary" type="button" disabled>Catalog line</button>
-                  <button id="btnBulkSku" class="btn btn-secondary" type="button" disabled>Bulk SKU</button>
-                  <button id="btnImportLines" class="btn btn-secondary" type="button" disabled>Import</button>
-                  <button id="btnAddManualLine" class="btn btn-secondary" type="button" disabled>Manual line</button>
+                <div class="toolbar" style="margin:0;">
+                  <button id="btnSaveHeader" class="bcn-btn" type="button" disabled>Save header</button>
+                  <button id="btnGeneratePdf" class="bcn-btn bcn-btn--ghost" type="button" disabled>Vendor PDF</button>
+                  <button id="btnDuplicatePO" class="bcn-btn bcn-btn--ghost" type="button" disabled>Duplicate</button>
+                  <button id="btnAddCatalogLine" class="bcn-btn bcn-btn--ghost" type="button" disabled>Catalog line</button>
+                  <button id="btnBulkSku" class="bcn-btn bcn-btn--ghost" type="button" disabled>Bulk SKU</button>
+                  <button id="btnImportLines" class="bcn-btn bcn-btn--ghost" type="button" disabled>Import</button>
+                  <button id="btnAddManualLine" class="bcn-btn bcn-btn--ghost" type="button" disabled>Manual line</button>
                 </div>
               </div>
 
-              <div class="po-wb-fields">
+              <div class="fields-grid">
                 <div class="field"><label>PO name</label><input id="poName" type="text" placeholder="Auto-generated" /></div>
                 <div class="field"><label>Factory</label><select id="factoryId"></select></div>
                 <div class="field"><label>Order date</label><input id="orderDate" type="date" /></div>
@@ -86,41 +80,41 @@
                 <div class="field"><label>Expected arrival</label><input id="expectedArrivalDate" type="date" /></div>
                 <div class="field"><label>Date bucket</label><input id="dateBucket" type="text" placeholder="Holiday 2026" /></div>
                 <div class="field"><label>Status</label><select id="status"></select></div>
-                <div class="po-wb-flag-row">
-                  <div class="po-wb-flag">
-                    <span class="po-wb-flag-k">Wholesale</span>
+                <div class="flag-row">
+                  <div class="flag-tile">
+                    <span class="flag-k">Wholesale</span>
                     <label><input id="wholesaleTriggered" type="checkbox" /> Triggered</label>
                   </div>
-                  <div class="po-wb-flag">
-                    <span class="po-wb-flag-k">Product mix</span>
+                  <div class="flag-tile">
+                    <span class="flag-k">Product mix</span>
                     <label><input id="isNewProductPO" type="checkbox" /> New product PO</label>
                   </div>
                 </div>
               </div>
 
-              <div class="po-wb-fields po-wb-fields--wide" style="margin-top:10px;">
+              <div class="fields-grid fields-grid--wide" style="margin-top:10px;">
                 <div class="field"><label>Vendor notes</label><textarea id="notes" rows="2" placeholder="Vendor-facing notes"></textarea></div>
                 <div class="field"><label>Internal notes</label><textarea id="internalNotes" rows="2" placeholder="Internal purchasing notes"></textarea></div>
               </div>
             </section>
 
-            <div class="po-wb-kpis">
-              <div class="po-wb-kpi po-wb-glass"><div class="lbl">Total units</div><div id="kpiUnits" class="val">0</div></div>
-              <div class="po-wb-kpi po-wb-glass"><div class="lbl">Retail value</div><div id="kpiRetail" class="val">$0.00</div></div>
-              <div class="po-wb-kpi po-wb-glass"><div class="lbl">FOB cost</div><div id="kpiCost" class="val">$0.00</div></div>
-              <div class="po-wb-kpi po-wb-glass"><div class="lbl">Landed (saved)</div><div id="kpiLanded" class="val">—</div></div>
+            <div class="kpi-row">
+              <div class="kpi"><div class="lbl">Total units</div><div id="kpiUnits" class="val">0</div></div>
+              <div class="kpi"><div class="lbl">Retail value</div><div id="kpiRetail" class="val">$0.00</div></div>
+              <div class="kpi"><div class="lbl">FOB cost</div><div id="kpiCost" class="val">$0.00</div></div>
+              <div class="kpi"><div class="lbl">Landed (saved)</div><div id="kpiLanded" class="val">—</div></div>
             </div>
 
-            <section class="po-wb-card po-wb-glass">
-              <div class="po-wb-lines-head">
+            <section class="cost-card">
+              <div class="lines-head">
                 <div>
-                  <h2 class="po-wb-section-title">PO Lines</h2>
-                  <p class="po-wb-card-sub">Edits auto-save after typing; Save is a backup.</p>
+                  <h2>PO lines</h2>
+                  <p class="hint" style="margin-top:0;">Edits auto-save after typing; Save is a backup.</p>
                 </div>
                 <span class="hint">Click headers to sort · retail value updates live</span>
               </div>
-              <div class="po-wb-table-wrap soft-scroll">
-                <table class="po-wb-table po-lines-table">
+              <div class="line-table-wrap">
+                <table class="line-table po-lines-table">
                   <thead>
                     <tr>
                       <th class="line-sort-th" data-line-sort="product_type_snapshot">Type <span class="sort-mark" data-sort-mark="product_type_snapshot"></span></th>
@@ -128,53 +122,52 @@
                       <th class="line-sort-th" data-line-sort="variant_title_snapshot">Variant <span class="sort-mark" data-sort-mark="variant_title_snapshot"></span></th>
                       <th class="line-sort-th" data-line-sort="sku_snapshot">SKU <span class="sort-mark" data-sort-mark="sku_snapshot"></span></th>
                       <th class="line-sort-th" data-line-sort="upc_snapshot">UPC <span class="sort-mark" data-sort-mark="upc_snapshot"></span></th>
-                      <th class="line-sort-th po-wb-num" data-line-sort="retail_price">Retail <span class="sort-mark" data-sort-mark="retail_price"></span></th>
-                      <th class="line-sort-th po-wb-num" data-line-sort="unit_cost">FOB <span class="sort-mark" data-sort-mark="unit_cost"></span></th>
-                      <th class="po-wb-num">Landed</th>
-                      <th class="line-sort-th po-wb-num" data-line-sort="qty">Qty <span class="sort-mark" data-sort-mark="qty"></span></th>
-                      <th class="line-sort-th po-wb-num" data-line-sort="retail_value">Retail ext <span class="sort-mark" data-sort-mark="retail_value"></span></th>
+                      <th class="line-sort-th num" data-line-sort="retail_price">Retail <span class="sort-mark" data-sort-mark="retail_price"></span></th>
+                      <th class="line-sort-th num" data-line-sort="unit_cost">FOB <span class="sort-mark" data-sort-mark="unit_cost"></span></th>
+                      <th class="num">Landed</th>
+                      <th class="line-sort-th num" data-line-sort="qty">Qty <span class="sort-mark" data-sort-mark="qty"></span></th>
+                      <th class="line-sort-th num" data-line-sort="retail_value">Retail ext <span class="sort-mark" data-sort-mark="retail_value"></span></th>
                       <th class="line-sort-th" data-line-sort="line_notes">Notes <span class="sort-mark" data-sort-mark="line_notes"></span></th>
-                      <th class="po-wb-num">Actions</th>
+                      <th class="num">Actions</th>
                     </tr>
                   </thead>
                   <tbody id="linesTbody"></tbody>
                 </table>
               </div>
             </section>
-          </div>
         </div>
       </div>
     </main>
   </div>
 
-  <div id="catalogModal" class="po-wb-modal hidden-safe">
-    <div class="po-wb-modal-backdrop" data-close="catalogModal"></div>
-    <div class="po-wb-modal-panel po-wb-modal-panel--lg">
-      <div class="po-wb-modal-head">
-        <div><h3 class="po-wb-modal-title">Add catalog line</h3><p class="po-wb-modal-sub">Search products_master and add linked PO lines.</p></div>
-        <div class="po-wb-toolbar"><button id="btnAddSelectedCatalog" class="btn btn-primary" type="button">Add selected</button><button class="btn btn-secondary" type="button" data-close="catalogModal">Close</button></div>
+  <div id="catalogModal" class="po-modal hidden-safe">
+    <div class="po-modal-backdrop" data-close="catalogModal"></div>
+    <div class="po-modal-panel po-modal-panel--lg">
+      <div class="po-modal-head">
+        <div><h3 class="po-modal-title">Add catalog line</h3><p class="po-modal-sub">Search products_master and add linked PO lines.</p></div>
+        <div class="toolbar" style="margin:0;"><button id="btnAddSelectedCatalog" class="bcn-btn" type="button">Add selected</button><button class="bcn-btn bcn-btn--ghost" type="button" data-close="catalogModal">Close</button></div>
       </div>
-      <div class="po-wb-modal-grid" style="grid-template-columns:1fr auto;align-items:end;gap:10px;">
+      <div class="po-modal-grid" style="grid-template-columns:1fr auto;align-items:end;gap:10px;">
         <div class="field"><label>Search</label><input id="catalogSearch" type="search" placeholder="SKU, UPC, title, variant, type…" /></div>
-        <button id="btnSearchCatalog" class="btn btn-primary" type="button">Search</button>
+        <button id="btnSearchCatalog" class="bcn-btn" type="button">Search</button>
       </div>
-      <div class="po-wb-table-wrap" style="margin-top:12px;max-height:60vh;">
-        <table class="po-wb-table catalog-modal-table">
-          <thead><tr><th>SKU</th><th>Title</th><th>Variant</th><th>Type</th><th class="po-wb-num">Retail</th><th class="po-wb-num">Cost</th><th class="po-wb-num">Qty</th><th class="po-wb-num">Add</th></tr></thead>
+      <div class="line-table-wrap" style="margin-top:12px;max-height:60vh;">
+        <table class="line-table catalog-modal-table">
+          <thead><tr><th>SKU</th><th>Title</th><th>Variant</th><th>Type</th><th class="num">Retail</th><th class="num">Cost</th><th class="num">Qty</th><th class="num">Add</th></tr></thead>
           <tbody id="catalogResults"></tbody>
         </table>
       </div>
     </div>
   </div>
 
-  <div id="manualModal" class="po-wb-modal hidden-safe">
-    <div class="po-wb-modal-backdrop" data-close="manualModal"></div>
-    <div class="po-wb-modal-panel po-wb-modal-panel--md">
-      <div class="po-wb-modal-head">
-        <div><h3 class="po-wb-modal-title">Add manual line</h3><p class="po-wb-modal-sub">For new or not-yet-loaded catalog products.</p></div>
-        <button class="btn btn-secondary" type="button" data-close="manualModal">Close</button>
+  <div id="manualModal" class="po-modal hidden-safe">
+    <div class="po-modal-backdrop" data-close="manualModal"></div>
+    <div class="po-modal-panel po-modal-panel--md">
+      <div class="po-modal-head">
+        <div><h3 class="po-modal-title">Add manual line</h3><p class="po-modal-sub">For new or not-yet-loaded catalog products.</p></div>
+        <button class="bcn-btn bcn-btn--ghost" type="button" data-close="manualModal">Close</button>
       </div>
-      <div class="po-wb-modal-grid po-wb-modal-grid--2">
+      <div class="po-modal-grid po-modal-grid--2">
         <div class="field"><label>Product type</label><input id="manualProductType" type="text" /></div>
         <div class="field"><label>Title</label><input id="manualTitle" type="text" /></div>
         <div class="field"><label>Variant</label><input id="manualVariant" type="text" /></div>
@@ -186,49 +179,49 @@
         <div class="field"><label>Qty</label><input id="manualQty" type="number" min="0" step="1" value="0" /></div>
       </div>
       <div class="field" style="margin-top:10px;"><label>Line notes</label><textarea id="manualNotes" rows="3"></textarea></div>
-      <div class="po-wb-toolbar" style="justify-content:flex-end;margin-top:12px;">
-        <button class="btn btn-secondary" type="button" data-close="manualModal">Cancel</button>
-        <button id="btnSaveManualAnother" class="btn btn-secondary" type="button">Add + another</button>
-        <button id="btnSaveManualLine" class="btn btn-primary" type="button">Add + done</button>
+      <div class="toolbar" style="justify-content:flex-end;margin-top:12px;">
+        <button class="bcn-btn bcn-btn--ghost" type="button" data-close="manualModal">Cancel</button>
+        <button id="btnSaveManualAnother" class="bcn-btn bcn-btn--ghost" type="button">Add + another</button>
+        <button id="btnSaveManualLine" class="bcn-btn" type="button">Add + done</button>
       </div>
     </div>
   </div>
 
-  <div id="bulkSkuModal" class="po-wb-modal hidden-safe">
-    <div class="po-wb-modal-backdrop" data-close="bulkSkuModal"></div>
-    <div class="po-wb-modal-panel po-wb-modal-panel--md">
-      <div class="po-wb-modal-head">
-        <div><h3 class="po-wb-modal-title">Bulk SKU add</h3><p class="po-wb-modal-sub">Paste SKU + qty rows. Matches products_master.</p></div>
-        <button class="btn btn-secondary" type="button" data-close="bulkSkuModal">Close</button>
+  <div id="bulkSkuModal" class="po-modal hidden-safe">
+    <div class="po-modal-backdrop" data-close="bulkSkuModal"></div>
+    <div class="po-modal-panel po-modal-panel--md">
+      <div class="po-modal-head">
+        <div><h3 class="po-modal-title">Bulk SKU add</h3><p class="po-modal-sub">Paste SKU + qty rows. Matches products_master.</p></div>
+        <button class="bcn-btn bcn-btn--ghost" type="button" data-close="bulkSkuModal">Close</button>
       </div>
-      <div class="po-wb-modal-split">
+      <div class="po-modal-split">
         <div class="field"><textarea id="bulkSkuText" rows="14" style="font-family:var(--bcn-mono);font-size:12px;" placeholder="SKU, Qty&#10;6-FlagMan1(Grey/White)-Shoe, 77"></textarea></div>
-        <div class="po-wb-side-panel">
-          <div class="po-wb-card-title" style="font-size:13px;font-weight:700;margin-bottom:8px;">Accepted formats</div>
+        <div class="po-side-panel">
+          <div style="font-size:13px;font-weight:700;margin-bottom:8px;">Accepted formats</div>
           <p class="hint">SKU, Qty · SKU[TAB]Qty · blank qty defaults to 1. Header optional.</p>
-          <button id="btnProcessBulkSku" class="btn btn-primary" type="button" style="width:100%;margin-top:12px;">Add matched SKUs</button>
+          <button id="btnProcessBulkSku" class="bcn-btn" type="button" style="width:100%;margin-top:12px;">Add matched SKUs</button>
           <div id="bulkSkuResult" class="hint" style="margin-top:10px;"></div>
         </div>
       </div>
     </div>
   </div>
 
-  <div id="importModal" class="po-wb-modal hidden-safe">
-    <div class="po-wb-modal-backdrop" data-close="importModal"></div>
-    <div class="po-wb-modal-panel po-wb-modal-panel--lg">
-      <div class="po-wb-modal-head">
-        <div><h3 class="po-wb-modal-title">Import PO lines</h3><p class="po-wb-modal-sub">Paste CSV/TSV as manual snapshot lines on the current PO.</p></div>
-        <button class="btn btn-secondary" type="button" data-close="importModal">Close</button>
+  <div id="importModal" class="po-modal hidden-safe">
+    <div class="po-modal-backdrop" data-close="importModal"></div>
+    <div class="po-modal-panel po-modal-panel--lg">
+      <div class="po-modal-head">
+        <div><h3 class="po-modal-title">Import PO lines</h3><p class="po-modal-sub">Paste CSV/TSV as manual snapshot lines on the current PO.</p></div>
+        <button class="bcn-btn bcn-btn--ghost" type="button" data-close="importModal">Close</button>
       </div>
-      <div class="po-wb-modal-split">
+      <div class="po-modal-split">
         <div>
           <div class="field"><label>File</label><input id="importFile" type="file" accept=".csv,.txt" /></div>
           <div class="field" style="margin-top:8px;"><label>Paste data</label><textarea id="importText" rows="14" style="font-family:var(--bcn-mono);font-size:12px;" placeholder="product_type,title,variant,sku,upc,retail_price,unit_cost,qty,notes"></textarea></div>
         </div>
-        <div class="po-wb-side-panel">
+        <div class="po-side-panel">
           <div style="font-size:13px;font-weight:700;margin-bottom:8px;">Supported columns</div>
           <p class="hint">product_type, title, variant, sku, upc, barcode, retail_price, unit_cost, qty, notes</p>
-          <button id="btnProcessImport" class="btn btn-primary" type="button" style="width:100%;margin-top:12px;">Import lines</button>
+          <button id="btnProcessImport" class="bcn-btn" type="button" style="width:100%;margin-top:12px;">Import lines</button>
           <div id="importResult" class="hint" style="margin-top:10px;"></div>
         </div>
       </div>
@@ -242,7 +235,7 @@
     const REQUIRE_AUTH = Boolean(window.__SILO_CONFIG__?.REQUIRE_AUTH || window.REQUIRE_AUTH || false);
 
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-      document.body.innerHTML = `<div class="po-wb-config-missing"><div class="po-wb-card"><h2>Missing Supabase config</h2><p class="po-wb-card-sub">Provide SUPABASE_URL and SUPABASE_ANON_KEY through config.js.</p></div></div>`;
+      document.body.innerHTML = `<div class="cost-card" style="margin:24px;"><h2>Missing Supabase config</h2><p class="hint">Provide SUPABASE_URL and SUPABASE_ANON_KEY through config.js.</p></div>`;
       throw new Error('Missing Supabase config');
     }
 
@@ -318,10 +311,21 @@
     }
 
     function landedCellHtml(line){
-      if(!state.currentPO?.id) return '<span class="po-wb-muted">—</span>';
+      if(!state.currentPO?.id) return '<span class="hint">—</span>';
       const row=state.costingCtx?.result?.lines?.find(c=>c.line_id===line.id);
       const label=row ? money(row.landed_unit) : '—';
-      return `<a class="po-wb-landed-link" href="/v2/po-costing.html?po_id=${encodeURIComponent(state.currentPO.id)}#line=${encodeURIComponent(line.id)}" title="Line landed cost">${label}</a>`;
+      return `<a class="landed-link" href="/v2/po-costing.html?po_id=${encodeURIComponent(state.currentPO.id)}#line=${encodeURIComponent(line.id)}" title="Line landed cost">${label}</a>`;
+    }
+
+    function setPoDrawerOpen(open){
+      const drawer=document.getElementById('poDrawer');
+      const backdrop=document.getElementById('poDrawerBackdrop');
+      if(!drawer||!backdrop) return;
+      drawer.classList.toggle('is-open',!!open);
+      backdrop.classList.toggle('is-open',!!open);
+      drawer.setAttribute('aria-hidden',open?'false':'true');
+      backdrop.setAttribute('aria-hidden',open?'false':'true');
+      document.body.style.overflow=open?'hidden':'';
     }
 
     async function applyPriorFobToLines(){
@@ -363,6 +367,7 @@
       await refreshCosting();
       renderLines();
       renderPOList();
+      setPoDrawerOpen(false);
     }
 
     function renderFactoryOptions(){ const current=el.factoryId.value; el.factoryId.innerHTML=['<option value="">Select factory</option>'].concat(state.factories.map(f=>`<option value="${f.id}">${escapeHtml(f.factory_name)}${f.short_code ? ` · ${escapeHtml(f.short_code)}` : ''}</option>`)).join(''); if(current) el.factoryId.value=current; }
@@ -372,11 +377,11 @@
     function renderPOList(){
       const q=el.poSearch.value.trim().toLowerCase(), status=el.poStatusFilter.value, factory=el.poFactoryFilter.value;
       const rows=state.poRows.filter(r=>{ const hay=[r.po_name,r.factory_name,r.date_bucket,r.status].join(' ').toLowerCase(); return (!q||hay.includes(q)) && (!status||r.status===status) && (!factory||r.factory_name===factory); });
-      el.poCount.textContent=`${rows.length} PO${rows.length===1?'':'s'}`;
-      if(!rows.length){ el.poList.innerHTML='<div class="po-wb-empty">No purchase orders match the current filters.</div>'; return; }
+      if(el.poCount) el.poCount.textContent=String(rows.length);
+      if(!rows.length){ el.poList.innerHTML='<p class="hint">No purchase orders match the current filters.</p>'; return; }
       el.poList.innerHTML=rows.map(row=>{
         const active=state.currentPO?.id===row.id;
-        return `<button type="button" data-po-id="${row.id}" class="po-wb-pick${active?' po-wb-pick--active':''}"><div style="display:flex;justify-content:space-between;gap:8px;align-items:flex-start;"><div><div class="po-wb-pick-name">${escapeHtml(row.po_name)}</div><div class="po-wb-pick-factory">${escapeHtml(row.factory_name||'Unknown factory')}</div></div><div>${statusBadge(row.status)}</div></div><div class="po-wb-pick-stats"><div><span>Units</span><strong>${Number(row.total_units||0).toLocaleString()}</strong></div><div><span>Retail</span><strong>${money(row.total_retail_value||0)}</strong></div><div><span>Ship</span><strong>${escapeHtml(row.req_ship_date||'—')}</strong></div></div></button>`;
+        return `<button type="button" data-po-id="${row.id}" class="${active?'active':''}"><strong>${escapeHtml(row.po_name)}</strong> ${statusBadge(row.status)}<br><span style="color:var(--bcn-ink-3);font-size:11px;">${escapeHtml(row.factory_name||'—')} · ${Number(row.total_units||0).toLocaleString()} u · ${money(row.total_retail_value||0)} · ship ${escapeHtml(row.req_ship_date||'—')}</span></button>`;
       }).join('');
     }
 
@@ -395,7 +400,7 @@
       state.currentLines=rows;
       renderLineSortMarks();
 
-      if(!rows.length){ el.linesTbody.innerHTML='<tr><td colspan="12" class="po-wb-empty" style="text-align:center;">No PO lines yet. Add a catalog line, bulk SKU list, imported PO, or manual entry.</td></tr>'; }
+      if(!rows.length){ el.linesTbody.innerHTML='<tr><td colspan="12" class="hint" style="text-align:center;padding:16px;">No PO lines yet. Add a catalog line, bulk SKU list, imported PO, or manual entry.</td></tr>'; }
       else {
         el.linesTbody.innerHTML=rows.map(line=>`<tr data-line-row="${line.id}">
           <td><input class="line-input" data-line-field="product_type_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.product_type_snapshot||'')}"></td>
@@ -403,13 +408,13 @@
           <td><input class="line-input" data-line-field="variant_title_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.variant_title_snapshot||'')}"></td>
           <td><input class="line-input" data-line-field="sku_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.sku_snapshot||'')}"></td>
           <td><input class="line-input" data-line-field="upc_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.upc_snapshot||'')}"></td>
-          <td class="po-wb-num"><input class="line-input small" type="number" step="0.01" data-line-field="retail_price" data-line-id="${line.id}" value="${Number(line.retail_price||0)}"></td>
-          <td class="po-wb-num"><input class="line-input small" type="number" step="0.01" data-line-field="unit_cost" data-line-id="${line.id}" value="${Number(line.unit_cost||0)}"></td>
-          <td class="po-wb-num">${landedCellHtml(line)}</td>
-          <td class="po-wb-num"><input class="line-input small" type="number" min="0" step="1" data-line-field="qty" data-line-id="${line.id}" value="${Number(line.qty||0)}"></td>
-          <td class="po-wb-num po-wb-retail-ext" data-line-retail-value="${line.id}">${money(line.retail_value||0)}</td>
+          <td class="num"><input class="line-input small" type="number" step="0.01" data-line-field="retail_price" data-line-id="${line.id}" value="${Number(line.retail_price||0)}"></td>
+          <td class="num"><input class="line-input small" type="number" step="0.01" data-line-field="unit_cost" data-line-id="${line.id}" value="${Number(line.unit_cost||0)}"></td>
+          <td class="num">${landedCellHtml(line)}</td>
+          <td class="num"><input class="line-input small" type="number" min="0" step="1" data-line-field="qty" data-line-id="${line.id}" value="${Number(line.qty||0)}"></td>
+          <td class="num retail-ext" data-line-retail-value="${line.id}">${money(line.retail_value||0)}</td>
           <td><textarea class="line-input notes" rows="1" data-line-field="line_notes" data-line-id="${line.id}">${escapeHtml(line.line_notes||'')}</textarea></td>
-          <td class="po-wb-num"><div class="po-wb-line-actions"><span class="line-autosave-state" data-line-save-state="${line.id}">Saved</span><button class="btn btn-secondary line-save-btn" data-line-save="${line.id}">Save</button><button class="btn btn-danger line-delete-btn" data-line-delete="${line.id}">Del</button></div></td>
+          <td class="num"><div class="line-actions"><span class="line-autosave-state" data-line-save-state="${line.id}">Saved</span><button class="bcn-btn bcn-btn--ghost line-save-btn" data-line-save="${line.id}">Save</button><button class="bcn-btn bcn-btn--ghost line-delete-btn" data-line-delete="${line.id}">Del</button></div></td>
         </tr>`).join('');
       }
       updateLineTotalsFromState();
@@ -417,8 +422,8 @@
 
     function renderCatalogResults(){
       const rows=state.catalogResults||[];
-      if(!rows.length){ el.catalogResults.innerHTML='<tr><td colspan="8" class="po-wb-empty">No matching catalog products found.</td></tr>'; return; }
-      el.catalogResults.innerHTML=rows.map(row=>`<tr><td>${escapeHtml(row.sku||'')}</td><td><strong>${escapeHtml(row.product_title||'')}</strong></td><td>${escapeHtml(row.variant_title||'')}</td><td>${escapeHtml(row.product_type||'')}</td><td class="po-wb-num">${money(row.msrp||0)}</td><td class="po-wb-num">${money(row.unit_cost||0)}</td><td class="po-wb-num"><input type="number" min="0" step="1" value="0" style="width:4rem;text-align:right;" data-catalog-qty="${row.id}" /></td><td class="po-wb-num"><button class="btn btn-primary" type="button" data-add-catalog="${row.id}">Add</button></td></tr>`).join('');
+      if(!rows.length){ el.catalogResults.innerHTML='<tr><td colspan="8" class="hint" style="padding:12px;">No matching catalog products found.</td></tr>'; return; }
+      el.catalogResults.innerHTML=rows.map(row=>`<tr><td>${escapeHtml(row.sku||'')}</td><td><strong>${escapeHtml(row.product_title||'')}</strong></td><td>${escapeHtml(row.variant_title||'')}</td><td>${escapeHtml(row.product_type||'')}</td><td class="num">${money(row.msrp||0)}</td><td class="num">${money(row.unit_cost||0)}</td><td class="num"><input type="number" min="0" step="1" value="0" style="width:4rem;text-align:right;" data-catalog-qty="${row.id}" /></td><td class="num"><button class="bcn-btn" type="button" data-add-catalog="${row.id}">Add</button></td></tr>`).join('');
     }
 
     async function searchCatalog(){
@@ -994,10 +999,20 @@
 
     function generateVendorPdf(){ if(!state.currentPO?.id){ alert('Save and open a PO first.'); return; } const html=buildVendorPdfHtml(); const win=window.open('','_blank','width=1200,height=900'); if(!win){ alert('Pop-up blocked. Allow pop-ups for this site.'); return; } win.document.open(); win.document.write(html); win.document.close(); }
 
+    document.getElementById('btnTogglePoDrawer')?.addEventListener('click',()=>{
+      const drawer=document.getElementById('poDrawer');
+      setPoDrawerOpen(!drawer?.classList.contains('is-open'));
+    });
+    document.getElementById('btnClosePoDrawer')?.addEventListener('click',()=>setPoDrawerOpen(false));
+    document.getElementById('poDrawerBackdrop')?.addEventListener('click',()=>setPoDrawerOpen(false));
+    document.addEventListener('keydown',(e)=>{
+      if(e.key==='Escape') setPoDrawerOpen(false);
+    });
+
     el.btnRefresh.addEventListener('click', async()=>{ try{ await refreshAll(); await refreshCosting(); }catch(e){ console.error(e); alert(e.message||'Refresh failed'); } });
     const btnPriorFob=document.getElementById('btnPriorFob');
     if(btnPriorFob) btnPriorFob.addEventListener('click', async()=>{ try{ await applyPriorFobToLines(); }catch(e){ console.error(e); alert(e.message||'Prior FOB failed'); } });
-    el.btnNewPO.addEventListener('click',()=>resetEditorForNew());
+    el.btnNewPO.addEventListener('click',()=>{ resetEditorForNew(); setPoDrawerOpen(false); });
     el.btnSaveHeader.addEventListener('click',async()=>{ try{ await saveHeader(); }catch(e){ console.error(e); alert(e.message||'Save failed'); } });
     el.btnGeneratePdf.addEventListener('click',()=>{ try{ generateVendorPdf(); }catch(e){ console.error(e); alert(e.message||'PDF generation failed'); } });
     el.btnDuplicatePO.addEventListener('click',async()=>{ try{ await duplicateCurrentPO(); }catch(e){ console.error(e); alert(e.message||'Duplicate failed'); } });
