@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>SILO · PO landed cost</title>
   <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <link rel="stylesheet" href="po-workbench.css" />
@@ -21,11 +22,10 @@
           <div class="bcn-header-title"><h1>PO landed cost</h1></div>
           <div class="bcn-header-sub">After PO builder: cost FOB from prior SKUs or factory invoice → mark shipped → add freight split per unit. Data persists to <code>po_costing</code> tables.</div>
         </div>
-        <div class="toolbar" style="margin:0;">
-          <button id="btnTogglePoDrawer" class="bcn-btn bcn-btn--ghost" type="button">PO list <span id="poCount" class="po-count-pill">0</span></button>
-          <a class="bcn-btn bcn-btn--ghost" href="/pages/po-builder.html" title="Classic v1">Classic v1</a>
-          <a class="bcn-btn bcn-btn--ghost" href="/v2/po-builder.html" id="linkBuilder">PO builder</a>
-          <a class="bcn-btn bcn-btn--ghost" href="/v2/po-report.html">PO report</a>
+        <div class="bcn-header-actions">
+          <button id="btnTogglePoDrawer" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button">PO LIST <span class="bcn-pill bcn-pill--accent" id="poCount">0</span></button>
+          <a class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="/v2/po-builder.html" id="linkBuilder">PO BUILDER</a>
+          <a class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="/v2/po-report.html">REPORT</a>
         </div>
       </header>
 
