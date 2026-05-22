@@ -8,6 +8,7 @@
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="po-workbench.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
   <script src="silo-chrome.js"></script>
@@ -186,64 +187,93 @@
 <body class="v2-mirror--po">
   <div class="silo-app" id="silo-app">
     <main class="silo-main">
-  <div class="min-h-screen px-2 py-2 sm:px-3 lg:px-3">
-    <div class="mx-auto max-w-[1920px] space-y-2">
-
-      <header class="glass px-3 py-2">
-        <div class="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <div class="text-[.62rem] font-bold uppercase tracking-[.22em] text-slate-500">Silo Purchasing</div>
-            <div class="mt-0 text-[1.12rem] font-extrabold tracking-tight text-slate-900">Incoming PO Report</div>
-            <div class="mt-1 text-[.70rem] text-slate-500">
-              Open purchase orders, incoming units, product rollups, retail value, and estimated landed commitments.
-            </div>
-          </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <button id="btnRefresh" class="btn btn-secondary">Refresh</button>
-            <button id="btnExportPOs" class="btn btn-good">Export PO Summary</button>
-            <button id="btnExportProducts" class="btn btn-good">Export Product Rollup</button>
-            <a href="/pages/po-report.html" class="btn btn-secondary no-underline text-xs" title="Legacy v1 report">Classic v1</a>
-            <a href="/v2/po-builder.html" class="btn btn-primary no-underline">PO builder</a>
-            <a href="/v2/po-costing.html" class="btn btn-secondary no-underline">Landed cost</a>
-          </div>
+      <header class="bcn-header">
+        <div style="flex:1;min-width:0;">
+          <div class="bcn-header-title"><h1>Incoming PO report</h1></div>
+          <div class="bcn-header-sub">Open purchase orders, incoming units, product rollups, retail value, and estimated landed commitments. <a href="/pages/po-report.html">Classic v1</a></div>
+        </div>
+        <div class="bcn-header-actions">
+          <button id="btnRefresh" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button">REFRESH</button>
+          <button id="btnExportPOs" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button">EXPORT POs</button>
+          <button id="btnExportProducts" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button">EXPORT PRODUCTS</button>
+          <a href="/v2/po-builder.html" class="bcn-btn bcn-btn--primary bcn-btn--mono">PO BUILDER</a>
+          <a href="/v2/po-costing.html" class="bcn-btn bcn-btn--ghost bcn-btn--mono">LANDED COST</a>
         </div>
       </header>
 
-      <section class="glass p-2">
-        <div class="grid gap-2 md:grid-cols-2 xl:grid-cols-7">
-          <div>
-            <label class="muted-label">Search</label>
-            <input id="searchInput" class="w-full" placeholder="PO, factory, product, SKU..." />
+      <section class="bcn-kpi-band" aria-label="Report totals">
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">PO COUNT</div>
+          <div class="bcn-kpi-value bcn-mono" id="kpiPOs">0</div>
+          <div class="bcn-kpi-delta">matching POs</div>
+        </div>
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">INCOMING UNITS</div>
+          <div class="bcn-kpi-value bcn-mono" id="kpiUnits">0</div>
+          <div class="bcn-kpi-delta">ordered units</div>
+        </div>
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">RETAIL VALUE</div>
+          <div class="bcn-kpi-value bcn-mono" id="kpiRetail">$0</div>
+          <div class="bcn-kpi-delta">extended retail</div>
+        </div>
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">EST. COST</div>
+          <div class="bcn-kpi-value bcn-mono" id="kpiCost">$0</div>
+          <div class="bcn-kpi-delta">qty × unit cost</div>
+        </div>
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">SPREAD</div>
+          <div class="bcn-kpi-value bcn-mono" id="kpiSpread">$0</div>
+          <div class="bcn-kpi-delta">retail − cost</div>
+        </div>
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">AVG UNIT COST</div>
+          <div class="bcn-kpi-value bcn-mono" id="kpiAuc">$0</div>
+          <div class="bcn-kpi-delta">cost / units</div>
+        </div>
+      </section>
+
+      <div class="po-report-main">
+      <section class="bcn-card po-report-filters">
+        <header class="bcn-card-header bcn-card-header--dark">
+          <span class="bcn-pill bcn-pill--dark">FILTERS</span>
+          <h2>Scope</h2>
+        </header>
+        <div class="bcn-card-body">
+          <div class="bcn-field-group">
+            <label class="bcn-label">Search</label>
+            <input id="searchInput" class="bcn-field" type="search" placeholder="PO, factory, product, SKU…" />
           </div>
-          <div>
-            <label class="muted-label">Status</label>
-            <select id="statusFilter" class="w-full">
+          <div class="bcn-field-group">
+            <label class="bcn-label">Status</label>
+            <select id="statusFilter" class="bcn-field bcn-field--mono">
               <option value="">All statuses</option>
             </select>
           </div>
-          <div>
-            <label class="muted-label">Factory</label>
-            <select id="factoryFilter" class="w-full">
+          <div class="bcn-field-group">
+            <label class="bcn-label">Factory</label>
+            <select id="factoryFilter" class="bcn-field bcn-field--mono">
               <option value="">All factories</option>
             </select>
           </div>
-          <div>
-            <label class="muted-label">Date Bucket</label>
-            <select id="bucketFilter" class="w-full">
+          <div class="bcn-field-group">
+            <label class="bcn-label">Date bucket</label>
+            <select id="bucketFilter" class="bcn-field bcn-field--mono">
               <option value="">All buckets</option>
             </select>
           </div>
-          <div>
-            <label class="muted-label">Arrival From</label>
-            <input id="arrivalFrom" type="date" class="w-full" />
+          <div class="bcn-field-group">
+            <label class="bcn-label">Arrival from</label>
+            <input id="arrivalFrom" class="bcn-field bcn-field--mono" type="date" />
           </div>
-          <div>
-            <label class="muted-label">Arrival To</label>
-            <input id="arrivalTo" type="date" class="w-full" />
+          <div class="bcn-field-group">
+            <label class="bcn-label">Arrival to</label>
+            <input id="arrivalTo" class="bcn-field bcn-field--mono" type="date" />
           </div>
-          <div>
-            <label class="muted-label">Scope</label>
-            <select id="scopeFilter" class="w-full">
+          <div class="bcn-field-group">
+            <label class="bcn-label">Scope</label>
+            <select id="scopeFilter" class="bcn-field bcn-field--mono">
               <option value="open">Open incoming only</option>
               <option value="all">All POs</option>
               <option value="production">Production statuses</option>
@@ -253,50 +283,14 @@
         </div>
       </section>
 
-      <section class="grid gap-2 md:grid-cols-2 xl:grid-cols-6">
-        <div class="glass px-3 py-2">
-          <div class="kpi-title">PO Count</div>
-          <div id="kpiPOs" class="kpi-value">0</div>
-          <div class="kpi-sub">matching purchase orders</div>
-        </div>
-        <div class="glass px-3 py-2">
-          <div class="kpi-title">Incoming Units</div>
-          <div id="kpiUnits" class="kpi-value">0</div>
-          <div class="kpi-sub">total ordered units</div>
-        </div>
-        <div class="glass px-3 py-2">
-          <div class="kpi-title">Retail Value</div>
-          <div id="kpiRetail" class="kpi-value">$0</div>
-          <div class="kpi-sub">ordered retail value</div>
-        </div>
-        <div class="glass px-3 py-2">
-          <div class="kpi-title">Estimated Cost</div>
-          <div id="kpiCost" class="kpi-value">$0</div>
-          <div class="kpi-sub">qty × unit cost</div>
-        </div>
-        <div class="glass px-3 py-2">
-          <div class="kpi-title">Retail-Cost Spread</div>
-          <div id="kpiSpread" class="kpi-value">$0</div>
-          <div class="kpi-sub">retail less estimated cost</div>
-        </div>
-        <div class="glass px-3 py-2">
-          <div class="kpi-title">Avg Unit Cost</div>
-          <div id="kpiAuc" class="kpi-value">$0</div>
-          <div class="kpi-sub">estimated cost / units</div>
-        </div>
-      </section>
-
-      <section class="grid gap-2 xl:grid-cols-[minmax(0,1.15fr)_minmax(0,.85fr)]">
-        <div class="glass p-2">
-          <div class="flex items-center justify-between gap-2 border-b border-slate-200 pb-2">
-            <div>
-              <div class="text-sm font-extrabold text-slate-900">PO Summary</div>
-              <div class="text-[.68rem] text-slate-500">Incoming purchase orders by factory, status, timing, units, retail, and cost.</div>
-            </div>
-            <div id="poTableCount" class="pill">0 rows</div>
-          </div>
-
-          <div class="mt-2 table-wrap sticky-head soft-scroll max-h-[58vh]">
+      <div class="po-report-grid">
+        <section class="bcn-card po-report-card">
+          <header class="bcn-card-header">
+            <span class="bcn-pill bcn-pill--accent">POs</span>
+            <h2>PO summary</h2>
+            <span class="bcn-card-meta" id="poTableCount">0 rows</span>
+          </header>
+          <div class="bcn-matrix-scroll table-wrap sticky-head soft-scroll">
             <table class="min-w-[1120px] w-full border-separate border-spacing-0">
               <thead>
                 <tr>
@@ -319,18 +313,15 @@
               <tbody id="poTbody"></tbody>
             </table>
           </div>
-        </div>
+        </section>
 
-        <div class="glass p-2">
-          <div class="flex items-center justify-between gap-2 border-b border-slate-200 pb-2">
-            <div>
-              <div class="text-sm font-extrabold text-slate-900">Product Rollup</div>
-              <div class="text-[.68rem] text-slate-500">Grouped view of incoming units by product type and title.</div>
-            </div>
-            <div id="productTableCount" class="pill">0 rows</div>
-          </div>
-
-          <div class="mt-2 table-wrap sticky-head soft-scroll max-h-[58vh]">
+        <section class="bcn-card po-report-card">
+          <header class="bcn-card-header">
+            <span class="bcn-pill">PRODUCTS</span>
+            <h2>Product rollup</h2>
+            <span class="bcn-card-meta" id="productTableCount">0 rows</span>
+          </header>
+          <div class="bcn-matrix-scroll table-wrap sticky-head soft-scroll">
             <table class="min-w-[850px] w-full border-separate border-spacing-0">
               <thead>
                 <tr>
@@ -348,19 +339,16 @@
               <tbody id="productTbody"></tbody>
             </table>
           </div>
-        </div>
-      </section>
+        </section>
+      </div>
 
-      <section class="glass p-2">
-        <div class="flex items-center justify-between gap-2 border-b border-slate-200 pb-2">
-          <div>
-            <div class="text-sm font-extrabold text-slate-900">Incoming Line Detail</div>
-            <div class="text-[.68rem] text-slate-500">Line-level detail for SKU checks, product planning, and PO follow-up.</div>
-          </div>
-          <div id="lineTableCount" class="pill">0 rows</div>
-        </div>
-
-        <div class="mt-2 table-wrap sticky-head soft-scroll max-h-[45vh]">
+      <section class="bcn-card po-report-card">
+        <header class="bcn-card-header bcn-card-header--dark">
+          <span class="bcn-pill bcn-pill--dark">LINES</span>
+          <h2>Incoming line detail</h2>
+          <span class="bcn-card-meta" id="lineTableCount">0 rows</span>
+        </header>
+        <div class="bcn-matrix-scroll table-wrap sticky-head soft-scroll" style="max-height:min(45vh,480px);">
           <table class="min-w-[1400px] w-full border-separate border-spacing-0">
             <thead>
               <tr>
@@ -384,8 +372,7 @@
           </table>
         </div>
       </section>
-    </div>
-  </div>
+      </div>
     </main>
   </div>
 
