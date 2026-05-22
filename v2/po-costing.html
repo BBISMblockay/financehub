@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SILO · PO landed cost</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="../pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+  <style>
+    .cost-grid {
+      display: grid;
+      gap: 14px;
+      grid-template-columns: minmax(260px, 320px) 1fr;
+      padding: 0 16px 24px;
+      align-items: start;
+    }
+    @media (max-width: 900px) { .cost-grid { grid-template-columns: 1fr; } }
+    .cost-card {
+      background: var(--bcn-surface);
+      border: 1px solid var(--bcn-border);
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+    .cost-card h2 {
+      margin: 0 0 10px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--bcn-ink-3);
+      font-family: var(--bcn-mono);
+    }
+    .field { margin-bottom: 10px; }
+    .field label {
+      display: block;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--bcn-ink-3);
+      margin-bottom: 4px;
+      font-family: var(--bcn-mono);
+    }
+    .field input, .field select, .field textarea {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid var(--bcn-border);
+      border-radius: 8px;
+      font-size: 13px;
+      background: var(--bcn-surface);
+      color: var(--bcn-ink);
+    }
+    .kpi-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 10px;
+      margin-top: 8px;
+    }
+    .kpi {
+      padding: 10px 12px;
+      border: 1px solid var(--bcn-border);
+      border-radius: 10px;
+      background: var(--bcn-surface-2);
+    }
+    .kpi .lbl { font-size: 10px; font-weight: 700; letter-spacing: .08em; color: var(--bcn-ink-3); text-transform: uppercase; font-family: var(--bcn-mono); }
+    .kpi .val { margin-top: 4px; font-size: 18px; font-weight: 800; font-family: var(--bcn-mono); }
+    .po-pick { max-height: 52vh; overflow: auto; }
+    .po-pick button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 8px 10px;
+      margin-bottom: 6px;
+      border: 1px solid var(--bcn-border);
+      border-radius: 8px;
+      background: var(--bcn-surface);
+      cursor: pointer;
+      font-size: 12px;
+    }
+    .po-pick button.active { border-color: var(--bcn-accent); background: var(--bcn-accent-soft); }
+    .hint { font-size: 11px; color: var(--bcn-ink-3); line-height: 1.45; margin-top: 8px; }
+    #status { font-size: 12px; color: var(--bcn-ink-3); min-height: 18px; }
+  </style>
+</head>
+<body class="v2-mirror--po">
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main">
+      <header class="bcn-header">
+        <div style="flex:1;min-width:0;">
+          <div class="bcn-header-title"><h1>PO landed cost</h1></div>
+          <div class="bcn-header-sub">Freight and duty on top of FOB line costs. Saves a costing block in the PO internal notes until dedicated columns exist.</div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <a class="bcn-btn bcn-btn--ghost" href="/v2/po-builder.html" id="linkBuilder">PO builder</a>
+          <a class="bcn-btn bcn-btn--ghost" href="/v2/po-report.html">PO report</a>
+        </div>
+      </header>
+
+      <div class="cost-grid">
+        <aside class="cost-card">
+          <h2>Select PO</h2>
+          <input type="search" id="poSearch" placeholder="Search PO or factory…" />
+          <div class="po-pick" id="poList" style="margin-top:8px;"></div>
+        </aside>
+
+        <div>
+          <section class="cost-card" id="detailPanel" hidden>
+            <h2 id="poTitle">—</h2>
+            <div class="kpi-row">
+              <div class="kpi"><div class="lbl">FOB (lines)</div><div class="val" id="kpiFob">$0</div></div>
+              <div class="kpi"><div class="lbl">Freight</div><div class="val" id="kpiFreight">$0</div></div>
+              <div class="kpi"><div class="lbl">Duty</div><div class="val" id="kpiDuty">$0</div></div>
+              <div class="kpi"><div class="lbl">Misc</div><div class="val" id="kpiMisc">$0</div></div>
+              <div class="kpi"><div class="lbl">Landed total</div><div class="val" id="kpiLanded">$0</div></div>
+            </div>
+
+            <div style="margin-top:14px;display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));">
+              <div class="field">
+                <label>Freight ($)</label>
+                <input type="number" step="0.01" min="0" id="inFreight" />
+              </div>
+              <div class="field">
+                <label>Duty (% of FOB)</label>
+                <input type="number" step="0.01" min="0" id="inDutyPct" />
+              </div>
+              <div class="field">
+                <label>Misc ($)</label>
+                <input type="number" step="0.01" min="0" id="inMisc" />
+              </div>
+              <div class="field">
+                <label>Allocate freight</label>
+                <select id="inAlloc">
+                  <option value="proportional">By line cost (proportional)</option>
+                  <option value="per_unit">Per unit (even)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="field" style="margin-top:8px;">
+              <label>Costing notes</label>
+              <textarea id="inNotes" rows="3" placeholder="Forwarder, container, invoice ref…"></textarea>
+            </div>
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+              <button type="button" class="bcn-btn" id="btnRecalc">Recalculate</button>
+              <button type="button" class="bcn-btn" id="btnSave">Save to PO</button>
+            </div>
+            <div id="status" style="margin-top:8px;"></div>
+            <p class="hint">Stored as <code>[SILO_COSTING]…[/SILO_COSTING]</code> inside <code>internal_notes</code>. v1 PO builder is unchanged; open this page from v2 when costing is ready.</p>
+          </section>
+
+          <section class="cost-card" id="emptyPanel">
+            <p class="hint">Select a purchase order to enter freight and landed cost.</p>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="silo-chrome.js"></script>
+  <script>
+    const COSTING_TAG_OPEN = '[SILO_COSTING]';
+    const COSTING_TAG_CLOSE = '[/SILO_COSTING]';
+
+    const cfg = window.__SILO_CONFIG__ || {};
+    let db = null;
+    let poRows = [];
+    let currentPo = null;
+    let fobTotal = 0;
+
+    const els = {
+      poSearch: document.getElementById('poSearch'),
+      poList: document.getElementById('poList'),
+      detailPanel: document.getElementById('detailPanel'),
+      emptyPanel: document.getElementById('emptyPanel'),
+      poTitle: document.getElementById('poTitle'),
+      kpiFob: document.getElementById('kpiFob'),
+      kpiFreight: document.getElementById('kpiFreight'),
+      kpiDuty: document.getElementById('kpiDuty'),
+      kpiMisc: document.getElementById('kpiMisc'),
+      kpiLanded: document.getElementById('kpiLanded'),
+      inFreight: document.getElementById('inFreight'),
+      inDutyPct: document.getElementById('inDutyPct'),
+      inMisc: document.getElementById('inMisc'),
+      inAlloc: document.getElementById('inAlloc'),
+      inNotes: document.getElementById('inNotes'),
+      btnRecalc: document.getElementById('btnRecalc'),
+      btnSave: document.getElementById('btnSave'),
+      status: document.getElementById('status'),
+      linkBuilder: document.getElementById('linkBuilder'),
+    };
+
+    function money(n) {
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Number(n || 0));
+    }
+
+    function esc(s) {
+      return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function parseCostingBlock(internalNotes) {
+      const text = String(internalNotes || '');
+      const start = text.indexOf(COSTING_TAG_OPEN);
+      const end = text.indexOf(COSTING_TAG_CLOSE);
+      if (start < 0 || end < 0 || end <= start) return null;
+      try {
+        return JSON.parse(text.slice(start + COSTING_TAG_OPEN.length, end));
+      } catch (_) {
+        return null;
+      }
+    }
+
+    function mergeCostingBlock(internalNotes, costing) {
+      const text = String(internalNotes || '');
+      const stripped = text
+        .replace(/\[SILO_COSTING\][\s\S]*?\[\/SILO_COSTING\]/g, '')
+        .trim();
+      const block = COSTING_TAG_OPEN + JSON.stringify(costing) + COSTING_TAG_CLOSE;
+      return stripped ? stripped + '\n\n' + block : block;
+    }
+
+    function recalc() {
+      const freight = Number(els.inFreight.value || 0);
+      const dutyPct = Number(els.inDutyPct.value || 0);
+      const misc = Number(els.inMisc.value || 0);
+      const duty = fobTotal * (dutyPct / 100);
+      const landed = fobTotal + freight + duty + misc;
+      els.kpiFob.textContent = money(fobTotal);
+      els.kpiFreight.textContent = money(freight);
+      els.kpiDuty.textContent = money(duty);
+      els.kpiMisc.textContent = money(misc);
+      els.kpiLanded.textContent = money(landed);
+      return { freight, dutyPct, misc, duty, landed, alloc: els.inAlloc.value };
+    }
+
+    function renderPoList() {
+      const q = (els.poSearch.value || '').trim().toLowerCase();
+      const rows = poRows.filter(r => {
+        if (!q) return true;
+        const hay = [r.po_name, r.factory_name, r.status].join(' ').toLowerCase();
+        return hay.includes(q);
+      }).slice(0, 80);
+
+      els.poList.innerHTML = rows.length
+        ? rows.map(r => {
+          const active = currentPo?.id === r.id;
+          return `<button type="button" class="${active ? 'active' : ''}" data-po-id="${esc(r.id)}">
+            <strong>${esc(r.po_name || 'Untitled')}</strong><br>
+            <span style="color:var(--bcn-ink-3);font-size:11px;">${esc(r.factory_name || '—')} · ${esc(r.status || 'Draft')}</span>
+          </button>`;
+        }).join('')
+        : '<p class="hint">No POs match.</p>';
+
+      els.poList.querySelectorAll('[data-po-id]').forEach(btn => {
+        btn.addEventListener('click', () => openPo(btn.getAttribute('data-po-id')));
+      });
+    }
+
+    async function loadFob(poId) {
+      const { data, error } = await db.from('po_lines').select('unit_cost, qty').eq('po_header_id', poId);
+      if (error) throw error;
+      fobTotal = (data || []).reduce((s, line) => s + Number(line.unit_cost || 0) * Number(line.qty || 0), 0);
+    }
+
+    async function openPo(poId) {
+      const row = poRows.find(r => r.id === poId);
+      if (!row) return;
+      currentPo = row;
+      els.linkBuilder.href = '/v2/po-builder.html';
+      els.detailPanel.hidden = false;
+      els.emptyPanel.hidden = true;
+      els.poTitle.textContent = row.po_name || 'Untitled PO';
+      els.status.textContent = 'Loading lines…';
+
+      const { data: header, error } = await db.from('po_headers').select('id, po_name, internal_notes').eq('id', poId).maybeSingle();
+      if (error) throw error;
+
+      await loadFob(poId);
+      const saved = parseCostingBlock(header?.internal_notes);
+      els.inFreight.value = saved?.freight ?? '';
+      els.inDutyPct.value = saved?.duty_pct ?? '';
+      els.inMisc.value = saved?.misc ?? '';
+      els.inAlloc.value = saved?.alloc_method || 'proportional';
+      els.inNotes.value = saved?.notes ?? '';
+      recalc();
+      els.status.textContent = '';
+      renderPoList();
+    }
+
+    async function saveCosting() {
+      if (!currentPo?.id) return;
+      const vals = recalc();
+      const costing = {
+        version: 1,
+        updated_at: new Date().toISOString(),
+        fob_total: fobTotal,
+        freight: vals.freight,
+        duty_pct: vals.dutyPct,
+        duty_amount: vals.duty,
+        misc: vals.misc,
+        landed_total: vals.landed,
+        alloc_method: vals.alloc,
+        notes: els.inNotes.value.trim() || null,
+      };
+
+      const { data: header, error: loadErr } = await db
+        .from('po_headers')
+        .select('internal_notes')
+        .eq('id', currentPo.id)
+        .maybeSingle();
+      if (loadErr) throw loadErr;
+
+      const merged = mergeCostingBlock(header?.internal_notes, costing);
+      const { error } = await db.from('po_headers').update({ internal_notes: merged }).eq('id', currentPo.id);
+      if (error) throw error;
+      els.status.textContent = 'Saved costing to PO internal notes.';
+    }
+
+    async function loadPos() {
+      const { data, error } = await db
+        .from('v_po_header_summary')
+        .select('id, po_name, factory_name, status, total_estimated_cost')
+        .order('created_at', { ascending: false })
+        .limit(300);
+      if (error) throw error;
+      poRows = data || [];
+      renderPoList();
+    }
+
+    async function boot() {
+      if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
+        alert('Missing Supabase config.');
+        return;
+      }
+      db = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+      const { data: sess } = await db.auth.getSession();
+      if (!sess?.session?.user) {
+        window.location.href = '/pages/login.html?next=' + encodeURIComponent('/v2/po-costing.html');
+        return;
+      }
+
+      if (window.SiloChrome) {
+        window.SiloChrome.mount({
+          appEl: '#silo-app',
+          active: 'purchasing/po-costing',
+          user: { email: sess.session.user.email, role: 'MEMBER' },
+          crumbs: ['Purchasing', 'Landed cost'],
+          supabaseClient: db,
+        });
+      }
+
+      els.poSearch.addEventListener('input', renderPoList);
+      els.btnRecalc.addEventListener('click', recalc);
+      els.btnSave.addEventListener('click', () => saveCosting().catch(e => alert(e.message || e)));
+
+      await loadPos();
+
+      const params = new URLSearchParams(location.search);
+      const poId = params.get('po_id');
+      if (poId) await openPo(poId);
+    }
+
+    document.addEventListener('DOMContentLoaded', boot);
+  </script>
+</body>
+</html>
