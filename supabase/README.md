@@ -1,8 +1,16 @@
 # Supabase migrations (SILO)
 
-## PO costing module
+Run these in the Supabase SQL Editor in order (Dashboard → SQL → New query → paste → Run).
 
-Apply **`migrations/20260521120000_po_costing_module.sql`** in the Supabase SQL Editor (Dashboard → SQL → New query → paste → Run).
+## 1. PO builder (required first)
+
+Apply **`migrations/20260521110000_po_builder_module.sql`** if you see `relation "public.po_headers" does not exist`.
+
+Creates `factories` (if missing), `po_headers`, `po_lines`, `v_po_header_summary`, `generate_next_po_name()`, and RLS.
+
+## 2. PO costing module
+
+Apply **`migrations/20260521120000_po_costing_module.sql`** after the PO builder script succeeds.
 
 Creates:
 
@@ -16,7 +24,7 @@ Creates:
 
 ### Workflow in the app
 
-1. **PO builder** — create `po_headers` + `po_lines`
+1. **PO builder** — create `po_headers` + `po_lines` (migration `20260521110000`)
 2. **PO costing → FOB** — prior SKU and/or factory invoice; save (phase `fob`)
 3. **Mark shipped** — sets `shipped_at`, phase `freight`
 4. **Freight** — enter freight invoice total, duty %, misc; split to lines; save landed costs
@@ -29,7 +37,7 @@ Adjust `po_costing_can_write()` in the migration if your `profiles.role` values 
 
 ---
 
-## Profiles self-service
+## 3. Profiles self-service
 
 Apply **`migrations/20260521130000_profiles_self_service.sql`** so `/v2/profile.html` can read and update the signed-in user’s own `profiles` row (name, `default_page`).
 
