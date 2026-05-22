@@ -45,37 +45,35 @@
 
   function renderHeader(cfg) {
     return `
-      <header class="ts-header">
-        <div class="ts-header-block">
-          <div class="ts-header-title">
-            <h1>${esc(cfg.title)}</h1>
-            <span class="ts-header-status-pill" data-state="loading" data-ts-status>LOADING</span>
-          </div>
-          <div class="ts-header-sub">${esc(cfg.subtitle || '')}</div>
+      <header class="bcn-header">
+        <div style="flex:1;min-width:0;">
+          <div class="bcn-header-title"><h1>${esc(cfg.title)}</h1></div>
+          <div class="bcn-header-sub">${esc(cfg.subtitle || '')}</div>
         </div>
-        <div class="ts-header-actions">
-          <button class="bcn-btn bcn-btn--mono" type="button" data-ts-reload title="Reload tool">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 3 3 9 9 9"/></svg>
-            RELOAD
-          </button>
-          <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" data-ts-popout title="Open in a new tab">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><path d="M14 4h6v6"/><path d="M10 14L20 4"/><path d="M20 14v6H4V4h6"/></svg>
-            POP OUT
-          </button>
+        <div class="bcn-header-actions">
+          <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" data-ts-reload title="Reload tool">RELOAD</button>
+          <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" data-ts-popout title="Open in a new tab">POP OUT</button>
         </div>
       </header>
-      <section class="ts-body">
-        <div class="ts-card">
-          <div class="ts-loading" data-ts-loading>
-            <div class="ts-spin"></div>
-            <div>Loading ${esc(cfg.title)}</div>
+      <section class="ts-body" aria-label="${esc(cfg.title)} workspace">
+        <div class="bcn-card ts-tool-card">
+          <header class="bcn-card-header bcn-card-header--dark">
+            <span class="bcn-pill bcn-pill--dark">TOOL</span>
+            <h2>${esc(cfg.title)}</h2>
+            <span class="ts-tool-status" data-state="loading" data-ts-status>LOADING</span>
+          </header>
+          <div class="bcn-card-body" style="position:relative;">
+            <div class="ts-loading" data-ts-loading>
+              <div class="ts-spin"></div>
+              <div>Loading ${esc(cfg.title)}</div>
+            </div>
+            <div class="ts-error" hidden data-ts-error>
+              <div class="ts-error-title">Could not load this tool</div>
+              <div class="ts-error-sub" data-ts-error-msg>The tool did not respond.</div>
+              <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" data-ts-retry>TRY AGAIN</button>
+            </div>
+            <iframe class="ts-frame" data-ts-frame title="${esc(cfg.title)}" loading="eager"></iframe>
           </div>
-          <div class="ts-error" hidden data-ts-error>
-            <div class="ts-error-title">Could not load this tool</div>
-            <div class="ts-error-sub" data-ts-error-msg>The tool did not respond.</div>
-            <button class="bcn-btn" type="button" data-ts-retry>Try again</button>
-          </div>
-          <iframe class="ts-frame" data-ts-frame title="${esc(cfg.title)}" loading="eager"></iframe>
         </div>
       </section>
     `;

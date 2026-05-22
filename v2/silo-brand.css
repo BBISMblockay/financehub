@@ -1,0 +1,255 @@
+/**
+ * SILO brand shell — projections / profile / PO builder family
+ *
+ * Load after beacon.css on every v2 page:
+ *   beacon.css → silo-brand.css → (page CSS) → beacon-mirrors-unified.css → v2-mobile.css
+ *
+ * Canonical page structure (inside .silo-main after SiloChrome utility bar):
+ *   .bcn-header → optional .bcn-kpi-band → optional .bcn-filter-bar → .bcn-content | workbench
+ *   Data blocks: .bcn-card + .bcn-card-header--dark + .bcn-matrix-scroll + table.bcn-table
+ */
+
+/* ---- Main canvas -------------------------------------------------------- */
+
+.silo-main {
+  background: var(--bcn-bg);
+}
+
+.silo-main > .bcn-header:first-of-type,
+.silo-main > header.bcn-header:first-of-type {
+  margin-top: 0;
+}
+
+/* ---- Legacy cards → Beacon cards ---------------------------------------- */
+
+.silo-main .profile-card,
+.silo-main .cost-card,
+.silo-main .panel-card,
+.silo-main .card-panel {
+  background: var(--bcn-surface);
+  border: 1px solid var(--bcn-border-strong);
+  border-radius: var(--bcn-radius);
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+
+.silo-main .profile-card h2,
+.silo-main .cost-card h2,
+.silo-main .panel-card h2 {
+  margin: 0 0 12px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--bcn-ink-3);
+  font-family: var(--bcn-mono);
+}
+
+.silo-main .field label,
+.silo-main .field-group label {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--bcn-ink-3);
+  margin-bottom: 4px;
+  font-family: var(--bcn-mono);
+}
+
+.silo-main .field input,
+.silo-main .field select,
+.silo-main .field textarea,
+.silo-main .field-group input,
+.silo-main .field-group select,
+.silo-main .field-group textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--bcn-border-strong);
+  border-radius: var(--bcn-radius-sm);
+  font-size: 13px;
+  background: var(--bcn-surface);
+  color: var(--bcn-ink);
+  font-family: var(--bcn-font);
+}
+
+.silo-main .field input:focus,
+.silo-main .field select:focus,
+.silo-main .field textarea:focus {
+  border-color: var(--bcn-accent);
+  box-shadow: 0 0 0 1px var(--bcn-accent) inset;
+  outline: none;
+}
+
+.silo-main .kpi-row {
+  display: flex;
+  flex-shrink: 0;
+  background: var(--bcn-surface);
+  border-bottom: 1px solid var(--bcn-border);
+}
+
+.silo-main .kpi,
+.silo-main .kpi-row .kpi {
+  flex: 1;
+  padding: 12px 16px;
+  border-right: 1px solid var(--bcn-border);
+  border-radius: 0;
+  background: transparent;
+}
+
+.silo-main .kpi:last-child {
+  border-right: none;
+}
+
+.silo-main .kpi .k,
+.silo-main .kpi .lbl,
+.silo-main .kpi-label {
+  font-family: var(--bcn-mono);
+  font-size: 10px;
+  color: var(--bcn-ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.silo-main .kpi .v,
+.silo-main .kpi .val,
+.silo-main .kpi-value {
+  font-family: var(--bcn-mono);
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--bcn-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hub / dept pages still on custom sidebars — surface typography only */
+body.silo-brand,
+html.silo-brand body {
+  font-family: var(--bcn-font);
+  color: var(--bcn-ink);
+  background: var(--bcn-bg);
+}
+
+/* Tool shell (iframe hosts) — align with projections header + card */
+.ts-body {
+  flex: 1;
+  min-height: 0;
+  padding: 14px;
+  display: flex;
+  overflow: hidden;
+}
+
+.ts-tool-card {
+  flex: 1;
+  min-height: 0;
+}
+
+.ts-tool-card .bcn-card-body {
+  padding: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ts-tool-card .bcn-card-header h2 {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ts-tool-status {
+  font-family: var(--bcn-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ts-tool-status[data-state="ready"] { color: var(--bcn-pos); }
+.ts-tool-status[data-state="loading"] { color: var(--bcn-accent); }
+.ts-tool-status[data-state="error"] { color: var(--bcn-neg); }
+
+.ts-frame {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: var(--bcn-surface);
+  display: block;
+  min-height: 0;
+}
+
+.ts-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: var(--bcn-surface);
+  color: var(--bcn-ink-3);
+  font-family: var(--bcn-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  z-index: 1;
+}
+
+.ts-loading[hidden],
+.ts-error[hidden] {
+  display: none !important;
+}
+
+.ts-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: var(--bcn-surface);
+  padding: 40px 24px;
+  text-align: center;
+  z-index: 1;
+}
+
+.ts-error-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--bcn-ink);
+}
+
+.ts-error-sub {
+  font-size: 12.5px;
+  color: var(--bcn-ink-2);
+  max-width: 460px;
+  line-height: 1.5;
+}
+
+.ts-spin {
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--bcn-border-strong);
+  border-top-color: var(--bcn-accent);
+  border-radius: 50%;
+  animation: silo-brand-spin 0.7s linear infinite;
+}
+
+@keyframes silo-brand-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 900px) {
+  .ts-body {
+    padding: 10px;
+    flex: 1;
+    min-height: min(72dvh, 720px);
+  }
+  .ts-tool-card {
+    min-height: min(70dvh, 680px);
+  }
+}

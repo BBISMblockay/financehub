@@ -3,6 +3,7 @@
    Every SILO page mounts this once. Active branch auto-expands.
 
    Include on each page (after beacon.css + inline styles):
+     <link rel="stylesheet" href="silo-brand.css" />
      <link rel="stylesheet" href="beacon-mirrors-unified.css" />
      <link rel="stylesheet" href="v2-mobile.css" />
      <script src="v2-shell.js" defer></script>
