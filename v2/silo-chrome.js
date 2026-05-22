@@ -48,6 +48,7 @@
 
     { id: 'purchasing', label: 'Purchasing', icon: 'purchasing', children: [
       { id: 'purchasing/po-builder',  label: 'PO builder',  href: '/v2/po-builder.html' },
+      { id: 'purchasing/po-costing',  label: 'PO landed cost', href: '/v2/po-costing.html' },
       { id: 'purchasing/po-report',   label: 'PO report',   href: '/v2/po-report.html' },
       { id: 'purchasing/buyer',       label: 'Buyer',       href: '/v2/buyer.html' },
       { id: 'purchasing/requests',    label: 'Requests',    href: '/v2/purchase_request.html' },
@@ -70,6 +71,7 @@
     { id: 'people', label: 'People', icon: 'people', children: [
       { id: 'people/payroll',     label: 'Payroll',       href: '/v2/payroll.html' },
       { id: 'people/employees',   label: 'Employee hub',  href: '/v2/employeehub.html' },
+      { id: 'people/profile',     label: 'My profile',    href: '/v2/profile.html' },
       { id: 'people/access',      label: 'Dept access',   href: '/v2/department-access.html' },
     ]},
 

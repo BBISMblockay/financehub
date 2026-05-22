@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SILO · My profile</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="../pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+  <style>
+    .profile-grid {
+      display: grid;
+      gap: 14px;
+      max-width: 720px;
+    }
+    .profile-card {
+      background: var(--bcn-surface);
+      border: 1px solid var(--bcn-border);
+      border-radius: 12px;
+      padding: 16px 18px;
+    }
+    .profile-card h2 {
+      margin: 0 0 12px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--bcn-ink-3);
+      font-family: var(--bcn-mono);
+    }
+    .field { margin-bottom: 12px; }
+    .field label {
+      display: block;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .1em;
+      text-transform: uppercase;
+      color: var(--bcn-ink-3);
+      margin-bottom: 5px;
+      font-family: var(--bcn-mono);
+    }
+    .field input, .field select {
+      width: 100%;
+      height: 36px;
+      padding: 0 10px;
+      border: 1px solid var(--bcn-border);
+      border-radius: 8px;
+      font-size: 13px;
+      background: var(--bcn-surface);
+      color: var(--bcn-ink);
+    }
+    .field input:disabled, .field select:disabled {
+      background: var(--bcn-surface-2);
+      color: var(--bcn-ink-3);
+    }
+    .field .hint {
+      margin-top: 5px;
+      font-size: 11px;
+      color: var(--bcn-ink-3);
+      line-height: 1.4;
+    }
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      font-family: var(--bcn-mono);
+    }
+    .status-pill--active { background: var(--bcn-pos-soft); color: var(--bcn-pos); }
+    .status-pill--inactive { background: var(--bcn-neg-soft); color: var(--bcn-neg); }
+    .profile-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+    #saveStatus { font-size: 12px; color: var(--bcn-ink-3); min-height: 18px; }
+  </style>
+</head>
+<body>
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main">
+      <header class="bcn-header">
+        <div style="flex:1;min-width:0;">
+          <div class="bcn-header-title"><h1>My profile</h1></div>
+          <div class="bcn-header-sub">Account details from Supabase. Data access is enforced by RLS on each table.</div>
+        </div>
+      </header>
+
+      <div class="profile-grid" style="padding: 0 16px 24px;">
+        <div id="loadErr" class="profile-card" hidden></div>
+
+        <section class="profile-card">
+          <h2>Account</h2>
+          <div class="field">
+            <label>Email</label>
+            <input id="fEmail" type="email" disabled />
+          </div>
+          <div class="field">
+            <label>Display name</label>
+            <input id="fName" type="text" placeholder="Your name" />
+          </div>
+          <div class="field">
+            <label>Status</label>
+            <div id="fStatus"></div>
+          </div>
+        </section>
+
+        <section class="profile-card">
+          <h2>Organization</h2>
+          <div class="field">
+            <label>Role</label>
+            <input id="fRole" type="text" disabled />
+            <div class="hint">Role changes are managed by an admin in Backend hub.</div>
+          </div>
+          <div class="field">
+            <label>Department</label>
+            <input id="fDepartment" type="text" disabled />
+          </div>
+        </section>
+
+        <section class="profile-card">
+          <h2>Navigation</h2>
+          <div class="field">
+            <label>Default landing page</label>
+            <select id="fDefaultPage"></select>
+            <div class="hint">Used after sign-in when no other redirect applies. Leave blank for department defaults.</div>
+          </div>
+        </section>
+
+        <section class="profile-card">
+          <h2>Actions</h2>
+          <div class="profile-actions">
+            <button type="button" class="bcn-btn" id="btnSave">Save changes</button>
+            <a class="bcn-btn bcn-btn--ghost" href="/pages/set-password.html">Change password</a>
+          </div>
+          <div id="saveStatus" style="margin-top:10px;"></div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <script src="silo-chrome.js"></script>
+  <script>
+    const LANDING_OPTIONS = [
+      { value: '', label: '(Use department default)' },
+      { value: '/finance.html', label: 'Finance hub (v1)' },
+      { value: '/v2/finance.html', label: 'Finance hub (v2)' },
+      { value: '/v2/cashflow.html', label: 'Cash flow (v2)' },
+      { value: '/v2/employeehub.html', label: 'Employee hub (v2)' },
+      { value: '/v2/mailroom.html', label: 'Mailroom (v2)' },
+      { value: '/v2/inventory.html', label: 'Inventory (v2)' },
+      { value: '/v2/po-builder.html', label: 'PO builder (v2)' },
+      { value: '/ops.html', label: 'Ops hub (v1)' },
+    ];
+
+    const cfg = window.__SILO_CONFIG__ || {};
+    let db = null;
+    let profile = null;
+    let authUser = null;
+
+    const els = {
+      fEmail: document.getElementById('fEmail'),
+      fName: document.getElementById('fName'),
+      fRole: document.getElementById('fRole'),
+      fDepartment: document.getElementById('fDepartment'),
+      fStatus: document.getElementById('fStatus'),
+      fDefaultPage: document.getElementById('fDefaultPage'),
+      btnSave: document.getElementById('btnSave'),
+      saveStatus: document.getElementById('saveStatus'),
+      loadErr: document.getElementById('loadErr'),
+    };
+
+    function esc(s) {
+      return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    }
+
+    function renderLandingOptions(selected) {
+      els.fDefaultPage.innerHTML = LANDING_OPTIONS.map(o =>
+        `<option value="${esc(o.value)}"${o.value === (selected || '') ? ' selected' : ''}>${esc(o.label)}</option>`
+      ).join('');
+    }
+
+    function fillForm() {
+      els.fEmail.value = profile?.email || authUser?.email || '';
+      els.fName.value = profile?.name || profile?.full_name || '';
+      els.fRole.value = profile?.role || profile?.app_role || '—';
+      els.fDepartment.value = profile?.department || profile?.dept || '—';
+      const active = profile?.is_active !== false;
+      els.fStatus.innerHTML = active
+        ? '<span class="status-pill status-pill--active"><span class="bcn-dot bcn-dot--pos"></span>Active</span>'
+        : '<span class="status-pill status-pill--inactive"><span class="bcn-dot bcn-dot--neg"></span>Inactive</span>';
+      renderLandingOptions(profile?.default_page || '');
+    }
+
+    async function loadProfile() {
+      const { data: sessionData, error: sessErr } = await db.auth.getSession();
+      if (sessErr) throw sessErr;
+      if (!sessionData?.session?.user) {
+        window.location.href = '/pages/login.html?next=' + encodeURIComponent('/v2/profile.html');
+        return;
+      }
+      authUser = sessionData.session.user;
+
+      const { data, error } = await db
+        .from('profiles')
+        .select('id, email, name, full_name, role, app_role, department, dept, is_active, default_page, updated_at')
+        .eq('id', authUser.id)
+        .maybeSingle();
+
+      if (error) throw error;
+      if (!data) {
+        els.loadErr.hidden = false;
+        els.loadErr.innerHTML = '<p>No profile row for this account. Ask an admin to provision you in Backend hub.</p>';
+        return;
+      }
+      profile = data;
+      fillForm();
+
+      if (window.SiloChrome) {
+        const role = (profile.role || profile.app_role || 'MEMBER').toUpperCase();
+        window.SiloChrome.mount({
+          appEl: '#silo-app',
+          active: 'people/profile',
+          user: { email: authUser.email, role },
+          crumbs: ['People', 'My profile'],
+          supabaseClient: db,
+        });
+      }
+    }
+
+    async function saveProfile() {
+      if (!profile?.id) return;
+      els.saveStatus.textContent = 'Saving…';
+      els.btnSave.disabled = true;
+
+      const name = els.fName.value.trim() || null;
+      const default_page = els.fDefaultPage.value.trim() || null;
+
+      const payload = { name, default_page, updated_at: new Date().toISOString() };
+      const { error } = await db.from('profiles').update(payload).eq('id', profile.id);
+
+      els.btnSave.disabled = false;
+      if (error) {
+        els.saveStatus.textContent = '';
+        alert('Could not save profile. Your RLS policy may block self-service updates.\n\n' + (error.message || error));
+        return;
+      }
+      profile.name = name;
+      profile.default_page = default_page;
+      els.saveStatus.textContent = 'Saved.';
+      setTimeout(() => { els.saveStatus.textContent = ''; }, 2500);
+    }
+
+    async function boot() {
+      if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
+        els.loadErr.hidden = false;
+        els.loadErr.textContent = 'Missing Supabase config.';
+        return;
+      }
+      db = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+      renderLandingOptions('');
+      els.btnSave.addEventListener('click', () => saveProfile().catch(e => alert(e.message || e));
+      try {
+        await loadProfile();
+      } catch (e) {
+        console.error(e);
+        els.loadErr.hidden = false;
+        els.loadErr.innerHTML = '<p>Failed to load profile: ' + esc(e.message || e) + '</p>';
+      }
+    }
+
+    document.addEventListener('DOMContentLoaded', boot);
+  </script>
+</body>
+</html>

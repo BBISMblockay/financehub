@@ -24,6 +24,20 @@
 (function () {
   const LOGIN_PATH = '/pages/login.html';
 
+  function embedSrc(src) {
+    if (window.__SILO_EMBED__ && typeof window.__SILO_EMBED__.appendEmbedParam === 'function') {
+      return window.__SILO_EMBED__.appendEmbedParam(src);
+    }
+    try {
+      const u = new URL(src, window.location.origin);
+      if (u.origin !== window.location.origin) return src;
+      u.searchParams.set('embed', '1');
+      return u.pathname + u.search + u.hash;
+    } catch (_) {
+      return src;
+    }
+  }
+
   function esc(s) {
     return String(s == null ? '' : s)
       .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -132,7 +146,7 @@
       errBox.hidden = true;
       loading.hidden = false;
       setStatus('loading', 'LOADING');
-      frame.src = cfg.src;
+      frame.src = embedSrc(cfg.src);
       clearTimeout(watchdog);
       watchdog = setTimeout(() => {
         if (loaded) return;
