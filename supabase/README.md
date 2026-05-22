@@ -1,36 +1,50 @@
-# Supabase migrations (SILO)
+# Supabase SQL (SILO purchasing & costing)
 
-## PO costing module
+**Merging app PRs does not update your database.** Paste these scripts into **Supabase Dashboard → SQL → New query → Run**.
 
-Apply **`migrations/20260521120000_po_costing_module.sql`** in the Supabase SQL Editor (Dashboard → SQL → New query → paste → Run).
+## Quick start (recommended)
 
-Creates:
+| Step | File | What it does |
+|------|------|----------------|
+| 1 | `verify_v2_schema.sql` | See which tables/views are missing |
+| 2 | `apply_all_post_merge.sql` | Applies everything in one run (safe to re-run) |
+| 3 | `verify_v2_schema.sql` | Confirm all rows show `ok` |
 
-| Object | Purpose |
-|--------|---------|
-| `po_costing` | One row per PO: FOB/factory invoice, ship dates, freight pools, totals |
-| `po_costing_lines` | Per `po_lines` row: FOB override, allocations, landed unit |
-| `v_po_costing_summary` | Reporting join for PO list / status |
-| `v_po_sku_prior_cost` | Latest cost per SKU from prior POs |
-| RLS | Authenticated read; write for finance/purchasing roles via `po_costing_can_write()` |
+## Individual migrations (same content, split)
 
-### Workflow in the app
+Run in this order if you prefer separate scripts:
 
-1. **PO builder** — create `po_headers` + `po_lines`
-2. **PO costing → FOB** — prior SKU and/or factory invoice; save (phase `fob`)
-3. **Mark shipped** — sets `shipped_at`, phase `freight`
-4. **Freight** — enter freight invoice total, duty %, misc; split to lines; save landed costs
+1. **`migrations/20260521110000_po_builder_module.sql`** — **required first**  
+   `factories`, `po_headers`, `po_lines`, `v_po_header_summary`, `generate_next_po_name()`  
+   Without this, costing fails with `relation "public.po_headers" does not exist`.
 
-The UI falls back to `internal_notes` `[SILO_COSTING]` JSON if tables are missing (pre-migration).
+2. **`migrations/20260521120000_po_costing_module.sql`** — landed cost  
+   `po_costing`, `po_costing_lines`, `v_po_costing_summary`, `v_po_sku_prior_cost`
 
-### Role access
+3. **`migrations/20260521130000_profiles_self_service.sql`** — `/v2/profile.html`  
+   RLS so users can read/update their own `profiles` row; adds `default_page` column
 
-Adjust `po_costing_can_write()` in the migration if your `profiles.role` values differ.
+## App workflow after SQL succeeds
 
----
+1. **PO builder** (`/v2/po-builder.html`) — create header + lines (needs at least one factory)
+2. **PO costing** (`/v2/po-costing.html`) — FOB → mark shipped → freight → landed unit
+3. **Profile** (`/v2/profile.html`) — name and default landing page
 
-## Profiles self-service
+Until migrations run, costing may fall back to `[SILO_COSTING]` JSON inside `po_headers.internal_notes`.
 
-Apply **`migrations/20260521130000_profiles_self_service.sql`** so `/v2/profile.html` can read and update the signed-in user’s own `profiles` row (name, `default_page`).
+## Write access
 
-Without this policy, the profile page may show only your auth email or an RLS error.
+`po_builder_can_write()` and `po_costing_can_write()` allow roles such as `finance`, `purchasing`, `buyer`, `admin`, `operations`. Adjust the role list in the SQL if your `profiles.role` values differ.
+
+## Repo paths
+
+```
+supabase/
+  apply_all_post_merge.sql      ← one-shot apply
+  verify_v2_schema.sql          ← health check
+  README.md
+  migrations/
+    20260521110000_po_builder_module.sql
+    20260521120000_po_costing_module.sql
+    20260521130000_profiles_self_service.sql
+```
