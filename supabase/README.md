@@ -26,3 +26,11 @@ The UI falls back to `internal_notes` `[SILO_COSTING]` JSON if tables are missin
 ### Role access
 
 Adjust `po_costing_can_write()` in the migration if your `profiles.role` values differ.
+
+---
+
+## Profiles self-service
+
+Apply **`migrations/20260521130000_profiles_self_service.sql`** so `/v2/profile.html` can read and update the signed-in user’s own `profiles` row (name, `default_page`).
+
+Without this policy, the profile page may show only your auth email or an RLS error.
