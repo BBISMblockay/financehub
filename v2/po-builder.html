@@ -20,122 +20,181 @@
       <header class="bcn-header">
         <div style="flex:1;min-width:0;">
           <div class="bcn-header-title"><h1>PO builder</h1></div>
-          <div class="bcn-header-sub">Catalog-linked POs, line matrix, bulk SKU, imports, duplicate PO, and vendor PDF.</div>
-          <div id="costingPhaseMeta" class="hint" style="margin-top:4px;color:var(--bcn-accent);font-weight:600;"></div>
+          <div class="bcn-header-sub">Catalog-linked purchase orders · line matrix · bulk SKU · vendor PDF · same data as <a href="/pages/po-builder.html">classic v1</a></div>
         </div>
-        <div class="toolbar" style="margin:0;">
-          <button id="btnTogglePoDrawer" class="bcn-btn bcn-btn--ghost" type="button">PO list <span id="poCount" class="po-count-pill">0</span></button>
-          <a class="bcn-btn bcn-btn--ghost" href="/pages/po-builder.html" title="Classic v1">Classic v1</a>
-          <a class="bcn-btn bcn-btn--ghost" href="/v2/po-report.html">PO report</a>
-          <a id="btnCosting" class="bcn-btn bcn-btn--ghost" href="/v2/po-costing.html">Landed cost</a>
-          <button id="btnPriorFob" class="bcn-btn bcn-btn--ghost" type="button" title="Apply latest unit cost from prior POs by SKU">Prior FOB</button>
-          <button id="btnRefresh" class="bcn-btn bcn-btn--ghost" type="button">Refresh</button>
-          <button id="btnNewPO" class="bcn-btn" type="button">New PO</button>
+        <div class="bcn-header-actions">
+          <button id="btnTogglePoDrawer" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button">PO LIST <span class="bcn-pill bcn-pill--accent" id="poCount">0</span></button>
+          <a class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="/v2/po-report.html">REPORT</a>
+          <a id="btnCosting" class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="/v2/po-costing.html">LANDED COST</a>
+          <button id="btnPriorFob" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" title="Apply prior FOB by SKU">PRIOR FOB</button>
+          <button id="btnRefresh" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button">REFRESH</button>
+          <button id="btnNewPO" class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button">+ NEW PO</button>
         </div>
       </header>
+
+      <section class="bcn-kpi-band" aria-label="PO totals">
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">TOTAL UNITS</div>
+          <div class="bcn-kpi-value bcn-mono" id="kpiUnits">0</div>
+          <div class="bcn-kpi-delta bcn-mono" id="kpiUnitsSub">—</div>
+        </div>
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">RETAIL VALUE</div>
+          <div class="bcn-kpi-value bcn-mono" id="kpiRetail">$0.00</div>
+          <div class="bcn-kpi-delta bcn-mono" id="kpiRetailSub">EXTENDED retail</div>
+        </div>
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">FOB COST</div>
+          <div class="bcn-kpi-value bcn-mono" id="kpiCost">$0.00</div>
+          <div class="bcn-kpi-delta bcn-mono" id="kpiCostSub">Estimated FOB</div>
+        </div>
+        <div class="bcn-kpi">
+          <div class="bcn-kpi-label">LANDED (SAVED)</div>
+          <div class="bcn-kpi-value bcn-mono" id="kpiLanded">—</div>
+          <div class="bcn-kpi-delta" id="costingPhaseMeta">Open landed cost after lines</div>
+        </div>
+      </section>
+
+      <section class="bcn-filter-bar" aria-label="Active PO">
+        <div class="bcn-filter">
+          <span class="bcn-filter-k">PO</span>
+          <span class="bcn-filter-v" id="ctxPoName">—</span>
+        </div>
+        <div class="bcn-filter">
+          <span class="bcn-filter-k">FACTORY</span>
+          <span class="bcn-filter-v" id="ctxFactory">—</span>
+        </div>
+        <div class="bcn-filter">
+          <span class="bcn-filter-k">REQ SHIP</span>
+          <span class="bcn-filter-v" id="ctxShip">—</span>
+        </div>
+        <div class="bcn-filter">
+          <span class="bcn-filter-k">BUCKET</span>
+          <span class="bcn-filter-v" id="ctxBucket">—</span>
+        </div>
+        <div class="bcn-filter-meta">
+          <span id="ctxLineMeta">0 lines</span> · <span id="detailStatusWrap"></span>
+        </div>
+      </section>
 
       <div id="poDrawerBackdrop" class="po-drawer-backdrop" aria-hidden="true"></div>
       <aside id="poDrawer" class="po-drawer" aria-label="Purchase orders" aria-hidden="true">
         <div class="po-drawer-head">
-          <h2>Select PO</h2>
-          <button id="btnClosePoDrawer" class="bcn-btn bcn-btn--ghost" type="button">Close</button>
+          <span class="po-drawer-label">PURCHASING</span>
+          <span class="po-drawer-title">Select PO</span>
+          <button id="btnClosePoDrawer" class="po-drawer-close" type="button" aria-label="Close">×</button>
         </div>
         <div class="po-drawer-body">
-          <div class="field" style="margin-bottom:8px;"><label>Search</label><input id="poSearch" type="search" placeholder="PO name, factory, bucket…" /></div>
+          <div class="bcn-field-group" style="margin-bottom:10px;">
+            <label class="bcn-label">Search</label>
+            <input id="poSearch" class="bcn-field bcn-field--mono" type="search" placeholder="PO name, factory, bucket…" />
+          </div>
           <div class="po-drawer-filters">
-            <div class="field"><label>Status</label><select id="poStatusFilter"><option value="">All</option></select></div>
-            <div class="field"><label>Factory</label><select id="poFactoryFilter"><option value="">All</option></select></div>
+            <div class="bcn-field-group">
+              <label class="bcn-label">Status</label>
+              <select id="poStatusFilter" class="bcn-field bcn-field--mono"></select>
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label">Factory</label>
+              <select id="poFactoryFilter" class="bcn-field bcn-field--mono"></select>
+            </div>
           </div>
           <div class="po-pick" id="poList"></div>
         </div>
       </aside>
 
-      <div class="po-wb-page">
-        <div class="cost-grid">
-            <section class="cost-card">
-              <div class="detail-head">
-                <div>
-                  <div class="detail-title-row">
-                    <h2 id="detailTitle" class="detail-title">No PO selected</h2>
-                    <div id="detailStatusWrap"></div>
-                  </div>
-                  <p id="detailMeta" class="detail-meta">Open PO list to pick a PO, or create a new one.</p>
-                </div>
-                <div class="toolbar" style="margin:0;">
-                  <button id="btnSaveHeader" class="bcn-btn" type="button" disabled>Save header</button>
-                  <button id="btnGeneratePdf" class="bcn-btn bcn-btn--ghost" type="button" disabled>Vendor PDF</button>
-                  <button id="btnDuplicatePO" class="bcn-btn bcn-btn--ghost" type="button" disabled>Duplicate</button>
-                  <button id="btnAddCatalogLine" class="bcn-btn bcn-btn--ghost" type="button" disabled>Catalog line</button>
-                  <button id="btnBulkSku" class="bcn-btn bcn-btn--ghost" type="button" disabled>Bulk SKU</button>
-                  <button id="btnImportLines" class="bcn-btn bcn-btn--ghost" type="button" disabled>Import</button>
-                  <button id="btnAddManualLine" class="bcn-btn bcn-btn--ghost" type="button" disabled>Manual line</button>
-                </div>
+      <div class="po-builder-main">
+        <section class="bcn-card po-header-card">
+          <header class="bcn-card-header bcn-card-header--dark">
+            <span class="bcn-pill bcn-pill--dark">HEADER</span>
+            <h2 id="detailTitle">No PO selected</h2>
+            <div style="flex:1"></div>
+            <button id="btnSaveHeader" class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" disabled>SAVE</button>
+            <button id="btnGeneratePdf" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" disabled style="color:#fff;border-color:rgba(255,255,255,.2);">PDF</button>
+            <button id="btnDuplicatePO" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" disabled style="color:#fff;border-color:rgba(255,255,255,.2);">DUPLICATE</button>
+          </header>
+          <div class="bcn-card-body">
+            <div class="po-fields-grid">
+              <div class="bcn-field-group">
+                <label class="bcn-label">PO name</label>
+                <input id="poName" class="bcn-field bcn-field--mono" type="text" placeholder="Auto-generated" />
               </div>
-
-              <div class="fields-grid">
-                <div class="field"><label>PO name</label><input id="poName" type="text" placeholder="Auto-generated" /></div>
-                <div class="field"><label>Factory</label><select id="factoryId"></select></div>
-                <div class="field"><label>Order date</label><input id="orderDate" type="date" /></div>
-                <div class="field"><label>Required ship</label><input id="reqShipDate" type="date" /></div>
-                <div class="field"><label>Expected arrival</label><input id="expectedArrivalDate" type="date" /></div>
-                <div class="field"><label>Date bucket</label><input id="dateBucket" type="text" placeholder="Holiday 2026" /></div>
-                <div class="field"><label>Status</label><select id="status"></select></div>
-                <div class="flag-row">
-                  <div class="flag-tile">
-                    <span class="flag-k">Wholesale</span>
-                    <label><input id="wholesaleTriggered" type="checkbox" /> Triggered</label>
-                  </div>
-                  <div class="flag-tile">
-                    <span class="flag-k">Product mix</span>
-                    <label><input id="isNewProductPO" type="checkbox" /> New product PO</label>
-                  </div>
-                </div>
+              <div class="bcn-field-group">
+                <label class="bcn-label">Factory</label>
+                <select id="factoryId" class="bcn-field bcn-field--mono"></select>
               </div>
-
-              <div class="fields-grid fields-grid--wide" style="margin-top:10px;">
-                <div class="field"><label>Vendor notes</label><textarea id="notes" rows="2" placeholder="Vendor-facing notes"></textarea></div>
-                <div class="field"><label>Internal notes</label><textarea id="internalNotes" rows="2" placeholder="Internal purchasing notes"></textarea></div>
+              <div class="bcn-field-group">
+                <label class="bcn-label">Order date</label>
+                <input id="orderDate" class="bcn-field bcn-field--mono" type="date" />
               </div>
-            </section>
-
-            <div class="kpi-row">
-              <div class="kpi"><div class="lbl">Total units</div><div id="kpiUnits" class="val">0</div></div>
-              <div class="kpi"><div class="lbl">Retail value</div><div id="kpiRetail" class="val">$0.00</div></div>
-              <div class="kpi"><div class="lbl">FOB cost</div><div id="kpiCost" class="val">$0.00</div></div>
-              <div class="kpi"><div class="lbl">Landed (saved)</div><div id="kpiLanded" class="val">—</div></div>
+              <div class="bcn-field-group">
+                <label class="bcn-label">Required ship</label>
+                <input id="reqShipDate" class="bcn-field bcn-field--mono" type="date" />
+              </div>
+              <div class="bcn-field-group">
+                <label class="bcn-label">Expected arrival</label>
+                <input id="expectedArrivalDate" class="bcn-field bcn-field--mono" type="date" />
+              </div>
+              <div class="bcn-field-group">
+                <label class="bcn-label">Date bucket</label>
+                <input id="dateBucket" class="bcn-field bcn-field--mono" type="text" placeholder="Holiday 2026" />
+              </div>
+              <div class="bcn-field-group">
+                <label class="bcn-label">Status</label>
+                <select id="status" class="bcn-field bcn-field--mono"></select>
+              </div>
+              <label class="po-flag-chip"><input id="wholesaleTriggered" type="checkbox" /><span>Wholesale triggered</span></label>
+              <label class="po-flag-chip"><input id="isNewProductPO" type="checkbox" /><span>New product PO</span></label>
             </div>
+            <div class="po-notes-grid">
+              <div class="bcn-field-group">
+                <label class="bcn-label">Vendor notes</label>
+                <textarea id="notes" class="bcn-field" rows="2" placeholder="Vendor-facing notes"></textarea>
+              </div>
+              <div class="bcn-field-group">
+                <label class="bcn-label">Internal notes</label>
+                <textarea id="internalNotes" class="bcn-field" rows="2" placeholder="Internal purchasing notes"></textarea>
+              </div>
+            </div>
+          </div>
+          <footer class="bcn-card-foot">
+            <button id="btnAddCatalogLine" class="bcn-btn bcn-btn--mono" type="button" disabled>CATALOG LINE</button>
+            <button id="btnBulkSku" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" disabled>BULK SKU</button>
+            <button id="btnImportLines" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" disabled>IMPORT</button>
+            <button id="btnAddManualLine" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" disabled>MANUAL LINE</button>
+          </footer>
+        </section>
 
-            <section class="cost-card">
-              <div class="lines-head">
-                <div>
-                  <h2>PO lines</h2>
-                  <p class="hint" style="margin-top:0;">Edits auto-save after typing; Save is a backup.</p>
-                </div>
-                <span class="hint">Click headers to sort · retail value updates live</span>
-              </div>
-              <div class="line-table-wrap">
-                <table class="line-table po-lines-table">
-                  <thead>
-                    <tr>
-                      <th class="line-sort-th" data-line-sort="product_type_snapshot">Type <span class="sort-mark" data-sort-mark="product_type_snapshot"></span></th>
-                      <th class="line-sort-th" data-line-sort="title_snapshot">Title <span class="sort-mark" data-sort-mark="title_snapshot"></span></th>
-                      <th class="line-sort-th" data-line-sort="variant_title_snapshot">Variant <span class="sort-mark" data-sort-mark="variant_title_snapshot"></span></th>
-                      <th class="line-sort-th" data-line-sort="sku_snapshot">SKU <span class="sort-mark" data-sort-mark="sku_snapshot"></span></th>
-                      <th class="line-sort-th" data-line-sort="upc_snapshot">UPC <span class="sort-mark" data-sort-mark="upc_snapshot"></span></th>
-                      <th class="line-sort-th num" data-line-sort="retail_price">Retail <span class="sort-mark" data-sort-mark="retail_price"></span></th>
-                      <th class="line-sort-th num" data-line-sort="unit_cost">FOB <span class="sort-mark" data-sort-mark="unit_cost"></span></th>
-                      <th class="num">Landed</th>
-                      <th class="line-sort-th num" data-line-sort="qty">Qty <span class="sort-mark" data-sort-mark="qty"></span></th>
-                      <th class="line-sort-th num" data-line-sort="retail_value">Retail ext <span class="sort-mark" data-sort-mark="retail_value"></span></th>
-                      <th class="line-sort-th" data-line-sort="line_notes">Notes <span class="sort-mark" data-sort-mark="line_notes"></span></th>
-                      <th class="num">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody id="linesTbody"></tbody>
-                </table>
-              </div>
-            </section>
-        </div>
+        <section class="bcn-card po-lines-card">
+          <header class="bcn-card-header">
+            <span class="bcn-pill bcn-pill--accent">MATRIX</span>
+            <h2>PO lines</h2>
+            <span class="bcn-card-meta" id="linesCardMeta">Auto-save on edit · save button is backup</span>
+            <div style="flex:1"></div>
+            <span class="bcn-card-meta">Sort · click column headers</span>
+          </header>
+          <div class="bcn-matrix-scroll">
+            <table class="bcn-table po-lines-table">
+              <thead>
+                <tr>
+                  <th class="bcn-th-left line-sort-th" data-line-sort="product_type_snapshot">Type <span class="sort-mark" data-sort-mark="product_type_snapshot"></span></th>
+                  <th class="bcn-th-left line-sort-th" data-line-sort="title_snapshot">Title <span class="sort-mark" data-sort-mark="title_snapshot"></span></th>
+                  <th class="bcn-th-left line-sort-th" data-line-sort="variant_title_snapshot">Variant <span class="sort-mark" data-sort-mark="variant_title_snapshot"></span></th>
+                  <th class="bcn-th-left line-sort-th" data-line-sort="sku_snapshot">SKU <span class="sort-mark" data-sort-mark="sku_snapshot"></span></th>
+                  <th class="bcn-th-left line-sort-th" data-line-sort="upc_snapshot">UPC <span class="sort-mark" data-sort-mark="upc_snapshot"></span></th>
+                  <th class="line-sort-th" data-line-sort="retail_price">Retail <span class="sort-mark" data-sort-mark="retail_price"></span></th>
+                  <th class="line-sort-th" data-line-sort="unit_cost">FOB <span class="sort-mark" data-sort-mark="unit_cost"></span></th>
+                  <th>Landed</th>
+                  <th class="line-sort-th" data-line-sort="qty">Qty <span class="sort-mark" data-sort-mark="qty"></span></th>
+                  <th class="line-sort-th" data-line-sort="retail_value">Ext <span class="sort-mark" data-sort-mark="retail_value"></span></th>
+                  <th class="bcn-th-left line-sort-th" data-line-sort="line_notes">Notes <span class="sort-mark" data-sort-mark="line_notes"></span></th>
+                  <th>Act</th>
+                </tr>
+              </thead>
+              <tbody id="linesTbody"></tbody>
+            </table>
+          </div>
+        </section>
       </div>
     </main>
   </div>
@@ -251,7 +310,7 @@
     const el = {
       poList: document.getElementById('poList'), poCount: document.getElementById('poCount'), poSearch: document.getElementById('poSearch'), poStatusFilter: document.getElementById('poStatusFilter'), poFactoryFilter: document.getElementById('poFactoryFilter'),
       btnRefresh: document.getElementById('btnRefresh'), btnNewPO: document.getElementById('btnNewPO'), btnSaveHeader: document.getElementById('btnSaveHeader'), btnGeneratePdf: document.getElementById('btnGeneratePdf'), btnDuplicatePO: document.getElementById('btnDuplicatePO'), btnAddCatalogLine: document.getElementById('btnAddCatalogLine'), btnBulkSku: document.getElementById('btnBulkSku'), btnImportLines: document.getElementById('btnImportLines'), btnAddManualLine: document.getElementById('btnAddManualLine'),
-      detailTitle: document.getElementById('detailTitle'), detailMeta: document.getElementById('detailMeta'), detailStatusWrap: document.getElementById('detailStatusWrap'), poName: document.getElementById('poName'), factoryId: document.getElementById('factoryId'), orderDate: document.getElementById('orderDate'), reqShipDate: document.getElementById('reqShipDate'), expectedArrivalDate: document.getElementById('expectedArrivalDate'), dateBucket: document.getElementById('dateBucket'), status: document.getElementById('status'), wholesaleTriggered: document.getElementById('wholesaleTriggered'), isNewProductPO: document.getElementById('isNewProductPO'), notes: document.getElementById('notes'), internalNotes: document.getElementById('internalNotes'),
+      detailTitle: document.getElementById('detailTitle'), detailStatusWrap: document.getElementById('detailStatusWrap'), poName: document.getElementById('poName'), factoryId: document.getElementById('factoryId'), orderDate: document.getElementById('orderDate'), reqShipDate: document.getElementById('reqShipDate'), expectedArrivalDate: document.getElementById('expectedArrivalDate'), dateBucket: document.getElementById('dateBucket'), status: document.getElementById('status'), wholesaleTriggered: document.getElementById('wholesaleTriggered'), isNewProductPO: document.getElementById('isNewProductPO'), notes: document.getElementById('notes'), internalNotes: document.getElementById('internalNotes'),
       kpiUnits: document.getElementById('kpiUnits'), kpiRetail: document.getElementById('kpiRetail'), kpiCost: document.getElementById('kpiCost'), kpiLanded: document.getElementById('kpiLanded'), linesTbody: document.getElementById('linesTbody'),
       catalogModal: document.getElementById('catalogModal'), catalogSearch: document.getElementById('catalogSearch'), btnSearchCatalog: document.getElementById('btnSearchCatalog'), btnAddSelectedCatalog: document.getElementById('btnAddSelectedCatalog'), catalogResults: document.getElementById('catalogResults'),
       manualModal: document.getElementById('manualModal'), manualProductType: document.getElementById('manualProductType'), manualTitle: document.getElementById('manualTitle'), manualVariant: document.getElementById('manualVariant'), manualSku: document.getElementById('manualSku'), manualUpc: document.getElementById('manualUpc'), manualBarcode: document.getElementById('manualBarcode'), manualRetail: document.getElementById('manualRetail'), manualCost: document.getElementById('manualCost'), manualQty: document.getElementById('manualQty'), manualNotes: document.getElementById('manualNotes'), btnSaveManualLine: document.getElementById('btnSaveManualLine'), btnSaveManualAnother: document.getElementById('btnSaveManualAnother'),
@@ -290,9 +349,37 @@
       renderLines();
     }
 
+    function syncContextBar(po){
+      const set=(id,v)=>{ const n=document.getElementById(id); if(n) n.textContent=v; };
+      if(!po){
+        set('ctxPoName','—'); set('ctxFactory','—'); set('ctxShip','—'); set('ctxBucket','—');
+        if(el.detailStatusWrap) el.detailStatusWrap.innerHTML=statusBadge('Draft');
+        return;
+      }
+      set('ctxPoName', po.po_name||'Untitled');
+      set('ctxFactory', po.factory_name||'—');
+      set('ctxShip', po.req_ship_date||'—');
+      set('ctxBucket', po.date_bucket||'—');
+      if(el.detailStatusWrap) el.detailStatusWrap.innerHTML=statusBadge(po.status||'Draft');
+    }
+
+    function syncLineMeta(){
+      const n=(state.currentLines||[]).length;
+      const ctx=document.getElementById('ctxLineMeta');
+      if(ctx) ctx.textContent=`${n} line${n===1?'':'s'}`;
+      const sub=document.getElementById('kpiUnitsSub');
+      if(sub && state.currentPO) sub.textContent=`${n} SKU row${n===1?'':'s'} on PO`;
+    }
+
     async function refreshCosting(){
       const Lib=window.PoCostingLib;
-      if(!Lib||!state.currentPO?.id){ state.costingCtx=null; if(el.kpiLanded) el.kpiLanded.textContent='—'; return; }
+      const meta=document.getElementById('costingPhaseMeta');
+      if(!Lib||!state.currentPO?.id){
+        state.costingCtx=null;
+        if(el.kpiLanded) el.kpiLanded.textContent='—';
+        if(meta) meta.textContent='Open landed cost after lines';
+        return;
+      }
       try{
         state.costingCtx=await Lib.loadPoCostingContext(sb, state.currentPO.id);
         const pc=state.costingCtx?.costing;
@@ -301,12 +388,13 @@
           el.kpiLanded.textContent=(pc||state.costingCtx?.saved) && landed ? money(landed) : '—';
           el.kpiLanded.title=pc ? Lib.phaseLabel(pc.phase) : 'Open Landed cost to start costing';
         }
-        const meta=document.getElementById('costingPhaseMeta');
-        if(meta) meta.textContent=pc ? `Costing: ${Lib.phaseLabel(pc.phase)}` : 'No costing record — open Landed cost after lines are added';
+        if(meta) meta.textContent=pc ? `Costing · ${Lib.phaseLabel(pc.phase)}` : 'No costing yet — open Landed cost';
+        if(meta && pc) meta.classList.add('bcn-kpi-delta--pos');
       }catch(e){
         console.warn('refreshCosting', e);
         state.costingCtx=null;
         if(el.kpiLanded) el.kpiLanded.textContent='—';
+        if(meta) meta.textContent='Costing unavailable';
       }
     }
 
@@ -387,37 +475,62 @@
 
     function fillEditor(po){
       el.poName.value=po.po_name||''; el.factoryId.value=po.factory_id||''; el.orderDate.value=po.order_date||''; el.reqShipDate.value=po.req_ship_date||''; el.expectedArrivalDate.value=po.expected_arrival_date||''; el.dateBucket.value=po.date_bucket||''; el.status.value=po.status||'Draft'; el.wholesaleTriggered.checked=!!po.wholesale_triggered; el.isNewProductPO.checked=!!po.is_new_product_po; el.notes.value=po.notes||''; el.internalNotes.value=po.internal_notes||'';
-      el.detailTitle.textContent=po.po_name||'Untitled PO'; el.detailStatusWrap.innerHTML=statusBadge(po.status||'Draft'); el.detailMeta.textContent=`${po.factory_name||'No factory'} · Ordered ${po.order_date||'—'} · Required ship ${po.req_ship_date||'—'}`;
-      el.kpiUnits.textContent=Number(po.total_units||0).toLocaleString(); el.kpiRetail.textContent=money(po.total_retail_value||0); el.kpiCost.textContent=money(po.total_estimated_cost||0);
+      el.detailTitle.textContent=po.po_name||'Untitled PO';
+      syncContextBar(po);
+      el.kpiUnits.textContent=Number(po.total_units||0).toLocaleString();
+      el.kpiRetail.textContent=money(po.total_retail_value||0);
+      el.kpiCost.textContent=money(po.total_estimated_cost||0);
       const costingBtn=document.getElementById('btnCosting');
       if(costingBtn) costingBtn.href=po.id ? `/v2/po-costing.html?po_id=${encodeURIComponent(po.id)}` : '/v2/po-costing.html';
     }
 
-    function resetEditorForNew(){ state.currentPO=null; state.currentLines=[]; state.costingCtx=null; if(el.kpiLanded) el.kpiLanded.textContent='—'; el.poName.value=''; el.factoryId.value=''; el.orderDate.value=todayStr(); el.reqShipDate.value=plusDaysStr(45); el.expectedArrivalDate.value=''; el.dateBucket.value=''; el.status.value='Draft'; el.wholesaleTriggered.checked=false; el.isNewProductPO.checked=false; el.notes.value=''; el.internalNotes.value=''; el.detailTitle.textContent='New Purchase Order'; el.detailStatusWrap.innerHTML=statusBadge('Draft'); el.detailMeta.textContent='Save the header first, then add catalog, bulk, imported, or manual lines.'; renderLines(); setEditorEnabled(true); el.btnGeneratePdf.disabled=true; el.btnDuplicatePO.disabled=true; el.btnAddCatalogLine.disabled=true; el.btnBulkSku.disabled=true; el.btnImportLines.disabled=true; el.btnAddManualLine.disabled=true; const costingBtn=document.getElementById('btnCosting'); if(costingBtn) costingBtn.href='/v2/po-costing.html'; }
+    function resetEditorForNew(){
+      state.currentPO=null; state.currentLines=[]; state.costingCtx=null;
+      el.poName.value=''; el.factoryId.value=''; el.orderDate.value=todayStr(); el.reqShipDate.value=plusDaysStr(45);
+      el.expectedArrivalDate.value=''; el.dateBucket.value=''; el.status.value='Draft';
+      el.wholesaleTriggered.checked=false; el.isNewProductPO.checked=false;
+      el.notes.value=''; el.internalNotes.value='';
+      el.detailTitle.textContent='New purchase order';
+      syncContextBar(null);
+      el.kpiUnits.textContent='0'; el.kpiRetail.textContent='$0.00'; el.kpiCost.textContent='$0.00';
+      if(el.kpiLanded) el.kpiLanded.textContent='—';
+      const meta=document.getElementById('costingPhaseMeta');
+      if(meta){ meta.textContent='Save header, then add lines'; meta.classList.remove('bcn-kpi-delta--pos'); }
+      const sub=document.getElementById('kpiUnitsSub');
+      if(sub) sub.textContent='—';
+      renderLines(); syncLineMeta();
+      setEditorEnabled(true);
+      el.btnGeneratePdf.disabled=true; el.btnDuplicatePO.disabled=true;
+      el.btnAddCatalogLine.disabled=true; el.btnBulkSku.disabled=true;
+      el.btnImportLines.disabled=true; el.btnAddManualLine.disabled=true;
+      const costingBtn=document.getElementById('btnCosting');
+      if(costingBtn) costingBtn.href='/v2/po-costing.html';
+    }
 
     function renderLines(){
       const rows=sortLinesForDisplay(state.currentLines||[]);
       state.currentLines=rows;
       renderLineSortMarks();
 
-      if(!rows.length){ el.linesTbody.innerHTML='<tr><td colspan="12" class="hint" style="text-align:center;padding:16px;">No PO lines yet. Add a catalog line, bulk SKU list, imported PO, or manual entry.</td></tr>'; }
+      if(!rows.length){ el.linesTbody.innerHTML='<tr><td colspan="12" class="bcn-empty">No lines — use catalog, bulk SKU, import, or manual add</td></tr>'; }
       else {
         el.linesTbody.innerHTML=rows.map(line=>`<tr data-line-row="${line.id}">
-          <td><input class="line-input" data-line-field="product_type_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.product_type_snapshot||'')}"></td>
-          <td><input class="line-input" data-line-field="title_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.title_snapshot||'')}"></td>
-          <td><input class="line-input" data-line-field="variant_title_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.variant_title_snapshot||'')}"></td>
-          <td><input class="line-input" data-line-field="sku_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.sku_snapshot||'')}"></td>
-          <td><input class="line-input" data-line-field="upc_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.upc_snapshot||'')}"></td>
-          <td class="num"><input class="line-input small" type="number" step="0.01" data-line-field="retail_price" data-line-id="${line.id}" value="${Number(line.retail_price||0)}"></td>
-          <td class="num"><input class="line-input small" type="number" step="0.01" data-line-field="unit_cost" data-line-id="${line.id}" value="${Number(line.unit_cost||0)}"></td>
-          <td class="num">${landedCellHtml(line)}</td>
-          <td class="num"><input class="line-input small" type="number" min="0" step="1" data-line-field="qty" data-line-id="${line.id}" value="${Number(line.qty||0)}"></td>
-          <td class="num retail-ext" data-line-retail-value="${line.id}">${money(line.retail_value||0)}</td>
-          <td><textarea class="line-input notes" rows="1" data-line-field="line_notes" data-line-id="${line.id}">${escapeHtml(line.line_notes||'')}</textarea></td>
-          <td class="num"><div class="line-actions"><span class="line-autosave-state" data-line-save-state="${line.id}">Saved</span><button class="bcn-btn bcn-btn--ghost line-save-btn" data-line-save="${line.id}">Save</button><button class="bcn-btn bcn-btn--ghost line-delete-btn" data-line-delete="${line.id}">Del</button></div></td>
+          <td class="bcn-th-left"><input class="po-line-input" data-line-field="product_type_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.product_type_snapshot||'')}"></td>
+          <td class="bcn-th-left"><input class="po-line-input" data-line-field="title_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.title_snapshot||'')}"></td>
+          <td class="bcn-th-left"><input class="po-line-input" data-line-field="variant_title_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.variant_title_snapshot||'')}"></td>
+          <td class="bcn-th-left"><input class="po-line-input" data-line-field="sku_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.sku_snapshot||'')}"></td>
+          <td class="bcn-th-left"><input class="po-line-input" data-line-field="upc_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.upc_snapshot||'')}"></td>
+          <td><input class="po-line-input po-line-input--num" type="number" step="0.01" data-line-field="retail_price" data-line-id="${line.id}" value="${Number(line.retail_price||0)}"></td>
+          <td><input class="po-line-input po-line-input--num" type="number" step="0.01" data-line-field="unit_cost" data-line-id="${line.id}" value="${Number(line.unit_cost||0)}"></td>
+          <td>${landedCellHtml(line)}</td>
+          <td><input class="po-line-input po-line-input--num" type="number" min="0" step="1" data-line-field="qty" data-line-id="${line.id}" value="${Number(line.qty||0)}"></td>
+          <td class="td-total" data-line-retail-value="${line.id}">${money(line.retail_value||0)}</td>
+          <td class="bcn-th-left"><textarea class="po-line-input po-line-input--notes" rows="1" data-line-field="line_notes" data-line-id="${line.id}">${escapeHtml(line.line_notes||'')}</textarea></td>
+          <td><div class="po-line-actions"><span class="line-autosave-state" data-line-save-state="${line.id}">Saved</span><button class="bcn-btn bcn-btn--ghost bcn-btn--mono line-save-btn" data-line-save="${line.id}">Save</button><button class="bcn-btn bcn-btn--danger bcn-btn--mono line-delete-btn" data-line-delete="${line.id}">Del</button></div></td>
         </tr>`).join('');
       }
       updateLineTotalsFromState();
+      syncLineMeta();
     }
 
     function renderCatalogResults(){
@@ -580,6 +693,7 @@
       el.kpiUnits.textContent=totalUnits.toLocaleString();
       el.kpiRetail.textContent=money(totalRetail);
       el.kpiCost.textContent=money(totalCost);
+      syncLineMeta();
     }
 
     function updateRetailPreview(lineId){
@@ -1084,6 +1198,7 @@
         await refreshAll();
         const startPo=new URLSearchParams(location.search).get('po_id');
         if(startPo){ await openPO(startPo); }
+        else if(!state.currentPO?.id && state.poRows.length){ setPoDrawerOpen(true); }
       }catch(e){ console.error(e); alert(e.message||'Initial load failed'); }
     }
 
