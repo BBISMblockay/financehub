@@ -14,6 +14,14 @@
   <script src="../pages/po-costing-lib.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
   <script src="silo-chrome.js"></script>
+  <style>
+    .bcn-header-sub { display: none; }
+    .bcn-header { padding-top: 8px; padding-bottom: 8px; }
+    .bcn-kpi-band { padding-top: 4px; padding-bottom: 4px; }
+    .bcn-kpi { padding-top: 4px; padding-bottom: 4px; }
+    .bcn-kpi-value { font-size: 15px !important; }
+    .bcn-kpi-delta { display: none; }
+  </style>
 </head>
 <body class="v2-mirror--po">
   <div class="silo-app" id="silo-app">
@@ -1160,22 +1168,6 @@
       const closeBtn=ev.target.closest('[data-close]'); if(closeBtn){ const node=document.getElementById(closeBtn.getAttribute('data-close')); if(node) modalClose(node); }
     });
 
-    async function mountChrome(session){
-      if(!window.SiloChrome || !session?.user) return;
-      let role = 'MEMBER';
-      try{
-        const { data: prof } = await sb.from('profiles').select('role').eq('id', session.user.id).maybeSingle();
-        if(prof?.role) role = prof.role;
-      }catch(_){ /* profiles optional for chrome label */ }
-      window.SiloChrome.mount({
-        appEl: '#silo-app',
-        active: 'purchasing/po-builder',
-        user: { email: session.user.email, role },
-        crumbs: ['Purchasing', 'PO builder'],
-        supabaseClient: sb,
-      });
-    }
-
     async function boot(){
       renderStatusOptions(); resetEditorForNew();
       if(REQUIRE_AUTH){
@@ -1187,7 +1179,6 @@
             window.location.href = REDIRECT_TO || ('/pages/login.html?next=' + next);
             return;
           }
-          await mountChrome(data.session);
         }catch(e){
           console.error(e);
           alert(e.message||'Auth check failed');
@@ -1203,6 +1194,15 @@
       }catch(e){ console.error(e); alert(e.message||'Initial load failed'); }
     }
 
+    if(window.SiloChrome){
+      window.SiloChrome.mount({
+        appEl: '#silo-app',
+        active: 'purchasing/po-builder',
+        user: { email: '', role: 'MEMBER' },
+        crumbs: ['Purchasing', 'PO builder'],
+        supabaseClient: sb,
+      });
+    }
     boot();
   </script>
 </body>

@@ -13,6 +13,14 @@
   <script src="../pages/config.js"></script>
   <script src="../pages/po-costing-lib.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+  <style>
+    .bcn-header-sub { display: none; }
+    .bcn-header { padding-top: 8px; padding-bottom: 8px; }
+    .bcn-kpi-band { padding-top: 4px; padding-bottom: 4px; }
+    .bcn-kpi { padding-top: 4px; padding-bottom: 4px; }
+    .bcn-kpi-value { font-size: 15px !important; }
+    .bcn-kpi-delta { display: none; }
+  </style>
 </head>
 <body class="v2-mirror--po">
   <div class="silo-app" id="silo-app">
@@ -193,7 +201,9 @@
   <script>
     const Lib = window.PoCostingLib;
     const cfg = window.__SILO_CONFIG__ || {};
-    let db = null;
+    const db = (cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY)
+      ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY)
+      : null;
     let authUser = null;
     let poRows = [];
     let ctx = null;
@@ -556,25 +566,14 @@
 
     async function boot() {
       if (!Lib) { alert('po-costing-lib.js missing'); return; }
-      if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) { alert('Missing Supabase config.'); return; }
+      if (!db) { alert('Missing Supabase config.'); return; }
 
-      db = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
       const { data: sess } = await db.auth.getSession();
       if (!sess?.session?.user) {
         location.href = '/pages/login.html?next=' + encodeURIComponent(location.pathname + location.search);
         return;
       }
       authUser = sess.session.user;
-
-      if (window.SiloChrome) {
-        window.SiloChrome.mount({
-          appEl: '#silo-app',
-          active: 'purchasing/po-costing',
-          user: { email: sess.session.user.email, role: 'MEMBER' },
-          crumbs: ['Purchasing', 'Landed cost'],
-          supabaseClient: db,
-        });
-      }
 
       document.querySelectorAll('[data-cost-header]').forEach(el => {
         el.addEventListener('change', () => recalc());
@@ -624,6 +623,15 @@
       else if (poRows.length) setPoDrawerOpen(true);
     }
 
+    if (window.SiloChrome && db) {
+      window.SiloChrome.mount({
+        appEl: '#silo-app',
+        active: 'purchasing/po-costing',
+        user: { email: '', role: 'MEMBER' },
+        crumbs: ['Purchasing', 'Landed cost'],
+        supabaseClient: db,
+      });
+    }
     document.addEventListener('DOMContentLoaded', boot);
   </script>
 </body>
