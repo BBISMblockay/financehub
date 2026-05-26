@@ -184,19 +184,23 @@
     // Render chrome inside .silo-main before SiloChrome.mount so utility bar is prepended on top.
     mainEl.innerHTML = renderHeader(cfg);
 
-    const { user, supabaseClient } = await bootSupabase();
-
     if (!window.SiloChrome) {
       console.error('tool-shell: SiloChrome global missing — include silo-chrome.js first');
       return;
     }
 
+    // Mount sidebar synchronously so it renders on first paint, before auth network call.
+    const sbCfg = window.__SILO_CONFIG__ || {};
+    const sbClient = (sbCfg.SUPABASE_URL && sbCfg.SUPABASE_ANON_KEY && window.supabase)
+      ? window.supabase.createClient(sbCfg.SUPABASE_URL, sbCfg.SUPABASE_ANON_KEY)
+      : null;
+
     window.SiloChrome.mount({
       appEl: '#silo-app',
       active: cfg.active,
       crumbs: cfg.crumbs || [],
-      user: user || { email: 'Signed out', role: 'MEMBER' },
-      supabaseClient,
+      user: { email: '', role: 'MEMBER' },
+      supabaseClient: sbClient,
     });
 
     wireFrame(mainEl, cfg);
