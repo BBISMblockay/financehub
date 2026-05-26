@@ -831,249 +831,239 @@
                 <div class="section-sub">Compact action rows with status, last touch, queue, and quick actions.</div>
               </div>
               <span class="section-row-count"><span id="customerRowCount">0</span> rows</span>
-              </div>
-
-              <div class="mt-4 table-wrap max-h-[72vh]">
-                <table>
-                  <thead id="customerHead"></thead>
-                  <tbody id="customerBody"></tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
-          <div class="xl:col-span-3 space-y-5">
-            <div class="card p-3 lg:p-4">
-              <div class="section-title">Summary</div>
-              <div class="mini-grid mt-4" id="companySummary"></div>
             </div>
 
-            <div class="card p-3 lg:p-4">
-              <div class="section-title">Top open</div>
-              <div class="section-sub">Largest balances in current filter.</div>
-              <div id="topCustomers" class="mt-4"></div>
-            </div>
-
-            <div class="card p-3 lg:p-4">
-              <div class="section-title">Aging</div>
-              <div id="agingCards" class="mt-4"></div>
+            <div class="table-wrap" style="max-height:68vh">
+              <table>
+                <thead id="customerHead"></thead>
+                <tbody id="customerBody"></tbody>
+              </table>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- Orders view -->
-      <div id="viewOrders" class="view-panel">
-        <div class="card p-3 lg:p-4">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <div class="section-title">Order detail</div>
-              <div class="section-sub">Underlying synced rows with effective customer/contact fields.</div>
-            </div>
-            <div class="text-xs text-slate-500"><span id="orderRowCount">0</span> rows</div>
+        <div class="stack">
+          <div class="card card-pad">
+            <div class="section-title" style="margin-bottom:10px">Summary</div>
+            <div class="mini-grid" id="companySummary"></div>
           </div>
 
-          <div class="mt-4 table-wrap max-h-[74vh]">
-            <table>
-              <thead id="orderHead"></thead>
-              <tbody id="orderBody"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      <!-- Activity view -->
-      <div id="viewActivity" class="view-panel">
-        <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
-          <div class="xl:col-span-8">
-            <div class="card p-3 lg:p-4">
-              <div class="flex items-start justify-between gap-3">
-                <div>
-                  <div class="section-title">Recent activity</div>
-                  <div class="section-sub">Contact log feed across customers.</div>
-                </div>
-                <div class="text-xs text-slate-500"><span id="activityRowCount">0</span> rows</div>
-              </div>
-
-              <div id="activityFeed" class="mt-4 space-y-3"></div>
-            </div>
+          <div class="card card-pad">
+            <div class="section-title">Top open</div>
+            <div class="section-sub" style="margin-bottom:10px">Largest balances in current filter.</div>
+            <div id="topCustomers"></div>
           </div>
 
-          <div class="xl:col-span-4 space-y-5">
-            <div class="card p-3 lg:p-4">
-              <div class="section-title">Activity summary</div>
-              <div class="mini-grid mt-4" id="activitySummaryCards"></div>
-            </div>
+          <div class="card card-pad">
+            <div class="section-title" style="margin-bottom:10px">Aging</div>
+            <div id="agingCards"></div>
           </div>
         </div>
       </div>
     </div>
+
+    <!-- Orders view -->
+    <div id="viewOrders" class="view-panel">
+      <div class="card card-pad">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:10px">
+          <div>
+            <div class="section-title">Order detail</div>
+            <div class="section-sub">Underlying synced rows with effective customer/contact fields.</div>
+          </div>
+          <span class="section-row-count"><span id="orderRowCount">0</span> rows</span>
+        </div>
+
+        <div class="table-wrap" style="max-height:70vh">
+          <table>
+            <thead id="orderHead"></thead>
+            <tbody id="orderBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Activity view -->
+    <div id="viewActivity" class="view-panel">
+      <div class="two-col-wide">
+        <div class="card card-pad">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:10px">
+            <div>
+              <div class="section-title">Recent activity</div>
+              <div class="section-sub">Contact log feed across customers.</div>
+            </div>
+            <span class="section-row-count"><span id="activityRowCount">0</span> rows</span>
+          </div>
+
+          <div id="activityFeed" class="stack"></div>
+        </div>
+
+        <div class="card card-pad">
+          <div class="section-title" style="margin-bottom:10px">Activity summary</div>
+          <div class="mini-grid" id="activitySummaryCards"></div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <div id="drawerBackdrop" class="drawer-backdrop"></div>
 
   <aside id="workbenchDrawer" class="drawer" aria-hidden="true">
     <div class="drawer-head">
-      <div class="flex items-start justify-between gap-3">
+      <div class="drawer-head-top">
         <div>
-          <div class="text-xs uppercase tracking-[.12em] text-slate-500 font-extrabold">AR Workbench</div>
-          <h2 id="drawerTitle" class="mt-1 text-xl font-extrabold text-slate-900">Customer</h2>
-          <p id="drawerSub" class="mt-1 text-sm text-slate-500">Edit workflow, contact info, queue reminders, and log AR actions.</p>
+          <div class="drawer-eyebrow">AR Workbench</div>
+          <h2 id="drawerTitle" class="drawer-title">Customer</h2>
+          <p id="drawerSub" class="drawer-sub">Edit workflow, contact info, queue reminders, and log AR actions.</p>
         </div>
         <button id="closeDrawerBtn" class="btn btn-soft btn-xs">Close</button>
       </div>
     </div>
 
     <div class="drawer-body">
-      <div class="space-y-6">
-        <div class="card p-4">
-          <div class="section-title">Snapshot</div>
-          <div id="drawerSnapshot" class="mt-4 grid grid-cols-2 gap-3 text-sm"></div>
-        </div>
+      <div class="card card-pad">
+        <div class="section-title" style="margin-bottom:10px">Snapshot</div>
+        <div id="drawerSnapshot" class="snapshot-grid"></div>
+      </div>
 
-        <div class="card p-4">
-          <div class="section-title">Customer + billing</div>
-          <div class="field-grid mt-4">
-            <div class="full">
-              <label class="mb-1 block text-xs font-semibold text-slate-700">Customer name override</label>
-              <input id="fCustomerNameOverride" class="input" placeholder="Displayed customer name" />
-            </div>
+      <div class="card card-pad">
+        <div class="section-title" style="margin-bottom:10px">Customer + billing</div>
+        <div class="field-grid">
+          <div class="full">
+            <label class="field-label">Customer name override</label>
+            <input id="fCustomerNameOverride" class="input" placeholder="Displayed customer name" />
+          </div>
 
-            <div>
-              <label class="mb-1 block text-xs font-semibold text-slate-700">Billing email override</label>
-              <input id="fBillingEmailOverride" class="input" placeholder="billing@example.com" />
-            </div>
+          <div>
+            <label class="field-label">Billing email override</label>
+            <input id="fBillingEmailOverride" class="input" placeholder="billing@example.com" />
+          </div>
 
-            <div>
-              <label class="mb-1 block text-xs font-semibold text-slate-700">Terms override (days)</label>
-              <input id="fTermDaysOverride" type="number" min="0" class="input" placeholder="30" />
-            </div>
+          <div>
+            <label class="field-label">Terms override (days)</label>
+            <input id="fTermDaysOverride" type="number" min="0" class="input" placeholder="30" />
+          </div>
 
-            <div>
-              <label class="mb-1 block text-xs font-semibold text-slate-700">Contact name</label>
-              <input id="fContactName" class="input" placeholder="AP contact name" />
-            </div>
+          <div>
+            <label class="field-label">Contact name</label>
+            <input id="fContactName" class="input" placeholder="AP contact name" />
+          </div>
 
-            <div>
-              <label class="mb-1 block text-xs font-semibold text-slate-700">Phone</label>
-              <input id="fPhone" class="input" placeholder="Phone number" />
-            </div>
+          <div>
+            <label class="field-label">Phone</label>
+            <input id="fPhone" class="input" placeholder="Phone number" />
           </div>
         </div>
+      </div>
 
-        <div class="card p-4">
-          <div class="section-title">Workflow</div>
-          <div class="field-grid mt-4">
-            <div>
-              <label class="mb-1 block text-xs font-semibold text-slate-700">Contact status</label>
-              <select id="fContactStatus" class="select">
-                <option value="active">Active</option>
-                <option value="hold">Hold</option>
-                <option value="no_email">No email</option>
-                <option value="bad_email">Bad email</option>
-                <option value="closed">Closed</option>
-              </select>
-            </div>
+      <div class="card card-pad">
+        <div class="section-title" style="margin-bottom:10px">Workflow</div>
+        <div class="field-grid">
+          <div>
+            <label class="field-label">Contact status</label>
+            <select id="fContactStatus" class="select">
+              <option value="active">Active</option>
+              <option value="hold">Hold</option>
+              <option value="no_email">No email</option>
+              <option value="bad_email">Bad email</option>
+              <option value="closed">Closed</option>
+            </select>
+          </div>
 
-            <div>
-              <label class="mb-1 block text-xs font-semibold text-slate-700">Preferred channel</label>
-              <select id="fPreferredChannel" class="select">
-                <option value="email">Email</option>
-                <option value="phone">Phone</option>
-                <option value="manual">Manual</option>
-                <option value="none">None</option>
-              </select>
-            </div>
+          <div>
+            <label class="field-label">Preferred channel</label>
+            <select id="fPreferredChannel" class="select">
+              <option value="email">Email</option>
+              <option value="phone">Phone</option>
+              <option value="manual">Manual</option>
+              <option value="none">None</option>
+            </select>
+          </div>
 
-            <div>
-              <label class="mb-1 block text-xs font-semibold text-slate-700">Priority</label>
-              <select id="fWorkflowPriority" class="select">
-                <option value="low">Low</option>
-                <option value="normal">Normal</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </select>
-            </div>
+          <div>
+            <label class="field-label">Priority</label>
+            <select id="fWorkflowPriority" class="select">
+              <option value="low">Low</option>
+              <option value="normal">Normal</option>
+              <option value="high">High</option>
+              <option value="urgent">Urgent</option>
+            </select>
+          </div>
 
-            <div>
-              <label class="mb-1 block text-xs font-semibold text-slate-700">Assigned to</label>
-              <select id="fAssignedTo" class="select">
-                <option value="">Unassigned</option>
-              </select>
-            </div>
+          <div>
+            <label class="field-label">Assigned to</label>
+            <select id="fAssignedTo" class="select">
+              <option value="">Unassigned</option>
+            </select>
+          </div>
 
-            <div>
-              <label class="mb-1 block text-xs font-semibold text-slate-700">Next follow-up</label>
-              <input id="fNextFollowUpAt" type="datetime-local" class="input" />
-            </div>
+          <div>
+            <label class="field-label">Next follow-up</label>
+            <input id="fNextFollowUpAt" type="datetime-local" class="input" />
+          </div>
 
-            <div class="full">
-              <label class="mb-1 block text-xs font-semibold text-slate-700">Notes</label>
-              <textarea id="fNotes" class="textarea" placeholder="Internal notes, payment context, next steps..."></textarea>
-            </div>
+          <div class="full">
+            <label class="field-label">Notes</label>
+            <textarea id="fNotes" class="textarea" placeholder="Internal notes, payment context, next steps..."></textarea>
           </div>
         </div>
+      </div>
 
-        <div class="card p-4">
-          <div class="section-title">Log activity</div>
-          <div class="field-grid mt-4">
-            <div>
-              <label class="mb-1 block text-xs font-semibold text-slate-700">Log type</label>
-              <select id="fLogType" class="select">
-                <option value="">None</option>
-                <option value="note">Internal note</option>
-                <option value="call">Phone call</option>
-                <option value="manual_email">Manual email</option>
-                <option value="reminder">Reminder</option>
-                <option value="statement">Statement</option>
-                <option value="escalation">Escalation</option>
-              </select>
-            </div>
+      <div class="card card-pad">
+        <div class="section-title" style="margin-bottom:10px">Log activity</div>
+        <div class="field-grid">
+          <div>
+            <label class="field-label">Log type</label>
+            <select id="fLogType" class="select">
+              <option value="">None</option>
+              <option value="note">Internal note</option>
+              <option value="call">Phone call</option>
+              <option value="manual_email">Manual email</option>
+              <option value="reminder">Reminder</option>
+              <option value="statement">Statement</option>
+              <option value="escalation">Escalation</option>
+            </select>
+          </div>
 
-            <div>
-              <label class="mb-1 block text-xs font-semibold text-slate-700">Channel</label>
-              <select id="fLogChannel" class="select">
-                <option value="internal_note">Internal note</option>
-                <option value="email">Email</option>
-                <option value="phone">Phone</option>
-                <option value="manual">Manual</option>
-                <option value="sms">SMS</option>
-              </select>
-            </div>
+          <div>
+            <label class="field-label">Channel</label>
+            <select id="fLogChannel" class="select">
+              <option value="internal_note">Internal note</option>
+              <option value="email">Email</option>
+              <option value="phone">Phone</option>
+              <option value="manual">Manual</option>
+              <option value="sms">SMS</option>
+            </select>
+          </div>
 
-            <div class="full">
-              <label class="mb-1 block text-xs font-semibold text-slate-700">Subject</label>
-              <input id="fLogSubject" class="input" placeholder="Optional subject line" />
-            </div>
+          <div class="full">
+            <label class="field-label">Subject</label>
+            <input id="fLogSubject" class="input" placeholder="Optional subject line" />
+          </div>
 
-            <div class="full">
-              <label class="mb-1 block text-xs font-semibold text-slate-700">Log note / message</label>
-              <textarea id="fLogMessage" class="textarea" placeholder="What happened, what was sent, callback request, payment promise, etc."></textarea>
-            </div>
+          <div class="full">
+            <label class="field-label">Log note / message</label>
+            <textarea id="fLogMessage" class="textarea" placeholder="What happened, what was sent, callback request, payment promise, etc."></textarea>
+          </div>
 
-            <div class="full flex items-center gap-3">
-              <input id="fQueueReminder" type="checkbox" class="h-4 w-4 rounded border-slate-300" />
-              <label for="fQueueReminder" class="text-sm font-semibold text-slate-700">Also queue reminder action</label>
-            </div>
+          <div class="full" style="display:flex;align-items:center;gap:8px">
+            <input id="fQueueReminder" type="checkbox" style="width:14px;height:14px;flex-shrink:0;border:1px solid #cbd5e1;border-radius:3px" />
+            <label for="fQueueReminder" class="field-label" style="margin-bottom:0;cursor:pointer">Also queue reminder action</label>
           </div>
         </div>
+      </div>
 
-        <div class="card p-4">
-          <div class="section-title">Recent activity</div>
-          <div id="drawerActivity" class="mt-4 space-y-3 text-sm text-slate-600">
-            No activity yet.
-          </div>
+      <div class="card card-pad">
+        <div class="section-title" style="margin-bottom:10px">Recent activity</div>
+        <div id="drawerActivity" class="stack" style="font-size:.78rem;color:#64748b">
+          No activity yet.
         </div>
       </div>
     </div>
 
     <div class="drawer-foot">
-      <div class="flex gap-2">
-        <button id="markContactedBtn" class="btn btn-soft">Mark contacted now</button>
-      </div>
-      <div class="flex gap-2">
-        <button id="saveDrawerBtn" class="btn btn-primary">Save changes</button>
-      </div>
+      <button id="markContactedBtn" class="btn btn-soft">Mark contacted now</button>
+      <button id="saveDrawerBtn" class="btn btn-primary">Save changes</button>
     </div>
   </aside>
 
@@ -1280,7 +1270,7 @@
 
     function setStatus(message, isError = false) {
       els.statusText.innerHTML = message;
-      els.statusText.className = `lg:col-span-12 flex items-end text-xs ${isError ? 'text-red-600' : 'text-slate-500'}`;
+      els.statusText.className = `status-row${isError ? ' error' : ''}`;
     }
 
     function showToast(message, isError = false) {
@@ -1295,13 +1285,13 @@
       if (!state.syncStatus) return 'No sync status found.';
       const s = state.syncStatus;
       if (s.status === 'success') {
-        return `Last sync: <span class="font-semibold">${escapeHtml(formatDateTime(s.last_success_at || s.completed_at))}</span>`;
+        return `Last sync: <span style="font-weight:700">${escapeHtml(formatDateTime(s.last_success_at || s.completed_at))}</span>`;
       }
       if (s.status === 'running') {
-        return `Sync running since <span class="font-semibold">${escapeHtml(formatDateTime(s.started_at))}</span>`;
+        return `Sync running since <span style="font-weight:700">${escapeHtml(formatDateTime(s.started_at))}</span>`;
       }
       if (s.status === 'failed') {
-        return `Last sync failed: <span class="font-semibold">${escapeHtml(s.error_text || 'Unknown error')}</span>`;
+        return `Last sync failed: <span style="font-weight:700">${escapeHtml(s.error_text || 'Unknown error')}</span>`;
       }
       return `Sync status: ${escapeHtml(s.status || 'unknown')}`;
     }
@@ -1727,7 +1717,7 @@
         <div class="mini-card">
           <div class="label">${escapeHtml(label)}</div>
           <div class="value mono">${escapeHtml(value)}</div>
-          <div class="mt-1 text-xs text-slate-500">${escapeHtml(sub)}</div>
+          <div style="margin-top:3px;font-size:.62rem;color:#94a3b8">${escapeHtml(sub)}</div>
         </div>
       `).join('');
     }
@@ -1738,17 +1728,17 @@
       els.topCustomers.innerHTML = rows.length
         ? rows.map(c => `
           <div class="list-row">
-            <div class="min-w-0">
-              <div class="truncate font-semibold text-slate-900">${escapeHtml(c.effective_customer_name || c.customer_name)}</div>
-              <div class="text-xs text-slate-500">${formatNumber(c.openOrders)} open · next ${escapeHtml(formatDateTime(c.next_follow_up_at))}</div>
+            <div style="min-width:0;flex:1">
+              <div class="cell-main" style="overflow:hidden;text-overflow:ellipsis">${escapeHtml(c.effective_customer_name || c.customer_name)}</div>
+              <div class="cell-sub">${formatNumber(c.openOrders)} open · next ${escapeHtml(formatDateTime(c.next_follow_up_at))}</div>
             </div>
-            <div class="text-right">
-              <div class="font-extrabold mono text-slate-900">${formatMoney(c.openBalance)}</div>
-              <div class="mt-1">${queueBadge(c.customer_id)}</div>
+            <div style="text-align:right;flex-shrink:0">
+              <div class="mono" style="font-weight:700;color:#0f172a">${formatMoney(c.openBalance)}</div>
+              <div style="margin-top:3px">${queueBadge(c.customer_id)}</div>
             </div>
           </div>
         `).join('')
-        : '<div class="text-sm text-slate-500">No open customers.</div>';
+        : '<div style="font-size:.76rem;color:#64748b">No open customers.</div>';
     }
 
     function renderAgingCards() {
@@ -1766,13 +1756,13 @@
         const pct = total > 0 ? (value / total) * 100 : 0;
         return `
           <div class="list-row">
-            <div class="flex-1 min-w-0">
-              <div class="font-semibold text-slate-900">${label}</div>
+            <div style="flex:1;min-width:0">
+              <div class="cell-main">${label}</div>
               <div class="bar-track"><span class="bar-fill" style="width:${pct}%"></span></div>
             </div>
-            <div class="text-right">
-              <div class="font-extrabold mono text-slate-900">${formatMoney(value)}</div>
-              <div class="text-xs text-slate-500">${pct.toFixed(1)}%</div>
+            <div style="text-align:right;flex-shrink:0">
+              <div class="mono" style="font-weight:700;color:#0f172a">${formatMoney(value)}</div>
+              <div style="font-size:.64rem;color:#94a3b8">${pct.toFixed(1)}%</div>
             </div>
           </div>
         `;
@@ -1798,16 +1788,16 @@
         return `
           <tr>
             <td>
-              <div class="font-semibold text-slate-900">${escapeHtml(customerName)}</div>
-              <div class="text-xs text-slate-500">${escapeHtml(customer?.effective_email || customer?.email || '')}</div>
+              <div class="cell-main">${escapeHtml(customerName)}</div>
+              <div class="cell-sub">${escapeHtml(customer?.effective_email || customer?.email || '')}</div>
             </td>
             <td>${escapeHtml(item.action_type || '')}</td>
             <td><span class="badge badge-queue-pending">${escapeHtml(item.status || '')}</span></td>
             <td>${escapeHtml(formatDateTime(item.scheduled_for))}</td>
             <td>${escapeHtml(item.reason || '—')}</td>
-            <td class="text-xs text-slate-500">${escapeHtml(item.last_error || '—')}</td>
+            <td class="muted">${escapeHtml(item.last_error || '—')}</td>
             <td>
-              <div class="flex flex-wrap gap-2">
+              <div class="row-actions">
                 <button class="btn btn-soft btn-xs queue-done-btn" data-id="${escapeHtml(item.id)}">Done</button>
                 <button class="btn btn-soft btn-xs queue-cancel-btn" data-id="${escapeHtml(item.id)}">Cancel</button>
                 ${customer ? `<button class="btn btn-soft btn-xs open-workbench-btn" data-customer-id="${escapeHtml(customer.customer_id)}">Open</button>` : ''}
@@ -1815,7 +1805,7 @@
             </td>
           </tr>
         `;
-      }).join('') || `<tr><td colspan="7" class="py-10 text-center text-slate-500">No queue items match the current filters.</td></tr>`;
+      }).join('') || `<tr><td colspan="7" style="padding:24px;text-align:center;color:#64748b">No queue items match the current filters.</td></tr>`;
 
       document.querySelectorAll('.queue-done-btn').forEach(btn => {
         btn.addEventListener('click', async () => {
@@ -1847,7 +1837,7 @@
         <div class="mini-card">
           <div class="label">${escapeHtml(label)}</div>
           <div class="value mono">${escapeHtml(value)}</div>
-          <div class="mt-1 text-xs text-slate-500">${escapeHtml(sub)}</div>
+          <div style="margin-top:3px;font-size:.62rem;color:#94a3b8">${escapeHtml(sub)}</div>
         </div>
       `).join('');
 
@@ -1876,9 +1866,9 @@
 
       els.queueWorkBuckets.innerHTML = workBuckets.map(b => `
         <div class="queue-card">
-          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">${escapeHtml(b.label)}</div>
-          <div class="mt-2 text-2xl font-extrabold mono text-slate-900">${escapeHtml(formatNumber(b.value))}</div>
-          <div class="mt-1 text-sm text-slate-500">${escapeHtml(b.helper)}</div>
+          <div class="queue-card-label">${escapeHtml(b.label)}</div>
+          <div class="queue-card-value">${escapeHtml(formatNumber(b.value))}</div>
+          <div class="queue-card-helper">${escapeHtml(b.helper)}</div>
         </div>
       `).join('');
     }
@@ -1911,7 +1901,7 @@
               <div class="cell-inline">
                 <span class="cell-main" title="${escapeHtml(c.effective_customer_name || c.customer_name)}">${escapeHtml(c.effective_customer_name || c.customer_name)}</span>
               </div>
-              <div class="cell-inline mt-1">
+              <div class="cell-inline" style="margin-top:3px">
                 ${contactStatusBadge(c.contact_status)}
                 ${priorityBadge(c.workflow_priority || 'normal')}
                 ${queueBadge(c.customer_id)}
@@ -1934,7 +1924,7 @@
             </td>
 
             <td class="right mono w-small">${formatNumber(c.openOrders)}</td>
-            <td class="right mono w-money font-extrabold">${formatMoney(c.openBalance)}</td>
+            <td class="right mono w-money" style="font-weight:700">${formatMoney(c.openBalance)}</td>
             <td class="right mono w-money">${formatMoney(c.b1)}</td>
             <td class="right mono w-money">${formatMoney(balance31Plus)}</td>
 
@@ -1953,7 +1943,7 @@
             </td>
           </tr>
         `;
-      }).join('') || `<tr><td colspan="10" class="py-6 text-center text-slate-500">No customers match the current filters.</td></tr>`;
+      }).join('') || `<tr><td colspan="10" style="padding:20px;text-align:center;color:#64748b">No customers match the current filters.</td></tr>`;
 
       bindCustomerActionButtons();
     }
@@ -1986,7 +1976,7 @@
 
           <td class="w-customer">
             <div class="cell-main" title="${escapeHtml(r.effective_customer_name || r.customer_name)}">${escapeHtml(r.effective_customer_name || r.customer_name)}</div>
-            <div class="cell-inline mt-1">
+            <div class="cell-inline" style="margin-top:3px">
               ${contactStatusBadge(r.contact_status)}
               ${priorityBadge(r.workflow_priority || 'normal')}
               ${queueBadge(r.customer_id)}
@@ -1994,7 +1984,7 @@
             </div>
           </td>
 
-          <td class="font-semibold text-slate-900 w-small">${escapeHtml(r.order_name || '—')}</td>
+          <td class="cell-main w-small">${escapeHtml(r.order_name || '—')}</td>
           <td class="w-small">${finBadge(r.financial_status, r.open_amount)}</td>
 
           <td class="w-small">
@@ -2009,7 +1999,7 @@
             <div class="cell-sub">Last ${escapeHtml(formatDateTime(r.last_contacted_at))}</div>
           </td>
 
-          <td class="right mono w-money font-extrabold">${formatMoney(r.open_amount)}</td>
+          <td class="right mono w-money" style="font-weight:700">${formatMoney(r.open_amount)}</td>
           <td class="right mono w-small">${Number(r.open_amount) > 0 ? formatNumber(r.days_past_due) : '—'}</td>
 
           <td class="w-actions">
@@ -2018,7 +2008,7 @@
             </div>
           </td>
         </tr>
-      `).join('') || `<tr><td colspan="9" class="py-6 text-center text-slate-500">No orders match the current filters.</td></tr>`;
+      `).join('') || `<tr><td colspan="9" style="padding:20px;text-align:center;color:#64748b">No orders match the current filters.</td></tr>`;
 
       document.querySelectorAll('.open-workbench-btn').forEach(btn => {
         btn.addEventListener('click', () => openDrawer(btn.getAttribute('data-customer-id')));
@@ -2033,24 +2023,22 @@
             const customer = state.customerRollup.find(c => c.customer_id === r.customer_id);
             const customerName = customer?.effective_customer_name || customer?.customer_name || 'Unknown customer';
             return `
-              <div class="card p-4">
-                <div class="flex items-start justify-between gap-3">
-                  <div>
-                    <div class="font-semibold text-slate-900">${escapeHtml(customerName)}</div>
-                    <div class="mt-1 text-xs text-slate-500">${escapeHtml(r.contact_type || 'activity')} · ${escapeHtml(r.channel || '')}</div>
-                  </div>
-                  <div class="text-xs text-slate-500">${escapeHtml(formatDateTime(r.sent_at || r.created_at))}</div>
+              <div class="activity-item">
+                <div class="activity-header">
+                  <div class="activity-who">${escapeHtml(customerName)}</div>
+                  <div class="activity-meta">${escapeHtml(formatDateTime(r.sent_at || r.created_at))}</div>
                 </div>
-                ${r.subject ? `<div class="mt-3 text-sm font-semibold text-slate-800">${escapeHtml(r.subject)}</div>` : ''}
-                ${r.message_body ? `<div class="mt-1 text-sm text-slate-600 whitespace-pre-wrap">${escapeHtml(r.message_body)}</div>` : ''}
-                <div class="mt-3 flex flex-wrap items-center gap-2">
+                <div class="activity-channel">${escapeHtml(r.contact_type || 'activity')} · ${escapeHtml(r.channel || '')}</div>
+                ${r.subject ? `<div class="activity-subject">${escapeHtml(r.subject)}</div>` : ''}
+                ${r.message_body ? `<div class="activity-body">${escapeHtml(r.message_body)}</div>` : ''}
+                <div class="activity-footer">
                   <span class="badge badge-queue-pending">${escapeHtml(r.delivery_status || 'logged')}</span>
                   ${customer ? `<button class="btn btn-soft btn-xs open-workbench-btn" data-customer-id="${escapeHtml(customer.customer_id)}">Open customer</button>` : ''}
                 </div>
               </div>
             `;
           }).join('')
-        : '<div class="text-sm text-slate-500">No activity matches the current filters.</div>';
+        : '<div style="font-size:.76rem;color:#64748b">No activity matches the current filters.</div>';
 
       document.querySelectorAll('.open-workbench-btn').forEach(btn => {
         btn.addEventListener('click', () => openDrawer(btn.getAttribute('data-customer-id')));
@@ -2070,7 +2058,7 @@
         <div class="mini-card">
           <div class="label">${escapeHtml(label)}</div>
           <div class="value mono">${escapeHtml(value)}</div>
-          <div class="mt-1 text-xs text-slate-500">${escapeHtml(sub)}</div>
+          <div style="margin-top:3px;font-size:.62rem;color:#94a3b8">${escapeHtml(sub)}</div>
         </div>
       `).join('');
     }
@@ -2146,29 +2134,29 @@
       const pendingCount = Number(queueItem?.pending_count || 0);
 
       els.drawerSnapshot.innerHTML = `
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Open balance</div>
-          <div class="mt-2 text-lg font-extrabold mono">${escapeHtml(formatMoney(customer.current_open_balance || customer.openBalance || 0))}</div>
+        <div class="snapshot-item">
+          <div class="snapshot-label">Open balance</div>
+          <div class="snapshot-value mono">${escapeHtml(formatMoney(customer.current_open_balance || customer.openBalance || 0))}</div>
         </div>
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Open invoices</div>
-          <div class="mt-2 text-lg font-extrabold mono">${escapeHtml(formatNumber(customer.open_invoice_count || customer.openOrders || 0))}</div>
+        <div class="snapshot-item">
+          <div class="snapshot-label">Open invoices</div>
+          <div class="snapshot-value mono">${escapeHtml(formatNumber(customer.open_invoice_count || customer.openOrders || 0))}</div>
         </div>
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Oldest open</div>
-          <div class="mt-2 text-sm font-bold">${escapeHtml(formatShortDate(customer.oldest_open_invoice_date))}</div>
+        <div class="snapshot-item">
+          <div class="snapshot-label">Oldest open</div>
+          <div class="snapshot-value">${escapeHtml(formatShortDate(customer.oldest_open_invoice_date))}</div>
         </div>
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Queued reminders</div>
-          <div class="mt-2 text-lg font-extrabold mono">${escapeHtml(formatNumber(pendingCount))}</div>
+        <div class="snapshot-item">
+          <div class="snapshot-label">Queued reminders</div>
+          <div class="snapshot-value mono">${escapeHtml(formatNumber(pendingCount))}</div>
         </div>
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Last contacted</div>
-          <div class="mt-2 text-sm font-bold">${escapeHtml(formatDateTime(customer.last_contacted_at))}</div>
+        <div class="snapshot-item">
+          <div class="snapshot-label">Last contacted</div>
+          <div class="snapshot-value">${escapeHtml(formatDateTime(customer.last_contacted_at))}</div>
         </div>
-        <div class="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-          <div class="text-xs font-extrabold uppercase tracking-[.08em] text-slate-500">Next follow-up</div>
-          <div class="mt-2 text-sm font-bold">${escapeHtml(formatDateTime(customer.next_follow_up_at))}</div>
+        <div class="snapshot-item">
+          <div class="snapshot-label">Next follow-up</div>
+          <div class="snapshot-value">${escapeHtml(formatDateTime(customer.next_follow_up_at))}</div>
         </div>
       `;
 
@@ -2193,15 +2181,15 @@
 
         els.drawerActivity.innerHTML = rows.length
           ? rows.map(r => `
-              <div class="rounded-2xl border border-slate-200 p-3">
-                <div class="flex items-center justify-between gap-3">
-                  <div class="font-semibold text-slate-900">${escapeHtml(r.contact_type || 'activity')}</div>
-                  <div class="text-xs text-slate-500">${escapeHtml(formatDateTime(r.sent_at || r.created_at))}</div>
+              <div class="activity-item">
+                <div class="activity-header">
+                  <div class="activity-who">${escapeHtml(r.contact_type || 'activity')}</div>
+                  <div class="activity-meta">${escapeHtml(formatDateTime(r.sent_at || r.created_at))}</div>
                 </div>
-                <div class="mt-1 text-xs text-slate-500">${escapeHtml(r.channel || '')} · ${escapeHtml(r.delivery_status || 'logged')}</div>
-                ${r.subject ? `<div class="mt-2 text-sm font-semibold text-slate-800">${escapeHtml(r.subject)}</div>` : ''}
-                ${r.message_body ? `<div class="mt-1 text-sm text-slate-600 whitespace-pre-wrap">${escapeHtml(r.message_body)}</div>` : ''}
-                ${r.sent_to ? `<div class="mt-2 text-xs text-slate-500">To: ${escapeHtml(r.sent_to)}</div>` : ''}
+                <div class="activity-channel">${escapeHtml(r.channel || '')} · ${escapeHtml(r.delivery_status || 'logged')}</div>
+                ${r.subject ? `<div class="activity-subject">${escapeHtml(r.subject)}</div>` : ''}
+                ${r.message_body ? `<div class="activity-body">${escapeHtml(r.message_body)}</div>` : ''}
+                ${r.sent_to ? `<div class="activity-channel" style="margin-top:6px">To: ${escapeHtml(r.sent_to)}</div>` : ''}
               </div>
             `).join('')
           : 'No activity yet.';
