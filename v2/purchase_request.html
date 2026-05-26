@@ -48,6 +48,9 @@
             <div class="pr-callout">
               Sign in with your SILO account. We will pre-fill your email where we can and attach this request to your profile.
             </div>
+            <div class="pr-btn-row" style="margin-top:12px;">
+              <a href="/pages/login.html" class="btn btn-primary">Sign in to SILO</a>
+            </div>
           </div>
         </div>
 
@@ -638,6 +641,15 @@
     }
   }
 
+  // Mount chrome synchronously — sidebar visible before any network call
+  SiloChrome.mount({
+    appEl: '#silo-app',
+    active: 'finance/payment-request',
+    user: { email: '', role: 'MEMBER' },
+    crumbs: ['Requests', 'Payment Request'],
+    supabaseClient,
+  });
+
   // Always attach listeners synchronously — never inside async init
   els.requestForm.addEventListener("submit", createPaymentRequest);
   els.resetBtn.addEventListener("click", resetForm);
@@ -648,14 +660,6 @@
       const { data, error } = await supabaseClient.auth.getUser();
       if (error) console.warn("Auth:", error.message);
       currentUser = data?.user || null;
-
-      SiloChrome.mount({
-        appEl: '#silo-app',
-        active: 'finance/payment-request',
-        user: { email: currentUser?.email || '', role: 'MEMBER' },
-        crumbs: ['Requests', 'Payment Request'],
-        supabaseClient,
-      });
 
       showAuthState();
       if (currentUser) await populateVendorOptions();

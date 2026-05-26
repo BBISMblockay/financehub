@@ -212,35 +212,28 @@
 
   const LOGIN_PATH = "/pages/login.html";
 
+  // Create client synchronously so chrome + sign-out work immediately
+  const supabaseClient = (SUPABASE_URL && SUPABASE_ANON_KEY)
+    ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+    : null;
+
+  // Mount chrome synchronously — sidebar is visible before any network call
+  SiloChrome.mount({
+    appEl: '#silo-app',
+    active: 'finance/menu',
+    user: { email: '', role: 'MEMBER' },
+    crumbs: ['Finance Department'],
+    supabaseClient,
+  });
+
+  // Auth check: redirect to login if not signed in
   async function boot() {
-    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-      console.error("Missing Supabase config");
-      return;
-    }
-
-    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    if (!supabaseClient) { window.location.href = LOGIN_PATH; return; }
     const { data, error } = await supabaseClient.auth.getUser();
-
-    if (error || !data?.user) {
-      window.location.href = LOGIN_PATH;
-      return;
-    }
-
-    const user = data.user;
-
-    SiloChrome.mount({
-      appEl: '#silo-app',
-      active: 'finance/menu',
-      user: { email: user.email || '', role: 'MEMBER' },
-      crumbs: ['Finance Department'],
-      supabaseClient,
-    });
+    if (error || !data?.user) { window.location.href = LOGIN_PATH; }
   }
 
-  boot().catch(err => {
-    console.error("Boot failed:", err);
-    window.location.href = "/pages/login.html";
-  });
+  boot().catch(() => { window.location.href = LOGIN_PATH; });
 </script>
 </body>
 </html>
