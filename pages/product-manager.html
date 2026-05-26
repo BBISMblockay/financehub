@@ -6,510 +6,680 @@
   <script src="/pages/embed.js"></script>
   <title>Silo ERP — Product Tags Manager</title>
 
-  <script src="https://cdn.tailwindcss.com"></script>
   <script src="/pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 
   <style>
-    .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
-    .scrollbar::-webkit-scrollbar { height: 10px; width: 10px; }
-    .scrollbar::-webkit-scrollbar-thumb { background: rgba(148,163,184,.72); border-radius: 999px; }
-    .scrollbar::-webkit-scrollbar-track { background: transparent; }
-    dialog::backdrop { background: rgba(15,23,42,.55); }
-    dialog { border: 0; background: transparent; }
+    @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap");
 
-    :root[data-theme="light"]{
-      --bg: #f6f7fb;
-      --panel: #ffffff;
-      --panel2: #f8fafc;
-      --panel3: #f1f5f9;
-      --border: rgba(15,23,42,.10);
-      --text: rgba(15,23,42,.92);
-      --muted: rgba(15,23,42,.68);
-      --muted2: rgba(15,23,42,.48);
-      --shadow1: 0 1px 2px rgba(2,6,23,.05);
-      --shadow2: 0 8px 18px rgba(2,6,23,.08);
-      --ring: rgba(37,99,235,.18);
-      --accent: #1d4ed8;
-      --danger: #b91c1c;
-      --warn: #b45309;
-      --good: #166534;
-    }
-    :root[data-theme="dark"]{
-      --bg: #070b18;
-      --panel: #0b1226;
-      --panel2: #0a1022;
-      --panel3: #0f172a;
-      --border: rgba(255,255,255,.12);
-      --text: rgba(255,255,255,.92);
-      --muted: rgba(255,255,255,.74);
-      --muted2: rgba(255,255,255,.54);
-      --shadow1: 0 1px 2px rgba(0,0,0,.55);
-      --shadow2: 0 10px 22px rgba(0,0,0,.50);
-      --ring: rgba(56,189,248,.18);
-      --accent: #60a5fa;
-      --danger: #fb7185;
-      --warn: #fbbf24;
-      --good: #22c55e;
+    /* ---- Beacon tokens (light only) --------------------------------------- */
+    :root {
+      --bcn-bg:           #f8fafc;
+      --bcn-surface:      #ffffff;
+      --bcn-sunken:       #f1f5f9;
+      --bcn-band:         #0f172a;
+      --bcn-band-hi:      #1e293b;
+      --bcn-band-ink:     #f1f5f9;
+      --bcn-band-ink-2:   rgba(241,245,249,0.65);
+      --bcn-band-ink-3:   rgba(241,245,249,0.38);
+      --bcn-border:       #e2e8f0;
+      --bcn-border-strong:#cbd5e1;
+      --bcn-ink:          #0f172a;
+      --bcn-ink-2:        #334155;
+      --bcn-ink-3:        #64748b;
+      --bcn-ink-4:        #94a3b8;
+      --bcn-accent:       #2563eb;
+      --bcn-accent-soft:  #eff6ff;
+      --bcn-accent-border:#bfdbfe;
+      --bcn-pos:          #16a34a;
+      --bcn-pos-soft:     #f0fdf4;
+      --bcn-neg:          #dc2626;
+      --bcn-neg-soft:     #fef2f2;
+      --bcn-neg-border:   #fecaca;
+      --bcn-warn:         #d97706;
+      --bcn-radius:       4px;
+      --bcn-radius-sm:    3px;
+      --bcn-font:         "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --bcn-mono:         "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      --bcn-shadow:       0 1px 2px rgba(15,23,42,.06);
     }
 
-    html, body {
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    /* ---- Reset / base ----------------------------------------------------- */
+    *, *::before, *::after { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: var(--bcn-font);
+      font-size: 13px;
+      color: var(--bcn-ink);
+      background: var(--bcn-bg);
+      -webkit-font-smoothing: antialiased;
       letter-spacing: -0.01em;
     }
+    button { font: inherit; cursor: pointer; }
+    input, select, textarea, button { font-family: inherit; }
 
-    body.themeable{
-      background: var(--bg);
-      color: var(--text);
-    }
-
-    .app-shell{
-      min-height: 100vh;
-      display: grid;
-      grid-template-columns: 300px 1fr;
-    }
-    @media (max-width: 1100px){
-      .app-shell{ grid-template-columns: 1fr; }
-    }
-
-    .sidebar{
-      position: sticky;
-      top: 0;
-      align-self: start;
+    /* ---- Page layout ------------------------------------------------------ */
+    .pm-shell {
+      display: flex;
       height: 100vh;
-      padding: 16px;
-      border-right: 1px solid var(--border);
-      background: var(--panel);
-      box-shadow: var(--shadow1);
-    }
-    @media (max-width: 1100px){
-      .sidebar{
-        position: relative;
-        height: auto;
-        border-right: 0;
-        border-bottom: 1px solid var(--border);
-      }
+      overflow: hidden;
+      background: var(--bcn-bg);
     }
 
-    .main{ padding: 16px; }
-    .container{ max-width: 1600px; margin: 0 auto; }
+    /* Filter rail */
+    .pm-rail {
+      width: 240px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      background: var(--bcn-surface);
+      border-right: 1px solid var(--bcn-border);
+      overflow-y: auto;
+      overflow-x: hidden;
+    }
+    .pm-rail::-webkit-scrollbar { width: 6px; }
+    .pm-rail::-webkit-scrollbar-thumb { background: var(--bcn-border-strong); border-radius: 3px; }
 
-    .card{
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      box-shadow: var(--shadow1);
+    .pm-rail-section {
+      padding: 12px;
+      border-bottom: 1px solid var(--bcn-border);
     }
 
-    .btn{
-      display:inline-flex; align-items:center; justify-content:center;
-      height: 38px;
-      padding: 0 .9rem;
-      border-radius: 10px;
-      border: 1px solid var(--border);
-      background: var(--panel);
-      font-weight: 800;
-      font-size: .875rem;
-      transition: background .12s ease, box-shadow .12s ease, transform .08s ease;
-      white-space: nowrap;
-      user-select: none;
-    }
-    .btn:hover{ background: var(--panel2); box-shadow: var(--shadow2); }
-    .btn:active{ transform: translateY(1px); }
-    .btn:focus{ outline:none; box-shadow: 0 0 0 4px var(--ring); }
-
-    .btn-primary{
-      background: var(--accent);
-      color: #fff;
-      border-color: color-mix(in oklab, var(--accent) 80%, #000);
-      box-shadow: 0 6px 14px color-mix(in oklab, var(--accent) 18%, transparent);
-    }
-    .btn-primary:hover{ background: color-mix(in oklab, var(--accent) 90%, #000); }
-
-    .btn-danger{
-      background: color-mix(in oklab, var(--danger) 10%, var(--panel));
-      color: var(--danger);
-      border-color: color-mix(in oklab, var(--danger) 30%, var(--border));
-    }
-
-    .btn-ghost{
-      background: transparent;
-      border-color: color-mix(in oklab, var(--border) 70%, transparent);
-      box-shadow: none;
-    }
-
-    .input, .select, .textarea{
-      width: 100%;
-      border-radius: 10px;
-      border: 1px solid var(--border);
-      background: var(--panel);
-      color: var(--text);
-      font-size: .875rem;
-      font-weight: 700;
-    }
-    .input, .select{ height: 38px; padding: 0 .85rem; }
-    .textarea{ min-height: 100px; padding: .75rem .85rem; resize: vertical; }
-    .input:focus, .select:focus, .textarea:focus{
-      outline:none;
-      box-shadow: 0 0 0 4px var(--ring);
-    }
-
-    .pill{
-      display:inline-flex;
-      align-items:center;
-      gap:.45rem;
-      padding:.22rem .65rem;
-      border-radius:999px;
-      border:1px solid var(--border);
-      background:var(--panel2);
-      font-size:.72rem;
-      font-weight:900;
-      letter-spacing:.02em;
-      color:var(--muted);
-      white-space:nowrap;
-    }
-    .pill-good{ color: var(--good); }
-    .pill-warn{ color: var(--warn); }
-    .pill-danger{ color: var(--danger); }
-    .dot{ width:.44rem; height:.44rem; border-radius:999px; display:inline-block; }
-
-    .section-title{
-      font-size: .72rem;
-      letter-spacing: .14em;
+    .pm-rail-label {
+      font-family: var(--bcn-mono);
+      font-size: 9.5px;
+      font-weight: 600;
       text-transform: uppercase;
-      color: var(--muted2);
-      font-weight: 900;
-    }
-    .muted{ color: var(--muted); }
-    .muted2{ color: var(--muted2); }
-    .kbd{
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 11px;
-      padding: 2px 6px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: var(--panel2);
-      color: var(--muted);
-      font-weight: 900;
+      letter-spacing: 0.12em;
+      color: var(--bcn-ink-3);
+      margin-bottom: 8px;
     }
 
-    .table{
-      width:100%;
-      border-collapse: separate;
-      border-spacing: 0;
-      overflow:hidden;
-      border-radius: 12px;
-      border:1px solid var(--border);
-      background:var(--panel);
+    /* Main area */
+    .pm-main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      min-width: 0;
     }
-    .table thead th{
+
+    /* ---- KPI band --------------------------------------------------------- */
+    .pm-kpi-band {
+      display: flex;
+      flex-shrink: 0;
+      background: var(--bcn-surface);
+      border-bottom: 1px solid var(--bcn-border);
+    }
+    .pm-kpi {
+      flex: 1;
+      padding: 10px 14px;
+      border-right: 1px solid var(--bcn-border);
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      min-width: 0;
+    }
+    .pm-kpi:last-child { border-right: none; }
+    .pm-kpi-label {
+      font-family: var(--bcn-mono);
+      font-size: 9.5px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--bcn-ink-3);
+    }
+    .pm-kpi-value {
+      font-family: var(--bcn-mono);
+      font-size: 20px;
+      font-weight: 500;
+      color: var(--bcn-ink);
+      letter-spacing: -0.01em;
+      line-height: 1.1;
+      font-variant-numeric: tabular-nums;
+    }
+    .pm-kpi-sub {
+      font-family: var(--bcn-mono);
+      font-size: 10px;
+      color: var(--bcn-ink-4);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* ---- Toolbar ---------------------------------------------------------- */
+    .pm-toolbar {
+      height: 38px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 12px;
+      background: var(--bcn-sunken);
+      border-bottom: 1px solid var(--bcn-border);
+    }
+    .pm-toolbar-label {
+      font-family: var(--bcn-mono);
+      font-size: 11px;
+      color: var(--bcn-ink-3);
+      margin-right: 2px;
+    }
+    .pm-toolbar-spacer { flex: 1; }
+
+    /* ---- Status pill ------------------------------------------------------ */
+    .pm-status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 2px 8px;
+      border-radius: var(--bcn-radius-sm);
+      background: var(--bcn-sunken);
+      border: 1px solid var(--bcn-border);
+      font-family: var(--bcn-mono);
+      font-size: 10.5px;
+      font-weight: 500;
+      color: var(--bcn-ink-3);
+      white-space: nowrap;
+    }
+    .pm-status-pill.pos { color: var(--bcn-pos); background: var(--bcn-pos-soft); border-color: #bbf7d0; }
+    .pm-status-pill.neg { color: var(--bcn-neg); background: var(--bcn-neg-soft); border-color: var(--bcn-neg-border); }
+    .pm-status-pill.warn { color: var(--bcn-warn); background: #fffbeb; border-color: #fde68a; }
+    .pm-status-dot {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: currentColor;
+      display: inline-block;
+    }
+
+    /* ---- Table wrapper ---------------------------------------------------- */
+    .pm-table-wrap {
+      flex: 1;
+      overflow: auto;
+      min-height: 0;
+    }
+    .pm-table-wrap::-webkit-scrollbar { width: 8px; height: 8px; }
+    .pm-table-wrap::-webkit-scrollbar-thumb { background: var(--bcn-border-strong); }
+    .pm-table-wrap::-webkit-scrollbar-track { background: transparent; }
+
+    /* ---- Table ------------------------------------------------------------ */
+    table.pm-table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: auto;
+    }
+    .pm-table thead th {
       position: sticky;
       top: 0;
       z-index: 5;
-      font-size:.68rem;
-      letter-spacing:.14em;
-      text-transform:uppercase;
-      color:var(--muted2);
-      background:var(--panel2);
-      border-bottom:1px solid var(--border);
-      padding:.75rem .7rem;
-      white-space:nowrap;
-      font-weight:900;
-      text-align:left;
+      padding: 7px 10px;
+      font-family: var(--bcn-font);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--bcn-ink-3);
+      background: var(--bcn-sunken);
+      border-bottom: 1px solid var(--bcn-border-strong);
+      border-right: 1px solid var(--bcn-border);
+      text-align: left;
+      white-space: nowrap;
     }
-    .table tbody td{
-      padding:.72rem .7rem;
-      border-bottom:1px solid color-mix(in oklab, var(--border) 70%, transparent);
-      vertical-align: top;
-      font-size:.86rem;
+    .pm-table thead th:last-child { border-right: none; }
+    .pm-table tbody td {
+      padding: 6px 10px;
+      font-size: 12.5px;
+      color: var(--bcn-ink);
+      border-bottom: 1px solid var(--bcn-border);
+      border-right: 1px solid var(--bcn-border);
+      vertical-align: middle;
     }
-    .table tbody tr:hover td{ background: var(--panel2); }
-    .table tbody tr:last-child td{ border-bottom:0; }
+    .pm-table tbody td:last-child { border-right: none; }
+    .pm-table tbody tr:last-child td { border-bottom: none; }
+    .pm-table tbody tr:hover td { background: var(--bcn-sunken); }
 
-    .drawer{
+    .pm-table .mono {
+      font-family: var(--bcn-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: 12px;
+    }
+    .pm-table .td-muted {
+      color: var(--bcn-ink-3);
+      font-size: 11px;
+    }
+    .pm-table .td-title-key {
+      font-family: var(--bcn-mono);
+      font-size: 10.5px;
+      color: var(--bcn-ink-4);
+      margin-top: 2px;
+    }
+    .pm-table .line-clamp-2 {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      color: var(--bcn-ink-3);
+    }
+
+    /* ---- Buttons ---------------------------------------------------------- */
+    .bcn-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      padding: 5px 10px;
+      border-radius: var(--bcn-radius);
+      font-family: var(--bcn-font);
+      font-size: 12px;
+      font-weight: 500;
+      background: var(--bcn-surface);
+      color: var(--bcn-ink);
+      border: 1px solid var(--bcn-border-strong);
+      transition: background .12s ease, border-color .12s ease;
+      white-space: nowrap;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    .bcn-btn:hover { background: var(--bcn-sunken); }
+    .bcn-btn[disabled] { opacity: .5; cursor: not-allowed; }
+
+    .bcn-btn--primary {
+      background: var(--bcn-band);
+      color: #fff;
+      border-color: var(--bcn-band);
+    }
+    .bcn-btn--primary:hover { background: var(--bcn-band-hi); border-color: var(--bcn-band-hi); }
+
+    .bcn-btn--accent {
+      background: var(--bcn-accent);
+      color: #fff;
+      border-color: var(--bcn-accent);
+    }
+    .bcn-btn--accent:hover { filter: brightness(0.94); }
+
+    .bcn-btn--danger {
+      color: var(--bcn-neg);
+      border-color: var(--bcn-neg-border);
+      background: transparent;
+    }
+    .bcn-btn--danger:hover { background: var(--bcn-neg-soft); }
+
+    .bcn-btn--ghost {
+      background: transparent;
+      color: var(--bcn-ink-2);
+      border-color: transparent;
+    }
+    .bcn-btn--ghost:hover { background: var(--bcn-sunken); color: var(--bcn-ink); }
+
+    .bcn-btn--sm {
+      padding: 3px 8px;
+      font-size: 11.5px;
+      height: 26px;
+    }
+
+    /* Full-width button in rail */
+    .bcn-btn--full { width: 100%; justify-content: center; }
+
+    /* ---- Form inputs ------------------------------------------------------ */
+    .bcn-input, .bcn-select, .bcn-textarea {
+      width: 100%;
+      border: 1px solid var(--bcn-border-strong);
+      background: var(--bcn-surface);
+      color: var(--bcn-ink);
+      font-family: var(--bcn-font);
+      font-size: 12.5px;
+      font-weight: 500;
+      border-radius: var(--bcn-radius-sm);
+      outline: none;
+    }
+    .bcn-input, .bcn-select {
+      height: 32px;
+      padding: 0 8px;
+    }
+    .bcn-textarea {
+      padding: 7px 8px;
+      min-height: 80px;
+      resize: vertical;
+    }
+    .bcn-input:focus, .bcn-select:focus, .bcn-textarea:focus {
+      border-color: var(--bcn-accent);
+      box-shadow: 0 0 0 1px var(--bcn-accent) inset;
+    }
+
+    /* ---- Field group ------------------------------------------------------ */
+    .bcn-field-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .bcn-label {
+      font-family: var(--bcn-font);
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--bcn-ink-2);
+    }
+
+    /* ---- Drawer ----------------------------------------------------------- */
+    .drawer {
       position: fixed;
       inset: 0;
       pointer-events: none;
-      z-index: 60;
+      z-index: 200;
     }
-    .drawer.open{ pointer-events: auto; }
-    .drawer .overlay{
-      position:absolute; inset:0; background:rgba(2,6,23,.55);
-      opacity:0; transition:opacity .16s ease;
+    .drawer.open { pointer-events: auto; }
+    .drawer .overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(15,23,42,.4);
+      opacity: 0;
+      transition: opacity .15s ease;
     }
-    .drawer.open .overlay{ opacity:1; }
-    .drawer .panel{
-      position:absolute;
-      top:0; right:0;
-      width:min(760px, calc(100vw - 24px));
-      height:100%;
-      background:var(--panel);
-      border-left:1px solid var(--border);
-      box-shadow:var(--shadow2);
-      transform: translateX(12px);
-      opacity:0;
-      transition: transform .16s ease, opacity .16s ease;
-      display:flex; flex-direction:column;
+    .drawer.open .overlay { opacity: 1; }
+    .drawer .panel {
+      position: absolute;
+      top: 0; right: 0;
+      width: min(680px, calc(100vw - 32px));
+      height: 100%;
+      background: var(--bcn-surface);
+      border-left: 1px solid var(--bcn-border-strong);
+      box-shadow: -4px 0 24px rgba(15,23,42,.12);
+      transform: translateX(8px);
+      opacity: 0;
+      transition: transform .15s ease, opacity .15s ease;
+      display: flex;
+      flex-direction: column;
     }
-    .drawer.open .panel{ transform: translateX(0); opacity:1; }
+    .drawer.open .panel { transform: translateX(0); opacity: 1; }
 
-    .line-clamp-2{
-      display:-webkit-box;
-      -webkit-line-clamp:2;
-      -webkit-box-orient:vertical;
-      overflow:hidden;
+    .drawer-head {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--bcn-border);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      flex-shrink: 0;
+      background: var(--bcn-surface);
+    }
+    .drawer-head-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--bcn-ink);
+      margin: 0 0 2px;
+    }
+    .drawer-head-sub {
+      font-size: 11.5px;
+      color: var(--bcn-ink-3);
     }
 
-    .field-grid{
-      display:grid;
-      grid-template-columns: 1fr;
-      gap:10px;
+    .drawer-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .drawer-body::-webkit-scrollbar { width: 6px; }
+    .drawer-body::-webkit-scrollbar-thumb { background: var(--bcn-border-strong); }
+
+    .drawer-foot {
+      padding: 10px 16px;
+      border-top: 1px solid var(--bcn-border);
+      background: var(--bcn-sunken);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+    .drawer-foot-meta {
+      font-family: var(--bcn-mono);
+      font-size: 10.5px;
+      color: var(--bcn-ink-4);
     }
 
-    .debug-box{
-      border:1px dashed var(--border);
-      border-radius:12px;
-      padding:12px;
-      background:var(--panel2);
-      font-size:12px;
-      white-space:pre-wrap;
-      word-break:break-word;
-      color:var(--muted);
+    /* ---- Section label (in rail) ----------------------------------------- */
+    .pm-section-head {
+      font-family: var(--bcn-mono);
+      font-size: 9px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--bcn-ink-4);
+      padding: 10px 12px 4px;
+      border-bottom: none;
     }
+
+    /* ---- Debug box -------------------------------------------------------- */
+    .pm-debug {
+      font-family: var(--bcn-mono);
+      font-size: 10px;
+      color: var(--bcn-ink-3);
+      background: var(--bcn-sunken);
+      border: 1px solid var(--bcn-border);
+      border-radius: var(--bcn-radius-sm);
+      padding: 8px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    /* ---- Misc ------------------------------------------------------------- */
+    .gap-6 { display: flex; gap: 6px; }
+    .gap-8 { display: flex; gap: 8px; }
+    .items-center { align-items: center; }
+    .flex-wrap { flex-wrap: wrap; }
+
+    dialog::backdrop { background: rgba(15,23,42,.5); }
+    dialog { border: 0; background: transparent; }
   </style>
 </head>
-<body class="themeable">
-  <div id="authBar" style="position:fixed; top:14px; right:16px; z-index:9999;" class="flex items-center gap-3 text-sm">
-    <span id="authEmail" class="text-slate-600"></span>
-    <button id="logoutBtn" class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-800 hover:bg-slate-50">
-      Logout
-    </button>
+<body>
+  <!-- Auth bar (shown only when not embedded — embed.js hides sidebar, authBar survives but is moved inline) -->
+  <div id="authBar" style="display:none;">
+    <span id="authEmail"></span>
+    <button id="logoutBtn">Logout</button>
   </div>
 
-  <div class="app-shell">
-    <aside class="sidebar">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <div class="flex items-center gap-2 flex-wrap">
-            <span class="pill"><span class="dot" style="background: var(--accent)"></span>Silo ERP</span>
-            <span class="pill">Product Tags</span>
-          </div>
-          <h1 class="mt-2 text-lg font-semibold tracking-tight">Product Tag Manager</h1>
-          <p class="mt-1 text-xs muted2">
-            Live manager for reading, editing, adding, and maintaining the existing Supabase product tags table.
-          </p>
-        </div>
+  <div class="pm-shell">
+    <!-- ================================================================
+         Filter rail (hidden when embedded via embed.js .sidebar rule)
+         We give it both classes so embed.js hides it automatically.
+         ================================================================ -->
+    <aside class="pm-rail sidebar">
 
-        <button id="themeBtn" class="btn btn-ghost" title="Toggle theme">
-          Theme <span id="themeLabel" class="ml-2 font-extrabold">Light</span>
-        </button>
+      <!-- Branding / header -->
+      <div class="pm-rail-section">
+        <div style="font-family:var(--bcn-mono);font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.1em;color:var(--bcn-ink-4);margin-bottom:4px;">Silo ERP</div>
+        <div style="font-size:14px;font-weight:700;color:var(--bcn-ink);margin-bottom:2px;">Product Tag Manager</div>
+        <div style="font-size:11px;color:var(--bcn-ink-3);line-height:1.45;">Live manager for reading, editing, and maintaining the <span style="font-family:var(--bcn-mono)">product_tags</span> table.</div>
       </div>
 
-      <div class="mt-4 card p-4">
-        <div class="section-title">Actions</div>
-        <div class="mt-3 flex flex-col gap-2">
-          <button id="reloadBtn" class="btn btn-primary w-full">Reload Live Table</button>
-          <button id="addRowBtn" class="btn w-full">Add New Product</button>
-          <button id="bulkDeleteBtn" class="btn btn-danger w-full">Delete Selected</button>
+      <!-- Actions -->
+      <div class="pm-rail-section">
+        <div class="pm-rail-label">Actions</div>
+        <div style="display:flex;flex-direction:column;gap:5px;">
+          <button id="reloadBtn" class="bcn-btn bcn-btn--primary bcn-btn--full">Reload Live Table</button>
+          <button id="addRowBtn" class="bcn-btn bcn-btn--full">Add New Product</button>
+          <button id="bulkDeleteBtn" class="bcn-btn bcn-btn--danger bcn-btn--full">Delete Selected</button>
         </div>
-
-        <div class="mt-4 text-xs muted2">
-          This manager reads the existing rows in <span class="mono">public.product_tags</span> first.
-        </div>
+        <div style="margin-top:8px;font-family:var(--bcn-mono);font-size:9.5px;color:var(--bcn-ink-4);">Reads from <span style="color:var(--bcn-ink-3)">public.product_tags</span></div>
       </div>
 
-      <div class="mt-4 card p-4">
-        <div class="section-title">Filters</div>
-        <div class="mt-3 space-y-3">
-          <input id="searchInput" class="input" placeholder="Search title, notes, tag, type..." />
-
-          <select id="filterCategory" class="select"><option value="">All categories</option></select>
-          <select id="filterCollection" class="select"><option value="">All collections</option></select>
-          <select id="filterInlineFlag" class="select"><option value="">All inline flags</option></select>
-          <select id="filterType" class="select"><option value="">All types</option></select>
-          <select id="filterColor" class="select"><option value="">All colors</option></select>
-          <select id="filterArtworkSide" class="select"><option value="">All artwork sides</option></select>
-          <select id="filterIndicatorGroup" class="select"><option value="">All indicator groups</option></select>
-          <select id="filterSubTag" class="select"><option value="">All sub tags</option></select>
-          <select id="filterTag" class="select"><option value="">All tags</option></select>
-        </div>
-
-        <div class="mt-3">
-          <button id="clearFiltersBtn" class="btn w-full">Clear Filters</button>
+      <!-- Filters -->
+      <div class="pm-rail-section">
+        <div class="pm-rail-label">Filters</div>
+        <div style="display:flex;flex-direction:column;gap:5px;">
+          <input id="searchInput" class="bcn-input" placeholder="Search title, notes, tag…" />
+          <select id="filterCategory" class="bcn-select"><option value="">All categories</option></select>
+          <select id="filterCollection" class="bcn-select"><option value="">All collections</option></select>
+          <select id="filterInlineFlag" class="bcn-select"><option value="">All inline flags</option></select>
+          <select id="filterType" class="bcn-select"><option value="">All types</option></select>
+          <select id="filterColor" class="bcn-select"><option value="">All colors</option></select>
+          <select id="filterArtworkSide" class="bcn-select"><option value="">All artwork sides</option></select>
+          <select id="filterIndicatorGroup" class="bcn-select"><option value="">All indicator groups</option></select>
+          <select id="filterSubTag" class="bcn-select"><option value="">All sub tags</option></select>
+          <select id="filterTag" class="bcn-select"><option value="">All tags</option></select>
+          <button id="clearFiltersBtn" class="bcn-btn bcn-btn--full" style="margin-top:2px;">Clear Filters</button>
         </div>
       </div>
 
-      <div class="mt-4 card p-4">
-        <div class="section-title">Summary</div>
-        <div class="mt-3 grid grid-cols-2 gap-3">
-          <div class="rounded-xl border p-3" style="border-color: var(--border); background: var(--panel2);">
-            <div class="text-xs muted2 uppercase tracking-wide font-black">Rows</div>
-            <div id="kpiTotalRows" class="mono text-2xl font-black mt-1">—</div>
+      <!-- Summary KPIs -->
+      <div class="pm-rail-section">
+        <div class="pm-rail-label">Summary</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
+          <div style="padding:8px;background:var(--bcn-sunken);border:1px solid var(--bcn-border);border-radius:var(--bcn-radius);">
+            <div style="font-family:var(--bcn-mono);font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--bcn-ink-4);margin-bottom:3px;">Rows</div>
+            <div id="kpiTotalRows" style="font-family:var(--bcn-mono);font-size:18px;font-weight:500;color:var(--bcn-ink);font-variant-numeric:tabular-nums;">—</div>
           </div>
-          <div class="rounded-xl border p-3" style="border-color: var(--border); background: var(--panel2);">
-            <div class="text-xs muted2 uppercase tracking-wide font-black">Filtered</div>
-            <div id="kpiFilteredRows" class="mono text-2xl font-black mt-1">—</div>
+          <div style="padding:8px;background:var(--bcn-sunken);border:1px solid var(--bcn-border);border-radius:var(--bcn-radius);">
+            <div style="font-family:var(--bcn-mono);font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--bcn-ink-4);margin-bottom:3px;">Filtered</div>
+            <div id="kpiFilteredRows" style="font-family:var(--bcn-mono);font-size:18px;font-weight:500;color:var(--bcn-ink);font-variant-numeric:tabular-nums;">—</div>
           </div>
-          <div class="rounded-xl border p-3" style="border-color: var(--border); background: var(--panel2);">
-            <div class="text-xs muted2 uppercase tracking-wide font-black">Selected</div>
-            <div id="kpiSelectedRows" class="mono text-2xl font-black mt-1">0</div>
+          <div style="padding:8px;background:var(--bcn-sunken);border:1px solid var(--bcn-border);border-radius:var(--bcn-radius);">
+            <div style="font-family:var(--bcn-mono);font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--bcn-ink-4);margin-bottom:3px;">Selected</div>
+            <div id="kpiSelectedRows" style="font-family:var(--bcn-mono);font-size:18px;font-weight:500;color:var(--bcn-ink);font-variant-numeric:tabular-nums;">0</div>
           </div>
-          <div class="rounded-xl border p-3" style="border-color: var(--border); background: var(--panel2);">
-            <div class="text-xs muted2 uppercase tracking-wide font-black">Inventory</div>
-            <div id="kpiInventory" class="mono text-2xl font-black mt-1">—</div>
+          <div style="padding:8px;background:var(--bcn-sunken);border:1px solid var(--bcn-border);border-radius:var(--bcn-radius);">
+            <div style="font-family:var(--bcn-mono);font-size:9px;text-transform:uppercase;letter-spacing:.1em;color:var(--bcn-ink-4);margin-bottom:3px;">Inventory</div>
+            <div id="kpiInventory" style="font-family:var(--bcn-mono);font-size:18px;font-weight:500;color:var(--bcn-ink);font-variant-numeric:tabular-nums;">—</div>
           </div>
         </div>
       </div>
 
-      <div class="mt-4 card p-4">
-        <div class="section-title">Debug</div>
-        <div class="mt-3 debug-box" id="debugBox">Ready.</div>
+      <!-- Debug -->
+      <div class="pm-rail-section" style="flex:1;display:flex;flex-direction:column;">
+        <div class="pm-rail-label">Debug</div>
+        <div id="debugBox" class="pm-debug" style="flex:1;">Ready.</div>
       </div>
     </aside>
 
-    <main class="main">
-      <div class="container space-y-4">
-        <div class="card p-5">
-          <div class="flex items-start justify-between gap-4 flex-wrap">
-            <div>
-              <div class="section-title">Workspace</div>
-              <h2 class="mt-2 text-xl font-semibold tracking-tight">Live product tag table</h2>
-              <p class="mt-2 text-sm muted max-w-3xl">
-                Dropdown options are generated from the current table contents. In the editor, every controlled field lets you either choose an existing value or add a new one.
-              </p>
-            </div>
+    <!-- ==================================================================
+         Main content
+         ================================================================== -->
+    <main class="pm-main">
 
-            <div class="flex items-center gap-2 flex-wrap">
-              <span class="pill"><span class="dot" style="background: var(--accent)"></span>Table <span class="mono">public.product_tags</span></span>
-              <span id="statusPill" class="pill"><span class="dot" style="background: var(--accent)"></span>Status: Ready</span>
-            </div>
-          </div>
-
-          <div class="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-            <div class="rounded-xl border p-4" style="border-color: var(--border); background: var(--panel2);">
-              <div class="section-title">Rows loaded</div>
-              <div id="heroRows" class="mono text-2xl font-black mt-2">—</div>
-              <div class="text-xs muted2 mt-1">Current rows read from Supabase</div>
-            </div>
-            <div class="rounded-xl border p-4" style="border-color: var(--border); background: var(--panel2);">
-              <div class="section-title">Distinct categories</div>
-              <div id="heroCategories" class="mono text-2xl font-black mt-2">—</div>
-              <div class="text-xs muted2 mt-1">Current category options from live data</div>
-            </div>
-            <div class="rounded-xl border p-4" style="border-color: var(--border); background: var(--panel2);">
-              <div class="section-title">Distinct tags</div>
-              <div id="heroTags" class="mono text-2xl font-black mt-2">—</div>
-              <div class="text-xs muted2 mt-1">Current tag options from live data</div>
-            </div>
-            <div class="rounded-xl border p-4" style="border-color: var(--border); background: var(--panel2);">
-              <div class="section-title">Last updated</div>
-              <div id="lastUpdated" class="text-sm font-black mt-2">—</div>
-              <div class="text-xs muted2 mt-1">Latest manager refresh</div>
-            </div>
-          </div>
+      <!-- KPI band -->
+      <div class="pm-kpi-band">
+        <div class="pm-kpi">
+          <div class="pm-kpi-label">Rows loaded</div>
+          <div id="heroRows" class="pm-kpi-value">—</div>
+          <div class="pm-kpi-sub">From public.product_tags</div>
         </div>
-
-        <div class="card overflow-hidden">
-          <div class="flex items-center justify-between gap-3 px-4 py-3" style="border-bottom: 1px solid var(--border); background: var(--panel2);">
-            <div>
-              <div class="text-sm font-semibold">Table view</div>
-              <div class="text-xs muted2">Select rows for bulk delete. Edit any row from the live dataset.</div>
-            </div>
-            <div class="flex items-center gap-2 flex-wrap">
-              <button id="selectVisibleBtn" class="btn btn-ghost">Select Visible</button>
-              <button id="clearSelectionBtn" class="btn btn-ghost">Clear Selected</button>
-              <label class="text-xs muted2 flex items-center gap-2">
-                <input id="selectAllVisible" type="checkbox" />
-                Select all visible
-              </label>
-            </div>
-          </div>
-
-          <div class="overflow-auto max-h-[72vh] scrollbar">
-            <table class="table min-w-[1850px]">
-              <thead>
-                <tr>
-                  <th style="width:44px;"></th>
-                  <th>ID</th>
-                  <th>Product Title</th>
-                  <th>Category</th>
-                  <th>Collection</th>
-                  <th>Inline</th>
-                  <th>Type</th>
-                  <th>Color</th>
-                  <th>Artwork</th>
-                  <th>Tag</th>
-                  <th>Indicator Group</th>
-                  <th>Sub Tag</th>
-                  <th>Inventory</th>
-                  <th>Notes</th>
-                  <th>Uploaded</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody id="tableBody">
-                <tr><td colspan="16" class="muted2">Loading live Supabase data…</td></tr>
-              </tbody>
-            </table>
-          </div>
+        <div class="pm-kpi">
+          <div class="pm-kpi-label">Categories</div>
+          <div id="heroCategories" class="pm-kpi-value">—</div>
+          <div class="pm-kpi-sub">Distinct category values</div>
+        </div>
+        <div class="pm-kpi">
+          <div class="pm-kpi-label">Tags</div>
+          <div id="heroTags" class="pm-kpi-value">—</div>
+          <div class="pm-kpi-sub">Distinct tag values</div>
+        </div>
+        <div class="pm-kpi">
+          <div class="pm-kpi-label">Last refresh</div>
+          <div id="lastUpdated" style="font-family:var(--bcn-mono);font-size:12px;font-weight:500;color:var(--bcn-ink);line-height:1.3;margin-top:1px;">—</div>
+          <div class="pm-kpi-sub">Latest manager refresh</div>
         </div>
       </div>
+
+      <!-- Toolbar -->
+      <div class="pm-toolbar">
+        <span class="pm-toolbar-label">Table view</span>
+        <span id="statusPill" class="pm-status-pill">
+          <span class="pm-status-dot"></span>Status: Ready
+        </span>
+        <div class="pm-toolbar-spacer"></div>
+        <button id="selectVisibleBtn" class="bcn-btn bcn-btn--ghost bcn-btn--sm">Select Visible</button>
+        <button id="clearSelectionBtn" class="bcn-btn bcn-btn--ghost bcn-btn--sm">Clear</button>
+        <label style="display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--bcn-ink-3);cursor:pointer;">
+          <input id="selectAllVisible" type="checkbox" style="cursor:pointer;" />
+          All visible
+        </label>
+      </div>
+
+      <!-- Table -->
+      <div class="pm-table-wrap">
+        <table class="pm-table" style="min-width:1750px;">
+          <thead>
+            <tr>
+              <th style="width:36px;"></th>
+              <th>ID</th>
+              <th>Product Title</th>
+              <th>Category</th>
+              <th>Collection</th>
+              <th>Inline</th>
+              <th>Type</th>
+              <th>Color</th>
+              <th>Artwork</th>
+              <th>Tag</th>
+              <th>Indicator Group</th>
+              <th>Sub Tag</th>
+              <th>Inventory</th>
+              <th>Notes</th>
+              <th>Uploaded</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody">
+            <tr><td colspan="16" style="padding:20px;color:var(--bcn-ink-3);font-style:italic;">Loading live Supabase data…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
     </main>
   </div>
 
+  <!-- ================================================================
+       Editor drawer
+       ================================================================ -->
   <div id="editorDrawer" class="drawer" aria-hidden="true">
     <div class="overlay" id="editorOverlay"></div>
     <div class="panel">
-      <div class="p-5 border-b" style="border-color: var(--border);">
-        <div class="flex items-start justify-between gap-3">
-          <div>
-            <div class="section-title">Editor</div>
-            <h3 id="editorTitle" class="mt-2 text-lg font-semibold">Edit Product Tag</h3>
-            <p class="mt-1 text-sm muted">Choose existing values from the live table or select “Add new…” for a custom value.</p>
-          </div>
-          <button id="closeEditorBtn" class="btn">Close</button>
+      <div class="drawer-head">
+        <div>
+          <p class="drawer-head-title" id="editorTitle">Edit Product Tag</p>
+          <p class="drawer-head-sub">Choose existing values or select "Add new…" for a custom value.</p>
+        </div>
+        <button id="closeEditorBtn" class="bcn-btn bcn-btn--ghost bcn-btn--sm">Close ✕</button>
+      </div>
+
+      <div class="drawer-body">
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="f_product_title">Product Title</label>
+          <input id="f_product_title" class="bcn-input" style="height:36px;font-size:13px;" />
+        </div>
+
+        <div id="fieldWrap_product_category"></div>
+        <div id="fieldWrap_collection"></div>
+        <div id="fieldWrap_inline_flag"></div>
+        <div id="fieldWrap_type"></div>
+        <div id="fieldWrap_primary_color"></div>
+        <div id="fieldWrap_artwork_side"></div>
+        <div id="fieldWrap_tag"></div>
+        <div id="fieldWrap_indicator_group"></div>
+        <div id="fieldWrap_sub_tag"></div>
+
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="f_current_inventory">Current Inventory</label>
+          <input id="f_current_inventory" class="bcn-input" type="number" step="1"
+                 style="font-family:var(--bcn-mono);font-variant-numeric:tabular-nums;" />
+        </div>
+
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="f_product_title_key">Product Title Key</label>
+          <input id="f_product_title_key" class="bcn-input"
+                 style="font-family:var(--bcn-mono);font-size:12px;" />
+        </div>
+
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="f_notes">Notes</label>
+          <textarea id="f_notes" class="bcn-textarea"></textarea>
         </div>
       </div>
 
-      <div class="p-5 overflow-y-auto scrollbar" style="flex:1;">
-        <div class="grid grid-cols-1 gap-5">
-          <div>
-            <label class="text-xs section-title">Product Title</label>
-            <input id="f_product_title" class="input mt-2" />
-          </div>
-
-          <div id="fieldWrap_product_category"></div>
-          <div id="fieldWrap_collection"></div>
-          <div id="fieldWrap_inline_flag"></div>
-          <div id="fieldWrap_type"></div>
-          <div id="fieldWrap_primary_color"></div>
-          <div id="fieldWrap_artwork_side"></div>
-          <div id="fieldWrap_tag"></div>
-          <div id="fieldWrap_indicator_group"></div>
-          <div id="fieldWrap_sub_tag"></div>
-
-          <div>
-            <label class="text-xs section-title">Current Inventory</label>
-            <input id="f_current_inventory" class="input mt-2 mono" type="number" step="1" />
-          </div>
-
-          <div>
-            <label class="text-xs section-title">Product Title Key</label>
-            <input id="f_product_title_key" class="input mt-2 mono" />
-          </div>
-
-          <div>
-            <label class="text-xs section-title">Notes</label>
-            <textarea id="f_notes" class="textarea mt-2"></textarea>
-          </div>
-        </div>
-      </div>
-
-      <div class="p-5 border-t flex items-center justify-between gap-3 flex-wrap" style="border-color: var(--border); background: var(--panel2);">
-        <div id="editorMeta" class="text-xs muted2">—</div>
-        <div class="flex items-center gap-2">
-          <button id="deleteRowBtn" class="btn btn-danger">Delete Row</button>
-          <button id="saveRowBtn" class="btn btn-primary">Save Changes</button>
+      <div class="drawer-foot">
+        <div id="editorMeta" class="drawer-foot-meta">—</div>
+        <div style="display:flex;gap:6px;">
+          <button id="deleteRowBtn" class="bcn-btn bcn-btn--danger">Delete Row</button>
+          <button id="saveRowBtn" class="bcn-btn bcn-btn--primary">Save Changes</button>
         </div>
       </div>
     </div>
@@ -562,8 +732,6 @@
 
     const authEmail = el("authEmail");
     const logoutBtn = el("logoutBtn");
-    const themeBtn = el("themeBtn");
-    const themeLabel = el("themeLabel");
     const reloadBtn = el("reloadBtn");
     const addRowBtn = el("addRowBtn");
     const bulkDeleteBtn = el("bulkDeleteBtn");
@@ -642,20 +810,15 @@
     }
 
     function setStatus(message, tone = "default") {
-      const toneMap = {
-        default: { cls: "pill", dot: "var(--accent)" },
-        success: { cls: "pill pill-good", dot: "var(--good)" },
-        error: { cls: "pill pill-danger", dot: "var(--danger)" },
-        warn: { cls: "pill pill-warn", dot: "var(--warn)" }
-      };
-      const t = toneMap[tone] || toneMap.default;
-      statusPill.className = t.cls;
-      statusPill.innerHTML = `<span class="dot" style="background:${t.dot}"></span>Status: ${escapeHtml(message)}`;
+      statusPill.className = "pm-status-pill";
+      if (tone === "success") statusPill.classList.add("pos");
+      else if (tone === "error") statusPill.classList.add("neg");
+      else if (tone === "warn") statusPill.classList.add("warn");
+      statusPill.innerHTML = `<span class="pm-status-dot"></span>Status: ${escapeHtml(message)}`;
     }
 
     function applyTheme(theme) {
       document.documentElement.setAttribute("data-theme", theme);
-      themeLabel.textContent = theme[0].toUpperCase() + theme.slice(1);
       localStorage.setItem(THEME_KEY, theme);
     }
 
@@ -693,10 +856,10 @@
       if (!wrap) return;
 
       wrap.innerHTML = `
-        <div class="field-grid">
-          <label class="text-xs section-title">${escapeHtml(def.label)}</label>
-          <select id="sel_${def.key}" class="select"></select>
-          <input id="new_${def.key}" class="input" placeholder="Add new ${def.label.toLowerCase()}..." style="display:none;" />
+        <div class="bcn-field-group">
+          <label class="bcn-label">${escapeHtml(def.label)}</label>
+          <select id="sel_${def.key}" class="bcn-select"></select>
+          <input id="new_${def.key}" class="bcn-input" placeholder="Add new ${def.label.toLowerCase()}..." style="display:none;margin-top:4px;" />
         </div>
       `;
 
@@ -865,7 +1028,7 @@
       tableBody.innerHTML = "";
 
       if (!state.filteredRows.length) {
-        tableBody.innerHTML = `<tr><td colspan="16" class="muted2">No rows match the current filters.</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="16" style="padding:20px;color:var(--bcn-ink-3);font-style:italic;">No rows match the current filters.</td></tr>`;
         return;
       }
 
@@ -876,11 +1039,11 @@
         const checked = state.selectedIds.has(Number(row.id)) ? "checked" : "";
 
         tr.innerHTML = `
-          <td><input type="checkbox" data-select-id="${escapeHtml(String(row.id))}" ${checked}></td>
+          <td><input type="checkbox" data-select-id="${escapeHtml(String(row.id))}" ${checked} style="cursor:pointer;"></td>
           <td class="mono">${escapeHtml(String(row.id ?? ""))}</td>
           <td>
-            <div style="font-weight:900;">${escapeHtml(row.product_title || "")}</div>
-            <div class="text-xs muted2 mono">${escapeHtml(row.product_title_key || "")}</div>
+            <div style="font-weight:600;">${escapeHtml(row.product_title || "")}</div>
+            <div class="td-title-key">${escapeHtml(row.product_title_key || "")}</div>
           </td>
           <td>${escapeHtml(row.product_category || "—")}</td>
           <td>${escapeHtml(row.collection || "—")}</td>
@@ -892,9 +1055,9 @@
           <td>${escapeHtml(row.indicator_group || "—")}</td>
           <td>${escapeHtml(row.sub_tag || "—")}</td>
           <td class="mono">${fmtInt(row.current_inventory)}</td>
-          <td><div class="line-clamp-2 muted">${escapeHtml(row.notes || "—")}</div></td>
-          <td class="text-xs muted2">${escapeHtml(fmtDate(row.uploaded_at))}</td>
-          <td><button class="btn btn-ghost" data-edit-id="${escapeHtml(String(row.id))}">Edit</button></td>
+          <td><div class="line-clamp-2">${escapeHtml(row.notes || "—")}</div></td>
+          <td class="td-muted mono">${escapeHtml(fmtDate(row.uploaded_at))}</td>
+          <td><button class="bcn-btn bcn-btn--ghost bcn-btn--sm" data-edit-id="${escapeHtml(String(row.id))}">Edit</button></td>
         `;
         fragment.appendChild(tr);
       });
@@ -926,7 +1089,7 @@
       editorTitle.textContent = isNew ? "Add Product Tag" : "Edit Product Tag";
       editorMeta.textContent = isNew
         ? "Creating a new row in public.product_tags"
-        : `Editing row ID ${row.id} • uploaded ${fmtDate(row.uploaded_at)}`;
+        : `Editing row ID ${row.id} · uploaded ${fmtDate(row.uploaded_at)}`;
 
       deleteRowBtn.style.display = isNew ? "none" : "";
 
@@ -1008,7 +1171,7 @@ Session email: ${state.session?.user?.email || "unknown"}`
         setText("lastUpdated", new Date().toLocaleString());
       } catch (err) {
         console.error(err);
-        tableBody.innerHTML = `<tr><td colspan="16" class="text-red-600">Load failed: ${escapeHtml(err.message || String(err))}</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="16" style="padding:20px;color:var(--bcn-neg);">Load failed: ${escapeHtml(err.message || String(err))}</td></tr>`;
         setStatus("Load failed", "error");
         setDebug(
 `Load failed.
@@ -1174,11 +1337,6 @@ Most likely causes:
       applyTheme(localStorage.getItem(THEME_KEY) || "light");
       buildEditorFields();
 
-      themeBtn.addEventListener("click", () => {
-        const cur = document.documentElement.getAttribute("data-theme") || "light";
-        applyTheme(cur === "dark" ? "light" : "dark");
-      });
-
       reloadBtn.addEventListener("click", loadTable);
 
       addRowBtn.addEventListener("click", () => {
@@ -1266,10 +1424,6 @@ Most likely causes:
           e.preventDefault();
           addRowBtn.click();
           return;
-        }
-        if (key === "t") {
-          e.preventDefault();
-          themeBtn.click();
         }
       });
     }
