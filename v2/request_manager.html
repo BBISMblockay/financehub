@@ -1738,6 +1738,15 @@
       });
     }
 
+    // Mount chrome synchronously — sidebar visible before any network call
+    SiloChrome.mount({
+      appEl: '#silo-app',
+      active: 'finance/request-manager',
+      user: { email: '', role: 'ADMIN' },
+      crumbs: ['Requests', 'Request Manager'],
+      supabaseClient,
+    });
+
     async function init() {
       try {
         state.currentUser = await getCurrentUser();
@@ -1745,15 +1754,6 @@
           window.location.href = "/pages/login.html";
           return;
         }
-
-        SiloChrome.mount({
-          appEl: '#silo-app',
-          active: 'finance/request-manager',
-          user: { email: state.currentUser.email || '', role: 'ADMIN' },
-          crumbs: ['Requests', 'Request Manager'],
-          supabaseClient,
-        });
-
         wireEvents();
         await loadData();
       } catch (err) {

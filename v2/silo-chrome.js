@@ -276,6 +276,11 @@
         toggleCollapse(appEl);
         return;
       }
+      // Clicking anywhere on the collapsed rail expands it (collapse btn is hidden when collapsed)
+      if (appEl.getAttribute('data-collapsed') === 'true') {
+        toggleCollapse(appEl);
+        return;
+      }
       if (e.target.closest('.silo-sb-link')) {
         setNavOpen(false);
       }
