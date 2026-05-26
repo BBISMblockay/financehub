@@ -1,14 +1,15 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full" data-theme="light">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>SILO · Inventory workbench</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
-<script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="v2-mobile.css" />
   <script src="../pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+  <script src="silo-chrome.js"></script>
   <style>
     :root {
       --bg: #0b1220;
@@ -28,8 +29,6 @@
       --danger: #dc2626;
       --dock-w: 320px;
       --rail-w: 272px;
-      --silo-edge-w: 44px;
-      --silo-nav-w: 248px;
     }
     * { box-sizing: border-box; }
     html, body { height: 100%; margin: 0; }
@@ -41,32 +40,11 @@
     button, input, select { font: inherit; }
     .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
 
-    .app-shell {
-      display: grid;
-      grid-template-columns: var(--silo-edge-w) auto 1fr;
-      grid-template-rows: 100vh;
-      min-height: 100vh;
-    }
-
-    /* —— Silo app menu (layer above filter rail) —— */
-    .silo-edge {
-      background: #0b1220;
-      border-right: 1px solid var(--rail-border);
-      display: flex; flex-direction: column; align-items: center;
-      padding: 10px 0; gap: 8px; z-index: 35;
-    }
-    .silo-edge-btn {
-      width: 32px; height: 32px; border-radius: 9px;
-      border: 1px solid var(--rail-border);
-      background: linear-gradient(135deg, #3b82f6, #6366f1);
-      color: #fff; font-size: 11px; font-weight: 800;
-      cursor: pointer; display: grid; place-items: center;
-    }
-    .silo-edge-btn:hover { filter: brightness(1.08); }
-    .silo-edge-label {
-      writing-mode: vertical-rl; transform: rotate(180deg);
-      font-size: 9px; font-weight: 800; letter-spacing: 0.12em;
-      text-transform: uppercase; color: var(--rail-muted);
+    .silo-main.inv-workbench {
+      display: flex;
+      flex-direction: row;
+      overflow: hidden;
+      position: relative;
     }
 
     .panel-backdrop {
@@ -74,68 +52,10 @@
       opacity: 0; pointer-events: none; transition: opacity 0.2s ease;
       z-index: 55;
     }
-    body.silo-nav-open .panel-backdrop.silo-backdrop,
     body.draft-open .panel-backdrop.draft-backdrop {
       opacity: 1; pointer-events: auto;
     }
 
-    .silo-nav-panel {
-      position: fixed; left: var(--silo-edge-w); top: 0; bottom: 0;
-      width: var(--silo-nav-w);
-      background: linear-gradient(180deg, #0f172a 0%, #0b1220 100%);
-      border-right: 1px solid var(--rail-border);
-      color: var(--rail-text);
-      z-index: 60;
-      transform: translateX(-110%);
-      transition: transform 0.22s ease;
-      display: flex; flex-direction: column;
-      box-shadow: 12px 0 40px rgba(0, 0, 0, 0.35);
-    }
-    body.silo-nav-open .silo-nav-panel { transform: translateX(0); }
-
-    .silo-nav-head {
-      padding: 14px 14px 10px;
-      border-bottom: 1px solid var(--rail-border);
-      display: flex; align-items: center; justify-content: space-between; gap: 8px;
-    }
-    .silo-nav-head h2 { margin: 0; font-size: 14px; font-weight: 800; }
-    .silo-nav-head p { margin: 4px 0 0; font-size: 11px; color: var(--rail-muted); }
-    .silo-nav-close {
-      border: 1px solid var(--rail-border); background: rgba(255,255,255,0.06);
-      color: #fff; border-radius: 8px; width: 30px; height: 30px;
-      cursor: pointer; font-size: 16px; line-height: 1;
-    }
-    .silo-nav-scroll {
-      flex: 1; overflow-y: auto; padding: 10px 12px 16px;
-    }
-    .silo-nav-section { margin-bottom: 14px; }
-    .silo-nav-section h3 {
-      margin: 0 0 6px; padding: 0 6px;
-      font-size: 10px; font-weight: 800; letter-spacing: 0.1em;
-      text-transform: uppercase; color: var(--rail-muted);
-    }
-    .silo-nav-link {
-      display: block; padding: 8px 10px; border-radius: 8px;
-      font-size: 12px; font-weight: 600; color: rgba(255,255,255,0.88);
-      text-decoration: none; border: 1px solid transparent;
-    }
-    .silo-nav-link:hover {
-      background: rgba(255,255,255,0.07); color: #fff;
-    }
-    .silo-nav-link.active {
-      background: rgba(59,130,246,0.18);
-      border-color: rgba(96,165,250,0.35);
-      color: #fff;
-    }
-    .silo-nav-link .sub {
-      display: block; font-size: 10px; font-weight: 500;
-      color: var(--rail-muted); margin-top: 2px;
-    }
-
-    .left-cluster {
-      display: flex; min-width: 0; min-height: 0;
-      position: relative;
-    }
     .filter-rail-toggle {
       position: absolute; right: -12px; top: 72px; z-index: 25;
       width: 24px; height: 48px; border-radius: 0 8px 8px 0;
@@ -145,7 +65,6 @@
       box-shadow: 4px 0 12px rgba(15,23,42,0.08);
     }
     body.filter-rail-collapsed .filter-rail-toggle { right: auto; left: 0; border-radius: 0 8px 8px 0; border-left: 1px solid var(--line); }
-    body.filter-rail-collapsed .left-cluster { width: 0; overflow: visible; }
     body.filter-rail-collapsed .filter-rail {
       width: 0; min-width: 0; padding: 0; border: none; overflow: hidden; opacity: 0;
     }
@@ -554,68 +473,22 @@
       border-radius: 14px; overflow: hidden;
       background: #fff; border: 1px solid var(--line);
     }
+    body.overflow-hidden { overflow: hidden; }
 
-    @media (max-width: 1100px) {
-      .app-shell {
-        grid-template-columns: var(--silo-edge-w) 1fr;
-        grid-template-rows: auto 1fr;
+    @media (max-width: 900px) {
+      .filter-rail { display: none; }
+      body.filter-rail-open .filter-rail {
+        display: flex; position: fixed; top: 0; left: 0; bottom: 0;
+        z-index: 50; box-shadow: 8px 0 32px rgba(15,23,42,0.2);
       }
-      .left-cluster { grid-column: 1 / -1; }
-      .filter-rail {
-        max-height: 40vh;
-        border-right: none;
-        border-bottom: 1px solid var(--rail-border);
-      }
-      .workspace { grid-column: 1 / -1; }
-      .silo-nav-panel { left: 0; width: min(280px, 88vw); }
     }
   </style>
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
-  <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
 </head>
-<body class="h-full inv-v2">
-  <div class="app-shell">
-    <div class="silo-edge">
-      <button id="btnSiloNavToggle" type="button" class="silo-edge-btn" aria-label="Open Silo menu" title="Silo menu">S</button>
-      <span class="silo-edge-label">Silo</span>
-    </div>
-
-    <nav id="siloNavPanel" class="silo-nav-panel" aria-label="Silo navigation" aria-hidden="true">
-      <div class="silo-nav-head">
-        <div>
-          <h2>Silo</h2>
-          <p>Leave inventory · department hubs</p>
-        </div>
-        <button id="btnSiloNavClose" type="button" class="silo-nav-close" aria-label="Close Silo menu">×</button>
-      </div>
-      <div class="silo-nav-scroll thin-scroll">
-        <div class="silo-nav-section">
-          <h3>Home</h3>
-          <a class="silo-nav-link" href="/index.html">SILO entry</a>
-        </div>
-        <div class="silo-nav-section">
-          <h3>Department hubs</h3>
-          <a class="silo-nav-link" href="/v2/finance.html">Finance</a>
-          <a class="silo-nav-link" href="/v2/executive.html">Executive</a>
-        </div>
-        <div class="silo-nav-section">
-          <h3>Inventory</h3>
-          <a class="silo-nav-link active" href="/v2/inventory.html">Inventory workbench</a>
-          <a class="silo-nav-link" href="/v2/product-manager.html">Product tags</a>
-        </div>
-        <div class="silo-nav-section">
-          <h3>Planning</h3>
-          <a class="silo-nav-link" href="/v2/po-builder.html">PO builder</a>
-          <a class="silo-nav-link" href="/v2/po-costing.html">PO landed cost</a>
-          <a class="silo-nav-link" href="/v2/po-report.html">PO report</a>
-          <a class="silo-nav-link" href="/v2/launch-calendar.html">Launch calendar</a>
-        </div>
-      </div>
-    </nav>
-    <div id="siloNavBackdrop" class="panel-backdrop silo-backdrop" aria-hidden="true"></div>
-
-    <div class="left-cluster">
+<body class="inv-v2">
+  <div id="silo-app" class="silo-app">
+    <main class="silo-main inv-workbench">
       <button id="btnFilterRailToggle" type="button" class="filter-rail-toggle" aria-label="Toggle filters" title="Toggle filters">‹</button>
       <aside id="filterRail" class="filter-rail" aria-label="Filters and planning">
       <div class="rail-brand">
@@ -773,10 +646,9 @@
         <button id="btnClear" type="button" class="btn btn-ghost-rail">Reset</button>
         <button id="btnApply" type="button" class="btn btn-dark">Run filters</button>
       </div>
-    </aside>
-    </div>
+      </aside>
 
-    <div class="workspace">
+      <div class="workspace">
       <header class="workspace-top">
         <div class="workspace-title">
           <h2>Workbench</h2>
@@ -821,7 +693,7 @@
       <div class="workspace-body">
         <section class="data-panel">
           <div class="table-wrap thin-scroll">
-            <table id="mainTable" class="w-max text-sm stickyHead table-compact">
+            <table id="mainTable" class="stickyHead table-compact">
               <thead><tr id="theadRow"></tr></thead>
               <tbody id="tbody"></tbody>
             </table>
@@ -837,6 +709,7 @@
 
       </div>
     </div>
+    </main>
   </div>
 
   <aside id="draftDrawer" class="draft-drawer" aria-label="PO draft" aria-hidden="true">
@@ -875,15 +748,15 @@
   </aside>
   <div id="draftBackdrop" class="panel-backdrop draft-backdrop" aria-hidden="true"></div>
 
-  <div id="modal" class="fixed inset-0 hidden z-50">
-    <div class="absolute inset-0 bg-black/40" data-modal-overlay="1"></div>
-    <div class="absolute inset-x-0 top-10 mx-auto max-w-7xl px-4">
+  <div id="modal" class="hidden" style="position:fixed;inset:0;z-index:50;">
+    <div style="position:absolute;inset:0;background:rgba(0,0,0,0.4);" data-modal-overlay="1"></div>
+    <div style="position:absolute;left:0;right:0;top:40px;margin:0 auto;max-width:80rem;padding:0 16px;">
       <div class="modal-card shadow-soft">
-        <div class="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-          <div class="text-sm font-semibold" id="modalTitle">Modal</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px;border-bottom:1px solid #e2e8f0;">
+          <div style="font-size:13px;font-weight:600;" id="modalTitle">Modal</div>
           <button id="btnCloseModal" type="button" class="btn">Close</button>
         </div>
-        <div id="modalBody" class="p-4 text-sm max-h-[82vh] overflow-auto thin-scroll"></div>
+        <div id="modalBody" style="padding:16px;font-size:13px;max-height:82vh;overflow:auto;" class="thin-scroll"></div>
       </div>
     </div>
   </div>
@@ -892,19 +765,11 @@
 <script>
 (function initInvV2Chrome() {
   const body = document.body;
-  const siloPanel = document.getElementById("siloNavPanel");
-  const siloBackdrop = document.getElementById("siloNavBackdrop");
   const draftDrawer = document.getElementById("draftDrawer");
   const draftBackdrop = document.getElementById("draftBackdrop");
   const filterToggle = document.getElementById("btnFilterRailToggle");
   const filterToggleTop = document.getElementById("btnFilterRailToggleTop");
 
-  function setSiloNav(open) {
-    body.classList.toggle("silo-nav-open", open);
-    if (siloPanel) {
-      siloPanel.setAttribute("aria-hidden", open ? "false" : "true");
-    }
-  }
   function setDraft(open) {
     body.classList.toggle("draft-open", open);
     if (draftDrawer) draftDrawer.setAttribute("aria-hidden", open ? "false" : "true");
@@ -914,10 +779,6 @@
     const collapsed = body.classList.contains("filter-rail-collapsed");
     if (filterToggle) filterToggle.textContent = collapsed ? "›" : "‹";
   }
-
-  document.getElementById("btnSiloNavToggle")?.addEventListener("click", () => setSiloNav(true));
-  document.getElementById("btnSiloNavClose")?.addEventListener("click", () => setSiloNav(false));
-  siloBackdrop?.addEventListener("click", () => setSiloNav(false));
 
   document.getElementById("btnDraftDrawerToggle")?.addEventListener("click", () => setDraft(true));
   document.getElementById("btnDraftDrawerClose")?.addEventListener("click", () => setDraft(false));
@@ -932,7 +793,6 @@
 
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-      setSiloNav(false);
       setDraft(false);
     }
   });
@@ -950,7 +810,9 @@
     const INVENTORY_PAGE_SIZE = 10000;
     const PRODUCT_TAG_PAGE_SIZE = 10000;
 
-    let SUPABASE = null;
+    const SUPABASE = (SUPABASE_URL && SUPABASE_ANON_KEY)
+      ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+      : null;
     let SESSION = null;
     let APP_READY = false;
 
@@ -1187,12 +1049,11 @@
     }
 
     async function initAuth(){
-      if (!SUPABASE_URL || !SUPABASE_ANON_KEY){
+      if (!SUPABASE){
         document.body.innerHTML = `<div style="padding:24px;font-family:Inter,system-ui,sans-serif;">Missing Supabase config in /pages/config.js</div>`;
         return false;
       }
 
-      SUPABASE = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
       const { data, error } = await SUPABASE.auth.getSession();
       if (error) console.warn(error);
 
@@ -3084,6 +2945,16 @@
         el("btnStratRepl").classList.remove("active");
         el("btnStratGrowth").classList.remove("active");
         computeSuggestions();
+      });
+    }
+
+    if (window.SiloChrome && SUPABASE) {
+      window.SiloChrome.mount({
+        appEl: '#silo-app',
+        active: 'inventory/workboard',
+        user: { email: '', role: 'MEMBER' },
+        crumbs: ['Inventory', 'Workbench'],
+        supabaseClient: SUPABASE,
       });
     }
 
