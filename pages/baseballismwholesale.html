@@ -1,221 +1,277 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full">
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <script src="/pages/embed.js"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Baseballism Wholesale AR</title>
 
-  <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="./config.js"></script>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 
   <style>
+    *, *::before, *::after { box-sizing: border-box; }
     :root { color-scheme: light; }
-    html, body { height: 100%; }
+    html, body { height: 100%; margin: 0; padding: 0; }
     body {
-      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background:
-        radial-gradient(circle at top left, rgba(255,255,255,.92), rgba(245,247,251,.86) 38%, rgba(241,245,249,.96) 100%);
+      font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: #f8fafc;
       color: #0f172a;
+      font-size: 14px;
+      -webkit-font-smoothing: antialiased;
     }
 
-    .mono { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
-    .shell { max-width: 1760px; margin: 0 auto; padding: 12px; }
+    /* ---- Layout ---- */
+    .shell { max-width: 1760px; margin: 0 auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
 
-    .card {
-      background: rgba(255,255,255,.94);
-      backdrop-filter: blur(8px);
-      border: 1px solid rgba(226,232,240,.95);
-      border-radius: 14px;
-      box-shadow:
-        0 1px 2px rgba(15,23,42,.035),
-        0 6px 18px rgba(15,23,42,.04);
-    }
-
-    .hero {
-      background:
-        linear-gradient(135deg, rgba(15,23,42,.98), rgba(30,41,59,.97) 55%, rgba(51,65,85,.96));
-      color: #fff;
-      border: 1px solid rgba(255,255,255,.08);
-      border-radius: 16px;
-      box-shadow:
-        0 10px 28px rgba(15,23,42,.14),
-        inset 0 1px 0 rgba(255,255,255,.08);
-    }
-
-    .hero-chip {
-      display: inline-flex;
+    /* ---- Page header (replaces dark hero) ---- */
+    .page-header {
+      display: flex;
       align-items: center;
-      gap: 8px;
-      border: 1px solid rgba(255,255,255,.12);
-      background: rgba(255,255,255,.06);
-      color: rgba(255,255,255,.86);
-      border-radius: 999px;
-      padding: .45rem .75rem;
-      font-size: .74rem;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 10px 14px;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+    }
+    .page-header-left { display: flex; align-items: center; gap: 10px; }
+    .page-eyebrow {
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+      font-size: .65rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .1em;
+      color: #64748b;
+      white-space: nowrap;
+    }
+    .page-title {
+      font-size: .94rem;
       font-weight: 700;
-      letter-spacing: .02em;
+      color: #0f172a;
+      white-space: nowrap;
+      margin: 0;
+    }
+    .page-header-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+    /* ---- Tabs ---- */
+    .top-tabs {
+      display: inline-flex;
+      gap: 2px;
+      padding: 3px;
+      border-radius: 6px;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+    }
+    .top-tabs button {
+      border: 0;
+      background: transparent;
+      color: #64748b;
+      border-radius: 4px;
+      padding: .30rem .62rem;
+      font-size: .72rem;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      font-family: inherit;
+    }
+    .top-tabs button.active {
+      background: #0f172a;
+      color: #fff;
+    }
+    .top-tabs button:not(.active):hover { background: #e2e8f0; color: #0f172a; }
+
+    /* ---- Mono utility ---- */
+    .mono {
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum" 1;
     }
 
+    /* ---- Cards ---- */
+    .card {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+    }
+    .card-pad { padding: 12px 14px; }
+
+    /* ---- Filters card ---- */
+    .filters-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 8px;
+      align-items: end;
+    }
+    .filters-grid .span-2 { grid-column: span 2; }
+    .filter-label {
+      display: block;
+      font-size: .68rem;
+      font-weight: 700;
+      color: #475569;
+      margin-bottom: 4px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+    }
+
+    /* ---- Form controls ---- */
     .input, .select, .textarea {
       width: 100%;
-      border-radius: 10px;
+      border-radius: 5px;
       border: 1px solid #dbe2ea;
       background: #fff;
-      padding: .52rem .66rem;
-      font-size: .78rem;
+      padding: .40rem .56rem;
+      font-size: .76rem;
       outline: none;
-      transition: .18s ease;
+      transition: border-color .14s ease;
       color: #0f172a;
+      font-family: inherit;
     }
-    .textarea { min-height: 100px; resize: vertical; }
+    .textarea { min-height: 88px; resize: vertical; }
     .input:focus, .select:focus, .textarea:focus {
-      border-color: #0f172a;
-      box-shadow: 0 0 0 4px rgba(15,23,42,.08);
+      border-color: #94a3b8;
+      box-shadow: 0 0 0 3px rgba(148,163,184,.18);
     }
 
+    /* ---- Buttons ---- */
     .btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: .5rem;
-      border-radius: 10px;
-      padding: .52rem .72rem;
-      font-weight: 800;
-      font-size: .78rem;
-      transition: .18s ease;
+      gap: .4rem;
+      border-radius: 5px;
+      padding: .40rem .66rem;
+      font-weight: 700;
+      font-size: .74rem;
+      transition: background .12s ease, border-color .12s ease;
       border: 1px solid #dbe2ea;
       background: #fff;
       color: #0f172a;
       white-space: nowrap;
       cursor: pointer;
+      font-family: inherit;
     }
-    .btn:hover { transform: translateY(-1px); }
-    .btn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+    .btn:hover { background: #f1f5f9; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
     .btn-primary {
       background: #0f172a;
       color: #fff;
       border-color: #0f172a;
-      box-shadow: 0 10px 22px rgba(15,23,42,.15);
     }
+    .btn-primary:hover { background: #1e293b; border-color: #1e293b; }
     .btn-soft { background: #f8fafc; color: #0f172a; }
+    .btn-soft:hover { background: #f1f5f9; }
     .btn-xs {
-      border-radius: 9px;
-      padding: .32rem .5rem;
-      font-size: .61rem;
-      font-weight: 800;
+      padding: .22rem .44rem;
+      font-size: .66rem;
     }
 
-    .top-tabs {
-      display: inline-flex;
-      gap: 4px;
-      padding: 4px;
-      border-radius: 999px;
-      border: 1px solid #e2e8f0;
-      background: #f8fafc;
-      flex-wrap: wrap;
+    /* ---- Status text ---- */
+    .status-row {
+      font-size: .72rem;
+      color: #64748b;
+      padding-top: 2px;
     }
-    .top-tabs button {
-      border: 0;
-      background: transparent;
-      color: #475569;
-      border-radius: 999px;
-      padding: .38rem .72rem;
-      font-size: .74rem;
-      font-weight: 800;
-      cursor: pointer;
-    }
-    .top-tabs button.active {
-      background: #0f172a;
-      color: #fff;
-      box-shadow: 0 8px 18px rgba(15,23,42,.14);
-    }
+    .status-row.error { color: #dc2626; }
 
+    /* ---- KPI strip ---- */
+    .kpi-strip {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 8px;
+    }
     .kpi {
-      border: 1px solid #e5e7eb;
-      border-radius: 14px;
-      padding: 10px 12px;
-      background: linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(248,250,252,1) 100%);
-      min-height: 72px;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 9px 12px;
+      background: #fff;
     }
     .kpi-label {
-      font-size: .61rem;
+      font-size: .60rem;
       text-transform: uppercase;
       letter-spacing: .08em;
       color: #64748b;
-      font-weight: 800;
+      font-weight: 700;
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
     }
     .kpi-value {
-      margin-top: 5px;
-      font-size: 1.08rem;
-      line-height: 1.02;
-      font-weight: 800;
+      margin-top: 4px;
+      font-size: 1.02rem;
+      line-height: 1.1;
+      font-weight: 700;
       color: #0f172a;
     }
     .kpi-sub {
-      margin-top: 3px;
-      font-size: .68rem;
-      color: #64748b;
+      margin-top: 2px;
+      font-size: .64rem;
+      color: #94a3b8;
     }
 
-    .section-title { font-size: 1rem; font-weight: 800; color: #0f172a; }
-    .section-sub { margin-top: 2px; font-size: .82rem; color: #64748b; }
+    /* ---- Section headers ---- */
+    .section-title { font-size: .84rem; font-weight: 700; color: #0f172a; }
+    .section-sub { margin-top: 2px; font-size: .72rem; color: #64748b; }
+    .section-row-count { font-size: .70rem; color: #94a3b8; font-family: "IBM Plex Mono", ui-monospace, monospace; }
 
-    .mini-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    /* ---- Mini stat grids (sidebar cards) ---- */
+    .mini-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
     .mini-card {
-      border: 1px solid #e5e7eb;
-      border-radius: 18px;
-      padding: 12px;
-      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 10px 12px;
+      background: #f8fafc;
     }
     .mini-card .label {
-      font-size: .61rem;
+      font-size: .60rem;
       text-transform: uppercase;
       letter-spacing: .06em;
       color: #64748b;
-      font-weight: 800;
+      font-weight: 700;
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
     }
     .mini-card .value {
-      margin-top: 8px;
-      font-size: 1.08rem;
-      font-weight: 800;
+      margin-top: 6px;
+      font-size: 1.02rem;
+      font-weight: 700;
       color: #0f172a;
     }
 
+    /* ---- List rows (top customers, aging) ---- */
     .list-row {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      padding: 11px 0;
-      border-bottom: 1px solid #eef2f7;
+      padding: 9px 0;
+      border-bottom: 1px solid #f1f5f9;
     }
     .list-row:last-child { border-bottom: 0; }
 
+    /* ---- Bar chart ---- */
     .bar-track {
-      height: 8px;
+      height: 5px;
       border-radius: 999px;
-      background: #eef2f7;
+      background: #e2e8f0;
       overflow: hidden;
-      margin-top: 8px;
+      margin-top: 6px;
     }
     .bar-fill {
       display: block;
       height: 100%;
       border-radius: 999px;
-      background: linear-gradient(90deg, #0f172a, #334155);
+      background: #0f172a;
     }
 
+    /* ---- Tables ---- */
     .table-wrap {
       overflow: auto;
-      border: 1px solid #e5e7eb;
-      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
       background: #fff;
     }
     table { width: 100%; border-collapse: separate; border-spacing: 0; }
@@ -225,35 +281,73 @@
       z-index: 2;
       background: #f8fafc;
       color: #64748b;
-      font-size: .64rem;
+      font-size: .60rem;
       text-transform: uppercase;
       letter-spacing: .05em;
-      font-weight: 800;
-      padding: .46rem .58rem;
-      border-bottom: 1px solid #e5e7eb;
+      font-weight: 700;
+      padding: .34rem .44rem;
+      border-bottom: 1px solid #e2e8f0;
       text-align: left;
       white-space: nowrap;
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
     }
     tbody td {
-      padding: .46rem .58rem;
+      padding: .30rem .44rem;
       border-bottom: 1px solid #f1f5f9;
-      font-size: .76rem;
+      font-size: .72rem;
       vertical-align: middle;
       color: #0f172a;
     }
+    tbody tr:last-child td { border-bottom: 0; }
     tbody tr:hover td { background: #fafcff; }
     .right { text-align: right; }
     .muted { color: #64748b; }
 
+    /* ---- Column width helpers ---- */
+    .w-customer { min-width: 200px; max-width: 260px; }
+    .w-email { min-width: 170px; max-width: 220px; }
+    .w-small { min-width: 76px; }
+    .w-money { min-width: 96px; }
+    .w-actions { min-width: 142px; }
+    tbody td, thead th { white-space: nowrap; }
+
+    /* ---- Cell helpers ---- */
+    .cell-main {
+      font-weight: 700;
+      color: #0f172a;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .cell-sub {
+      color: #64748b;
+      font-size: .64rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      margin-top: 1px;
+    }
+    .cell-inline {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+      white-space: nowrap;
+    }
+    .row-actions { display: flex; flex-wrap: nowrap; gap: 4px; }
+
+    /* ---- Badges ---- */
     .badge {
       display: inline-flex;
       align-items: center;
-      border-radius: 999px;
-      padding: .16rem .42rem;
-      font-size: .64rem;
+      border-radius: 3px;
+      padding: .10rem .30rem;
+      font-size: .60rem;
       font-weight: 700;
       border: 1px solid transparent;
       white-space: nowrap;
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+      letter-spacing: .01em;
     }
     .badge-paid { background: #ecfdf5; color: #166534; border-color: #bbf7d0; }
     .badge-open { background: #fff7ed; color: #9a3412; border-color: #fed7aa; }
@@ -273,25 +367,18 @@
     .badge-priority-urgent { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
     .badge-queue-pending { background: #ecfeff; color: #155e75; border-color: #a5f3fc; }
 
-    .w-customer { min-width: 220px; max-width: 320px; }
-    .w-email { min-width: 190px; max-width: 250px; }
-    .w-small { min-width: 76px; }
-    .w-money { min-width: 96px; }
-    .w-actions { min-width: 150px; }
-    tbody td, thead th { white-space: nowrap; }
-    tbody td .truncate-2 { max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
+    /* ---- Export dropdown ---- */
     .export-menu { position: relative; }
     .export-panel {
       position: absolute;
       right: 0;
-      top: calc(100% + 10px);
-      width: 270px;
+      top: calc(100% + 6px);
+      width: 264px;
       background: #fff;
       border: 1px solid #e2e8f0;
-      border-radius: 18px;
-      box-shadow: 0 18px 40px rgba(15,23,42,.10);
-      padding: 8px;
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(15,23,42,.10);
+      padding: 6px;
       z-index: 30;
       display: none;
     }
@@ -301,37 +388,62 @@
       border: 0;
       background: transparent;
       text-align: left;
-      padding: .72rem .78rem;
-      border-radius: 12px;
-      font-size: .88rem;
+      padding: .56rem .68rem;
+      border-radius: 5px;
+      font-size: .78rem;
       font-weight: 700;
       color: #0f172a;
       cursor: pointer;
+      font-family: inherit;
+      display: block;
     }
     .export-item:hover { background: #f8fafc; }
     .export-label {
       display: block;
-      font-size: .73rem;
+      font-size: .68rem;
       color: #64748b;
-      font-weight: 600;
-      margin-top: 2px;
+      font-weight: 500;
+      margin-top: 1px;
     }
 
+    /* ---- View panels ---- */
     .view-panel { display: none; }
     .view-panel.active { display: block; }
 
-    .queue-card {
-      border: 1px solid #e5e7eb;
-      border-radius: 20px;
-      padding: 16px;
-      background: #fff;
-    }
+    /* ---- Two-column layout helpers ---- */
+    .two-col { display: grid; grid-template-columns: 1fr 320px; gap: 10px; align-items: start; }
+    .two-col-wide { display: grid; grid-template-columns: 1fr 280px; gap: 10px; align-items: start; }
+    .stack { display: flex; flex-direction: column; gap: 10px; }
 
+    /* ---- Queue "work bucket" cards ---- */
+    .queue-card {
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 12px 14px;
+      background: #f8fafc;
+    }
+    .queue-card-label {
+      font-size: .60rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: #64748b;
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    .queue-card-value {
+      margin-top: 6px;
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: #0f172a;
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    .queue-card-helper { margin-top: 2px; font-size: .70rem; color: #64748b; }
+
+    /* ---- Drawer ---- */
     .drawer-backdrop {
       position: fixed;
       inset: 0;
-      background: rgba(15,23,42,.34);
-      backdrop-filter: blur(3px);
+      background: rgba(15,23,42,.30);
       z-index: 80;
       display: none;
     }
@@ -341,362 +453,384 @@
       position: fixed;
       top: 0;
       right: 0;
-      width: min(700px, 100vw);
+      width: min(680px, 100vw);
       height: 100vh;
       background: #fff;
       z-index: 90;
-      border-left: 1px solid #e5e7eb;
-      box-shadow: -20px 0 40px rgba(15,23,42,.12);
+      border-left: 1px solid #e2e8f0;
+      box-shadow: -12px 0 32px rgba(15,23,42,.10);
       transform: translateX(100%);
-      transition: transform .22s ease;
+      transition: transform .20s ease;
       display: flex;
       flex-direction: column;
     }
     .drawer.open { transform: translateX(0); }
     .drawer-head {
-      padding: 20px 22px;
-      border-bottom: 1px solid #e5e7eb;
+      padding: 14px 18px;
+      border-bottom: 1px solid #e2e8f0;
       background: #fff;
+    }
+    .drawer-head-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .drawer-eyebrow {
+      font-size: .60rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .12em;
+      color: #94a3b8;
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    .drawer-title {
+      margin: 4px 0 2px;
+      font-size: 1.04rem;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .drawer-sub {
+      font-size: .74rem;
+      color: #64748b;
     }
     .drawer-body {
       flex: 1;
       overflow: auto;
-      padding: 20px 22px 110px;
+      padding: 14px 18px 100px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
     }
     .drawer-foot {
       position: absolute;
       left: 0;
       right: 0;
       bottom: 0;
-      padding: 16px 22px;
-      background: rgba(255,255,255,.94);
-      backdrop-filter: blur(8px);
-      border-top: 1px solid #e5e7eb;
+      padding: 12px 18px;
+      background: #fff;
+      border-top: 1px solid #e2e8f0;
       display: flex;
       justify-content: space-between;
       gap: 12px;
     }
 
+    /* ---- Drawer snapshot grid ---- */
+    .snapshot-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+    .snapshot-item {
+      border: 1px solid #e2e8f0;
+      border-radius: 5px;
+      background: #f8fafc;
+      padding: 8px 10px;
+    }
+    .snapshot-label {
+      font-size: .60rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: #64748b;
+      font-family: "IBM Plex Mono", ui-monospace, monospace;
+    }
+    .snapshot-value {
+      margin-top: 5px;
+      font-size: .94rem;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    /* ---- Field grid (drawer forms) ---- */
     .field-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0,1fr));
-      gap: 14px;
+      gap: 12px;
     }
     .field-grid .full { grid-column: 1 / -1; }
+    .field-label {
+      display: block;
+      font-size: .70rem;
+      font-weight: 700;
+      color: #475569;
+      margin-bottom: 4px;
+    }
 
+    /* ---- Activity items (drawer + feed) ---- */
+    .activity-item {
+      border: 1px solid #e2e8f0;
+      border-radius: 6px;
+      padding: 10px 12px;
+      background: #fff;
+    }
+    .activity-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .activity-who { font-size: .78rem; font-weight: 700; color: #0f172a; }
+    .activity-meta { font-size: .64rem; color: #94a3b8; }
+    .activity-channel { font-size: .68rem; color: #64748b; margin-top: 2px; }
+    .activity-subject { font-size: .80rem; font-weight: 700; color: #1e293b; margin-top: 6px; }
+    .activity-body { font-size: .74rem; color: #475569; white-space: pre-wrap; margin-top: 4px; }
+    .activity-footer { margin-top: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+    /* ---- Toasts ---- */
     .toast-wrap {
       position: fixed;
-      right: 18px;
-      bottom: 18px;
+      right: 16px;
+      bottom: 16px;
       z-index: 120;
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 8px;
       pointer-events: none;
     }
     .toast {
-      min-width: 260px;
-      max-width: 420px;
-      background: rgba(15,23,42,.96);
+      min-width: 240px;
+      max-width: 380px;
+      background: #0f172a;
       color: #fff;
-      border-radius: 16px;
-      padding: 12px 14px;
-      box-shadow: 0 16px 40px rgba(15,23,42,.22);
-      font-size: .88rem;
+      border-radius: 6px;
+      padding: 10px 14px;
+      box-shadow: 0 8px 24px rgba(15,23,42,.18);
+      font-size: .80rem;
       font-weight: 700;
       pointer-events: auto;
     }
-    .toast.error { background: rgba(127,29,29,.96); }
+    .toast.error { background: #7f1d1d; }
 
-
-    /* Ultra-compact AR grid pass */
-    .section-title { font-size: .88rem; }
-    .section-sub { font-size: .72rem; }
-    .table-wrap { border-radius: 10px; }
-    table { font-size: .72rem; }
-    thead th {
-      padding: .34rem .42rem !important;
-      font-size: .58rem !important;
-      line-height: 1.1;
+    /* ---- Responsive ---- */
+    @media (max-width: 1100px) {
+      .two-col, .two-col-wide { grid-template-columns: 1fr; }
+      .kpi-strip { grid-template-columns: repeat(3, minmax(0,1fr)); }
     }
-    tbody td {
-      padding: .30rem .42rem !important;
-      font-size: .70rem !important;
-      line-height: 1.18;
-    }
-    tbody tr { height: 34px; }
-    .badge {
-      padding: .10rem .32rem !important;
-      font-size: .56rem !important;
-      line-height: 1.05;
-    }
-    .btn-xs {
-      padding: .22rem .38rem !important;
-      font-size: .60rem !important;
-      line-height: 1.05;
-    }
-    .cell-main {
-      font-weight: 700;
-      color: #0f172a;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-    .cell-sub {
-      color: #64748b;
-      font-size: .64rem;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      margin-top: 1px;
-    }
-    .cell-inline {
-      display: flex;
-      align-items: center;
-      gap: 5px;
-      min-width: 0;
-      white-space: nowrap;
-    }
-    .row-actions {
-      display: flex;
-      flex-wrap: nowrap;
-      gap: 4px;
-    }
-    .w-customer { min-width: 210px; max-width: 260px; }
-    .w-email { min-width: 175px; max-width: 220px; }
-    .w-actions { min-width: 142px; }
-
-    @media (max-width: 1180px) {
-      .shell { padding: 14px; }
-      .mini-grid { grid-template-columns: 1fr; }
-    }
-    @media (max-width: 760px) {
+    @media (max-width: 700px) {
+      .kpi-strip { grid-template-columns: repeat(2, minmax(0,1fr)); }
+      .filters-grid { grid-template-columns: repeat(2, 1fr); }
       .field-grid { grid-template-columns: 1fr; }
-      .top-tabs { width: 100%; }
+      .snapshot-grid { grid-template-columns: repeat(2, 1fr); }
+      .top-tabs { flex-wrap: wrap; }
     }
   </style>
 </head>
-<body class="min-h-full">
+<body>
   <div class="shell">
-    <div class="space-y-3">
 
-      <div class="hero p-3 lg:p-4">
-        <div class="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-          <div class="space-y-3">
-            <div class="hero-chip">AR Workbench</div>
-            <div>
-              <h1 class="text-xl lg:text-2xl font-extrabold tracking-tight">Baseballism Wholesale AR</h1>
-              <p class="mt-1 max-w-3xl text-xs text-slate-200/80">
-                Queue, customers, orders, and activity in one place. Nightly Sync.
-              </p>
-            </div>
-          </div>
+    <!-- Page header -->
+    <div class="page-header">
+      <div class="page-header-left">
+        <span class="page-eyebrow">AR Workbench</span>
+        <span style="color:#e2e8f0">|</span>
+        <h1 class="page-title">Baseballism Wholesale</h1>
+      </div>
+      <div class="page-header-right">
+        <div class="top-tabs">
+          <button id="tabQueueBtn" class="active">Queue</button>
+          <button id="tabCustomersBtn">Customers</button>
+          <button id="tabOrdersBtn">Orders</button>
+          <button id="tabActivityBtn">Activity</button>
+        </div>
 
-          <div class="flex flex-col gap-3 lg:flex-row lg:items-center">
-            <div class="top-tabs">
-              <button id="tabQueueBtn" class="active">Queue</button>
-              <button id="tabCustomersBtn">Customers</button>
-              <button id="tabOrdersBtn">Orders</button>
-              <button id="tabActivityBtn">Activity</button>
-            </div>
-
-            <div class="export-menu">
-              <button id="exportMenuBtn" class="btn">
-                Export
-                <span aria-hidden="true">▾</span>
-              </button>
-              <div id="exportPanel" class="export-panel">
-                <button class="export-item" data-export="current">
-                  Export current view
-                  <span class="export-label">Queue, customers, orders, or activity based on active tab</span>
-                </button>
-                <button class="export-item" data-export="rollup">
-                  Export customer rollup
-                  <span class="export-label">Customer summary with workflow fields</span>
-                </button>
-                <button class="export-item" data-export="orders">
-                  Export orders
-                  <span class="export-label">Detailed filtered order rows</span>
-                </button>
-                <button class="export-item" data-export="queue">
-                  Export action queue
-                  <span class="export-label">Pending / processed reminder queue items</span>
-                </button>
-                <button class="export-item" data-export="activity">
-                  Export activity log
-                  <span class="export-label">Recent contact and workflow activity</span>
-                </button>
-                <button class="export-item" data-export="agingSummary">
-                  Export aging summary
-                  <span class="export-label">Current, 1–30, 31–60, 61–90, 90+</span>
-                </button>
-                <button class="export-item" data-export="financialSummary">
-                  Export financial summary
-                  <span class="export-label">Paid, pending, authorized, open, etc.</span>
-                </button>
-                <button class="export-item" data-export="fulfillmentSummary">
-                  Export fulfillment summary
-                  <span class="export-label">Fulfilled vs unfulfilled</span>
-                </button>
-                <button class="export-item" data-export="termsSummary">
-                  Export terms summary
-                  <span class="export-label">Matched terms and fallback stats</span>
-                </button>
-              </div>
-            </div>
+        <div class="export-menu">
+          <button id="exportMenuBtn" class="btn">
+            Export <span aria-hidden="true">▾</span>
+          </button>
+          <div id="exportPanel" class="export-panel">
+            <button class="export-item" data-export="current">
+              Export current view
+              <span class="export-label">Queue, customers, orders, or activity based on active tab</span>
+            </button>
+            <button class="export-item" data-export="rollup">
+              Export customer rollup
+              <span class="export-label">Customer summary with workflow fields</span>
+            </button>
+            <button class="export-item" data-export="orders">
+              Export orders
+              <span class="export-label">Detailed filtered order rows</span>
+            </button>
+            <button class="export-item" data-export="queue">
+              Export action queue
+              <span class="export-label">Pending / processed reminder queue items</span>
+            </button>
+            <button class="export-item" data-export="activity">
+              Export activity log
+              <span class="export-label">Recent contact and workflow activity</span>
+            </button>
+            <button class="export-item" data-export="agingSummary">
+              Export aging summary
+              <span class="export-label">Current, 1–30, 31–60, 61–90, 90+</span>
+            </button>
+            <button class="export-item" data-export="financialSummary">
+              Export financial summary
+              <span class="export-label">Paid, pending, authorized, open, etc.</span>
+            </button>
+            <button class="export-item" data-export="fulfillmentSummary">
+              Export fulfillment summary
+              <span class="export-label">Fulfilled vs unfulfilled</span>
+            </button>
+            <button class="export-item" data-export="termsSummary">
+              Export terms summary
+              <span class="export-label">Matched terms and fallback stats</span>
+            </button>
           </div>
         </div>
       </div>
+    </div>
 
-      <div class="card p-3 lg:p-4">
-        <div class="grid grid-cols-1 gap-2 lg:grid-cols-12">
-          <div class="lg:col-span-2">
-            <label class="mb-1 block text-xs font-semibold text-slate-700">As of</label>
-            <input id="asOfDate" type="date" class="input" />
-          </div>
+    <!-- Filters -->
+    <div class="card card-pad">
+      <div class="filters-grid">
+        <div>
+          <label class="filter-label">As of</label>
+          <input id="asOfDate" type="date" class="input" />
+        </div>
 
-          <div class="lg:col-span-2">
-            <label class="mb-1 block text-xs font-semibold text-slate-700">Status</label>
-            <select id="financialFilter" class="select">
-              <option value="">All</option>
-              <option value="open">Open only</option>
-              <option value="paid">Paid only</option>
-              <option value="pending">Pending only</option>
-              <option value="authorized">Authorized only</option>
-              <option value="voided">Voided only</option>
-              <option value="missing">Missing / voided review</option>
-            </select>
-          </div>
+        <div>
+          <label class="filter-label">Status</label>
+          <select id="financialFilter" class="select">
+            <option value="">All</option>
+            <option value="open">Open only</option>
+            <option value="paid">Paid only</option>
+            <option value="pending">Pending only</option>
+            <option value="authorized">Authorized only</option>
+            <option value="voided">Voided only</option>
+            <option value="missing">Missing / voided review</option>
+          </select>
+        </div>
 
-          <div class="lg:col-span-2">
-            <label class="mb-1 block text-xs font-semibold text-slate-700">Aging</label>
-            <select id="agingFilter" class="select">
-              <option value="">All</option>
-              <option value="current">Current</option>
-              <option value="1-30">1–30</option>
-              <option value="31-60">31–60</option>
-              <option value="61-90">61–90</option>
-              <option value="90+">90+</option>
-              <option value="paid">Paid</option>
-            </select>
-          </div>
+        <div>
+          <label class="filter-label">Aging</label>
+          <select id="agingFilter" class="select">
+            <option value="">All</option>
+            <option value="current">Current</option>
+            <option value="1-30">1–30</option>
+            <option value="31-60">31–60</option>
+            <option value="61-90">61–90</option>
+            <option value="90+">90+</option>
+            <option value="paid">Paid</option>
+          </select>
+        </div>
 
-          <div class="lg:col-span-2">
-            <label class="mb-1 block text-xs font-semibold text-slate-700">Workflow status</label>
-            <select id="contactStatusFilter" class="select">
-              <option value="">All</option>
-              <option value="active">Active</option>
-              <option value="hold">Hold</option>
-              <option value="no_email">No email</option>
-              <option value="bad_email">Bad email</option>
-              <option value="closed">Closed</option>
-            </select>
-          </div>
+        <div>
+          <label class="filter-label">Workflow status</label>
+          <select id="contactStatusFilter" class="select">
+            <option value="">All</option>
+            <option value="active">Active</option>
+            <option value="hold">Hold</option>
+            <option value="no_email">No email</option>
+            <option value="bad_email">Bad email</option>
+            <option value="closed">Closed</option>
+          </select>
+        </div>
 
-          <div class="lg:col-span-2">
-            <label class="mb-1 block text-xs font-semibold text-slate-700">Priority</label>
-            <select id="priorityFilter" class="select">
-              <option value="">All</option>
-              <option value="low">Low</option>
-              <option value="normal">Normal</option>
-              <option value="high">High</option>
-              <option value="urgent">Urgent</option>
-            </select>
-          </div>
+        <div>
+          <label class="filter-label">Priority</label>
+          <select id="priorityFilter" class="select">
+            <option value="">All</option>
+            <option value="low">Low</option>
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
+            <option value="urgent">Urgent</option>
+          </select>
+        </div>
 
-          <div class="lg:col-span-2">
-            <label class="mb-1 block text-xs font-semibold text-slate-700">Assigned</label>
-            <select id="assignedFilter" class="select">
-              <option value="">All</option>
-            </select>
-          </div>
+        <div>
+          <label class="filter-label">Assigned</label>
+          <select id="assignedFilter" class="select">
+            <option value="">All</option>
+          </select>
+        </div>
 
-          <div class="lg:col-span-2">
-            <label class="mb-1 block text-xs font-semibold text-slate-700">Start</label>
-            <input id="startDate" type="date" class="input" />
-          </div>
+        <div>
+          <label class="filter-label">Start</label>
+          <input id="startDate" type="date" class="input" />
+        </div>
 
-          <div class="lg:col-span-2">
-            <label class="mb-1 block text-xs font-semibold text-slate-700">End</label>
-            <input id="endDate" type="date" class="input" />
-          </div>
+        <div>
+          <label class="filter-label">End</label>
+          <input id="endDate" type="date" class="input" />
+        </div>
 
-          <div class="lg:col-span-4">
-            <label class="mb-1 block text-xs font-semibold text-slate-700">Search</label>
-            <input id="searchInput" class="input" placeholder="Customer, email, order, note..." />
-          </div>
+        <div class="span-2">
+          <label class="filter-label">Search</label>
+          <input id="searchInput" class="input" placeholder="Customer, email, order, note..." />
+        </div>
 
-          <div class="lg:col-span-2 flex items-end gap-3">
-            <button id="refreshBtn" class="btn btn-primary w-full">Refresh data</button>
-          </div>
+        <div style="display:flex;align-items:flex-end;">
+          <button id="refreshBtn" class="btn btn-primary" style="width:100%">Refresh data</button>
+        </div>
 
-          <div class="lg:col-span-2 flex items-end gap-3">
-            <button id="clearFiltersBtn" class="btn btn-soft w-full">Clear</button>
-          </div>
+        <div style="display:flex;align-items:flex-end;">
+          <button id="clearFiltersBtn" class="btn btn-soft" style="width:100%">Clear filters</button>
+        </div>
 
-          <div id="statusText" class="lg:col-span-12 flex items-end text-xs text-slate-500">
-            Waiting for data.
-          </div>
+        <div id="statusText" class="status-row" style="grid-column:1/-1">
+          Waiting for data.
         </div>
       </div>
+    </div>
 
-      <div class="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
-        <div class="kpi"><div class="kpi-label">Sales</div><div id="kpiNetSales" class="kpi-value mono">$0.00</div><div class="kpi-sub">Filtered sales</div></div>
-        <div class="kpi"><div class="kpi-label">Open</div><div id="kpiOpenBalance" class="kpi-value mono">$0.00</div><div class="kpi-sub">Current balance</div></div>
-        <div class="kpi"><div class="kpi-label">Current</div><div id="kpiCurrent" class="kpi-value mono">$0.00</div><div class="kpi-sub">Not yet due</div></div>
-        <div class="kpi"><div class="kpi-label">1–30</div><div id="kpi1to30" class="kpi-value mono">$0.00</div><div class="kpi-sub">Past due</div></div>
-        <div class="kpi"><div class="kpi-label">31+</div><div id="kpi31plus" class="kpi-value mono">$0.00</div><div class="kpi-sub">Older aging</div></div>
-        <div class="kpi"><div class="kpi-label">Queued</div><div id="kpiQueued" class="kpi-value mono">0</div><div class="kpi-sub">Pending actions</div></div>
-      </div>
+    <!-- KPI strip -->
+    <div class="kpi-strip">
+      <div class="kpi"><div class="kpi-label">Sales</div><div id="kpiNetSales" class="kpi-value mono">$0.00</div><div class="kpi-sub">Filtered sales</div></div>
+      <div class="kpi"><div class="kpi-label">Open</div><div id="kpiOpenBalance" class="kpi-value mono">$0.00</div><div class="kpi-sub">Current balance</div></div>
+      <div class="kpi"><div class="kpi-label">Current</div><div id="kpiCurrent" class="kpi-value mono">$0.00</div><div class="kpi-sub">Not yet due</div></div>
+      <div class="kpi"><div class="kpi-label">1–30</div><div id="kpi1to30" class="kpi-value mono">$0.00</div><div class="kpi-sub">Past due</div></div>
+      <div class="kpi"><div class="kpi-label">31+</div><div id="kpi31plus" class="kpi-value mono">$0.00</div><div class="kpi-sub">Older aging</div></div>
+      <div class="kpi"><div class="kpi-label">Queued</div><div id="kpiQueued" class="kpi-value mono">0</div><div class="kpi-sub">Pending actions</div></div>
+    </div>
 
-      <!-- Queue view -->
-      <div id="viewQueue" class="view-panel active">
-        <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
-          <div class="xl:col-span-8 space-y-5">
-            <div class="card p-3 lg:p-4">
-              <div class="flex items-start justify-between gap-3">
-                <div>
-                  <div class="section-title">Action queue</div>
-                  <div class="section-sub">Pending, processing, sent, failed, or canceled reminder actions.</div>
-                </div>
-                <div class="text-xs text-slate-500"><span id="queueRowCount">0</span> rows</div>
+    <!-- Queue view -->
+    <div id="viewQueue" class="view-panel active">
+      <div class="two-col">
+        <div class="stack">
+          <div class="card card-pad">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:10px">
+              <div>
+                <div class="section-title">Action queue</div>
+                <div class="section-sub">Pending, processing, sent, failed, or canceled reminder actions.</div>
               </div>
-
-              <div class="mt-4 table-wrap max-h-[72vh]">
-                <table>
-                  <thead id="queueHead"></thead>
-                  <tbody id="queueBody"></tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
-          <div class="xl:col-span-4 space-y-5">
-            <div class="card p-3 lg:p-4">
-              <div class="section-title">Queue summary</div>
-              <div class="mini-grid mt-4" id="queueSummaryCards"></div>
+              <span class="section-row-count"><span id="queueRowCount">0</span> rows</span>
             </div>
 
-            <div class="card p-3 lg:p-4">
-              <div class="section-title">Needs action</div>
-              <div class="section-sub">Fast buckets to work through.</div>
-              <div id="queueWorkBuckets" class="mt-4 space-y-3"></div>
+            <div class="table-wrap" style="max-height:68vh">
+              <table>
+                <thead id="queueHead"></thead>
+                <tbody id="queueBody"></tbody>
+              </table>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- Customers view -->
-      <div id="viewCustomers" class="view-panel">
-        <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
-          <div class="xl:col-span-9 space-y-5">
-            <div class="card p-3 lg:p-4">
-              <div class="flex items-start justify-between gap-3">
-                <div>
-                  <div class="section-title">Customer workbench</div>
-                  <div class="section-sub">Compact action rows with status, last touch, queue, and quick actions.</div>
-                </div>
-                <div class="text-xs text-slate-500"><span id="customerRowCount">0</span> rows</div>
+        <div class="stack">
+          <div class="card card-pad">
+            <div class="section-title" style="margin-bottom:10px">Queue summary</div>
+            <div class="mini-grid" id="queueSummaryCards"></div>
+          </div>
+
+          <div class="card card-pad">
+            <div class="section-title">Needs action</div>
+            <div class="section-sub">Fast buckets to work through.</div>
+            <div id="queueWorkBuckets" class="stack" style="margin-top:10px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Customers view -->
+    <div id="viewCustomers" class="view-panel">
+      <div class="two-col">
+        <div class="stack">
+          <div class="card card-pad">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:10px">
+              <div>
+                <div class="section-title">Customer workbench</div>
+                <div class="section-sub">Compact action rows with status, last touch, queue, and quick actions.</div>
+              </div>
+              <span class="section-row-count"><span id="customerRowCount">0</span> rows</span>
               </div>
 
               <div class="mt-4 table-wrap max-h-[72vh]">
