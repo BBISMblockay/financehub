@@ -1,910 +1,676 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full ps-shell-page" data-theme="light">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SILO · Payment request (v2)</title>
-
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
-  <link rel="stylesheet" href="purchasing-hub-shell.css" />
   <link rel="stylesheet" href="purchasing-page-content.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
   <script src="../pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
+  <script src="silo-chrome.js"></script>
   <style>
     :root { color-scheme: light; }
   </style>
 </head>
-<body class="min-h-full">
-<div class="ps-app" id="ps-app">
-  <aside class="ps-sidebar" id="psSidebar" aria-label="SILO purchasing menu">
-    <div class="ps-brand-block">
-      <div class="ps-brand-mark" aria-hidden="true">S</div>
-      <div class="ps-brand-copy">
-        <div class="ps-brand-title">SILO</div>
-        <div class="ps-brand-sub">Purchasing · v2 console</div>
-      </div>
-    </div>
-    <div class="ps-sidebar-search">
-      <div class="ps-search-wrap">
-        <span class="ps-search-icon" aria-hidden="true">⌕</span>
-        <input id="psMenuSearch" class="ps-search" type="search" placeholder="Search menu…" autocomplete="off" />
-      </div>
-    </div>
-    <nav class="ps-nav-scroll" aria-label="Purchasing routes">
-      <div class="ps-nav-section" data-ps-nav-section>
-        <div class="ps-nav-heading">Purchasing · v2</div>
-        <div class="ps-nav-list">
-          <a class="ps-nav-link ps-nav-link--active ps-nav-link--pill-v2" href="./purchase_request.html" aria-current="page" data-ps-search="payment request intake v2 silo">
-            <span class="ps-nav-label">Payment request</span>
-            <span class="ps-nav-meta">
-              <span class="ps-nav-pill ps-nav-pill--v2">V2</span>
-              <span class="ps-nav-chev" aria-hidden="true">›</span>
-            </span>
-          </a>
-          <a class="ps-nav-link ps-nav-link--pill-v2" href="./request_manager.html" data-ps-search="request workbench queue ap manager v2">
-            <span class="ps-nav-label">Request workbench</span>
-            <span class="ps-nav-meta">
-              <span class="ps-nav-pill ps-nav-pill--v2">V2</span>
-              <span class="ps-nav-chev" aria-hidden="true">›</span>
-            </span>
-          </a>
-        </div>
-      </div>
-      <div class="ps-nav-section" data-ps-nav-section>
-        <div class="ps-nav-heading">Classic payables</div>
-        <div class="ps-nav-list">
-          <a class="ps-nav-link" href="/accountspayable.html" data-ps-search="ap manager accounts payable">
-            <span class="ps-nav-label">AP manager</span>
-            <span class="ps-nav-meta"><span class="ps-nav-chev" aria-hidden="true">›</span></span>
-          </a>
-          <a class="ps-nav-link" href="/v2/mailroom.html" data-ps-search="mailroom inbox">
-            <span class="ps-nav-label">Mailroom inbox</span>
-            <span class="ps-nav-meta"><span class="ps-nav-chev" aria-hidden="true">›</span></span>
-          </a>
-          <a class="ps-nav-link" href="/ap-report.html" data-ps-search="bbism payables ap report">
-            <span class="ps-nav-label">BBISM payables</span>
-            <span class="ps-nav-meta"><span class="ps-nav-chev" aria-hidden="true">›</span></span>
-          </a>
-        </div>
-      </div>
-      <div class="ps-nav-section" data-ps-nav-section>
-        <div class="ps-nav-heading">Request grids</div>
-        <div class="ps-nav-list">
-          <a class="ps-nav-link" href="https://www.jotform.com/grid/200496754119055" target="_blank" rel="noopener" data-external="true" data-ps-search="travel requests jotform">
-            <span class="ps-nav-label">Travel requests</span>
-            <span class="ps-nav-meta">
-              <span class="ps-nav-pill ps-nav-pill--ext">EXT</span>
-              <span class="ps-nav-chev" aria-hidden="true">↗</span>
-            </span>
-          </a>
-          <a class="ps-nav-link" href="https://www.jotform.com/grid/222686658265065" target="_blank" rel="noopener" data-external="true" data-ps-search="bars requests jotform">
-            <span class="ps-nav-label">Bars requests</span>
-            <span class="ps-nav-meta">
-              <span class="ps-nav-pill ps-nav-pill--ext">EXT</span>
-              <span class="ps-nav-chev" aria-hidden="true">↗</span>
-            </span>
-          </a>
-          <a class="ps-nav-link" href="/v2/travel.html" data-ps-search="travel report">
-            <span class="ps-nav-label">Travel report</span>
-            <span class="ps-nav-meta"><span class="ps-nav-chev" aria-hidden="true">›</span></span>
-          </a>
-        </div>
-      </div>
-      <div class="ps-nav-section" data-ps-nav-section>
-        <div class="ps-nav-heading">Planning</div>
-        <div class="ps-nav-list">
-          <a class="ps-nav-link ps-nav-link--pill-v2" href="/v2/projections.html" data-ps-search="revenue projections planning">
-            <span class="ps-nav-label">Revenue projections</span>
-            <span class="ps-nav-meta">
-              <span class="ps-nav-pill ps-nav-pill--v2">V2</span>
-              <span class="ps-nav-chev" aria-hidden="true">›</span>
-            </span>
-          </a>
-        </div>
-      </div>
-      <div class="ps-nav-section" data-ps-nav-section>
-        <div class="ps-nav-heading">Consoles</div>
-        <div class="ps-nav-list">
-          <a class="ps-nav-link" href="/finance.html" data-ps-search="finance department console hub">
-            <span class="ps-nav-label">Finance console</span>
-            <span class="ps-nav-meta"><span class="ps-nav-chev" aria-hidden="true">›</span></span>
-          </a>
-          <a class="ps-nav-link" href="./employeehub.html" data-ps-search="employee hub v2 tools">
-            <span class="ps-nav-label">Employee hub v2</span>
-            <span class="ps-nav-meta"><span class="ps-nav-chev" aria-hidden="true">›</span></span>
-          </a>
-          <a class="ps-nav-link" href="/pages/purchase-request.html" data-ps-search="classic payment request intake">
-            <span class="ps-nav-label">Classic payment request</span>
-            <span class="ps-nav-meta"><span class="ps-nav-chev" aria-hidden="true">›</span></span>
-          </a>
-          <a class="ps-nav-link" href="/pages/request-manager.html" data-ps-search="classic request manager workbench">
-            <span class="ps-nav-label">Classic request manager</span>
-            <span class="ps-nav-meta"><span class="ps-nav-chev" aria-hidden="true">›</span></span>
-          </a>
-          <a class="ps-nav-link" href="/app-status.html" data-ps-search="app status">
-            <span class="ps-nav-label">App status</span>
-            <span class="ps-nav-meta"><span class="ps-nav-chev" aria-hidden="true">›</span></span>
-          </a>
-        </div>
-      </div>
-    </nav>
-    <div class="ps-sidebar-foot">
-      Purchasing v2 shell
-      <div class="ps-user-line" id="psUserLine">Loading…</div>
-    </div>
-  </aside>
-  <div class="ps-main">
-    <header class="ps-topbar">
-      <button type="button" class="ps-mobile-toggle" id="psMobileMenuBtn" aria-controls="psSidebar">Menu</button>
-      <div class="ps-page-copy">
-        <div class="ps-page-kicker">SILO · purchasing</div>
-        <div class="ps-page-title">Payment request</div>
-        <div class="ps-page-sub">Send a request to AP — we will follow up in the workbench.</div>
-      </div>
-      <div class="ps-actions">
-        <button type="button" class="ps-tb-btn ps-tb-btn--primary" id="psReloadBtn" hidden>Reload</button>
-        <button type="button" class="ps-tb-btn ps-tb-btn--danger" id="psSignOutBtn">Sign out</button>
-      </div>
-    </header>
-    <div class="ps-viewport">
-  <div class="shell pr-page pr-page--intake">
-    <div class="pr-stack">
-      <section class="bcn-card pr-intro">
-        <header class="bcn-card-header bcn-card-header--dark">
-          <span class="bcn-pill">Payment request</span>
-          <h2>Vendor payments &amp; reimbursements</h2>
-          <span class="bcn-card-meta">Vendors, deposits, balances, refunds, and team reimbursements</span>
-        </header>
-        <div class="bcn-card-body">
-          <p class="pr-intro-lead">
-            Use this form for anything that needs to be paid or reimbursed through AP. Your request is saved to SILO and appears in the payment request workbench for the team to review.
-          </p>
-        </div>
-      </section>
+<body>
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
 
-      <div id="authCard" class="card hidden">
-        <div class="pr-stack">
-          <div>
-            <div class="section-title">Sign in to continue</div>
-            <div class="section-sub">This form is only available to signed-in users.</div>
+    <div class="pr-page pr-page--intake">
+      <div class="pr-stack">
+
+        <section class="bcn-card pr-intro">
+          <header class="bcn-card-header bcn-card-header--dark">
+            <span class="bcn-pill">Payment request</span>
+            <h2>Vendor payments &amp; reimbursements</h2>
+            <span class="bcn-card-meta">Vendors, deposits, balances, refunds, and team reimbursements</span>
+          </header>
+          <div class="bcn-card-body">
+            <p class="pr-intro-lead">
+              Use this form for anything that needs to be paid or reimbursed through AP. Your request is saved to SILO and appears in the payment request workbench for the team to review.
+            </p>
           </div>
-          <div class="pr-callout">
-            Sign in with your SILO account. We will pre-fill your email where we can and attach this request to your profile.
-          </div>
-          <div class="pr-btn-row" style="margin-top:12px;">
-            <a href="/pages/login.html" class="btn btn-primary">Sign in to SILO</a>
-          </div>
-        </div>
-      </div>
+        </section>
 
-      <div id="appCard" class="card hidden">
-        <div class="pr-card-toolbar">
-          <div>
-            <div class="section-title">Tell us what you need paid</div>
-            <div class="section-sub"><span class="pr-req">*</span> indicates a required field.</div>
-          </div>
-          <span id="signedInAs" class="pill">Signed in</span>
-        </div>
-
-        <div id="statusBox" class="bcn-status hidden pr-status-slot" role="status" aria-live="polite"></div>
-
-        <form id="requestForm" class="pr-form-stack">
-          <div class="pr-section-card">
-            <div class="section-title">Vendor and amount</div>
-            <div class="pr-form-grid">
-              <div class="pr-span-2">
-                <label class="bcn-label" for="vendorName">Vendor<span class="pr-req">*</span></label>
-                <input
-                  id="vendorName"
-                  class="input"
-                  list="vendorOptions"
-                  placeholder="Select existing vendor or type new vendor"
-                  autocomplete="off"
-                  required
-                />
-                <datalist id="vendorOptions"></datalist>
-                <input id="vendorNameManual" type="hidden" value="" />
-                <div class="pr-help">Pick a name from the list as you type, or enter a new vendor if they are not on the list yet.</div>
-              </div>
-
-              <div>
-                <label class="bcn-label" for="requestType">Request type<span class="pr-req">*</span></label>
-                <select id="requestType" class="select" required>
-                  <option value="">Select request type</option>
-                  <option value="invoice_vendor_payment">Invoice / vendor payment</option>
-                  <option value="inventory_deposit">Inventory deposit</option>
-                  <option value="inventory_balance">Inventory balance</option>
-                  <option value="employee_reimbursement">Employee reimbursement</option>
-                  <option value="customer_refund">Customer refund</option>
-                </select>
-              </div>
-
-              <div>
-                <label class="bcn-label" for="amountDue">Amount due<span class="pr-req">*</span></label>
-                <input id="amountDue" type="number" min="0" step="0.01" class="input mono" placeholder="0.00" required />
-              </div>
+        <div id="authCard" class="card hidden">
+          <div class="pr-stack">
+            <div>
+              <div class="section-title">Sign in to continue</div>
+              <div class="section-sub">This form is only available to signed-in users.</div>
+            </div>
+            <div class="pr-callout">
+              Sign in with your SILO account. We will pre-fill your email where we can and attach this request to your profile.
             </div>
           </div>
+        </div>
 
-          <div class="pr-section-card">
-            <div class="section-title">Invoice and references</div>
-            <div class="pr-form-grid">
-              <div>
-                <label class="bcn-label" for="invoiceNumber">Invoice #</label>
-                <input id="invoiceNumber" class="input" placeholder="Invoice reference" />
-              </div>
-
-              <div>
-                <label class="bcn-label" for="flexId">Flex ID #</label>
-                <input id="flexId" class="input" placeholder="Flex reference" />
-              </div>
-
-              <div>
-                <label class="bcn-label" for="internalPoNumber">Internal PO #</label>
-                <input id="internalPoNumber" class="input" placeholder="Internal PO number" />
-              </div>
-
-              <div>
-                <label class="bcn-label" for="dueDate">Due date</label>
-                <input id="dueDate" type="date" class="input" />
-              </div>
+        <div id="appCard" class="card hidden">
+          <div class="pr-card-toolbar">
+            <div>
+              <div class="section-title">Tell us what you need paid</div>
+              <div class="section-sub"><span class="pr-req">*</span> indicates a required field.</div>
             </div>
+            <span id="signedInAs" class="pill">Signed in</span>
           </div>
 
-          <div class="pr-section-card">
-            <div class="section-title">Your details and attachments</div>
-            <div class="section-sub">Add files if they help AP understand the request (invoice PDFs, receipts, etc.).</div>
-            <div class="pr-form-grid">
-              <div>
-                <label class="bcn-label" for="requesterEmail">Requester email<span class="pr-req">*</span></label>
-                <input id="requesterEmail" type="email" class="input" placeholder="you@company.com" required />
-              </div>
+          <div id="statusBox" class="bcn-status hidden pr-status-slot" role="status" aria-live="polite"></div>
 
-              <div>
-                <label class="bcn-label" for="locationName">Location</label>
-                <input id="locationName" class="input" placeholder="Store / department / location" />
-              </div>
-
-              <div class="pr-span-2">
-                <label class="bcn-label" for="requestFile">Upload documents</label>
-                <div class="pr-upload">
+          <form id="requestForm" class="pr-form-stack">
+            <div class="pr-section-card">
+              <div class="section-title">Vendor and amount</div>
+              <div class="pr-form-grid">
+                <div class="pr-span-2">
+                  <label class="bcn-label" for="vendorName">Vendor<span class="pr-req">*</span></label>
                   <input
-                    id="requestFile"
-                    type="file"
-                    accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.doc,.docx"
-                    multiple
+                    id="vendorName"
+                    class="input"
+                    list="vendorOptions"
+                    placeholder="Select existing vendor or type new vendor"
+                    autocomplete="off"
+                    required
                   />
-                  <div class="pr-help">PDFs, images, spreadsheets, and Word documents are fine. You can attach more than one file.</div>
+                  <datalist id="vendorOptions"></datalist>
+                  <input id="vendorNameManual" type="hidden" value="" />
+                  <div class="pr-help">Pick a name from the list as you type, or enter a new vendor if they are not on the list yet.</div>
+                </div>
+
+                <div>
+                  <label class="bcn-label" for="requestType">Request type<span class="pr-req">*</span></label>
+                  <select id="requestType" class="select" required>
+                    <option value="">Select request type</option>
+                    <option value="invoice_vendor_payment">Invoice / vendor payment</option>
+                    <option value="inventory_deposit">Inventory deposit</option>
+                    <option value="inventory_balance">Inventory balance</option>
+                    <option value="employee_reimbursement">Employee reimbursement</option>
+                    <option value="customer_refund">Customer refund</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label class="bcn-label" for="amountDue">Amount due<span class="pr-req">*</span></label>
+                  <input id="amountDue" type="number" min="0" step="0.01" class="input mono" placeholder="0.00" required />
                 </div>
               </div>
+            </div>
 
-              <div class="pr-span-2">
-                <label class="bcn-label" for="notesComments">Notes / comments</label>
-                <textarea id="notesComments" class="textarea" placeholder="Anything AP/ops should know about this request..."></textarea>
+            <div class="pr-section-card">
+              <div class="section-title">Invoice and references</div>
+              <div class="pr-form-grid">
+                <div>
+                  <label class="bcn-label" for="invoiceNumber">Invoice #</label>
+                  <input id="invoiceNumber" class="input" placeholder="Invoice reference" />
+                </div>
+
+                <div>
+                  <label class="bcn-label" for="flexId">Flex ID #</label>
+                  <input id="flexId" class="input" placeholder="Flex reference" />
+                </div>
+
+                <div>
+                  <label class="bcn-label" for="internalPoNumber">Internal PO #</label>
+                  <input id="internalPoNumber" class="input" placeholder="Internal PO number" />
+                </div>
+
+                <div>
+                  <label class="bcn-label" for="dueDate">Due date</label>
+                  <input id="dueDate" type="date" class="input" />
+                </div>
               </div>
             </div>
-          </div>
 
-          <div class="pr-callout">
-            You do not need to enter routing, assignment, or payment status here — AP completes those steps in the workbench after you submit.
-          </div>
+            <div class="pr-section-card">
+              <div class="section-title">Your details and attachments</div>
+              <div class="section-sub">Add files if they help AP understand the request (invoice PDFs, receipts, etc.).</div>
+              <div class="pr-form-grid">
+                <div>
+                  <label class="bcn-label" for="requesterEmail">Requester email<span class="pr-req">*</span></label>
+                  <input id="requesterEmail" type="email" class="input" placeholder="you@company.com" required />
+                </div>
 
-          <div class="pr-form-actions">
-            <div class="pr-muted">We save a timestamp with your request so AP can track it from submission through payment.</div>
-            <div class="pr-btn-row">
-              <button id="resetBtn" type="button" class="btn btn-soft">Start over</button>
-              <button id="submitBtn" type="submit" class="btn btn-primary">Submit to AP</button>
+                <div>
+                  <label class="bcn-label" for="locationName">Location</label>
+                  <input id="locationName" class="input" placeholder="Store / department / location" />
+                </div>
+
+                <div class="pr-span-2">
+                  <label class="bcn-label" for="requestFile">Upload documents</label>
+                  <div class="pr-upload">
+                    <input
+                      id="requestFile"
+                      type="file"
+                      accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.doc,.docx"
+                      multiple
+                    />
+                    <div class="pr-help">PDFs, images, spreadsheets, and Word documents are fine. You can attach more than one file.</div>
+                  </div>
+                </div>
+
+                <div class="pr-span-2">
+                  <label class="bcn-label" for="notesComments">Notes / comments</label>
+                  <textarea id="notesComments" class="textarea" placeholder="Anything AP/ops should know about this request..."></textarea>
+                </div>
+              </div>
+            </div>
+
+            <div class="pr-callout">
+              You do not need to enter routing, assignment, or payment status here — AP completes those steps in the workbench after you submit.
+            </div>
+
+            <div class="pr-form-actions">
+              <div class="pr-muted">We save a timestamp with your request so AP can track it from submission through payment.</div>
+              <div class="pr-btn-row">
+                <button id="resetBtn" type="button" class="btn btn-soft">Start over</button>
+                <button id="submitBtn" type="submit" class="btn btn-primary">Submit to AP</button>
+              </div>
+            </div>
+          </form>
+        </div>
+
+        <div id="successCard" class="card hidden">
+          <div class="section-title">You are all set</div>
+          <div class="section-sub">AP can see your request in the workbench and will take it from here.</div>
+          <div class="pr-success-grid">
+            <div class="pr-callout">
+              <div class="pr-kv-label">Reference number</div>
+              <div id="successRequestId" class="pr-kv-value">—</div>
+            </div>
+            <div class="pr-callout">
+              <div class="pr-kv-label">Attachments</div>
+              <div id="successFileName" class="pr-kv-value">No files</div>
             </div>
           </div>
-        </form>
-      </div>
+          <div class="pr-btn-row pr-success-actions">
+            <button id="newRequestBtn" type="button" class="btn btn-primary">Submit another request</button>
+          </div>
+        </div>
 
-      <div id="successCard" class="card hidden">
-        <div class="section-title">You are all set</div>
-        <div class="section-sub">AP can see your request in the workbench and will take it from here.</div>
-        <div class="pr-success-grid">
-          <div class="pr-callout">
-            <div class="pr-kv-label">Reference number</div>
-            <div id="successRequestId" class="pr-kv-value">—</div>
-          </div>
-          <div class="pr-callout">
-            <div class="pr-kv-label">Attachments</div>
-            <div id="successFileName" class="pr-kv-value">No files</div>
-          </div>
-        </div>
-        <div class="pr-btn-row pr-success-actions">
-          <button id="newRequestBtn" type="button" class="btn btn-primary">Submit another request</button>
-        </div>
       </div>
     </div>
-  </div>
-    </div>
-  </div>
+
+  </main>
 </div>
 
-  <script>
-    const SUPABASE_URL =
-      window.__SILO_CONFIG__?.SUPABASE_URL ||
-      window.SUPABASE_URL ||
-      window.CONFIG?.SUPABASE_URL;
+<script>
+  const SUPABASE_URL =
+    window.__SILO_CONFIG__?.SUPABASE_URL ||
+    window.SUPABASE_URL ||
+    window.CONFIG?.SUPABASE_URL;
 
-    const SUPABASE_ANON_KEY =
-      window.__SILO_CONFIG__?.SUPABASE_ANON_KEY ||
-      window.__SILO_CONFIG__?.SUPABASE_KEY ||
-      window.SUPABASE_ANON_KEY ||
-      window.CONFIG?.SUPABASE_ANON_KEY;
+  const SUPABASE_ANON_KEY =
+    window.__SILO_CONFIG__?.SUPABASE_ANON_KEY ||
+    window.__SILO_CONFIG__?.SUPABASE_KEY ||
+    window.SUPABASE_ANON_KEY ||
+    window.CONFIG?.SUPABASE_ANON_KEY;
 
-    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-      throw new Error("Missing Supabase config on page.");
-    }
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    throw new Error("Missing Supabase config on page.");
+  }
 
-    const BUCKET = "payment-request-files";
-    const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const BUCKET = "payment-request-files";
+  const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-    document.getElementById("psMobileMenuBtn")?.addEventListener("click", () => {
-      document.body.classList.toggle("ps-nav-open");
-    });
-    document.querySelectorAll(".ps-nav-link").forEach((a) => {
-      a.addEventListener("click", () => document.body.classList.remove("ps-nav-open"));
-    });
-    document.getElementById("psSignOutBtn")?.addEventListener("click", async (e) => {
-      e.preventDefault();
-      try {
-        await supabaseClient.auth.signOut();
-      } catch (_) {}
-      window.location.href = "/pages/login.html";
-    });
+  const els = {
+    authCard: document.getElementById("authCard"),
+    appCard: document.getElementById("appCard"),
+    successCard: document.getElementById("successCard"),
+    signedInAs: document.getElementById("signedInAs"),
+    statusBox: document.getElementById("statusBox"),
 
-    (function wirePurchasingShellMenuSearch() {
-      const search = document.getElementById("psMenuSearch");
-      if (!search) return;
-      const run = () => {
-        const q = search.value.trim().toLowerCase();
-        document.querySelectorAll("[data-ps-nav-section]").forEach((section) => {
-          let any = false;
-          section.querySelectorAll(".ps-nav-link").forEach((link) => {
-            const hay = (link.getAttribute("data-ps-search") || link.textContent || "").toLowerCase();
-            const show = !q || hay.includes(q);
-            link.style.display = show ? "" : "none";
-            if (show) any = true;
-          });
-          section.style.display = any ? "" : "none";
-        });
-      };
-      search.addEventListener("input", run);
-      search.addEventListener("change", run);
-    })();
+    requestForm: document.getElementById("requestForm"),
+    vendorName: document.getElementById("vendorName"),
+    vendorNameManual: document.getElementById("vendorNameManual"),
+    requestType: document.getElementById("requestType"),
+    invoiceNumber: document.getElementById("invoiceNumber"),
+    flexId: document.getElementById("flexId"),
+    internalPoNumber: document.getElementById("internalPoNumber"),
+    amountDue: document.getElementById("amountDue"),
+    dueDate: document.getElementById("dueDate"),
+    requesterEmail: document.getElementById("requesterEmail"),
+    locationName: document.getElementById("locationName"),
+    requestFile: document.getElementById("requestFile"),
+    notesComments: document.getElementById("notesComments"),
 
-    const els = {
-      authCard: document.getElementById("authCard"),
-      appCard: document.getElementById("appCard"),
-      successCard: document.getElementById("successCard"),
-      signedInAs: document.getElementById("signedInAs"),
-      statusBox: document.getElementById("statusBox"),
+    resetBtn: document.getElementById("resetBtn"),
+    submitBtn: document.getElementById("submitBtn"),
+    newRequestBtn: document.getElementById("newRequestBtn"),
 
-      requestForm: document.getElementById("requestForm"),
-      vendorName: document.getElementById("vendorName"),
-      vendorNameManual: document.getElementById("vendorNameManual"),
-      requestType: document.getElementById("requestType"),
-      invoiceNumber: document.getElementById("invoiceNumber"),
-      flexId: document.getElementById("flexId"),
-      internalPoNumber: document.getElementById("internalPoNumber"),
-      amountDue: document.getElementById("amountDue"),
-      dueDate: document.getElementById("dueDate"),
-      requesterEmail: document.getElementById("requesterEmail"),
-      locationName: document.getElementById("locationName"),
-      requestFile: document.getElementById("requestFile"),
-      notesComments: document.getElementById("notesComments"),
+    successRequestId: document.getElementById("successRequestId"),
+    successFileName: document.getElementById("successFileName")
+  };
 
-      resetBtn: document.getElementById("resetBtn"),
-      submitBtn: document.getElementById("submitBtn"),
-      newRequestBtn: document.getElementById("newRequestBtn"),
+  const VENDORS = [
+    "21 In Right, Inc.",
+    "Addison Holub",
+    "Aiden McIntyre/Motive LA",
+    "Alec Sellers",
+    "Alex Hale- Baseballism Ambassador",
+    "AM Testing & Services",
+    "Amazon",
+    "Amy Gutierrez- Baseballism Ambassador",
+    "Anderson Air LLC",
+    "Andes Logistics",
+    "Angie Ivie- Baseballism Ambassador",
+    "Arco",
+    "Aric Vasquez- Baseballism Ambassador",
+    "Arizona Diamondbacks",
+    "ARTIGIFTS PREMIUM CO. LIMITED",
+    "Athletically Declined- Baseballism Ambassador",
+    "Attentive",
+    "Austin Schultz- Baseballism Ambassador",
+    "Baden Sports Inc.",
+    "Bat Bros LLC",
+    "Bay Alarm",
+    "Ben Atkinson",
+    "Bend Elks",
+    "Best Buy",
+    "BKM Management Company",
+    "BKM Property Management",
+    "Blake Evetts",
+    "Blake Mallet- Baseballism Ambassador",
+    "Bobby O'Neill- Baseballism Ambassador",
+    "Brett Davis",
+    "Brian Caprino",
+    "Brunt Work Pty Ltd",
+    "BruntWork Singapore Pte. Ltd.",
+    "Bryan Campbell",
+    "Cade Bell",
+    "Central Oregon Breeze",
+    "Chau Huynh- Baseballism Ambassador",
+    "Chris Clements",
+    "Christian Engel",
+    "Christian Lara- Baseballism Ambassador",
+    "Cincor Marroquinera",
+    "City of Arlington",
+    "City of Portland",
+    "Clancy Estate Care",
+    "Class 5 Technologies",
+    "Cobb County",
+    "Colin Anderson",
+    "Colton Beck",
+    "Connor Harris",
+    "Connor Webb- Baseballism Ambassador",
+    "Corey Wilmoth",
+    "Cox Internet",
+    "Creytex",
+    "Crystal Hosiery DBA FINEXPO INC",
+    "Daniel Lopez",
+    "David Ring- Baseballism Ambassador",
+    "Delaney Construction",
+    "Diamond Baseball Holdings",
+    "Dicks Sporting Goods",
+    "DJ/Nicole Maher",
+    "DOOR SERVICE, INC",
+    "Doug Hughes- Baseballism Ambassador",
+    "Echo Global Logistics Inc.",
+    "Elias Fidel",
+    "Employers Overload",
+    "Erik Hernandez",
+    "Everbest Corporation",
+    "Fanatics",
+    "Fedex",
+    "Fraîche Design Thinking S.A.S.",
+    "Fred F. Collin & Sons, INC",
+    "Frisco RoughRiders, LP",
+    "G&S Construction",
+    "Gader Ibrahim- Baseballism Ambassador",
+    "George K. Griffey, Jr",
+    "Gil Hernandez",
+    "Gladys Lopez- Baseballism Ambassador",
+    "Gov X",
+    "Grand & Benedicts",
+    "Gregory F.X. Daly",
+    "GUANGZHOU WANGBULIAO LEATHER CO.,LTD.",
+    "Guangzhou Xinyi Printing Company",
+    "Guangzhou Yilun Jewelry Co., Ltd.",
+    "Harry Jones Jr.- Baseballism Ambassador",
+    "Hat Back Collective",
+    "Hayden Millen- Baseballism Ambassador",
+    "Hillsboro hops",
+    "HK RUIJIA INTER TRADE LIMITED",
+    "HK Silver City Jewelry Co., Limited",
+    "Home Depot",
+    "HONG KONG YUNPO TRADING LIMITED",
+    "Horizon Sign Company",
+    "Illinois Department of Revenue",
+    "Image Pressworks",
+    "IMG",
+    "Jack Dugan- Baseballism Ambassador",
+    "Jackson Brewer- Baseballism Ambassador",
+    "Jacob Young",
+    "Jameson Commercial",
+    "Jenna Nimtz",
+    "Jessi Meeks- Baseballism Ambassador",
+    "Jiangmen SENPOLO Leather Co.,Ltd.",
+    "John Maddalone",
+    "Jordan Outdoor Enterprises",
+    "Josh Clark",
+    "Josh Wilson- Baseballism Ambassador",
+    "Joshua Clark",
+    "Justin Moore",
+    "Kalin",
+    "Kalin Boodman",
+    "Karla Olmos (Baseballism Ambassador)",
+    "Kennedy Brezenski",
+    "Kevin Chan - Baseballism Ambassador",
+    "Kurt Russel Marcelino",
+    "LA Gamo- Baseballism Ambassador",
+    "Lahti Helfgott LLC",
+    "LAZ Parking",
+    "Logo Brands",
+    "Lovett Inc.",
+    "Low and Inside",
+    "Luminary Group",
+    "Madison Rice",
+    "Make Plays Media LLC",
+    "Mark Farris",
+    "Master Industrial Ltd.",
+    "MazGlass",
+    "McCoy Russell",
+    "Megan Rembielak (Baseballism Ambassador)",
+    "Meta",
+    "Mia Willoughby- Baseballism Ambassador",
+    "Michael Tamayo",
+    "Miller Nash LLP",
+    "MLB Advanced Media, L.P.",
+    "MTAR LLC",
+    "North Portland Little League",
+    "Oakland A's",
+    "Omaha Baseball Village",
+    "OpSec Security, Inc.",
+    "Oregon Department of Revenue",
+    "Orion Fire Systems",
+    "Other",
+    "Ovations Merchandise Services, LP",
+    "Pacific Office Automation",
+    "Peyton Eise",
+    "POD 4 Print",
+    "Premier Press",
+    "Preston Chatman- Baseballism Ambassador",
+    "Pride Staff",
+    "Principal",
+    "Rachele Pence- Baseballism Ambassador",
+    "Rebel Child Journeys",
+    "Rick Barnes, Tax Assessor-Collector",
+    "Riley Chavez- Baseballism Ambassador",
+    "River City Stadium Management, LLC",
+    "Russ Smith",
+    "Ryan Dee",
+    "Scappoose High School",
+    "Scheels Corporate Office",
+    "School Tax Collector",
+    "Scott Grigg , TAC",
+    "SEG Systems",
+    "Sesame Collective",
+    "Seventh Inning Stretch",
+    "Shaoxing Keen Dragon Imp&Exp Co.,Ltd",
+    "SHAOXING TIANYUN GARMENT-MAKING CO.,LTD.",
+    "Sheehan Kreifels",
+    "Sign Effectz",
+    "SoCal Retail Services, Inc.",
+    "Southwest Sign Company",
+    "Space age",
+    "SQWAD",
+    "SSC Signs and Lighting",
+    "Stephanie Shirley- Baseballism Ambassador",
+    "Strategy Labs",
+    "Super Crown",
+    "Textiles Acrilan",
+    "Toru Zen Tanizawa",
+    "Travis Chock",
+    "Tyler Goodro",
+    "Tyler Goodro- Baseballism Ambassador",
+    "Uncanny Brands LLC",
+    "Universal Studios Licensing LLC",
+    "USA Baseball",
+    "Vertechs Electric",
+    "Village of Cooperstown",
+    "Vincent Chapman- Baseballism Ambassador",
+    "Visual Icon",
+    "Wall and Wall",
+    "Washington County",
+    "West Newbury Riverhawks",
+    "WORLDWIDE EXPRESS",
+    "YANTAI HAIXIANG FOREIGN TRADE CO., LTD",
+    "YIN HWA USA CORP",
+    "Zack Vreeland",
+    "ZHANJIA INT'L LIMITED"
+  ];
 
-      successRequestId: document.getElementById("successRequestId"),
-      successFileName: document.getElementById("successFileName")
-    };
+  let currentUser = null;
 
-    const VENDORS = [
-      "21 In Right, Inc.",
-      "Addison Holub",
-      "Aiden McIntyre/Motive LA",
-      "Alec Sellers",
-      "Alex Hale- Baseballism Ambassador",
-      "AM Testing & Services",
-      "Amazon",
-      "Amy Gutierrez- Baseballism Ambassador",
-      "Anderson Air LLC",
-      "Andes Logistics",
-      "Angie Ivie- Baseballism Ambassador",
-      "Arco",
-      "Aric Vasquez- Baseballism Ambassador",
-      "Arizona Diamondbacks",
-      "ARTIGIFTS PREMIUM CO. LIMITED",
-      "Athletically Declined- Baseballism Ambassador",
-      "Attentive",
-      "Austin Schultz- Baseballism Ambassador",
-      "Baden Sports Inc.",
-      "Bat Bros LLC",
-      "Bay Alarm",
-      "Ben Atkinson",
-      "Bend Elks",
-      "Best Buy",
-      "BKM Management Company",
-      "BKM Property Management",
-      "Blake Evetts",
-      "Blake Mallet- Baseballism Ambassador",
-      "Bobby O'Neill- Baseballism Ambassador",
-      "Brett Davis",
-      "Brian Caprino",
-      "Brunt Work Pty Ltd",
-      "BruntWork Singapore Pte. Ltd.",
-      "Bryan Campbell",
-      "Cade Bell",
-      "Central Oregon Breeze",
-      "Chau Huynh- Baseballism Ambassador",
-      "Chris Clements",
-      "Christian Engel",
-      "Christian Lara- Baseballism Ambassador",
-      "Cincor Marroquinera",
-      "City of Arlington",
-      "City of Portland",
-      "Clancy Estate Care",
-      "Class 5 Technologies",
-      "Cobb County",
-      "Colin Anderson",
-      "Colton Beck",
-      "Connor Harris",
-      "Connor Webb- Baseballism Ambassador",
-      "Corey Wilmoth",
-      "Cox Internet",
-      "Creytex",
-      "Crystal Hosiery DBA FINEXPO INC",
-      "Daniel Lopez",
-      "David Ring- Baseballism Ambassador",
-      "Delaney Construction",
-      "Diamond Baseball Holdings",
-      "Dicks Sporting Goods",
-      "DJ/Nicole Maher",
-      "DOOR SERVICE, INC",
-      "Doug Hughes- Baseballism Ambassador",
-      "Echo Global Logistics Inc.",
-      "Elias Fidel",
-      "Employers Overload",
-      "Erik Hernandez",
-      "Everbest Corporation",
-      "Fanatics",
-      "Fedex",
-      "Fraîche Design Thinking S.A.S.",
-      "Fred F. Collin & Sons, INC",
-      "Frisco RoughRiders, LP",
-      "G&S Construction",
-      "Gader Ibrahim- Baseballism Ambassador",
-      "George K. Griffey, Jr",
-      "Gil Hernandez",
-      "Gladys Lopez- Baseballism Ambassador",
-      "Gov X",
-      "Grand & Benedicts",
-      "Gregory F.X. Daly",
-      "GUANGZHOU WANGBULIAO LEATHER CO.,LTD.",
-      "Guangzhou Xinyi Printing Company",
-      "Guangzhou Yilun Jewelry Co., Ltd.",
-      "Harry Jones Jr.- Baseballism Ambassador",
-      "Hat Back Collective",
-      "Hayden Millen- Baseballism Ambassador",
-      "Hillsboro hops",
-      "HK RUIJIA INTER TRADE LIMITED",
-      "HK Silver City Jewelry Co., Limited",
-      "Home Depot",
-      "HONG KONG YUNPO TRADING LIMITED",
-      "Horizon Sign Company",
-      "Illinois Department of Revenue",
-      "Image Pressworks",
-      "IMG",
-      "Jack Dugan- Baseballism Ambassador",
-      "Jackson Brewer- Baseballism Ambassador",
-      "Jacob Young",
-      "Jameson Commercial",
-      "Jenna Nimtz",
-      "Jessi Meeks- Baseballism Ambassador",
-      "Jiangmen SENPOLO Leather Co.,Ltd.",
-      "John Maddalone",
-      "Jordan Outdoor Enterprises",
-      "Josh Clark",
-      "Josh Wilson- Baseballism Ambassador",
-      "Joshua Clark",
-      "Justin Moore",
-      "Kalin",
-      "Kalin Boodman",
-      "Karla Olmos (Baseballism Ambassador)",
-      "Kennedy Brezenski",
-      "Kevin Chan - Baseballism Ambassador",
-      "Kurt Russel Marcelino",
-      "LA Gamo- Baseballism Ambassador",
-      "Lahti Helfgott LLC",
-      "LAZ Parking",
-      "Logo Brands",
-      "Lovett Inc.",
-      "Low and Inside",
-      "Luminary Group",
-      "Madison Rice",
-      "Make Plays Media LLC",
-      "Mark Farris",
-      "Master Industrial Ltd.",
-      "MazGlass",
-      "McCoy Russell",
-      "Megan Rembielak (Baseballism Ambassador)",
-      "Meta",
-      "Mia Willoughby- Baseballism Ambassador",
-      "Michael Tamayo",
-      "Miller Nash LLP",
-      "MLB Advanced Media, L.P.",
-      "MTAR LLC",
-      "North Portland Little League",
-      "Oakland A's",
-      "Omaha Baseball Village",
-      "OpSec Security, Inc.",
-      "Oregon Department of Revenue",
-      "Orion Fire Systems",
-      "Other",
-      "Ovations Merchandise Services, LP",
-      "Pacific Office Automation",
-      "Peyton Eise",
-      "POD 4 Print",
-      "Premier Press",
-      "Preston Chatman- Baseballism Ambassador",
-      "Pride Staff",
-      "Principal",
-      "Rachele Pence- Baseballism Ambassador",
-      "Rebel Child Journeys",
-      "Rick Barnes, Tax Assessor-Collector",
-      "Riley Chavez- Baseballism Ambassador",
-      "River City Stadium Management, LLC",
-      "Russ Smith",
-      "Ryan Dee",
-      "Scappoose High School",
-      "Scheels Corporate Office",
-      "School Tax Collector",
-      "Scott Grigg , TAC",
-      "SEG Systems",
-      "Sesame Collective",
-      "Seventh Inning Stretch",
-      "Shaoxing Keen Dragon Imp&Exp Co.,Ltd",
-      "SHAOXING TIANYUN GARMENT-MAKING CO.,LTD.",
-      "Sheehan Kreifels",
-      "Sign Effectz",
-      "SoCal Retail Services, Inc.",
-      "Southwest Sign Company",
-      "Space age",
-      "SQWAD",
-      "SSC Signs and Lighting",
-      "Stephanie Shirley- Baseballism Ambassador",
-      "Strategy Labs",
-      "Super Crown",
-      "Textiles Acrilan",
-      "Toru Zen Tanizawa",
-      "Travis Chock",
-      "Tyler Goodro",
-      "Tyler Goodro- Baseballism Ambassador",
-      "Uncanny Brands LLC",
-      "Universal Studios Licensing LLC",
-      "USA Baseball",
-      "Vertechs Electric",
-      "Village of Cooperstown",
-      "Vincent Chapman- Baseballism Ambassador",
-      "Visual Icon",
-      "Wall and Wall",
-      "Washington County",
-      "West Newbury Riverhawks",
-      "WORLDWIDE EXPRESS",
-      "YANTAI HAIXIANG FOREIGN TRADE CO., LTD",
-      "YIN HWA USA CORP",
-      "Zack Vreeland",
-      "ZHANJIA INT'L LIMITED"
-    ];
+  function escapeAttr(value) {
+    return String(value || "").replace(/[&<>"]/g, m => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));
+  }
 
-    let currentUser = null;
+  function normalizeName(value) {
+    return String(value || "").trim().toLowerCase().replace(/&/g,"and").replace(/[^\w\s]/g,"").replace(/\s+/g," ").trim();
+  }
 
-    function escapeAttr(value) {
-      return String(value || "").replace(/[&<>"]/g, m => ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;"
-      }[m]));
-    }
+  function normalizeEmail(value) {
+    return String(value || "").trim().toLowerCase();
+  }
 
-    function normalizeName(value) {
-      return String(value || "")
-        .trim()
-        .toLowerCase()
-        .replace(/&/g, "and")
-        .replace(/[^\w\s]/g, "")
-        .replace(/\s+/g, " ")
-        .trim();
-    }
-
-    function normalizeEmail(value) {
-      return String(value || "").trim().toLowerCase();
-    }
-
-    async function fetchPriorVendors() {
-      const { data, error } = await supabaseClient
-        .from("payment_requests")
-        .select("vendor_name, vendor_name_manual")
-        .order("created_at", { ascending: false })
-        .limit(1000);
-
-      if (error) throw error;
-
-      const vendorMap = new Map();
-
-      (data || []).forEach(row => {
-        [row.vendor_name, row.vendor_name_manual].forEach(name => {
-          const clean = String(name || "").trim();
-          if (!clean) return;
-
-          const key = normalizeName(clean);
-          if (key && !vendorMap.has(key)) vendorMap.set(key, clean);
-        });
+  async function fetchPriorVendors() {
+    const { data, error } = await supabaseClient
+      .from("payment_requests")
+      .select("vendor_name, vendor_name_manual")
+      .order("created_at", { ascending: false })
+      .limit(1000);
+    if (error) throw error;
+    const vendorMap = new Map();
+    (data || []).forEach(row => {
+      [row.vendor_name, row.vendor_name_manual].forEach(name => {
+        const clean = String(name || "").trim();
+        if (!clean) return;
+        const key = normalizeName(clean);
+        if (key && !vendorMap.has(key)) vendorMap.set(key, clean);
       });
+    });
+    return Array.from(vendorMap.values()).sort((a, b) => a.localeCompare(b));
+  }
 
-      return Array.from(vendorMap.values()).sort((a, b) => a.localeCompare(b));
+  async function populateVendorOptions() {
+    const vendorOptions = document.getElementById("vendorOptions");
+    if (!vendorOptions) return;
+    try {
+      const priorVendors = await fetchPriorVendors();
+      const vendorMap = new Map();
+      [...priorVendors, ...VENDORS].forEach(name => {
+        const clean = String(name || "").trim();
+        if (!clean) return;
+        const key = normalizeName(clean);
+        if (key && !vendorMap.has(key)) vendorMap.set(key, clean);
+      });
+      vendorOptions.innerHTML = Array.from(vendorMap.values())
+        .sort((a, b) => a.localeCompare(b))
+        .map(v => `<option value="${escapeAttr(v)}"></option>`)
+        .join("");
+    } catch (error) {
+      console.error("Vendor load failed:", error);
+      vendorOptions.innerHTML = VENDORS.slice().sort((a, b) => a.localeCompare(b))
+        .map(v => `<option value="${escapeAttr(v)}"></option>`)
+        .join("");
     }
+  }
 
-    async function populateVendorOptions() {
-      const vendorOptions = document.getElementById("vendorOptions");
-      if (!vendorOptions) return;
+  function showStatus(message, type = "info") {
+    const tone = type === "error" ? "neg" : type === "success" ? "pos" : "info";
+    els.statusBox.className = `bcn-status bcn-status--${tone} pr-status-slot`;
+    els.statusBox.textContent = message;
+    els.statusBox.classList.remove("hidden");
+  }
 
-      try {
-        const priorVendors = await fetchPriorVendors();
-        const vendorMap = new Map();
+  function clearStatus() {
+    els.statusBox.textContent = "";
+    els.statusBox.className = "bcn-status hidden pr-status-slot";
+  }
 
-        [...priorVendors, ...VENDORS].forEach(name => {
-          const clean = String(name || "").trim();
-          if (!clean) return;
-          const key = normalizeName(clean);
-          if (key && !vendorMap.has(key)) vendorMap.set(key, clean);
-        });
+  function setSubmitting(isSubmitting) {
+    els.submitBtn.disabled = isSubmitting;
+    els.resetBtn.disabled = isSubmitting;
+    els.submitBtn.textContent = isSubmitting ? "Submitting…" : "Submit to AP";
+  }
 
-        vendorOptions.innerHTML = Array.from(vendorMap.values())
-          .sort((a, b) => a.localeCompare(b))
-          .map(v => `<option value="${escapeAttr(v)}"></option>`)
-          .join("");
-      } catch (error) {
-        console.error("Vendor load failed:", error);
+  function resetForm() {
+    els.requestForm.reset();
+    if (currentUser?.email) els.requesterEmail.value = currentUser.email;
+    clearStatus();
+    els.successCard.classList.add("hidden");
+    els.appCard.classList.remove("hidden");
+  }
 
-        vendorOptions.innerHTML = VENDORS
-          .slice()
-          .sort((a, b) => a.localeCompare(b))
-          .map(v => `<option value="${escapeAttr(v)}"></option>`)
-          .join("");
-      }
-    }
-
-    function showStatus(message, type = "info") {
-      const tone = type === "error" ? "neg" : type === "success" ? "pos" : "info";
-      els.statusBox.className = `bcn-status bcn-status--${tone} pr-status-slot`;
-      els.statusBox.textContent = message;
-      els.statusBox.classList.remove("hidden");
-    }
-
-    function clearStatus() {
-      els.statusBox.textContent = "";
-      els.statusBox.className = "bcn-status hidden pr-status-slot";
-    }
-
-    function setSubmitting(isSubmitting) {
-      els.submitBtn.disabled = isSubmitting;
-      els.resetBtn.disabled = isSubmitting;
-      els.submitBtn.textContent = isSubmitting ? "Submitting…" : "Submit to AP";
-    }
-
-    function resetForm() {
-      els.requestForm.reset();
-      if (currentUser?.email) {
-        els.requesterEmail.value = currentUser.email;
-      }
-      clearStatus();
-      els.successCard.classList.add("hidden");
-      els.appCard.classList.remove("hidden");
-    }
-
-    async function ensureAuth() {
-      const { data, error } = await supabaseClient.auth.getUser();
-      if (error) {
-        console.warn("Auth check failed:", error.message);
-        currentUser = null;
-        const uLine = document.getElementById("psUserLine");
-        if (uLine) uLine.textContent = "Not signed in";
-        els.authCard.classList.remove("hidden");
-        els.appCard.classList.add("hidden");
-        return false;
-      }
-
-      currentUser = data?.user || null;
-
-      const uLine = document.getElementById("psUserLine");
-      if (uLine) uLine.textContent = currentUser?.email || "Not signed in";
-
-      if (!currentUser) {
-        els.authCard.classList.remove("hidden");
-        els.appCard.classList.add("hidden");
-        return false;
-      }
-
+  function showAuthState() {
+    if (!currentUser) {
+      els.authCard.classList.remove("hidden");
+      els.appCard.classList.add("hidden");
+    } else {
       els.authCard.classList.add("hidden");
       els.appCard.classList.remove("hidden");
       els.signedInAs.textContent = `Signed in: ${currentUser.email || "user"}`;
-
       if (!els.requesterEmail.value && currentUser.email) {
         els.requesterEmail.value = currentUser.email;
       }
+    }
+  }
 
-      return true;
+  async function uploadFiles(fileList, requestId) {
+    const files = Array.from(fileList || []);
+    if (!files.length) return [];
+    const uploaded = [];
+    for (let index = 0; index < files.length; index++) {
+      const file = files[index];
+      const safeName = file.name.replace(/[^\w.\-]/g, "_");
+      const path = `${requestId}/${Date.now()}-${index + 1}-${safeName}`;
+      const { error: uploadError } = await supabaseClient.storage
+        .from(BUCKET).upload(path, file, { cacheControl: "3600", upsert: false });
+      if (uploadError) throw uploadError;
+      uploaded.push({
+        payment_request_id: requestId,
+        file_name: file.name,
+        file_path: path,
+        file_url: null,
+        file_size: file.size || null,
+        mime_type: file.type || null,
+        sort_order: index + 1,
+        created_by: currentUser?.id || null
+      });
+    }
+    return uploaded;
+  }
+
+  async function createPaymentRequest(event) {
+    event.preventDefault();
+    clearStatus();
+
+    if (!currentUser) {
+      showStatus("Please sign in first, then try again.", "error");
+      return;
     }
 
-    async function uploadFiles(fileList, requestId) {
-      const files = Array.from(fileList || []);
-      if (!files.length) return [];
+    const vendorName = els.vendorName.value.trim();
+    const requesterEmail = els.requesterEmail.value.trim();
+    const requestType = els.requestType.value;
+    const amountDue = Number(els.amountDue.value);
 
-      const uploaded = [];
+    if (!vendorName) { showStatus("Add a vendor name so AP knows who to pay.", "error"); return; }
+    if (!requestType) { showStatus("Choose what kind of request this is.", "error"); return; }
+    if (!requesterEmail) { showStatus("We need an email in case AP has questions.", "error"); return; }
+    if (!Number.isFinite(amountDue) || amountDue < 0) { showStatus("Enter a valid dollar amount (zero or more).", "error"); return; }
 
-      for (let index = 0; index < files.length; index += 1) {
-        const file = files[index];
-        const safeName = file.name.replace(/[^\w.\-]/g, "_");
-        const path = `${requestId}/${Date.now()}-${index + 1}-${safeName}`;
+    setSubmitting(true);
+    try {
+      const requestId = crypto.randomUUID();
+      const uploadedFiles = await uploadFiles(els.requestFile.files, requestId);
+      const primaryFile = uploadedFiles[0] || { file_name: null, file_path: null, file_url: null };
 
-        const { error: uploadError } = await supabaseClient.storage
-          .from(BUCKET)
-          .upload(path, file, {
-            cacheControl: "3600",
-            upsert: false
-          });
+      const payload = {
+        id: requestId,
+        vendor_name: vendorName || null,
+        vendor_name_norm: normalizeName(vendorName),
+        vendor_name_manual: null,
+        vendor_name_manual_norm: normalizeName(vendorName),
+        request_type: requestType,
+        invoice_number: els.invoiceNumber.value.trim() || null,
+        flex_id: els.flexId.value.trim() || null,
+        internal_po_number: els.internalPoNumber.value.trim() || null,
+        amount_due: amountDue,
+        due_date: els.dueDate.value || null,
+        requester_email: requesterEmail,
+        requester_email_norm: normalizeEmail(requesterEmail),
+        location_name: els.locationName.value.trim() || null,
+        notes_comments: els.notesComments.value.trim() || null,
+        file_name: primaryFile.file_name,
+        file_path: primaryFile.file_path,
+        file_url: primaryFile.file_url,
+        workflow_status: "new",
+        completed: false,
+        created_by: currentUser?.id || null,
+        updated_by: currentUser?.id || null
+      };
 
-        if (uploadError) throw uploadError;
+      const { error: insertError } = await supabaseClient.from("payment_requests").insert(payload);
+      if (insertError) throw insertError;
 
-        uploaded.push({
-          payment_request_id: requestId,
-          file_name: file.name,
-          file_path: path,
-          file_url: null,
-          file_size: file.size || null,
-          mime_type: file.type || null,
-          sort_order: index + 1,
-          created_by: currentUser?.id || null
-        });
+      if (uploadedFiles.length) {
+        const { error: fileRowsError } = await supabaseClient.from("payment_request_files").insert(uploadedFiles);
+        if (fileRowsError) throw fileRowsError;
       }
 
-      return uploaded;
+      els.successRequestId.textContent = requestId;
+      els.successFileName.textContent = uploadedFiles.length
+        ? `${uploadedFiles.length} file${uploadedFiles.length === 1 ? "" : "s"} attached`
+        : "No files attached";
+      els.appCard.classList.add("hidden");
+      els.successCard.classList.remove("hidden");
+      showStatus("Your request was sent to AP.", "success");
+    } catch (error) {
+      console.error(error);
+      showStatus(error?.message || "Something went wrong while saving. Please try again.", "error");
+    } finally {
+      setSubmitting(false);
     }
+  }
 
-    async function createPaymentRequest(event) {
-      event.preventDefault();
-      clearStatus();
+  // Always attach listeners synchronously — never inside async init
+  els.requestForm.addEventListener("submit", createPaymentRequest);
+  els.resetBtn.addEventListener("click", resetForm);
+  els.newRequestBtn.addEventListener("click", resetForm);
 
-      const authed = await ensureAuth();
-      if (!authed) {
-        showStatus("Please sign in first, then try again.", "error");
-        return;
-      }
+  async function boot() {
+    try {
+      const { data, error } = await supabaseClient.auth.getUser();
+      if (error) console.warn("Auth:", error.message);
+      currentUser = data?.user || null;
 
-      const vendorName = els.vendorName.value.trim();
-      const requesterEmail = els.requesterEmail.value.trim();
-      const requestType = els.requestType.value;
-      const amountDue = Number(els.amountDue.value);
+      SiloChrome.mount({
+        appEl: '#silo-app',
+        active: 'finance/payment-request',
+        user: { email: currentUser?.email || '', role: 'MEMBER' },
+        crumbs: ['Requests', 'Payment Request'],
+        supabaseClient,
+      });
 
-      if (!vendorName) {
-        showStatus("Add a vendor name so AP knows who to pay.", "error");
-        return;
-      }
+      showAuthState();
+      if (currentUser) await populateVendorOptions();
 
-      if (!requestType) {
-        showStatus("Choose what kind of request this is.", "error");
-        return;
-      }
-
-      if (!requesterEmail) {
-        showStatus("We need an email in case AP has questions.", "error");
-        return;
-      }
-
-      if (!Number.isFinite(amountDue) || amountDue < 0) {
-        showStatus("Enter a valid dollar amount (zero or more).", "error");
-        return;
-      }
-
-      setSubmitting(true);
-
-      try {
-        const requestId = crypto.randomUUID();
-        const uploadedFiles = await uploadFiles(els.requestFile.files, requestId);
-
-        const primaryFile = uploadedFiles[0] || {
-          file_name: null,
-          file_path: null,
-          file_url: null
-        };
-
-        const payload = {
-          id: requestId,
-          vendor_name: vendorName || null,
-          vendor_name_norm: normalizeName(vendorName),
-          vendor_name_manual: null,
-          vendor_name_manual_norm: normalizeName(vendorName),
-          request_type: requestType,
-          invoice_number: els.invoiceNumber.value.trim() || null,
-          flex_id: els.flexId.value.trim() || null,
-          internal_po_number: els.internalPoNumber.value.trim() || null,
-          amount_due: amountDue,
-          due_date: els.dueDate.value || null,
-          requester_email: requesterEmail,
-          requester_email_norm: normalizeEmail(requesterEmail),
-          location_name: els.locationName.value.trim() || null,
-          notes_comments: els.notesComments.value.trim() || null,
-          file_name: primaryFile.file_name,
-          file_path: primaryFile.file_path,
-          file_url: primaryFile.file_url,
-          workflow_status: "new",
-          completed: false,
-          created_by: currentUser?.id || null,
-          updated_by: currentUser?.id || null
-        };
-
-        const { error: insertError } = await supabaseClient
-          .from("payment_requests")
-          .insert(payload);
-
-        if (insertError) throw insertError;
-
-        if (uploadedFiles.length) {
-          const { error: fileRowsError } = await supabaseClient
-            .from("payment_request_files")
-            .insert(uploadedFiles);
-
-          if (fileRowsError) throw fileRowsError;
-        }
-
-        els.successRequestId.textContent = requestId;
-        els.successFileName.textContent = uploadedFiles.length
-          ? `${uploadedFiles.length} file${uploadedFiles.length === 1 ? "" : "s"} attached`
-          : "No files attached";
-
-        els.appCard.classList.add("hidden");
-        els.successCard.classList.remove("hidden");
-        showStatus("Your request was sent to AP.", "success");
-      } catch (error) {
-        console.error(error);
-        showStatus(error?.message || "Something went wrong while saving. Please try again.", "error");
-      } finally {
-        setSubmitting(false);
-      }
+      supabaseClient.auth.onAuthStateChange(async (event, session) => {
+        currentUser = session?.user || null;
+        showAuthState();
+        if (currentUser) await populateVendorOptions();
+      });
+    } catch (err) {
+      console.error("Boot failed:", err);
     }
+  }
 
-    els.requestForm.addEventListener("submit", createPaymentRequest);
-    els.resetBtn.addEventListener("click", resetForm);
-    els.newRequestBtn.addEventListener("click", resetForm);
-
-    async function init() {
-      try {
-        await ensureAuth();
-        await populateVendorOptions();
-        supabaseClient.auth.onAuthStateChange(async () => {
-          await ensureAuth();
-          await populateVendorOptions();
-        });
-      } catch (err) {
-        console.error("Init failed:", err);
-      }
-    }
-
-    init();
-  </script>
+  boot();
+</script>
 </body>
 </html>

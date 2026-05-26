@@ -55,6 +55,8 @@
     {
       section: 'Requests',
       items: [
+        { id: 'finance/payment-request', label: 'Payment Request', href: '/v2/purchase_request.html' },
+        { id: 'finance/request-manager', label: 'Request Manager', href: '/v2/request_manager.html' },
         { id: 'finance/travel-requests', label: 'Travel Requests', href: 'https://www.jotform.com/grid/200496754119055', external: true },
         { id: 'finance/bars-requests', label: 'Bars Requests', href: 'https://www.jotform.com/grid/222686658265065', external: true },
         { id: 'finance/travel', label: 'Travel Report', href: '/v2/travel.html' },
