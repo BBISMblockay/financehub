@@ -49,7 +49,7 @@
       section: 'Receivables',
       items: [
         { id: 'wholesale/customers', label: 'BBISM Receivables', href: '/v2/baseballismwholesale.html' },
-        { id: 'wholesale/wpv', label: 'WPV Receivables', href: '/wpvaccounts.html' },
+        { id: 'wholesale/wpv', label: 'WPV Receivables', href: '/v2/wpvaccounts.html' },
       ],
     },
     {
