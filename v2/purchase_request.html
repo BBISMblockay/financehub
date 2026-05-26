@@ -64,7 +64,7 @@
             <span class="ps-nav-label">AP manager</span>
             <span class="ps-nav-meta"><span class="ps-nav-chev" aria-hidden="true">›</span></span>
           </a>
-          <a class="ps-nav-link" href="/mailroom.html" data-ps-search="mailroom inbox">
+          <a class="ps-nav-link" href="/v2/mailroom.html" data-ps-search="mailroom inbox">
             <span class="ps-nav-label">Mailroom inbox</span>
             <span class="ps-nav-meta"><span class="ps-nav-chev" aria-hidden="true">›</span></span>
           </a>
@@ -91,7 +91,7 @@
               <span class="ps-nav-chev" aria-hidden="true">↗</span>
             </span>
           </a>
-          <a class="ps-nav-link" href="/travel.html" data-ps-search="travel report">
+          <a class="ps-nav-link" href="/v2/travel.html" data-ps-search="travel report">
             <span class="ps-nav-label">Travel report</span>
             <span class="ps-nav-meta"><span class="ps-nav-chev" aria-hidden="true">›</span></span>
           </a>
@@ -177,6 +177,9 @@
           </div>
           <div class="pr-callout">
             Sign in with your SILO account. We will pre-fill your email where we can and attach this request to your profile.
+          </div>
+          <div class="pr-btn-row" style="margin-top:12px;">
+            <a href="/pages/login.html" class="btn btn-primary">Sign in to SILO</a>
           </div>
         </div>
       </div>
@@ -715,7 +718,15 @@
 
     async function ensureAuth() {
       const { data, error } = await supabaseClient.auth.getUser();
-      if (error) throw error;
+      if (error) {
+        console.warn("Auth check failed:", error.message);
+        currentUser = null;
+        const uLine = document.getElementById("psUserLine");
+        if (uLine) uLine.textContent = "Not signed in";
+        els.authCard.classList.remove("hidden");
+        els.appCard.classList.add("hidden");
+        return false;
+      }
 
       currentUser = data?.user || null;
 
@@ -876,19 +887,21 @@
       }
     }
 
+    els.requestForm.addEventListener("submit", createPaymentRequest);
+    els.resetBtn.addEventListener("click", resetForm);
+    els.newRequestBtn.addEventListener("click", resetForm);
+
     async function init() {
-      await ensureAuth();
-
-      await populateVendorOptions();
-
-      els.requestForm.addEventListener("submit", createPaymentRequest);
-      els.resetBtn.addEventListener("click", resetForm);
-      els.newRequestBtn.addEventListener("click", resetForm);
-
-      supabaseClient.auth.onAuthStateChange(async () => {
+      try {
         await ensureAuth();
         await populateVendorOptions();
-      });
+        supabaseClient.auth.onAuthStateChange(async () => {
+          await ensureAuth();
+          await populateVendorOptions();
+        });
+      } catch (err) {
+        console.error("Init failed:", err);
+      }
     }
 
     init();

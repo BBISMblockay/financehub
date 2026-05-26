@@ -574,23 +574,25 @@
         section: "Payables",
         items: [
           { id:"ap-manager", label:"AP Manager", src:"/accountspayable.html", access:["admin","finance"] },
-          { id:"mailroom", label:"Mailroom Inbox", src:"/mailroom.html", access:["admin","finance"] },
+          { id:"mailroom", label:"Mailroom Inbox", src:"/v2/mailroom.html", access:["admin","finance"] },
           { id:"payables", label:"BBISM Payables", src:"/ap-report.html", access:["admin","finance"] }
         ]
       },
       {
         section: "Receivables",
         items: [
-          { id:"bbism-receivables", label:"BBISM Receivables", src:"/pages/baseballismwholesale.html", access:["admin","finance"] },
+          { id:"bbism-receivables", label:"BBISM Receivables", src:"/v2/baseballismwholesale.html", access:["admin","finance"] },
           { id:"wpv-receivables", label:"WPV Receivables", src:"/wpvaccounts.html", access:["admin","finance"] }
         ]
       },
       {
         section: "Requests",
         items: [
+          { id:"purchase-request", label:"Payment Request", src:"/v2/purchase_request.html", access:["admin","finance","buyer","manager"] },
+          { id:"request-manager", label:"Request Manager", src:"/v2/request_manager.html", access:["admin","finance"] },
           { id:"travel-requests", label:"Travel Requests", src:"https://www.jotform.com/grid/200496754119055", external:true, access:["admin","finance"] },
           { id:"bars-requests", label:"Bars Requests", src:"https://www.jotform.com/grid/222686658265065", external:true, access:["admin","finance"] },
-          { id:"travel-report", label:"Travel Report", src:"/travel.html", access:["admin","finance"] }
+          { id:"travel-report", label:"Travel Report", src:"/v2/travel.html", access:["admin","finance"] }
         ]
       },
       {
@@ -598,8 +600,11 @@
         items: [
           { id:"projections", label:"Revenue Projection", src:"/v2/projections.html", access:["admin","finance"] },
           { id:"marketing-calendar", label:"Marketing Calendar", src:"/v2/calendar.html", access:["admin","finance"] },
+          { id:"launch-calendar", label:"Launch Calendar", src:"/v2/launch-calendar.html", access:["admin","finance"] },
           { id:"po-calendar", label:"PO Calendar", src:"/v2/planner.html", access:["admin","finance"] },
           { id:"po-builder", label:"PO Builder", src:"/v2/po-builder.html", access:["admin","finance"] },
+          { id:"po-costing", label:"PO Landed Cost", src:"/v2/po-costing.html", access:["admin","finance"] },
+          { id:"po-report", label:"PO Report", src:"/v2/po-report.html", access:["admin","finance"] },
           { id:"factories", label:"Factories", src:"/pages/factories.html", access:["admin","finance"] }
         ]
       },
@@ -607,14 +612,14 @@
         section: "Inventory",
         items: [
           { id:"inventory", label:"Inventory Manager", src:"/v2/inventory.html", access:["admin","finance"] },
-          { id:"product-tags", label:"Product Tags", src:"/pages/product-manager.html", access:["admin","finance"] }
+          { id:"product-tags", label:"Product Tags", src:"/v2/product-manager.html", access:["admin","finance"] }
         ]
       },
       {
         section: "Reports",
         items: [
           { id:"sales-dashboard", label:"BI Sales Dashboard", src:"https://app.powerbi.com/view?r=eyJrIjoiY2U0MWI2ZmMtMTY3MS00MDY3LTg5NjctN2VlYjk0NGMxNzUzIiwidCI6IjIzYTkzNDJkLTFjODEtNGJkNS1hY2U0LThmYWY4ZWVlNTZiZCJ9", external:true, access:["admin","finance"] },
-          { id:"payroll-bi", label:"Payroll BI", src:"/pages/payroll.html", access:["admin","finance"] }
+          { id:"payroll-bi", label:"Payroll BI", src:"/v2/payroll.html", access:["admin","finance"] }
         ]
       }
     ];
