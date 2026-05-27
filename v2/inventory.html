@@ -498,7 +498,11 @@
       border: 1px solid var(--line); background: #f8fafc;
       border-radius: 6px; padding: 1px 5px; font-size: 10px;
     }
-    .click-link { color: var(--accent-deep); font-weight: 600; cursor: pointer; text-decoration: none; }
+    .click-link {
+      color: var(--accent-deep); font-weight: 600; cursor: pointer; text-decoration: none;
+      border: none; background: none; padding: 0; font: inherit;
+      -webkit-appearance: none; appearance: none; display: inline;
+    }
     .click-link:hover { text-decoration: underline; }
     .shadow-soft { box-shadow: 0 20px 50px rgba(15,23,42,0.15); }
 
