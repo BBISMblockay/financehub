@@ -67,35 +67,6 @@
     }
 
     /* ========== Layout ========== */
-    .app-shell{
-      min-height: 100vh;
-      display: grid;
-      grid-template-columns: 292px 1fr;
-    }
-    @media (max-width: 1024px){
-      .app-shell{ grid-template-columns: 1fr; }
-    }
-
-    .sidebar{
-      position: sticky;
-      top: 0;
-      align-self: start;
-      height: 100vh;
-      padding: 16px;
-      border-right: 1px solid var(--border);
-      background: var(--panel);
-      box-shadow: var(--shadow1);
-    }
-    @media (max-width: 1024px){
-      .sidebar{
-        position: relative;
-        height: auto;
-        border-right: 0;
-        border-bottom: 1px solid var(--border);
-      }
-    }
-
-    .main{ padding: 16px; }
     .container{ max-width: 1320px; margin: 0 auto; }
 
     /* ========== Components ========== */
@@ -341,170 +312,29 @@
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
+  <script src="silo-chrome.js"></script>
 </head>
-<!-- Add somewhere in executive.html (e.g., top nav) -->
-<div id="authBar" class="flex items-center gap-3 text-sm">
-  <span id="authEmail" class="text-slate-600"></span>
-  <a href="/pages/logout.html"
-     class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-800 hover:bg-slate-50">
-    Logout
-  </a>
-</div>
-
-<script src="../pages/config.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
-<script>
-  (async function () {
-    const cfg = window.__SILO_CONFIG__ || {};
-    const supabaseClient = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
-
-    const { data } = await supabaseClient.auth.getSession();
-    if (!data?.session) {
-      window.location.href = "/pages/login.html";
-      return;
-    }
-
-    document.getElementById("authEmail").textContent = data.session.user.email || "Signed in";
-  })();
-</script>
-
-<body class="themeable">
-    <!-- Auth bar (fixed top-right) -->
-  <div id="authBar" style="position:fixed; top:14px; right:16px; z-index:9999;"
-       class="flex items-center gap-3 text-sm">
-    <span id="authEmail" class="text-slate-600"></span>
-    <button id="logoutBtn"
-      class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-semibold text-slate-800 hover:bg-slate-50">
-      Logout
-    </button>
-  </div>
-  <div class="app-shell">
-    <!-- ========== Sidebar ========== -->
-    <aside class="sidebar">
-      <div class="flex items-start justify-between gap-3">
-        <div>
-          <div class="flex items-center gap-2 flex-wrap">
-            <span class="pill"><span class="dot" style="background: var(--accent)"></span>Silo ERP</span>
-            <span class="pill">Owner Cockpit</span>
-          </div>
-          <h1 class="mt-2 text-lg font-semibold tracking-tight">Executive Overview</h1>
-          <p class="mt-1 text-xs muted2">
-            Inventory · Stockout risk · Demand concentration · AP pressure · Marketing cadence
-          </p>
-        </div>
-
-        <button id="themeBtn" class="btn btn-ghost" title="Toggle theme">
-          Theme <span id="themeLabel" class="ml-2 font-extrabold">Light</span>
-        </button>
-      </div>
-
-      <div class="mt-4 card p-4">
-        <div class="flex items-center justify-between gap-3">
-          <div>
-            <div class="section-title">Controls</div>
-            <div class="mt-1 text-sm font-extrabold muted">Risk threshold</div>
-          </div>
-          <div class="kbd">R</div>
-        </div>
-
-        <div class="mt-3">
-          <select id="thresholdSelect" class="select w-full">
-            <option value="7">7 days</option>
-            <option value="14" selected>14 days</option>
-            <option value="30">30 days</option>
-          </select>
-        </div>
-
-        <p class="mt-3 text-xs muted2">
-          Days-to-OOS = avail_qty / avg_day_30 when avg_day_30 &gt; 0; else fallback.
-        </p>
-
-        <div class="mt-4 flex flex-col gap-2">
-          <a id="openRiskInventoryBtn"
-             class="btn btn-primary w-full"
-             href="/v2/inventory.html?maxDays=14"
-             target="_blank" rel="noreferrer">
-            Open Inventory (At Risk)
-          </a>
-
-          <button id="breakdownBtn" class="btn w-full">Breakdown by location</button>
-          <button id="openMarketingBtn" class="btn w-full">Marketing timeline</button>
-          <button id="reloadBtn" class="btn w-full">Reload</button>
-        </div>
-
-        <div class="mt-4 divider"></div>
-
-        <div class="mt-3 flex items-center justify-between gap-2 text-xs muted2">
-          <span>Updated</span>
-          <span id="lastUpdated" class="mono">—</span>
-        </div>
-      </div>
-
-      <div class="mt-4 card p-4">
-        <div class="flex items-center justify-between gap-2">
-          <div>
-            <div class="section-title">Signals</div>
-            <div class="mt-1 text-sm font-extrabold muted">Quick read</div>
-          </div>
-          <div class="kbd">Q</div>
-        </div>
-
-        <div id="quickInsights" class="mt-3 space-y-2 text-sm">
-          <div class="text-sm muted2">Loading insights…</div>
-        </div>
-      </div>
-
-      <div class="mt-4 card p-4">
-        <div class="flex items-center justify-between gap-2">
-          <div>
-            <div class="section-title">Trend</div>
-            <div class="mt-1 text-sm font-extrabold muted">Last 7 reloads</div>
-          </div>
-        </div>
-
-        <div class="mt-3 space-y-2">
-          <div id="sparkCoverage" class="spark-wrap">
-            <div class="spark-meta">
-              <div class="spark-title">Coverage (days)</div>
-              <div id="sparkCoverageSub" class="spark-sub mono">—</div>
-            </div>
-            <svg class="spark" viewBox="0 0 120 34" aria-hidden="true">
-              <line class="axis" x1="0" y1="33" x2="120" y2="33"></line>
-              <polyline id="sparkCoverageLine" points=""></polyline>
-            </svg>
-          </div>
-
-          <div id="sparkRisk" class="spark-wrap">
-            <div class="spark-meta">
-              <div class="spark-title">Retail at risk (%)</div>
-              <div id="sparkRiskSub" class="spark-sub mono">—</div>
-            </div>
-            <svg class="spark" viewBox="0 0 120 34" aria-hidden="true">
-              <line class="axis" x1="0" y1="33" x2="120" y2="33"></line>
-              <polyline id="sparkRiskLine" points=""></polyline>
-            </svg>
-          </div>
-        </div>
-
-        <div class="mt-3 text-xs muted2">
-          Stored locally in this browser (no server).
-        </div>
-      </div>
-
-      <div class="mt-4 card p-4">
-        <div class="section-title">Shortcuts</div>
-        <div class="mt-3 grid grid-cols-2 gap-2 text-xs muted2">
-          <div class="flex items-center justify-between gap-2"><span>Reload</span><span class="kbd">⌘/Ctrl + K</span></div>
-          <div class="flex items-center justify-between gap-2"><span>Theme</span><span class="kbd">T</span></div>
-          <div class="flex items-center justify-between gap-2"><span>Breakdown</span><span class="kbd">B</span></div>
-          <div class="flex items-center justify-between gap-2"><span>Marketing</span><span class="kbd">M</span></div>
-        </div>
-      </div>
-    </aside>
-
+<body>
+<div id="silo-app" class="silo-app">
     <!-- ========== Main ========== -->
-    <main class="main">
-      <div class="container space-y-4">
+    <main class="silo-main" style="overflow-y:auto; background:var(--bg);">
+
+      <!-- Controls bar -->
+      <div style="background:var(--panel);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <select id="thresholdSelect" class="select" style="height:34px;padding:0 .7rem;font-size:.8rem;">
+          <option value="7">7 days</option>
+          <option value="14" selected>14 days</option>
+          <option value="30">30 days</option>
+        </select>
+        <a id="openRiskInventoryBtn" class="btn btn-primary" style="height:34px;font-size:.8rem;" href="/v2/inventory.html?maxDays=14" target="_blank" rel="noreferrer">Open Inventory (At Risk)</a>
+        <button id="breakdownBtn" class="btn" style="height:34px;font-size:.8rem;">Breakdown</button>
+        <button id="openMarketingBtn" class="btn" style="height:34px;font-size:.8rem;">Marketing</button>
+        <button id="reloadBtn" class="btn" style="height:34px;font-size:.8rem;">Reload</button>
+        <button id="themeBtn" class="btn btn-ghost" style="height:34px;font-size:.8rem;" title="Toggle theme">Theme <span id="themeLabel" style="font-weight:800;margin-left:4px;">Light</span></button>
+        <div style="margin-left:auto;font-size:.75rem;color:var(--muted2);">Updated <span id="lastUpdated" class="mono">—</span></div>
+      </div>
+
+      <div class="container space-y-4" style="padding:16px;">
 
         <!-- Header row: Snapshot + PowerBI -->
         <div class="grid grid-cols-1 gap-4 lg:grid-cols-12">
@@ -775,6 +605,64 @@
                 <span class="pill"><span class="dot" style="background: var(--accent)"></span><span id="kpiVelocity__dup">Top 50 sellers = —</span></span>
               </div>
             </div>
+
+            <!-- Quick signals -->
+            <div class="card p-5">
+              <div class="flex items-center justify-between gap-2">
+                <div>
+                  <div class="section-title">Signals</div>
+                  <div class="mt-1 text-sm font-extrabold muted">Quick read</div>
+                </div>
+                <div class="kbd">Q</div>
+              </div>
+              <div id="quickInsights" class="mt-3 space-y-2 text-sm">
+                <div class="text-sm muted2">Loading insights…</div>
+              </div>
+            </div>
+
+            <!-- Trend sparklines -->
+            <div class="card p-5">
+              <div class="flex items-center justify-between gap-2">
+                <div>
+                  <div class="section-title">Trend</div>
+                  <div class="mt-1 text-sm font-extrabold muted">Last 7 reloads</div>
+                </div>
+              </div>
+              <div class="mt-3 space-y-2">
+                <div id="sparkCoverage" class="spark-wrap">
+                  <div class="spark-meta">
+                    <div class="spark-title">Coverage (days)</div>
+                    <div id="sparkCoverageSub" class="spark-sub mono">—</div>
+                  </div>
+                  <svg class="spark" viewBox="0 0 120 34" aria-hidden="true">
+                    <line class="axis" x1="0" y1="33" x2="120" y2="33"></line>
+                    <polyline id="sparkCoverageLine" points=""></polyline>
+                  </svg>
+                </div>
+                <div id="sparkRisk" class="spark-wrap">
+                  <div class="spark-meta">
+                    <div class="spark-title">Retail at risk (%)</div>
+                    <div id="sparkRiskSub" class="spark-sub mono">—</div>
+                  </div>
+                  <svg class="spark" viewBox="0 0 120 34" aria-hidden="true">
+                    <line class="axis" x1="0" y1="33" x2="120" y2="33"></line>
+                    <polyline id="sparkRiskLine" points=""></polyline>
+                  </svg>
+                </div>
+              </div>
+              <div class="mt-3 text-xs muted2">Stored locally in this browser (no server).</div>
+            </div>
+
+            <!-- Shortcuts -->
+            <div class="card p-5">
+              <div class="section-title">Shortcuts</div>
+              <div class="mt-3 grid grid-cols-2 gap-2 text-xs muted2">
+                <div class="flex items-center justify-between gap-2"><span>Reload</span><span class="kbd">⌘/Ctrl + K</span></div>
+                <div class="flex items-center justify-between gap-2"><span>Theme</span><span class="kbd">T</span></div>
+                <div class="flex items-center justify-between gap-2"><span>Breakdown</span><span class="kbd">B</span></div>
+                <div class="flex items-center justify-between gap-2"><span>Marketing</span><span class="kbd">M</span></div>
+              </div>
+            </div>
           </aside>
         </div>
       </div>
@@ -859,39 +747,28 @@
 
   <script>
 
-    // ====== Auth guard + logout ======
-const cfg = window.__SILO_CONFIG__ || {};
-if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
-  console.error("Missing SUPABASE_URL / SUPABASE_ANON_KEY in config.js");
-} else {
-  const supabaseClient = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+    // ====== Auth guard + SiloChrome ======
+    const cfg = window.__SILO_CONFIG__ || {};
+    const supabaseClient = (cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && window.supabase)
+      ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY)
+      : null;
 
-  (async () => {
-    const { data, error } = await supabaseClient.auth.getSession();
-    if (error) console.warn("getSession error:", error);
-
-    if (!data?.session) {
-      window.location.href = "/pages/login.html";
-      return;
-    }
-
-    const email = data.session.user?.email || "Signed in";
-    const emailEl = document.getElementById("authEmail");
-    if (emailEl) emailEl.textContent = email;
-
-    const btn = document.getElementById("logoutBtn");
-    if (btn) {
-      btn.addEventListener("click", async () => {
-        try {
-          await supabaseClient.auth.signOut();
-        } catch (e) {
-          console.warn("signOut error:", e);
-        }
-        window.location.href = "/pages/login.html";
+    if (window.SiloChrome) {
+      window.SiloChrome.mount({
+        appEl: '#silo-app',
+        active: 'finance/executive',
+        user: { email: '', role: 'MEMBER' },
+        crumbs: ['Finance', 'Executive'],
+        supabaseClient,
       });
     }
-  })();
-}
+
+    (async function authGuard() {
+      if (!supabaseClient) { console.error("Missing SUPABASE_URL / SUPABASE_ANON_KEY in config.js"); return; }
+      const { data, error } = await supabaseClient.auth.getSession();
+      if (error) console.warn("getSession error:", error);
+      if (!data?.session) { window.location.href = "/pages/login.html"; }
+    })();
     // ====== Required sources (copy exactly) ======
     const SHEET_ID = "1TsOL-rynXG7DlfVHU2GAfN0UtYE3OVebpaB-N--Irb0";
     const INVENTORY_CSV_PATTERN = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv&gid={GID}`;
