@@ -42,9 +42,27 @@
 
     .silo-main.inv-workbench {
       display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+      min-height: 0;
+      background: var(--canvas);
+    }
+
+    .silo-main.inv-workbench > .silo-utility {
+      flex: 0 0 auto;
+      width: 100%;
+    }
+
+    .workbench-layout {
+      flex: 1 1 auto;
+      min-width: 0;
+      min-height: 0;
+      display: flex;
       flex-direction: row;
       overflow: hidden;
       position: relative;
+      background: var(--canvas);
     }
 
     .panel-backdrop {
@@ -57,14 +75,19 @@
     }
 
     .filter-rail-toggle {
-      position: absolute; right: -12px; top: 72px; z-index: 25;
-      width: 24px; height: 48px; border-radius: 0 8px 8px 0;
-      border: 1px solid var(--line); border-left: none;
+      position: absolute; right: calc(var(--rail-w) - 12px); top: 18px; z-index: 35;
+      width: 24px; height: 48px; border-radius: 8px 0 0 8px;
+      border: 1px solid var(--line); border-right: none;
       background: #fff; color: var(--muted);
       font-size: 14px; font-weight: 800; cursor: pointer;
-      box-shadow: 4px 0 12px rgba(15,23,42,0.08);
+      box-shadow: -4px 0 12px rgba(15,23,42,0.08);
     }
-    body.filter-rail-collapsed .filter-rail-toggle { right: auto; left: 0; border-radius: 0 8px 8px 0; border-left: 1px solid var(--line); }
+    body.filter-rail-collapsed .filter-rail-toggle {
+      right: 0;
+      border-radius: 8px 0 0 8px;
+      border-right: none;
+      border-left: 1px solid var(--line);
+    }
     body.filter-rail-collapsed .filter-rail {
       width: 0; min-width: 0; padding: 0; border: none; overflow: hidden; opacity: 0;
     }
@@ -73,10 +96,11 @@
     .filter-rail {
       width: var(--rail-w);
       min-width: var(--rail-w);
+      order: 2;
       transition: width 0.2s ease, min-width 0.2s ease, opacity 0.2s ease;
       background: linear-gradient(180deg, var(--rail) 0%, var(--bg) 100%);
       color: var(--rail-text);
-      border-right: 1px solid var(--rail-border);
+      border-left: 1px solid var(--rail-border);
       display: flex;
       flex-direction: column;
       min-height: 0;
@@ -219,7 +243,12 @@
 
     /* —— Workspace —— */
     .workspace {
+      order: 1;
+      flex: 1 1 auto;
+      width: 100%;
       display: flex; flex-direction: column; min-width: 0; min-height: 0;
+      overflow: hidden;
+      background: var(--canvas);
     }
 
     .workspace-top {
@@ -283,11 +312,17 @@
     }
 
     .data-panel {
+      flex: 1 1 auto;
       display: flex; flex-direction: column; min-width: 0; min-height: 0;
+      overflow: hidden;
+      padding: 12px 16px 0;
     }
     .table-wrap {
       flex: 1; min-height: 0; overflow: auto;
       background: #fff;
+      border: 1px solid var(--line);
+      border-radius: 12px 12px 0 0;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
     }
     .table-wrap::-webkit-scrollbar { height: 10px; width: 10px; }
     .table-wrap::-webkit-scrollbar-thumb { background: rgba(15,23,42,0.18); border-radius: 99px; }
@@ -298,10 +333,13 @@
       border-bottom: 1px solid var(--line) !important;
     }
     #mainTable {
+      border-collapse: separate;
+      border-spacing: 0;
       table-layout: fixed;
-      width: max-content;
-      max-width: 100%;
+      width: 100%;
+      min-width: 1180px;
       font-size: 11px;
+      background: #fff;
     }
     #mainTable .th-compact,
     #mainTable .td-compact {
@@ -336,7 +374,13 @@
     #mainTable img.h-7 { width: 1.75rem; height: 1.75rem; }
     #mainTable tbody td {
       border-bottom: 1px solid #f1f5f9;
+      border-right: 1px solid #eef2f7;
+      background: #fff;
+      color: var(--text);
     }
+    #mainTable tbody tr:nth-child(even) td { background: #fbfdff; }
+    #mainTable tbody tr.bg-rose-50 td { background: #fff1f2; }
+    #mainTable tbody tr.bg-amber-50 td { background: #fffbeb; }
     #mainTable tbody tr:hover td { background: rgba(59,130,246,0.04) !important; }
     #mainTable [data-col="_select"] { width: 30px !important; }
     #mainTable [data-col="_details"] { width: 44px !important; }
@@ -387,7 +431,11 @@
       flex: 0 0 auto;
       display: flex; align-items: center; justify-content: space-between;
       padding: 10px 16px; gap: 12px;
-      background: #f8fafc; border-top: 1px solid var(--line);
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      border-top: none;
+      border-radius: 0 0 12px 12px;
+      margin-bottom: 12px;
     }
     #pagerInfo { font-size: 12px; color: var(--muted); font-weight: 500; }
     .pager-btns { display: flex; gap: 6px; }
@@ -476,11 +524,14 @@
     body.overflow-hidden { overflow: hidden; }
 
     @media (max-width: 900px) {
+      .workbench-layout { flex-direction: column; }
+      .filter-rail-toggle { display: none; }
       .filter-rail { display: none; }
       body.filter-rail-open .filter-rail {
-        display: flex; position: fixed; top: 0; left: 0; bottom: 0;
+        display: flex; position: fixed; top: 0; right: 0; bottom: 0;
         z-index: 50; box-shadow: 8px 0 32px rgba(15,23,42,0.2);
       }
+      .data-panel { padding: 10px; }
     }
   </style>
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
@@ -489,7 +540,8 @@
 <body class="inv-v2">
   <div id="silo-app" class="silo-app">
     <main class="silo-main inv-workbench">
-      <button id="btnFilterRailToggle" type="button" class="filter-rail-toggle" aria-label="Toggle filters" title="Toggle filters">‹</button>
+      <div class="workbench-layout">
+      <button id="btnFilterRailToggle" type="button" class="filter-rail-toggle" aria-label="Toggle filters" title="Toggle filters">›</button>
       <aside id="filterRail" class="filter-rail" aria-label="Filters and planning">
       <div class="rail-brand">
         <div class="rail-brand-mark">INV</div>
@@ -709,6 +761,7 @@
 
       </div>
     </div>
+    </div>
     </main>
   </div>
 
@@ -775,9 +828,18 @@
     if (draftDrawer) draftDrawer.setAttribute("aria-hidden", open ? "false" : "true");
   }
   function toggleFilterRail() {
+    const smallScreen = window.matchMedia && window.matchMedia("(max-width: 900px)").matches;
+    if (smallScreen) {
+      body.classList.toggle("filter-rail-open");
+      body.classList.remove("filter-rail-collapsed");
+      if (filterToggle) filterToggle.textContent = "›";
+      return;
+    }
+
+    body.classList.remove("filter-rail-open");
     body.classList.toggle("filter-rail-collapsed");
     const collapsed = body.classList.contains("filter-rail-collapsed");
-    if (filterToggle) filterToggle.textContent = collapsed ? "›" : "‹";
+    if (filterToggle) filterToggle.textContent = collapsed ? "‹" : "›";
   }
 
   document.getElementById("btnDraftDrawerToggle")?.addEventListener("click", () => setDraft(true));
@@ -794,6 +856,7 @@
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       setDraft(false);
+      body.classList.remove("filter-rail-open");
     }
   });
 })();
@@ -829,7 +892,7 @@
     let LAST_SUGGEST = new Map();
     let SUGGEST_ENABLED = false;
 
-    const COLS_KEY = "silo_inv_cols_v9_product_planning";
+    const COLS_KEY = "silo_inv_cols_v10_table_redesign";
     let VISIBLE = null;
 
     let LOAD_SEQ = 0;
@@ -1254,6 +1317,7 @@
       allCols().forEach(c => {
         if (c && c.key && VISIBLE[c.key] === undefined) VISIBLE[c.key] = !!c.default;
       });
+      VISIBLE["_select"] = true;
       VISIBLE["_details"] = true;
       VISIBLE["image"] = true;
       saveVisible(VISIBLE);
@@ -2694,7 +2758,7 @@
       Object.keys(map).forEach(k => el(map[k][0]).classList.toggle("active", k === nextMode));
       el("modeLine").textContent = map[nextMode][1];
       const tw = TABLE_MIN_W[nextMode] || 1520;
-      el("mainTable").className = `w-max text-sm stickyHead table-compact`;
+      el("mainTable").className = `inventory-table stickyHead table-compact`;
       el("mainTable").style.minWidth = `${tw}px`;
       applyFilters();
     }
