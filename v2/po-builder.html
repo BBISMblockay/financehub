@@ -21,6 +21,11 @@
     .bcn-kpi { padding-top: 4px; padding-bottom: 4px; }
     .bcn-kpi-value { font-size: 15px !important; }
     .bcn-kpi-delta { display: none; }
+
+    /* Header collapse */
+    .po-header-card--collapsed .bcn-card-body { display: none; }
+    #btnToggleHeader { color: rgba(255,255,255,.7); border-color: rgba(255,255,255,.2); font-size: 11px; height: 28px; padding: 0 10px; }
+    #btnToggleHeader:hover { color: #fff; background: rgba(255,255,255,.1); }
   </style>
 </head>
 <body class="v2-mirror--po">
@@ -118,6 +123,7 @@
             <span class="bcn-pill bcn-pill--dark">HEADER</span>
             <h2 id="detailTitle">No PO selected</h2>
             <div style="flex:1"></div>
+            <button id="btnToggleHeader" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" title="Toggle header fields">▲ COLLAPSE</button>
             <button id="btnSaveHeader" class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" disabled>SAVE</button>
             <button id="btnGeneratePdf" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" disabled style="color:#fff;border-color:rgba(255,255,255,.2);">PDF</button>
             <button id="btnDuplicatePO" class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" disabled style="color:#fff;border-color:rgba(255,255,255,.2);">DUPLICATE</button>
@@ -318,7 +324,7 @@
 
     const el = {
       poList: document.getElementById('poList'), poCount: document.getElementById('poCount'), poSearch: document.getElementById('poSearch'), poStatusFilter: document.getElementById('poStatusFilter'), poFactoryFilter: document.getElementById('poFactoryFilter'),
-      btnRefresh: document.getElementById('btnRefresh'), btnNewPO: document.getElementById('btnNewPO'), btnSaveHeader: document.getElementById('btnSaveHeader'), btnGeneratePdf: document.getElementById('btnGeneratePdf'), btnDuplicatePO: document.getElementById('btnDuplicatePO'), btnAddCatalogLine: document.getElementById('btnAddCatalogLine'), btnBulkSku: document.getElementById('btnBulkSku'), btnImportLines: document.getElementById('btnImportLines'), btnAddManualLine: document.getElementById('btnAddManualLine'),
+      btnRefresh: document.getElementById('btnRefresh'), btnNewPO: document.getElementById('btnNewPO'), btnToggleHeader: document.getElementById('btnToggleHeader'), btnSaveHeader: document.getElementById('btnSaveHeader'), btnGeneratePdf: document.getElementById('btnGeneratePdf'), btnDuplicatePO: document.getElementById('btnDuplicatePO'), btnAddCatalogLine: document.getElementById('btnAddCatalogLine'), btnBulkSku: document.getElementById('btnBulkSku'), btnImportLines: document.getElementById('btnImportLines'), btnAddManualLine: document.getElementById('btnAddManualLine'),
       detailTitle: document.getElementById('detailTitle'), detailStatusWrap: document.getElementById('detailStatusWrap'), poName: document.getElementById('poName'), factoryId: document.getElementById('factoryId'), orderDate: document.getElementById('orderDate'), reqShipDate: document.getElementById('reqShipDate'), expectedArrivalDate: document.getElementById('expectedArrivalDate'), dateBucket: document.getElementById('dateBucket'), status: document.getElementById('status'), wholesaleTriggered: document.getElementById('wholesaleTriggered'), isNewProductPO: document.getElementById('isNewProductPO'), notes: document.getElementById('notes'), internalNotes: document.getElementById('internalNotes'),
       kpiUnits: document.getElementById('kpiUnits'), kpiRetail: document.getElementById('kpiRetail'), kpiCost: document.getElementById('kpiCost'), kpiLanded: document.getElementById('kpiLanded'), linesTbody: document.getElementById('linesTbody'),
       catalogModal: document.getElementById('catalogModal'), catalogSearch: document.getElementById('catalogSearch'), btnSearchCatalog: document.getElementById('btnSearchCatalog'), btnAddSelectedCatalog: document.getElementById('btnAddSelectedCatalog'), catalogResults: document.getElementById('catalogResults'),
@@ -335,6 +341,10 @@
     function todayStr(){ const d=new Date(); return `${d.getFullYear()}-${`${d.getMonth()+1}`.padStart(2,'0')}-${`${d.getDate()}`.padStart(2,'0')}`; }
     function plusDaysStr(days){ const d=new Date(); d.setDate(d.getDate()+days); return `${d.getFullYear()}-${`${d.getMonth()+1}`.padStart(2,'0')}-${`${d.getDate()}`.padStart(2,'0')}`; }
     function num(v){ const n=Number(String(v ?? '').replace(/[^0-9.-]/g,'')); return Number.isFinite(n) ? n : 0; }
+
+    const headerCard = document.querySelector('.po-header-card');
+    function collapseHeader(){ headerCard.classList.add('po-header-card--collapsed'); if(el.btnToggleHeader) el.btnToggleHeader.textContent='▼ EDIT'; }
+    function expandHeader(){ headerCard.classList.remove('po-header-card--collapsed'); if(el.btnToggleHeader) el.btnToggleHeader.textContent='▲ COLLAPSE'; }
 
     function currentFormData(){
       return { po_name: el.poName.value.trim() || null, factory_id: el.factoryId.value || null, order_date: el.orderDate.value || null, req_ship_date: el.reqShipDate.value || null, expected_arrival_date: el.expectedArrivalDate.value || null, date_bucket: el.dateBucket.value.trim() || null, status: el.status.value || 'Draft', wholesale_triggered: !!el.wholesaleTriggered.checked, is_new_product_po: !!el.isNewProductPO.checked, notes: el.notes.value.trim() || null, internal_notes: el.internalNotes.value.trim() || null };
@@ -465,6 +475,7 @@
       renderLines();
       renderPOList();
       setPoDrawerOpen(false);
+      collapseHeader();
     }
 
     function renderFactoryOptions(){ const current=el.factoryId.value; el.factoryId.innerHTML=['<option value="">Select factory</option>'].concat(state.factories.map(f=>`<option value="${f.id}">${escapeHtml(f.factory_name)}${f.short_code ? ` · ${escapeHtml(f.short_code)}` : ''}</option>`)).join(''); if(current) el.factoryId.value=current; }
@@ -494,6 +505,7 @@
     }
 
     function resetEditorForNew(){
+      expandHeader();
       state.currentPO=null; state.currentLines=[]; state.costingCtx=null;
       el.poName.value=''; el.factoryId.value=''; el.orderDate.value=todayStr(); el.reqShipDate.value=plusDaysStr(45);
       el.expectedArrivalDate.value=''; el.dateBucket.value=''; el.status.value='Draft';
@@ -621,6 +633,7 @@
       if(savedId){ const {error}=await sb.from('po_headers').update(payload).eq('id',savedId); if(error) throw error; }
       else { const {data,error}=await sb.from('po_headers').insert(payload).select('*').single(); if(error) throw error; state.currentPO=data; savedId=data.id; }
       await refreshAll(); if(savedId) await openPO(savedId);
+      collapseHeader();
     }
 
     async function addCatalogLine(productId, qty){
@@ -1136,6 +1149,7 @@
     const btnPriorFob=document.getElementById('btnPriorFob');
     if(btnPriorFob) btnPriorFob.addEventListener('click', async()=>{ try{ await applyPriorFobToLines(); }catch(e){ console.error(e); alert(e.message||'Prior FOB failed'); } });
     el.btnNewPO.addEventListener('click',()=>{ resetEditorForNew(); setPoDrawerOpen(false); });
+    el.btnToggleHeader.addEventListener('click',()=>{ headerCard.classList.contains('po-header-card--collapsed') ? expandHeader() : collapseHeader(); });
     el.btnSaveHeader.addEventListener('click',async()=>{ try{ await saveHeader(); }catch(e){ console.error(e); alert(e.message||'Save failed'); } });
     el.btnGeneratePdf.addEventListener('click',()=>{ try{ generateVendorPdf(); }catch(e){ console.error(e); alert(e.message||'PDF generation failed'); } });
     el.btnDuplicatePO.addEventListener('click',async()=>{ try{ await duplicateCurrentPO(); }catch(e){ console.error(e); alert(e.message||'Duplicate failed'); } });
