@@ -34,7 +34,6 @@
       section: 'Overview',
       items: [
         { id: 'people/dashboard', label: 'Dashboard', href: '/v2/employeehub.html' },
-        { id: 'finance/executive', label: 'Executive', href: '/v2/executive.html' },
       ],
     },
     {
