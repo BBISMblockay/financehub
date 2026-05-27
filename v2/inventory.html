@@ -314,9 +314,24 @@
     }
     #mainTable .badge {
       font-size: 9px !important;
-      padding: 1px 5px !important;
+      padding: 0 !important;
+      border: none !important;
+      background: transparent !important;
+      border-radius: 0 !important;
+      font-weight: 700;
       max-width: 100%;
     }
+    #mainTable .badge.inv-flag--buy      { color: #15803d; }
+    #mainTable .badge.inv-flag--buynow   { color: #92400e; }
+    #mainTable .badge.inv-flag--hold     { color: #991b1b; }
+    #mainTable .badge.inv-flag--review   { color: #5b21b6; }
+    #mainTable .badge.inv-flag--transfer { color: #0369a1; }
+    #mainTable .badge.inv-flag--overstock{ color: #64748b; }
+    #mainTable .badge.inv-flag--hero     { color: #15803d; }
+    #mainTable .badge.inv-flag--new      { color: #3730a3; }
+    #mainTable .badge.inv-flag--promo    { color: #92400e; }
+    #mainTable .badge.inv-flag--wholesale{ color: #0369a1; }
+    #mainTable .badge.inv-flag--seasonal { color: #9a3412; }
     #mainTable button[data-details] {
       padding: 2px 6px !important;
       font-size: 9px !important;
