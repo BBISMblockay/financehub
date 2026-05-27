@@ -12,11 +12,11 @@
   <script src="silo-chrome.js"></script>
   <style>
     :root {
-      --bg: #0b1220;
-      --rail: #0f172a;
-      --rail-border: rgba(255,255,255,0.07);
-      --rail-text: #e2e8f0;
-      --rail-muted: #94a3b8;
+      --bg: #f1f5f9;
+      --rail: #ffffff;
+      --rail-border: #e2e8f0;
+      --rail-text: #0f172a;
+      --rail-muted: #64748b;
       --canvas: #f1f5f9;
       --card: #ffffff;
       --line: #e2e8f0;
@@ -98,7 +98,7 @@
       min-width: var(--rail-w);
       order: 2;
       transition: width 0.2s ease, min-width 0.2s ease, opacity 0.2s ease;
-      background: linear-gradient(180deg, var(--rail) 0%, var(--bg) 100%);
+      background: var(--rail);
       color: var(--rail-text);
       border-left: 1px solid var(--rail-border);
       display: flex;
@@ -107,23 +107,24 @@
       z-index: 30;
     }
     .rail-brand {
-      padding: 16px 16px 12px;
+      padding: 14px 16px 12px;
       border-bottom: 1px solid var(--rail-border);
+      display: flex; align-items: center; gap: 10px;
     }
     .rail-brand-mark {
-      width: 36px; height: 36px; border-radius: 10px;
-      background: linear-gradient(135deg, #3b82f6, #6366f1);
+      width: 30px; height: 30px; border-radius: 8px;
+      background: #0f172a;
       display: grid; place-items: center;
-      font-size: 13px; font-weight: 800; color: #fff;
-      margin-bottom: 10px;
+      font-size: 10px; font-weight: 800; color: #fff; letter-spacing: 0.04em;
+      flex-shrink: 0;
     }
-    .rail-brand h1 {
-      margin: 0; font-size: 14px; font-weight: 800; letter-spacing: -0.02em;
+    .rail-brand-text h1 {
+      margin: 0; font-size: 13px; font-weight: 700; letter-spacing: -0.01em; color: var(--text);
     }
-    .rail-brand p {
-      margin: 4px 0 0; font-size: 11px; color: var(--rail-muted); line-height: 1.4;
+    .rail-brand-text p {
+      margin: 1px 0 0; font-size: 11px; color: var(--muted); line-height: 1.3;
     }
-    .rail-brand a { color: #93c5fd; font-weight: 600; text-decoration: none; }
+    .rail-brand a { color: var(--accent-deep); font-weight: 600; text-decoration: none; }
     .rail-brand a:hover { text-decoration: underline; }
 
     .rail-scroll {
@@ -131,52 +132,51 @@
       display: flex; flex-direction: column; gap: 14px;
     }
     .rail-scroll::-webkit-scrollbar { width: 6px; }
-    .rail-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 99px; }
+    .rail-scroll::-webkit-scrollbar-thumb { background: rgba(15,23,42,0.12); border-radius: 99px; }
 
     .filter-block { display: flex; flex-direction: column; gap: 8px; }
     .filter-label {
       font-size: 10px; font-weight: 800; letter-spacing: 0.1em;
-      text-transform: uppercase; color: var(--rail-muted);
+      text-transform: uppercase; color: var(--muted);
       padding: 0 2px;
     }
 
     .seg {
-      display: grid; grid-template-columns: 1fr 1fr; gap: 4px;
-      padding: 4px; border-radius: 10px;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid var(--rail-border);
+      display: grid; grid-template-columns: 1fr 1fr; gap: 3px;
+      padding: 3px; border-radius: 8px;
+      background: #f1f5f9;
+      border: 1px solid var(--line);
     }
     .seg button {
       border: 1px solid transparent; background: transparent;
-      color: var(--rail-muted); border-radius: 8px;
-      padding: 8px 6px; font-size: 11px; font-weight: 700;
+      color: var(--muted); border-radius: 6px;
+      padding: 7px 6px; font-size: 11px; font-weight: 700;
       cursor: pointer; transition: 0.15s ease; line-height: 1.2;
     }
-    .seg button:hover { background: rgba(255,255,255,0.06); color: #fff; }
+    .seg button:hover { background: #fff; color: var(--text); }
     .seg button.active {
-      background: linear-gradient(135deg, var(--accent-deep), var(--accent));
-      color: #fff; border-color: rgba(255,255,255,0.12);
-      box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
+      background: #0f172a;
+      color: #fff; border-color: transparent;
     }
 
     .field, .filter-rail select {
-      width: 100%; height: 36px;
-      border: 1px solid var(--rail-border);
-      background: rgba(255,255,255,0.05);
-      color: #fff; border-radius: 9px;
+      width: 100%; height: 34px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text); border-radius: 7px;
       padding: 0 10px; font-size: 12px; outline: none;
     }
-    .field::placeholder { color: rgba(148,163,184,0.85); }
+    .field::placeholder { color: #94a3b8; }
     .field:focus, .filter-rail select:focus {
-      border-color: rgba(59,130,246,0.8);
-      box-shadow: 0 0 0 3px rgba(59,130,246,0.2);
+      border-color: rgba(59,130,246,0.6);
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.12);
     }
     .filter-rail select option { color: #0f172a; background: #fff; }
 
     .search-wrap { position: relative; }
     .search-wrap svg {
       position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
-      width: 15px; height: 15px; color: var(--rail-muted); pointer-events: none;
+      width: 15px; height: 15px; color: var(--muted); pointer-events: none;
     }
     .search-wrap .field { padding-left: 32px; }
 
@@ -184,41 +184,43 @@
       display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
     }
     .top-chip {
-      border: 1px solid var(--rail-border);
-      background: rgba(255,255,255,0.04);
-      color: var(--rail-text);
-      border-radius: 8px; padding: 7px 8px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text);
+      border-radius: 7px; padding: 6px 8px;
       font-size: 11px; font-weight: 700; cursor: pointer;
       transition: 0.15s ease; text-align: center;
     }
-    .top-chip:hover { background: rgba(255,255,255,0.08); }
+    .top-chip:hover { background: #f1f5f9; }
     .top-chip[aria-pressed="true"] {
-      background: rgba(59,130,246,0.2);
-      border-color: rgba(96,165,250,0.5);
-      color: #bfdbfe;
+      background: #eff6ff;
+      border-color: #93c5fd;
+      color: var(--accent-deep);
     }
 
     .thresh-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
     .thresh-grid .field { height: 34px; padding: 0 8px; font-size: 11px; text-align: center; }
 
     .rail-acc {
-      border: 1px solid var(--rail-border);
-      border-radius: 10px; overflow: hidden;
-      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--line);
+      border-radius: 8px; overflow: hidden;
+      background: #fff;
     }
     .rail-acc > summary {
       list-style: none; cursor: pointer;
-      padding: 10px 12px; font-size: 12px; font-weight: 700;
+      padding: 9px 12px; font-size: 12px; font-weight: 700;
       display: flex; justify-content: space-between; align-items: center;
+      color: var(--text);
     }
+    .rail-acc > summary:hover { background: #f8fafc; }
     .rail-acc > summary::-webkit-details-marker { display: none; }
-    .rail-acc > summary span { color: var(--rail-muted); font-size: 10px; font-weight: 600; }
+    .rail-acc > summary span { color: var(--muted); font-size: 10px; font-weight: 600; }
     .rail-acc-body { padding: 0 12px 12px; display: flex; flex-direction: column; gap: 10px; }
 
     .rail-foot {
-      padding: 12px 14px; border-top: 1px solid var(--rail-border);
+      padding: 12px 14px; border-top: 1px solid var(--line);
       display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
-      background: rgba(0,0,0,0.15);
+      background: #f8fafc;
     }
     .btn {
       height: 36px; border-radius: 9px; border: 1px solid var(--line);
@@ -234,11 +236,11 @@
     }
     .btn-dark:hover { filter: brightness(1.05); }
     .btn-ghost-rail {
-      background: rgba(255,255,255,0.06); border-color: var(--rail-border); color: #fff;
+      background: #fff; border-color: var(--line); color: var(--text);
     }
-    .btn-ghost-rail:hover { background: rgba(255,255,255,0.1); }
+    .btn-ghost-rail:hover { background: #f1f5f9; }
 
-    .lbl { font-size: 11px; font-weight: 600; color: var(--rail-muted); margin-bottom: 4px; display: block; }
+    .lbl { font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 4px; display: block; }
     .lbl-light { font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 4px; display: block; }
 
     /* —— Workspace —— */
@@ -253,8 +255,7 @@
 
     .workspace-top {
       flex: 0 0 auto;
-      background: rgba(255,255,255,0.88);
-      backdrop-filter: blur(12px);
+      background: #fff;
       border-bottom: 1px solid var(--line);
       padding: 12px 16px;
       display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px;
@@ -545,8 +546,10 @@
       <aside id="filterRail" class="filter-rail" aria-label="Filters and planning">
       <div class="rail-brand">
         <div class="rail-brand-mark">INV</div>
-        <h1>Filters</h1>
-        <p>Inventory workbench</p>
+        <div class="rail-brand-text">
+          <h1>Filters</h1>
+          <p>Inventory workbench</p>
+        </div>
       </div>
       <div class="rail-scroll thin-scroll">
         <div class="filter-block">
@@ -565,7 +568,7 @@
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M21 21l-4.3-4.3m1.8-5.2a7 7 0 11-14 0 7 7 0 0114 0z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
             <input id="txtSearch" type="text" class="field" placeholder="Type, product, SKU, barcode…" />
           </div>
-          <p style="margin:0;font-size:10px;color:var(--rail-muted)">Press Enter to run filters</p>
+          <p style="margin:0;font-size:10px;color:var(--muted)">Press Enter to run filters</p>
         </div>
 
         <div class="filter-block">
