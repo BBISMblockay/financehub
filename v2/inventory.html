@@ -352,7 +352,7 @@
     #mainTable [data-col="_select"] { width: 30px !important; }
     #mainTable [data-col="_details"] { width: 44px !important; }
     #mainTable [data-col="image"] { width: 38px !important; }
-    #mainTable [data-col="product"] { width: 120px !important; }
+    #mainTable [data-col="product"] { min-width: 160px; width: auto !important; white-space: normal !important; word-break: break-word; }
     #mainTable [data-col="product_type"] { width: 88px !important; }
     #mainTable [data-col="location"] { width: 72px !important; }
     #mainTable [data-col="sku"] { width: 88px !important; }
@@ -499,7 +499,7 @@
       border-radius: 6px; padding: 1px 5px; font-size: 10px;
     }
     .click-link {
-      color: var(--accent-deep); font-weight: 600; cursor: pointer; text-decoration: none;
+      color: var(--accent-deep); font-weight: 700; cursor: pointer; text-decoration: underline;
       border: none; background: none; padding: 0; font: inherit;
       -webkit-appearance: none; appearance: none; display: inline;
     }
@@ -1012,7 +1012,7 @@
       transfer_flag: "Xfr"
     };
     const COL_CLIP = new Set([
-      "product", "product_type", "location", "sku", "barcode", "variant",
+      "product_type", "location", "sku", "barcode", "variant",
       "tag", "sub_tag", "collection", "indicator_group", "source"
     ]);
     const TABLE_MIN_W = { type: 1180, product: 1520, sku: 1680, location: 1760 };
