@@ -20,6 +20,67 @@
     .bcn-kpi { padding-top: 4px; padding-bottom: 4px; }
     .bcn-kpi-value { font-size: 15px !important; }
     .bcn-kpi-delta { display: none; }
+
+    /* ── Stepper ─────────────────────────────────────── */
+    .cost-stepper {
+      display: flex; align-items: center; padding: 14px 20px;
+      border-bottom: 1px solid var(--bcn-line, #e2e8f0);
+    }
+    .cost-step {
+      display: flex; align-items: center; gap: 8px;
+      border: none; background: none; cursor: pointer;
+      padding: 6px 10px; border-radius: 8px;
+      color: var(--bcn-ink-3, #94a3b8);
+      font-size: 12px; font-weight: 700;
+      font-family: var(--bcn-mono, monospace);
+      letter-spacing: 0.04em; white-space: nowrap;
+      transition: background 0.12s;
+    }
+    .cost-step:hover { background: var(--bcn-surface-2, #f8fafc); color: var(--bcn-ink, #0f172a); }
+    .cost-step-num {
+      width: 22px; height: 22px; border-radius: 50%;
+      border: 2px solid currentColor;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 10px; font-weight: 900; flex: 0 0 auto;
+    }
+    .cost-step-line { flex: 1; height: 2px; background: var(--bcn-border-strong, #cbd5e1); min-width: 20px; margin: 0 6px; }
+    .cost-step.active { color: var(--bcn-accent, #3b82f6); }
+    .cost-step.active .cost-step-num { background: var(--bcn-accent, #3b82f6); color: #fff; border-color: var(--bcn-accent, #3b82f6); }
+    .cost-step.done { color: var(--bcn-pos, #059669); }
+    .cost-step.done .cost-step-num { background: var(--bcn-pos, #059669); color: #fff; border-color: var(--bcn-pos, #059669); }
+
+    /* ── Phase panels ────────────────────────────────── */
+    .cost-phase { padding: 20px; }
+    .cost-section-label {
+      font-size: 10px; font-weight: 900; letter-spacing: 0.1em;
+      text-transform: uppercase; color: var(--bcn-ink-3, #94a3b8);
+      margin-bottom: 12px;
+    }
+    .cost-fields {
+      display: grid; gap: 12px;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      margin-bottom: 16px;
+    }
+    .cost-notes { margin-bottom: 16px; }
+    .cost-actions {
+      display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+      padding-top: 14px; border-top: 1px solid var(--bcn-line, #e2e8f0);
+    }
+    .cost-check {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 12px; color: var(--bcn-ink-2, #475569);
+      margin-left: auto; white-space: nowrap; cursor: pointer;
+    }
+    .cost-check input { margin: 0; cursor: pointer; }
+    .cost-hint { font-size: 13px; color: var(--bcn-ink-2, #475569); line-height: 1.55; margin: 0 0 14px; }
+    .cost-shipped-state { font-size: 13px; font-weight: 700; color: var(--bcn-ink, #0f172a); margin: 0 0 16px; }
+    #status:not(:empty) {
+      margin-top: 14px; padding: 8px 12px; border-radius: 6px;
+      font-size: 12px; font-weight: 600;
+      border: 1px solid var(--bcn-border-strong, #cbd5e1);
+      background: var(--bcn-surface-2, #f8fafc);
+      color: var(--bcn-ink-2, #475569);
+    }
   </style>
 </head>
 <body class="v2-mirror--po">
@@ -97,16 +158,29 @@
             <span class="bcn-pill bcn-pill--dark">COSTING</span>
             <h2 id="poTitleText">—</h2>
           </header>
-          <div class="bcn-phase-bar">
-            <button type="button" class="phase-btn active" data-phase-tab="fob">1 · FOB / factory invoice</button>
-            <button type="button" class="phase-btn" data-phase-tab="ship">2 · Shipped</button>
-            <button type="button" class="phase-btn" data-phase-tab="freight">3 · Freight &amp; landed</button>
+          <div class="cost-stepper">
+            <button type="button" class="cost-step active" data-phase-tab="fob">
+              <span class="cost-step-num">1</span>
+              <span>FOB / Invoice</span>
+            </button>
+            <span class="cost-step-line"></span>
+            <button type="button" class="cost-step" data-phase-tab="ship">
+              <span class="cost-step-num">2</span>
+              <span>Shipped</span>
+            </button>
+            <span class="cost-step-line"></span>
+            <button type="button" class="cost-step" data-phase-tab="freight">
+              <span class="cost-step-num">3</span>
+              <span>Freight &amp; Landed</span>
+            </button>
           </div>
 
           <div class="bcn-card-body">
-            <div id="panelFob" class="phase-panel">
-              <div class="po-costing-fields">
-                <div class="bcn-field-group field">
+            <!-- Phase 1: FOB -->
+            <div id="panelFob" class="phase-panel cost-phase">
+              <div class="cost-section-label">Factory costs</div>
+              <div class="cost-fields">
+                <div class="bcn-field-group">
                   <label class="bcn-label">Cost source</label>
                   <select id="inCostSource" class="bcn-field bcn-field--mono">
                     <option value="">—</option>
@@ -116,48 +190,60 @@
                     <option value="mixed">Prior + invoice</option>
                   </select>
                 </div>
-                <div class="bcn-field-group field"><label class="bcn-label">Factory invoice #</label><input class="bcn-field bcn-field--mono" type="text" id="inFactoryRef" placeholder="INV-2026-…" /></div>
-                <div class="bcn-field-group field"><label class="bcn-label">Invoice date</label><input class="bcn-field bcn-field--mono" type="date" id="inFactoryDate" /></div>
-                <div class="bcn-field-group field"><label class="bcn-label">Invoice total ($)</label><input class="bcn-field bcn-field--mono" type="number" step="0.01" id="inFactoryAmount" /></div>
+                <div class="bcn-field-group"><label class="bcn-label">Factory invoice #</label><input class="bcn-field bcn-field--mono" type="text" id="inFactoryRef" placeholder="INV-2026-…" /></div>
+                <div class="bcn-field-group"><label class="bcn-label">Invoice date</label><input class="bcn-field bcn-field--mono" type="date" id="inFactoryDate" /></div>
+                <div class="bcn-field-group"><label class="bcn-label">Invoice total ($)</label><input class="bcn-field bcn-field--mono" type="number" step="0.01" id="inFactoryAmount" /></div>
               </div>
-              <div class="bcn-field-group field" style="margin-top:10px;"><label class="bcn-label">FOB notes</label><textarea class="bcn-field" id="inFobNotes" rows="2" placeholder="Factory quote, payment terms…"></textarea></div>
-              <div class="toolbar" style="margin-top:10px;">
+              <div class="cost-notes bcn-field-group">
+                <label class="bcn-label">FOB notes</label>
+                <textarea class="bcn-field" id="inFobNotes" rows="2" placeholder="Factory quote, payment terms, currency…"></textarea>
+              </div>
+              <div class="cost-actions">
                 <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnApplyAllPrior">APPLY PRIOR FOB</button>
                 <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnClearLineOverrides">CLEAR OVERRIDES</button>
                 <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="btnSaveFob">SAVE FOB</button>
+                <label class="cost-check"><input type="checkbox" id="chkPushFob" checked /> Push to PO line unit cost</label>
               </div>
-              <label class="chk-row"><input type="checkbox" id="chkPushFob" checked /> Update PO line <code>unit_cost</code> from FOB</label>
             </div>
 
-            <div id="panelShip" class="phase-panel" hidden>
-              <p class="hint">Mark the PO shipped when goods leave the factory. Freight can be added after this step.</p>
-              <p id="shippedAtLabel" class="hint"></p>
-              <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="btnMarkShipped">MARK SHIPPED</button>
+            <!-- Phase 2: Shipped -->
+            <div id="panelShip" class="phase-panel cost-phase" hidden>
+              <div class="cost-section-label">Shipping status</div>
+              <p class="cost-hint">Mark the PO shipped when goods leave the factory. Add freight costs in Step 3 once the forwarder invoice arrives.</p>
+              <p id="shippedAtLabel" class="cost-shipped-state"></p>
+              <div class="cost-actions">
+                <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="btnMarkShipped">MARK SHIPPED</button>
+              </div>
             </div>
 
-            <div id="panelFreight" class="phase-panel" hidden>
-              <div class="po-costing-fields">
-                <div class="bcn-field-group field"><label class="bcn-label">Freight invoice #</label><input class="bcn-field bcn-field--mono" type="text" id="inFreightRef" placeholder="Forwarder ref" /></div>
-                <div class="bcn-field-group field"><label class="bcn-label">Freight ($)</label><input class="bcn-field bcn-field--mono" type="number" step="0.01" min="0" id="inFreight" data-cost-header /></div>
-                <div class="bcn-field-group field"><label class="bcn-label">Duty (% FOB)</label><input class="bcn-field bcn-field--mono" type="number" step="0.01" min="0" id="inDutyPct" data-cost-header /></div>
-                <div class="bcn-field-group field"><label class="bcn-label">Misc ($)</label><input class="bcn-field bcn-field--mono" type="number" step="0.01" min="0" id="inMisc" data-cost-header /></div>
-                <div class="bcn-field-group field">
-                  <label class="bcn-label">Split freight by</label>
+            <!-- Phase 3: Freight & Landed -->
+            <div id="panelFreight" class="phase-panel cost-phase" hidden>
+              <div class="cost-section-label">Freight, duty &amp; landed split</div>
+              <div class="cost-fields">
+                <div class="bcn-field-group"><label class="bcn-label">Freight invoice #</label><input class="bcn-field bcn-field--mono" type="text" id="inFreightRef" placeholder="Forwarder ref" /></div>
+                <div class="bcn-field-group"><label class="bcn-label">Freight total ($)</label><input class="bcn-field bcn-field--mono" type="number" step="0.01" min="0" id="inFreight" data-cost-header /></div>
+                <div class="bcn-field-group"><label class="bcn-label">Duty (% of FOB)</label><input class="bcn-field bcn-field--mono" type="number" step="0.01" min="0" id="inDutyPct" data-cost-header /></div>
+                <div class="bcn-field-group"><label class="bcn-label">Misc ($)</label><input class="bcn-field bcn-field--mono" type="number" step="0.01" min="0" id="inMisc" data-cost-header /></div>
+                <div class="bcn-field-group">
+                  <label class="bcn-label">Split method</label>
                   <select class="bcn-field bcn-field--mono" id="inAlloc" data-cost-header>
-                    <option value="proportional">Line FOB (proportional)</option>
-                    <option value="per_unit">Per unit (even)</option>
+                    <option value="proportional">By FOB (proportional)</option>
+                    <option value="per_unit">Per unit (even split)</option>
                   </select>
                 </div>
               </div>
-              <div class="bcn-field-group field" style="margin-top:10px;"><label class="bcn-label">Freight notes</label><textarea class="bcn-field" id="inFreightNotes" rows="2" placeholder="Container, forwarder, actual freight bill…"></textarea></div>
-              <div class="toolbar" style="margin-top:10px;">
+              <div class="cost-notes bcn-field-group">
+                <label class="bcn-label">Freight notes</label>
+                <textarea class="bcn-field" id="inFreightNotes" rows="2" placeholder="Container #, forwarder, actual freight bill…"></textarea>
+              </div>
+              <div class="cost-actions">
                 <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnRecalc">RECALC SPLIT</button>
                 <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="btnSaveFreight">SAVE FREIGHT &amp; LANDED</button>
+                <label class="cost-check"><input type="checkbox" id="chkPushLanded" checked /> Push to PO line unit cost</label>
               </div>
-              <label class="chk-row"><input type="checkbox" id="chkPushLanded" checked /> Update PO line <code>unit_cost</code> to landed unit</label>
             </div>
 
-            <div id="status" style="margin-top:8px;"></div>
+            <div id="status"></div>
           </div>
         </section>
 
@@ -172,11 +258,11 @@
                   <tr>
                     <th>SKU</th>
                     <th>Qty</th>
-                    <th>FOB/unit</th>
-                    <th>Prior</th>
-                    <th>Frght $</th>
-                    <th>Landed/unit</th>
-                    <th>Landed ext</th>
+                    <th>FOB / unit</th>
+                    <th>Prior SKU cost</th>
+                    <th>Frght alloc</th>
+                    <th>Landed / unit</th>
+                    <th>Ext. landed</th>
                     <th></th>
                   </tr>
                 </thead>
