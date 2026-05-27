@@ -243,90 +243,41 @@
     .lbl { font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 4px; display: block; }
     .lbl-light { font-size: 11px; font-weight: 600; color: var(--muted); margin-bottom: 4px; display: block; }
 
-    /* —— Workspace —— */
+    /* Inventory beacon workspace layout */
     .workspace {
-      order: 1;
-      flex: 1 1 auto;
-      width: 100%;
-      display: flex; flex-direction: column; min-width: 0; min-height: 0;
-      overflow: hidden;
-      background: var(--canvas);
+      flex: 1; min-width: 0;
+      display: flex; flex-direction: column; overflow: hidden;
     }
-
-    .workspace-top {
-      flex: 0 0 auto;
-      background: #fff;
-      border-bottom: 1px solid var(--line);
-      padding: 12px 16px;
-      display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px;
-    }
-    .workspace-title { min-width: 0; flex: 1; }
-    .workspace-title h2 {
-      margin: 0; font-size: 18px; font-weight: 800; letter-spacing: -0.03em;
-    }
-    #statusLine { font-size: 12px; color: var(--muted); margin-top: 4px; }
-    #modeLine { font-size: 11px; color: var(--accent-deep); margin-top: 2px; font-weight: 600; }
-
-    .top-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-    #authEmail { font-size: 11px; color: var(--muted); max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-    .metrics-bar {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 8px;
-      padding: 10px 16px;
-      background: #fff;
-      border-bottom: 1px solid var(--line);
-    }
-    @media (min-width: 1100px) {
-      .metrics-bar { grid-template-columns: repeat(8, minmax(0, 1fr)); }
-    }
-    .metric {
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: 8px 10px;
-      background: linear-gradient(180deg, #fff 0%, #f8fafc 100%);
-    }
-    .metric-lbl {
-      font-size: 9px; font-weight: 800; letter-spacing: 0.08em;
-      text-transform: uppercase; color: var(--muted);
-    }
-    .metric-val {
-      margin-top: 3px; font-size: 16px; font-weight: 800;
-      letter-spacing: -0.02em; line-height: 1.1;
-    }
-    .metric-val.accent { color: var(--accent-deep); }
-    .metric-val.warn { color: var(--warn); }
-
-    .command-bar {
-      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
-      gap: 10px; padding: 10px 16px;
-      background: #fff; border-bottom: 1px solid var(--line);
-    }
-    .command-bar .btn-group { display: flex; flex-wrap: wrap; gap: 6px; }
-    .command-bar .sel-actions { display: flex; gap: 6px; }
-
-    .workspace-body {
+    .inv-table-body {
       flex: 1; min-height: 0;
       display: flex; flex-direction: column;
-      min-width: 0;
+      padding: 0;
     }
-
-    .data-panel {
-      flex: 1 1 auto;
-      display: flex; flex-direction: column; min-width: 0; min-height: 0;
+    .inv-table-card {
+      flex: 1; min-height: 0;
+      display: flex; flex-direction: column;
+      margin: 10px 12px 0;
+      border-radius: var(--bcn-radius);
+      border: 1px solid var(--bcn-border-strong);
       overflow: hidden;
-      padding: 12px 16px 0;
     }
-    .table-wrap {
+    .inv-table-card .bcn-matrix-scroll {
       flex: 1; min-height: 0; overflow: auto;
-      background: #fff;
-      border: 1px solid var(--line);
-      border-radius: 12px 12px 0 0;
-      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.06);
     }
-    .table-wrap::-webkit-scrollbar { height: 10px; width: 10px; }
-    .table-wrap::-webkit-scrollbar-thumb { background: rgba(15,23,42,0.18); border-radius: 99px; }
+    .inv-table-foot {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 12px; gap: 12px;
+      background: var(--bcn-surface-2, #f8fafc);
+      border-top: 1px solid var(--bcn-border);
+      flex-shrink: 0;
+    }
+    /* Compact beacon overrides (match PO pages) */
+    .bcn-header-sub { display: none; }
+    .bcn-header { padding-top: 8px; padding-bottom: 8px; }
+    .bcn-kpi-band { padding-top: 4px; padding-bottom: 4px; }
+    .bcn-kpi { padding-top: 4px; padding-bottom: 4px; }
+    .bcn-kpi-value { font-size: 15px !important; }
+    .bcn-kpi-delta { display: none; }
 
     .stickyHead thead th {
       position: sticky; top: 0; z-index: 10;
@@ -428,19 +379,6 @@
     #mainTable [data-col="suggested_po"],
     #mainTable [data-col="inv_value"] { width: 56px !important; }
 
-    .table-foot {
-      flex: 0 0 auto;
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 10px 16px; gap: 12px;
-      background: #f8fafc;
-      border: 1px solid var(--line);
-      border-top: none;
-      border-radius: 0 0 12px 12px;
-      margin-bottom: 12px;
-    }
-    #pagerInfo { font-size: 12px; color: var(--muted); font-weight: 500; }
-    .pager-btns { display: flex; gap: 6px; }
-
     /* —— PO draft drawer (hidden until opened) —— */
     .draft-drawer {
       position: fixed; top: 0; right: 0; bottom: 0;
@@ -495,12 +433,6 @@
     .thin-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
     .thin-scroll::-webkit-scrollbar-thumb { background: rgba(15,23,42,0.15); border-radius: 99px; }
 
-    #kpiNote {
-      font-size: 10px; color: var(--muted); line-height: 1.4;
-      padding: 0 16px 8px; background: #fff;
-      border-bottom: 1px solid var(--line);
-    }
-
     /* JS-rendered helpers */
     .badge {
       display: inline-flex; align-items: center; gap: 0.35rem;
@@ -532,7 +464,6 @@
         display: flex; position: fixed; top: 0; right: 0; bottom: 0;
         z-index: 50; box-shadow: 8px 0 32px rgba(15,23,42,0.2);
       }
-      .data-panel { padding: 10px; }
     }
   </style>
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
@@ -704,64 +635,64 @@
       </aside>
 
       <div class="workspace">
-      <header class="workspace-top">
-        <div class="workspace-title">
-          <h2>Workbench</h2>
-          <div id="statusLine">—</div>
-          <div id="modeLine" class="mono">Mode: Product Type Planning</div>
+      <header class="bcn-header">
+        <div style="flex:1;min-width:0;">
+          <div class="bcn-header-title"><h1>Inventory</h1></div>
+          <div class="bcn-header-sub">
+            <div id="statusLine">—</div>
+            <div id="modeLine" class="mono">Mode: Product Type Planning</div>
+          </div>
         </div>
-        <div class="top-actions">
-          <button id="btnFilterRailToggleTop" type="button" class="btn" title="Toggle filter panel">Filters</button>
-          <span id="authEmail"></span>
-          <button id="btnReload" type="button" class="btn">Reload</button>
-          <button id="btnColumns" type="button" class="btn">Columns</button>
-          <button id="btnExportFiltered" type="button" class="btn btn-dark">Export CSV</button>
-          <button id="logoutBtn" type="button" class="btn">Logout</button>
+        <div class="bcn-header-actions">
+          <button id="btnFilterRailToggleTop" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" title="Toggle filter panel">FILTERS</button>
+          <span id="authEmail" class="bcn-btn bcn-btn--ghost bcn-btn--mono" style="pointer-events:none;opacity:0.7;font-size:11px;"></span>
+          <button id="btnReload" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">RELOAD</button>
+          <button id="btnColumns" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">COLUMNS</button>
+          <button id="btnExportFiltered" type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono">EXPORT CSV</button>
+          <button id="logoutBtn" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">LOGOUT</button>
         </div>
       </header>
 
-      <div class="metrics-bar" aria-label="Key metrics">
-        <div class="metric"><div class="metric-lbl">Rows</div><div id="kRows" class="metric-val mono">0</div></div>
-        <div class="metric"><div class="metric-lbl">Units OH</div><div id="kUnits" class="metric-val mono">0</div></div>
-        <div class="metric"><div class="metric-lbl">Retail OH</div><div id="kRetailValue" class="metric-val mono">$0</div></div>
-        <div class="metric"><div class="metric-lbl">Suggested</div><div id="kSuggested" class="metric-val mono accent">0</div></div>
-        <div class="metric"><div class="metric-lbl">Sold 30d</div><div id="kSold30" class="metric-val mono">0</div></div>
-        <div class="metric"><div class="metric-lbl">Avg cover</div><div id="kAvgDays" class="metric-val mono">—</div></div>
-        <div class="metric"><div class="metric-lbl">At risk $</div><div id="kRiskRetail" class="metric-val mono warn">$0</div></div>
-        <div class="metric"><div class="metric-lbl">Selected</div><div id="kSelected" class="metric-val mono">0</div></div>
-      </div>
-      <div id="kpiNote">Product/type rows are planning rollups. SKU and location modes remain available for size curves and transfer detail.</div>
+      <section class="bcn-kpi-band" aria-label="Key metrics">
+        <div class="bcn-kpi"><div class="bcn-kpi-label">ROWS</div><div class="bcn-kpi-value bcn-mono" id="kRows">0</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">UNITS OH</div><div class="bcn-kpi-value bcn-mono" id="kUnits">0</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">RETAIL OH</div><div class="bcn-kpi-value bcn-mono" id="kRetailValue">$0</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">SUGGESTED</div><div class="bcn-kpi-value bcn-mono" id="kSuggested">0</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">SOLD 30D</div><div class="bcn-kpi-value bcn-mono" id="kSold30">0</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">AVG COVER</div><div class="bcn-kpi-value bcn-mono" id="kAvgDays">—</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">AT RISK $</div><div class="bcn-kpi-value bcn-mono" id="kRiskRetail">$0</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">SELECTED</div><div class="bcn-kpi-value bcn-mono" id="kSelected">0</div></div>
+      </section>
 
-      <div class="command-bar">
-        <div class="btn-group">
-          <button id="btnSuggestPO" type="button" class="btn">Suggest PO</button>
-          <button id="btnTagSelected" type="button" class="btn">Tag selected</button>
-          <button id="btnAddSelectedToDraft" type="button" class="btn btn-dark">Add → draft</button>
-          <button id="btnDraftDrawerToggle" type="button" class="btn btn-draft-fab">PO draft</button>
+      <section class="bcn-filter-bar">
+        <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+          <button id="btnSuggestPO" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">SUGGEST PO</button>
+          <button id="btnTagSelected" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">TAG SELECTED</button>
+          <button id="btnAddSelectedToDraft" type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono">ADD → DRAFT</button>
+          <button id="btnDraftDrawerToggle" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">PO DRAFT</button>
         </div>
-        <div class="sel-actions">
-          <button id="btnExportSelected" type="button" class="btn">Export selected</button>
-          <button id="btnClearSelection" type="button" class="btn">Clear selection</button>
+        <div style="display:flex;gap:6px;margin-left:auto;">
+          <button id="btnExportSelected" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">EXPORT SELECTED</button>
+          <button id="btnClearSelection" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">CLEAR SELECTION</button>
         </div>
-      </div>
+      </section>
 
-      <div class="workspace-body">
-        <section class="data-panel">
-          <div class="table-wrap thin-scroll">
-            <table id="mainTable" class="stickyHead table-compact">
+      <div class="inv-table-body">
+        <div class="bcn-card inv-table-card">
+          <div class="bcn-matrix-scroll">
+            <table id="mainTable" class="stickyHead table-compact bcn-matrix">
               <thead><tr id="theadRow"></tr></thead>
               <tbody id="tbody"></tbody>
             </table>
           </div>
-          <footer class="table-foot">
-            <div id="pagerInfo">—</div>
-            <div class="pager-btns">
-              <button id="btnPrev" type="button" class="btn">Prev</button>
-              <button id="btnNext" type="button" class="btn">Next</button>
-            </div>
-          </footer>
-        </section>
-
+        </div>
+        <footer class="bcn-card-foot inv-table-foot">
+          <div id="pagerInfo" style="font-size:12px;color:var(--bcn-ink-2);">—</div>
+          <div style="display:flex;gap:6px;">
+            <button id="btnPrev" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">PREV</button>
+            <button id="btnNext" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">NEXT</button>
+          </div>
+        </footer>
       </div>
     </div>
     </div>
