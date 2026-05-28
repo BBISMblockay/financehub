@@ -551,16 +551,46 @@
       font-weight: 850;
       color: var(--bcn-ink-1);
     }
-    .ps-setup-body { padding: 8px 10px; display: flex; flex-direction: column; gap: 7px; }
-    .ps-seed-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .ps-setup-body { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+    .ps-setup-lanes {
+      display: grid;
+      grid-template-columns: minmax(200px, 1fr) minmax(280px, 1.35fr) minmax(220px, 1.1fr) auto;
+      gap: 10px 12px;
+      align-items: start;
+    }
+    .ps-lane {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 0;
+      padding: 8px 9px;
+      border: 1px solid var(--bcn-border);
+      border-radius: 7px;
+      background: var(--bcn-sunken);
+    }
+    .ps-lane--actions {
+      justify-content: flex-end;
+      background: var(--bcn-surface);
+    }
+    .ps-lane-label {
+      font-size: 9px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: .09em;
+      color: var(--bcn-ink-3);
+      margin: 0;
+    }
+    .ps-lane .bcn-label { font-size: 10px; color: var(--bcn-ink-2); }
+    .ps-lane .bcn-field { height: 30px; font-size: 11px; }
+    .ps-lane-fields { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: flex-end; }
+    .ps-seed-row { display: flex; flex-direction: column; gap: 6px; }
     .ps-seed-row .ps-seed-strip { display: flex; gap: 4px; flex: 0 0 auto; }
     .ps-seed-row .ps-seed-btn { height: 30px; min-width: 0; flex: 0 1 auto; }
     .ps-seed-hint {
-      flex: 1 1 200px;
-      font-size: 10px;
-      color: var(--bcn-ink-3);
-      line-height: 1.35;
-      min-width: 0;
+      font-size: 11px;
+      color: var(--bcn-ink-2);
+      line-height: 1.45;
+      margin: 0;
     }
     .ps-setup-strip {
       display: flex;
@@ -643,13 +673,88 @@
     .ps-advanced summary::-webkit-details-marker { display: none; }
     .ps-status-strip { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 
-    /* Input workbench tabs */
-    .ps-plan-card {
+  /* Projection seed summary */
+    .ps-proj-seed {
       border: 1px solid var(--bcn-border);
       border-radius: 8px;
+      background: var(--bcn-sunken);
+      padding: 8px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .ps-proj-seed-head { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; justify-content: space-between; }
+    .ps-proj-seed-head p { margin: 0; font-size: 11px; color: var(--bcn-ink-2); line-height: 1.45; max-width: 720px; }
+    .ps-proj-metrics {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 6px;
+    }
+    .ps-proj-metric {
       background: var(--bcn-surface);
+      border: 1px solid var(--bcn-border);
+      border-radius: 6px;
+      padding: 5px 7px;
+      min-width: 0;
+    }
+    .ps-proj-metric span { display: block; font-size: 9px; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; color: var(--bcn-ink-3); }
+    .ps-proj-metric strong { display: block; margin-top: 2px; font-size: 12px; font-weight: 850; color: var(--bcn-ink-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ps-proj-rollup-toggle {
+      height: 26px;
+      padding: 0 10px;
+      font-size: 10px;
+      font-weight: 800;
+      border: 1px solid var(--bcn-border-strong);
+      border-radius: 6px;
+      background: var(--bcn-surface);
+      color: var(--bcn-ink-2);
+      cursor: pointer;
+    }
+    .ps-proj-rollup-toggle:hover { border-color: var(--bcn-accent); color: var(--bcn-ink-1); }
+    .ps-proj-rollup-table { border: 1px solid var(--bcn-border); border-radius: 6px; overflow: hidden; background: var(--bcn-surface); }
+    .ps-proj-rollup-table table { width: 100%; }
+    .ps-proj-rollup-table th, .ps-proj-rollup-table td { padding: 5px 8px; font-size: 11px; }
+    .ps-proj-empty {
+      font-size: 11px;
+      color: var(--bcn-ink-3);
+      padding: 6px 0 0;
+    }
+
+    .ps-planning-summary {
+      border: 1px solid var(--bcn-border-strong);
+      border-radius: 8px;
+      background: var(--bcn-surface);
+      padding: 10px 12px;
       box-shadow: var(--ps-tight-shadow);
+    }
+    .ps-planning-summary h3 {
+      margin: 0 0 6px;
+      font-size: 11px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--bcn-ink-1);
+    }
+    .ps-planning-summary p {
+      margin: 0;
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--bcn-ink-2);
+    }
+
+    /* Input workbench tabs */
+    .ps-plan-card {
+      border: 1px solid var(--bcn-border-strong);
+      border-radius: 8px;
+      background: var(--bcn-surface);
+      box-shadow: var(--ps-soft-shadow);
       overflow: hidden;
+    }
+    .ps-plan-helper {
+      padding: 6px 10px 0;
+      font-size: 11px;
+      color: var(--bcn-ink-2);
+      line-height: 1.4;
     }
     .ps-plan-head {
       display: flex;
@@ -689,16 +794,19 @@
     .ps-plan-tab.active { background: var(--bcn-band); color: #fff; }
     .ps-plan-panel { display: none; }
     .ps-plan-panel.active { display: block; }
-    .ps-plan-scroll { overflow: auto; max-height: 280px; }
+    .ps-plan-scroll { overflow: auto; max-height: 300px; }
     .plan-card-table th,
-    .plan-card-table td { padding: 4px 7px; font-size: 10px; }
-    .plan-card-table th { padding-top: 5px; padding-bottom: 5px; }
+    .plan-card-table td { padding: 5px 8px; font-size: 11px; }
+    .plan-card-table th { padding-top: 6px; padding-bottom: 6px; color: var(--bcn-ink-2); }
+    .plan-card-table td.num { color: var(--bcn-ink-1); font-weight: 650; }
     .plan-card-table input {
-      height: 24px;
-      padding: 2px 5px;
-      font-size: 10px;
+      height: 26px;
+      padding: 3px 6px;
+      font-size: 11px;
+      font-weight: 650;
+      color: var(--bcn-ink-1);
       background: #fffef8;
-      border-color: var(--bcn-border-strong);
+      border: 1px solid var(--bcn-accent-soft);
     }
     .plan-card-table input:focus {
       background: var(--bcn-surface);
@@ -741,14 +849,19 @@
     .ps-out-panel .bcn-card { box-shadow: var(--ps-tight-shadow); }
     .ps-out-panel .bcn-card-header { min-height: 34px; padding: 5px 10px; }
     .ps-out-panel .bcn-card-header h2 { font-size: 12px; }
-    .ps-kpi-strip { gap: 6px; }
-    .ps-kpi { padding: 6px 8px; }
-    .ps-kpi-value { font-size: 15px; }
+    .ps-results-block { display: flex; flex-direction: column; gap: 8px; }
+    .ps-kpi-strip { gap: 8px; }
+    .ps-kpi { padding: 8px 10px; }
+    .ps-kpi-value { font-size: 16px; color: var(--bcn-ink-1); }
+    .ps-kpi-label { font-size: 10px; }
     #scenarioCards { gap: 6px !important; }
     .scenario-card { min-height: 58px; padding: 8px 10px; }
     .scenario-value { font-size: 18px; }
 
     @media (max-width: 1420px) {
+      .ps-setup-lanes { grid-template-columns: 1fr 1fr; }
+      .ps-lane--actions { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; }
+      .ps-proj-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
       .ps-grid-command { grid-template-columns: 1fr; }
       .ps-status-strip, .ps-kpi-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .ps-model-grid { grid-template-columns: 1fr; }
@@ -776,7 +889,7 @@
       <header class="bcn-header no-print">
         <div class="ps-page-title">
           <h1>Planning Scenarios</h1>
-          <p>Build a monthly plan from historicals, projections, or manual inputs, then model revenue, units, buying needs, open PO coverage, and inventory gaps.</p>
+          <p>Setup → seed monthly plan → edit inputs → run → review gaps and scenarios.</p>
         </div>
         <div class="bcn-header-actions">
           <span id="rangeChip" class="bcn-pill">—</span>
@@ -790,11 +903,11 @@
 
       <div class="ps-shell">
         <nav class="ps-flow no-print" aria-label="Planning flow">
-          <span class="is-active">1 Setup</span><span class="sep">→</span>
-          <span>2 Seed plan</span><span class="sep">→</span>
-          <span>3 Edit inputs</span><span class="sep">→</span>
-          <span>4 Run</span><span class="sep">→</span>
-          <span>5 Review</span>
+          <span data-step="1" class="is-active">1 Setup</span><span class="sep">→</span>
+          <span data-step="2">2 Seed plan</span><span class="sep">→</span>
+          <span data-step="3">3 Edit inputs</span><span class="sep">→</span>
+          <span data-step="4">4 Run</span><span class="sep">→</span>
+          <span data-step="5">5 Review</span>
         </nav>
 
         <section id="filtersCard" class="ps-setup no-print" data-seed-mode="historical">
@@ -805,82 +918,106 @@
           </div>
 
           <div class="ps-setup-body">
-            <div class="ps-seed-row">
-              <div class="ps-seed-strip">
-                <button type="button" id="btnSeedHistorical" class="ps-seed-btn active" data-seed="historical" title="Seed from Historical">HISTORICAL</button>
-                <button type="button" id="btnSeedProjections" class="ps-seed-btn" data-seed="projections" title="Seed from Projections">PROJECTIONS</button>
-                <button type="button" id="btnSeedManual" class="ps-seed-btn" data-seed="manual" title="Manual Inputs">MANUAL</button>
+            <div class="ps-setup-lanes">
+              <div class="ps-lane">
+                <h3 class="ps-lane-label">Build from</h3>
+                <div class="ps-seed-strip">
+                  <button type="button" id="btnSeedHistorical" class="ps-seed-btn active" data-seed="historical">Historical</button>
+                  <button type="button" id="btnSeedProjections" class="ps-seed-btn" data-seed="projections">Projections</button>
+                  <button type="button" id="btnSeedManual" class="ps-seed-btn" data-seed="manual">Manual</button>
+                </div>
+                <p class="ps-seed-hint" id="seedModeDesc">Baseline uses 0% lift and 0% buffer. Seed from historical sales, then edit monthly revenue, mix, and ASP.</p>
               </div>
-              <p class="ps-seed-hint" id="seedModeDesc">Baseline uses 0% lift and 0% buffer. Seed from historical sales actuals, then edit monthly revenue, mix, and ASP.</p>
-            </div>
 
-            <div class="ps-setup-strip">
-              <div class="ps-date-cluster">
-                <div class="ps-filter-field">
-                  <label class="bcn-label" for="dateFrom">From month</label>
-                  <input id="dateFrom" type="month" class="bcn-field bcn-field--mono ps-month-in" />
+              <div class="ps-lane">
+                <h3 class="ps-lane-label">Scope</h3>
+                <div class="ps-lane-fields">
+                  <div class="ps-filter-field">
+                    <label class="bcn-label" for="dateFrom">From</label>
+                    <input id="dateFrom" type="month" class="bcn-field bcn-field--mono ps-month-in" />
+                  </div>
+                  <div class="ps-filter-field">
+                    <label class="bcn-label" for="dateTo">To</label>
+                    <input id="dateTo" type="month" class="bcn-field bcn-field--mono ps-month-in" />
+                  </div>
                 </div>
-                <div class="ps-filter-field">
-                  <label class="bcn-label" for="dateTo">To month</label>
-                  <input id="dateTo" type="month" class="bcn-field bcn-field--mono ps-month-in" />
-                </div>
-                <div class="ps-range-quick" role="group" aria-label="Quick date ranges">
+                <div class="ps-range-quick" role="group" aria-label="Quick ranges">
                   <button type="button" class="ps-range-btn" data-range="next3">Next 3 mo</button>
                   <button type="button" class="ps-range-btn" data-range="next6">Next 6 mo</button>
                   <button type="button" class="ps-range-btn" data-range="cy">Current year</button>
                   <button type="button" class="ps-range-btn" data-range="next12">Next 12 mo</button>
                 </div>
+                <div class="ps-lane-fields">
+                  <div class="ps-filter-field">
+                    <label class="bcn-label">Location</label>
+                    <select id="selLocation" class="bcn-field" style="min-width:120px;"><option value="">All locations</option></select>
+                  </div>
+                  <div class="ps-filter-field" style="flex:1;min-width:110px;">
+                    <label class="bcn-label">Product type</label>
+                    <select id="selProductType" class="bcn-field"><option value="__ALL__">All product types</option></select>
+                  </div>
+                  <div class="ps-filter-field">
+                    <label class="bcn-label">Channel</label>
+                    <select id="selChannel" class="bcn-field" style="min-width:120px;">
+                      <option value="__ALL__">All channels</option>
+                      <option value="online">Online</option>
+                      <option value="retail">Retail</option>
+                      <option value="wholesale">Wholesale / Faire</option>
+                    </select>
+                  </div>
+                </div>
               </div>
-              <div class="ps-filter-field">
-                <label class="bcn-label">Location</label>
-                <select id="selLocation" class="bcn-field" style="width:130px;"><option value="">All locations</option></select>
+
+              <div class="ps-lane">
+                <h3 class="ps-lane-label">Scenario</h3>
+                <div class="ps-lane-fields">
+                  <div class="ps-filter-field" style="flex:1;min-width:120px;">
+                    <label class="bcn-label">Scenario name</label>
+                    <input id="txtScenarioName" class="bcn-field" placeholder="Q3 baseline" />
+                  </div>
+                  <div class="ps-filter-field">
+                    <label class="bcn-label">Lift %</label>
+                    <select id="selScenario" class="bcn-field bcn-field--mono" style="width:118px;">
+                      <option value="0" selected>Baseline / 0%</option>
+                      <option value="10">+10%</option>
+                      <option value="20">+20%</option>
+                      <option value="25">+25%</option>
+                      <option value="50">+50%</option>
+                      <option value="100">+100%</option>
+                      <option value="custom">Custom</option>
+                    </select>
+                  </div>
+                  <div class="ps-filter-field">
+                    <label class="bcn-label">Custom</label>
+                    <input id="numCustomLift" type="number" step="1" value="0" class="bcn-field bcn-field--mono" style="width:58px;" />
+                  </div>
+                  <div class="ps-filter-field">
+                    <label class="bcn-label">Buffer</label>
+                    <input id="numSafetyPct" type="number" step="1" value="0" class="bcn-field bcn-field--mono" style="width:58px;" />
+                  </div>
+                  <div class="ps-filter-field is-projection-only">
+                    <label class="bcn-label">Projection scenario</label>
+                    <select id="selProjScenario" class="bcn-field bcn-field--mono" style="width:96px;">
+                      <option value="active" selected>active</option>
+                      <option value="draft">draft</option>
+                      <option value="archived">archived</option>
+                    </select>
+                  </div>
+                </div>
               </div>
-              <div class="ps-filter-field ps-filter-field--grow">
-                <label class="bcn-label">Product type</label>
-                <select id="selProductType" class="bcn-field"><option value="__ALL__">All product types</option></select>
-              </div>
-              <div class="ps-filter-field">
-                <label class="bcn-label">Channel</label>
-                <select id="selChannel" class="bcn-field" style="width:138px;">
-                  <option value="__ALL__">All channels</option>
-                  <option value="online">Online</option>
-                  <option value="retail">Retail</option>
-                  <option value="wholesale">Wholesale / Faire</option>
-                </select>
-              </div>
-              <div class="ps-filter-field ps-filter-field--grow">
-                <label class="bcn-label">Scenario name</label>
-                <input id="txtScenarioName" class="bcn-field" placeholder="Q3 baseline" />
-              </div>
-              <div class="ps-filter-field">
-                <label class="bcn-label">Lift %</label>
-                <select id="selScenario" class="bcn-field bcn-field--mono" style="width:108px;">
-                  <option value="0" selected>Baseline / 0%</option>
-                  <option value="10">+10%</option>
-                  <option value="20">+20%</option>
-                  <option value="25">+25%</option>
-                  <option value="50">+50%</option>
-                  <option value="100">+100%</option>
-                  <option value="custom">Custom</option>
-                </select>
-              </div>
-              <div class="ps-filter-field">
-                <label class="bcn-label">Custom lift</label>
-                <input id="numCustomLift" type="number" step="1" value="0" class="bcn-field bcn-field--mono" style="width:64px;" title="Used when preset is Custom" />
-              </div>
-              <div class="ps-filter-field">
-                <label class="bcn-label">Buffer %</label>
-                <input id="numSafetyPct" type="number" step="1" value="0" class="bcn-field bcn-field--mono" style="width:64px;" />
-              </div>
-              <div class="ps-setup-actions">
-                <button type="button" id="btnSeedMonthlyPlan" class="bcn-btn bcn-btn--ghost bcn-btn--mono">SEED PLAN</button>
-                <button type="button" id="btnApply" class="bcn-btn bcn-btn--primary bcn-btn--mono">RUN</button>
-                <button type="button" id="btnReset" class="bcn-btn bcn-btn--ghost bcn-btn--mono">RESET</button>
+
+              <div class="ps-lane ps-lane--actions">
+                <h3 class="ps-lane-label">Actions</h3>
+                <div class="ps-setup-actions" style="margin-left:0;width:100%;justify-content:flex-start;">
+                  <button type="button" id="btnSeedMonthlyPlan" class="bcn-btn bcn-btn--ghost bcn-btn--mono">Seed plan</button>
+                  <button type="button" id="btnApply" class="bcn-btn bcn-btn--primary bcn-btn--mono">Run scenario</button>
+                  <button type="button" id="btnReset" class="bcn-btn bcn-btn--ghost bcn-btn--mono">Reset</button>
+                </div>
               </div>
             </div>
 
             <details class="ps-advanced">
-              <summary>Advanced filters &amp; projection economics</summary>
+              <summary>Advanced — plan mode, search, overrides, projection economics</summary>
               <div class="ps-filter-row" style="margin-top:6px;">
                 <div class="ps-filter-field">
                   <label class="bcn-label">Plan mode</label>
@@ -896,14 +1033,6 @@
                 <div class="ps-filter-field">
                   <label class="bcn-label">Revenue override</label>
                   <input id="numTotalRevenueOverride" type="number" step="1000" class="bcn-field bcn-field--mono" style="width:110px;" placeholder="—" />
-                </div>
-                <div class="ps-filter-field is-projection-only">
-                  <label class="bcn-label">Proj. scenario</label>
-                  <select id="selProjScenario" class="bcn-field bcn-field--mono" style="width:96px;">
-                    <option value="active" selected>active</option>
-                    <option value="draft">draft</option>
-                    <option value="archived">archived</option>
-                  </select>
                 </div>
                 <div class="ps-filter-field is-projection-only">
                   <label class="bcn-label">Margin %</label>
@@ -960,6 +1089,47 @@
           <button type="button" id="btnSeedFromProjections">Seed from Projections</button>
         </div>
 
+        <section id="projSeedSection" class="ps-proj-seed no-print" hidden>
+          <div class="ps-proj-seed-head">
+            <div>
+              <span class="bcn-pill bcn-pill--accent">PROJECTION SEED</span>
+              <span id="projRollupChip" class="bcn-pill" style="margin-left:4px;">revenue_projections.active</span>
+              <p style="margin-top:6px;">Projection rows are rolled up by month and used to seed the monthly revenue plan.</p>
+            </div>
+            <button type="button" id="btnProjRollupToggle" class="ps-proj-rollup-toggle" aria-expanded="false">View monthly rollup</button>
+          </div>
+          <div class="ps-proj-metrics">
+            <div class="ps-proj-metric"><span>Scenario</span><strong id="projSummaryScenario">active</strong></div>
+            <div class="ps-proj-metric"><span>Months</span><strong id="projSummaryMonths">—</strong></div>
+            <div class="ps-proj-metric"><span>Locations</span><strong id="projSummaryLocations">—</strong></div>
+            <div class="ps-proj-metric"><span>Rollup rows</span><strong id="projSummaryRollupRows">—</strong></div>
+            <div class="ps-proj-metric"><span>Seeded sales</span><strong id="projSummarySales">—</strong></div>
+            <div class="ps-proj-metric"><span>Seeded units</span><strong id="projSummaryUnits">—</strong></div>
+            <div class="ps-proj-metric"><span>Source mix</span><strong id="projSummarySources">—</strong></div>
+          </div>
+          <div id="projRollupWrap" class="ps-proj-rollup-table" hidden>
+            <table class="plan-card-table stickyHead">
+              <thead>
+                <tr>
+                  <th>Month</th>
+                  <th class="num">Rows</th>
+                  <th class="num">Units</th>
+                  <th class="num">Sales</th>
+                  <th>Sources</th>
+                </tr>
+              </thead>
+              <tbody id="projRollupBody"></tbody>
+            </table>
+          </div>
+          <div id="projEmptyState" class="ps-proj-empty" hidden>No projection rows for the current filters.</div>
+        </section>
+
+        <section id="projWorkbenchSection" class="ps-proj-panel no-print" hidden aria-hidden="true">
+          <div class="ps-proj-body">
+            <table class="ps-proj-table"><tbody id="projTableBody"></tbody></table>
+          </div>
+        </section>
+
         <section id="planningInputs" class="no-print ps-plan-card">
           <div class="ps-plan-head">
             <span class="bcn-pill bcn-pill--dark">INPUTS</span>
@@ -970,6 +1140,7 @@
               <button type="button" class="ps-plan-tab" data-plan-tab="asp" role="tab" aria-selected="false">ASP</button>
             </div>
           </div>
+          <p class="ps-plan-helper">Seeded values can be edited before running the scenario.</p>
           <div class="ps-plan-panel active" id="planPanelRevenue" data-plan-panel="revenue" role="tabpanel">
             <div class="ps-plan-scroll">
               <table class="plan-card-table stickyHead" style="min-width:640px;">
@@ -1018,41 +1189,12 @@
           </div>
         </section>
 
-        <!-- Projection rollup is supporting evidence, not the primary model. -->
-        <section id="projWorkbenchSection" class="ps-proj-panel no-print" hidden>
-          <div class="ps-proj-header">
-            <div>
-              <h3 class="ps-proj-title">Projection monthly rollup used to seed plan</h3>
-              <div class="ps-proj-sub">Rows from <code>revenue_projections</code> are grouped by month/location/scenario, then monthly projected sales seeds the revenue plan above.</div>
-            </div>
-            <span id="projRollupChip" class="bcn-pill">revenue_projections.active</span>
-          </div>
-          <div class="ps-proj-body">
-            <table class="ps-proj-table">
-              <thead>
-                <tr>
-                  <th>Month</th>
-                  <th>Location</th>
-                  <th>Sources</th>
-                  <th>Scenario</th>
-                  <th class="num">Rows</th>
-                  <th class="num">Units</th>
-                  <th class="num">Sales</th>
-                  <th class="num">Avg / Unit</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody id="projTableBody"></tbody>
-            </table>
-          </div>
-          <div id="projEmptyState" class="ps-proj-empty" hidden>No projection rows for the current filters.</div>
-        </section>
-
         <div id="historicalAssumptionWrap" style="display:none;">
           <div class="thin-scroll" id="assumptionStrips" style="display:flex;flex-direction:column;gap:8px;"></div>
         </div>
 
-        <section class="ps-kpi-strip no-print" aria-label="Planning KPIs">
+        <div class="ps-results-block no-print">
+        <section class="ps-kpi-strip" aria-label="Planning KPIs">
           <div class="ps-kpi">
             <div class="ps-kpi-label">Seeded revenue</div>
             <div class="ps-kpi-value" id="kpiSeededRevenue">—</div>
@@ -1085,6 +1227,12 @@
           </div>
         </section>
 
+        <section class="ps-planning-summary" aria-label="Planning summary">
+          <h3>Planning summary</h3>
+          <p id="planningSummaryBody">Run scenario to generate a planning summary from the current plan, lift, and inventory coverage.</p>
+        </section>
+        </div>
+
         <section class="ps-review" id="psReviewSection">
           <div class="ps-out-tabs no-print" role="tablist" aria-label="Scenario outputs">
             <button type="button" class="ps-out-tab active" data-out-tab="summary" role="tab" aria-selected="true">Summary</button>
@@ -1095,7 +1243,7 @@
           </div>
 
           <div class="ps-out-panel active" id="outPanelSummary" data-out-panel="summary" role="tabpanel">
-            <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;" id="scenarioCards"></div>
+            <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;" id="scenarioCards"></div>
             <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;" id="assumptionReadout"></div>
             <section class="bcn-card ps-output-card">
               <header class="bcn-card-header">
@@ -1288,7 +1436,7 @@
       const statProjRows = $('statProjRows');
       const statMonths = $('statMonths');
       const statLastSeeded = $('statLastSeeded');
-      const projWorkbenchSection = $('projWorkbenchSection');
+      const projSeedSection = $('projSeedSection');
       const projRollupChip = $('projRollupChip');
       const projEmptyState = $('projEmptyState');
       const calcBasisBody = $('calcBasisBody');
@@ -1307,7 +1455,7 @@
           chipClass: 'pill pill-purple',
           source: 'revenue_projections',
           basis: 'revenue_projections monthly rollup',
-          desc: 'Baseline uses 0% lift and 0% buffer. Seed from projections rolls revenue_projections into monthly plan inputs.',
+          desc: 'Projection rows are rolled up by month and used to seed the monthly revenue plan. Baseline uses 0% lift and 0% buffer.',
         },
         manual: {
           label: 'Manual',
@@ -1372,6 +1520,11 @@
           panel.hidden = !on;
         });
       }
+      function setFlowStep(step) {
+        document.querySelectorAll('.ps-flow [data-step]').forEach((el) => {
+          el.classList.toggle('is-active', Number(el.dataset.step) === step);
+        });
+      }
       function setOutTab(tab) {
         document.querySelectorAll('.ps-out-tab').forEach((btn) => {
           const on = btn.dataset.outTab === tab;
@@ -1386,10 +1539,8 @@
         if (tab === 'families' && window.SiloPlanningScenarios?.setFamilyExpanded) {
           window.SiloPlanningScenarios.setFamilyExpanded(true);
         }
-        const flow = document.querySelector('.ps-flow');
-        if (flow) {
-          const steps = flow.querySelectorAll('span:not(.sep)');
-          steps.forEach((s, i) => s.classList.toggle('is-active', tab === 'summary' ? i === 4 : i >= 4));
+        if (tab === 'summary' || tab === 'gap' || tab === 'monthly' || tab === 'channel') {
+          setFlowStep(5);
         }
       }
 
@@ -1427,16 +1578,15 @@
         if (statMonths) statMonths.textContent = monthCountLabel();
         if (projRollupChip) projRollupChip.textContent = `revenue_projections.${$('selProjScenario')?.value || 'active'}`;
 
-        if (projWorkbenchSection) {
-          const visible = mode === 'projections';
-          projWorkbenchSection.hidden = !visible;
-          projWorkbenchSection.classList.toggle('is-visible', visible);
+        if (projSeedSection) {
+          projSeedSection.hidden = mode !== 'projections';
         }
         if (calcBasisBody) {
           calcBasisBody.textContent = mode === 'projections'
-            ? 'Calculation basis: projection rows are rolled up monthly and used to seed the revenue plan above. Open PO and inventory gap remain part of the output model.'
+            ? 'Projection rows are rolled up by month and used to seed the monthly revenue plan. Open PO and inventory gap remain in the output model.'
             : `Calculation basis: ${meta.basis}. Open PO and inventory gap remain part of the output model.`;
         }
+        setFlowStep(mode === 'manual' ? 3 : 2);
       }
 
       function clickHidden(id) {
@@ -1457,21 +1607,20 @@
           updateChromeForSeed('manual');
         }
         if (statLastSeeded) statLastSeeded.textContent = nowLabel();
+        setFlowStep(3);
         setTimeout(updateDerivedStatus, 250);
       }
 
       function updateDerivedStatus() {
         if (statMonths) statMonths.textContent = monthCountLabel();
         if (activeSeedMode === 'projections') {
-          const rows = document.querySelectorAll('#projTableBody tr').length;
-          if (statProjRows) statProjRows.textContent = rows ? `${rows} rollup rows` : 'No matching rows';
-          if (projEmptyState) {
-            const isEmpty = !rows;
-            projEmptyState.hidden = !isEmpty;
-            projEmptyState.classList.toggle('is-visible', isEmpty);
-          }
+          const rollup = $('projSummaryRollupRows')?.textContent || '—';
+          if (statProjRows) statProjRows.textContent = rollup !== '—' ? `${rollup} monthly buckets` : '—';
         } else if (statProjRows) {
           statProjRows.textContent = '—';
+        }
+        if (window.SiloPlanningScenarios?.renderPlanningSummary) {
+          window.SiloPlanningScenarios.renderPlanningSummary();
         }
 
         // Lightweight KPI hydration from rendered engine outputs. Safe if engine structure changes.
@@ -1524,6 +1673,7 @@
       if (originalApply) {
         originalApply.addEventListener('click', () => {
           setOutTab('summary');
+          setFlowStep(5);
           setTimeout(updateDerivedStatus, 300);
         });
       }
@@ -1531,6 +1681,7 @@
       ensureDefaultMonthRange();
       setPlanTab('revenue');
       setOutTab('summary');
+      setFlowStep(1);
       updateChromeForSeed('historical');
 
       if (!window.SiloPlanningScenarios?.boot) {
