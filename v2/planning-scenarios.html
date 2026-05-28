@@ -55,6 +55,27 @@
       text-transform: uppercase; letter-spacing: 0.04em;
     }
     .ps-field-group .bcn-field { height: 30px; font-size: 12.5px; padding: 4px 9px; }
+    /* Native pickers need display:inline-block (Beacon's .bcn-field uses display:flex which
+       hides the webkit calendar-picker-indicator on type=month / type=date inputs). */
+    input[type="month"].bcn-field,
+    input[type="date"].bcn-field {
+      display: inline-block;
+      width: 140px;
+      min-width: 140px;
+      padding: 4px 6px 4px 9px;
+      color-scheme: light;
+      cursor: pointer;
+    }
+    :root[data-theme="dark"] input[type="month"].bcn-field,
+    :root[data-theme="dark"] input[type="date"].bcn-field { color-scheme: dark; }
+    input[type="month"].bcn-field::-webkit-calendar-picker-indicator,
+    input[type="date"].bcn-field::-webkit-calendar-picker-indicator {
+      cursor: pointer;
+      opacity: .7;
+      padding: 0 0 0 4px;
+    }
+    input[type="month"].bcn-field::-webkit-calendar-picker-indicator:hover,
+    input[type="date"].bcn-field::-webkit-calendar-picker-indicator:hover { opacity: 1; }
     .ps-field-inline { display: flex; align-items: center; gap: 4px; }
     .ps-field-inline .ps-arrow { color: var(--bcn-ink-3); font-size: 12px; padding: 0 2px; line-height: 30px; }
     .ps-loc-wrap { display: contents; }
@@ -423,12 +444,12 @@
                 <option value="revenue_plan" selected>Revenue Plan</option>
               </select>
             </div>
-            <div class="ps-field-group" style="min-width:240px;">
+            <div class="ps-field-group" style="min-width:300px;">
               <label class="bcn-label">Period</label>
               <div class="ps-field-inline">
-                <input id="dateFrom" type="month" class="bcn-field bcn-field--mono" style="width:120px;" />
+                <input id="dateFrom" type="month" class="bcn-field bcn-field--mono" />
                 <span class="ps-arrow">→</span>
-                <input id="dateTo" type="month" class="bcn-field bcn-field--mono" style="width:120px;" />
+                <input id="dateTo" type="month" class="bcn-field bcn-field--mono" />
               </div>
             </div>
             <div class="ps-field-group" style="min-width:170px;">
