@@ -1,6 +1,6 @@
-# Planning Scenarios v2 — UX/UI/Perf pass (plan)
+# Planning Scenarios v2 — UX/UI/Perf pass (plan + impl)
 
-Status: PLAN. No engine or page logic is changed in this PR — only this document.
+Status: IMPLEMENTED in this branch. Implementation commits are listed at the bottom; the plan body below remains for review/reference.
 Target files for the follow-up PR:
 - `v2/planning-scenarios.html` (chrome script + markup)
 - `pages/planning-scenarios-engine.js` (load order, KPI gating, seed semantics)
@@ -209,12 +209,9 @@ No DB / migration changes. No new dependencies.
 
 ---
 
-## 7. Suggested commit sequence (in the follow-up PR)
+## 7. Actual commit sequence shipped on this branch
 
-1. `chore(planning-v2): restructure setup card — calc mode + seed source split` (chrome only, behind feature flag if needed)
-2. `feat(planning-v2): non-destructive seed buttons (seed-blanks + reseed-all)`
-3. `perf(planning-v2): background-prefetch projections + heavy data`
-4. `ux(planning-v2): show Revenue/Mix/ASP cards together, drop tabs at ≥1200px`
-5. `ux(planning-v2): +25%/10%/buffer defaults; restore v1 card scenario set`
-6. `ux(planning-v2): ungate Family detail when inventory ready; KPI strip honest states`
-7. `docs(planning): update filter-scope checklist for v2 UX pass`
+1. `docs(planning): plan v2 UX/perf pass against v1 baseline` — this document.
+2. `feat(planning-engine): background prefetch, non-destructive seeds, growth defaults` — engine-level changes (deduped promises, `ensureProjections`/`ensureHeavyData`, `seed*({overwrite})`, default lift/buffer, `CARD_SCENARIOS`, KPI/Families gating).
+3. `feat(planning-v2): split calc mode + seed source, show inputs together` — page chrome (visible `selPlanMode` + new `selSeedSource`, Revenue/Mix/ASP grid, per-card Seed/Reseed buttons, projection loading veil, awaited `ensureProjections`, product-type aware hint).
+4. `docs(planning): record implementation + update filter-scope acceptance` — this update + acceptance bullets.

@@ -742,16 +742,57 @@
       color: var(--bcn-ink-2);
     }
 
-    /* Input workbench tabs */
-    .ps-plan-card {
+    /* Input workbench — v1-style three cards visible together at wide widths */
+    #planningInputs { display: flex; flex-direction: column; }
+    .ps-plan-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 0.85fr);
+      gap: 0;
       border: 1px solid var(--bcn-border-strong);
-      border-radius: 8px;
+      border-radius: 0 0 8px 8px;
       background: var(--bcn-surface);
       box-shadow: var(--ps-soft-shadow);
       overflow: hidden;
     }
+    .ps-plan-card {
+      border-right: 1px solid var(--bcn-border);
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      background: var(--bcn-surface);
+    }
+    .ps-plan-card:last-child { border-right: none; }
+    .ps-plan-card-head {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 8px;
+      border-bottom: 1px solid var(--bcn-border);
+      background: var(--bcn-sunken);
+    }
+    .ps-plan-card-head h3 {
+      margin: 0;
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      color: var(--bcn-ink-2);
+    }
+    .ps-plan-card-actions { margin-left: auto; display: flex; gap: 3px; }
+    .ps-plan-mini {
+      height: 22px;
+      padding: 0 8px;
+      border: 1px solid var(--bcn-border);
+      border-radius: 4px;
+      background: var(--bcn-surface);
+      color: var(--bcn-ink-2);
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: .04em;
+      cursor: pointer;
+    }
+    .ps-plan-mini:hover { border-color: var(--bcn-accent); color: var(--bcn-ink-1); }
     .ps-plan-helper {
-      padding: 6px 10px 0;
       font-size: 11px;
       color: var(--bcn-ink-2);
       line-height: 1.4;
@@ -761,7 +802,6 @@
       align-items: center;
       gap: 8px;
       padding: 6px 10px;
-      border-bottom: 1px solid var(--bcn-border);
       background: var(--bcn-sunken);
     }
     .ps-plan-head h2 {
@@ -770,31 +810,40 @@
       font-weight: 850;
       color: var(--bcn-ink-1);
     }
-    .ps-plan-tabs {
-      display: flex;
-      gap: 0;
-      margin-left: auto;
-      border: 1px solid var(--bcn-border);
-      border-radius: 6px;
-      overflow: hidden;
+    .ps-plan-scroll { overflow: auto; max-height: 320px; }
+    /* Compact tables inside the 3-col grid */
+    .ps-plan-card .plan-card-table th,
+    .ps-plan-card .plan-card-table td { padding: 4px 6px; font-size: 10px; }
+
+    /* Projection loading veil */
+    #projSeedSection[data-loading="1"] { position: relative; }
+    #projSeedSection[data-loading="1"]::after {
+      content: "Loading projections…";
+      position: absolute; inset: 0;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(255,255,255,.78);
+      font-size: 12px; font-weight: 800; color: var(--bcn-ink-2);
+      letter-spacing: .04em;
+      z-index: 2;
     }
-    .ps-plan-tab {
-      height: 26px;
-      padding: 0 12px;
+
+    /* Inline projection note under product type */
+    .ps-scope-note {
+      grid-column: 1 / -1;
       font-size: 10px;
-      font-weight: 800;
-      letter-spacing: .05em;
-      border: none;
-      border-right: 1px solid var(--bcn-border);
-      background: var(--bcn-surface);
       color: var(--bcn-ink-3);
-      cursor: pointer;
+      line-height: 1.3;
+      padding: 4px 2px 0;
     }
-    .ps-plan-tab:last-child { border-right: none; }
-    .ps-plan-tab.active { background: var(--bcn-band); color: #fff; }
-    .ps-plan-panel { display: none; }
-    .ps-plan-panel.active { display: block; }
-    .ps-plan-scroll { overflow: auto; max-height: 300px; }
+    .ps-scope-note strong { color: var(--bcn-ink-2); }
+    .ps-scope-note.is-projections {
+      color: #5b21b6;
+      background: #f5f3ff;
+      border: 1px dashed #ddd6fe;
+      border-radius: 5px;
+      padding: 5px 8px;
+      margin-top: 4px;
+    }
     .plan-card-table th,
     .plan-card-table td { padding: 5px 8px; font-size: 11px; }
     .plan-card-table th { padding-top: 6px; padding-bottom: 6px; color: var(--bcn-ink-2); }
@@ -866,6 +915,11 @@
       .ps-status-strip, .ps-kpi-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
       .ps-model-grid { grid-template-columns: 1fr; }
     }
+    @media (max-width: 1200px) {
+      .ps-plan-grid { grid-template-columns: 1fr; }
+      .ps-plan-card { border-right: none; border-bottom: 1px solid var(--bcn-border); }
+      .ps-plan-card:last-child { border-bottom: none; }
+    }
     @media (max-width: 900px) {
       .ps-shell { padding: 8px 8px 24px; }
       .ps-kpi-strip, .ps-status-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -920,13 +974,25 @@
           <div class="ps-setup-body">
             <div class="ps-setup-lanes">
               <div class="ps-lane">
-                <h3 class="ps-lane-label">Build from</h3>
-                <div class="ps-seed-strip">
-                  <button type="button" id="btnSeedHistorical" class="ps-seed-btn active" data-seed="historical">Historical</button>
-                  <button type="button" id="btnSeedProjections" class="ps-seed-btn" data-seed="projections">Projections</button>
-                  <button type="button" id="btnSeedManual" class="ps-seed-btn" data-seed="manual">Manual</button>
+                <h3 class="ps-lane-label">Calculation</h3>
+                <div class="ps-lane-fields">
+                  <div class="ps-filter-field" style="flex:1;min-width:160px;">
+                    <label class="bcn-label" for="selPlanMode">Mode</label>
+                    <select id="selPlanMode" class="bcn-field bcn-field--mono">
+                      <option value="revenue_plan" selected>Revenue × Mix ÷ ASP</option>
+                      <option value="historical">Historical Lift</option>
+                    </select>
+                  </div>
+                  <div class="ps-filter-field" style="flex:1;min-width:160px;">
+                    <label class="bcn-label" for="selSeedSource">Seed source</label>
+                    <select id="selSeedSource" class="bcn-field">
+                      <option value="historical" selected>Historical sales</option>
+                      <option value="projections">Revenue projections</option>
+                      <option value="manual">Type it in (no auto-seed)</option>
+                    </select>
+                  </div>
                 </div>
-                <p class="ps-seed-hint" id="seedModeDesc">Baseline uses 0% lift and 0% buffer. Seed from historical sales, then edit monthly revenue, mix, and ASP.</p>
+                <p class="ps-seed-hint" id="seedModeDesc">Revenue plan = revenue × product-type mix ÷ ASP. Seed source fills the monthly Revenue column from sales or projections; you can always edit values after.</p>
               </div>
 
               <div class="ps-lane">
@@ -1008,24 +1074,20 @@
 
               <div class="ps-lane ps-lane--actions">
                 <h3 class="ps-lane-label">Actions</h3>
-                <div class="ps-setup-actions" style="margin-left:0;width:100%;justify-content:flex-start;">
-                  <button type="button" id="btnSeedMonthlyPlan" class="bcn-btn bcn-btn--ghost bcn-btn--mono">Seed plan</button>
+                <div class="ps-setup-actions" style="margin-left:0;width:100%;justify-content:flex-start;flex-direction:column;align-items:stretch;gap:6px;">
                   <button type="button" id="btnApply" class="bcn-btn bcn-btn--primary bcn-btn--mono">Run scenario</button>
+                  <div style="display:flex;gap:4px;">
+                    <button type="button" id="btnSeedMonthlyPlan" class="bcn-btn bcn-btn--ghost bcn-btn--mono" style="flex:1;" title="Fill empty Revenue/Mix/ASP cells only">Seed blanks</button>
+                    <button type="button" id="btnReseedAll" class="bcn-btn bcn-btn--ghost bcn-btn--mono" style="flex:1;" title="Overwrite all Revenue/Mix/ASP cells">Reseed all</button>
+                  </div>
                   <button type="button" id="btnReset" class="bcn-btn bcn-btn--ghost bcn-btn--mono">Reset</button>
                 </div>
               </div>
             </div>
 
             <details class="ps-advanced">
-              <summary>Advanced — plan mode, search, overrides, projection economics</summary>
+              <summary>Advanced — search, overrides, projection economics</summary>
               <div class="ps-filter-row" style="margin-top:6px;">
-                <div class="ps-filter-field">
-                  <label class="bcn-label">Plan mode</label>
-                  <select id="selPlanMode" class="bcn-field bcn-field--mono" style="width:130px;">
-                    <option value="historical">Historical Lift</option>
-                    <option value="revenue_plan" selected>Revenue Plan</option>
-                  </select>
-                </div>
                 <div class="ps-filter-field ps-filter-field--search">
                   <label class="bcn-label">Product search</label>
                   <input id="txtProductSearch" class="bcn-field" placeholder="Family…" style="width:140px;" />
@@ -1130,61 +1192,79 @@
           </div>
         </section>
 
-        <section id="planningInputs" class="no-print ps-plan-card">
-          <div class="ps-plan-head">
+        <section id="planningInputs" class="no-print">
+          <div class="ps-plan-head" style="border:1px solid var(--bcn-border-strong);border-bottom:none;border-radius:8px 8px 0 0;">
             <span class="bcn-pill bcn-pill--dark">INPUTS</span>
             <h2>Monthly plan inputs</h2>
-            <div class="ps-plan-tabs" role="tablist" aria-label="Plan input type">
-              <button type="button" class="ps-plan-tab active" data-plan-tab="revenue" role="tab" aria-selected="true">Revenue</button>
-              <button type="button" class="ps-plan-tab" data-plan-tab="mix" role="tab" aria-selected="false">Mix</button>
-              <button type="button" class="ps-plan-tab" data-plan-tab="asp" role="tab" aria-selected="false">ASP</button>
-            </div>
+            <p class="ps-plan-helper" style="margin:0 0 0 8px;padding:0;flex:1;" id="planTypeScopeHint">For <strong id="planTypeName">selected product type</strong>. Edit any cell after seeding.</p>
           </div>
-          <p class="ps-plan-helper">Seeded values can be edited before running the scenario.</p>
-          <div class="ps-plan-panel active" id="planPanelRevenue" data-plan-panel="revenue" role="tabpanel">
-            <div class="ps-plan-scroll">
-              <table class="plan-card-table stickyHead" style="min-width:640px;">
-                <thead>
-                  <tr>
-                    <th style="text-align:left;">Month</th>
-                    <th class="num" colspan="1">Last year</th>
-                    <th class="num" style="background:var(--bcn-accent-soft);">Plan ($)</th>
-                    <th class="num">YoY %</th>
-                    <th style="text-align:left;">Bucket</th>
-                    <th style="text-align:left;">Notes</th>
-                  </tr>
-                </thead>
-                <tbody id="revenuePlanBody"></tbody>
-              </table>
+          <div class="ps-plan-grid">
+            <div class="ps-plan-card">
+              <div class="ps-plan-card-head">
+                <h3>Revenue ($)</h3>
+                <div class="ps-plan-card-actions">
+                  <button type="button" class="ps-plan-mini" data-seed-card="revenue" data-overwrite="false" title="Fill blanks from current seed source">Seed</button>
+                  <button type="button" class="ps-plan-mini" data-seed-card="revenue" data-overwrite="true" title="Overwrite all months">Reseed</button>
+                </div>
+              </div>
+              <div class="ps-plan-scroll">
+                <table class="plan-card-table stickyHead" style="min-width:520px;">
+                  <thead>
+                    <tr>
+                      <th style="text-align:left;">Month</th>
+                      <th class="num">Last year</th>
+                      <th class="num" style="background:var(--bcn-accent-soft);">Plan ($)</th>
+                      <th class="num">YoY %</th>
+                      <th style="text-align:left;">Bucket</th>
+                      <th style="text-align:left;">Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody id="revenuePlanBody"></tbody>
+                </table>
+              </div>
             </div>
-          </div>
-          <div class="ps-plan-panel" id="planPanelMix" data-plan-panel="mix" role="tabpanel" hidden>
-            <div class="ps-plan-scroll">
-              <table class="plan-card-table stickyHead" style="min-width:400px;">
-                <thead>
-                  <tr>
-                    <th style="text-align:left;">Month</th>
-                    <th style="text-align:left;">Type</th>
-                    <th class="num">Mix %</th>
-                    <th class="num">Month Σ</th>
-                  </tr>
-                </thead>
-                <tbody id="mixPlanBody"></tbody>
-              </table>
+            <div class="ps-plan-card">
+              <div class="ps-plan-card-head">
+                <h3>Mix %</h3>
+                <div class="ps-plan-card-actions">
+                  <button type="button" class="ps-plan-mini" data-seed-card="mix" data-overwrite="false">Seed</button>
+                  <button type="button" class="ps-plan-mini" data-seed-card="mix" data-overwrite="true">Reseed</button>
+                </div>
+              </div>
+              <div class="ps-plan-scroll">
+                <table class="plan-card-table stickyHead" style="min-width:340px;">
+                  <thead>
+                    <tr>
+                      <th style="text-align:left;">Month</th>
+                      <th style="text-align:left;">Type</th>
+                      <th class="num" style="background:var(--bcn-accent-soft);">Mix %</th>
+                      <th class="num">Month Σ</th>
+                    </tr>
+                  </thead>
+                  <tbody id="mixPlanBody"></tbody>
+                </table>
+              </div>
             </div>
-          </div>
-          <div class="ps-plan-panel" id="planPanelAsp" data-plan-panel="asp" role="tabpanel" hidden>
-            <div class="ps-plan-scroll">
-              <table class="plan-card-table stickyHead" style="min-width:320px;">
-                <thead>
-                  <tr>
-                    <th style="text-align:left;">Month</th>
-                    <th style="text-align:left;">Type</th>
-                    <th class="num">ASP ($)</th>
-                  </tr>
-                </thead>
-                <tbody id="aspPlanBody"></tbody>
-              </table>
+            <div class="ps-plan-card">
+              <div class="ps-plan-card-head">
+                <h3>ASP ($)</h3>
+                <div class="ps-plan-card-actions">
+                  <button type="button" class="ps-plan-mini" data-seed-card="asp" data-overwrite="false">Seed</button>
+                  <button type="button" class="ps-plan-mini" data-seed-card="asp" data-overwrite="true">Reseed</button>
+                </div>
+              </div>
+              <div class="ps-plan-scroll">
+                <table class="plan-card-table stickyHead" style="min-width:280px;">
+                  <thead>
+                    <tr>
+                      <th style="text-align:left;">Month</th>
+                      <th style="text-align:left;">Type</th>
+                      <th class="num" style="background:var(--bcn-accent-soft);">ASP ($)</th>
+                    </tr>
+                  </thead>
+                  <tbody id="aspPlanBody"></tbody>
+                </table>
+              </div>
             </div>
           </div>
         </section>
@@ -1381,7 +1461,7 @@
                       </tr>
                     </thead>
                     <tbody id="familyBody">
-                      <tr><td colspan="14" class="px-3 py-6 text-center" style="font-size:11px;color:var(--bcn-ink-3);">Run scenario, then open this tab to load family detail (first 100 rows).</td></tr>
+                      <tr><td colspan="14" class="px-3 py-6 text-center" style="font-size:11px;color:var(--bcn-ink-3);">Run scenario to load family detail (first 100 rows shown by default).</td></tr>
                     </tbody>
                   </table>
                 </div>
@@ -1427,8 +1507,8 @@
 
       const $ = (id) => document.getElementById(id);
       const command = $('filtersCard');
-      const seedBtns = Array.from(document.querySelectorAll('.ps-seed-btn'));
       const selDataSource = $('selDataSource');
+      const selSeedSource = $('selSeedSource');
       const seedModeDesc = $('seedModeDesc');
       const seedModeChip = $('seedModeChip');
       const statSeedMode = $('statSeedMode');
@@ -1441,6 +1521,10 @@
       const projEmptyState = $('projEmptyState');
       const calcBasisBody = $('calcBasisBody');
       const btnSeedMonthlyPlan = $('btnSeedMonthlyPlan');
+      const btnReseedAll = $('btnReseedAll');
+      const planTypeName = $('planTypeName');
+      const planTypeScopeHint = $('planTypeScopeHint');
+      const selProductTypeEl = $('selProductType');
 
       const SEED_META = {
         historical: {
@@ -1448,21 +1532,21 @@
           chipClass: 'pill pill-blue',
           source: 'manual',
           basis: 'Historical sales rollup',
-          desc: 'Baseline uses 0% lift and 0% buffer. Seed from historical sales, then adjust monthly revenue, mix, and ASP.',
+          desc: 'Revenue/Mix/ASP seed from filtered sales rollup. Cells you have already edited are left alone unless you choose Reseed.',
         },
         projections: {
           label: 'Projections',
           chipClass: 'pill pill-purple',
           source: 'manual',
           basis: 'revenue_projections monthly rollup',
-          desc: 'Projection rows (no product-type dimension) seed monthly revplan totals only. Mix, ASP, units, gap, and KPIs still use your filtered product type/channel/search scope.',
+          desc: 'Revenue column seeds from revenue_projections (company-wide). Mix and ASP still seed from filtered historical sales for the selected product type.',
         },
         manual: {
           label: 'Manual',
           chipClass: 'pill',
           source: 'manual',
           basis: 'Manual monthly inputs',
-          desc: 'Baseline uses 0% lift and 0% buffer. Manual mode lets you type directly into the monthly plan.',
+          desc: 'No auto-seed. Type Revenue / Mix / ASP directly in the input cards, then Run.',
         },
       };
 
@@ -1508,18 +1592,6 @@
         toEl.dispatchEvent(new Event('change', { bubbles: true }));
         updateChromeForSeed(activeSeedMode);
       }
-      function setPlanTab(tab) {
-        document.querySelectorAll('.ps-plan-tab').forEach((btn) => {
-          const on = btn.dataset.planTab === tab;
-          btn.classList.toggle('active', on);
-          btn.setAttribute('aria-selected', on ? 'true' : 'false');
-        });
-        document.querySelectorAll('.ps-plan-panel').forEach((panel) => {
-          const on = panel.dataset.planPanel === tab;
-          panel.classList.toggle('active', on);
-          panel.hidden = !on;
-        });
-      }
       function setFlowStep(step) {
         document.querySelectorAll('.ps-flow [data-step]').forEach((el) => {
           el.classList.toggle('is-active', Number(el.dataset.step) === step);
@@ -1536,10 +1608,7 @@
           panel.classList.toggle('active', on);
           panel.hidden = !on;
         });
-        if (tab === 'families' && window.SiloPlanningScenarios?.setFamilyExpanded) {
-          window.SiloPlanningScenarios.setFamilyExpanded(true);
-        }
-        if (tab === 'summary' || tab === 'gap' || tab === 'monthly' || tab === 'channel') {
+        if (tab === 'summary' || tab === 'gap' || tab === 'monthly' || tab === 'channel' || tab === 'families') {
           setFlowStep(5);
         }
       }
@@ -1563,6 +1632,7 @@
 
         if (command) command.dataset.seedMode = mode;
         if (selDataSource) selDataSource.value = 'manual';
+        if (selSeedSource && selSeedSource.value !== mode) selSeedSource.value = mode;
         if (seedModeDesc) seedModeDesc.textContent = meta.desc;
         if (seedModeChip) {
           seedModeChip.textContent = meta.label;
@@ -1580,71 +1650,114 @@
         }
         if (calcBasisBody) {
           calcBasisBody.textContent = mode === 'projections'
-            ? 'Projection rows seed revplan_* monthly totals only (company-wide; not product-type specific). Scenario math uses filtered sales, inventory, and open PO for the active scope.'
+            ? 'Projection rows seed revplan_* monthly totals only (company-wide; not product-type specific). Mix, ASP, and inventory math still use the filtered scope.'
             : `Calculation basis: ${meta.basis}. Filters define the calculation universe before aggregation.`;
         }
+        updatePlanTypeHint();
         setFlowStep(mode === 'manual' ? 3 : 2);
       }
 
-      function clickHidden(id) {
-        const el = $(id);
-        if (el) el.click();
+      function updatePlanTypeHint() {
+        if (!planTypeName) return;
+        const sel = selProductTypeEl;
+        const raw = sel?.value || '__ALL__';
+        const label = (raw === '__ALL__') ? 'all product types' : raw;
+        planTypeName.textContent = label;
+        if (planTypeScopeHint) {
+          const isProj = activeSeedMode === 'projections';
+          if (isProj) {
+            planTypeScopeHint.innerHTML = `Revenue seeded company-wide from <strong>revenue_projections</strong>; Mix &amp; ASP scoped to <strong>${label}</strong>.`;
+          } else {
+            planTypeScopeHint.innerHTML = `Revenue, Mix &amp; ASP all scoped to <strong>${label}</strong>. Edit any cell after seeding.`;
+          }
+        }
       }
 
-      function seedCurrentMode() {
-        if (activeSeedMode === 'historical') {
-          updateChromeForSeed('historical');
-          clickHidden('btnSeedRevenue');
-          clickHidden('btnSeedMix');
-          clickHidden('btnSeedAsp');
-        } else if (activeSeedMode === 'projections') {
-          updateChromeForSeed('projections');
-          clickHidden('btnSeedFromProjections');
-        } else {
-          updateChromeForSeed('manual');
+      async function doSeed(card, overwrite) {
+        const api = window.SiloPlanningScenarios;
+        if (!api) return;
+        if (activeSeedMode === 'projections' && card === 'revenue') {
+          await api.seedRevenueFromProjections({ overwrite });
+        } else if (card === 'revenue') {
+          api.seedRevenuePlan({ overwrite });
+        } else if (card === 'mix') {
+          api.seedMixPlan({ overwrite });
+        } else if (card === 'asp') {
+          api.seedAspPlan({ overwrite });
         }
         if (statLastSeeded) statLastSeeded.textContent = nowLabel();
-        setFlowStep(3);
-        setTimeout(updateDerivedStatus, 250);
+        await updateDerivedStatus();
       }
 
-      function updateDerivedStatus() {
+      async function seedAllCards(overwrite) {
+        if (activeSeedMode === 'manual') {
+          await updateDerivedStatus();
+          return;
+        }
+        const api = window.SiloPlanningScenarios;
+        if (!api) return;
+        if (activeSeedMode === 'projections') {
+          await api.seedRevenueFromProjections({ overwrite });
+        } else {
+          api.seedRevenuePlan({ overwrite });
+        }
+        api.seedMixPlan({ overwrite });
+        api.seedAspPlan({ overwrite });
+        if (statLastSeeded) statLastSeeded.textContent = nowLabel();
+        setFlowStep(3);
+        await updateDerivedStatus();
+      }
+
+      async function updateDerivedStatus() {
         if (statMonths) statMonths.textContent = monthCountLabel();
         if (activeSeedMode === 'projections') {
+          if (window.SiloPlanningScenarios?.ensureProjections) {
+            await window.SiloPlanningScenarios.ensureProjections();
+          }
           const rollup = $('projSummaryRollupRows')?.textContent || '—';
-          if (statProjRows) statProjRows.textContent = rollup !== '—' ? `${rollup} monthly buckets` : '—';
+          if (statProjRows) statProjRows.textContent = rollup !== '—' ? `${rollup} monthly buckets` : 'No rows';
         } else if (statProjRows) {
           statProjRows.textContent = '—';
         }
         if (window.SiloPlanningScenarios?.renderPlanningSummary) {
           window.SiloPlanningScenarios.renderPlanningSummary();
         }
-
         if (window.SiloPlanningScenarios?.renderKpiStrip) {
           window.SiloPlanningScenarios.renderKpiStrip();
         }
       }
 
-      seedBtns.forEach(btn => {
+      if (selSeedSource) {
+        selSeedSource.addEventListener('change', () => {
+          updateChromeForSeed(selSeedSource.value || 'historical');
+          updateDerivedStatus();
+        });
+      }
+
+      if (btnSeedMonthlyPlan) {
+        btnSeedMonthlyPlan.addEventListener('click', () => seedAllCards(false));
+      }
+      if (btnReseedAll) {
+        btnReseedAll.addEventListener('click', () => {
+          if (!confirm('Overwrite all Revenue, Mix, and ASP cells for the current month range?')) return;
+          seedAllCards(true);
+        });
+      }
+      document.querySelectorAll('[data-seed-card]').forEach((btn) => {
         btn.addEventListener('click', () => {
-          const mode = btn.dataset.seed || 'historical';
-          seedBtns.forEach(b => b.classList.remove('active'));
-          btn.classList.add('active');
-          updateChromeForSeed(mode);
-          if (mode !== 'manual') seedCurrentMode();
+          const card = btn.dataset.seedCard;
+          const overwrite = btn.dataset.overwrite === 'true';
+          if (overwrite && !confirm(`Overwrite all ${card} cells for the current month range?`)) return;
+          doSeed(card, overwrite);
         });
       });
 
-      if (btnSeedMonthlyPlan) {
-        btnSeedMonthlyPlan.addEventListener('click', seedCurrentMode);
+      if (selProductTypeEl) {
+        selProductTypeEl.addEventListener('change', updatePlanTypeHint);
       }
 
       document.querySelectorAll('.ps-range-btn').forEach((btn) => {
         btn.addEventListener('click', () => applyQuickRange(btn.dataset.range));
-      });
-
-      document.querySelectorAll('.ps-plan-tab').forEach((btn) => {
-        btn.addEventListener('click', () => setPlanTab(btn.dataset.planTab || 'revenue'));
       });
 
       document.querySelectorAll('.ps-out-tab').forEach((btn) => {
@@ -1656,7 +1769,8 @@
         if (!el) return;
         const onFilter = () => {
           updateChromeForSeed(activeSeedMode);
-          setTimeout(updateDerivedStatus, 250);
+          // Engine debounces its own re-run; await projections so derived status reflects new filter scope.
+          updateDerivedStatus();
         };
         el.addEventListener('change', onFilter);
         if (id === 'txtProductSearch') el.addEventListener('input', onFilter);
@@ -1664,18 +1778,22 @@
 
       const originalApply = $('btnApply');
       if (originalApply) {
-        originalApply.addEventListener('click', () => {
+        originalApply.addEventListener('click', async () => {
           setOutTab('summary');
           setFlowStep(5);
-          setTimeout(updateDerivedStatus, 300);
+          // ensure heavy data is ready (background prefetch likely beat us)
+          if (window.SiloPlanningScenarios?.ensureHeavyData) {
+            await window.SiloPlanningScenarios.ensureHeavyData();
+          }
+          await updateDerivedStatus();
         });
       }
 
       ensureDefaultMonthRange();
-      setPlanTab('revenue');
       setOutTab('summary');
       setFlowStep(1);
       updateChromeForSeed('historical');
+      updatePlanTypeHint();
 
       if (!window.SiloPlanningScenarios?.boot) {
         if (statusLine) statusLine.textContent = 'Planning scenarios engine did not load.';
@@ -1683,7 +1801,13 @@
       }
 
       await window.SiloPlanningScenarios.boot();
-      setTimeout(updateDerivedStatus, 400);
+      updatePlanTypeHint();
+      // Background prefetch will populate projection metrics; awaiting ensureProjections is non-blocking once cached.
+      if (window.SiloPlanningScenarios?.ensureProjections) {
+        window.SiloPlanningScenarios.ensureProjections().then(updateDerivedStatus);
+      } else {
+        updateDerivedStatus();
+      }
     })();
   </script>
 </body>
