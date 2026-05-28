@@ -1203,12 +1203,12 @@
           <div class="ps-kpi">
             <div class="ps-kpi-label">Scenario revenue</div>
             <div class="ps-kpi-value" id="kpiScenarioRevenue">—</div>
-            <div class="ps-kpi-sub">Selected lift</div>
+            <div class="ps-kpi-sub" data-kpi-scope>Selected lift</div>
           </div>
           <div class="ps-kpi">
             <div class="ps-kpi-label">Scenario units</div>
             <div class="ps-kpi-value" id="kpiScenarioUnits">—</div>
-            <div class="ps-kpi-sub">If units shown</div>
+            <div class="ps-kpi-sub" data-kpi-scope>Filtered scope</div>
           </div>
           <div class="ps-kpi">
             <div class="ps-kpi-label">Open PO</div>
@@ -1453,9 +1453,9 @@
         projections: {
           label: 'Projections',
           chipClass: 'pill pill-purple',
-          source: 'revenue_projections',
+          source: 'manual',
           basis: 'revenue_projections monthly rollup',
-          desc: 'Projection rows are rolled up by month and used to seed the monthly revenue plan. Baseline uses 0% lift and 0% buffer.',
+          desc: 'Projection rows (no product-type dimension) seed monthly revplan totals only. Mix, ASP, units, gap, and KPIs still use your filtered product type/channel/search scope.',
         },
         manual: {
           label: 'Manual',
@@ -1562,10 +1562,7 @@
         activeSeedMode = mode;
 
         if (command) command.dataset.seedMode = mode;
-        if (selDataSource) {
-          selDataSource.value = meta.source;
-          selDataSource.dispatchEvent(new Event('change', { bubbles: true }));
-        }
+        if (selDataSource) selDataSource.value = 'manual';
         if (seedModeDesc) seedModeDesc.textContent = meta.desc;
         if (seedModeChip) {
           seedModeChip.textContent = meta.label;
@@ -1583,8 +1580,8 @@
         }
         if (calcBasisBody) {
           calcBasisBody.textContent = mode === 'projections'
-            ? 'Projection rows are rolled up by month and used to seed the monthly revenue plan. Open PO and inventory gap remain in the output model.'
-            : `Calculation basis: ${meta.basis}. Open PO and inventory gap remain part of the output model.`;
+            ? 'Projection rows seed revplan_* monthly totals only (company-wide; not product-type specific). Scenario math uses filtered sales, inventory, and open PO for the active scope.'
+            : `Calculation basis: ${meta.basis}. Filters define the calculation universe before aggregation.`;
         }
         setFlowStep(mode === 'manual' ? 3 : 2);
       }
@@ -1623,16 +1620,9 @@
           window.SiloPlanningScenarios.renderPlanningSummary();
         }
 
-        // Lightweight KPI hydration from rendered engine outputs. Safe if engine structure changes.
-        const scenarioCards = Array.from(document.querySelectorAll('#scenarioCards .scenario-card'));
-        const firstCardValue = scenarioCards[0]?.querySelector('.scenario-value')?.textContent?.trim();
-        const secondCardValue = scenarioCards[1]?.querySelector('.scenario-value')?.textContent?.trim();
-        if ($('kpiSeededRevenue') && firstCardValue) $('kpiSeededRevenue').textContent = firstCardValue;
-        if ($('kpiScenarioRevenue') && secondCardValue) $('kpiScenarioRevenue').textContent = secondCardValue;
-
-        const gapRows = Array.from(document.querySelectorAll('#gapBody tr'));
-        if ($('kpiInventoryGap')) $('kpiInventoryGap').textContent = gapRows.length ? `${gapRows.length} buckets` : '—';
-        if ($('kpiGapBuffer')) $('kpiGapBuffer').textContent = $('numSafetyPct')?.value ? `${$('numSafetyPct').value}% buffer` : '—';
+        if (window.SiloPlanningScenarios?.renderKpiStrip) {
+          window.SiloPlanningScenarios.renderKpiStrip();
+        }
       }
 
       seedBtns.forEach(btn => {
@@ -1661,12 +1651,15 @@
         btn.addEventListener('click', () => setOutTab(btn.dataset.outTab || 'summary'));
       });
 
-      ['dateFrom', 'dateTo', 'selProjScenario', 'selLocation'].forEach(id => {
+      ['dateFrom', 'dateTo', 'selProjScenario', 'selLocation', 'selProductType', 'selChannel', 'txtProductSearch'].forEach(id => {
         const el = $(id);
-        if (el) el.addEventListener('change', () => {
+        if (!el) return;
+        const onFilter = () => {
           updateChromeForSeed(activeSeedMode);
           setTimeout(updateDerivedStatus, 250);
-        });
+        };
+        el.addEventListener('change', onFilter);
+        if (id === 'txtProductSearch') el.addEventListener('input', onFilter);
       });
 
       const originalApply = $('btnApply');
