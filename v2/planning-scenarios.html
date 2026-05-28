@@ -209,6 +209,7 @@
     /* ── Status / misc ───────────────────────────────────────────── */
     .ps-status { font-size: 11px; color: var(--bcn-ink-3); margin-top: 2px; }
     .ps-err { color: var(--bcn-neg); font-weight: 700; }
+    .ps-run-pending td { color: var(--bcn-ink-3); font-style: italic; text-align: center; padding: 20px !important; }
     .bcn-header-sub { display: none; }
 
     @media print { .no-print, .bcn-header-actions { display: none !important; } }
@@ -499,7 +500,7 @@
             <div style="overflow:auto;">
               <table class="ps-table" style="min-width:1150px;">
                 <thead><tr id="scenarioMatrixHead"></tr></thead>
-                <tbody id="scenarioMatrixBody"></tbody>
+                <tbody id="scenarioMatrixBody"><tr class="ps-run-pending"><td colspan="12">Click Run scenario to see annual summary across all lift scenarios.</td></tr></tbody>
               </table>
             </div>
           </div>
@@ -521,7 +522,7 @@
             <div style="overflow:auto;max-height:420px;">
               <table class="ps-table stickyHead" style="min-width:1800px;">
                 <thead><tr id="monthlyHead"></tr></thead>
-                <tbody id="monthlyBody"></tbody>
+                <tbody id="monthlyBody"><tr class="ps-run-pending"><td colspan="24">Click Run scenario to see monthly detail by lift scenario.</td></tr></tbody>
               </table>
             </div>
           </div>
@@ -542,7 +543,7 @@
                     <th class="num">Open PO</th><th class="num">Available + PO</th><th class="num">Net Gap</th>
                     <th class="num">Gap + Buffer</th><th>Signal</th>
                   </tr></thead>
-                  <tbody id="gapBody"></tbody>
+                  <tbody id="gapBody"><tr class="ps-run-pending"><td colspan="8">Run scenario to load inventory gap (loads inventory + open PO data).</td></tr></tbody>
                 </table>
               </div>
             </div>
@@ -559,7 +560,7 @@
                     <th>Bucket</th><th class="num">Hist Mix</th><th class="num">Plan Mix</th>
                     <th class="num">Hist ASP</th><th class="num">Plan ASP</th><th class="num">ASP Change</th><th>Mode</th>
                   </tr></thead>
-                  <tbody id="channelBody"></tbody>
+                  <tbody id="channelBody"><tr class="ps-run-pending"><td colspan="7">Run scenario to load channel mix / ASP breakdown.</td></tr></tbody>
                 </table>
               </div>
             </div>
@@ -590,7 +591,7 @@
                   <th class="num">Net Gap</th><th class="num">Gap + Buffer</th>
                   <th>Action</th><th>Tags</th>
                 </tr></thead>
-                <tbody id="familyBody"></tbody>
+                <tbody id="familyBody"><tr class="ps-run-pending"><td colspan="14">Run scenario to load product family detail (first 100 families shown by default).</td></tr></tbody>
               </table>
             </div>
           </div>
