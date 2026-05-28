@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SILO · Planning scenarios</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="../pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+  <style>
+    .bcn-header-sub { font-size: 12px; color: var(--bcn-ink-3); margin-top: 4px; max-width: 62ch; line-height: 1.45; }
+    .bcn-kpi-band.ps-kpi { padding: 6px 0; }
+    .bcn-kpi-band.ps-kpi .bcn-kpi { padding: 6px 10px; }
+    .bcn-kpi-band.ps-kpi .bcn-kpi-value { font-size: 15px; }
+    .ps-filter-bar {
+      display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end;
+      padding: 10px 14px; border-bottom: 1px solid var(--bcn-border);
+      background: var(--bcn-surface);
+    }
+    .ps-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .ps-field label { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--bcn-ink-3); font-family: var(--bcn-mono); }
+    .ps-field .bcn-field, .ps-field select { min-width: 120px; height: 32px; font-size: 12px; }
+    .ps-workbench {
+      display: grid; grid-template-columns: 1fr min(300px, 32vw); gap: 0;
+      min-height: 0; flex: 1;
+    }
+    @media (max-width: 1100px) { .ps-workbench { grid-template-columns: 1fr; } }
+    .ps-main { min-width: 0; display: flex; flex-direction: column; }
+    .ps-aside {
+      border-left: 1px solid var(--bcn-border); background: var(--bcn-surface-2);
+      padding: 12px 14px; overflow-y: auto;
+    }
+    @media (max-width: 1100px) {
+      .ps-aside { border-left: 0; border-top: 1px solid var(--bcn-border); }
+    }
+    .ps-aside h3 { margin: 0 0 8px; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--bcn-ink-3); }
+    .ps-aside p { margin: 0 0 10px; font-size: 12px; color: var(--bcn-ink-2); line-height: 1.5; }
+    .ps-table-scroll { overflow: auto; max-height: min(52vh, 520px); }
+    .ps-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    .ps-table th {
+      position: sticky; top: 0; z-index: 2;
+      background: var(--bcn-band); color: var(--bcn-band-ink-2);
+      text-align: left; padding: 6px 8px; font-size: 9px; font-weight: 800;
+      letter-spacing: .06em; text-transform: uppercase; white-space: nowrap;
+    }
+    .ps-table td { padding: 6px 8px; border-bottom: 1px solid var(--bcn-border); background: var(--bcn-surface); vertical-align: top; }
+    .ps-table tr:nth-child(even) td { background: var(--bcn-surface-2); }
+    .ps-table .num { text-align: right; }
+    .ps-notes { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--bcn-ink-3); }
+    .ps-empty { padding: 24px 16px; text-align: center; font-size: 12px; color: var(--bcn-ink-3); }
+    .ps-muted { color: var(--bcn-ink-3); }
+    .ps-err { color: var(--bcn-neg); font-weight: 700; }
+    #statusLine { font-size: 11px; color: var(--bcn-ink-2); padding: 8px 14px; border-top: 1px solid var(--bcn-border); font-family: var(--bcn-mono); }
+    /* Legacy scenario blocks inside v2 shell */
+    #legacySectionsWrap .surface { background: var(--bcn-surface); border: 1px solid var(--bcn-border); border-radius: 8px; margin-bottom: 10px; padding: 12px; }
+    #legacySectionsWrap .scenario-card { border-radius: 8px; }
+    #legacySectionsWrap .label { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; color: var(--bcn-ink-3); }
+    #legacySectionsWrap .field, #legacySectionsWrap .btn, #legacySectionsWrap .btn-dark { font-family: inherit; }
+    #planningInputs { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 10px; }
+    #legacySectionsWrap .btn { height: 28px; border: 1px solid var(--bcn-border); background: var(--bcn-surface); border-radius: 6px; padding: 0 10px; font-size: 11px; font-weight: 700; cursor: pointer; }
+    #legacySectionsWrap .field { height: 28px; border: 1px solid var(--bcn-border); border-radius: 6px; padding: 0 8px; font-size: 11px; width: 100%; }
+    #legacySectionsWrap .chip { display: inline-block; border: 1px solid var(--bcn-accent-soft); background: var(--bcn-accent-soft); color: var(--bcn-accent); border-radius: 999px; padding: 2px 8px; font-size: 10px; font-weight: 700; }
+    #legacySectionsWrap .mode-btn { border: 1px solid var(--bcn-border); background: var(--bcn-surface); border-radius: 6px; height: 26px; padding: 0 8px; font-size: 10px; font-weight: 700; cursor: pointer; }
+    #legacySectionsWrap .mode-btn.active { background: var(--bcn-band); color: #fff; border-color: var(--bcn-band); }
+    #legacySectionsWrap .panel-title { font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--bcn-ink-3); }
+    #legacySectionsWrap .scenario-card { min-height: 72px; padding: 12px; color: #fff; border-radius: 8px; }
+    #legacySectionsWrap .scenario-title { font-size: 10px; font-weight: 800; text-transform: uppercase; opacity: .9; }
+    #legacySectionsWrap .scenario-value { font-size: 20px; font-weight: 800; margin-top: 4px; }
+    #legacySectionsWrap .scenario-sub { font-size: 10px; opacity: .85; margin-top: 4px; }
+    #legacySectionsWrap .bar-row { display: flex; gap: 4px; align-items: flex-end; min-height: 60px; overflow-x: auto; }
+    #legacySectionsWrap .bar { border-radius: 3px 3px 0 0; min-width: 48px; min-height: 20px; font-size: 9px; font-weight: 700; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 3px; }
+    #legacySectionsWrap .pill { border: 1px solid var(--bcn-border); border-radius: 999px; padding: 1px 6px; font-size: 9px; font-weight: 700; }
+    #legacySectionsWrap .pill-good { border-color: #bbf7d0; background: #ecfdf5; color: #166534; }
+    #legacySectionsWrap .pill-warn { border-color: #fde68a; background: #fffbeb; color: #92400e; }
+    #legacySectionsWrap .pill-bad { border-color: #fecaca; background: #fef2f2; color: #991b1b; }
+    #legacySectionsWrap .pill-blue { border-color: #bfdbfe; background: #eff6ff; color: #1e40af; }
+    #legacySectionsWrap .pill-purple { border-color: #ddd6fe; background: #f5f3ff; color: #5b21b6; }
+    #legacySectionsWrap th, #legacySectionsWrap td { font-size: 11px; padding: 6px 8px; border-bottom: 1px solid var(--bcn-border); }
+    #legacySectionsWrap th { background: var(--bcn-surface-2); font-weight: 800; text-transform: uppercase; font-size: 9px; }
+    #legacySectionsWrap .num { text-align: right; font-variant-numeric: tabular-nums; }
+    @media print { .bcn-header-actions, .ps-filter-bar, .ps-aside, .no-print { display: none !important; } }
+  </style>
+</head>
+<body>
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main" style="display:flex;flex-direction:column;min-height:0;">
+      <header class="bcn-header">
+        <div style="flex:1;min-width:0;">
+          <div class="bcn-header-title"><h1>Planning scenarios</h1></div>
+          <div class="bcn-header-sub">Model sales, receipts, costs, and cash impact from projections or manual assumptions.</div>
+        </div>
+        <div class="bcn-header-actions no-print">
+          <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnReload">RELOAD</button>
+          <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnSaveScenario">SAVE SCENARIO</button>
+          <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnExport">EXPORT CSV</button>
+          <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="btnNewScenario">NEW SCENARIO</button>
+          <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnPrint">PRINT</button>
+        </div>
+      </header>
+
+      <section class="bcn-kpi-band ps-kpi" aria-label="Scenario KPIs">
+        <div class="bcn-kpi"><div class="bcn-kpi-label">Projected sales</div><div class="bcn-kpi-value" id="kpiProjSales">—</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">Est. gross margin</div><div class="bcn-kpi-value" id="kpiGrossMargin">—</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">Planned receipts / cost</div><div class="bcn-kpi-value" id="kpiPlannedReceipts">—</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">Net cash impact</div><div class="bcn-kpi-value" id="kpiCashImpact">—</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">Date range</div><div class="bcn-kpi-value" id="kpiDateRange" style="font-size:13px;">—</div></div>
+      </section>
+
+      <section class="ps-filter-bar no-print" id="filtersCard" aria-label="Filters and assumptions">
+        <div class="ps-field">
+          <label for="selDataSource">Data source</label>
+          <select class="bcn-field" id="selDataSource">
+            <option value="manual">Manual scenario inputs</option>
+            <option value="revenue_projections">Revenue projections</option>
+            <option value="open_po">Open PO / incoming</option>
+          </select>
+        </div>
+        <div class="ps-field">
+          <label for="dateFrom">From</label>
+          <input class="bcn-field mono" id="dateFrom" type="month" />
+        </div>
+        <div class="ps-field">
+          <label for="dateTo">To</label>
+          <input class="bcn-field mono" id="dateTo" type="month" />
+        </div>
+        <div class="ps-field">
+          <label for="selLocation">Location</label>
+          <select class="bcn-field" id="selLocation"><option value="">All locations</option></select>
+        </div>
+        <div class="ps-field">
+          <label for="selProjScenario">Scenario</label>
+          <select class="bcn-field" id="selProjScenario">
+            <option value="active" selected>active</option>
+            <option value="draft">draft</option>
+            <option value="archived">archived</option>
+          </select>
+        </div>
+        <div class="ps-field">
+          <label for="numMarginPct">Margin %</label>
+          <input class="bcn-field mono" id="numMarginPct" type="number" step="0.1" value="45" />
+        </div>
+        <div class="ps-field">
+          <label for="numCostPct">Cost % (opt)</label>
+          <input class="bcn-field mono" id="numCostPct" type="number" step="0.1" placeholder="auto" />
+        </div>
+        <div class="ps-field">
+          <label for="numSafetyPct">Buffer %</label>
+          <input class="bcn-field mono" id="numSafetyPct" type="number" step="1" value="10" />
+        </div>
+        <div class="ps-field">
+          <label for="selPlanMode">Plan mode</label>
+          <select class="bcn-field" id="selPlanMode">
+            <option value="historical">Historical lift</option>
+            <option value="revenue_plan" selected>Revenue plan</option>
+          </select>
+        </div>
+        <div class="ps-field">
+          <label for="selProductType">Product type</label>
+          <select class="bcn-field" id="selProductType"><option value="__ALL__">All types</option></select>
+        </div>
+        <div class="ps-field">
+          <label for="selChannel">Channel</label>
+          <select class="bcn-field" id="selChannel">
+            <option value="__ALL__">All channels</option>
+            <option value="online">Online</option>
+            <option value="retail">Retail</option>
+            <option value="wholesale">Wholesale</option>
+          </select>
+        </div>
+        <div class="ps-field" style="flex:1;min-width:160px;">
+          <label for="txtProductSearch">Search</label>
+          <input class="bcn-field" id="txtProductSearch" placeholder="Product family…" />
+        </div>
+        <div class="ps-field">
+          <label for="selScenario">Lift preset</label>
+          <select class="bcn-field" id="selScenario">
+            <option value="0">Plan / baseline</option>
+            <option value="10">+10%</option>
+            <option value="20">+20%</option>
+            <option value="25" selected>+25%</option>
+            <option value="50">+50%</option>
+            <option value="100">+100%</option>
+            <option value="custom">Custom</option>
+          </select>
+        </div>
+        <div class="ps-field">
+          <label for="numCustomLift">Custom lift %</label>
+          <input class="bcn-field mono" id="numCustomLift" type="number" value="25" />
+        </div>
+        <div class="ps-field">
+          <label for="txtScenarioName">Scenario name</label>
+          <input class="bcn-field" id="txtScenarioName" placeholder="e.g. Spring buy plan" />
+        </div>
+        <div style="display:flex;gap:8px;align-items:flex-end;padding-bottom:1px;">
+          <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="btnApply">RUN</button>
+          <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnReset">RESET</button>
+          <span class="bcn-pill" id="rangeChip">—</span>
+        </div>
+        <label class="ps-field" style="flex-direction:row;align-items:center;gap:6px;padding-bottom:6px;">
+          <input id="chkShowUnits" type="checkbox" checked style="margin:0;" />
+          <span style="font-size:11px;color:var(--bcn-ink-2);">Show units</span>
+        </label>
+      </section>
+
+      <div class="ps-workbench">
+        <div class="ps-main">
+          <section class="bcn-card" id="projWorkbenchSection" hidden>
+            <div class="bcn-card-head" style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+              <span>Revenue projections workbench</span>
+              <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnSeedFromProjections">SEED REVENUE PLAN</button>
+            </div>
+            <div class="ps-table-scroll">
+              <table class="ps-table">
+                <thead>
+                  <tr>
+                    <th>Date</th><th>Location</th><th>Source</th><th>Scenario</th>
+                    <th class="num">Units</th><th class="num">Sales</th><th class="num">Margin %</th>
+                    <th class="num">Gross profit</th><th class="num">Est. cost</th><th class="num">Cash impact</th><th>Notes</th>
+                  </tr>
+                </thead>
+                <tbody id="projTableBody"></tbody>
+              </table>
+            </div>
+            <div class="ps-empty" id="projEmptyState" hidden>Select Revenue projections and Run to load the table.</div>
+          </section>
+
+          <div id="legacySectionsWrap">
+            <details class="surface no-print assumption-edit" open style="margin:10px 14px 0;">
+              <summary style="cursor:pointer;font-weight:700;font-size:12px;padding:4px 0;">Assumption controls (historical mode)</summary>
+              <div style="margin-top:10px;display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;">
+                <div><label class="label">Total revenue override</label><input id="numTotalRevenueOverride" type="number" step="1000" class="field w-full mono" placeholder="Historical only" /></div>
+              </div>
+              <div class="mt-3 overflow-auto" id="historicalAssumptionWrap"><div id="assumptionStrips"></div></div>
+            </details>
+
+            <section id="planningInputs" class="no-print" style="padding:0 14px;">
+              <div class="surface p-3">
+                <div class="flex items-center justify-between gap-3 mb-2">
+                  <div><div style="font-weight:800;font-size:12px;">Current plan vs last year</div></div>
+                  <button id="btnSeedRevenue" class="btn edit-only" type="button">Seed from historical</button>
+                </div>
+                <div class="overflow-auto"><table class="w-full plan-card-table"><thead><tr><th>Month</th><th class="num">LY</th><th class="num">Plan $</th><th class="num">YoY</th><th>Bucket</th><th>Notes</th></tr></thead><tbody id="revenuePlanBody"></tbody></table></div>
+              </div>
+              <div class="surface p-3">
+                <div style="font-weight:800;font-size:12px;margin-bottom:8px;">Mix %</div>
+                <button id="btnSeedMix" class="btn edit-only" type="button">Seed mix</button>
+                <table class="w-full plan-card-table mt-2"><thead><tr><th>Month</th><th>Type</th><th class="num">Mix %</th><th class="num">Σ</th></tr></thead><tbody id="mixPlanBody"></tbody></table>
+              </div>
+              <div class="surface p-3">
+                <div style="font-weight:800;font-size:12px;margin-bottom:8px;">ASP</div>
+                <button id="btnSeedAsp" class="btn edit-only" type="button">Seed ASP</button>
+                <table class="w-full plan-card-table mt-2"><thead><tr><th>Month</th><th>Type</th><th class="num">ASP</th></tr></thead><tbody id="aspPlanBody"></tbody></table>
+              </div>
+            </section>
+
+            <section class="grid grid-cols-1 lg:grid-cols-4 gap-2 px-3.5" id="scenarioCards"></section>
+            <section class="grid grid-cols-1 xl:grid-cols-3 gap-2 px-3.5" id="assumptionReadout"></section>
+
+            <section class="surface mx-3.5 p-3">
+              <div class="flex items-center justify-between gap-2 flex-wrap">
+                <div class="panel-title">Annual summary — all scenarios</div>
+                <div class="no-print" style="display:flex;gap:6px;">
+                  <button class="mode-btn active" type="button" data-summary-metric="revenue">Revenue</button>
+                  <button class="mode-btn" type="button" data-summary-metric="units">Units</button>
+                  <button class="mode-btn" type="button" data-summary-metric="gap">Gap</button>
+                </div>
+              </div>
+              <div class="mt-2 overflow-auto"><div id="scenarioBars" class="bar-row"></div>
+              <table class="mt-3 w-full"><thead><tr id="scenarioMatrixHead"></tr></thead><tbody id="scenarioMatrixBody"></tbody></table></div>
+            </section>
+
+            <section class="surface mx-3.5 p-3">
+              <div class="panel-title">Monthly detail</div>
+              <div class="flex gap-2 my-2 no-print">
+                <button class="mode-btn active" type="button" data-monthly-metric="revenue">Revenue</button>
+                <button class="mode-btn" type="button" data-monthly-metric="units">Units</button>
+                <button class="mode-btn" type="button" data-monthly-metric="both">Both</button>
+                <button class="mode-btn" type="button" data-monthly-metric="formula">Formula</button>
+              </div>
+              <div class="overflow-auto"><table class="w-full stickyHead"><thead><tr id="monthlyHead"></tr></thead><tbody id="monthlyBody"></tbody></table></div>
+            </section>
+
+            <section class="grid grid-cols-1 2xl:grid-cols-2 gap-3 px-3.5 pb-3">
+              <section class="surface p-3">
+                <div class="panel-title">Inventory gap <span id="selectedScenarioChip" class="chip"></span></div>
+                <table class="w-full mt-2"><thead><tr><th>Bucket</th><th class="num">Req</th><th class="num">OH</th><th class="num">PO</th><th class="num">Avail</th><th class="num">Gap</th><th class="num">+Buffer</th><th>Signal</th></tr></thead><tbody id="gapBody"></tbody></table>
+              </section>
+              <section class="surface p-3">
+                <div class="panel-title">Channel mix / ASP</div>
+                <table class="w-full mt-2"><thead><tr><th>Bucket</th><th class="num">Hist mix</th><th class="num">Plan mix</th><th class="num">Hist ASP</th><th class="num">Plan ASP</th><th class="num">Δ ASP</th><th>Mode</th></tr></thead><tbody id="channelBody"></tbody></table>
+              </section>
+            </section>
+
+            <section class="surface mx-3.5 mb-3 p-3">
+              <div class="flex gap-2 mb-2 no-print">
+                <button class="mode-btn active" type="button" data-family-filter="all">All</button>
+                <button class="mode-btn" type="button" data-family-filter="buy">Buy</button>
+                <button class="mode-btn" type="button" data-family-filter="mix">Mix</button>
+                <button class="mode-btn" type="button" data-family-filter="overstock">Overstock</button>
+              </div>
+              <div class="overflow-auto"><table class="w-full stickyHead"><thead><tr><th>Product</th><th>Type</th><th class="num">OH</th><th class="num">Retail</th><th class="num">30d</th><th class="num">365d</th><th class="num">Share</th><th class="num">Scenario u</th><th class="num">PO</th><th class="num">Avail</th><th class="num">Gap</th><th class="num">+Buf</th><th>Action</th><th>Tags</th></tr></thead><tbody id="familyBody"></tbody></table></div>
+            </section>
+          </div>
+        </div>
+
+        <aside class="ps-aside no-print" aria-label="Assumptions and basis">
+          <h3>Calculation basis</h3>
+          <div id="calcBasisBody"><p class="ps-muted">Run a scenario to see which source drives the model.</p></div>
+          <h3 style="margin-top:16px;">Quick actions</h3>
+          <p>Use <strong>Revenue projections</strong> to pull <code>revenue_projections</code> (default scenario <code>active</code>). Rows with <code>source=actual</code> are included.</p>
+          <p>Manual and Open PO modes keep the full historical / mix / ASP / gap engine below.</p>
+        </aside>
+      </div>
+
+      <div id="statusLine">Loading…</div>
+    </main>
+  </div>
+
+  <script src="silo-chrome.js"></script>
+  <script src="../pages/planning-scenarios-engine.js"></script>
+  <script>
+    window.__SILO_PLANNING_SKIP_AUTO_BOOT__ = true;
+    (async function () {
+      const cfg = window.__SILO_CONFIG__ || {};
+      if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
+        document.getElementById('statusLine').textContent = 'Missing Supabase config.';
+        return;
+      }
+      const db = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+      const { data: sess } = await db.auth.getSession();
+      if (!sess?.session?.user) {
+        location.href = '/pages/login.html?next=' + encodeURIComponent(location.pathname + location.search);
+        return;
+      }
+      if (window.SiloChrome) {
+        SiloChrome.mount({
+          appEl: '#silo-app',
+          active: 'planning/scenarios',
+          user: { email: sess.session.user.email, role: 'OWNER' },
+          crumbs: ['Planning', 'Scenarios'],
+          supabaseClient: db,
+        });
+      }
+      await window.SiloPlanningScenarios.boot();
+    })();
+  </script>
+</body>
+</html>
