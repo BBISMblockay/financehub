@@ -1769,7 +1769,8 @@
         if (!el) return;
         const onFilter = () => {
           updateChromeForSeed(activeSeedMode);
-          setTimeout(updateDerivedStatus, 250);
+          // Engine debounces its own re-run; await projections so derived status reflects new filter scope.
+          updateDerivedStatus();
         };
         el.addEventListener('change', onFilter);
         if (id === 'txtProductSearch') el.addEventListener('input', onFilter);
