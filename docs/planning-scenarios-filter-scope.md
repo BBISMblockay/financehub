@@ -39,3 +39,7 @@
 - [ ] Family detail renders after Run without opening the Families tab first.
 - [ ] KPI strip shows "Loading…" while heavy data is in flight, then numbers when ready (never "After run" once `_invLoaded` is true).
 - [ ] Selecting a product type while in Projections seed mode shows an inline reminder ("Revenue seeded company-wide; Mix & ASP scoped to {type}").
+- [ ] Clicking Run renders Summary cards, Annual matrix, Monthly detail, Inventory gap, Channel/ASP, and Product families without any further clicks; switching output tabs is a pure view change with no recalculation.
+- [ ] Revenue / Units / Both / Formula toggles on Monthly Detail switch views from cached scenario results, never re-fetch or recalculate.
+- [ ] While a recalc is in flight a "Recalculating…" chip is visible above the KPI strip; after filter edits a "Inputs changed — recalculating shortly" chip appears until the debounce completes.
+- [ ] Concurrent Run clicks or Run-during-debounce never produce double-renders.
