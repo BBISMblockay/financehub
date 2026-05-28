@@ -628,7 +628,7 @@
       let error = null;
       ({ data, error } = await db
         .from('v_po_costing_summary')
-        .select('po_header_id, po_name, po_status, costing_phase, landed_total, shipped_at')
+        .select('po_header_id, po_name, po_status, phase, landed_total, shipped_at')
         .order('costing_updated_at', { ascending: false, nullsFirst: false })
         .limit(300));
       if (error) {
@@ -644,7 +644,7 @@
         po_name: r.po_name,
         factory_name: r.factory_name,
         status: r.po_status || r.status,
-        costing_phase: r.costing_phase,
+        costing_phase: r.phase ?? r.costing_phase,
         landed_total: r.landed_total,
       }));
       renderPoList();
