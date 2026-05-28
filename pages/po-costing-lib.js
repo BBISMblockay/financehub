@@ -153,6 +153,36 @@
     };
   }
 
+  /**
+   * Split a shared freight invoice across multiple POs.
+   * @param {Array} poContexts - array of ctx objects; each needs header, lines, result.fob_total
+   * @param {number} totalFreight - total freight invoice amount
+   * @param {string} method - 'proportional' (by FOB) | 'per_unit' (by qty)
+   * @returns {Array<{po_header_id, po_name, fob_total, unit_count, freight_share}>}
+   */
+  function computeFreightSplit(poContexts, totalFreight, method) {
+    const freight = num(totalFreight);
+    const pos = (poContexts || []).filter(c => c && c.header);
+    if (!pos.length) return [];
+
+    const weights = pos.map(c =>
+      method === 'per_unit'
+        ? (c.lines || []).reduce((s, l) => s + num(l.qty), 0)
+        : num(c.result?.fob_total ?? 0)
+    );
+    const totalWeight = weights.reduce((s, w) => s + w, 0);
+
+    return pos.map((c, i) => ({
+      po_header_id: c.header.id,
+      po_name: c.header.po_name || 'Untitled',
+      fob_total: num(c.result?.fob_total ?? 0),
+      unit_count: (c.lines || []).reduce((s, l) => s + num(l.qty), 0),
+      freight_share: totalWeight > 0
+        ? freight * (weights[i] / totalWeight)
+        : freight / pos.length,
+    }));
+  }
+
   function headerInputsFromCostingRow(pc) {
     if (!pc) {
       return { freight: 0, duty_pct: 0, misc: 0, alloc_method: 'proportional' };
@@ -474,6 +504,7 @@
     normalizeOverrides,
     overridesFromDbRows,
     computeCosting,
+    computeFreightSplit,
     fetchPriorCostsBySku,
     loadPoCostingContext,
     savePoCosting,

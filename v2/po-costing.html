@@ -81,6 +81,38 @@
       background: var(--bcn-surface-2, #f8fafc);
       color: var(--bcn-ink-2, #475569);
     }
+
+    /* ── Combined shipment ───────────────────────────────── */
+    .cost-combined-panel {
+      margin-top: 12px; padding: 14px;
+      border: 1px solid var(--bcn-border, #e2e8f0);
+      border-radius: 8px;
+      background: var(--bcn-sunken, #f8fafc);
+    }
+    .cost-combined-po-list {
+      display: flex; flex-direction: column; gap: 3px;
+      max-height: 180px; overflow-y: auto;
+      border: 1px solid var(--bcn-border, #e2e8f0); border-radius: 6px;
+      padding: 8px; margin-bottom: 12px;
+      background: var(--bcn-surface, #fff);
+    }
+    .cost-split-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 12px; }
+    .cost-split-table th {
+      font-size: 10px; font-weight: 800; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--bcn-ink-3, #94a3b8);
+      padding: 4px 8px; border-bottom: 1px solid var(--bcn-border, #e2e8f0);
+      text-align: left;
+    }
+    .cost-split-table th:not(:first-child) { text-align: right; }
+    .cost-split-table td { padding: 5px 8px; border-bottom: 1px solid var(--bcn-border, #e2e8f0); }
+    .cost-split-table td:not(:first-child) { text-align: right; font-family: var(--bcn-mono, monospace); }
+    .cost-split-current td { font-weight: 700; }
+    .cost-split-total td { font-weight: 900; background: var(--bcn-surface-2, #f1f5f9); }
+    .cost-current-tag {
+      font-size: 10px; font-weight: 700; color: var(--bcn-accent, #3b82f6);
+      background: var(--bcn-accent-soft, #eff6ff);
+      border-radius: 4px; padding: 1px 5px; margin-left: 4px;
+    }
   </style>
 </head>
 <body class="v2-mirror--po">
@@ -236,6 +268,20 @@
                 <label class="bcn-label">Freight notes</label>
                 <textarea class="bcn-field" id="inFreightNotes" rows="2" placeholder="Container #, forwarder, actual freight bill…"></textarea>
               </div>
+
+              <!-- Combined shipment toggle -->
+              <label class="cost-check" style="margin-left:0;justify-content:flex-start;padding:10px 0 2px;gap:8px;font-size:12px;">
+                <input type="checkbox" id="chkCombinedShipment" />
+                Split this freight invoice across multiple POs
+              </label>
+              <div id="combinedShipmentPanel" style="display:none;" class="cost-combined-panel">
+                <div class="cost-section-label">POs on this shipment</div>
+                <div class="cost-combined-po-list" id="combinedPoCheckList"></div>
+                <div class="cost-section-label">Freight split preview</div>
+                <div id="freightSplitPreview"><p style="font-size:12px;color:var(--bcn-ink-3,#94a3b8);margin:0 0 12px;">Select POs above to see split.</p></div>
+                <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="btnApplyFreightAll">APPLY FREIGHT TO ALL POs</button>
+              </div>
+
               <div class="cost-actions">
                 <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnRecalc">RECALC SPLIT</button>
                 <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="btnSaveFreight">SAVE FREIGHT &amp; LANDED</button>
@@ -369,6 +415,7 @@
       els.kpiLanded.textContent = money(result.landed_total);
       ctx.result = result;
       renderLineTable(result);
+      if (document.getElementById('chkCombinedShipment')?.checked) updateFreightSplitPreview();
       return result;
     }
 
@@ -575,6 +622,8 @@
       updatePhaseUi();
       els.status.textContent = '';
       renderPoList();
+      combinedPoIds.clear();
+      if (document.getElementById('chkCombinedShipment')?.checked) renderCombinedPoList();
       setPoDrawerOpen(false);
     }
 
@@ -650,6 +699,147 @@
       renderPoList();
     }
 
+    // ── Combined shipment ────────────────────────────────────────────
+    const combinedPoIds = new Set();
+    const combinedCtxCache = {};
+
+    async function loadCombinedPoCtx(poId) {
+      if (combinedCtxCache[poId]) return combinedCtxCache[poId];
+      const c = await Lib.loadPoCostingContext(db, poId);
+      combinedCtxCache[poId] = c;
+      return c;
+    }
+
+    function renderCombinedPoList() {
+      const panel = document.getElementById('combinedPoCheckList');
+      if (!panel || !ctx) return;
+      const others = poRows.filter(r => r.id !== ctx.header.id);
+      if (!others.length) {
+        panel.innerHTML = '<p style="font-size:12px;color:var(--bcn-ink-3);margin:0;">No other POs available.</p>';
+        return;
+      }
+      panel.innerHTML = others.map(r => {
+        const checked = combinedPoIds.has(r.id) ? 'checked' : '';
+        const phaseTag = r.costing_phase
+          ? ` <span style="font-size:10px;color:var(--bcn-ink-3);">${esc(r.costing_phase)}</span>`
+          : '';
+        const sub = [r.factory_name, r.status, r.landed_total ? money(r.landed_total) : ''].filter(Boolean).join(' · ');
+        return `<label style="display:flex;align-items:center;gap:8px;font-size:12px;padding:3px 0;cursor:pointer;">
+          <input type="checkbox" ${checked} data-combined-po="${esc(r.id)}" />
+          <span><strong>${esc(r.po_name || 'Untitled')}</strong>${phaseTag}
+            <span style="color:var(--bcn-ink-3);font-size:11px;margin-left:4px;">${esc(sub)}</span>
+          </span>
+        </label>`;
+      }).join('');
+      panel.querySelectorAll('[data-combined-po]').forEach(chk => {
+        chk.addEventListener('change', async () => {
+          const id = chk.getAttribute('data-combined-po');
+          if (chk.checked) {
+            combinedPoIds.add(id);
+            if (!combinedCtxCache[id]) {
+              chk.disabled = true;
+              const lbl = chk.closest('label');
+              if (lbl) lbl.style.opacity = '0.5';
+              await loadCombinedPoCtx(id).catch(e => console.warn('Combined PO load:', e));
+              chk.disabled = false;
+              if (lbl) lbl.style.opacity = '';
+            }
+          } else {
+            combinedPoIds.delete(id);
+          }
+          updateFreightSplitPreview();
+        });
+      });
+    }
+
+    function updateFreightSplitPreview() {
+      const preview = document.getElementById('freightSplitPreview');
+      if (!preview || !ctx) return;
+      const totalFreight = Lib.num(els.inFreight.value);
+      const method = els.inAlloc.value;
+      const currentResult = Lib.computeCosting(ctx.lines, headerInputs(), lineOverrides);
+      const splitInputs = [
+        { header: ctx.header, lines: ctx.lines, result: currentResult },
+        ...Array.from(combinedPoIds).map(id => combinedCtxCache[id]).filter(Boolean),
+      ];
+      if (splitInputs.length < 2) {
+        preview.innerHTML = '<p style="font-size:12px;color:var(--bcn-ink-3,#94a3b8);margin:0 0 12px;">Select at least one other PO to see the split.</p>';
+        return;
+      }
+      const splits = Lib.computeFreightSplit(splitInputs, totalFreight, method);
+      const totalFob = splits.reduce((s, r) => s + r.fob_total, 0);
+      const totalUnits = splits.reduce((s, r) => s + r.unit_count, 0);
+      preview.innerHTML = `<table class="cost-split-table">
+        <thead><tr>
+          <th>PO</th><th>FOB</th><th>Units</th><th>Freight</th>
+        </tr></thead>
+        <tbody>
+          ${splits.map((s, i) => `<tr class="${i === 0 ? 'cost-split-current' : ''}">
+            <td>${esc(s.po_name)}${i === 0 ? '<span class="cost-current-tag">current</span>' : ''}</td>
+            <td>${money(s.fob_total)}</td>
+            <td>${s.unit_count.toLocaleString()}</td>
+            <td style="font-weight:700;">${money(s.freight_share)}</td>
+          </tr>`).join('')}
+          <tr class="cost-split-total">
+            <td>Total</td>
+            <td>${money(totalFob)}</td>
+            <td>${totalUnits.toLocaleString()}</td>
+            <td>${money(totalFreight)}</td>
+          </tr>
+        </tbody>
+      </table>`;
+    }
+
+    async function applyFreightToAllPos() {
+      if (!db || !ctx) return;
+      const totalFreight = Lib.num(els.inFreight.value);
+      const method = els.inAlloc.value;
+      const freightRef = els.inFreightRef.value.trim();
+      const freightNotes = els.inFreightNotes.value.trim();
+      const curHeaderInputs = headerInputs();
+      const currentResult = Lib.computeCosting(ctx.lines, curHeaderInputs, lineOverrides);
+      const splitInputs = [
+        { header: ctx.header, lines: ctx.lines, result: currentResult },
+        ...Array.from(combinedPoIds).map(id => combinedCtxCache[id]).filter(Boolean),
+      ];
+      if (splitInputs.length < 2) {
+        els.status.textContent = 'Select at least one other PO for combined freight.';
+        return;
+      }
+      const splits = Lib.computeFreightSplit(splitInputs, totalFreight, method);
+      const btn = document.getElementById('btnApplyFreightAll');
+      if (btn) { btn.disabled = true; btn.textContent = 'SAVING…'; }
+      let saved = 0;
+      const errors = [];
+      for (const split of splits) {
+        const isCurrentPo = split.po_header_id === ctx.header.id;
+        const poCtx = isCurrentPo ? ctx : combinedCtxCache[split.po_header_id];
+        if (!poCtx) continue;
+        const poLineOverrides = isCurrentPo ? lineOverrides : (poCtx.lineOverrides || {});
+        const poHeaderInputs = {
+          ...(isCurrentPo ? curHeaderInputs : poCtx.headerInputs),
+          freight: split.freight_share,
+        };
+        try {
+          await Lib.savePoCosting(db, poCtx, poHeaderInputs, poLineOverrides, {
+            phase: Lib.PHASE.FREIGHT,
+            freightInvoice: { ref: freightRef },
+            freightNotes,
+            pushLandedToPoLines: isCurrentPo && els.chkPushLanded.checked,
+            userId: authUser?.id,
+          });
+          saved++;
+        } catch (e) {
+          errors.push(`${split.po_name}: ${e.message || e}`);
+        }
+      }
+      if (btn) { btn.disabled = false; btn.textContent = 'APPLY FREIGHT TO ALL POs'; }
+      await openPo(ctx.header.id);
+      els.status.textContent = errors.length
+        ? `Saved ${saved} PO(s). Errors: ${errors.join('; ')}`
+        : `Freight split and saved across ${saved} POs.`;
+    }
+
     async function boot() {
       if (!Lib) { alert('po-costing-lib.js missing'); return; }
       if (!db) { alert('Missing Supabase config.'); return; }
@@ -686,6 +876,14 @@
       });
       els.btnSaveFob.addEventListener('click', () => saveFobStage().catch(e => alert(e.message || e)));
       els.btnSaveFreight.addEventListener('click', () => saveFreightStage().catch(e => alert(e.message || e)));
+      document.getElementById('chkCombinedShipment')?.addEventListener('change', e => {
+        const panel = document.getElementById('combinedShipmentPanel');
+        if (panel) panel.style.display = e.target.checked ? '' : 'none';
+        if (e.target.checked) renderCombinedPoList();
+      });
+      document.getElementById('btnApplyFreightAll')?.addEventListener('click', () =>
+        applyFreightToAllPos().catch(e => alert(e.message || e))
+      );
       els.btnMarkShipped.addEventListener('click', () => {
         Lib.markPoShipped(db, ctx, authUser?.id)
           .then(async () => {
