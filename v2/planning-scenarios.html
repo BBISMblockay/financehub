@@ -21,82 +21,363 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 
   <style>
-    /* v1 layout dressed in Silo / Beacon variables.
-       Goal: behave like legacy/pages/planning-scenarios.html (proven smooth),
-       look like the rest of v2. */
-    :root{--ink:var(--bcn-ink-1,#0f172a);--muted:var(--bcn-ink-3,#64748b);--line:var(--bcn-border,#e2e8f0);--soft:var(--bcn-sunken,#f8fafc);color-scheme:light}
-    .silo-main{overflow-y:auto}
-    body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-size:13px;color:var(--ink)}
-    .mono{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
-    .ps-shell{max-width:1900px;margin:0 auto;padding:12px 16px 28px;display:flex;flex-direction:column;gap:10px}
+    /* Planning Scenarios — v1 layout, Silo v2 polish.
+       Uses Beacon tokens (var(--bcn-*)) throughout. Custom classes are scoped
+       with .ps-* so they don't collide with shared Beacon CSS. */
+    :root { color-scheme: light; }
+    .silo-main { overflow-y: auto; background: var(--bcn-sunken); }
+    body {
+      font-family: var(--bcn-font, Inter, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif);
+      font-size: 13px;
+      color: var(--bcn-ink);
+      background: var(--bcn-sunken);
+    }
+    .ps-mono { font-family: var(--bcn-mono); font-variant-numeric: tabular-nums; }
 
-    /* surfaces & primitives */
-    .surface{background:var(--bcn-surface,#fff);border:1px solid var(--bcn-border,rgba(15,23,42,.10));border-radius:10px;box-shadow:0 4px 14px rgba(15,23,42,.05)}
-    .panel-title{font-size:11px;text-transform:uppercase;letter-spacing:.08em;font-weight:900;color:var(--bcn-accent,#0369a1)}
-    .label{font-size:10px;line-height:1;text-transform:uppercase;letter-spacing:.10em;font-weight:900;color:var(--bcn-ink-3,#475569);white-space:nowrap}
-    .field{height:32px;border:1px solid var(--bcn-border-strong,#cbd5e1);border-radius:6px;background:var(--bcn-surface,#fff);padding:4px 9px;font-size:12px;outline:none;min-width:0;color:var(--bcn-ink-1,#0f172a)}
-    .field:focus,.mini-input:focus{border-color:var(--bcn-accent,#60a5fa);box-shadow:0 0 0 3px var(--bcn-accent-soft,rgba(59,130,246,.12))}
-    .btn{height:32px;border:1px solid var(--bcn-border-strong,#cbd5e1);background:var(--bcn-surface,#fff);color:var(--bcn-ink-1,#0f172a);border-radius:6px;padding:0 12px;font-size:12px;font-weight:800;white-space:nowrap;cursor:pointer}
-    .btn:hover{background:var(--bcn-sunken,#f8fafc)}
-    .btn-dark{height:32px;border:1px solid var(--bcn-band,#0f172a);background:var(--bcn-band,#0f172a);color:#fff;border-radius:6px;padding:0 14px;font-size:12px;font-weight:900;white-space:nowrap;cursor:pointer}
-    .btn-dark:hover{filter:brightness(.96)}
-    .btn-accent{height:32px;border:1px solid var(--bcn-accent,#1d4ed8);background:var(--bcn-accent,#1d4ed8);color:#fff;border-radius:6px;padding:0 12px;font-size:12px;font-weight:800;white-space:nowrap;cursor:pointer}
-    .btn-accent:hover{filter:brightness(.96)}
-    .chip{border:1px solid #bfdbfe;background:#eff6ff;color:#1d4ed8;border-radius:6px;padding:4px 9px;font-size:11px;font-weight:900;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
-    .pill{border:1px solid #dbe4ee;border-radius:999px;padding:2px 8px;font-size:10px;font-weight:900;white-space:nowrap;display:inline-flex;align-items:center;gap:4px;background:#fff}
-    .pill-good{border-color:#bbf7d0;background:#ecfdf5;color:#166534}
-    .pill-warn{border-color:#fde68a;background:#fffbeb;color:#92400e}
-    .pill-bad{border-color:#fecaca;background:#fef2f2;color:#991b1b}
-    .pill-blue{border-color:#bfdbfe;background:#eff6ff;color:#1e40af}
-    .pill-purple{border-color:#ddd6fe;background:#f5f3ff;color:#5b21b6}
+    .ps-shell {
+      max-width: 1900px;
+      margin: 0 auto;
+      padding: 12px 16px 28px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
 
-    /* scenario cards (v1) */
-    .scenario-card{border-radius:8px;min-height:78px;padding:13px 15px;color:#fff;display:flex;flex-direction:column;justify-content:center}
-    .scenario-title{font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:.06em;opacity:.95}
-    .scenario-value{margin-top:3px;font-size:24px;line-height:1.05;font-weight:950;letter-spacing:-.04em}
-    .scenario-sub{margin-top:4px;font-size:10px;opacity:.90;line-height:1.25}
+    /* Header — match other v2 pages, with rangeChip inline */
+    .bcn-header h1 { font-size: 18px; }
+    .bcn-header-title { gap: 8px; }
 
-    .mini-input{height:28px;border:1px solid var(--bcn-border,#d5dee9);border-radius:6px;padding:3px 7px;width:100%;font-size:11px;text-align:right;font-variant-numeric:tabular-nums;outline:none;background:var(--bcn-surface,#fff)}
+    /* Command panel: filters + assumption controls inside a bcn-card */
+    .ps-cmd { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; background: var(--bcn-surface); }
+    .ps-cmd-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; }
+    .ps-cmd-divider { height: 1px; background: var(--bcn-border); margin: 2px 0; }
+    .ps-field-group { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .ps-field-group .bcn-label {
+      font-size: 10.5px; font-weight: 600; color: var(--bcn-ink-3);
+      text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .ps-field-group .bcn-field { height: 30px; font-size: 12.5px; padding: 4px 9px; }
+    .ps-field-inline { display: flex; align-items: center; gap: 4px; }
+    .ps-field-inline .ps-arrow { color: var(--bcn-ink-3); font-size: 12px; padding: 0 2px; line-height: 30px; }
+    .ps-loc-wrap { display: contents; }
+    .ps-loc-wrap.hidden { display: none; }
+    .ps-check-row {
+      display: inline-flex; align-items: center; gap: 6px; height: 30px;
+      font-size: 12px; color: var(--bcn-ink-2); font-weight: 500;
+      align-self: flex-end; padding-left: 4px;
+    }
+    .ps-check-row input { accent-color: var(--bcn-accent); }
 
-    /* bars row for annual summary */
-    .bar-row{display:grid;grid-template-columns:repeat(11,minmax(90px,1fr));gap:4px;min-width:1100px;align-items:end}
-    .bar{border-radius:2px 2px 0 0;min-height:26px;display:flex;align-items:end;justify-content:center;padding-bottom:3px;color:#0f172a;font-size:9px;font-weight:800}
+    /* Plan-input cards (Revenue / Mix / ASP) */
+    .ps-input-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 0.85fr);
+      gap: 10px;
+    }
+    .ps-input-card .bcn-card-body { padding: 0; gap: 0; overflow: hidden; }
+    .ps-input-scroll { overflow: auto; max-height: 360px; }
+    .ps-input-card-actions { margin-left: auto; display: flex; gap: 4px; }
 
-    /* tables (v1) */
-    table{border-collapse:separate;border-spacing:0}
-    th{background:var(--bcn-sunken,#f8fafc);color:var(--bcn-ink-3,#475569);text-transform:uppercase;letter-spacing:.07em;font-size:10px;font-weight:950;border-bottom:1px solid var(--line);white-space:nowrap}
-    td{border-bottom:1px solid var(--bcn-border,#edf2f7);background:var(--bcn-surface,#fff);font-size:11px;white-space:nowrap;color:var(--bcn-ink-1,#0f172a)}
-    tbody tr:nth-child(even) td{background:var(--bcn-sunken,#f8fafc)}
-    .stickyHead thead th{position:sticky;top:0;z-index:15}
-    .num{text-align:right;font-variant-numeric:tabular-nums}
+    /* Plan tables (Revenue / Mix / ASP) — dense, modern, editable cells tinted */
+    .plan-card-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+    .plan-card-table th {
+      position: sticky; top: 0; z-index: 4;
+      background: var(--bcn-sunken); color: var(--bcn-ink-3);
+      font-size: 10.5px; font-weight: 700; letter-spacing: 0.04em;
+      padding: 7px 10px; text-align: left; white-space: nowrap;
+      border-bottom: 1px solid var(--bcn-border-strong);
+    }
+    .plan-card-table th.num { text-align: right; font-family: var(--bcn-mono); }
+    .plan-card-table td {
+      padding: 4px 10px; font-size: 11.5px; color: var(--bcn-ink);
+      border-bottom: 1px solid var(--bcn-border); background: var(--bcn-surface);
+      white-space: nowrap;
+    }
+    .plan-card-table td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--bcn-mono); }
+    .plan-card-table tbody tr:nth-child(even) td { background: var(--bcn-sunken); }
+    .plan-card-table tbody tr:hover td { background: var(--bcn-accent-soft); }
+    .plan-card-table td.td-month { font-weight: 600; color: var(--bcn-ink); font-family: var(--bcn-mono); }
+    .plan-card-table td.td-hint { color: var(--bcn-ink-3); }
+    .plan-card-table input {
+      width: 100%; height: 26px; padding: 2px 7px;
+      border: 1px solid var(--bcn-border); border-radius: 3px;
+      font-size: 11.5px; font-family: var(--bcn-mono);
+      font-variant-numeric: tabular-nums; text-align: right;
+      background: oklch(0.99 0.012 95); color: var(--bcn-ink);
+      outline: none;
+    }
+    .plan-card-table input:focus { border-color: var(--bcn-accent); box-shadow: 0 0 0 1px var(--bcn-accent) inset; }
+    .plan-card-table td.td-notes input {
+      text-align: left; background: var(--bcn-surface);
+      color: var(--bcn-ink-3); font-family: var(--bcn-font); font-weight: 400;
+      border-color: transparent;
+    }
+    .plan-card-table td.td-notes input:hover { border-color: var(--bcn-border); }
+    .plan-card-table td.td-notes input:focus { border-color: var(--bcn-accent); color: var(--bcn-ink); }
 
-    .thin-scroll{scrollbar-width:thin;scrollbar-color:rgba(15,23,42,.25) rgba(15,23,42,.05)}
-    .thin-scroll::-webkit-scrollbar{height:10px;width:10px}
-    .thin-scroll::-webkit-scrollbar-thumb{background:rgba(15,23,42,.20);border-radius:999px}
-    .thin-scroll::-webkit-scrollbar-track{background:rgba(15,23,42,.05)}
+    /* Scenario KPI cards (Plan / +25 / +50 / +100) */
+    .ps-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .ps-kpi-card {
+      background: var(--bcn-surface);
+      border: 1px solid var(--bcn-border-strong);
+      padding: 10px 12px;
+      display: flex; flex-direction: column; gap: 4px; min-width: 0;
+      border-radius: var(--bcn-radius);
+    }
+    .ps-kpi-card.is-selected {
+      border-color: var(--bcn-accent);
+      box-shadow: 0 0 0 1px var(--bcn-accent) inset;
+    }
+    .ps-kpi-card .ps-kpi-label {
+      font-family: var(--bcn-mono); font-size: 10px;
+      color: var(--bcn-ink-3); text-transform: uppercase; letter-spacing: 0.1em;
+    }
+    .ps-kpi-card .ps-kpi-value {
+      font-family: var(--bcn-mono); font-size: 22px; font-weight: 500;
+      color: var(--bcn-ink); letter-spacing: -0.01em; line-height: 1.1;
+      font-variant-numeric: tabular-nums;
+    }
+    .ps-kpi-card .ps-kpi-sub {
+      font-size: 11px; color: var(--bcn-ink-3); line-height: 1.35;
+      display: flex; flex-direction: column; gap: 2px;
+    }
+    .ps-kpi-card .ps-kpi-delta {
+      font-family: var(--bcn-mono); font-size: 11px; font-weight: 500; color: var(--bcn-ink-3);
+    }
+    .ps-kpi-card .ps-kpi-delta--pos { color: var(--bcn-pos); }
+    .ps-kpi-card .ps-kpi-delta--neg { color: var(--bcn-neg); }
 
-    details>summary{list-style:none;cursor:pointer}
-    details>summary::-webkit-details-marker{display:none}
+    /* Assumption readout (Online / Retail / Wholesale mini-cards) */
+    .ps-assump-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+    .ps-assump-card {
+      background: var(--bcn-surface);
+      border: 1px solid var(--bcn-border-strong);
+      border-radius: var(--bcn-radius);
+      padding: 10px 12px;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .ps-assump-head {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    }
+    .ps-assump-title {
+      font-family: var(--bcn-mono); font-size: 10px;
+      text-transform: uppercase; letter-spacing: 0.1em; color: var(--bcn-ink-3);
+    }
+    .ps-assump-meta { font-family: var(--bcn-mono); font-size: 11px; color: var(--bcn-ink-3); }
+    .ps-assump-cells { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+    .ps-assump-cell { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+    .ps-assump-cell-k {
+      font-family: var(--bcn-mono); font-size: 9.5px; color: var(--bcn-ink-3);
+      text-transform: uppercase; letter-spacing: 0.08em;
+    }
+    .ps-assump-cell-v {
+      font-family: var(--bcn-mono); font-size: 13px; font-weight: 500; color: var(--bcn-ink);
+      font-variant-numeric: tabular-nums;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .ps-assump-cell-v--accent { color: var(--bcn-accent); }
+    .ps-assump-cell-mode {
+      font-family: var(--bcn-mono); font-size: 10px; color: var(--bcn-ink-3);
+    }
 
-    .mode-btn{border:1px solid var(--bcn-border,#dbe4ee);background:var(--bcn-surface,#fff);border-radius:6px;height:28px;padding:0 10px;font-size:11px;font-weight:900;color:var(--bcn-ink-1,#0f172a);cursor:pointer}
-    .mode-btn.active{background:var(--bcn-band,#0f172a);border-color:var(--bcn-band,#0f172a);color:#fff}
+    /* Historical-mode channel strips (in filter card) */
+    .ps-hist-strip {
+      background: var(--bcn-surface);
+      border: 1px solid var(--bcn-border);
+      border-radius: var(--bcn-radius);
+      padding: 8px 10px;
+      display: grid;
+      grid-template-columns: minmax(170px, 1.1fr) repeat(5, minmax(80px, .65fr));
+      gap: 8px; align-items: center;
+      min-width: 850px;
+    }
+    .ps-hist-strip .ps-hist-title {
+      display: flex; flex-direction: column; gap: 1px;
+    }
+    .ps-hist-strip .ps-hist-title b { font-size: 11px; color: var(--bcn-ink); font-weight: 600; }
+    .ps-hist-strip .ps-hist-title span { font-family: var(--bcn-mono); font-size: 10.5px; color: var(--bcn-ink-3); }
+    .ps-hist-strip label {
+      font-size: 9.5px; color: var(--bcn-ink-3); text-transform: uppercase; letter-spacing: 0.05em;
+      display: flex; flex-direction: column; gap: 3px;
+    }
+    .ps-hist-strip .mini-input {
+      height: 26px; padding: 2px 6px; width: 100%;
+      border: 1px solid var(--bcn-border); border-radius: 3px;
+      font-family: var(--bcn-mono); font-size: 11px;
+      font-variant-numeric: tabular-nums; text-align: right;
+      background: var(--bcn-surface); color: var(--bcn-ink); outline: none;
+    }
+    .ps-hist-strip .mini-input:focus { border-color: var(--bcn-accent); box-shadow: 0 0 0 1px var(--bcn-accent) inset; }
+    .ps-hist-strip .ps-hist-readout {
+      grid-column: 1 / -1;
+      font-family: var(--bcn-mono); font-size: 10.5px; color: var(--bcn-ink-3);
+      padding-top: 4px; border-top: 1px dashed var(--bcn-border);
+      display: flex; align-items: center; gap: 8px;
+    }
 
-    .plan-card-table input{height:28px;border:1px solid var(--bcn-border,#d5dee9);border-radius:6px;padding:3px 7px;font-size:11px;font-variant-numeric:tabular-nums;outline:none;background:var(--bcn-surface,#fff)}
-    .plan-card-table input:focus{border-color:var(--bcn-accent,#60a5fa);box-shadow:0 0 0 3px var(--bcn-accent-soft,rgba(59,130,246,.10))}
+    /* Toggle group (Revenue / Units / Both / Formula etc.) */
+    .ps-toggle {
+      display: inline-flex; height: 26px;
+      border: 1px solid var(--bcn-border-strong);
+      border-radius: var(--bcn-radius); overflow: hidden;
+    }
+    .ps-toggle button {
+      padding: 0 11px; height: 100%; border: none;
+      background: var(--bcn-surface); color: var(--bcn-ink-2);
+      font-family: var(--bcn-font); font-size: 11.5px; font-weight: 500;
+      border-right: 1px solid var(--bcn-border);
+      cursor: pointer; white-space: nowrap;
+      transition: background .12s, color .12s;
+    }
+    .ps-toggle button:last-child { border-right: none; }
+    .ps-toggle button:hover { background: var(--bcn-sunken); color: var(--bcn-ink); }
+    .ps-toggle button.active { background: var(--bcn-band); color: #fff; }
+    /* Back-compat for any .mode-btn references */
+    .mode-btn { display: none; }
 
-    /* projection-only chrome */
-    .ps-loc-wrap.hidden,.ps-proj-row.hidden{display:none}
+    /* Annual summary bars — accent gradient, less heavy than v1 emerald */
+    .ps-bar-row {
+      display: grid; grid-template-columns: repeat(11, minmax(78px, 1fr));
+      gap: 3px; min-width: 970px; align-items: end;
+      padding: 12px 12px 8px;
+    }
+    .ps-bar {
+      min-height: 22px;
+      display: flex; align-items: end; justify-content: center;
+      padding-bottom: 3px;
+      background: var(--bcn-sunken);
+      border-top: 2px solid var(--bcn-accent);
+      font-family: var(--bcn-mono); font-size: 9.5px; font-weight: 600;
+      color: var(--bcn-ink-2);
+    }
+    .ps-bar.is-selected {
+      background: var(--bcn-accent-soft);
+      color: var(--bcn-accent);
+      border-top-color: var(--bcn-accent);
+    }
+    .ps-bar.is-plan {
+      border-top-color: var(--bcn-band);
+      color: var(--bcn-ink-2);
+    }
 
-    /* status / dirty markers */
-    #statusLine{font-size:11px;color:var(--bcn-ink-3,#64748b);font-variant-numeric:tabular-nums}
-    .ps-err{color:#991b1b;font-weight:800}
+    /* Generic Silo v2 tables (annual / monthly / gap / channel / family) */
+    .ps-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+    .ps-table thead th {
+      background: var(--bcn-sunken); color: var(--bcn-ink-3);
+      font-family: var(--bcn-font); font-size: 10.5px; font-weight: 700;
+      letter-spacing: 0.04em; text-align: left;
+      padding: 7px 10px; white-space: nowrap;
+      border-bottom: 1px solid var(--bcn-border-strong);
+    }
+    .ps-table thead th.num { text-align: right; font-family: var(--bcn-mono); }
+    .ps-table tbody td {
+      padding: 5px 10px; font-size: 11.5px; color: var(--bcn-ink);
+      background: var(--bcn-surface); border-bottom: 1px solid var(--bcn-border);
+      white-space: nowrap;
+    }
+    .ps-table tbody td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--bcn-mono); }
+    .ps-table tbody td.td-label { font-weight: 600; color: var(--bcn-ink); }
+    .ps-table tbody td.td-month { font-weight: 600; color: var(--bcn-ink); font-family: var(--bcn-mono); }
+    .ps-table tbody td.td-po { color: var(--bcn-accent); font-weight: 600; }
+    .ps-table tbody tr:nth-child(even) td { background: var(--bcn-sunken); }
+    .ps-table tbody tr:hover td { background: var(--bcn-accent-soft); }
+    .ps-table tbody tr.row-total td {
+      background: var(--bcn-band) !important; color: #fff !important;
+      font-weight: 600;
+    }
+    .ps-table tbody tr.row-total td.td-po { color: var(--bcn-accent-soft) !important; }
+    .ps-table.stickyHead thead th { position: sticky; top: 0; z-index: 15; }
 
-    @media print{
-      header,.no-print,#filtersCard details.assumption-edit,#planningInputs .edit-only{display:none!important}
-      body{background:#fff}
-      .ps-shell{max-width:none;padding:0}
-      .surface{box-shadow:none;border-color:#cbd5e1;break-inside:avoid}
-      .thin-scroll{overflow:visible!important}
+    /* YoY % cell tints (Monthly + Plan tables) */
+    .ps-yoy-pos { color: var(--bcn-pos); font-weight: 600; }
+    .ps-yoy-neg { color: var(--bcn-neg); font-weight: 600; }
+
+    /* Signal pills used inside tables (gap / family action / bucket) */
+    .ps-signal {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px; border-radius: var(--bcn-radius-sm);
+      font-family: var(--bcn-font); font-size: 10.5px; font-weight: 600;
+      border: 1px solid var(--bcn-border);
+      background: var(--bcn-surface); color: var(--bcn-ink-2);
+      white-space: nowrap;
+    }
+    .ps-signal--good   { background: var(--bcn-pos-soft); color: var(--bcn-pos); border-color: var(--bcn-pos-border); }
+    .ps-signal--warn   { background: oklch(0.96 0.07 90); color: oklch(0.42 0.13 60); border-color: oklch(0.85 0.10 80); }
+    .ps-signal--bad    { background: var(--bcn-neg-soft); color: var(--bcn-neg); border-color: var(--bcn-neg-border); }
+    .ps-signal--accent { background: var(--bcn-accent-soft); color: var(--bcn-accent); border-color: var(--bcn-accent-border); }
+    .ps-signal--dark   { background: var(--bcn-band); color: #fff; border-color: var(--bcn-band); }
+    .ps-signal--neutral{ background: var(--bcn-sunken); color: var(--bcn-ink-3); border-color: var(--bcn-border); }
+
+    /* Status line + projection helper */
+    #statusLine {
+      font-family: var(--bcn-mono); font-size: 11px; color: var(--bcn-ink-3);
+      padding: 4px 0;
+    }
+    #statusLine b { color: var(--bcn-ink-2); font-weight: 600; }
+    .ps-err { color: var(--bcn-neg); font-weight: 600; }
+    .ps-proj-note {
+      font-size: 11.5px; color: var(--bcn-ink-2); line-height: 1.4;
+      padding: 8px 12px; border: 1px dashed var(--bcn-border-strong);
+      border-radius: var(--bcn-radius); background: var(--bcn-sunken);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .ps-proj-note.is-loaded { border-style: solid; border-color: var(--bcn-accent-border); background: var(--bcn-accent-soft); color: var(--bcn-ink-2); }
+    .ps-proj-note.hidden { display: none; }
+    .ps-proj-note b { color: var(--bcn-ink); font-weight: 600; }
+
+    /* Family table legend (collapsed by default) */
+    .ps-legend { background: var(--bcn-surface); border-bottom: 1px solid var(--bcn-border); }
+    .ps-legend summary {
+      list-style: none; cursor: pointer;
+      padding: 6px 12px; font-size: 11.5px; color: var(--bcn-ink-2); font-weight: 500;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .ps-legend summary::-webkit-details-marker { display: none; }
+    .ps-legend summary::before {
+      content: "▸"; color: var(--bcn-ink-3); font-size: 10px;
+      transition: transform .12s; display: inline-block;
+    }
+    .ps-legend[open] summary::before { transform: rotate(90deg); }
+    .ps-legend-body {
+      padding: 8px 14px 12px;
+      background: var(--bcn-sunken);
+      border-top: 1px solid var(--bcn-border);
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 4px 18px;
+      font-size: 11.5px; color: var(--bcn-ink-2); line-height: 1.5;
+    }
+    .ps-legend-body div { padding: 1px 0; }
+    .ps-legend-body b { font-weight: 600; color: var(--bcn-ink); }
+
+    /* Generic thin scrollbar */
+    .thin-scroll { scrollbar-width: thin; scrollbar-color: var(--bcn-border-strong) transparent; }
+    .thin-scroll::-webkit-scrollbar { height: 10px; width: 10px; }
+    .thin-scroll::-webkit-scrollbar-thumb { background: var(--bcn-border-strong); border-radius: 999px; }
+    .thin-scroll::-webkit-scrollbar-track { background: transparent; }
+
+    details > summary { list-style: none; cursor: pointer; }
+    details > summary::-webkit-details-marker { display: none; }
+
+    /* Layout for Gap + Channel row */
+    .ps-gap-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 10px; }
+
+    /* Responsive */
+    @media (max-width: 1280px) {
+      .ps-input-grid { grid-template-columns: 1fr; }
+      .ps-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .ps-assump-grid { grid-template-columns: 1fr; }
+      .ps-gap-grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 900px) {
+      .ps-shell { padding: 8px 8px 24px; }
+      .ps-kpi-grid { grid-template-columns: 1fr; }
+    }
+
+    /* Print */
+    @media print {
+      header, .no-print { display: none !important; }
+      body, .silo-main { background: #fff; }
+      .ps-shell { max-width: none; padding: 0; gap: 6px; }
+      .bcn-card, .ps-kpi-card, .ps-assump-card { box-shadow: none; break-inside: avoid; }
+      .thin-scroll { overflow: visible !important; }
     }
   </style>
 </head>
@@ -105,12 +386,14 @@
   <main class="silo-main">
 
     <header class="bcn-header no-print">
-      <div style="display:flex;flex-direction:column;gap:2px;min-width:0;">
-        <h1 style="margin:0;font-size:18px;font-weight:850;letter-spacing:-.025em;color:var(--bcn-ink-1);">Planning Scenarios</h1>
-        <p style="margin:0;font-size:11px;color:var(--bcn-ink-3);">Historical baseline + revenue plan / mix / ASP overrides + inventory gap proof.</p>
+      <div style="flex:1;min-width:0;">
+        <div class="bcn-header-title">
+          <h1>Planning scenarios</h1>
+          <span id="rangeChip" class="bcn-pill bcn-pill--accent">—</span>
+        </div>
+        <div class="bcn-header-sub">Historical baseline · revenue plan × mix ÷ ASP · inventory gap proof.</div>
       </div>
       <div class="bcn-header-actions">
-        <span id="rangeChip" class="bcn-pill">—</span>
         <button id="btnReload" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">RELOAD</button>
         <button id="btnPrint" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono no-print">PRINT</button>
         <button id="btnExport" type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono no-print">EXPORT CSV</button>
@@ -119,82 +402,84 @@
 
     <div class="ps-shell">
 
-      <!-- Filters (v1 layout, single visible row) -->
-      <section id="filtersCard" class="surface" style="padding:12px;">
-        <div class="flex flex-col 2xl:flex-row 2xl:items-center gap-3">
-          <div class="flex items-center gap-2 flex-wrap flex-1">
-            <span class="text-[11px] font-black" style="color:var(--bcn-accent);">↬ View filters:</span>
-
-            <div class="flex items-center gap-2">
-              <span class="label">Mode</span>
-              <select id="selPlanMode" class="field w-[160px]">
+      <!-- Command panel: filters + assumption controls -->
+      <section id="filtersCard" class="bcn-card no-print">
+        <header class="bcn-card-header">
+          <span class="bcn-pill bcn-pill--dark">SETUP</span>
+          <h2>Scope &amp; assumptions</h2>
+          <span class="bcn-card-meta">Filters scope sales / inventory / families. Assumptions drive scenario math.</span>
+          <div style="margin-left:auto;display:flex;gap:6px;">
+            <button id="btnApply" type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono">RUN</button>
+            <button id="btnReset" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">RESET</button>
+          </div>
+        </header>
+        <div class="ps-cmd">
+          <!-- Row 1: scope filters -->
+          <div class="ps-cmd-row">
+            <div class="ps-field-group" style="min-width:140px;">
+              <label class="bcn-label" for="selPlanMode">Mode</label>
+              <select id="selPlanMode" class="bcn-field">
                 <option value="historical">Historical Lift</option>
                 <option value="revenue_plan" selected>Revenue Plan</option>
               </select>
             </div>
-
-            <div class="flex items-center gap-2">
-              <span class="label">Period</span>
-              <input id="dateFrom" type="month" class="field w-[120px] mono" />
-              <span style="color:var(--bcn-ink-3);">→</span>
-              <input id="dateTo" type="month" class="field w-[120px] mono" />
+            <div class="ps-field-group" style="min-width:240px;">
+              <label class="bcn-label">Period</label>
+              <div class="ps-field-inline">
+                <input id="dateFrom" type="month" class="bcn-field bcn-field--mono" style="width:120px;" />
+                <span class="ps-arrow">→</span>
+                <input id="dateTo" type="month" class="bcn-field bcn-field--mono" style="width:120px;" />
+              </div>
             </div>
-
-            <div class="flex items-center gap-2">
-              <span class="label">Product type</span>
-              <select id="selProductType" class="field w-[180px]">
+            <div class="ps-field-group" style="min-width:170px;">
+              <label class="bcn-label" for="selProductType">Product type</label>
+              <select id="selProductType" class="bcn-field">
                 <option value="__ALL__">All product types</option>
               </select>
             </div>
-
-            <div class="flex items-center gap-2">
-              <span class="label">Channel</span>
-              <select id="selChannel" class="field w-[160px]">
+            <div class="ps-field-group" style="min-width:150px;">
+              <label class="bcn-label" for="selChannel">Channel</label>
+              <select id="selChannel" class="bcn-field">
                 <option value="__ALL__">All channels</option>
                 <option value="online">Online</option>
                 <option value="retail">Retail</option>
                 <option value="wholesale">Wholesale / Faire</option>
               </select>
             </div>
-
-            <div class="flex items-center gap-2 ps-loc-wrap hidden" id="locWrap">
-              <span class="label">Location <span style="color:var(--bcn-ink-3);font-weight:600;">(projection seed)</span></span>
-              <select id="selLocation" class="field w-[150px]"><option value="">All locations</option></select>
-              <select id="selProjScenario" class="field w-[100px]">
-                <option value="active" selected>active</option>
-                <option value="draft">draft</option>
-                <option value="archived">archived</option>
-              </select>
+            <span id="locWrap" class="ps-loc-wrap hidden">
+              <div class="ps-field-group" style="min-width:150px;">
+                <label class="bcn-label" for="selLocation">Projection location</label>
+                <select id="selLocation" class="bcn-field"><option value="">All locations</option></select>
+              </div>
+              <div class="ps-field-group" style="min-width:110px;">
+                <label class="bcn-label" for="selProjScenario">Projection scenario</label>
+                <select id="selProjScenario" class="bcn-field">
+                  <option value="active" selected>active</option>
+                  <option value="draft">draft</option>
+                  <option value="archived">archived</option>
+                </select>
+              </div>
+            </span>
+            <div class="ps-field-group" style="flex:1;min-width:200px;">
+              <label class="bcn-label" for="txtProductSearch">Search</label>
+              <input id="txtProductSearch" class="bcn-field" placeholder="Product family optional..." />
             </div>
-
-            <div class="flex items-center gap-2">
-              <span class="label">Search</span>
-              <input id="txtProductSearch" class="field w-[220px]" placeholder="Product family optional..." />
-            </div>
-
-            <label class="flex items-center gap-2 text-[11px]" style="color:var(--bcn-ink-3);">
-              <input id="chkShowUnits" type="checkbox" class="h-4 w-4" checked />Show units
+            <label class="ps-check-row">
+              <input id="chkShowUnits" type="checkbox" checked />Show units
             </label>
           </div>
 
-          <div class="flex items-center gap-2">
-            <button id="btnApply" type="button" class="btn-dark">Run</button>
-            <button id="btnReset" type="button" class="btn">Reset</button>
-          </div>
-        </div>
+          <div class="ps-cmd-divider"></div>
 
-        <details class="assumption-edit mt-3" open>
-          <summary class="flex items-center justify-between gap-3 pt-3" style="border-top:1px solid var(--bcn-border);">
-            <div>
-              <div class="text-[12px] font-extrabold" style="color:var(--bcn-ink-1);">Assumption Controls</div>
-              <div class="text-[11px]" style="color:var(--bcn-ink-3);">Revenue Plan mode uses monthly revenue × product type mix ÷ ASP. Historical mode uses selected period baseline × lift.</div>
+          <!-- Row 2: assumption controls (revenue plan overrides / scenario preset) -->
+          <div class="ps-cmd-row">
+            <div class="ps-field-group" style="min-width:170px;">
+              <label class="bcn-label">Total revenue override</label>
+              <input id="numTotalRevenueOverride" type="number" step="1000" class="bcn-field bcn-field--mono" placeholder="Historical mode only" />
             </div>
-            <span class="text-[11px]" style="color:var(--bcn-ink-3);">toggle</span>
-          </summary>
-          <div class="mt-3 grid grid-cols-1 xl:grid-cols-5 gap-3">
-            <div><label class="label mb-1 block">Total Revenue Override</label><input id="numTotalRevenueOverride" type="number" step="1000" class="field w-full mono" placeholder="Historical mode only" /></div>
-            <div><label class="label mb-1 block">Scenario Preset</label>
-              <select id="selScenario" class="field w-full">
+            <div class="ps-field-group" style="min-width:150px;">
+              <label class="bcn-label" for="selScenario">Scenario preset</label>
+              <select id="selScenario" class="bcn-field">
                 <option value="0">Plan / Baseline</option>
                 <option value="10">+10%</option>
                 <option value="20">+20%</option>
@@ -204,218 +489,271 @@
                 <option value="custom">Custom</option>
               </select>
             </div>
-            <div><label class="label mb-1 block">Custom Lift %</label><input id="numCustomLift" type="number" step="1" value="25" class="field w-full mono" /></div>
-            <div><label class="label mb-1 block">Safety / Buffer %</label><input id="numSafetyPct" type="number" step="1" value="10" class="field w-full mono" /></div>
-            <div><label class="label mb-1 block">Scenario Name</label><input id="txtScenarioName" class="field w-full" placeholder="ex: Loomis Youth Shorts" /></div>
+            <div class="ps-field-group" style="min-width:90px;">
+              <label class="bcn-label">Custom lift %</label>
+              <input id="numCustomLift" type="number" step="1" value="25" class="bcn-field bcn-field--mono" />
+            </div>
+            <div class="ps-field-group" style="min-width:90px;">
+              <label class="bcn-label">Safety / buffer %</label>
+              <input id="numSafetyPct" type="number" step="1" value="10" class="bcn-field bcn-field--mono" />
+            </div>
+            <div class="ps-field-group" style="flex:1;min-width:200px;">
+              <label class="bcn-label">Scenario name</label>
+              <input id="txtScenarioName" class="bcn-field" placeholder="ex: Loomis Youth Shorts" />
+            </div>
           </div>
-          <div class="mt-3 overflow-auto thin-scroll" id="historicalAssumptionWrap">
-            <div class="min-w-[850px] space-y-2" id="assumptionStrips"></div>
-          </div>
-        </details>
 
-        <div id="statusLine" class="mt-2 mono">Loading…</div>
-      </section>
+          <!-- Historical-mode-only channel assumption strips -->
+          <div id="historicalAssumptionWrap" class="thin-scroll" style="overflow:auto;">
+            <div id="assumptionStrips" style="display:flex;flex-direction:column;gap:8px;"></div>
+          </div>
 
-      <!-- Planning inputs: three cards side-by-side (v1) -->
-      <section id="planningInputs" class="grid grid-cols-1 2xl:grid-cols-3 gap-3">
-        <div class="surface" style="padding:12px;">
-          <div class="flex items-center justify-between gap-3 mb-2">
-            <div>
-              <div class="text-[13px] font-black uppercase tracking-wide" style="color:var(--bcn-ink-2);">Current Plan vs Last Year</div>
-              <div class="text-[11px]" style="color:var(--bcn-ink-3);">Monthly projection dollars with LY actual and YoY bucket proof.</div>
-            </div>
-            <div class="flex items-center gap-2 edit-only">
-              <button id="btnSeedRevenue" type="button" class="btn">Seed from Historical</button>
-              <button id="btnSeedProjections" type="button" class="btn-accent">Seed from Projections</button>
-            </div>
-          </div>
-          <div class="overflow-auto thin-scroll">
-            <table class="w-full min-w-[540px] plan-card-table">
-              <thead><tr>
-                <th class="px-3 py-2 text-left">Month</th>
-                <th class="px-3 py-2 num">Last Year</th>
-                <th class="px-3 py-2 num">Current Plan ($)</th>
-                <th class="px-3 py-2 num">YoY %</th>
-                <th class="px-3 py-2 text-left">Bucket</th>
-                <th class="px-3 py-2 text-left">Notes</th>
-              </tr></thead>
-              <tbody id="revenuePlanBody"></tbody>
-            </table>
-          </div>
-        </div>
-        <div class="surface" style="padding:12px;">
-          <div class="flex items-center justify-between gap-3 mb-2">
-            <div>
-              <div class="text-[13px] font-black uppercase tracking-wide" style="color:var(--bcn-ink-2);">Mix % <span style="color:var(--bcn-ink-3);">— Month Σ live</span></div>
-              <div class="text-[11px]" style="color:var(--bcn-ink-3);">Selected product type share of revenue plan.</div>
-            </div>
-            <button id="btnSeedMix" type="button" class="btn edit-only">Seed Mix</button>
-          </div>
-          <div class="overflow-auto thin-scroll">
-            <table class="w-full min-w-[560px] plan-card-table">
-              <thead><tr>
-                <th class="px-3 py-2 text-left">Month</th>
-                <th class="px-3 py-2 text-left">Product Type</th>
-                <th class="px-3 py-2 num">Mix %</th>
-                <th class="px-3 py-2 num">Month Σ</th>
-              </tr></thead>
-              <tbody id="mixPlanBody"></tbody>
-            </table>
-          </div>
-        </div>
-        <div class="surface" style="padding:12px;">
-          <div class="flex items-center justify-between gap-3 mb-2">
-            <div>
-              <div class="text-[13px] font-black uppercase tracking-wide" style="color:var(--bcn-ink-2);">ASP</div>
-              <div class="text-[11px]" style="color:var(--bcn-ink-3);">Average selling price override for unit need.</div>
-            </div>
-            <button id="btnSeedAsp" type="button" class="btn edit-only">Seed ASP</button>
-          </div>
-          <div class="overflow-auto thin-scroll">
-            <table class="w-full min-w-[520px] plan-card-table">
-              <thead><tr>
-                <th class="px-3 py-2 text-left">Month</th>
-                <th class="px-3 py-2 text-left">Product Type</th>
-                <th class="px-3 py-2 num">ASP ($)</th>
-              </tr></thead>
-              <tbody id="aspPlanBody"></tbody>
-            </table>
-          </div>
+          <div id="statusLine">Loading…</div>
         </div>
       </section>
 
-      <!-- Scenario cards -->
-      <section class="grid grid-cols-1 lg:grid-cols-4 gap-2" id="scenarioCards"></section>
-      <section class="grid grid-cols-1 xl:grid-cols-3 gap-2" id="assumptionReadout"></section>
+      <!-- Projection-seed helper note (revealed after first 'Seed from Projections') -->
+      <div id="projNote" class="ps-proj-note hidden">
+        <span class="bcn-pill bcn-pill--accent">PROJECTION SEED</span>
+        <span>Projection seed uses <b>revenue_projections</b> monthly totals (company-wide). Mix, ASP, units, and inventory gaps still use filtered historical demand for the active product type.</span>
+      </div>
 
-      <!-- Annual summary -->
-      <section class="surface" style="padding:12px;">
-        <div class="flex items-center justify-between gap-3">
-          <div>
-            <div class="panel-title">Annual Summary — All Scenarios</div>
-            <div class="text-[11px] mt-1" style="color:var(--bcn-ink-3);">Scenario ladder from Plan through +100%. In Revenue Plan mode, Plan is the manual revenue/mix/ASP model.</div>
+      <!-- Plan inputs: three cards side-by-side at desktop (v1 layout) -->
+      <section id="planningInputs" class="ps-input-grid">
+        <article class="bcn-card ps-input-card">
+          <header class="bcn-card-header">
+            <span class="bcn-pill bcn-pill--accent">REVENUE</span>
+            <h2>Plan vs last year</h2>
+            <span class="bcn-card-meta">Monthly $ with LY actual and YoY bucket.</span>
+            <div class="ps-input-card-actions edit-only">
+              <button id="btnSeedRevenue" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">SEED HISTORICAL</button>
+              <button id="btnSeedProjections" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">SEED PROJECTIONS</button>
+            </div>
+          </header>
+          <div class="bcn-card-body">
+            <div class="ps-input-scroll thin-scroll">
+              <table class="plan-card-table">
+                <thead><tr>
+                  <th>Month</th>
+                  <th class="num">Last year</th>
+                  <th class="num">Plan ($)</th>
+                  <th class="num">YoY %</th>
+                  <th>Bucket</th>
+                  <th>Notes</th>
+                </tr></thead>
+                <tbody id="revenuePlanBody"></tbody>
+              </table>
+            </div>
           </div>
-          <div class="flex items-center gap-2 no-print">
-            <button class="mode-btn active" type="button" data-summary-metric="revenue">Revenue</button>
-            <button class="mode-btn" type="button" data-summary-metric="units">Units</button>
-            <button class="mode-btn" type="button" data-summary-metric="gap">Inventory Gap</button>
+        </article>
+
+        <article class="bcn-card ps-input-card">
+          <header class="bcn-card-header">
+            <span class="bcn-pill bcn-pill--accent">MIX</span>
+            <h2>Product-type mix %</h2>
+            <span class="bcn-card-meta">Selected type share.</span>
+            <div class="ps-input-card-actions edit-only">
+              <button id="btnSeedMix" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">SEED</button>
+            </div>
+          </header>
+          <div class="bcn-card-body">
+            <div class="ps-input-scroll thin-scroll">
+              <table class="plan-card-table">
+                <thead><tr>
+                  <th>Month</th>
+                  <th>Type</th>
+                  <th class="num">Mix %</th>
+                  <th class="num">Month Σ</th>
+                </tr></thead>
+                <tbody id="mixPlanBody"></tbody>
+              </table>
+            </div>
           </div>
-        </div>
-        <div class="mt-3 overflow-auto thin-scroll">
-          <div id="scenarioBars" class="bar-row"></div>
-          <table class="mt-3 min-w-[1150px] w-full">
-            <thead><tr id="scenarioMatrixHead"></tr></thead>
-            <tbody id="scenarioMatrixBody"></tbody>
-          </table>
-        </div>
+        </article>
+
+        <article class="bcn-card ps-input-card">
+          <header class="bcn-card-header">
+            <span class="bcn-pill bcn-pill--accent">ASP</span>
+            <h2>Average selling price</h2>
+            <span class="bcn-card-meta">Drives required units.</span>
+            <div class="ps-input-card-actions edit-only">
+              <button id="btnSeedAsp" type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono">SEED</button>
+            </div>
+          </header>
+          <div class="bcn-card-body">
+            <div class="ps-input-scroll thin-scroll">
+              <table class="plan-card-table">
+                <thead><tr>
+                  <th>Month</th>
+                  <th>Type</th>
+                  <th class="num">ASP ($)</th>
+                </tr></thead>
+                <tbody id="aspPlanBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </article>
       </section>
+
+      <!-- Scenario summary cards (Plan / +25 / +50 / +100) -->
+      <section class="ps-kpi-grid" id="scenarioCards"></section>
+
+      <!-- Channel assumption readouts -->
+      <section class="ps-assump-grid" id="assumptionReadout"></section>
+
+      <!-- Annual scenario matrix -->
+      <article class="bcn-card">
+        <header class="bcn-card-header">
+          <span class="bcn-pill">ANNUAL</span>
+          <h2>Scenario matrix</h2>
+          <span class="bcn-card-meta">Plan → +100% across 11 scenarios.</span>
+          <div class="ps-toggle" style="margin-left:auto;">
+            <button type="button" class="active" data-summary-metric="revenue">Revenue</button>
+            <button type="button" data-summary-metric="units">Units</button>
+            <button type="button" data-summary-metric="gap">Gap</button>
+          </div>
+        </header>
+        <div class="bcn-card-body" style="padding:0;gap:0;">
+          <div class="thin-scroll" style="overflow:auto;">
+            <div id="scenarioBars" class="ps-bar-row"></div>
+          </div>
+          <div class="thin-scroll" style="overflow:auto;">
+            <table class="ps-table" style="min-width:1150px;">
+              <thead><tr id="scenarioMatrixHead"></tr></thead>
+              <tbody id="scenarioMatrixBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </article>
 
       <!-- Monthly detail -->
-      <section class="surface" style="padding:12px;">
-        <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
-          <div>
-            <div class="panel-title">Monthly Detail — Revenue by Scenario</div>
-            <div class="text-[11px] mt-1" style="color:var(--bcn-ink-3);">Revenue Plan mode: revenue × mix ÷ ASP by month. Historical mode: monthly actuals × scenario lift.</div>
+      <article class="bcn-card">
+        <header class="bcn-card-header">
+          <span class="bcn-pill">MONTHLY</span>
+          <h2>Detail by scenario</h2>
+          <span class="bcn-card-meta">Revenue plan × mix ÷ ASP, by month.</span>
+          <div class="ps-toggle" style="margin-left:auto;">
+            <button type="button" class="active" data-monthly-metric="revenue">Revenue</button>
+            <button type="button" data-monthly-metric="units">Units</button>
+            <button type="button" data-monthly-metric="both">Both</button>
+            <button type="button" data-monthly-metric="formula">Formula</button>
           </div>
-          <div class="flex flex-wrap items-center gap-2 no-print">
-            <button class="mode-btn active" type="button" data-monthly-metric="revenue">Revenue</button>
-            <button class="mode-btn" type="button" data-monthly-metric="units">Units</button>
-            <button class="mode-btn" type="button" data-monthly-metric="both">Revenue + Units</button>
-            <button class="mode-btn" type="button" data-monthly-metric="formula">Formula Proof</button>
+        </header>
+        <div class="bcn-card-body" style="padding:0;gap:0;">
+          <div class="thin-scroll" style="overflow:auto;max-height:520px;">
+            <table class="ps-table stickyHead" style="min-width:1800px;">
+              <thead><tr id="monthlyHead"></tr></thead>
+              <tbody id="monthlyBody"></tbody>
+            </table>
           </div>
         </div>
-        <div class="mt-3 overflow-auto thin-scroll">
-          <table class="min-w-[1800px] w-full stickyHead">
-            <thead><tr id="monthlyHead"></tr></thead>
-            <tbody id="monthlyBody"></tbody>
-          </table>
-        </div>
-      </section>
+      </article>
 
-      <!-- Gap + Channel -->
-      <section class="grid grid-cols-1 2xl:grid-cols-2 gap-3">
-        <section class="surface" style="padding:12px;">
-          <div class="flex items-center justify-between gap-3">
-            <div>
-              <div class="panel-title">Inventory Gap — Selected Scenario</div>
-              <div class="text-[11px] mt-1" style="color:var(--bcn-ink-3);">Current on-hand + open POs from purchasing against required units.</div>
+      <!-- Gap + Channel/ASP -->
+      <section class="ps-gap-grid">
+        <article class="bcn-card">
+          <header class="bcn-card-header">
+            <span class="bcn-pill bcn-pill--accent">GAP</span>
+            <h2>Inventory gap</h2>
+            <span class="bcn-card-meta">On-hand + open PO vs required units.</span>
+            <span id="selectedScenarioChip" class="bcn-pill bcn-pill--dark" style="margin-left:auto;">+25%</span>
+          </header>
+          <div class="bcn-card-body" style="padding:0;gap:0;">
+            <div class="thin-scroll" style="overflow:auto;">
+              <table class="ps-table" style="min-width:1080px;">
+                <thead><tr>
+                  <th>Bucket</th>
+                  <th class="num">Required units</th>
+                  <th class="num">On hand</th>
+                  <th class="num">Open PO</th>
+                  <th class="num">Available + PO</th>
+                  <th class="num">Net gap</th>
+                  <th class="num">Gap + buffer</th>
+                  <th>Signal</th>
+                </tr></thead>
+                <tbody id="gapBody"></tbody>
+              </table>
             </div>
-            <span id="selectedScenarioChip" class="chip">+25%</span>
           </div>
-          <div class="mt-3 overflow-auto thin-scroll">
-            <table class="min-w-[1080px] w-full">
-              <thead><tr>
-                <th class="px-3 py-2 text-left">Bucket</th>
-                <th class="px-3 py-2 num">Required Units</th>
-                <th class="px-3 py-2 num">On Hand</th>
-                <th class="px-3 py-2 num">Open PO</th>
-                <th class="px-3 py-2 num">Available + PO</th>
-                <th class="px-3 py-2 num">Net Gap</th>
-                <th class="px-3 py-2 num">Gap + Buffer</th>
-                <th class="px-3 py-2 text-left">Signal</th>
-              </tr></thead>
-              <tbody id="gapBody"></tbody>
-            </table>
+        </article>
+
+        <article class="bcn-card">
+          <header class="bcn-card-header">
+            <span class="bcn-pill">CHANNEL</span>
+            <h2>Mix / ASP</h2>
+            <span class="bcn-card-meta">Historical vs plan, per channel.</span>
+          </header>
+          <div class="bcn-card-body" style="padding:0;gap:0;">
+            <div class="thin-scroll" style="overflow:auto;">
+              <table class="ps-table" style="min-width:680px;">
+                <thead><tr>
+                  <th>Bucket</th>
+                  <th class="num">Hist mix</th>
+                  <th class="num">Plan mix</th>
+                  <th class="num">Hist ASP</th>
+                  <th class="num">Plan ASP</th>
+                  <th class="num">ASP Δ</th>
+                  <th>Mode</th>
+                </tr></thead>
+                <tbody id="channelBody"></tbody>
+              </table>
+            </div>
           </div>
-        </section>
-        <section class="surface" style="padding:12px;">
-          <div>
-            <div class="panel-title">Channel Mix / ASP Assumptions</div>
-            <div class="text-[11px] mt-1" style="color:var(--bcn-ink-3);">Shows whether you are using historical mix or manual overrides.</div>
-          </div>
-          <div class="mt-3 overflow-auto thin-scroll">
-            <table class="min-w-[850px] w-full">
-              <thead><tr>
-                <th class="px-3 py-2 text-left">Bucket</th>
-                <th class="px-3 py-2 num">Hist Mix</th>
-                <th class="px-3 py-2 num">Plan Mix</th>
-                <th class="px-3 py-2 num">Hist ASP</th>
-                <th class="px-3 py-2 num">Plan ASP</th>
-                <th class="px-3 py-2 num">ASP Change</th>
-                <th class="px-3 py-2 text-left">Mode</th>
-              </tr></thead>
-              <tbody id="channelBody"></tbody>
-            </table>
-          </div>
-        </section>
+        </article>
       </section>
 
       <!-- Product families -->
-      <section class="surface" style="padding:12px;">
-        <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
-          <div>
-            <div class="panel-title">Product Family Detail — Selected Scenario</div>
-            <div class="text-[11px] mt-1" style="color:var(--bcn-ink-3);">Scenario demand allocated by product-family demand share. Open POs reduce net buy need where product titles match.</div>
+      <article class="bcn-card">
+        <header class="bcn-card-header">
+          <span class="bcn-pill bcn-pill--dark">FAMILIES</span>
+          <h2>Product family detail</h2>
+          <span class="bcn-card-meta">Scenario units allocated by demand share.</span>
+          <div class="ps-toggle" style="margin-left:auto;">
+            <button type="button" class="active" data-family-filter="all">All</button>
+            <button type="button" data-family-filter="buy">Buy</button>
+            <button type="button" data-family-filter="mix">Review mix</button>
+            <button type="button" data-family-filter="overstock">Overstock</button>
           </div>
-          <div class="flex items-center gap-2 no-print">
-            <button class="mode-btn active" type="button" data-family-filter="all">All</button>
-            <button class="mode-btn" type="button" data-family-filter="buy">Buy Need</button>
-            <button class="mode-btn" type="button" data-family-filter="mix">Review Mix</button>
-            <button class="mode-btn" type="button" data-family-filter="overstock">Overstock</button>
+        </header>
+        <details class="ps-legend">
+          <summary>How to read this table</summary>
+          <div class="ps-legend-body">
+            <div><b>Demand share</b> — percent of filtered historical demand assigned to the family.</div>
+            <div><b>Scenario units</b> — estimated units needed from the selected scenario.</div>
+            <div><b>Open PO</b> — units already on open purchase orders.</div>
+            <div><b>Available + PO</b> — current on-hand plus open PO units.</div>
+            <div><b>Net gap</b> — scenario units minus available and on-order coverage.</div>
+            <div><b>Gap + buffer</b> — net gap plus selected safety buffer.</div>
+            <div><b>Buy need</b> — demand exceeds available / on-order coverage.</div>
+            <div><b>Review mix</b> — mix, ASP, demand, or inventory relationship needs review.</div>
+            <div><b>Overstock</b> — inventory coverage appears higher than scenario demand.</div>
+            <div><b>Covered</b> — no immediate buy need based on the current scenario.</div>
+          </div>
+        </details>
+        <div class="bcn-card-body" style="padding:0;gap:0;">
+          <div class="thin-scroll" style="overflow:auto;max-height:600px;">
+            <table class="ps-table stickyHead" style="min-width:1820px;">
+              <thead><tr>
+                <th>Product</th>
+                <th>Type</th>
+                <th class="num">On hand</th>
+                <th class="num">Retail value</th>
+                <th class="num">Sold 30d</th>
+                <th class="num">Sold 365d</th>
+                <th class="num">Demand share</th>
+                <th class="num">Scenario units</th>
+                <th class="num">Open PO</th>
+                <th class="num">Available + PO</th>
+                <th class="num">Net gap</th>
+                <th class="num">Gap + buffer</th>
+                <th>Action</th>
+                <th>Tags</th>
+              </tr></thead>
+              <tbody id="familyBody"></tbody>
+            </table>
           </div>
         </div>
-        <div class="mt-3 overflow-auto thin-scroll">
-          <table class="min-w-[1820px] w-full stickyHead">
-            <thead><tr>
-              <th class="px-3 py-2 text-left">Product</th>
-              <th class="px-3 py-2 text-left">Type</th>
-              <th class="px-3 py-2 num">On Hand</th>
-              <th class="px-3 py-2 num">Retail Value</th>
-              <th class="px-3 py-2 num">Sold 30d</th>
-              <th class="px-3 py-2 num">Sold 365d</th>
-              <th class="px-3 py-2 num">Demand Share</th>
-              <th class="px-3 py-2 num">Scenario Units</th>
-              <th class="px-3 py-2 num">Open PO</th>
-              <th class="px-3 py-2 num">Available + PO</th>
-              <th class="px-3 py-2 num">Net Gap</th>
-              <th class="px-3 py-2 num">Gap + Buffer</th>
-              <th class="px-3 py-2 text-left">Action</th>
-              <th class="px-3 py-2 text-left">Tags</th>
-            </tr></thead>
-            <tbody id="familyBody"></tbody>
-          </table>
-        </div>
-      </section>
+      </article>
 
     </div>
   </main>
@@ -554,7 +892,51 @@ function buildProductFamilies(){const by=new Map();for(const r of FILTERED_INVEN
 function renderProductTypeOptions(){const types=[...new Set(SALES_ROWS.map(r=>r.product_type).concat(INVENTORY_ROWS.map(r=>r.product_type)).concat(OPEN_PO_ROWS.map(r=>r.product_type)).filter(Boolean))].sort((a,b)=>a.localeCompare(b));const sel=el("selProductType"),cur=sel.value||"__ALL__";sel.innerHTML=`<option value="__ALL__">All product types</option>`+types.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join("");sel.value=types.includes(cur)?cur:"__ALL__"}
 function renderLocationOptions(){const sel=el("selLocation");if(!sel)return;const cur=sel.value||"";const opts=LOCATIONS.map(l=>`<option value="${esc(String(l.id))}">${esc(l.location_code||l.location_name||l.id)}</option>`).join("");sel.innerHTML=`<option value="">All locations</option>`+opts;sel.value=[...sel.options].some(o=>o.value===cur)?cur:""}
 
-function renderRevenuePlanInputs(){const months=selectedMonths(),productType=getFilters().productType==="__ALL__"?"Selected Type":getFilters().productType;el("revenuePlanBody").innerHTML=months.map(month=>{const existing=el(`revplan_${month}`)?.value,note=el(`note_${month}`)?.value||"",ly=lastYearRevenueForMonth(month),plan=existing?num(existing):ly,yoy=ly>0?((plan/ly)-1)*100:0;return`<tr><td class="px-3 py-2 font-bold">${esc(monthLabel(month))}</td><td class="px-3 py-2 num mono" style="color:var(--bcn-ink-3);">${money(ly)}</td><td class="px-3 py-2 num"><input id="revplan_${month}" class="w-full text-right mono" type="number" step="1000" value="${esc(existing||"")}" placeholder="${Math.round(ly).toLocaleString()}"></td><td class="px-3 py-2 num mono" style="color:${yoy>=0?"#16a34a":"#dc2626"};">${ly>0?pct(yoy,1):"—"}</td><td class="px-3 py-2"><span class="pill ${yoy>=25?"pill-purple":yoy>=0?"pill-good":"pill-warn"}">${esc(yoyBucket(yoy))}</span></td><td class="px-3 py-2"><input id="note_${month}" class="w-full" type="text" value="${esc(note)}" placeholder="${esc(baselineLabelFor(month))}"></td></tr>`}).join("");el("mixPlanBody").innerHTML=months.map(month=>{const existing=el(`mixplan_${month}`)?.value,monthSum=existing?num(existing):mixPctForMonth(month)*100;return`<tr><td class="px-3 py-2 font-bold">${esc(monthLabel(month))}</td><td class="px-3 py-2">${esc(productType)}</td><td class="px-3 py-2 num"><input id="mixplan_${month}" class="w-[92px] text-right mono" type="number" step="0.1" value="${esc(existing||"")}" placeholder="${(mixPctForMonth(month)*100).toFixed(1)}"></td><td class="px-3 py-2 num mono">${pct(monthSum,1)}</td></tr>`}).join("");el("aspPlanBody").innerHTML=months.map(month=>{const existing=el(`aspplan_${month}`)?.value;return`<tr><td class="px-3 py-2 font-bold">${esc(monthLabel(month))}</td><td class="px-3 py-2">${esc(productType)}</td><td class="px-3 py-2 num"><input id="aspplan_${month}" class="w-[110px] text-right mono" type="number" step="0.01" value="${esc(existing||"")}" placeholder="${aspForMonth(month).toFixed(2)}"></td></tr>`}).join("");for(const month of months){[`revplan_${month}`,`note_${month}`,`mixplan_${month}`,`aspplan_${month}`].forEach(id=>{el(id)?.addEventListener("input",()=>run({rebuildInputs:false}));el(id)?.addEventListener("change",()=>run({rebuildInputs:false}))})}}
+function renderRevenuePlanInputs(){
+  const months=selectedMonths();
+  const productType=getFilters().productType==="__ALL__"?"Selected Type":getFilters().productType;
+  el("revenuePlanBody").innerHTML=months.map(month=>{
+    const existing=el(`revplan_${month}`)?.value;
+    const note=el(`note_${month}`)?.value||"";
+    const ly=lastYearRevenueForMonth(month);
+    const plan=existing?num(existing):ly;
+    const yoy=ly>0?((plan/ly)-1)*100:0;
+    const yoyClass=yoy>=0?"ps-yoy-pos":"ps-yoy-neg";
+    const bucketSignal=yoy>=25?"ps-signal--accent":yoy>=0?"ps-signal--good":"ps-signal--warn";
+    return `<tr>
+      <td class="td-month">${esc(monthLabel(month))}</td>
+      <td class="num td-hint">${money(ly)}</td>
+      <td class="num"><input id="revplan_${month}" type="number" step="1000" value="${esc(existing||"")}" placeholder="${Math.round(ly).toLocaleString()}"></td>
+      <td class="num ${ly>0?yoyClass:""}">${ly>0?pct(yoy,1):"—"}</td>
+      <td><span class="ps-signal ${bucketSignal}">${esc(yoyBucket(yoy))}</span></td>
+      <td class="td-notes"><input id="note_${month}" type="text" value="${esc(note)}" placeholder="${esc(baselineLabelFor(month))}"></td>
+    </tr>`;
+  }).join("");
+  el("mixPlanBody").innerHTML=months.map(month=>{
+    const existing=el(`mixplan_${month}`)?.value;
+    const monthSum=existing?num(existing):mixPctForMonth(month)*100;
+    return `<tr>
+      <td class="td-month">${esc(monthLabel(month))}</td>
+      <td class="td-hint">${esc(productType)}</td>
+      <td class="num"><input id="mixplan_${month}" type="number" step="0.1" value="${esc(existing||"")}" placeholder="${(mixPctForMonth(month)*100).toFixed(1)}"></td>
+      <td class="num">${pct(monthSum,1)}</td>
+    </tr>`;
+  }).join("");
+  el("aspPlanBody").innerHTML=months.map(month=>{
+    const existing=el(`aspplan_${month}`)?.value;
+    return `<tr>
+      <td class="td-month">${esc(monthLabel(month))}</td>
+      <td class="td-hint">${esc(productType)}</td>
+      <td class="num"><input id="aspplan_${month}" type="number" step="0.01" value="${esc(existing||"")}" placeholder="${aspForMonth(month).toFixed(2)}"></td>
+    </tr>`;
+  }).join("");
+  for(const month of months){
+    [`revplan_${month}`,`note_${month}`,`mixplan_${month}`,`aspplan_${month}`].forEach(id=>{
+      el(id)?.addEventListener("input",()=>run({rebuildInputs:false}));
+      el(id)?.addEventListener("change",()=>run({rebuildInputs:false}));
+    });
+  }
+}
 
 function seedRevenuePlan(){for(const month of selectedMonths()){const node=el(`revplan_${month}`);if(node)node.value=Math.round(allRevenueForMonth(month))}run()}
 function seedMixPlan(){for(const month of selectedMonths()){const node=el(`mixplan_${month}`);if(node)node.value=(mixPctForMonth(month)*100).toFixed(1)}run()}
@@ -577,6 +959,8 @@ async function ensureProjectionsLoaded(){
       _projLoaded=true;
       renderLocationOptions();
       el("locWrap")?.classList.remove("hidden");
+      const note=el("projNote");
+      if(note){ note.classList.remove("hidden"); note.classList.add("is-loaded"); }
     }catch(err){
       console.error("Projection load failed",err);
       PROJ_ROWS=[]; LOCATIONS=[];
@@ -604,7 +988,36 @@ async function seedRevenueFromProjections(){
 }
 
 function defaultAssumptionsFromHistorical(){const hist=salesTotalsByChannel(),totalRevenue=Object.values(hist).reduce((s,r)=>s+r.revenue,0);for(const ch of CHANNELS){const h=hist[ch.key]||{revenue:0},mix=totalRevenue>0?(h.revenue/totalRevenue)*100:(ch.key==="online"?50:ch.key==="retail"?40:10);if(el(`mix_${ch.key}`))el(`mix_${ch.key}`).value=mix.toFixed(1);if(el(`lift_${ch.key}`))el(`lift_${ch.key}`).value="0";if(el(`rev_${ch.key}`))el(`rev_${ch.key}`).value="";if(el(`asp_${ch.key}`))el(`asp_${ch.key}`).value="";if(el(`aspchg_${ch.key}`))el(`aspchg_${ch.key}`).value="0";if(el(`chk_${ch.key}`))el(`chk_${ch.key}`).checked=true}}
-function renderAssumptionStrips(){const hist=salesTotalsByChannel(),totalRevenue=Object.values(hist).reduce((s,r)=>s+r.revenue,0);el("assumptionStrips").innerHTML=CHANNELS.map(ch=>{const h=hist[ch.key]||{units:0,revenue:0},asp=h.units>0?h.revenue/h.units:0,mixDefault=totalRevenue>0?(h.revenue/totalRevenue)*100:0;return`<div class="surface" style="padding:8px;"><div class="grid grid-cols-[minmax(170px,1.1fr)_repeat(5,minmax(92px,.65fr))] gap-2 items-center min-w-[850px]"><div><div class="text-[11px] font-black uppercase tracking-wide">${esc(ch.label)} Assumptions</div><div class="text-[10px]" style="color:var(--bcn-ink-3);"><span class="mono">${Math.round(h.units).toLocaleString()} u</span> @ <span class="mono">${money2(asp)}</span> ASP</div></div><label class="text-[10px] font-bold" style="color:var(--bcn-ink-3);">Use<br><input id="chk_${ch.key}" type="checkbox" class="h-4 w-4 mt-1" checked></label><label class="text-[10px] font-bold" style="color:var(--bcn-ink-3);">Mix %<br><input id="mix_${ch.key}" class="mini-input" type="number" step="0.1" value="${esc(el(`mix_${ch.key}`)?.value||mixDefault.toFixed(1))}"></label><label class="text-[10px] font-bold" style="color:var(--bcn-ink-3);">Lift %<br><input id="lift_${ch.key}" class="mini-input" type="number" step="1" value="${esc(el(`lift_${ch.key}`)?.value||"0")}"></label><label class="text-[10px] font-bold" style="color:var(--bcn-ink-3);">Revenue Override<br><input id="rev_${ch.key}" class="mini-input" type="number" step="1000" value="${esc(el(`rev_${ch.key}`)?.value||"")}" placeholder="blank"></label><label class="text-[10px] font-bold" style="color:var(--bcn-ink-3);">ASP Override<br><input id="asp_${ch.key}" class="mini-input" type="number" step="0.01" value="${esc(el(`asp_${ch.key}`)?.value||"")}" placeholder="blank"></label></div><div class="grid grid-cols-1 md:grid-cols-4 gap-2 mt-2"><label class="text-[10px] font-bold" style="color:var(--bcn-ink-3);">ASP Change %<input id="aspchg_${ch.key}" class="mini-input mt-1" type="number" step="1" value="${esc(el(`aspchg_${ch.key}`)?.value||"0")}"></label><div class="md:col-span-3 text-[11px] flex items-center" style="color:var(--bcn-ink-3);" id="readout_${ch.key}">—</div></div></div>`}).join("");for(const ch of CHANNELS){[`chk_${ch.key}`,`mix_${ch.key}`,`lift_${ch.key}`,`rev_${ch.key}`,`asp_${ch.key}`,`aspchg_${ch.key}`].forEach(id=>{el(id)?.addEventListener("input",()=>run({rebuildInputs:false}));el(id)?.addEventListener("change",()=>run({rebuildInputs:false}))})}}
+function renderAssumptionStrips(){
+  const hist=salesTotalsByChannel();
+  const totalRevenue=Object.values(hist).reduce((s,r)=>s+r.revenue,0);
+  el("assumptionStrips").innerHTML=CHANNELS.map(ch=>{
+    const h=hist[ch.key]||{units:0,revenue:0};
+    const asp=h.units>0?h.revenue/h.units:0;
+    const mixDefault=totalRevenue>0?(h.revenue/totalRevenue)*100:0;
+    return `<div class="ps-hist-strip">
+      <div class="ps-hist-title">
+        <b>${esc(ch.label)}</b>
+        <span>${Math.round(h.units).toLocaleString()} u · ${money2(asp)} ASP</span>
+      </div>
+      <label>Use<input id="chk_${ch.key}" type="checkbox" checked style="height:18px;width:18px;margin-top:2px;accent-color:var(--bcn-accent);"></label>
+      <label>Mix %<input id="mix_${ch.key}" class="mini-input" type="number" step="0.1" value="${esc(el(`mix_${ch.key}`)?.value||mixDefault.toFixed(1))}"></label>
+      <label>Lift %<input id="lift_${ch.key}" class="mini-input" type="number" step="1" value="${esc(el(`lift_${ch.key}`)?.value||"0")}"></label>
+      <label>Rev override<input id="rev_${ch.key}" class="mini-input" type="number" step="1000" value="${esc(el(`rev_${ch.key}`)?.value||"")}" placeholder="—"></label>
+      <label>ASP override<input id="asp_${ch.key}" class="mini-input" type="number" step="0.01" value="${esc(el(`asp_${ch.key}`)?.value||"")}" placeholder="—"></label>
+      <div class="ps-hist-readout">
+        <label style="display:flex;flex-direction:row;align-items:center;gap:4px;">ASP Δ %<input id="aspchg_${ch.key}" class="mini-input" style="width:70px;" type="number" step="1" value="${esc(el(`aspchg_${ch.key}`)?.value||"0")}"></label>
+        <span id="readout_${ch.key}">—</span>
+      </div>
+    </div>`;
+  }).join("");
+  for(const ch of CHANNELS){
+    [`chk_${ch.key}`,`mix_${ch.key}`,`lift_${ch.key}`,`rev_${ch.key}`,`asp_${ch.key}`,`aspchg_${ch.key}`].forEach(id=>{
+      el(id)?.addEventListener("input",()=>run({rebuildInputs:false}));
+      el(id)?.addEventListener("change",()=>run({rebuildInputs:false}));
+    });
+  }
+}
 
 function run(options={}){
   const {rebuildInputs=true}=options;
@@ -620,14 +1033,201 @@ function run(options={}){
   el("historicalAssumptionWrap").style.display=isRevenuePlan?"none":"";
 }
 
-function renderTop(){const f=getFilters(),selected=selectedScenario(),months=selectedMonths(),start=f.from?monthLabel(f.from):(months[0]?monthLabel(months[0]):"—"),end=f.to?monthLabel(f.to):(months[months.length-1]?monthLabel(months[months.length-1]):"—"),type=f.productType==="__ALL__"?"All types":f.productType,channel=f.channel==="__ALL__"?"All channels":CHANNELS.find(c=>c.key===f.channel)?.label||f.channel;el("rangeChip").textContent=`${start} – ${end} · ${type} · ${channel} · ${f.planMode==="revenue_plan"?"Revenue Plan":"Historical"}`;el("selectedScenarioChip").textContent=scenarioLabel(f.selectedLift);el("scenarioCards").innerHTML=CARD_SCENARIOS.map((p,idx)=>{const r=calculateScenario(p/100).total,bg=idx===0?"#243e6b":idx===1?"#86efac":idx===2?"#22c55e":"#052e16",color=idx===1?"#052e16":"#fff",delta=r.revenue_delta>=0?`+${money(r.revenue_delta)}`:money(r.revenue_delta);return`<div class="scenario-card" style="background:${bg}; color:${color}"><div class="scenario-title">${p===0?"At Plan":`Plan +${p}%`}</div><div class="scenario-value">${money(r.revenue)}</div><div class="scenario-sub">${Math.round(r.units).toLocaleString()} units<br>${Math.round(r.incoming_po_units||0).toLocaleString()} open PO u<br>${p===0?"Baseline":`${delta} vs plan`}</div></div>`}).join("");el("assumptionReadout").innerHTML=selected.rows.map(r=>{const ch=CHANNELS.find(c=>c.key===r.key);return`<div class="surface" style="padding:12px;"><div class="flex items-center justify-between gap-2"><div class="text-[11px] font-black uppercase tracking-wide">${esc(r.label)} Assumptions</div><span class="text-[11px] mono" style="color:var(--bcn-ink-3);">${pct(r.plan_mix*100,0)} @ ${money2(r.plan_asp)}</span></div><div class="mt-2 grid grid-cols-4 gap-2"><div><div class="text-[10px] font-bold" style="color:var(--bcn-ink-3);">Revenue</div><div class="mono font-black">${money(r.revenue)}</div></div><div><div class="text-[10px] font-bold" style="color:var(--bcn-ink-3);">Units</div><div class="mono font-black">${Math.round(r.units).toLocaleString()}</div></div><div><div class="text-[10px] font-bold" style="color:var(--bcn-ink-3);">Open PO</div><div class="mono font-black" style="color:#1d4ed8;">${Math.round(r.incoming_po_units||0).toLocaleString()}</div></div><div><div class="text-[10px] font-bold" style="color:var(--bcn-ink-3);">Mode</div><div class="mono font-black text-[10px]">${esc(r.mode)}</div></div></div></div>`}).join("");if(getPlanMode()!=="revenue_plan"){for(const r of selected.rows){const node=el(`readout_${r.key}`);if(node)node.innerHTML=`<span class="pill pill-blue">${esc(r.mode)}</span><span class="ml-2 mono">${money(r.revenue)} / ${Math.round(r.units).toLocaleString()} u @ ${money2(r.plan_asp)}</span>`}}}
-function renderScenarioMatrix(){const all=SCENARIOS.map(p=>({pct:p,scenario:calculateScenario(p/100)})),maxVal=Math.max(...all.map(x=>SUMMARY_METRIC==="units"?x.scenario.total.units:SUMMARY_METRIC==="gap"?x.scenario.total.gap_buffer:x.scenario.total.revenue),1);el("scenarioBars").innerHTML=all.map((x,idx)=>{const val=SUMMARY_METRIC==="units"?x.scenario.total.units:SUMMARY_METRIC==="gap"?x.scenario.total.gap_buffer:x.scenario.total.revenue,h=Math.max(24,Math.round((val/maxVal)*70)),colors=["#243e6b","#dcfce7","#bbf7d0","#86efac","#4ade80","#22c55e","#16a34a","#15803d","#166534","#14532d","#052e16"],label=x.pct===0?"Plan":`+${x.pct}%`;return`<div class="bar" style="height:${h}px;background:${colors[idx]};color:${idx===0||idx>6?"#fff":"#064e3b"}">${label}</div>`}).join("");el("scenarioMatrixHead").innerHTML=`<th class="px-3 py-2 text-left">Plan</th>`+all.map(x=>`<th class="px-3 py-2 num">${x.pct===0?"Plan":`+${x.pct}%`}</th>`).join("");const revRow=`<tr><td class="px-3 py-2 font-extrabold">Revenue</td>${all.map(x=>`<td class="px-3 py-2 num mono font-bold">${money(x.scenario.total.revenue)}</td>`).join("")}</tr>`,unitsRow=`<tr><td class="px-3 py-2 font-extrabold">Units</td>${all.map(x=>`<td class="px-3 py-2 num mono">${Math.round(x.scenario.total.units).toLocaleString()} u</td>`).join("")}</tr>`,openPoRow=`<tr><td class="px-3 py-2 font-extrabold">Open PO Units</td>${all.map(x=>`<td class="px-3 py-2 num mono font-bold" style="color:#1d4ed8;">${Math.round(x.scenario.total.incoming_po_units||0).toLocaleString()}</td>`).join("")}</tr>`,gapRow=`<tr><td class="px-3 py-2 font-extrabold">Gap + Buffer</td>${all.map(x=>`<td class="px-3 py-2 num mono">${Math.round(x.scenario.total.gap_buffer).toLocaleString()}</td>`).join("")}</tr>`;el("scenarioMatrixBody").innerHTML=revRow+unitsRow+openPoRow+gapRow}
+function renderTop(){
+  const f=getFilters();
+  const selected=selectedScenario();
+  const months=selectedMonths();
+  const start=f.from?monthLabel(f.from):(months[0]?monthLabel(months[0]):"—");
+  const end=f.to?monthLabel(f.to):(months[months.length-1]?monthLabel(months[months.length-1]):"—");
+  const type=f.productType==="__ALL__"?"All types":f.productType;
+  const channel=f.channel==="__ALL__"?"All channels":CHANNELS.find(c=>c.key===f.channel)?.label||f.channel;
+  el("rangeChip").textContent=`${start} – ${end} · ${type} · ${channel} · ${f.planMode==="revenue_plan"?"Revenue Plan":"Historical"}`;
+  el("selectedScenarioChip").textContent=scenarioLabel(f.selectedLift);
+  const selectedLiftPct=Math.round(f.selectedLift*100);
+  el("scenarioCards").innerHTML=CARD_SCENARIOS.map(p=>{
+    const r=calculateScenario(p/100).total;
+    const delta=r.revenue_delta>=0?`+${money(r.revenue_delta)}`:money(r.revenue_delta);
+    const deltaClass=p===0?"":r.revenue_delta>=0?"ps-kpi-delta--pos":"ps-kpi-delta--neg";
+    const isSel=p===selectedLiftPct;
+    return `<div class="ps-kpi-card${isSel?" is-selected":""}">
+      <div class="ps-kpi-label">${p===0?"At plan":`Plan +${p}%`}</div>
+      <div class="ps-kpi-value">${money(r.revenue)}</div>
+      <div class="ps-kpi-sub">
+        <span>${Math.round(r.units).toLocaleString()} units · ${Math.round(r.incoming_po_units||0).toLocaleString()} open PO u</span>
+        <span class="ps-kpi-delta ${deltaClass}">${p===0?"Baseline":delta+" vs plan"}</span>
+      </div>
+    </div>`;
+  }).join("");
+  el("assumptionReadout").innerHTML=selected.rows.map(r=>{
+    return `<div class="ps-assump-card">
+      <div class="ps-assump-head">
+        <span class="ps-assump-title">${esc(r.label)}</span>
+        <span class="ps-assump-meta">${pct(r.plan_mix*100,0)} @ ${money2(r.plan_asp)}</span>
+      </div>
+      <div class="ps-assump-cells">
+        <div class="ps-assump-cell"><span class="ps-assump-cell-k">Revenue</span><span class="ps-assump-cell-v">${money(r.revenue)}</span></div>
+        <div class="ps-assump-cell"><span class="ps-assump-cell-k">Units</span><span class="ps-assump-cell-v">${Math.round(r.units).toLocaleString()}</span></div>
+        <div class="ps-assump-cell"><span class="ps-assump-cell-k">Open PO</span><span class="ps-assump-cell-v ps-assump-cell-v--accent">${Math.round(r.incoming_po_units||0).toLocaleString()}</span></div>
+        <div class="ps-assump-cell"><span class="ps-assump-cell-k">Mode</span><span class="ps-assump-cell-mode">${esc(r.mode)}</span></div>
+      </div>
+    </div>`;
+  }).join("");
+  if(getPlanMode()!=="revenue_plan"){
+    for(const r of selected.rows){
+      const node=el(`readout_${r.key}`);
+      if(node)node.innerHTML=`<span class="ps-signal ps-signal--accent">${esc(r.mode)}</span> · ${money(r.revenue)} / ${Math.round(r.units).toLocaleString()} u @ ${money2(r.plan_asp)}`;
+    }
+  }
+}
+function renderScenarioMatrix(){
+  const all=SCENARIOS.map(p=>({pct:p,scenario:calculateScenario(p/100)}));
+  const maxVal=Math.max(...all.map(x=>SUMMARY_METRIC==="units"?x.scenario.total.units:SUMMARY_METRIC==="gap"?x.scenario.total.gap_buffer:x.scenario.total.revenue),1);
+  const selectedLiftPct=Math.round(getSelectedLift()*100);
+  el("scenarioBars").innerHTML=all.map(x=>{
+    const val=SUMMARY_METRIC==="units"?x.scenario.total.units:SUMMARY_METRIC==="gap"?x.scenario.total.gap_buffer:x.scenario.total.revenue;
+    const h=Math.max(22,Math.round((val/maxVal)*72));
+    const label=x.pct===0?"Plan":`+${x.pct}%`;
+    const cls=x.pct===0?"is-plan":(x.pct===selectedLiftPct?"is-selected":"");
+    return `<div class="ps-bar ${cls}" style="height:${h}px;" title="${label}">${label}</div>`;
+  }).join("");
+  el("scenarioMatrixHead").innerHTML=`<th>Plan</th>`+all.map(x=>`<th class="num">${x.pct===0?"Plan":`+${x.pct}%`}</th>`).join("");
+  const revRow=`<tr><td class="td-label">Revenue</td>${all.map(x=>`<td class="num">${money(x.scenario.total.revenue)}</td>`).join("")}</tr>`;
+  const unitsRow=`<tr><td class="td-label">Units</td>${all.map(x=>`<td class="num">${Math.round(x.scenario.total.units).toLocaleString()}</td>`).join("")}</tr>`;
+  const openPoRow=`<tr><td class="td-label">Open PO units</td>${all.map(x=>`<td class="num td-po">${Math.round(x.scenario.total.incoming_po_units||0).toLocaleString()}</td>`).join("")}</tr>`;
+  const gapRow=`<tr><td class="td-label">Gap + buffer</td>${all.map(x=>`<td class="num">${Math.round(x.scenario.total.gap_buffer).toLocaleString()}</td>`).join("")}</tr>`;
+  el("scenarioMatrixBody").innerHTML=revRow+unitsRow+openPoRow+gapRow;
+}
 function monthlyScenarioFor(month,lift){if(getPlanMode()==="revenue_plan"){const revenuePlan=revenuePlanForMonth(month),mix=mixPctForMonth(month),asp=aspForMonth(month),productRevenue=revenuePlan*mix*(1+lift),units=asp>0?productRevenue/asp:0;return{units,revenue:productRevenue,revenuePlan,mix,asp}}const assumptions=readChannelAssumptions(),rows=FILTERED_SALES.filter(r=>r.month_key===month),histTotalRevenue=rows.reduce((s,r)=>s+r.revenue,0);let units=0,revenue=0;for(const ch of CHANNELS){const chRows=rows.filter(r=>r.channel===ch.key),histUnits=chRows.reduce((s,r)=>s+r.units,0),histRevenue=chRows.reduce((s,r)=>s+r.revenue,0),histAsp=histUnits>0?histRevenue/histUnits:0,a=assumptions[ch.key];if(!a.enabled)continue;const asp=a.aspOverride>0?a.aspOverride:histAsp*(1+a.aspChange);if(a.revenueOverride>0){const selectedTotal=FILTERED_SALES.reduce((s,r)=>s+r.revenue,0),monthShare=selectedTotal>0?histTotalRevenue/selectedTotal:0,rev=a.revenueOverride*monthShare;revenue+=rev;units+=asp>0?rev/asp:0}else{const u=histUnits*(1+lift+a.bucketLift);units+=u;revenue+=u*asp}}return{units,revenue}}
-function renderMonthly(){const months=selectedMonths(),lifts=SCENARIOS;let head=`<th class="px-3 py-2 text-left">Month</th>`;if(MONTHLY_METRIC==="formula")head+=`<th class="px-3 py-2 num">Last Year</th><th class="px-3 py-2 num">Current Plan</th><th class="px-3 py-2 num">YoY %</th><th class="px-3 py-2 num">Mix %</th><th class="px-3 py-2 num">Product Revenue</th><th class="px-3 py-2 num">ASP</th><th class="px-3 py-2 num">Required Units</th>`;else for(const p of lifts){if(MONTHLY_METRIC==="revenue")head+=`<th class="px-3 py-2 num">${p===0?"Plan":`+${p}%`} Rev</th>`;else if(MONTHLY_METRIC==="units")head+=`<th class="px-3 py-2 num">${p===0?"Plan":`+${p}%`} Units</th>`;else head+=`<th class="px-3 py-2 num">${p===0?"Plan":`+${p}%`} Rev</th><th class="px-3 py-2 num">${p===0?"Plan":`+${p}%`} Units</th>`}el("monthlyHead").innerHTML=head;let rowsHtml="";if(MONTHLY_METRIC==="formula")rowsHtml=months.map(m=>{const s=monthlyScenarioFor(m,getSelectedLift()),ly=lastYearRevenueForMonth(m),yoy=ly>0?((s.revenuePlan/ly)-1)*100:0;return`<tr><td class="px-3 py-2 font-bold">${esc(monthLabel(m))}</td><td class="px-3 py-2 num mono" style="color:var(--bcn-ink-3);">${money(ly)}</td><td class="px-3 py-2 num mono">${money(s.revenuePlan)}</td><td class="px-3 py-2 num mono" style="color:${yoy>=0?"#16a34a":"#dc2626"};">${ly>0?pct(yoy,1):"—"}</td><td class="px-3 py-2 num mono">${pct(s.mix*100)}</td><td class="px-3 py-2 num mono font-semibold">${money(s.revenue)}</td><td class="px-3 py-2 num mono">${money2(s.asp)}</td><td class="px-3 py-2 num mono font-bold">${Math.round(s.units).toLocaleString()}</td></tr>`}).join("");else{rowsHtml=months.map(m=>{let row=`<tr><td class="px-3 py-2 font-bold">${esc(monthLabel(m))}</td>`;for(const p of lifts){const s=monthlyScenarioFor(m,p/100);if(MONTHLY_METRIC==="revenue")row+=`<td class="px-3 py-2 num mono font-semibold">${money(s.revenue)}</td>`;else if(MONTHLY_METRIC==="units")row+=`<td class="px-3 py-2 num mono">${Math.round(s.units).toLocaleString()}</td>`;else row+=`<td class="px-3 py-2 num mono font-semibold">${money(s.revenue)}</td><td class="px-3 py-2 num mono" style="color:var(--bcn-ink-3);">${Math.round(s.units).toLocaleString()}</td>`}return row+`</tr>`}).join("");let totalRow=`<tr style="background:var(--bcn-sunken);"><td class="px-3 py-2 font-black">Total</td>`;for(const p of lifts){const s=calculateScenario(p/100).total;if(MONTHLY_METRIC==="revenue")totalRow+=`<td class="px-3 py-2 num mono font-black">${money(s.revenue)}</td>`;else if(MONTHLY_METRIC==="units")totalRow+=`<td class="px-3 py-2 num mono font-black">${Math.round(s.units).toLocaleString()}</td>`;else totalRow+=`<td class="px-3 py-2 num mono font-black">${money(s.revenue)}</td><td class="px-3 py-2 num mono font-bold" style="color:var(--bcn-ink-3);">${Math.round(s.units).toLocaleString()}</td>`}rowsHtml+=totalRow+`</tr>`}el("monthlyBody").innerHTML=rowsHtml}
-function signalCell(row){if(row.gap_buffer>0&&row.on_hand<=0)return`<span class="pill pill-bad">No Stock</span>`;if(row.gap_buffer>0)return`<span class="pill pill-warn">Buy Need</span>`;if(row.on_hand>row.units*1.5&&row.units>0)return`<span class="pill">Overstock</span>`;return`<span class="pill pill-good">OK</span>`}
-function renderGapAndChannel(){const s=selectedScenario();el("gapBody").innerHTML=s.rows.concat([s.total]).map(r=>`<tr class="${r.key==="total"?"font-black":""}" style="${r.key==="total"?"background:var(--bcn-sunken);":""}"><td class="px-3 py-2 font-bold">${esc(r.label)}</td><td class="px-3 py-2 num mono">${Math.round(r.units).toLocaleString()}</td><td class="px-3 py-2 num mono">${Math.round(r.on_hand).toLocaleString()}</td><td class="px-3 py-2 num mono font-bold" style="color:#1d4ed8;">${Math.round(r.incoming_po_units||0).toLocaleString()}</td><td class="px-3 py-2 num mono">${Math.round(r.available_units||r.on_hand||0).toLocaleString()}</td><td class="px-3 py-2 num mono">${Math.round(r.gap).toLocaleString()}</td><td class="px-3 py-2 num mono font-bold">${Math.round(r.gap_buffer).toLocaleString()}</td><td class="px-3 py-2">${r.key==="total"?"":signalCell(r)}</td></tr>`).join("");el("channelBody").innerHTML=s.rows.map(r=>`<tr><td class="px-3 py-2 font-bold">${esc(r.label)}</td><td class="px-3 py-2 num mono">${pct(r.hist_mix*100)}</td><td class="px-3 py-2 num mono">${pct(r.plan_mix*100)}</td><td class="px-3 py-2 num mono">${money2(r.hist_asp)}</td><td class="px-3 py-2 num mono">${money2(r.plan_asp)}</td><td class="px-3 py-2 num mono">${pct(r.asp_change*100)}</td><td class="px-3 py-2"><span class="pill pill-blue">${esc(r.mode)}</span></td></tr>`).join("")}
-function familyAction(r){if(r.negative_count>0)return`<span class="pill pill-warn">Data Review</span>`;if(r.gap_buffer>0&&r.avail_qty>r.scenario_units)return`<span class="pill pill-purple">Review Mix</span>`;if(r.gap_buffer>0)return`<span class="pill pill-bad">Buy</span>`;if(r.avail_qty>r.scenario_units*1.5&&r.scenario_units>0)return`<span class="pill">Overstock</span>`;return`<span class="pill pill-good">OK</span>`}
-function renderFamilies(){const s=selectedScenario(),totalProjectedUnits=s.total.units,demandTotal=PRODUCT_FAMILIES.reduce((sum,r)=>sum+Math.max(r.sold_30,r.qty_365d/12,0),0),incomingByProduct=openPOUnitsByProductKey();let rows=PRODUCT_FAMILIES.map(r=>{const demand=Math.max(r.sold_30,r.qty_365d/12,0),share=demandTotal>0?demand/demandTotal:0,scenarioUnits=totalProjectedUnits*share,incomingPoUnits=incomingByProduct.get(r.product_key)||0,availableUnits=r.avail_qty+incomingPoUnits,gap=Math.ceil(scenarioUnits-availableUnits),gapBuffer=Math.max(0,Math.ceil(gap+scenarioUnits*getFilters().safetyPct));return{...r,demand,share,scenario_units:scenarioUnits,incoming_po_units:incomingPoUnits,available_units:availableUnits,gap,gap_buffer:gapBuffer}});rows=rows.filter(r=>FAMILY_FILTER==="buy"?r.gap_buffer>0:FAMILY_FILTER==="mix"?(r.gap_buffer>0&&r.avail_qty>r.scenario_units):FAMILY_FILTER==="overstock"?(r.avail_qty>r.scenario_units*1.5&&r.scenario_units>0):true).sort((a,b)=>b.gap_buffer-a.gap_buffer);el("familyBody").innerHTML=rows.length?rows.slice(0,700).map(r=>`<tr><td class="px-3 py-2 font-semibold">${esc(r.product)}</td><td class="px-3 py-2">${esc(r.product_type)}</td><td class="px-3 py-2 num mono">${Math.round(r.avail_qty).toLocaleString()}</td><td class="px-3 py-2 num mono">${money(r.inv_value)}</td><td class="px-3 py-2 num mono">${Math.round(r.sold_30).toLocaleString()}</td><td class="px-3 py-2 num mono">${Math.round(r.qty_365d).toLocaleString()}</td><td class="px-3 py-2 num mono">${pct(r.share*100,2)}</td><td class="px-3 py-2 num mono">${Math.round(r.scenario_units).toLocaleString()}</td><td class="px-3 py-2 num mono font-bold" style="color:#1d4ed8;">${Math.round(r.incoming_po_units||0).toLocaleString()}</td><td class="px-3 py-2 num mono">${Math.round(r.available_units||r.avail_qty||0).toLocaleString()}</td><td class="px-3 py-2 num mono">${Math.round(r.gap).toLocaleString()}</td><td class="px-3 py-2 num mono font-black">${Math.round(r.gap_buffer).toLocaleString()}</td><td class="px-3 py-2">${familyAction(r)}</td><td class="px-3 py-2" style="color:var(--bcn-ink-3);">${esc([r.tag,r.sub_tag,r.indicator_group,r.collection].filter(Boolean).join(" / ")||"—")}</td></tr>`).join(""):`<tr><td colspan="14" class="px-3 py-8 text-center" style="color:var(--bcn-ink-3);">No product families for this filter.</td></tr>`}
+function renderMonthly(){
+  const months=selectedMonths();
+  const lifts=SCENARIOS;
+  let head=`<th>Month</th>`;
+  if(MONTHLY_METRIC==="formula"){
+    head+=`<th class="num">Last year</th><th class="num">Current plan</th><th class="num">YoY %</th><th class="num">Mix %</th><th class="num">Product revenue</th><th class="num">ASP</th><th class="num">Required units</th>`;
+  }else{
+    for(const p of lifts){
+      if(MONTHLY_METRIC==="revenue")head+=`<th class="num">${p===0?"Plan":`+${p}%`} Rev</th>`;
+      else if(MONTHLY_METRIC==="units")head+=`<th class="num">${p===0?"Plan":`+${p}%`} Units</th>`;
+      else head+=`<th class="num">${p===0?"Plan":`+${p}%`} Rev</th><th class="num">${p===0?"Plan":`+${p}%`} Units</th>`;
+    }
+  }
+  el("monthlyHead").innerHTML=head;
+  let rowsHtml="";
+  if(MONTHLY_METRIC==="formula"){
+    rowsHtml=months.map(m=>{
+      const s=monthlyScenarioFor(m,getSelectedLift());
+      const ly=lastYearRevenueForMonth(m);
+      const yoy=ly>0?((s.revenuePlan/ly)-1)*100:0;
+      const yoyClass=yoy>=0?"ps-yoy-pos":"ps-yoy-neg";
+      return `<tr>
+        <td class="td-month">${esc(monthLabel(m))}</td>
+        <td class="num td-hint">${money(ly)}</td>
+        <td class="num">${money(s.revenuePlan)}</td>
+        <td class="num ${ly>0?yoyClass:""}">${ly>0?pct(yoy,1):"—"}</td>
+        <td class="num">${pct(s.mix*100)}</td>
+        <td class="num">${money(s.revenue)}</td>
+        <td class="num">${money2(s.asp)}</td>
+        <td class="num">${Math.round(s.units).toLocaleString()}</td>
+      </tr>`;
+    }).join("");
+  }else{
+    rowsHtml=months.map(m=>{
+      let row=`<tr><td class="td-month">${esc(monthLabel(m))}</td>`;
+      for(const p of lifts){
+        const s=monthlyScenarioFor(m,p/100);
+        if(MONTHLY_METRIC==="revenue")row+=`<td class="num">${money(s.revenue)}</td>`;
+        else if(MONTHLY_METRIC==="units")row+=`<td class="num">${Math.round(s.units).toLocaleString()}</td>`;
+        else row+=`<td class="num">${money(s.revenue)}</td><td class="num td-hint">${Math.round(s.units).toLocaleString()}</td>`;
+      }
+      return row+`</tr>`;
+    }).join("");
+    let totalRow=`<tr class="row-total"><td>Total</td>`;
+    for(const p of lifts){
+      const s=calculateScenario(p/100).total;
+      if(MONTHLY_METRIC==="revenue")totalRow+=`<td class="num">${money(s.revenue)}</td>`;
+      else if(MONTHLY_METRIC==="units")totalRow+=`<td class="num">${Math.round(s.units).toLocaleString()}</td>`;
+      else totalRow+=`<td class="num">${money(s.revenue)}</td><td class="num">${Math.round(s.units).toLocaleString()}</td>`;
+    }
+    rowsHtml+=totalRow+`</tr>`;
+  }
+  el("monthlyBody").innerHTML=rowsHtml;
+}
+function signalCell(row){
+  if(row.gap_buffer>0&&row.on_hand<=0)return`<span class="ps-signal ps-signal--bad">No stock</span>`;
+  if(row.gap_buffer>0)return`<span class="ps-signal ps-signal--warn">Buy need</span>`;
+  if(row.on_hand>row.units*1.5&&row.units>0)return`<span class="ps-signal ps-signal--neutral">Overstock</span>`;
+  return`<span class="ps-signal ps-signal--good">Covered</span>`;
+}
+function renderGapAndChannel(){
+  const s=selectedScenario();
+  el("gapBody").innerHTML=s.rows.concat([s.total]).map(r=>{
+    const isTot=r.key==="total";
+    return `<tr${isTot?' class="row-total"':""}>
+      <td class="${isTot?"":"td-label"}">${esc(r.label)}</td>
+      <td class="num">${Math.round(r.units).toLocaleString()}</td>
+      <td class="num">${Math.round(r.on_hand).toLocaleString()}</td>
+      <td class="num td-po">${Math.round(r.incoming_po_units||0).toLocaleString()}</td>
+      <td class="num">${Math.round(r.available_units||r.on_hand||0).toLocaleString()}</td>
+      <td class="num">${Math.round(r.gap).toLocaleString()}</td>
+      <td class="num">${Math.round(r.gap_buffer).toLocaleString()}</td>
+      <td>${isTot?"":signalCell(r)}</td>
+    </tr>`;
+  }).join("");
+  el("channelBody").innerHTML=s.rows.map(r=>`<tr>
+    <td class="td-label">${esc(r.label)}</td>
+    <td class="num">${pct(r.hist_mix*100)}</td>
+    <td class="num">${pct(r.plan_mix*100)}</td>
+    <td class="num">${money2(r.hist_asp)}</td>
+    <td class="num">${money2(r.plan_asp)}</td>
+    <td class="num">${pct(r.asp_change*100)}</td>
+    <td><span class="ps-signal ps-signal--accent">${esc(r.mode)}</span></td>
+  </tr>`).join("");
+}
+function familyAction(r){
+  if(r.negative_count>0)return`<span class="ps-signal ps-signal--warn">Data review</span>`;
+  if(r.gap_buffer>0&&r.avail_qty>r.scenario_units)return`<span class="ps-signal ps-signal--accent">Review mix</span>`;
+  if(r.gap_buffer>0)return`<span class="ps-signal ps-signal--bad">Buy need</span>`;
+  if(r.avail_qty>r.scenario_units*1.5&&r.scenario_units>0)return`<span class="ps-signal ps-signal--neutral">Overstock</span>`;
+  return`<span class="ps-signal ps-signal--good">Covered</span>`;
+}
+function renderFamilies(){
+  const s=selectedScenario();
+  const totalProjectedUnits=s.total.units;
+  const demandTotal=PRODUCT_FAMILIES.reduce((sum,r)=>sum+Math.max(r.sold_30,r.qty_365d/12,0),0);
+  const incomingByProduct=openPOUnitsByProductKey();
+  let rows=PRODUCT_FAMILIES.map(r=>{
+    const demand=Math.max(r.sold_30,r.qty_365d/12,0);
+    const share=demandTotal>0?demand/demandTotal:0;
+    const scenarioUnits=totalProjectedUnits*share;
+    const incomingPoUnits=incomingByProduct.get(r.product_key)||0;
+    const availableUnits=r.avail_qty+incomingPoUnits;
+    const gap=Math.ceil(scenarioUnits-availableUnits);
+    const gapBuffer=Math.max(0,Math.ceil(gap+scenarioUnits*getFilters().safetyPct));
+    return{...r,demand,share,scenario_units:scenarioUnits,incoming_po_units:incomingPoUnits,available_units:availableUnits,gap,gap_buffer:gapBuffer};
+  });
+  rows=rows.filter(r=>
+    FAMILY_FILTER==="buy"?r.gap_buffer>0:
+    FAMILY_FILTER==="mix"?(r.gap_buffer>0&&r.avail_qty>r.scenario_units):
+    FAMILY_FILTER==="overstock"?(r.avail_qty>r.scenario_units*1.5&&r.scenario_units>0):
+    true
+  ).sort((a,b)=>b.gap_buffer-a.gap_buffer);
+  el("familyBody").innerHTML=rows.length?rows.slice(0,700).map(r=>`<tr>
+    <td class="td-label">${esc(r.product)}</td>
+    <td class="td-hint">${esc(r.product_type)}</td>
+    <td class="num">${Math.round(r.avail_qty).toLocaleString()}</td>
+    <td class="num">${money(r.inv_value)}</td>
+    <td class="num">${Math.round(r.sold_30).toLocaleString()}</td>
+    <td class="num">${Math.round(r.qty_365d).toLocaleString()}</td>
+    <td class="num">${pct(r.share*100,2)}</td>
+    <td class="num">${Math.round(r.scenario_units).toLocaleString()}</td>
+    <td class="num td-po">${Math.round(r.incoming_po_units||0).toLocaleString()}</td>
+    <td class="num">${Math.round(r.available_units||r.avail_qty||0).toLocaleString()}</td>
+    <td class="num">${Math.round(r.gap).toLocaleString()}</td>
+    <td class="num">${Math.round(r.gap_buffer).toLocaleString()}</td>
+    <td>${familyAction(r)}</td>
+    <td class="td-hint">${esc([r.tag,r.sub_tag,r.indicator_group,r.collection].filter(Boolean).join(" / ")||"—")}</td>
+  </tr>`).join(""):`<tr><td colspan="14" style="padding:24px;text-align:center;color:var(--bcn-ink-3);">No product families for this filter.</td></tr>`;
+}
 function renderStatus(){el("statusLine").innerHTML=`Loaded <b>${SALES_ROWS.length.toLocaleString()}</b> sales · <b>${INVENTORY_ROWS.length.toLocaleString()}</b> inventory · <b>${OPEN_PO_ROWS.length.toLocaleString()}</b> open PO${_projLoaded?` · <b>${PROJ_ROWS.length.toLocaleString()}</b> projection rows`:""}. Filtered <b>${FILTERED_SALES.length.toLocaleString()}</b> sales / <b>${FILTERED_INVENTORY.length.toLocaleString()}</b> inventory / <b>${FILTERED_OPEN_PO_ROWS.length.toLocaleString()}</b> PO lines / <b>${PRODUCT_FAMILIES.length.toLocaleString()}</b> families.`}
 
 function resetControls(){el("selProductType").value="__ALL__";el("selChannel").value="__ALL__";el("txtProductSearch").value="";el("selPlanMode").value="revenue_plan";el("selScenario").value="25";el("numCustomLift").value="25";el("numSafetyPct").value="10";el("numTotalRevenueOverride").value="";el("txtScenarioName").value="";if(el("selLocation"))el("selLocation").value="";if(el("selProjScenario"))el("selProjScenario").value="active";for(const month of selectedMonths()){["revplan","mixplan","aspplan","note"].forEach(p=>{if(el(`${p}_${month}`))el(`${p}_${month}`).value=""})}defaultAssumptionsFromHistorical();run()}
