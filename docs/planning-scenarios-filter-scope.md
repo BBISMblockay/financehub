@@ -30,3 +30,12 @@
 - [ ] Switch back to **All** — full model restored.
 - [ ] Product type + search / channel / location (location affects projection seed rows only).
 - [ ] Projection seed → revplan filled → Run uses v1 engine path (not live projection bypass).
+- [ ] Calculation mode (Revenue Plan vs Historical Lift) and Seed source (Historical / Projections / Manual) are two separate visible controls in the primary lane.
+- [ ] Switching Seed source does not modify any plan input cell.
+- [ ] `Seed` button on a card fills blanks only; `Reseed` confirms before overwriting.
+- [ ] Projection metrics tiles populate without a blind setTimeout; a "Loading projections…" veil is shown while the in-flight promise resolves.
+- [ ] Revenue, Mix, ASP plan cards are visible simultaneously at viewport ≥ 1200 px.
+- [ ] Default scenario after Reset is +25% lift, 10% buffer, with headline cards Baseline / +25 / +50 / +100.
+- [ ] Family detail renders after Run without opening the Families tab first.
+- [ ] KPI strip shows "Loading…" while heavy data is in flight, then numbers when ready (never "After run" once `_invLoaded` is true).
+- [ ] Selecting a product type while in Projections seed mode shows an inline reminder ("Revenue seeded company-wide; Mix & ASP scoped to {type}").
