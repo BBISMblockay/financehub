@@ -30,16 +30,10 @@
 - [ ] Switch back to **All** — full model restored.
 - [ ] Product type + search / channel / location (location affects projection seed rows only).
 - [ ] Projection seed → revplan filled → Run uses v1 engine path (not live projection bypass).
-- [ ] Calculation mode (Revenue Plan vs Historical Lift) and Seed source (Historical / Projections / Manual) are two separate visible controls in the primary lane.
-- [ ] Switching Seed source does not modify any plan input cell.
-- [ ] `Seed` button on a card fills blanks only; `Reseed` confirms before overwriting.
-- [ ] Projection metrics tiles populate without a blind setTimeout; a "Loading projections…" veil is shown while the in-flight promise resolves.
-- [ ] Revenue, Mix, ASP plan cards are visible simultaneously at viewport ≥ 1200 px.
-- [ ] Default scenario after Reset is +25% lift, 10% buffer, with headline cards Baseline / +25 / +50 / +100.
-- [ ] Family detail renders after Run without opening the Families tab first.
-- [ ] KPI strip shows "Loading…" while heavy data is in flight, then numbers when ready (never "After run" once `_invLoaded` is true).
-- [ ] Selecting a product type while in Projections seed mode shows an inline reminder ("Revenue seeded company-wide; Mix & ASP scoped to {type}").
-- [ ] Clicking Run renders Summary cards, Annual matrix, Monthly detail, Inventory gap, Channel/ASP, and Product families without any further clicks; switching output tabs is a pure view change with no recalculation.
-- [ ] Revenue / Units / Both / Formula toggles on Monthly Detail switch views from cached scenario results, never re-fetch or recalculate.
-- [ ] While a recalc is in flight a "Recalculating…" chip is visible above the KPI strip; after filter edits a "Inputs changed — recalculating shortly" chip appears until the debounce completes.
-- [ ] Concurrent Run clicks or Run-during-debounce never produce double-renders.
+- [ ] Three plan input cards (Revenue / Mix / ASP) are visible side-by-side at viewport ≥ 1400 px (v1 layout) and stack at narrow widths.
+- [ ] "Seed from Historical" fills `revplan_*` from filtered sales for the active scope.
+- [ ] "Seed from Projections" lazy-loads `revenue_projections` (with `locations`), shows the Location + Projection scenario filters, and fills `revplan_*` from the per-month rollup (company-wide; not product-type sliced).
+- [ ] Mix and ASP seed buttons remain product-type-scoped via filtered historical sales.
+- [ ] Sales + inventory + open POs load eagerly on boot (v1 behavior). Projection rows load only on first "Seed from Projections" click.
+- [ ] If "Seed from Projections" finds no rows in scope, the status line shows the empty-scope reason (date range / location / projection scenario).
+- [ ] Export CSV and Print still work.

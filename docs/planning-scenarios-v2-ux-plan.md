@@ -1,6 +1,15 @@
 # Planning Scenarios v2 — UX/UI/Perf pass (plan + impl)
 
-Status: IMPLEMENTED in this branch. Implementation commits are listed at the bottom; the plan body below remains for review/reference.
+> **2026-05-28 update — superseded by v1-shaped rebuild.**
+> After three PRs of UX patching (#81 plan, #82 chrome split, #83 deterministic Run), the page still felt clunkier than the v1 reference in `legacy/pages/planning-scenarios.html`. We accepted that v1's structure was the right answer and rebuilt `v2/planning-scenarios.html` from v1 directly, dressed in the Silo / Beacon theme, with two surgical additions:
+> 1. "Seed from Projections" button on the Revenue Plan card (lazy-loads `revenue_projections` + `locations`).
+> 2. Location + Projection scenario filters that appear once projections are loaded, scoped to the projection seed only.
+>
+> The orphaned `pages/planning-scenarios-engine.js` was removed (v2 was its only consumer). The v1 calculator code is now inlined in the v2 page, matching v1's behavior verbatim.
+>
+> The plan below is preserved for historical context.
+
+Status: SUPERSEDED. See the note above.
 Target files for the follow-up PR:
 - `v2/planning-scenarios.html` (chrome script + markup)
 - `pages/planning-scenarios-engine.js` (load order, KPI gating, seed semantics)
