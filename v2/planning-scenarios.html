@@ -9,40 +9,32 @@
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
+  <script src="silo-chrome.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
   <script src="../pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
   <style>
     .silo-main { overflow-y: auto; }
-    .ps-shell { max-width: 1900px; margin: 0 auto; padding: 10px 14px 24px; display: flex; flex-direction: column; gap: 10px; }
-    .bcn-header-sub { font-size: 12px; color: var(--bcn-ink-3); margin-top: 4px; max-width: 70ch; line-height: 1.45; }
+    .ps-shell {
+      max-width: 1900px;
+      margin: 0 auto;
+      padding: 10px 14px 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* ── Engine-rendered class compatibility ────────────────────── */
     .surface {
-      background: var(--bcn-surface); border: 1px solid var(--bcn-border);
-      border-radius: 8px; box-shadow: 0 1px 3px rgba(15,23,42,.04);
-    }
-    .panel-title { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; font-weight: 800; color: var(--bcn-accent); }
-    .label { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; color: var(--bcn-ink-3); white-space: nowrap; }
-    .field {
-      height: 32px; border: 1px solid var(--bcn-border); border-radius: 6px;
-      background: var(--bcn-surface); padding: 4px 9px; font-size: 12px; outline: none; min-width: 0;
-    }
-    .field:focus { border-color: var(--bcn-accent); box-shadow: 0 0 0 2px var(--bcn-accent-soft); }
-    .btn {
-      height: 32px; border: 1px solid var(--bcn-border); background: var(--bcn-surface);
-      border-radius: 6px; padding: 0 12px; font-size: 12px; font-weight: 700; cursor: pointer;
-    }
-    .btn:hover { background: var(--bcn-surface-2); }
-    .btn-dark {
-      height: 32px; border: 1px solid var(--bcn-band); background: var(--bcn-band); color: #fff;
-      border-radius: 6px; padding: 0 14px; font-size: 12px; font-weight: 800; cursor: pointer;
-    }
-    .chip {
-      border: 1px solid var(--bcn-accent-soft); background: var(--bcn-accent-soft); color: var(--bcn-accent);
-      border-radius: 6px; padding: 4px 9px; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center;
+      background: var(--bcn-surface);
+      border: 1px solid var(--bcn-border);
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(15,23,42,.04);
     }
     .pill { border: 1px solid var(--bcn-border); border-radius: 999px; padding: 2px 8px; font-size: 10px; font-weight: 700; background: var(--bcn-surface); }
     .pill-good { border-color: #bbf7d0; background: #ecfdf5; color: #166534; }
     .pill-warn { border-color: #fde68a; background: #fffbeb; color: #92400e; }
-    .pill-bad { border-color: #fecaca; background: #fef2f2; color: #991b1b; }
+    .pill-bad  { border-color: #fecaca; background: #fef2f2; color: #991b1b; }
     .pill-blue { border-color: #bfdbfe; background: #eff6ff; color: #1e40af; }
     .pill-purple { border-color: #ddd6fe; background: #f5f3ff; color: #5b21b6; }
     .scenario-card { border-radius: 8px; min-height: 78px; padding: 13px 15px; color: #fff; display: flex; flex-direction: column; justify-content: center; }
@@ -52,383 +44,572 @@
     .mini-input { height: 28px; border: 1px solid var(--bcn-border); border-radius: 6px; padding: 3px 7px; width: 100%; font-size: 11px; text-align: right; font-variant-numeric: tabular-nums; }
     .bar-row { display: grid; grid-template-columns: repeat(11, minmax(90px, 1fr)); gap: 4px; min-width: 1100px; align-items: end; }
     .bar { border-radius: 2px 2px 0 0; min-height: 26px; display: flex; align-items: end; justify-content: center; padding-bottom: 3px; font-size: 9px; font-weight: 800; }
-    table { border-collapse: separate; border-spacing: 0; width: 100%; }
-    th { background: var(--bcn-surface-2); color: var(--bcn-ink-3); text-transform: uppercase; letter-spacing: .06em; font-size: 10px; font-weight: 800; border-bottom: 1px solid var(--bcn-border); white-space: nowrap; }
-    td { border-bottom: 1px solid var(--bcn-border); background: var(--bcn-surface); font-size: 11px; white-space: nowrap; }
-    tbody tr:nth-child(even) td { background: var(--bcn-surface-2); }
-    .stickyHead thead th { position: sticky; top: 0; z-index: 5; }
     .num { text-align: right; font-variant-numeric: tabular-nums; }
     .mono { font-variant-numeric: tabular-nums; }
+    .stickyHead thead th { position: sticky; top: 0; z-index: 5; }
     .thin-scroll { overflow: auto; scrollbar-width: thin; }
-    details > summary { list-style: none; cursor: pointer; }
-    details > summary::-webkit-details-marker { display: none; }
-    .mode-btn { border: 1px solid var(--bcn-border); background: var(--bcn-surface); border-radius: 6px; height: 28px; padding: 0 10px; font-size: 11px; font-weight: 700; cursor: pointer; }
-    .mode-btn.active { background: var(--bcn-band); border-color: var(--bcn-band); color: #fff; }
-    .plan-card-table input { height: 28px; border: 1px solid var(--bcn-border); border-radius: 6px; padding: 3px 7px; font-size: 11px; text-align: right; }
-    .ps-view-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-    .ps-view-label { font-size: 11px; font-weight: 800; color: var(--bcn-accent); }
-    .ps-proj-panel { margin-top: 10px; border-top: 1px solid var(--bcn-border); padding-top: 10px; }
+
+    /* ── Table base ──────────────────────────────────────────────── */
+    .ps-table { border-collapse: separate; border-spacing: 0; width: 100%; }
+    .ps-table th {
+      background: var(--bcn-sunken);
+      color: var(--bcn-ink-3);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      font-size: 10px;
+      font-weight: 800;
+      border-bottom: 1px solid var(--bcn-border-strong);
+      white-space: nowrap;
+      padding: 8px 10px;
+      text-align: left;
+    }
+    .ps-table th.num { text-align: right; }
+    .ps-table td {
+      border-bottom: 1px solid var(--bcn-border);
+      background: var(--bcn-surface);
+      font-size: 11px;
+      white-space: nowrap;
+      padding: 7px 10px;
+    }
+    .ps-table tbody tr:nth-child(even) td { background: var(--bcn-sunken); }
+    .ps-table tbody tr:hover td { background: var(--bcn-surface-2); }
+    .plan-card-table { border-collapse: separate; border-spacing: 0; width: 100%; }
+    .plan-card-table th {
+      background: var(--bcn-sunken);
+      color: var(--bcn-ink-3);
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      border-bottom: 1px solid var(--bcn-border-strong);
+      white-space: nowrap;
+      position: sticky;
+      top: 0;
+      z-index: 4;
+    }
+    .plan-card-table td {
+      border-bottom: 1px solid var(--bcn-border);
+      background: var(--bcn-surface);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+    .plan-card-table tbody tr:nth-child(even) td { background: var(--bcn-sunken); }
+    .plan-card-table input {
+      height: 28px;
+      border: 1px solid var(--bcn-border);
+      border-radius: 6px;
+      padding: 3px 7px;
+      font-size: 11px;
+      text-align: right;
+      background: var(--bcn-surface);
+      outline: none;
+    }
+    .plan-card-table input:focus { border-color: var(--bcn-accent); box-shadow: 0 0 0 2px var(--bcn-accent-soft); }
+
+    /* ── Projections table ───────────────────────────────────────── */
+    .ps-proj-table { border-collapse: separate; border-spacing: 0; width: 100%; font-size: 11px; }
+    .ps-proj-table th {
+      background: var(--bcn-band);
+      color: var(--bcn-band-ink-2);
+      position: sticky;
+      top: 0;
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      padding: 7px 10px;
+      white-space: nowrap;
+    }
+    .ps-proj-table th.num { text-align: right; }
+    .ps-proj-table td { border-bottom: 1px solid var(--bcn-border); background: var(--bcn-surface); padding: 6px 10px; white-space: nowrap; }
+    .ps-proj-table td.num { text-align: right; }
+    .ps-proj-panel { margin-top: 12px; border-top: 1px solid var(--bcn-border); padding-top: 12px; }
     .ps-proj-panel[hidden] { display: none !important; }
-    .ps-proj-table { font-size: 11px; }
-    .ps-proj-table th { background: var(--bcn-band); color: var(--bcn-band-ink-2); position: sticky; top: 0; }
-    .ps-proj-scroll { max-height: 280px; overflow: auto; }
-    .ps-muted { color: var(--bcn-ink-3); font-size: 11px; }
+
+    /* ── Layout helpers ──────────────────────────────────────────── */
+    .ps-filter-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 8px;
+    }
+    .ps-filter-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+    .ps-filter-field--wide { flex: 1 1 160px; }
+    .ps-filter-field--search { flex: 1 1 180px; }
+    .ps-check-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--bcn-ink-2);
+      cursor: pointer;
+      padding-bottom: 5px;
+    }
+    .ps-assumption-section { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--bcn-border); }
+    .ps-section-label {
+      font-size: 10px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: var(--bcn-ink-3);
+      margin-bottom: 8px;
+    }
+    .ps-assumption-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+    }
+    @media (max-width: 1100px) { .ps-assumption-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); } }
+    .ps-source-row { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--bcn-border); }
+
+    /* ── Seed mode buttons ───────────────────────────────────────── */
+    .ps-seed-strip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+    .ps-seed-btn {
+      height: 34px;
+      padding: 0 16px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .07em;
+      border-radius: 8px;
+      border: 1.5px solid var(--bcn-border-strong);
+      background: var(--bcn-surface);
+      color: var(--bcn-ink-2);
+      cursor: pointer;
+      transition: background .12s, border-color .12s, color .12s;
+    }
+    .ps-seed-btn:hover { background: var(--bcn-surface-2); color: var(--bcn-ink-1); }
+    .ps-seed-btn.active {
+      background: var(--bcn-band);
+      border-color: var(--bcn-band);
+      color: #fff;
+    }
+
+    /* ── Mode toggle buttons (for metric switchers) ──────────────── */
+    .ps-mode-btn {
+      height: 28px;
+      border: 1px solid var(--bcn-border);
+      background: var(--bcn-surface);
+      border-radius: 6px;
+      padding: 0 10px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background .12s, border-color .12s, color .12s;
+    }
+    .ps-mode-btn:hover { background: var(--bcn-surface-2); }
+    .ps-mode-btn.active { background: var(--bcn-band); border-color: var(--bcn-band); color: #fff; }
+
+    /* ── Status / misc ───────────────────────────────────────────── */
+    .ps-status { font-size: 11px; color: var(--bcn-ink-3); margin-top: 2px; }
     .ps-err { color: var(--bcn-neg); font-weight: 700; }
-    #planningInputs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-    @media (max-width: 1200px) { #planningInputs { grid-template-columns: 1fr; } }
-    .ps-assumption-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
-    @media (max-width: 1200px) { .ps-assumption-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); } }
-    .ps-v2-source-panel { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--bcn-border); }
+    .bcn-header-sub { display: none; }
+
     @media print { .no-print, .bcn-header-actions { display: none !important; } }
   </style>
 </head>
 <body>
   <div class="silo-app" id="silo-app">
     <main class="silo-main">
+
       <header class="bcn-header no-print">
         <div style="flex:1;min-width:0;">
           <div class="bcn-header-title"><h1>Planning scenarios</h1></div>
-          <div class="bcn-header-sub">Historical baseline + revenue plan / mix / ASP overrides + inventory gap proof. Open PO lines included.</div>
         </div>
         <div class="bcn-header-actions">
-          <span class="chip no-print">Revenue plan · Open POs · Projections</span>
+          <span id="rangeChip" class="bcn-pill">—</span>
           <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnReload">RELOAD</button>
-          <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnPrint">PRINT</button>
-          <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="btnExport">EXPORT CSV</button>
-          <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnSaveScenario">SAVE</button>
-          <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnNewScenario">NEW</button>
+          <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono no-print" id="btnPrint">PRINT</button>
+          <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono no-print" id="btnSaveScenario">SAVE</button>
+          <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono no-print" id="btnNewScenario">NEW</button>
+          <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono no-print" id="btnExport">EXPORT CSV</button>
         </div>
       </header>
 
       <div class="ps-shell">
-        <!-- Legacy-parity filters + assumptions (same DOM ids as legacy/pages/planning-scenarios.html) -->
-        <section id="filtersCard" class="surface p-3 no-print">
-          <div class="ps-view-row">
-            <span class="ps-view-label">↬ View filters:</span>
-            <div class="ps-view-row">
-              <span class="label">Mode</span>
-              <select id="selPlanMode" class="field" style="width:160px;">
-                <option value="historical">Historical Lift</option>
-                <option value="revenue_plan" selected>Revenue Plan</option>
-              </select>
-            </div>
-            <div class="ps-view-row">
-              <span class="label">Period</span>
-              <input id="dateFrom" type="month" class="field mono" style="width:120px;" />
-              <span class="ps-muted">→</span>
-              <input id="dateTo" type="month" class="field mono" style="width:120px;" />
-            </div>
-            <div class="ps-view-row">
-              <span class="label">Product type</span>
-              <select id="selProductType" class="field" style="width:180px;"><option value="__ALL__">All product types</option></select>
-            </div>
-            <div class="ps-view-row">
-              <span class="label">Channel</span>
-              <select id="selChannel" class="field" style="width:150px;">
-                <option value="__ALL__">All channels</option>
-                <option value="online">Online</option>
-                <option value="retail">Retail</option>
-                <option value="wholesale">Wholesale / Faire</option>
-              </select>
-            </div>
-            <div class="ps-view-row">
-              <span class="label">Search</span>
-              <input id="txtProductSearch" class="field" style="width:220px;" placeholder="Product family optional..." />
-            </div>
-            <label class="ps-view-row" style="font-size:11px;color:var(--bcn-ink-2);">
-              <input id="chkShowUnits" type="checkbox" checked style="margin-right:6px;" />Show units
-            </label>
-            <span id="rangeChip" class="chip">—</span>
-          </div>
-          <div class="ps-view-row" style="justify-content:flex-end;margin-top:8px;">
-            <button type="button" id="btnApply" class="btn-dark">Run</button>
-            <button type="button" id="btnReset" class="btn">Reset</button>
-          </div>
 
-          <details class="assumption-edit mt-3" open>
-            <summary class="flex items-center justify-between gap-3 border-t border-slate-100 pt-3" style="display:flex;justify-content:space-between;padding-top:10px;border-top:1px solid var(--bcn-border);">
-              <div>
-                <div style="font-size:12px;font-weight:800;">Assumption Controls</div>
-                <div class="ps-muted">Revenue Plan mode uses monthly revenue × product type mix ÷ ASP. Historical mode uses selected period baseline × lift.</div>
-              </div>
-              <span class="ps-muted">toggle</span>
-            </summary>
-            <div class="mt-3 ps-assumption-grid">
-              <div>
-                <label class="label" style="display:block;margin-bottom:4px;">Total Revenue Override</label>
-                <input id="numTotalRevenueOverride" type="number" step="1000" class="field mono" style="width:100%;" placeholder="Historical mode only" />
-              </div>
-              <div>
-                <label class="label" style="display:block;margin-bottom:4px;">Scenario Preset</label>
-                <select id="selScenario" class="field" style="width:100%;">
-                  <option value="0">Plan / Baseline</option>
-                  <option value="10">+10%</option>
-                  <option value="20">+20%</option>
-                  <option value="25" selected>+25%</option>
-                  <option value="50">+50%</option>
-                  <option value="100">+100%</option>
-                  <option value="custom">Custom</option>
+        <!-- ── Filters card ──────────────────────────────────────── -->
+        <section id="filtersCard" class="bcn-card no-print">
+          <header class="bcn-card-header bcn-card-header--dark">
+            <span class="bcn-pill bcn-pill--dark">SCOPE</span>
+            <h2>Filters &amp; assumptions</h2>
+            <div style="margin-left:auto;display:flex;align-items:center;gap:6px;">
+              <button type="button" id="btnApply" class="bcn-btn bcn-btn--primary bcn-btn--mono">RUN</button>
+              <button type="button" id="btnReset" class="bcn-btn bcn-btn--ghost bcn-btn--mono">RESET</button>
+            </div>
+          </header>
+          <div class="bcn-card-body">
+
+            <!-- Filter strip -->
+            <div class="ps-filter-row">
+              <div class="ps-filter-field">
+                <label class="bcn-label">Mode</label>
+                <select id="selPlanMode" class="bcn-field bcn-field--mono" style="width:150px;">
+                  <option value="historical">Historical Lift</option>
+                  <option value="revenue_plan" selected>Revenue Plan</option>
                 </select>
               </div>
-              <div>
-                <label class="label" style="display:block;margin-bottom:4px;">Custom Lift %</label>
-                <input id="numCustomLift" type="number" step="1" value="25" class="field mono" style="width:100%;" />
+              <div class="ps-filter-field">
+                <label class="bcn-label">From</label>
+                <input id="dateFrom" type="month" class="bcn-field bcn-field--mono" style="width:122px;" />
               </div>
-              <div>
-                <label class="label" style="display:block;margin-bottom:4px;">Safety / Buffer %</label>
-                <input id="numSafetyPct" type="number" step="1" value="10" class="field mono" style="width:100%;" />
+              <div class="ps-filter-field">
+                <label class="bcn-label">To</label>
+                <input id="dateTo" type="month" class="bcn-field bcn-field--mono" style="width:122px;" />
               </div>
-              <div>
-                <label class="label" style="display:block;margin-bottom:4px;">Scenario Name</label>
-                <input id="txtScenarioName" class="field" style="width:100%;" placeholder="ex: Loomis Youth Shorts" />
+              <div class="ps-filter-field ps-filter-field--wide">
+                <label class="bcn-label">Product type</label>
+                <select id="selProductType" class="bcn-field"><option value="__ALL__">All product types</option></select>
+              </div>
+              <div class="ps-filter-field">
+                <label class="bcn-label">Channel</label>
+                <select id="selChannel" class="bcn-field" style="width:150px;">
+                  <option value="__ALL__">All channels</option>
+                  <option value="online">Online</option>
+                  <option value="retail">Retail</option>
+                  <option value="wholesale">Wholesale / Faire</option>
+                </select>
+              </div>
+              <div class="ps-filter-field ps-filter-field--search">
+                <label class="bcn-label">Search</label>
+                <input id="txtProductSearch" class="bcn-field" placeholder="Product family…" />
+              </div>
+              <div class="ps-filter-field" style="align-self:flex-end;">
+                <label class="ps-check-label">
+                  <input id="chkShowUnits" type="checkbox" checked />
+                  Show units
+                </label>
               </div>
             </div>
-            <details class="ps-v2-source-panel no-print">
-              <summary style="font-size:11px;font-weight:800;color:var(--bcn-accent);cursor:pointer;">Revenue plan source (optional)</summary>
-              <div class="mt-3" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;">
+
+            <!-- Assumption controls -->
+            <div class="ps-assumption-section">
+              <div class="ps-section-label">Assumption controls</div>
+              <div class="ps-assumption-grid">
                 <div>
-                  <label class="label" style="display:block;margin-bottom:4px;">Source</label>
-                  <select id="selDataSource" class="field" style="width:100%;">
-                    <option value="manual">Manual inputs</option>
-                    <option value="revenue_projections">Revenue projections</option>
-                    <option value="open_po">Open PO / incoming</option>
+                  <label class="bcn-label" style="display:block;margin-bottom:3px;">Revenue override</label>
+                  <input id="numTotalRevenueOverride" type="number" step="1000" class="bcn-field bcn-field--mono" style="width:100%;" placeholder="Historical mode only" />
+                </div>
+                <div>
+                  <label class="bcn-label" style="display:block;margin-bottom:3px;">Scenario preset</label>
+                  <select id="selScenario" class="bcn-field" style="width:100%;">
+                    <option value="0">Plan / Baseline</option>
+                    <option value="10">+10%</option>
+                    <option value="20">+20%</option>
+                    <option value="25" selected>+25%</option>
+                    <option value="50">+50%</option>
+                    <option value="100">+100%</option>
+                    <option value="custom">Custom</option>
                   </select>
                 </div>
                 <div>
-                  <label class="label" style="display:block;margin-bottom:4px;">DB scenario</label>
-                  <select id="selProjScenario" class="field" style="width:100%;">
+                  <label class="bcn-label" style="display:block;margin-bottom:3px;">Custom lift %</label>
+                  <input id="numCustomLift" type="number" step="1" value="25" class="bcn-field bcn-field--mono" style="width:100%;" />
+                </div>
+                <div>
+                  <label class="bcn-label" style="display:block;margin-bottom:3px;">Buffer %</label>
+                  <input id="numSafetyPct" type="number" step="1" value="10" class="bcn-field bcn-field--mono" style="width:100%;" />
+                </div>
+                <div>
+                  <label class="bcn-label" style="display:block;margin-bottom:3px;">Scenario name</label>
+                  <input id="txtScenarioName" class="bcn-field" style="width:100%;" placeholder="ex: Q3 Growth Plan" />
+                </div>
+              </div>
+            </div>
+
+            <!-- Projection source options (margin, location, scenario) -->
+            <div class="ps-source-row">
+              <div class="ps-section-label">Projection source settings</div>
+              <div class="ps-filter-row">
+                <div class="ps-filter-field">
+                  <label class="bcn-label">DB scenario</label>
+                  <select id="selProjScenario" class="bcn-field bcn-field--mono" style="width:110px;">
                     <option value="active" selected>active</option>
                     <option value="draft">draft</option>
                     <option value="archived">archived</option>
                   </select>
                 </div>
-                <div>
-                  <label class="label" style="display:block;margin-bottom:4px;">Location</label>
-                  <select id="selLocation" class="field" style="width:100%;"><option value="">All locations</option></select>
+                <div class="ps-filter-field">
+                  <label class="bcn-label">Location</label>
+                  <select id="selLocation" class="bcn-field" style="width:150px;"><option value="">All locations</option></select>
                 </div>
-                <div>
-                  <label class="label" style="display:block;margin-bottom:4px;">Margin %</label>
-                  <input id="numMarginPct" type="number" step="0.1" value="45" class="field mono" style="width:100%;" />
+                <div class="ps-filter-field">
+                  <label class="bcn-label">Margin %</label>
+                  <input id="numMarginPct" type="number" step="0.1" value="45" class="bcn-field bcn-field--mono" style="width:88px;" />
                 </div>
-                <div>
-                  <label class="label" style="display:block;margin-bottom:4px;">Cost % override</label>
-                  <input id="numCostPct" type="number" step="0.1" class="field mono" style="width:100%;" placeholder="optional" />
+                <div class="ps-filter-field">
+                  <label class="bcn-label">Cost % override</label>
+                  <input id="numCostPct" type="number" step="0.1" class="bcn-field bcn-field--mono" style="width:88px;" placeholder="optional" />
                 </div>
+                <!-- Hidden engine compat -->
+                <select id="selDataSource" style="display:none;">
+                  <option value="manual">Manual inputs</option>
+                  <option value="revenue_projections">Revenue projections</option>
+                  <option value="open_po">Open PO / incoming</option>
+                </select>
               </div>
-              <div id="calcBasisBody" class="ps-muted" style="margin-top:10px;"></div>
-            </details>
-            <div class="mt-3 thin-scroll" id="historicalAssumptionWrap">
-              <div class="min-w-[850px] space-y-2" id="assumptionStrips"></div>
+              <div id="calcBasisBody" class="ps-status" style="margin-top:6px;"></div>
             </div>
-          </details>
 
-          <div id="projWorkbenchSection" class="ps-proj-panel" hidden>
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;">
-              <div>
-                <div class="panel-title">Revenue projections detail</div>
-                <div class="ps-muted">Rows from <code>revenue_projections</code> (includes <code>source=actual</code>). Feeds monthly revenue plan when that source is selected.</div>
-              </div>
-              <button type="button" class="btn" id="btnSeedFromProjections">Seed revenue plan from projections</button>
-            </div>
-            <div class="ps-proj-scroll">
-              <table class="ps-proj-table">
-                <thead>
-                  <tr>
-                    <th>Date</th><th>Location</th><th>Source</th><th>Scenario</th>
-                    <th class="num">Units</th><th class="num">Sales</th><th class="num">Margin %</th>
-                    <th class="num">Gross</th><th class="num">Est. cost</th><th class="num">Cash</th><th>Notes</th>
-                  </tr>
-                </thead>
-                <tbody id="projTableBody"></tbody>
-              </table>
-            </div>
-            <div id="projEmptyState" class="ps-muted" style="padding:12px;text-align:center;" hidden>No projection rows for filters.</div>
           </div>
-
-          <div id="statusLine" class="mt-2 mono ps-muted">Loading…</div>
         </section>
 
+        <!-- ── Seed mode card ────────────────────────────────────── -->
+        <section class="bcn-card no-print">
+          <header class="bcn-card-header">
+            <span class="bcn-pill bcn-pill--accent">PLAN SOURCE</span>
+            <h2>Seed revenue plan</h2>
+          </header>
+          <div class="bcn-card-body">
+            <div class="ps-seed-strip">
+              <button type="button" id="btnSeedHistorical" class="ps-seed-btn active" data-seed="historical">SEED FROM HISTORICAL</button>
+              <button type="button" id="btnSeedProjections" class="ps-seed-btn" data-seed="projections">SEED FROM PROJECTIONS</button>
+              <button type="button" id="btnSeedManual" class="ps-seed-btn" data-seed="manual">MANUAL INPUTS</button>
+            </div>
+            <div class="ps-status" style="margin-top:6px;" id="seedModeDesc">
+              Seeded from historical sales actuals. Adjust monthly inputs below then run.
+            </div>
+
+            <!-- Engine compat hidden seed buttons -->
+            <button type="button" id="btnSeedRevenue" style="display:none;">Seed Revenue</button>
+            <button type="button" id="btnSeedMix" style="display:none;">Seed Mix</button>
+            <button type="button" id="btnSeedAsp" style="display:none;">Seed ASP</button>
+            <button type="button" id="btnSeedFromProjections" style="display:none;">Seed from Projections</button>
+
+            <!-- Projections detail panel (shown when projections mode active) -->
+            <div id="projWorkbenchSection" class="ps-proj-panel" hidden>
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px;">
+                <div>
+                  <div style="font-size:12px;font-weight:800;color:var(--bcn-ink-1);">Revenue projections monthly rollup</div>
+                  <div class="ps-status">Rows from <code>revenue_projections</code>. Seeds monthly revenue plan inputs when applied.</div>
+                </div>
+              </div>
+              <div style="overflow:auto;max-height:260px;border-radius:6px;border:1px solid var(--bcn-border);">
+                <table class="ps-proj-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th><th>Location</th><th>Source</th><th>Scenario</th>
+                      <th class="num">Units</th><th class="num">Sales</th><th class="num">Margin %</th>
+                      <th class="num">Gross</th><th class="num">Est. cost</th><th class="num">Cash</th><th>Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody id="projTableBody"></tbody>
+                </table>
+              </div>
+              <div id="projEmptyState" class="ps-status" style="padding:12px;text-align:center;" hidden>No projection rows for the current filters.</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── Planning inputs (Revenue / Mix / ASP) ─────────────── -->
         <section id="planningInputs" class="no-print">
-          <div class="surface p-3">
-            <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px;">
-              <div>
-                <div style="font-size:13px;font-weight:800;text-transform:uppercase;">Current plan vs last year</div>
-                <div class="ps-muted">Monthly projection dollars with LY actual and YoY bucket proof.</div>
+          <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;">
+            @media (max-width:1200px){[style*="grid-template-columns:repeat(3"]{grid-template-columns:1fr!important}}
+
+            <div class="bcn-card">
+              <header class="bcn-card-header">
+                <span class="bcn-pill">REVENUE</span>
+                <h2>Plan vs last year</h2>
+              </header>
+              <div style="overflow:auto;max-height:300px;">
+                <table class="plan-card-table" style="min-width:420px;">
+                  <thead><tr>
+                    <th style="padding:8px 10px;text-align:left;">Month</th>
+                    <th style="padding:8px 10px;text-align:right;">Last Year</th>
+                    <th style="padding:8px 10px;text-align:right;">Current Plan ($)</th>
+                    <th style="padding:8px 10px;text-align:right;">YoY %</th>
+                    <th style="padding:8px 10px;text-align:left;">Bucket</th>
+                    <th style="padding:8px 10px;text-align:left;">Notes</th>
+                  </tr></thead>
+                  <tbody id="revenuePlanBody"></tbody>
+                </table>
               </div>
-              <button id="btnSeedRevenue" class="btn edit-only" type="button">Seed from Historical</button>
             </div>
-            <div class="thin-scroll">
-              <table class="plan-card-table" style="min-width:540px;">
-                <thead><tr>
-                  <th class="px-3 py-2" style="text-align:left;">Month</th>
-                  <th class="px-3 py-2 num">Last Year</th>
-                  <th class="px-3 py-2 num">Current Plan ($)</th>
-                  <th class="px-3 py-2 num">YoY %</th>
-                  <th class="px-3 py-2" style="text-align:left;">Bucket</th>
-                  <th class="px-3 py-2" style="text-align:left;">Notes</th>
-                </tr></thead>
-                <tbody id="revenuePlanBody"></tbody>
-              </table>
-            </div>
-          </div>
-          <div class="surface p-3">
-            <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-              <div>
-                <div style="font-size:13px;font-weight:800;text-transform:uppercase;">Mix % <span class="ps-muted">— Month Σ live</span></div>
-                <div class="ps-muted">Selected product type share of revenue plan.</div>
+
+            <div class="bcn-card">
+              <header class="bcn-card-header">
+                <span class="bcn-pill">MIX</span>
+                <h2>Mix % <span style="font-size:10px;font-weight:500;color:var(--bcn-ink-3);">Month Σ live</span></h2>
+              </header>
+              <div style="overflow:auto;max-height:300px;">
+                <table class="plan-card-table" style="min-width:360px;">
+                  <thead><tr>
+                    <th style="padding:8px 10px;text-align:left;">Month</th>
+                    <th style="padding:8px 10px;text-align:left;">Product Type</th>
+                    <th style="padding:8px 10px;text-align:right;">Mix %</th>
+                    <th style="padding:8px 10px;text-align:right;">Month Σ</th>
+                  </tr></thead>
+                  <tbody id="mixPlanBody"></tbody>
+                </table>
               </div>
-              <button id="btnSeedMix" class="btn edit-only" type="button">Seed Mix</button>
             </div>
-            <div class="thin-scroll">
-              <table class="plan-card-table" style="min-width:560px;">
-                <thead><tr>
-                  <th style="text-align:left;">Month</th><th style="text-align:left;">Product Type</th>
-                  <th class="num">Mix %</th><th class="num">Month Σ</th>
-                </tr></thead>
-                <tbody id="mixPlanBody"></tbody>
-              </table>
-            </div>
-          </div>
-          <div class="surface p-3">
-            <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
-              <div>
-                <div style="font-size:13px;font-weight:800;text-transform:uppercase;">ASP</div>
-                <div class="ps-muted">Average selling price override for unit need.</div>
+
+            <div class="bcn-card">
+              <header class="bcn-card-header">
+                <span class="bcn-pill">ASP</span>
+                <h2>Avg selling price</h2>
+              </header>
+              <div style="overflow:auto;max-height:300px;">
+                <table class="plan-card-table" style="min-width:320px;">
+                  <thead><tr>
+                    <th style="padding:8px 10px;text-align:left;">Month</th>
+                    <th style="padding:8px 10px;text-align:left;">Product Type</th>
+                    <th style="padding:8px 10px;text-align:right;">ASP ($)</th>
+                  </tr></thead>
+                  <tbody id="aspPlanBody"></tbody>
+                </table>
               </div>
-              <button id="btnSeedAsp" class="btn edit-only" type="button">Seed ASP</button>
             </div>
-            <div class="thin-scroll">
-              <table class="plan-card-table" style="min-width:520px;">
-                <thead><tr>
-                  <th style="text-align:left;">Month</th><th style="text-align:left;">Product Type</th><th class="num">ASP ($)</th>
-                </tr></thead>
-                <tbody id="aspPlanBody"></tbody>
-              </table>
-            </div>
+
           </div>
         </section>
 
+        <!-- ── Scenario cards ────────────────────────────────────── -->
         <section style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;" id="scenarioCards"></section>
+
+        <!-- ── Assumption readout ────────────────────────────────── -->
         <section style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;" id="assumptionReadout"></section>
 
-        <section class="surface p-3">
-          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
-            <div>
-              <div class="panel-title">Annual summary — all scenarios</div>
-              <div class="ps-muted" style="margin-top:4px;">Scenario ladder Plan through +100%. Revenue Plan uses manual revenue/mix/ASP (or projection-fed plan).</div>
+        <!-- ── Historical assumption strips (Historical Lift mode) ── -->
+        <div id="historicalAssumptionWrap" style="display:none;">
+          <div class="thin-scroll" id="assumptionStrips" style="display:flex;flex-direction:column;gap:8px;"></div>
+        </div>
+
+        <!-- ── Annual summary ────────────────────────────────────── -->
+        <section class="bcn-card">
+          <header class="bcn-card-header">
+            <span class="bcn-pill bcn-pill--accent">ANNUAL</span>
+            <h2>Annual summary — all scenarios</h2>
+            <div style="margin-left:auto;display:flex;gap:6px;">
+              <button class="ps-mode-btn active" type="button" data-summary-metric="revenue">Revenue</button>
+              <button class="ps-mode-btn" type="button" data-summary-metric="units">Units</button>
+              <button class="ps-mode-btn" type="button" data-summary-metric="gap">Inventory Gap</button>
             </div>
-            <div class="no-print" style="display:flex;gap:6px;">
-              <button class="mode-btn active" type="button" data-summary-metric="revenue">Revenue</button>
-              <button class="mode-btn" type="button" data-summary-metric="units">Units</button>
-              <button class="mode-btn" type="button" data-summary-metric="gap">Inventory Gap</button>
+          </header>
+          <div class="bcn-card-body" style="padding:0;">
+            <div style="overflow:auto;padding:12px 12px 0;">
+              <div id="scenarioBars" class="bar-row"></div>
             </div>
-          </div>
-          <div class="mt-3 thin-scroll">
-            <div id="scenarioBars" class="bar-row"></div>
-            <table class="mt-3" style="min-width:1150px;">
-              <thead><tr id="scenarioMatrixHead"></tr></thead>
-              <tbody id="scenarioMatrixBody"></tbody>
-            </table>
+            <div style="overflow:auto;">
+              <table class="ps-table" style="min-width:1150px;">
+                <thead><tr id="scenarioMatrixHead"></tr></thead>
+                <tbody id="scenarioMatrixBody"></tbody>
+              </table>
+            </div>
           </div>
         </section>
 
-        <section class="surface p-3">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;">
-            <div>
-              <div class="panel-title">Monthly detail — revenue by scenario</div>
-              <div class="ps-muted" style="margin-top:4px;">Revenue Plan: revenue × mix ÷ ASP. Historical: monthly actuals × lift.</div>
+        <!-- ── Monthly detail ────────────────────────────────────── -->
+        <section class="bcn-card">
+          <header class="bcn-card-header">
+            <span class="bcn-pill">MONTHLY</span>
+            <h2>Monthly detail — revenue by scenario</h2>
+            <div style="margin-left:auto;display:flex;flex-wrap:wrap;gap:6px;">
+              <button class="ps-mode-btn active" type="button" data-monthly-metric="revenue">Revenue</button>
+              <button class="ps-mode-btn" type="button" data-monthly-metric="units">Units</button>
+              <button class="ps-mode-btn" type="button" data-monthly-metric="both">Revenue + Units</button>
+              <button class="ps-mode-btn" type="button" data-monthly-metric="formula">Formula Proof</button>
             </div>
-            <div class="no-print" style="display:flex;flex-wrap:wrap;gap:6px;">
-              <button class="mode-btn active" type="button" data-monthly-metric="revenue">Revenue</button>
-              <button class="mode-btn" type="button" data-monthly-metric="units">Units</button>
-              <button class="mode-btn" type="button" data-monthly-metric="both">Revenue + Units</button>
-              <button class="mode-btn" type="button" data-monthly-metric="formula">Formula Proof</button>
+          </header>
+          <div class="bcn-card-body" style="padding:0;">
+            <div style="overflow:auto;max-height:420px;">
+              <table class="ps-table stickyHead" style="min-width:1800px;">
+                <thead><tr id="monthlyHead"></tr></thead>
+                <tbody id="monthlyBody"></tbody>
+              </table>
             </div>
-          </div>
-          <div class="mt-3 thin-scroll">
-            <table class="stickyHead" style="min-width:1800px;">
-              <thead><tr id="monthlyHead"></tr></thead>
-              <tbody id="monthlyBody"></tbody>
-            </table>
           </div>
         </section>
 
+        <!-- ── Gap + Channel ─────────────────────────────────────── -->
         <section style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;">
-          <section class="surface p-3">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
-              <div>
-                <div class="panel-title">Inventory gap — selected scenario</div>
-                <div class="ps-muted" style="margin-top:4px;">On-hand + open POs vs required units.</div>
+          <div class="bcn-card">
+            <header class="bcn-card-header">
+              <span class="bcn-pill bcn-pill--accent">GAP</span>
+              <h2>Inventory gap — <span id="selectedScenarioChip" class="bcn-pill" style="font-size:10px;margin-left:2px;">+25%</span></h2>
+            </header>
+            <div class="bcn-card-body" style="padding:0;">
+              <div style="overflow:auto;">
+                <table class="ps-table" style="min-width:1080px;">
+                  <thead><tr>
+                    <th>Bucket</th><th class="num">Required Units</th><th class="num">On Hand</th>
+                    <th class="num">Open PO</th><th class="num">Available + PO</th><th class="num">Net Gap</th>
+                    <th class="num">Gap + Buffer</th><th>Signal</th>
+                  </tr></thead>
+                  <tbody id="gapBody"></tbody>
+                </table>
               </div>
-              <span id="selectedScenarioChip" class="chip">+25%</span>
             </div>
-            <div class="thin-scroll">
-              <table style="min-width:1080px;">
-                <thead><tr>
-                  <th style="text-align:left;">Bucket</th><th class="num">Required Units</th><th class="num">On Hand</th>
-                  <th class="num">Open PO</th><th class="num">Available + PO</th><th class="num">Net Gap</th>
-                  <th class="num">Gap + Buffer</th><th style="text-align:left;">Signal</th>
-                </tr></thead>
-                <tbody id="gapBody"></tbody>
-              </table>
+          </div>
+          <div class="bcn-card">
+            <header class="bcn-card-header">
+              <span class="bcn-pill">CHANNEL</span>
+              <h2>Channel mix / ASP</h2>
+            </header>
+            <div class="bcn-card-body" style="padding:0;">
+              <div style="overflow:auto;">
+                <table class="ps-table" style="min-width:850px;">
+                  <thead><tr>
+                    <th>Bucket</th><th class="num">Hist Mix</th><th class="num">Plan Mix</th>
+                    <th class="num">Hist ASP</th><th class="num">Plan ASP</th><th class="num">ASP Change</th><th>Mode</th>
+                  </tr></thead>
+                  <tbody id="channelBody"></tbody>
+                </table>
+              </div>
             </div>
-          </section>
-          <section class="surface p-3">
-            <div>
-              <div class="panel-title">Channel mix / ASP assumptions</div>
-              <div class="ps-muted" style="margin-top:4px;">Historical mix vs plan overrides.</div>
-            </div>
-            <div class="thin-scroll mt-2">
-              <table style="min-width:850px;">
-                <thead><tr>
-                  <th style="text-align:left;">Bucket</th><th class="num">Hist Mix</th><th class="num">Plan Mix</th>
-                  <th class="num">Hist ASP</th><th class="num">Plan ASP</th><th class="num">ASP Change</th><th style="text-align:left;">Mode</th>
-                </tr></thead>
-                <tbody id="channelBody"></tbody>
-              </table>
-            </div>
-          </section>
+          </div>
         </section>
 
-        <section class="surface p-3">
-          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
-            <div>
-              <div class="panel-title">Product family detail — selected scenario</div>
-              <div class="ps-muted" style="margin-top:4px;">Demand by family; open POs reduce buy need on title match.</div>
+        <!-- ── Product families ──────────────────────────────────── -->
+        <section class="bcn-card">
+          <header class="bcn-card-header bcn-card-header--dark">
+            <span class="bcn-pill bcn-pill--dark">FAMILIES</span>
+            <h2>Product family detail</h2>
+            <div style="margin-left:auto;display:flex;gap:6px;">
+              <button class="ps-mode-btn active" type="button" data-family-filter="all">All</button>
+              <button class="ps-mode-btn" type="button" data-family-filter="buy">Buy Need</button>
+              <button class="ps-mode-btn" type="button" data-family-filter="mix">Review Mix</button>
+              <button class="ps-mode-btn" type="button" data-family-filter="overstock">Overstock</button>
             </div>
-            <div class="no-print" style="display:flex;gap:6px;">
-              <button class="mode-btn active" type="button" data-family-filter="all">All</button>
-              <button class="mode-btn" type="button" data-family-filter="buy">Buy Need</button>
-              <button class="mode-btn" type="button" data-family-filter="mix">Review Mix</button>
-              <button class="mode-btn" type="button" data-family-filter="overstock">Overstock</button>
+          </header>
+          <div class="bcn-card-body" style="padding:0;">
+            <div style="overflow:auto;max-height:500px;">
+              <table class="ps-table stickyHead" style="min-width:1820px;">
+                <thead><tr>
+                  <th>Product</th><th>Type</th>
+                  <th class="num">On Hand</th><th class="num">Retail Value</th>
+                  <th class="num">Sold 30d</th><th class="num">Sold 365d</th>
+                  <th class="num">Demand Share</th><th class="num">Scenario Units</th>
+                  <th class="num">Open PO</th><th class="num">Available + PO</th>
+                  <th class="num">Net Gap</th><th class="num">Gap + Buffer</th>
+                  <th>Action</th><th>Tags</th>
+                </tr></thead>
+                <tbody id="familyBody"></tbody>
+              </table>
             </div>
-          </div>
-          <div class="thin-scroll">
-            <table class="stickyHead" style="min-width:1820px;">
-              <thead><tr>
-                <th style="text-align:left;">Product</th><th style="text-align:left;">Type</th>
-                <th class="num">On Hand</th><th class="num">Retail Value</th><th class="num">Sold 30d</th><th class="num">Sold 365d</th>
-                <th class="num">Demand Share</th><th class="num">Scenario Units</th><th class="num">Open PO</th>
-                <th class="num">Available + PO</th><th class="num">Net Gap</th><th class="num">Gap + Buffer</th>
-                <th style="text-align:left;">Action</th><th style="text-align:left;">Tags</th>
-              </tr></thead>
-              <tbody id="familyBody"></tbody>
-            </table>
           </div>
         </section>
-      </div>
+
+        <div id="statusLine" class="ps-status" style="padding:4px 0;">Loading…</div>
+
+      </div><!-- /.ps-shell -->
     </main>
   </div>
 
-  <script src="silo-chrome.js"></script>
   <script src="../pages/planning-scenarios-engine.js"></script>
   <script>
     window.__SILO_PLANNING_SKIP_AUTO_BOOT__ = true;
+
     (async function () {
       const cfg = window.__SILO_CONFIG__ || {};
       if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) {
-        const sl = document.getElementById('statusLine');
-        if (sl) sl.textContent = 'Missing Supabase config.';
+        document.getElementById('statusLine').textContent = 'Missing Supabase config.';
         return;
       }
       const db = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
@@ -446,6 +627,42 @@
           supabaseClient: db,
         });
       }
+
+      // Seed mode button wiring
+      const seedBtns = document.querySelectorAll('.ps-seed-btn');
+      const selDataSource = document.getElementById('selDataSource');
+      const seedModeDesc = document.getElementById('seedModeDesc');
+      const SEED_DESC = {
+        historical: 'Seeded from historical sales actuals. Adjust monthly inputs below then run.',
+        projections: 'Seeded from revenue_projections monthly rollup. Edit inputs then run.',
+        manual: 'Manual entry mode. Type monthly revenue, mix, and ASP values directly.',
+      };
+
+      seedBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const mode = btn.dataset.seed;
+
+          seedBtns.forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          if (seedModeDesc) seedModeDesc.textContent = SEED_DESC[mode] || '';
+
+          if (mode === 'historical') {
+            selDataSource.value = 'manual';
+            selDataSource.dispatchEvent(new Event('change'));
+            document.getElementById('btnSeedRevenue').click();
+            document.getElementById('btnSeedMix').click();
+            document.getElementById('btnSeedAsp').click();
+          } else if (mode === 'projections') {
+            selDataSource.value = 'revenue_projections';
+            selDataSource.dispatchEvent(new Event('change'));
+            document.getElementById('btnSeedFromProjections').click();
+          } else {
+            selDataSource.value = 'manual';
+            selDataSource.dispatchEvent(new Event('change'));
+          }
+        });
+      });
+
       await window.SiloPlanningScenarios.boot();
     })();
   </script>
