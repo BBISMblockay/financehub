@@ -187,6 +187,71 @@
     .bcn-kpi { padding-top: 4px; padding-bottom: 4px; }
     .bcn-kpi-value { font-size: 15px !important; }
     .bcn-kpi-delta { display: none; }
+
+    /* ─── Report layout v2 ──────────────────────────────────────── */
+    .rpt-filter-strip {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 8px;
+      padding: 10px 12px;
+      background: rgba(255,255,255,.92);
+      border: 1px solid rgba(15,23,42,.08);
+      border-radius: 10px;
+    }
+    .rpt-filter-field {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+    .rpt-filter-field--search { flex: 1 1 180px; }
+    .rpt-filter-field--sel    { flex: 0 1 130px; }
+    .rpt-filter-field--date   { flex: 0 1 112px; }
+    .rpt-filter-field input,
+    .rpt-filter-field select  { width: 100%; min-width: 0; }
+    .rpt-tabs {
+      display: flex;
+      align-items: flex-end;
+      border-bottom: 2px solid rgba(15,23,42,.09);
+      gap: 0;
+    }
+    .rpt-tab {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 8px 16px;
+      font-size: .64rem;
+      font-weight: 800;
+      letter-spacing: .09em;
+      text-transform: uppercase;
+      color: #64748b;
+      background: none;
+      border: none;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -2px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: color .12s;
+    }
+    .rpt-tab:hover { color: #0f172a; }
+    .rpt-tab.active { color: #0f172a; border-bottom-color: #0f172a; }
+    .rpt-tab-count {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 22px;
+      padding: 1px 6px;
+      border-radius: 999px;
+      font-size: .58rem;
+      font-weight: 800;
+      background: rgba(15,23,42,.07);
+      color: #64748b;
+      transition: background .12s, color .12s;
+    }
+    .rpt-tab.active .rpt-tab-count { background: #0f172a; color: #fff; }
+    .rpt-panel { display: none; }
+    .rpt-panel.active { display: block; }
   </style>
 </head>
 
@@ -241,43 +306,40 @@
       </section>
 
       <div class="po-report-main">
-      <section class="bcn-card po-report-filters">
-        <header class="bcn-card-header bcn-card-header--dark">
-          <span class="bcn-pill bcn-pill--dark">FILTERS</span>
-          <h2>Scope</h2>
-        </header>
-        <div class="bcn-card-body">
-          <div class="bcn-field-group">
+
+        <!-- Horizontal filter strip -->
+        <div class="rpt-filter-strip">
+          <div class="rpt-filter-field rpt-filter-field--search">
             <label class="bcn-label">Search</label>
             <input id="searchInput" class="bcn-field" type="search" placeholder="PO, factory, product, SKU…" />
           </div>
-          <div class="bcn-field-group">
+          <div class="rpt-filter-field rpt-filter-field--sel">
             <label class="bcn-label">Status</label>
             <select id="statusFilter" class="bcn-field bcn-field--mono">
               <option value="">All statuses</option>
             </select>
           </div>
-          <div class="bcn-field-group">
+          <div class="rpt-filter-field rpt-filter-field--sel">
             <label class="bcn-label">Factory</label>
             <select id="factoryFilter" class="bcn-field bcn-field--mono">
               <option value="">All factories</option>
             </select>
           </div>
-          <div class="bcn-field-group">
-            <label class="bcn-label">Date bucket</label>
+          <div class="rpt-filter-field rpt-filter-field--sel">
+            <label class="bcn-label">Bucket</label>
             <select id="bucketFilter" class="bcn-field bcn-field--mono">
               <option value="">All buckets</option>
             </select>
           </div>
-          <div class="bcn-field-group">
+          <div class="rpt-filter-field rpt-filter-field--date">
             <label class="bcn-label">Arrival from</label>
             <input id="arrivalFrom" class="bcn-field bcn-field--mono" type="date" />
           </div>
-          <div class="bcn-field-group">
+          <div class="rpt-filter-field rpt-filter-field--date">
             <label class="bcn-label">Arrival to</label>
             <input id="arrivalTo" class="bcn-field bcn-field--mono" type="date" />
           </div>
-          <div class="bcn-field-group">
+          <div class="rpt-filter-field rpt-filter-field--sel">
             <label class="bcn-label">Scope</label>
             <select id="scopeFilter" class="bcn-field bcn-field--mono">
               <option value="open">Open incoming only</option>
@@ -287,97 +349,114 @@
             </select>
           </div>
         </div>
-      </section>
 
-      <div class="po-report-grid">
-        <section class="bcn-card po-report-card">
-          <header class="bcn-card-header">
-            <span class="bcn-pill bcn-pill--accent">POs</span>
-            <h2>PO summary</h2>
-            <span class="bcn-card-meta" id="poTableCount">0 rows</span>
-          </header>
-          <div class="bcn-matrix-scroll table-wrap sticky-head soft-scroll">
-            <table class="min-w-[1120px] w-full border-separate border-spacing-0">
-              <thead>
-                <tr>
-                  <th class="text-left">PO</th>
-                  <th class="text-left">Factory</th>
-                  <th class="text-left">Status</th>
-                  <th class="text-left">Bucket</th>
-                  <th class="text-left">Order</th>
-                  <th class="text-left">Req Ship</th>
-                  <th class="text-left">Expected</th>
-                  <th class="right">Lines</th>
-                  <th class="right">Styles</th>
-                  <th class="right">Units</th>
-                  <th class="right">Retail</th>
-                  <th class="right">Cost</th>
-                  <th class="right">Spread</th>
-                  <th class="text-left">Open</th>
-                </tr>
-              </thead>
-              <tbody id="poTbody"></tbody>
-            </table>
-          </div>
-        </section>
-
-        <section class="bcn-card po-report-card">
-          <header class="bcn-card-header">
-            <span class="bcn-pill">PRODUCTS</span>
-            <h2>Product rollup</h2>
-            <span class="bcn-card-meta" id="productTableCount">0 rows</span>
-          </header>
-          <div class="bcn-matrix-scroll table-wrap sticky-head soft-scroll">
-            <table class="min-w-[850px] w-full border-separate border-spacing-0">
-              <thead>
-                <tr>
-                  <th class="text-left">Type</th>
-                  <th class="text-left">Product</th>
-                  <th class="right">POs</th>
-                  <th class="right">SKUs</th>
-                  <th class="right">Variants</th>
-                  <th class="right">Units</th>
-                  <th class="right">Retail</th>
-                  <th class="right">Cost</th>
-                  <th class="right">AUC</th>
-                </tr>
-              </thead>
-              <tbody id="productTbody"></tbody>
-            </table>
-          </div>
-        </section>
-      </div>
-
-      <section class="bcn-card po-report-card">
-        <header class="bcn-card-header bcn-card-header--dark">
-          <span class="bcn-pill bcn-pill--dark">LINES</span>
-          <h2>Incoming line detail</h2>
-          <span class="bcn-card-meta" id="lineTableCount">0 rows</span>
-        </header>
-        <div class="bcn-matrix-scroll table-wrap sticky-head soft-scroll" style="max-height:min(45vh,480px);">
-          <table class="min-w-[1400px] w-full border-separate border-spacing-0">
-            <thead>
-              <tr>
-                <th class="text-left">PO</th>
-                <th class="text-left">Factory</th>
-                <th class="text-left">Status</th>
-                <th class="text-left">Expected</th>
-                <th class="text-left">Type</th>
-                <th class="text-left">Product</th>
-                <th class="text-left">Variant</th>
-                <th class="text-left">SKU</th>
-                <th class="text-left">UPC</th>
-                <th class="right">Qty</th>
-                <th class="right">Retail</th>
-                <th class="right">Cost</th>
-                <th class="right">Retail Value</th>
-                <th class="right">Est. Cost</th>
-              </tr>
-            </thead>
-            <tbody id="lineTbody"></tbody>
-          </table>
+        <!-- Tab navigation -->
+        <div class="rpt-tabs">
+          <button class="rpt-tab active" data-tab="pos">
+            PO SUMMARY <span class="rpt-tab-count" id="poTableCount">0</span>
+          </button>
+          <button class="rpt-tab" data-tab="products">
+            PRODUCTS <span class="rpt-tab-count" id="productTableCount">0</span>
+          </button>
+          <button class="rpt-tab" data-tab="lines">
+            LINE DETAIL <span class="rpt-tab-count" id="lineTableCount">0</span>
+          </button>
         </div>
-      </section>
+
+        <!-- PO Summary panel -->
+        <div class="rpt-panel active" data-panel="pos">
+          <section class="bcn-card po-report-card">
+            <header class="bcn-card-header">
+              <span class="bcn-pill bcn-pill--accent">POs</span>
+              <h2>PO summary</h2>
+            </header>
+            <div class="bcn-matrix-scroll table-wrap sticky-head soft-scroll">
+              <table class="min-w-[1120px] w-full border-separate border-spacing-0">
+                <thead>
+                  <tr>
+                    <th class="text-left">PO</th>
+                    <th class="text-left">Factory</th>
+                    <th class="text-left">Status</th>
+                    <th class="text-left">Bucket</th>
+                    <th class="text-left">Order</th>
+                    <th class="text-left">Req Ship</th>
+                    <th class="text-left">Expected</th>
+                    <th class="right">Lines</th>
+                    <th class="right">Styles</th>
+                    <th class="right">Units</th>
+                    <th class="right">Retail</th>
+                    <th class="right">Cost</th>
+                    <th class="right">Spread</th>
+                    <th class="text-left">Open</th>
+                  </tr>
+                </thead>
+                <tbody id="poTbody"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <!-- Products panel -->
+        <div class="rpt-panel" data-panel="products">
+          <section class="bcn-card po-report-card">
+            <header class="bcn-card-header">
+              <span class="bcn-pill">PRODUCTS</span>
+              <h2>Product rollup</h2>
+            </header>
+            <div class="bcn-matrix-scroll table-wrap sticky-head soft-scroll">
+              <table class="min-w-[850px] w-full border-separate border-spacing-0">
+                <thead>
+                  <tr>
+                    <th class="text-left">Type</th>
+                    <th class="text-left">Product</th>
+                    <th class="right">POs</th>
+                    <th class="right">SKUs</th>
+                    <th class="right">Variants</th>
+                    <th class="right">Units</th>
+                    <th class="right">Retail</th>
+                    <th class="right">Cost</th>
+                    <th class="right">AUC</th>
+                  </tr>
+                </thead>
+                <tbody id="productTbody"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
+        <!-- Line detail panel -->
+        <div class="rpt-panel" data-panel="lines">
+          <section class="bcn-card po-report-card">
+            <header class="bcn-card-header bcn-card-header--dark">
+              <span class="bcn-pill bcn-pill--dark">LINES</span>
+              <h2>Incoming line detail</h2>
+            </header>
+            <div class="bcn-matrix-scroll table-wrap sticky-head soft-scroll">
+              <table class="min-w-[1400px] w-full border-separate border-spacing-0">
+                <thead>
+                  <tr>
+                    <th class="text-left">PO</th>
+                    <th class="text-left">Factory</th>
+                    <th class="text-left">Status</th>
+                    <th class="text-left">Expected</th>
+                    <th class="text-left">Type</th>
+                    <th class="text-left">Product</th>
+                    <th class="text-left">Variant</th>
+                    <th class="text-left">SKU</th>
+                    <th class="text-left">UPC</th>
+                    <th class="right">Qty</th>
+                    <th class="right">Retail</th>
+                    <th class="right">Cost</th>
+                    <th class="right">Retail Value</th>
+                    <th class="right">Est. Cost</th>
+                  </tr>
+                </thead>
+                <tbody id="lineTbody"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+
       </div>
     </main>
   </div>
@@ -650,7 +729,7 @@
     }
 
     function renderPOTable(){
-      el.poTableCount.textContent = `${state.filteredPOs.length.toLocaleString()} rows`;
+      el.poTableCount.textContent = state.filteredPOs.length.toLocaleString();
 
       if(!state.filteredPOs.length){
         el.poTbody.innerHTML = `<tr><td colspan="14" class="py-10 text-center text-slate-500">No purchase orders match the current filters.</td></tr>`;
@@ -680,7 +759,7 @@
     }
 
     function renderProductTable(){
-      el.productTableCount.textContent = `${state.productRows.length.toLocaleString()} rows`;
+      el.productTableCount.textContent = state.productRows.length.toLocaleString();
 
       if(!state.productRows.length){
         el.productTbody.innerHTML = `<tr><td colspan="9" class="py-10 text-center text-slate-500">No product rollup rows match the current filters.</td></tr>`;
@@ -703,7 +782,7 @@
     }
 
     function renderLineTable(){
-      el.lineTableCount.textContent = `${state.filteredLines.length.toLocaleString()} rows`;
+      el.lineTableCount.textContent = state.filteredLines.length.toLocaleString();
 
       if(!state.filteredLines.length){
         el.lineTbody.innerHTML = `<tr><td colspan="14" class="py-10 text-center text-slate-500">No PO lines match the current filters.</td></tr>`;
@@ -822,6 +901,15 @@
     ].forEach(node => {
       node.addEventListener('input', applyFilters);
       node.addEventListener('change', applyFilters);
+    });
+
+    document.querySelectorAll('.rpt-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.rpt-tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.rpt-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.querySelector(`.rpt-panel[data-panel="${btn.dataset.tab}"]`).classList.add('active');
+      });
     });
 
     el.btnRefresh.addEventListener('click', async () => {
