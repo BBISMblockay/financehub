@@ -62,6 +62,7 @@
       section: 'Planning',
       items: [
         { id: 'planning/revenue-projections', label: 'Revenue Projection', href: '/v2/projections.html' },
+        { id: 'planning/scenarios', label: 'Planning scenarios', href: '/v2/planning-scenarios.html' },
         { id: 'planning/launch-calendar', label: 'Launch calendar', href: '/v2/launch-calendar.html' },
         { id: 'purchasing/po-builder', label: 'PO Builder', href: '/v2/po-builder.html' },
         { id: 'purchasing/po-costing', label: 'PO Landed Cost', href: '/v2/po-costing.html' },
