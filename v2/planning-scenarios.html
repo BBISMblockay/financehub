@@ -827,6 +827,24 @@
       z-index: 2;
     }
 
+    /* Calc / dirty chips next to the KPI strip */
+    .ps-state-chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 4px; min-height: 22px; }
+    .ps-chip-recalc, .ps-chip-dirty {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 10px; font-weight: 800; letter-spacing: .05em;
+      padding: 3px 8px; border-radius: 999px; border: 1px solid var(--bcn-border);
+      background: var(--bcn-surface); color: var(--bcn-ink-2);
+    }
+    .ps-chip-recalc { color: #1e40af; border-color: #bfdbfe; background: #eff6ff; }
+    .ps-chip-recalc::before { content: ""; width: 8px; height: 8px; border-radius: 999px; background: #1e40af; animation: ps-pulse 1s ease-in-out infinite; }
+    .ps-chip-dirty { color: #92400e; border-color: #fde68a; background: #fffbeb; }
+    .ps-chip-dirty::before { content: "•"; font-size: 14px; line-height: 1; }
+    @keyframes ps-pulse { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
+
+    /* Subtle dim on output region while a calc is in flight, but never blocks reading. */
+    body[data-ps-calculating="1"] .ps-out-panel { opacity: .78; transition: opacity .15s ease; }
+    body[data-ps-calculating="1"] .ps-out-panel.active { opacity: 1; }
+
     /* Inline projection note under product type */
     .ps-scope-note {
       grid-column: 1 / -1;
@@ -1274,6 +1292,10 @@
         </div>
 
         <div class="ps-results-block no-print">
+        <div class="ps-state-chips" role="status" aria-live="polite">
+          <span id="psRecalcChip" class="ps-chip-recalc" hidden>Recalculating…</span>
+          <span id="psDirtyChip" class="ps-chip-dirty" hidden>Inputs changed — recalculating shortly</span>
+        </div>
         <section class="ps-kpi-strip" aria-label="Planning KPIs">
           <div class="ps-kpi">
             <div class="ps-kpi-label">Seeded revenue</div>
@@ -1679,11 +1701,11 @@
         if (activeSeedMode === 'projections' && card === 'revenue') {
           await api.seedRevenueFromProjections({ overwrite });
         } else if (card === 'revenue') {
-          api.seedRevenuePlan({ overwrite });
+          await api.seedRevenuePlan({ overwrite });
         } else if (card === 'mix') {
-          api.seedMixPlan({ overwrite });
+          await api.seedMixPlan({ overwrite });
         } else if (card === 'asp') {
-          api.seedAspPlan({ overwrite });
+          await api.seedAspPlan({ overwrite });
         }
         if (statLastSeeded) statLastSeeded.textContent = nowLabel();
         await updateDerivedStatus();
@@ -1696,13 +1718,14 @@
         }
         const api = window.SiloPlanningScenarios;
         if (!api) return;
+        // Seed Revenue first (Projections path is async + needs ensureProjections), then Mix/ASP.
         if (activeSeedMode === 'projections') {
           await api.seedRevenueFromProjections({ overwrite });
         } else {
-          api.seedRevenuePlan({ overwrite });
+          await api.seedRevenuePlan({ overwrite });
         }
-        api.seedMixPlan({ overwrite });
-        api.seedAspPlan({ overwrite });
+        await api.seedMixPlan({ overwrite });
+        await api.seedAspPlan({ overwrite });
         if (statLastSeeded) statLastSeeded.textContent = nowLabel();
         setFlowStep(3);
         await updateDerivedStatus();
@@ -1779,13 +1802,23 @@
       const originalApply = $('btnApply');
       if (originalApply) {
         originalApply.addEventListener('click', async () => {
+          // Single Run handler: switch to Summary then await full calculation/render.
+          // Engine's runScenario awaits heavy data + projections (if needed), invalidates the scenario
+          // cache, then renders every output section so tab switches are pure view changes.
           setOutTab('summary');
           setFlowStep(5);
-          // ensure heavy data is ready (background prefetch likely beat us)
-          if (window.SiloPlanningScenarios?.ensureHeavyData) {
-            await window.SiloPlanningScenarios.ensureHeavyData();
+          originalApply.disabled = true;
+          const prevLabel = originalApply.textContent;
+          originalApply.textContent = 'Calculating…';
+          try {
+            if (window.SiloPlanningScenarios?.runScenario) {
+              await window.SiloPlanningScenarios.runScenario();
+            }
+            await updateDerivedStatus();
+          } finally {
+            originalApply.disabled = false;
+            originalApply.textContent = prevLabel || 'Run scenario';
           }
-          await updateDerivedStatus();
         });
       }
 
