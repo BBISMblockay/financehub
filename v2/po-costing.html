@@ -82,32 +82,112 @@
       color: var(--bcn-ink-2, #475569);
     }
 
-    /* ── Combined shipment ───────────────────────────────── */
-    .cost-combined-panel {
-      margin-top: 12px; padding: 14px;
+    /* ── Combined shipment wizard ────────────────────────── */
+    .cs-overlay {
+      position: fixed; inset: 0; z-index: 1000;
+      background: rgba(15,23,42,0.55);
+      display: flex; align-items: center; justify-content: center;
+      padding: 16px;
+    }
+    .cs-overlay[hidden] { display: none; }
+    .cs-modal {
+      background: var(--bcn-surface, #fff); border-radius: 12px;
+      box-shadow: 0 20px 60px rgba(15,23,42,0.25);
+      width: 100%; max-width: 720px; max-height: 90vh;
+      display: flex; flex-direction: column;
+    }
+    .cs-head {
+      display: flex; align-items: center; gap: 10px;
+      padding: 14px 18px; border-bottom: 1px solid var(--bcn-line, #e2e8f0); flex-shrink: 0;
+    }
+    .cs-title { font-size: 13px; font-weight: 900; letter-spacing: .06em; text-transform: uppercase; flex: 1; }
+    .cs-close {
+      width: 28px; height: 28px; border-radius: 6px; border: none; background: none;
+      cursor: pointer; font-size: 18px; color: var(--bcn-ink-3, #94a3b8);
+      display: flex; align-items: center; justify-content: center; line-height: 1;
+    }
+    .cs-close:hover { background: var(--bcn-surface-2, #f8fafc); color: var(--bcn-ink, #0f172a); }
+    .cs-steps-bar {
+      display: flex; align-items: center;
+      padding: 12px 18px 0; flex-shrink: 0;
+    }
+    .cs-step-dot {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+      color: var(--bcn-ink-3, #94a3b8); white-space: nowrap;
+    }
+    .cs-step-dot.active { color: var(--bcn-accent, #3b82f6); }
+    .cs-step-dot.done { color: var(--bcn-pos, #059669); }
+    .cs-step-num {
+      width: 20px; height: 20px; border-radius: 50%;
+      border: 2px solid currentColor;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 9px; font-weight: 900; flex-shrink: 0;
+    }
+    .cs-step-dot.active .cs-step-num { background: var(--bcn-accent, #3b82f6); color: #fff; border-color: var(--bcn-accent, #3b82f6); }
+    .cs-step-dot.done .cs-step-num { background: var(--bcn-pos, #059669); color: #fff; border-color: var(--bcn-pos, #059669); }
+    .cs-step-line { flex: 1; height: 2px; background: var(--bcn-border-strong, #cbd5e1); margin: 0 8px; min-width: 12px; }
+    .cs-body { flex: 1; overflow-y: auto; padding: 18px; }
+    .cs-foot {
+      display: flex; align-items: center; gap: 8px; padding: 12px 18px;
+      border-top: 1px solid var(--bcn-line, #e2e8f0); flex-shrink: 0;
+    }
+    .cs-foot-spacer { flex: 1; }
+    .cs-section-label {
+      font-size: 10px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase;
+      color: var(--bcn-ink-3, #94a3b8); margin-bottom: 10px; margin-top: 16px;
+    }
+    .cs-section-label:first-child { margin-top: 0; }
+    .cs-po-grid { display: flex; flex-direction: column; gap: 3px; max-height: 300px; overflow-y: auto; }
+    .cs-po-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 7px 10px; border-radius: 8px;
+      border: 1px solid transparent; font-size: 12px;
+    }
+    .cs-po-row:hover { background: var(--bcn-surface-2, #f8fafc); }
+    .cs-po-row.is-current { border-color: var(--bcn-accent, #3b82f6); background: var(--bcn-accent-soft, #eff6ff); margin-bottom: 12px; }
+    .cs-po-row.is-selected { background: var(--bcn-surface-2, #f8fafc); }
+    .cs-po-name { font-weight: 700; flex: 1; }
+    .cs-po-meta { color: var(--bcn-ink-3, #94a3b8); font-size: 11px; white-space: nowrap; }
+    .cs-fob-grid { display: grid; gap: 8px; }
+    .cs-fob-card {
+      padding: 12px 14px; border-radius: 8px;
       border: 1px solid var(--bcn-border, #e2e8f0);
-      border-radius: 8px;
-      background: var(--bcn-sunken, #f8fafc);
+      background: var(--bcn-surface-2, #f8fafc);
     }
-    .cost-combined-po-list {
-      display: flex; flex-direction: column; gap: 3px;
-      max-height: 180px; overflow-y: auto;
-      border: 1px solid var(--bcn-border, #e2e8f0); border-radius: 6px;
-      padding: 8px; margin-bottom: 12px;
-      background: var(--bcn-surface, #fff);
+    .cs-fob-card.is-current { border-color: var(--bcn-accent, #3b82f6); }
+    .cs-fob-card-name { font-size: 12px; font-weight: 800; margin-bottom: 8px; }
+    .cs-fob-stats { display: flex; gap: 20px; flex-wrap: wrap; }
+    .cs-fob-stat { display: flex; flex-direction: column; gap: 2px; }
+    .cs-fob-stat-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--bcn-ink-3); }
+    .cs-fob-stat-val { font-size: 13px; font-weight: 700; font-family: var(--bcn-mono, monospace); }
+    .cs-missing-fob { margin-top: 8px; font-size: 11px; color: var(--bcn-neg, #dc2626); }
+    .cs-bucket-grid { display: grid; gap: 10px; margin-bottom: 4px; }
+    .cs-bucket-row { display: grid; grid-template-columns: 110px 1fr auto; align-items: center; gap: 10px; }
+    .cs-bucket-label { font-size: 12px; font-weight: 700; }
+    .cs-method-btns { display: flex; gap: 3px; }
+    .cs-method-btn {
+      padding: 3px 8px; border-radius: 5px; border: 1px solid var(--bcn-border, #e2e8f0);
+      background: none; cursor: pointer; font-size: 10px; font-weight: 700;
+      letter-spacing: .04em; text-transform: uppercase; color: var(--bcn-ink-2, #475569);
+      font-family: var(--bcn-mono, monospace); white-space: nowrap;
     }
-    .cost-split-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 12px; }
-    .cost-split-table th {
-      font-size: 10px; font-weight: 800; text-transform: uppercase;
-      letter-spacing: .06em; color: var(--bcn-ink-3, #94a3b8);
-      padding: 4px 8px; border-bottom: 1px solid var(--bcn-border, #e2e8f0);
-      text-align: left;
+    .cs-method-btn.active { background: var(--bcn-accent, #3b82f6); color: #fff; border-color: var(--bcn-accent, #3b82f6); }
+    .cs-weight-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; margin-bottom: 14px; }
+    .cs-weight-card { padding: 10px 12px; border-radius: 7px; border: 1px solid var(--bcn-border, #e2e8f0); font-size: 12px; }
+    .cs-weight-card-name { font-weight: 700; margin-bottom: 6px; font-size: 11px; }
+    .cs-weight-inputs { display: flex; gap: 6px; }
+    .cs-review-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .cs-review-table th {
+      font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em;
+      color: var(--bcn-ink-3); padding: 4px 8px; border-bottom: 2px solid var(--bcn-border, #e2e8f0);
+      text-align: right; white-space: nowrap;
     }
-    .cost-split-table th:not(:first-child) { text-align: right; }
-    .cost-split-table td { padding: 5px 8px; border-bottom: 1px solid var(--bcn-border, #e2e8f0); }
-    .cost-split-table td:not(:first-child) { text-align: right; font-family: var(--bcn-mono, monospace); }
-    .cost-split-current td { font-weight: 700; }
-    .cost-split-total td { font-weight: 900; background: var(--bcn-surface-2, #f1f5f9); }
+    .cs-review-table th:first-child { text-align: left; }
+    .cs-review-table td { padding: 6px 8px; border-bottom: 1px solid var(--bcn-border, #e2e8f0); text-align: right; font-family: var(--bcn-mono, monospace); }
+    .cs-review-table td:first-child { text-align: left; font-family: inherit; font-weight: 600; }
+    .cs-review-table tr.cs-current-row td { font-weight: 800; background: var(--bcn-accent-soft, #eff6ff); }
+    .cs-review-table tfoot td { font-weight: 900; background: var(--bcn-surface-2, #f1f5f9); border-top: 2px solid var(--bcn-border-strong, #cbd5e1); }
     .cost-current-tag {
       font-size: 10px; font-weight: 700; color: var(--bcn-accent, #3b82f6);
       background: var(--bcn-accent-soft, #eff6ff);
@@ -253,7 +333,10 @@
               <div class="cost-section-label">Freight, duty &amp; landed split</div>
               <div class="cost-fields">
                 <div class="bcn-field-group"><label class="bcn-label">Freight invoice #</label><input class="bcn-field bcn-field--mono" type="text" id="inFreightRef" placeholder="Forwarder ref" /></div>
-                <div class="bcn-field-group"><label class="bcn-label">Freight total ($)</label><input class="bcn-field bcn-field--mono" type="number" step="0.01" min="0" id="inFreight" data-cost-header /></div>
+                <div class="bcn-field-group">
+                  <label class="bcn-label">Freight total ($)</label>
+                  <input class="bcn-field bcn-field--mono" type="number" step="0.01" min="0" id="inFreight" data-cost-header />
+                </div>
                 <div class="bcn-field-group"><label class="bcn-label">Duty (% of FOB)</label><input class="bcn-field bcn-field--mono" type="number" step="0.01" min="0" id="inDutyPct" data-cost-header /></div>
                 <div class="bcn-field-group"><label class="bcn-label">Misc ($)</label><input class="bcn-field bcn-field--mono" type="number" step="0.01" min="0" id="inMisc" data-cost-header /></div>
                 <div class="bcn-field-group">
@@ -269,21 +352,11 @@
                 <textarea class="bcn-field" id="inFreightNotes" rows="2" placeholder="Container #, forwarder, actual freight bill…"></textarea>
               </div>
 
-              <!-- Combined shipment toggle -->
-              <label class="cost-check" style="margin-left:0;justify-content:flex-start;padding:10px 0 2px;gap:8px;font-size:12px;">
-                <input type="checkbox" id="chkCombinedShipment" />
-                Split this freight invoice across multiple POs
-              </label>
-              <div id="combinedShipmentPanel" style="display:none;" class="cost-combined-panel">
-                <div class="cost-section-label">POs on this shipment</div>
-                <div class="cost-combined-po-list" id="combinedPoCheckList"></div>
-                <div class="cost-section-label">Freight split preview</div>
-                <div id="freightSplitPreview"><p style="font-size:12px;color:var(--bcn-ink-3,#94a3b8);margin:0 0 12px;">Select POs above to see split.</p></div>
-                <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="btnApplyFreightAll">APPLY FREIGHT TO ALL POs</button>
-              </div>
+              <div id="csAppliedNote" style="display:none;font-size:11px;color:var(--bcn-accent,#3b82f6);font-weight:700;margin-top:4px;padding:6px 10px;background:var(--bcn-accent-soft,#eff6ff);border-radius:6px;"></div>
 
               <div class="cost-actions">
                 <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnRecalc">RECALC SPLIT</button>
+                <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnCombinedShipment">COMBINED SHIPMENT</button>
                 <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="btnSaveFreight">SAVE FREIGHT &amp; LANDED</button>
                 <label class="cost-check"><input type="checkbox" id="chkPushLanded" checked /> Push to PO line unit cost</label>
               </div>
@@ -327,6 +400,27 @@
         </section>
       </div>
     </main>
+  </div>
+
+  <!-- ── Combined Shipment Wizard ──────────────────────────────── -->
+  <div id="csOverlay" class="cs-overlay" hidden aria-modal="true" role="dialog" aria-labelledby="csTitle">
+    <div class="cs-modal">
+      <div class="cs-head">
+        <span class="cs-title" id="csTitle">Combined Shipment</span>
+        <button type="button" class="cs-close" id="csClose" aria-label="Close">&#x2715;</button>
+      </div>
+      <div class="cs-steps-bar" id="csStepsBar">
+        <div class="cs-step-dot active" data-cs-step="1"><span class="cs-step-num">1</span><span>Select POs</span></div>
+        <div class="cs-step-line"></div>
+        <div class="cs-step-dot" data-cs-step="2"><span class="cs-step-num">2</span><span>FOB Review</span></div>
+        <div class="cs-step-line"></div>
+        <div class="cs-step-dot" data-cs-step="3"><span class="cs-step-num">3</span><span>Costs &amp; Methods</span></div>
+        <div class="cs-step-line"></div>
+        <div class="cs-step-dot" data-cs-step="4"><span class="cs-step-num">4</span><span>Review &amp; Apply</span></div>
+      </div>
+      <div class="cs-body" id="csBody"></div>
+      <div class="cs-foot" id="csFoot"></div>
+    </div>
   </div>
 
   <script src="silo-chrome.js"></script>
@@ -415,7 +509,6 @@
       els.kpiLanded.textContent = money(result.landed_total);
       ctx.result = result;
       renderLineTable(result);
-      if (document.getElementById('chkCombinedShipment')?.checked) updateFreightSplitPreview();
       return result;
     }
 
@@ -622,8 +715,8 @@
       updatePhaseUi();
       els.status.textContent = '';
       renderPoList();
-      combinedPoIds.clear();
-      if (document.getElementById('chkCombinedShipment')?.checked) renderCombinedPoList();
+      const note = document.getElementById('csAppliedNote');
+      if (note) note.style.display = 'none';
       setPoDrawerOpen(false);
     }
 
@@ -699,133 +792,348 @@
       renderPoList();
     }
 
-    // ── Combined shipment ────────────────────────────────────────────
-    const combinedPoIds = new Set();
-    const combinedCtxCache = {};
+    // ── Combined Shipment Wizard ─────────────────────────────────────
+    const wiz = {
+      step: 1,
+      selIds: new Set(),
+      ctxs: {},
+      weights: {},
+      buckets: { freight: 0, tariff_pct: 0, duty_pct: 0, misc: 0 },
+      methods: { freight: 'proportional', tariff: 'proportional', duty: 'proportional', misc: 'proportional' },
+    };
 
-    async function loadCombinedPoCtx(poId) {
-      if (combinedCtxCache[poId]) return combinedCtxCache[poId];
-      const c = await Lib.loadPoCostingContext(db, poId);
-      combinedCtxCache[poId] = c;
-      return c;
+    function openWiz() {
+      if (!ctx) return;
+      wiz.step = 1;
+      wiz.selIds = new Set([ctx.header.id]);
+      wiz.ctxs = { [ctx.header.id]: ctx };
+      wiz.weights = {};
+      wiz.buckets = {
+        freight: Lib.num(els.inFreight.value) || 0,
+        tariff_pct: 0,
+        duty_pct: Lib.num(els.inDutyPct.value) || 0,
+        misc: Lib.num(els.inMisc.value) || 0,
+      };
+      wiz.methods = { freight: 'proportional', tariff: 'proportional', duty: 'proportional', misc: 'proportional' };
+      document.getElementById('csOverlay').hidden = false;
+      document.body.style.overflow = 'hidden';
+      wizUpdateStepDots(1);
+      renderWizStep();
     }
 
-    function renderCombinedPoList() {
-      const panel = document.getElementById('combinedPoCheckList');
-      if (!panel || !ctx) return;
-      const others = poRows.filter(r => r.id !== ctx.header.id);
-      if (!others.length) {
-        panel.innerHTML = '<p style="font-size:12px;color:var(--bcn-ink-3);margin:0;">No other POs available.</p>';
-        return;
-      }
-      panel.innerHTML = others.map(r => {
-        const checked = combinedPoIds.has(r.id) ? 'checked' : '';
-        const phaseTag = r.costing_phase
-          ? ` <span style="font-size:10px;color:var(--bcn-ink-3);">${esc(r.costing_phase)}</span>`
-          : '';
-        const sub = [r.factory_name, r.status, r.landed_total ? money(r.landed_total) : ''].filter(Boolean).join(' · ');
-        return `<label style="display:flex;align-items:center;gap:8px;font-size:12px;padding:3px 0;cursor:pointer;">
-          <input type="checkbox" ${checked} data-combined-po="${esc(r.id)}" />
-          <span><strong>${esc(r.po_name || 'Untitled')}</strong>${phaseTag}
-            <span style="color:var(--bcn-ink-3);font-size:11px;margin-left:4px;">${esc(sub)}</span>
-          </span>
-        </label>`;
-      }).join('');
-      panel.querySelectorAll('[data-combined-po]').forEach(chk => {
-        chk.addEventListener('change', async () => {
-          const id = chk.getAttribute('data-combined-po');
-          if (chk.checked) {
-            combinedPoIds.add(id);
-            if (!combinedCtxCache[id]) {
-              chk.disabled = true;
-              const lbl = chk.closest('label');
-              if (lbl) lbl.style.opacity = '0.5';
-              await loadCombinedPoCtx(id).catch(e => console.warn('Combined PO load:', e));
-              chk.disabled = false;
-              if (lbl) lbl.style.opacity = '';
-            }
-          } else {
-            combinedPoIds.delete(id);
-          }
-          updateFreightSplitPreview();
-        });
+    function closeWiz() {
+      document.getElementById('csOverlay').hidden = true;
+      document.body.style.overflow = '';
+    }
+
+    function wizUpdateStepDots(n) {
+      document.querySelectorAll('[data-cs-step]').forEach(el => {
+        const s = Number(el.getAttribute('data-cs-step'));
+        el.classList.remove('active', 'done');
+        if (s === n) el.classList.add('active');
+        else if (s < n) el.classList.add('done');
       });
     }
 
-    function updateFreightSplitPreview() {
-      const preview = document.getElementById('freightSplitPreview');
-      if (!preview || !ctx) return;
-      const totalFreight = Lib.num(els.inFreight.value);
-      const method = els.inAlloc.value;
-      const currentResult = Lib.computeCosting(ctx.lines, headerInputs(), lineOverrides);
-      const splitInputs = [
-        { header: ctx.header, lines: ctx.lines, result: currentResult },
-        ...Array.from(combinedPoIds).map(id => combinedCtxCache[id]).filter(Boolean),
-      ];
-      if (splitInputs.length < 2) {
-        preview.innerHTML = '<p style="font-size:12px;color:var(--bcn-ink-3,#94a3b8);margin:0 0 12px;">Select at least one other PO to see the split.</p>';
-        return;
-      }
-      const splits = Lib.computeFreightSplit(splitInputs, totalFreight, method);
-      const totalFob = splits.reduce((s, r) => s + r.fob_total, 0);
-      const totalUnits = splits.reduce((s, r) => s + r.unit_count, 0);
-      preview.innerHTML = `<table class="cost-split-table">
-        <thead><tr>
-          <th>PO</th><th>FOB</th><th>Units</th><th>Freight</th>
-        </tr></thead>
-        <tbody>
-          ${splits.map((s, i) => `<tr class="${i === 0 ? 'cost-split-current' : ''}">
-            <td>${esc(s.po_name)}${i === 0 ? '<span class="cost-current-tag">current</span>' : ''}</td>
-            <td>${money(s.fob_total)}</td>
-            <td>${s.unit_count.toLocaleString()}</td>
-            <td style="font-weight:700;">${money(s.freight_share)}</td>
-          </tr>`).join('')}
-          <tr class="cost-split-total">
-            <td>Total</td>
-            <td>${money(totalFob)}</td>
-            <td>${totalUnits.toLocaleString()}</td>
-            <td>${money(totalFreight)}</td>
-          </tr>
-        </tbody>
-      </table>`;
+    function wizGoTo(n) {
+      wiz.step = n;
+      wizUpdateStepDots(n);
+      renderWizStep();
     }
 
-    async function applyFreightToAllPos() {
+    function renderWizStep() {
+      const body = document.getElementById('csBody');
+      const foot = document.getElementById('csFoot');
+      if (!body || !foot) return;
+      if (wiz.step === 1) wizStep1(body, foot);
+      else if (wiz.step === 2) wizStep2(body, foot);
+      else if (wiz.step === 3) wizStep3(body, foot);
+      else if (wiz.step === 4) wizStep4(body, foot);
+    }
+
+    function wizStep1(body, foot) {
+      const others = poRows.filter(r => r.id !== ctx.header.id);
+      body.innerHTML = `
+        <div class="cs-section-label">This PO (auto-included)</div>
+        <div class="cs-po-row is-current">
+          <span class="cs-po-name">${esc(ctx.header.po_name || 'Untitled')}</span>
+          <span class="cs-po-meta">Current PO</span>
+        </div>
+        <div class="cs-section-label">Add other POs to this shipment</div>
+        <div class="bcn-field-group" style="margin-bottom:8px;">
+          <input id="csPoSearch" class="bcn-field bcn-field--mono" type="search" placeholder="Search PO name or factory…" autocomplete="off" />
+        </div>
+        <div class="cs-po-grid" id="csPoGrid"></div>
+        <div style="margin-top:8px;font-size:11px;color:var(--bcn-ink-3);" id="csSelCount"></div>
+      `;
+
+      function updateCount() {
+        const n = wiz.selIds.size - 1;
+        const el = document.getElementById('csSelCount');
+        if (el) el.textContent = `${n} other PO${n !== 1 ? 's' : ''} selected`;
+        const btn = document.getElementById('csNext');
+        if (btn) btn.disabled = wiz.selIds.size < 2;
+      }
+
+      function renderGrid(q) {
+        const grid = document.getElementById('csPoGrid');
+        if (!grid) return;
+        const filtered = others.filter(r => !q || [r.po_name, r.factory_name, r.status].join(' ').toLowerCase().includes(q.toLowerCase())).slice(0, 100);
+        grid.innerHTML = filtered.length
+          ? filtered.map(r => {
+              const sel = wiz.selIds.has(r.id);
+              const sub = [r.factory_name, r.status, r.landed_total ? money(r.landed_total) : ''].filter(Boolean).join(' · ');
+              return `<label class="cs-po-row ${sel ? 'is-selected' : ''}" style="cursor:pointer;">
+                <input type="checkbox" ${sel ? 'checked' : ''} data-cs-po="${esc(r.id)}" style="margin:0;flex-shrink:0;" />
+                <span class="cs-po-name">${esc(r.po_name || 'Untitled')}</span>
+                <span class="cs-po-meta">${esc(sub)}</span>
+              </label>`;
+            }).join('')
+          : '<p style="font-size:12px;color:var(--bcn-ink-3);padding:8px 0 4px;">No matching POs.</p>';
+        grid.querySelectorAll('[data-cs-po]').forEach(chk => {
+          chk.addEventListener('change', () => {
+            const id = chk.getAttribute('data-cs-po');
+            if (chk.checked) wiz.selIds.add(id); else wiz.selIds.delete(id);
+            chk.closest('label')?.classList.toggle('is-selected', chk.checked);
+            updateCount();
+          });
+        });
+      }
+
+      renderGrid('');
+      updateCount();
+      document.getElementById('csPoSearch')?.addEventListener('input', e => renderGrid(e.target.value));
+
+      foot.innerHTML = `
+        <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="csCancel">CANCEL</button>
+        <div class="cs-foot-spacer"></div>
+        <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="csNext" ${wiz.selIds.size < 2 ? 'disabled' : ''}>NEXT: FOB REVIEW →</button>
+      `;
+      document.getElementById('csCancel')?.addEventListener('click', closeWiz);
+      document.getElementById('csNext')?.addEventListener('click', () => wizGoTo(2));
+    }
+
+    async function wizStep2(body, foot) {
+      body.innerHTML = '<p style="font-size:12px;color:var(--bcn-ink-3);padding:24px 0;text-align:center;">Loading PO data…</p>';
+      foot.innerHTML = '';
+      const toLoad = Array.from(wiz.selIds).filter(id => !wiz.ctxs[id]);
+      await Promise.all(toLoad.map(id =>
+        Lib.loadPoCostingContext(db, id).then(c => { wiz.ctxs[id] = c; }).catch(e => console.warn('wiz ctx:', id, e))
+      ));
+      const selPos = Array.from(wiz.selIds).map(id => wiz.ctxs[id]).filter(Boolean);
+      body.innerHTML = `
+        <div class="cs-section-label">FOB totals for this shipment</div>
+        <div class="cs-fob-grid">
+          ${selPos.map(c => {
+            const isCur = c.header.id === ctx.header.id;
+            const fob = c.result?.fob_total ?? 0;
+            const units = (c.lines || []).reduce((s, l) => s + Lib.num(l.qty), 0);
+            return `<div class="cs-fob-card ${isCur ? 'is-current' : ''}">
+              <div class="cs-fob-card-name">${esc(c.header.po_name || 'Untitled')}${isCur ? ' <span class="cost-current-tag">current</span>' : ''}</div>
+              <div class="cs-fob-stats">
+                <div class="cs-fob-stat"><div class="cs-fob-stat-label">FOB Total</div><div class="cs-fob-stat-val" style="${!fob ? 'color:var(--bcn-neg,#dc2626)' : ''}">${fob ? money(fob) : '—'}</div></div>
+                <div class="cs-fob-stat"><div class="cs-fob-stat-label">Units</div><div class="cs-fob-stat-val">${units.toLocaleString()}</div></div>
+                <div class="cs-fob-stat"><div class="cs-fob-stat-label">Factory</div><div class="cs-fob-stat-val" style="font-size:12px;font-family:inherit;">${esc(c.header.factory_name || '—')}</div></div>
+              </div>
+              ${!fob ? '<div class="cs-missing-fob">⚠ No FOB saved — proportional split will treat this PO as $0.</div>' : ''}
+            </div>`;
+          }).join('')}
+        </div>
+      `;
+      foot.innerHTML = `
+        <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="csBack">← BACK</button>
+        <div class="cs-foot-spacer"></div>
+        <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="csNext">NEXT: COSTS &amp; METHODS →</button>
+      `;
+      document.getElementById('csBack')?.addEventListener('click', () => wizGoTo(1));
+      document.getElementById('csNext')?.addEventListener('click', () => wizGoTo(3));
+    }
+
+    function wizStep3(body, foot) {
+      const selPos = Array.from(wiz.selIds).map(id => wiz.ctxs[id]).filter(Boolean);
+      const METHOD_LABELS = { proportional: 'FOB %', per_unit: 'Per Unit', weight: 'Weight' };
+
+      function methodBtns(bucket) {
+        return ['proportional', 'per_unit', 'weight'].map(m =>
+          `<button type="button" class="cs-method-btn ${wiz.methods[bucket] === m ? 'active' : ''}" data-bucket="${bucket}" data-method="${m}">${METHOD_LABELS[m]}</button>`
+        ).join('');
+      }
+
+      body.innerHTML = `
+        <div class="cs-section-label">Cost buckets &amp; allocation methods</div>
+        <div class="cs-bucket-grid">
+          <div class="cs-bucket-row">
+            <label class="cs-bucket-label">Freight ($)</label>
+            <input class="bcn-field bcn-field--mono" type="number" step="0.01" min="0" id="csFreight" value="${wiz.buckets.freight || ''}" placeholder="0.00" style="font-size:12px;" />
+            <div class="cs-method-btns">${methodBtns('freight')}</div>
+          </div>
+          <div class="cs-bucket-row">
+            <label class="cs-bucket-label">Tariff (% FOB)</label>
+            <input class="bcn-field bcn-field--mono" type="number" step="0.01" min="0" id="csTariffPct" value="${wiz.buckets.tariff_pct || ''}" placeholder="0.00" style="font-size:12px;" />
+            <div class="cs-method-btns">${methodBtns('tariff')}</div>
+          </div>
+          <div class="cs-bucket-row">
+            <label class="cs-bucket-label">Duty (% FOB)</label>
+            <input class="bcn-field bcn-field--mono" type="number" step="0.01" min="0" id="csDutyPct" value="${wiz.buckets.duty_pct || ''}" placeholder="0.00" style="font-size:12px;" />
+            <div class="cs-method-btns">${methodBtns('duty')}</div>
+          </div>
+          <div class="cs-bucket-row">
+            <label class="cs-bucket-label">Misc ($)</label>
+            <input class="bcn-field bcn-field--mono" type="number" step="0.01" min="0" id="csMisc" value="${wiz.buckets.misc || ''}" placeholder="0.00" style="font-size:12px;" />
+            <div class="cs-method-btns">${methodBtns('misc')}</div>
+          </div>
+        </div>
+        <div class="cs-section-label" style="margin-top:14px;">Weight / volume <span style="font-weight:400;letter-spacing:0;text-transform:none;font-size:11px;">(optional — required for Weight method)</span></div>
+        <div class="cs-weight-grid">
+          ${selPos.map(c => {
+            const w = wiz.weights[c.header.id] || {};
+            return `<div class="cs-weight-card">
+              <div class="cs-weight-card-name">${esc(c.header.po_name || 'Untitled')}</div>
+              <div class="cs-weight-inputs">
+                <div class="bcn-field-group" style="flex:1;min-width:0;">
+                  <label class="bcn-label" style="font-size:9px;">Weight (kg)</label>
+                  <input class="bcn-field bcn-field--mono" type="number" step="0.001" min="0" data-wpo="${esc(c.header.id)}" data-wkey="weight_kg" value="${w.weight_kg || ''}" placeholder="kg" style="font-size:11px;" />
+                </div>
+                <div class="bcn-field-group" style="flex:1;min-width:0;">
+                  <label class="bcn-label" style="font-size:9px;">Volume (cbm)</label>
+                  <input class="bcn-field bcn-field--mono" type="number" step="0.0001" min="0" data-wpo="${esc(c.header.id)}" data-wkey="volume_cbm" value="${w.volume_cbm || ''}" placeholder="cbm" style="font-size:11px;" />
+                </div>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+        <div id="csPreview"></div>
+      `;
+
+      function syncBuckets() {
+        wiz.buckets.freight = Lib.num(document.getElementById('csFreight')?.value);
+        wiz.buckets.tariff_pct = Lib.num(document.getElementById('csTariffPct')?.value);
+        wiz.buckets.duty_pct = Lib.num(document.getElementById('csDutyPct')?.value);
+        wiz.buckets.misc = Lib.num(document.getElementById('csMisc')?.value);
+        renderPreview();
+      }
+
+      function renderPreview() {
+        const preview = document.getElementById('csPreview');
+        if (!preview) return;
+        const splits = Lib.computeMultiSplit(selPos, wiz.buckets, wiz.methods, wiz.weights);
+        if (!splits.length) { preview.innerHTML = ''; return; }
+        const tf = splits.reduce((s, r) => s + r.freight_share, 0);
+        const tt = splits.reduce((s, r) => s + r.tariff_share, 0);
+        const td = splits.reduce((s, r) => s + r.duty_share, 0);
+        const tm = splits.reduce((s, r) => s + r.misc_share, 0);
+        const tx = splits.reduce((s, r) => s + r.total_share, 0);
+        preview.innerHTML = `
+          <div class="cs-section-label" style="margin-top:14px;">Live split preview</div>
+          <table class="cs-review-table">
+            <thead><tr><th style="text-align:left;">PO</th><th>FOB</th><th>Freight</th><th>Tariff</th><th>Duty</th><th>Misc</th><th>Total add-on</th></tr></thead>
+            <tbody>${splits.map(s => `<tr class="${s.po_header_id === ctx.header.id ? 'cs-current-row' : ''}">
+              <td>${esc(s.po_name)}</td>
+              <td>${money(s.fob_total)}</td><td>${money(s.freight_share)}</td>
+              <td>${money(s.tariff_share)}</td><td>${money(s.duty_share)}</td>
+              <td>${money(s.misc_share)}</td><td>${money(s.total_share)}</td>
+            </tr>`).join('')}</tbody>
+            <tfoot><tr><td>Total</td><td>${money(splits.reduce((s,r)=>s+r.fob_total,0))}</td><td>${money(tf)}</td><td>${money(tt)}</td><td>${money(td)}</td><td>${money(tm)}</td><td>${money(tx)}</td></tr></tfoot>
+          </table>
+        `;
+      }
+
+      body.querySelectorAll('#csFreight,#csTariffPct,#csDutyPct,#csMisc').forEach(inp => inp.addEventListener('input', syncBuckets));
+      body.querySelectorAll('[data-wpo]').forEach(inp => {
+        inp.addEventListener('input', () => {
+          const pid = inp.getAttribute('data-wpo');
+          const key = inp.getAttribute('data-wkey');
+          if (!wiz.weights[pid]) wiz.weights[pid] = {};
+          wiz.weights[pid][key] = Lib.num(inp.value);
+          renderPreview();
+        });
+      });
+      body.querySelectorAll('[data-bucket]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          wiz.methods[btn.getAttribute('data-bucket')] = btn.getAttribute('data-method');
+          body.querySelectorAll(`[data-bucket="${btn.getAttribute('data-bucket')}"]`).forEach(b =>
+            b.classList.toggle('active', b.getAttribute('data-method') === wiz.methods[btn.getAttribute('data-bucket')])
+          );
+          renderPreview();
+        });
+      });
+      renderPreview();
+
+      foot.innerHTML = `
+        <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="csBack">← BACK</button>
+        <div class="cs-foot-spacer"></div>
+        <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="csNext">NEXT: REVIEW →</button>
+      `;
+      document.getElementById('csBack')?.addEventListener('click', () => wizGoTo(2));
+      document.getElementById('csNext')?.addEventListener('click', () => wizGoTo(4));
+    }
+
+    function wizStep4(body, foot) {
+      const selPos = Array.from(wiz.selIds).map(id => wiz.ctxs[id]).filter(Boolean);
+      const splits = Lib.computeMultiSplit(selPos, wiz.buckets, wiz.methods, wiz.weights);
+      const ML = { proportional: 'FOB proportional', per_unit: 'per unit', weight: 'by weight' };
+      body.innerHTML = `
+        <div class="cs-section-label">Allocation methods</div>
+        <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;font-size:12px;">
+          <span><strong>Freight:</strong> ${ML[wiz.methods.freight]}</span>
+          <span><strong>Tariff:</strong> ${ML[wiz.methods.tariff]}</span>
+          <span><strong>Duty:</strong> ${ML[wiz.methods.duty]}</span>
+          <span><strong>Misc:</strong> ${ML[wiz.methods.misc]}</span>
+        </div>
+        <table class="cs-review-table">
+          <thead><tr><th style="text-align:left;">PO</th><th>FOB</th><th>Freight</th><th>Tariff</th><th>Duty</th><th>Misc</th><th>Total add-on</th></tr></thead>
+          <tbody>${splits.map(s => `<tr class="${s.po_header_id === ctx.header.id ? 'cs-current-row' : ''}">
+            <td>${esc(s.po_name)}</td>
+            <td>${money(s.fob_total)}</td><td>${money(s.freight_share)}</td>
+            <td>${money(s.tariff_share)}</td><td>${money(s.duty_share)}</td>
+            <td>${money(s.misc_share)}</td><td>${money(s.total_share)}</td>
+          </tr>`).join('')}</tbody>
+          <tfoot><tr>
+            <td>Total</td>
+            <td>${money(splits.reduce((s,r)=>s+r.fob_total,0))}</td>
+            <td>${money(splits.reduce((s,r)=>s+r.freight_share,0))}</td>
+            <td>${money(splits.reduce((s,r)=>s+r.tariff_share,0))}</td>
+            <td>${money(splits.reduce((s,r)=>s+r.duty_share,0))}</td>
+            <td>${money(splits.reduce((s,r)=>s+r.misc_share,0))}</td>
+            <td>${money(splits.reduce((s,r)=>s+r.total_share,0))}</td>
+          </tr></tfoot>
+        </table>
+        <p style="margin-top:12px;font-size:11px;color:var(--bcn-ink-3);">Applying saves freight + duty to each PO. Tariff is folded into misc. The current PO reloads in this view.</p>
+      `;
+      foot.innerHTML = `
+        <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="csBack">← BACK</button>
+        <div class="cs-foot-spacer"></div>
+        <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="csApply">APPLY TO ALL POs</button>
+      `;
+      document.getElementById('csBack')?.addEventListener('click', () => wizGoTo(3));
+      document.getElementById('csApply')?.addEventListener('click', () => wizApply(splits));
+    }
+
+    async function wizApply(splits) {
       if (!db || !ctx) return;
-      const totalFreight = Lib.num(els.inFreight.value);
-      const method = els.inAlloc.value;
+      const applyBtn = document.getElementById('csApply');
+      if (applyBtn) { applyBtn.disabled = true; applyBtn.textContent = 'SAVING…'; }
       const freightRef = els.inFreightRef.value.trim();
       const freightNotes = els.inFreightNotes.value.trim();
-      const curHeaderInputs = headerInputs();
-      const currentResult = Lib.computeCosting(ctx.lines, curHeaderInputs, lineOverrides);
-      const splitInputs = [
-        { header: ctx.header, lines: ctx.lines, result: currentResult },
-        ...Array.from(combinedPoIds).map(id => combinedCtxCache[id]).filter(Boolean),
-      ];
-      if (splitInputs.length < 2) {
-        els.status.textContent = 'Select at least one other PO for combined freight.';
-        return;
-      }
-      const splits = Lib.computeFreightSplit(splitInputs, totalFreight, method);
-      const btn = document.getElementById('btnApplyFreightAll');
-      if (btn) { btn.disabled = true; btn.textContent = 'SAVING…'; }
       let saved = 0;
       const errors = [];
       for (const split of splits) {
-        const isCurrentPo = split.po_header_id === ctx.header.id;
-        const poCtx = isCurrentPo ? ctx : combinedCtxCache[split.po_header_id];
+        const isCur = split.po_header_id === ctx.header.id;
+        const poCtx = wiz.ctxs[split.po_header_id];
         if (!poCtx) continue;
-        const poLineOverrides = isCurrentPo ? lineOverrides : (poCtx.lineOverrides || {});
-        const poHeaderInputs = {
-          ...(isCurrentPo ? curHeaderInputs : poCtx.headerInputs),
+        const poLO = isCur ? lineOverrides : (poCtx.lineOverrides || {});
+        const poHI = {
+          ...(isCur ? headerInputs() : (poCtx.headerInputs || {})),
           freight: split.freight_share,
+          duty_pct: wiz.buckets.duty_pct,
+          misc: split.misc_share + split.tariff_share,
         };
         try {
-          await Lib.savePoCosting(db, poCtx, poHeaderInputs, poLineOverrides, {
+          await Lib.savePoCosting(db, poCtx, poHI, poLO, {
             phase: Lib.PHASE.FREIGHT,
             freightInvoice: { ref: freightRef },
             freightNotes,
-            pushLandedToPoLines: isCurrentPo && els.chkPushLanded.checked,
+            pushLandedToPoLines: isCur && els.chkPushLanded.checked,
             userId: authUser?.id,
           });
           saved++;
@@ -833,11 +1141,19 @@
           errors.push(`${split.po_name}: ${e.message || e}`);
         }
       }
-      if (btn) { btn.disabled = false; btn.textContent = 'APPLY FREIGHT TO ALL POs'; }
+      const curSplit = splits.find(s => s.po_header_id === ctx.header.id);
+      closeWiz();
       await openPo(ctx.header.id);
+      if (curSplit) {
+        const note = document.getElementById('csAppliedNote');
+        if (note) {
+          note.style.display = '';
+          note.textContent = `Combined shipment: Freight ${money(curSplit.freight_share)} · Tariff ${money(curSplit.tariff_share)} · Duty ${money(curSplit.duty_share)} (this PO of ${splits.length})`;
+        }
+      }
       els.status.textContent = errors.length
         ? `Saved ${saved} PO(s). Errors: ${errors.join('; ')}`
-        : `Freight split and saved across ${saved} POs.`;
+        : `Combined shipment applied across ${saved} POs.`;
     }
 
     async function boot() {
@@ -862,8 +1178,8 @@
       });
       document.getElementById('btnClosePoDrawer')?.addEventListener('click', () => setPoDrawerOpen(false));
       document.getElementById('poDrawerBackdrop')?.addEventListener('click', () => setPoDrawerOpen(false));
-      document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') setPoDrawerOpen(false);
+      document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') { setPoDrawerOpen(false); closeWiz(); }
       });
 
       els.poSearch.addEventListener('input', renderPoList);
@@ -876,14 +1192,9 @@
       });
       els.btnSaveFob.addEventListener('click', () => saveFobStage().catch(e => alert(e.message || e)));
       els.btnSaveFreight.addEventListener('click', () => saveFreightStage().catch(e => alert(e.message || e)));
-      document.getElementById('chkCombinedShipment')?.addEventListener('change', e => {
-        const panel = document.getElementById('combinedShipmentPanel');
-        if (panel) panel.style.display = e.target.checked ? '' : 'none';
-        if (e.target.checked) renderCombinedPoList();
-      });
-      document.getElementById('btnApplyFreightAll')?.addEventListener('click', () =>
-        applyFreightToAllPos().catch(e => alert(e.message || e))
-      );
+      document.getElementById('btnCombinedShipment')?.addEventListener('click', openWiz);
+      document.getElementById('csClose')?.addEventListener('click', closeWiz);
+      document.getElementById('csOverlay')?.addEventListener('click', e => { if (e.target === e.currentTarget) closeWiz(); });
       els.btnMarkShipped.addEventListener('click', () => {
         Lib.markPoShipped(db, ctx, authUser?.id)
           .then(async () => {

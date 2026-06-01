@@ -154,6 +154,62 @@
   }
 
   /**
+   * Multi-bucket split across POs — freight ($), tariff (% of FOB), duty (% of FOB), misc ($).
+   * Each bucket has its own allocation method: 'proportional' | 'per_unit' | 'weight'.
+   * @param {Array} poContexts - ctx objects; each needs header, lines, result
+   * @param {Object} inputs - { freight, tariff_pct, duty_pct, misc }
+   * @param {Object} methods - { freight, tariff, duty, misc } each 'proportional'|'per_unit'|'weight'
+   * @param {Object} weightMap - { [poHeaderId]: { weight_kg, volume_cbm } }
+   */
+  function computeMultiSplit(poContexts, inputs, methods, weightMap) {
+    const pos = (poContexts || []).filter(c => c && c.header);
+    if (!pos.length) return [];
+    const freight = num(inputs?.freight);
+    const tariff_pct = num(inputs?.tariff_pct);
+    const duty_pct = num(inputs?.duty_pct);
+    const misc = num(inputs?.misc);
+    const wm = weightMap || {};
+    const posData = pos.map(c => ({
+      po_header_id: c.header.id,
+      po_name: c.header.po_name || 'Untitled',
+      fob_total: num(c.result?.fob_total ?? 0),
+      unit_count: (c.lines || []).reduce((s, l) => s + num(l.qty), 0),
+      weight_kg: num(wm[c.header.id]?.weight_kg ?? 0),
+      volume_cbm: num(wm[c.header.id]?.volume_cbm ?? 0),
+    }));
+    const totalFob = posData.reduce((s, p) => s + p.fob_total, 0);
+    const totalUnits = posData.reduce((s, p) => s + p.unit_count, 0);
+    const totalWeight = posData.reduce((s, p) => s + p.weight_kg, 0);
+    const totalVolume = posData.reduce((s, p) => s + p.volume_cbm, 0);
+    const tariff_total = totalFob * (tariff_pct / 100);
+    const duty_total = totalFob * (duty_pct / 100);
+    function allocate(total, method) {
+      return posData.map(p => {
+        if (method === 'per_unit') {
+          return totalUnits > 0 ? total * (p.unit_count / totalUnits) : total / posData.length;
+        } else if (method === 'weight') {
+          if (totalWeight > 0) return total * (p.weight_kg / totalWeight);
+          if (totalVolume > 0) return total * (p.volume_cbm / totalVolume);
+          return totalFob > 0 ? total * (p.fob_total / totalFob) : total / posData.length;
+        }
+        return totalFob > 0 ? total * (p.fob_total / totalFob) : total / posData.length;
+      });
+    }
+    const freightShares = allocate(freight, methods?.freight || 'proportional');
+    const tariffShares = allocate(tariff_total, methods?.tariff || 'proportional');
+    const dutyShares = allocate(duty_total, methods?.duty || 'proportional');
+    const miscShares = allocate(misc, methods?.misc || 'proportional');
+    return posData.map((p, i) => ({
+      ...p,
+      freight_share: freightShares[i],
+      tariff_share: tariffShares[i],
+      duty_share: dutyShares[i],
+      misc_share: miscShares[i],
+      total_share: freightShares[i] + tariffShares[i] + dutyShares[i] + miscShares[i],
+    }));
+  }
+
+  /**
    * Split a shared freight invoice across multiple POs.
    * @param {Array} poContexts - array of ctx objects; each needs header, lines, result.fob_total
    * @param {number} totalFreight - total freight invoice amount
@@ -504,6 +560,7 @@
     normalizeOverrides,
     overridesFromDbRows,
     computeCosting,
+    computeMultiSplit,
     computeFreightSplit,
     fetchPriorCostsBySku,
     loadPoCostingContext,
