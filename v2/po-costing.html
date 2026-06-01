@@ -253,7 +253,11 @@
               <div class="cost-section-label">Freight, duty &amp; landed split</div>
               <div class="cost-fields">
                 <div class="bcn-field-group"><label class="bcn-label">Freight invoice #</label><input class="bcn-field bcn-field--mono" type="text" id="inFreightRef" placeholder="Forwarder ref" /></div>
-                <div class="bcn-field-group"><label class="bcn-label">Freight total ($)</label><input class="bcn-field bcn-field--mono" type="number" step="0.01" min="0" id="inFreight" data-cost-header /></div>
+                <div class="bcn-field-group">
+                  <label class="bcn-label" id="lblFreight">Freight total ($)</label>
+                  <input class="bcn-field bcn-field--mono" type="number" step="0.01" min="0" id="inFreight" data-cost-header />
+                  <div id="freightShareNote" style="display:none;font-size:11px;color:var(--bcn-accent,#3b82f6);font-weight:700;margin-top:3px;"></div>
+                </div>
                 <div class="bcn-field-group"><label class="bcn-label">Duty (% of FOB)</label><input class="bcn-field bcn-field--mono" type="number" step="0.01" min="0" id="inDutyPct" data-cost-header /></div>
                 <div class="bcn-field-group"><label class="bcn-label">Misc ($)</label><input class="bcn-field bcn-field--mono" type="number" step="0.01" min="0" id="inMisc" data-cost-header /></div>
                 <div class="bcn-field-group">
@@ -407,12 +411,32 @@
 
     function recalc() {
       if (!ctx) return null;
-      const result = Lib.computeCosting(ctx.lines, headerInputs(), lineOverrides);
+      const isCombined = !!(document.getElementById('chkCombinedShipment')?.checked && _combinedFreightShare !== null);
+      const hi = headerInputs();
+      if (isCombined) hi.freight = _combinedFreightShare;
+      const result = Lib.computeCosting(ctx.lines, hi, lineOverrides);
       els.kpiFob.textContent = money(result.fob_total);
       els.kpiFreight.textContent = money(result.freight);
       els.kpiDuty.textContent = money(result.duty_amount);
       els.kpiMisc.textContent = money(result.misc);
       els.kpiLanded.textContent = money(result.landed_total);
+      // Update freight context note + KPI label
+      const lblFreight = document.getElementById('lblFreight');
+      const shareNote = document.getElementById('freightShareNote');
+      if (isCombined) {
+        const totalInvoice = Lib.num(els.inFreight.value);
+        if (lblFreight) lblFreight.textContent = 'Freight total ($)';
+        if (shareNote) {
+          shareNote.style.display = '';
+          shareNote.textContent = `This PO: ${money(_combinedFreightShare)} of ${money(totalInvoice)} combined invoice`;
+        }
+        const kpiLabel = els.kpiFreight.closest?.('.bcn-kpi')?.querySelector('.bcn-kpi-label');
+        if (kpiLabel) kpiLabel.textContent = 'FREIGHT SHARE';
+      } else {
+        if (shareNote) shareNote.style.display = 'none';
+        const kpiLabel = els.kpiFreight.closest?.('.bcn-kpi')?.querySelector('.bcn-kpi-label');
+        if (kpiLabel) kpiLabel.textContent = 'FREIGHT';
+      }
       ctx.result = result;
       renderLineTable(result);
       if (document.getElementById('chkCombinedShipment')?.checked) updateFreightSplitPreview();
@@ -623,7 +647,11 @@
       els.status.textContent = '';
       renderPoList();
       combinedPoIds.clear();
-      if (document.getElementById('chkCombinedShipment')?.checked) renderCombinedPoList();
+      _combinedFreightShare = null;
+      const chkCombined = document.getElementById('chkCombinedShipment');
+      if (chkCombined) chkCombined.checked = false;
+      const combinedPanel = document.getElementById('combinedShipmentPanel');
+      if (combinedPanel) combinedPanel.style.display = 'none';
       setPoDrawerOpen(false);
     }
 
@@ -702,6 +730,7 @@
     // ── Combined shipment ────────────────────────────────────────────
     const combinedPoIds = new Set();
     const combinedCtxCache = {};
+    let _combinedFreightShare = null;
 
     async function loadCombinedPoCtx(poId) {
       if (combinedCtxCache[poId]) return combinedCtxCache[poId];
@@ -763,10 +792,12 @@
         ...Array.from(combinedPoIds).map(id => combinedCtxCache[id]).filter(Boolean),
       ];
       if (splitInputs.length < 2) {
+        _combinedFreightShare = null;
         preview.innerHTML = '<p style="font-size:12px;color:var(--bcn-ink-3,#94a3b8);margin:0 0 12px;">Select at least one other PO to see the split.</p>';
         return;
       }
       const splits = Lib.computeFreightSplit(splitInputs, totalFreight, method);
+      _combinedFreightShare = splits.find(s => s.po_header_id === ctx.header.id)?.freight_share ?? null;
       const totalFob = splits.reduce((s, r) => s + r.fob_total, 0);
       const totalUnits = splits.reduce((s, r) => s + r.unit_count, 0);
       preview.innerHTML = `<table class="cost-split-table">
@@ -879,7 +910,12 @@
       document.getElementById('chkCombinedShipment')?.addEventListener('change', e => {
         const panel = document.getElementById('combinedShipmentPanel');
         if (panel) panel.style.display = e.target.checked ? '' : 'none';
-        if (e.target.checked) renderCombinedPoList();
+        if (e.target.checked) {
+          renderCombinedPoList();
+        } else {
+          _combinedFreightShare = null;
+          recalc();
+        }
       });
       document.getElementById('btnApplyFreightAll')?.addEventListener('click', () =>
         applyFreightToAllPos().catch(e => alert(e.message || e))
