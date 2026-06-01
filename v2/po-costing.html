@@ -16,64 +16,66 @@
   <style>
     .bcn-header-sub { display: none; }
     .bcn-header { padding-top: 8px; padding-bottom: 8px; }
-    .bcn-kpi-band { padding-top: 4px; padding-bottom: 4px; }
-    .bcn-kpi { padding-top: 4px; padding-bottom: 4px; }
-    .bcn-kpi-value { font-size: 15px !important; }
+    .bcn-kpi-band { padding-top: 2px; padding-bottom: 2px; }
+    .bcn-kpi { padding-top: 3px; padding-bottom: 3px; }
+    .bcn-kpi-value { font-size: 14px !important; }
+    .bcn-kpi-label { font-size: 9px !important; }
     .bcn-kpi-delta { display: none; }
 
     /* ── Stepper ─────────────────────────────────────── */
     .cost-stepper {
-      display: flex; align-items: center; padding: 14px 20px;
+      display: flex; align-items: center; padding: 8px 14px;
       border-bottom: 1px solid var(--bcn-line, #e2e8f0);
+      flex-wrap: wrap; gap: 2px;
     }
     .cost-step {
-      display: flex; align-items: center; gap: 8px;
+      display: flex; align-items: center; gap: 5px;
       border: none; background: none; cursor: pointer;
-      padding: 6px 10px; border-radius: 8px;
+      padding: 4px 6px; border-radius: 7px;
       color: var(--bcn-ink-3, #94a3b8);
-      font-size: 12px; font-weight: 700;
+      font-size: 11px; font-weight: 700;
       font-family: var(--bcn-mono, monospace);
       letter-spacing: 0.04em; white-space: nowrap;
       transition: background 0.12s;
     }
     .cost-step:hover { background: var(--bcn-surface-2, #f8fafc); color: var(--bcn-ink, #0f172a); }
     .cost-step-num {
-      width: 22px; height: 22px; border-radius: 50%;
+      width: 18px; height: 18px; border-radius: 50%;
       border: 2px solid currentColor;
       display: inline-flex; align-items: center; justify-content: center;
-      font-size: 10px; font-weight: 900; flex: 0 0 auto;
+      font-size: 9px; font-weight: 900; flex: 0 0 auto;
     }
-    .cost-step-line { flex: 1; height: 2px; background: var(--bcn-border-strong, #cbd5e1); min-width: 20px; margin: 0 6px; }
+    .cost-step-line { flex: 1; height: 2px; background: var(--bcn-border-strong, #cbd5e1); min-width: 10px; margin: 0 4px; }
     .cost-step.active { color: var(--bcn-accent, #3b82f6); }
     .cost-step.active .cost-step-num { background: var(--bcn-accent, #3b82f6); color: #fff; border-color: var(--bcn-accent, #3b82f6); }
     .cost-step.done { color: var(--bcn-pos, #059669); }
     .cost-step.done .cost-step-num { background: var(--bcn-pos, #059669); color: #fff; border-color: var(--bcn-pos, #059669); }
 
     /* ── Phase panels ────────────────────────────────── */
-    .cost-phase { padding: 20px; }
+    .cost-phase { padding: 12px 14px; }
     .cost-section-label {
       font-size: 10px; font-weight: 900; letter-spacing: 0.1em;
       text-transform: uppercase; color: var(--bcn-ink-3, #94a3b8);
-      margin-bottom: 12px;
+      margin-bottom: 8px;
     }
     .cost-fields {
-      display: grid; gap: 12px;
-      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-      margin-bottom: 16px;
+      display: grid; gap: 8px;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      margin-bottom: 10px;
     }
-    .cost-notes { margin-bottom: 16px; }
+    .cost-notes { margin-bottom: 10px; }
     .cost-actions {
       display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-      padding-top: 14px; border-top: 1px solid var(--bcn-line, #e2e8f0);
+      padding-top: 10px; border-top: 1px solid var(--bcn-line, #e2e8f0);
     }
     .cost-check {
       display: flex; align-items: center; gap: 6px;
-      font-size: 12px; color: var(--bcn-ink-2, #475569);
+      font-size: 11px; color: var(--bcn-ink-2, #475569);
       margin-left: auto; white-space: nowrap; cursor: pointer;
     }
     .cost-check input { margin: 0; cursor: pointer; }
-    .cost-hint { font-size: 13px; color: var(--bcn-ink-2, #475569); line-height: 1.55; margin: 0 0 14px; }
-    .cost-shipped-state { font-size: 13px; font-weight: 700; color: var(--bcn-ink, #0f172a); margin: 0 0 16px; }
+    .cost-hint { font-size: 12px; color: var(--bcn-ink-2, #475569); line-height: 1.5; margin: 0 0 10px; }
+    .cost-shipped-state { font-size: 12px; font-weight: 700; color: var(--bcn-ink, #0f172a); margin: 0 0 10px; }
     #status:not(:empty) {
       margin-top: 14px; padding: 8px 12px; border-radius: 6px;
       font-size: 12px; font-weight: 600;
@@ -308,7 +310,7 @@
               </div>
               <div class="cost-notes bcn-field-group">
                 <label class="bcn-label">FOB notes</label>
-                <textarea class="bcn-field" id="inFobNotes" rows="2" placeholder="Factory quote, payment terms, currency…"></textarea>
+                <textarea class="bcn-field" id="inFobNotes" rows="1" placeholder="Factory quote, payment terms, currency…"></textarea>
               </div>
               <div class="cost-actions">
                 <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnApplyAllPrior">APPLY PRIOR FOB</button>
@@ -349,7 +351,7 @@
               </div>
               <div class="cost-notes bcn-field-group">
                 <label class="bcn-label">Freight notes</label>
-                <textarea class="bcn-field" id="inFreightNotes" rows="2" placeholder="Container #, forwarder, actual freight bill…"></textarea>
+                <textarea class="bcn-field" id="inFreightNotes" rows="1" placeholder="Container #, forwarder, actual freight bill…"></textarea>
               </div>
 
               <div id="csAppliedNote" style="display:none;font-size:11px;color:var(--bcn-accent,#3b82f6);font-weight:700;margin-top:4px;padding:6px 10px;background:var(--bcn-accent-soft,#eff6ff);border-radius:6px;"></div>
