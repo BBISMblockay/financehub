@@ -501,6 +501,18 @@
       return lineOverrides[lineId];
     }
 
+    // When header cost fields change, clear auto-saved alloc values so they recalculate.
+    // Without this, DB-saved freight_alloc/landed_unit values lock the lines and ignore
+    // the new header freight even though recalc() is running.
+    function clearAllocOverrides() {
+      Object.values(lineOverrides).forEach(o => {
+        delete o.freight_alloc;
+        delete o.duty_alloc;
+        delete o.misc_alloc;
+        delete o.landed_unit;
+      });
+    }
+
     function recalc() {
       if (!ctx) return null;
       const result = Lib.computeCosting(ctx.lines, headerInputs(), lineOverrides);
@@ -1170,8 +1182,8 @@
       authUser = sess.session.user;
 
       document.querySelectorAll('[data-cost-header]').forEach(el => {
-        el.addEventListener('change', () => recalc());
-        el.addEventListener('input', () => recalc());
+        el.addEventListener('change', () => { clearAllocOverrides(); recalc(); });
+        el.addEventListener('input', () => { clearAllocOverrides(); recalc(); });
       });
 
       document.getElementById('btnTogglePoDrawer')?.addEventListener('click', () => {
