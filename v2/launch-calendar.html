@@ -173,6 +173,16 @@
     .pill-risk     { background:oklch(0.93 0.08 30);  color:oklch(0.42 0.18 30);  border-color:oklch(0.80 0.14 30); }
     .pill-channel  { background:oklch(0.92 0.10 60);  color:oklch(0.40 0.22 60);  border-color:oklch(0.80 0.16 60); }
     .pill-task     { background:oklch(0.92 0.10 245); color:oklch(0.40 0.20 245); border-color:oklch(0.80 0.14 245); }
+    .prod-callout { font-size:12px; color:var(--bcn-ink-3); background:oklch(0.97 0.02 245); border:1px solid var(--bcn-border); border-radius:8px; padding:10px 12px; margin-bottom:12px; line-height:1.45; }
+    .prod-quick-bar { border:1px solid var(--bcn-border); border-radius:10px; padding:12px; background:var(--bcn-surface); }
+    .prod-lookup-results { margin-top:10px; max-height:220px; overflow-y:auto; }
+    .prod-lookup-hit { display:flex; gap:10px; align-items:flex-start; justify-content:space-between; border-top:1px solid var(--bcn-border); padding:10px 0; }
+    .prod-lookup-hit:first-child { border-top:none; padding-top:0; }
+    .prod-lookup-hit-body { flex:1; min-width:0; }
+    .prod-lookup-hit-title { font-weight:700; font-size:12px; }
+    .prod-lookup-hit-meta { font-size:11px; color:var(--bcn-ink-3); margin-top:2px; }
+    .prod-lookup-actions { display:flex; gap:6px; flex-shrink:0; flex-wrap:wrap; }
+    .prod-row-actions { display:flex; gap:6px; flex-shrink:0; align-items:flex-start; flex-wrap:wrap; }
 
     @media(max-width:700px) {
       .lf-g2,.lf-g3,.dp-g2,.dp-g3 { grid-template-columns:1fr; }
@@ -349,16 +359,24 @@
     <div class="dp" id="dp-products">
       <div class="dp-section">
         <div class="dp-sec-head">
-          <div><div class="dp-title">Products / Readiness</div><div class="dp-sub">Manual, PO/Incoming, or Existing Silo Product.</div></div>
-          <button class="bcn-btn bcn-btn--mono" type="button" id="showProductFormBtn">+ PRODUCT</button>
+          <div><div class="dp-title">Products / Readiness</div><div class="dp-sub">Source of truth for every SKU on this launch.</div></div>
+        </div>
+        <div class="prod-callout">Search open POs or the catalog and click <strong>Add</strong>, or use <strong>Manual entry</strong>. Launch-form product fields are optional summary only.</div>
+        <div class="prod-quick-bar">
+          <div class="dp-g2" style="margin:0;">
+            <div class="bcn-field-group" style="margin:0;"><label class="bcn-label">ADD FROM</label><select class="bcn-field" id="prodSource"><option value="po_incoming">PO / Incoming</option><option value="existing_product">Silo catalog</option><option value="manual">Manual only</option></select></div>
+            <div class="bcn-field-group" style="margin:0;"><label class="bcn-label">SEARCH</label><div style="display:flex;gap:6px;"><input class="bcn-field" id="prodLookupInput" placeholder="Product title, PO #, vendor…" style="flex:1;" /><button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" id="prodLookupBtn">SEARCH</button></div></div>
+          </div>
+          <div id="prodLookupResults" class="prod-lookup-results"></div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin:14px 0 8px;flex-wrap:wrap;">
+          <button class="bcn-btn bcn-btn--mono" type="button" id="showProductFormBtn">+ MANUAL ENTRY</button>
+          <span class="dp-sub" id="productListMeta" style="margin:0;">—</span>
         </div>
         <form id="productForm" style="display:none;">
           <div class="dp-inline-form">
-            <div class="dp-g2">
-              <div class="bcn-field-group"><label class="bcn-label">SOURCE</label><select class="bcn-field" id="prodSource"><option value="manual">Manual</option><option value="po_incoming">PO / Incoming</option><option value="existing_product">Existing Silo Product</option></select></div>
-              <div class="bcn-field-group"><label class="bcn-label">LOOKUP</label><div style="display:flex;gap:6px;"><input class="bcn-field" id="prodLookupInput" placeholder="Title, PO, vendor…" style="flex:1;" /><button class="bcn-btn bcn-btn--mono" type="button" id="prodLookupBtn">GO</button></div></div>
-            </div>
-            <div id="prodLookupResults"></div>
+            <input type="hidden" id="prodEditId" value="" />
+            <div class="dp-title" id="productFormTitle" style="margin-bottom:8px;">Manual product entry</div>
             <div class="dp-g2">
               <div class="bcn-field-group"><label class="bcn-label">PRODUCT TITLE *</label><input class="bcn-field" id="prodTitle" required placeholder="Product name" /></div>
               <div class="bcn-field-group"><label class="bcn-label">TYPE</label><input class="bcn-field" id="prodType" /></div>
@@ -380,7 +398,7 @@
             <div class="bcn-field-group"><label class="bcn-label">NOTES</label><textarea class="bcn-field" id="prodNotes" rows="2"></textarea></div>
             <div style="display:flex;gap:8px;justify-content:flex-end;">
               <button class="bcn-btn bcn-btn--mono" type="button" id="cancelProductBtn">CANCEL</button>
-              <button class="bcn-btn bcn-btn--primary bcn-btn--mono">SAVE</button>
+              <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" id="productFormSaveBtn">SAVE PRODUCT</button>
             </div>
           </div>
         </form>
@@ -389,6 +407,7 @@
     </div>
 
     <div class="dp" id="dp-channels">
+<div class="dp" id="dp-channels">
       <div class="dp-section">
         <div class="dp-sec-head">
           <div><div class="dp-title">Channel Initiatives</div><div class="dp-sub">Email, SMS, social, retail, website…</div></div>
@@ -538,7 +557,7 @@
           <div class="lf-sec-title">LAUNCH SHELL</div>
           <div class="lf-g2">
             <div class="bcn-field-group"><label class="bcn-label">LAUNCH TITLE *</label><input class="bcn-field" id="titleInput" required placeholder="July 4th Drop / Fall Campaign" /></div>
-            <div class="bcn-field-group"><label class="bcn-label">PRIMARY PRODUCT TITLE</label><input class="bcn-field" id="productTitleInput" placeholder="Optional" /></div>
+            <div class="bcn-field-group"><label class="bcn-label">PRIMARY PRODUCT (OPTIONAL)</label><input class="bcn-field" id="productTitleInput" placeholder="Summary — add SKUs in Products tab" /></div>
           </div>
           <div class="lf-g3" style="margin-top:10px;">
             <div class="bcn-field-group"><label class="bcn-label">LAUNCH DATE *</label><input class="bcn-field" id="dateInput" type="date" required /></div>
@@ -695,6 +714,12 @@ if (__SILO_DEMO__) {
           return{data:TABLES[table][i]??null,error:null};
         }};
       },
+      delete(){
+        return{eq:async(k,v)=>{
+          TABLES[table]=TABLES[table].filter(x=>String(x[k])!==String(v));
+          return{data:null,error:null};
+        }};
+      },
     };
     return api;
   }
@@ -806,16 +831,16 @@ function bind(){
   document.querySelectorAll('[data-tab]').forEach(btn=>btn.addEventListener('click',()=>switchTab(btn.dataset.tab)));
 
   // drawer tabs
-  document.querySelectorAll('.drawer-tab').forEach(btn=>btn.onclick=()=>{
-    document.querySelectorAll('.drawer-tab').forEach(x=>x.classList.toggle('active',x===btn));
-    document.querySelectorAll('.dp').forEach(x=>x.classList.toggle('active',x.id===btn.dataset.dp));
-  });
+  document.querySelectorAll('.drawer-tab').forEach(btn=>btn.onclick=()=>switchDrawerTab(btn.dataset.dp));
 
-  // product form
-  $('showProductFormBtn').onclick  = ()=>$('productForm').style.display='';
-  $('cancelProductBtn').onclick    = ()=>{ $('productForm').style.display='none'; $('productForm').reset(); };
+  // product form + quick add
+  $('showProductFormBtn').onclick  = ()=>openProductForm(null);
+  $('cancelProductBtn').onclick    = closeProductForm;
   $('productForm').onsubmit        = saveProductReadiness;
+  $('productFormSaveBtn').onclick  = e=>{ e.preventDefault(); saveProductReadiness(e); };
   $('prodLookupBtn').onclick       = lookupProductBySource;
+  $('prodLookupInput').addEventListener('keydown',e=>{ if(e.key==='Enter'){ e.preventDefault(); lookupProductBySource(); } });
+  $('prodSource').onchange         = ()=>{ $('prodLookupResults').innerHTML=''; };
 
   // channel form
   $('showChannelFormBtn').onclick  = ()=>$('channelForm').style.display='';
@@ -1088,8 +1113,11 @@ function renderDrawer(){
   if(!activeLaunch) return;
   const sid=String(activeLaunch.id);
   const flt=arr=>arr.filter(x=>String(x.launch_id)===sid);
-  renderOverview(flt(products),flt(channels),flt(tasks));
-  renderProductReadiness(flt(products));
+  const launchProducts=flt(products);
+  const meta=$('productListMeta');
+  if(meta) meta.textContent=launchProducts.length?`${launchProducts.length} product line${launchProducts.length===1?'':'s'}`:'No products yet — search above or manual entry';
+  renderOverview(launchProducts,flt(channels),flt(tasks));
+  renderProductReadiness(launchProducts);
   renderChannels(flt(channels));
   renderTasks(flt(tasks));
   renderAssets(flt(assets));
@@ -1137,13 +1165,19 @@ function renderOverview(prods,chans,tsks){
 }
 
 function renderProductReadiness(rows){
-  $('productList').innerHTML=rows.length?'':empStr('No product rows yet.');
+  const list=$('productList');
+  if(!rows.length){ list.innerHTML=empStr('No products on this launch. Search PO or catalog above, or use manual entry.'); return; }
+  list.innerHTML='';
   rows.forEach(x=>{
     const rCls=['at_risk','blocked'].includes(x.readiness_status)?'pill-risk':x.readiness_status==='ready'?'pill-launched':'';
+    const shot=x.product_shot_status&&x.product_shot_status!=='not_started'?`Shots: ${x.product_shot_status}`:null;
+    const copy=x.copy_status&&x.copy_status!=='not_started'?`Copy: ${x.copy_status}`:null;
     const div=document.createElement('div'); div.className='dp-item';
-    div.innerHTML=`<div><div class="dp-item-title">${esc(x.product_title)}</div><div class="dp-item-meta">${esc([x.product_type,x.po_number,x.manufacturer||x.vendor_name,x.bulk_eta?`ETA ${x.bulk_eta}`:null,x.expected_units?`${x.expected_units} units`:null].filter(Boolean).join(' · '))}</div>${x.notes?`<div class="dp-item-meta">${esc(x.notes)}</div>`:''}</div><span class="bcn-pill ${rCls}">${esc(x.readiness_status||'not_reviewed')}</span>`;
-    $('productList').appendChild(div);
+    div.innerHTML=`<div style="flex:1;min-width:0;"><div class="dp-item-title">${esc(x.product_title)}</div><div class="dp-item-meta">${esc([x.product_type,x.po_number,x.manufacturer||x.vendor_name,x.bulk_eta?`ETA ${fmt(x.bulk_eta)}`:null,x.expected_units?`${x.expected_units} units`:null,shot,copy].filter(Boolean).join(' · '))}</div>${x.notes?`<div class="dp-item-meta">${esc(x.notes)}</div>`:''}</div><div class="prod-row-actions"><span class="bcn-pill ${rCls}">${esc(x.readiness_status||'not_reviewed')}</span><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-edit-prod="${x.id}" style="height:26px;font-size:10px;">EDIT</button><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-del-prod="${x.id}" style="height:26px;font-size:10px;">DELETE</button></div>`;
+    list.appendChild(div);
   });
+  list.querySelectorAll('[data-edit-prod]').forEach(btn=>{ const row=rows.find(r=>String(r.id)===String(btn.dataset.editProd)); if(row) btn.onclick=()=>openProductForm(row); });
+  list.querySelectorAll('[data-del-prod]').forEach(btn=>{ btn.onclick=()=>deleteProduct(btn.dataset.delProd); });
 }
 function renderChannels(rows){
   $('channelList').innerHTML=rows.length?'':empStr('No channel initiatives yet.');
@@ -1276,9 +1310,17 @@ async function saveLaunch(){
     else { payload.created_by=currentUser.id; res=await db.from('launch_calendar').insert(payload).select().single(); }
     if(res?.error) throw res.error;
     const savedId=res.data?.id||id;
+    const wasNew=!id;
     closeLaunchModal();
     await loadAll();
-    if(savedId) openDrawer(savedId);
+    if(savedId){
+      openDrawer(savedId);
+      if(wasNew){
+        switchDrawerTab('dp-products');
+        const count=products.filter(p=>String(p.launch_id)===String(savedId)).length;
+        if(!count) setStatus('Launch saved — add product lines in the Products tab.','info',4500);
+      }
+    }
     setStatus(`Saved · ${payload.title}`,'pos',2000);
   } catch(e){
     console.error(e);
@@ -1311,19 +1353,98 @@ async function uploadImageFile(file, launchId){
 function showImgPreview(url){ $('imgPreview').src=url; $('imgPreviewWrap').style.display=''; }
 function hideImgPreview(){ $('imgPreviewWrap').style.display='none'; $('imgPreview').src=''; $('imageInput').value=''; }
 
-/* ---- sub-form saves ---------------------------------------------------- */
+/* ---- products tab ------------------------------------------------------ */
 
+function resetProductForm(){
+  $('productForm').reset();
+  $('prodEditId').value='';
+  $('productFormTitle').textContent='Manual product entry';
+  $('productFormSaveBtn').textContent='SAVE PRODUCT';
+}
+function closeProductForm(){ $('productForm').style.display='none'; resetProductForm(); }
+function openProductForm(row){
+  resetProductForm();
+  $('productForm').style.display='';
+  if(row){
+    $('prodEditId').value=row.id;
+    $('productFormTitle').textContent='Edit product';
+    $('productFormSaveBtn').textContent='UPDATE PRODUCT';
+    $('prodTitle').value=row.product_title||'';
+    $('prodType').value=row.product_type||'';
+    $('prodCollection').value=row.collection_name||'';
+    $('prodManufacturer').value=row.manufacturer||row.vendor_name||'';
+    $('prodPo').value=row.po_number||'';
+    $('prodEta').value=row.bulk_eta||'';
+    $('prodUnits').value=row.expected_units??'';
+    $('prodReadyStatus').value=row.readiness_status||'not_reviewed';
+    $('prodShotStatus').value=row.product_shot_status||'not_started';
+    $('prodCopyStatus').value=row.copy_status||'not_started';
+    $('prodNotes').value=row.notes||'';
+  }
+  $('productForm').scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+function productPayloadFromForm(){
+  return { product_title:$('prodTitle').value.trim(), product_type:$('prodType').value.trim()||null, collection_name:$('prodCollection').value.trim()||null, manufacturer:$('prodManufacturer').value.trim()||null, vendor_name:$('prodManufacturer').value.trim()||null, po_number:$('prodPo').value.trim()||null, bulk_eta:$('prodEta').value||null, expected_units:$('prodUnits').value?Number($('prodUnits').value):null, readiness_status:$('prodReadyStatus').value, product_shot_status:$('prodShotStatus').value, copy_status:$('prodCopyStatus').value, notes:$('prodNotes').value.trim()||null };
+}
+function productPayloadFromPO(r){
+  return { product_title:r.product_title||'Incoming product', product_type:r.product_type||null, collection_name:r.collection_name||null, manufacturer:r.factory_name||null, vendor_name:r.factory_name||null, po_number:r.po_name||null, bulk_eta:r.expected_arrival_date||null, expected_units:r.total_units!=null?Number(r.total_units):null, readiness_status:'not_reviewed', product_shot_status:'not_started', copy_status:'not_started', notes:null };
+}
+function productPayloadFromMaster(r){
+  return { product_title:r.product_title||'Product', product_type:r.product_type||null, collection_name:null, manufacturer:r.vendor_original||null, vendor_name:r.vendor_original||null, po_number:null, bulk_eta:null, expected_units:null, readiness_status:'not_reviewed', product_shot_status:'not_started', copy_status:'not_started', notes:null };
+}
+function launchHasSimilarProduct(payload){
+  if(!activeLaunch) return false;
+  const title=(payload.product_title||'').trim().toLowerCase();
+  const po=(payload.po_number||'').trim().toLowerCase();
+  const editId=$('prodEditId').value;
+  return products.some(p=>{
+    if(String(p.launch_id)!==String(activeLaunch.id)) return false;
+    if(editId&&String(p.id)===String(editId)) return false;
+    const t=(p.product_title||'').trim().toLowerCase();
+    const pn=(p.po_number||'').trim().toLowerCase();
+    if(po&&pn===po&&t===title) return true;
+    if(!po&&t===title) return true;
+    return false;
+  });
+}
+async function quickAddProduct(payload){
+  if(!activeLaunch) return;
+  if(!payload.product_title){ setStatus('Product title is required.','neg',2500); return; }
+  if(launchHasSimilarProduct(payload)&&!confirm('A similar product line already exists. Add anyway?')) return;
+  const row={...payload, launch_id:activeLaunch.id, created_by:currentUser.id};
+  const {error}=await db.from('launch_product_readiness').insert([row]);
+  if(error){ setStatus(error.message,'neg',3500); return; }
+  $('prodLookupResults').innerHTML=''; $('prodLookupInput').value='';
+  setStatus(`Added · ${row.product_title}`,'pos',2200);
+  await loadAll(false); openDrawer(activeLaunch.id); switchDrawerTab('dp-products'); render();
+}
 async function saveProductReadiness(e){
   e.preventDefault(); if(!activeLaunch) return;
-  const payload={ launch_id:activeLaunch.id, product_title:$('prodTitle').value.trim(), product_type:$('prodType').value.trim()||null, collection_name:$('prodCollection').value.trim()||null, manufacturer:$('prodManufacturer').value.trim()||null, vendor_name:$('prodManufacturer').value.trim()||null, po_number:$('prodPo').value.trim()||null, bulk_eta:$('prodEta').value||null, expected_units:$('prodUnits').value?Number($('prodUnits').value):null, readiness_status:$('prodReadyStatus').value, product_shot_status:$('prodShotStatus').value, copy_status:$('prodCopyStatus').value, notes:$('prodNotes').value.trim()||null, created_by:currentUser.id };
-  if(!payload.product_title){ alert('Product title required.'); return; }
-  const {error}=await db.from('launch_product_readiness').insert([payload]);
-  if(error){ alert(error.message); return; }
-  $('productForm').reset(); $('productForm').style.display='none'; $('prodLookupResults').innerHTML='';
-  await loadAll(false); renderDrawer(); render();
+  const payload=productPayloadFromForm();
+  if(!payload.product_title){ setStatus('Product title is required.','neg',2500); return; }
+  const editId=$('prodEditId').value;
+  if(!editId&&launchHasSimilarProduct(payload)&&!confirm('A similar product line already exists. Save anyway?')) return;
+  let error;
+  if(editId){ ({error}=await db.from('launch_product_readiness').update(payload).eq('id',editId)); }
+  else { payload.launch_id=activeLaunch.id; payload.created_by=currentUser.id; ({error}=await db.from('launch_product_readiness').insert([payload])); }
+  if(error){ setStatus(error.message,'neg',3500); return; }
+  closeProductForm(); $('prodLookupResults').innerHTML='';
+  setStatus(editId?'Product updated.':'Product saved.','pos',2000);
+  await loadAll(false); openDrawer(activeLaunch.id); switchDrawerTab('dp-products'); render();
+}
+async function deleteProduct(id){
+  if(!activeLaunch||!id) return;
+  if(!confirm('Remove this product line from the launch?')) return;
+  const {error}=await db.from('launch_product_readiness').delete().eq('id',id);
+  if(error){ setStatus(error.message,'neg',3500); return; }
+  setStatus('Product removed.','pos',1800);
+  await loadAll(false); openDrawer(activeLaunch.id); switchDrawerTab('dp-products'); render();
 }
 
+/* ---- sub-form saves ---------------------------------------------------- */
+
 async function saveChannelItem(e){
+
   e.preventDefault(); if(!activeLaunch) return;
   const payload={ launch_id:activeLaunch.id, channel:$('channelName').value, item_title:$('channelTitle').value.trim(), scheduled_date:$('channelDate').value||null, scheduled_time:$('channelTime').value||null, status:$('channelStatus').value, owner:$('channelOwner').value.trim()||null, link_url:$('channelUrl').value.trim()||null, notes:$('channelNotes').value.trim()||null, created_by:currentUser.id };
   const {error}=await db.from('launch_channel_items').insert([payload]);
@@ -1375,48 +1496,62 @@ async function runProductLookup(){
   $('lookupBox').style.display='';
   if(source==='manual'){ $('lookupResults').innerHTML=`<div class="bcn-empty">Manual mode — fill fields below.</div>`; return; }
   if(!q){ $('lookupResults').innerHTML=`<div class="bcn-empty">Enter a product, PO, or vendor.</div>`; return; }
-  $('lookupResults').innerHTML=`<div class="bcn-empty">Searching…</div>`;
-  if(source==='po_incoming') await searchPOProducts(q,applyPOToShell);
-  if(source==='existing_product') await searchProductsMaster(q,applyProductToShell);
+  if(source==='po_incoming') await searchPOProducts(q,{containerId:'lookupResults',mode:'shell'});
+  if(source==='existing_product') await searchProductsMaster(q,{containerId:'lookupResults',mode:'shell'});
 }
-
-async function searchPOProducts(q,applyFn){
+function bindLookupRowActions(container, mode){
+  container.querySelectorAll('[data-quick-po]').forEach(el=>el.onclick=async()=>{ await quickAddProduct(productPayloadFromPO(JSON.parse(el.dataset.quickPo))); });
+  container.querySelectorAll('[data-fill-po]').forEach(el=>el.onclick=()=>applyPOToProductForm(JSON.parse(el.dataset.fillPo)));
+  container.querySelectorAll('[data-quick-cat]').forEach(el=>el.onclick=async()=>{ await quickAddProduct(productPayloadFromMaster(JSON.parse(el.dataset.quickCat))); });
+  container.querySelectorAll('[data-fill-cat]').forEach(el=>el.onclick=()=>applyProductToProductForm(JSON.parse(el.dataset.fillCat)));
+  if(mode==='shell'){
+    container.querySelectorAll('[data-pick-po]').forEach(el=>el.onclick=()=>applyPOToShell(JSON.parse(el.dataset.pickPo)));
+    container.querySelectorAll('[data-pick-cat]').forEach(el=>el.onclick=()=>applyProductToShell(JSON.parse(el.dataset.pickCat)));
+  }
+}
+async function searchPOProducts(q, opts={}){
+  const container=$(opts.containerId||'lookupResults');
+  const mode=opts.mode||'shell';
   const clean=q.replaceAll('%','').trim();
+  container.innerHTML=`<div class="bcn-empty">Searching…</div>`;
   const {data,error}=await db.from('v_launch_po_product_lookup').select('*')
     .or(`product_title.ilike.%${clean}%,po_name.ilike.%${clean}%,factory_name.ilike.%${clean}%`)
     .order('expected_arrival_date',{ascending:true}).limit(30);
-  if(error||!data?.length){ $('lookupResults').innerHTML=`<div class="bcn-empty">${error?error.message:'No PO products found.'}</div>`; return; }
-  $('lookupResults').innerHTML=data.map(row=>`
-    <div style="border-top:1px solid var(--bcn-border);padding:8px 0;cursor:pointer;" data-row="${esc(JSON.stringify(row))}">
-      <div style="font-weight:700;font-size:12px;">${esc(row.product_title||'Incoming Product')}</div>
-      <div style="font-size:11px;color:var(--bcn-ink-3);">${esc([row.po_name,row.product_type,row.factory_name,row.total_units?`${row.total_units} units`:null,row.expected_arrival_date?`ETA ${row.expected_arrival_date}`:null].filter(Boolean).join(' · '))}</div>
-    </div>`).join('');
-  $('lookupResults').querySelectorAll('[data-row]').forEach(el=>el.onclick=()=>applyFn(JSON.parse(el.dataset.row)));
+  if(error||!data?.length){ container.innerHTML=`<div class="bcn-empty">${error?error.message:'No PO products found.'}</div>`; return; }
+  container.innerHTML=data.map(row=>{
+    const meta=esc([row.po_name,row.product_type,row.factory_name,row.total_units?`${row.total_units} units`:null,row.expected_arrival_date?`ETA ${row.expected_arrival_date}`:null].filter(Boolean).join(' · '));
+    const blob=esc(JSON.stringify(row));
+    if(mode==='products') return `<div class="prod-lookup-hit"><div class="prod-lookup-hit-body"><div class="prod-lookup-hit-title">${esc(row.product_title||'Incoming product')}</div><div class="prod-lookup-hit-meta">${meta}</div></div><div class="prod-lookup-actions"><button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" data-quick-po="${blob}">ADD</button><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-fill-po="${blob}">EDIT FIRST</button></div></div>`;
+    return `<div class="prod-lookup-hit" style="cursor:pointer;" data-pick-po="${blob}"><div class="prod-lookup-hit-body"><div class="prod-lookup-hit-title">${esc(row.product_title||'Incoming product')}</div><div class="prod-lookup-hit-meta">${meta}</div></div></div>`;
+  }).join('');
+  bindLookupRowActions(container, mode);
 }
-
-async function searchProductsMaster(q,applyFn){
+async function searchProductsMaster(q, opts={}){
+  const container=$(opts.containerId||'lookupResults');
+  const mode=opts.mode||'shell';
   const clean=q.replaceAll('%','').trim();
+  container.innerHTML=`<div class="bcn-empty">Searching…</div>`;
   const {data,error}=await db.from('products_master').select('id,sku,product_title,variant_title,product_type,vendor_original,image_url')
     .or(`product_title.ilike.%${clean}%,sku.ilike.%${clean}%`).limit(30);
-  if(error||!data?.length){ $('lookupResults').innerHTML=`<div class="bcn-empty">${error?error.message:'No products found.'}</div>`; return; }
+  if(error||!data?.length){ container.innerHTML=`<div class="bcn-empty">${error?error.message:'No products found.'}</div>`; return; }
   const grouped=groupByTitle(data||[]);
-  $('lookupResults').innerHTML=grouped.map(row=>`
-    <div style="border-top:1px solid var(--bcn-border);padding:8px 0;cursor:pointer;" data-row="${esc(JSON.stringify(row))}">
-      <div style="font-weight:700;font-size:12px;">${esc(row.product_title)}</div>
-      <div style="font-size:11px;color:var(--bcn-ink-3);">${esc([row.product_type,row.vendor_original,row.variant_count?`${row.variant_count} variants`:null].filter(Boolean).join(' · '))}</div>
-    </div>`).join('');
-  $('lookupResults').querySelectorAll('[data-row]').forEach(el=>el.onclick=()=>applyFn(JSON.parse(el.dataset.row)));
+  container.innerHTML=grouped.map(row=>{
+    const meta=esc([row.product_type,row.vendor_original,row.variant_count?`${row.variant_count} variants`:null].filter(Boolean).join(' · '));
+    const blob=esc(JSON.stringify(row));
+    if(mode==='products') return `<div class="prod-lookup-hit"><div class="prod-lookup-hit-body"><div class="prod-lookup-hit-title">${esc(row.product_title)}</div><div class="prod-lookup-hit-meta">${meta}</div></div><div class="prod-lookup-actions"><button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" data-quick-cat="${blob}">ADD</button><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-fill-cat="${blob}">EDIT FIRST</button></div></div>`;
+    return `<div class="prod-lookup-hit" style="cursor:pointer;" data-pick-cat="${blob}"><div class="prod-lookup-hit-body"><div class="prod-lookup-hit-title">${esc(row.product_title)}</div><div class="prod-lookup-hit-meta">${meta}</div></div></div>`;
+  }).join('');
+  bindLookupRowActions(container, mode);
 }
-
 async function lookupProductBySource(){
+  if(!activeLaunch){ setStatus('Open a launch first.','neg',2500); return; }
   const source=$('prodSource').value, q=$('prodLookupInput').value.trim();
-  if(source==='manual'){ $('prodLookupResults').innerHTML=`<div class="bcn-empty">Enter details below.</div>`; return; }
-  if(!q){ $('prodLookupResults').innerHTML=`<div class="bcn-empty">Enter a search term.</div>`; return; }
-  $('prodLookupResults').innerHTML=`<div class="bcn-empty">Searching…</div>`;
-  if(source==='po_incoming') await searchPOProducts(q,applyPOToProductForm,'prodLookupResults');
-  if(source==='existing_product') await searchProductsMaster(q,applyProductToProductForm,'prodLookupResults');
+  const container=$('prodLookupResults');
+  if(source==='manual'){ openProductForm(null); container.innerHTML=''; return; }
+  if(!q){ container.innerHTML=`<div class="bcn-empty">Enter a search term.</div>`; return; }
+  if(source==='po_incoming') await searchPOProducts(q,{containerId:'prodLookupResults',mode:'products'});
+  if(source==='existing_product') await searchProductsMaster(q,{containerId:'prodLookupResults',mode:'products'});
 }
-
 function groupByTitle(rows){
   const map=new Map();
   rows.forEach(r=>{ const k=String(r.product_title||r.variant_title||r.sku||'').trim(); if(!k)return; if(!map.has(k))map.set(k,{product_title:k,product_type:r.product_type||null,vendor_original:r.vendor_original||null,image_url:r.image_url||null,sample_sku:r.sku||null,variant_count:0}); const x=map.get(k); x.variant_count+=1; if(!x.sample_sku&&r.sku)x.sample_sku=r.sku; if(!x.image_url&&r.image_url)x.image_url=r.image_url; });
@@ -1424,8 +1559,9 @@ function groupByTitle(rows){
 }
 function applyPOToShell(r){ $('productTitleInput').value=r.product_title||''; $('productTypeInput').value=r.product_type||''; $('poNumberInput').value=r.po_name||''; $('vendorInput').value=r.factory_name||''; $('expectedUnitsInput').value=r.total_units||''; if(!$('titleInput').value)$('titleInput').value=r.product_title||''; $('lookupBox').style.display='none'; }
 function applyProductToShell(r){ $('productTitleInput').value=r.product_title||''; $('productTypeInput').value=r.product_type||''; $('vendorInput').value=r.vendor_original||''; $('skuInput').value=r.sample_sku||''; if(!$('titleInput').value)$('titleInput').value=r.product_title||''; if(r.image_url&&!$('imageInput').value){$('imageInput').value=r.image_url;showImgPreview(r.image_url);} $('lookupBox').style.display='none'; }
-function applyPOToProductForm(r){ $('prodTitle').value=r.product_title||''; $('prodType').value=r.product_type||''; $('prodManufacturer').value=r.factory_name||''; $('prodPo').value=r.po_name||''; $('prodEta').value=r.expected_arrival_date||''; $('prodUnits').value=r.total_units||''; $('prodLookupResults').innerHTML=''; }
-function applyProductToProductForm(r){ $('prodTitle').value=r.product_title||''; $('prodType').value=r.product_type||''; $('prodManufacturer').value=r.vendor_original||''; $('prodLookupResults').innerHTML=''; }
-</script>
+function applyPOToProductForm(r){ openProductForm(null); $('prodTitle').value=r.product_title||''; $('prodType').value=r.product_type||''; $('prodManufacturer').value=r.factory_name||''; $('prodPo').value=r.po_name||''; $('prodEta').value=r.expected_arrival_date||''; $('prodUnits').value=r.total_units??''; $('prodLookupResults').innerHTML=''; }
+function applyProductToProductForm(r){ openProductForm(null); $('prodTitle').value=r.product_title||''; $('prodType').value=r.product_type||''; $('prodManufacturer').value=r.vendor_original||''; $('prodLookupResults').innerHTML=''; }
+
+</script></script>
 </body>
 </html>
