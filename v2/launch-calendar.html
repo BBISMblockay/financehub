@@ -1025,9 +1025,8 @@ function updateCommentComposeHint() {
   const el = $('commentComposeHint');
   if (!el) return;
   if (!currentUser) { el.textContent = ''; return; }
-  const meta = currentUser.user_metadata || {};
-  const name = meta.full_name || meta.name || currentUser.email || 'You';
-  el.textContent = 'Posting as ' + name;
+  const { author_name } = commentAuthorPayload();
+  el.textContent = 'Posting as ' + (author_name || 'You');
 }
 
 async function loadCurrentProfile() {
@@ -1410,9 +1409,9 @@ function renderComments(rows){
         <time class="comment-card__time" datetime="${esc(c.created_at||'')}">${esc(when)}</time>
       </div>
       <div class="comment-card__body">${esc(c.comment)}</div>
-      <div class="dp-row-actions" style="margin-top:8px;justify-content:flex-end;">
+      ${who.isYou?`<div class="dp-row-actions" style="margin-top:8px;justify-content:flex-end;">
         <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-del-comment="${esc(c.id)}" style="height:26px;font-size:10px;">DELETE</button>
-      </div>`;
+      </div>`:''}`;
     list.appendChild(div);
   });
   list.querySelectorAll('[data-del-comment]').forEach(btn=>{ btn.onclick=()=>deleteComment(btn.dataset.delComment); });
