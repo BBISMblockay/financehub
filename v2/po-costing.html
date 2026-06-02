@@ -230,7 +230,7 @@
 
       <section class="bcn-kpi-band" id="costingKpiBand" aria-label="Costing totals" hidden>
         <div class="bcn-kpi">
-          <div class="bcn-kpi-label">FOB</div>
+          <div class="bcn-kpi-label">UNIT COST</div>
           <div class="bcn-kpi-value bcn-mono" id="kpiFob">$0</div>
         </div>
         <div class="bcn-kpi">
@@ -275,7 +275,7 @@
           <div class="cost-stepper">
             <button type="button" class="cost-step active" data-phase-tab="fob">
               <span class="cost-step-num">1</span>
-              <span>FOB / Invoice</span>
+              <span>Unit Costs</span>
             </button>
             <span class="cost-step-line"></span>
             <button type="button" class="cost-step" data-phase-tab="ship">
@@ -285,37 +285,28 @@
             <span class="cost-step-line"></span>
             <button type="button" class="cost-step" data-phase-tab="freight">
               <span class="cost-step-num">3</span>
-              <span>Freight &amp; Landed</span>
+              <span>Freight &amp; Duties</span>
             </button>
           </div>
 
           <div class="bcn-card-body">
-            <!-- Phase 1: FOB -->
+            <!-- Phase 1: Unit Costs -->
             <div id="panelFob" class="phase-panel cost-phase">
-              <div class="cost-section-label">Factory costs</div>
+              <p class="cost-hint" style="margin-bottom:10px;">Per-unit costs pre-fill from your PO builder. Edit any line below, or pull prior SKU costs.</p>
+              <div class="cost-section-label">Factory invoice (reference)</div>
               <div class="cost-fields">
-                <div class="bcn-field-group">
-                  <label class="bcn-label">Cost source</label>
-                  <select id="inCostSource" class="bcn-field bcn-field--mono">
-                    <option value="">—</option>
-                    <option value="prior_sku">Prior SKU costs</option>
-                    <option value="factory_invoice">Factory invoice</option>
-                    <option value="manual">Manual / mixed</option>
-                    <option value="mixed">Prior + invoice</option>
-                  </select>
-                </div>
-                <div class="bcn-field-group"><label class="bcn-label">Factory invoice #</label><input class="bcn-field bcn-field--mono" type="text" id="inFactoryRef" placeholder="INV-2026-…" /></div>
+                <div class="bcn-field-group"><label class="bcn-label">Invoice #</label><input class="bcn-field bcn-field--mono" type="text" id="inFactoryRef" placeholder="INV-2026-…" /></div>
                 <div class="bcn-field-group"><label class="bcn-label">Invoice date</label><input class="bcn-field bcn-field--mono" type="date" id="inFactoryDate" /></div>
-                <div class="bcn-field-group"><label class="bcn-label">Invoice total ($)</label><input class="bcn-field bcn-field--mono" type="number" step="0.01" id="inFactoryAmount" /></div>
+                <div class="bcn-field-group"><label class="bcn-label">Invoice total ($)</label><input class="bcn-field bcn-field--mono" type="number" step="0.01" id="inFactoryAmount" placeholder="0.00" /></div>
               </div>
               <div class="cost-notes bcn-field-group">
-                <label class="bcn-label">FOB notes</label>
-                <textarea class="bcn-field" id="inFobNotes" rows="1" placeholder="Factory quote, payment terms, currency…"></textarea>
+                <label class="bcn-label">Notes</label>
+                <textarea class="bcn-field" id="inFobNotes" rows="1" placeholder="Payment terms, currency, factory quote ref…"></textarea>
               </div>
               <div class="cost-actions">
-                <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnApplyAllPrior">APPLY PRIOR FOB</button>
+                <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnApplyAllPrior">APPLY PRIOR COSTS</button>
                 <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnClearLineOverrides">CLEAR OVERRIDES</button>
-                <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="btnSaveFob">SAVE FOB</button>
+                <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="btnSaveFob">SAVE UNIT COSTS</button>
                 <label class="cost-check"><input type="checkbox" id="chkPushFob" checked /> Push to PO line unit cost</label>
               </div>
             </div>
@@ -323,18 +314,19 @@
             <!-- Phase 2: Shipped -->
             <div id="panelShip" class="phase-panel cost-phase" hidden>
               <div class="cost-section-label">Shipping status</div>
-              <p class="cost-hint">Mark the PO shipped when goods leave the factory. Add freight costs in Step 3 once the forwarder invoice arrives.</p>
+              <p class="cost-hint">Mark the PO shipped when goods leave the factory. Add freight &amp; duty in Step 3 once the forwarder invoice arrives.</p>
               <p id="shippedAtLabel" class="cost-shipped-state"></p>
               <div class="cost-actions">
                 <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="btnMarkShipped">MARK SHIPPED</button>
               </div>
             </div>
 
-            <!-- Phase 3: Freight & Landed -->
+            <!-- Phase 3: Freight & Duties -->
             <div id="panelFreight" class="phase-panel cost-phase" hidden>
-              <div class="cost-section-label">Freight, duty &amp; landed split</div>
+              <p class="cost-hint" style="margin-bottom:10px;">Enter the forwarder invoice totals. Each amount is split across all PO lines by the method you choose.</p>
+              <div class="cost-section-label">Shipping costs</div>
               <div class="cost-fields">
-                <div class="bcn-field-group"><label class="bcn-label">Freight invoice #</label><input class="bcn-field bcn-field--mono" type="text" id="inFreightRef" placeholder="Forwarder ref" /></div>
+                <div class="bcn-field-group"><label class="bcn-label">Forwarder ref</label><input class="bcn-field bcn-field--mono" type="text" id="inFreightRef" placeholder="Invoice / BL ref" /></div>
                 <div class="bcn-field-group">
                   <label class="bcn-label">Freight total ($)</label>
                   <input class="bcn-field bcn-field--mono" type="number" step="0.01" min="0" id="inFreight" data-cost-header />
@@ -350,17 +342,17 @@
                 </div>
               </div>
               <div class="cost-notes bcn-field-group">
-                <label class="bcn-label">Freight notes</label>
-                <textarea class="bcn-field" id="inFreightNotes" rows="1" placeholder="Container #, forwarder, actual freight bill…"></textarea>
+                <label class="bcn-label">Notes</label>
+                <textarea class="bcn-field" id="inFreightNotes" rows="1" placeholder="Container #, carrier, BL number…"></textarea>
               </div>
 
               <div id="csAppliedNote" style="display:none;font-size:11px;color:var(--bcn-accent,#3b82f6);font-weight:700;margin-top:4px;padding:6px 10px;background:var(--bcn-accent-soft,#eff6ff);border-radius:6px;"></div>
 
               <div class="cost-actions">
-                <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnRecalc">RECALC SPLIT</button>
+                <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnRecalc">RECALC</button>
                 <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" id="btnCombinedShipment">COMBINED SHIPMENT</button>
-                <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="btnSaveFreight">SAVE FREIGHT &amp; LANDED</button>
-                <label class="cost-check"><input type="checkbox" id="chkPushLanded" checked /> Push to PO line unit cost</label>
+                <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="btnSaveFreight">SAVE FREIGHT &amp; DUTIES</button>
+                <label class="cost-check"><input type="checkbox" id="chkPushLanded" checked /> Push landed to PO lines</label>
               </div>
             </div>
 
@@ -379,9 +371,9 @@
                   <tr>
                     <th>SKU</th>
                     <th>Qty</th>
-                    <th>FOB / unit</th>
-                    <th>Prior SKU cost</th>
-                    <th>Frght alloc</th>
+                    <th>Unit cost</th>
+                    <th>Prior cost</th>
+                    <th>Freight alloc</th>
                     <th>Landed / unit</th>
                     <th>Ext. landed</th>
                     <th></th>
@@ -451,7 +443,6 @@
       kpiDuty: document.getElementById('kpiDuty'),
       kpiMisc: document.getElementById('kpiMisc'),
       kpiLanded: document.getElementById('kpiLanded'),
-      inCostSource: document.getElementById('inCostSource'),
       inFactoryRef: document.getElementById('inFactoryRef'),
       inFactoryDate: document.getElementById('inFactoryDate'),
       inFactoryAmount: document.getElementById('inFactoryAmount'),
@@ -501,6 +492,18 @@
       return lineOverrides[lineId];
     }
 
+    // When header cost fields change, clear auto-saved alloc values so they recalculate.
+    // Without this, DB-saved freight_alloc/landed_unit values lock the lines and ignore
+    // the new header freight even though recalc() is running.
+    function clearAllocOverrides() {
+      Object.values(lineOverrides).forEach(o => {
+        delete o.freight_alloc;
+        delete o.duty_alloc;
+        delete o.misc_alloc;
+        delete o.landed_unit;
+      });
+    }
+
     function recalc() {
       if (!ctx) return null;
       const result = Lib.computeCosting(ctx.lines, headerInputs(), lineOverrides);
@@ -528,13 +531,15 @@
           ? `<span class="prior-pill"><strong>${money(prior.unit_cost)}</strong><br>${esc(prior.po_name)}</span>`
           : '<span class="prior-pill">—</span>';
 
+        const freightPlaceholder = row.freight_alloc > 0 ? row.freight_alloc.toFixed(2) : '0.00';
+        const hasLandedOverride = o.landed_unit != null && o.landed_unit !== '';
         return `<tr data-line-id="${esc(row.line_id)}" class="${row.line_id === focusId ? 'line-focus' : ''}">
           <td title="${esc(row.title)}">${esc(row.sku || '—')}</td>
           <td>${row.qty}</td>
           <td><input type="number" step="0.01" class="wide" data-ov="fob_unit" data-lid="${esc(row.line_id)}" value="${row.fob_unit}" /></td>
           <td>${priorHtml}</td>
-          <td><input type="number" step="0.01" data-ov="freight_alloc" data-lid="${esc(row.line_id)}" value="${o.freight_alloc != null ? o.freight_alloc : ''}" placeholder="auto" /></td>
-          <td><input type="number" step="0.01" class="wide" data-ov="landed_unit" data-lid="${esc(row.line_id)}" value="${o.landed_unit != null ? o.landed_unit : row.landed_unit.toFixed(2)}" /></td>
+          <td><input type="number" step="0.01" data-ov="freight_alloc" data-lid="${esc(row.line_id)}" value="${o.freight_alloc != null ? o.freight_alloc : ''}" placeholder="${freightPlaceholder}" style="color:${o.freight_alloc != null ? '' : 'var(--bcn-ink-3)'}" /></td>
+          <td><input type="number" step="0.01" class="wide" data-ov="landed_unit" data-lid="${esc(row.line_id)}" value="${hasLandedOverride ? o.landed_unit : row.landed_unit.toFixed(2)}" /></td>
           <td style="font-family:var(--bcn-mono);font-weight:700;">${money(row.landed_ext)}</td>
           <td>${prior ? `<button type="button" class="bcn-btn bcn-btn--ghost" style="padding:2px 6px;font-size:10px;" data-prior="${esc(row.line_id)}">Use prior</button>` : ''}</td>
         </tr>`;
@@ -592,8 +597,7 @@
           n++;
         }
       });
-      if (n) els.inCostSource.value = n === ctx.lines.length ? 'prior_sku' : 'mixed';
-      els.status.textContent = n ? `Applied prior FOB to ${n} line(s).` : 'No prior costs found for SKUs on this PO.';
+      els.status.textContent = n ? `Applied prior costs to ${n} line(s).` : 'No prior costs found for SKUs on this PO.';
       recalc();
     }
 
@@ -635,9 +639,19 @@
       els.btnMarkShipped.disabled = shipped;
     }
 
+    function detectCostSource() {
+      const hasPrior = Object.values(lineOverrides).some(o => o.cost_source === 'prior_sku');
+      const hasManual = ctx.lines.some(l => {
+        const o = lineOverrides[l.id] || {};
+        return o.fob_unit != null && o.fob_unit !== '' && o.cost_source !== 'prior_sku';
+      });
+      if (hasPrior && hasManual) return 'mixed';
+      if (hasPrior) return 'prior_sku';
+      return 'manual';
+    }
+
     function fillFormFromCtx() {
       const pc = ctx.costing;
-      els.inCostSource.value = pc?.cost_source || ctx.saved?.cost_source || '';
       els.inFactoryRef.value = pc?.factory_invoice_ref || '';
       els.inFactoryDate.value = pc?.factory_invoice_date || '';
       els.inFactoryAmount.value = pc?.factory_invoice_amount ?? '';
@@ -727,7 +741,7 @@
       recalc();
       const out = await Lib.savePoCosting(db, ctx, headerInputs(), lineOverrides, {
         phase: Lib.PHASE.FOB,
-        costSource: els.inCostSource.value || null,
+        costSource: detectCostSource(),
         factoryInvoice: {
           ref: els.inFactoryRef.value.trim(),
           date: els.inFactoryDate.value || null,
@@ -743,7 +757,7 @@
       fillFormFromCtx();
       recalc();
       updatePhaseUi();
-      els.status.textContent = `FOB saved (${out.persistence}).`;
+      els.status.textContent = `Unit costs saved (${out.persistence}).`;
     }
 
     async function saveFreightStage() {
@@ -764,7 +778,7 @@
       fillFormFromCtx();
       recalc();
       updatePhaseUi();
-      els.status.textContent = `Freight & landed saved (${out.persistence}).`;
+      els.status.textContent = `Freight & duties saved (${out.persistence}).`;
     }
 
     async function loadPos() {
@@ -1170,8 +1184,8 @@
       authUser = sess.session.user;
 
       document.querySelectorAll('[data-cost-header]').forEach(el => {
-        el.addEventListener('change', () => recalc());
-        el.addEventListener('input', () => recalc());
+        el.addEventListener('change', () => { clearAllocOverrides(); recalc(); });
+        el.addEventListener('input', () => { clearAllocOverrides(); recalc(); });
       });
 
       document.getElementById('btnTogglePoDrawer')?.addEventListener('click', () => {
