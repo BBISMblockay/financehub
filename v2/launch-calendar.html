@@ -183,6 +183,16 @@
     .prod-lookup-hit-meta { font-size:11px; color:var(--bcn-ink-3); margin-top:2px; }
     .prod-lookup-actions { display:flex; gap:6px; flex-shrink:0; flex-wrap:wrap; }
     .prod-row-actions { display:flex; gap:6px; flex-shrink:0; align-items:flex-start; flex-wrap:wrap; }
+    .dp-row-actions { display:flex; gap:6px; flex-shrink:0; align-items:flex-start; flex-wrap:wrap; }
+    .ev-chip-init {
+      position:relative; border:1px dashed var(--bcn-border-strong); border-radius:4px;
+      padding:2px 6px 2px 8px; cursor:pointer; background:oklch(0.98 0.02 60);
+      font-size:9.5px; line-height:1.2; overflow:hidden;
+    }
+    .ev-chip-init::before { content:''; position:absolute; left:0; top:2px; bottom:2px; width:2px; border-radius:1px; background:oklch(0.62 0.18 60); }
+    .ev-chip-init:hover { border-color:oklch(0.62 0.18 60); background:oklch(0.96 0.04 60); }
+    .ev-chip-init-title { font-weight:600; display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; overflow:hidden; }
+    .ev-chip-init-meta { font-size:9px; color:var(--bcn-ink-3); margin-top:1px; }
 
     @media(max-width:700px) {
       .lf-g2,.lf-g3,.dp-g2,.dp-g3 { grid-template-columns:1fr; }
@@ -201,7 +211,7 @@
     <header class="bcn-header">
       <div style="flex:1;min-width:0;">
         <div class="bcn-header-title"><h1>Launch Workbench</h1></div>
-        <div class="bcn-header-sub">Product launch containers · calendar · product readiness · channel initiatives</div>
+        <div class="bcn-header-sub">Product launch containers · calendar · product readiness · channel initiatives · <span id="wbBuildTag" style="opacity:.65;font-family:var(--bcn-mono);font-size:10px;">WB-95</span></div>
       </div>
       <div class="bcn-header-actions">
         <a class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="/v2/launch-calendar-guide.html">GUIDE</a>
@@ -410,11 +420,17 @@
     <div class="dp" id="dp-channels">
       <div class="dp-section">
         <div class="dp-sec-head">
-          <div><div class="dp-title">Channel Initiatives</div><div class="dp-sub">Email, SMS, social, retail, website…</div></div>
+          <div><div class="dp-title">Channel Initiatives</div><div class="dp-sub">Each touch gets its own date — shown on the month calendar.</div></div>
+        </div>
+        <div class="prod-callout">Add email, SMS, social, and retail touches. Set a <strong>scheduled date</strong> to see them as dots on the calendar grid.</div>
+        <div style="display:flex;gap:8px;align-items:center;margin:0 0 10px;flex-wrap:wrap;">
           <button class="bcn-btn bcn-btn--mono" type="button" id="showChannelFormBtn">+ INITIATIVE</button>
+          <span class="dp-sub" id="channelListMeta" style="margin:0;">—</span>
         </div>
         <form id="channelForm" style="display:none;">
           <div class="dp-inline-form">
+            <input type="hidden" id="channelEditId" value="" />
+            <div class="dp-title" id="channelFormTitle" style="margin-bottom:8px;">New initiative</div>
             <div class="dp-g2">
               <div class="bcn-field-group"><label class="bcn-label">CHANNEL</label><select class="bcn-field" id="channelName"><option value="email">Email</option><option value="sms">SMS</option><option value="organic">Organic</option><option value="meta">Meta</option><option value="website">Website</option><option value="retail">Retail</option><option value="other">Other</option></select></div>
               <div class="bcn-field-group"><label class="bcn-label">TITLE *</label><input class="bcn-field" id="channelTitle" required /></div>
@@ -431,7 +447,7 @@
             <div class="bcn-field-group"><label class="bcn-label">NOTES</label><textarea class="bcn-field" id="channelNotes" rows="2"></textarea></div>
             <div style="display:flex;gap:8px;justify-content:flex-end;">
               <button class="bcn-btn bcn-btn--mono" type="button" id="cancelChannelBtn">CANCEL</button>
-              <button class="bcn-btn bcn-btn--primary bcn-btn--mono">SAVE</button>
+              <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" id="channelFormSaveBtn">SAVE INITIATIVE</button>
             </div>
           </div>
         </form>
@@ -442,11 +458,16 @@
     <div class="dp" id="dp-tasks">
       <div class="dp-section">
         <div class="dp-sec-head">
-          <div class="dp-title">Tasks</div>
+          <div><div class="dp-title">Tasks</div><div class="dp-sub">Internal to-dos — change status inline or edit details.</div></div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;margin:0 0 10px;flex-wrap:wrap;">
           <button class="bcn-btn bcn-btn--mono" type="button" id="showTaskFormBtn">+ TASK</button>
+          <span class="dp-sub" id="taskListMeta" style="margin:0;">—</span>
         </div>
         <form id="taskForm" style="display:none;">
           <div class="dp-inline-form">
+            <input type="hidden" id="taskEditId" value="" />
+            <div class="dp-title" id="taskFormTitle" style="margin-bottom:8px;">New task</div>
             <div class="bcn-field-group"><label class="bcn-label">TASK TITLE *</label><input class="bcn-field" id="taskTitle" required /></div>
             <div class="dp-g3">
               <div class="bcn-field-group"><label class="bcn-label">DUE DATE</label><input class="bcn-field" id="taskDue" type="date" /></div>
@@ -456,7 +477,7 @@
             <div class="bcn-field-group"><label class="bcn-label">NOTES</label><textarea class="bcn-field" id="taskNotes" rows="2"></textarea></div>
             <div style="display:flex;gap:8px;justify-content:flex-end;">
               <button class="bcn-btn bcn-btn--mono" type="button" id="cancelTaskBtn">CANCEL</button>
-              <button class="bcn-btn bcn-btn--primary bcn-btn--mono">SAVE</button>
+              <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" id="taskFormSaveBtn">SAVE TASK</button>
             </div>
           </div>
         </form>
@@ -467,11 +488,17 @@
     <div class="dp" id="dp-assets">
       <div class="dp-section">
         <div class="dp-sec-head">
-          <div><div class="dp-title">Assets / Files</div><div class="dp-sub">Links, images, PDFs, references.</div></div>
+          <div><div class="dp-title">Assets / Files</div><div class="dp-sub">Creative links, PDFs, and reference files for this launch.</div></div>
+        </div>
+        <div class="prod-callout">Paste URLs to hero images, lookbooks, or shared drives. Use <strong>Edit</strong> to fix a link; <strong>Delete</strong> removes it from this launch only.</div>
+        <div style="display:flex;gap:8px;align-items:center;margin:0 0 10px;flex-wrap:wrap;">
           <button class="bcn-btn bcn-btn--mono" type="button" id="showAssetFormBtn">+ ASSET</button>
+          <span class="dp-sub" id="assetListMeta" style="margin:0;">—</span>
         </div>
         <form id="assetForm" style="display:none;">
           <div class="dp-inline-form">
+            <input type="hidden" id="assetEditId" value="" />
+            <div class="dp-title" id="assetFormTitle" style="margin-bottom:8px;">New asset</div>
             <div class="dp-g2">
               <div class="bcn-field-group"><label class="bcn-label">NAME</label><input class="bcn-field" id="assetName" /></div>
               <div class="bcn-field-group"><label class="bcn-label">TYPE</label><input class="bcn-field" id="assetType" placeholder="hero image, PDF…" /></div>
@@ -480,7 +507,7 @@
             <div class="bcn-field-group"><label class="bcn-label">NOTES</label><textarea class="bcn-field" id="assetNotes" rows="2"></textarea></div>
             <div style="display:flex;gap:8px;justify-content:flex-end;">
               <button class="bcn-btn bcn-btn--mono" type="button" id="cancelAssetBtn">CANCEL</button>
-              <button class="bcn-btn bcn-btn--primary bcn-btn--mono">SAVE</button>
+              <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" id="assetFormSaveBtn">SAVE ASSET</button>
             </div>
           </div>
         </form>
@@ -843,19 +870,22 @@ function bind(){
   $('prodSource').onchange         = ()=>{ $('prodLookupResults').innerHTML=''; };
 
   // channel form
-  $('showChannelFormBtn').onclick  = ()=>$('channelForm').style.display='';
-  $('cancelChannelBtn').onclick    = ()=>{ $('channelForm').style.display='none'; $('channelForm').reset(); };
+  $('showChannelFormBtn').onclick  = ()=>openChannelForm(null);
+  $('cancelChannelBtn').onclick    = closeChannelForm;
   $('channelForm').onsubmit        = saveChannelItem;
+  $('channelFormSaveBtn').onclick  = e=>{ e.preventDefault(); saveChannelItem(e); };
 
   // task form
-  $('showTaskFormBtn').onclick     = ()=>$('taskForm').style.display='';
-  $('cancelTaskBtn').onclick       = ()=>{ $('taskForm').style.display='none'; $('taskForm').reset(); };
+  $('showTaskFormBtn').onclick     = ()=>openTaskForm(null);
+  $('cancelTaskBtn').onclick       = closeTaskForm;
   $('taskForm').onsubmit           = saveTask;
+  $('taskFormSaveBtn').onclick     = e=>{ e.preventDefault(); saveTask(e); };
 
   // asset form
-  $('showAssetFormBtn').onclick    = ()=>$('assetForm').style.display='';
-  $('cancelAssetBtn').onclick      = ()=>{ $('assetForm').style.display='none'; $('assetForm').reset(); };
+  $('showAssetFormBtn').onclick    = ()=>openAssetForm(null);
+  $('cancelAssetBtn').onclick      = closeAssetForm;
   $('assetForm').onsubmit          = saveAsset;
+  $('assetFormSaveBtn').onclick    = e=>{ e.preventDefault(); saveAsset(e); };
 
   // link form
   $('showSystemLinkFormBtn').onclick = ()=>$('systemLinkForm').style.display='';
@@ -994,11 +1024,19 @@ function renderMonth(){
   const last=new Date(y,m+1,0);
   const end=addDays(last,6-last.getDay());
   const todayStr=iso(new Date());
+  const launchIds=new Set(filtered.map(x=>String(x.id)));
   const byDate=new Map();
   filtered.forEach(x=>{ if(!byDate.has(x.launch_date))byDate.set(x.launch_date,[]); byDate.get(x.launch_date).push(x); });
+  const initByDate=new Map();
+  channels.filter(c=>launchIds.has(String(c.launch_id))&&c.scheduled_date).forEach(c=>{
+    const k=c.scheduled_date;
+    if(!initByDate.has(k))initByDate.set(k,[]);
+    initByDate.get(k).push(c);
+  });
 
   const inMonth=filtered.filter(x=>x.launch_date>=iso(first)&&x.launch_date<=iso(last)).length;
-  $('calMeta').textContent=`${inMonth} LAUNCHES THIS MONTH`;
+  const initMonth=[...initByDate.entries()].filter(([d])=>d>=iso(first)&&d<=iso(last)).reduce((n,[,arr])=>n+arr.length,0);
+  $('calMeta').textContent=`${inMonth} LAUNCHES · ${initMonth} INITIATIVES THIS MONTH`;
 
   const grid=$('calendarGrid');
   grid.innerHTML='';
@@ -1009,21 +1047,27 @@ function renderMonth(){
   for(let d=new Date(start);d<=end;d=addDays(d,1)){
     const key=iso(d);
     const items=byDate.get(key)||[];
+    const inits=(initByDate.get(key)||[]).slice(0,3);
+    const moreInits=(initByDate.get(key)||[]).length-inits.length;
     const isOff=d.getMonth()!==m, isToday=key===todayStr;
     const cell=document.createElement('div');
     cell.className='cal-cell'+(isOff?' off':'')+(isToday?' today':'');
-    const shown=items.slice(0,4);
+    const shown=items.slice(0,3);
     const more=items.length-shown.length;
+    const totalCount=items.length+inits.length+(moreInits>0?moreInits:0);
     cell.innerHTML=`
       <div class="cal-cell-head">
         <span class="cal-daynum">${d.getDate()}</span>
-        ${items.length?`<span class="cal-count">${items.length}</span>`:''}
+        ${totalCount?`<span class="cal-count">${totalCount}</span>`:''}
       </div>
       <div class="cal-events">
         ${shown.map(x=>evChip(x)).join('')}
-        ${more>0?`<div class="cal-overflow">+${more} more</div>`:''}
+        ${more>0?`<div class="cal-overflow">+${more} launch${more>1?'es':''}</div>`:''}
+        ${inits.map(c=>evChipInitiative(c)).join('')}
+        ${moreInits>0?`<div class="cal-overflow">+${moreInits} initiative${moreInits>1?'s':''}</div>`:''}
       </div>`;
     cell.querySelectorAll('[data-lid]').forEach(el=>el.onclick=()=>openDrawer(el.dataset.lid));
+    cell.querySelectorAll('[data-cid]').forEach(el=>el.onclick=()=>{ openDrawer(el.dataset.lid); switchDrawerTab('dp-channels'); });
     cell.querySelectorAll('[data-edit]').forEach(el=>el.onclick=e=>{
       e.stopPropagation();
       const launch=launches.find(x=>String(x.id)===String(el.dataset.edit));
@@ -1044,6 +1088,15 @@ function evChip(x){
       ${meta?`<div class="ev-chip-meta">${esc(meta)}</div>`:''}
     </div>
     <span class="ev-chip-edit" data-edit="${x.id}" title="Edit launch">✏</span>
+  </div>`;
+}
+function evChipInitiative(c){
+  const launch=launches.find(x=>String(x.id)===String(c.launch_id));
+  const title=launch?.title||'Launch';
+  const meta=[c.channel,c.scheduled_time?c.scheduled_time.slice(0,5):null].filter(Boolean).join(' · ');
+  return `<div class="ev-chip-init" data-lid="${c.launch_id}" data-cid="${c.id}" title="${esc(title)}">
+    <div class="ev-chip-init-title">${esc(c.item_title||c.channel||'Initiative')}</div>
+    ${meta?`<div class="ev-chip-init-meta">${esc(meta)}</div>`:''}
   </div>`;
 }
 
@@ -1114,13 +1167,23 @@ function renderDrawer(){
   const sid=String(activeLaunch.id);
   const flt=arr=>arr.filter(x=>String(x.launch_id)===sid);
   const launchProducts=flt(products);
-  const meta=$('productListMeta');
-  if(meta) meta.textContent=launchProducts.length?`${launchProducts.length} product line${launchProducts.length===1?'':'s'}`:'No products yet — search above or manual entry';
-  renderOverview(launchProducts,flt(channels),flt(tasks));
+  const launchChannels=flt(channels);
+  const launchTasks=flt(tasks);
+  const launchAssets=flt(assets);
+  const pMeta=$('productListMeta');
+  if(pMeta) pMeta.textContent=launchProducts.length?`${launchProducts.length} product line${launchProducts.length===1?'':'s'}`:'No products yet — search above or manual entry';
+  const cMeta=$('channelListMeta');
+  if(cMeta) cMeta.textContent=launchChannels.length?`${launchChannels.length} initiative${launchChannels.length===1?'':'s'}`:'No initiatives yet';
+  const tMeta=$('taskListMeta');
+  const openT=launchTasks.filter(t=>!['done','complete'].includes(t.status)).length;
+  if(tMeta) tMeta.textContent=launchTasks.length?`${openT} open · ${launchTasks.length} total`:'No tasks yet';
+  const aMeta=$('assetListMeta');
+  if(aMeta) aMeta.textContent=launchAssets.length?`${launchAssets.length} asset${launchAssets.length===1?'':'s'}`:'No assets yet';
+  renderOverview(launchProducts,launchChannels,launchTasks);
   renderProductReadiness(launchProducts);
-  renderChannels(flt(channels));
-  renderTasks(flt(tasks));
-  renderAssets(flt(assets));
+  renderChannels(launchChannels);
+  renderTasks(launchTasks);
+  renderAssets(launchAssets);
   renderSystemLinks(flt(systemLinks));
   renderComments(flt(comments));
 }
@@ -1180,34 +1243,47 @@ function renderProductReadiness(rows){
   list.querySelectorAll('[data-del-prod]').forEach(btn=>{ btn.onclick=()=>deleteProduct(btn.dataset.delProd); });
 }
 function renderChannels(rows){
-  $('channelList').innerHTML=rows.length?'':empStr('No channel initiatives yet.');
+  const list=$('channelList');
+  if(!rows.length){ list.innerHTML=empStr('No initiatives yet. Add email, SMS, or social touches with their own dates.'); return; }
+  list.innerHTML='';
   rows.forEach(x=>{
     const div=document.createElement('div'); div.className='dp-item';
-    div.innerHTML=`<div style="flex:1"><div class="dp-item-title">${esc(x.item_title)}</div><div class="dp-item-meta">${esc([x.channel,x.scheduled_date,x.scheduled_time,x.owner].filter(Boolean).join(' · '))}</div>${x.notes?`<div class="dp-item-meta">${esc(x.notes)}</div>`:''}${x.link_url?`<div style="margin-top:3px;"><a href="${esc(x.link_url)}" target="_blank" rel="noopener" style="font-size:11px;color:var(--bcn-accent)">${esc(x.link_url.length>60?x.link_url.slice(0,57)+'…':x.link_url)}</a></div>`:''}</div><span class="bcn-pill pill-channel">${esc(x.status||'planned')}</span>`;
-    $('channelList').appendChild(div);
+    const when=x.scheduled_date?`${fmt(x.scheduled_date)}${x.scheduled_time?' '+x.scheduled_time.slice(0,5):''}`:null;
+    div.innerHTML=`<div style="flex:1;min-width:0;"><div class="dp-item-title">${esc(x.item_title)}</div><div class="dp-item-meta">${esc([x.channel,when,x.owner].filter(Boolean).join(' · '))}</div>${x.notes?`<div class="dp-item-meta">${esc(x.notes)}</div>`:''}${x.link_url?`<div style="margin-top:3px;"><a href="${esc(x.link_url)}" target="_blank" rel="noopener" style="font-size:11px;color:var(--bcn-accent)">${esc(x.link_url.length>60?x.link_url.slice(0,57)+'…':x.link_url)}</a></div>`:''}</div><div class="dp-row-actions"><span class="bcn-pill pill-channel">${esc(x.status||'planned')}</span><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-edit-ch="${x.id}" style="height:26px;font-size:10px;">EDIT</button><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-del-ch="${x.id}" style="height:26px;font-size:10px;">DELETE</button></div>`;
+    list.appendChild(div);
   });
+  list.querySelectorAll('[data-edit-ch]').forEach(btn=>{ const row=rows.find(r=>String(r.id)===String(btn.dataset.editCh)); if(row) btn.onclick=()=>openChannelForm(row); });
+  list.querySelectorAll('[data-del-ch]').forEach(btn=>{ btn.onclick=()=>deleteChannel(btn.dataset.delCh); });
 }
 function renderTasks(rows){
-  $('taskList').innerHTML=rows.length?'':empStr('No tasks yet.');
+  const list=$('taskList');
+  if(!rows.length){ list.innerHTML=empStr('No tasks yet.'); return; }
+  list.innerHTML='';
   rows.forEach(t=>{
     const div=document.createElement('div'); div.className='dp-item';
-    div.innerHTML=`<div style="flex:1"><div class="dp-item-title">${esc(t.task_title)}</div><div class="dp-item-meta">${esc([t.task_type,t.priority,t.due_date?`Due ${fmt(t.due_date)}`:null].filter(Boolean).join(' · '))}</div>${t.notes?`<div class="dp-item-meta">${esc(t.notes)}</div>`:''}</div><select class="bcn-field" data-tid="${t.id}" style="width:120px;height:30px;font-size:11px;">${['open','in_progress','done'].map(s=>`<option value="${s}"${t.status===s?' selected':''}>${s}</option>`).join('')}</select>`;
-    $('taskList').appendChild(div);
+    div.innerHTML=`<div style="flex:1;min-width:0;"><div class="dp-item-title">${esc(t.task_title)}</div><div class="dp-item-meta">${esc([t.task_type,t.priority,t.due_date?`Due ${fmt(t.due_date)}`:null].filter(Boolean).join(' · '))}</div>${t.notes?`<div class="dp-item-meta">${esc(t.notes)}</div>`:''}</div><div class="dp-row-actions"><select class="bcn-field" data-tid="${t.id}" style="width:110px;height:26px;font-size:10px;">${['open','in_progress','done'].map(s=>`<option value="${s}"${t.status===s?' selected':''}>${s}</option>`).join('')}</select><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-edit-task="${t.id}" style="height:26px;font-size:10px;">EDIT</button><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-del-task="${t.id}" style="height:26px;font-size:10px;">DELETE</button></div>`;
+    list.appendChild(div);
   });
-  $('taskList').querySelectorAll('[data-tid]').forEach(el=>{
+  list.querySelectorAll('[data-tid]').forEach(el=>{
     el.onchange=async()=>{
       await db.from('launch_tasks').update({status:el.value,completed_at:el.value==='done'?new Date().toISOString():null,completed_by:el.value==='done'?currentUser.id:null}).eq('id',el.dataset.tid);
       await loadAll(false); openDrawer(activeLaunch.id); render();
     };
   });
+  list.querySelectorAll('[data-edit-task]').forEach(btn=>{ const row=rows.find(r=>String(r.id)===String(btn.dataset.editTask)); if(row) btn.onclick=()=>openTaskForm(row); });
+  list.querySelectorAll('[data-del-task]').forEach(btn=>{ btn.onclick=()=>deleteTask(btn.dataset.delTask); });
 }
 function renderAssets(rows){
-  $('assetList').innerHTML=rows.length?'':empStr('No assets yet.');
+  const list=$('assetList');
+  if(!rows.length){ list.innerHTML=empStr('No assets yet. Paste creative URLs above.'); return; }
+  list.innerHTML='';
   rows.forEach(a=>{
     const div=document.createElement('div'); div.className='dp-item';
-    div.innerHTML=`<div><div class="dp-item-title">${esc(a.asset_name||a.asset_type||'Asset')}</div>${a.asset_type?`<div class="dp-item-meta">${esc(a.asset_type)}</div>`:''} ${a.asset_url?`<div><a href="${esc(a.asset_url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--bcn-accent)">${esc(a.asset_url.length>60?a.asset_url.slice(0,57)+'…':a.asset_url)}</a></div>`:''}</div>`;
-    $('assetList').appendChild(div);
+    div.innerHTML=`<div style="flex:1;min-width:0;"><div class="dp-item-title">${esc(a.asset_name||a.asset_type||'Asset')}</div>${a.asset_type?`<div class="dp-item-meta">${esc(a.asset_type)}</div>`:''}${a.asset_url?`<div style="margin-top:3px;"><a href="${esc(a.asset_url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--bcn-accent)">${esc(a.asset_url.length>60?a.asset_url.slice(0,57)+'…':a.asset_url)}</a></div>`:''}${a.notes?`<div class="dp-item-meta">${esc(a.notes)}</div>`:''}</div><div class="dp-row-actions"><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-edit-asset="${a.id}" style="height:26px;font-size:10px;">EDIT</button><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-del-asset="${a.id}" style="height:26px;font-size:10px;">DELETE</button></div>`;
+    list.appendChild(div);
   });
+  list.querySelectorAll('[data-edit-asset]').forEach(btn=>{ const row=rows.find(r=>String(r.id)===String(btn.dataset.editAsset)); if(row) btn.onclick=()=>openAssetForm(row); });
+  list.querySelectorAll('[data-del-asset]').forEach(btn=>{ btn.onclick=()=>deleteAsset(btn.dataset.delAsset); });
 }
 function renderSystemLinks(rows){
   $('systemLinksList').innerHTML=rows.length?'':empStr('No Silo links yet.');

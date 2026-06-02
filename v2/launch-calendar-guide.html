@@ -286,7 +286,7 @@ flowchart LR
         <li><strong>Create launch</strong> — Click <em>+ NEW LAUNCH</em>. Fill title, <strong>launch date</strong>, status, and creative. Optional prefill on the modal is summary-only.</li>
         <li><strong>Save</strong> — New launches open the drawer on the <strong>Products</strong> tab automatically.</li>
         <li><strong>Add products</strong> — Search PO or catalog → <em>Add</em> (one click), or <em>Edit first</em> / <em>Manual entry</em>. One row per SKU.</li>
-        <li><strong>Edit or remove</strong> — Use <em>Edit</em> / <em>Delete</em> on each product line as needed.</li>
+        <li><strong>Edit or remove</strong> — Products, initiatives, assets, and tasks each have <em>Edit</em> / <em>Delete</em> (tasks also have inline status).</li>
         <li><strong>Open drawer</strong> — Click any calendar chip or agenda row to continue work.</li>
         <li><strong>Initiatives tab</strong> — Add each channel touch (e.g. teaser email Tuesday 8am, main email Thursday 9am, SMS). Each initiative has its <strong>own</strong> date and time.</li>
         <li><strong>Tasks tab</strong> — Internal to-dos; change status inline (open → in progress → done).</li>
@@ -294,7 +294,7 @@ flowchart LR
         <li><strong>Operate</strong> — Use Calendar for the month view, Agenda for the next ~2 weeks, filters for designer/status/readiness, KPI band for at-a-glance counts.</li>
       </ol>
       <div class="warn">
-        <strong>Calendar nuance (WIP):</strong> The month grid only plots <strong>launch dates</strong> from <code>launch_calendar</code>. Channel initiative dates are stored and visible in the <strong>Initiatives</strong> tab and KPIs, but do not yet appear as separate chips on the calendar. See <a href="#roadmap">Roadmap</a>.
+        <strong>Calendar:</strong> Solid chips = <strong>launch date</strong>. Dashed amber mini-chips = <strong>initiatives</strong> on their <code>scheduled_date</code> (click to open that launch’s Initiatives tab). Header meta shows launch + initiative counts for the month.
       </div>
     </section>
 
@@ -377,8 +377,8 @@ flowchart LR
           <tr><td>Multi-product + initiatives + tasks per launch</td><td><span class="status-pill live">Live</span></td><td></td></tr>
           <tr><td>Products tab: PO/catalog search, one-click Add, edit/delete</td><td><span class="status-pill live">Live</span></td><td>Source of truth for SKUs</td></tr>
           <tr><td>Task status update in list</td><td><span class="status-pill live">Live</span></td><td></td></tr>
-          <tr><td>Initiative dates on month calendar</td><td><span class="status-pill wip">WIP</span></td><td>Stored; not rendered on grid yet</td></tr>
-          <tr><td>Edit/delete initiatives and assets in UI</td><td><span class="status-pill wip">WIP</span></td><td>Products done; channels/assets next</td></tr>
+          <tr><td>Initiative dates on month calendar</td><td><span class="status-pill live">Live</span></td><td>Dashed chips on <code>scheduled_date</code></td></tr>
+          <tr><td>Edit/delete initiatives, assets, and tasks</td><td><span class="status-pill live">Live</span></td><td>Same pattern as products</td></tr>
           <tr><td>Duplicate launch template</td><td><span class="status-pill later">Later</span></td><td></td></tr>
           <tr><td>Marketing-only RLS role</td><td><span class="status-pill later">Later</span></td><td>Uses global SILO profiles/RLS today</td></tr>
           <tr><td>Notifications / assignments</td><td><span class="status-pill later">Later</span></td><td>Owner fields are text</td></tr>
@@ -392,8 +392,7 @@ flowchart LR
       <p>Prioritized from marketing feedback and internal pilot needs. Not calendar-dated — ordered by impact.</p>
       <h3>Now (pilot blockers / high value)</h3>
       <ul class="dense">
-        <li>Show <strong>channel initiatives</strong> on the calendar (secondary chips or dots on initiative <code>scheduled_date</code>)</li>
-        <li>Edit/delete for <strong>initiatives</strong> and <strong>assets</strong> (same pattern as products)</li>
+        <li>Agenda view: surface initiative rows on their scheduled dates (not only launch date)</li>
         <li>Dropdown vocab for launch type and campaign type (reduce free-text drift)</li>
       </ul>
       <h3>Next</h3>
