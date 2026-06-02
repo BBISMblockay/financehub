@@ -194,7 +194,6 @@
         <div class="bcn-header-sub">Product launch containers · calendar · product readiness · channel initiatives</div>
       </div>
       <div class="bcn-header-actions">
-        <a class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="/v2/launch-calendar-guide.html">GUIDE</a>
         <button class="bcn-btn bcn-btn--ghost bcn-btn--mono" type="button" id="refreshBtn">REFRESH</button>
         <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" id="newLaunchBtn">+ NEW LAUNCH</button>
       </div>
@@ -886,6 +885,11 @@ function switchTab(name){
   // fix: pane-calendar uses flex, need to restore
   if(name==='calendar') $('pane-calendar').style.display='';
   $('pane-agenda').hidden = name!=='agenda';
+}
+
+function switchDrawerTab(dpId){
+  document.querySelectorAll('.drawer-tab').forEach(x=>x.classList.toggle('active',x.dataset.dp===dpId));
+  document.querySelectorAll('.dp').forEach(x=>x.classList.toggle('active',x.id===dpId));
 }
 
 /* ---- data loading ------------------------------------------------------ */
