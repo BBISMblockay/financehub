@@ -26,10 +26,61 @@
     .status-pill--active { background: var(--bcn-pos-soft); color: var(--bcn-pos); }
     .status-pill--inactive { background: var(--bcn-neg-soft); color: var(--bcn-neg); }
     #bootStatus { font-size: 12px; color: var(--bcn-ink-3); padding: 8px 0; }
+
+    /* Profile page layout: scroll + feed column beside form (not trapped below fold) */
+    body.profile-page .silo-main {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      overflow: hidden;
+    }
+    body.profile-page .silo-main > .profile-layout {
+      flex: 1 1 0%;
+      min-height: 0;
+      max-height: 100%;
+      overflow-x: hidden;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      overscroll-behavior: contain;
+      padding: 0 16px 28px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: "alerts" "main" "aside";
+      gap: 12px;
+      align-content: start;
+      max-width: 1200px;
+    }
+    body.profile-page #bootStatus,
+    body.profile-page #loadErr,
+    body.profile-page #loadWarn {
+      grid-area: alerts;
+    }
+    body.profile-page .profile-layout__main {
+      grid-area: main;
+      min-width: 0;
+      max-width: 720px;
+    }
+    body.profile-page #attentionAside {
+      grid-area: aside;
+      min-width: 0;
+    }
+    @media (min-width: 768px) {
+      body.profile-page .silo-main > .profile-layout {
+        grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+        grid-template-areas: "alerts alerts" "main aside";
+      }
+      body.profile-page #attentionAside {
+        position: sticky;
+        top: 8px;
+        align-self: start;
+        max-height: calc(100vh - 96px);
+        overflow-y: auto;
+      }
+    }
     .profile-feed-source { margin-top: 10px; font-size: 10px; font-family: var(--bcn-mono); color: var(--bcn-ink-3); }
   </style>
 </head>
-<body class="silo-brand">
+<body class="silo-brand profile-page">
   <div class="silo-app" id="silo-app">
     <main class="silo-main">
       <header class="bcn-header">

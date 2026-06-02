@@ -830,46 +830,15 @@ table.line-table.bcn-table {
 }
 
 /* Profile page — scrollable main area + attention feed */
+/* Profile scroll/grid: critical rules also in profile.html inline for deploy safety */
+body.profile-page .silo-main > .profile-layout,
 .silo-main > .profile-layout,
 .silo-main > .profile-wrap {
-  flex: 1;
+  flex: 1 1 0%;
   min-height: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-}
-
-.profile-layout {
-  padding: 0 16px 28px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  max-width: 1200px;
-}
-
-.profile-layout__main {
-  min-width: 0;
-  max-width: 720px;
-}
-
-.profile-layout__aside {
-  min-width: 0;
-}
-
-@media (min-width: 960px) {
-  .profile-layout {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
-    align-items: start;
-    gap: 16px 20px;
-  }
-
-  .profile-layout__aside {
-    position: sticky;
-    top: 0;
-    align-self: start;
-    max-height: calc(100vh - 120px);
-    overflow-y: auto;
-  }
 }
 
 .profile-wrap {
