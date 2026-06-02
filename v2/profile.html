@@ -124,7 +124,7 @@
         </section>
         </div>
 
-        <aside class="profile-layout__aside" id="attentionAside" hidden aria-label="Needs attention">
+        <aside class="profile-layout__aside" id="attentionAside" aria-label="Needs attention">
           <section class="bcn-card profile-attention-card" id="attentionCard">
             <header class="bcn-card-header bcn-card-header--dark">
               <span class="bcn-pill bcn-pill--dark">ATTENTION</span>
@@ -400,29 +400,37 @@
     }
 
     async function loadAttentionFeed() {
-      if (!db || !profile) return;
+      if (!db || !profile || !els.attentionAside) return;
       if (!feedVisibleFor(profile)) {
         els.attentionAside.hidden = true;
         return;
       }
       els.attentionAside.hidden = false;
-      els.feedStatus.textContent = 'Checking SILO data…';
-      els.feedEmpty.hidden = true;
-      els.feedList.hidden = false;
-      attentionItems = [];
-      const tokens = roleTokens(profile);
-      await Promise.all([
-        loadPaymentAttention(attentionItems, tokens),
-        loadPoAttention(attentionItems, tokens),
-        loadLaunchAttention(attentionItems, tokens),
-        loadProjectionAttention(attentionItems, tokens),
-        loadAdminAttention(attentionItems, tokens),
-      ]);
-      renderAttentionFeed();
-      const n = attentionItems.length;
-      els.feedStatus.textContent = n
-        ? `${n} item${n === 1 ? '' : 's'} · ${new Date().toLocaleTimeString()}`
-        : `No flags · ${new Date().toLocaleTimeString()}`;
+      try {
+        els.feedStatus.textContent = 'Checking SILO data…';
+        els.feedEmpty.hidden = true;
+        els.feedList.hidden = false;
+        attentionItems = [];
+        const tokens = roleTokens(profile);
+        await Promise.all([
+          loadPaymentAttention(attentionItems, tokens),
+          loadPoAttention(attentionItems, tokens),
+          loadLaunchAttention(attentionItems, tokens),
+          loadProjectionAttention(attentionItems, tokens),
+          loadAdminAttention(attentionItems, tokens),
+        ]);
+        renderAttentionFeed();
+        const n = attentionItems.length;
+        els.feedStatus.textContent = n
+          ? `${n} item${n === 1 ? '' : 's'} · ${new Date().toLocaleTimeString()}`
+          : `No flags · ${new Date().toLocaleTimeString()}`;
+      } catch (e) {
+        console.error('attention feed', e);
+        els.feedStatus.textContent = 'Feed error: ' + (e.message || e);
+        els.feedList.hidden = true;
+        els.feedEmpty.hidden = false;
+        els.feedEmpty.textContent = 'Could not load attention feed. Try Refresh.';
+      }
     }
 
     function renderLandingOptions(selected) {
@@ -439,6 +447,9 @@
       els.navCard.hidden = false;
       els.actionsCard.hidden = hasProfile;
       els.btnSave.disabled = !hasProfile;
+      if (els.attentionAside) {
+        els.attentionAside.hidden = !feedVisibleFor(profile);
+      }
     }
 
     function renderSummary() {
@@ -582,7 +593,9 @@
       renderLandingOptions('');
       els.btnSave.addEventListener('click', () => saveProfile().catch(e => alert(e.message || e)));
       els.btnReload.addEventListener('click', () => loadProfile().catch(e => alert(e.message || e)));
-      els.btnFeedRefresh.addEventListener('click', () => loadAttentionFeed().catch(e => alert(e.message || e)));
+      if (els.btnFeedRefresh) {
+        els.btnFeedRefresh.addEventListener('click', () => loadAttentionFeed().catch(e => alert(e.message || e)));
+      }
 
       try {
         await loadProfile();
