@@ -1,0 +1,110 @@
+/**
+ * Profile page layout — load after v2-mobile.css on profile.html only.
+ * Fixes scroll (silo-main overflow:hidden + missing .profile-layout rules)
+ * and places the attention feed beside the form column.
+ */
+
+body.profile-page {
+  height: 100%;
+}
+
+body.profile-page .silo-app {
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
+body.profile-page .silo-main {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 0% !important;
+  min-height: 0 !important;
+  max-height: 100dvh;
+  overflow: hidden !important;
+}
+
+body.profile-page .silo-main > .silo-utility,
+body.profile-page .silo-main > .bcn-header,
+body.profile-page .silo-main > header.bcn-header {
+  flex-shrink: 0;
+}
+
+/* Scroll surface — matches old .profile-wrap behavior */
+body.profile-page .silo-main > .profile-layout {
+  flex: 1 1 0% !important;
+  min-height: 0 !important;
+  max-height: none;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding: 0 16px 28px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1200px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "alerts"
+    "main"
+    "aside";
+  gap: 12px;
+  align-content: start;
+}
+
+body.profile-page #bootStatus,
+body.profile-page #loadErr,
+body.profile-page #loadWarn {
+  grid-area: alerts;
+}
+
+body.profile-page .profile-layout__main {
+  grid-area: main;
+  min-width: 0;
+  max-width: 720px;
+}
+
+body.profile-page #attentionAside,
+body.profile-page .profile-layout__aside {
+  grid-area: aside;
+  min-width: 0;
+}
+
+body.profile-page .profile-layout__main .bcn-card {
+  margin-bottom: 12px;
+}
+
+/* Desktop: form left, feed right */
+@media (min-width: 768px) {
+  body.profile-page .silo-main > .profile-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+    grid-template-areas:
+      "alerts alerts"
+      "main aside";
+    column-gap: 20px;
+  }
+
+  body.profile-page #attentionAside {
+    position: sticky;
+    top: 8px;
+    align-self: start;
+    max-height: calc(100dvh - 100px);
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Narrow: silo-main scrolls (same as other v2 pages) */
+@media (max-width: 900px) {
+  body.profile-page .silo-main {
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+
+  body.profile-page .silo-main > .profile-layout {
+    flex: 0 0 auto !important;
+    overflow: visible !important;
+    min-height: auto;
+  }
+}

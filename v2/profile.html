@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="po-workbench.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
+  <link rel="stylesheet" href="profile-page.css" />
   <script src="v2-shell.js" defer></script>
   <script src="../pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
@@ -29,7 +30,7 @@
     .profile-feed-source { margin-top: 10px; font-size: 10px; font-family: var(--bcn-mono); color: var(--bcn-ink-3); }
   </style>
 </head>
-<body class="silo-brand">
+<body class="silo-brand profile-page">
   <div class="silo-app" id="silo-app">
     <main class="silo-main">
       <header class="bcn-header">
@@ -124,7 +125,7 @@
         </section>
         </div>
 
-        <aside class="profile-layout__aside" id="attentionAside" hidden aria-label="Needs attention">
+        <aside class="profile-layout__aside" id="attentionAside" aria-label="Needs attention">
           <section class="bcn-card profile-attention-card" id="attentionCard">
             <header class="bcn-card-header bcn-card-header--dark">
               <span class="bcn-pill bcn-pill--dark">ATTENTION</span>
@@ -439,6 +440,10 @@
       els.navCard.hidden = false;
       els.actionsCard.hidden = hasProfile;
       els.btnSave.disabled = !hasProfile;
+      if (els.attentionAside) {
+        els.attentionAside.hidden = !feedVisibleFor(profile);
+      }
+      fixProfileScroll();
     }
 
     function renderSummary() {
@@ -473,6 +478,21 @@
       const dp = profile?.default_page;
       renderLandingOptions(dp == null ? '' : String(dp));
       renderSummary();
+    }
+
+
+    function fixProfileScroll() {
+      const main = document.querySelector('.silo-main');
+      const layout = document.querySelector('.profile-layout');
+      if (!main || !layout) return;
+      main.style.display = 'flex';
+      main.style.flexDirection = 'column';
+      main.style.minHeight = '0';
+      main.style.overflow = 'hidden';
+      layout.style.flex = '1 1 0%';
+      layout.style.minHeight = '0';
+      layout.style.overflowY = 'auto';
+      layout.style.overflowX = 'hidden';
     }
 
     function mountChrome() {
@@ -514,6 +534,7 @@
         showPanels(false);
         mountChrome();
         els.bootStatus.textContent = '';
+        fixProfileScroll();
         loadAttentionFeed().catch(e => console.warn('attention feed', e));
         return;
       }
@@ -526,6 +547,7 @@
         showPanels(false);
         mountChrome();
         els.bootStatus.textContent = '';
+        fixProfileScroll();
         loadAttentionFeed().catch(e => console.warn('attention feed', e));
         return;
       }
@@ -535,6 +557,7 @@
       showPanels(true);
       mountChrome();
       els.bootStatus.textContent = '';
+      fixProfileScroll();
       loadAttentionFeed().catch(e => console.warn('attention feed', e));
     }
 
