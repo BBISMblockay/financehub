@@ -997,12 +997,6 @@ function commentUserId(c) {
   return c?.user_id || c?.created_by || c?.author_id || null;
 }
 
-function commentEmbeddedProfile(c) {
-  const p = c?.profiles;
-  if (!p) return null;
-  return Array.isArray(p) ? (p[0] || null) : p;
-}
-
 function commentAuthorInfo(c) {
   const uid = commentUserId(c);
   if (currentUser && uid && uid === currentUser.id) {
@@ -1014,16 +1008,10 @@ function commentAuthorInfo(c) {
   if (c?.author_name) {
     return { label: c.author_name, email: c.author_email || '', initials: profileInitialsFrom(c.author_name, c.author_email), isYou: false };
   }
-  const embedded = commentEmbeddedProfile(c);
-  if (embedded) {
-    const email = embedded.email || '';
-    const name = embedded.name || embedded.full_name || email.split('@')[0] || 'Team member';
-    return { label: name, email, initials: profileInitialsFrom(name, email), isYou: false };
-  }
   if (uid && profileById.has(uid)) {
     const p = profileById.get(uid);
     const email = p.email || '';
-    const name = p.name || p.full_name || email.split('@')[0] || 'Team member';
+    const name = p.name || email.split('@')[0] || 'Team member';
     return { label: name, email, initials: profileInitialsFrom(name, email), isYou: false };
   }
   if (c?.user_email) {
@@ -1042,28 +1030,30 @@ function updateCommentComposeHint() {
   el.textContent = 'Posting as ' + name;
 }
 
-async function loadProfiles() {
+async function loadCurrentProfile() {
   profileById = new Map();
+  if (!currentUser?.id) return;
   try {
-    const { data, error } = await db.from('profiles').select('id, name, email, full_name').limit(5000);
-    if (!error && data) data.forEach(p => profileById.set(p.id, p));
+    const { data, error } = await db.from('profiles').select('id, name, email').eq('id', currentUser.id).maybeSingle();
+    if (!error && data) profileById.set(data.id, data);
   } catch (e) { /* profiles optional */ }
 }
 
 async function loadAll(shouldRender=true){
-  await loadProfiles();
+  await loadCurrentProfile();
   updateCommentComposeHint();
   const [l,t,a,c,s,ch,p] = await Promise.all([
     db.from('launch_calendar').select('*').order('launch_date',{ascending:true}),
     db.from('launch_tasks').select('*').order('created_at',{ascending:false}),
     db.from('launch_assets').select('*').order('created_at',{ascending:false}),
-    db.from('launch_comments').select('*, profiles:user_id(id, name, email, full_name)').order('created_at',{ascending:true}),
+    db.from('launch_comments').select('*').order('created_at',{ascending:true}),
     db.from('launch_system_links').select('*').order('created_at',{ascending:false}),
     db.from('launch_channel_items').select('*').order('scheduled_date',{ascending:true}),
     db.from('launch_product_readiness').select('*').order('created_at',{ascending:false}),
   ]);
   if(l.error) throw l.error;
-  launches=l.data||[]; tasks=t.data||[]; assets=a.data||[]; comments=c.data||[];
+  if(c.error) console.warn('launch_comments load:', c.error.message);
+  launches=l.data||[]; tasks=t.data||[]; assets=a.data||[]; comments=c.error?comments:(c.data||[]);
   systemLinks=s.data||[]; channels=ch.data||[]; products=p.data||[];
   fillFilterOptions(); applyFilters();
   if(shouldRender) render();
@@ -1819,14 +1809,29 @@ async function deleteComment(id){
 
 /* ---- comments (insert only) -------------------------------------------- */
 
+function commentAuthorPayload() {
+  const meta = currentUser?.user_metadata || {};
+  const prof = currentUser?.id ? profileById.get(currentUser.id) : null;
+  const email = (currentUser?.email || prof?.email || '').trim();
+  const name = (prof?.name || meta.full_name || meta.name || (email ? email.split('@')[0] : '') || 'Team member').trim();
+  return { author_name: name, author_email: email || null };
+}
+
 async function saveComment(e){
   e.preventDefault(); if(!activeLaunch) return;
+  const text=$('commentInput').value.trim();
+  if(!text){ setStatus('Comment cannot be empty.','neg',2500); return; }
   const payload={
     launch_id: activeLaunch.id,
     user_id: currentUser.id,
-    comment: $('commentInput').value.trim(),
+    comment: text,
+    ...commentAuthorPayload(),
   };
-  const {error}=await db.from('launch_comments').insert([payload]);
+  let {error}=await db.from('launch_comments').insert([payload]);
+  if(error && /author_/i.test(error.message||'')){
+    const { author_name, author_email, ...rest } = payload;
+    ({ error } = await db.from('launch_comments').insert([rest]));
+  }
   if(error){ setStatus(error.message,'neg',3500); return; }
   $('commentForm').reset();
   await loadAll(false); openDrawer(activeLaunch.id); switchDrawerTab('dp-comments'); render();
