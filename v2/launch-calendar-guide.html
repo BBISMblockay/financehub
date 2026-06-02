@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SILO — Launch Workbench guide</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: "base",
+      themeVariables: {
+        primaryColor: "#e0e7ff",
+        primaryTextColor: "#0f172a",
+        primaryBorderColor: "#6366f1",
+        lineColor: "#64748b",
+        secondaryColor: "#f1f5f9",
+        tertiaryColor: "#fff",
+        fontFamily: "DM Sans, system-ui, sans-serif",
+      },
+      flowchart: { curve: "basis", padding: 12 },
+    });
+  </script>
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --text: #0f172a;
+      --muted: #475569;
+      --faint: #94a3b8;
+      --border: #e2e8f0;
+      --accent: #4338ca;
+      --accent-soft: #eef2ff;
+      --warn-bg: #fffbeb;
+      --warn-border: #fcd34d;
+      --ok-bg: #ecfdf5;
+      --ok-border: #86efac;
+      --wip-bg: #eff6ff;
+      --wip-border: #93c5fd;
+      --code-bg: #f1f5f9;
+      --radius: 14px;
+      --shadow: 0 4px 24px rgba(15, 23, 42, 0.06);
+      --max: 920px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: "DM Sans", system-ui, -apple-system, sans-serif;
+      font-size: 16px;
+      line-height: 1.65;
+      color: var(--text);
+      background: linear-gradient(180deg, #eef2ff 0%, var(--bg) 28%, var(--bg) 100%);
+      min-height: 100vh;
+    }
+    .wrap { max-width: var(--max); margin: 0 auto; padding: 2.5rem 1.25rem 4rem; }
+    header { margin-bottom: 2rem; }
+    .badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--accent);
+      background: var(--accent-soft);
+      border: 1px solid #c7d2fe;
+      padding: 0.35rem 0.65rem;
+      border-radius: 999px;
+      margin-bottom: 0.75rem;
+      margin-right: 0.4rem;
+    }
+    .badge-wip { color: #1d4ed8; background: var(--wip-bg); border-color: var(--wip-border); }
+  .badge-ok { color: #166534; background: var(--ok-bg); border-color: var(--ok-border); }
+    h1 { font-size: clamp(1.75rem, 4vw, 2.35rem); font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; margin: 0 0 0.5rem; }
+    .lede { color: var(--muted); font-size: 1.05rem; max-width: 65ch; margin: 0 0 1rem; }
+    .top-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; margin-top: 1rem; }
+    .top-actions a {
+      display: inline-flex;
+      align-items: center;
+      font-size: 0.9rem;
+      font-weight: 600;
+      text-decoration: none;
+      color: #fff;
+      background: var(--accent);
+      border-radius: 10px;
+      padding: 0.5rem 1rem;
+    }
+    .top-actions a.secondary { color: var(--accent); background: var(--surface); border: 1px solid #c7d2fe; }
+    nav.toc {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 2rem;
+      box-shadow: var(--shadow);
+    }
+    nav.toc strong { display: block; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--faint); margin-bottom: 0.75rem; }
+    nav.toc ul { margin: 0; padding: 0; list-style: none; columns: 2; column-gap: 1.5rem; }
+    @media (max-width: 560px) { nav.toc ul { columns: 1; } }
+    nav.toc a { color: var(--accent); text-decoration: none; font-weight: 500; font-size: 0.95rem; }
+    nav.toc a:hover { text-decoration: underline; }
+    nav.toc li { margin-bottom: 0.4rem; break-inside: avoid; }
+    section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem 1.5rem 1.65rem;
+      margin-bottom: 1.25rem;
+      box-shadow: var(--shadow);
+    }
+    section h2 { font-size: 1.2rem; font-weight: 700; margin: 0 0 0.75rem; letter-spacing: -0.01em; }
+    section h3 { font-size: 1rem; font-weight: 700; margin: 1.25rem 0 0.5rem; }
+    p { margin: 0 0 0.85rem; }
+    ul.dense { margin: 0; padding-left: 1.2rem; }
+    ul.dense li { margin-bottom: 0.35rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.92rem; margin: 0.75rem 0; }
+    th, td { text-align: left; padding: 0.55rem 0.65rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--faint); background: #f8fafc; }
+    code, .code { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.88em; background: var(--code-bg); padding: 0.12em 0.35em; border-radius: 5px; }
+    pre.code {
+      display: block;
+      padding: 1rem;
+      border-radius: 10px;
+      overflow-x: auto;
+      font-size: 0.82rem;
+      line-height: 1.5;
+      margin: 0.75rem 0;
+      white-space: pre;
+    }
+    .note, .warn, .ok {
+      border-radius: 10px;
+      padding: 0.85rem 1rem;
+      margin: 0.85rem 0;
+      font-size: 0.95rem;
+    }
+    .note { background: var(--accent-soft); border: 1px solid #c7d2fe; }
+    .warn { background: var(--warn-bg); border: 1px solid var(--warn-border); }
+    .ok { background: var(--ok-bg); border: 1px solid var(--ok-border); }
+    .mermaid-wrap { margin: 1rem 0; overflow-x: auto; }
+    .status-pill {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 0.2rem 0.5rem;
+      border-radius: 6px;
+      margin-right: 0.35rem;
+    }
+    .status-pill.live { background: var(--ok-bg); color: #166534; }
+    .status-pill.wip { background: var(--wip-bg); color: #1d4ed8; }
+    .status-pill.later { background: #f1f5f9; color: var(--muted); }
+    ol.steps { margin: 0; padding-left: 1.35rem; }
+    ol.steps li { margin-bottom: 0.65rem; padding-left: 0.25rem; }
+    footer { margin-top: 2rem; font-size: 0.85rem; color: var(--faint); text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <span class="badge badge-ok">Pilot-ready</span>
+      <span class="badge badge-wip">Living doc</span>
+      <h1>Launch Workbench — guide</h1>
+      <p class="lede">
+        How the <strong>Launch calendar</strong> module works, what is in progress, and what we plan to add.
+        For marketing, ops, and anyone onboarding to <code>/v2/launch-calendar.html</code>.
+      </p>
+      <div class="top-actions">
+        <a href="/v2/launch-calendar.html">Open Launch Workbench</a>
+        <a href="/v2/finance.html" class="secondary">SILO Finance hub</a>
+        <a href="/legacy/app-status.html" class="secondary">App architecture</a>
+      </div>
+    </header>
+
+    <nav class="toc" aria-label="On this page">
+      <strong>On this page</strong>
+      <ul>
+        <li><a href="#summary">Summary</a></li>
+        <li><a href="#model">Data model</a></li>
+        <li><a href="#flow">Workflow</a></li>
+        <li><a href="#ui">Page &amp; views</a></li>
+        <li><a href="#drawer">Drawer tabs</a></li>
+        <li><a href="#status">Shipped vs WIP</a></li>
+        <li><a href="#roadmap">Roadmap</a></li>
+        <li><a href="#pilot">Marketing pilot</a></li>
+      </ul>
+    </nav>
+
+    <section id="summary">
+      <h2>Summary</h2>
+      <p>
+        <strong>Launch Workbench</strong> is SILO’s planning surface for product drops and marketing campaigns.
+        One <strong>launch container</strong> sits on the calendar (by <em>launch date</em>). Everything else — products, channel sends, tasks, assets, links, comments — attaches to that container in a side drawer.
+      </p>
+      <div class="ok">
+        <strong>Good for internal pilot:</strong> create launches, schedule channel initiatives, track readiness and tasks, filter by designer/status, use calendar + agenda views. Auth and Supabase persistence match the rest of SILO.
+      </div>
+    </section>
+
+    <section id="model">
+      <h2>Data model</h2>
+      <p>All data lives in Supabase (PostgreSQL). The app reads/writes with the standard anon key + RLS, same as other v2 tools.</p>
+      <div class="mermaid-wrap">
+        <pre class="mermaid">
+flowchart TB
+  LC[launch_calendar\nLaunch container]
+  LC --> PR[launch_product_readiness\nProducts / readiness]
+  LC --> CI[launch_channel_items\nChannel initiatives]
+  LC --> LT[launch_tasks\nTasks]
+  LC --> LA[launch_assets\nAsset links]
+  LC --> SL[launch_system_links\nSILO links]
+  LC --> CM[launch_comments\nComments]
+  LC -.optional prefill.-> PO[v_launch_po_product_lookup]
+  LC -.optional prefill.-> PM[products_master]
+  LC -.hero image.-> ST[(Storage: launch-images)]
+        </pre>
+      </div>
+      <table>
+        <thead>
+          <tr><th>Concept</th><th>Table</th><th>What it stores</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Launch container</strong></td>
+            <td><code>launch_calendar</code></td>
+            <td>Title, launch date/time, status, readiness, designer, campaign labels, PO/vendor/SKU refs, hero image URL, notes</td>
+          </tr>
+          <tr>
+            <td><strong>Products</strong></td>
+            <td><code>launch_product_readiness</code></td>
+            <td>Multiple SKUs per launch: shots, copy, PO, ETA, readiness flags</td>
+          </tr>
+          <tr>
+            <td><strong>Channel initiatives</strong></td>
+            <td><code>launch_channel_items</code></td>
+            <td>Email, SMS, Meta, site, retail, etc. — each with its own scheduled date/time, owner, status, URL</td>
+          </tr>
+          <tr>
+            <td><strong>Tasks</strong></td>
+            <td><code>launch_tasks</code></td>
+            <td>Internal checklist items with due date, priority, type, status (open / in progress / done)</td>
+          </tr>
+          <tr>
+            <td><strong>Assets</strong></td>
+            <td><code>launch_assets</code></td>
+            <td>Named links (Figma, Drive, PDF URLs)</td>
+          </tr>
+          <tr>
+            <td><strong>SILO links</strong></td>
+            <td><code>launch_system_links</code></td>
+            <td>References to PO, inventory tag, planning scenario, reports, etc.</td>
+          </tr>
+          <tr>
+            <td><strong>Comments</strong></td>
+            <td><code>launch_comments</code></td>
+            <td>Coordination notes with timestamp</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="note">
+        <strong>Terminology:</strong> In the UI we say <em>Launch container</em> or <em>campaign shell</em>. <em>Initiatives</em> = per-channel scheduled sends (not the same as the free-text “marketing channel” field on the shell, which is a summary label).
+      </div>
+    </section>
+
+    <section id="flow">
+      <h2>Workflow</h2>
+      <p>Recommended flow for marketing and creative. Numbers match the diagram below.</p>
+      <div class="mermaid-wrap">
+        <pre class="mermaid">
+flowchart LR
+  A[1. New Launch] --> B[2. Save shell\nlaunch date on calendar]
+  B --> C[3. Open drawer]
+  C --> D[4. Products\nreadiness]
+  C --> E[5. Initiatives\nemail SMS social]
+  C --> F[6. Tasks]
+  C --> G[7. Assets and links]
+  D --> H[8. Run calendar / agenda\nfilters and KPIs]
+  E --> H
+  F --> H
+        </pre>
+      </div>
+      <ol class="steps">
+        <li><strong>Create launch</strong> — Click <em>+ NEW LAUNCH</em>. Optionally expand <em>Optional prefill</em> and search an open PO or existing Silo product to fill title, PO, vendor, units.</li>
+        <li><strong>Fill launch shell</strong> — Title, <strong>launch date</strong> (this is what appears on the month calendar), time, status, readiness, designer, campaign type. Add hero image (upload or URL).</li>
+        <li><strong>Save</strong> — Launch chip appears on the calendar on the launch date.</li>
+        <li><strong>Open drawer</strong> — Click the chip or an agenda row.</li>
+        <li><strong>Products tab</strong> — Add one row per SKU/line: product shots, copy, PO, ETA, readiness (use for multi-style drops).</li>
+        <li><strong>Initiatives tab</strong> — Add each channel touch (e.g. teaser email Tuesday 8am, main email Thursday 9am, SMS). Each initiative has its <strong>own</strong> date and time.</li>
+        <li><strong>Tasks tab</strong> — Internal to-dos; change status inline (open → in progress → done).</li>
+        <li><strong>Assets / Links / Comments</strong> — Paste creative URLs, link to SILO PO or planning tools, leave coordination notes.</li>
+        <li><strong>Operate</strong> — Use Calendar for the month view, Agenda for the next ~2 weeks, filters for designer/status/readiness, KPI band for at-a-glance counts.</li>
+      </ol>
+      <div class="warn">
+        <strong>Calendar nuance (WIP):</strong> The month grid only plots <strong>launch dates</strong> from <code>launch_calendar</code>. Channel initiative dates are stored and visible in the <strong>Initiatives</strong> tab and KPIs, but do not yet appear as separate chips on the calendar. See <a href="#roadmap">Roadmap</a>.
+      </div>
+    </section>
+
+    <section id="ui">
+      <h2>Main page &amp; views</h2>
+      <table>
+        <thead>
+          <tr><th>Area</th><th>Purpose</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>KPI band</td><td>Launches this month, next 7 days, open tasks, channel items this week</td></tr>
+          <tr><td>Filters</td><td>Search (title, product, PO, vendor…), status, launch type, designer, readiness, date range</td></tr>
+          <tr><td><strong>Calendar</strong> tab</td><td>Month grid; color-coded chips; pencil to edit launch; click to open drawer</td></tr>
+          <tr><td><strong>Agenda</strong> tab</td><td>2-week list with image, readiness pills, product/initiative/task counts</td></tr>
+          <tr><td>Launch modal</td><td>Create/edit container: shell, optional prefill, primary refs, creative/notes</td></tr>
+          <tr><td>Detail drawer</td><td>All child records for one launch (tabs below)</td></tr>
+        </tbody>
+      </table>
+      <p>Local demo: append <code>?demo=1</code> to the URL on localhost for sample data without Supabase.</p>
+    </section>
+
+    <section id="drawer">
+      <h2>Drawer tabs</h2>
+      <table>
+        <thead>
+          <tr><th>Tab</th><th>Use when</th><th>Key fields</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Overview</td>
+            <td>Quick read; edit launch</td>
+            <td>Status, readiness, designer, details/notes, primary refs grid</td>
+          </tr>
+          <tr>
+            <td>Products</td>
+            <td>Multi-SKU drops</td>
+            <td>Title, type, collection, PO, ETA, units, readiness / shots / copy</td>
+          </tr>
+          <tr>
+            <td>Initiatives</td>
+            <td>Per-channel schedule</td>
+            <td>Channel (email, SMS, meta…), title, date, time, status, owner, URL, notes</td>
+          </tr>
+          <tr>
+            <td>Tasks</td>
+            <td>Internal checklist</td>
+            <td>Title, due, priority, type (creative, email, QA…), status dropdown</td>
+          </tr>
+          <tr>
+            <td>Assets</td>
+            <td>Creative file links</td>
+            <td>Name, type, URL</td>
+          </tr>
+          <tr>
+            <td>Links</td>
+            <td>Tie to rest of SILO</td>
+            <td>Link type (PO, product, inventory tag, planning…), label, ref, URL</td>
+          </tr>
+          <tr>
+            <td>Comments</td>
+            <td>Async updates</td>
+            <td>Free-text comment thread</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="status">
+      <h2>Shipped vs work in progress</h2>
+      <table>
+        <thead>
+          <tr><th>Feature</th><th>Status</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Auth + Supabase CRUD for all 7 tables</td><td><span class="status-pill live">Live</span></td><td>Production use</td></tr>
+          <tr><td>Calendar + agenda views</td><td><span class="status-pill live">Live</span></td><td>Launch-date chips only</td></tr>
+          <tr><td>Filters + KPIs</td><td><span class="status-pill live">Live</span></td><td></td></tr>
+          <tr><td>Launch hero image upload</td><td><span class="status-pill live">Live</span></td><td>Requires <code>launch-images</code> storage bucket + policies</td></tr>
+          <tr><td>PO / product prefill on create</td><td><span class="status-pill live">Live</span></td><td>Uses <code>v_launch_po_product_lookup</code> + <code>products_master</code></td></tr>
+          <tr><td>Multi-product + initiatives + tasks per launch</td><td><span class="status-pill live">Live</span></td><td></td></tr>
+          <tr><td>Task status update in list</td><td><span class="status-pill live">Live</span></td><td></td></tr>
+          <tr><td>Initiative dates on month calendar</td><td><span class="status-pill wip">WIP</span></td><td>Stored; not rendered on grid yet</td></tr>
+          <tr><td>Edit/delete initiatives, assets, products in UI</td><td><span class="status-pill wip">WIP</span></td><td>Add + list today; edit/delete planned</td></tr>
+          <tr><td>Duplicate launch template</td><td><span class="status-pill later">Later</span></td><td></td></tr>
+          <tr><td>Marketing-only RLS role</td><td><span class="status-pill later">Later</span></td><td>Uses global SILO profiles/RLS today</td></tr>
+          <tr><td>Notifications / assignments</td><td><span class="status-pill later">Later</span></td><td>Owner fields are text</td></tr>
+          <tr><td>Klaviyo / external API sync</td><td><span class="status-pill later">Later</span></td><td>URLs + notes only</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="roadmap">
+      <h2>Roadmap</h2>
+      <p>Prioritized from marketing feedback and internal pilot needs. Not calendar-dated — ordered by impact.</p>
+      <h3>Now (pilot blockers / high value)</h3>
+      <ul class="dense">
+        <li>Show <strong>channel initiatives</strong> on the calendar (secondary chips or dots on initiative <code>scheduled_date</code>)</li>
+        <li>Edit/delete for initiatives, products, and assets</li>
+        <li>Dropdown vocab for launch type and campaign type (reduce free-text drift)</li>
+      </ul>
+      <h3>Next</h3>
+      <ul class="dense">
+        <li>Duplicate launch (copy shell + optional children)</li>
+        <li>Agenda filter: “initiatives this week”</li>
+        <li>Export agenda range to CSV</li>
+        <li>File upload on Assets tab (same pattern as hero image)</li>
+      </ul>
+      <h3>Later</h3>
+      <ul class="dense">
+        <li>Marketing-scoped RLS policies</li>
+        <li>Approval workflow (draft → approved → live)</li>
+        <li>Task due-date reminders (email/Slack)</li>
+        <li>Launch templates (auto-spawn standard task checklist)</li>
+        <li>Optional iCal feed for launch + initiative dates</li>
+      </ul>
+    </section>
+
+    <section id="pilot">
+      <h2>Marketing pilot checklist</h2>
+      <ul class="dense">
+        <li>Confirm Supabase tables exist and RLS allows marketing users to read/write launch tables</li>
+        <li>Confirm <code>launch-images</code> bucket for hero uploads</li>
+        <li>Confirm <code>v_launch_po_product_lookup</code> view if using PO prefill</li>
+        <li>Pilot users: marketing lead + creative + ecom (3–5 people)</li>
+        <li>Rule: every drop gets a launch container; every email/SMS gets an <strong>Initiative</strong> row with date and owner</li>
+        <li>Support: one contact + screenshot + page URL for issues</li>
+      </ul>
+      <div class="note">
+        Broader SILO ops docs: <a href="/docs/README.md">docs/README.md</a> (markdown index) · Troubleshooting: <code>docs/ops/when-something-breaks.md</code>
+      </div>
+    </section>
+
+    <footer>
+      Launch Workbench guide · <a href="/v2/launch-calendar.html">Open app</a> · Update this page when shipping roadmap items
+    </footer>
+  </div>
+</body>
+</html>
