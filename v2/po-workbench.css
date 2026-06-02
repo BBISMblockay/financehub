@@ -650,31 +650,6 @@ body.v2-mirror--po .silo-main {
   overflow: auto;
 }
 
-/* Side-by-side: form left, table right */
-@media (min-width: 860px) {
-  .po-costing-main {
-    flex-direction: row;
-    align-items: flex-start;
-    flex-wrap: nowrap;
-  }
-  .po-costing-card {
-    flex: 0 0 340px;
-    max-width: 340px;
-    position: sticky;
-    top: 0;
-    overflow-y: auto;
-    max-height: calc(100vh - 130px);
-  }
-  .po-costing-main > .po-lines-card {
-    flex: 1 1 0;
-    min-width: 0;
-    align-self: stretch;
-  }
-  .po-costing-main .line-table-wrap {
-    max-height: calc(100vh - 250px);
-  }
-}
-
 .bcn-phase-bar {
   display: flex;
   flex-wrap: wrap;
@@ -734,18 +709,8 @@ body.v2-mirror--po .silo-main {
 
 .line-table.bcn-table,
 table.line-table.bcn-table {
-  min-width: 720px;
+  min-width: 900px;
 }
-
-/* PO costing table column widths */
-.po-lines-table th:nth-child(1), .po-lines-table td:nth-child(1) { width: 160px; max-width: 200px; }
-.po-lines-table th:nth-child(2), .po-lines-table td:nth-child(2) { width: 48px; text-align: right; }
-.po-lines-table th:nth-child(3), .po-lines-table td:nth-child(3) { width: 100px; }
-.po-lines-table th:nth-child(4), .po-lines-table td:nth-child(4) { width: 110px; }
-.po-lines-table th:nth-child(5), .po-lines-table td:nth-child(5) { width: 90px; }
-.po-lines-table th:nth-child(6), .po-lines-table td:nth-child(6) { width: 100px; }
-.po-lines-table th:nth-child(7), .po-lines-table td:nth-child(7) { width: 90px; text-align: right; }
-.po-lines-table th:nth-child(8), .po-lines-table td:nth-child(8) { width: 70px; }
 
 .line-table.bcn-table input {
   width: 100%;
@@ -829,12 +794,42 @@ table.line-table.bcn-table {
   background: var(--bcn-sunken);
 }
 
-/* Profile page cards */
-.profile-wrap {
+/* Profile page layout */
+.profile-layout {
   flex: 1;
   overflow: auto;
   padding: 0 16px 28px;
-  max-width: 720px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (min-width: 1080px) {
+  .profile-layout {
+    grid-template-columns: minmax(0, 720px) minmax(280px, 400px);
+  }
+  .profile-bulletin {
+    position: sticky;
+    top: 12px;
+  }
+}
+
+.profile-main {
+  min-width: 0;
+}
+
+.profile-wrap {
+  padding: 0;
+  max-width: none;
+}
+
+.profile-bulletin {
+  min-width: 0;
+}
+
+.profile-bulletin .bcn-card {
+  margin-bottom: 12px;
 }
 
 .profile-wrap .bcn-card {

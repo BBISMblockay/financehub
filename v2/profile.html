@@ -26,6 +26,14 @@
     .status-pill--active { background: var(--bcn-pos-soft); color: var(--bcn-pos); }
     .status-pill--inactive { background: var(--bcn-neg-soft); color: var(--bcn-neg); }
     #bootStatus { font-size: 12px; color: var(--bcn-ink-3); padding: 8px 0; }
+    .bulletin-item { border-top: 1px solid var(--bcn-border); padding: 12px 0; }
+    .bulletin-item:first-child { border-top: none; padding-top: 0; }
+    .bulletin-item-head { display: flex; gap: 8px; align-items: flex-start; justify-content: space-between; }
+    .bulletin-item-title { font-weight: 700; font-size: 13px; line-height: 1.3; }
+    .bulletin-item-meta { font-size: 10px; color: var(--bcn-ink-3); font-family: var(--bcn-mono); margin-top: 4px; }
+    .bulletin-item-body { font-size: 12px; line-height: 1.45; margin-top: 8px; white-space: pre-wrap; color: var(--bcn-ink-2); }
+    .bulletin-pill-important { background: #fffbeb; color: #92400e; border: 1px solid #fcd34d; }
+    .bulletin-pill-pinned { background: oklch(0.95 0.03 245); color: var(--bcn-accent); }
   </style>
 </head>
 <body class="silo-brand">
@@ -38,6 +46,8 @@
         </div>
       </header>
 
+      <div class="profile-layout">
+        <div class="profile-main">
       <div class="profile-wrap">
         <p id="bootStatus">Loading profile…</p>
         <div id="loadErr" class="bcn-card bcn-card--err" hidden><div class="bcn-card-body"></div></div>
@@ -121,6 +131,51 @@
           </div>
         </section>
       </div>
+        </div>
+
+        <aside class="profile-bulletin" id="bulletinAside" aria-label="Company bulletin board">
+          <section class="bcn-card" id="bulletinCard">
+            <header class="bcn-card-header bcn-card-header--dark">
+              <span class="bcn-pill bcn-pill--dark">COMPANY</span>
+              <h2>Bulletin board</h2>
+            </header>
+            <div class="bcn-card-body">
+              <p class="hint" style="margin:0 0 10px;">Internal announcements for SILO users. Pinned posts stay at the top.</p>
+              <div id="bulletinList"></div>
+              <p id="bulletinEmpty" class="hint" hidden>No active announcements right now.</p>
+              <p id="bulletinSetup" class="hint" hidden style="margin-top:8px;font-family:var(--bcn-mono);font-size:10px;"></p>
+            </div>
+          </section>
+          <section class="bcn-card" id="bulletinAdminCard" hidden>
+            <header class="bcn-card-header">
+              <span class="bcn-pill bcn-pill--accent">ADMIN</span>
+              <h2>Post announcement</h2>
+            </header>
+            <div class="bcn-card-body">
+              <div class="bcn-field-group">
+                <label class="bcn-label">Title</label>
+                <input id="bbTitle" class="bcn-field" type="text" maxlength="120" placeholder="e.g. Launch Workbench pilot" />
+              </div>
+              <div class="bcn-field-group">
+                <label class="bcn-label">Message</label>
+                <textarea id="bbBody" class="bcn-field" rows="4" placeholder="What should everyone know?"></textarea>
+              </div>
+              <div class="bcn-field-group" style="display:flex;gap:16px;flex-wrap:wrap;">
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;"><input type="checkbox" id="bbPinned" /> Pin to top</label>
+                <label style="display:flex;align-items:center;gap:6px;font-size:12px;cursor:pointer;"><input type="checkbox" id="bbImportant" /> Mark important</label>
+              </div>
+              <div class="bcn-field-group">
+                <label class="bcn-label">Expires (optional)</label>
+                <input id="bbExpires" class="bcn-field" type="date" />
+              </div>
+            </div>
+            <footer class="bcn-card-foot">
+              <button type="button" class="bcn-btn bcn-btn--primary bcn-btn--mono" id="btnPostBulletin">POST</button>
+            </footer>
+            <div class="bcn-card-body" style="padding-top:0;"><div id="bbPostStatus" class="hint"></div></div>
+          </section>
+        </aside>
+      </div>
     </main>
   </div>
 
@@ -143,6 +198,9 @@
     let db = null;
     let profile = null;
     let authUser = null;
+
+    let bulletins = [];
+    let bulletinTableMissing = false;
 
     const els = {
       bootStatus: document.getElementById('bootStatus'),
@@ -190,6 +248,76 @@
     function pickName(p) {
       if (!p) return '';
       return (p.name || p.full_name || '').trim();
+    }
+
+
+    function isAdminRole(p) {
+      const r = String(pickRole(p)).toLowerCase();
+      return ['owner', 'admin', 'superadmin'].includes(r);
+    }
+    function fmtBulletinDate(iso) {
+      if (!iso) return '';
+      try { return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }); }
+      catch { return iso; }
+    }
+    function isBulletinActive(b, now = Date.now()) {
+      const start = b.starts_at ? new Date(b.starts_at).getTime() : 0;
+      const end = b.expires_at ? new Date(b.expires_at).getTime() : null;
+      if (start > now) return false;
+      if (end != null && end <= now) return false;
+      return true;
+    }
+    function renderBulletins() {
+      const now = Date.now();
+      const rows = bulletins.filter(b => isAdminRole(profile) || isBulletinActive(b, now));
+      if (bulletinTableMissing) {
+        els.bulletinList.innerHTML = '';
+        els.bulletinEmpty.hidden = true;
+        els.bulletinSetup.hidden = false;
+        els.bulletinSetup.textContent = 'Run supabase/migrations/20260602160000_company_bulletins.sql in SQL Editor to enable the bulletin board.';
+        return;
+      }
+      els.bulletinSetup.hidden = true;
+      if (!rows.length) { els.bulletinList.innerHTML = ''; els.bulletinEmpty.hidden = false; return; }
+      els.bulletinEmpty.hidden = true;
+      const admin = isAdminRole(profile);
+      els.bulletinList.innerHTML = rows.map(b => {
+        const pills = [];
+        if (b.pinned) pills.push('<span class="bcn-pill bulletin-pill-pinned">PINNED</span>');
+        if (b.priority === 'important') pills.push('<span class="bcn-pill bulletin-pill-important">IMPORTANT</span>');
+        if (admin && !isBulletinActive(b, now)) pills.push('<span class="bcn-pill">EXPIRED</span>');
+        const del = admin ? `<button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-del-bb="${esc(b.id)}" style="height:24px;font-size:9px;padding:0 6px;">DELETE</button>` : '';
+        return `<article class="bulletin-item"><div class="bulletin-item-head"><div class="bulletin-item-title">${esc(b.title)}</div><div style="display:flex;gap:4px;flex-shrink:0;flex-wrap:wrap;">${pills.join('')}${del}</div></div><div class="bulletin-item-meta">${esc(fmtBulletinDate(b.created_at))}${b.expires_at ? ' · until ' + esc(fmtBulletinDate(b.expires_at)) : ''}</div><div class="bulletin-item-body">${esc(b.body)}</div></article>`;
+      }).join('');
+      els.bulletinList.querySelectorAll('[data-del-bb]').forEach(btn => { btn.onclick = () => deleteBulletin(btn.getAttribute('data-del-bb')); });
+    }
+    async function loadBulletins() {
+      els.bulletinAdminCard.hidden = !isAdminRole(profile);
+      const { data, error } = await db.from('company_bulletins').select('*').order('pinned', { ascending: false }).order('created_at', { ascending: false }).limit(25);
+      if (error) {
+        if (/relation|does not exist|schema cache/i.test(error.message || '')) { bulletinTableMissing = true; bulletins = []; }
+        else { bulletins = []; els.bulletinSetup.hidden = false; els.bulletinSetup.textContent = error.message; }
+      } else { bulletinTableMissing = false; bulletins = data || []; }
+      renderBulletins();
+    }
+    async function postBulletin() {
+      if (!isAdminRole(profile)) return;
+      const title = els.bbTitle.value.trim(), body = els.bbBody.value.trim();
+      if (!title || !body) { els.bbPostStatus.textContent = 'Title and message are required.'; return; }
+      els.btnPostBulletin.disabled = true; els.bbPostStatus.textContent = 'Posting…';
+      const payload = { title, body, pinned: els.bbPinned.checked, priority: els.bbImportant.checked ? 'important' : 'normal', expires_at: els.bbExpires.value ? new Date(els.bbExpires.value + 'T23:59:59').toISOString() : null, created_by: authUser?.id || null };
+      const { error } = await db.from('company_bulletins').insert([payload]);
+      els.btnPostBulletin.disabled = false;
+      if (error) { els.bbPostStatus.textContent = error.message; return; }
+      els.bbTitle.value = ''; els.bbBody.value = ''; els.bbPinned.checked = false; els.bbImportant.checked = false; els.bbExpires.value = '';
+      els.bbPostStatus.textContent = 'Posted.'; await loadBulletins(); setTimeout(() => { els.bbPostStatus.textContent = ''; }, 2500);
+    }
+    async function deleteBulletin(id) {
+      if (!isAdminRole(profile) || !id) return;
+      if (!confirm('Remove this announcement?')) return;
+      const { error } = await db.from('company_bulletins').delete().eq('id', id);
+      if (error) { alert(error.message); return; }
+      await loadBulletins();
     }
 
     function renderLandingOptions(selected) {
@@ -280,6 +408,7 @@
         fillForm();
         showPanels(false);
         mountChrome();
+        await loadBulletins().catch(() => {});
         els.bootStatus.textContent = '';
         return;
       }
@@ -291,6 +420,7 @@
         fillForm();
         showPanels(false);
         mountChrome();
+        await loadBulletins().catch(() => {});
         els.bootStatus.textContent = '';
         return;
       }
@@ -299,6 +429,7 @@
       fillForm();
       showPanels(true);
       mountChrome();
+      await loadBulletins().catch(() => {});
       els.bootStatus.textContent = '';
     }
 
