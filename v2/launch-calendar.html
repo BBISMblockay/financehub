@@ -1436,7 +1436,12 @@ async function uploadImageFile(file, launchId){
   const ext=file.name.split('.').pop().toLowerCase();
   const path=`launches/${launchId}-${Date.now()}.${ext}`;
   const {data,error}=await db.storage.from('launch-images').upload(path,file,{upsert:true,contentType:file.type});
-  if(error) throw error;
+  if(error){
+    if(/bucket not found/i.test(error.message||'')){
+      throw new Error('Storage bucket "launch-images" is missing. In Supabase SQL Editor, run supabase/migrations/20260602150000_launch_images_storage_bucket.sql — or remove the upload and paste an image URL instead.');
+    }
+    throw error;
+  }
   const {data:ud}=db.storage.from('launch-images').getPublicUrl(data.path);
   return ud.publicUrl;
 }
