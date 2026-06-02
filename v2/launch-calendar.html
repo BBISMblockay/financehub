@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
 <script src="../pages/config.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+  <script src="lib/supabase-js.min.js"></script>
   <style>
     /* calendar pane fills remaining height */
     #pane-calendar {
@@ -211,7 +211,7 @@
     <header class="bcn-header">
       <div style="flex:1;min-width:0;">
         <div class="bcn-header-title"><h1>Launch Workbench</h1></div>
-        <div class="bcn-header-sub">Product launch containers · calendar · product readiness · channel initiatives · <span id="wbBuildTag" style="opacity:.65;font-family:var(--bcn-mono);font-size:10px;">WB-95</span></div>
+        <div class="bcn-header-sub">Product launch containers · calendar · product readiness · channel initiatives · <span id="wbBuildTag" style="opacity:.65;font-family:var(--bcn-mono);font-size:10px;">WB-96</span></div>
       </div>
       <div class="bcn-header-actions">
         <a class="bcn-btn bcn-btn--ghost bcn-btn--mono" href="/v2/launch-calendar-guide.html">GUIDE</a>
@@ -535,7 +535,7 @@
             <div class="bcn-field-group"><label class="bcn-label">NOTES</label><textarea class="bcn-field" id="linkNotes" rows="2"></textarea></div>
             <div style="display:flex;gap:8px;justify-content:flex-end;">
               <button class="bcn-btn bcn-btn--mono" type="button" id="cancelSystemLinkBtn">CANCEL</button>
-              <button class="bcn-btn bcn-btn--primary bcn-btn--mono">SAVE</button>
+              <button class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button" id="linkFormSaveBtn">SAVE LINK</button>
             </div>
           </div>
         </form>
@@ -742,10 +742,17 @@ if (__SILO_DEMO__) {
         }};
       },
       delete(){
-        return{eq:async(k,v)=>{
-          TABLES[table]=TABLES[table].filter(x=>String(x[k])!==String(v));
-          return{data:null,error:null};
-        }};
+        const chain={
+          eq(k,v){ chain._eq=[k,v]; return chain; },
+          select(){ return chain; },
+          then(res,rej){
+            const [k,v]=chain._eq||[];
+            const removed=(TABLES[table]||[]).filter(x=>String(x[k])===String(v));
+            TABLES[table]=(TABLES[table]||[]).filter(x=>String(x[k])!==String(v));
+            return Promise.resolve({data:removed.map(r=>({id:r.id})),error:null}).then(res,rej);
+          },
+        };
+        return chain;
       },
     };
     return api;
@@ -815,7 +822,7 @@ async function boot(){
     });
   }
 
-  bind();
+  try { bind(); } catch (e) { console.error('Launch Workbench bind failed:', e); setStatus('UI error: ' + (e.message || e), 'neg', 8000); }
   try {
     await loadAll();
     setStatus('Ready.','pos',1400);
@@ -888,9 +895,10 @@ function bind(){
   $('assetFormSaveBtn').onclick    = e=>{ e.preventDefault(); saveAsset(e); };
 
   // link form
-  $('showSystemLinkFormBtn').onclick = ()=>$('systemLinkForm').style.display='';
-  $('cancelSystemLinkBtn').onclick   = ()=>{ $('systemLinkForm').style.display='none'; $('systemLinkForm').reset(); };
+  $('showSystemLinkFormBtn').onclick = ()=>openLinkForm(null);
+  $('cancelSystemLinkBtn').onclick   = closeLinkForm;
   $('systemLinkForm').onsubmit       = saveSystemLink;
+  $('linkFormSaveBtn').onclick       = e=>{ e.preventDefault(); saveSystemLink(e); };
 
   $('commentForm').onsubmit = saveComment;
 
@@ -1286,20 +1294,27 @@ function renderAssets(rows){
   list.querySelectorAll('[data-del-asset]').forEach(btn=>{ btn.onclick=()=>deleteAsset(btn.dataset.delAsset); });
 }
 function renderSystemLinks(rows){
-  $('systemLinksList').innerHTML=rows.length?'':empStr('No Silo links yet.');
+  const list=$('systemLinksList');
+  if(!rows.length){ list.innerHTML=empStr('No Silo links yet.'); return; }
+  list.innerHTML='';
   rows.forEach(l=>{
     const div=document.createElement('div'); div.className='dp-item';
-    div.innerHTML=`<div><div class="dp-item-title">${esc(l.ref_label||l.link_type||'Link')}</div><div class="dp-item-meta">${esc([l.link_type,l.ref_table,l.ref_id].filter(Boolean).join(' · '))}</div>${l.ref_url?`<a href="${esc(l.ref_url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--bcn-accent)">${esc(l.ref_url)}</a>`:''}</div>`;
-    $('systemLinksList').appendChild(div);
+    div.innerHTML=`<div style="flex:1;min-width:0;"><div class="dp-item-title">${esc(l.ref_label||l.link_type||'Link')}</div><div class="dp-item-meta">${esc([l.link_type,l.ref_table,l.ref_id].filter(Boolean).join(' · '))}</div>${l.ref_url?`<div style="margin-top:3px;"><a href="${esc(l.ref_url)}" target="_blank" rel="noopener" style="font-size:12px;color:var(--bcn-accent)">${esc(l.ref_url.length>60?l.ref_url.slice(0,57)+'…':l.ref_url)}</a></div>`:''}${l.notes?`<div class="dp-item-meta">${esc(l.notes)}</div>`:''}</div><div class="dp-row-actions"><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-edit-link="${l.id}" style="height:26px;font-size:10px;">EDIT</button><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-del-link="${l.id}" style="height:26px;font-size:10px;">DELETE</button></div>`;
+    list.appendChild(div);
   });
+  list.querySelectorAll('[data-edit-link]').forEach(btn=>{ const row=rows.find(r=>String(r.id)===String(btn.dataset.editLink)); if(row) btn.onclick=()=>openLinkForm(row); });
+  list.querySelectorAll('[data-del-link]').forEach(btn=>{ btn.onclick=()=>deleteSystemLink(btn.dataset.delLink); });
 }
 function renderComments(rows){
-  $('commentList').innerHTML=rows.length?'':empStr('No comments yet.');
+  const list=$('commentList');
+  if(!rows.length){ list.innerHTML=empStr('No comments yet.'); return; }
+  list.innerHTML='';
   rows.forEach(c=>{
     const div=document.createElement('div'); div.className='dp-item';
-    div.innerHTML=`<div><div style="font-size:13px;">${esc(c.comment)}</div><div class="dp-item-meta">${new Date(c.created_at).toLocaleString()}</div></div>`;
-    $('commentList').appendChild(div);
+    div.innerHTML=`<div style="flex:1;min-width:0;"><div style="font-size:13px;">${esc(c.comment)}</div><div class="dp-item-meta">${new Date(c.created_at).toLocaleString()}</div></div><div class="dp-row-actions"><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-del-comment="${c.id}" style="height:26px;font-size:10px;">DELETE</button></div>`;
+    list.appendChild(div);
   });
+  list.querySelectorAll('[data-del-comment]').forEach(btn=>{ btn.onclick=()=>deleteComment(btn.dataset.delComment); });
 }
 function empStr(msg){ return `<div class="bcn-empty" style="padding:12px;">${msg}</div>`; }
 
@@ -1509,61 +1524,194 @@ async function saveProductReadiness(e){
   await loadAll(false); openDrawer(activeLaunch.id); switchDrawerTab('dp-products'); render();
 }
 async function deleteProduct(id){
-  if(!activeLaunch||!id) return;
   if(!confirm('Remove this product line from the launch?')) return;
-  const {error}=await db.from('launch_product_readiness').delete().eq('id',id);
-  if(error){ setStatus(error.message,'neg',3500); return; }
-  setStatus('Product removed.','pos',1800);
-  await loadAll(false); openDrawer(activeLaunch.id); switchDrawerTab('dp-products'); render();
+  await deleteRow('launch_product_readiness', id, 'Product', 'dp-products');
 }
 
-/* ---- sub-form saves ---------------------------------------------------- */
+/* ---- initiatives / tasks / assets / links ------------------------------ */
 
+async function deleteRow(table, id, label, tabId){
+  if(!activeLaunch||!id) return false;
+  const {data,error}=await db.from(table).delete().eq('id',id).select('id');
+  if(error){ setStatus(error.message,'neg',4500); return false; }
+  if(!data?.length){
+    setStatus(`Could not delete ${label}. If this persists, run supabase/migrations/20260602140000_launch_workbench_crud_rls.sql`,'neg',6000);
+    return false;
+  }
+  setStatus(`${label} removed.`,'pos',1800);
+  await loadAll(false);
+  openDrawer(activeLaunch.id);
+  if(tabId) switchDrawerTab(tabId);
+  render();
+  return true;
+}
+
+function resetChannelForm(){ $('channelForm').reset(); $('channelEditId').value=''; $('channelFormTitle').textContent='New initiative'; $('channelFormSaveBtn').textContent='SAVE INITIATIVE'; }
+function closeChannelForm(){ $('channelForm').style.display='none'; resetChannelForm(); }
+function openChannelForm(row){
+  resetChannelForm(); $('channelForm').style.display='';
+  if(row){
+    $('channelEditId').value=row.id;
+    $('channelFormTitle').textContent='Edit initiative';
+    $('channelFormSaveBtn').textContent='UPDATE INITIATIVE';
+    $('channelName').value=row.channel||'email';
+    $('channelTitle').value=row.item_title||'';
+    $('channelDate').value=row.scheduled_date||'';
+    $('channelTime').value=row.scheduled_time||'';
+    $('channelStatus').value=row.status||'planned';
+    $('channelOwner').value=row.owner||'';
+    $('channelUrl').value=row.link_url||'';
+    $('channelNotes').value=row.notes||'';
+  } else if(activeLaunch?.launch_date) $('channelDate').value=activeLaunch.launch_date;
+  $('channelForm').scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+function channelPayloadFromForm(){
+  return { channel:$('channelName').value, item_title:$('channelTitle').value.trim(), scheduled_date:$('channelDate').value||null, scheduled_time:$('channelTime').value||null, status:$('channelStatus').value, owner:$('channelOwner').value.trim()||null, link_url:$('channelUrl').value.trim()||null, notes:$('channelNotes').value.trim()||null };
+}
 async function saveChannelItem(e){
-
   e.preventDefault(); if(!activeLaunch) return;
-  const payload={ launch_id:activeLaunch.id, channel:$('channelName').value, item_title:$('channelTitle').value.trim(), scheduled_date:$('channelDate').value||null, scheduled_time:$('channelTime').value||null, status:$('channelStatus').value, owner:$('channelOwner').value.trim()||null, link_url:$('channelUrl').value.trim()||null, notes:$('channelNotes').value.trim()||null, created_by:currentUser.id };
-  const {error}=await db.from('launch_channel_items').insert([payload]);
-  if(error){ alert(error.message); return; }
-  $('channelForm').reset(); $('channelForm').style.display='none';
-  await loadAll(false); renderDrawer(); render();
+  const payload=channelPayloadFromForm();
+  if(!payload.item_title){ setStatus('Initiative title is required.','neg',2500); return; }
+  const editId=$('channelEditId').value;
+  let error;
+  if(editId){ ({error}=await db.from('launch_channel_items').update(payload).eq('id',editId)); }
+  else { payload.launch_id=activeLaunch.id; payload.created_by=currentUser.id; ({error}=await db.from('launch_channel_items').insert([payload])); }
+  if(error){ setStatus(error.message,'neg',3500); return; }
+  closeChannelForm();
+  setStatus(editId?'Initiative updated.':'Initiative saved.','pos',2000);
+  await loadAll(false); openDrawer(activeLaunch.id); switchDrawerTab('dp-channels'); render();
+}
+async function deleteChannel(id){
+  if(!confirm('Remove this initiative from the launch?')) return;
+  await deleteRow('launch_channel_items', id, 'Initiative', 'dp-channels');
 }
 
+function resetTaskForm(){ $('taskForm').reset(); $('taskEditId').value=''; $('taskFormTitle').textContent='New task'; $('taskFormSaveBtn').textContent='SAVE TASK'; }
+function closeTaskForm(){ $('taskForm').style.display='none'; resetTaskForm(); }
+function openTaskForm(row){
+  resetTaskForm(); $('taskForm').style.display='';
+  if(row){
+    $('taskEditId').value=row.id;
+    $('taskFormTitle').textContent='Edit task';
+    $('taskFormSaveBtn').textContent='UPDATE TASK';
+    $('taskTitle').value=row.task_title||'';
+    $('taskDue').value=row.due_date||'';
+    $('taskPriority').value=row.priority||'normal';
+    $('taskType').value=row.task_type||'';
+    $('taskNotes').value=row.notes||'';
+  }
+  $('taskForm').scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+function taskPayloadFromForm(){
+  return { task_title:$('taskTitle').value.trim(), task_type:$('taskType').value||null, priority:$('taskPriority').value, due_date:$('taskDue').value||null, notes:$('taskNotes').value.trim()||null };
+}
 async function saveTask(e){
   e.preventDefault(); if(!activeLaunch) return;
-  const payload={ launch_id:activeLaunch.id, task_title:$('taskTitle').value.trim(), task_type:$('taskType').value||null, status:'open', priority:$('taskPriority').value, due_date:$('taskDue').value||null, notes:$('taskNotes').value.trim()||null };
-  const {error}=await db.from('launch_tasks').insert([payload]);
-  if(error){ alert(error.message); return; }
-  $('taskForm').reset(); $('taskForm').style.display='none';
-  await loadAll(false); renderDrawer(); render();
+  const payload=taskPayloadFromForm();
+  if(!payload.task_title){ setStatus('Task title is required.','neg',2500); return; }
+  const editId=$('taskEditId').value;
+  let error;
+  if(editId){ ({error}=await db.from('launch_tasks').update(payload).eq('id',editId)); }
+  else { payload.launch_id=activeLaunch.id; payload.status='open'; ({error}=await db.from('launch_tasks').insert([payload])); }
+  if(error){ setStatus(error.message,'neg',3500); return; }
+  closeTaskForm();
+  setStatus(editId?'Task updated.':'Task saved.','pos',2000);
+  await loadAll(false); openDrawer(activeLaunch.id); switchDrawerTab('dp-tasks'); render();
+}
+async function deleteTask(id){
+  if(!confirm('Delete this task?')) return;
+  await deleteRow('launch_tasks', id, 'Task', 'dp-tasks');
 }
 
+function resetAssetForm(){ $('assetForm').reset(); $('assetEditId').value=''; $('assetFormTitle').textContent='New asset'; $('assetFormSaveBtn').textContent='SAVE ASSET'; }
+function closeAssetForm(){ $('assetForm').style.display='none'; resetAssetForm(); }
+function openAssetForm(row){
+  resetAssetForm(); $('assetForm').style.display='';
+  if(row){
+    $('assetEditId').value=row.id;
+    $('assetFormTitle').textContent='Edit asset';
+    $('assetFormSaveBtn').textContent='UPDATE ASSET';
+    $('assetName').value=row.asset_name||'';
+    $('assetType').value=row.asset_type||'';
+    $('assetUrl').value=row.asset_url||'';
+    $('assetNotes').value=row.notes||'';
+  }
+  $('assetForm').scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+function assetPayloadFromForm(){
+  return { asset_name:$('assetName').value.trim()||null, asset_url:$('assetUrl').value.trim(), asset_type:$('assetType').value.trim()||null, notes:$('assetNotes').value.trim()||null };
+}
 async function saveAsset(e){
   e.preventDefault(); if(!activeLaunch) return;
-  const payload={ launch_id:activeLaunch.id, asset_name:$('assetName').value.trim()||null, asset_url:$('assetUrl').value.trim(), asset_type:$('assetType').value.trim()||null, notes:$('assetNotes').value.trim()||null, uploaded_by:currentUser.id };
-  const {error}=await db.from('launch_assets').insert([payload]);
-  if(error){ alert(error.message); return; }
-  $('assetForm').reset(); $('assetForm').style.display='none';
-  await loadAll(false); renderDrawer();
+  const payload=assetPayloadFromForm();
+  if(!payload.asset_url){ setStatus('Asset URL is required.','neg',2500); return; }
+  const editId=$('assetEditId').value;
+  let error;
+  if(editId){ ({error}=await db.from('launch_assets').update(payload).eq('id',editId)); }
+  else { payload.launch_id=activeLaunch.id; payload.uploaded_by=currentUser.id; ({error}=await db.from('launch_assets').insert([payload])); }
+  if(error){ setStatus(error.message,'neg',3500); return; }
+  closeAssetForm();
+  setStatus(editId?'Asset updated.':'Asset saved.','pos',2000);
+  await loadAll(false); openDrawer(activeLaunch.id); switchDrawerTab('dp-assets'); render();
+}
+async function deleteAsset(id){
+  if(!confirm('Remove this asset from the launch?')) return;
+  await deleteRow('launch_assets', id, 'Asset', 'dp-assets');
 }
 
+function resetLinkForm(){ $('systemLinkForm').reset(); $('linkEditId').value=''; $('linkFormTitle').textContent='New Silo link'; $('linkFormSaveBtn').textContent='SAVE LINK'; }
+function closeLinkForm(){ $('systemLinkForm').style.display='none'; resetLinkForm(); }
+function openLinkForm(row){
+  resetLinkForm(); $('systemLinkForm').style.display='';
+  if(row){
+    $('linkEditId').value=row.id;
+    $('linkFormTitle').textContent='Edit link';
+    $('linkFormSaveBtn').textContent='UPDATE LINK';
+    $('linkType').value=row.link_type||'other';
+    $('linkLabel').value=row.ref_label||'';
+    $('linkTable').value=row.ref_table||'';
+    $('linkRefId').value=row.ref_id||'';
+    $('linkUrl').value=row.ref_url||'';
+    $('linkNotes').value=row.notes||'';
+  }
+  $('systemLinkForm').scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+function linkPayloadFromForm(){
+  return { link_type:$('linkType').value, ref_table:$('linkTable').value.trim()||null, ref_id:$('linkRefId').value.trim()||null, ref_label:$('linkLabel').value.trim()||null, ref_url:$('linkUrl').value.trim()||null, notes:$('linkNotes').value.trim()||null };
+}
 async function saveSystemLink(e){
   e.preventDefault(); if(!activeLaunch) return;
-  const payload={ launch_id:activeLaunch.id, link_type:$('linkType').value, ref_table:$('linkTable').value.trim()||null, ref_id:$('linkRefId').value.trim()||null, ref_label:$('linkLabel').value.trim()||null, ref_url:$('linkUrl').value.trim()||null, notes:$('linkNotes').value.trim()||null, created_by:currentUser.id };
-  const {error}=await db.from('launch_system_links').insert([payload]);
-  if(error){ alert(error.message); return; }
-  $('systemLinkForm').reset(); $('systemLinkForm').style.display='none';
-  await loadAll(false); renderDrawer();
+  const payload=linkPayloadFromForm();
+  const editId=$('linkEditId').value;
+  let error;
+  if(editId){ ({error}=await db.from('launch_system_links').update(payload).eq('id',editId)); }
+  else { payload.launch_id=activeLaunch.id; payload.created_by=currentUser.id; ({error}=await db.from('launch_system_links').insert([payload])); }
+  if(error){ setStatus(error.message,'neg',3500); return; }
+  closeLinkForm();
+  setStatus(editId?'Link updated.':'Link saved.','pos',2000);
+  await loadAll(false); openDrawer(activeLaunch.id); switchDrawerTab('dp-links'); render();
 }
+async function deleteSystemLink(id){
+  if(!confirm('Remove this link?')) return;
+  await deleteRow('launch_system_links', id, 'Link', 'dp-links');
+}
+
+async function deleteComment(id){
+  if(!confirm('Delete this comment?')) return;
+  await deleteRow('launch_comments', id, 'Comment', 'dp-comments');
+}
+
+/* ---- comments (insert only) -------------------------------------------- */
 
 async function saveComment(e){
   e.preventDefault(); if(!activeLaunch) return;
   const payload={ launch_id:activeLaunch.id, user_id:currentUser.id, comment:$('commentInput').value.trim() };
   const {error}=await db.from('launch_comments').insert([payload]);
-  if(error){ alert(error.message); return; }
+  if(error){ setStatus(error.message,'neg',3500); return; }
   $('commentForm').reset();
-  await loadAll(false); renderDrawer();
+  await loadAll(false); openDrawer(activeLaunch.id); switchDrawerTab('dp-comments'); render();
 }
+
 
 /* ---- product lookup ---------------------------------------------------- */
 
