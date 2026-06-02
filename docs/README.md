@@ -16,6 +16,7 @@ Pick **one** link below. You do not need to read everything.
 | Apply database changes after a PR | [../supabase/README.md](../supabase/README.md) |
 | Test Planning Scenarios specifically | [planning-scenarios-filter-scope.md](planning-scenarios-filter-scope.md) |
 | Build or restyle a v2 page | [../v2/SILO-BRAND.md](../v2/SILO-BRAND.md) |
+| Launch Workbench (flow, WIP, roadmap) | [../v2/launch-calendar-guide.html](../v2/launch-calendar-guide.html) (open in browser) |
 
 ---
 
