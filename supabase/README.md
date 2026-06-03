@@ -35,6 +35,9 @@ Run in order:
 7. **`migrations/20260603130000_launch_comments_author_denorm.sql`** — denormalized author  
    Adds `author_name` + `author_email` to `launch_comments` so display works without a join
 
+8. **`migrations/20260603140000_launch_tasks_assignee.sql`** — task assignment  
+   Adds `assigned_to_user_id` (FK to auth.users) and `assigned_to_name` (denormalized) to `launch_tasks`
+
 ## App workflow after SQL succeeds
 
 1. **PO builder** (`/v2/po-builder.html`) — create header + lines (needs at least one factory)

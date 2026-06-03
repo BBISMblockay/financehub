@@ -676,3 +676,9 @@ create policy launch_images_auth_delete
   on storage.objects for delete to authenticated
   using (bucket_id = 'launch-images');
 
+-- >>> SECTION 8: LAUNCH TASK ASSIGNEE (migration 20260603140000)
+-- =============================================================================
+alter table public.launch_tasks
+  add column if not exists assigned_to_user_id uuid references auth.users(id) on delete set null,
+  add column if not exists assigned_to_name text;
+
