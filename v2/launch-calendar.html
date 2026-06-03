@@ -499,6 +499,10 @@
               <div class="bcn-field-group"><label class="bcn-label">PRIORITY</label><select class="bcn-field" id="taskPriority"><option value="normal">Normal</option><option value="high">High</option><option value="critical">Critical</option></select></div>
               <div class="bcn-field-group"><label class="bcn-label">TYPE</label><select class="bcn-field" id="taskType"><option value="">Type</option><option value="creative">Creative</option><option value="inventory">Inventory</option><option value="website">Website</option><option value="email">Email</option><option value="sms">SMS</option><option value="qa">QA</option></select></div>
             </div>
+            <div class="dp-g3">
+              <div class="bcn-field-group" style="grid-column:1/3;"><label class="bcn-label">ASSIGN TO</label><select class="bcn-field" id="taskAssignTo"><option value="">Unassigned</option></select></div>
+              <div class="bcn-field-group" style="grid-column:3/4;"></div>
+            </div>
             <div class="bcn-field-group"><label class="bcn-label">NOTES</label><textarea class="bcn-field" id="taskNotes" rows="2"></textarea></div>
             <div style="display:flex;gap:8px;justify-content:flex-end;">
               <button class="bcn-btn bcn-btn--mono" type="button" id="cancelTaskBtn">CANCEL</button>
@@ -805,6 +809,7 @@ let db = null;
 
 let currentUser = null;
 let profileById = new Map();
+let siloUsers = [];
 let launches=[], tasks=[], assets=[], comments=[], systemLinks=[], channels=[], products=[], filtered=[];
 let activeLaunch = null;
 let view = 'calendar';
@@ -1032,10 +1037,14 @@ function updateCommentComposeHint() {
 
 async function loadCurrentProfile() {
   profileById = new Map();
+  siloUsers = [];
   if (!currentUser?.id) return;
   try {
-    const { data, error } = await db.from('profiles').select('id, name, email').eq('id', currentUser.id).maybeSingle();
-    if (!error && data) profileById.set(data.id, data);
+    const { data } = await db.from('profiles').select('id, name, email').eq('is_active', true).order('name');
+    if (data) {
+      data.forEach(p => profileById.set(p.id, p));
+      siloUsers = data;
+    }
   } catch (e) { /* profiles optional */ }
 }
 
@@ -1354,7 +1363,8 @@ function renderTasks(rows){
   list.innerHTML='';
   rows.forEach(t=>{
     const div=document.createElement('div'); div.className='dp-item';
-    div.innerHTML=`<div style="flex:1;min-width:0;"><div class="dp-item-title">${esc(t.task_title)}</div><div class="dp-item-meta">${esc([t.task_type,t.priority,t.due_date?`Due ${fmt(t.due_date)}`:null].filter(Boolean).join(' · '))}</div>${t.notes?`<div class="dp-item-meta">${esc(t.notes)}</div>`:''}</div><div class="dp-row-actions"><select class="bcn-field" data-tid="${t.id}" style="width:110px;height:26px;font-size:10px;">${['open','in_progress','done'].map(s=>`<option value="${s}"${t.status===s?' selected':''}>${s}</option>`).join('')}</select><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-edit-task="${t.id}" style="height:26px;font-size:10px;">EDIT</button><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-del-task="${t.id}" style="height:26px;font-size:10px;">DELETE</button></div>`;
+    const assignee=t.assigned_to_name||null;
+    div.innerHTML=`<div style="flex:1;min-width:0;"><div class="dp-item-title">${esc(t.task_title)}</div><div class="dp-item-meta">${esc([t.task_type,t.priority,t.due_date?`Due ${fmt(t.due_date)}`:null,assignee?`→ ${assignee}`:null].filter(Boolean).join(' · '))}</div>${t.notes?`<div class="dp-item-meta">${esc(t.notes)}</div>`:''}</div><div class="dp-row-actions"><select class="bcn-field" data-tid="${t.id}" style="width:110px;height:26px;font-size:10px;">${['open','in_progress','done'].map(s=>`<option value="${s}"${t.status===s?' selected':''}>${s}</option>`).join('')}</select><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-edit-task="${t.id}" style="height:26px;font-size:10px;">EDIT</button><button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-del-task="${t.id}" style="height:26px;font-size:10px;">DELETE</button></div>`;
     list.appendChild(div);
   });
   list.querySelectorAll('[data-tid]').forEach(el=>{
@@ -1694,8 +1704,20 @@ async function deleteChannel(id){
 
 function resetTaskForm(){ $('taskForm').reset(); $('taskEditId').value=''; $('taskFormTitle').textContent='New task'; $('taskFormSaveBtn').textContent='SAVE TASK'; }
 function closeTaskForm(){ $('taskForm').style.display='none'; resetTaskForm(); }
+function populateAssigneeDropdown(selectedUserId){
+  const sel=$('taskAssignTo');
+  sel.innerHTML='<option value="">Unassigned</option>';
+  siloUsers.forEach(u=>{
+    const opt=document.createElement('option');
+    opt.value=u.id;
+    opt.textContent=u.name||u.email;
+    if(u.id===selectedUserId) opt.selected=true;
+    sel.appendChild(opt);
+  });
+}
 function openTaskForm(row){
   resetTaskForm(); $('taskForm').style.display='';
+  populateAssigneeDropdown(row?.assigned_to_user_id||null);
   if(row){
     $('taskEditId').value=row.id;
     $('taskFormTitle').textContent='Edit task';
@@ -1709,7 +1731,9 @@ function openTaskForm(row){
   $('taskForm').scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 function taskPayloadFromForm(){
-  return { task_title:$('taskTitle').value.trim(), task_type:$('taskType').value||null, priority:$('taskPriority').value, due_date:$('taskDue').value||null, notes:$('taskNotes').value.trim()||null };
+  const assignId=$('taskAssignTo').value||null;
+  const assignUser=assignId?siloUsers.find(u=>u.id===assignId):null;
+  return { task_title:$('taskTitle').value.trim(), task_type:$('taskType').value||null, priority:$('taskPriority').value, due_date:$('taskDue').value||null, notes:$('taskNotes').value.trim()||null, assigned_to_user_id:assignId, assigned_to_name:assignUser?(assignUser.name||assignUser.email):null };
 }
 async function saveTask(e){
   e.preventDefault(); if(!activeLaunch) return;

@@ -1,0 +1,327 @@
+# CLAUDE.md — SILO project guide
+
+This file is the authoritative context for AI agents working on this repo. Read it fully before making any changes.
+
+---
+
+## What this is
+
+SILO is an internal operations platform for Baseballism (a baseball-themed brand). It's a static HTML/JS frontend backed by Supabase (Postgres + Auth + Storage). There is no backend server — the browser talks directly to Supabase via the JS SDK.
+
+**Team:** 7 users, all `admin` role. Owner: blake@baseballism.com.
+
+---
+
+## Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | Vanilla HTML + CSS + JS (no framework) |
+| Database | Supabase (Postgres) |
+| Auth | Supabase Auth (email/password) |
+| Storage | Supabase Storage (2 buckets: `payment-request-files`, `launch-images`) |
+| Hosting | Static file hosting (GitHub Pages or similar) |
+| Data sync | GitHub Actions → Node.js scripts → Supabase |
+| Config injection | `pages/config.js` sets `window.__SILO_CONFIG__` |
+
+---
+
+## File structure
+
+```
+/
+├── v2/                        ← ALL active pages live here
+│   ├── beacon.css             ← Design system tokens + components (DO NOT EDIT casually)
+│   ├── silo-brand.css         ← Page layout, card harmonization
+│   ├── beacon-mirrors-unified.css  ← Legacy component overrides
+│   ├── v2-mobile.css          ← Responsive overrides
+│   ├── silo-chrome.js         ← Sidebar nav component (mount after auth)
+│   ├── tool-shell.js          ← iframe wrapper for legacy tools
+│   ├── v2-shell.js            ← Thin auth check shell
+│   ├── po-costing-lib.js      ← Shared PO costing logic (use for PO pages)
+│   └── [page].html            ← One file per tool
+├── pages/
+│   ├── config.js              ← Sets window.__SILO_CONFIG__ with Supabase credentials
+│   ├── login.html             ← Auth page (routes to /v2/finance.html after login)
+│   ├── embed.js               ← Used by iframe tool pages
+│   └── [legacy-tool].html     ← Legacy tools embedded via tool-shell
+├── legacy/                    ← DO NOT TOUCH — old pages, kept for reference only
+├── supabase/
+│   ├── verify_v2_schema.sql   ← Run this to health-check the DB after any SQL changes
+│   ├── apply_all_post_merge.sql ← One-shot apply for all migrations (safe to re-run)
+│   ├── migrations/            ← Individual migration files (timestamped)
+│   └── seeds/                 ← Seed data SQL
+├── scripts/                   ← Node.js / Python data sync scripts
+├── .github/workflows/         ← GitHub Actions (nightly sync, AR sync)
+├── docs/ops/                  ← Ops documentation (bugs, roadmap, changelog)
+└── silo-pitch.html            ← Product pitch deck (standalone, not part of the app)
+```
+
+---
+
+## Config and auth
+
+`pages/config.js` sets `window.__SILO_CONFIG__` with the real Supabase URL and anon key. This file is loaded before any page scripts.
+
+Every v2 page reads config like this:
+```js
+const cfg = window.__SILO_CONFIG__ || {};
+const SUPABASE_URL = cfg.SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+```
+
+The Supabase client is then created with these values. If they're empty the page shows a "Missing Supabase config" error — that's intentional.
+
+**Never hardcode credentials.** The real credentials are in `pages/config.js`. Do not embed them in HTML files.
+
+---
+
+## Three page patterns — use the right one
+
+### Pattern 1: Full Beacon shell (preferred for new tools)
+Used by: `projections.html`, `launch-calendar.html`, `profile.html`, `po-builder.html`, `po-costing.html`, `planning-scenarios.html`
+
+Asset load order (must follow exactly):
+```html
+<link rel="stylesheet" href="beacon.css" />
+<link rel="stylesheet" href="silo-brand.css" />
+<!-- page-specific <style> block if needed -->
+<link rel="stylesheet" href="beacon-mirrors-unified.css" />
+<link rel="stylesheet" href="v2-mobile.css" />
+<script src="v2-shell.js" defer></script>
+<script src="silo-chrome.js"></script>
+```
+
+Page skeleton:
+```html
+<body>
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main">
+      <header class="bcn-header">…</header>
+      <section class="bcn-kpi-band">…</section>   <!-- optional -->
+      <section class="bcn-filter-bar">…</section> <!-- optional -->
+      <!-- content -->
+    </main>
+  </div>
+</body>
+```
+
+Mount chrome after auth:
+```js
+window.SiloChrome.mount({
+  appEl: '#silo-app',
+  active: 'purchasing/po-builder',   // matches nav item key
+  user: { email, role },
+  crumbs: ['Purchasing', 'PO Builder'],
+  supabaseClient: db,
+});
+```
+
+### Pattern 2: Tool shell (iframe wrapper for legacy pages)
+Used by: `cashflow.html`, `wholesale.html`, `sales-verification.html`, and most finance mirrors.
+
+Entire file is ~20 lines:
+```html
+<link rel="stylesheet" href="tool-shell.css" />
+<div class="silo-app" id="silo-app">
+  <main class="silo-main" data-tool='{"title":"Cash flow","src":"/cashflow.html","active":"finance/cashflow","crumbs":["Finance","Cash flow"]}'></main>
+</div>
+<script src="silo-chrome.js"></script>
+<script src="tool-shell.js"></script>
+```
+
+### Pattern 3: Stub redirect (placeholder)
+Many pages (allocation.html, aprio.html, etc.) are 24-line stubs that redirect to the finance hub. Do not add logic to these — rebuild them as Pattern 1 when the time comes.
+
+---
+
+## Design system — Beacon CSS
+
+**Always use Beacon classes. Never invent new design patterns.**
+
+Key classes:
+```
+Layout:       .silo-app  .silo-main  .silo-sidebar
+Header:       .bcn-header  .bcn-header-title  .bcn-header-actions
+KPI band:     .bcn-kpi-band  .bcn-kpi  .bcn-kpi-label  .bcn-kpi-value  .bcn-kpi-delta
+Filter bar:   .bcn-filter-bar  .bcn-filter
+Cards:        .bcn-card  .bcn-card-header  .bcn-card-header--dark  .bcn-card-body  .bcn-card-foot
+Tables:       .bcn-table  .bcn-matrix-scroll  .bcn-matrix-wrap
+Buttons:      .bcn-btn  .bcn-btn--primary  .bcn-btn--ghost  .bcn-btn--dark  .bcn-btn--danger
+Pills:        .bcn-pill  .bcn-pill--pos  .bcn-pill--neg  .bcn-pill--accent  .bcn-pill--dark
+Fields:       .bcn-field-group  .bcn-label  .bcn-field  .bcn-field--mono
+Tabs:         .bcn-tabs  .bcn-tab  .bcn-tab--active
+Status:       .bcn-status  .bcn-status--pos  .bcn-status--neg  .bcn-status--info
+Mono text:    .bcn-mono  .bcn-num
+```
+
+CSS tokens (defined in `beacon.css`):
+- `--bcn-accent` — blue, primary actions
+- `--bcn-pos` — green, success/healthy
+- `--bcn-neg` — red/orange, error/critical
+- `--bcn-warn` — amber, warning
+- `--bcn-band` — near-black, sidebar background
+- `--bcn-ink` / `--bcn-ink-2` / `--bcn-ink-3` — text hierarchy
+
+**Fonts:** `Plus Jakarta Sans` (UI) and `IBM Plex Mono` (labels, numbers, mono data). Always use IBM Plex Mono for KPI values, table numbers, and status labels.
+
+---
+
+## Database — Supabase
+
+### Role system
+`profiles.role` is a Postgres enum (`app_role`) with values: `owner`, `admin`, `user`.
+- `owner` and `admin` get write access to PO tables
+- `user` is read-only on PO tables
+- All 7 current users are `admin`
+
+**Important:** `profiles.role` is an ENUM, not TEXT. Always cast with `role::text` when comparing in SQL.
+
+### Write-access functions
+```sql
+po_builder_can_write()   -- gates write on factories, po_headers, po_lines
+po_costing_can_write()   -- gates write on po_costing, po_costing_lines
+```
+
+Both check `profiles` for `auth.uid()` and role in (`owner`, `admin`).
+
+### Key tables
+
+| Table | Purpose |
+|-------|---------|
+| `profiles` | User records (id, name, email, role, department, is_active, default_page) |
+| `factories` | Supplier/factory directory (141 records) |
+| `po_headers` | Purchase order headers |
+| `po_lines` | PO line items |
+| `po_costing` | Landed cost calculations per PO |
+| `po_costing_lines` | Per-SKU costing breakdown |
+| `launch_calendar` | Marketing launches |
+| `launch_tasks` | Tasks per launch |
+| `launch_comments` | Comments with author_name, author_email, user_id |
+| `launch_assets` | Asset URLs per launch |
+| `launch_channel_items` | Channel plan per launch |
+| `launch_product_readiness` | SKU readiness per launch |
+| `launch_system_links` | System links per launch |
+| `payment_requests` | Payment/approval requests |
+| `payment_request_files` | File attachments for requests |
+| `payment_request_activity` | Activity log per request |
+| `revenue_projections` | Monthly revenue plan by location + type |
+| `revenue_projection_history` | Version history |
+| `locations` | Sales channels/locations |
+| `products_master` | Product catalog |
+| `product_tags` | Product tagging |
+| `access_requests` | Pending team access requests |
+| `inventory_workboard_v` | View: inventory with sell-through metrics |
+| `sales_monthly_product_type_rollup_mv` | Materialized view: monthly sales rollup |
+| `v_po_header_summary` | View: PO list with status |
+| `v_po_costing_summary` | View: costing rollup |
+| `v_po_sku_prior_cost` | View: prior landed costs per SKU |
+| `v_po_open_planning_lines` | View: open PO lines for planning scenarios |
+| `payment_requests_v` | View: enriched payment requests |
+| `payment_request_activity_v` | View: activity with user info |
+| `v_launch_po_product_lookup` | View: PO products for launch search |
+
+### RPC functions (backend admin)
+```
+admin_counts()
+admin_list_access_requests(p_status)
+admin_list_profiles()
+admin_update_profile(p_user_id, p_name, p_department, p_role, p_is_active, p_notes)
+approve_access_request(p_request_id, p_department, p_role)
+deny_access_request(p_request_id)
+```
+
+### Storage buckets
+- `payment-request-files` — private, payment request attachments
+- `launch-images` — public, launch workbench image uploads
+
+### After any DB change
+Always run `supabase/verify_v2_schema.sql` in the Supabase SQL Editor. All rows must show `ok`. If anything is missing, run `supabase/apply_all_post_merge.sql` then verify again.
+
+---
+
+## GitHub Actions / data sync
+
+| Workflow | Schedule | What it does |
+|----------|----------|-------------|
+| `nightly-silo-sync.yml` | Daily 10:30 UTC | Runs `scripts/sync-silo-inventory-sales.mjs` — reads Google Sheets, writes inventory + sales to Supabase |
+| `ar-sync.yml` | Manual / scheduled | AR (accounts receivable) sync |
+
+**One sync, one source of truth.** Sales and inventory come from Google Sheets via the nightly GitHub Action. There is no dual-write conflict.
+
+Secrets required: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (set in GitHub repo settings).
+
+---
+
+## Conventions for new features
+
+### Adding a new v2 page
+1. Use Pattern 1 (Full Beacon shell) — copy `v2/projections.html` as a starting point
+2. Follow the exact asset load order from SILO-BRAND.md
+3. Mount SiloChrome after auth succeeds
+4. Add the page to the sidebar nav in `silo-chrome.js`
+5. Create a stub redirect in `v2/[pagename].html` at root level if needed
+
+### Adding a new DB table
+1. Write a migration file: `supabase/migrations/YYYYMMDDHHMMSS_description.sql`
+2. Make it idempotent (`if not exists`, `create or replace`)
+3. Enable RLS: `alter table public.tablename enable row level security`
+4. Add policies (select for all authenticated, write gated by role if needed)
+5. Add the table to `supabase/verify_v2_schema.sql`
+6. Add the table to `supabase/apply_all_post_merge.sql`
+7. Update `supabase/README.md` migration list
+
+### JS logic
+- Shared logic used by more than one page → extract to a `.js` file in `v2/` or `pages/`
+- Page-specific logic → inline `<script>` at bottom of the HTML file is acceptable
+- Do NOT add logic to `silo-chrome.js`, `tool-shell.js`, or `v2-shell.js` — those are framework files
+
+### Error handling
+Use the `bcn-status` pattern — not `alert()`. Every page should have a status element:
+```html
+<div class="bcn-status" id="status" hidden></div>
+```
+```js
+function setStatus(msg, type = 'info', ms = 0) {
+  const el = document.getElementById('status');
+  el.className = `bcn-status bcn-status--${type}`;
+  el.textContent = msg;
+  el.hidden = false;
+  if (ms) setTimeout(() => { el.hidden = true; }, ms);
+}
+```
+
+---
+
+## What NOT to do
+
+- **Do not edit `legacy/` files** — they are archived, not in use
+- **Do not hardcode Supabase credentials** in HTML — use `window.__SILO_CONFIG__`
+- **Do not reference `profiles.app_role`** — the column does not exist; use `profiles.role::text`
+- **Do not add logic to stub pages** (the 24-line redirect files) — rebuild as Pattern 1 instead
+- **Do not use `alert()`** for errors — use the `bcn-status` pattern
+- **Do not create new CSS variables** — use existing Beacon tokens from `beacon.css`
+- **Do not push to main directly** — always use a feature branch
+
+---
+
+## Current status (as of Jun 2026)
+
+### Tools fully on Beacon shell (Pattern 1)
+`projections.html`, `launch-calendar.html`, `profile.html`, `po-builder.html`, `po-costing.html`, `planning-scenarios.html`, `backend.html`
+
+### Tools on tool-shell iframe (Pattern 2)
+`cashflow.html`, `wholesale.html`, `sales-verification.html`, and most finance mirrors
+
+### Tools with custom layouts (partial migration)
+`inventory.html`, `finance.html`, `employeehub.html`
+
+### Open roadmap items
+See `docs/ops/roadmap.md` for current priorities. Key items:
+- Finish Beacon shell migration for iframe/custom pages
+- One canonical URL per tool (`/v2/...`)
+- Standardize error handling across all pages
+- Smoke tests
+
+### Known P2 items
+See `docs/ops/bugs.md`. No open P1s.
