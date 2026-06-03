@@ -134,6 +134,16 @@
     }
     .smp-thumb-add:hover { border-color:var(--bcn-accent); color:var(--bcn-accent); }
 
+    /* ── size checkbox grid ─────────────────────────────────── */
+    .smp-size-grid { display:flex; flex-wrap:wrap; gap:6px; }
+    .smp-size-chip { display:flex; flex-direction:column; align-items:center; gap:3px; min-width:46px; }
+    .smp-size-chip span { font-family:var(--bcn-mono); font-size:10px; font-weight:700; color:var(--bcn-ink-2); }
+    .smp-size-checks { display:flex; gap:4px; }
+    .smp-size-check-wrap { display:flex; flex-direction:column; align-items:center; gap:1px; }
+    .smp-size-check-wrap label { font-size:8px; color:var(--bcn-ink-4); font-family:var(--bcn-mono); text-transform:uppercase; }
+    .smp-size-check-wrap input[type=checkbox] { width:14px; height:14px; cursor:pointer; accent-color:var(--bcn-accent); }
+    .smp-size-check-wrap input.whs-check { accent-color:oklch(0.55 0.18 145); }
+
     /* ── empty state ───────────────────────────────────── */
     .smp-empty {
       text-align:center; padding:60px 20px;
@@ -280,16 +290,22 @@
           <input class="bcn-field" id="fldTitle" placeholder="e.g. Frozen Treats Hoodie (Cream)" />
         </div>
         <div class="bcn-field-group">
-          <label class="bcn-label">Factory Name</label>
-          <input class="bcn-field" id="fldFactoryName" placeholder="e.g. Creytex" />
+          <label class="bcn-label">Factory</label>
+          <select class="bcn-field" id="fldFactoryId">
+            <option value="">— select factory —</option>
+          </select>
         </div>
         <div class="bcn-field-group">
           <label class="bcn-label">Product Type</label>
-          <input class="bcn-field" id="fldProductType" placeholder="e.g. Sweatshirt" />
+          <select class="bcn-field" id="fldProductType">
+            <option value="">— select type —</option>
+          </select>
         </div>
         <div class="bcn-field-group">
           <label class="bcn-label">Collection</label>
-          <input class="bcn-field" id="fldCollection" placeholder="e.g. Frozen Treats" />
+          <select class="bcn-field" id="fldCollection">
+            <option value="">— select collection —</option>
+          </select>
         </div>
         <div class="bcn-field-group">
           <label class="bcn-label">Bulk ETA</label>
@@ -310,19 +326,25 @@
     <!-- ── Size tracking ── -->
     <div>
       <div class="smp-section-label">Size Tracking</div>
-      <div class="smp-grid-3">
-        <div class="bcn-field-group">
-          <label class="bcn-label">Sizes Requested</label>
-          <input class="bcn-field" id="fldSizeRequests" placeholder="e.g. S, M, L" />
-        </div>
-        <div class="bcn-field-group">
-          <label class="bcn-label">Ready at Warehouse</label>
-          <input class="bcn-field" id="fldSizesWarehouse" placeholder="e.g. M" />
-        </div>
-        <div class="bcn-field-group">
-          <label class="bcn-label">Sizes Picked Up</label>
-          <input class="bcn-field" id="fldSizesPickedUp" placeholder="e.g. M" />
-        </div>
+      <!-- Mens / Unisex sizes -->
+      <div style="margin-bottom:10px;">
+        <div class="bcn-label" style="margin-bottom:6px;">Mens / Unisex</div>
+        <div class="smp-size-grid" id="sizeGridMens"></div>
+      </div>
+      <!-- Youth sizes -->
+      <div style="margin-bottom:10px;">
+        <div class="bcn-label" style="margin-bottom:6px;">Youth</div>
+        <div class="smp-size-grid" id="sizeGridYouth"></div>
+      </div>
+      <!-- Caps / other -->
+      <div style="margin-bottom:10px;">
+        <div class="bcn-label" style="margin-bottom:6px;">Caps / Other</div>
+        <div class="smp-size-grid" id="sizeGridCaps"></div>
+      </div>
+      <!-- Sizes picked up (free text, usually just noted) -->
+      <div class="bcn-field-group" style="margin-top:6px;">
+        <label class="bcn-label">Sizes Picked Up <span style="color:var(--bcn-ink-3);font-weight:400;">(free text)</span></label>
+        <input class="bcn-field" id="fldSizesPickedUp" placeholder="e.g. M, L" />
       </div>
     </div>
 
@@ -374,29 +396,16 @@
 
         <div class="bcn-field-group">
           <label class="bcn-label">Launch</label>
-          <div class="smp-connect-row">
-            <select class="bcn-field" id="fldLaunchId">
-              <option value="">— not linked —</option>
-            </select>
-          </div>
+          <select class="bcn-field" id="fldLaunchId">
+            <option value="">— not linked —</option>
+          </select>
         </div>
 
         <div class="bcn-field-group">
           <label class="bcn-label">Purchase Order</label>
-          <div class="smp-connect-row">
-            <select class="bcn-field" id="fldPoHeaderId">
-              <option value="">— not linked —</option>
-            </select>
-          </div>
-        </div>
-
-        <div class="bcn-field-group">
-          <label class="bcn-label">Factory (link to directory)</label>
-          <div class="smp-connect-row">
-            <select class="bcn-field" id="fldFactoryId">
-              <option value="">— not linked —</option>
-            </select>
-          </div>
+          <select class="bcn-field" id="fldPoHeaderId">
+            <option value="">— not linked —</option>
+          </select>
         </div>
 
       </div>
@@ -453,24 +462,34 @@
     { value: 'live',               label: 'Live' },
     { value: 'archived',           label: 'Archived' },
   ];
-
   const STATUS_ORDER = STATUSES.map(s => s.value);
-
-  const PHOTO_LABELS = { pending:'Pending', scheduled:'Scheduled', complete:'Done', na:'N/A' };
   const COPY_LABELS  = { pending:'Pending', complete:'Done', na:'N/A' };
-
   const BUCKET = 'sample-images';
 
-  // ── state ─────────────────────────────────────────────────────────────────
-  let allSamples   = [];
-  let allLaunches  = [];
-  let allPOs       = [];
-  let allFactories = [];
-  let currentUser  = null;
-  let drawerSample = null;   // null = new
-  let pendingPhotos = [];    // File[] staged for upload
+  // Size groups for the checkbox grid
+  const SIZE_GROUPS = {
+    mens:  ['XS','S','M','L','XL','XXL','XXXL'],
+    youth: ['YXS','YS','YM','YL','YXL','2YL'],
+    caps:  ['Snap','6 7/8','7','7 1/8','7 1/4','7 3/8','7 1/2','One Size'],
+  };
 
-  // ── status helpers ───────────────────────────────────────────────────────
+  // ── state ─────────────────────────────────────────────────────────────────
+  let allSamples      = [];
+  let allLaunches     = [];
+  let allPOs          = [];
+  let allFactories    = [];
+  let allProductTypes = [];
+  let allCollections  = [];
+  let currentUser     = null;
+  let drawerSample    = null;
+  let pendingPhotos   = [];
+
+  // ── util ─────────────────────────────────────────────────────────────────
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
   function setStatus(msg, type = 'info', ms = 0) {
     const el = document.getElementById('status');
     el.className = `bcn-status bcn-status--${type}`;
@@ -478,22 +497,21 @@
     el.hidden = false;
     if (ms) setTimeout(() => { el.hidden = true; }, ms);
   }
-
   function clearStatus() { document.getElementById('status').hidden = true; }
 
   // ── pill rendering ───────────────────────────────────────────────────────
   function statusPill(val) {
     const map = {
-      received:          ['bcn-pill bcn-pill--dark',   'Received'],
-      size_request_sent: ['bcn-pill',                  'Size Req'],
-      warehouse_ready:   ['bcn-pill bcn-pill--accent',  'Whs Ready'],
-      picked_up:         ['bcn-pill bcn-pill--accent',  'Picked Up'],
-      model_complete:    ['bcn-pill bcn-pill--accent',  'Model Done'],
-      photo_scheduled:   ['bcn-pill',                  'Photo Sched'],
-      photo_complete:    ['bcn-pill bcn-pill--pos',    'Photo Done'],
-      copy_complete:     ['bcn-pill bcn-pill--pos',    'Copy Done'],
-      live:              ['bcn-pill bcn-pill--pos',    'Live'],
-      archived:          ['bcn-pill bcn-pill--neg',    'Archived'],
+      received:          ['bcn-pill bcn-pill--dark',  'Received'],
+      size_request_sent: ['bcn-pill',                 'Size Req'],
+      warehouse_ready:   ['bcn-pill bcn-pill--accent', 'Whs Ready'],
+      picked_up:         ['bcn-pill bcn-pill--accent', 'Picked Up'],
+      model_complete:    ['bcn-pill bcn-pill--accent', 'Model Done'],
+      photo_scheduled:   ['bcn-pill',                 'Photo Sched'],
+      photo_complete:    ['bcn-pill bcn-pill--pos',   'Photo Done'],
+      copy_complete:     ['bcn-pill bcn-pill--pos',   'Copy Done'],
+      live:              ['bcn-pill bcn-pill--pos',   'Live'],
+      archived:          ['bcn-pill bcn-pill--neg',   'Archived'],
     };
     const [cls, lbl] = map[val] || ['bcn-pill', val || '—'];
     return `<span class="${cls}">${lbl}</span>`;
@@ -501,25 +519,63 @@
 
   function photoPill(val) {
     const map = {
-      pending:   ['bcn-pill', 'Photo Pend'],
+      pending:   ['bcn-pill',                 'Photo Pend'],
       scheduled: ['bcn-pill bcn-pill--accent', 'Scheduled'],
-      complete:  ['bcn-pill bcn-pill--pos', 'Photo Done'],
-      na:        ['bcn-pill bcn-pill--dark', 'N/A'],
+      complete:  ['bcn-pill bcn-pill--pos',   'Photo Done'],
+      na:        ['bcn-pill bcn-pill--dark',  'N/A'],
     };
     const [cls, lbl] = map[val] || ['bcn-pill', val || '—'];
     return `<span class="${cls}">${lbl}</span>`;
   }
 
-  // ── table rendering ──────────────────────────────────────────────────────
+  // ── size grid ─────────────────────────────────────────────────────────────
+  // size_requests stored as CSV of requested sizes
+  // sizes_ready_warehouse stored as CSV of warehouse-ready sizes
+  function renderSizeGrid(groupKey, sizes, requestedArr, warehouseArr) {
+    const container = document.getElementById(`sizeGrid${groupKey.charAt(0).toUpperCase()+groupKey.slice(1)}`);
+    container.innerHTML = sizes.map(sz => {
+      const safeSz = sz.replace(/[^a-zA-Z0-9]/g, '_');
+      const isReq = requestedArr.includes(sz);
+      const isWhs = warehouseArr.includes(sz);
+      return `<div class="smp-size-chip">
+        <span>${esc(sz)}</span>
+        <div class="smp-size-checks">
+          <div class="smp-size-check-wrap">
+            <label for="req_${safeSz}_${groupKey}">Req</label>
+            <input type="checkbox" id="req_${safeSz}_${groupKey}" data-size="${esc(sz)}" data-kind="req" ${isReq?'checked':''} />
+          </div>
+          <div class="smp-size-check-wrap">
+            <label for="whs_${safeSz}_${groupKey}">Whs</label>
+            <input type="checkbox" id="whs_${safeSz}_${groupKey}" class="whs-check" data-size="${esc(sz)}" data-kind="whs" ${isWhs?'checked':''} />
+          </div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderAllSizeGrids(requestedStr, warehouseStr) {
+    const reqArr = (requestedStr || '').split(',').map(s => s.trim()).filter(Boolean);
+    const whsArr = (warehouseStr || '').split(',').map(s => s.trim()).filter(Boolean);
+    renderSizeGrid('mens',  SIZE_GROUPS.mens,  reqArr, whsArr);
+    renderSizeGrid('youth', SIZE_GROUPS.youth, reqArr, whsArr);
+    renderSizeGrid('caps',  SIZE_GROUPS.caps,  reqArr, whsArr);
+  }
+
+  function getCheckedSizes(kind) {
+    return Array.from(document.querySelectorAll(`input[data-kind="${kind}"]:checked`))
+      .map(cb => cb.dataset.size)
+      .join(', ') || null;
+  }
+
+  // ── table ─────────────────────────────────────────────────────────────────
   function filteredSamples() {
     const q       = (document.getElementById('fSearch').value || '').toLowerCase();
     const fStatus = document.getElementById('fStatus').value;
     const fPhoto  = document.getElementById('fPhotoStatus').value;
     const fLaunch = document.getElementById('fLaunchFilter').value;
-
     return allSamples.filter(s => {
       if (q) {
-        const hay = [s.product_title, s.collection, s.factory_name, s.sample_ref].join(' ').toLowerCase();
+        const hay = [s.product_title, s.collection, s.factory_name, s.sample_ref, s.product_type].join(' ').toLowerCase();
         if (!hay.includes(q)) return false;
       }
       if (fStatus && s.sample_status !== fStatus) return false;
@@ -540,99 +596,95 @@
     tbody.innerHTML = rows.map(s => {
       const launch = allLaunches.find(l => l.id === s.launch_id);
       const po     = allPOs.find(p => p.id === s.po_header_id);
-      const eta    = s.bulk_eta ? new Date(s.bulk_eta).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—';
+      const factory = allFactories.find(f => f.id === s.factory_id);
+      const eta = s.bulk_eta ? new Date(s.bulk_eta).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
+      const factName = factory?.factory_name || s.factory_name || '—';
       return `<tr data-id="${s.id}">
         <td><span class="bcn-mono" style="font-size:10px;">${esc(s.sample_ref)}</span></td>
         <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;">${esc(s.product_title)}</td>
-        <td>${esc(s.factory_name || '—')}</td>
+        <td>${esc(factName)}</td>
         <td>${esc(s.collection || '—')}</td>
         <td><span class="bcn-mono" style="font-size:11px;">${eta}</span></td>
         <td>${statusPill(s.sample_status)}</td>
         <td>${photoPill(s.photo_status)}</td>
-        <td><span class="bcn-pill ${s.copy_status === 'complete' ? 'bcn-pill--pos' : s.copy_status === 'na' ? 'bcn-pill--dark' : ''}">${COPY_LABELS[s.copy_status] || '—'}</span></td>
-        <td>${s.live_status ? '<span class="bcn-pill bcn-pill--pos">Live</span>' : '<span class="bcn-pill bcn-pill--dark">No</span>'}</td>
-        <td style="font-size:11px;">${launch ? esc(launch.title) : '<span style="color:var(--bcn-ink-4)">—</span>'}</td>
-        <td style="font-size:11px;font-family:var(--bcn-mono);">${po ? esc(po.po_name) : '<span style="color:var(--bcn-ink-4)">—</span>'}</td>
+        <td><span class="bcn-pill ${s.copy_status==='complete'?'bcn-pill--pos':s.copy_status==='na'?'bcn-pill--dark':''}">${COPY_LABELS[s.copy_status]||'—'}</span></td>
+        <td>${s.live_status?'<span class="bcn-pill bcn-pill--pos">Live</span>':'<span class="bcn-pill bcn-pill--dark">No</span>'}</td>
+        <td style="font-size:11px;">${launch?esc(launch.title):'<span style="color:var(--bcn-ink-4)">—</span>'}</td>
+        <td style="font-size:11px;font-family:var(--bcn-mono);">${po?esc(po.po_name):'<span style="color:var(--bcn-ink-4)">—</span>'}</td>
       </tr>`;
     }).join('');
   }
 
   function renderKPIs() {
-    const all       = allSamples;
-    const photoPend = all.filter(s => s.photo_status === 'pending').length;
-    const whs       = all.filter(s => s.sample_status === 'warehouse_ready').length;
-    const linked    = all.filter(s => !!s.launch_id).length;
-    const live      = all.filter(s => s.live_status).length;
-
+    const all = allSamples;
     document.getElementById('kpiTotal').textContent     = all.length;
-    document.getElementById('kpiPhoto').textContent     = photoPend;
-    document.getElementById('kpiWarehouse').textContent = whs;
-    document.getElementById('kpiConnected').textContent = linked;
-    document.getElementById('kpiLive').textContent      = live;
+    document.getElementById('kpiPhoto').textContent     = all.filter(s=>s.photo_status==='pending').length;
+    document.getElementById('kpiWarehouse').textContent = all.filter(s=>s.sample_status==='warehouse_ready').length;
+    document.getElementById('kpiConnected').textContent = all.filter(s=>!!s.launch_id).length;
+    document.getElementById('kpiLive').textContent      = all.filter(s=>s.live_status).length;
   }
 
   // ── data loading ─────────────────────────────────────────────────────────
   async function loadSamples() {
-    const { data, error } = await sb
-      .from('product_samples')
-      .select('*')
-      .order('created_at', { ascending: false });
+    const { data, error } = await sb.from('product_samples').select('*').order('created_at',{ascending:false});
     if (error) throw error;
     allSamples = data || [];
   }
 
   async function loadReferenceData() {
-    const [launchRes, poRes, factRes] = await Promise.all([
+    const [launchRes, poRes, factRes, tagRes] = await Promise.all([
       sb.from('launch_calendar').select('id, title').order('title'),
       sb.from('po_headers').select('id, po_name').order('po_name'),
       sb.from('factories').select('id, factory_name').order('factory_name'),
+      sb.from('product_tags').select('product_type, collection').limit(5000),
     ]);
     allLaunches  = launchRes.data  || [];
     allPOs       = poRes.data      || [];
     allFactories = factRes.data    || [];
+
+    const tags = tagRes.data || [];
+    allProductTypes = [...new Set(tags.map(t => t.product_type).filter(Boolean))].sort();
+    allCollections  = [...new Set(tags.map(t => t.collection).filter(Boolean))].sort();
   }
 
   function populateLaunchFilter() {
     const sel = document.getElementById('fLaunchFilter');
     const cur = sel.value;
-    // keep static options, add dynamic launch options
     while (sel.options.length > 2) sel.remove(2);
     allLaunches.forEach(l => {
-      const opt = document.createElement('option');
-      opt.value = l.id;
-      opt.textContent = l.title;
-      sel.appendChild(opt);
+      const o = document.createElement('option');
+      o.value = l.id; o.textContent = l.title;
+      sel.appendChild(o);
     });
     sel.value = cur;
   }
 
-  function populateDrawerSelects() {
-    // launches
-    const lSel = document.getElementById('fldLaunchId');
-    while (lSel.options.length > 1) lSel.remove(1);
-    allLaunches.forEach(l => {
+  function fillSelect(id, items, valueFn, labelFn, blankLabel) {
+    const sel = document.getElementById(id);
+    const cur = sel.value;
+    while (sel.options.length > 1) sel.remove(1);
+    sel.options[0].textContent = blankLabel;
+    items.forEach(item => {
       const o = document.createElement('option');
-      o.value = l.id; o.textContent = l.title;
-      lSel.appendChild(o);
+      o.value = valueFn(item); o.textContent = labelFn(item);
+      sel.appendChild(o);
     });
+    sel.value = cur;
+  }
 
-    // POs
-    const pSel = document.getElementById('fldPoHeaderId');
-    while (pSel.options.length > 1) pSel.remove(1);
-    allPOs.forEach(p => {
-      const o = document.createElement('option');
-      o.value = p.id; o.textContent = p.po_name;
-      pSel.appendChild(o);
-    });
+  function populateDrawerSelects(sample) {
+    fillSelect('fldFactoryId',   allFactories,    f=>f.id,   f=>f.factory_name, '— select factory —');
+    fillSelect('fldProductType', allProductTypes, t=>t,      t=>t,              '— select type —');
+    fillSelect('fldCollection',  allCollections,  c=>c,      c=>c,              '— select collection —');
+    fillSelect('fldLaunchId',    allLaunches,     l=>l.id,   l=>l.title,        '— not linked —');
+    fillSelect('fldPoHeaderId',  allPOs,          p=>p.id,   p=>p.po_name,      '— not linked —');
 
-    // factories
-    const fSel = document.getElementById('fldFactoryId');
-    while (fSel.options.length > 1) fSel.remove(1);
-    allFactories.forEach(f => {
-      const o = document.createElement('option');
-      o.value = f.id; o.textContent = f.factory_name;
-      fSel.appendChild(o);
-    });
+    // restore values after repopulating
+    document.getElementById('fldFactoryId').value  = sample?.factory_id   || '';
+    document.getElementById('fldProductType').value= sample?.product_type || '';
+    document.getElementById('fldCollection').value = sample?.collection   || '';
+    document.getElementById('fldLaunchId').value   = sample?.launch_id    || '';
+    document.getElementById('fldPoHeaderId').value = sample?.po_header_id || '';
   }
 
   async function refreshAll() {
@@ -641,7 +693,7 @@
     renderTable();
   }
 
-  // ── pipeline steps UI ────────────────────────────────────────────────────
+  // ── pipeline steps ────────────────────────────────────────────────────────
   function renderPipeline(currentStatus) {
     const idx = STATUS_ORDER.indexOf(currentStatus);
     const container = document.getElementById('pipelineSteps');
@@ -651,14 +703,11 @@
       else if (i === idx) cls += ' active';
       return `<button class="${cls}" data-status="${s.value}">${s.label}</button>`;
     }).join('');
-
     container.querySelectorAll('.smp-step').forEach(btn => {
       btn.addEventListener('click', () => {
-        container.querySelectorAll('.smp-step').forEach(b => b.className = 'smp-step');
         const clickedIdx = STATUS_ORDER.indexOf(btn.dataset.status);
         container.querySelectorAll('.smp-step').forEach((b, i) => {
-          if (i < clickedIdx) b.classList.add('done');
-          else if (i === clickedIdx) b.classList.add('active');
+          b.className = 'smp-step' + (i < clickedIdx ? ' done' : i === clickedIdx ? ' active' : '');
         });
       });
     });
@@ -669,137 +718,108 @@
     return active ? active.dataset.status : 'received';
   }
 
-  // ── drawer ───────────────────────────────────────────────────────────────
+  // ── drawer ────────────────────────────────────────────────────────────────
   function openDrawer(sample) {
     drawerSample  = sample || null;
     pendingPhotos = [];
-    populateDrawerSelects();
+    populateDrawerSelects(sample);
 
     const isNew = !sample;
     document.getElementById('drawerRef').textContent   = isNew ? 'NEW SAMPLE' : (sample.sample_ref || '');
     document.getElementById('drawerTitle').textContent = isNew ? 'New Product Sample' : sample.product_title;
     document.getElementById('btnDelete').style.display = isNew ? 'none' : '';
 
-    // populate fields
-    document.getElementById('fldTitle').value         = sample?.product_title     || '';
-    document.getElementById('fldFactoryName').value   = sample?.factory_name      || '';
-    document.getElementById('fldProductType').value   = sample?.product_type      || '';
-    document.getElementById('fldCollection').value    = sample?.collection        || '';
-    document.getElementById('fldBulkEta').value       = sample?.bulk_eta          || '';
-    document.getElementById('fldOnHandLabel').value   = sample?.on_hand_label     || '';
-    document.getElementById('fldSizeRequests').value  = sample?.size_requests     || '';
-    document.getElementById('fldSizesWarehouse').value= sample?.sizes_ready_warehouse || '';
-    document.getElementById('fldSizesPickedUp').value = sample?.sizes_picked_up   || '';
-    document.getElementById('fldPhotoStatus').value   = sample?.photo_status      || 'pending';
+    document.getElementById('fldTitle').value         = sample?.product_title      || '';
+    document.getElementById('fldBulkEta').value       = sample?.bulk_eta           || '';
+    document.getElementById('fldOnHandLabel').value   = sample?.on_hand_label      || '';
+    document.getElementById('fldSizesPickedUp').value = sample?.sizes_picked_up    || '';
+    document.getElementById('fldPhotoStatus').value   = sample?.photo_status       || 'pending';
     document.getElementById('fldPhotoDate').value     = sample?.photo_completed_at || '';
-    document.getElementById('fldCopyStatus').value    = sample?.copy_status       || 'pending';
-    document.getElementById('fldLiveStatus').checked  = sample?.live_status       || false;
-    document.getElementById('fldNotes').value         = sample?.notes             || '';
-    document.getElementById('fldLaunchId').value      = sample?.launch_id         || '';
-    document.getElementById('fldPoHeaderId').value    = sample?.po_header_id      || '';
-    document.getElementById('fldFactoryId').value     = sample?.factory_id        || '';
+    document.getElementById('fldCopyStatus').value    = sample?.copy_status        || 'pending';
+    document.getElementById('fldLiveStatus').checked  = sample?.live_status        || false;
+    document.getElementById('fldNotes').value         = sample?.notes              || '';
 
     renderPipeline(sample?.sample_status || 'received');
+    renderAllSizeGrids(sample?.size_requests || '', sample?.sizes_ready_warehouse || '');
     renderPhotoThumbs(sample?.id || null, []);
+
     if (sample?.id) loadActivity(sample.id);
     else document.getElementById('activityLog').innerHTML = '<div style="color:var(--bcn-ink-3);font-size:12px;">Save to start tracking activity.</div>';
 
     document.getElementById('backdrop').classList.add('open');
     document.getElementById('drawer').classList.add('open');
-    document.getElementById('drawer').setAttribute('aria-hidden', 'false');
+    document.getElementById('drawer').setAttribute('aria-hidden','false');
   }
 
   function closeDrawer() {
     document.getElementById('backdrop').classList.remove('open');
     document.getElementById('drawer').classList.remove('open');
-    document.getElementById('drawer').setAttribute('aria-hidden', 'true');
+    document.getElementById('drawer').setAttribute('aria-hidden','true');
     drawerSample  = null;
     pendingPhotos = [];
   }
 
-  // ── photo thumbnails ─────────────────────────────────────────────────────
+  // ── photo thumbnails ──────────────────────────────────────────────────────
   async function renderPhotoThumbs(sampleId, stagedFiles) {
     const row = document.getElementById('photoRow');
     let existingImgs = [];
-
     if (sampleId) {
-      const { data } = await sb.storage.from(BUCKET).list(`samples/${sampleId}`, { limit: 50 });
-      existingImgs = (data || []).filter(f => f.name !== '.emptyFolderPlaceholder');
+      const { data } = await sb.storage.from(BUCKET).list(`samples/${sampleId}`,{limit:50});
+      existingImgs = (data||[]).filter(f=>f.name!=='.emptyFolderPlaceholder');
     }
-
     row.innerHTML = '';
-
     existingImgs.forEach(f => {
-      const { data: urlData } = sb.storage.from(BUCKET).getPublicUrl(`samples/${sampleId}/${f.name}`);
+      const { data: u } = sb.storage.from(BUCKET).getPublicUrl(`samples/${sampleId}/${f.name}`);
       const img = document.createElement('img');
-      img.className = 'smp-thumb';
-      img.src = urlData.publicUrl;
-      img.title = f.name;
-      img.addEventListener('click', () => window.open(urlData.publicUrl, '_blank'));
+      img.className='smp-thumb'; img.src=u.publicUrl; img.title=f.name;
+      img.addEventListener('click',()=>window.open(u.publicUrl,'_blank'));
       row.appendChild(img);
     });
-
     stagedFiles.forEach(file => {
       const img = document.createElement('img');
-      img.className = 'smp-thumb';
-      img.src = URL.createObjectURL(file);
-      img.title = file.name + ' (staged)';
-      img.style.opacity = '0.6';
+      img.className='smp-thumb'; img.src=URL.createObjectURL(file);
+      img.title=file.name+' (staged)'; img.style.opacity='0.6';
       row.appendChild(img);
     });
-
     const addBtn = document.createElement('button');
-    addBtn.className = 'smp-thumb-add';
-    addBtn.type = 'button';
-    addBtn.title = 'Upload photos';
-    addBtn.textContent = '+';
-    addBtn.addEventListener('click', () => document.getElementById('photoFileInput').click());
+    addBtn.className='smp-thumb-add'; addBtn.type='button'; addBtn.textContent='+';
+    addBtn.addEventListener('click',()=>document.getElementById('photoFileInput').click());
     row.appendChild(addBtn);
   }
 
   document.getElementById('photoFileInput').addEventListener('change', e => {
-    const files = Array.from(e.target.files || []);
-    pendingPhotos = [...pendingPhotos, ...files];
-    renderPhotoThumbs(drawerSample?.id || null, pendingPhotos);
-    e.target.value = '';
+    pendingPhotos = [...pendingPhotos, ...Array.from(e.target.files||[])];
+    renderPhotoThumbs(drawerSample?.id||null, pendingPhotos);
+    e.target.value='';
   });
 
   async function uploadPendingPhotos(sampleId) {
     for (const file of pendingPhotos) {
       const ext  = file.name.split('.').pop();
       const path = `samples/${sampleId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error } = await sb.storage.from(BUCKET).upload(path, file, { upsert: false });
+      const { error } = await sb.storage.from(BUCKET).upload(path, file, {upsert:false});
       if (error) console.error('Photo upload error', error);
     }
     pendingPhotos = [];
   }
 
-  // ── activity log ─────────────────────────────────────────────────────────
+  // ── activity log ──────────────────────────────────────────────────────────
   async function loadActivity(sampleId) {
-    const { data } = await sb
-      .from('product_sample_activity')
-      .select('*')
-      .eq('sample_id', sampleId)
-      .order('created_at', { ascending: false })
-      .limit(30);
-
+    const { data } = await sb.from('product_sample_activity').select('*')
+      .eq('sample_id', sampleId).order('created_at',{ascending:false}).limit(30);
     const log = document.getElementById('activityLog');
-    if (!data?.length) {
-      log.innerHTML = '<div style="color:var(--bcn-ink-3);font-size:12px;">No activity yet.</div>';
-      return;
-    }
+    if (!data?.length) { log.innerHTML='<div style="color:var(--bcn-ink-3);font-size:12px;">No activity yet.</div>'; return; }
     log.innerHTML = data.map(a => {
       const d = new Date(a.created_at);
-      const when = d.toLocaleDateString('en-US', { month:'short', day:'numeric' }) + ' ' +
-                   d.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
+      const when = d.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
       let detail = a.action;
-      if (a.from_value || a.to_value) detail += ` → ${a.to_value || ''}`;
+      if (a.from_value||a.to_value) detail += ` → ${a.to_value||''}`;
       if (a.notes) detail += ` — ${a.notes}`;
       return `<div class="smp-activity-row">
         <div class="smp-activity-dot"></div>
         <div class="smp-activity-body">
           <div>${esc(detail)}</div>
-          <div class="smp-activity-meta">${esc(a.author_name || a.author_email || 'Unknown')} · ${when}</div>
+          <div class="smp-activity-meta">${esc(a.author_name||a.author_email||'Unknown')} · ${when}</div>
         </div>
       </div>`;
     }).join('');
@@ -807,99 +827,85 @@
 
   async function logActivity(sampleId, action, fromValue, toValue, notes) {
     await sb.from('product_sample_activity').insert({
-      sample_id:    sampleId,
-      action,
-      from_value:   fromValue || null,
-      to_value:     toValue   || null,
-      notes:        notes     || null,
-      author_name:  currentUser?.user_metadata?.name  || currentUser?.email || null,
-      author_email: currentUser?.email || null,
-      user_id:      currentUser?.id    || null,
+      sample_id: sampleId, action,
+      from_value: fromValue||null, to_value: toValue||null, notes: notes||null,
+      author_name:  currentUser?.user_metadata?.name||currentUser?.email||null,
+      author_email: currentUser?.email||null,
+      user_id:      currentUser?.id||null,
     });
   }
 
-  // ── save ─────────────────────────────────────────────────────────────────
+  // ── save ──────────────────────────────────────────────────────────────────
   async function saveSample() {
     const title = document.getElementById('fldTitle').value.trim();
     if (!title) { setStatus('Product Title is required.', 'neg', 4000); return; }
 
-    const newStatus = getPipelineStatus();
-    const oldStatus = drawerSample?.sample_status;
-    const oldPhotoStatus = drawerSample?.photo_status;
+    const newStatus      = getPipelineStatus();
+    const oldStatus      = drawerSample?.sample_status;
     const newPhotoStatus = document.getElementById('fldPhotoStatus').value;
+    const oldPhotoStatus = drawerSample?.photo_status;
+
+    // resolve factory_name from the selected factory for table display fallback
+    const factoryId   = document.getElementById('fldFactoryId').value || null;
+    const factoryName = allFactories.find(f=>f.id===factoryId)?.factory_name || null;
 
     const payload = {
-      product_title:          title,
-      factory_name:           document.getElementById('fldFactoryName').value.trim()   || null,
-      factory_id:             document.getElementById('fldFactoryId').value            || null,
-      product_type:           document.getElementById('fldProductType').value.trim()   || null,
-      collection:             document.getElementById('fldCollection').value.trim()    || null,
-      bulk_eta:               document.getElementById('fldBulkEta').value              || null,
-      on_hand_label:          document.getElementById('fldOnHandLabel').value          || null,
-      size_requests:          document.getElementById('fldSizeRequests').value.trim()  || null,
-      sizes_ready_warehouse:  document.getElementById('fldSizesWarehouse').value.trim()|| null,
-      sizes_picked_up:        document.getElementById('fldSizesPickedUp').value.trim() || null,
-      sample_status:          newStatus,
-      photo_status:           newPhotoStatus,
-      photo_completed_at:     document.getElementById('fldPhotoDate').value            || null,
-      copy_status:            document.getElementById('fldCopyStatus').value,
-      live_status:            document.getElementById('fldLiveStatus').checked,
-      launch_id:              document.getElementById('fldLaunchId').value             || null,
-      po_header_id:           document.getElementById('fldPoHeaderId').value           || null,
-      notes:                  document.getElementById('fldNotes').value.trim()         || null,
+      product_title:         title,
+      factory_id:            factoryId,
+      factory_name:          factoryName,
+      product_type:          document.getElementById('fldProductType').value || null,
+      collection:            document.getElementById('fldCollection').value  || null,
+      bulk_eta:              document.getElementById('fldBulkEta').value     || null,
+      on_hand_label:         document.getElementById('fldOnHandLabel').value || null,
+      size_requests:         getCheckedSizes('req'),
+      sizes_ready_warehouse: getCheckedSizes('whs'),
+      sizes_picked_up:       document.getElementById('fldSizesPickedUp').value.trim() || null,
+      sample_status:         newStatus,
+      photo_status:          newPhotoStatus,
+      photo_completed_at:    document.getElementById('fldPhotoDate').value   || null,
+      copy_status:           document.getElementById('fldCopyStatus').value,
+      live_status:           document.getElementById('fldLiveStatus').checked,
+      launch_id:             document.getElementById('fldLaunchId').value    || null,
+      po_header_id:          document.getElementById('fldPoHeaderId').value  || null,
+      notes:                 document.getElementById('fldNotes').value.trim()|| null,
     };
 
-    setStatus('Saving…', 'info');
-
+    setStatus('Saving…','info');
     let sampleId;
     if (drawerSample) {
       const { error } = await sb.from('product_samples').update(payload).eq('id', drawerSample.id);
-      if (error) { setStatus(error.message, 'neg', 6000); return; }
+      if (error) { setStatus(error.message,'neg',6000); return; }
       sampleId = drawerSample.id;
     } else {
       const { data, error } = await sb.from('product_samples').insert(payload).select().single();
-      if (error) { setStatus(error.message, 'neg', 6000); return; }
+      if (error) { setStatus(error.message,'neg',6000); return; }
       sampleId = data.id;
     }
 
-    // upload photos
     if (pendingPhotos.length) await uploadPendingPhotos(sampleId);
 
-    // log notable changes
-    if (oldStatus && oldStatus !== newStatus) {
-      await logActivity(sampleId, 'status_changed', oldStatus, newStatus);
-    }
-    if (!drawerSample) {
-      await logActivity(sampleId, 'created', null, newStatus);
-    }
-    if (oldPhotoStatus && oldPhotoStatus !== newPhotoStatus) {
-      await logActivity(sampleId, 'photo_status_changed', oldPhotoStatus, newPhotoStatus);
-    }
+    if (!drawerSample) await logActivity(sampleId,'created',null,newStatus);
+    if (oldStatus && oldStatus !== newStatus) await logActivity(sampleId,'status_changed',oldStatus,newStatus);
+    if (oldPhotoStatus && oldPhotoStatus !== newPhotoStatus) await logActivity(sampleId,'photo_status_changed',oldPhotoStatus,newPhotoStatus);
 
     clearStatus();
-    setStatus('Saved.', 'pos', 2500);
+    setStatus('Saved.','pos',2500);
     await refreshAll();
     closeDrawer();
   }
 
-  // ── delete ───────────────────────────────────────────────────────────────
+  // ── delete ────────────────────────────────────────────────────────────────
   async function deleteSample() {
     if (!drawerSample) return;
     if (!confirm(`Delete "${drawerSample.product_title}"? This cannot be undone.`)) return;
     const { error } = await sb.from('product_samples').delete().eq('id', drawerSample.id);
-    if (error) { setStatus(error.message, 'neg', 6000); return; }
+    if (error) { setStatus(error.message,'neg',6000); return; }
     await refreshAll();
     closeDrawer();
   }
 
-  // ── util ─────────────────────────────────────────────────────────────────
-  function esc(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-  }
-
-  // ── event wiring ─────────────────────────────────────────────────────────
-  document.getElementById('btnNewSample').addEventListener('click', () => openDrawer(null));
+  // ── events ────────────────────────────────────────────────────────────────
+  document.getElementById('btnNewSample').addEventListener('click', ()=>openDrawer(null));
   document.getElementById('btnCloseDrawer').addEventListener('click', closeDrawer);
   document.getElementById('btnCancelDrawer').addEventListener('click', closeDrawer);
   document.getElementById('backdrop').addEventListener('click', closeDrawer);
@@ -909,35 +915,35 @@
   document.getElementById('samplesBody').addEventListener('click', e => {
     const tr = e.target.closest('tr[data-id]');
     if (!tr) return;
-    const sample = allSamples.find(s => s.id === tr.dataset.id);
+    const sample = allSamples.find(s=>s.id===tr.dataset.id);
     if (sample) openDrawer(sample);
   });
 
-  ['fSearch', 'fStatus', 'fPhotoStatus', 'fLaunchFilter'].forEach(id => {
-    document.getElementById(id).addEventListener('input', renderTable);
-    document.getElementById(id).addEventListener('change', renderTable);
+  ['fSearch','fStatus','fPhotoStatus','fLaunchFilter'].forEach(id => {
+    const el = document.getElementById(id);
+    el.addEventListener('input', renderTable);
+    el.addEventListener('change', renderTable);
   });
 
-  // ── boot ─────────────────────────────────────────────────────────────────
+  // ── boot ──────────────────────────────────────────────────────────────────
   async function boot() {
     if (REQUIRE_AUTH) {
       const { data, error } = await sb.auth.getSession();
       if (error || !data?.session) {
-        const next = encodeURIComponent(location.pathname + location.search);
-        window.location.href = REDIRECT_TO || ('/pages/login.html?next=' + next);
+        const next = encodeURIComponent(location.pathname+location.search);
+        window.location.href = REDIRECT_TO || ('/pages/login.html?next='+next);
         return;
       }
       currentUser = data.session.user;
     }
-
     try {
       await Promise.all([loadReferenceData(), loadSamples()]);
       populateLaunchFilter();
       renderKPIs();
       renderTable();
-    } catch (e) {
+    } catch(e) {
       console.error(e);
-      setStatus(e.message || 'Failed to load.', 'neg');
+      setStatus(e.message||'Failed to load.','neg');
     }
   }
 
@@ -945,8 +951,8 @@
     window.SiloChrome.mount({
       appEl: '#silo-app',
       active: 'creative/product-samples',
-      user: { email: '', role: 'MEMBER' },
-      crumbs: ['Creative', 'Product Samples'],
+      user: { email:'', role:'MEMBER' },
+      crumbs: ['Creative','Product Samples'],
       supabaseClient: sb,
     });
   }
