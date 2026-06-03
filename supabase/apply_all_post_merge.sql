@@ -735,7 +735,17 @@ create trigger product_samples_set_ref
   before insert on public.product_samples
   for each row execute function public.generate_sample_ref();
 
--- >>> SECTION 10: LAUNCH TASK ASSIGNEE (migration 20260603140000)
+-- >>> SECTION 10: PRODUCT SAMPLES date stamps + product link (migration 20260603190000)
+-- =============================================================================
+alter table public.product_samples
+  add column if not exists received_at            date,
+  add column if not exists sent_at                date,
+  add column if not exists warehouse_ready_at     date,
+  add column if not exists picked_up_at           date,
+  add column if not exists photo_received_at      date,
+  add column if not exists product_title_snapshot text;
+
+-- >>> SECTION 11: LAUNCH TASK ASSIGNEE (migration 20260603140000)
 -- =============================================================================
 alter table public.launch_tasks
   add column if not exists assigned_to_user_id uuid references auth.users(id) on delete set null,
