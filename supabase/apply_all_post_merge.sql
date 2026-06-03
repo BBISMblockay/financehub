@@ -715,7 +715,27 @@ create policy sample_images_auth_delete
   on storage.objects for delete to authenticated
   using (bucket_id = 'sample-images');
 
--- >>> SECTION 9: LAUNCH TASK ASSIGNEE (migration 20260603140000)
+-- >>> SECTION 9: PRODUCT SAMPLES sample_ref auto-generation (migration 20260603180000)
+-- =============================================================================
+create sequence if not exists public.product_samples_ref_seq start 1;
+
+create or replace function public.generate_sample_ref()
+returns trigger language plpgsql as $$
+begin
+  if new.sample_ref is null or new.sample_ref = '' then
+    new.sample_ref := 'SMPL-' || to_char(now(), 'YYYY') || '-' ||
+                      lpad(nextval('public.product_samples_ref_seq')::text, 4, '0');
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists product_samples_set_ref on public.product_samples;
+create trigger product_samples_set_ref
+  before insert on public.product_samples
+  for each row execute function public.generate_sample_ref();
+
+-- >>> SECTION 10: LAUNCH TASK ASSIGNEE (migration 20260603140000)
 -- =============================================================================
 alter table public.launch_tasks
   add column if not exists assigned_to_user_id uuid references auth.users(id) on delete set null,
