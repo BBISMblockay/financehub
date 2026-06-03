@@ -59,8 +59,14 @@
     .ev-chip-edit { position:absolute; right:3px; top:50%; transform:translateY(-50%); width:14px; height:14px; display:flex; align-items:center; justify-content:center; font-size:9px; opacity:0; transition:opacity .12s; color:var(--bcn-ink-3); pointer-events:auto; background:var(--bcn-surface); border:1px solid var(--bcn-border); border-radius:3px; z-index:2; }
     .ev-chip:hover .ev-chip-edit { opacity:1; }
     .ev-chip-edit:hover { background:var(--bcn-accent); color:#fff; border-color:var(--bcn-accent); }
-    /* small square thumbnail on left of chip */
-    .ev-chip-thumb { width:22px; height:22px; object-fit:cover; border-radius:3px; flex-shrink:0; display:block; }
+    /* launch images — contain inside a frame so art is not cropped */
+    .launch-img-frame {
+      flex-shrink:0; display:flex; align-items:center; justify-content:center;
+      background:oklch(0.96 0.006 245); border:1px solid var(--bcn-border);
+      overflow:hidden;
+    }
+    .launch-img-frame img { width:100%; height:100%; object-fit:contain; display:block; }
+    .ev-chip-thumb-wrap { width:30px; height:30px; border-radius:4px; }
     .ev-chip-body { flex:1; min-width:0; }
     .ev-chip-title { font-size:10.5px; font-weight:600; line-height:1.15; display:-webkit-box; -webkit-line-clamp:1; -webkit-box-orient:vertical; overflow:hidden; }
     .ev-chip-meta { font-size:9.5px; color:var(--bcn-ink-3); margin-top:1px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -68,7 +74,7 @@
     /* agenda feed */
     #pane-agenda { margin-top:12px; }
     .agenda-row {
-      display:grid; grid-template-columns:110px 72px 1fr;
+      display:grid; grid-template-columns:110px 80px 1fr;
       gap:12px; align-items:center;
       padding:12px 16px; border-bottom:1px solid var(--bcn-border);
       cursor:pointer; transition:background .1s;
@@ -77,8 +83,8 @@
     .agenda-row:hover { background:oklch(0.97 0.005 245); }
     .agenda-date { font-weight:700; font-size:13px; }
     .agenda-time-txt { font-size:11px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); }
-    .agenda-img { width:72px; height:52px; object-fit:cover; border-radius:7px; display:block; }
-    .agenda-img-empty { width:72px; height:52px; border-radius:7px; background:var(--bcn-border); display:flex; align-items:center; justify-content:center; font-size:9px; color:var(--bcn-ink-4); font-family:var(--bcn-mono); letter-spacing:.06em; }
+    .agenda-img-wrap { width:80px; height:60px; border-radius:7px; }
+    .agenda-img-empty { width:80px; height:60px; border-radius:7px; background:var(--bcn-border); display:flex; align-items:center; justify-content:center; font-size:9px; color:var(--bcn-ink-4); font-family:var(--bcn-mono); letter-spacing:.06em; }
     .agenda-title { font-weight:700; font-size:14px; }
     .agenda-meta { font-size:11px; color:var(--bcn-ink-3); margin-top:2px; }
     .agenda-pills { display:flex; gap:5px; flex-wrap:wrap; margin-top:6px; }
@@ -156,8 +162,12 @@
     .comment-card__body { font-size: 13px; line-height: 1.45; color: var(--bcn-ink); white-space: pre-wrap; }
 
 
-    /* overview */
-    .launch-hero-img { width:100%; max-height:200px; object-fit:cover; border-radius:8px; margin-bottom:10px; display:block; }
+    /* overview — full image visible in launch drawer */
+    .launch-hero-wrap {
+      width:100%; max-height:min(42vh,320px); min-height:120px;
+      border-radius:8px; margin-bottom:10px;
+    }
+    .launch-hero-wrap img { max-height:min(42vh,320px); width:auto; max-width:100%; height:auto; margin:0 auto; object-fit:contain; }
     .kv-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin-top:10px; }
     .kv-cell { border:1px solid var(--bcn-border); border-radius:7px; padding:7px 9px; }
     .kv-k { font-size:10px; text-transform:uppercase; letter-spacing:.07em; color:var(--bcn-ink-3); font-weight:700; }
@@ -188,7 +198,8 @@
     /* image upload zone */
     .upload-zone { border:2px dashed var(--bcn-border); border-radius:8px; padding:16px; text-align:center; cursor:pointer; transition:border-color .12s, background .12s; font-size:12px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); user-select:none; }
     .upload-zone:hover, .upload-zone.drag { border-color:var(--bcn-accent); background:oklch(0.60 0.20 245 / 0.06); }
-    .upload-preview { width:100%; max-height:160px; object-fit:cover; border-radius:8px; margin-bottom:6px; display:block; }
+    .upload-preview-wrap { width:100%; max-height:200px; min-height:100px; border-radius:8px; margin-bottom:6px; }
+    .upload-preview-wrap .upload-preview { max-height:200px; width:auto; max-width:100%; height:auto; margin:0 auto; object-fit:contain; display:block; }
     .upload-remove-btn { font-size:10px; color:var(--bcn-neg,#e11d48); cursor:pointer; background:none; border:none; font-family:var(--bcn-mono); font-weight:700; padding:0; }
 
     /* status pill tones */
@@ -221,7 +232,8 @@
 
     @media(max-width:700px) {
       .lf-g2,.lf-g3,.dp-g2,.dp-g3 { grid-template-columns:1fr; }
-      .agenda-row { grid-template-columns:90px 56px 1fr; }
+      .agenda-row { grid-template-columns:90px 64px 1fr; }
+      .agenda-img-wrap, .agenda-img-empty { width:64px; height:48px; }
     }
   </style>
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
@@ -656,7 +668,7 @@
           <div class="bcn-field-group">
             <label class="bcn-label">LAUNCH IMAGE</label>
             <div id="imgPreviewWrap" style="display:none;margin-bottom:8px;">
-              <img id="imgPreview" class="upload-preview" src="" alt="Preview" />
+              <div class="launch-img-frame upload-preview-wrap"><img id="imgPreview" class="upload-preview" src="" alt="Preview" /></div>
               <button type="button" class="upload-remove-btn" id="imgRemoveBtn">✕ Remove image</button>
             </div>
             <label class="upload-zone" id="uploadZone" for="imgFileInput">
@@ -1184,7 +1196,7 @@ function evChip(x){
   const taskCount=tasks.filter(t=>String(t.launch_id)===String(x.id)&&!['done','complete'].includes(t.status)).length;
   const meta=[x.launch_time?x.launch_time.slice(0,5):null, x.launch_type, taskCount?`${taskCount}T`:null].filter(Boolean).join(' · ');
   return `<div class="ev-chip ${cls}" data-lid="${x.id}">
-    ${x.launch_image_url?`<img class="ev-chip-thumb" src="${esc(x.launch_image_url)}" alt="" loading="lazy" />`:''}
+    ${x.launch_image_url?`<span class="launch-img-frame ev-chip-thumb-wrap"><img src="${esc(x.launch_image_url)}" alt="" loading="lazy" /></span>`:''}
     <div class="ev-chip-body">
       <div class="ev-chip-title">${esc(x.title||x.product_title||'Untitled')}</div>
       ${meta?`<div class="ev-chip-meta">${esc(meta)}</div>`:''}
@@ -1215,7 +1227,7 @@ function renderAgenda(){
     const chCount=channels.filter(c=>String(c.launch_id)===String(x.id)).length;
     const rCls=['at_risk','needs_inventory','needs_assets'].includes(x.launch_readiness)?'pill-risk':x.launch_readiness==='ready'?'pill-launched':'';
     const imgEl=x.launch_image_url
-      ?`<img class="agenda-img" src="${esc(x.launch_image_url)}" alt="" loading="lazy" />`
+      ?`<span class="launch-img-frame agenda-img-wrap"><img src="${esc(x.launch_image_url)}" alt="" loading="lazy" /></span>`
       :`<div class="agenda-img-empty">NO IMG</div>`;
     return `<div class="agenda-row" data-lid="${x.id}">
       <div><div class="agenda-date">${esc(fmt(x.launch_date))}</div><div class="agenda-time-txt">${esc(x.launch_time||'')}</div></div>
@@ -1295,7 +1307,7 @@ function renderOverview(prods,chans,tsks){
   const rCls=['at_risk','needs_inventory','needs_assets'].includes(x.launch_readiness)?'pill-risk':x.launch_readiness==='ready'?'pill-launched':'';
   $('drawerLaunchMeta').innerHTML=`
     <div class="dp-section">
-      ${x.launch_image_url?`<img class="launch-hero-img" src="${esc(x.launch_image_url)}" alt="" />`:''}
+      ${x.launch_image_url?`<div class="launch-img-frame launch-hero-wrap"><img src="${esc(x.launch_image_url)}" alt="" /></div>`:''}
       <div style="display:flex;align-items:flex-start;gap:8px;flex-wrap:wrap;">
         <div class="dp-title" style="flex:1;">${esc(x.title||'Launch')}</div>
         <button type="button" id="overviewEditBtn" class="bcn-btn bcn-btn--ghost bcn-btn--mono" style="flex-shrink:0;height:28px;font-size:10px;">✏ EDIT</button>
