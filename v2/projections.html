@@ -810,7 +810,7 @@ async function loadLocations() {
 async function loadProjections() {
   const { data, error } = await db.from('revenue_projections')
     .select('id, projection_date, location_id, projected_units, projected_sales, notes, source, scenario, created_at, updated_at, created_by, updated_by, locations(id,location_name,location_code,domain,store_type)')
-    .eq('scenario','active').order('projection_date',{ascending:true}).range(0,5000);
+    .eq('scenario','active').order('projection_date',{ascending:true}).range(0,1500000);
   if (error) throw error;
   state.projections = (data||[]).map(r => ({
     ...r,
@@ -829,7 +829,7 @@ async function loadProjections() {
 async function loadCalendarEvents() {
   const dates = state.projections.map(r=>r.projection_date).filter(Boolean).sort();
   const dateFrom=dates[0]||'', dateTo=dates[dates.length-1]||'';
-  let q = db.from('launch_calendar').select('*').order('launch_date',{ascending:true}).range(0,5000);
+  let q = db.from('launch_calendar').select('*').order('launch_date',{ascending:true}).range(0,500000);
   if (dateFrom) q=q.gte('launch_date',dateFrom);
   if (dateTo)   q=q.lte('launch_date',dateTo);
   const { data, error } = await q;
