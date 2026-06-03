@@ -8,7 +8,7 @@ Three buckets only. Check items off in PRs when done.
 
 - [x] Sync architecture: one GitHub Action reads Google Sheets → injects sales + inventory (named "Shopify sync" in the Action)
 - [ ] Post-merge SQL checklist on every DB PR (`verify_v2_schema.sql`)
-- [ ] Align `profiles.role` with `po_builder_can_write` / `po_costing_can_write`
+- [x] Align `profiles.role` with `po_builder_can_write` / `po_costing_can_write` — all 7 users are `admin`, enum is `owner/admin/user`
 
 ---
 
