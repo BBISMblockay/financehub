@@ -71,6 +71,12 @@
       ],
     },
     {
+      section: 'Creative',
+      items: [
+        { id: 'creative/product-samples', label: 'Product Samples', href: '/v2/product-samples.html' },
+      ],
+    },
+    {
       section: 'Inventory',
       items: [
         { id: 'inventory/workboard', label: 'Inventory Manager', href: '/v2/inventory.html' },
