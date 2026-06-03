@@ -6,7 +6,7 @@ Three buckets only. Check items off in PRs when done.
 
 ## Now (stability)
 
-- [ ] Document which sync owns each sales/inventory channel
+- [x] Sync architecture: one GitHub Action reads Google Sheets → injects sales + inventory (named "Shopify sync" in the Action)
 - [ ] Post-merge SQL checklist on every DB PR (`verify_v2_schema.sql`)
 - [ ] Align `profiles.role` with `po_builder_can_write` / `po_costing_can_write`
 

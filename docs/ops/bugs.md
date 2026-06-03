@@ -11,7 +11,6 @@ Only items that still matter today. Fixed items live in [CHANGELOG.md](CHANGELOG
 | Issue | Workaround |
 |-------|------------|
 | PO tables missing → costing/profile errors | Run [`supabase/apply_all_post_merge.sql`](../../supabase/apply_all_post_merge.sql) |
-| Two sync jobs write the same tables (Shopify + Silo Sheets) | Decide which source is truth per channel; document for your team |
 | RLS wrong → users see too much/little data | Fix policies in Supabase dashboard |
 
 ---
