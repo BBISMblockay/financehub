@@ -11,144 +11,152 @@
   <script src="../pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
   <style>
-    /* ── drawer ─────────────────────────────────────────── */
+    /* ── drawer ─────────────────────────────────────── */
     .smp-backdrop {
       position:fixed; inset:0; background:rgba(0,0,0,.35);
-      z-index:200; opacity:0; pointer-events:none;
-      transition:opacity .18s;
+      z-index:200; opacity:0; pointer-events:none; transition:opacity .18s;
     }
     .smp-backdrop.open { opacity:1; pointer-events:all; }
     .smp-drawer {
-      position:fixed; top:0; right:0; bottom:0; width:520px; max-width:95vw;
+      position:fixed; top:0; right:0; bottom:0; width:540px; max-width:96vw;
       background:var(--bcn-surface); border-left:1px solid var(--bcn-border);
       z-index:201; display:flex; flex-direction:column;
       transform:translateX(100%); transition:transform .2s cubic-bezier(.25,.8,.25,1);
-      overflow:hidden;
     }
     .smp-drawer.open { transform:none; }
     .smp-drawer-head {
-      display:flex; align-items:center; gap:10px;
-      padding:16px 20px 14px; border-bottom:1px solid var(--bcn-border);
-      flex-shrink:0;
+      display:flex; align-items:flex-start; gap:10px;
+      padding:14px 18px 12px; border-bottom:1px solid var(--bcn-border); flex-shrink:0;
     }
-    .smp-drawer-ref {
-      font-family:var(--bcn-mono); font-size:10px; font-weight:700;
-      color:var(--bcn-ink-3); letter-spacing:.08em; text-transform:uppercase;
-    }
-    .smp-drawer-title {
-      font-size:15px; font-weight:700; color:var(--bcn-ink); flex:1; min-width:0;
-      overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-    }
-    .smp-drawer-close {
-      border:none; background:none; cursor:pointer; color:var(--bcn-ink-3);
-      font-size:20px; line-height:1; padding:2px 6px; border-radius:4px;
-      flex-shrink:0;
-    }
-    .smp-drawer-close:hover { background:var(--bcn-surface-2,oklch(.96 .005 245)); color:var(--bcn-ink); }
-    .smp-drawer-body { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:18px; }
+    .smp-drawer-ref { font-family:var(--bcn-mono); font-size:10px; font-weight:700; color:var(--bcn-ink-3); letter-spacing:.08em; text-transform:uppercase; }
+    .smp-drawer-title { font-size:14px; font-weight:700; color:var(--bcn-ink); flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .smp-drawer-close { border:none; background:none; cursor:pointer; color:var(--bcn-ink-3); font-size:20px; line-height:1; padding:2px 4px; border-radius:4px; flex-shrink:0; }
+    .smp-drawer-close:hover { background:oklch(.95 .004 245); color:var(--bcn-ink); }
+    .smp-drawer-body { flex:1; overflow-y:auto; padding:0; }
     .smp-drawer-foot {
-      border-top:1px solid var(--bcn-border); padding:14px 20px;
-      display:flex; gap:8px; flex-shrink:0;
+      border-top:1px solid var(--bcn-border); padding:12px 18px;
+      display:flex; gap:8px; flex-shrink:0; background:var(--bcn-surface);
     }
 
-    /* ── form sections in drawer ─────────────────────────── */
+    /* ── drawer sections ─────────────────────────────── */
+    .smp-section {
+      padding:14px 18px; border-bottom:1px solid var(--bcn-border);
+    }
+    .smp-section:last-child { border-bottom:none; }
     .smp-section-label {
-      font-family:var(--bcn-mono); font-size:10px; font-weight:700;
-      letter-spacing:.1em; text-transform:uppercase; color:var(--bcn-ink-3);
-      margin-bottom:8px;
+      font-family:var(--bcn-mono); font-size:9.5px; font-weight:700;
+      letter-spacing:.12em; text-transform:uppercase; color:var(--bcn-ink-3);
+      margin-bottom:10px;
     }
     .smp-grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
     .smp-grid-3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
     .smp-full   { grid-column:1/-1; }
 
-    /* ── status pipeline chips ───────────────────────────── */
-    .smp-pipeline {
-      display:flex; gap:4px; flex-wrap:wrap; align-items:center;
-    }
+    /* ── pipeline ────────────────────────────────────── */
+    .smp-pipeline { display:flex; gap:4px; flex-wrap:wrap; }
     .smp-step {
-      font-family:var(--bcn-mono); font-size:9.5px; font-weight:700;
-      text-transform:uppercase; letter-spacing:.06em;
-      padding:3px 8px; border-radius:20px;
+      font-family:var(--bcn-mono); font-size:9px; font-weight:700; text-transform:uppercase;
+      letter-spacing:.06em; padding:3px 8px; border-radius:20px;
       border:1px solid var(--bcn-border); color:var(--bcn-ink-3);
-      background:var(--bcn-surface-2,oklch(.97 .004 245));
-      cursor:pointer; transition:all .12s; white-space:nowrap;
+      background:var(--bcn-surface); cursor:pointer; transition:all .1s; white-space:nowrap;
     }
     .smp-step:hover { border-color:var(--bcn-accent); color:var(--bcn-accent); }
-    .smp-step.active {
-      background:var(--bcn-accent); border-color:var(--bcn-accent);
-      color:#fff;
-    }
-    .smp-step.done {
-      background:oklch(.93 .06 145); border-color:oklch(.7 .12 145);
-      color:oklch(.35 .1 145);
-    }
+    .smp-step.active { background:var(--bcn-accent); border-color:var(--bcn-accent); color:#fff; }
+    .smp-step.done { background:oklch(.93 .06 145); border-color:oklch(.7 .12 145); color:oklch(.32 .1 145); }
 
-    /* ── activity log ───────────────────────────────────── */
-    .smp-activity { display:flex; flex-direction:column; gap:8px; }
-    .smp-activity-row {
-      display:flex; gap:10px; font-size:12px; color:var(--bcn-ink-2);
-    }
-    .smp-activity-dot {
-      width:8px; height:8px; border-radius:50%;
-      background:var(--bcn-border-strong); flex-shrink:0; margin-top:4px;
-    }
-    .smp-activity-body { flex:1; }
-    .smp-activity-meta {
-      font-family:var(--bcn-mono); font-size:10px; color:var(--bcn-ink-3); margin-top:1px;
-    }
+    /* ── size checkbox grid ──────────────────────────── */
+    .smp-size-grid { display:flex; flex-wrap:wrap; gap:5px; }
+    .smp-size-chip { display:flex; flex-direction:column; align-items:center; gap:2px; min-width:44px; }
+    .smp-size-chip > span { font-family:var(--bcn-mono); font-size:9.5px; font-weight:700; color:var(--bcn-ink-2); }
+    .smp-size-checks { display:flex; gap:3px; }
+    .smp-ck-wrap { display:flex; flex-direction:column; align-items:center; gap:1px; }
+    .smp-ck-wrap label { font-size:7.5px; color:var(--bcn-ink-4); font-family:var(--bcn-mono); text-transform:uppercase; }
+    .smp-ck-wrap input[type=checkbox] { width:13px; height:13px; cursor:pointer; }
+    .smp-ck-wrap input.ck-req { accent-color:var(--bcn-accent); }
+    .smp-ck-wrap input.ck-whs { accent-color:oklch(.55 .18 145); }
+    .smp-ck-wrap input.ck-pck { accent-color:oklch(.6 .18 55); }
+    .smp-size-legend { display:flex; gap:10px; margin-top:6px; }
+    .smp-size-legend span { font-size:9px; font-family:var(--bcn-mono); color:var(--bcn-ink-3); display:flex; align-items:center; gap:3px; }
+    .smp-size-legend span::before { content:''; width:8px; height:8px; border-radius:2px; display:inline-block; }
+    .smp-size-legend .leg-req::before { background:var(--bcn-accent); }
+    .smp-size-legend .leg-whs::before { background:oklch(.55 .18 145); }
+    .smp-size-legend .leg-pck::before { background:oklch(.6 .18 55); }
 
-    /* ── connect section ────────────────────────────────── */
-    .smp-connect-row { display:flex; gap:8px; align-items:center; }
-    .smp-connect-row .bcn-field { flex:1; }
-    .smp-link-chip {
-      display:inline-flex; align-items:center; gap:5px;
-      font-family:var(--bcn-mono); font-size:10px; font-weight:700;
-      background:oklch(.93 .06 245); color:oklch(.35 .15 245);
+    /* ── product search ──────────────────────────────── */
+    .smp-prod-search { position:relative; }
+    .smp-prod-results {
+      position:absolute; top:100%; left:0; right:0; z-index:10;
+      background:var(--bcn-surface); border:1px solid var(--bcn-border);
+      border-radius:6px; box-shadow:0 4px 16px rgba(0,0,0,.12);
+      max-height:200px; overflow-y:auto; display:none;
+    }
+    .smp-prod-results.open { display:block; }
+    .smp-prod-hit {
+      padding:8px 12px; cursor:pointer; border-bottom:1px solid var(--bcn-border);
+      display:flex; flex-direction:column; gap:2px; transition:background .08s;
+    }
+    .smp-prod-hit:last-child { border-bottom:none; }
+    .smp-prod-hit:hover { background:oklch(.97 .004 245); }
+    .smp-prod-hit-title { font-size:12px; font-weight:600; color:var(--bcn-ink); }
+    .smp-prod-hit-meta { font-size:10px; font-family:var(--bcn-mono); color:var(--bcn-ink-3); }
+    .smp-linked-chip {
+      display:inline-flex; align-items:center; gap:6px;
+      background:oklch(.93 .06 245); color:oklch(.32 .15 245);
       border:1px solid oklch(.75 .12 245); border-radius:20px;
-      padding:3px 8px; white-space:nowrap;
+      padding:4px 10px; font-size:11px; font-weight:600;
     }
-    .smp-link-chip button {
-      border:none; background:none; cursor:pointer; padding:0 0 0 2px;
-      color:inherit; font-size:11px; line-height:1;
+    .smp-linked-chip button {
+      border:none; background:none; cursor:pointer; color:inherit;
+      font-size:13px; line-height:1; padding:0; opacity:.7;
     }
+    .smp-linked-chip button:hover { opacity:1; }
 
-    /* ── table row status ───────────────────────────────── */
-    .smp-tbl { width:100%; }
-    .smp-tbl td, .smp-tbl th { padding:9px 12px; }
-    .smp-tbl tbody tr { cursor:pointer; }
-    .smp-tbl tbody tr:hover td { background:oklch(.97 .004 245); }
-
-    /* ── photo thumbnails ───────────────────────────────── */
-    .smp-thumb-row { display:flex; gap:8px; flex-wrap:wrap; }
+    /* ── photo grid + lightbox ───────────────────────── */
+    .smp-photo-grid { display:flex; flex-wrap:wrap; gap:8px; }
     .smp-thumb {
-      width:70px; height:70px; border-radius:6px;
-      border:1px solid var(--bcn-border); object-fit:contain;
-      background:oklch(.97 .004 245); cursor:pointer;
+      width:72px; height:72px; border-radius:6px; object-fit:cover;
+      border:1px solid var(--bcn-border); cursor:zoom-in;
+      background:oklch(.97 .004 245); transition:border-color .1s;
     }
+    .smp-thumb:hover { border-color:var(--bcn-accent); }
     .smp-thumb-add {
-      width:70px; height:70px; border-radius:6px;
-      border:2px dashed var(--bcn-border); display:flex;
-      align-items:center; justify-content:center;
-      color:var(--bcn-ink-4); font-size:22px; cursor:pointer;
-      background:none; transition:border-color .12s;
+      width:72px; height:72px; border-radius:6px; border:2px dashed var(--bcn-border);
+      display:flex; align-items:center; justify-content:center;
+      color:var(--bcn-ink-4); font-size:24px; cursor:pointer; background:none;
+      transition:border-color .12s, color .12s;
     }
     .smp-thumb-add:hover { border-color:var(--bcn-accent); color:var(--bcn-accent); }
-
-    /* ── size checkbox grid ─────────────────────────────────── */
-    .smp-size-grid { display:flex; flex-wrap:wrap; gap:6px; }
-    .smp-size-chip { display:flex; flex-direction:column; align-items:center; gap:3px; min-width:46px; }
-    .smp-size-chip span { font-family:var(--bcn-mono); font-size:10px; font-weight:700; color:var(--bcn-ink-2); }
-    .smp-size-checks { display:flex; gap:4px; }
-    .smp-size-check-wrap { display:flex; flex-direction:column; align-items:center; gap:1px; }
-    .smp-size-check-wrap label { font-size:8px; color:var(--bcn-ink-4); font-family:var(--bcn-mono); text-transform:uppercase; }
-    .smp-size-check-wrap input[type=checkbox] { width:14px; height:14px; cursor:pointer; accent-color:var(--bcn-accent); }
-    .smp-size-check-wrap input.whs-check { accent-color:oklch(0.55 0.18 145); }
-
-    /* ── empty state ───────────────────────────────────── */
-    .smp-empty {
-      text-align:center; padding:60px 20px;
-      color:var(--bcn-ink-3); font-size:13px;
+    /* lightbox */
+    .smp-lightbox {
+      position:fixed; inset:0; z-index:500; background:rgba(0,0,0,.88);
+      display:none; align-items:center; justify-content:center; flex-direction:column; gap:12px;
     }
+    .smp-lightbox.open { display:flex; }
+    .smp-lightbox img { max-width:90vw; max-height:80vh; object-fit:contain; border-radius:6px; }
+    .smp-lightbox-nav { display:flex; gap:12px; align-items:center; }
+    .smp-lightbox-nav button {
+      border:none; background:rgba(255,255,255,.15); color:#fff;
+      padding:6px 16px; border-radius:6px; cursor:pointer; font-size:18px; line-height:1;
+    }
+    .smp-lightbox-nav button:hover { background:rgba(255,255,255,.28); }
+    .smp-lightbox-counter { font-family:var(--bcn-mono); font-size:11px; color:rgba(255,255,255,.6); }
+    .smp-lightbox-close {
+      position:absolute; top:16px; right:20px; border:none; background:none;
+      color:#fff; font-size:28px; cursor:pointer; opacity:.7; line-height:1;
+    }
+    .smp-lightbox-close:hover { opacity:1; }
+
+    /* ── activity log ────────────────────────────────── */
+    .smp-activity { display:flex; flex-direction:column; gap:8px; }
+    .smp-activity-row { display:flex; gap:10px; font-size:12px; color:var(--bcn-ink-2); }
+    .smp-activity-dot { width:7px; height:7px; border-radius:50%; background:var(--bcn-border-strong); flex-shrink:0; margin-top:4px; }
+    .smp-activity-body { flex:1; }
+    .smp-activity-meta { font-family:var(--bcn-mono); font-size:10px; color:var(--bcn-ink-3); margin-top:1px; }
+
+    /* ── table ───────────────────────────────────────── */
+    .smp-tbl tbody tr { cursor:pointer; }
+    .smp-tbl tbody tr:hover td { background:oklch(.97 .004 245); }
+    .smp-empty { text-align:center; padding:60px 20px; color:var(--bcn-ink-3); font-size:13px; }
   </style>
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
@@ -168,35 +176,16 @@
       </div>
     </header>
 
-    <!-- KPI band -->
-    <section class="bcn-kpi-band" id="kpiBand">
-      <div class="bcn-kpi">
-        <div class="bcn-kpi-label">Total Samples</div>
-        <div class="bcn-kpi-value bcn-num" id="kpiTotal">—</div>
-      </div>
-      <div class="bcn-kpi">
-        <div class="bcn-kpi-label">Photo Pending</div>
-        <div class="bcn-kpi-value bcn-num" id="kpiPhoto">—</div>
-      </div>
-      <div class="bcn-kpi">
-        <div class="bcn-kpi-label">Warehouse Ready</div>
-        <div class="bcn-kpi-value bcn-num" id="kpiWarehouse">—</div>
-      </div>
-      <div class="bcn-kpi">
-        <div class="bcn-kpi-label">Connected to Launch</div>
-        <div class="bcn-kpi-value bcn-num" id="kpiConnected">—</div>
-      </div>
-      <div class="bcn-kpi">
-        <div class="bcn-kpi-label">Live</div>
-        <div class="bcn-kpi-value bcn-num" id="kpiLive">—</div>
-      </div>
+    <section class="bcn-kpi-band">
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Total Samples</div><div class="bcn-kpi-value bcn-num" id="kpiTotal">—</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Photo Pending</div><div class="bcn-kpi-value bcn-num" id="kpiPhoto">—</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Warehouse Ready</div><div class="bcn-kpi-value bcn-num" id="kpiWarehouse">—</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Linked to Launch</div><div class="bcn-kpi-value bcn-num" id="kpiConnected">—</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Live</div><div class="bcn-kpi-value bcn-num" id="kpiLive">—</div></div>
     </section>
 
-    <!-- Filter bar -->
     <section class="bcn-filter-bar">
-      <div class="bcn-filter">
-        <input class="bcn-field" id="fSearch" placeholder="Search title, collection, factory…" style="width:220px" />
-      </div>
+      <div class="bcn-filter"><input class="bcn-field" id="fSearch" placeholder="Search title, collection, factory…" style="width:220px" /></div>
       <div class="bcn-filter">
         <select class="bcn-field" id="fStatus">
           <option value="">All statuses</option>
@@ -216,8 +205,8 @@
         <select class="bcn-field" id="fPhotoStatus">
           <option value="">All photo statuses</option>
           <option value="pending">Photo Pending</option>
-          <option value="scheduled">Photo Scheduled</option>
-          <option value="complete">Photo Complete</option>
+          <option value="scheduled">Scheduled</option>
+          <option value="complete">Photo Done</option>
           <option value="na">N/A</option>
         </select>
       </div>
@@ -229,23 +218,14 @@
       </div>
     </section>
 
-    <!-- Table -->
     <div class="bcn-card" style="margin-top:12px;">
       <div class="bcn-card-body" style="padding:0; overflow-x:auto;">
         <table class="bcn-table smp-tbl" id="samplesTable">
           <thead>
             <tr>
-              <th>Ref</th>
-              <th>Product Title</th>
-              <th>Factory</th>
-              <th>Collection</th>
-              <th>Bulk ETA</th>
-              <th>Status</th>
-              <th>Photo</th>
-              <th>Copy</th>
-              <th>Live</th>
-              <th>Launch</th>
-              <th>PO</th>
+              <th>Ref</th><th>Product Title</th><th>Factory</th><th>Collection</th>
+              <th>Bulk ETA</th><th>Status</th><th>Photo</th><th>Copy</th>
+              <th>Live</th><th>Launch</th><th>PO</th>
             </tr>
           </thead>
           <tbody id="samplesBody">
@@ -258,31 +238,40 @@
   </main>
 </div>
 
-<!-- Drawer backdrop -->
+<!-- Backdrop -->
 <div class="smp-backdrop" id="backdrop"></div>
 
-<!-- Detail / edit drawer -->
+<!-- Lightbox -->
+<div class="smp-lightbox" id="lightbox">
+  <button class="smp-lightbox-close" id="lbClose">×</button>
+  <img id="lbImg" src="" alt="" />
+  <div class="smp-lightbox-nav">
+    <button id="lbPrev">‹</button>
+    <span class="smp-lightbox-counter" id="lbCounter"></span>
+    <button id="lbNext">›</button>
+  </div>
+</div>
+
+<!-- Drawer -->
 <aside class="smp-drawer" id="drawer" aria-label="Sample detail" aria-hidden="true">
   <div class="smp-drawer-head">
-    <div>
+    <div style="flex:1;min-width:0;">
       <div class="smp-drawer-ref" id="drawerRef">NEW SAMPLE</div>
       <div class="smp-drawer-title" id="drawerTitle">New Product Sample</div>
     </div>
-    <button class="smp-drawer-close" id="btnCloseDrawer" type="button" aria-label="Close">×</button>
+    <button class="smp-drawer-close" id="btnCloseDrawer" type="button">×</button>
   </div>
 
-  <div class="smp-drawer-body" id="drawerBody">
+  <div class="smp-drawer-body">
 
-    <!-- ── Workflow pipeline ── -->
-    <div>
-      <div class="smp-section-label">Workflow Status</div>
-      <div class="smp-pipeline" id="pipelineSteps">
-        <!-- rendered by JS -->
-      </div>
+    <!-- 1. Pipeline -->
+    <div class="smp-section">
+      <div class="smp-section-label">Workflow</div>
+      <div class="smp-pipeline" id="pipelineSteps"></div>
     </div>
 
-    <!-- ── Core info ── -->
-    <div>
+    <!-- 2. Product Info -->
+    <div class="smp-section">
       <div class="smp-section-label">Product Info</div>
       <div class="smp-grid-2">
         <div class="bcn-field-group smp-full">
@@ -303,9 +292,7 @@
         </div>
         <div class="bcn-field-group">
           <label class="bcn-label">Collection</label>
-          <select class="bcn-field" id="fldCollection">
-            <option value="">— select collection —</option>
-          </select>
+          <input class="bcn-field" id="fldCollection" placeholder="e.g. Frozen Treats" />
         </div>
         <div class="bcn-field-group">
           <label class="bcn-label">Bulk ETA</label>
@@ -321,35 +308,76 @@
           </select>
         </div>
       </div>
+
+      <!-- Product search / link -->
+      <div style="margin-top:12px;">
+        <div class="bcn-label" style="margin-bottom:6px;">Link to Silo Product</div>
+        <div id="linkedProductChip" style="margin-bottom:8px; display:none;"></div>
+        <div class="smp-grid-2" style="gap:6px; margin-bottom:6px;">
+          <select class="bcn-field" id="prodSource" style="font-size:11px;">
+            <option value="po_incoming">PO / Incoming</option>
+            <option value="catalog">Silo Catalog</option>
+          </select>
+          <div class="smp-prod-search" style="position:relative;">
+            <input class="bcn-field" id="prodSearchInput" placeholder="Search product or PO…" style="width:100%;" />
+            <div class="smp-prod-results" id="prodSearchResults"></div>
+          </div>
+        </div>
+        <input type="hidden" id="fldProductMasterId" />
+      </div>
     </div>
 
-    <!-- ── Size tracking ── -->
-    <div>
-      <div class="smp-section-label">Size Tracking</div>
-      <!-- Mens / Unisex sizes -->
-      <div style="margin-bottom:10px;">
-        <div class="bcn-label" style="margin-bottom:6px;">Mens / Unisex</div>
+    <!-- 3. Dates -->
+    <div class="smp-section">
+      <div class="smp-section-label">Date Stamps</div>
+      <div class="smp-grid-3">
+        <div class="bcn-field-group">
+          <label class="bcn-label">Received</label>
+          <input class="bcn-field" type="date" id="fldReceivedAt" />
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label">Sent</label>
+          <input class="bcn-field" type="date" id="fldSentAt" />
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label">Whs Ready</label>
+          <input class="bcn-field" type="date" id="fldWarehouseReadyAt" />
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label">Picked Up</label>
+          <input class="bcn-field" type="date" id="fldPickedUpAt" />
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label">Photo Received</label>
+          <input class="bcn-field" type="date" id="fldPhotoReceivedAt" />
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. Sizes -->
+    <div class="smp-section">
+      <div class="smp-section-label">Sizes</div>
+      <div class="smp-size-legend">
+        <span class="leg-req">Requested</span>
+        <span class="leg-whs">Whs Ready</span>
+        <span class="leg-pck">Picked Up</span>
+      </div>
+      <div style="margin-top:10px;">
+        <div class="bcn-label" style="margin-bottom:6px; font-size:10px;">Mens / Unisex</div>
         <div class="smp-size-grid" id="sizeGridMens"></div>
       </div>
-      <!-- Youth sizes -->
-      <div style="margin-bottom:10px;">
-        <div class="bcn-label" style="margin-bottom:6px;">Youth</div>
+      <div style="margin-top:10px;">
+        <div class="bcn-label" style="margin-bottom:6px; font-size:10px;">Youth</div>
         <div class="smp-size-grid" id="sizeGridYouth"></div>
       </div>
-      <!-- Caps / other -->
-      <div style="margin-bottom:10px;">
-        <div class="bcn-label" style="margin-bottom:6px;">Caps / Other</div>
+      <div style="margin-top:10px;">
+        <div class="bcn-label" style="margin-bottom:6px; font-size:10px;">Caps / Other</div>
         <div class="smp-size-grid" id="sizeGridCaps"></div>
-      </div>
-      <!-- Sizes picked up (free text, usually just noted) -->
-      <div class="bcn-field-group" style="margin-top:6px;">
-        <label class="bcn-label">Sizes Picked Up <span style="color:var(--bcn-ink-3);font-weight:400;">(free text)</span></label>
-        <input class="bcn-field" id="fldSizesPickedUp" placeholder="e.g. M, L" />
       </div>
     </div>
 
-    <!-- ── Creative pipeline ── -->
-    <div>
+    <!-- 5. Creative -->
+    <div class="smp-section">
       <div class="smp-section-label">Creative Pipeline</div>
       <div class="smp-grid-3">
         <div class="bcn-field-group">
@@ -362,10 +390,6 @@
           </select>
         </div>
         <div class="bcn-field-group">
-          <label class="bcn-label">Photo Date</label>
-          <input class="bcn-field" type="date" id="fldPhotoDate" />
-        </div>
-        <div class="bcn-field-group">
           <label class="bcn-label">Copy Status</label>
           <select class="bcn-field" id="fldCopyStatus">
             <option value="pending">Pending</option>
@@ -373,55 +397,53 @@
             <option value="na">N/A</option>
           </select>
         </div>
-      </div>
-      <div style="margin-top:10px; display:flex; align-items:center; gap:8px;">
-        <input type="checkbox" id="fldLiveStatus" style="width:15px;height:15px;cursor:pointer;" />
-        <label for="fldLiveStatus" class="bcn-label" style="margin:0;cursor:pointer;">Product is Live</label>
+        <div class="bcn-field-group" style="display:flex; flex-direction:column; justify-content:flex-end;">
+          <label class="bcn-label">&nbsp;</label>
+          <label style="display:flex; align-items:center; gap:7px; cursor:pointer; padding:6px 0;">
+            <input type="checkbox" id="fldLiveStatus" style="width:15px;height:15px;" />
+            <span style="font-size:12px; font-weight:600;">Product is Live</span>
+          </label>
+        </div>
       </div>
     </div>
 
-    <!-- ── Photo uploads ── -->
-    <div id="photoSection">
+    <!-- 6. Photos -->
+    <div class="smp-section" id="photoSection">
       <div class="smp-section-label">Sample Photos</div>
-      <div class="smp-thumb-row" id="photoRow">
-        <!-- thumbnails + upload button rendered by JS -->
-      </div>
+      <div class="smp-photo-grid" id="photoGrid"></div>
       <input type="file" id="photoFileInput" accept="image/*" multiple style="display:none" />
     </div>
 
-    <!-- ── Ecosystem connections ── -->
-    <div>
+    <!-- 7. Connect to Ecosystem -->
+    <div class="smp-section">
       <div class="smp-section-label">Connect to Ecosystem</div>
-      <div style="display:flex; flex-direction:column; gap:10px;">
-
+      <div class="smp-grid-2">
         <div class="bcn-field-group">
           <label class="bcn-label">Launch</label>
           <select class="bcn-field" id="fldLaunchId">
             <option value="">— not linked —</option>
           </select>
         </div>
-
         <div class="bcn-field-group">
           <label class="bcn-label">Purchase Order</label>
           <select class="bcn-field" id="fldPoHeaderId">
             <option value="">— not linked —</option>
           </select>
         </div>
-
       </div>
     </div>
 
-    <!-- ── Notes ── -->
-    <div class="bcn-field-group">
-      <label class="bcn-label">Notes</label>
-      <textarea class="bcn-field" id="fldNotes" rows="3" placeholder="Internal notes…" style="resize:vertical;"></textarea>
+    <!-- 8. Notes -->
+    <div class="smp-section">
+      <div class="smp-section-label">Notes</div>
+      <textarea class="bcn-field" id="fldNotes" rows="3" placeholder="Internal notes…" style="resize:vertical; width:100%;"></textarea>
     </div>
 
-    <!-- ── Activity log ── -->
-    <div id="activitySection">
+    <!-- 9. Activity -->
+    <div class="smp-section" id="activitySection">
       <div class="smp-section-label">Activity</div>
       <div class="smp-activity" id="activityLog">
-        <div style="color:var(--bcn-ink-3); font-size:12px;">No activity yet.</div>
+        <div style="color:var(--bcn-ink-3);font-size:12px;">No activity yet.</div>
       </div>
     </div>
 
@@ -443,34 +465,33 @@
   const REQUIRE_AUTH = Boolean(cfg.REQUIRE_AUTH || false);
 
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    document.body.innerHTML = '<div style="padding:40px;font-family:sans-serif;color:#c00;">Missing Supabase config — check pages/config.js</div>';
+    document.body.innerHTML = '<div style="padding:40px;font-family:sans-serif;color:#c00;">Missing Supabase config</div>';
     throw new Error('Missing Supabase config');
   }
 
   const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  // ── constants ────────────────────────────────────────────────────────────
+  // ── constants ─────────────────────────────────────────────────────────────
   const STATUSES = [
-    { value: 'received',           label: 'Received' },
-    { value: 'size_request_sent',  label: 'Size Req Sent' },
-    { value: 'warehouse_ready',    label: 'Warehouse Ready' },
-    { value: 'picked_up',          label: 'Picked Up' },
-    { value: 'model_complete',     label: 'Model Done' },
-    { value: 'photo_scheduled',    label: 'Photo Sched' },
-    { value: 'photo_complete',     label: 'Photo Done' },
-    { value: 'copy_complete',      label: 'Copy Done' },
-    { value: 'live',               label: 'Live' },
-    { value: 'archived',           label: 'Archived' },
+    { value:'received',          label:'Received' },
+    { value:'size_request_sent', label:'Size Req Sent' },
+    { value:'warehouse_ready',   label:'Whs Ready' },
+    { value:'picked_up',         label:'Picked Up' },
+    { value:'model_complete',    label:'Model Done' },
+    { value:'photo_scheduled',   label:'Photo Sched' },
+    { value:'photo_complete',    label:'Photo Done' },
+    { value:'copy_complete',     label:'Copy Done' },
+    { value:'live',              label:'Live' },
+    { value:'archived',          label:'Archived' },
   ];
   const STATUS_ORDER = STATUSES.map(s => s.value);
   const COPY_LABELS  = { pending:'Pending', complete:'Done', na:'N/A' };
   const BUCKET = 'sample-images';
 
-  // Size groups for the checkbox grid
   const SIZE_GROUPS = {
     mens:  ['XS','S','M','L','XL','XXL','XXXL'],
     youth: ['YXS','YS','YM','YL','YXL','2YL'],
-    caps:  ['Snap','6 7/8','7','7 1/8','7 1/4','7 3/8','7 1/2','One Size'],
+    caps:  ['Snap','6⅞','7','7⅛','7¼','7⅜','7½','One Size'],
   };
 
   // ── state ─────────────────────────────────────────────────────────────────
@@ -479,131 +500,391 @@
   let allPOs          = [];
   let allFactories    = [];
   let allProductTypes = [];
-  let allCollections  = [];
   let currentUser     = null;
   let drawerSample    = null;
   let pendingPhotos   = [];
+  let lbUrls          = [];
+  let lbIdx           = 0;
 
-  // ── util ─────────────────────────────────────────────────────────────────
+  // ── util ──────────────────────────────────────────────────────────────────
+  const $ = id => document.getElementById(id);
   function esc(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
-
-  function setStatus(msg, type = 'info', ms = 0) {
-    const el = document.getElementById('status');
-    el.className = `bcn-status bcn-status--${type}`;
-    el.textContent = msg;
-    el.hidden = false;
-    if (ms) setTimeout(() => { el.hidden = true; }, ms);
+  function setStatus(msg, type='info', ms=0) {
+    const el=$('status'); el.className=`bcn-status bcn-status--${type}`; el.textContent=msg; el.hidden=false;
+    if(ms) setTimeout(()=>{ el.hidden=true; }, ms);
   }
-  function clearStatus() { document.getElementById('status').hidden = true; }
+  function clearStatus() { $('status').hidden=true; }
 
-  // ── pill rendering ───────────────────────────────────────────────────────
+  // ── pills ─────────────────────────────────────────────────────────────────
   function statusPill(val) {
-    const map = {
-      received:          ['bcn-pill bcn-pill--dark',  'Received'],
-      size_request_sent: ['bcn-pill',                 'Size Req'],
-      warehouse_ready:   ['bcn-pill bcn-pill--accent', 'Whs Ready'],
-      picked_up:         ['bcn-pill bcn-pill--accent', 'Picked Up'],
-      model_complete:    ['bcn-pill bcn-pill--accent', 'Model Done'],
-      photo_scheduled:   ['bcn-pill',                 'Photo Sched'],
-      photo_complete:    ['bcn-pill bcn-pill--pos',   'Photo Done'],
-      copy_complete:     ['bcn-pill bcn-pill--pos',   'Copy Done'],
-      live:              ['bcn-pill bcn-pill--pos',   'Live'],
-      archived:          ['bcn-pill bcn-pill--neg',   'Archived'],
+    const m = {
+      received:         ['bcn-pill bcn-pill--dark',  'Received'],
+      size_request_sent:['bcn-pill',                 'Size Req'],
+      warehouse_ready:  ['bcn-pill bcn-pill--accent', 'Whs Ready'],
+      picked_up:        ['bcn-pill bcn-pill--accent', 'Picked Up'],
+      model_complete:   ['bcn-pill bcn-pill--accent', 'Model Done'],
+      photo_scheduled:  ['bcn-pill',                 'Photo Sched'],
+      photo_complete:   ['bcn-pill bcn-pill--pos',   'Photo Done'],
+      copy_complete:    ['bcn-pill bcn-pill--pos',   'Copy Done'],
+      live:             ['bcn-pill bcn-pill--pos',   'Live'],
+      archived:         ['bcn-pill bcn-pill--neg',   'Archived'],
     };
-    const [cls, lbl] = map[val] || ['bcn-pill', val || '—'];
+    const [cls,lbl]=m[val]||['bcn-pill',val||'—'];
     return `<span class="${cls}">${lbl}</span>`;
   }
-
   function photoPill(val) {
-    const map = {
-      pending:   ['bcn-pill',                 'Photo Pend'],
-      scheduled: ['bcn-pill bcn-pill--accent', 'Scheduled'],
-      complete:  ['bcn-pill bcn-pill--pos',   'Photo Done'],
-      na:        ['bcn-pill bcn-pill--dark',  'N/A'],
-    };
-    const [cls, lbl] = map[val] || ['bcn-pill', val || '—'];
+    const m={pending:['bcn-pill','Photo Pend'],scheduled:['bcn-pill bcn-pill--accent','Scheduled'],complete:['bcn-pill bcn-pill--pos','Photo Done'],na:['bcn-pill bcn-pill--dark','N/A']};
+    const [cls,lbl]=m[val]||['bcn-pill',val||'—'];
     return `<span class="${cls}">${lbl}</span>`;
   }
 
   // ── size grid ─────────────────────────────────────────────────────────────
-  // size_requests stored as CSV of requested sizes
-  // sizes_ready_warehouse stored as CSV of warehouse-ready sizes
-  function renderSizeGrid(groupKey, sizes, requestedArr, warehouseArr) {
-    const container = document.getElementById(`sizeGrid${groupKey.charAt(0).toUpperCase()+groupKey.slice(1)}`);
-    container.innerHTML = sizes.map(sz => {
-      const safeSz = sz.replace(/[^a-zA-Z0-9]/g, '_');
-      const isReq = requestedArr.includes(sz);
-      const isWhs = warehouseArr.includes(sz);
+  function renderSizeGrid(groupKey, sizes, reqArr, whsArr, pckArr) {
+    const c=$(`sizeGrid${groupKey[0].toUpperCase()+groupKey.slice(1)}`);
+    c.innerHTML = sizes.map(sz => {
+      const k = sz.replace(/[^a-zA-Z0-9]/g,'_')+'_'+groupKey;
       return `<div class="smp-size-chip">
         <span>${esc(sz)}</span>
         <div class="smp-size-checks">
-          <div class="smp-size-check-wrap">
-            <label for="req_${safeSz}_${groupKey}">Req</label>
-            <input type="checkbox" id="req_${safeSz}_${groupKey}" data-size="${esc(sz)}" data-kind="req" ${isReq?'checked':''} />
-          </div>
-          <div class="smp-size-check-wrap">
-            <label for="whs_${safeSz}_${groupKey}">Whs</label>
-            <input type="checkbox" id="whs_${safeSz}_${groupKey}" class="whs-check" data-size="${esc(sz)}" data-kind="whs" ${isWhs?'checked':''} />
-          </div>
+          <div class="smp-ck-wrap"><label for="r_${k}">Req</label><input type="checkbox" id="r_${k}" class="ck-req" data-size="${esc(sz)}" data-kind="req" ${reqArr.includes(sz)?'checked':''}></div>
+          <div class="smp-ck-wrap"><label for="w_${k}">Whs</label><input type="checkbox" id="w_${k}" class="ck-whs" data-size="${esc(sz)}" data-kind="whs" ${whsArr.includes(sz)?'checked':''}></div>
+          <div class="smp-ck-wrap"><label for="p_${k}">Pck</label><input type="checkbox" id="p_${k}" class="ck-pck" data-size="${esc(sz)}" data-kind="pck" ${pckArr.includes(sz)?'checked':''}></div>
         </div>
       </div>`;
     }).join('');
   }
 
-  function renderAllSizeGrids(requestedStr, warehouseStr) {
-    const reqArr = (requestedStr || '').split(',').map(s => s.trim()).filter(Boolean);
-    const whsArr = (warehouseStr || '').split(',').map(s => s.trim()).filter(Boolean);
-    renderSizeGrid('mens',  SIZE_GROUPS.mens,  reqArr, whsArr);
-    renderSizeGrid('youth', SIZE_GROUPS.youth, reqArr, whsArr);
-    renderSizeGrid('caps',  SIZE_GROUPS.caps,  reqArr, whsArr);
+  function renderAllSizeGrids(reqStr, whsStr, pckStr) {
+    const split = s => (s||'').split(',').map(x=>x.trim()).filter(Boolean);
+    const r=split(reqStr), w=split(whsStr), p=split(pckStr);
+    renderSizeGrid('mens',  SIZE_GROUPS.mens,  r, w, p);
+    renderSizeGrid('youth', SIZE_GROUPS.youth, r, w, p);
+    renderSizeGrid('caps',  SIZE_GROUPS.caps,  r, w, p);
   }
 
   function getCheckedSizes(kind) {
     return Array.from(document.querySelectorAll(`input[data-kind="${kind}"]:checked`))
-      .map(cb => cb.dataset.size)
-      .join(', ') || null;
+      .map(cb=>cb.dataset.size).join(', ') || null;
+  }
+
+  // ── pipeline ──────────────────────────────────────────────────────────────
+  function renderPipeline(cur) {
+    const idx = STATUS_ORDER.indexOf(cur);
+    const c = $('pipelineSteps');
+    c.innerHTML = STATUSES.map((s,i) => {
+      const cls = 'smp-step' + (i<idx?' done':i===idx?' active':'');
+      return `<button class="${cls}" data-status="${s.value}">${s.label}</button>`;
+    }).join('');
+    c.querySelectorAll('.smp-step').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const ci = STATUS_ORDER.indexOf(btn.dataset.status);
+        c.querySelectorAll('.smp-step').forEach((b,i) => {
+          b.className='smp-step'+(i<ci?' done':i===ci?' active':'');
+        });
+      });
+    });
+  }
+
+  function getPipelineStatus() {
+    const a = document.querySelector('#pipelineSteps .smp-step.active');
+    return a ? a.dataset.status : 'received';
+  }
+
+  // ── product search ────────────────────────────────────────────────────────
+  let prodSearchTimer = null;
+  let linkedProductId = null;
+  let linkedProductTitle = null;
+
+  function updateLinkedChip() {
+    const chip = $('linkedProductChip');
+    if (linkedProductId && linkedProductTitle) {
+      chip.style.display = '';
+      chip.innerHTML = `<span class="smp-linked-chip">${esc(linkedProductTitle)}<button type="button" id="btnUnlinkProduct" title="Unlink">×</button></span>`;
+      $('btnUnlinkProduct').addEventListener('click', () => {
+        linkedProductId = null; linkedProductTitle = null;
+        $('fldProductMasterId').value = '';
+        updateLinkedChip();
+        $('prodSearchInput').value = '';
+      });
+      $('prodSearchInput').value = '';
+      $('prodSearchResults').classList.remove('open');
+    } else {
+      chip.style.display = 'none';
+      chip.innerHTML = '';
+    }
+  }
+
+  function linkProduct(id, title) {
+    linkedProductId = id || null;
+    linkedProductTitle = title || null;
+    $('fldProductMasterId').value = id || '';
+    updateLinkedChip();
+  }
+
+  $('prodSearchInput').addEventListener('input', () => {
+    clearTimeout(prodSearchTimer);
+    const q = $('prodSearchInput').value.trim();
+    if (!q) { $('prodSearchResults').classList.remove('open'); return; }
+    prodSearchTimer = setTimeout(() => runProductSearch(q), 280);
+  });
+
+  $('prodSearchInput').addEventListener('focus', () => {
+    const q = $('prodSearchInput').value.trim();
+    if (q) runProductSearch(q);
+  });
+
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.smp-prod-search') && !e.target.closest('#prodSource')) {
+      $('prodSearchResults').classList.remove('open');
+    }
+  });
+
+  async function runProductSearch(q) {
+    const source = $('prodSource').value;
+    const results = $('prodSearchResults');
+    results.classList.add('open');
+    results.innerHTML = '<div class="smp-prod-hit"><span style="color:var(--bcn-ink-3);font-size:11px;">Searching…</span></div>';
+
+    const clean = q.replace(/%/g,'').trim();
+    let data, error;
+
+    if (source === 'po_incoming') {
+      ({ data, error } = await sb.from('v_launch_po_product_lookup')
+        .select('product_title,po_name,factory_name,product_type,expected_arrival_date,po_line_id')
+        .or(`product_title.ilike.%${clean}%,po_name.ilike.%${clean}%,factory_name.ilike.%${clean}%`)
+        .order('expected_arrival_date', { ascending:true }).limit(25));
+    } else {
+      ({ data, error } = await sb.from('products_master')
+        .select('id,sku,product_title,product_type,vendor_original')
+        .or(`product_title.ilike.%${clean}%,sku.ilike.%${clean}%`)
+        .limit(25));
+    }
+
+    if (error || !data?.length) {
+      results.innerHTML = `<div class="smp-prod-hit"><span style="color:var(--bcn-ink-3);font-size:11px;">${error?esc(error.message):'No results found.'}</span></div>`;
+      return;
+    }
+
+    // group by title for catalog
+    const rows = source === 'catalog'
+      ? groupByProductTitle(data)
+      : data;
+
+    results.innerHTML = rows.map(r => {
+      const title = r.product_title || 'Unnamed';
+      const meta = source === 'po_incoming'
+        ? [r.po_name, r.product_type, r.factory_name, r.expected_arrival_date ? `ETA ${r.expected_arrival_date}` : null].filter(Boolean).join(' · ')
+        : [r.product_type, r.vendor_original, r.variant_count ? `${r.variant_count} variants` : null].filter(Boolean).join(' · ');
+      const id = r.id || r.po_line_id || null;
+      return `<div class="smp-prod-hit" data-id="${esc(String(id||''))}\" data-title="${esc(title)}">
+        <div class="smp-prod-hit-title">${esc(title)}</div>
+        <div class="smp-prod-hit-meta">${esc(meta)}</div>
+      </div>`;
+    }).join('');
+
+    results.querySelectorAll('.smp-prod-hit').forEach(row => {
+      row.addEventListener('click', () => {
+        linkProduct(row.dataset.id, row.dataset.title);
+      });
+    });
+  }
+
+  function groupByProductTitle(rows) {
+    const map = new Map();
+    rows.forEach(r => {
+      const k = String(r.product_title||r.sku||'').trim();
+      if (!k) return;
+      if (!map.has(k)) map.set(k,{id:r.id,product_title:k,product_type:r.product_type||null,vendor_original:r.vendor_original||null,variant_count:0});
+      map.get(k).variant_count++;
+    });
+    return [...map.values()].sort((a,b)=>a.product_title.localeCompare(b.product_title));
+  }
+
+  // ── lightbox ──────────────────────────────────────────────────────────────
+  function openLightbox(urls, startIdx) {
+    lbUrls = urls; lbIdx = startIdx;
+    showLbSlide();
+    $('lightbox').classList.add('open');
+  }
+
+  function showLbSlide() {
+    $('lbImg').src = lbUrls[lbIdx];
+    $('lbCounter').textContent = `${lbIdx+1} / ${lbUrls.length}`;
+  }
+
+  $('lbClose').addEventListener('click', () => $('lightbox').classList.remove('open'));
+  $('lightbox').addEventListener('click', e => { if(e.target===$('lightbox')) $('lightbox').classList.remove('open'); });
+  $('lbPrev').addEventListener('click', () => { lbIdx=(lbIdx-1+lbUrls.length)%lbUrls.length; showLbSlide(); });
+  $('lbNext').addEventListener('click', () => { lbIdx=(lbIdx+1)%lbUrls.length; showLbSlide(); });
+  document.addEventListener('keydown', e => {
+    if (!$('lightbox').classList.contains('open')) return;
+    if (e.key==='Escape') $('lightbox').classList.remove('open');
+    if (e.key==='ArrowLeft') { lbIdx=(lbIdx-1+lbUrls.length)%lbUrls.length; showLbSlide(); }
+    if (e.key==='ArrowRight') { lbIdx=(lbIdx+1)%lbUrls.length; showLbSlide(); }
+  });
+
+  // ── photo grid ────────────────────────────────────────────────────────────
+  async function renderPhotoGrid(sampleId, staged) {
+    const grid = $('photoGrid');
+    let urls = [];
+    let existingFiles = [];
+
+    if (sampleId) {
+      const { data } = await sb.storage.from(BUCKET).list(`samples/${sampleId}`,{limit:50});
+      existingFiles = (data||[]).filter(f=>f.name!=='.emptyFolderPlaceholder');
+      existingFiles.forEach(f => {
+        const { data:u } = sb.storage.from(BUCKET).getPublicUrl(`samples/${sampleId}/${f.name}`);
+        urls.push(u.publicUrl);
+      });
+    }
+
+    grid.innerHTML = '';
+
+    urls.forEach((url, i) => {
+      const img = document.createElement('img');
+      img.className = 'smp-thumb'; img.src = url;
+      img.addEventListener('click', () => openLightbox(urls, i));
+      grid.appendChild(img);
+    });
+
+    staged.forEach(file => {
+      const img = document.createElement('img');
+      img.className='smp-thumb'; img.src=URL.createObjectURL(file);
+      img.style.opacity='.55'; img.title=file.name+' (uploading)';
+      grid.appendChild(img);
+    });
+
+    const addBtn = document.createElement('button');
+    addBtn.className='smp-thumb-add'; addBtn.type='button'; addBtn.textContent='+';
+    addBtn.addEventListener('click',()=>$('photoFileInput').click());
+    grid.appendChild(addBtn);
+  }
+
+  $('photoFileInput').addEventListener('change', e => {
+    pendingPhotos=[...pendingPhotos,...Array.from(e.target.files||[])];
+    renderPhotoGrid(drawerSample?.id||null, pendingPhotos);
+    e.target.value='';
+  });
+
+  async function uploadPendingPhotos(sampleId) {
+    for (const file of pendingPhotos) {
+      const ext=file.name.split('.').pop();
+      const path=`samples/${sampleId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const {error}=await sb.storage.from(BUCKET).upload(path,file,{upsert:false});
+      if(error) console.error('Photo upload error',error);
+    }
+    pendingPhotos=[];
+  }
+
+  // ── activity log ──────────────────────────────────────────────────────────
+  async function loadActivity(sampleId) {
+    const {data}=await sb.from('product_sample_activity').select('*')
+      .eq('sample_id',sampleId).order('created_at',{ascending:false}).limit(30);
+    const log=$('activityLog');
+    if(!data?.length){log.innerHTML='<div style="color:var(--bcn-ink-3);font-size:12px;">No activity yet.</div>';return;}
+    log.innerHTML=data.map(a=>{
+      const d=new Date(a.created_at);
+      const when=d.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+      let detail=a.action;
+      if(a.from_value||a.to_value) detail+=` → ${a.to_value||''}`;
+      if(a.notes) detail+=` — ${a.notes}`;
+      return `<div class="smp-activity-row"><div class="smp-activity-dot"></div><div class="smp-activity-body"><div>${esc(detail)}</div><div class="smp-activity-meta">${esc(a.author_name||a.author_email||'System')} · ${when}</div></div></div>`;
+    }).join('');
+  }
+
+  async function logActivity(sampleId, action, fromValue, toValue, notes) {
+    await sb.from('product_sample_activity').insert({
+      sample_id:sampleId, action,
+      from_value:fromValue||null, to_value:toValue||null, notes:notes||null,
+      author_name:currentUser?.user_metadata?.name||currentUser?.email||null,
+      author_email:currentUser?.email||null,
+      user_id:currentUser?.id||null,
+    });
+  }
+
+  // ── data loading ──────────────────────────────────────────────────────────
+  async function loadSamples() {
+    const {data,error}=await sb.from('product_samples').select('*').order('created_at',{ascending:false});
+    if(error) throw error;
+    allSamples=data||[];
+  }
+
+  async function loadReferenceData() {
+    const [lR,pR,fR,tR]=await Promise.all([
+      sb.from('launch_calendar').select('id,title').order('title'),
+      sb.from('po_headers').select('id,po_name').order('po_name'),
+      sb.from('factories').select('id,factory_name').order('factory_name'),
+      sb.from('product_tags').select('product_type').limit(5000),
+    ]);
+    allLaunches     = lR.data||[];
+    allPOs          = pR.data||[];
+    allFactories    = fR.data||[];
+    allProductTypes = [...new Set((tR.data||[]).map(t=>t.product_type).filter(Boolean))].sort();
+  }
+
+  function fillSelect(id, items, valFn, lblFn, blank) {
+    const sel=$(id); const cur=sel.value;
+    while(sel.options.length>1) sel.remove(1);
+    sel.options[0].textContent=blank;
+    items.forEach(item=>{ const o=document.createElement('option'); o.value=valFn(item); o.textContent=lblFn(item); sel.appendChild(o); });
+    sel.value=cur;
+  }
+
+  function populateLaunchFilter() {
+    const sel=$('fLaunchFilter'); const cur=sel.value;
+    while(sel.options.length>2) sel.remove(2);
+    allLaunches.forEach(l=>{const o=document.createElement('option');o.value=l.id;o.textContent=l.title;sel.appendChild(o);});
+    sel.value=cur;
+  }
+
+  function populateDrawerSelects(sample) {
+    fillSelect('fldFactoryId',   allFactories,    f=>f.id,  f=>f.factory_name, '— select factory —');
+    fillSelect('fldProductType', allProductTypes, t=>t,     t=>t,              '— select type —');
+    fillSelect('fldLaunchId',    allLaunches,     l=>l.id,  l=>l.title,        '— not linked —');
+    fillSelect('fldPoHeaderId',  allPOs,          p=>p.id,  p=>p.po_name,      '— not linked —');
+    $('fldFactoryId').value  = sample?.factory_id   || '';
+    $('fldProductType').value= sample?.product_type || '';
+    $('fldLaunchId').value   = sample?.launch_id    || '';
+    $('fldPoHeaderId').value = sample?.po_header_id || '';
+  }
+
+  async function refreshAll() {
+    await loadSamples();
+    renderKPIs();
+    renderTable();
   }
 
   // ── table ─────────────────────────────────────────────────────────────────
   function filteredSamples() {
-    const q       = (document.getElementById('fSearch').value || '').toLowerCase();
-    const fStatus = document.getElementById('fStatus').value;
-    const fPhoto  = document.getElementById('fPhotoStatus').value;
-    const fLaunch = document.getElementById('fLaunchFilter').value;
-    return allSamples.filter(s => {
-      if (q) {
-        const hay = [s.product_title, s.collection, s.factory_name, s.sample_ref, s.product_type].join(' ').toLowerCase();
-        if (!hay.includes(q)) return false;
-      }
-      if (fStatus && s.sample_status !== fStatus) return false;
-      if (fPhoto  && s.photo_status  !== fPhoto)  return false;
-      if (fLaunch === 'unlinked' && s.launch_id)  return false;
-      if (fLaunch && fLaunch !== 'unlinked' && s.launch_id !== fLaunch) return false;
+    const q=$('fSearch').value.toLowerCase();
+    const fS=$('fStatus').value, fP=$('fPhotoStatus').value, fL=$('fLaunchFilter').value;
+    return allSamples.filter(s=>{
+      if(q){const hay=[s.product_title,s.collection,s.factory_name,s.sample_ref,s.product_type].join(' ').toLowerCase();if(!hay.includes(q))return false;}
+      if(fS&&s.sample_status!==fS)return false;
+      if(fP&&s.photo_status!==fP)return false;
+      if(fL==='unlinked'&&s.launch_id)return false;
+      if(fL&&fL!=='unlinked'&&s.launch_id!==fL)return false;
       return true;
     });
   }
 
   function renderTable() {
-    const rows  = filteredSamples();
-    const tbody = document.getElementById('samplesBody');
-    if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="11" class="smp-empty">No samples match the current filters.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = rows.map(s => {
-      const launch = allLaunches.find(l => l.id === s.launch_id);
-      const po     = allPOs.find(p => p.id === s.po_header_id);
-      const factory = allFactories.find(f => f.id === s.factory_id);
-      const eta = s.bulk_eta ? new Date(s.bulk_eta).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—';
-      const factName = factory?.factory_name || s.factory_name || '—';
+    const rows=filteredSamples();
+    const tbody=$('samplesBody');
+    if(!rows.length){tbody.innerHTML='<tr><td colspan="11" class="smp-empty">No samples match the current filters.</td></tr>';return;}
+    tbody.innerHTML=rows.map(s=>{
+      const launch=allLaunches.find(l=>l.id===s.launch_id);
+      const po=allPOs.find(p=>p.id===s.po_header_id);
+      const factory=allFactories.find(f=>f.id===s.factory_id);
+      const eta=s.bulk_eta?new Date(s.bulk_eta).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—';
+      const factName=factory?.factory_name||s.factory_name||'—';
       return `<tr data-id="${s.id}">
         <td><span class="bcn-mono" style="font-size:10px;">${esc(s.sample_ref)}</span></td>
         <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;">${esc(s.product_title)}</td>
         <td>${esc(factName)}</td>
-        <td>${esc(s.collection || '—')}</td>
+        <td>${esc(s.collection||'—')}</td>
         <td><span class="bcn-mono" style="font-size:11px;">${eta}</span></td>
         <td>${statusPill(s.sample_status)}</td>
         <td>${photoPill(s.photo_status)}</td>
@@ -616,325 +897,166 @@
   }
 
   function renderKPIs() {
-    const all = allSamples;
-    document.getElementById('kpiTotal').textContent     = all.length;
-    document.getElementById('kpiPhoto').textContent     = all.filter(s=>s.photo_status==='pending').length;
-    document.getElementById('kpiWarehouse').textContent = all.filter(s=>s.sample_status==='warehouse_ready').length;
-    document.getElementById('kpiConnected').textContent = all.filter(s=>!!s.launch_id).length;
-    document.getElementById('kpiLive').textContent      = all.filter(s=>s.live_status).length;
+    const a=allSamples;
+    $('kpiTotal').textContent     = a.length;
+    $('kpiPhoto').textContent     = a.filter(s=>s.photo_status==='pending').length;
+    $('kpiWarehouse').textContent = a.filter(s=>s.sample_status==='warehouse_ready').length;
+    $('kpiConnected').textContent = a.filter(s=>!!s.launch_id).length;
+    $('kpiLive').textContent      = a.filter(s=>s.live_status).length;
   }
 
-  // ── data loading ─────────────────────────────────────────────────────────
-  async function loadSamples() {
-    const { data, error } = await sb.from('product_samples').select('*').order('created_at',{ascending:false});
-    if (error) throw error;
-    allSamples = data || [];
-  }
-
-  async function loadReferenceData() {
-    const [launchRes, poRes, factRes, tagRes] = await Promise.all([
-      sb.from('launch_calendar').select('id, title').order('title'),
-      sb.from('po_headers').select('id, po_name').order('po_name'),
-      sb.from('factories').select('id, factory_name').order('factory_name'),
-      sb.from('product_tags').select('product_type, collection').limit(5000),
-    ]);
-    allLaunches  = launchRes.data  || [];
-    allPOs       = poRes.data      || [];
-    allFactories = factRes.data    || [];
-
-    const tags = tagRes.data || [];
-    allProductTypes = [...new Set(tags.map(t => t.product_type).filter(Boolean))].sort();
-    allCollections  = [...new Set(tags.map(t => t.collection).filter(Boolean))].sort();
-  }
-
-  function populateLaunchFilter() {
-    const sel = document.getElementById('fLaunchFilter');
-    const cur = sel.value;
-    while (sel.options.length > 2) sel.remove(2);
-    allLaunches.forEach(l => {
-      const o = document.createElement('option');
-      o.value = l.id; o.textContent = l.title;
-      sel.appendChild(o);
-    });
-    sel.value = cur;
-  }
-
-  function fillSelect(id, items, valueFn, labelFn, blankLabel) {
-    const sel = document.getElementById(id);
-    const cur = sel.value;
-    while (sel.options.length > 1) sel.remove(1);
-    sel.options[0].textContent = blankLabel;
-    items.forEach(item => {
-      const o = document.createElement('option');
-      o.value = valueFn(item); o.textContent = labelFn(item);
-      sel.appendChild(o);
-    });
-    sel.value = cur;
-  }
-
-  function populateDrawerSelects(sample) {
-    fillSelect('fldFactoryId',   allFactories,    f=>f.id,   f=>f.factory_name, '— select factory —');
-    fillSelect('fldProductType', allProductTypes, t=>t,      t=>t,              '— select type —');
-    fillSelect('fldCollection',  allCollections,  c=>c,      c=>c,              '— select collection —');
-    fillSelect('fldLaunchId',    allLaunches,     l=>l.id,   l=>l.title,        '— not linked —');
-    fillSelect('fldPoHeaderId',  allPOs,          p=>p.id,   p=>p.po_name,      '— not linked —');
-
-    // restore values after repopulating
-    document.getElementById('fldFactoryId').value  = sample?.factory_id   || '';
-    document.getElementById('fldProductType').value= sample?.product_type || '';
-    document.getElementById('fldCollection').value = sample?.collection   || '';
-    document.getElementById('fldLaunchId').value   = sample?.launch_id    || '';
-    document.getElementById('fldPoHeaderId').value = sample?.po_header_id || '';
-  }
-
-  async function refreshAll() {
-    await loadSamples();
-    renderKPIs();
-    renderTable();
-  }
-
-  // ── pipeline steps ────────────────────────────────────────────────────────
-  function renderPipeline(currentStatus) {
-    const idx = STATUS_ORDER.indexOf(currentStatus);
-    const container = document.getElementById('pipelineSteps');
-    container.innerHTML = STATUSES.map((s, i) => {
-      let cls = 'smp-step';
-      if (i < idx) cls += ' done';
-      else if (i === idx) cls += ' active';
-      return `<button class="${cls}" data-status="${s.value}">${s.label}</button>`;
-    }).join('');
-    container.querySelectorAll('.smp-step').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const clickedIdx = STATUS_ORDER.indexOf(btn.dataset.status);
-        container.querySelectorAll('.smp-step').forEach((b, i) => {
-          b.className = 'smp-step' + (i < clickedIdx ? ' done' : i === clickedIdx ? ' active' : '');
-        });
-      });
-    });
-  }
-
-  function getPipelineStatus() {
-    const active = document.querySelector('#pipelineSteps .smp-step.active');
-    return active ? active.dataset.status : 'received';
-  }
-
-  // ── drawer ────────────────────────────────────────────────────────────────
+  // ── drawer open/close ─────────────────────────────────────────────────────
   function openDrawer(sample) {
-    drawerSample  = sample || null;
-    pendingPhotos = [];
+    drawerSample=sample||null; pendingPhotos=[];
     populateDrawerSelects(sample);
 
-    const isNew = !sample;
-    document.getElementById('drawerRef').textContent   = isNew ? 'NEW SAMPLE' : (sample.sample_ref || '');
-    document.getElementById('drawerTitle').textContent = isNew ? 'New Product Sample' : sample.product_title;
-    document.getElementById('btnDelete').style.display = isNew ? 'none' : '';
+    const isNew=!sample;
+    $('drawerRef').textContent   = isNew ? 'NEW SAMPLE' : (sample.sample_ref||'');
+    $('drawerTitle').textContent = isNew ? 'New Product Sample' : sample.product_title;
+    $('btnDelete').style.display = isNew ? 'none' : '';
 
-    document.getElementById('fldTitle').value         = sample?.product_title      || '';
-    document.getElementById('fldBulkEta').value       = sample?.bulk_eta           || '';
-    document.getElementById('fldOnHandLabel').value   = sample?.on_hand_label      || '';
-    document.getElementById('fldSizesPickedUp').value = sample?.sizes_picked_up    || '';
-    document.getElementById('fldPhotoStatus').value   = sample?.photo_status       || 'pending';
-    document.getElementById('fldPhotoDate').value     = sample?.photo_completed_at || '';
-    document.getElementById('fldCopyStatus').value    = sample?.copy_status        || 'pending';
-    document.getElementById('fldLiveStatus').checked  = sample?.live_status        || false;
-    document.getElementById('fldNotes').value         = sample?.notes              || '';
+    $('fldTitle').value          = sample?.product_title        || '';
+    $('fldCollection').value     = sample?.collection           || '';
+    $('fldBulkEta').value        = sample?.bulk_eta             || '';
+    $('fldOnHandLabel').value    = sample?.on_hand_label        || '';
+    $('fldReceivedAt').value     = sample?.received_at          || '';
+    $('fldSentAt').value         = sample?.sent_at              || '';
+    $('fldWarehouseReadyAt').value= sample?.warehouse_ready_at  || '';
+    $('fldPickedUpAt').value     = sample?.picked_up_at         || '';
+    $('fldPhotoReceivedAt').value= sample?.photo_received_at    || '';
+    $('fldPhotoStatus').value    = sample?.photo_status         || 'pending';
+    $('fldCopyStatus').value     = sample?.copy_status          || 'pending';
+    $('fldLiveStatus').checked   = sample?.live_status          || false;
+    $('fldNotes').value          = sample?.notes                || '';
+    $('fldProductMasterId').value= sample?.product_master_id    || '';
+
+    // restore linked product chip
+    linkedProductId    = sample?.product_master_id    || null;
+    linkedProductTitle = sample?.product_title_snapshot || null;
+    $('prodSearchInput').value='';
+    $('prodSearchResults').classList.remove('open');
+    updateLinkedChip();
 
     renderPipeline(sample?.sample_status || 'received');
-    renderAllSizeGrids(sample?.size_requests || '', sample?.sizes_ready_warehouse || '');
-    renderPhotoThumbs(sample?.id || null, []);
+    renderAllSizeGrids(sample?.size_requests||'', sample?.sizes_ready_warehouse||'', sample?.sizes_picked_up||'');
+    renderPhotoGrid(sample?.id||null, []);
 
-    if (sample?.id) loadActivity(sample.id);
-    else document.getElementById('activityLog').innerHTML = '<div style="color:var(--bcn-ink-3);font-size:12px;">Save to start tracking activity.</div>';
+    if(sample?.id) loadActivity(sample.id);
+    else $('activityLog').innerHTML='<div style="color:var(--bcn-ink-3);font-size:12px;">Save to start tracking activity.</div>';
 
-    document.getElementById('backdrop').classList.add('open');
-    document.getElementById('drawer').classList.add('open');
-    document.getElementById('drawer').setAttribute('aria-hidden','false');
+    $('backdrop').classList.add('open');
+    $('drawer').classList.add('open');
+    $('drawer').setAttribute('aria-hidden','false');
   }
 
   function closeDrawer() {
-    document.getElementById('backdrop').classList.remove('open');
-    document.getElementById('drawer').classList.remove('open');
-    document.getElementById('drawer').setAttribute('aria-hidden','true');
-    drawerSample  = null;
-    pendingPhotos = [];
-  }
-
-  // ── photo thumbnails ──────────────────────────────────────────────────────
-  async function renderPhotoThumbs(sampleId, stagedFiles) {
-    const row = document.getElementById('photoRow');
-    let existingImgs = [];
-    if (sampleId) {
-      const { data } = await sb.storage.from(BUCKET).list(`samples/${sampleId}`,{limit:50});
-      existingImgs = (data||[]).filter(f=>f.name!=='.emptyFolderPlaceholder');
-    }
-    row.innerHTML = '';
-    existingImgs.forEach(f => {
-      const { data: u } = sb.storage.from(BUCKET).getPublicUrl(`samples/${sampleId}/${f.name}`);
-      const img = document.createElement('img');
-      img.className='smp-thumb'; img.src=u.publicUrl; img.title=f.name;
-      img.addEventListener('click',()=>window.open(u.publicUrl,'_blank'));
-      row.appendChild(img);
-    });
-    stagedFiles.forEach(file => {
-      const img = document.createElement('img');
-      img.className='smp-thumb'; img.src=URL.createObjectURL(file);
-      img.title=file.name+' (staged)'; img.style.opacity='0.6';
-      row.appendChild(img);
-    });
-    const addBtn = document.createElement('button');
-    addBtn.className='smp-thumb-add'; addBtn.type='button'; addBtn.textContent='+';
-    addBtn.addEventListener('click',()=>document.getElementById('photoFileInput').click());
-    row.appendChild(addBtn);
-  }
-
-  document.getElementById('photoFileInput').addEventListener('change', e => {
-    pendingPhotos = [...pendingPhotos, ...Array.from(e.target.files||[])];
-    renderPhotoThumbs(drawerSample?.id||null, pendingPhotos);
-    e.target.value='';
-  });
-
-  async function uploadPendingPhotos(sampleId) {
-    for (const file of pendingPhotos) {
-      const ext  = file.name.split('.').pop();
-      const path = `samples/${sampleId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error } = await sb.storage.from(BUCKET).upload(path, file, {upsert:false});
-      if (error) console.error('Photo upload error', error);
-    }
-    pendingPhotos = [];
-  }
-
-  // ── activity log ──────────────────────────────────────────────────────────
-  async function loadActivity(sampleId) {
-    const { data } = await sb.from('product_sample_activity').select('*')
-      .eq('sample_id', sampleId).order('created_at',{ascending:false}).limit(30);
-    const log = document.getElementById('activityLog');
-    if (!data?.length) { log.innerHTML='<div style="color:var(--bcn-ink-3);font-size:12px;">No activity yet.</div>'; return; }
-    log.innerHTML = data.map(a => {
-      const d = new Date(a.created_at);
-      const when = d.toLocaleDateString('en-US',{month:'short',day:'numeric'})+' '+d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
-      let detail = a.action;
-      if (a.from_value||a.to_value) detail += ` → ${a.to_value||''}`;
-      if (a.notes) detail += ` — ${a.notes}`;
-      return `<div class="smp-activity-row">
-        <div class="smp-activity-dot"></div>
-        <div class="smp-activity-body">
-          <div>${esc(detail)}</div>
-          <div class="smp-activity-meta">${esc(a.author_name||a.author_email||'Unknown')} · ${when}</div>
-        </div>
-      </div>`;
-    }).join('');
-  }
-
-  async function logActivity(sampleId, action, fromValue, toValue, notes) {
-    await sb.from('product_sample_activity').insert({
-      sample_id: sampleId, action,
-      from_value: fromValue||null, to_value: toValue||null, notes: notes||null,
-      author_name:  currentUser?.user_metadata?.name||currentUser?.email||null,
-      author_email: currentUser?.email||null,
-      user_id:      currentUser?.id||null,
-    });
+    $('backdrop').classList.remove('open');
+    $('drawer').classList.remove('open');
+    $('drawer').setAttribute('aria-hidden','true');
+    drawerSample=null; pendingPhotos=[]; linkedProductId=null; linkedProductTitle=null;
   }
 
   // ── save ──────────────────────────────────────────────────────────────────
   async function saveSample() {
-    const title = document.getElementById('fldTitle').value.trim();
-    if (!title) { setStatus('Product Title is required.', 'neg', 4000); return; }
+    const title=$('fldTitle').value.trim();
+    if(!title){setStatus('Product Title is required.','neg',4000);return;}
 
-    const newStatus      = getPipelineStatus();
-    const oldStatus      = drawerSample?.sample_status;
-    const newPhotoStatus = document.getElementById('fldPhotoStatus').value;
-    const oldPhotoStatus = drawerSample?.photo_status;
+    const newStatus=getPipelineStatus();
+    const oldStatus=drawerSample?.sample_status;
+    const newPhoto=$('fldPhotoStatus').value;
+    const oldPhoto=drawerSample?.photo_status;
 
-    // resolve factory_name from the selected factory for table display fallback
-    const factoryId   = document.getElementById('fldFactoryId').value || null;
-    const factoryName = allFactories.find(f=>f.id===factoryId)?.factory_name || null;
+    const factoryId=$('fldFactoryId').value||null;
+    const factoryName=allFactories.find(f=>f.id===factoryId)?.factory_name||null;
 
     const payload = {
-      product_title:         title,
-      factory_id:            factoryId,
-      factory_name:          factoryName,
-      product_type:          document.getElementById('fldProductType').value || null,
-      collection:            document.getElementById('fldCollection').value  || null,
-      bulk_eta:              document.getElementById('fldBulkEta').value     || null,
-      on_hand_label:         document.getElementById('fldOnHandLabel').value || null,
-      size_requests:         getCheckedSizes('req'),
-      sizes_ready_warehouse: getCheckedSizes('whs'),
-      sizes_picked_up:       document.getElementById('fldSizesPickedUp').value.trim() || null,
-      sample_status:         newStatus,
-      photo_status:          newPhotoStatus,
-      photo_completed_at:    document.getElementById('fldPhotoDate').value   || null,
-      copy_status:           document.getElementById('fldCopyStatus').value,
-      live_status:           document.getElementById('fldLiveStatus').checked,
-      launch_id:             document.getElementById('fldLaunchId').value    || null,
-      po_header_id:          document.getElementById('fldPoHeaderId').value  || null,
-      notes:                 document.getElementById('fldNotes').value.trim()|| null,
+      product_title:          title,
+      factory_id:             factoryId,
+      factory_name:           factoryName,
+      product_type:           $('fldProductType').value   || null,
+      collection:             $('fldCollection').value.trim() || null,
+      bulk_eta:               $('fldBulkEta').value       || null,
+      on_hand_label:          $('fldOnHandLabel').value   || null,
+      received_at:            $('fldReceivedAt').value    || null,
+      sent_at:                $('fldSentAt').value        || null,
+      warehouse_ready_at:     $('fldWarehouseReadyAt').value || null,
+      picked_up_at:           $('fldPickedUpAt').value    || null,
+      photo_received_at:      $('fldPhotoReceivedAt').value || null,
+      size_requests:          getCheckedSizes('req'),
+      sizes_ready_warehouse:  getCheckedSizes('whs'),
+      sizes_picked_up:        getCheckedSizes('pck'),
+      sample_status:          newStatus,
+      photo_status:           newPhoto,
+      copy_status:            $('fldCopyStatus').value,
+      live_status:            $('fldLiveStatus').checked,
+      launch_id:              $('fldLaunchId').value      || null,
+      po_header_id:           $('fldPoHeaderId').value    || null,
+      product_master_id:      linkedProductId             || null,
+      product_title_snapshot: linkedProductTitle          || null,
+      notes:                  $('fldNotes').value.trim()  || null,
     };
 
     setStatus('Saving…','info');
     let sampleId;
-    if (drawerSample) {
-      const { error } = await sb.from('product_samples').update(payload).eq('id', drawerSample.id);
-      if (error) { setStatus(error.message,'neg',6000); return; }
-      sampleId = drawerSample.id;
+    if(drawerSample) {
+      const {error}=await sb.from('product_samples').update(payload).eq('id',drawerSample.id);
+      if(error){setStatus(error.message,'neg',6000);return;}
+      sampleId=drawerSample.id;
     } else {
-      const { data, error } = await sb.from('product_samples').insert(payload).select().single();
-      if (error) { setStatus(error.message,'neg',6000); return; }
-      sampleId = data.id;
+      const {data,error}=await sb.from('product_samples').insert(payload).select().single();
+      if(error){setStatus(error.message,'neg',6000);return;}
+      sampleId=data.id;
     }
 
-    if (pendingPhotos.length) await uploadPendingPhotos(sampleId);
+    if(pendingPhotos.length) await uploadPendingPhotos(sampleId);
 
-    if (!drawerSample) await logActivity(sampleId,'created',null,newStatus);
-    if (oldStatus && oldStatus !== newStatus) await logActivity(sampleId,'status_changed',oldStatus,newStatus);
-    if (oldPhotoStatus && oldPhotoStatus !== newPhotoStatus) await logActivity(sampleId,'photo_status_changed',oldPhotoStatus,newPhotoStatus);
+    if(!drawerSample)      await logActivity(sampleId,'created',null,newStatus);
+    if(oldStatus&&oldStatus!==newStatus) await logActivity(sampleId,'status_changed',oldStatus,newStatus);
+    if(oldPhoto&&oldPhoto!==newPhoto)    await logActivity(sampleId,'photo_status_changed',oldPhoto,newPhoto);
 
-    clearStatus();
-    setStatus('Saved.','pos',2500);
-    await refreshAll();
-    closeDrawer();
+    clearStatus(); setStatus('Saved.','pos',2500);
+    await refreshAll(); closeDrawer();
   }
 
-  // ── delete ────────────────────────────────────────────────────────────────
   async function deleteSample() {
-    if (!drawerSample) return;
-    if (!confirm(`Delete "${drawerSample.product_title}"? This cannot be undone.`)) return;
-    const { error } = await sb.from('product_samples').delete().eq('id', drawerSample.id);
-    if (error) { setStatus(error.message,'neg',6000); return; }
-    await refreshAll();
-    closeDrawer();
+    if(!drawerSample) return;
+    if(!confirm(`Delete "${drawerSample.product_title}"? This cannot be undone.`)) return;
+    const {error}=await sb.from('product_samples').delete().eq('id',drawerSample.id);
+    if(error){setStatus(error.message,'neg',6000);return;}
+    await refreshAll(); closeDrawer();
   }
 
   // ── events ────────────────────────────────────────────────────────────────
-  document.getElementById('btnNewSample').addEventListener('click', ()=>openDrawer(null));
-  document.getElementById('btnCloseDrawer').addEventListener('click', closeDrawer);
-  document.getElementById('btnCancelDrawer').addEventListener('click', closeDrawer);
-  document.getElementById('backdrop').addEventListener('click', closeDrawer);
-  document.getElementById('btnSave').addEventListener('click', saveSample);
-  document.getElementById('btnDelete').addEventListener('click', deleteSample);
+  $('btnNewSample').addEventListener('click',()=>openDrawer(null));
+  $('btnCloseDrawer').addEventListener('click',closeDrawer);
+  $('btnCancelDrawer').addEventListener('click',closeDrawer);
+  $('backdrop').addEventListener('click',closeDrawer);
+  $('btnSave').addEventListener('click',saveSample);
+  $('btnDelete').addEventListener('click',deleteSample);
 
-  document.getElementById('samplesBody').addEventListener('click', e => {
-    const tr = e.target.closest('tr[data-id]');
-    if (!tr) return;
-    const sample = allSamples.find(s=>s.id===tr.dataset.id);
-    if (sample) openDrawer(sample);
+  $('samplesBody').addEventListener('click',e=>{
+    const tr=e.target.closest('tr[data-id]');
+    if(!tr)return;
+    const s=allSamples.find(x=>x.id===tr.dataset.id);
+    if(s)openDrawer(s);
   });
 
-  ['fSearch','fStatus','fPhotoStatus','fLaunchFilter'].forEach(id => {
-    const el = document.getElementById(id);
-    el.addEventListener('input', renderTable);
-    el.addEventListener('change', renderTable);
+  ['fSearch','fStatus','fPhotoStatus','fLaunchFilter'].forEach(id=>{
+    const el=$(id);
+    el.addEventListener('input',renderTable);
+    el.addEventListener('change',renderTable);
   });
 
   // ── boot ──────────────────────────────────────────────────────────────────
   async function boot() {
-    if (REQUIRE_AUTH) {
-      const { data, error } = await sb.auth.getSession();
-      if (error || !data?.session) {
-        const next = encodeURIComponent(location.pathname+location.search);
-        window.location.href = REDIRECT_TO || ('/pages/login.html?next='+next);
+    if(REQUIRE_AUTH){
+      const {data,error}=await sb.auth.getSession();
+      if(error||!data?.session){
+        const next=encodeURIComponent(location.pathname+location.search);
+        window.location.href=REDIRECT_TO||('/pages/login.html?next='+next);
         return;
       }
-      currentUser = data.session.user;
+      currentUser=data.session.user;
     }
     try {
       await Promise.all([loadReferenceData(), loadSamples()]);
@@ -947,13 +1069,12 @@
     }
   }
 
-  if (window.SiloChrome) {
+  if(window.SiloChrome) {
     window.SiloChrome.mount({
-      appEl: '#silo-app',
-      active: 'creative/product-samples',
-      user: { email:'', role:'MEMBER' },
-      crumbs: ['Creative','Product Samples'],
-      supabaseClient: sb,
+      appEl:'#silo-app', active:'creative/product-samples',
+      user:{email:'',role:'MEMBER'},
+      crumbs:['Creative','Product Samples'],
+      supabaseClient:sb,
     });
   }
 
