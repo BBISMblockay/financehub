@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SILO — Product Overview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:       oklch(0.985 0.002 240);
+  --surface:  #ffffff;
+  --sunken:   oklch(0.965 0.003 240);
+  --band:     oklch(0.13 0.01 240);
+  --band-hi:  oklch(0.19 0.012 240);
+  --band-ink: oklch(0.96 0.005 240);
+  --band-2:   oklch(0.70 0.01 240);
+  --band-3:   oklch(0.50 0.012 240);
+  --border:   oklch(0.89 0.005 240);
+  --border-s: oklch(0.82 0.008 240);
+  --ink:      oklch(0.15 0.012 240);
+  --ink-2:    oklch(0.38 0.012 240);
+  --ink-3:    oklch(0.55 0.01 240);
+  --ink-4:    oklch(0.72 0.008 240);
+  --accent:   oklch(0.55 0.20 245);
+  --acc-soft: oklch(0.96 0.04 245);
+  --acc-bdr:  oklch(0.82 0.10 245);
+  --pos:      oklch(0.58 0.16 145);
+  --pos-soft: oklch(0.96 0.05 145);
+  --pos-bdr:  oklch(0.85 0.08 145);
+  --neg:      oklch(0.58 0.20 25);
+  --neg-soft: oklch(0.97 0.04 25);
+  --warn:     oklch(0.72 0.16 75);
+  --warn-soft:oklch(0.97 0.05 75);
+  --mono: "IBM Plex Mono", monospace;
+  --sans: "Plus Jakarta Sans", system-ui, sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 100%; height: 100%; overflow: hidden; background: #000; font-family: var(--sans); }
+
+/* ── DECK ── */
+.deck { width: 100%; height: 100%; position: relative; }
+.slide {
+  position: absolute; inset: 0;
+  display: flex;
+  opacity: 0; pointer-events: none;
+  transition: opacity .35s ease;
+}
+.slide.active { opacity: 1; pointer-events: all; }
+
+/* ── NAV ── */
+.nav {
+  position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 16px; z-index: 100;
+}
+.nav-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: rgba(255,255,255,.3); cursor: pointer; transition: background .2s;
+}
+.nav-dot.on { background: #fff; }
+.nav-btn {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.2);
+  color: #fff; font-size: 14px; cursor: pointer; display: grid; place-items: center;
+  transition: background .15s;
+}
+.nav-btn:hover { background: rgba(255,255,255,.22); }
+.slide-counter {
+  font-family: var(--mono); font-size: 10px; color: rgba(255,255,255,.45);
+  letter-spacing: .1em; min-width: 44px; text-align: center;
+}
+
+/* ── SPLIT LAYOUT ── */
+.left {
+  width: 38%; background: var(--band);
+  display: flex; flex-direction: column; justify-content: center;
+  padding: 48px 44px; gap: 20px;
+}
+.right {
+  flex: 1; background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  padding: 28px; overflow: hidden;
+}
+.tag {
+  font-family: var(--mono); font-size: 10px; font-weight: 600;
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--accent); background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255,255,255,.1); padding: 4px 10px;
+  display: inline-block; width: fit-content;
+}
+.left h2 { font-size: 30px; font-weight: 800; color: #fff; line-height: 1.15; letter-spacing: -.02em; }
+.left p { font-size: 14px; color: var(--band-2); line-height: 1.65; }
+.left .stats { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.stat { display: flex; align-items: baseline; gap: 10px; }
+.stat-n { font-family: var(--mono); font-size: 24px; font-weight: 600; color: #fff; }
+.stat-l { font-size: 12px; color: var(--band-2); }
+
+/* ── HERO SLIDE ── */
+.hero-slide {
+  background: var(--band);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 0; text-align: center; padding: 60px;
+}
+.hero-logo {
+  width: 52px; height: 52px; background: var(--accent);
+  display: grid; place-items: center; margin: 0 auto 28px;
+}
+.hero-logo span { font-family: var(--mono); font-weight: 700; font-size: 18px; color: #fff; letter-spacing: .04em; }
+.hero-slide h1 { font-size: 64px; font-weight: 800; color: #fff; letter-spacing: -.04em; line-height: 1; }
+.hero-sub { font-size: 22px; color: var(--band-2); margin-top: 16px; font-weight: 400; }
+.hero-chips { display: flex; gap: 12px; justify-content: center; margin-top: 36px; flex-wrap: wrap; }
+.chip {
+  font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+  padding: 8px 16px; border: 1px solid var(--band-hi); color: var(--band-2);
+}
+.chip b { color: #fff; }
+.hero-tools { display: flex; gap: 8px; justify-content: center; margin-top: 48px; flex-wrap: wrap; }
+.tool-pill {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .08em;
+  padding: 5px 12px; background: var(--band-hi); color: var(--band-2);
+  text-transform: uppercase;
+}
+
+/* ── APP FRAME ── */
+.app-frame {
+  background: var(--surface); border: 1px solid var(--border-s);
+  display: flex; width: 100%; max-width: 660px; height: 420px;
+  box-shadow: 0 8px 40px rgba(0,0,0,.12); overflow: hidden;
+}
+.sidebar {
+  width: 52px; background: var(--band); display: flex; flex-direction: column;
+  align-items: center; padding: 10px 0; gap: 4px; flex-shrink: 0;
+}
+.sb-logo {
+  width: 28px; height: 28px; background: var(--accent);
+  display: grid; place-items: center; margin-bottom: 10px;
+}
+.sb-logo span { font-family: var(--mono); font-size: 10px; font-weight: 700; color: #fff; }
+.sb-item {
+  width: 36px; height: 36px; border-radius: 3px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px; cursor: pointer; color: var(--band-2); position: relative;
+  font-family: var(--mono); font-size: 7px; letter-spacing: .04em; text-transform: uppercase;
+}
+.sb-item:hover { background: var(--band-hi); color: var(--band-ink); }
+.sb-item.active {
+  background: var(--band-hi); color: #fff;
+}
+.sb-item.active::before {
+  content: ''; position: absolute; left: 0; top: 8px; bottom: 8px;
+  width: 2px; background: var(--accent);
+}
+.sb-icon { font-size: 13px; line-height: 1; }
+.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+
+/* ── PAGE PARTS ── */
+.pg-header {
+  padding: 10px 14px; background: var(--surface);
+  border-bottom: 1px solid var(--border); flex-shrink: 0;
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 12px;
+}
+.pg-title { font-size: 15px; font-weight: 700; color: var(--ink); letter-spacing: -.01em; }
+.pg-sub { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+.pg-actions { display: flex; gap: 5px; flex-shrink: 0; }
+.btn-sm {
+  padding: 4px 10px; font-family: var(--mono); font-size: 10px; font-weight: 600;
+  letter-spacing: .06em; text-transform: uppercase; border: 1px solid var(--border-s);
+  background: var(--surface); color: var(--ink-2); cursor: pointer;
+}
+.btn-sm.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.kpi-band {
+  display: flex; background: var(--surface);
+  border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.kpi {
+  flex: 1; padding: 8px 12px; border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.kpi:last-child { border-right: none; }
+.kpi-l { font-family: var(--mono); font-size: 8px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .1em; }
+.kpi-v { font-family: var(--mono); font-size: 17px; font-weight: 600; color: var(--ink); }
+.kpi-d { font-family: var(--mono); font-size: 9px; }
+.kpi-d.pos { color: var(--pos); }
+.kpi-d.neg { color: var(--neg); }
+
+.filter-bar {
+  display: flex; align-items: center; background: var(--sunken);
+  border-bottom: 1px solid var(--border); padding: 0 12px; height: 28px; gap: 0;
+  font-family: var(--mono); font-size: 10px; color: var(--ink-3); flex-shrink: 0;
+}
+.fb-item { padding-right: 12px; margin-right: 12px; border-right: 1px solid var(--border); height: 100%; display: flex; align-items: center; gap: 6px; }
+.fb-v { color: var(--ink); font-weight: 600; }
+.fb-meta { margin-left: auto; }
+
+.content { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 0; }
+
+/* tables */
+.tbl { width: 100%; border-collapse: collapse; font-size: 11px; }
+.tbl th { padding: 5px 10px; font-family: var(--sans); font-size: 10px; font-weight: 600; color: var(--ink-3); background: var(--sunken); border-bottom: 1px solid var(--border-s); text-align: left; position: sticky; top: 0; }
+.tbl th.r { text-align: right; }
+.tbl td { padding: 6px 10px; border-bottom: 1px solid var(--border); color: var(--ink); }
+.tbl td.r { text-align: right; font-family: var(--mono); font-size: 10px; }
+.tbl td.muted { color: var(--ink-3); font-size: 10px; }
+.tbl tr:hover td { background: var(--sunken); }
+.tbl tr.sel td { background: var(--acc-soft); }
+
+/* pills */
+.pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 7px; font-size: 10px; font-weight: 600;
+  font-family: var(--mono); letter-spacing: .02em;
+}
+.pill.pos { background: var(--pos-soft); color: var(--pos); }
+.pill.neg { background: var(--neg-soft); color: var(--neg); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.acc { background: var(--acc-soft); color: var(--accent); }
+
+/* cards */
+.card { background: var(--surface); border: 1px solid var(--border-s); }
+.card-hdr {
+  padding: 7px 10px; border-bottom: 1px solid var(--border-s);
+  font-size: 11px; font-weight: 700; color: var(--ink);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.card-hdr.dark { background: var(--band); color: #fff; border-color: var(--band); }
+.card-body { padding: 10px; }
+
+/* profile layout */
+.profile-wrap { display: flex; flex: 1; gap: 0; overflow: hidden; }
+.profile-main { flex: 1; padding: 12px; display: flex; flex-direction: column; gap: 10px; overflow: auto; }
+.profile-aside { width: 180px; border-left: 1px solid var(--border); background: var(--sunken); display: flex; flex-direction: column; }
+.profile-hero { background: var(--band); padding: 14px; display: flex; align-items: center; gap: 10px; }
+.avatar { width: 34px; height: 34px; background: var(--accent); display: grid; place-items: center; font-family: var(--mono); font-size: 12px; font-weight: 700; color: #fff; flex-shrink: 0; }
+.profile-name { color: #fff; font-weight: 700; font-size: 13px; }
+.profile-role { font-family: var(--mono); font-size: 8px; color: var(--band-2); text-transform: uppercase; letter-spacing: .1em; margin-top: 2px; }
+.queue-hdr { padding: 8px 10px; font-family: var(--mono); font-size: 9px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 6px; }
+.badge { background: var(--accent); color: #fff; font-family: var(--mono); font-size: 8px; font-weight: 700; padding: 1px 5px; }
+.queue-item { padding: 8px 10px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 3px; }
+.qi-label { font-size: 11px; font-weight: 600; color: var(--ink); }
+.qi-sub { font-size: 10px; color: var(--ink-3); }
+.qi-dot { width: 6px; height: 6px; display: inline-block; margin-right: 5px; }
+
+/* launch calendar */
+.lc-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--border); flex: 1; }
+.lc-cell { background: var(--surface); padding: 8px; min-height: 70px; display: flex; flex-direction: column; gap: 4px; }
+.lc-month { font-family: var(--mono); font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--ink-3); }
+.lc-event { padding: 4px 7px; font-size: 10px; font-weight: 600; color: #fff; }
+.lc-event.main { background: var(--accent); }
+.lc-event.campaign { background: var(--pos); }
+.lc-event.filler { background: var(--warn); color: var(--ink); }
+
+/* PO builder */
+.po-form { padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.form-row.three { grid-template-columns: 1fr 1fr 1fr; }
+.field-g { display: flex; flex-direction: column; gap: 3px; }
+.field-l { font-family: var(--mono); font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: var(--ink-3); }
+.field-v { padding: 5px 8px; border: 1px solid var(--border-s); font-size: 11px; font-weight: 600; color: var(--ink); background: var(--surface); font-family: var(--sans); }
+.field-v.accent { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+
+/* costing flow */
+.cost-flow { display: flex; align-items: center; gap: 6px; padding: 12px; flex-wrap: wrap; }
+.cost-step {
+  flex: 1; min-width: 80px; padding: 10px; border: 1px solid var(--border-s); background: var(--surface);
+  display: flex; flex-direction: column; gap: 4px; text-align: center;
+}
+.cost-step.total { border-color: var(--accent); background: var(--acc-soft); }
+.cs-l { font-family: var(--mono); font-size: 8px; text-transform: uppercase; letter-spacing: .1em; color: var(--ink-3); }
+.cs-v { font-family: var(--mono); font-size: 16px; font-weight: 700; color: var(--ink); }
+.cost-step.total .cs-v { color: var(--accent); }
+.cs-d { font-size: 9px; color: var(--ink-3); }
+.cost-arrow { color: var(--ink-4); font-size: 14px; flex-shrink: 0; }
+
+/* payment list */
+.pay-item { padding: 8px 10px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; }
+.pay-item.sel { background: var(--acc-soft); }
+.pay-info { flex: 1; min-width: 0; }
+.pay-title { font-size: 11px; font-weight: 600; color: var(--ink); }
+.pay-sub { font-size: 10px; color: var(--ink-3); margin-top: 1px; }
+.pay-amt { font-family: var(--mono); font-size: 11px; font-weight: 600; color: var(--ink); flex-shrink: 0; }
+
+/* projection matrix */
+.proj-table { width: 100%; border-collapse: collapse; font-size: 10px; }
+.proj-table th { padding: 5px 8px; font-family: var(--mono); font-size: 9px; text-align: right; background: var(--sunken); border-bottom: 1px solid var(--border-s); border-right: 1px solid var(--border); color: var(--ink-3); font-weight: 600; }
+.proj-table th:first-child { text-align: left; }
+.proj-table td { padding: 6px 8px; border-bottom: 1px solid var(--border); border-right: 1px solid var(--border); text-align: right; font-family: var(--mono); font-size: 10px; color: var(--ink); }
+.proj-table td:first-child { text-align: left; font-family: var(--sans); font-weight: 600; font-size: 11px; }
+.proj-table tr.totals td { background: var(--band); color: #fff; font-weight: 700; font-size: 10px; }
+.proj-table tr.totals td:first-child { color: rgba(255,255,255,.6); font-family: var(--mono); font-size: 9px; letter-spacing: .08em; text-transform: uppercase; }
+.proj-table td.hi { background: var(--acc-soft); color: var(--accent); font-weight: 600; }
+
+/* activity trail */
+.activity { display: flex; flex-direction: column; }
+.act-item { padding: 6px 10px; border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: flex-start; }
+.act-time { font-family: var(--mono); font-size: 9px; color: var(--ink-4); flex-shrink: 0; width: 56px; }
+.act-text { font-size: 10px; color: var(--ink-2); line-height: 1.4; }
+.act-text b { color: var(--ink); font-weight: 600; }
+
+/* inventory */
+.inv-status { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+.inv-status.ok { background: var(--pos); }
+.inv-status.warn { background: var(--warn); }
+.inv-status.low { background: var(--neg); }
+</style>
+</head>
+<body>
+<div class="deck" id="deck">
+
+<!-- ── SLIDE 1: HERO ── -->
+<div class="slide active hero-slide">
+  <div class="hero-logo"><span>SI</span></div>
+  <h1>SILO</h1>
+  <div class="hero-sub">Your entire operation, one screen.</div>
+  <div class="hero-chips">
+    <div class="chip"><b>29</b> launches tracked</div>
+    <div class="chip"><b>141</b> suppliers</div>
+    <div class="chip"><b>7</b> team members</div>
+    <div class="chip"><b>29</b> purchase orders</div>
+  </div>
+  <div class="hero-tools">
+    <div class="tool-pill">PO Builder</div>
+    <div class="tool-pill">PO Costing</div>
+    <div class="tool-pill">Launch Workbench</div>
+    <div class="tool-pill">Payment Requests</div>
+    <div class="tool-pill">Revenue Projections</div>
+    <div class="tool-pill">Planning Scenarios</div>
+    <div class="tool-pill">Inventory</div>
+    <div class="tool-pill">Profile &amp; Access</div>
+  </div>
+</div>
+
+<!-- ── SLIDE 2: DASHBOARD ── -->
+<div class="slide">
+  <div class="left">
+    <div class="tag">Dashboard</div>
+    <h2>Know what needs you the moment you log in.</h2>
+    <p>Your profile page surfaces every open item across every tool — overdue POs, upcoming launches, pending approvals, projections to review. No digging. No missed follow-ups.</p>
+    <div class="stats">
+      <div class="stat"><span class="stat-n">4</span><span class="stat-l">items needing attention right now</span></div>
+      <div class="stat"><span class="stat-n">5</span><span class="stat-l">data sources checked on every load</span></div>
+    </div>
+  </div>
+  <div class="right">
+    <div class="app-frame">
+      <div class="sidebar">
+        <div class="sb-logo"><span>SI</span></div>
+        <div class="sb-item"><div class="sb-icon">◈</div><div>Fin</div></div>
+        <div class="sb-item"><div class="sb-icon">▦</div><div>PO</div></div>
+        <div class="sb-item"><div class="sb-icon">◉</div><div>Lnch</div></div>
+        <div class="sb-item"><div class="sb-icon">▤</div><div>Plan</div></div>
+        <div class="sb-item active"><div class="sb-icon">◎</div><div>Prof</div></div>
+      </div>
+      <div class="main">
+        <div class="profile-hero">
+          <div class="avatar">BE</div>
+          <div>
+            <div class="profile-name">Blake Evetts</div>
+            <div class="profile-role">Admin · Finance</div>
+          </div>
+        </div>
+        <div class="profile-wrap">
+          <div class="profile-main">
+            <div class="card">
+              <div class="card-hdr">Profile settings</div>
+              <div class="card-body" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+                <div class="field-g"><div class="field-l">Full name</div><div class="field-v accent">Blake Evetts</div></div>
+                <div class="field-g"><div class="field-l">Default page</div><div class="field-v">/v2/finance.html</div></div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-hdr">Quick links</div>
+              <div class="card-body" style="display:flex;gap:6px;flex-wrap:wrap;">
+                <div class="btn-sm">PO Builder</div>
+                <div class="btn-sm">Launch Cal</div>
+                <div class="btn-sm">Projections</div>
+                <div class="btn-sm primary">Inventory</div>
+              </div>
+            </div>
+          </div>
+          <div class="profile-aside">
+            <div class="queue-hdr">Work Queue <span class="badge">4</span></div>
+            <div class="queue-item">
+              <div class="qi-label"><span class="qi-dot" style="background:var(--neg);border-radius:50%;"></span>2 POs need action</div>
+              <div class="qi-sub">Overdue shipment updates</div>
+            </div>
+            <div class="queue-item">
+              <div class="qi-label"><span class="qi-dot" style="background:var(--warn);border-radius:50%;"></span>Launch in 4 days</div>
+              <div class="qi-sub">Summer Drop — assets missing</div>
+            </div>
+            <div class="queue-item">
+              <div class="qi-label"><span class="qi-dot" style="background:var(--accent);border-radius:50%;"></span>Payment pending</div>
+              <div class="qi-sub">$4,200 · awaiting approval</div>
+            </div>
+            <div class="queue-item">
+              <div class="qi-label"><span class="qi-dot" style="background:var(--ink-4);border-radius:50%;"></span>Projection to update</div>
+              <div class="qi-sub">July revenue — last edited 12d ago</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 3: LAUNCH WORKBENCH ── -->
+<div class="slide">
+  <div class="left">
+    <div class="tag">Launch Workbench</div>
+    <h2>Every launch, perfectly coordinated.</h2>
+    <p>Every drop, campaign, and seasonal push lives here with its own timeline, task list, assets, channel plan, and team comments. See what's ready and what's at risk before go-live.</p>
+    <div class="stats">
+      <div class="stat"><span class="stat-n">29</span><span class="stat-l">launches tracked Jun–Jul 2026</span></div>
+      <div class="stat"><span class="stat-n">6</span><span class="stat-l">tabs per launch: tasks, assets, channels, comments, products, links</span></div>
+    </div>
+  </div>
+  <div class="right">
+    <div class="app-frame">
+      <div class="sidebar">
+        <div class="sb-logo"><span>SI</span></div>
+        <div class="sb-item"><div class="sb-icon">◈</div><div>Fin</div></div>
+        <div class="sb-item"><div class="sb-icon">▦</div><div>PO</div></div>
+        <div class="sb-item active"><div class="sb-icon">◉</div><div>Lnch</div></div>
+        <div class="sb-item"><div class="sb-icon">▤</div><div>Plan</div></div>
+        <div class="sb-item"><div class="sb-icon">◎</div><div>Prof</div></div>
+      </div>
+      <div class="main">
+        <div class="pg-header">
+          <div><div class="pg-title">Launch Calendar</div><div class="pg-sub">Jun–Jul 2026 · 29 launches</div></div>
+          <div class="pg-actions"><div class="btn-sm primary">+ Launch</div></div>
+        </div>
+        <div class="filter-bar">
+          <div class="fb-item">Type <span class="fb-v">All</span></div>
+          <div class="fb-item">Channel <span class="fb-v">All</span></div>
+          <div class="fb-item">Period <span class="fb-v">Jun–Jul 2026</span></div>
+          <div class="fb-meta fb-v">29 results</div>
+        </div>
+        <div class="content" style="padding:10px;">
+          <table class="tbl">
+            <thead><tr>
+              <th style="width:90px">Date</th>
+              <th>Launch</th>
+              <th>Type</th>
+              <th>Channel</th>
+              <th class="r">Status</th>
+            </tr></thead>
+            <tbody>
+              <tr class="sel"><td class="muted">Jun 6</td><td style="font-weight:600">Summer Drop Vol.1</td><td><span class="lc-event main" style="font-size:9px;padding:2px 6px">MAIN</span></td><td class="muted">Email + Social</td><td class="r"><span class="pill warn">At Risk</span></td></tr>
+              <tr><td class="muted">Jun 13</td><td style="font-weight:600">Pride Collection</td><td><span class="lc-event campaign" style="font-size:9px;padding:2px 6px;color:#fff;background:var(--pos)">CAMPAIGN</span></td><td class="muted">Site + Email</td><td class="r"><span class="pill pos">Ready</span></td></tr>
+              <tr><td class="muted">Jun 20</td><td style="font-weight:600">Dad Hat Restock</td><td><span class="lc-event filler" style="font-size:9px;padding:2px 6px;background:var(--warn);color:var(--ink)">FILLER</span></td><td class="muted">Social</td><td class="r"><span class="pill pos">Ready</span></td></tr>
+              <tr><td class="muted">Jul 4</td><td style="font-weight:600">Independence Drop</td><td><span class="lc-event main" style="font-size:9px;padding:2px 6px">MAIN</span></td><td class="muted">Email + SMS</td><td class="r"><span class="pill acc">In Progress</span></td></tr>
+              <tr><td class="muted">Jul 11</td><td style="font-weight:600">Performance Tee Launch</td><td><span class="lc-event main" style="font-size:9px;padding:2px 6px">MAIN</span></td><td class="muted">All channels</td><td class="r"><span class="pill acc">In Progress</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 4: PO BUILDER ── -->
+<div class="slide">
+  <div class="left">
+    <div class="tag">PO Builder</div>
+    <h2>From decision to dock, fully tracked.</h2>
+    <p>Build a purchase order in minutes — factory, terms, ship window, line items with FOB costs. Every PO lives in one place, accessible to the whole team, with a full audit trail.</p>
+    <div class="stats">
+      <div class="stat"><span class="stat-n">29</span><span class="stat-l">purchase orders created</span></div>
+      <div class="stat"><span class="stat-n">141</span><span class="stat-l">factories on record</span></div>
+    </div>
+  </div>
+  <div class="right">
+    <div class="app-frame">
+      <div class="sidebar">
+        <div class="sb-logo"><span>SI</span></div>
+        <div class="sb-item"><div class="sb-icon">◈</div><div>Fin</div></div>
+        <div class="sb-item active"><div class="sb-icon">▦</div><div>PO</div></div>
+        <div class="sb-item"><div class="sb-icon">◉</div><div>Lnch</div></div>
+        <div class="sb-item"><div class="sb-icon">▤</div><div>Plan</div></div>
+        <div class="sb-item"><div class="sb-icon">◎</div><div>Prof</div></div>
+      </div>
+      <div class="main">
+        <div class="pg-header">
+          <div><div class="pg-title">PO Builder</div><div class="pg-sub">PO-2026-029 · Draft</div></div>
+          <div class="pg-actions"><div class="btn-sm">Cancel</div><div class="btn-sm primary">Save PO</div></div>
+        </div>
+        <div class="kpi-band">
+          <div class="kpi"><div class="kpi-l">Total POs</div><div class="kpi-v">29</div></div>
+          <div class="kpi"><div class="kpi-l">Open Value</div><div class="kpi-v">$847k</div></div>
+          <div class="kpi"><div class="kpi-l">In Transit</div><div class="kpi-v">3</div></div>
+          <div class="kpi"><div class="kpi-l">Pending Ship</div><div class="kpi-v">8</div></div>
+        </div>
+        <div class="po-form" style="overflow:auto;flex:1;">
+          <div class="form-row">
+            <div class="field-g"><div class="field-l">PO Number</div><div class="field-v accent" style="font-family:var(--mono);font-weight:700">PO-2026-029</div></div>
+            <div class="field-g"><div class="field-l">Factory</div><div class="field-v">Sunrise Headwear Co.</div></div>
+          </div>
+          <div class="form-row three">
+            <div class="field-g"><div class="field-l">Terms</div><div class="field-v">FOB Shanghai</div></div>
+            <div class="field-g"><div class="field-l">Ship Window</div><div class="field-v">Aug 1–15 2026</div></div>
+            <div class="field-g"><div class="field-l">Season</div><div class="field-v">Fall 2026</div></div>
+          </div>
+          <table class="tbl" style="margin-top:4px">
+            <thead><tr><th>SKU</th><th>Description</th><th class="r">Qty</th><th class="r">FOB</th><th class="r">Total</th></tr></thead>
+            <tbody>
+              <tr><td style="font-family:var(--mono);font-size:10px">BSM-HAT-001</td><td>Classic Dad Hat — Navy</td><td class="r">500</td><td class="r">$8.40</td><td class="r">$4,200</td></tr>
+              <tr><td style="font-family:var(--mono);font-size:10px">BSM-HAT-002</td><td>Classic Dad Hat — Black</td><td class="r">500</td><td class="r">$8.40</td><td class="r">$4,200</td></tr>
+              <tr><td style="font-family:var(--mono);font-size:10px">BSM-TEE-014</td><td>Performance Tee — White</td><td class="r">300</td><td class="r">$12.40</td><td class="r">$3,720</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 5: PO COSTING ── -->
+<div class="slide">
+  <div class="left">
+    <div class="tag">PO Costing</div>
+    <h2>Know your real margin before it ships.</h2>
+    <p>Take any PO from FOB price to true landed cost in four steps. Allocate freight across multiple POs in a single shipment. See exactly what each unit costs you before it hits the shelf.</p>
+    <div class="stats">
+      <div class="stat"><span class="stat-n">4</span><span class="stat-l">steps: FOB → shipped → freight → landed</span></div>
+      <div class="stat"><span class="stat-n">1</span><span class="stat-l">freight invoice split across any number of POs</span></div>
+    </div>
+  </div>
+  <div class="right">
+    <div class="app-frame">
+      <div class="sidebar">
+        <div class="sb-logo"><span>SI</span></div>
+        <div class="sb-item"><div class="sb-icon">◈</div><div>Fin</div></div>
+        <div class="sb-item active"><div class="sb-icon">▦</div><div>PO</div></div>
+        <div class="sb-item"><div class="sb-icon">◉</div><div>Lnch</div></div>
+        <div class="sb-item"><div class="sb-icon">▤</div><div>Plan</div></div>
+        <div class="sb-item"><div class="sb-icon">◎</div><div>Prof</div></div>
+      </div>
+      <div class="main">
+        <div class="pg-header">
+          <div><div class="pg-title">PO Costing</div><div class="pg-sub">PO-2026-029 · Sunrise Headwear Co.</div></div>
+          <div class="pg-actions"><div class="btn-sm primary">Mark Shipped</div></div>
+        </div>
+        <div class="kpi-band">
+          <div class="kpi"><div class="kpi-l">FOB Total</div><div class="kpi-v">$12,120</div></div>
+          <div class="kpi"><div class="kpi-l">Freight Share</div><div class="kpi-v">$2,180</div></div>
+          <div class="kpi"><div class="kpi-l">Duties</div><div class="kpi-v">$1,030</div></div>
+          <div class="kpi"><div class="kpi-l">Landed Total</div><div class="kpi-v" style="color:var(--accent)">$15,330</div></div>
+        </div>
+        <div class="cost-flow">
+          <div class="cost-step">
+            <div class="cs-l">FOB Unit</div>
+            <div class="cs-v">$8.40</div>
+            <div class="cs-d">Classic Dad Hat</div>
+          </div>
+          <div class="cost-arrow">→</div>
+          <div class="cost-step">
+            <div class="cs-l">Freight / unit</div>
+            <div class="cs-v">$1.65</div>
+            <div class="cs-d">Shared shipment</div>
+          </div>
+          <div class="cost-arrow">→</div>
+          <div class="cost-step">
+            <div class="cs-l">Duties / unit</div>
+            <div class="cs-v">$0.78</div>
+            <div class="cs-d">7.5% rate</div>
+          </div>
+          <div class="cost-arrow">→</div>
+          <div class="cost-step total">
+            <div class="cs-l">Landed Unit</div>
+            <div class="cs-v">$10.83</div>
+            <div class="cs-d">True cost</div>
+          </div>
+        </div>
+        <div style="padding:0 10px 10px">
+          <table class="tbl">
+            <thead><tr><th>SKU</th><th>Description</th><th class="r">FOB</th><th class="r">Freight</th><th class="r">Duties</th><th class="r">Landed</th></tr></thead>
+            <tbody>
+              <tr><td style="font-family:var(--mono);font-size:10px">BSM-HAT-001</td><td>Classic Dad Hat — Navy</td><td class="r">$8.40</td><td class="r">$1.65</td><td class="r">$0.78</td><td class="r" style="font-weight:700;color:var(--accent)">$10.83</td></tr>
+              <tr><td style="font-family:var(--mono);font-size:10px">BSM-TEE-014</td><td>Performance Tee — White</td><td class="r">$12.40</td><td class="r">$2.10</td><td class="r">$0.93</td><td class="r" style="font-weight:700;color:var(--accent)">$15.43</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 6: PAYMENT REQUESTS ── -->
+<div class="slide">
+  <div class="left">
+    <div class="tag">Payment Requests</div>
+    <h2>Approvals without the email chain.</h2>
+    <p>Anyone on the team submits a request with amount, vendor, description, and attached files. It routes through a clean approval flow with a full activity trail — no lost emails, no chasing.</p>
+    <div class="stats">
+      <div class="stat"><span class="stat-n">3</span><span class="stat-l">states: pending, approved, needs info</span></div>
+      <div class="stat"><span class="stat-n">100%</span><span class="stat-l">audit trail on every decision</span></div>
+    </div>
+  </div>
+  <div class="right">
+    <div class="app-frame">
+      <div class="sidebar">
+        <div class="sb-logo"><span>SI</span></div>
+        <div class="sb-item active"><div class="sb-icon">◈</div><div>Fin</div></div>
+        <div class="sb-item"><div class="sb-icon">▦</div><div>PO</div></div>
+        <div class="sb-item"><div class="sb-icon">◉</div><div>Lnch</div></div>
+        <div class="sb-item"><div class="sb-icon">▤</div><div>Plan</div></div>
+        <div class="sb-item"><div class="sb-icon">◎</div><div>Prof</div></div>
+      </div>
+      <div class="main">
+        <div class="pg-header">
+          <div><div class="pg-title">Payment Requests</div><div class="pg-sub">Finance · Approvals</div></div>
+          <div class="pg-actions"><div class="btn-sm primary">+ Request</div></div>
+        </div>
+        <div class="filter-bar">
+          <div class="fb-item">Status <span class="fb-v">All</span></div>
+          <div class="fb-item">Period <span class="fb-v">Jun 2026</span></div>
+          <div class="fb-meta">11 requests · <span class="fb-v">$38,400</span></div>
+        </div>
+        <div class="content" style="display:grid;grid-template-columns:1fr 180px;overflow:hidden;gap:0;">
+          <div style="overflow:auto;border-right:1px solid var(--border);">
+            <div class="pay-item"><div class="pay-info"><div class="pay-title">Trade Show Booth — Vegas</div><div class="pay-sub">Submitted by Owen · Jun 2</div></div><div class="pay-amt">$4,200</div><span class="pill warn" style="flex-shrink:0">Pending</span></div>
+            <div class="pay-item sel"><div class="pay-info"><div class="pay-title">Photography — Summer Campaign</div><div class="pay-sub">Submitted by Blake · Jun 1</div></div><div class="pay-amt">$2,800</div><span class="pill acc" style="flex-shrink:0">Needs Info</span></div>
+            <div class="pay-item"><div class="pay-info"><div class="pay-title">Shopify App Subscription</div><div class="pay-sub">Submitted by Blake · May 30</div></div><div class="pay-amt">$299</div><span class="pill pos" style="flex-shrink:0">Approved</span></div>
+            <div class="pay-item"><div class="pay-info"><div class="pay-title">Freight Invoice — May Shipment</div><div class="pay-sub">Submitted by Blake · May 28</div></div><div class="pay-amt">$18,400</div><span class="pill pos" style="flex-shrink:0">Approved</span></div>
+          </div>
+          <div style="background:var(--sunken);overflow:auto;display:flex;flex-direction:column;">
+            <div class="card-hdr dark" style="font-size:10px">Activity</div>
+            <div class="activity">
+              <div class="act-item"><div class="act-time">Jun 1 2:14p</div><div class="act-text"><b>Blake</b> submitted request</div></div>
+              <div class="act-item"><div class="act-time">Jun 1 4:30p</div><div class="act-text"><b>Owen</b> requested invoice copy</div></div>
+              <div class="act-item"><div class="act-time">Jun 2 9:10a</div><div class="act-text"><b>Blake</b> uploaded invoice.pdf</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 7: REVENUE PROJECTIONS ── -->
+<div class="slide">
+  <div class="left">
+    <div class="tag">Revenue Projections</div>
+    <h2>Forecast with conviction, not guesswork.</h2>
+    <p>Build your revenue plan by location, product type, and month. Projections are grounded in real historical sales data so your numbers aren't hope — they're informed estimates you can defend.</p>
+    <div class="stats">
+      <div class="stat"><span class="stat-n">$2.4M</span><span class="stat-l">projected revenue tracked</span></div>
+      <div class="stat"><span class="stat-n">+18%</span><span class="stat-l">vs prior year plan</span></div>
+    </div>
+  </div>
+  <div class="right">
+    <div class="app-frame">
+      <div class="sidebar">
+        <div class="sb-logo"><span>SI</span></div>
+        <div class="sb-item"><div class="sb-icon">◈</div><div>Fin</div></div>
+        <div class="sb-item"><div class="sb-icon">▦</div><div>PO</div></div>
+        <div class="sb-item"><div class="sb-icon">◉</div><div>Lnch</div></div>
+        <div class="sb-item active"><div class="sb-icon">▤</div><div>Plan</div></div>
+        <div class="sb-item"><div class="sb-icon">◎</div><div>Prof</div></div>
+      </div>
+      <div class="main">
+        <div class="pg-header">
+          <div><div class="pg-title">Revenue Projections</div><div class="pg-sub">FY 2026 · by product type</div></div>
+          <div class="pg-actions"><div class="btn-sm primary">Save</div></div>
+        </div>
+        <div class="kpi-band">
+          <div class="kpi"><div class="kpi-l">FY Plan</div><div class="kpi-v">$2.4M</div><div class="kpi-d pos">+18% YoY</div></div>
+          <div class="kpi"><div class="kpi-l">H1 Actual</div><div class="kpi-v">$1.1M</div><div class="kpi-d pos">+21% vs plan</div></div>
+          <div class="kpi"><div class="kpi-l">H2 Forecast</div><div class="kpi-v">$1.3M</div><div class="kpi-d neg">–3% vs plan</div></div>
+        </div>
+        <div class="filter-bar">
+          <div class="fb-item">Location <span class="fb-v">All Channels</span></div>
+          <div class="fb-item">Year <span class="fb-v">2026</span></div>
+        </div>
+        <div class="content" style="overflow:auto;padding:10px;">
+          <table class="proj-table">
+            <thead><tr>
+              <th>Product Type</th><th>Jun</th><th>Jul</th><th>Aug</th><th>Sep</th><th>Oct</th><th>Total</th>
+            </tr></thead>
+            <tbody>
+              <tr><td>Headwear</td><td>$82,000</td><td class="hi">$98,000</td><td>$76,000</td><td>$88,000</td><td>$104,000</td><td style="font-weight:700">$448k</td></tr>
+              <tr><td>Apparel</td><td>$54,000</td><td>$61,000</td><td class="hi">$72,000</td><td>$68,000</td><td>$80,000</td><td style="font-weight:700">$335k</td></tr>
+              <tr><td>Accessories</td><td>$18,000</td><td>$22,000</td><td>$19,000</td><td>$24,000</td><td>$28,000</td><td style="font-weight:700">$111k</td></tr>
+              <tr><td>Wholesale</td><td>$120,000</td><td>$115,000</td><td>$130,000</td><td>$140,000</td><td>$160,000</td><td style="font-weight:700">$665k</td></tr>
+              <tr class="totals"><td>TOTAL</td><td>$274k</td><td>$296k</td><td>$297k</td><td>$320k</td><td>$372k</td><td>$1.56M</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 8: INVENTORY ── -->
+<div class="slide">
+  <div class="left">
+    <div class="tag">Inventory</div>
+    <h2>Every SKU, every channel, one view.</h2>
+    <p>Filter by product type, days of cover, sell-through, or low stock alerts. Drill into any SKU for the full picture. No more pulling from three different Shopify reports to understand what you have.</p>
+    <div class="stats">
+      <div class="stat"><span class="stat-n">10k+</span><span class="stat-l">rows loaded per page</span></div>
+      <div class="stat"><span class="stat-n">Real-time</span><span class="stat-l">synced from Google Sheets via GitHub Action</span></div>
+    </div>
+  </div>
+  <div class="right">
+    <div class="app-frame">
+      <div class="sidebar">
+        <div class="sb-logo"><span>SI</span></div>
+        <div class="sb-item active"><div class="sb-icon">◈</div><div>Fin</div></div>
+        <div class="sb-item"><div class="sb-icon">▦</div><div>PO</div></div>
+        <div class="sb-item"><div class="sb-icon">◉</div><div>Lnch</div></div>
+        <div class="sb-item"><div class="sb-icon">▤</div><div>Plan</div></div>
+        <div class="sb-item"><div class="sb-icon">◎</div><div>Prof</div></div>
+      </div>
+      <div class="main">
+        <div class="pg-header">
+          <div><div class="pg-title">Inventory</div><div class="pg-sub">All channels · live</div></div>
+        </div>
+        <div class="filter-bar">
+          <div class="fb-item">Type <span class="fb-v">All</span></div>
+          <div class="fb-item">Max days <span class="fb-v">—</span></div>
+          <div class="fb-item">Min 30d sold <span class="fb-v">—</span></div>
+          <div class="fb-meta"><b>847</b> SKUs</div>
+        </div>
+        <div class="content" style="overflow:auto;">
+          <table class="tbl">
+            <thead><tr>
+              <th>Product</th><th class="r">On Hand</th><th class="r">Days Cover</th><th class="r">30d Sold</th><th class="r">Status</th>
+            </tr></thead>
+            <tbody>
+              <tr class="sel"><td style="font-weight:600">Classic Dad Hat — Navy<br><span style="font-family:var(--mono);font-size:9px;color:var(--ink-3)">BSM-HAT-001</span></td><td class="r">214</td><td class="r" style="color:var(--pos);font-weight:600">38d</td><td class="r">56</td><td class="r"><span class="pill pos">● Healthy</span></td></tr>
+              <tr><td style="font-weight:600">Game Day Hoodie — Grey<br><span style="font-family:var(--mono);font-size:9px;color:var(--ink-3)">BSM-HDY-007</span></td><td class="r">42</td><td class="r" style="color:var(--warn);font-weight:600">14d</td><td class="r">30</td><td class="r"><span class="pill warn">● Low</span></td></tr>
+              <tr><td style="font-weight:600">Performance Tee — White<br><span style="font-family:var(--mono);font-size:9px;color:var(--ink-3)">BSM-TEE-014</span></td><td class="r">8</td><td class="r" style="color:var(--neg);font-weight:600">4d</td><td class="r">22</td><td class="r"><span class="pill neg">● Critical</span></td></tr>
+              <tr><td style="font-weight:600">Snapback — White/Red<br><span style="font-family:var(--mono);font-size:9px;color:var(--ink-3)">BSM-SNP-003</span></td><td class="r">380</td><td class="r" style="color:var(--pos);font-weight:600">62d</td><td class="r">61</td><td class="r"><span class="pill pos">● Healthy</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── SLIDE 9: CLOSING ── -->
+<div class="slide hero-slide" style="gap:0;">
+  <div class="hero-logo"><span>SI</span></div>
+  <h1 style="font-size:48px;margin-top:24px">One screen.<br>Your whole business.</h1>
+  <div class="hero-sub" style="max-width:520px;margin:16px auto 0">Replaces the rotating cast of spreadsheets, shared docs, and Slack threads that most brands run on.</div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--band-hi);margin-top:48px;max-width:640px;width:100%">
+    <div style="background:var(--band);padding:18px;text-align:center;">
+      <div style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--accent)">29</div>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--band-2);text-transform:uppercase;letter-spacing:.1em;margin-top:4px">Launches</div>
+    </div>
+    <div style="background:var(--band);padding:18px;text-align:center;">
+      <div style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--accent)">141</div>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--band-2);text-transform:uppercase;letter-spacing:.1em;margin-top:4px">Suppliers</div>
+    </div>
+    <div style="background:var(--band);padding:18px;text-align:center;">
+      <div style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--accent)">$2.4M</div>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--band-2);text-transform:uppercase;letter-spacing:.1em;margin-top:4px">Projected Rev</div>
+    </div>
+    <div style="background:var(--band);padding:18px;text-align:center;">
+      <div style="font-family:var(--mono);font-size:22px;font-weight:700;color:var(--accent)">7</div>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--band-2);text-transform:uppercase;letter-spacing:.1em;margin-top:4px">Team Members</div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /deck -->
+
+<!-- NAV -->
+<div class="nav">
+  <button class="nav-btn" id="prev">&#8592;</button>
+  <div id="dots"></div>
+  <button class="nav-btn" id="next">&#8594;</button>
+  <div class="slide-counter" id="counter"></div>
+</div>
+
+<script>
+const slides = Array.from(document.querySelectorAll('.slide'));
+let cur = 0;
+
+const dotsEl = document.getElementById('dots');
+const counter = document.getElementById('counter');
+dotsEl.style.cssText = 'display:flex;gap:8px;align-items:center';
+
+const dots = slides.map((_, i) => {
+  const d = document.createElement('div');
+  d.className = 'nav-dot';
+  d.onclick = () => go(i);
+  dotsEl.appendChild(d);
+  return d;
+});
+
+function go(n) {
+  slides[cur].classList.remove('active');
+  cur = (n + slides.length) % slides.length;
+  slides[cur].classList.add('active');
+  dots.forEach((d, i) => d.classList.toggle('on', i === cur));
+  counter.textContent = String(cur + 1).padStart(2,'0') + ' / ' + String(slides.length).padStart(2,'0');
+}
+
+document.getElementById('prev').onclick = () => go(cur - 1);
+document.getElementById('next').onclick = () => go(cur + 1);
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') go(cur + 1);
+  if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   go(cur - 1);
+});
+
+// click anywhere on slide to advance (except nav)
+document.querySelector('.deck').addEventListener('click', e => {
+  if (!e.target.closest('.nav')) go(cur + 1);
+});
+
+go(0);
+</script>
+</body>
+</html>
