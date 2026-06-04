@@ -65,6 +65,11 @@
         { id: 'planning/scenarios', label: 'Planning scenarios', href: '/v2/planning-scenarios.html' },
         { id: 'planning/launch-calendar', label: 'Launch calendar', href: '/v2/launch-calendar.html' },
         { id: 'planning/tasks', label: 'Task Manager', href: '/v2/tasks.html' },
+      ],
+    },
+    {
+      section: 'Purchasing',
+      items: [
         { id: 'purchasing/po-builder', label: 'PO Builder', href: '/v2/po-builder.html' },
         { id: 'purchasing/po-costing', label: 'PO Landed Cost', href: '/v2/po-costing.html' },
         { id: 'purchasing/po-report', label: 'PO Report', href: '/v2/po-report.html' },
@@ -110,8 +115,9 @@
     collapse:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="15 18 9 12 15 6"/></svg>',
   };
 
-  const LS_COLLAPSED = 'silo.sidebar.collapsed';
-  const LS_THEME     = 'silo.theme';
+  const LS_COLLAPSED     = 'silo.sidebar.collapsed';
+  const LS_THEME         = 'silo.theme';
+  const LS_SECTIONS_OPEN = 'silo.nav.sections.open';
 
   function el(html) {
     const t = document.createElement('template');
@@ -124,23 +130,38 @@
       .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
+  function getSectionOpenSet() {
+    try { return new Set(JSON.parse(localStorage.getItem(LS_SECTIONS_OPEN) || '[]')); }
+    catch { return new Set(); }
+  }
+
+  function setSectionOpenSet(set) {
+    localStorage.setItem(LS_SECTIONS_OPEN, JSON.stringify([...set]));
+  }
+
   function renderNavSections(active) {
+    // Determine which section contains the active item
+    const activeSection = NAV_SECTIONS.find(s => s.items.some(i => i.id === active))?.section || null;
+    const openSet = getSectionOpenSet();
+    // Always open the active section
+    if (activeSection) openSet.add(activeSection);
+
     return NAV_SECTIONS.map(sec => {
+      const isOpen = openSet.has(sec.section);
       const links = sec.items.map(item => {
         const isActive = item.id === active;
         const ext = item.external ? ' target="_blank" rel="noopener noreferrer"' : '';
-        return `
-          <a class="silo-sb-link${isActive ? ' silo-sb-link--active' : ''}"
-             href="${escHtml(item.href)}"
-             data-nav-id="${escHtml(item.id)}"${ext}>
+        return `<a class="silo-sb-link${isActive ? ' silo-sb-link--active' : ''}" href="${escHtml(item.href)}" data-nav-id="${escHtml(item.id)}"${ext}>
             <span class="silo-sb-link-label">${escHtml(item.label)}</span>
             ${item.external ? '<span class="silo-sb-link-ext" aria-hidden="true">EXT</span>' : ''}
-          </a>
-        `;
+          </a>`;
       }).join('');
       return `
-        <div class="silo-sb-section">
-          <div class="silo-sb-section-label">${escHtml(sec.section)}</div>
+        <div class="silo-sb-section${isOpen ? ' silo-sb-section--open' : ''}" data-section="${escHtml(sec.section)}">
+          <button class="silo-sb-section-label" type="button" data-silo-action="section-toggle" data-section="${escHtml(sec.section)}" aria-expanded="${isOpen}">
+            <span>${escHtml(sec.section)}</span>
+            <svg class="silo-sb-section-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="11" height="11"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
           <div class="silo-sb-links">${links}</div>
         </div>
       `;
@@ -278,9 +299,22 @@
         toggleCollapse(appEl);
         return;
       }
-      // Clicking anywhere on the collapsed rail expands it (collapse btn is hidden when collapsed)
+      // Clicking anywhere on the collapsed rail expands it
       if (appEl.getAttribute('data-collapsed') === 'true') {
         toggleCollapse(appEl);
+        return;
+      }
+      const sectionBtn = e.target.closest('[data-silo-action="section-toggle"]');
+      if (sectionBtn) {
+        e.preventDefault();
+        const name = sectionBtn.getAttribute('data-section');
+        const sectionEl = sidebar.querySelector(`.silo-sb-section[data-section="${name}"]`);
+        const openSet = getSectionOpenSet();
+        if (openSet.has(name)) { openSet.delete(name); } else { openSet.add(name); }
+        setSectionOpenSet(openSet);
+        const isNowOpen = openSet.has(name);
+        sectionEl && sectionEl.classList.toggle('silo-sb-section--open', isNowOpen);
+        sectionBtn.setAttribute('aria-expanded', isNowOpen);
         return;
       }
       if (e.target.closest('.silo-sb-link')) {
