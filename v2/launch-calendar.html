@@ -822,7 +822,7 @@ let db = null;
 let currentUser = null;
 let profileById = new Map();
 let siloUsers = [];
-let launches=[], tasks=[], assets=[], comments=[], systemLinks=[], channels=[], products=[], filtered=[];
+let launches=[], tasks=[], assets=[], comments=[], systemLinks=[], channels=[], products=[], trackerProducts=[], filtered=[];
 let activeLaunch = null;
 let view = 'calendar';
 let monthAnchor = startOfMonth(new Date());
@@ -1063,7 +1063,7 @@ async function loadCurrentProfile() {
 async function loadAll(shouldRender=true){
   await loadCurrentProfile();
   updateCommentComposeHint();
-  const [l,t,a,c,s,ch,p] = await Promise.all([
+  const [l,t,a,c,s,ch,p,pt] = await Promise.all([
     db.from('launch_calendar').select('*').order('launch_date',{ascending:true}),
     db.from('launch_tasks').select('*').order('created_at',{ascending:false}),
     db.from('launch_assets').select('*').order('created_at',{ascending:false}),
@@ -1071,11 +1071,12 @@ async function loadAll(shouldRender=true){
     db.from('launch_system_links').select('*').order('created_at',{ascending:false}),
     db.from('launch_channel_items').select('*').order('scheduled_date',{ascending:true}),
     db.from('launch_product_readiness').select('*').order('created_at',{ascending:false}),
+    db.from('product_tracker').select('*').order('created_at',{ascending:false}),
   ]);
   if(l.error) throw l.error;
   if(c.error) console.warn('launch_comments load:', c.error.message);
   launches=l.data||[]; tasks=t.data||[]; assets=a.data||[]; comments=c.error?comments:(c.data||[]);
-  systemLinks=s.data||[]; channels=ch.data||[]; products=p.data||[];
+  systemLinks=s.data||[]; channels=ch.data||[]; products=p.data||[]; trackerProducts=pt.data||[];
   fillFilterOptions(); applyFilters();
   if(shouldRender) render();
 }
@@ -1099,8 +1100,9 @@ function applyFilters(){
     if(F.to&&x.launch_date>F.to) return false;
     if(q){
       const cp=products.filter(p=>String(p.launch_id)===String(x.id)).map(p=>p.product_title).join(' ');
+      const cpt=trackerProducts.filter(p=>String(p.launch_id)===String(x.id)).map(p=>[p.product_title,p.collection,p.product_type].filter(Boolean).join(' ')).join(' ');
       const cc=channels.filter(c=>String(c.launch_id)===String(x.id)).map(c=>c.item_title+' '+c.channel).join(' ');
-      const blob=[x.title,x.launch_type,x.designer,x.marketing_channel,x.campaign_type,x.assets_needed,x.details,x.notes,x.product_sku,x.product_title,x.product_type,x.collection_name,x.po_number,x.vendor_name,x.inventory_tag,x.launch_readiness,cp,cc].join(' ').toLowerCase();
+      const blob=[x.title,x.launch_type,x.designer,x.marketing_channel,x.campaign_type,x.assets_needed,x.details,x.notes,x.product_sku,x.product_title,x.product_type,x.collection_name,x.po_number,x.vendor_name,x.inventory_tag,x.launch_readiness,cp,cpt,cc].join(' ').toLowerCase();
       if(!blob.includes(q)) return false;
     }
     return true;
@@ -1118,7 +1120,8 @@ function renderKpis(){
   setText('[data-kpi="count"]',  filtered.length);
   setText('[data-kpi="month"]',  filtered.filter(x=>x.launch_date>=mStart&&x.launch_date<=mEnd).length+' THIS MONTH');
   setText('[data-kpi="next7"]',  filtered.filter(x=>x.launch_date>=todayStr&&x.launch_date<next7).length);
-  setText('[data-kpi="products"]',products.filter(x=>ids.has(String(x.launch_id))).length+' PRODUCTS');
+  const prodCount=products.filter(x=>ids.has(String(x.launch_id))).length+trackerProducts.filter(x=>ids.has(String(x.launch_id))).length;
+  setText('[data-kpi="products"]',prodCount+' PRODUCTS');
   const openTasks=tasks.filter(x=>ids.has(String(x.launch_id))&&!['done','complete'].includes(x.status)).length;
   const atRisk=filtered.filter(x=>['at_risk','needs_inventory','needs_assets'].includes(x.launch_readiness)).length+products.filter(x=>ids.has(String(x.launch_id))&&['at_risk','blocked'].includes(x.readiness_status)).length;
   setText('[data-kpi="tasks"]',  openTasks);
@@ -1281,11 +1284,13 @@ function renderDrawer(){
   const sid=String(activeLaunch.id);
   const flt=arr=>arr.filter(x=>String(x.launch_id)===sid);
   const launchProducts=flt(products);
+  const launchTrackerProducts=flt(trackerProducts);
   const launchChannels=flt(channels);
   const launchTasks=flt(tasks);
   const launchAssets=flt(assets);
   const pMeta=$('productListMeta');
-  if(pMeta) pMeta.textContent=launchProducts.length?`${launchProducts.length} product line${launchProducts.length===1?'':'s'}`:'No products yet — search above or manual entry';
+  const totalProds=launchProducts.length+launchTrackerProducts.length;
+  if(pMeta) pMeta.textContent=totalProds?`${totalProds} product${totalProds===1?'':'s'} (${launchProducts.length} readiness · ${launchTrackerProducts.length} tracker)`:'No products yet';
   const cMeta=$('channelListMeta');
   if(cMeta) cMeta.textContent=launchChannels.length?`${launchChannels.length} initiative${launchChannels.length===1?'':'s'}`:'No initiatives yet';
   const tMeta=$('taskListMeta');
@@ -1293,8 +1298,8 @@ function renderDrawer(){
   if(tMeta) tMeta.textContent=launchTasks.length?`${openT} open · ${launchTasks.length} total`:'No tasks yet';
   const aMeta=$('assetListMeta');
   if(aMeta) aMeta.textContent=launchAssets.length?`${launchAssets.length} asset${launchAssets.length===1?'':'s'}`:'No assets yet';
-  renderOverview(launchProducts,launchChannels,launchTasks);
-  renderProductReadiness(launchProducts);
+  renderOverview(launchProducts.concat(launchTrackerProducts),launchChannels,launchTasks);
+  renderProductReadiness(launchProducts, launchTrackerProducts);
   renderChannels(launchChannels);
   renderTasks(launchTasks);
   renderAssets(launchAssets);
@@ -1341,10 +1346,16 @@ function renderOverview(prods,chans,tsks){
     </div>`;
 }
 
-function renderProductReadiness(rows){
+function renderProductReadiness(rows, trackerRows){
+  trackerRows = trackerRows || [];
   const list=$('productList');
-  if(!rows.length){ list.innerHTML=empStr('No products on this launch. Search PO or catalog above, or use manual entry.'); return; }
+  if(!rows.length && !trackerRows.length){
+    list.innerHTML=empStr('No products on this launch. Search PO or catalog above, or use manual entry.');
+    return;
+  }
   list.innerHTML='';
+
+  // launch_product_readiness rows (editable from here)
   rows.forEach(x=>{
     const rCls=['at_risk','blocked'].includes(x.readiness_status)?'pill-risk':x.readiness_status==='ready'?'pill-launched':'';
     const shot=x.product_shot_status&&x.product_shot_status!=='not_started'?`Shots: ${x.product_shot_status}`:null;
@@ -1355,6 +1366,23 @@ function renderProductReadiness(rows){
   });
   list.querySelectorAll('[data-edit-prod]').forEach(btn=>{ const row=rows.find(r=>String(r.id)===String(btn.dataset.editProd)); if(row) btn.onclick=()=>openProductForm(row); });
   list.querySelectorAll('[data-del-prod]').forEach(btn=>{ btn.onclick=()=>deleteProduct(btn.dataset.delProd); });
+
+  // product_tracker rows linked to this launch (read-only here, managed in Product Tracker)
+  if(trackerRows.length){
+    const hdr=document.createElement('div');
+    hdr.style.cssText='margin:14px 0 6px;display:flex;align-items:center;gap:10px;';
+    hdr.innerHTML=`<span style="font-family:var(--bcn-mono);font-size:9.5px;font-weight:700;letter-spacing:.1em;color:var(--bcn-ink-3);text-transform:uppercase;">From Product Tracker</span><a href="/v2/product-samples.html" style="font-size:10px;color:var(--bcn-accent);font-weight:600;">Open Tracker →</a>`;
+    list.appendChild(hdr);
+    trackerRows.forEach(x=>{
+      const photoCls=x.photo_complete==='complete'?'bcn-pill--pos':'';
+      const photoLbl={pending:'Photo Pending',complete:'Photo Done',na:'Photo N/A'}[x.photo_complete]||'—';
+      const div=document.createElement('div');
+      div.className='dp-item';
+      div.style.borderLeft='3px solid oklch(0.60 0.18 75)';
+      div.innerHTML=`<div style="flex:1;min-width:0;"><div class="dp-item-title">${esc(x.product_title)}</div><div class="dp-item-meta">${esc([x.product_type,x.manufacturer,x.collection,x.bulk_eta?`ETA ${fmt(x.bulk_eta)}`:null,x.on_hand?`On Hand: ${x.on_hand}`:null].filter(Boolean).join(' · '))}</div></div><div class="prod-row-actions"><span class="bcn-pill ${photoCls}">${esc(photoLbl)}</span>${x.copy_complete?'<span class="bcn-pill bcn-pill--pos">Copy Done</span>':''}${x.is_live?'<span class="bcn-pill bcn-pill--pos">Live</span>':''}</div>`;
+      list.appendChild(div);
+    });
+  }
 }
 function renderChannels(rows){
   const list=$('channelList');
