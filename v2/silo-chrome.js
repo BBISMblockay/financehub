@@ -80,7 +80,7 @@
       section: 'Inventory',
       items: [
         { id: 'inventory/workboard', label: 'Inventory Manager', href: '/v2/inventory.html' },
-        { id: 'inventory/products', label: 'Product Tags', href: '/v2/product-manager.html' },
+        { id: 'inventory/products', label: 'Product Hub', href: '/v2/product-manager.html' },
       ],
     },
     {

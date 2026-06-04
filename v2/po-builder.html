@@ -478,7 +478,7 @@
       collapseHeader();
     }
 
-    function renderFactoryOptions(){ const current=el.factoryId.value; el.factoryId.innerHTML=['<option value="">Select factory</option>'].concat(state.factories.map(f=>`<option value="${f.id}">${escapeHtml(f.factory_name)}${f.short_code ? ` · ${escapeHtml(f.short_code)}` : ''}</option>`)).join(''); if(current) el.factoryId.value=current; }
+    function renderFactoryOptions(){ const current=el.factoryId.value; el.factoryId.innerHTML=['<option value="">Select factory</option>'].concat(state.factories.map(f=>`<option value="${f.id}">${escapeHtml(f.factory_name)}${f.short_code ? ` · ${escapeHtml(f.short_code)}` : ''}</option>`)).join(''); if(current) el.factoryId.value=current; const trkFac=document.getElementById('trkFactory'); if(trkFac) trkFac.innerHTML='<option value="">— none —</option>'+state.factories.map(f=>`<option value="${f.id}">${escapeHtml(f.factory_name)}</option>`).join(''); }
     function renderFactoryFilter(){ const current=el.poFactoryFilter.value; el.poFactoryFilter.innerHTML=['<option value="">All factories</option>'].concat(state.factories.map(f=>`<option value="${escapeHtml(f.factory_name)}">${escapeHtml(f.factory_name)}</option>`)).join(''); el.poFactoryFilter.value=current; }
     function renderStatusOptions(){ el.status.innerHTML=PO_STATUSES.map(s=>`<option value="${s}">${s}</option>`).join(''); el.poStatusFilter.innerHTML=['<option value="">All statuses</option>'].concat(PO_STATUSES.map(s=>`<option value="${s}">${s}</option>`)).join(''); }
 
@@ -547,7 +547,7 @@
           <td><input class="po-line-input po-line-input--num" type="number" min="0" step="1" data-line-field="qty" data-line-id="${line.id}" value="${Number(line.qty||0)}"></td>
           <td class="td-total" data-line-retail-value="${line.id}">${money(line.retail_value||0)}</td>
           <td class="bcn-th-left"><textarea class="po-line-input po-line-input--notes" rows="1" data-line-field="line_notes" data-line-id="${line.id}">${escapeHtml(line.line_notes||'')}</textarea></td>
-          <td><div class="po-line-actions"><span class="line-autosave-state" data-line-save-state="${line.id}">Saved</span><button class="bcn-btn bcn-btn--ghost bcn-btn--mono line-save-btn" data-line-save="${line.id}">Save</button><button class="bcn-btn bcn-btn--danger bcn-btn--mono line-delete-btn" data-line-delete="${line.id}">Del</button></div></td>
+          <td><div class="po-line-actions"><span class="line-autosave-state" data-line-save-state="${line.id}">Saved</span><button class="bcn-btn bcn-btn--ghost bcn-btn--mono line-save-btn" data-line-save="${line.id}">Save</button><button class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-line-tracker="${line.id}" title="Push to Product Tracker">→ TRK</button><button class="bcn-btn bcn-btn--danger bcn-btn--mono line-delete-btn" data-line-delete="${line.id}">Del</button></div></td>
         </tr>`).join('');
       }
       updateLineTotalsFromState();
@@ -1179,8 +1179,50 @@
       const addCatalogBtn=ev.target.closest('[data-add-catalog]'); if(addCatalogBtn){ const id=addCatalogBtn.getAttribute('data-add-catalog'); const qtyInput=document.querySelector(`[data-catalog-qty="${id}"]`); const qty=Number(qtyInput?.value||0); try{ await addCatalogLine(id,qty); }catch(e){ console.error(e); alert(e.message||'Add line failed'); } return; }
       const saveLineBtn=ev.target.closest('[data-line-save]'); if(saveLineBtn){ const lineId=saveLineBtn.getAttribute('data-line-save'); clearTimeout(lineSaveTimers.get(lineId)); lineSaveTimers.delete(lineId); try{ await saveLine(lineId); }catch(e){ console.error(e); alert(e.message||'Line save failed'); } return; }
       const delBtn=ev.target.closest('[data-line-delete]'); if(delBtn){ try{ await deleteLine(delBtn.getAttribute('data-line-delete')); }catch(e){ console.error(e); alert(e.message||'Delete failed'); } return; }
+      const trkBtn=ev.target.closest('[data-line-tracker]'); if(trkBtn){ openTrackerFromLine(trkBtn.getAttribute('data-line-tracker')); return; }
       const closeBtn=ev.target.closest('[data-close]'); if(closeBtn){ const node=document.getElementById(closeBtn.getAttribute('data-close')); if(node) modalClose(node); }
     });
+
+    // ── Tracker push modal ──────────────────────────────────────────────────
+    async function openTrackerFromLine(lineId) {
+      const line = (state.lines||[]).find(l=>l.id===lineId);
+      if (!line) return;
+      const title = (line.title_snapshot||'').trim();
+      if (!title) { setStatus('Add a product title to this line before pushing to Tracker.','neg'); return; }
+
+      // Check if already in tracker
+      const { data: existing } = await sb.from('product_tracker').select('id,product_title').ilike('product_title', title).limit(1);
+      if (existing && existing.length) {
+        setStatus(`"${title}" is already in Product Tracker.`, 'info', 4000);
+        return;
+      }
+
+      // Pre-fill mini modal
+      document.getElementById('trkModalTitle').textContent = `Push to Product Tracker`;
+      document.getElementById('trkTitle').value = title;
+      document.getElementById('trkType').value = '';
+      document.getElementById('trkEta').value = state.po?.expected_arrival_date ? state.po.expected_arrival_date.slice(0,10) : '';
+      document.getElementById('trkFactory').value = state.po?.factory_id || '';
+      document.getElementById('trkLineId').value = lineId;
+      document.getElementById('trkModal').removeAttribute('hidden');
+    }
+
+    window.saveFromPOLine = saveFromPOLine;
+    async function saveFromPOLine() {
+      const title = document.getElementById('trkTitle').value.trim();
+      if (!title) { setStatus('Title required','neg'); return; }
+      const payload = {
+        product_title: title,
+        product_type: document.getElementById('trkType').value.trim() || null,
+        factory_id: document.getElementById('trkFactory').value || null,
+        bulk_eta: document.getElementById('trkEta').value || null,
+        notes: `Pushed from PO: ${state.po?.po_name||''}`.trim(),
+      };
+      const { error } = await sb.from('product_tracker').insert(payload);
+      if (error) { setStatus('Failed: '+error.message,'neg'); return; }
+      setStatus(`"${title}" added to Product Tracker.`, 'pos', 3500);
+      document.getElementById('trkModal').setAttribute('hidden','');
+    }
 
     async function boot(){
       renderStatusOptions(); resetEditorForNew();
@@ -1219,5 +1261,24 @@
     }
     boot();
   </script>
+
+<!-- Tracker push mini-modal -->
+<div id="trkModal" hidden style="position:fixed;inset:0;z-index:900;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);">
+  <div style="background:#fff;border-radius:10px;padding:28px 24px;width:420px;max-width:95vw;box-shadow:0 8px 32px rgba(0,0,0,.22);">
+    <h3 id="trkModalTitle" style="margin:0 0 18px;font-size:16px;font-weight:700;">Push to Product Tracker</h3>
+    <input type="hidden" id="trkLineId">
+    <div class="bcn-field-group" style="margin-bottom:12px;"><label class="bcn-label">Title</label><input class="bcn-field" id="trkTitle"></div>
+    <div class="bcn-field-group" style="margin-bottom:12px;"><label class="bcn-label">Product type</label><input class="bcn-field" id="trkType" placeholder="e.g. Headwear"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px;">
+      <div class="bcn-field-group"><label class="bcn-label">Factory</label><select class="bcn-field" id="trkFactory"><option value="">— none —</option></select></div>
+      <div class="bcn-field-group"><label class="bcn-label">Bulk ETA</label><input class="bcn-field" type="date" id="trkEta"></div>
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button class="bcn-btn bcn-btn--primary" onclick="saveFromPOLine()">Add to Tracker</button>
+      <button class="bcn-btn bcn-btn--ghost" onclick="document.getElementById('trkModal').setAttribute('hidden','')">Cancel</button>
+      <a class="bcn-btn bcn-btn--ghost" href="/v2/product-manager.html" target="_blank" style="margin-left:auto;">Open Tracker →</a>
+    </div>
+  </div>
+</div>
 </body>
 </html>
