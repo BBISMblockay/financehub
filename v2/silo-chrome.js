@@ -73,7 +73,7 @@
     {
       section: 'Creative',
       items: [
-        { id: 'creative/product-samples', label: 'Product Samples', href: '/v2/product-samples.html' },
+        { id: 'creative/product-samples', label: 'Product Tracker', href: '/v2/product-samples.html' },
       ],
     },
     {

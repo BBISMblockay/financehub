@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>SILO · Product Samples</title>
+  <title>SILO · Product Tracker</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="beacon.css" />
@@ -11,7 +11,7 @@
   <script src="../pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
   <style>
-    /* ── drawer ─────────────────────────────────────── */
+    /* ── drawer shared ──────────────────────────────── */
     .smp-backdrop {
       position:fixed; inset:0; background:rgba(0,0,0,.35);
       z-index:200; opacity:0; pointer-events:none; transition:opacity .18s;
@@ -126,7 +126,6 @@
       transition:border-color .12s, color .12s;
     }
     .smp-thumb-add:hover { border-color:var(--bcn-accent); color:var(--bcn-accent); }
-    /* lightbox */
     .smp-lightbox {
       position:fixed; inset:0; z-index:500; background:rgba(0,0,0,.88);
       display:none; align-items:center; justify-content:center; flex-direction:column; gap:12px;
@@ -157,6 +156,16 @@
     .smp-tbl tbody tr { cursor:pointer; }
     .smp-tbl tbody tr:hover td { background:oklch(.97 .004 245); }
     .smp-empty { text-align:center; padding:60px 20px; color:var(--bcn-ink-3); font-size:13px; }
+
+    /* ── tab panels ──────────────────────────────────── */
+    .pt-panel { display:none; }
+    .pt-panel.active { display:block; }
+
+    /* ── launch link highlight in pt drawer ─────────── */
+    .pt-launch-highlight {
+      background:oklch(.97 .01 250); border:1px solid oklch(.82 .08 250);
+      border-radius:8px; padding:10px 12px;
+    }
   </style>
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
@@ -169,71 +178,129 @@
   <main class="silo-main">
 
     <header class="bcn-header">
-      <div class="bcn-header-title">Product Samples</div>
+      <div class="bcn-header-title">Product Tracker</div>
       <div class="bcn-header-actions">
         <div class="bcn-status" id="status" hidden></div>
-        <button class="bcn-btn bcn-btn--primary" id="btnNewSample">+ New Sample</button>
+        <button class="bcn-btn bcn-btn--primary" id="btnNew">+ New Sample</button>
       </div>
     </header>
 
-    <section class="bcn-kpi-band">
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Total Samples</div><div class="bcn-kpi-value bcn-num" id="kpiTotal">—</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Photo Pending</div><div class="bcn-kpi-value bcn-num" id="kpiPhoto">—</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Warehouse Ready</div><div class="bcn-kpi-value bcn-num" id="kpiWarehouse">—</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Linked to Launch</div><div class="bcn-kpi-value bcn-num" id="kpiConnected">—</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Live</div><div class="bcn-kpi-value bcn-num" id="kpiLive">—</div></div>
-    </section>
-
-    <section class="bcn-filter-bar">
-      <div class="bcn-filter"><input class="bcn-field" id="fSearch" placeholder="Search title, collection, factory…" style="width:220px" /></div>
-      <div class="bcn-filter">
-        <select class="bcn-field" id="fStatus">
-          <option value="">All statuses</option>
-          <option value="received">Received</option>
-          <option value="size_request_sent">Size Request Sent</option>
-          <option value="warehouse_ready">Warehouse Ready</option>
-          <option value="picked_up">Picked Up</option>
-          <option value="model_complete">Model Complete</option>
-          <option value="photo_scheduled">Photo Scheduled</option>
-          <option value="photo_complete">Photo Complete</option>
-          <option value="copy_complete">Copy Complete</option>
-          <option value="live">Live</option>
-          <option value="archived">Archived</option>
-        </select>
-      </div>
-      <div class="bcn-filter">
-        <select class="bcn-field" id="fPhotoStatus">
-          <option value="">All photo statuses</option>
-          <option value="pending">Photo Pending</option>
-          <option value="scheduled">Scheduled</option>
-          <option value="complete">Photo Done</option>
-          <option value="na">N/A</option>
-        </select>
-      </div>
-      <div class="bcn-filter">
-        <select class="bcn-field" id="fLaunchFilter">
-          <option value="">All launches</option>
-          <option value="unlinked">Unlinked only</option>
-        </select>
-      </div>
-    </section>
-
-    <div class="bcn-card" style="margin-top:12px;">
-      <div class="bcn-card-body" style="padding:0; overflow-x:auto;">
-        <table class="bcn-table smp-tbl" id="samplesTable">
-          <thead>
-            <tr>
-              <th>Ref</th><th>Product Title</th><th>Factory</th><th>Collection</th>
-              <th>Bulk ETA</th><th>Status</th><th>Photo</th><th>Copy</th>
-              <th>Live</th><th>Launch</th><th>PO</th>
-            </tr>
-          </thead>
-          <tbody id="samplesBody">
-            <tr><td colspan="11" class="smp-empty">Loading…</td></tr>
-          </tbody>
-        </table>
-      </div>
+    <!-- tab switcher -->
+    <div class="bcn-tabs" style="margin:12px 16px 0;">
+      <button class="bcn-tab bcn-tab--active" data-tab="samples">Sample Flow</button>
+      <button class="bcn-tab" data-tab="tracker">New Product</button>
     </div>
+
+    <!-- ══ SAMPLE FLOW PANEL ════════════════════════════════ -->
+    <div class="pt-panel active" id="panelSamples">
+      <section class="bcn-kpi-band">
+        <div class="bcn-kpi"><div class="bcn-kpi-label">Total Samples</div><div class="bcn-kpi-value bcn-num" id="kpiTotal">—</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">Photo Pending</div><div class="bcn-kpi-value bcn-num" id="kpiPhoto">—</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">Warehouse Ready</div><div class="bcn-kpi-value bcn-num" id="kpiWarehouse">—</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">Linked to Launch</div><div class="bcn-kpi-value bcn-num" id="kpiConnected">—</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">Live</div><div class="bcn-kpi-value bcn-num" id="kpiLive">—</div></div>
+      </section>
+
+      <section class="bcn-filter-bar">
+        <div class="bcn-filter"><input class="bcn-field" id="fSearch" placeholder="Search title, collection, factory…" style="width:220px" /></div>
+        <div class="bcn-filter">
+          <select class="bcn-field" id="fStatus">
+            <option value="">All statuses</option>
+            <option value="received">Received</option>
+            <option value="size_request_sent">Size Request Sent</option>
+            <option value="warehouse_ready">Warehouse Ready</option>
+            <option value="picked_up">Picked Up</option>
+            <option value="model_complete">Model Complete</option>
+            <option value="photo_scheduled">Photo Scheduled</option>
+            <option value="photo_complete">Photo Complete</option>
+            <option value="copy_complete">Copy Complete</option>
+            <option value="live">Live</option>
+            <option value="archived">Archived</option>
+          </select>
+        </div>
+        <div class="bcn-filter">
+          <select class="bcn-field" id="fPhotoStatus">
+            <option value="">All photo statuses</option>
+            <option value="pending">Photo Pending</option>
+            <option value="scheduled">Scheduled</option>
+            <option value="complete">Photo Done</option>
+            <option value="na">N/A</option>
+          </select>
+        </div>
+        <div class="bcn-filter">
+          <select class="bcn-field" id="fLaunchFilter">
+            <option value="">All launches</option>
+            <option value="unlinked">Unlinked only</option>
+          </select>
+        </div>
+      </section>
+
+      <div class="bcn-card" style="margin-top:12px;">
+        <div class="bcn-card-body" style="padding:0; overflow-x:auto;">
+          <table class="bcn-table smp-tbl" id="samplesTable">
+            <thead>
+              <tr>
+                <th>Ref</th><th>Product Title</th><th>Factory</th><th>Collection</th>
+                <th>Bulk ETA</th><th>Status</th><th>Photo</th><th>Copy</th>
+                <th>Live</th><th>Launch</th><th>PO</th>
+              </tr>
+            </thead>
+            <tbody id="samplesBody">
+              <tr><td colspan="11" class="smp-empty">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- /panelSamples -->
+
+    <!-- ══ NEW PRODUCT PANEL ════════════════════════════════ -->
+    <div class="pt-panel" id="panelTracker">
+      <section class="bcn-kpi-band">
+        <div class="bcn-kpi"><div class="bcn-kpi-label">Total Products</div><div class="bcn-kpi-value bcn-num" id="ptKpiTotal">—</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">Photo Done</div><div class="bcn-kpi-value bcn-num" id="ptKpiPhoto">—</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">Copy Done</div><div class="bcn-kpi-value bcn-num" id="ptKpiCopy">—</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">Live</div><div class="bcn-kpi-value bcn-num" id="ptKpiLive">—</div></div>
+        <div class="bcn-kpi"><div class="bcn-kpi-label">Linked to Launch</div><div class="bcn-kpi-value bcn-num" id="ptKpiLinked">—</div></div>
+      </section>
+
+      <section class="bcn-filter-bar">
+        <div class="bcn-filter"><input class="bcn-field" id="ptSearch" placeholder="Search title, collection, type…" style="width:220px" /></div>
+        <div class="bcn-filter">
+          <select class="bcn-field" id="ptLaunchFilter">
+            <option value="">All launches</option>
+          </select>
+        </div>
+        <div class="bcn-filter">
+          <select class="bcn-field" id="ptTypeFilter">
+            <option value="">All product types</option>
+          </select>
+        </div>
+        <div class="bcn-filter">
+          <select class="bcn-field" id="ptPhotoFilter">
+            <option value="">All photo statuses</option>
+            <option value="pending">Pending</option>
+            <option value="complete">Done</option>
+            <option value="na">N/A</option>
+          </select>
+        </div>
+      </section>
+
+      <div class="bcn-card" style="margin-top:12px;">
+        <div class="bcn-card-body" style="padding:0; overflow-x:auto;">
+          <table class="bcn-table smp-tbl" id="trackerTable">
+            <thead>
+              <tr>
+                <th>Product Title</th><th>Manufacturer</th><th>Type</th><th>Collection</th>
+                <th>Launch</th><th>Bulk ETA</th><th>On Hand</th><th>Photo</th><th>Copy</th><th>Live</th>
+              </tr>
+            </thead>
+            <tbody id="trackerBody">
+              <tr><td colspan="10" class="smp-empty">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div><!-- /panelTracker -->
 
   </main>
 </div>
@@ -252,7 +319,7 @@
   </div>
 </div>
 
-<!-- Drawer -->
+<!-- ══ SAMPLE FLOW DRAWER ══════════════════════════════════ -->
 <aside class="smp-drawer" id="drawer" aria-label="Sample detail" aria-hidden="true">
   <div class="smp-drawer-head">
     <div style="flex:1;min-width:0;">
@@ -457,6 +524,159 @@
   </div>
 </aside>
 
+<!-- ══ NEW PRODUCT DRAWER ══════════════════════════════════ -->
+<aside class="smp-drawer" id="ptDrawer" aria-label="Product detail" aria-hidden="true">
+  <div class="smp-drawer-head">
+    <div style="flex:1;min-width:0;">
+      <div class="smp-drawer-ref" id="ptDrawerRef">NEW PRODUCT</div>
+      <div class="smp-drawer-title" id="ptDrawerTitle">New Product</div>
+    </div>
+    <button class="smp-drawer-close" id="ptBtnClose" type="button">×</button>
+  </div>
+
+  <div class="smp-drawer-body">
+
+    <!-- 1. Product Info -->
+    <div class="smp-section">
+      <div class="smp-section-label">Product Info</div>
+      <div class="smp-grid-2">
+        <div class="bcn-field-group smp-full">
+          <label class="bcn-label">Product Title <span style="color:var(--bcn-neg)">*</span></label>
+          <input class="bcn-field" id="ptFldTitle" placeholder="e.g. Frozen Treats Hoodie (Cream)" />
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label">Factory / Manufacturer</label>
+          <select class="bcn-field" id="ptFldFactoryId">
+            <option value="">— select factory —</option>
+          </select>
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label">Product Type</label>
+          <select class="bcn-field" id="ptFldProductType">
+            <option value="">— select type —</option>
+          </select>
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label">Collection</label>
+          <input class="bcn-field" id="ptFldCollection" placeholder="e.g. Frozen Treats" />
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label">Bulk ETA</label>
+          <input class="bcn-field" type="date" id="ptFldBulkEta" />
+        </div>
+        <div class="bcn-field-group">
+          <label class="bcn-label">On Hand</label>
+          <select class="bcn-field" id="ptFldOnHand">
+            <option value="">—</option>
+            <option value="Bulk">Bulk</option>
+            <option value="Sample">Sample</option>
+            <option value="Pre-Production">Pre-Production</option>
+            <option value="None">None</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. Launch Link (prominent — the key bidirectional connection) -->
+    <div class="smp-section">
+      <div class="smp-section-label">Launch</div>
+      <div class="pt-launch-highlight">
+        <div class="bcn-field-group" style="margin:0;">
+          <label class="bcn-label" style="margin-bottom:6px;">Link to Launch Calendar</label>
+          <select class="bcn-field" id="ptFldLaunchId" style="width:100%;">
+            <option value="">— not linked to a launch —</option>
+          </select>
+        </div>
+        <div style="margin-top:6px; font-size:10px; color:var(--bcn-ink-3); font-family:var(--bcn-mono);">
+          Linking here surfaces this product in the launch calendar and keeps tasks in sync across SILO.
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. Link to Silo Product -->
+    <div class="smp-section">
+      <div class="smp-section-label">Silo Product Link</div>
+      <div id="ptLinkedProductChip" style="margin-bottom:8px; display:none;"></div>
+      <div class="smp-grid-2" style="gap:6px; margin-bottom:6px;">
+        <select class="bcn-field" id="ptProdSource" style="font-size:11px;">
+          <option value="po_incoming">PO / Incoming</option>
+          <option value="catalog">Silo Catalog</option>
+        </select>
+        <div class="smp-prod-search" style="position:relative;">
+          <input class="bcn-field" id="ptProdSearchInput" placeholder="Search product or PO…" style="width:100%;" />
+          <div class="smp-prod-results" id="ptProdSearchResults"></div>
+        </div>
+      </div>
+      <input type="hidden" id="ptFldProductMasterId" />
+    </div>
+
+    <!-- 4. Sizes -->
+    <div class="smp-section">
+      <div class="smp-section-label">Sizes</div>
+      <div class="smp-size-legend">
+        <span class="leg-req">Requested</span>
+        <span class="leg-whs">Whs Ready</span>
+        <span class="leg-pck">Picked Up</span>
+      </div>
+      <div style="margin-top:10px;">
+        <div class="bcn-label" style="margin-bottom:6px; font-size:10px;">Mens / Unisex</div>
+        <div class="smp-size-grid" id="ptSizeGridMens"></div>
+      </div>
+      <div style="margin-top:10px;">
+        <div class="bcn-label" style="margin-bottom:6px; font-size:10px;">Youth</div>
+        <div class="smp-size-grid" id="ptSizeGridYouth"></div>
+      </div>
+      <div style="margin-top:10px;">
+        <div class="bcn-label" style="margin-bottom:6px; font-size:10px;">Caps / Other</div>
+        <div class="smp-size-grid" id="ptSizeGridCaps"></div>
+      </div>
+    </div>
+
+    <!-- 5. Creative Status -->
+    <div class="smp-section">
+      <div class="smp-section-label">Creative Status</div>
+      <div class="smp-grid-3">
+        <div class="bcn-field-group">
+          <label class="bcn-label">Photo Shot</label>
+          <select class="bcn-field" id="ptFldPhotoComplete">
+            <option value="pending">Pending</option>
+            <option value="complete">Complete</option>
+            <option value="na">N/A</option>
+          </select>
+        </div>
+        <div class="bcn-field-group" style="display:flex;flex-direction:column;justify-content:flex-end;">
+          <label class="bcn-label">&nbsp;</label>
+          <label style="display:flex;align-items:center;gap:7px;cursor:pointer;padding:6px 0;">
+            <input type="checkbox" id="ptFldCopyComplete" style="width:15px;height:15px;" />
+            <span style="font-size:12px;font-weight:600;">Copy Done</span>
+          </label>
+        </div>
+        <div class="bcn-field-group" style="display:flex;flex-direction:column;justify-content:flex-end;">
+          <label class="bcn-label">&nbsp;</label>
+          <label style="display:flex;align-items:center;gap:7px;cursor:pointer;padding:6px 0;">
+            <input type="checkbox" id="ptFldLive" style="width:15px;height:15px;" />
+            <span style="font-size:12px;font-weight:600;">Product is Live</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6. Notes -->
+    <div class="smp-section">
+      <div class="smp-section-label">Notes</div>
+      <textarea class="bcn-field" id="ptFldNotes" rows="3" placeholder="Internal notes…" style="resize:vertical; width:100%;"></textarea>
+    </div>
+
+  </div><!-- /pt drawer-body -->
+
+  <div class="smp-drawer-foot">
+    <button class="bcn-btn bcn-btn--primary" id="ptBtnSave">Save</button>
+    <button class="bcn-btn bcn-btn--ghost" id="ptBtnCancel">Cancel</button>
+    <div style="flex:1;"></div>
+    <button class="bcn-btn bcn-btn--danger" id="ptBtnDelete" style="display:none;">Delete</button>
+  </div>
+</aside>
+
 <script>
   const cfg          = window.__SILO_CONFIG__ || {};
   const SUPABASE_URL = cfg.SUPABASE_URL || '';
@@ -496,15 +716,28 @@
 
   // ── state ─────────────────────────────────────────────────────────────────
   let allSamples      = [];
+  let allTrackerItems = [];
   let allLaunches     = [];
   let allPOs          = [];
   let allFactories    = [];
   let allProductTypes = [];
   let currentUser     = null;
-  let drawerSample    = null;
-  let pendingPhotos   = [];
-  let lbUrls          = [];
-  let lbIdx           = 0;
+  let activeTab       = 'samples';
+
+  // sample drawer state
+  let drawerSample      = null;
+  let pendingPhotos     = [];
+  let lbUrls            = [];
+  let lbIdx             = 0;
+  let linkedProductId   = null;
+  let linkedProductTitle = null;
+  let prodSearchTimer   = null;
+
+  // product tracker drawer state
+  let ptDrawerItem        = null;
+  let ptLinkedProductId   = null;
+  let ptLinkedProductTitle = null;
+  let ptProdSearchTimer   = null;
 
   // ── util ──────────────────────────────────────────────────────────────────
   const $ = id => document.getElementById(id);
@@ -520,16 +753,16 @@
   // ── pills ─────────────────────────────────────────────────────────────────
   function statusPill(val) {
     const m = {
-      received:         ['bcn-pill bcn-pill--dark',  'Received'],
-      size_request_sent:['bcn-pill',                 'Size Req'],
-      warehouse_ready:  ['bcn-pill bcn-pill--accent', 'Whs Ready'],
-      picked_up:        ['bcn-pill bcn-pill--accent', 'Picked Up'],
-      model_complete:   ['bcn-pill bcn-pill--accent', 'Model Done'],
-      photo_scheduled:  ['bcn-pill',                 'Photo Sched'],
-      photo_complete:   ['bcn-pill bcn-pill--pos',   'Photo Done'],
-      copy_complete:    ['bcn-pill bcn-pill--pos',   'Copy Done'],
-      live:             ['bcn-pill bcn-pill--pos',   'Live'],
-      archived:         ['bcn-pill bcn-pill--neg',   'Archived'],
+      received:         ['bcn-pill bcn-pill--dark',   'Received'],
+      size_request_sent:['bcn-pill',                  'Size Req'],
+      warehouse_ready:  ['bcn-pill bcn-pill--accent',  'Whs Ready'],
+      picked_up:        ['bcn-pill bcn-pill--accent',  'Picked Up'],
+      model_complete:   ['bcn-pill bcn-pill--accent',  'Model Done'],
+      photo_scheduled:  ['bcn-pill',                  'Photo Sched'],
+      photo_complete:   ['bcn-pill bcn-pill--pos',    'Photo Done'],
+      copy_complete:    ['bcn-pill bcn-pill--pos',    'Copy Done'],
+      live:             ['bcn-pill bcn-pill--pos',    'Live'],
+      archived:         ['bcn-pill bcn-pill--neg',    'Archived'],
     };
     const [cls,lbl]=m[val]||['bcn-pill',val||'—'];
     return `<span class="${cls}">${lbl}</span>`;
@@ -539,12 +772,18 @@
     const [cls,lbl]=m[val]||['bcn-pill',val||'—'];
     return `<span class="${cls}">${lbl}</span>`;
   }
+  function ptPhotoPill(val) {
+    const m={pending:['bcn-pill','Pending'],complete:['bcn-pill bcn-pill--pos','Done'],na:['bcn-pill bcn-pill--dark','N/A']};
+    const [cls,lbl]=m[val]||['bcn-pill',val||'—'];
+    return `<span class="${cls}">${lbl}</span>`;
+  }
 
   // ── size grid ─────────────────────────────────────────────────────────────
-  function renderSizeGrid(groupKey, sizes, reqArr, whsArr, pckArr) {
-    const c=$(`sizeGrid${groupKey[0].toUpperCase()+groupKey.slice(1)}`);
+  function renderSizeGrid(containerId, sizes, reqArr, whsArr, pckArr) {
+    const c=$(containerId);
+    if(!c) return;
     c.innerHTML = sizes.map(sz => {
-      const k = sz.replace(/[^a-zA-Z0-9]/g,'_')+'_'+groupKey;
+      const k = sz.replace(/[^a-zA-Z0-9]/g,'_')+'_'+containerId;
       return `<div class="smp-size-chip">
         <span>${esc(sz)}</span>
         <div class="smp-size-checks">
@@ -556,16 +795,25 @@
     }).join('');
   }
 
-  function renderAllSizeGrids(reqStr, whsStr, pckStr) {
+  function renderAllSmpSizeGrids(reqStr, whsStr, pckStr) {
     const split = s => (s||'').split(',').map(x=>x.trim()).filter(Boolean);
     const r=split(reqStr), w=split(whsStr), p=split(pckStr);
-    renderSizeGrid('mens',  SIZE_GROUPS.mens,  r, w, p);
-    renderSizeGrid('youth', SIZE_GROUPS.youth, r, w, p);
-    renderSizeGrid('caps',  SIZE_GROUPS.caps,  r, w, p);
+    renderSizeGrid('sizeGridMens',  SIZE_GROUPS.mens,  r, w, p);
+    renderSizeGrid('sizeGridYouth', SIZE_GROUPS.youth, r, w, p);
+    renderSizeGrid('sizeGridCaps',  SIZE_GROUPS.caps,  r, w, p);
   }
 
-  function getCheckedSizes(kind) {
-    return Array.from(document.querySelectorAll(`input[data-kind="${kind}"]:checked`))
+  function renderAllPtSizeGrids(reqStr, whsStr, pckStr) {
+    const split = s => (s||'').split(',').map(x=>x.trim()).filter(Boolean);
+    const r=split(reqStr), w=split(whsStr), p=split(pckStr);
+    renderSizeGrid('ptSizeGridMens',  SIZE_GROUPS.mens,  r, w, p);
+    renderSizeGrid('ptSizeGridYouth', SIZE_GROUPS.youth, r, w, p);
+    renderSizeGrid('ptSizeGridCaps',  SIZE_GROUPS.caps,  r, w, p);
+  }
+
+  function getCheckedSizes(kind, container) {
+    const scope = container || document;
+    return Array.from(scope.querySelectorAll(`input[data-kind="${kind}"]:checked`))
       .map(cb=>cb.dataset.size).join(', ') || null;
   }
 
@@ -592,11 +840,7 @@
     return a ? a.dataset.status : 'received';
   }
 
-  // ── product search ────────────────────────────────────────────────────────
-  let prodSearchTimer = null;
-  let linkedProductId = null;
-  let linkedProductTitle = null;
-
+  // ── product search (samples) ───────────────────────────────────────────────
   function updateLinkedChip() {
     const chip = $('linkedProductChip');
     if (linkedProductId && linkedProductTitle) {
@@ -627,23 +871,64 @@
     clearTimeout(prodSearchTimer);
     const q = $('prodSearchInput').value.trim();
     if (!q) { $('prodSearchResults').classList.remove('open'); return; }
-    prodSearchTimer = setTimeout(() => runProductSearch(q), 280);
+    prodSearchTimer = setTimeout(() => runProductSearch(q, 'prodSource', 'prodSearchResults', linkProduct), 280);
   });
 
   $('prodSearchInput').addEventListener('focus', () => {
     const q = $('prodSearchInput').value.trim();
-    if (q) runProductSearch(q);
+    if (q) runProductSearch(q, 'prodSource', 'prodSearchResults', linkProduct);
   });
 
+  // ── product search (tracker) ───────────────────────────────────────────────
+  function updatePtLinkedChip() {
+    const chip = $('ptLinkedProductChip');
+    if (ptLinkedProductId && ptLinkedProductTitle) {
+      chip.style.display = '';
+      chip.innerHTML = `<span class="smp-linked-chip">${esc(ptLinkedProductTitle)}<button type="button" id="ptBtnUnlink" title="Unlink">×</button></span>`;
+      $('ptBtnUnlink').addEventListener('click', () => {
+        ptLinkedProductId = null; ptLinkedProductTitle = null;
+        $('ptFldProductMasterId').value = '';
+        updatePtLinkedChip();
+        $('ptProdSearchInput').value = '';
+      });
+      $('ptProdSearchInput').value = '';
+      $('ptProdSearchResults').classList.remove('open');
+    } else {
+      chip.style.display = 'none';
+      chip.innerHTML = '';
+    }
+  }
+
+  function ptLinkProduct(id, title) {
+    ptLinkedProductId = id || null;
+    ptLinkedProductTitle = title || null;
+    $('ptFldProductMasterId').value = id || '';
+    updatePtLinkedChip();
+  }
+
+  $('ptProdSearchInput').addEventListener('input', () => {
+    clearTimeout(ptProdSearchTimer);
+    const q = $('ptProdSearchInput').value.trim();
+    if (!q) { $('ptProdSearchResults').classList.remove('open'); return; }
+    ptProdSearchTimer = setTimeout(() => runProductSearch(q, 'ptProdSource', 'ptProdSearchResults', ptLinkProduct), 280);
+  });
+
+  $('ptProdSearchInput').addEventListener('focus', () => {
+    const q = $('ptProdSearchInput').value.trim();
+    if (q) runProductSearch(q, 'ptProdSource', 'ptProdSearchResults', ptLinkProduct);
+  });
+
+  // ── shared product search runner ───────────────────────────────────────────
   document.addEventListener('click', e => {
-    if (!e.target.closest('.smp-prod-search') && !e.target.closest('#prodSource')) {
+    if (!e.target.closest('.smp-prod-search') && !e.target.closest('#prodSource') && !e.target.closest('#ptProdSource')) {
       $('prodSearchResults').classList.remove('open');
+      $('ptProdSearchResults').classList.remove('open');
     }
   });
 
-  async function runProductSearch(q) {
-    const source = $('prodSource').value;
-    const results = $('prodSearchResults');
+  async function runProductSearch(q, sourceId, resultsId, onSelect) {
+    const source = $(sourceId).value;
+    const results = $(resultsId);
     results.classList.add('open');
     results.innerHTML = '<div class="smp-prod-hit"><span style="color:var(--bcn-ink-3);font-size:11px;">Searching…</span></div>';
 
@@ -667,10 +952,7 @@
       return;
     }
 
-    // group by title for catalog
-    const rows = source === 'catalog'
-      ? groupByProductTitle(data)
-      : data;
+    const rows = source === 'catalog' ? groupByProductTitle(data) : data;
 
     results.innerHTML = rows.map(r => {
       const title = r.product_title || 'Unnamed';
@@ -678,7 +960,7 @@
         ? [r.po_name, r.product_type, r.factory_name, r.expected_arrival_date ? `ETA ${r.expected_arrival_date}` : null].filter(Boolean).join(' · ')
         : [r.product_type, r.vendor_original, r.variant_count ? `${r.variant_count} variants` : null].filter(Boolean).join(' · ');
       const id = r.id || null;
-      return `<div class="smp-prod-hit" data-id="${esc(String(id||''))}\" data-title="${esc(title)}">
+      return `<div class="smp-prod-hit" data-id="${esc(String(id||''))}" data-title="${esc(title)}">
         <div class="smp-prod-hit-title">${esc(title)}</div>
         <div class="smp-prod-hit-meta">${esc(meta)}</div>
       </div>`;
@@ -686,7 +968,7 @@
 
     results.querySelectorAll('.smp-prod-hit').forEach(row => {
       row.addEventListener('click', () => {
-        linkProduct(row.dataset.id, row.dataset.title);
+        onSelect(row.dataset.id, row.dataset.title);
       });
     });
   }
@@ -718,22 +1000,15 @@
   $('lightbox').addEventListener('click', e => { if(e.target===$('lightbox')) $('lightbox').classList.remove('open'); });
   $('lbPrev').addEventListener('click', () => { lbIdx=(lbIdx-1+lbUrls.length)%lbUrls.length; showLbSlide(); });
   $('lbNext').addEventListener('click', () => { lbIdx=(lbIdx+1)%lbUrls.length; showLbSlide(); });
-  document.addEventListener('keydown', e => {
-    if (!$('lightbox').classList.contains('open')) return;
-    if (e.key==='Escape') $('lightbox').classList.remove('open');
-    if (e.key==='ArrowLeft') { lbIdx=(lbIdx-1+lbUrls.length)%lbUrls.length; showLbSlide(); }
-    if (e.key==='ArrowRight') { lbIdx=(lbIdx+1)%lbUrls.length; showLbSlide(); }
-  });
 
   // ── photo grid ────────────────────────────────────────────────────────────
   async function renderPhotoGrid(sampleId, staged) {
     const grid = $('photoGrid');
     let urls = [];
-    let existingFiles = [];
 
     if (sampleId) {
       const { data } = await sb.storage.from(BUCKET).list(`samples/${sampleId}`,{limit:50});
-      existingFiles = (data||[]).filter(f=>f.name!=='.emptyFolderPlaceholder');
+      const existingFiles = (data||[]).filter(f=>f.name!=='.emptyFolderPlaceholder');
       existingFiles.forEach(f => {
         const { data:u } = sb.storage.from(BUCKET).getPublicUrl(`samples/${sampleId}/${f.name}`);
         urls.push(u.publicUrl);
@@ -811,6 +1086,12 @@
     allSamples=data||[];
   }
 
+  async function loadTrackerItems() {
+    const {data,error}=await sb.from('product_tracker').select('*').order('created_at',{ascending:false});
+    if(error) throw error;
+    allTrackerItems=data||[];
+  }
+
   async function loadReferenceData() {
     const [lR,pR,fR,tR]=await Promise.all([
       sb.from('launch_calendar').select('id,title').order('title'),
@@ -839,6 +1120,18 @@
     sel.value=cur;
   }
 
+  function populatePtFilters() {
+    const lSel=$('ptLaunchFilter'); const lCur=lSel.value;
+    while(lSel.options.length>1) lSel.remove(1);
+    allLaunches.forEach(l=>{const o=document.createElement('option');o.value=l.id;o.textContent=l.title;lSel.appendChild(o);});
+    lSel.value=lCur;
+
+    const tSel=$('ptTypeFilter'); const tCur=tSel.value;
+    while(tSel.options.length>1) tSel.remove(1);
+    allProductTypes.forEach(t=>{const o=document.createElement('option');o.value=t;o.textContent=t;tSel.appendChild(o);});
+    tSel.value=tCur;
+  }
+
   function populateDrawerSelects(sample) {
     fillSelect('fldFactoryId',   allFactories,    f=>f.id,  f=>f.factory_name, '— select factory —');
     fillSelect('fldProductType', allProductTypes, t=>t,     t=>t,              '— select type —');
@@ -850,13 +1143,16 @@
     $('fldPoHeaderId').value = sample?.po_header_id || '';
   }
 
-  async function refreshAll() {
-    await loadSamples();
-    renderKPIs();
-    renderTable();
+  function populatePtDrawerSelects(item) {
+    fillSelect('ptFldFactoryId',   allFactories,    f=>f.id, f=>f.factory_name, '— select factory —');
+    fillSelect('ptFldProductType', allProductTypes, t=>t,    t=>t,              '— select type —');
+    fillSelect('ptFldLaunchId',    allLaunches,     l=>l.id, l=>l.title,        '— not linked to a launch —');
+    $('ptFldFactoryId').value   = item?.factory_id   || '';
+    $('ptFldProductType').value = item?.product_type || '';
+    $('ptFldLaunchId').value    = item?.launch_id    || '';
   }
 
-  // ── table ─────────────────────────────────────────────────────────────────
+  // ── sample table ──────────────────────────────────────────────────────────
   function filteredSamples() {
     const q=$('fSearch').value.toLowerCase();
     const fS=$('fStatus').value, fP=$('fPhotoStatus').value, fL=$('fLaunchFilter').value;
@@ -878,7 +1174,7 @@
       const launch=allLaunches.find(l=>l.id===s.launch_id);
       const po=allPOs.find(p=>p.id===s.po_header_id);
       const factory=allFactories.find(f=>f.id===s.factory_id);
-      const eta=s.bulk_eta?new Date(s.bulk_eta).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—';
+      const eta=s.bulk_eta?new Date(s.bulk_eta+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—';
       const factName=factory?.factory_name||s.factory_name||'—';
       return `<tr data-id="${s.id}">
         <td><span class="bcn-mono" style="font-size:10px;">${esc(s.sample_ref)}</span></td>
@@ -905,7 +1201,51 @@
     $('kpiLive').textContent      = a.filter(s=>s.live_status).length;
   }
 
-  // ── drawer open/close ─────────────────────────────────────────────────────
+  // ── tracker table ─────────────────────────────────────────────────────────
+  function filteredTrackerItems() {
+    const q=$('ptSearch').value.toLowerCase();
+    const fL=$('ptLaunchFilter').value, fT=$('ptTypeFilter').value, fP=$('ptPhotoFilter').value;
+    return allTrackerItems.filter(t=>{
+      if(q){const hay=[t.product_title,t.collection,t.product_type,t.manufacturer].join(' ').toLowerCase();if(!hay.includes(q))return false;}
+      if(fL&&t.launch_id!==fL)return false;
+      if(fT&&t.product_type!==fT)return false;
+      if(fP&&t.photo_complete!==fP)return false;
+      return true;
+    });
+  }
+
+  function renderTrackerTable() {
+    const rows=filteredTrackerItems();
+    const tbody=$('trackerBody');
+    if(!rows.length){tbody.innerHTML='<tr><td colspan="10" class="smp-empty">No products match the current filters.</td></tr>';return;}
+    tbody.innerHTML=rows.map(t=>{
+      const launch=allLaunches.find(l=>l.id===t.launch_id);
+      const eta=t.bulk_eta?new Date(t.bulk_eta+'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'—';
+      return `<tr data-pt-id="${t.id}">
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;">${esc(t.product_title)}</td>
+        <td>${esc(t.manufacturer||'—')}</td>
+        <td>${esc(t.product_type||'—')}</td>
+        <td>${esc(t.collection||'—')}</td>
+        <td style="font-size:11px;">${launch?esc(launch.title):'<span style="color:var(--bcn-ink-4)">—</span>'}</td>
+        <td><span class="bcn-mono" style="font-size:11px;">${eta}</span></td>
+        <td>${esc(t.on_hand||'—')}</td>
+        <td>${ptPhotoPill(t.photo_complete)}</td>
+        <td>${t.copy_complete?'<span class="bcn-pill bcn-pill--pos">Done</span>':'<span class="bcn-pill bcn-pill--dark">No</span>'}</td>
+        <td>${t.is_live?'<span class="bcn-pill bcn-pill--pos">Live</span>':'<span class="bcn-pill bcn-pill--dark">No</span>'}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function renderTrackerKPIs() {
+    const a=allTrackerItems;
+    $('ptKpiTotal').textContent  = a.length;
+    $('ptKpiPhoto').textContent  = a.filter(t=>t.photo_complete==='complete').length;
+    $('ptKpiCopy').textContent   = a.filter(t=>t.copy_complete).length;
+    $('ptKpiLive').textContent   = a.filter(t=>t.is_live).length;
+    $('ptKpiLinked').textContent = a.filter(t=>!!t.launch_id).length;
+  }
+
+  // ── sample drawer open/close ───────────────────────────────────────────────
   function openDrawer(sample) {
     drawerSample=sample||null; pendingPhotos=[];
     populateDrawerSelects(sample);
@@ -915,22 +1255,21 @@
     $('drawerTitle').textContent = isNew ? 'New Product Sample' : sample.product_title;
     $('btnDelete').style.display = isNew ? 'none' : '';
 
-    $('fldTitle').value          = sample?.product_title        || '';
-    $('fldCollection').value     = sample?.collection           || '';
-    $('fldBulkEta').value        = sample?.bulk_eta             || '';
-    $('fldOnHandLabel').value    = sample?.on_hand_label        || '';
-    $('fldReceivedAt').value     = sample?.received_at          || '';
-    $('fldSentAt').value         = sample?.sent_at              || '';
-    $('fldWarehouseReadyAt').value= sample?.warehouse_ready_at  || '';
-    $('fldPickedUpAt').value     = sample?.picked_up_at         || '';
-    $('fldPhotoReceivedAt').value= sample?.photo_received_at    || '';
-    $('fldPhotoStatus').value    = sample?.photo_status         || 'pending';
-    $('fldCopyStatus').value     = sample?.copy_status          || 'pending';
-    $('fldLiveStatus').checked   = sample?.live_status          || false;
-    $('fldNotes').value          = sample?.notes                || '';
-    $('fldProductMasterId').value= sample?.product_master_id    || '';
+    $('fldTitle').value           = sample?.product_title        || '';
+    $('fldCollection').value      = sample?.collection           || '';
+    $('fldBulkEta').value         = sample?.bulk_eta             || '';
+    $('fldOnHandLabel').value     = sample?.on_hand_label        || '';
+    $('fldReceivedAt').value      = sample?.received_at          || '';
+    $('fldSentAt').value          = sample?.sent_at              || '';
+    $('fldWarehouseReadyAt').value= sample?.warehouse_ready_at   || '';
+    $('fldPickedUpAt').value      = sample?.picked_up_at         || '';
+    $('fldPhotoReceivedAt').value = sample?.photo_received_at    || '';
+    $('fldPhotoStatus').value     = sample?.photo_status         || 'pending';
+    $('fldCopyStatus').value      = sample?.copy_status          || 'pending';
+    $('fldLiveStatus').checked    = sample?.live_status          || false;
+    $('fldNotes').value           = sample?.notes                || '';
+    $('fldProductMasterId').value = sample?.product_master_id    || '';
 
-    // restore linked product chip
     linkedProductId    = sample?.product_master_id    || null;
     linkedProductTitle = sample?.product_title_snapshot || null;
     $('prodSearchInput').value='';
@@ -938,7 +1277,7 @@
     updateLinkedChip();
 
     renderPipeline(sample?.sample_status || 'received');
-    renderAllSizeGrids(sample?.size_requests||'', sample?.sizes_ready_warehouse||'', sample?.sizes_picked_up||'');
+    renderAllSmpSizeGrids(sample?.size_requests||'', sample?.sizes_ready_warehouse||'', sample?.sizes_picked_up||'');
     renderPhotoGrid(sample?.id||null, []);
 
     if(sample?.id) loadActivity(sample.id);
@@ -956,7 +1295,7 @@
     drawerSample=null; pendingPhotos=[]; linkedProductId=null; linkedProductTitle=null;
   }
 
-  // ── save ──────────────────────────────────────────────────────────────────
+  // ── sample save/delete ─────────────────────────────────────────────────────
   async function saveSample() {
     const title=$('fldTitle').value.trim();
     if(!title){setStatus('Product Title is required.','neg',4000);return;}
@@ -982,9 +1321,9 @@
       warehouse_ready_at:     $('fldWarehouseReadyAt').value || null,
       picked_up_at:           $('fldPickedUpAt').value    || null,
       photo_received_at:      $('fldPhotoReceivedAt').value || null,
-      size_requests:          getCheckedSizes('req'),
-      sizes_ready_warehouse:  getCheckedSizes('whs'),
-      sizes_picked_up:        getCheckedSizes('pck'),
+      size_requests:          getCheckedSizes('req', $('drawer')),
+      sizes_ready_warehouse:  getCheckedSizes('whs', $('drawer')),
+      sizes_picked_up:        getCheckedSizes('pck', $('drawer')),
       sample_status:          newStatus,
       photo_status:           newPhoto,
       copy_status:            $('fldCopyStatus').value,
@@ -1015,7 +1354,7 @@
     if(oldPhoto&&oldPhoto!==newPhoto)    await logActivity(sampleId,'photo_status_changed',oldPhoto,newPhoto);
 
     clearStatus(); setStatus('Saved.','pos',2500);
-    await refreshAll(); closeDrawer();
+    await loadSamples(); renderKPIs(); renderTable(); closeDrawer();
   }
 
   async function deleteSample() {
@@ -1023,28 +1362,170 @@
     if(!confirm(`Delete "${drawerSample.product_title}"? This cannot be undone.`)) return;
     const {error}=await sb.from('product_samples').delete().eq('id',drawerSample.id);
     if(error){setStatus(error.message,'neg',6000);return;}
-    await refreshAll(); closeDrawer();
+    await loadSamples(); renderKPIs(); renderTable(); closeDrawer();
+  }
+
+  // ── product tracker drawer open/close ─────────────────────────────────────
+  function openPtDrawer(item) {
+    ptDrawerItem=item||null;
+    populatePtDrawerSelects(item);
+
+    const isNew=!item;
+    $('ptDrawerRef').textContent   = isNew ? 'NEW PRODUCT' : (item.id||'').slice(0,8).toUpperCase();
+    $('ptDrawerTitle').textContent = isNew ? 'New Product' : item.product_title;
+    $('ptBtnDelete').style.display = isNew ? 'none' : '';
+
+    $('ptFldTitle').value          = item?.product_title || '';
+    $('ptFldCollection').value     = item?.collection    || '';
+    $('ptFldBulkEta').value        = item?.bulk_eta      || '';
+    $('ptFldOnHand').value         = item?.on_hand       || '';
+    $('ptFldPhotoComplete').value  = item?.photo_complete|| 'pending';
+    $('ptFldCopyComplete').checked = item?.copy_complete || false;
+    $('ptFldLive').checked         = item?.is_live       || false;
+    $('ptFldNotes').value          = item?.notes         || '';
+    $('ptFldProductMasterId').value= item?.product_master_id || '';
+
+    ptLinkedProductId    = item?.product_master_id     || null;
+    ptLinkedProductTitle = item?.product_title_snapshot || null;
+    $('ptProdSearchInput').value='';
+    $('ptProdSearchResults').classList.remove('open');
+    updatePtLinkedChip();
+
+    renderAllPtSizeGrids(item?.size_requests||'', item?.sizes_ready_warehouse||'', item?.sizes_picked_up||'');
+
+    $('backdrop').classList.add('open');
+    $('ptDrawer').classList.add('open');
+    $('ptDrawer').setAttribute('aria-hidden','false');
+  }
+
+  function closePtDrawer() {
+    $('backdrop').classList.remove('open');
+    $('ptDrawer').classList.remove('open');
+    $('ptDrawer').setAttribute('aria-hidden','true');
+    ptDrawerItem=null; ptLinkedProductId=null; ptLinkedProductTitle=null;
+  }
+
+  // ── product tracker save/delete ────────────────────────────────────────────
+  async function savePtItem() {
+    const title=$('ptFldTitle').value.trim();
+    if(!title){setStatus('Product Title is required.','neg',4000);return;}
+
+    const factoryId=$('ptFldFactoryId').value||null;
+    const manufacturer=allFactories.find(f=>f.id===factoryId)?.factory_name||null;
+
+    const payload = {
+      product_title:          title,
+      factory_id:             factoryId,
+      manufacturer:           manufacturer,
+      product_type:           $('ptFldProductType').value   || null,
+      collection:             $('ptFldCollection').value.trim() || null,
+      bulk_eta:               $('ptFldBulkEta').value       || null,
+      on_hand:                $('ptFldOnHand').value        || null,
+      launch_id:              $('ptFldLaunchId').value      || null,
+      product_master_id:      ptLinkedProductId             || null,
+      product_title_snapshot: ptLinkedProductTitle          || null,
+      size_requests:          getCheckedSizes('req', $('ptDrawer')),
+      sizes_ready_warehouse:  getCheckedSizes('whs', $('ptDrawer')),
+      sizes_picked_up:        getCheckedSizes('pck', $('ptDrawer')),
+      photo_complete:         $('ptFldPhotoComplete').value,
+      copy_complete:          $('ptFldCopyComplete').checked,
+      is_live:                $('ptFldLive').checked,
+      notes:                  $('ptFldNotes').value.trim()  || null,
+    };
+
+    setStatus('Saving…','info');
+    let error;
+    if(ptDrawerItem) {
+      ({error}=await sb.from('product_tracker').update(payload).eq('id',ptDrawerItem.id));
+    } else {
+      ({error}=await sb.from('product_tracker').insert(payload));
+    }
+    if(error){setStatus(error.message,'neg',6000);return;}
+    clearStatus(); setStatus('Saved.','pos',2500);
+    await loadTrackerItems(); renderTrackerKPIs(); renderTrackerTable(); closePtDrawer();
+  }
+
+  async function deletePtItem() {
+    if(!ptDrawerItem) return;
+    if(!confirm(`Delete "${ptDrawerItem.product_title}"? This cannot be undone.`)) return;
+    const {error}=await sb.from('product_tracker').delete().eq('id',ptDrawerItem.id);
+    if(error){setStatus(error.message,'neg',6000);return;}
+    await loadTrackerItems(); renderTrackerKPIs(); renderTrackerTable(); closePtDrawer();
+  }
+
+  // ── tab switching ──────────────────────────────────────────────────────────
+  function switchTab(tab) {
+    activeTab=tab;
+    $('panelSamples').classList.toggle('active', tab==='samples');
+    $('panelTracker').classList.toggle('active', tab==='tracker');
+    document.querySelectorAll('.bcn-tab[data-tab]').forEach(btn=>{
+      btn.classList.toggle('bcn-tab--active', btn.dataset.tab===tab);
+    });
+    $('btnNew').textContent = tab==='samples' ? '+ New Sample' : '+ New Product';
   }
 
   // ── events ────────────────────────────────────────────────────────────────
-  $('btnNewSample').addEventListener('click',()=>openDrawer(null));
-  $('btnCloseDrawer').addEventListener('click',closeDrawer);
-  $('btnCancelDrawer').addEventListener('click',closeDrawer);
-  $('backdrop').addEventListener('click',closeDrawer);
-  $('btnSave').addEventListener('click',saveSample);
-  $('btnDelete').addEventListener('click',deleteSample);
+  $('btnNew').addEventListener('click', () => {
+    if(activeTab==='samples') openDrawer(null);
+    else openPtDrawer(null);
+  });
 
-  $('samplesBody').addEventListener('click',e=>{
+  $('btnCloseDrawer').addEventListener('click', closeDrawer);
+  $('btnCancelDrawer').addEventListener('click', closeDrawer);
+  $('btnSave').addEventListener('click', saveSample);
+  $('btnDelete').addEventListener('click', deleteSample);
+
+  $('ptBtnClose').addEventListener('click', closePtDrawer);
+  $('ptBtnCancel').addEventListener('click', closePtDrawer);
+  $('ptBtnSave').addEventListener('click', savePtItem);
+  $('ptBtnDelete').addEventListener('click', deletePtItem);
+
+  $('backdrop').addEventListener('click', () => {
+    if($('drawer').classList.contains('open')) closeDrawer();
+    else if($('ptDrawer').classList.contains('open')) closePtDrawer();
+  });
+
+  document.addEventListener('keydown', e => {
+    if($('lightbox').classList.contains('open')) {
+      if(e.key==='Escape') $('lightbox').classList.remove('open');
+      if(e.key==='ArrowLeft')  { lbIdx=(lbIdx-1+lbUrls.length)%lbUrls.length; showLbSlide(); }
+      if(e.key==='ArrowRight') { lbIdx=(lbIdx+1)%lbUrls.length; showLbSlide(); }
+      return;
+    }
+    if(e.key==='Escape') {
+      if($('drawer').classList.contains('open')) closeDrawer();
+      else if($('ptDrawer').classList.contains('open')) closePtDrawer();
+    }
+  });
+
+  $('samplesBody').addEventListener('click', e => {
     const tr=e.target.closest('tr[data-id]');
     if(!tr)return;
     const s=allSamples.find(x=>x.id===tr.dataset.id);
     if(s)openDrawer(s);
   });
 
+  $('trackerBody').addEventListener('click', e => {
+    const tr=e.target.closest('tr[data-pt-id]');
+    if(!tr)return;
+    const t=allTrackerItems.find(x=>x.id===tr.dataset.ptId);
+    if(t)openPtDrawer(t);
+  });
+
+  document.querySelectorAll('.bcn-tab[data-tab]').forEach(btn => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+  });
+
   ['fSearch','fStatus','fPhotoStatus','fLaunchFilter'].forEach(id=>{
     const el=$(id);
     el.addEventListener('input',renderTable);
     el.addEventListener('change',renderTable);
+  });
+
+  ['ptSearch','ptLaunchFilter','ptTypeFilter','ptPhotoFilter'].forEach(id=>{
+    const el=$(id);
+    el.addEventListener('input',renderTrackerTable);
+    el.addEventListener('change',renderTrackerTable);
   });
 
   // ── boot ──────────────────────────────────────────────────────────────────
@@ -1059,10 +1540,13 @@
       currentUser=data.session.user;
     }
     try {
-      await Promise.all([loadReferenceData(), loadSamples()]);
+      await Promise.all([loadReferenceData(), loadSamples(), loadTrackerItems()]);
       populateLaunchFilter();
+      populatePtFilters();
       renderKPIs();
       renderTable();
+      renderTrackerKPIs();
+      renderTrackerTable();
     } catch(e) {
       console.error(e);
       setStatus(e.message||'Failed to load.','neg');
@@ -1073,7 +1557,7 @@
     window.SiloChrome.mount({
       appEl:'#silo-app', active:'creative/product-samples',
       user:{email:'',role:'MEMBER'},
-      crumbs:['Creative','Product Samples'],
+      crumbs:['Creative','Product Tracker'],
       supabaseClient:sb,
     });
   }
