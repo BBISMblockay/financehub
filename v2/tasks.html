@@ -581,7 +581,7 @@
     const extra = {};
     if (value === 'done') {
       extra.completed_at = new Date().toISOString();
-      extra.completed_by = currentEmail;
+      extra.completed_by = currentUser.id;
     } else {
       extra.completed_at = null;
       extra.completed_by = null;
@@ -677,7 +677,7 @@
       const existing = allTasks.find(t => t.id === id);
       if (payload.status === 'done' && (!existing || existing.status !== 'done')) {
         payload.completed_at = new Date().toISOString();
-        payload.completed_by = currentEmail;
+        payload.completed_by = currentUser.id;
       } else if (payload.status !== 'done') {
         payload.completed_at = null;
         payload.completed_by = null;
