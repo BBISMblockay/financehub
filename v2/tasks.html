@@ -387,7 +387,7 @@
   function launchName(id) {
     if (!id) return '—';
     const l = allLaunches.find(x => x.id === id);
-    return l ? l.name : '—';
+    return l ? l.title : '—';
   }
 
   function profileName(userId) {
@@ -410,7 +410,7 @@
     try {
       const [tasksRes, launchRes, profilesRes, profileMe] = await Promise.all([
         db.from('launch_tasks').select('*').order('created_at', { ascending: false }),
-        db.from('launch_calendar').select('id, name, launch_date').order('launch_date', { ascending: false }),
+        db.from('launch_calendar').select('id, title, launch_date').order('launch_date', { ascending: false }),
         db.from('profiles').select('id, name, email').eq('is_active', true).order('name'),
         db.from('profiles').select('role').eq('id', currentUser.id).single(),
       ]);
@@ -441,7 +441,7 @@
     fLaunch.innerHTML = '<option value="">All launches</option>';
     allLaunches.forEach(l => {
       const o = document.createElement('option');
-      o.value = l.id; o.textContent = l.name;
+      o.value = l.id; o.textContent = l.title;
       fLaunch.appendChild(o);
     });
 
@@ -469,7 +469,7 @@
     dLaunch.innerHTML = '<option value="">Select a launch…</option>';
     allLaunches.forEach(l => {
       const o = document.createElement('option');
-      o.value = l.id; o.textContent = l.name;
+      o.value = l.id; o.textContent = l.title;
       dLaunch.appendChild(o);
     });
 
