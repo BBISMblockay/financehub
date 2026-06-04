@@ -201,14 +201,22 @@ table { border-collapse: collapse; }
 .silo-sb-nav::-webkit-scrollbar-thumb { background: var(--bcn-band-hi); }
 
 .silo-sb-section-label {
-  padding: 8px 8px 4px;
+  display: flex; align-items: center; justify-content: space-between;
+  width: 100%; padding: 8px 8px 4px;
   font-family: var(--bcn-mono); font-size: 9.5px;
   color: var(--bcn-band-ink-3); text-transform: uppercase; letter-spacing: 0.14em;
+  background: none; border: none; cursor: pointer; text-align: left;
+  border-radius: 4px; transition: color .15s;
 }
+.silo-sb-section-label:hover { color: var(--bcn-band-ink); }
+.silo-sb-section-chevron { transition: transform .2s ease; flex-shrink: 0; opacity: .5; }
+.silo-sb-section--open .silo-sb-section-chevron { transform: rotate(180deg); opacity: .8; }
 .silo-app[data-collapsed="true"] .silo-sb-section-label { display: none; }
 
-.silo-sb-section { margin-bottom: 8px; }
-.silo-sb-links { display: flex; flex-direction: column; gap: 2px; }
+.silo-sb-section { margin-bottom: 4px; }
+.silo-sb-links { display: none; flex-direction: column; gap: 2px; }
+.silo-sb-section--open .silo-sb-links { display: flex; }
+.silo-app[data-collapsed="true"] .silo-sb-links { display: none; }
 
 .silo-sb-link {
   display: flex;
@@ -274,7 +282,6 @@ table { border-collapse: collapse; }
   padding: 8px 4px;
   font-size: 10px;
 }
-.silo-app[data-collapsed="true"] .silo-sb-links { display: none; }
 
 .silo-nav-backdrop {
   display: none;
