@@ -1204,7 +1204,7 @@
       document.getElementById('trkEta').value = state.po?.expected_arrival_date ? state.po.expected_arrival_date.slice(0,10) : '';
       document.getElementById('trkFactory').value = state.po?.factory_id || '';
       document.getElementById('trkLineId').value = lineId;
-      document.getElementById('trkModal').removeAttribute('hidden');
+      document.getElementById('trkModal').style.display='flex';
     }
 
     window.saveFromPOLine = saveFromPOLine;
@@ -1221,7 +1221,7 @@
       const { error } = await sb.from('product_tracker').insert(payload);
       if (error) { setStatus('Failed: '+error.message,'neg'); return; }
       setStatus(`"${title}" added to Product Tracker.`, 'pos', 3500);
-      document.getElementById('trkModal').setAttribute('hidden','');
+      document.getElementById('trkModal').style.display='none';
     }
 
     async function boot(){
@@ -1263,7 +1263,7 @@
   </script>
 
 <!-- Tracker push mini-modal -->
-<div id="trkModal" hidden style="position:fixed;inset:0;z-index:900;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);">
+<div id="trkModal" style="display:none;position:fixed;inset:0;z-index:900;align-items:center;justify-content:center;background:rgba(0,0,0,.45);">
   <div style="background:#fff;border-radius:10px;padding:28px 24px;width:420px;max-width:95vw;box-shadow:0 8px 32px rgba(0,0,0,.22);">
     <h3 id="trkModalTitle" style="margin:0 0 18px;font-size:16px;font-weight:700;">Push to Product Tracker</h3>
     <input type="hidden" id="trkLineId">
@@ -1275,7 +1275,7 @@
     </div>
     <div style="display:flex;gap:10px;">
       <button class="bcn-btn bcn-btn--primary" onclick="saveFromPOLine()">Add to Tracker</button>
-      <button class="bcn-btn bcn-btn--ghost" onclick="document.getElementById('trkModal').setAttribute('hidden','')">Cancel</button>
+      <button class="bcn-btn bcn-btn--ghost" onclick="document.getElementById('trkModal').style.display='none'">Cancel</button>
       <a class="bcn-btn bcn-btn--ghost" href="/v2/product-manager.html" target="_blank" style="margin-left:auto;">Open Tracker →</a>
     </div>
   </div>
