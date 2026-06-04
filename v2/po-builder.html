@@ -46,6 +46,8 @@
         </div>
       </header>
 
+      <div class="bcn-status" id="poStatus" hidden></div>
+
       <section class="bcn-kpi-band" aria-label="PO totals">
         <div class="bcn-kpi">
           <div class="bcn-kpi-label">TOTAL UNITS</div>
@@ -334,6 +336,7 @@
     };
 
     function money(v){ return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(v||0)); }
+    function setStatus(msg,type='info',ms=3500){ const el=document.getElementById('poStatus'); if(!el) return; el.className=`bcn-status bcn-status--${type}`; el.textContent=msg; el.hidden=false; if(ms) setTimeout(()=>{ el.hidden=true; },ms); }
     function escapeHtml(str){ return String(str ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;'); }
     function modalOpen(node){ node.classList.remove('hidden-safe'); node.classList.add('is-open'); }
     function modalClose(node){ node.classList.add('hidden-safe'); node.classList.remove('is-open'); }
@@ -633,7 +636,30 @@
       if(savedId){ const {error}=await sb.from('po_headers').update(payload).eq('id',savedId); if(error) throw error; }
       else { const {data,error}=await sb.from('po_headers').insert(payload).select('*').single(); if(error) throw error; state.currentPO=data; savedId=data.id; }
       await refreshAll(); if(savedId) await openPO(savedId);
+      if(payload.is_new_product_po) await autoSyncLinesToTracker();
       collapseHeader();
+    }
+
+    async function autoSyncLinesToTracker(){
+      const po=state.currentPO; const lines=state.currentLines||[];
+      const titles=lines.map(l=>(l.title_snapshot||'').trim()).filter(Boolean);
+      if(!titles.length) return;
+      // Fetch which titles are already tracked
+      const {data:existing}=await sb.from('product_tracker').select('product_title').in('product_title',titles);
+      const existingSet=new Set((existing||[]).map(r=>r.product_title));
+      const toInsert=lines.filter(l=>{
+        const t=(l.title_snapshot||'').trim(); return t && !existingSet.has(t);
+      }).map(l=>({
+        product_title:(l.title_snapshot||'').trim(),
+        product_type:l.product_type_snapshot||null,
+        factory_id:po.factory_id||null,
+        bulk_eta:po.expected_arrival_date||null,
+        notes:`Auto-added from PO: ${po.po_name||''}`.trim(),
+      }));
+      if(!toInsert.length){ setStatus(`All lines already in Product Tracker.`,'info',3000); return; }
+      const {error}=await sb.from('product_tracker').insert(toInsert);
+      if(error){ setStatus('Tracker sync failed: '+error.message,'neg'); return; }
+      setStatus(`${toInsert.length} new product${toInsert.length>1?'s':''} added to Product Tracker.`,'pos',4000);
     }
 
     async function addCatalogLine(productId, qty){
