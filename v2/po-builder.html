@@ -46,6 +46,8 @@
         </div>
       </header>
 
+      <div class="bcn-status" id="poStatus" hidden></div>
+
       <section class="bcn-kpi-band" aria-label="PO totals">
         <div class="bcn-kpi">
           <div class="bcn-kpi-label">TOTAL UNITS</div>
@@ -334,6 +336,7 @@
     };
 
     function money(v){ return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(v||0)); }
+    function setStatus(msg,type='info',ms=3500){ const el=document.getElementById('poStatus'); if(!el) return; el.className=`bcn-status bcn-status--${type}`; el.textContent=msg; el.hidden=false; if(ms) setTimeout(()=>{ el.hidden=true; },ms); }
     function escapeHtml(str){ return String(str ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;'); }
     function modalOpen(node){ node.classList.remove('hidden-safe'); node.classList.add('is-open'); }
     function modalClose(node){ node.classList.add('hidden-safe'); node.classList.remove('is-open'); }
@@ -636,6 +639,23 @@
       collapseHeader();
     }
 
+    async function autoSyncLineToTracker(linePayload){
+      const po=state.currentPO;
+      const title=(linePayload.title_snapshot||'').trim();
+      if(!title) return;
+      const {data:existing}=await sb.from('product_tracker').select('id').ilike('product_title',title).limit(1);
+      if(existing&&existing.length) return; // already tracked, silent
+      const {error}=await sb.from('product_tracker').insert({
+        product_title:title,
+        product_type:linePayload.product_type_snapshot||null,
+        factory_id:po.factory_id||null,
+        bulk_eta:po.expected_arrival_date||null,
+        notes:`Auto-added from PO: ${po.po_name||''}`.trim(),
+      });
+      if(error){ setStatus('Tracker sync failed: '+error.message,'neg'); return; }
+      setStatus(`"${title}" added to Product Tracker.`,'pos',3000);
+    }
+
     async function addCatalogLine(productId, qty){
       if(!state.currentPO?.id){ alert('Save the PO header first.'); return; }
       if(!qty || Number(qty)<=0){ alert('Enter a quantity greater than 0.'); return; }
@@ -750,6 +770,7 @@
       if(idx>=0) state.currentLines[idx]={...state.currentLines[idx],...payload};
       updateRetailPreview(lineId);
       setLineSaveState(lineId,'is-saved','Saved');
+      if(state.currentPO?.is_new_product_po) await autoSyncLineToTracker(payload);
       if(!opts.silent){ await refreshAll(); if(state.currentPO?.id) await openPO(state.currentPO.id); }
     }
 
