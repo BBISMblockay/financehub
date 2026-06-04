@@ -371,6 +371,35 @@
       }
     }
 
+    async function loadTrackerAttention(items, tokens) {
+      try {
+        const today = todayIso();
+        const sevenDaysAgo = addDaysIso(today, -7);
+        const [photoRes, readyRes, orphanRes, overdueTasksRes, myTasksRes] = await Promise.all([
+          safeCount('product_tracker', q => q.eq('photo_complete', 'pending').eq('is_live', false)),
+          safeCount('product_tracker', q => q.eq('photo_complete', 'complete').eq('copy_complete', true).eq('is_live', false)),
+          safeCount('product_tracker', q => q.is('launch_id', null).gte('created_at', sevenDaysAgo)),
+          safeCount('launch_tasks', q => q.neq('status', 'done').not('due_date', 'is', null).lt('due_date', today).eq('assigned_to_user_id', authUser?.id)),
+          safeCount('launch_tasks', q => q.neq('status', 'done').eq('assigned_to_user_id', authUser?.id)),
+        ]);
+        if (photoRes.ok && photoRes.count > 0) {
+          pushFeedItem(items, { kind: 'tracker_photo_pending', title: `${photoRes.count} product${photoRes.count === 1 ? '' : 's'} need photos`, detail: 'Photo status is pending in Product Hub.', href: '/v2/product-manager.html', severity: photoRes.count > 5 ? 'warn' : 'info', count: photoRes.count });
+        }
+        if (readyRes.ok && readyRes.count > 0) {
+          pushFeedItem(items, { kind: 'tracker_ready_not_live', title: `${readyRes.count} product${readyRes.count === 1 ? '' : 's'} ready but not live`, detail: 'Photo + copy done — waiting to go live.', href: '/v2/product-manager.html', severity: 'warn', count: readyRes.count });
+        }
+        if (orphanRes.ok && orphanRes.count > 0) {
+          pushFeedItem(items, { kind: 'tracker_unlinked', title: `${orphanRes.count} new product${orphanRes.count === 1 ? '' : 's'} not linked to a launch`, detail: 'Added in last 7 days with no launch.', href: '/v2/product-manager.html', severity: 'info', count: orphanRes.count });
+        }
+        if (overdueTasksRes.ok && overdueTasksRes.count > 0) {
+          pushFeedItem(items, { kind: 'my_tasks_overdue', title: `${overdueTasksRes.count} of your tasks overdue`, detail: 'Assigned to you, past due date.', href: '/v2/tasks.html', severity: 'high', count: overdueTasksRes.count });
+        }
+        if (myTasksRes.ok && myTasksRes.count > 0) {
+          pushFeedItem(items, { kind: 'my_tasks_open', title: `${myTasksRes.count} open task${myTasksRes.count === 1 ? '' : 's'} assigned to you`, detail: 'Your current task queue.', href: '/v2/tasks.html', severity: 'info', count: myTasksRes.count });
+        }
+      } catch (e) { /* optional */ }
+    }
+
     async function loadProjectionAttention(items, tokens) {
       if (!tokens.isAdmin && !tokens.finance && !tokens.planning) return;
       const { monthStart, monthEnd } = currentMonthBounds();
@@ -409,6 +438,11 @@
       launch_tasks: { domain: 'Launches', workspace: 'Launch calendar', icon: 'rocket' },
       launch_products: { domain: 'Launches', workspace: 'Launch calendar', icon: 'rocket' },
       proj_empty: { domain: 'Planning', workspace: 'Planning scenarios', icon: 'chart' },
+      tracker_photo_pending: { domain: 'Creative', workspace: 'Product Hub', icon: 'package' },
+      tracker_ready_not_live: { domain: 'Creative', workspace: 'Product Hub', icon: 'package' },
+      tracker_unlinked: { domain: 'Creative', workspace: 'Product Hub', icon: 'package' },
+      my_tasks_overdue: { domain: 'Tasks', workspace: 'Task Manager', icon: 'bell' },
+      my_tasks_open: { domain: 'Tasks', workspace: 'Task Manager', icon: 'bell' },
       admin_access: { domain: 'Admin', workspace: 'Backend hub', icon: 'shield' },
     };
 
@@ -517,6 +551,7 @@
         loadPaymentAttention(attentionItems, tokens),
         loadPoAttention(attentionItems, tokens),
         loadLaunchAttention(attentionItems, tokens),
+        loadTrackerAttention(attentionItems, tokens),
         loadProjectionAttention(attentionItems, tokens),
         loadAdminAttention(attentionItems, tokens),
       ]);
