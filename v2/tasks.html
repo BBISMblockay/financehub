@@ -1,0 +1,789 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SILO · Task Manager</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <style>
+    /* ── Task Manager (tm-) custom styles ── */
+
+    /* Table row coloring by due status */
+    .tm-row--overdue td { background: rgba(var(--bcn-neg-rgb, 220,53,69), .06); }
+    .tm-row--soon td { background: rgba(var(--bcn-warn-rgb, 245,158,11), .05); }
+
+    /* Due date cell coloring */
+    .tm-due--overdue { color: var(--bcn-neg); font-weight: 600; }
+    .tm-due--soon    { color: var(--bcn-warn); font-weight: 600; }
+
+    /* Inline status select */
+    .tm-status-sel {
+      font-family: var(--bcn-mono);
+      font-size: 11px;
+      padding: 2px 6px;
+      border: 1px solid var(--bcn-border);
+      border-radius: 5px;
+      background: var(--bcn-surface);
+      color: var(--bcn-ink);
+      cursor: pointer;
+    }
+    .tm-status-sel:focus { outline: none; border-color: var(--bcn-accent); }
+    .tm-status-sel[data-v="done"]        { background: #edfdf4; color: #16a34a; border-color: #86efac; }
+    .tm-status-sel[data-v="in-progress"] { background: #eff6ff; color: #2563eb; border-color: #93c5fd; }
+    .tm-status-sel[data-v="open"]        { background: var(--bcn-surface); color: var(--bcn-ink-2); }
+
+    /* Drawer overlay + panel */
+    .tm-overlay {
+      position: fixed; inset: 0;
+      background: rgba(10,16,30,.46);
+      z-index: 90; opacity: 0; pointer-events: none;
+      transition: opacity .18s ease;
+    }
+    .tm-overlay.open { opacity: 1; pointer-events: auto; }
+
+    .tm-drawer {
+      position: fixed; top: 0; right: 0; bottom: 0;
+      width: min(480px, 100vw);
+      background: var(--bcn-surface);
+      border-left: 1px solid var(--bcn-border-strong);
+      z-index: 91; display: flex; flex-direction: column;
+      transform: translateX(100%);
+      transition: transform .2s ease;
+      box-shadow: -6px 0 32px rgba(0,0,0,.14);
+    }
+    .tm-drawer.open { transform: translateX(0); }
+
+    .tm-drawer-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 22px 14px;
+      border-bottom: 1px solid var(--bcn-border);
+      flex-shrink: 0;
+    }
+    .tm-drawer-title {
+      font-size: 15px; font-weight: 700; color: var(--bcn-ink);
+    }
+    .tm-drawer-close {
+      width: 30px; height: 30px; border-radius: 6px;
+      background: none; border: 1px solid var(--bcn-border);
+      color: var(--bcn-ink-3); cursor: pointer; font-size: 16px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .tm-drawer-close:hover { color: var(--bcn-neg); border-color: var(--bcn-neg); }
+
+    .tm-drawer-body {
+      flex: 1; overflow-y: auto; padding: 20px 22px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+
+    .tm-drawer-foot {
+      padding: 14px 22px 18px;
+      border-top: 1px solid var(--bcn-border);
+      display: flex; gap: 8px; flex-shrink: 0;
+    }
+
+    /* Spinner */
+    .tm-spinner {
+      display: inline-block; width: 16px; height: 16px;
+      border: 2px solid var(--bcn-border);
+      border-top-color: var(--bcn-accent);
+      border-radius: 50%;
+      animation: tm-spin .6s linear infinite;
+    }
+    @keyframes tm-spin { to { transform: rotate(360deg); } }
+
+    .tm-loading-row td {
+      text-align: center; padding: 40px 0;
+      color: var(--bcn-ink-3); font-size: 13px;
+    }
+
+    .tm-empty-row td {
+      text-align: center; padding: 48px 0;
+      color: var(--bcn-ink-3); font-size: 13px;
+    }
+
+    /* Edit button in table */
+    .tm-edit-btn {
+      font-family: var(--bcn-mono); font-size: 10px; font-weight: 700;
+      padding: 3px 9px; border-radius: 5px; cursor: pointer;
+      border: 1px solid var(--bcn-border); background: none;
+      color: var(--bcn-ink-2);
+    }
+    .tm-edit-btn:hover { border-color: var(--bcn-accent); color: var(--bcn-accent); }
+  </style>
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="../pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+  <script src="silo-chrome.js"></script>
+</head>
+<body>
+<div class="silo-app" id="silo-app">
+  <main class="silo-main">
+
+    <!-- Header -->
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0;">
+        <div class="bcn-header-title"><h1>Task Manager</h1></div>
+        <div class="bcn-header-sub" style="font-size:12px;color:var(--bcn-ink-3);margin-top:2px;">
+          All launch tasks across SILO
+        </div>
+      </div>
+      <div class="bcn-header-actions">
+        <button id="btnNew" class="bcn-btn bcn-btn--primary bcn-btn--mono" type="button">+ New Task</button>
+      </div>
+    </header>
+
+    <!-- Status -->
+    <div class="bcn-status" id="status" hidden></div>
+
+    <!-- KPI band -->
+    <section class="bcn-kpi-band">
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">Total Open</div>
+        <div class="bcn-kpi-value bcn-mono" id="kpiOpen">—</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">Overdue</div>
+        <div class="bcn-kpi-value bcn-mono" id="kpiOverdue" style="color:var(--bcn-neg);">—</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">Due This Week</div>
+        <div class="bcn-kpi-value bcn-mono" id="kpiWeek" style="color:var(--bcn-warn);">—</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">My Tasks</div>
+        <div class="bcn-kpi-value bcn-mono" id="kpiMine">—</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">No Assignee</div>
+        <div class="bcn-kpi-value bcn-mono" id="kpiUnassigned">—</div>
+      </div>
+    </section>
+
+    <!-- Filter bar -->
+    <section class="bcn-filter-bar">
+      <div class="bcn-filter">
+        <input id="fSearch" class="bcn-field" type="search" placeholder="Search title / notes…" style="min-width:180px;" />
+      </div>
+      <div class="bcn-filter">
+        <select id="fLaunch" class="bcn-field">
+          <option value="">All launches</option>
+        </select>
+      </div>
+      <div class="bcn-filter">
+        <select id="fAssignee" class="bcn-field">
+          <option value="">All assignees</option>
+          <option value="__me__">Me</option>
+          <option value="__none__">Unassigned</option>
+        </select>
+      </div>
+      <div class="bcn-filter">
+        <select id="fPriority" class="bcn-field">
+          <option value="">All priorities</option>
+          <option value="critical">Critical</option>
+          <option value="high">High</option>
+          <option value="normal">Normal</option>
+          <option value="low">Low</option>
+        </select>
+      </div>
+      <div class="bcn-filter">
+        <select id="fStatus" class="bcn-field">
+          <option value="open_inprogress" selected>Open &amp; In Progress</option>
+          <option value="">All</option>
+          <option value="open">Open</option>
+          <option value="in-progress">In Progress</option>
+          <option value="done">Done</option>
+        </select>
+      </div>
+      <div class="bcn-filter">
+        <select id="fType" class="bcn-field">
+          <option value="">All types</option>
+        </select>
+      </div>
+    </section>
+
+    <!-- Table -->
+    <div class="bcn-card" style="margin:0 20px 28px;">
+      <div class="bcn-matrix-scroll">
+        <table class="bcn-table">
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Launch</th>
+              <th>Assignee</th>
+              <th>Priority</th>
+              <th>Type</th>
+              <th style="font-family:var(--bcn-mono);">Due</th>
+              <th>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="tasksTbody">
+            <tr class="tm-loading-row">
+              <td colspan="8"><span class="tm-spinner"></span> Loading tasks…</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- Drawer overlay -->
+<div class="tm-overlay" id="drawerOverlay"></div>
+
+<!-- Drawer panel -->
+<div class="tm-drawer" id="drawerPanel" role="dialog" aria-modal="true" aria-label="Task editor">
+  <div class="tm-drawer-head">
+    <span class="tm-drawer-title" id="drawerTitle">New Task</span>
+    <button class="tm-drawer-close" id="drawerClose" type="button" aria-label="Close">×</button>
+  </div>
+  <div class="tm-drawer-body">
+
+    <div class="bcn-field-group">
+      <label class="bcn-label" for="dTitle">Task Title <span style="color:var(--bcn-neg)">*</span></label>
+      <input id="dTitle" class="bcn-field" type="text" placeholder="Describe the task…" />
+    </div>
+
+    <div class="bcn-field-group">
+      <label class="bcn-label" for="dLaunch">Launch <span style="color:var(--bcn-neg)">*</span></label>
+      <select id="dLaunch" class="bcn-field">
+        <option value="">— select launch —</option>
+      </select>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="dAssignee">Assignee</label>
+        <select id="dAssignee" class="bcn-field">
+          <option value="">Unassigned</option>
+        </select>
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="dPriority">Priority</label>
+        <select id="dPriority" class="bcn-field">
+          <option value="normal">Normal</option>
+          <option value="low">Low</option>
+          <option value="high">High</option>
+          <option value="critical">Critical</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="dType">Type</label>
+        <input id="dType" class="bcn-field" type="text" placeholder="e.g. Marketing, Ops…" />
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="dDue">Due Date</label>
+        <input id="dDue" class="bcn-field bcn-field--mono" type="date" />
+      </div>
+    </div>
+
+    <div class="bcn-field-group">
+      <label class="bcn-label" for="dStatus">Status</label>
+      <select id="dStatus" class="bcn-field">
+        <option value="open">Open</option>
+        <option value="in-progress">In Progress</option>
+        <option value="done">Done</option>
+      </select>
+    </div>
+
+    <div class="bcn-field-group">
+      <label class="bcn-label" for="dNotes">Notes</label>
+      <textarea id="dNotes" class="bcn-field" rows="4" placeholder="Optional notes…" style="resize:vertical;"></textarea>
+    </div>
+
+  </div>
+  <div class="tm-drawer-foot">
+    <button id="btnSave" class="bcn-btn bcn-btn--primary" type="button">Save</button>
+    <button id="btnCancel" class="bcn-btn bcn-btn--ghost" type="button">Cancel</button>
+    <button id="btnDelete" class="bcn-btn bcn-btn--danger" type="button" style="margin-left:auto;display:none;">Delete</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ── Config + Supabase ── */
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL      = cfg.SUPABASE_URL      || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.getElementById('status').className = 'bcn-status bcn-status--neg';
+    document.getElementById('status').textContent = 'Missing Supabase config — check pages/config.js';
+    document.getElementById('status').hidden = false;
+    return;
+  }
+
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+  /* ── Auth ── */
+  let currentUser  = null;
+  let currentUserId = null;
+
+  /* ── State ── */
+  let allTasks     = [];
+  let allLaunches  = [];
+  let allProfiles  = [];
+  let filteredTasks = [];
+  let editingTask  = null; // null = new, object = existing
+
+  /* ── Helpers ── */
+  function setStatus(msg, type = 'info', ms = 0) {
+    const el = document.getElementById('status');
+    el.className = `bcn-status bcn-status--${type}`;
+    el.textContent = msg;
+    el.hidden = false;
+    if (ms) setTimeout(() => { el.hidden = true; }, ms);
+  }
+
+  function launchName(id) {
+    if (!id) return '—';
+    const l = allLaunches.find(x => x.id === id);
+    return l ? l.name : '—';
+  }
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  function parseDate(str) {
+    if (!str) return null;
+    const d = new Date(str + 'T00:00:00');
+    return isNaN(d) ? null : d;
+  }
+
+  function dueCss(dateStr) {
+    const d = parseDate(dateStr);
+    if (!d) return '';
+    if (d < today) return 'overdue';
+    const diff = (d - today) / 86400000;
+    if (diff <= 3) return 'soon';
+    return '';
+  }
+
+  function fmtDate(dateStr) {
+    const d = parseDate(dateStr);
+    if (!d) return '—';
+    return (d.getMonth() + 1).toString().padStart(2, '0') + '/' +
+           d.getDate().toString().padStart(2, '0');
+  }
+
+  function withinWeek(dateStr) {
+    const d = parseDate(dateStr);
+    if (!d) return false;
+    const diff = (d - today) / 86400000;
+    return diff >= 0 && diff <= 7;
+  }
+
+  function priorityPill(p) {
+    const map = {
+      critical: ['neg',    'CRITICAL'],
+      high:     ['warn',   'HIGH'],
+      normal:   ['accent', 'NORMAL'],
+      low:      ['dark',   'LOW'],
+    };
+    const [cls, label] = map[p] || ['dark', p || '—'];
+    return `<span class="bcn-pill bcn-pill--${cls}" style="font-family:var(--bcn-mono);font-size:10px;">${label}</span>`;
+  }
+
+  /* ── Load data ── */
+  async function loadAll() {
+    try {
+      const [taskRes, launchRes, profileRes] = await Promise.all([
+        db.from('launch_tasks').select('*').order('created_at', { ascending: false }),
+        db.from('launch_calendar').select('id, name, launch_date').order('launch_date', { ascending: false }),
+        db.from('profiles').select('id, name, email').eq('is_active', true).order('name'),
+      ]);
+
+      if (taskRes.error)    throw taskRes.error;
+      if (launchRes.error)  throw launchRes.error;
+      if (profileRes.error) throw profileRes.error;
+
+      allTasks    = taskRes.data    || [];
+      allLaunches = launchRes.data  || [];
+      allProfiles = profileRes.data || [];
+
+      populateFilterDropdowns();
+      populateDrawerDropdowns();
+      renderKpis();
+      applyFilters();
+    } catch (err) {
+      setStatus('Failed to load data: ' + err.message, 'neg');
+      document.getElementById('tasksTbody').innerHTML =
+        '<tr class="tm-empty-row"><td colspan="8">Error loading tasks.</td></tr>';
+    }
+  }
+
+  /* ── Populate filter selects ── */
+  function populateFilterDropdowns() {
+    // Launches
+    const fLaunch = document.getElementById('fLaunch');
+    fLaunch.innerHTML = '<option value="">All launches</option>';
+    allLaunches.forEach(l => {
+      const o = document.createElement('option');
+      o.value = l.id;
+      o.textContent = l.name;
+      fLaunch.appendChild(o);
+    });
+
+    // Assignees
+    const fAssignee = document.getElementById('fAssignee');
+    fAssignee.innerHTML = `
+      <option value="">All assignees</option>
+      <option value="__me__">Me</option>
+      <option value="__none__">Unassigned</option>
+    `;
+    allProfiles.forEach(p => {
+      const o = document.createElement('option');
+      o.value = p.id;
+      o.textContent = p.name || p.email;
+      fAssignee.appendChild(o);
+    });
+
+    // Types (unique from tasks)
+    const types = [...new Set(allTasks.map(t => t.task_type).filter(Boolean))].sort();
+    const fType = document.getElementById('fType');
+    fType.innerHTML = '<option value="">All types</option>';
+    types.forEach(tp => {
+      const o = document.createElement('option');
+      o.value = tp;
+      o.textContent = tp;
+      fType.appendChild(o);
+    });
+  }
+
+  function populateDrawerDropdowns() {
+    // Launch select in drawer
+    const dLaunch = document.getElementById('dLaunch');
+    dLaunch.innerHTML = '<option value="">— select launch —</option>';
+    allLaunches.forEach(l => {
+      const o = document.createElement('option');
+      o.value = l.id;
+      o.textContent = l.name;
+      dLaunch.appendChild(o);
+    });
+
+    // Assignee select in drawer
+    const dAssignee = document.getElementById('dAssignee');
+    dAssignee.innerHTML = '<option value="">Unassigned</option>';
+    allProfiles.forEach(p => {
+      const o = document.createElement('option');
+      o.value = p.id;
+      o.textContent = p.name || p.email;
+      dAssignee.appendChild(o);
+    });
+  }
+
+  /* ── KPIs ── */
+  function renderKpis() {
+    const nonDone = allTasks.filter(t => t.status !== 'done');
+
+    const open       = nonDone.length;
+    const overdue    = nonDone.filter(t => { const d = parseDate(t.due_date); return d && d < today; }).length;
+    const week       = nonDone.filter(t => withinWeek(t.due_date)).length;
+    const mine       = allTasks.filter(t => t.assigned_to_user_id === currentUserId).length;
+    const unassigned = nonDone.filter(t => !t.assigned_to_user_id).length;
+
+    document.getElementById('kpiOpen').textContent      = open;
+    document.getElementById('kpiOverdue').textContent   = overdue;
+    document.getElementById('kpiWeek').textContent      = week;
+    document.getElementById('kpiMine').textContent      = mine;
+    document.getElementById('kpiUnassigned').textContent = unassigned;
+  }
+
+  /* ── Filters ── */
+  function applyFilters() {
+    const search   = document.getElementById('fSearch').value.trim().toLowerCase();
+    const launch   = document.getElementById('fLaunch').value;
+    const assignee = document.getElementById('fAssignee').value;
+    const priority = document.getElementById('fPriority').value;
+    const status   = document.getElementById('fStatus').value;
+    const type     = document.getElementById('fType').value;
+
+    filteredTasks = allTasks.filter(t => {
+      if (search) {
+        const hay = ((t.task_title || '') + ' ' + (t.notes || '')).toLowerCase();
+        if (!hay.includes(search)) return false;
+      }
+      if (launch && t.launch_id !== launch) return false;
+      if (assignee === '__me__'   && t.assigned_to_user_id !== currentUserId) return false;
+      if (assignee === '__none__' && t.assigned_to_user_id)                   return false;
+      if (assignee && assignee !== '__me__' && assignee !== '__none__' &&
+          t.assigned_to_user_id !== assignee) return false;
+      if (priority && t.priority !== priority) return false;
+      if (status === 'open_inprogress') {
+        if (t.status === 'done') return false;
+      } else if (status) {
+        if (t.status !== status) return false;
+      }
+      if (type && t.task_type !== type) return false;
+      return true;
+    });
+
+    renderTable(filteredTasks);
+  }
+
+  /* ── Table render ── */
+  function renderTable(rows) {
+    const tbody = document.getElementById('tasksTbody');
+    if (!rows.length) {
+      tbody.innerHTML = '<tr class="tm-empty-row"><td colspan="8">No tasks match the current filters.</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = rows.map(t => {
+      const due     = fmtDate(t.due_date);
+      const dClass  = dueCss(t.due_date);
+      const rowCls  = dClass === 'overdue' ? 'tm-row--overdue' : dClass === 'soon' ? 'tm-row--soon' : '';
+      const dueCls  = dClass === 'overdue' ? 'tm-due--overdue' : dClass === 'soon' ? 'tm-due--soon' : '';
+
+      const statusSel = `
+        <select class="tm-status-sel" data-v="${t.status}" data-id="${t.id}"
+          onchange="window.__tmUpdateStatus(this.dataset.id, this.value, this)">
+          <option value="open"        ${t.status === 'open'        ? 'selected' : ''}>Open</option>
+          <option value="in-progress" ${t.status === 'in-progress' ? 'selected' : ''}>In Progress</option>
+          <option value="done"        ${t.status === 'done'        ? 'selected' : ''}>Done</option>
+        </select>`;
+
+      return `<tr class="${rowCls}" data-task-id="${t.id}">
+        <td style="max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+            title="${(t.task_title || '').replace(/"/g,'&quot;')}">${t.task_title || '—'}</td>
+        <td style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;">${launchName(t.launch_id)}</td>
+        <td>${t.assigned_to_name || '—'}</td>
+        <td>${priorityPill(t.priority)}</td>
+        <td style="font-size:12px;color:var(--bcn-ink-2);">${t.task_type || '—'}</td>
+        <td class="bcn-mono ${dueCls}" style="font-size:12px;">${due}</td>
+        <td>${statusSel}</td>
+        <td><button class="tm-edit-btn" data-edit-task="${t.id}">Edit</button></td>
+      </tr>`;
+    }).join('');
+  }
+
+  /* ── Inline status update ── */
+  window.__tmUpdateStatus = async function (id, value, sel) {
+    sel.disabled = true;
+    try {
+      const updateData = { status: value };
+      if (value === 'done') {
+        updateData.completed_at = new Date().toISOString();
+        updateData.completed_by = currentUser?.email || null;
+      } else {
+        updateData.completed_at = null;
+        updateData.completed_by = null;
+      }
+      const { error } = await db.from('launch_tasks').update(updateData).eq('id', id);
+      if (error) throw error;
+
+      // Update local state
+      const idx = allTasks.findIndex(t => t.id === id);
+      if (idx !== -1) Object.assign(allTasks[idx], updateData);
+
+      sel.dataset.v = value;
+      sel.disabled = false;
+      renderKpis();
+      setStatus('Status updated.', 'pos', 2000);
+    } catch (err) {
+      sel.disabled = false;
+      setStatus('Failed to update status: ' + err.message, 'neg', 4000);
+    }
+  };
+
+  /* ── Drawer ── */
+  function openDrawer(task) {
+    editingTask = task || null;
+
+    document.getElementById('drawerTitle').textContent = task ? 'Edit Task' : 'New Task';
+    document.getElementById('btnDelete').style.display = task ? 'inline-flex' : 'none';
+
+    // Populate fields
+    document.getElementById('dTitle').value    = task?.task_title  || '';
+    document.getElementById('dLaunch').value   = task?.launch_id   || '';
+    document.getElementById('dPriority').value = task?.priority    || 'normal';
+    document.getElementById('dType').value     = task?.task_type   || '';
+    document.getElementById('dDue').value      = task?.due_date    || '';
+    document.getElementById('dStatus').value   = task?.status      || 'open';
+    document.getElementById('dNotes').value    = task?.notes       || '';
+
+    // Assignee: match by user_id
+    const dAssignee = document.getElementById('dAssignee');
+    dAssignee.value = task?.assigned_to_user_id || '';
+
+    document.getElementById('drawerOverlay').classList.add('open');
+    document.getElementById('drawerPanel').classList.add('open');
+    document.getElementById('dTitle').focus();
+  }
+
+  function closeDrawer() {
+    document.getElementById('drawerOverlay').classList.remove('open');
+    document.getElementById('drawerPanel').classList.remove('open');
+    editingTask = null;
+  }
+
+  async function saveDrawer() {
+    const title    = document.getElementById('dTitle').value.trim();
+    const launchId = document.getElementById('dLaunch').value;
+    const priority = document.getElementById('dPriority').value;
+    const type     = document.getElementById('dType').value.trim();
+    const due      = document.getElementById('dDue').value || null;
+    const status   = document.getElementById('dStatus').value;
+    const notes    = document.getElementById('dNotes').value.trim() || null;
+    const assigneeId = document.getElementById('dAssignee').value || null;
+
+    if (!title) {
+      setStatus('Task title is required.', 'neg', 3000);
+      document.getElementById('dTitle').focus();
+      return;
+    }
+    if (!launchId) {
+      setStatus('A launch must be selected.', 'neg', 3000);
+      document.getElementById('dLaunch').focus();
+      return;
+    }
+
+    // Resolve assignee name
+    let assigneeName = null;
+    if (assigneeId) {
+      const profile = allProfiles.find(p => p.id === assigneeId);
+      assigneeName  = profile ? (profile.name || profile.email) : null;
+    }
+
+    const payload = {
+      task_title:          title,
+      launch_id:           launchId,
+      priority:            priority || 'normal',
+      task_type:           type     || null,
+      due_date:            due,
+      status:              status,
+      notes:               notes,
+      assigned_to_user_id: assigneeId,
+      assigned_to_name:    assigneeName,
+    };
+
+    if (status === 'done' && (!editingTask || editingTask.status !== 'done')) {
+      payload.completed_at = new Date().toISOString();
+      payload.completed_by = currentUser?.email || null;
+    } else if (status !== 'done') {
+      payload.completed_at = null;
+      payload.completed_by = null;
+    }
+
+    const btn = document.getElementById('btnSave');
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+
+    try {
+      let error;
+      if (editingTask) {
+        ({ error } = await db.from('launch_tasks').update(payload).eq('id', editingTask.id));
+        if (!error) {
+          const idx = allTasks.findIndex(t => t.id === editingTask.id);
+          if (idx !== -1) allTasks[idx] = { ...allTasks[idx], ...payload };
+        }
+      } else {
+        const res = await db.from('launch_tasks').insert(payload).select().single();
+        error = res.error;
+        if (!error && res.data) allTasks.unshift(res.data);
+      }
+
+      if (error) throw error;
+
+      closeDrawer();
+      populateFilterDropdowns(); // refresh type list if new type added
+      renderKpis();
+      applyFilters();
+      setStatus('Task saved.', 'pos', 2500);
+    } catch (err) {
+      setStatus('Save failed: ' + err.message, 'neg', 5000);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Save';
+    }
+  }
+
+  async function deleteTask() {
+    if (!editingTask) return;
+    if (!confirm(`Delete task "${editingTask.task_title}"? This cannot be undone.`)) return;
+
+    try {
+      const { error } = await db.from('launch_tasks').delete().eq('id', editingTask.id);
+      if (error) throw error;
+      allTasks = allTasks.filter(t => t.id !== editingTask.id);
+      closeDrawer();
+      populateFilterDropdowns();
+      renderKpis();
+      applyFilters();
+      setStatus('Task deleted.', 'pos', 2500);
+    } catch (err) {
+      setStatus('Delete failed: ' + err.message, 'neg', 5000);
+    }
+  }
+
+  /* ── Event wiring ── */
+  document.getElementById('btnNew').addEventListener('click', () => openDrawer(null));
+  document.getElementById('drawerClose').addEventListener('click', closeDrawer);
+  document.getElementById('btnCancel').addEventListener('click', closeDrawer);
+  document.getElementById('drawerOverlay').addEventListener('click', closeDrawer);
+  document.getElementById('btnSave').addEventListener('click', saveDrawer);
+  document.getElementById('btnDelete').addEventListener('click', deleteTask);
+
+  // Filter inputs
+  ['fSearch', 'fLaunch', 'fAssignee', 'fPriority', 'fStatus', 'fType'].forEach(id => {
+    const el = document.getElementById(id);
+    el.addEventListener(id === 'fSearch' ? 'input' : 'change', applyFilters);
+  });
+
+  // Edit buttons (delegated)
+  document.getElementById('tasksTbody').addEventListener('click', e => {
+    const btn = e.target.closest('[data-edit-task]');
+    if (!btn) return;
+    const id   = btn.dataset.editTask;
+    const task = allTasks.find(t => t.id === id);
+    if (task) openDrawer(task);
+  });
+
+  /* ── Auth + init ── */
+  async function init() {
+    const { data: { session } } = await db.auth.getSession();
+    if (!session) {
+      window.location.href = '/pages/login.html?next=/v2/tasks.html';
+      return;
+    }
+
+    currentUser   = session.user;
+    currentUserId = session.user.id;
+
+    // Get profile for role
+    const { data: profile } = await db
+      .from('profiles')
+      .select('name, email, role')
+      .eq('id', currentUserId)
+      .single();
+
+    const email = profile?.email || currentUser.email || '';
+    const role  = profile?.role  || 'user';
+
+    window.SiloChrome.mount({
+      appEl:         '#silo-app',
+      active:        'planning/tasks',
+      user:          { email, role },
+      crumbs:        ['Planning', 'Task Manager'],
+      supabaseClient: db,
+    });
+
+    await loadAll();
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
