@@ -636,30 +636,24 @@
       if(savedId){ const {error}=await sb.from('po_headers').update(payload).eq('id',savedId); if(error) throw error; }
       else { const {data,error}=await sb.from('po_headers').insert(payload).select('*').single(); if(error) throw error; state.currentPO=data; savedId=data.id; }
       await refreshAll(); if(savedId) await openPO(savedId);
-      if(payload.is_new_product_po) await autoSyncLinesToTracker();
       collapseHeader();
     }
 
-    async function autoSyncLinesToTracker(){
-      const po=state.currentPO; const lines=state.currentLines||[];
-      const titles=lines.map(l=>(l.title_snapshot||'').trim()).filter(Boolean);
-      if(!titles.length) return;
-      // Fetch which titles are already tracked
-      const {data:existing}=await sb.from('product_tracker').select('product_title').in('product_title',titles);
-      const existingSet=new Set((existing||[]).map(r=>r.product_title));
-      const toInsert=lines.filter(l=>{
-        const t=(l.title_snapshot||'').trim(); return t && !existingSet.has(t);
-      }).map(l=>({
-        product_title:(l.title_snapshot||'').trim(),
-        product_type:l.product_type_snapshot||null,
+    async function autoSyncLineToTracker(linePayload){
+      const po=state.currentPO;
+      const title=(linePayload.title_snapshot||'').trim();
+      if(!title) return;
+      const {data:existing}=await sb.from('product_tracker').select('id').ilike('product_title',title).limit(1);
+      if(existing&&existing.length) return; // already tracked, silent
+      const {error}=await sb.from('product_tracker').insert({
+        product_title:title,
+        product_type:linePayload.product_type_snapshot||null,
         factory_id:po.factory_id||null,
         bulk_eta:po.expected_arrival_date||null,
         notes:`Auto-added from PO: ${po.po_name||''}`.trim(),
-      }));
-      if(!toInsert.length){ setStatus(`All lines already in Product Tracker.`,'info',3000); return; }
-      const {error}=await sb.from('product_tracker').insert(toInsert);
+      });
       if(error){ setStatus('Tracker sync failed: '+error.message,'neg'); return; }
-      setStatus(`${toInsert.length} new product${toInsert.length>1?'s':''} added to Product Tracker.`,'pos',4000);
+      setStatus(`"${title}" added to Product Tracker.`,'pos',3000);
     }
 
     async function addCatalogLine(productId, qty){
@@ -776,6 +770,7 @@
       if(idx>=0) state.currentLines[idx]={...state.currentLines[idx],...payload};
       updateRetailPreview(lineId);
       setLineSaveState(lineId,'is-saved','Saved');
+      if(state.currentPO?.is_new_product_po) await autoSyncLineToTracker(payload);
       if(!opts.silent){ await refreshAll(); if(state.currentPO?.id) await openPO(state.currentPO.id); }
     }
 
