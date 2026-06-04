@@ -301,7 +301,7 @@
     const [tRes, sRes, lRes, fRes] = await Promise.all([
       db.from('product_tracker').select('*').order('created_at', { ascending: false }),
       db.from('product_samples').select('*').order('created_at', { ascending: false }),
-      db.from('launch_calendar').select('id,name,launch_date').order('launch_date', { ascending: false }),
+      db.from('launch_calendar').select('id,title,launch_date').order('launch_date', { ascending: false }),
       db.from('factories').select('id,name').order('name'),
     ]);
     if (tRes.error) { setStatus('Error loading products: ' + tRes.error.message, 'neg'); return; }
@@ -317,7 +317,7 @@
   function populateFilters() {
     const lSel = document.getElementById('fLaunch');
     lSel.innerHTML = '<option value="">All launches</option>' +
-      allLaunches.map(l => `<option value="${l.id}">${escHtml(l.name)}</option>`).join('');
+      allLaunches.map(l => `<option value="${l.id}">${escHtml(l.title)}</option>`).join('');
 
     const types = [...new Set(allItems.map(i => i.product_type).filter(Boolean))].sort();
     const tSel = document.getElementById('fType');
@@ -329,7 +329,7 @@
 
     // Populate drawer launch select
     document.getElementById('phLaunch').innerHTML = '<option value="">— none —</option>' +
-      allLaunches.map(l => `<option value="${l.id}">${escHtml(l.name)}</option>`).join('');
+      allLaunches.map(l => `<option value="${l.id}">${escHtml(l.title)}</option>`).join('');
   }
 
   function renderKpis() {
@@ -366,7 +366,7 @@
 
   function launchName(id) {
     const l = allLaunches.find(x => x.id === id);
-    return l ? l.name : '';
+    return l ? l.title : '';
   }
   function factoryName(id) {
     const f = allFactories.find(x => x.id === id);
@@ -470,7 +470,7 @@
     const launchHighlight = document.getElementById('phLaunchDisplay');
     const launch = item && item.launch_id ? allLaunches.find(l => l.id === item.launch_id) : null;
     launchHighlight.innerHTML = launch
-      ? `<div class="ph-launch-highlight">Linked to <a href="/v2/launch-calendar.html">${escHtml(launch.name)}</a></div>`
+      ? `<div class="ph-launch-highlight">Linked to <a href="/v2/launch-calendar.html">${escHtml(launch.title)}</a></div>`
       : '';
 
     buildSizeRows();
