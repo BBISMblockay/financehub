@@ -652,7 +652,7 @@
 
     if (source === 'po_incoming') {
       ({ data, error } = await sb.from('v_launch_po_product_lookup')
-        .select('product_title,po_name,factory_name,product_type,expected_arrival_date,po_line_id')
+        .select('*')
         .or(`product_title.ilike.%${clean}%,po_name.ilike.%${clean}%,factory_name.ilike.%${clean}%`)
         .order('expected_arrival_date', { ascending:true }).limit(25));
     } else {
@@ -677,7 +677,7 @@
       const meta = source === 'po_incoming'
         ? [r.po_name, r.product_type, r.factory_name, r.expected_arrival_date ? `ETA ${r.expected_arrival_date}` : null].filter(Boolean).join(' · ')
         : [r.product_type, r.vendor_original, r.variant_count ? `${r.variant_count} variants` : null].filter(Boolean).join(' · ');
-      const id = r.id || r.po_line_id || null;
+      const id = r.id || null;
       return `<div class="smp-prod-hit" data-id="${esc(String(id||''))}\" data-title="${esc(title)}">
         <div class="smp-prod-hit-title">${esc(title)}</div>
         <div class="smp-prod-hit-meta">${esc(meta)}</div>
