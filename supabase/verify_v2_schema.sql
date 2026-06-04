@@ -63,7 +63,17 @@ left join information_schema.columns col
  and col.table_name = 'launch_comments'
  and col.column_name = want.column_name;
 
--- 4. Quick counts (0 is fine on a fresh install)
+-- 4. Product tracker table (migration 20260604000000)
+select
+  col.column_name,
+  case when col.column_name is not null then 'ok' else 'MISSING — run section 12 in apply_all_post_merge.sql' end as status
+from (values ('id'),('product_title'),('launch_id'),('photo_complete'),('is_live')) as want(column_name)
+left join information_schema.columns col
+  on col.table_schema = 'public'
+ and col.table_name = 'product_tracker'
+ and col.column_name = want.column_name;
+
+-- 5. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)       as factories,
   (select count(*) from public.po_headers)      as po_headers,
