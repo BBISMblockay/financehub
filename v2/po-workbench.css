@@ -891,8 +891,8 @@ table.line-table.bcn-table {
   top: 0;
   z-index: 2;
   background: var(--bcn-sunken);
-  padding: 7px 8px;
-  font-size: 10px;
+  padding: 4px 6px;
+  font-size: 9.5px;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -913,11 +913,16 @@ table.line-table.bcn-table {
 }
 
 .bcn-table.po-costing-lines-table tbody td {
-  padding: 4px 8px;
+  padding: 1px 6px;
   vertical-align: middle;
   text-align: right;
   border-bottom: 1px solid var(--bcn-border);
   background: var(--bcn-surface);
+  line-height: 1.15;
+  height: 26px;
+  max-height: 28px;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 .bcn-table.po-costing-lines-table tbody tr:nth-child(even) td {
@@ -954,33 +959,25 @@ table.line-table.bcn-table {
 .bcn-table.po-costing-lines-table th:nth-child(8),
 .bcn-table.po-costing-lines-table td:nth-child(8) { width: 9%; }
 
-.bcn-table.po-costing-lines-table .costing-sku {
-  font-size: 12px;
+.bcn-table.po-costing-lines-table .costing-sku-line {
+  display: block;
+  font-size: 11px;
   font-weight: 600;
   color: var(--bcn-ink);
   font-family: var(--bcn-mono);
-  line-height: 1.25;
+  line-height: 1.15;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.bcn-table.po-costing-lines-table .costing-sku-sub {
-  margin-top: 2px;
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--bcn-ink-3);
-  line-height: 1.25;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  max-width: 100%;
 }
 
 .bcn-table.po-costing-lines-table .costing-num {
   font-family: var(--bcn-mono);
-  font-size: 12px;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   color: var(--bcn-ink);
+  line-height: 1.15;
 }
 
 .bcn-table.po-costing-lines-table .costing-col-ext {
@@ -994,12 +991,24 @@ table.line-table.bcn-table {
 }
 
 .bcn-table.po-costing-lines-table .costing-input-cell {
-  padding: 3px 6px;
+  padding: 1px 4px;
 }
 
 .bcn-table.po-costing-lines-table .po-line-input {
-  height: 26px;
-  font-size: 12px;
+  height: 22px;
+  min-height: 22px;
+  max-height: 22px;
+  padding: 0 5px;
+  font-size: 11px;
+  line-height: 1;
+  box-sizing: border-box;
+}
+
+/* Beat generic .line-table / .bcn-table input rules on costing page */
+.po-costing-dense .bcn-table.po-costing-lines-table input.po-line-input {
+  height: 22px;
+  min-height: 22px;
+  max-height: 22px;
 }
 
 .bcn-table.po-costing-lines-table .po-line-input.is-calculated:not(:focus) {
@@ -1023,18 +1032,20 @@ table.line-table.bcn-table {
 }
 
 .prior-pill {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   min-width: 0;
-  line-height: 1.2;
+  line-height: 1.1;
+  max-width: 100%;
 }
 
 .prior-pill-amt {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
   font-family: var(--bcn-mono);
   color: var(--bcn-accent);
+  flex-shrink: 0;
 }
 
 .prior-pill-po {
@@ -1043,7 +1054,7 @@ table.line-table.bcn-table {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 120px;
+  min-width: 0;
 }
 
 .prior-pill--empty {
@@ -1057,10 +1068,60 @@ table.line-table.bcn-table {
 }
 
 .po-costing-empty {
-  padding: 20px 12px !important;
+  padding: 12px !important;
   text-align: center;
   color: var(--bcn-ink-3);
+  font-size: 11px;
+  height: auto !important;
+  max-height: none !important;
+}
+
+/* Dense mode: table must not stretch to fill scroll pane */
+.po-costing-dense .po-costing-table-wrap {
+  display: block;
+  align-content: flex-start;
+}
+
+.po-costing-dense .po-costing-lines-table {
+  height: auto;
+  max-height: none;
+}
+
+.po-costing-dense .po-costing-lines-table tbody tr {
+  height: 26px;
+}
+
+.po-costing-dense table.bcn-table.po-costing-lines-table tbody td {
+  padding: 1px 6px !important;
+  font-size: 11px !important;
+}
+
+.po-costing-dense table.bcn-table.po-costing-lines-table thead th {
+  padding: 4px 6px !important;
+}
+
+.po-costing-dense .po-costing-lines-table tbody td.costing-sku-cell {
+  max-width: 0;
+}
+
+.po-costing-dense .po-costing-lines-head {
+  padding: 5px 10px;
+}
+
+.po-costing-dense .po-costing-lines-head h2 {
   font-size: 12px;
+}
+
+.po-costing-dense .po-costing-lines-foot {
+  padding: 4px 10px 6px;
+  font-size: 10px;
+}
+
+.po-costing-dense .costing-prior-btn {
+  padding: 2px 5px !important;
+  font-size: 9px !important;
+  line-height: 1.1;
+  min-height: 0;
 }
 
 /* ---- PO report grid ----------------------------------------------------- */
