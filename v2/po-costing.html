@@ -24,9 +24,10 @@
 
     /* ── Stepper ─────────────────────────────────────── */
     .cost-stepper {
-      display: flex; align-items: center; padding: 8px 14px;
+      display: flex; align-items: center; padding: 6px 10px;
       border-bottom: 1px solid var(--bcn-line, #e2e8f0);
       flex-wrap: wrap; gap: 2px;
+      flex-shrink: 0;
     }
     .cost-step {
       display: flex; align-items: center; gap: 5px;
@@ -52,7 +53,7 @@
     .cost-step.done .cost-step-num { background: var(--bcn-pos, #059669); color: #fff; border-color: var(--bcn-pos, #059669); }
 
     /* ── Phase panels ────────────────────────────────── */
-    .cost-phase { padding: 12px 14px; }
+    .cost-phase { padding: 10px 12px; }
     .cost-section-label {
       font-size: 10px; font-weight: 900; letter-spacing: 0.1em;
       text-transform: uppercase; color: var(--bcn-ink-3, #94a3b8);
@@ -74,10 +75,10 @@
       margin-left: auto; white-space: nowrap; cursor: pointer;
     }
     .cost-check input { margin: 0; cursor: pointer; }
-    .cost-hint { font-size: 12px; color: var(--bcn-ink-2, #475569); line-height: 1.5; margin: 0 0 10px; }
+    .cost-hint { font-size: 11px; color: var(--bcn-ink-2, #475569); line-height: 1.45; margin: 0 0 8px; }
     .cost-shipped-state { font-size: 12px; font-weight: 700; color: var(--bcn-ink, #0f172a); margin: 0 0 10px; }
     #status:not(:empty) {
-      margin-top: 14px; padding: 8px 12px; border-radius: 6px;
+      margin-top: 0; padding: 7px 10px; border-radius: 6px;
       font-size: 12px; font-weight: 600;
       border: 1px solid var(--bcn-border-strong, #cbd5e1);
       background: var(--bcn-surface-2, #f8fafc);
@@ -197,7 +198,7 @@
     }
   </style>
 </head>
-<body class="v2-mirror--po">
+<body class="v2-mirror--po po-costing-page">
   <div class="silo-app" id="silo-app">
     <main class="silo-main">
       <header class="bcn-header">
@@ -267,10 +268,12 @@
       </section>
 
       <div class="po-costing-main">
-        <section class="bcn-card po-costing-card" id="detailPanel" hidden>
-          <header class="bcn-card-header bcn-card-header--dark">
-            <span class="bcn-pill bcn-pill--dark">COSTING</span>
+        <div id="costingWorkspace" class="po-costing-layout" hidden>
+        <section class="bcn-card po-costing-card po-costing-workflow" id="detailPanel">
+          <header class="bcn-card-header bcn-card-header--dark po-costing-workflow-head">
+            <span class="bcn-pill bcn-pill--dark">WORKFLOW</span>
             <h2 id="poTitleText">—</h2>
+            <button type="button" class="po-costing-collapse-btn" id="btnCollapseWorkflow" title="Collapse workflow panel" aria-expanded="true">◀</button>
           </header>
           <div class="cost-stepper">
             <button type="button" class="cost-step active" data-phase-tab="fob">
@@ -356,36 +359,38 @@
               </div>
             </div>
 
-            <div id="status"></div>
+            <div id="status" class="po-costing-status"></div>
           </div>
         </section>
 
-        <section class="bcn-card po-lines-card" id="costingLinesCard" hidden>
-          <header class="bcn-card-header">
-            <span class="bcn-pill bcn-pill--accent">MATRIX</span>
-            <h2>Line costing</h2>
+        <section class="bcn-card po-lines-card po-costing-lines" id="costingLinesCard">
+          <header class="bcn-card-header po-costing-lines-head">
+            <span class="bcn-pill bcn-pill--accent">LINES</span>
+            <h2>Line item costing</h2>
+            <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono po-costing-expand-btn" id="btnExpandWorkflow" hidden title="Show workflow panel">WORKFLOW</button>
           </header>
-          <div class="bcn-matrix-scroll line-table-wrap">
-              <table class="bcn-table line-table po-lines-table">
+          <div class="bcn-matrix-scroll line-table-wrap po-costing-table-wrap">
+              <table class="bcn-table line-table po-costing-lines-table">
                 <thead>
                   <tr>
-                    <th>SKU</th>
+                    <th class="bcn-th-left">SKU</th>
                     <th>Qty</th>
                     <th>Unit cost</th>
-                    <th>Prior cost</th>
-                    <th>Freight alloc</th>
-                    <th>Landed / unit</th>
-                    <th>Ext. landed</th>
-                    <th></th>
+                    <th>Prior</th>
+                    <th>Freight</th>
+                    <th class="costing-col-landed">Landed / unit</th>
+                    <th class="costing-col-ext">Ext. landed</th>
+                    <th class="bcn-th-left"></th>
                   </tr>
                 </thead>
                 <tbody id="lineBody"></tbody>
               </table>
           </div>
-          <footer class="bcn-card-foot">
-            <p class="hint" id="persistHint" style="margin:0;flex:1;">Costing saves to SILO when database tables are enabled; otherwise a temporary copy is kept on the PO record.</p>
+          <footer class="bcn-card-foot po-costing-lines-foot">
+            <p class="hint" id="persistHint">Edits recalc from header freight unless a line override is set. Save each workflow step to persist.</p>
           </footer>
         </section>
+        </div>
 
         <section class="bcn-card" id="emptyPanel">
           <div class="bcn-card-body">
@@ -528,22 +533,28 @@
         const prior = ctx.priorBySku && row.sku ? ctx.priorBySku[String(row.sku).trim()] : null;
         const o = lineOverrides[row.line_id] || {};
         const priorHtml = prior
-          ? `<span class="prior-pill"><strong>${money(prior.unit_cost)}</strong><br>${esc(prior.po_name)}</span>`
-          : '<span class="prior-pill">—</span>';
+          ? `<span class="prior-pill" title="${esc(prior.po_name)}"><span class="prior-pill-amt">${money(prior.unit_cost)}</span><span class="prior-pill-po">${esc(prior.po_name)}</span></span>`
+          : '<span class="prior-pill prior-pill--empty">—</span>';
 
         const freightPlaceholder = row.freight_alloc > 0 ? row.freight_alloc.toFixed(2) : '0.00';
         const hasLandedOverride = o.landed_unit != null && o.landed_unit !== '';
-        return `<tr data-line-id="${esc(row.line_id)}" class="${row.line_id === focusId ? 'line-focus' : ''}">
-          <td title="${esc(row.title)}">${esc(row.sku || '—')}</td>
-          <td>${row.qty}</td>
-          <td><input type="number" step="0.01" class="wide" data-ov="fob_unit" data-lid="${esc(row.line_id)}" value="${row.fob_unit}" /></td>
-          <td>${priorHtml}</td>
-          <td><input type="number" step="0.01" data-ov="freight_alloc" data-lid="${esc(row.line_id)}" value="${o.freight_alloc != null ? o.freight_alloc : ''}" placeholder="${freightPlaceholder}" style="color:${o.freight_alloc != null ? '' : 'var(--bcn-ink-3)'}" /></td>
-          <td><input type="number" step="0.01" class="wide" data-ov="landed_unit" data-lid="${esc(row.line_id)}" value="${hasLandedOverride ? o.landed_unit : row.landed_unit.toFixed(2)}" /></td>
-          <td style="font-family:var(--bcn-mono);font-weight:700;">${money(row.landed_ext)}</td>
-          <td>${prior ? `<button type="button" class="bcn-btn bcn-btn--ghost" style="padding:2px 6px;font-size:10px;" data-prior="${esc(row.line_id)}">Use prior</button>` : ''}</td>
+        const freightIsCalc = o.freight_alloc == null || o.freight_alloc === '';
+        const landedIsOverride = hasLandedOverride;
+        const titleSub = row.title && row.title !== row.sku ? `<div class="costing-sku-sub">${esc(row.title)}</div>` : '';
+        return `<tr data-line-id="${esc(row.line_id)}" class="costing-line-row ${row.line_id === focusId ? 'line-focus' : ''}">
+          <td class="bcn-th-left costing-sku-cell">
+            <div class="costing-sku">${esc(row.sku || '—')}</div>
+            ${titleSub}
+          </td>
+          <td class="costing-num">${row.qty}</td>
+          <td class="costing-input-cell"><input type="number" step="0.01" class="po-line-input po-line-input--num" data-ov="fob_unit" data-lid="${esc(row.line_id)}" value="${row.fob_unit}" aria-label="Unit cost" /></td>
+          <td class="costing-prior-cell">${priorHtml}</td>
+          <td class="costing-input-cell"><input type="number" step="0.01" class="po-line-input po-line-input--num${freightIsCalc ? ' is-calculated' : ''}" data-ov="freight_alloc" data-lid="${esc(row.line_id)}" value="${o.freight_alloc != null ? o.freight_alloc : ''}" placeholder="${freightPlaceholder}" aria-label="Freight allocation" /></td>
+          <td class="costing-input-cell costing-col-landed"><input type="number" step="0.01" class="po-line-input po-line-input--num${landedIsOverride ? ' is-override' : ''}" data-ov="landed_unit" data-lid="${esc(row.line_id)}" value="${hasLandedOverride ? o.landed_unit : row.landed_unit.toFixed(2)}" aria-label="Landed per unit" /></td>
+          <td class="costing-num costing-col-ext td-total">${money(row.landed_ext)}</td>
+          <td class="bcn-th-left costing-actions-cell">${prior ? `<button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono costing-prior-btn" data-prior="${esc(row.line_id)}">Prior</button>` : ''}</td>
         </tr>`;
-      }).join('') || '<tr><td colspan="8" class="hint" style="padding:12px;">No lines on this PO.</td></tr>';
+      }).join('') || '<tr><td colspan="8" class="po-costing-empty">No lines on this PO.</td></tr>';
 
       els.lineBody.querySelectorAll('[data-ov]').forEach(inp => {
         inp.addEventListener('change', () => {
@@ -702,10 +713,10 @@
       const has = !!(ctx && ctx.header && ctx.header.id);
       const kpi = document.getElementById('costingKpiBand');
       const ctxBar = document.getElementById('costingCtxBar');
-      const linesCard = document.getElementById('costingLinesCard');
+      const workspace = document.getElementById('costingWorkspace');
       if (kpi) kpi.hidden = !has;
       if (ctxBar) ctxBar.hidden = !has;
-      if (linesCard) linesCard.hidden = !has;
+      if (workspace) workspace.hidden = !has;
       const set = (id, v) => { const n = document.getElementById(id); if (n) n.textContent = v; };
       if (has) {
         set('ctxPoName', ctx.header.po_name || 'Untitled');
@@ -719,7 +730,6 @@
       lineOverrides = { ...ctx.lineOverrides };
 
       els.linkBuilder.href = `/v2/po-builder.html?po_id=${encodeURIComponent(poId)}`;
-      els.detailPanel.hidden = false;
       els.emptyPanel.hidden = true;
       els.poTitleText.textContent = ctx.header?.po_name || 'Untitled PO';
       syncCostingChrome();
@@ -1226,6 +1236,21 @@
       document.querySelectorAll('[data-phase-tab]').forEach(btn => {
         btn.addEventListener('click', () => setPhaseTab(btn.getAttribute('data-phase-tab')));
       });
+
+      const layout = document.getElementById('costingWorkspace');
+      const btnCollapse = document.getElementById('btnCollapseWorkflow');
+      const btnExpand = document.getElementById('btnExpandWorkflow');
+      function setWorkflowCollapsed(collapsed) {
+        if (!layout) return;
+        layout.classList.toggle('po-costing-layout--workflow-collapsed', collapsed);
+        if (btnCollapse) {
+          btnCollapse.hidden = collapsed;
+          btnCollapse.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+        }
+        if (btnExpand) btnExpand.hidden = !collapsed;
+      }
+      btnCollapse?.addEventListener('click', () => setWorkflowCollapsed(true));
+      btnExpand?.addEventListener('click', () => setWorkflowCollapsed(false));
 
       await loadPos();
 
