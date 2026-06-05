@@ -15,7 +15,6 @@
   <script src="v2-shell.js" defer></script>
   <script src="../pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
   <script src="silo-chrome.js"></script>
   <style>
     :root { color-scheme: light; }
@@ -25,30 +24,30 @@
 <body>
 <div id="silo-app" class="silo-app">
   <main class="silo-main">
-  <div class="shell pr-page pr-page--wide">
+  <div class="shell pr-page pr-page--wide pr-page--workbench">
     <div class="pr-stack">
 
       <section class="bcn-card pr-intro">
         <header class="bcn-card-header bcn-card-header--dark">
           <span class="bcn-pill">QUEUE</span>
           <h2>Payment requests</h2>
-          <span class="bcn-card-meta">Workbench · assign, complete, report</span>
+          <span class="bcn-card-meta">Assign · complete · report</span>
         </header>
-        <div class="bcn-card-body" style="display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px;">
-          <p style="margin:0;font-size:12.5px;color:var(--bcn-ink-2);line-height:1.55;max-width:62ch;">
-            Compact AP queue for review, owner assignment, document checks, payment completion, and reporting filters.
+        <div class="bcn-card-body">
+          <p class="pr-intro-lead">
+            AP queue for review, assignment, documents, and payment completion.
           </p>
-          <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;">
+          <div class="pr-btn-row">
             <a class="btn btn-soft" href="./purchase_request.html">New request</a>
-            <a class="btn btn-soft" href="/pages/request-manager.html">Classic workbench</a>
-            <button id="refreshBtn" class="btn btn-primary" type="button">Refresh data</button>
+            <a class="btn btn-soft" href="/pages/request-manager.html">Classic</a>
+            <button id="refreshBtn" class="btn btn-primary" type="button">Refresh</button>
           </div>
         </div>
       </section>
 
       <div class="card rm-filter-card">
-        <div class="grid grid-cols-1 gap-4 lg:grid-cols-12">
-          <div class="lg:col-span-2">
+        <div class="rm-filter-grid">
+          <div class="rm-f-span-2">
             <label class="bcn-label">Status</label>
             <select id="statusFilter" class="select">
               <option value="">All</option>
@@ -63,7 +62,7 @@
             </select>
           </div>
 
-          <div class="lg:col-span-2">
+          <div class="rm-f-span-2">
             <label class="bcn-label">Priority</label>
             <select id="priorityFilter" class="select">
               <option value="">All</option>
@@ -74,7 +73,7 @@
             </select>
           </div>
 
-          <div class="lg:col-span-2">
+          <div class="rm-f-span-2">
             <label class="bcn-label">Completed</label>
             <select id="completedFilter" class="select">
               <option value="">All</option>
@@ -83,14 +82,14 @@
             </select>
           </div>
 
-          <div class="lg:col-span-2">
+          <div class="rm-f-span-2">
             <label class="bcn-label">Assigned</label>
             <select id="assignedFilter" class="select">
               <option value="">All</option>
             </select>
           </div>
 
-          <div class="lg:col-span-2">
+          <div class="rm-f-span-2">
             <label class="bcn-label">Request type</label>
             <select id="typeFilter" class="select">
               <option value="">All</option>
@@ -102,7 +101,7 @@
             </select>
           </div>
 
-          <div class="lg:col-span-2">
+          <div class="rm-f-span-2">
             <label class="bcn-label">Due date</label>
             <select id="dueFilter" class="select">
               <option value="">All</option>
@@ -114,26 +113,26 @@
             </select>
           </div>
 
-          <div class="lg:col-span-4">
+          <div class="rm-f-span-4">
             <label class="bcn-label">Search</label>
             <input id="searchInput" class="input" placeholder="Vendor, requester, PO, invoice, notes..." />
           </div>
 
-          <div class="lg:col-span-2">
+          <div class="rm-f-span-2">
             <label class="bcn-label">Submitted after</label>
             <input id="startDate" type="date" class="input" />
           </div>
 
-          <div class="lg:col-span-2">
+          <div class="rm-f-span-2">
             <label class="bcn-label">Submitted before</label>
             <input id="endDate" type="date" class="input" />
           </div>
 
-          <div class="lg:col-span-2 flex items-end">
-            <button id="clearFiltersBtn" class="btn btn-soft w-full">Clear filters</button>
+          <div class="rm-f-span-2 rm-filter-actions">
+            <button id="clearFiltersBtn" class="btn btn-soft" type="button" style="width:100%;">Clear filters</button>
           </div>
 
-          <div id="statusText" class="lg:col-span-12 rm-status-line">
+          <div id="statusText" class="rm-f-span-12 rm-status-line">
             Loading queue data.
           </div>
         </div>
@@ -151,10 +150,10 @@
       </div>
 
       <div class="card rm-tabs-card">
-        <div class="rm-tabs-wrap">
+        <div class="rm-tabs-wrap rm-tabs-wrap--inline">
           <div>
             <div class="rm-section-h">Views</div>
-            <div class="rm-section-sub">Queue first. Reporting and activity stay one click away.</div>
+            <div class="rm-section-sub">Queue · reporting · activity</div>
           </div>
           <div class="rm-tabs">
             <button id="tabRequestsBtn" type="button" class="active">Requests</button>
@@ -165,15 +164,15 @@
       </div>
 
       <div id="viewRequests" class="view-panel active">
-        <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
-          <div class="xl:col-span-9">
-            <div class="card lg:p-5">
-              <div class="flex items-start justify-between gap-3">
+        <div class="rm-layout-12">
+          <div>
+            <div class="card">
+              <div class="rm-card-head">
                 <div>
                   <div class="section-title">Requests</div>
-                  <div class="section-sub">Review, open file, edit, and process payment requests.</div>
+                  <div class="section-sub">Review, edit, and mark paid</div>
                 </div>
-                <div class="text-xs text-slate-500"><span id="rowCount">0</span> rows</div>
+                <div class="rm-row-count"><span id="rowCount">0</span> rows</div>
               </div>
 
               <div class="rm-table-scroll">
@@ -185,42 +184,41 @@
             </div>
           </div>
 
-          <div class="xl:col-span-3 space-y-5">
-            <div class="card lg:p-5">
+          <div class="rm-side-stack">
+            <div class="card">
               <div class="section-title">Working queues</div>
-              <div class="section-sub">Click a queue to focus the table.</div>
-              <div class="mini-grid mt-4" id="summaryCards"></div>
+              <div class="section-sub">Click to filter the table</div>
+              <div class="mini-grid rm-mt-sm" id="summaryCards"></div>
             </div>
 
-            <div class="card lg:p-5">
-              <div class="section-title">Recent requests</div>
-              <div class="section-sub">Newest submissions in current filter.</div>
-              <div id="recentRequests" class="mt-4 space-y-3"></div>
+            <div class="card">
+              <div class="section-title">Recent</div>
+              <div class="section-sub">Newest in current filter</div>
+              <div id="recentRequests" class="rm-mt-sm"></div>
             </div>
           </div>
         </div>
       </div>
 
       <div id="viewReporting" class="view-panel">
-        <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
-          <div class="xl:col-span-4 space-y-5">
-            <div class="card lg:p-5">
-              <div class="section-title">Due bucket reporting</div>
-              <div class="section-sub">Open requests grouped by due timing.</div>
-              <div class="mt-4 space-y-3" id="dueBucketReport"></div>
+        <div class="rm-reporting-grid">
+          <div class="rm-side-stack">
+            <div class="card">
+              <div class="section-title">Due buckets</div>
+              <div class="section-sub">Open requests by due timing</div>
+              <div class="rm-mt-sm" id="dueBucketReport"></div>
             </div>
 
-            <div class="card lg:p-5">
+            <div class="card">
               <div class="section-title">Turnaround</div>
-              <div class="mini-grid mt-4" id="turnaroundCards"></div>
+              <div class="mini-grid rm-mt-sm" id="turnaroundCards"></div>
             </div>
           </div>
 
-          <div class="xl:col-span-4 space-y-5">
-            <div class="card lg:p-5">
+          <div class="rm-side-stack">
+            <div class="card">
               <div class="section-title">By request type</div>
-              <div class="section-sub">Counts and dollars by request category.</div>
-              <div class="rm-table-scroll small">
+              <div class="rm-table-scroll small rm-mt-sm">
                 <table>
                   <thead id="typeHead"></thead>
                   <tbody id="typeBody"></tbody>
@@ -228,10 +226,9 @@
               </div>
             </div>
 
-            <div class="card lg:p-5">
+            <div class="card">
               <div class="section-title">By location</div>
-              <div class="section-sub">Volume and dollars by location.</div>
-              <div class="rm-table-scroll small">
+              <div class="rm-table-scroll small rm-mt-sm">
                 <table>
                   <thead id="locationHead"></thead>
                   <tbody id="locationBody"></tbody>
@@ -240,11 +237,10 @@
             </div>
           </div>
 
-          <div class="xl:col-span-4 space-y-5">
-            <div class="card lg:p-5">
+          <div class="rm-side-stack">
+            <div class="card">
               <div class="section-title">By assignee</div>
-              <div class="section-sub">Open and overdue work by owner.</div>
-              <div class="rm-table-scroll small">
+              <div class="rm-table-scroll small rm-mt-sm">
                 <table>
                   <thead id="assigneeHead"></thead>
                   <tbody id="assigneeBody"></tbody>
@@ -252,10 +248,9 @@
               </div>
             </div>
 
-            <div class="card lg:p-5">
+            <div class="card">
               <div class="section-title">By requester</div>
-              <div class="section-sub">Submission volume by requester email.</div>
-              <div class="rm-table-scroll small">
+              <div class="rm-table-scroll small rm-mt-sm">
                 <table>
                   <thead id="requesterHead"></thead>
                   <tbody id="requesterBody"></tbody>
@@ -267,24 +262,24 @@
       </div>
 
       <div id="viewActivity" class="view-panel">
-        <div class="grid grid-cols-1 gap-5 xl:grid-cols-12">
-          <div class="xl:col-span-8">
-            <div class="card lg:p-5">
-              <div class="flex items-start justify-between gap-3">
+        <div class="rm-layout-activity">
+          <div>
+            <div class="card">
+              <div class="rm-card-head">
                 <div>
                   <div class="section-title">Recent activity</div>
-                  <div class="section-sub">Request submission and workflow update history.</div>
+                  <div class="section-sub">Submissions and workflow updates</div>
                 </div>
-                <div class="bcn-card-meta"><span id="activityRowCount">0</span> rows</div>
+                <div class="rm-row-count"><span id="activityRowCount">0</span> rows</div>
               </div>
-              <div class="mt-4 space-y-3" id="activityFeed"></div>
+              <div class="rm-mt-sm" id="activityFeed"></div>
             </div>
           </div>
 
-          <div class="xl:col-span-4 space-y-5">
-            <div class="card lg:p-5">
+          <div>
+            <div class="card">
               <div class="section-title">Activity summary</div>
-              <div class="mini-grid mt-4" id="activitySummaryCards"></div>
+              <div class="mini-grid rm-mt-sm" id="activitySummaryCards"></div>
             </div>
           </div>
         </div>
@@ -309,15 +304,15 @@
     </div>
 
     <div class="drawer-body">
-      <div class="space-y-6">
+      <div class="drawer-stack">
         <div class="card">
           <div class="section-title">Snapshot</div>
-          <div id="drawerSnapshot" class="mt-4 grid grid-cols-2 gap-3 text-sm"></div>
+          <div id="drawerSnapshot" class="drawer-snapshot-grid"></div>
         </div>
 
         <div class="card">
           <div class="section-title">Submitted details</div>
-          <div class="field-grid mt-4">
+          <div class="field-grid">
             <div class="full">
               <label class="bcn-label">Effective vendor</label>
               <input id="fEffectiveVendor" class="input" disabled />
@@ -372,15 +367,15 @@
 
         <div class="card">
           <div class="section-title">Document</div>
-          <div class="mt-4 doc-actions">
+          <div class="doc-actions" style="margin-top:8px;">
             <button id="openFileBtn" class="btn btn-soft" type="button">Open file</button>
-            <div id="fileMeta" class="text-sm text-slate-500 self-center flex-1">No file attached</div>
+            <div id="fileMeta" class="rm-muted" style="flex:1;">No file attached</div>
           </div>
         </div>
 
         <div class="card">
           <div class="section-title">Internal processing</div>
-          <div class="field-grid mt-4">
+          <div class="field-grid">
             <div>
               <label class="bcn-label">Workflow status</label>
               <select id="fWorkflowStatus" class="select">
@@ -451,17 +446,17 @@
 
         <div class="card">
           <div class="section-title">Activity history</div>
-          <div class="section-sub">Saved request history and workflow changes.</div>
-          <div id="drawerActivity" class="mt-4 space-y-3"></div>
+          <div class="section-sub">Saved history and workflow changes</div>
+          <div id="drawerActivity" class="rm-mt-sm"></div>
         </div>
       </div>
     </div>
 
     <div class="drawer-foot">
-      <div class="flex gap-2">
+      <div class="pr-btn-row">
         <button id="markPaidBtn" class="btn btn-soft" type="button">Quick mark paid</button>
       </div>
-      <div class="flex gap-2">
+      <div class="pr-btn-row">
         <button id="saveDrawerBtn" class="btn btn-primary" type="button">Save changes</button>
       </div>
     </div>
@@ -650,7 +645,7 @@
 
     function setStatus(message, isError = false) {
       els.statusText.textContent = message;
-      els.statusText.className = `lg:col-span-12 text-xs ${isError ? "text-red-600" : "text-slate-500"}`;
+      els.statusText.className = `rm-f-span-12 rm-status-line${isError ? " rm-status-line--error" : ""}`;
     }
 
     function requestTypeLabel(v) {
@@ -1032,7 +1027,7 @@
         <button type="button" class="mini-card queue-card ${state.queueFilter === key ? "active" : ""}" data-queue="${escapeHtml(key)}">
           <div class="label">${escapeHtml(label)}</div>
           <div class="value mono">${escapeHtml(formatNumber(value))}</div>
-          <div class="queue-sub mt-1 text-[11px] text-slate-500">${escapeHtml(sub)}</div>
+          <div class="queue-sub">${escapeHtml(sub)}</div>
         </button>
       `).join("");
 
@@ -1046,15 +1041,15 @@
 
     function renderRecentRequests() {
       els.recentRequests.innerHTML = state.filteredRows.slice(0, 6).map(r => `
-        <div class="border border-slate-200 rounded-xl p-2.5">
-          <div class="font-semibold text-slate-900">${escapeHtml(r.effective_vendor_name || "Unknown vendor")}</div>
-          <div class="mt-1 text-xs text-slate-500">${escapeHtml(requestTypeLabel(r.request_type))}</div>
-          <div class="mt-2 flex items-center justify-between gap-3">
-            <div class="font-extrabold mono text-slate-900">${escapeHtml(formatMoney(r.amount_due))}</div>
+        <div class="rm-recent-item">
+          <div class="rm-cell-primary truncate-220">${escapeHtml(r.effective_vendor_name || "Unknown vendor")}</div>
+          <div class="rm-cell-meta">${escapeHtml(requestTypeLabel(r.request_type))}</div>
+          <div class="rm-recent-actions">
+            <div class="mono rm-cell-primary">${escapeHtml(formatMoney(r.amount_due))}</div>
             <button class="btn btn-soft btn-xs open-drawer-btn" data-id="${escapeHtml(r.id)}">Open</button>
           </div>
         </div>
-      `).join("") || `<div class="text-sm text-slate-500">No requests in current filter.</div>`;
+      `).join("") || `<div class="rm-muted">No requests in current filter.</div>`;
 
       document.querySelectorAll(".open-drawer-btn").forEach(btn => {
         btn.addEventListener("click", () => openDrawer(btn.getAttribute("data-id")));
@@ -1077,32 +1072,30 @@
       els.mainBody.innerHTML = state.filteredRows.map(r => `
         <tr>
           <td>
-            <div class="font-semibold text-slate-900 truncate-220">${escapeHtml(r.effective_vendor_name || "Unknown vendor")}</div>
-            <div class="text-xs text-slate-500 truncate-220">${escapeHtml(r.requester_email || "—")}</div>
-            <div class="text-xs text-slate-500 truncate-160">${escapeHtml(r.location_name || "No location")}</div>
+            <div class="rm-cell-primary truncate-220">${escapeHtml(r.effective_vendor_name || "Unknown vendor")}</div>
+            <div class="rm-cell-meta rm-cell-meta--truncate">${escapeHtml(r.requester_email || "—")}${r.location_name ? ` · ${escapeHtml(r.location_name)}` : ""}</div>
           </td>
           <td>
-            <div class="font-semibold text-slate-900 truncate-220">${escapeHtml(requestTypeLabel(r.request_type))}</div>
-            <div class="text-xs text-slate-500">Inv ${escapeHtml(r.invoice_number || "—")} · PO ${escapeHtml(r.internal_po_number || "—")}</div>
-            <div class="text-xs text-slate-500">${escapeHtml(formatDateTime(r.submitted_at))}</div>
+            <div class="rm-cell-primary truncate-220">${escapeHtml(requestTypeLabel(r.request_type))}</div>
+            <div class="rm-cell-meta rm-cell-meta--truncate">Inv ${escapeHtml(r.invoice_number || "—")} · PO ${escapeHtml(r.internal_po_number || "—")} · ${escapeHtml(formatDateTime(r.submitted_at))}</div>
           </td>
-          <td class="right mono font-extrabold">${formatMoney(r.amount_due)}</td>
+          <td class="right mono rm-cell-primary">${formatMoney(r.amount_due)}</td>
           <td>
-            <div class="font-semibold text-slate-900">${escapeHtml(formatDate(r.due_date))}</div>
-            <div class="mt-1">${dueBucketBadge(dueBucket(r))}</div>
+            <div class="rm-cell-primary">${escapeHtml(formatDate(r.due_date))}</div>
+            <div class="rm-badge-row">${dueBucketBadge(dueBucket(r))}</div>
           </td>
           <td>
-            <div class="flex flex-wrap gap-1">
+            <div class="rm-badge-row">
               ${badgeHtmlStatus(r.workflow_status)}
               ${badgeHtmlPriority(r.priority)}
               ${badgeHtmlCompleted(r.completed)}
             </div>
           </td>
           <td>
-            <div class="font-semibold text-slate-900 truncate-160">${escapeHtml(assignedName(r.assigned_to))}</div>
+            <div class="rm-cell-primary truncate-160">${escapeHtml(assignedName(r.assigned_to))}</div>
           </td>
           <td>
-            <div class="flex flex-wrap gap-1.5">
+            <div class="rm-action-row">
               <button class="btn btn-soft btn-xs open-drawer-btn" data-id="${escapeHtml(r.id)}">Edit</button>
               ${filesForRequest(r).length
                 ? `<button class="btn btn-soft btn-xs open-file-btn" data-id="${escapeHtml(r.id)}">${escapeHtml(fileButtonLabel(r))}</button>`
@@ -1111,7 +1104,7 @@
             </div>
           </td>
         </tr>
-      `).join("") || `<tr><td colspan="7" class="py-10 text-center text-slate-500">No payment requests match the current filters.</td></tr>`;
+      `).join("") || `<tr><td colspan="7" class="rm-empty-cell">No payment requests match the current filters.</td></tr>`;
 
       document.querySelectorAll(".open-drawer-btn").forEach(btn => {
         btn.addEventListener("click", () => openDrawer(btn.getAttribute("data-id")));
@@ -1179,12 +1172,12 @@
       els.dueBucketReport.innerHTML = buckets.map(b => `
         <div class="list-row">
           <div>
-            <div class="font-semibold text-slate-900">${escapeHtml(b.label)}</div>
-            <div class="text-xs text-slate-500">${formatNumber(b.count)} requests</div>
+            <div class="rm-cell-primary">${escapeHtml(b.label)}</div>
+            <div class="rm-cell-meta">${formatNumber(b.count)} requests</div>
           </div>
-          <div class="text-right">
-            <div class="font-extrabold mono text-slate-900">${formatMoney(b.amount)}</div>
-            <div class="mt-1">${dueBucketBadge(b.bucket)}</div>
+          <div class="right">
+            <div class="mono rm-cell-primary">${formatMoney(b.amount)}</div>
+            <div class="rm-badge-row">${dueBucketBadge(b.bucket)}</div>
           </div>
         </div>
       `).join("");
@@ -1229,7 +1222,7 @@
         <div class="mini-card">
           <div class="label">${escapeHtml(label)}</div>
           <div class="value mono">${escapeHtml(value)}</div>
-          <div class="mt-1 text-xs text-slate-500">${escapeHtml(sub)}</div>
+          <div class="rm-cell-meta">${escapeHtml(sub)}</div>
         </div>
       `).join("");
 
@@ -1244,9 +1237,9 @@
           <td>${escapeHtml(r.label)}</td>
           <td class="right mono">${formatNumber(r.count)}</td>
           <td class="right mono">${formatNumber(r.openCount)}</td>
-          <td class="right mono font-extrabold">${formatMoney(r.amount)}</td>
+          <td class="right mono rm-cell-primary">${formatMoney(r.amount)}</td>
         </tr>
-      `).join("") || `<tr><td colspan="4" class="py-8 text-center text-slate-500">No data.</td></tr>`;
+      `).join("") || `<tr><td colspan="4" class="rm-empty-cell">No data.</td></tr>`;
 
       els.locationHead.innerHTML = `<tr><th>Location</th><th class="right">Count</th><th class="right">Open</th><th class="right">Amount</th></tr>`;
       els.locationBody.innerHTML = byLocation.map(r => `
@@ -1254,9 +1247,9 @@
           <td>${escapeHtml(r.label)}</td>
           <td class="right mono">${formatNumber(r.count)}</td>
           <td class="right mono">${formatNumber(r.openCount)}</td>
-          <td class="right mono font-extrabold">${formatMoney(r.amount)}</td>
+          <td class="right mono rm-cell-primary">${formatMoney(r.amount)}</td>
         </tr>
-      `).join("") || `<tr><td colspan="4" class="py-8 text-center text-slate-500">No data.</td></tr>`;
+      `).join("") || `<tr><td colspan="4" class="rm-empty-cell">No data.</td></tr>`;
 
       els.assigneeHead.innerHTML = `<tr><th>Assignee</th><th class="right">Open</th><th class="right">Overdue</th><th class="right">Open amount</th></tr>`;
       els.assigneeBody.innerHTML = byAssignee.map(r => `
@@ -1264,9 +1257,9 @@
           <td>${escapeHtml(r.label)}</td>
           <td class="right mono">${formatNumber(r.openCount)}</td>
           <td class="right mono">${formatNumber(r.overdueCount)}</td>
-          <td class="right mono font-extrabold">${formatMoney(r.openAmount)}</td>
+          <td class="right mono rm-cell-primary">${formatMoney(r.openAmount)}</td>
         </tr>
-      `).join("") || `<tr><td colspan="4" class="py-8 text-center text-slate-500">No data.</td></tr>`;
+      `).join("") || `<tr><td colspan="4" class="rm-empty-cell">No data.</td></tr>`;
 
       els.requesterHead.innerHTML = `<tr><th>Requester</th><th class="right">Count</th><th class="right">Open</th><th class="right">Amount</th></tr>`;
       els.requesterBody.innerHTML = byRequester.slice(0, 25).map(r => `
@@ -1274,9 +1267,9 @@
           <td>${escapeHtml(r.label)}</td>
           <td class="right mono">${formatNumber(r.count)}</td>
           <td class="right mono">${formatNumber(r.openCount)}</td>
-          <td class="right mono font-extrabold">${formatMoney(r.amount)}</td>
+          <td class="right mono rm-cell-primary">${formatMoney(r.amount)}</td>
         </tr>
-      `).join("") || `<tr><td colspan="4" class="py-8 text-center text-slate-500">No data.</td></tr>`;
+      `).join("") || `<tr><td colspan="4" class="rm-empty-cell">No data.</td></tr>`;
     }
 
     function renderActivity() {
@@ -1286,21 +1279,21 @@
         const request = state.rows.find(r => r.id === a.payment_request_id);
         return `
           <div class="activity-item">
-            <div class="flex items-start justify-between gap-3">
+            <div class="rm-card-head">
               <div>
-                <div class="font-semibold text-slate-900">${escapeHtml(request?.effective_vendor_name || "Unknown vendor")}</div>
-                <div class="mt-1 text-xs text-slate-500">${escapeHtml(activityTypeLabel(a.activity_type))}</div>
+                <div class="rm-cell-primary">${escapeHtml(request?.effective_vendor_name || "Unknown vendor")}</div>
+                <div class="rm-cell-meta">${escapeHtml(activityTypeLabel(a.activity_type))}</div>
               </div>
-              <div class="text-xs text-slate-500">${escapeHtml(formatDateTime(a.created_at))}</div>
+              <div class="rm-cell-meta">${escapeHtml(formatDateTime(a.created_at))}</div>
             </div>
-            <div class="mt-2 text-sm text-slate-700">${escapeHtml(activityMessage(a))}</div>
-            <div class="mt-2 flex flex-wrap items-center gap-2">
+            <div class="rm-cell-meta" style="margin-top:6px;color:var(--bcn-ink-2);">${escapeHtml(activityMessage(a))}</div>
+            <div class="rm-action-row" style="margin-top:6px;">
               <span class="badge badge-current">${escapeHtml(a.created_by_name || a.created_by_email || "System")}</span>
-              ${request ? `<button class="btn btn-soft btn-xs open-drawer-btn" data-id="${escapeHtml(request.id)}">Open request</button>` : ""}
+              ${request ? `<button class="btn btn-soft btn-xs open-drawer-btn" data-id="${escapeHtml(request.id)}">Open</button>` : ""}
             </div>
           </div>
         `;
-      }).join("") || `<div class="text-sm text-slate-500">No activity in current filter.</div>`;
+      }).join("") || `<div class="rm-muted">No activity in current filter.</div>`;
 
       document.querySelectorAll("#activityFeed .open-drawer-btn").forEach(btn => {
         btn.addEventListener("click", () => openDrawer(btn.getAttribute("data-id")));
@@ -1316,9 +1309,9 @@
         <div class="mini-card">
           <div class="label">${escapeHtml(item.label)}</div>
           <div class="value mono">${formatNumber(item.count)}</div>
-          <div class="mt-1 text-xs text-slate-500">Recent activity</div>
+          <div class="rm-cell-meta">Recent activity</div>
         </div>
-      `).join("") || `<div class="text-sm text-slate-500">No activity.</div>`;
+      `).join("") || `<div class="rm-muted">No activity.</div>`;
     }
 
     async function createSignedUrl(filePath) {
@@ -1489,15 +1482,15 @@
       els.drawerActivity.innerHTML = rowActivity.length
         ? rowActivity.map(a => `
             <div class="activity-item">
-              <div class="flex items-start justify-between gap-3">
-                <div class="font-semibold text-slate-900">${escapeHtml(activityTypeLabel(a.activity_type))}</div>
-                <div class="text-xs text-slate-500">${escapeHtml(formatDateTime(a.created_at))}</div>
+              <div class="rm-card-head">
+                <div class="rm-cell-primary">${escapeHtml(activityTypeLabel(a.activity_type))}</div>
+                <div class="rm-cell-meta">${escapeHtml(formatDateTime(a.created_at))}</div>
               </div>
-              <div class="mt-2 text-sm text-slate-700">${escapeHtml(activityMessage(a))}</div>
-              <div class="mt-2 text-xs text-slate-500">By ${escapeHtml(a.created_by_name || a.created_by_email || "System")}</div>
+              <div class="rm-cell-meta" style="margin-top:6px;color:var(--bcn-ink-2);">${escapeHtml(activityMessage(a))}</div>
+              <div class="rm-cell-meta" style="margin-top:4px;">By ${escapeHtml(a.created_by_name || a.created_by_email || "System")}</div>
             </div>
           `).join("")
-        : `<div class="text-sm text-slate-500">No activity yet.</div>`;
+        : `<div class="rm-muted">No activity yet.</div>`;
 
       els.drawerBackdrop.classList.add("open");
       els.workbenchDrawer.classList.add("open");
