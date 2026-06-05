@@ -15,12 +15,13 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
   <style>
     .bcn-header-sub { display: none; }
-    .bcn-header { padding-top: 8px; padding-bottom: 8px; }
-    .bcn-kpi-band { padding-top: 2px; padding-bottom: 2px; }
-    .bcn-kpi { padding-top: 3px; padding-bottom: 3px; }
-    .bcn-kpi-value { font-size: 14px !important; }
-    .bcn-kpi-label { font-size: 9px !important; }
+    .bcn-header { padding-top: 6px; padding-bottom: 6px; }
+    .bcn-kpi-band { min-height: 0; border-bottom-width: 1px; }
+    .bcn-kpi { padding: 4px 10px; gap: 0; flex-direction: row; align-items: baseline; justify-content: center; }
+    .bcn-kpi-label { font-size: 9px !important; margin-right: 5px; letter-spacing: 0.06em; }
+    .bcn-kpi-value { font-size: 12px !important; line-height: 1.1; }
     .bcn-kpi-delta { display: none; }
+    .bcn-filter-bar { height: 30px; padding: 0 12px; font-size: 11px; }
 
     /* ── Stepper ─────────────────────────────────────── */
     .cost-stepper {
@@ -198,7 +199,7 @@
     }
   </style>
 </head>
-<body class="v2-mirror--po po-costing-page">
+<body class="v2-mirror--po po-costing-page po-costing-dense">
   <div class="silo-app" id="silo-app">
     <main class="silo-main">
       <header class="bcn-header">
@@ -370,7 +371,7 @@
             <button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono po-costing-expand-btn" id="btnExpandWorkflow" hidden title="Show workflow panel">WORKFLOW</button>
           </header>
           <div class="bcn-matrix-scroll line-table-wrap po-costing-table-wrap">
-              <table class="bcn-table line-table po-costing-lines-table">
+              <table class="bcn-table po-costing-lines-table">
                 <thead>
                   <tr>
                     <th class="bcn-th-left">SKU</th>
@@ -533,18 +534,18 @@
         const prior = ctx.priorBySku && row.sku ? ctx.priorBySku[String(row.sku).trim()] : null;
         const o = lineOverrides[row.line_id] || {};
         const priorHtml = prior
-          ? `<span class="prior-pill" title="${esc(prior.po_name)}"><span class="prior-pill-amt">${money(prior.unit_cost)}</span><span class="prior-pill-po">${esc(prior.po_name)}</span></span>`
+          ? `<span class="prior-pill" title="${esc(prior.po_name)}"><span class="prior-pill-amt">${money(prior.unit_cost)}</span></span>`
           : '<span class="prior-pill prior-pill--empty">—</span>';
 
         const freightPlaceholder = row.freight_alloc > 0 ? row.freight_alloc.toFixed(2) : '0.00';
         const hasLandedOverride = o.landed_unit != null && o.landed_unit !== '';
         const freightIsCalc = o.freight_alloc == null || o.freight_alloc === '';
         const landedIsOverride = hasLandedOverride;
-        const titleSub = row.title && row.title !== row.sku ? `<div class="costing-sku-sub">${esc(row.title)}</div>` : '';
+        const skuLabel = row.sku || '—';
+        const skuTip = [row.sku, row.title].filter(Boolean).join(' · ') || skuLabel;
         return `<tr data-line-id="${esc(row.line_id)}" class="costing-line-row ${row.line_id === focusId ? 'line-focus' : ''}">
-          <td class="bcn-th-left costing-sku-cell">
-            <div class="costing-sku">${esc(row.sku || '—')}</div>
-            ${titleSub}
+          <td class="bcn-th-left costing-sku-cell" title="${esc(skuTip)}">
+            <span class="costing-sku-line">${esc(skuLabel)}</span>
           </td>
           <td class="costing-num">${row.qty}</td>
           <td class="costing-input-cell"><input type="number" step="0.01" class="po-line-input po-line-input--num" data-ov="fob_unit" data-lid="${esc(row.line_id)}" value="${row.fob_unit}" aria-label="Unit cost" /></td>
