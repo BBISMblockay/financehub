@@ -254,6 +254,10 @@
         </div>
       </section>
 
+      <div class="po-costing-math-bar" id="costingMathBar" hidden aria-live="polite">
+        <span class="po-costing-math-eq" id="costingMathEq">FOB + Freight + Duty + Misc = Landed</span>
+      </div>
+
       <section class="bcn-filter-bar" id="costingCtxBar" aria-label="Active PO" hidden>
         <div class="bcn-filter">
           <span class="bcn-filter-k">PO</span>
@@ -327,7 +331,7 @@
 
             <!-- Phase 3: Freight & Duties -->
             <div id="panelFreight" class="phase-panel cost-phase" hidden>
-              <p class="cost-hint" style="margin-bottom:10px;">Enter the forwarder invoice totals. Each amount is split across all PO lines by the method you choose.</p>
+              <p class="cost-hint" style="margin-bottom:10px;">Enter invoice totals in dollars. Freight and misc split by line; duty is <strong>% of FOB</strong> and appears as <strong>$/unit</strong> in the line table. Landed/unit = FOB + freight + duty + misc per unit.</p>
               <div class="cost-section-label">Shipping costs</div>
               <div class="cost-fields">
                 <div class="bcn-field-group"><label class="bcn-label">Forwarder ref</label><input class="bcn-field bcn-field--mono" type="text" id="inFreightRef" placeholder="Invoice / BL ref" /></div>
@@ -376,9 +380,11 @@
                   <tr>
                     <th class="bcn-th-left">SKU</th>
                     <th>Qty</th>
-                    <th>Unit cost</th>
+                    <th>FOB / unit</th>
                     <th>Prior</th>
-                    <th>Freight</th>
+                    <th>+ Fr / unit</th>
+                    <th>+ Duty / unit</th>
+                    <th>+ Misc / unit</th>
                     <th class="costing-col-landed">Landed / unit</th>
                     <th class="costing-col-ext">Ext. landed</th>
                     <th class="bcn-th-left"></th>
@@ -480,6 +486,36 @@
       return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(Lib.num(n));
     }
 
+    /** Plain decimal for number inputs (storage stays numeric). */
+    function moneyInput(n) {
+      return Lib.num(n).toFixed(2);
+    }
+
+    function perUnit(lineTotal, qty) {
+      const q = Math.max(0, Lib.num(qty));
+      return q > 0 ? Lib.num(lineTotal) / q : 0;
+    }
+
+    function lineMathTitle(row) {
+      const fr = perUnit(row.freight_alloc, row.qty);
+      const du = perUnit(row.duty_alloc, row.qty);
+      const mi = perUnit(row.misc_alloc, row.qty);
+      return `${money(row.fob_unit)} + ${money(fr)} + ${money(du)} + ${money(mi)} = ${money(row.landed_unit)} per unit`
+        + ` · Line: ${money(row.fob_ext)} + ${money(row.freight_alloc)} + ${money(row.duty_alloc)} + ${money(row.misc_alloc)} = ${money(row.landed_ext)}`;
+    }
+
+    function updateMathBar(result) {
+      const bar = document.getElementById('costingMathBar');
+      const eq = document.getElementById('costingMathEq');
+      if (!bar || !eq || !result) return;
+      const sumFr = result.lines.reduce((s, r) => s + Lib.num(r.freight_alloc), 0);
+      const sumDu = result.lines.reduce((s, r) => s + Lib.num(r.duty_alloc), 0);
+      const sumMi = result.lines.reduce((s, r) => s + Lib.num(r.misc_alloc), 0);
+      const sumLanded = result.lines.reduce((s, r) => s + Lib.num(r.landed_ext), 0);
+      eq.textContent = `${money(result.fob_total)} FOB + ${money(sumFr)} freight + ${money(sumDu)} duty + ${money(sumMi)} misc = ${money(sumLanded)} landed`;
+      bar.hidden = false;
+    }
+
     function esc(s) {
       return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     }
@@ -513,11 +549,19 @@
     function recalc() {
       if (!ctx) return null;
       const result = Lib.computeCosting(ctx.lines, headerInputs(), lineOverrides);
+      const sumFr = result.lines.reduce((s, r) => s + Lib.num(r.freight_alloc), 0);
+      const sumDu = result.lines.reduce((s, r) => s + Lib.num(r.duty_alloc), 0);
+      const sumMi = result.lines.reduce((s, r) => s + Lib.num(r.misc_alloc), 0);
+
       els.kpiFob.textContent = money(result.fob_total);
-      els.kpiFreight.textContent = money(result.freight);
-      els.kpiDuty.textContent = money(result.duty_amount);
-      els.kpiMisc.textContent = money(result.misc);
+      els.kpiFreight.textContent = money(sumFr);
+      els.kpiFreight.title = `Forwarder invoice: ${money(result.freight)}`;
+      els.kpiDuty.textContent = money(sumDu);
+      els.kpiDuty.title = result.duty_pct ? `${result.duty_pct}% of FOB = ${money(result.duty_amount)}` : '';
+      els.kpiMisc.textContent = money(sumMi);
+      els.kpiMisc.title = `Misc pool: ${money(result.misc)}`;
       els.kpiLanded.textContent = money(result.landed_total);
+      updateMathBar(result);
       ctx.result = result;
       renderLineTable(result);
       return result;
@@ -537,25 +581,42 @@
           ? `<span class="prior-pill" title="${esc(prior.po_name)}"><span class="prior-pill-amt">${money(prior.unit_cost)}</span></span>`
           : '<span class="prior-pill prior-pill--empty">—</span>';
 
-        const freightPlaceholder = row.freight_alloc > 0 ? row.freight_alloc.toFixed(2) : '0.00';
+        const frPerUnit = perUnit(row.freight_alloc, row.qty);
+        const duPerUnit = perUnit(row.duty_alloc, row.qty);
+        const miPerUnit = perUnit(row.misc_alloc, row.qty);
         const hasLandedOverride = o.landed_unit != null && o.landed_unit !== '';
         const freightIsCalc = o.freight_alloc == null || o.freight_alloc === '';
         const landedIsOverride = hasLandedOverride;
+        const mathTip = esc(lineMathTitle(row));
         const skuLabel = row.sku || '—';
         const skuTip = [row.sku, row.title].filter(Boolean).join(' · ') || skuLabel;
-        return `<tr data-line-id="${esc(row.line_id)}" class="costing-line-row ${row.line_id === focusId ? 'line-focus' : ''}">
+        const fobVal = o.fob_unit != null && o.fob_unit !== '' ? o.fob_unit : row.fob_unit;
+        return `<tr data-line-id="${esc(row.line_id)}" class="costing-line-row ${row.line_id === focusId ? 'line-focus' : ''}" title="${mathTip}">
           <td class="bcn-th-left costing-sku-cell" title="${esc(skuTip)}">
             <span class="costing-sku-line">${esc(skuLabel)}</span>
           </td>
           <td class="costing-num">${row.qty}</td>
-          <td class="costing-input-cell"><input type="number" step="0.01" class="po-line-input po-line-input--num" data-ov="fob_unit" data-lid="${esc(row.line_id)}" value="${row.fob_unit}" aria-label="Unit cost" /></td>
+          <td class="costing-input-cell">
+            <span class="costing-money-wrap">
+              <input type="number" step="0.01" min="0" class="po-line-input po-line-input--num costing-money-in" data-ov="fob_unit" data-lid="${esc(row.line_id)}" value="${moneyInput(fobVal)}" aria-label="FOB per unit" />
+            </span>
+          </td>
           <td class="costing-prior-cell">${priorHtml}</td>
-          <td class="costing-input-cell"><input type="number" step="0.01" class="po-line-input po-line-input--num${freightIsCalc ? ' is-calculated' : ''}" data-ov="freight_alloc" data-lid="${esc(row.line_id)}" value="${o.freight_alloc != null ? o.freight_alloc : ''}" placeholder="${freightPlaceholder}" aria-label="Freight allocation" /></td>
-          <td class="costing-input-cell costing-col-landed"><input type="number" step="0.01" class="po-line-input po-line-input--num${landedIsOverride ? ' is-override' : ''}" data-ov="landed_unit" data-lid="${esc(row.line_id)}" value="${hasLandedOverride ? o.landed_unit : row.landed_unit.toFixed(2)}" aria-label="Landed per unit" /></td>
+          <td class="costing-addon-cell" title="Line freight ${money(row.freight_alloc)}${freightIsCalc ? ' (auto-split)' : ' (override)'}">
+            <div class="costing-money-read">${money(frPerUnit)}</div>
+            <input type="number" step="0.01" min="0" class="po-line-input po-line-input--num costing-line-fr-ov${freightIsCalc ? ' is-calculated' : ' is-override'}" data-ov="freight_alloc" data-lid="${esc(row.line_id)}" value="${o.freight_alloc != null && o.freight_alloc !== '' ? moneyInput(o.freight_alloc) : ''}" placeholder="${moneyInput(row.freight_alloc)}" aria-label="Line freight total override" title="Override line freight ($ total, not per unit)" />
+          </td>
+          <td class="costing-money-read">${money(duPerUnit)}</td>
+          <td class="costing-money-read">${money(miPerUnit)}</td>
+          <td class="costing-input-cell costing-col-landed">
+            <span class="costing-money-wrap">
+              <input type="number" step="0.01" min="0" class="po-line-input po-line-input--num costing-money-in${landedIsOverride ? ' is-override' : ''}" data-ov="landed_unit" data-lid="${esc(row.line_id)}" value="${hasLandedOverride ? moneyInput(o.landed_unit) : moneyInput(row.landed_unit)}" aria-label="Landed per unit" title="${mathTip}" />
+            </span>
+          </td>
           <td class="costing-num costing-col-ext td-total">${money(row.landed_ext)}</td>
           <td class="bcn-th-left costing-actions-cell">${prior ? `<button type="button" class="bcn-btn bcn-btn--ghost bcn-btn--mono costing-prior-btn" data-prior="${esc(row.line_id)}">Prior</button>` : ''}</td>
         </tr>`;
-      }).join('') || '<tr><td colspan="8" class="po-costing-empty">No lines on this PO.</td></tr>';
+      }).join('') || '<tr><td colspan="10" class="po-costing-empty">No lines on this PO.</td></tr>';
 
       els.lineBody.querySelectorAll('[data-ov]').forEach(inp => {
         inp.addEventListener('change', () => {
@@ -715,7 +776,9 @@
       const kpi = document.getElementById('costingKpiBand');
       const ctxBar = document.getElementById('costingCtxBar');
       const workspace = document.getElementById('costingWorkspace');
+      const mathBar = document.getElementById('costingMathBar');
       if (kpi) kpi.hidden = !has;
+      if (mathBar) mathBar.hidden = !has;
       if (ctxBar) ctxBar.hidden = !has;
       if (workspace) workspace.hidden = !has;
       const set = (id, v) => { const n = document.getElementById(id); if (n) n.textContent = v; };
