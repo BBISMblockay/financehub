@@ -140,14 +140,12 @@
   }
 
   function renderNavSections(active) {
-    // Determine which section contains the active item
+    // Only the section containing the active item is open on page load.
+    // Manual toggles on the same page are handled in-memory (no persistence).
     const activeSection = NAV_SECTIONS.find(s => s.items.some(i => i.id === active))?.section || null;
-    const openSet = getSectionOpenSet();
-    // Always open the active section
-    if (activeSection) openSet.add(activeSection);
 
     return NAV_SECTIONS.map(sec => {
-      const isOpen = openSet.has(sec.section);
+      const isOpen = sec.section === activeSection;
       const links = sec.items.map(item => {
         const isActive = item.id === active;
         const ext = item.external ? ' target="_blank" rel="noopener noreferrer"' : '';
@@ -309,12 +307,9 @@
         e.preventDefault();
         const name = sectionBtn.getAttribute('data-section');
         const sectionEl = sidebar.querySelector(`.silo-sb-section[data-section="${name}"]`);
-        const openSet = getSectionOpenSet();
-        if (openSet.has(name)) { openSet.delete(name); } else { openSet.add(name); }
-        setSectionOpenSet(openSet);
-        const isNowOpen = openSet.has(name);
+        const isNowOpen = sectionEl && !sectionEl.classList.contains('silo-sb-section--open');
         sectionEl && sectionEl.classList.toggle('silo-sb-section--open', isNowOpen);
-        sectionBtn.setAttribute('aria-expanded', isNowOpen);
+        sectionBtn.setAttribute('aria-expanded', isNowOpen ? 'true' : 'false');
         return;
       }
       if (e.target.closest('.silo-sb-link')) {
