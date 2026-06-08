@@ -331,6 +331,7 @@
               <div class="cost-section-label">Shipping costs</div>
               <div class="cost-fields">
                 <div class="bcn-field-group"><label class="bcn-label">Forwarder ref</label><input class="bcn-field bcn-field--mono" type="text" id="inFreightRef" placeholder="Invoice / BL ref" /></div>
+                <div class="bcn-field-group"><label class="bcn-label">Carrier / forwarder</label><input class="bcn-field" type="text" id="inFreightCarrier" placeholder="e.g. Andes Logistics" /></div>
                 <div class="bcn-field-group">
                   <label class="bcn-label">Freight total ($)</label>
                   <input class="bcn-field bcn-field--mono" type="number" step="0.01" min="0" id="inFreight" data-cost-header />
@@ -454,6 +455,7 @@
       inFactoryAmount: document.getElementById('inFactoryAmount'),
       inFobNotes: document.getElementById('inFobNotes'),
       inFreightRef: document.getElementById('inFreightRef'),
+      inFreightCarrier: document.getElementById('inFreightCarrier'),
       inFreightNotes: document.getElementById('inFreightNotes'),
       inFreight: document.getElementById('inFreight'),
       inDutyPct: document.getElementById('inDutyPct'),
@@ -667,7 +669,7 @@
       try {
         const { data } = await db
           .from('payment_requests')
-          .select('amount_due, invoice_number')
+          .select('amount_due, invoice_number, vendor_name')
           .eq('request_type', 'inventory_freight')
           .eq('internal_po_number', poName)
           .order('created_at', { ascending: false })
@@ -677,6 +679,9 @@
           els.inFreight.value = Number(data.amount_due).toFixed(2);
           if (data.invoice_number && !els.inFreightRef.value) {
             els.inFreightRef.value = data.invoice_number;
+          }
+          if (data.vendor_name && !els.inFreightCarrier.value) {
+            els.inFreightCarrier.value = data.vendor_name;
           }
           recalc();
         }
@@ -692,6 +697,7 @@
       els.inFactoryAmount.value = pc?.factory_invoice_amount ?? '';
       els.inFobNotes.value = pc?.fob_notes || '';
       els.inFreightRef.value = pc?.freight_invoice_ref || '';
+      els.inFreightCarrier.value = pc?.freight_carrier || '';
       els.inFreightNotes.value = pc?.freight_notes || ctx.saved?.notes || '';
       els.inFreight.value = ctx.headerInputs.freight ?? '';
       // If no freight amount saved yet, check for a linked freight payment request
@@ -807,6 +813,7 @@
       const out = await Lib.savePoCosting(db, ctx, headerInputs(), lineOverrides, {
         phase: Lib.PHASE.FINAL,
         freightInvoice: { ref: els.inFreightRef.value.trim() },
+        freightCarrier: els.inFreightCarrier.value.trim(),
         freightNotes: els.inFreightNotes.value.trim(),
         pushLandedToPoLines: els.chkPushLanded.checked,
         userId: authUser?.id,
@@ -1168,6 +1175,7 @@
       const applyBtn = document.getElementById('csApply');
       if (applyBtn) { applyBtn.disabled = true; applyBtn.textContent = 'SAVING…'; }
       const freightRef = els.inFreightRef.value.trim();
+      const freightCarrier = els.inFreightCarrier.value.trim();
       const freightNotes = els.inFreightNotes.value.trim();
       let saved = 0;
       const errors = [];
@@ -1186,6 +1194,7 @@
           await Lib.savePoCosting(db, poCtx, poHI, poLO, {
             phase: Lib.PHASE.FREIGHT,
             freightInvoice: { ref: freightRef },
+            freightCarrier,
             freightNotes,
             pushLandedToPoLines: isCur && els.chkPushLanded.checked,
             userId: authUser?.id,

@@ -428,6 +428,7 @@
       misc_amount: num(headerInputs.misc),
       alloc_method: headerInputs.alloc_method || 'proportional',
       freight_invoice_ref: opts.freightInvoice?.ref ?? ctx.costing?.freight_invoice_ref ?? null,
+      freight_carrier: opts.freightCarrier != null ? opts.freightCarrier : ctx.costing?.freight_carrier ?? null,
       freight_notes: opts.freightNotes != null ? opts.freightNotes : ctx.costing?.freight_notes,
       fob_total: result.fob_total,
       duty_amount: result.duty_amount,
