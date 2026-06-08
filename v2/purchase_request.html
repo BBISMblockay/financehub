@@ -18,12 +18,8 @@
   <style>
     :root { color-scheme: light; }
     .silo-main { overflow-y: auto; }
-    .pr-costing-panel { border-left: 3px solid var(--bcn-accent); }
-    .pr-costing-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-top: 10px; }
-    .pr-costing-kv { display: flex; flex-direction: column; gap: 2px; }
-    .pr-costing-kv-label { font-size: 11px; color: var(--bcn-ink-3); text-transform: uppercase; letter-spacing: .04em; font-family: 'IBM Plex Mono', monospace; }
-    .pr-costing-kv-value { font-size: 15px; font-family: 'IBM Plex Mono', monospace; color: var(--bcn-ink); font-weight: 600; }
-    .pr-costing-loading { color: var(--bcn-ink-3); font-size: 13px; font-style: italic; }
+    .pr-costing-link { border-left: 3px solid var(--bcn-accent); display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 16px; }
+    .pr-costing-link-text { font-size: 13px; color: var(--bcn-ink-2); }
   </style>
 </head>
 <body>
@@ -98,6 +94,7 @@
                     <option value="invoice_vendor_payment">Invoice / vendor payment</option>
                     <option value="inventory_deposit">Inventory deposit</option>
                     <option value="inventory_balance">Inventory balance</option>
+                    <option value="inventory_freight">Inventory freight</option>
                     <option value="employee_reimbursement">Employee reimbursement</option>
                     <option value="customer_refund">Customer refund</option>
                   </select>
@@ -132,31 +129,15 @@
                 </div>
 
                 <div>
-                  <label class="bcn-label" for="paymentType">Payment type</label>
-                  <select id="paymentType" class="select">
-                    <option value="">Select payment type</option>
-                    <option value="inventory_freight">Inventory - Freight</option>
-                    <option value="inventory_balance">Inventory - Balance</option>
-                    <option value="inventory_deposit">Inventory - Deposit</option>
-                    <option value="check">Check</option>
-                    <option value="wire">Wire</option>
-                    <option value="credit_card">Credit card</option>
-                    <option value="other">Other</option>
-                  </select>
-                </div>
-
-                <div>
                   <label class="bcn-label" for="dueDate">Due date</label>
                   <input id="dueDate" type="date" class="input" />
                 </div>
               </div>
             </div>
 
-            <div id="costingPanel" class="pr-section-card pr-costing-panel" hidden>
-              <div class="section-title">Costing summary <span id="costingPoLabel" class="bcn-pill bcn-pill--accent" style="font-size:11px;margin-left:6px;"></span></div>
-              <div id="costingPanelBody" class="pr-costing-grid">
-                <div class="pr-costing-loading">Loading costing data…</div>
-              </div>
+            <div id="costingPanel" class="pr-section-card pr-costing-link" hidden>
+              <span class="pr-costing-link-text">Freight selected — review or update this PO's costing record before submitting.</span>
+              <a id="costingLink" href="po-costing.html" target="_blank" class="btn btn-soft" style="white-space:nowrap;">Open PO in Costing ↗</a>
             </div>
 
             <div class="pr-section-card">
@@ -264,10 +245,8 @@
     invoiceNumber: document.getElementById("invoiceNumber"),
     flexId: document.getElementById("flexId"),
     internalPoNumber: document.getElementById("internalPoNumber"),
-    paymentType: document.getElementById("paymentType"),
     costingPanel: document.getElementById("costingPanel"),
-    costingPanelBody: document.getElementById("costingPanelBody"),
-    costingPoLabel: document.getElementById("costingPoLabel"),
+    costingLink: document.getElementById("costingLink"),
     amountDue: document.getElementById("amountDue"),
     dueDate: document.getElementById("dueDate"),
     requesterEmail: document.getElementById("requesterEmail"),
@@ -702,46 +681,13 @@
     }
   }
 
-  function money(v) {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(Number(v) || 0);
-  }
-
-  async function loadCostingForPo(poId, poName) {
-    els.costingPoLabel.textContent = poName;
-    els.costingPanelBody.innerHTML = '<div class="pr-costing-loading">Loading costing data…</div>';
-    try {
-      const { data, error } = await supabaseClient
-        .from('v_po_costing_summary')
-        .select('po_name, phase, landed_total, freight_total, duty_total, product_total, shipped_at')
-        .eq('po_header_id', poId)
-        .maybeSingle();
-      if (error) throw error;
-      if (!data) {
-        els.costingPanelBody.innerHTML = '<div class="pr-costing-loading">No costing record found for this PO yet.</div>';
-        return;
-      }
-      els.costingPanelBody.innerHTML = `
-        <div class="pr-costing-kv"><span class="pr-costing-kv-label">Phase</span><span class="pr-costing-kv-value">${escapeAttr(data.phase || '—')}</span></div>
-        <div class="pr-costing-kv"><span class="pr-costing-kv-label">Landed total</span><span class="pr-costing-kv-value">${money(data.landed_total)}</span></div>
-        <div class="pr-costing-kv"><span class="pr-costing-kv-label">Freight total</span><span class="pr-costing-kv-value">${money(data.freight_total)}</span></div>
-        <div class="pr-costing-kv"><span class="pr-costing-kv-label">Duty total</span><span class="pr-costing-kv-value">${money(data.duty_total)}</span></div>
-        <div class="pr-costing-kv"><span class="pr-costing-kv-label">Product total</span><span class="pr-costing-kv-value">${money(data.product_total)}</span></div>
-        <div class="pr-costing-kv"><span class="pr-costing-kv-label">Shipped at</span><span class="pr-costing-kv-value">${escapeAttr(data.shipped_at || '—')}</span></div>
-      `;
-    } catch (err) {
-      console.error('Costing load failed:', err);
-      els.costingPanelBody.innerHTML = '<div class="pr-costing-loading">Could not load costing data.</div>';
-    }
-  }
-
   function syncCostingPanel() {
     const selectedOpt = els.internalPoNumber.options[els.internalPoNumber.selectedIndex];
     const poId = selectedOpt?.dataset?.poId || '';
-    const poName = els.internalPoNumber.value;
-    const isFreight = els.paymentType.value === 'inventory_freight';
+    const isFreight = els.requestType.value === 'inventory_freight';
     if (poId && isFreight) {
+      els.costingLink.href = `po-costing.html?po_id=${encodeURIComponent(poId)}`;
       els.costingPanel.hidden = false;
-      loadCostingForPo(poId, poName);
     } else {
       els.costingPanel.hidden = true;
     }
@@ -761,7 +707,7 @@
   els.resetBtn.addEventListener("click", resetForm);
   els.newRequestBtn.addEventListener("click", resetForm);
   els.internalPoNumber.addEventListener("change", syncCostingPanel);
-  els.paymentType.addEventListener("change", syncCostingPanel);
+  els.requestType.addEventListener("change", syncCostingPanel);
 
   async function boot() {
     try {
