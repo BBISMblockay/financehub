@@ -680,30 +680,15 @@
     }
   }
 
-  async function syncCostingPanel() {
+  function syncCostingPanel() {
     const selectedOpt = els.internalPoNumber.options[els.internalPoNumber.selectedIndex];
     const poId = selectedOpt?.dataset?.poId || '';
     const isFreight = els.requestType.value === 'inventory_freight';
     if (poId && isFreight) {
       els.costingLink.href = `po-costing.html?po_id=${encodeURIComponent(poId)}`;
       els.costingPanel.hidden = false;
-      // Auto-fill amount from costing freight total
-      try {
-        const { data } = await supabaseClient
-          .from('v_po_costing_summary')
-          .select('freight_total')
-          .eq('po_header_id', poId)
-          .maybeSingle();
-        if (data?.freight_total != null) {
-          els.amountDue.value = Number(data.freight_total).toFixed(2);
-        }
-      } catch (err) {
-        console.error('Costing freight fetch failed:', err);
-      }
     } else {
       els.costingPanel.hidden = true;
-      // Clear the auto-filled amount if user deselects freight or PO
-      if (!isFreight || !poId) els.amountDue.value = '';
     }
   }
 
