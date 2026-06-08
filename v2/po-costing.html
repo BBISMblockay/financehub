@@ -662,6 +662,29 @@
       return 'manual';
     }
 
+    async function prefillFreightFromPaymentRequest(poName) {
+      if (!poName) return;
+      try {
+        const { data } = await db
+          .from('payment_requests')
+          .select('amount_due, invoice_number')
+          .eq('request_type', 'inventory_freight')
+          .eq('internal_po_number', poName)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (data?.amount_due != null) {
+          els.inFreight.value = Number(data.amount_due).toFixed(2);
+          if (data.invoice_number && !els.inFreightRef.value) {
+            els.inFreightRef.value = data.invoice_number;
+          }
+          recalc();
+        }
+      } catch (err) {
+        console.error('Freight prefill from payment request failed:', err);
+      }
+    }
+
     function fillFormFromCtx() {
       const pc = ctx.costing;
       els.inFactoryRef.value = pc?.factory_invoice_ref || '';
@@ -671,6 +694,10 @@
       els.inFreightRef.value = pc?.freight_invoice_ref || '';
       els.inFreightNotes.value = pc?.freight_notes || ctx.saved?.notes || '';
       els.inFreight.value = ctx.headerInputs.freight ?? '';
+      // If no freight amount saved yet, check for a linked freight payment request
+      if (!els.inFreight.value && ctx.header?.po_name) {
+        prefillFreightFromPaymentRequest(ctx.header.po_name);
+      }
       els.inDutyPct.value = ctx.headerInputs.duty_pct ?? '';
       els.inMisc.value = ctx.headerInputs.misc ?? '';
       els.inAlloc.value = ctx.headerInputs.alloc_method || 'proportional';
