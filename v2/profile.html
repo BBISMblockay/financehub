@@ -412,7 +412,54 @@
       } catch (e) { /* optional */ }
     }
 
-    async function loadAdminAttention(items, tokens) {
+    async function loadCostingAttention(items, tokens) {
+      if (!tokens.isAdmin && !tokens.purchasing && !tokens.finance) return;
+      const NEEDS_COSTING_STATUSES = ['Sent to Factory', 'Confirmed', 'In Production', 'Shipped', 'In Transit', 'Partially Received', 'Received'];
+      try {
+        // Fetch active POs and costed PO ids in parallel
+        const [poRes, costRes] = await Promise.all([
+          db.from('v_po_header_summary').select('id, po_name, status').in('status', NEEDS_COSTING_STATUSES).limit(500),
+          db.from('v_po_costing_summary').select('po_header_id').limit(500),
+        ]);
+        if (poRes.error) return;
+        const costedIds = new Set((costRes.data || []).map(r => r.po_header_id));
+        const uncosted = (poRes.data || []).filter(r => !costedIds.has(r.id));
+        // POs shipped but freight not yet applied
+        const SHIPPED = ['Shipped', 'In Transit', 'Partially Received', 'Received'];
+        const needsFreight = (costRes.data || []).length > 0
+          ? await (async () => {
+              const { data } = await db.from('v_po_costing_summary').select('po_header_id, phase').in('phase', ['fob']).limit(500);
+              if (!data) return 0;
+              // cross-ref with shipped POs
+              const shippedIds = new Set((poRes.data || []).filter(r => SHIPPED.includes(r.status)).map(r => r.id));
+              return (data || []).filter(r => shippedIds.has(r.po_header_id)).length;
+            })()
+          : 0;
+
+        if (uncosted.length > 0) {
+          pushFeedItem(items, {
+            kind: 'po_needs_costing',
+            title: `${uncosted.length} PO${uncosted.length === 1 ? '' : 's'} not yet costed`,
+            detail: 'Active POs with no costing record. Open PO Costing to start.',
+            href: '/v2/po-costing.html',
+            severity: uncosted.length > 3 ? 'warn' : 'info',
+            count: uncosted.length,
+          });
+        }
+        if (needsFreight > 0) {
+          pushFeedItem(items, {
+            kind: 'po_needs_freight',
+            title: `${needsFreight} shipped PO${needsFreight === 1 ? '' : 's'} missing freight`,
+            detail: 'Marked shipped but freight & duties not applied.',
+            href: '/v2/po-costing.html',
+            severity: 'warn',
+            count: needsFreight,
+          });
+        }
+      } catch (e) { /* optional */ }
+    }
+
+
       if (!tokens.isAdmin) return;
       try {
         const { data, error } = await db.rpc('admin_list_access_requests', { p_status: 'pending' });
@@ -433,6 +480,8 @@
       ap_paid_today: { domain: 'Payables', workspace: 'Request Manager', icon: 'wallet' },
       po_open: { domain: 'Purchasing', workspace: 'PO Report', icon: 'package' },
       po_arriving: { domain: 'Purchasing', workspace: 'PO Report', icon: 'package' },
+      po_needs_costing: { domain: 'Purchasing', workspace: 'PO Costing', icon: 'package' },
+      po_needs_freight: { domain: 'Purchasing', workspace: 'PO Costing', icon: 'package' },
       launch_today: { domain: 'Launches', workspace: 'Launch calendar', icon: 'rocket' },
       launch_readiness: { domain: 'Launches', workspace: 'Launch calendar', icon: 'rocket' },
       launch_tasks: { domain: 'Launches', workspace: 'Launch calendar', icon: 'rocket' },
@@ -550,6 +599,7 @@
       await Promise.all([
         loadPaymentAttention(attentionItems, tokens),
         loadPoAttention(attentionItems, tokens),
+        loadCostingAttention(attentionItems, tokens),
         loadLaunchAttention(attentionItems, tokens),
         loadTrackerAttention(attentionItems, tokens),
         loadProjectionAttention(attentionItems, tokens),
