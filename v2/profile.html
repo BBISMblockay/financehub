@@ -431,10 +431,14 @@
         if (costErr) { console.warn('costing queue: costing fetch failed', costErr.message); return; }
 
         const costedIds = new Set((costData || []).map(r => r.po_header_id));
+        // phase null = costing record exists but no work done — still needs costing
+        const nullPhaseIds = new Set((costData || []).filter(r => !r.phase).map(r => r.po_header_id));
         const fobIds = new Set((costData || []).filter(r => r.phase === 'fob').map(r => r.po_header_id));
         const shippedIds = new Set((poData || []).filter(r => SHIPPED.includes(r.status)).map(r => r.id));
 
-        const uncosted = (poData || []).filter(r => !costedIds.has(r.id)).length;
+        // Uncosted = no record at all, OR record exists but phase never set
+        const uncosted = (poData || []).filter(r => !costedIds.has(r.id) || nullPhaseIds.has(r.id)).length;
+        // Needs freight = shipped + FOB costing done but freight not applied
         const needsFreight = [...shippedIds].filter(id => fobIds.has(id)).length;
 
         if (uncosted > 0) {
