@@ -18,6 +18,12 @@
   <style>
     :root { color-scheme: light; }
     .silo-main { overflow-y: auto; }
+    .pr-costing-panel { border-left: 3px solid var(--bcn-accent); }
+    .pr-costing-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; margin-top: 10px; }
+    .pr-costing-kv { display: flex; flex-direction: column; gap: 2px; }
+    .pr-costing-kv-label { font-size: 11px; color: var(--bcn-ink-3); text-transform: uppercase; letter-spacing: .04em; font-family: 'IBM Plex Mono', monospace; }
+    .pr-costing-kv-value { font-size: 15px; font-family: 'IBM Plex Mono', monospace; color: var(--bcn-ink); font-weight: 600; }
+    .pr-costing-loading { color: var(--bcn-ink-3); font-size: 13px; font-style: italic; }
   </style>
 </head>
 <body>
@@ -119,13 +125,37 @@
 
                 <div>
                   <label class="bcn-label" for="internalPoNumber">Internal PO #</label>
-                  <input id="internalPoNumber" class="input" placeholder="Internal PO number" />
+                  <select id="internalPoNumber" class="select">
+                    <option value="">Loading POs…</option>
+                  </select>
+                  <div class="pr-help">Shows POs sent to factory or further along.</div>
+                </div>
+
+                <div>
+                  <label class="bcn-label" for="paymentType">Payment type</label>
+                  <select id="paymentType" class="select">
+                    <option value="">Select payment type</option>
+                    <option value="inventory_freight">Inventory - Freight</option>
+                    <option value="inventory_balance">Inventory - Balance</option>
+                    <option value="inventory_deposit">Inventory - Deposit</option>
+                    <option value="check">Check</option>
+                    <option value="wire">Wire</option>
+                    <option value="credit_card">Credit card</option>
+                    <option value="other">Other</option>
+                  </select>
                 </div>
 
                 <div>
                   <label class="bcn-label" for="dueDate">Due date</label>
                   <input id="dueDate" type="date" class="input" />
                 </div>
+              </div>
+            </div>
+
+            <div id="costingPanel" class="pr-section-card pr-costing-panel" hidden>
+              <div class="section-title">Costing summary <span id="costingPoLabel" class="bcn-pill bcn-pill--accent" style="font-size:11px;margin-left:6px;"></span></div>
+              <div id="costingPanelBody" class="pr-costing-grid">
+                <div class="pr-costing-loading">Loading costing data…</div>
               </div>
             </div>
 
@@ -234,6 +264,10 @@
     invoiceNumber: document.getElementById("invoiceNumber"),
     flexId: document.getElementById("flexId"),
     internalPoNumber: document.getElementById("internalPoNumber"),
+    paymentType: document.getElementById("paymentType"),
+    costingPanel: document.getElementById("costingPanel"),
+    costingPanelBody: document.getElementById("costingPanelBody"),
+    costingPoLabel: document.getElementById("costingPoLabel"),
     amountDue: document.getElementById("amountDue"),
     dueDate: document.getElementById("dueDate"),
     requesterEmail: document.getElementById("requesterEmail"),
@@ -604,6 +638,7 @@
         invoice_number: els.invoiceNumber.value.trim() || null,
         flex_id: els.flexId.value.trim() || null,
         internal_po_number: els.internalPoNumber.value.trim() || null,
+        payment_type: els.paymentType.value || null,
         amount_due: amountDue,
         due_date: els.dueDate.value || null,
         requester_email: requesterEmail,
@@ -642,6 +677,76 @@
     }
   }
 
+  const ACTIVE_PO_STATUSES = ['Sent to Factory','Confirmed','In Production','Shipped','In Transit','Partially Received','Received'];
+
+  async function loadPoOptions() {
+    try {
+      const { data, error } = await supabaseClient
+        .from('v_po_header_summary')
+        .select('id, po_name, factory_name, status, req_ship_date')
+        .in('status', ACTIVE_PO_STATUSES)
+        .order('created_at', { ascending: false })
+        .limit(300);
+      if (error) throw error;
+      const rows = data || [];
+      els.internalPoNumber.innerHTML =
+        '<option value="">— Select a PO (optional) —</option>' +
+        rows.map(r =>
+          `<option value="${escapeAttr(r.po_name)}" data-po-id="${escapeAttr(r.id)}" data-factory="${escapeAttr(r.factory_name||'')}">`+
+          `${escapeAttr(r.po_name)} · ${escapeAttr(r.factory_name||'—')} · ${escapeAttr(r.status)}`+
+          `</option>`
+        ).join('');
+    } catch (err) {
+      console.error('PO load failed:', err);
+      els.internalPoNumber.innerHTML = '<option value="">— Type PO number manually —</option>';
+    }
+  }
+
+  function money(v) {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2 }).format(Number(v) || 0);
+  }
+
+  async function loadCostingForPo(poId, poName) {
+    els.costingPoLabel.textContent = poName;
+    els.costingPanelBody.innerHTML = '<div class="pr-costing-loading">Loading costing data…</div>';
+    try {
+      const { data, error } = await supabaseClient
+        .from('v_po_costing_summary')
+        .select('po_name, phase, landed_total, freight_total, duty_total, product_total, shipped_at')
+        .eq('po_header_id', poId)
+        .maybeSingle();
+      if (error) throw error;
+      if (!data) {
+        els.costingPanelBody.innerHTML = '<div class="pr-costing-loading">No costing record found for this PO yet.</div>';
+        return;
+      }
+      els.costingPanelBody.innerHTML = `
+        <div class="pr-costing-kv"><span class="pr-costing-kv-label">Phase</span><span class="pr-costing-kv-value">${escapeAttr(data.phase || '—')}</span></div>
+        <div class="pr-costing-kv"><span class="pr-costing-kv-label">Landed total</span><span class="pr-costing-kv-value">${money(data.landed_total)}</span></div>
+        <div class="pr-costing-kv"><span class="pr-costing-kv-label">Freight total</span><span class="pr-costing-kv-value">${money(data.freight_total)}</span></div>
+        <div class="pr-costing-kv"><span class="pr-costing-kv-label">Duty total</span><span class="pr-costing-kv-value">${money(data.duty_total)}</span></div>
+        <div class="pr-costing-kv"><span class="pr-costing-kv-label">Product total</span><span class="pr-costing-kv-value">${money(data.product_total)}</span></div>
+        <div class="pr-costing-kv"><span class="pr-costing-kv-label">Shipped at</span><span class="pr-costing-kv-value">${escapeAttr(data.shipped_at || '—')}</span></div>
+      `;
+    } catch (err) {
+      console.error('Costing load failed:', err);
+      els.costingPanelBody.innerHTML = '<div class="pr-costing-loading">Could not load costing data.</div>';
+    }
+  }
+
+  function syncCostingPanel() {
+    const selectedOpt = els.internalPoNumber.options[els.internalPoNumber.selectedIndex];
+    const poId = selectedOpt?.dataset?.poId || '';
+    const poName = els.internalPoNumber.value;
+    const isFreight = els.paymentType.value === 'inventory_freight';
+    if (poId && isFreight) {
+      els.costingPanel.hidden = false;
+      loadCostingForPo(poId, poName);
+    } else {
+      els.costingPanel.hidden = true;
+    }
+  }
+
   // Mount chrome synchronously — sidebar visible before any network call
   SiloChrome.mount({
     appEl: '#silo-app',
@@ -655,6 +760,8 @@
   els.requestForm.addEventListener("submit", createPaymentRequest);
   els.resetBtn.addEventListener("click", resetForm);
   els.newRequestBtn.addEventListener("click", resetForm);
+  els.internalPoNumber.addEventListener("change", syncCostingPanel);
+  els.paymentType.addEventListener("change", syncCostingPanel);
 
   async function boot() {
     try {
@@ -663,12 +770,16 @@
       currentUser = data?.user || null;
 
       showAuthState();
-      if (currentUser) await populateVendorOptions();
+      if (currentUser) {
+        await Promise.all([populateVendorOptions(), loadPoOptions()]);
+      }
 
       supabaseClient.auth.onAuthStateChange(async (event, session) => {
         currentUser = session?.user || null;
         showAuthState();
-        if (currentUser) await populateVendorOptions();
+        if (currentUser) {
+          await Promise.all([populateVendorOptions(), loadPoOptions()]);
+        }
       });
     } catch (err) {
       console.error("Boot failed:", err);
