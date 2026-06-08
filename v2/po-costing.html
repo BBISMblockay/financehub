@@ -695,7 +695,7 @@
       els.inFreightNotes.value = pc?.freight_notes || ctx.saved?.notes || '';
       els.inFreight.value = ctx.headerInputs.freight ?? '';
       // If no freight amount saved yet, check for a linked freight payment request
-      if (!els.inFreight.value && ctx.header?.po_name) {
+      if (!Number(els.inFreight.value) && ctx.header?.po_name) {
         prefillFreightFromPaymentRequest(ctx.header.po_name);
       }
       els.inDutyPct.value = ctx.headerInputs.duty_pct ?? '';
