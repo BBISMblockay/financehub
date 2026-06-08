@@ -414,36 +414,37 @@
 
     async function loadCostingAttention(items, tokens) {
       if (!tokens.isAdmin && !tokens.purchasing && !tokens.finance) return;
-      const NEEDS_COSTING_STATUSES = ['Sent to Factory', 'Confirmed', 'In Production', 'Shipped', 'In Transit', 'Partially Received', 'Received'];
+      const ACTIVE = ['Sent to Factory','Confirmed','In Production','Shipped','In Transit','Partially Received','Received'];
+      const SHIPPED = ['Shipped','In Transit','Partially Received','Received'];
       try {
-        // Fetch active POs and costed PO ids in parallel
-        const [poRes, costRes] = await Promise.all([
-          db.from('v_po_header_summary').select('id, po_name, status').in('status', NEEDS_COSTING_STATUSES).limit(500),
-          db.from('v_po_costing_summary').select('po_header_id').limit(500),
-        ]);
-        if (poRes.error) return;
-        const costedIds = new Set((costRes.data || []).map(r => r.po_header_id));
-        const uncosted = (poRes.data || []).filter(r => !costedIds.has(r.id));
-        // POs shipped but freight not yet applied
-        const SHIPPED = ['Shipped', 'In Transit', 'Partially Received', 'Received'];
-        const needsFreight = (costRes.data || []).length > 0
-          ? await (async () => {
-              const { data } = await db.from('v_po_costing_summary').select('po_header_id, phase').in('phase', ['fob']).limit(500);
-              if (!data) return 0;
-              // cross-ref with shipped POs
-              const shippedIds = new Set((poRes.data || []).filter(r => SHIPPED.includes(r.status)).map(r => r.id));
-              return (data || []).filter(r => shippedIds.has(r.po_header_id)).length;
-            })()
-          : 0;
+        const { data: poData, error: poErr } = await db
+          .from('v_po_header_summary')
+          .select('id, status')
+          .in('status', ACTIVE)
+          .limit(500);
+        if (poErr) { console.warn('costing queue: po fetch failed', poErr.message); return; }
 
-        if (uncosted.length > 0) {
+        const { data: costData, error: costErr } = await db
+          .from('v_po_costing_summary')
+          .select('po_header_id, phase')
+          .limit(500);
+        if (costErr) { console.warn('costing queue: costing fetch failed', costErr.message); return; }
+
+        const costedIds = new Set((costData || []).map(r => r.po_header_id));
+        const fobIds = new Set((costData || []).filter(r => r.phase === 'fob').map(r => r.po_header_id));
+        const shippedIds = new Set((poData || []).filter(r => SHIPPED.includes(r.status)).map(r => r.id));
+
+        const uncosted = (poData || []).filter(r => !costedIds.has(r.id)).length;
+        const needsFreight = [...shippedIds].filter(id => fobIds.has(id)).length;
+
+        if (uncosted > 0) {
           pushFeedItem(items, {
             kind: 'po_needs_costing',
-            title: `${uncosted.length} PO${uncosted.length === 1 ? '' : 's'} not yet costed`,
+            title: `${uncosted} PO${uncosted === 1 ? '' : 's'} not yet costed`,
             detail: 'Active POs with no costing record. Open PO Costing to start.',
             href: '/v2/po-costing.html',
-            severity: uncosted.length > 3 ? 'warn' : 'info',
-            count: uncosted.length,
+            severity: uncosted > 3 ? 'warn' : 'info',
+            count: uncosted,
           });
         }
         if (needsFreight > 0) {
@@ -456,7 +457,7 @@
             count: needsFreight,
           });
         }
-      } catch (e) { /* optional */ }
+      } catch (e) { console.warn('costing queue error', e); }
     }
 
     async function loadAdminAttention(items, tokens) {
