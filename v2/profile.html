@@ -459,7 +459,7 @@
       } catch (e) { /* optional */ }
     }
 
-
+    async function loadAdminAttention(items, tokens) {
       if (!tokens.isAdmin) return;
       try {
         const { data, error } = await db.rpc('admin_list_access_requests', { p_status: 'pending' });
