@@ -1,0 +1,60 @@
+name: Legacy Payment Requests Import
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run only (no database writes)"
+        required: true
+        default: true
+        type: boolean
+      file_path:
+        description: "Path to export file in this repo"
+        required: true
+        default: "data/legacy-payment-requests-pilot.csv"
+        type: string
+
+jobs:
+  import-legacy-payment-requests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verify Supabase envs exist
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          test -n "$SUPABASE_URL" || (echo "Missing SUPABASE_URL repo secret" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "Missing SUPABASE_SERVICE_ROLE_KEY repo secret" && exit 1)
+          echo "Supabase env vars present"
+
+      - name: Verify import file exists
+        run: |
+          FILE="${{ inputs.file_path }}"
+          test -f "$FILE" || (echo "File not found in repo: $FILE" && exit 1)
+          echo "Import file: $FILE"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run legacy payment requests import
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          echo "dry_run=${{ inputs.dry_run }}"
+          echo "file_path=${{ inputs.file_path }}"
+          ARGS=(--file "${{ inputs.file_path }}")
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            ARGS+=(--dry-run)
+          fi
+          node scripts/import-payment-requests-legacy.mjs "${ARGS[@]}"
