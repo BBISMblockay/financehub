@@ -163,6 +163,23 @@ function fileNameFromUrl(url) {
   }
 }
 
+function externalFilePath(url) {
+  return String(url || "").trim();
+}
+
+function buildFileRows(requestId, fileUrls) {
+  return fileUrls.map((url, index) => ({
+    payment_request_id: requestId,
+    file_name: fileNameFromUrl(url),
+    file_path: externalFilePath(url),
+    file_url: url,
+    file_size: null,
+    mime_type: null,
+    sort_order: index + 1,
+    created_by: null,
+  }));
+}
+
 function extractLegacyExternalId(pageUrl, row) {
   const text = String(pageUrl || "").trim();
   const editMatch = text.match(/jotform\.com\/(?:edit|grid)\/(\d+)/i);
@@ -229,7 +246,7 @@ function buildRequestPayload(row) {
       location_name: cleanText(row.Location),
       notes_comments: cleanText(row["Note & Comments"]),
       file_name: primaryUrl ? fileNameFromUrl(primaryUrl) : null,
-      file_path: null,
+      file_path: primaryUrl ? externalFilePath(primaryUrl) : null,
       file_url: primaryUrl,
       payment_type: mapPaymentType(row["Type 2"]),
       payment_detail: cleanText(row["Payment Detail"]),
@@ -249,27 +266,47 @@ function buildRequestPayload(row) {
   };
 }
 
-async function fetchExistingLegacyIds(supabase) {
-  const existing = new Set();
+async function fetchExistingLegacyRecords(supabase) {
+  const records = new Map();
   let from = 0;
   const size = 1000;
 
   while (true) {
     const { data, error } = await supabase
       .from("payment_requests")
-      .select("legacy_external_id")
+      .select("id, legacy_external_id")
       .eq("legacy_source", LEGACY_SOURCE)
       .range(from, from + size - 1);
 
     if (error) throw error;
     for (const row of data || []) {
-      if (row.legacy_external_id) existing.add(row.legacy_external_id);
+      if (row.legacy_external_id) records.set(row.legacy_external_id, row);
     }
     if (!data || data.length < size) break;
     from += size;
   }
 
-  return existing;
+  return records;
+}
+
+async function requestHasFiles(supabase, requestId) {
+  const { count, error } = await supabase
+    .from("payment_request_files")
+    .select("id", { count: "exact", head: true })
+    .eq("payment_request_id", requestId);
+
+  if (error) throw error;
+  return (count || 0) > 0;
+}
+
+async function insertRequestFiles(supabase, requestId, fileUrls) {
+  if (!fileUrls.length) return;
+
+  const { error: fileError } = await supabase
+    .from("payment_request_files")
+    .insert(buildFileRows(requestId, fileUrls));
+
+  if (fileError) throw fileError;
 }
 
 async function importRow(supabase, built, { dryRun }) {
@@ -283,21 +320,7 @@ async function importRow(supabase, built, { dryRun }) {
   const { error: insertError } = await supabase.from("payment_requests").insert(payload);
   if (insertError) throw insertError;
 
-  if (built.fileUrls.length) {
-    const fileRows = built.fileUrls.map((url, index) => ({
-      payment_request_id: requestId,
-      file_name: fileNameFromUrl(url),
-      file_path: null,
-      file_url: url,
-      file_size: null,
-      mime_type: null,
-      sort_order: index + 1,
-      created_by: null,
-    }));
-
-    const { error: fileError } = await supabase.from("payment_request_files").insert(fileRows);
-    if (fileError) throw fileError;
-  }
+  await insertRequestFiles(supabase, requestId, built.fileUrls);
 
   const { error: activityError } = await supabase.from("payment_request_activity").insert({
     payment_request_id: requestId,
@@ -308,6 +331,16 @@ async function importRow(supabase, built, { dryRun }) {
   if (activityError) throw activityError;
 
   return { action: "inserted", requestId, legacyExternalId: built.legacyExternalId };
+}
+
+async function repairExistingRow(supabase, existingRow, built) {
+  const hasFiles = await requestHasFiles(supabase, existingRow.id);
+  if (hasFiles || !built.fileUrls.length) {
+    return { action: "skipped", requestId: existingRow.id, legacyExternalId: built.legacyExternalId };
+  }
+
+  await insertRequestFiles(supabase, existingRow.id, built.fileUrls);
+  return { action: "repaired", requestId: existingRow.id, legacyExternalId: built.legacyExternalId };
 }
 
 async function main() {
@@ -327,7 +360,7 @@ async function main() {
   const supabaseUrl = process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   let supabase = null;
-  let existingIds = new Set();
+  let existingRecords = new Map();
 
   if (!dryRun) {
     if (!supabaseUrl || !serviceKey) {
@@ -336,15 +369,15 @@ async function main() {
     supabase = createClient(supabaseUrl, serviceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    existingIds = await fetchExistingLegacyIds(supabase);
+    existingRecords = await fetchExistingLegacyRecords(supabase);
   } else if (supabaseUrl && serviceKey) {
     supabase = createClient(supabaseUrl, serviceKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    existingIds = await fetchExistingLegacyIds(supabase);
+    existingRecords = await fetchExistingLegacyRecords(supabase);
   }
 
-  const summary = { inserted: 0, skipped: 0, failed: 0, wouldInsert: 0 };
+  const summary = { inserted: 0, skipped: 0, repaired: 0, failed: 0, wouldInsert: 0 };
 
   for (const [index, row] of rows.entries()) {
     const label = `Row ${index + 1}`;
@@ -357,9 +390,22 @@ async function main() {
         throw new Error("missing requester email");
       }
 
-      if (existingIds.has(built.legacyExternalId)) {
-        summary.skipped += 1;
-        console.log(`${label}: skip (already imported, legacy_external_id=${built.legacyExternalId}) — ${built.displayVendor}`);
+      const existingRow = existingRecords.get(built.legacyExternalId);
+      if (existingRow) {
+        if (dryRun) {
+          summary.skipped += 1;
+          console.log(`${label}: skip (already imported, legacy_external_id=${built.legacyExternalId}) — ${built.displayVendor}`);
+          continue;
+        }
+
+        const result = await repairExistingRow(supabase, existingRow, built);
+        if (result.action === "repaired") {
+          summary.repaired += 1;
+          console.log(`${label}: repaired files for ${result.requestId} — ${built.displayVendor}`);
+        } else {
+          summary.skipped += 1;
+          console.log(`${label}: skip (already imported, legacy_external_id=${built.legacyExternalId}) — ${built.displayVendor}`);
+        }
         continue;
       }
 
@@ -369,7 +415,7 @@ async function main() {
         console.log(`${label}: would insert — ${built.displayVendor} · $${built.request.amount_due} · ${built.legacyExternalId}`);
       } else {
         summary.inserted += 1;
-        existingIds.add(built.legacyExternalId);
+        existingRecords.set(built.legacyExternalId, { id: result.requestId, legacy_external_id: built.legacyExternalId });
         console.log(`${label}: inserted ${result.requestId} — ${built.displayVendor}`);
       }
     } catch (err) {

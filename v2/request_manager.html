@@ -1372,6 +1372,10 @@
       if (error) throw error;
     }
 
+    function isExternalFileLocation(value) {
+      return /^https?:\/\//i.test(String(value || "").trim());
+    }
+
     async function openFile(file, requestId = null, shouldLog = true) {
       const filePath = file?.file_path || null;
       const fileUrl = file?.file_url || null;
@@ -1379,7 +1383,9 @@
 
       try {
         let url = null;
-        if (filePath) {
+        if (isExternalFileLocation(filePath)) {
+          url = String(filePath).trim();
+        } else if (filePath) {
           url = await createSignedUrl(filePath);
         } else if (fileUrl) {
           url = fileUrl;
@@ -1458,7 +1464,7 @@
             <div class="file-row">
               <div class="min-w-0">
                 <div class="file-row-name">${escapeHtml(file.file_name || `File ${index + 1}`)}</div>
-                <div class="file-row-meta">${escapeHtml([formatBytes(file.file_size), file.mime_type || "", file.file_url && !file.file_path ? "external link" : "", file.legacy ? "legacy" : ""].filter(Boolean).join(" · ") || "Attachment")}</div>
+                <div class="file-row-meta">${escapeHtml([formatBytes(file.file_size), file.mime_type || "", file.file_url || isExternalFileLocation(file.file_path) ? "external link" : "", file.legacy ? "legacy" : ""].filter(Boolean).join(" · ") || "Attachment")}</div>
               </div>
               <button
                 class="btn btn-soft btn-xs open-drawer-file-btn"
