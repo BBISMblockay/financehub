@@ -368,6 +368,7 @@
 
         <div class="card">
           <div class="section-title">Document</div>
+          <div id="legacyDocNote" class="rm-muted rm-mt-sm" hidden>Imported legacy request — attachments open on jotform.com, not Silo storage.</div>
           <div class="doc-actions" style="margin-top:8px;">
             <button id="openFileBtn" class="btn btn-soft" type="button">Open file</button>
             <button id="openLegacyBtn" class="btn btn-soft" type="button" hidden>Legacy record</button>
@@ -572,6 +573,7 @@
 
       openFileBtn: document.getElementById("openFileBtn"),
       openLegacyBtn: document.getElementById("openLegacyBtn"),
+      legacyDocNote: document.getElementById("legacyDocNote"),
       fileMeta: document.getElementById("fileMeta"),
 
       fWorkflowStatus: document.getElementById("fWorkflowStatus"),
@@ -868,9 +870,15 @@
     function filesForRequest(row) {
       if (!row?.id) return [];
 
+      const isLegacyRequest = !!row.legacy_source;
+
       const attached = state.files
         .filter(file => file.payment_request_id === row.id && (file.file_path || file.file_url))
-        .sort((a, b) => Number(a.sort_order || 9999) - Number(b.sort_order || 9999));
+        .sort((a, b) => Number(a.sort_order || 9999) - Number(b.sort_order || 9999))
+        .map(file => ({
+          ...file,
+          legacy: !!file.legacy || isLegacyRequest
+        }));
 
       if (attached.length) return attached;
 
@@ -1373,37 +1381,60 @@
     }
 
     function isExternalFileLocation(value) {
-      return /^https?:\/\//i.test(String(value || "").trim());
+      const text = String(value || "").trim();
+      if (!text) return false;
+      if (/^https?:\/\//i.test(text)) return true;
+      return /^(www\.)?jotform\.com\//i.test(text);
     }
 
-    async function openFile(file, requestId = null, shouldLog = true) {
-      const filePath = file?.file_path || null;
-      const fileUrl = file?.file_url || null;
+    function normalizeExternalUrl(value) {
+      const text = String(value || "").trim();
+      if (!text) return null;
+      if (/^https?:\/\//i.test(text)) return text;
+      if (/^\/\//.test(text)) return `https:${text}`;
+      if (/^(www\.)?jotform\.com\//i.test(text)) return `https://${text.replace(/^\/\//, "")}`;
+      return text;
+    }
+
+    function resolveExternalFileUrl(file) {
+      for (const candidate of [file?.file_url, file?.file_path]) {
+        const normalized = normalizeExternalUrl(candidate);
+        if (isExternalFileLocation(normalized)) return normalized;
+      }
+      return null;
+    }
+
+    async function openFile(file, requestId = null, shouldLog = true, row = null) {
       const fileName = file?.file_name || "attached document";
+      const externalUrl = resolveExternalFileUrl(file);
+      const storagePath = externalUrl ? "" : String(file?.file_path || "").trim();
 
       try {
         let url = null;
-        if (isExternalFileLocation(filePath)) {
-          url = String(filePath).trim();
-        } else if (filePath) {
-          url = await createSignedUrl(filePath);
-        } else if (fileUrl) {
-          url = fileUrl;
+        if (externalUrl) {
+          url = externalUrl;
+        } else if (storagePath) {
+          url = await createSignedUrl(storagePath);
         } else {
+          const fallback = normalizeExternalUrl(file?.file_url);
+          url = fallback || null;
+        }
+
+        if (!url) {
           showToast("No file attached.");
           return;
         }
-
-        if (!url) throw new Error("No file URL available.");
 
         if (shouldLog && requestId) {
           try {
             await logActivity({
               requestId,
               activityType: "file_opened",
-              message: `Opened file: ${fileName}`
+              message: externalUrl || row?.legacy_source
+                ? `Opened legacy file: ${fileName}`
+                : `Opened file: ${fileName}`
             });
-            await loadData();
+            if (!externalUrl) await loadData();
           } catch (logErr) {
             console.error(logErr);
           }
@@ -1412,7 +1443,10 @@
         window.open(url, "_blank", "noopener,noreferrer");
       } catch (err) {
         console.error(err);
-        showToast(`File open failed: ${err.message || "Unknown error"}`, true);
+        const hint = row?.legacy_source || externalUrl
+          ? " Legacy attachments should open on jotform.com — try Legacy record or hard-refresh the page."
+          : "";
+        showToast(`File open failed: ${err.message || "Unknown error"}${hint}`, true);
       }
     }
 
@@ -1426,7 +1460,7 @@
         return;
       }
 
-      await openFile(files[0], row.id, shouldLog);
+      await openFile(files[0], row.id, shouldLog, row);
     }
 
     async function openDrawer(id) {
@@ -1458,6 +1492,13 @@
       els.fInternalNotes.value = row.internal_notes || "";
 
       const rowFiles = filesForRequest(row);
+      const isLegacyRequest = !!row.legacy_source;
+
+      els.legacyDocNote.hidden = !isLegacyRequest;
+      els.openLegacyBtn.hidden = !row.legacy_url;
+      els.openLegacyBtn.textContent = row.legacy_url && /jotform\.com/i.test(row.legacy_url)
+        ? "Open Jotform record"
+        : "Legacy record";
 
       els.fileMeta.innerHTML = rowFiles.length
         ? `<div class="file-list">${rowFiles.map((file, index) => `
@@ -1483,13 +1524,14 @@
             file_path: btn.getAttribute("data-path") || null,
             file_url: btn.getAttribute("data-url") || null,
             file_name: btn.getAttribute("data-name") || "attached document"
-          }, row.id, true);
+          }, row.id, true, row);
         });
       });
 
       els.openFileBtn.disabled = !rowFiles.length;
-      els.openFileBtn.textContent = rowFiles.length > 1 ? `Open first file (${rowFiles.length})` : "Open file";
-      els.openLegacyBtn.hidden = !row.legacy_url;
+      els.openFileBtn.textContent = rowFiles.length > 1
+        ? (isLegacyRequest ? `Open first Jotform file (${rowFiles.length})` : `Open first file (${rowFiles.length})`)
+        : (isLegacyRequest ? "Open Jotform file" : "Open file");
 
       els.drawerSnapshot.innerHTML = `
         <div class="mini-card">
@@ -1777,7 +1819,13 @@
       els.saveDrawerBtn.addEventListener("click", () => saveRow());
       els.markPaidBtn.addEventListener("click", () => saveRow({ markPaid: true }));
       els.openFileBtn.addEventListener("click", async () => {
-        if (state.currentRow?.id) await openFileForRow(state.currentRow.id, true);
+        if (!state.currentRow?.id) return;
+        const files = filesForRequest(state.currentRow);
+        if (!files.length) {
+          showToast("No file attached.");
+          return;
+        }
+        await openFile(files[0], state.currentRow.id, true, state.currentRow);
       });
       els.openLegacyBtn.addEventListener("click", () => {
         const url = state.currentRow?.legacy_url;
