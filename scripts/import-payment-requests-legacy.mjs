@@ -204,6 +204,7 @@ function buildRequestPayload(row) {
   const vendorListed = cleanText(row.Vendor);
   const vendorManual = cleanText(row["*Vendor Name if not listed above *"]);
   const displayVendor = vendorManual || vendorListed || "Unknown vendor";
+  const effectiveVendorNorm = normalizeName(vendorManual || vendorListed);
   const completedState = mapCompleted(row.Completed);
   const fileUrls = parseFileUrls(row["File Upload"]);
   const primaryUrl = fileUrls[0] || null;
@@ -214,9 +215,9 @@ function buildRequestPayload(row) {
   return {
     request: {
       vendor_name: vendorListed,
-      vendor_name_norm: vendorListed ? normalizeName(vendorListed) : null,
+      vendor_name_norm: vendorListed ? normalizeName(vendorListed) : effectiveVendorNorm,
       vendor_name_manual: vendorManual,
-      vendor_name_manual_norm: vendorManual ? normalizeName(vendorManual) : null,
+      vendor_name_manual_norm: vendorManual ? normalizeName(vendorManual) : effectiveVendorNorm,
       request_type: mapRequestType(row.Type),
       invoice_number: cleanText(row["Invoice #"]),
       flex_id: cleanText(row["Flex ID#"]),
