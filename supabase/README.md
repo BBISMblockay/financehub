@@ -38,12 +38,30 @@ Run in order:
 8. **`migrations/20260603140000_launch_tasks_assignee.sql`** — task assignment  
    Adds `assigned_to_user_id` (FK to auth.users) and `assigned_to_name` (denormalized) to `launch_tasks`
 
+9. **`migrations/20260609000000_payment_requests_legacy_import.sql`** — legacy payment request import  
+   Adds `legacy_source`, `legacy_url`, `legacy_external_id`, `imported_at` to `payment_requests` plus a dedupe index
+
 ## App workflow after SQL succeeds
 
 1. **PO builder** (`/v2/po-builder.html`) — create header + lines (needs at least one factory)
 2. **PO costing** (`/v2/po-costing.html`) — FOB → mark shipped → freight → landed unit
 3. **Profile** (`/v2/profile.html`) — name and default landing page
 4. **Launch calendar** (`/v2/launch-calendar.html`) — marketing launch planning and comments
+
+## Legacy payment request import
+
+After migration **#9** is applied:
+
+```bash
+# Validate mappings (no writes; optional if SUPABASE_* set, checks for duplicates)
+node scripts/import-payment-requests-legacy.mjs --file /path/to/your-export.tsv --dry-run
+
+# Import (requires service role key)
+SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
+  node scripts/import-payment-requests-legacy.mjs --file /path/to/your-export.tsv
+```
+
+Keep exports local — `data/legacy-payment-requests*.csv` and `*.tsv` are gitignored.
 
 ## Write access
 
