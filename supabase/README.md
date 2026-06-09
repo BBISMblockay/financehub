@@ -50,18 +50,23 @@ Run in order:
 
 ## Legacy payment request import
 
-After migration **#9** is applied:
+After migration **#9** is applied, use **GitHub Actions** (no local Node required):
+
+1. GitHub → **Actions** → **Legacy Payment Requests Import** → **Run workflow**
+2. First run: `dry_run` = **true**, `file_path` = `data/legacy-payment-requests-pilot.csv`
+3. Check the job log for `wouldInsert` / `failed: 0`
+4. Second run: `dry_run` = **false** (same file) to import the 13 pilot rows
+5. Full export: upload your file to `data/imports/` via GitHub (see `data/imports/README.md`), then run the workflow with that path
+
+Uses the same repo secrets as nightly sync: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
+
+Local run (optional):
 
 ```bash
-# Validate mappings (no writes; optional if SUPABASE_* set, checks for duplicates)
 node scripts/import-payment-requests-legacy.mjs --file /path/to/your-export.tsv --dry-run
-
-# Import (requires service role key)
-SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... \
-  node scripts/import-payment-requests-legacy.mjs --file /path/to/your-export.tsv
 ```
 
-Keep exports local — `data/legacy-payment-requests*.csv` and `*.tsv` are gitignored.
+Keep personal exports out of git when possible — `data/legacy-payment-requests*.csv` and `*.tsv` are gitignored locally.
 
 ## Write access
 
