@@ -73,7 +73,17 @@ left join information_schema.columns col
  and col.table_name = 'product_tracker'
  and col.column_name = want.column_name;
 
--- 5. Quick counts (0 is fine on a fresh install)
+-- 5. Payment requests legacy import columns (migration 20260609000000)
+select
+  col.column_name,
+  case when col.column_name is not null then 'ok' else 'MISSING — run 20260609000000_payment_requests_legacy_import.sql' end as status
+from (values ('legacy_source'), ('legacy_url'), ('legacy_external_id'), ('imported_at')) as want(column_name)
+left join information_schema.columns col
+  on col.table_schema = 'public'
+ and col.table_name = 'payment_requests'
+ and col.column_name = want.column_name;
+
+-- 6. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)       as factories,
   (select count(*) from public.po_headers)      as po_headers,

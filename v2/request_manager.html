@@ -370,6 +370,7 @@
           <div class="section-title">Document</div>
           <div class="doc-actions" style="margin-top:8px;">
             <button id="openFileBtn" class="btn btn-soft" type="button">Open file</button>
+            <button id="openLegacyBtn" class="btn btn-soft" type="button" hidden>Legacy record</button>
             <div id="fileMeta" class="rm-muted" style="flex:1;">No file attached</div>
           </div>
         </div>
@@ -570,6 +571,7 @@
       fSubmittedNotes: document.getElementById("fSubmittedNotes"),
 
       openFileBtn: document.getElementById("openFileBtn"),
+      openLegacyBtn: document.getElementById("openLegacyBtn"),
       fileMeta: document.getElementById("fileMeta"),
 
       fWorkflowStatus: document.getElementById("fWorkflowStatus"),
@@ -742,6 +744,7 @@
         completed_changed: "Completed changed",
         note_added: "Note added",
         file_opened: "File opened",
+        imported: "Imported",
         updated: "Updated"
       };
       return map[type] || type || "Activity";
@@ -793,6 +796,32 @@
       return all;
     }
 
+    async function fetchLegacyMeta() {
+      try {
+        let all = [];
+        let from = 0;
+        const size = 1000;
+
+        while (true) {
+          const { data, error } = await supabaseClient
+            .from("payment_requests")
+            .select("id, legacy_url, legacy_source, imported_at")
+            .not("legacy_source", "is", null)
+            .range(from, from + size - 1);
+
+          if (error) throw error;
+          all = all.concat(data || []);
+          if (!data || data.length < size) break;
+          from += size;
+        }
+
+        return new Map(all.map(row => [row.id, row]));
+      } catch (err) {
+        console.warn("Legacy metadata unavailable (run payment_requests legacy migration):", err);
+        return new Map();
+      }
+    }
+
     async function fetchActivityRows() {
       let all = [];
       let from = 0;
@@ -840,17 +869,18 @@
       if (!row?.id) return [];
 
       const attached = state.files
-        .filter(file => file.payment_request_id === row.id && file.file_path)
+        .filter(file => file.payment_request_id === row.id && (file.file_path || file.file_url))
         .sort((a, b) => Number(a.sort_order || 9999) - Number(b.sort_order || 9999));
 
       if (attached.length) return attached;
 
-      if (row.file_path) {
+      if (row.file_path || row.file_url) {
         return [{
           id: `legacy-${row.id}`,
           payment_request_id: row.id,
           file_name: row.file_name || "Attached file",
-          file_path: row.file_path,
+          file_path: row.file_path || null,
+          file_url: row.file_url || null,
           file_size: null,
           mime_type: null,
           sort_order: 1,
@@ -892,17 +922,18 @@
       setStatus("Loading payment requests...");
 
       try {
-        const [user, profiles, rows, activityRows, files] = await Promise.all([
+        const [user, profiles, rows, activityRows, files, legacyMeta] = await Promise.all([
           getCurrentUser(),
           fetchProfiles(),
           fetchRows(),
           fetchActivityRows(),
-          fetchRequestFiles()
+          fetchRequestFiles(),
+          fetchLegacyMeta()
         ]);
 
         state.currentUser = user;
         state.profiles = profiles;
-        state.rows = rows || [];
+        state.rows = (rows || []).map(row => ({ ...row, ...(legacyMeta.get(row.id) || {}) }));
         state.activityRows = activityRows || [];
         state.files = files || [];
 
@@ -1341,22 +1372,30 @@
       if (error) throw error;
     }
 
-    async function openFilePath(filePath, fileName = "attached document", requestId = null, shouldLog = true) {
+    async function openFile(file, requestId = null, shouldLog = true) {
+      const filePath = file?.file_path || null;
+      const fileUrl = file?.file_url || null;
+      const fileName = file?.file_name || "attached document";
+
       try {
-        if (!filePath) {
+        let url = null;
+        if (filePath) {
+          url = await createSignedUrl(filePath);
+        } else if (fileUrl) {
+          url = fileUrl;
+        } else {
           showToast("No file attached.");
           return;
         }
 
-        const url = await createSignedUrl(filePath);
-        if (!url) throw new Error("No signed URL returned.");
+        if (!url) throw new Error("No file URL available.");
 
         if (shouldLog && requestId) {
           try {
             await logActivity({
               requestId,
               activityType: "file_opened",
-              message: `Opened file: ${fileName || "attached document"}`
+              message: `Opened file: ${fileName}`
             });
             await loadData();
           } catch (logErr) {
@@ -1381,8 +1420,7 @@
         return;
       }
 
-      const first = files[0];
-      await openFilePath(first.file_path, first.file_name || "attached document", row.id, shouldLog);
+      await openFile(files[0], row.id, shouldLog);
     }
 
     async function openDrawer(id) {
@@ -1420,12 +1458,13 @@
             <div class="file-row">
               <div class="min-w-0">
                 <div class="file-row-name">${escapeHtml(file.file_name || `File ${index + 1}`)}</div>
-                <div class="file-row-meta">${escapeHtml([formatBytes(file.file_size), file.mime_type || "", file.legacy ? "legacy" : ""].filter(Boolean).join(" · ") || "Attachment")}</div>
+                <div class="file-row-meta">${escapeHtml([formatBytes(file.file_size), file.mime_type || "", file.file_url && !file.file_path ? "external link" : "", file.legacy ? "legacy" : ""].filter(Boolean).join(" · ") || "Attachment")}</div>
               </div>
               <button
                 class="btn btn-soft btn-xs open-drawer-file-btn"
                 type="button"
-                data-path="${escapeHtml(file.file_path)}"
+                data-path="${escapeHtml(file.file_path || "")}"
+                data-url="${escapeHtml(file.file_url || "")}"
                 data-name="${escapeHtml(file.file_name || `File ${index + 1}`)}"
               >Open</button>
             </div>
@@ -1434,17 +1473,17 @@
 
       document.querySelectorAll(".open-drawer-file-btn").forEach(btn => {
         btn.addEventListener("click", async () => {
-          await openFilePath(
-            btn.getAttribute("data-path"),
-            btn.getAttribute("data-name"),
-            row.id,
-            true
-          );
+          await openFile({
+            file_path: btn.getAttribute("data-path") || null,
+            file_url: btn.getAttribute("data-url") || null,
+            file_name: btn.getAttribute("data-name") || "attached document"
+          }, row.id, true);
         });
       });
 
       els.openFileBtn.disabled = !rowFiles.length;
       els.openFileBtn.textContent = rowFiles.length > 1 ? `Open first file (${rowFiles.length})` : "Open file";
+      els.openLegacyBtn.hidden = !row.legacy_url;
 
       els.drawerSnapshot.innerHTML = `
         <div class="mini-card">
@@ -1733,6 +1772,14 @@
       els.markPaidBtn.addEventListener("click", () => saveRow({ markPaid: true }));
       els.openFileBtn.addEventListener("click", async () => {
         if (state.currentRow?.id) await openFileForRow(state.currentRow.id, true);
+      });
+      els.openLegacyBtn.addEventListener("click", () => {
+        const url = state.currentRow?.legacy_url;
+        if (!url) {
+          showToast("No legacy record link for this request.");
+          return;
+        }
+        window.open(url, "_blank", "noopener,noreferrer");
       });
     }
 

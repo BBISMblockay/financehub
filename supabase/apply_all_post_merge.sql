@@ -816,3 +816,17 @@ alter table public.launch_tasks
   add column if not exists assigned_to_user_id uuid references auth.users(id) on delete set null,
   add column if not exists assigned_to_name text;
 
+-- >>> SECTION 12: PAYMENT REQUESTS LEGACY IMPORT (migration 20260609000000)
+-- =============================================================================
+alter table public.payment_requests
+  add column if not exists legacy_source text,
+  add column if not exists legacy_url text,
+  add column if not exists legacy_external_id text,
+  add column if not exists imported_at timestamptz;
+
+create unique index if not exists payment_requests_legacy_dedupe_uidx
+  on public.payment_requests (legacy_source, legacy_external_id)
+  where legacy_source is not null
+    and legacy_external_id is not null
+    and btrim(legacy_external_id) <> '';
+
