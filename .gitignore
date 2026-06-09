@@ -1,1 +1,3 @@
 .claude/
+data/legacy-payment-requests*.csv
+data/legacy-payment-requests*.tsv
