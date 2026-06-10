@@ -53,6 +53,14 @@ body::before {
   margin-bottom: 48px;
 }
 
+.header-logo {
+  max-width: 500px;
+  width: 100%;
+  height: auto;
+  display: block;
+  margin: 0 auto 12px;
+}
+
 .logo-line {
   display: flex;
   align-items: center;
@@ -60,24 +68,6 @@ body::before {
   gap: 12px;
   margin-bottom: 8px;
 }
-
-.logo-diamond {
-  width: 10px;
-  height: 10px;
-  background: var(--red);
-  transform: rotate(45deg);
-  flex-shrink: 0;
-}
-
-.header h1 {
-  font-family: 'Bebas Neue', sans-serif;
-  font-size: 52px;
-  letter-spacing: 4px;
-  color: var(--white);
-  line-height: 1;
-}
-
-.header h1 span { color: var(--red); }
 
 .header p {
   font-size: 13px;
