@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Baseballism MLB Royalty Tool</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="toast"></div>
+<div class="container">
+
+  <div class="header">
+    <div class="logo-line">
+      <div class="logo-diamond"></div>
+      <h1>BASEBALLISM <span>MLB</span></h1>
+      <div class="logo-diamond"></div>
+    </div>
+    <p>Royalty Report Generator</p>
+    <div class="divider"></div>
+  </div>
+
+  <div class="section-label">Step 1 — Load Your Files</div>
+
+  <div class="files-grid">
+
+    <div class="file-slot" id="slot-shopify" onclick="document.getElementById('input-shopify').click()">
+      <input type="file" id="input-shopify" accept=".xlsx" onchange="loadFile('shopify', this)">
+      <div class="slot-icon" id="icon-shopify">📊</div>
+      <div class="slot-info">
+        <div class="slot-name">Shopify Export</div>
+        <div class="slot-desc">Monthly sales file — needs sheets "MLB Retail-Online" &amp; "MLB Wholesale"</div>
+        <div class="slot-filename" id="fname-shopify"></div>
+      </div>
+      <div class="slot-badge waiting" id="badge-shopify">Waiting</div>
+    </div>
+
+    <div class="file-slot" id="slot-reftables" onclick="document.getElementById('input-reftables').click()">
+      <input type="file" id="input-reftables" accept=".xlsx" onchange="loadFile('reftables', this)">
+      <div class="slot-icon" id="icon-reftables">🗺️</div>
+      <div class="slot-info">
+        <div class="slot-name">Reference Tables</div>
+        <div class="slot-desc">Reference_Tables_MLB.xlsx — saved automatically after first upload</div>
+        <div class="slot-filename" id="fname-reftables"></div>
+      </div>
+      <div class="slot-badge waiting" id="badge-reftables">Waiting</div>
+    </div>
+
+    <div class="file-slot" id="slot-attrmap" onclick="document.getElementById('input-attrmap').click()">
+      <input type="file" id="input-attrmap" accept=".xlsx" onchange="loadFile('attrmap', this)">
+      <div class="slot-icon" id="icon-attrmap">🏷️</div>
+      <div class="slot-info">
+        <div class="slot-name">Attribute Mapping</div>
+        <div class="slot-desc">Baseballism_Attribute_Mapping_FINAL_MLB.xlsx — saved automatically after first upload</div>
+        <div class="slot-filename" id="fname-attrmap"></div>
+      </div>
+      <div class="slot-badge waiting" id="badge-attrmap">Waiting</div>
+    </div>
+
+    <div class="file-slot" id="slot-template" onclick="document.getElementById('input-template').click()">
+      <input type="file" id="input-template" accept=".xlsx" onchange="loadFile('template', this)">
+      <div class="slot-icon" id="icon-template">📋</div>
+      <div class="slot-info">
+        <div class="slot-name">MLB Submission Template</div>
+        <div class="slot-desc">COPY.xlsx — saved automatically after first upload</div>
+        <div class="slot-filename" id="fname-template"></div>
+      </div>
+      <div class="slot-badge waiting" id="badge-template">Waiting</div>
+    </div>
+
+  </div>
+
+  <div class="section-label">Step 2 — Generate Reports</div>
+
+  <button class="run-btn" id="run-btn" onclick="runTool()" disabled>
+    Generate Reports
+  </button>
+  <div class="missing-files" id="missing-files"></div>
+
+  <div class="log-area" id="log-area"></div>
+
+  <div class="error-block" id="error-block">
+    <h3>❌ Cannot Continue — Unmapped Rows Found</h3>
+    <div id="error-rows"></div>
+    <p class="error-hint">Fix these rows in your Shopify export, or if it's a new product type or team nickname, let your developer know to add it to the mapping.</p>
+  </div>
+
+  <div class="downloads" id="downloads">
+    <div class="downloads-label">Downloads Ready</div>
+  </div>
+
+</div>
+<script src="scripts.js"></script>
+</body>
+</html>
