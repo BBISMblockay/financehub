@@ -1,0 +1,343 @@
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap');
+
+:root {
+  --navy:   #0a1628;
+  --navy2:  #112240;
+  --navy3:  #1a3a5c;
+  --red:    #c8102e;
+  --red2:   #e8192e;
+  --cream:  #f5f0e8;
+  --gold:   #d4a843;
+  --green:  #2ecc71;
+  --gray:   #8899aa;
+  --white:  #ffffff;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--navy);
+  color: var(--cream);
+  font-family: 'DM Sans', sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Subtle diamond pattern background */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 40px,
+    rgba(255,255,255,0.015) 40px,
+    rgba(255,255,255,0.015) 41px
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+.container {
+  position: relative;
+  z-index: 1;
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 48px 24px 80px;
+}
+
+/* Header */
+.header {
+  text-align: center;
+  margin-bottom: 48px;
+}
+
+.logo-line {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.logo-diamond {
+  width: 10px;
+  height: 10px;
+  background: var(--red);
+  transform: rotate(45deg);
+  flex-shrink: 0;
+}
+
+.header h1 {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 52px;
+  letter-spacing: 4px;
+  color: var(--white);
+  line-height: 1;
+}
+
+.header h1 span { color: var(--red); }
+
+.header p {
+  font-size: 13px;
+  color: var(--gray);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  font-weight: 300;
+  margin-top: 6px;
+}
+
+.divider {
+  width: 60px;
+  height: 2px;
+  background: var(--red);
+  margin: 20px auto 0;
+}
+
+/* File upload section */
+.section-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 16px;
+}
+
+.files-grid {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 32px;
+}
+
+.file-slot {
+  background: var(--navy2);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  position: relative;
+  overflow: hidden;
+}
+
+.file-slot:hover {
+  border-color: rgba(200,16,46,0.4);
+  background: var(--navy3);
+}
+
+.file-slot.loaded {
+  border-color: rgba(46,204,113,0.4);
+  background: rgba(46,204,113,0.05);
+}
+
+.file-slot.loaded .slot-icon { color: var(--green); }
+
+.slot-icon {
+  font-size: 20px;
+  width: 28px;
+  text-align: center;
+  color: var(--gray);
+  flex-shrink: 0;
+  transition: color 0.2s;
+}
+
+.slot-info { flex: 1; min-width: 0; }
+
+.slot-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cream);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.slot-desc {
+  font-size: 11px;
+  color: var(--gray);
+  margin-top: 2px;
+}
+
+.slot-filename {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: var(--green);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.slot-badge {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.slot-badge.ready   { background: rgba(46,204,113,0.15); color: var(--green); }
+.slot-badge.waiting { background: rgba(136,153,170,0.15); color: var(--gray); }
+
+input[type="file"] { display: none; }
+
+/* Run button */
+.run-btn {
+  width: 100%;
+  padding: 18px;
+  background: var(--red);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 22px;
+  letter-spacing: 4px;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+  margin-bottom: 32px;
+  position: relative;
+  overflow: hidden;
+}
+
+.run-btn:hover:not(:disabled) { background: var(--red2); transform: translateY(-1px); }
+.run-btn:active:not(:disabled) { transform: translateY(0); }
+.run-btn:disabled { background: var(--navy3); color: var(--gray); cursor: not-allowed; transform: none; }
+
+/* Log / output area */
+.log-area {
+  background: var(--navy2);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 8px;
+  padding: 20px;
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+  line-height: 1.8;
+  min-height: 120px;
+  display: none;
+}
+
+.log-area.visible { display: block; }
+
+.log-line        { margin: 0; }
+.log-line.info   { color: var(--cream); }
+.log-line.ok     { color: var(--green); }
+.log-line.warn   { color: var(--gold); }
+.log-line.error  { color: #ff6b6b; }
+.log-line.head   { color: var(--white); font-weight: 500; }
+.log-line.dim    { color: var(--gray); }
+.log-line.sep    { color: var(--navy3); }
+
+/* Download section */
+.downloads {
+  margin-top: 24px;
+  display: none;
+  gap: 10px;
+  flex-direction: column;
+}
+
+.downloads.visible { display: flex; }
+
+.downloads-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin-bottom: 4px;
+}
+
+.download-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(46,204,113,0.08);
+  border: 1px solid rgba(46,204,113,0.25);
+  border-radius: 8px;
+  color: var(--green);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.2s;
+  cursor: pointer;
+}
+
+.download-btn:hover { background: rgba(46,204,113,0.15); }
+.download-btn .dl-icon { font-size: 18px; }
+.download-btn .dl-desc { font-size: 11px; color: var(--gray); }
+
+/* Error block */
+.error-block {
+  background: rgba(255,107,107,0.08);
+  border: 1px solid rgba(255,107,107,0.3);
+  border-radius: 8px;
+  padding: 20px;
+  margin-top: 20px;
+  display: none;
+}
+
+.error-block.visible { display: block; }
+.error-block h3 { color: #ff6b6b; font-size: 14px; margin-bottom: 12px; }
+
+.error-row {
+  background: rgba(255,107,107,0.05);
+  border-left: 3px solid #ff6b6b;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  border-radius: 0 4px 4px 0;
+}
+
+.error-row .er-row   { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--gray); margin-bottom: 4px; }
+.error-row .er-sku   { font-size: 13px; color: var(--cream); margin-bottom: 2px; }
+.error-row .er-issue { font-size: 12px; color: #ff6b6b; }
+
+.error-hint {
+  font-size: 12px;
+  color: var(--gray);
+  margin-top: 12px;
+  line-height: 1.6;
+}
+
+/* Toast notification */
+#toast {
+  position: fixed;
+  bottom: 32px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--navy2);
+  border: 1px solid rgba(46,204,113,0.4);
+  color: var(--green);
+  font-family: 'DM Mono', monospace;
+  font-size: 12px;
+  padding: 10px 20px;
+  border-radius: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s, transform 0.3s;
+  white-space: nowrap;
+  z-index: 100;
+}
+
+#toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* Missing files text */
+.missing-files {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px;
+  color: var(--gray);
+  text-align: center;
+  margin-top: -20px;
+  margin-bottom: 28px;
+  min-height: 18px;
+  letter-spacing: 0.5px;
+}
