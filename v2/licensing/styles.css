@@ -54,11 +54,9 @@ body::before {
 }
 
 .header-logo {
-  max-width: 500px;
-  width: 100%;
+  width: 600px;
   height: auto;
-  display: block;
-  margin: 0 auto 12px;
+  margin-bottom: 12px;
 }
 
 .logo-line {
@@ -68,6 +66,24 @@ body::before {
   gap: 12px;
   margin-bottom: 8px;
 }
+
+.logo-diamond {
+  width: 10px;
+  height: 10px;
+  background: var(--red);
+  transform: rotate(45deg);
+  flex-shrink: 0;
+}
+
+.header h1 {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 52px;
+  letter-spacing: 4px;
+  color: var(--white);
+  line-height: 1;
+}
+
+.header h1 span { color: var(--red); }
 
 .header p {
   font-size: 13px;
@@ -84,6 +100,68 @@ body::before {
   background: var(--red);
   margin: 20px auto 0;
 }
+
+/* Mode Selector */
+.mode-selector {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.mode-card {
+  background: var(--navy2);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s;
+  user-select: none;
+}
+
+.mode-card:hover {
+  border-color: rgba(200,16,46,0.4);
+  background: var(--navy3);
+}
+
+.mode-card.active {
+  border-color: var(--red);
+  background: rgba(200,16,46,0.08);
+}
+
+.mode-icon {
+  font-size: 22px;
+  flex-shrink: 0;
+}
+
+.mode-info { flex: 1; }
+
+.mode-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cream);
+}
+
+.mode-desc {
+  font-size: 11px;
+  color: var(--gray);
+  margin-top: 2px;
+}
+
+.mode-check {
+  font-size: 14px;
+  color: var(--red);
+  font-weight: bold;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* Show/hide file slots based on mode — JS adds .hidden class */
+.file-slot.hidden { display: none; }
 
 /* File upload section */
 .section-label {
@@ -173,8 +251,24 @@ body::before {
   flex-shrink: 0;
 }
 
-.slot-badge.ready   { background: rgba(46,204,113,0.15); color: var(--green); }
-.slot-badge.waiting { background: rgba(136,153,170,0.15); color: var(--gray); }
+.slot-badge.ready    { background: rgba(46,204,113,0.15); color: var(--green); }
+.slot-badge.waiting  { background: rgba(136,153,170,0.15); color: var(--gray); }
+
+/* Optional file slot */
+.file-slot.optional  { border-style: dashed; }
+
+.optional-tag {
+  font-family: 'DM Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--gold);
+  background: rgba(212,168,67,0.12);
+  padding: 2px 6px;
+  border-radius: 3px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
 
 input[type="file"] { display: none; }
 
