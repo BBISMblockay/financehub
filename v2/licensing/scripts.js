@@ -1,5 +1,6 @@
 // ─── State ────────────────────────────────────────────────────────────────────
 const files = { shopify: null, reftables: null, attrmap: null, template: null };
+let currentMode = 'online'; // 'online' | 'fanatics'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const CONTRACT_NUM     = 5199;
@@ -12,6 +13,36 @@ const LANGUAGE         = "current";
 const DIST_CHANNEL     = "DC";
 const CURRENCY         = "USD";
 const CONVERSION_RATE  = 1;
+
+// ─── Hard Goods Product Type Map ─────────────────────────────────────────────
+// Maps Shopify HardGoods product types → Fanatics attribute code + product category string
+const HG_PRODUCT_MAP = {
+  'canvas totes':  { attrCode: 10060747, product: 'Hard Goods > Bags & Luggage > Tote Bags' },
+  'handbag strap': { attrCode: 10060747, product: 'Hard Goods > Bags & Luggage > Other Bags & Accessories' },
+  'handbags':      { attrCode: 10060747, product: 'Hard Goods > Bags & Luggage > Tote Bags' },
+  'key chain':     { attrCode: 10062362, product: 'Hard Goods > Jewelry > Money Clips' },
+  "men's wallet":  { attrCode: 10062362, product: 'Hard Goods > Personal/Fashion Accessories > Wallets/Purses > Adult' },
+  'poster':        { attrCode: 10062330, product: 'Hard Goods > Publishing/Posters/Art > Posters' },
+};
+
+// ─── Store → Fanatics Channel ─────────────────────────────────────────────────
+const CHANNEL_ONLINE    = 'Licensee Direct > Licensee Direct to Consumer > Online > Licensee owned or affiliated website';
+const CHANNEL_BRICKMORTAR = 'Licensee Direct > Licensee Direct to Consumer > Brick & Mortar';
+
+// ─── Asset Code → Full Team Name ─────────────────────────────────────────────
+// Used for the Property column in the Fanatics submission
+const ASSET_FULL_NAME = {
+  'TEX':'Texas Rangers',       'LA':'Los Angeles Dodgers',  'SF':'San Francisco Giants',
+  'ATH':'Athletics',           'ATL':'Atlanta Braves',      'CHI':'Chicago Cubs',
+  'STL':'St. Louis Cardinals', 'HOU':'Houston Astros',      'NY':'New York Mets',
+  'NYY':'New York Yankees',    'BOS':'Boston Red Sox',      'CWS':'Chicago White Sox',
+  'SEA':'Seattle Mariners',    'SD':'San Diego Padres',     'PHI':'Philadelphia Phillies',
+  'BAL':'Baltimore Orioles',   'DET':'Detroit Tigers',      'WSH':'Washington Nationals',
+  'MIA':'Miami Marlins',       'MIL':'Milwaukee Brewers',   'ARI':'Arizona Diamondbacks',
+  'CIN':'Cincinnati Reds',     'PIT':'Pittsburgh Pirates',  'KC':'Kansas City Royals',
+  'MIN':'Minnesota Twins',     'TB':'Tampa Bay Rays',       'TOR':'Toronto Blue Jays',
+  'ANA':'Los Angeles Angels',  'COL':'Colorado Rockies',    'CLEG':'Cleveland Guardians',
+};
 
 // ─── Event Config (update each year) ─────────────────────────────────────────
 // Multi-team MLB event products — asset code left blank, team set to "MLB".
@@ -61,6 +92,37 @@ function markSlotLoaded(key, name, savedDate) {
   document.getElementById(`fname-${key}`).textContent = `${name}${dateStr}`;
   document.getElementById(`badge-${key}`).textContent = 'Ready';
   document.getElementById(`badge-${key}`).className = 'slot-badge ready';
+}
+
+// ─── Mode Selection ───────────────────────────────────────────────────────────
+function setMode(mode) {
+  currentMode = mode;
+
+  // Update mode card active states
+  document.getElementById('mode-online').classList.toggle('active', mode === 'online');
+  document.getElementById('mode-fanatics').classList.toggle('active', mode === 'fanatics');
+  document.getElementById('check-online').textContent   = mode === 'online'   ? '✓' : '';
+  document.getElementById('check-fanatics').textContent = mode === 'fanatics' ? '✓' : '';
+
+  // Update shopify slot description based on mode
+  const shopDesc = document.getElementById('desc-shopify');
+  if (shopDesc) {
+    shopDesc.textContent = mode === 'fanatics'
+      ? 'Monthly sales file — needs sheet "HardGoods"'
+      : 'Monthly sales file — needs sheet "MLB Retail-Online"';
+  }
+
+  // Show/hide file slots based on mode
+  document.querySelectorAll('.file-slot').forEach(slot => {
+    const isOnline   = slot.classList.contains('mode-online');
+    const isFanatics = slot.classList.contains('mode-fanatics');
+    const show = (mode === 'online' && isOnline) || (mode === 'fanatics' && isFanatics);
+    slot.classList.toggle('hidden', !show);
+  });
+
+  // Reset log / downloads / errors on mode switch
+  clearLog();
+  checkReady();
 }
 
 // ─── File Loading ─────────────────────────────────────────────────────────────
@@ -129,7 +191,11 @@ function showToast(msg) {
 }
 
 function checkReady() {
-  const allReady = Object.values(files).every(f => f !== null);
+  const REQUIRED = currentMode === 'fanatics'
+    ? ['shopify']
+    : ['shopify', 'reftables', 'attrmap', 'template'];
+
+  const allReady = REQUIRED.every(k => files[k] !== null);
   document.getElementById("run-btn").disabled = !allReady;
 
   const LABELS = {
@@ -138,16 +204,12 @@ function checkReady() {
     attrmap:   "Attribute Mapping",
     template:  "MLB Template",
   };
-  const missing = Object.entries(files)
-    .filter(([, v]) => v === null)
-    .map(([k]) => LABELS[k]);
+  const missing = REQUIRED.filter(k => files[k] === null).map(k => LABELS[k]);
 
   const el = document.getElementById("missing-files");
-  if (missing.length === 0) {
-    el.textContent = "";
-  } else {
-    el.textContent = missing.join(", ") + " needed to generate";
-  }
+  el.textContent = missing.length > 0
+    ? missing.join(", ") + " needed to generate"
+    : "";
 }
 
 // ─── Logging ──────────────────────────────────────────────────────────────────
@@ -178,8 +240,12 @@ function loadReferenceTables(wb) {
   for (let i = 1; i < rows.length; i++) {
     const [code, asset, , assetType] = rows[i];
     if (assetType === 'Team' && code && asset) {
-      assetToTeam[String(code).trim()] = String(asset).trim();
-      teamToAsset[String(asset).trim().toLowerCase()] = String(code).trim();
+      const c = String(code).trim();
+      const a = String(asset).trim();
+      assetToTeam[c] = a;
+      // Only set the first occurrence — base team code (e.g. ATL) comes before
+      // mascot/event variants (ATLM, ATLINTE) so first-wins gives us the right code
+      if (!teamToAsset[a.toLowerCase()]) teamToAsset[a.toLowerCase()] = c;
     }
   }
   return { assetToTeam, teamToAsset };
@@ -424,11 +490,161 @@ function groupRows(enriched, assetToTeam) {
     g.refunds   += (r.refunds   || 0);
   }
 
-  return Array.from(groups.values());
+  return Array.from(groups.values()).sort((a, b) => {
+    const assetA = String(a.assetCode || '');
+    const assetB = String(b.assetCode || '');
+    if (assetA !== assetB) return assetA.localeCompare(assetB);
+    return (a.attributeCode || 0) - (b.attributeCode || 0);
+  });
+}
+
+// ─── Parse Fanatics Hard Goods CSV ───────────────────────────────────────────
+// CSV columns (0-indexed, based on Fanatics Hard Goods report format):
+//  0  Territory  |  1  Property  |  2  Asset Code  |  3  Channel
+//  4  Retailer   |  5  Product   |  6  Attribute Code  |  7  Description
+//  8  Rate Type  |  9  List Price | 10  Unit Price | 11  Units
+// 12  Net Sales  | 13  Currency  | 14  Reporting Period | 15  Year
+//
+// Groups rows by Asset Code + Attribute Code, computing:
+//   gross     = sum of (list_price × units)   per row in group
+//   discounts = sum of (list_price − unit_price) × units  per row
+//   refunds   = 0 (no return rows in data)
+//   netSales  = sum of net_sales per row
+// ─── Parse HardGoods Sheet from Shopify Export ───────────────────────────────
+// Reads the HardGoods sheet, maps product types to Fanatics attribute codes,
+// extracts team via same SKU scan logic as Retail Online, maps store to channel,
+// groups by Asset Code + Attribute Code + Channel.
+// Derive Fanatics product category from product name for attribute code 10062362
+// Money Clip Wallets → Jewelry > Money Clips
+// Scorebook/Bifold Wallets → Wallets/Purses > Adult
+// Key Chain → Jewelry > Money Clips
+function getWalletCategory(productName) {
+  const lower = productName.toLowerCase();
+  if (lower.includes('money clip') || lower.includes('key chain')) {
+    return 'Hard Goods > Jewelry > Money Clips';
+  }
+  return 'Hard Goods > Personal/Fashion Accessories > Wallets/Purses > Adult';
+}
+
+function parseHardGoodsSheet(ws) {
+  const rows    = XLSX.utils.sheet_to_json(ws, { defval: null });
+  const output  = [];
+  const skipped = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const row         = rows[i];
+    const productName = String(row['Product Name']        || '').trim();
+    const sku         = String(row['Product SKU']         || '').trim();
+    const productType = String(row['Product Type']        || '').trim().toLowerCase();
+    const qty         = Number(row['Total Quantity Sold']) || 0;
+    const gross       = Number(row['Total Gross Sales'])   || 0;
+    const discount    = Number(row['Total Discount'])      || 0;
+    const refund      = Number(row['Total Refund'])        || 0;
+    const netSales    = Number(row['Total Net sales'])     || 0;
+    const mo          = String(row['Mo'] || 'APR').toUpperCase().slice(0, 3);
+
+    // Skip MiLB rows
+    if (row['MLB/MiLB'] !== 'MLB') continue;
+
+    // Skip zero-quantity rows (returns that wiped out all sales)
+    if (qty === 0) continue;
+
+    // Map product type → attribute code + Fanatics product category
+    const prodInfo = HG_PRODUCT_MAP[productType];
+    if (!prodInfo) {
+      skipped.push(`Row ${i + 2}: Unknown product type "${productType}"`);
+      continue;
+    }
+
+    // For wallets/key chains, refine product category by product name
+    const product = prodInfo.attrCode === 10062362
+      ? getWalletCategory(productName)
+      : prodInfo.product;
+
+    // Extract team — same logic as Retail Online
+    const { assetCode, teamName } = extractTeamFromSku(sku, productName, ASSET_FULL_NAME, {});
+    if (!assetCode) {
+      skipped.push(`Row ${i + 2}: Could not find team in "${sku}" / "${productName}"`);
+      continue;
+    }
+
+    // All stores → same Online channel (MLB treats all Baseballism sales as licensee DTC)
+    output.push({
+      mo,
+      assetCode,
+      teamName:  ASSET_FULL_NAME[assetCode] || teamName,
+      channel:   CHANNEL_ONLINE,
+      product,
+      attrCode:  prodInfo.attrCode,
+      productName,
+      qty,
+      gross,
+      discount,
+      refund,
+      netSales,
+    });
+  }
+
+  // Sort: attrCode → product subcategory → assetCode
+  // This matches the example layout: Other Bags before Tote Bags, Jewelry before Wallets/Purses, etc.
+  output.sort((a, b) => {
+    if ((a.attrCode || 0) !== (b.attrCode || 0)) return (a.attrCode || 0) - (b.attrCode || 0);
+    if (a.product !== b.product) return a.product.localeCompare(b.product);
+    return a.assetCode.localeCompare(b.assetCode);
+  });
+
+  return { groups: output, skipped };
+}
+
+// ─── Write Fanatics Submission File ──────────────────────────────────────────
+// Outputs in the Fanatics BrandComply format — 16 columns matching the Sample Sheet.
+// The # prefix on the header row tells BrandComply to skip it on import.
+function writeFanaticsSubmission(groups) {
+  const headers = [
+    '#Territory', 'Property', 'Asset Code',
+    'Channel', 'Retailer Code', 'Product', 'Attribute Code',
+    'SKU/Product Description', 'Royalty Rate Type',
+    'List Price', 'Unit Price', 'Units', 'Net Sales',
+    'Currency', 'Reporting Period', 'Year',
+  ];
+
+  const wsData = [headers];
+
+  for (const g of groups) {
+    // qty is guaranteed > 0 (zero rows are skipped in parse)
+    const listPrice = +(g.gross    / g.qty).toFixed(2);
+    const unitPrice = +(g.netSales / g.qty).toFixed(2);
+
+    wsData.push([
+      'North America > United States of America',
+      g.teamName,
+      g.assetCode,
+      g.channel,
+      '1217 – Direct to Consumer',
+      g.product,
+      g.attrCode,
+      g.productName,
+      'Non Player',
+      listPrice,
+      unitPrice,
+      g.qty,
+      +g.netSales.toFixed(2),
+      'USD',
+      g.mo,
+      2026,
+    ]);
+  }
+
+  // Output as CSV — Fanatics BrandComply accepts CSV uploads
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
+  const csv = XLSX.utils.sheet_to_csv(ws);
+  return { csv, wsData };
 }
 
 // ─── Write MLB Submission File ────────────────────────────────────────────────
-function writeMLBSubmission(enriched, templateWb, assetToTeam) {
+function writeMLBSubmission(enriched, hardGoodsGroups, templateWb, assetToTeam) {
   const wb = XLSX.utils.book_new();
   const headers = [
     'Month','Year','MLB Contract #','MLB Contract Version','MLB Product ID',
@@ -440,11 +656,17 @@ function writeMLBSubmission(enriched, templateWb, assetToTeam) {
   ];
   const wsData = [headers];
 
-  // Group rows by Asset Code + Attribute Code before writing
-  const grouped = groupRows(enriched, assetToTeam);
+  // Group apparel rows, then merge in hard goods (already grouped), sort combined
+  const apparelGroups = groupRows(enriched, assetToTeam);
+  const allGroups = [...apparelGroups, ...(hardGoodsGroups || [])].sort((a, b) => {
+    const assetA = String(a.assetCode || '');
+    const assetB = String(b.assetCode || '');
+    if (assetA !== assetB) return assetA.localeCompare(assetB);
+    return (a.attributeCode || 0) - (b.attributeCode || 0);
+  });
 
-  for (let i = 0; i < grouped.length; i++) {
-    const r = grouped[i];
+  for (let i = 0; i < allGroups.length; i++) {
+    const r = allGroups[i];
     const rowNum = i + 2;
     const { abbr, year } = parseMonth(r.moName);
     const unitPrice = (r.qty && r.qty !== 0) ? r.gross / r.qty : null;
@@ -545,17 +767,100 @@ function addDownload(wb, filename, description) {
   section.appendChild(btn);
 }
 
+function addDownloadCSV(csv, filename, description) {
+  const section = document.getElementById('downloads');
+  section.classList.add('visible');
+  const btn = document.createElement('div');
+  btn.className = 'download-btn';
+  btn.innerHTML = `<span class="dl-icon">⬇️</span><div><div>${filename}</div><div class="dl-desc">${description}</div></div>`;
+  btn.onclick = () => {
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = filename; a.click();
+    URL.revokeObjectURL(url);
+  };
+  section.appendChild(btn);
+}
+
 // ─── Main Run ─────────────────────────────────────────────────────────────────
 async function runTool() {
   clearLog();
   document.getElementById('run-btn').disabled = true;
 
-  log('============================================================', 'dim');
-  log('  Please enter Baseballism MLB data to enrich your monthly', 'head');
-  log('  Shopify sales export with team codes, MLB product IDs,',   'head');
-  log('  attribute codes, and retailer info — then automatically',   'head');
-  log('  convert it into MLB\'s official royalty submission format.','head');
-  log('============================================================', 'dim');
+  if (currentMode === 'fanatics') {
+    await runFanaticsMode();
+  } else {
+    await runOnlineMode();
+  }
+
+  document.getElementById('run-btn').disabled = false;
+}
+
+// ─── Fanatics Hard Goods Mode ─────────────────────────────────────────────────
+async function runFanaticsMode() {
+  log('═══════════════════════════════════════════════', 'dim');
+  log('  Fanatics Hard Goods → Fanatics Submission', 'head');
+  log('═══════════════════════════════════════════════', 'dim');
+  log('');
+
+  try {
+    log('📂 Loading Shopify export...', 'info');
+    const shopWb = XLSX.read(files.shopify.data, { type: 'array' });
+
+    if (!shopWb.SheetNames.includes('HardGoods')) {
+      log(`  ❌ "HardGoods" sheet not found in Shopify export`, 'error');
+      log(`     Available sheets: ${shopWb.SheetNames.join(', ')}`, 'dim');
+      return;
+    }
+
+    const ws = shopWb.Sheets['HardGoods'];
+    log(`  ✓ HardGoods sheet found`, 'ok');
+
+    log('🛍️  Parsing Hard Goods...', 'info');
+    const { groups, skipped } = parseHardGoodsSheet(ws);
+    log(`  ✓ ${groups.length} groups across ${new Set(groups.map(g => g.assetCode)).size} teams`, 'ok');
+
+    if (skipped.length > 0) {
+      log(`  ⚠  ${skipped.length} row(s) skipped:`, 'warn');
+      for (const s of skipped) log(`     ${s}`, 'warn');
+    }
+
+    log('', 'info');
+    log(`  ${'Asset'.padEnd(6)} | ${'Attr Code'.padEnd(12)} | ${'Qty'.padStart(5)} | Net Sales | Product`, 'dim');
+    log(`  ${'─'.repeat(70)}`, 'dim');
+    for (const g of groups) {
+      const asset = String(g.assetCode).padEnd(6);
+      const attr  = String(g.attrCode).padEnd(12);
+      const qty   = String(g.qty).padStart(5);
+      const net   = ('$' + g.netSales.toFixed(2)).padEnd(10);
+      const prod  = g.productName.slice(0, 35);
+      log(`  ${asset} | ${attr} | ${qty} | ${net} | ${prod}`, 'dim');
+    }
+
+    log('', 'info');
+    log('📋 Writing Fanatics submission CSV...', 'info');
+    const moLabel    = groups.length > 0 ? groups[0].mo : 'UNK';
+    const { csv }    = writeFanaticsSubmission(groups);
+    const outName    = `fanatics_hardgoods_submission_${moLabel}.csv`;
+    log(`  ✓ ${outName}`, 'ok');
+    addDownloadCSV(csv, outName, 'Fanatics Hard Goods submission — upload to BrandComply');
+
+    log('', 'info');
+    log('🎉 Done! Click the button above to download.', 'ok');
+
+  } catch (err) {
+    log('', 'info');
+    log(`❌ Unexpected error: ${err.message}`, 'error');
+    console.error(err);
+  }
+}
+
+// ─── Retail Online Mode ───────────────────────────────────────────────────────
+async function runOnlineMode() {
+  log('════════════════════════════════════════════════════════════', 'dim');
+  log('  Retail Online — Shopify → MLB Apparel Submission', 'head');
+  log('════════════════════════════════════════════════════════════', 'dim');
   log('');
 
   try {
@@ -613,15 +918,15 @@ async function runTool() {
       addDownload(bbsmWb, bbsmName, `BBSM enriched working file — ${label}`);
 
       log(`📋 Step 2: Filling MLB submission template...`, 'info');
-      const mlbWb   = writeMLBSubmission(enriched, tmplWb, assetToTeam);
+      const mlbWb   = writeMLBSubmission(enriched, null, tmplWb, assetToTeam);
       const mlbName = `mlb_submission_${label.toLowerCase()}_${monthLabel}.xlsx`;
       log(`  ✓ ${mlbName}`, 'ok');
       addDownload(mlbWb, mlbName, `MLB submission file — ${label}`);
 
-      // Debug: show every grouped row so you can compare against the correct file
+      // Debug: grouped summary
       const grouped = groupRows(enriched, assetToTeam);
       log(``, 'info');
-      log(`  📊 Grouped rows (${grouped.length} total) — compare to correct file:`, 'dim');
+      log(`  📊 Grouped rows (${grouped.length} total):`, 'dim');
       log(`  ${'Asset'.padEnd(6)} | ${'Attr Code'.padEnd(12)} | ${'Qty'.padStart(6)} | Gross`, 'dim');
       log(`  ${'─'.repeat(55)}`, 'dim');
       for (const g of grouped) {
@@ -640,7 +945,7 @@ async function runTool() {
     if (!anyProcessed) {
       log('', 'info');
       log('⚠  No matching sheets found. Make sure your Shopify export', 'warn');
-      log('   has sheets named "MLB Retail-Online" and "MLB Wholesale".', 'warn');
+      log('   has a sheet named "MLB Retail-Online".', 'warn');
     } else {
       log('', 'info');
       log('🎉 All reports complete! Click the buttons above to download.', 'ok');
@@ -651,9 +956,10 @@ async function runTool() {
     log(`❌ Unexpected error: ${err.message}`, 'error');
     console.error(err);
   }
-
-  document.getElementById('run-btn').disabled = false;
 }
 
-// ─── On page load, restore saved reference files ──────────────────────────────
-window.addEventListener('DOMContentLoaded', loadPersistedFiles);
+// ─── On page load ─────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  setMode('online');      // default mode, also hides/shows correct slots
+  loadPersistedFiles();   // restore cached reference files
+});
