@@ -31,15 +31,8 @@
       ],
     },
     {
-      section: 'Overview',
-      items: [
-        { id: 'people/dashboard', label: 'Dashboard', href: '/v2/employeehub.html' },
-      ],
-    },
-    {
       section: 'Payables',
       items: [
-        { id: 'finance/ap-manager', label: 'AP Manager', href: '/accountspayable.html' },
         { id: 'finance/mailroom', label: 'Mailroom Inbox', href: '/v2/mailroom.html' },
       ],
     },
@@ -47,7 +40,6 @@
       section: 'Receivables',
       items: [
         { id: 'wholesale/customers', label: 'BBISM Receivables', href: '/v2/baseballismwholesale.html' },
-        { id: 'wholesale/wpv', label: 'WPV Receivables', href: '/v2/wpvaccounts.html' },
       ],
     },
     {
@@ -55,7 +47,6 @@
       items: [
         { id: 'finance/payment-request', label: 'Payment Request', href: '/v2/purchase_request.html' },
         { id: 'finance/request-manager', label: 'Request Manager', href: '/v2/request_manager.html' },
-        { id: 'finance/travel', label: 'Travel Report', href: '/v2/travel.html' },
       ],
     },
     {
@@ -92,8 +83,7 @@
     {
       section: 'Reports',
       items: [
-        { id: 'finance/sales-bi', label: 'BI Sales Dashboard', href: 'https://app.powerbi.com/view?r=eyJrIjoiY2U0MWI2ZmMtMTY3MS00MDY3LTg5NjctN2VlYjk0NGMxNzUzIiwidCI6IjIzYTkzNDJkLTFjODEtNGJkNS1hY2U0LThmYWY4ZWVlNTZiZCJ9', external: true },
-        { id: 'people/payroll', label: 'Payroll BI', href: '/v2/payroll.html' },
+        { id: 'people/payroll', label: 'Payroll', href: '/v2/payroll.html' },
       ],
     },
   ];

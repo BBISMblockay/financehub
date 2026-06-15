@@ -104,6 +104,18 @@
       flex-shrink: 0;
     }
 
+    .fin-landing-note {
+      margin: 20px 0 0;
+      font-size: 12px;
+      color: var(--bcn-ink-3);
+      line-height: 1.45;
+    }
+
+    .fin-landing-note code {
+      font-family: var(--bcn-mono);
+      font-size: 11px;
+    }
+
     @media (max-width: 900px) {
       .fin-landing {
         padding: 16px 14px 32px;
@@ -127,50 +139,37 @@
       <div class="fin-sections">
 
         <div class="fin-card">
-          <div class="fin-card-head"><h2>Overview</h2></div>
+          <div class="fin-card-head"><h2>Requests</h2></div>
           <div class="fin-links">
-            <a class="fin-link" href="/v2/employeehub.html">Dashboard</a>
-            <a class="fin-link" href="/v2/executive.html">Executive</a>
+            <a class="fin-link" href="/v2/purchase_request.html">Payment request</a>
+            <a class="fin-link" href="/v2/request_manager.html">Request manager</a>
           </div>
         </div>
 
         <div class="fin-card">
           <div class="fin-card-head"><h2>Payables</h2></div>
           <div class="fin-links">
-            <a class="fin-link" href="/accountspayable.html">AP Manager</a>
-            <a class="fin-link" href="/v2/mailroom.html">Mailroom Inbox</a>
-            <a class="fin-link" href="/ap-report.html">BBISM Payables</a>
+            <a class="fin-link" href="/v2/mailroom.html">Mailroom inbox</a>
           </div>
         </div>
 
         <div class="fin-card">
           <div class="fin-card-head"><h2>Receivables</h2></div>
           <div class="fin-links">
-            <a class="fin-link" href="/v2/baseballismwholesale.html">BBISM Receivables</a>
-            <a class="fin-link" href="/v2/wpvaccounts.html">WPV Receivables</a>
-          </div>
-        </div>
-
-        <div class="fin-card">
-          <div class="fin-card-head"><h2>Requests</h2></div>
-          <div class="fin-links">
-            <a class="fin-link" href="/v2/purchase_request.html">Payment Request</a>
-            <a class="fin-link" href="/v2/request_manager.html">Request Manager</a>
-            <a class="fin-link" href="https://www.jotform.com/grid/200496754119055" target="_blank" rel="noopener">Travel Requests <span class="fin-link-ext">EXT</span></a>
-            <a class="fin-link" href="https://www.jotform.com/grid/222686658265065" target="_blank" rel="noopener">Bars Requests <span class="fin-link-ext">EXT</span></a>
-            <a class="fin-link" href="/v2/travel.html">Travel Report</a>
+            <a class="fin-link" href="/v2/baseballismwholesale.html">BBISM receivables</a>
           </div>
         </div>
 
         <div class="fin-card">
           <div class="fin-card-head"><h2>Planning</h2></div>
           <div class="fin-links">
-            <a class="fin-link" href="/v2/projections.html">Revenue Projection</a>
-            <a class="fin-link" href="/v2/planning-scenarios.html">Planning Scenarios</a>
-            <a class="fin-link" href="/v2/launch-calendar.html">Launch Calendar</a>
-            <a class="fin-link" href="/v2/po-builder.html">PO Builder</a>
-            <a class="fin-link" href="/v2/po-costing.html">PO Landed Cost</a>
-            <a class="fin-link" href="/v2/po-report.html">PO Report</a>
+            <a class="fin-link" href="/v2/projections.html">Revenue projection</a>
+            <a class="fin-link" href="/v2/planning-scenarios.html">Planning scenarios</a>
+            <a class="fin-link" href="/v2/launch-calendar.html">Launch calendar</a>
+            <a class="fin-link" href="/v2/tasks.html">Task manager</a>
+            <a class="fin-link" href="/v2/po-builder.html">PO builder</a>
+            <a class="fin-link" href="/v2/po-costing.html">PO landed cost</a>
+            <a class="fin-link" href="/v2/po-report.html">PO report</a>
             <a class="fin-link" href="/pages/factories.html">Factories</a>
           </div>
         </div>
@@ -178,20 +177,28 @@
         <div class="fin-card">
           <div class="fin-card-head"><h2>Inventory</h2></div>
           <div class="fin-links">
-            <a class="fin-link" href="/v2/inventory.html">Inventory Manager</a>
-            <a class="fin-link" href="/v2/product-manager.html">Product Tags</a>
+            <a class="fin-link" href="/v2/inventory.html">Inventory manager</a>
+            <a class="fin-link" href="/v2/product-manager.html">Product hub</a>
+            <a class="fin-link" href="/v2/product-samples.html">Product tracker</a>
+            <a class="fin-link" href="/v2/sales-verification.html">Sales verification</a>
           </div>
         </div>
 
         <div class="fin-card">
-          <div class="fin-card-head"><h2>Reports</h2></div>
+          <div class="fin-card-head"><h2>People</h2></div>
           <div class="fin-links">
-            <a class="fin-link" href="https://app.powerbi.com/view?r=eyJrIjoiY2U0MWI2ZmMtMTY3MS00MDY3LTg5NjctN2VlYjk0NGMxNzUzIiwidCI6IjIzYTkzNDJkLTFjODEtNGJkNS1hY2U0LThmYWY4ZWVlNTZiZCJ9" target="_blank" rel="noopener">BI Sales Dashboard <span class="fin-link-ext">EXT</span></a>
-            <a class="fin-link" href="/v2/payroll.html">Payroll BI</a>
+            <a class="fin-link" href="/v2/profile.html">My profile</a>
+            <a class="fin-link" href="/v2/payroll.html">Payroll</a>
+            <a class="fin-link" href="/v2/backend.html">Backend admin</a>
           </div>
         </div>
 
       </div>
+
+      <p class="fin-landing-note">
+        External systems (WPV AR, Power BI) and retired sheet tools are listed in
+        <code>docs/ops/retire/</code> in the repo.
+      </p>
     </div>
 
   </main>
