@@ -338,6 +338,18 @@
     function money(v){ return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(v||0)); }
     function setStatus(msg,type='info',ms=3500){ const el=document.getElementById('poStatus'); if(!el) return; el.className=`bcn-status bcn-status--${type}`; el.textContent=msg; el.hidden=false; if(ms) setTimeout(()=>{ el.hidden=true; },ms); }
     function escapeHtml(str){ return String(str ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;'); }
+    function lineTextField(field, lineId, value){
+      return `<textarea class="po-line-input po-line-input--text" rows="1" data-line-field="${field}" data-line-id="${lineId}">${escapeHtml(value||'')}</textarea>`;
+    }
+    function fitPoLineTextarea(node){
+      if(!node || node.tagName !== 'TEXTAREA') return;
+      node.style.height = 'auto';
+      node.style.height = `${Math.max(28, node.scrollHeight)}px`;
+    }
+    function fitPoLineTextareas(root){
+      const scope = root || document;
+      scope.querySelectorAll('.po-line-input--text, .po-line-input--notes').forEach(fitPoLineTextarea);
+    }
     function modalOpen(node){ node.classList.remove('hidden-safe'); node.classList.add('is-open'); }
     function modalClose(node){ node.classList.add('hidden-safe'); node.classList.remove('is-open'); }
     function statusBadge(status){ const safe=(status||'Draft').replace(/"/g,''); return `<span class="status-badge status-${safe}"><span class="status-dot"></span>${escapeHtml(status||'Draft')}</span>`; }
@@ -539,19 +551,20 @@
       if(!rows.length){ el.linesTbody.innerHTML='<tr><td colspan="12" class="bcn-empty">No lines — use catalog, bulk SKU, import, or manual add</td></tr>'; }
       else {
         el.linesTbody.innerHTML=rows.map(line=>`<tr data-line-row="${line.id}">
-          <td class="bcn-th-left"><input class="po-line-input" data-line-field="product_type_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.product_type_snapshot||'')}"></td>
-          <td class="bcn-th-left"><input class="po-line-input" data-line-field="title_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.title_snapshot||'')}"></td>
-          <td class="bcn-th-left"><input class="po-line-input" data-line-field="variant_title_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.variant_title_snapshot||'')}"></td>
-          <td class="bcn-th-left"><input class="po-line-input" data-line-field="sku_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.sku_snapshot||'')}"></td>
-          <td class="bcn-th-left"><input class="po-line-input" data-line-field="upc_snapshot" data-line-id="${line.id}" value="${escapeHtml(line.upc_snapshot||'')}"></td>
+          <td class="bcn-th-left po-line-text-cell">${lineTextField('product_type_snapshot', line.id, line.product_type_snapshot)}</td>
+          <td class="bcn-th-left po-line-text-cell">${lineTextField('title_snapshot', line.id, line.title_snapshot)}</td>
+          <td class="bcn-th-left po-line-text-cell">${lineTextField('variant_title_snapshot', line.id, line.variant_title_snapshot)}</td>
+          <td class="bcn-th-left po-line-text-cell">${lineTextField('sku_snapshot', line.id, line.sku_snapshot)}</td>
+          <td class="bcn-th-left po-line-text-cell">${lineTextField('upc_snapshot', line.id, line.upc_snapshot)}</td>
           <td><input class="po-line-input po-line-input--num" type="number" step="0.01" data-line-field="retail_price" data-line-id="${line.id}" value="${Number(line.retail_price||0)}"></td>
           <td><input class="po-line-input po-line-input--num" type="number" step="0.01" data-line-field="unit_cost" data-line-id="${line.id}" value="${Number(line.unit_cost||0)}"></td>
           <td>${landedCellHtml(line)}</td>
           <td><input class="po-line-input po-line-input--num" type="number" min="0" step="1" data-line-field="qty" data-line-id="${line.id}" value="${Number(line.qty||0)}"></td>
           <td class="td-total" data-line-retail-value="${line.id}">${money(line.retail_value||0)}</td>
-          <td class="bcn-th-left"><textarea class="po-line-input po-line-input--notes" rows="1" data-line-field="line_notes" data-line-id="${line.id}">${escapeHtml(line.line_notes||'')}</textarea></td>
+          <td class="bcn-th-left po-line-text-cell"><textarea class="po-line-input po-line-input--text po-line-input--notes" rows="1" data-line-field="line_notes" data-line-id="${line.id}">${escapeHtml(line.line_notes||'')}</textarea></td>
           <td><div class="po-line-actions"><span class="line-autosave-state" data-line-save-state="${line.id}">Saved</span><button class="bcn-btn bcn-btn--ghost bcn-btn--mono line-save-btn" data-line-save="${line.id}">Save</button><button class="bcn-btn bcn-btn--ghost bcn-btn--mono" data-line-tracker="${line.id}" title="Push to Product Tracker">→ TRK</button><button class="bcn-btn bcn-btn--danger bcn-btn--mono line-delete-btn" data-line-delete="${line.id}">Del</button></div></td>
         </tr>`).join('');
+        fitPoLineTextareas(el.linesTbody);
       }
       updateLineTotalsFromState();
       syncLineMeta();
@@ -1191,7 +1204,10 @@
 
     document.addEventListener('input',(ev)=>{
       const lineInput=ev.target.closest('[data-line-field][data-line-id]');
-      if(lineInput){ scheduleLineAutoSave(lineInput.getAttribute('data-line-id')); }
+      if(lineInput){
+        if(lineInput.matches('.po-line-input--text, .po-line-input--notes')) fitPoLineTextarea(lineInput);
+        scheduleLineAutoSave(lineInput.getAttribute('data-line-id'));
+      }
     });
 
     document.addEventListener('click',async(ev)=>{
