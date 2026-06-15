@@ -9,8 +9,6 @@ SILO-owned tools. Data lives in Supabase (or will after sheet-sync tools move to
 | Finance hub | `/v2/finance.html` | Landing |
 | Payment request → **Make Request** | `/v2/purchase_request.html` | Expand for receipt / travel / purchase types |
 | Request manager | `/v2/request_manager.html` | AP workbench; absorb legacy Jotform open items |
-| Check writer | `/v2/checkwriter.html` | SILO data (not sheet-driven) |
-| Reconciliation | `/v2/recon.html` | SILO data (not sheet-driven) |
 
 ## Receivables & sales
 
@@ -25,7 +23,8 @@ SILO-owned tools. Data lives in Supabase (or will after sheet-sync tools move to
 |------|-------|-------|
 | PO builder / costing / report | `/v2/po-*.html` | Supabase |
 | Factories | `/pages/factories.html` | Supabase |
-| Buyer workbench | `/v2/buyer.html` | SILO data (not outsourced sheet UI) |
+
+Off-nav SILO tools (check writer, recon, buyer): [tools/](../tools/README.md).
 
 ## Planning & inventory
 

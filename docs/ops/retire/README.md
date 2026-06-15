@@ -8,7 +8,8 @@ Tracks what belongs in **SILO product navigation** vs what is **outsourced**, **
 
 | Folder | Meaning |
 |--------|---------|
-| [native/](./native/README.md) | SILO-owned tools — Supabase (or app) data; belong in nav |
+| [native/](./native/README.md) | SILO-owned tools in primary nav |
+| [tools/](./tools/README.md) | Active SILO tools — **not** in nav (bookmark/direct URL) |
 | [sync-via-sheets/](./sync-via-sheets/README.md) | Native UI today; data still Sheets → Supabase until Shopify pipeline |
 | [outsourced/](./outsourced/README.md) | Sheet-as-UI or legacy intake — not product nav; rebuild native |
 | [external/](./external/README.md) | Not SILO — separate instance or link-out only |

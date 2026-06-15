@@ -6,7 +6,8 @@ Jun 2026 — aligned with product boundary review.
 
 | Category | Folder | In SILO nav? |
 |----------|--------|--------------|
-| Native SILO tools | [native/](./native/README.md) | Yes |
+| Native SILO (nav) | [native/](./native/README.md) | Yes |
+| Active tools (off-nav) | [tools/](./tools/README.md) | No — direct URL |
 | Sheet-sync interim (Shopify P0) | [sync-via-sheets/](./sync-via-sheets/README.md) | Yes (with caveat) |
 | Outsourced sheet UI | [outsourced/](./outsourced/README.md) | No |
 | External / other products | [external/](./external/README.md) | No |
@@ -15,7 +16,7 @@ Jun 2026 — aligned with product boundary review.
 
 ## Agreed boundaries
 
-- **Check writer, Recon, Buyer** — SILO data; native nav (not outsourced).
+- **Check writer, Recon, Buyer** — SILO data; active but [tools/](./tools/README.md) (not nav).
 - **AP Manager, AP report, Mailroom, Cashflow** — outsourced sheet UI; not nav.
 - **Receipt / travel Jotform** — fold into Make Request; legacy Jotform migrated to Request Manager.
 - **Cash recon (Google Form)** — stay external for now.

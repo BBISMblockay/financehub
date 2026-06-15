@@ -31,13 +31,6 @@
       ],
     },
     {
-      section: 'Payables',
-      items: [
-        { id: 'finance/checkwriter', label: 'Check writer', href: '/v2/checkwriter.html' },
-        { id: 'finance/recon', label: 'Reconciliation', href: '/v2/recon.html' },
-      ],
-    },
-    {
       section: 'Receivables',
       items: [
         { id: 'wholesale/customers', label: 'BBISM Receivables', href: '/v2/baseballismwholesale.html' },
@@ -66,7 +59,6 @@
         { id: 'purchasing/po-costing', label: 'PO Landed Cost', href: '/v2/po-costing.html' },
         { id: 'purchasing/po-report', label: 'PO Report', href: '/v2/po-report.html' },
         { id: 'purchasing/factories', label: 'Factories', href: '/pages/factories.html' },
-        { id: 'purchasing/buyer', label: 'Buyer workbench', href: '/v2/buyer.html' },
       ],
     },
     {
