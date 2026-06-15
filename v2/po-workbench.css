@@ -89,8 +89,8 @@ body.v2-mirror--po .silo-main {
 
 /* Line matrix inputs inside bcn-table */
 .bcn-table.po-lines-table {
-  min-width: 1100px;
-  table-layout: fixed;
+  min-width: 1180px;
+  table-layout: auto;
 }
 
 .bcn-table.po-lines-table th {
@@ -116,7 +116,12 @@ body.v2-mirror--po .silo-main {
 .bcn-table.po-lines-table td {
   text-align: right;
   padding: 5px 8px;
-  vertical-align: middle;
+  vertical-align: top;
+}
+
+.bcn-table.po-lines-table td.po-line-text-cell {
+  white-space: normal;
+  word-break: break-word;
 }
 
 .bcn-table.po-lines-table td.bcn-th-left {
@@ -153,9 +158,20 @@ body.v2-mirror--po .silo-main {
   font-variant-numeric: tabular-nums;
 }
 
+.po-line-input--text,
 .po-line-input--notes {
+  height: auto;
   min-height: 28px;
+  max-height: none;
   resize: none;
+  overflow: hidden;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  word-break: break-word;
+  field-sizing: content;
+}
+
+.po-line-input--notes {
   font-size: 11px;
 }
 
@@ -202,18 +218,18 @@ body.v2-mirror--po .silo-main {
   background: var(--bcn-sunken);
 }
 
-/* Column widths */
-.po-lines-table th:nth-child(1), .po-lines-table td:nth-child(1) { width: 82px; }
-.po-lines-table th:nth-child(2), .po-lines-table td:nth-child(2) { width: 150px; }
-.po-lines-table th:nth-child(3), .po-lines-table td:nth-child(3) { width: 70px; }
-.po-lines-table th:nth-child(4), .po-lines-table td:nth-child(4) { width: 170px; }
-.po-lines-table th:nth-child(5), .po-lines-table td:nth-child(5) { width: 118px; }
+/* Column widths — text columns grow; numeric/action columns stay compact */
+.po-lines-table th:nth-child(1), .po-lines-table td:nth-child(1) { min-width: 88px; width: 9%; }
+.po-lines-table th:nth-child(2), .po-lines-table td:nth-child(2) { min-width: 180px; width: 18%; }
+.po-lines-table th:nth-child(3), .po-lines-table td:nth-child(3) { min-width: 100px; width: 11%; }
+.po-lines-table th:nth-child(4), .po-lines-table td:nth-child(4) { min-width: 200px; width: 20%; }
+.po-lines-table th:nth-child(5), .po-lines-table td:nth-child(5) { min-width: 120px; width: 12%; }
 .po-lines-table th:nth-child(6), .po-lines-table td:nth-child(6) { width: 72px; }
 .po-lines-table th:nth-child(7), .po-lines-table td:nth-child(7) { width: 72px; }
 .po-lines-table th:nth-child(8), .po-lines-table td:nth-child(8) { width: 64px; }
 .po-lines-table th:nth-child(9), .po-lines-table td:nth-child(9) { width: 72px; }
 .po-lines-table th:nth-child(10), .po-lines-table td:nth-child(10) { width: 88px; }
-.po-lines-table th:nth-child(11), .po-lines-table td:nth-child(11) { width: 120px; }
+.po-lines-table th:nth-child(11), .po-lines-table td:nth-child(11) { min-width: 140px; width: 14%; }
 .po-lines-table th:nth-child(12), .po-lines-table td:nth-child(12) { width: 96px; }
 
 /* Status badges (PO list + filter bar) */
