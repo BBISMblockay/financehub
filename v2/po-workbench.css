@@ -89,8 +89,8 @@ body.v2-mirror--po .silo-main {
 
 /* Line matrix inputs inside bcn-table */
 .bcn-table.po-lines-table {
-  min-width: 1180px;
-  table-layout: auto;
+  min-width: 1280px;
+  table-layout: fixed;
 }
 
 .bcn-table.po-lines-table th {
@@ -156,6 +156,12 @@ body.v2-mirror--po .silo-main {
   text-align: right;
   font-family: var(--bcn-mono);
   font-variant-numeric: tabular-nums;
+  min-width: 68px;
+}
+
+.bcn-table.po-lines-table td.po-line-num-cell,
+.bcn-table.po-lines-table th.po-line-num-cell {
+  white-space: nowrap;
 }
 
 .po-line-input--text,
@@ -216,21 +222,22 @@ body.v2-mirror--po .silo-main {
   font-weight: 700;
   font-family: var(--bcn-mono);
   background: var(--bcn-sunken);
+  white-space: nowrap;
 }
 
-/* Column widths — text columns grow; numeric/action columns stay compact */
-.po-lines-table th:nth-child(1), .po-lines-table td:nth-child(1) { min-width: 88px; width: 9%; }
-.po-lines-table th:nth-child(2), .po-lines-table td:nth-child(2) { min-width: 180px; width: 18%; }
-.po-lines-table th:nth-child(3), .po-lines-table td:nth-child(3) { min-width: 100px; width: 11%; }
-.po-lines-table th:nth-child(4), .po-lines-table td:nth-child(4) { min-width: 200px; width: 20%; }
-.po-lines-table th:nth-child(5), .po-lines-table td:nth-child(5) { min-width: 120px; width: 12%; }
-.po-lines-table th:nth-child(6), .po-lines-table td:nth-child(6) { width: 72px; }
-.po-lines-table th:nth-child(7), .po-lines-table td:nth-child(7) { width: 72px; }
-.po-lines-table th:nth-child(8), .po-lines-table td:nth-child(8) { width: 64px; }
-.po-lines-table th:nth-child(9), .po-lines-table td:nth-child(9) { width: 72px; }
-.po-lines-table th:nth-child(10), .po-lines-table td:nth-child(10) { width: 88px; }
-.po-lines-table th:nth-child(11), .po-lines-table td:nth-child(11) { min-width: 140px; width: 14%; }
-.po-lines-table th:nth-child(12), .po-lines-table td:nth-child(12) { width: 96px; }
+/* Column widths — text wraps in cells; numeric columns keep fixed min widths */
+.po-lines-table th:nth-child(1), .po-lines-table td:nth-child(1) { width: 82px; }
+.po-lines-table th:nth-child(2), .po-lines-table td:nth-child(2) { width: 14%; min-width: 140px; }
+.po-lines-table th:nth-child(3), .po-lines-table td:nth-child(3) { width: 80px; }
+.po-lines-table th:nth-child(4), .po-lines-table td:nth-child(4) { width: 16%; min-width: 160px; }
+.po-lines-table th:nth-child(5), .po-lines-table td:nth-child(5) { width: 110px; }
+.po-lines-table th:nth-child(6), .po-lines-table td:nth-child(6) { width: 88px; min-width: 88px; }
+.po-lines-table th:nth-child(7), .po-lines-table td:nth-child(7) { width: 88px; min-width: 88px; }
+.po-lines-table th:nth-child(8), .po-lines-table td:nth-child(8) { width: 72px; min-width: 72px; }
+.po-lines-table th:nth-child(9), .po-lines-table td:nth-child(9) { width: 72px; min-width: 72px; }
+.po-lines-table th:nth-child(10), .po-lines-table td:nth-child(10) { width: 100px; min-width: 100px; }
+.po-lines-table th:nth-child(11), .po-lines-table td:nth-child(11) { width: 11%; min-width: 100px; }
+.po-lines-table th:nth-child(12), .po-lines-table td:nth-child(12) { width: 96px; min-width: 96px; }
 
 /* Status badges (PO list + filter bar) */
 .status-badge {
