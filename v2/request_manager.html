@@ -292,13 +292,17 @@
 
   <div id="drawerBackdrop" class="drawer-backdrop"></div>
 
-  <aside id="workbenchDrawer" class="drawer" aria-hidden="true">
+  <aside id="workbenchDrawer" class="drawer rm-drawer" aria-hidden="true">
     <div class="drawer-head">
       <div class="drawer-head-toolbar">
-        <div>
+        <div class="drawer-head-main">
           <div class="drawer-head-kicker">Payment request</div>
-          <h2 id="drawerTitle" class="drawer-title">Request</h2>
-          <p id="drawerSub" class="drawer-sub">Review source details, document, internal processing, and activity history.</p>
+          <div class="drawer-head-title-row">
+            <h2 id="drawerTitle" class="drawer-title">Request</h2>
+            <span id="drawerAmountBadge" class="drawer-amount-badge mono">$0.00</span>
+          </div>
+          <p id="drawerSub" class="drawer-sub">Review source details, documents, internal processing, and activity history.</p>
+          <div id="drawerStatusRow" class="drawer-status-row"></div>
         </div>
         <button id="closeDrawerBtn" class="btn btn-soft btn-xs" type="button">Close</button>
       </div>
@@ -306,14 +310,19 @@
 
     <div class="drawer-body">
       <div class="drawer-stack">
-        <div class="card">
-          <div class="section-title">Snapshot</div>
+        <section class="rm-drawer-panel rm-drawer-panel--snapshot">
           <div id="drawerSnapshot" class="drawer-snapshot-grid"></div>
-        </div>
+        </section>
 
-        <div class="card">
-          <div class="section-title">Submitted details</div>
-          <div class="field-grid">
+        <section class="rm-drawer-panel">
+          <header class="rm-drawer-panel-head">
+            <span class="bcn-pill">SOURCE</span>
+            <div>
+              <h3 class="rm-drawer-panel-title">Submitted details</h3>
+              <p class="rm-drawer-panel-sub">What the requester sent — read only.</p>
+            </div>
+          </header>
+          <div class="field-grid rm-drawer-readonly">
             <div class="full">
               <label class="bcn-label">Effective vendor</label>
               <input id="fEffectiveVendor" class="input" disabled />
@@ -364,20 +373,66 @@
               <textarea id="fSubmittedNotes" class="textarea" disabled></textarea>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div class="card">
-          <div class="section-title">Document</div>
-          <div id="legacyDocNote" class="rm-muted rm-mt-sm" hidden>Imported legacy request — attachments open on jotform.com, not Silo storage.</div>
-          <div class="doc-actions" style="margin-top:8px;">
-            <button id="openFileBtn" class="btn btn-soft" type="button">Open file</button>
-            <button id="openLegacyBtn" class="btn btn-soft" type="button" hidden>Legacy record</button>
-            <div id="fileMeta" class="rm-muted" style="flex:1;">No file attached</div>
+        <section class="rm-drawer-panel">
+          <header class="rm-drawer-panel-head">
+            <span class="bcn-pill bcn-pill--accent">DOCS</span>
+            <div>
+              <h3 class="rm-drawer-panel-title">Documents</h3>
+              <p class="rm-drawer-panel-sub">Submitted attachments and AP confirmation files in Silo storage.</p>
+            </div>
+          </header>
+
+          <div id="legacyDocNote" class="rm-drawer-note" hidden>
+            Imported legacy request — original attachments open on jotform.com. You can still add confirmation documents below.
           </div>
-        </div>
 
-        <div class="card">
-          <div class="section-title">Internal processing</div>
+          <div class="rm-doc-group">
+            <div class="rm-doc-group-head">
+              <h4>Submitted with request</h4>
+              <span id="submittedFileCount" class="rm-doc-count mono">0</span>
+            </div>
+            <div id="submittedFilesList" class="rm-file-list"></div>
+            <div class="rm-doc-actions">
+              <button id="openFileBtn" class="btn btn-soft btn-xs" type="button">Open first submitted</button>
+              <button id="openLegacyBtn" class="btn btn-soft btn-xs" type="button" hidden>Legacy record</button>
+            </div>
+          </div>
+
+          <div class="rm-doc-group">
+            <div class="rm-doc-group-head">
+              <h4>Confirmation &amp; payment proof</h4>
+              <span id="confirmationFileCount" class="rm-doc-count mono">0</span>
+            </div>
+            <div id="confirmationFilesList" class="rm-file-list"></div>
+            <div class="rm-upload-zone">
+              <label class="rm-upload-label" for="confirmationFileInput">
+                <span class="rm-upload-title">Add confirmation document</span>
+                <span class="rm-upload-hint">Check copies, wire confirmations, card receipts, or reimbursement proof — stored in the same bucket as intake uploads.</span>
+              </label>
+              <input
+                id="confirmationFileInput"
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.webp,.csv,.xlsx,.xls,.doc,.docx"
+                multiple
+              />
+              <div class="rm-upload-actions">
+                <button id="uploadConfirmationBtn" class="btn btn-primary btn-xs" type="button" disabled>Upload to request</button>
+                <span id="confirmationUploadStatus" class="rm-upload-status"></span>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="rm-drawer-panel">
+          <header class="rm-drawer-panel-head">
+            <span class="bcn-pill bcn-pill--dark">AP</span>
+            <div>
+              <h3 class="rm-drawer-panel-title">Internal processing</h3>
+              <p class="rm-drawer-panel-sub">Assignment, payment method, and completion.</p>
+            </div>
+          </header>
           <div class="field-grid">
             <div>
               <label class="bcn-label">Workflow status</label>
@@ -445,13 +500,18 @@
               <textarea id="fInternalNotes" class="textarea" placeholder="Approval notes, follow-up, resolution details..."></textarea>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div class="card">
-          <div class="section-title">Activity history</div>
-          <div class="section-sub">Saved history and workflow changes</div>
-          <div id="drawerActivity" class="rm-mt-sm"></div>
-        </div>
+        <section class="rm-drawer-panel">
+          <header class="rm-drawer-panel-head">
+            <span class="bcn-pill">HISTORY</span>
+            <div>
+              <h3 class="rm-drawer-panel-title">Activity</h3>
+              <p class="rm-drawer-panel-sub">Workflow changes, notes, and document events.</p>
+            </div>
+          </header>
+          <div id="drawerActivity" class="rm-activity-list"></div>
+        </section>
       </div>
     </div>
 
@@ -558,6 +618,8 @@
       closeDrawerBtn: document.getElementById("closeDrawerBtn"),
       drawerTitle: document.getElementById("drawerTitle"),
       drawerSub: document.getElementById("drawerSub"),
+      drawerAmountBadge: document.getElementById("drawerAmountBadge"),
+      drawerStatusRow: document.getElementById("drawerStatusRow"),
       drawerSnapshot: document.getElementById("drawerSnapshot"),
 
       fEffectiveVendor: document.getElementById("fEffectiveVendor"),
@@ -574,7 +636,13 @@
       openFileBtn: document.getElementById("openFileBtn"),
       openLegacyBtn: document.getElementById("openLegacyBtn"),
       legacyDocNote: document.getElementById("legacyDocNote"),
-      fileMeta: document.getElementById("fileMeta"),
+      submittedFilesList: document.getElementById("submittedFilesList"),
+      confirmationFilesList: document.getElementById("confirmationFilesList"),
+      submittedFileCount: document.getElementById("submittedFileCount"),
+      confirmationFileCount: document.getElementById("confirmationFileCount"),
+      confirmationFileInput: document.getElementById("confirmationFileInput"),
+      uploadConfirmationBtn: document.getElementById("uploadConfirmationBtn"),
+      confirmationUploadStatus: document.getElementById("confirmationUploadStatus"),
 
       fWorkflowStatus: document.getElementById("fWorkflowStatus"),
       fAssignedTo: document.getElementById("fAssignedTo"),
@@ -746,6 +814,7 @@
         completed_changed: "Completed changed",
         note_added: "Note added",
         file_opened: "File opened",
+        file_uploaded: "File uploaded",
         imported: "Imported",
         updated: "Updated"
       };
@@ -897,6 +966,250 @@
       }
 
       return [];
+    }
+
+    function isConfirmationFile(file) {
+      return String(file?.file_path || "").includes("/confirmation/");
+    }
+
+    function splitRequestFiles(files) {
+      const submitted = [];
+      const confirmation = [];
+      for (const file of files) {
+        if (isConfirmationFile(file)) confirmation.push(file);
+        else submitted.push(file);
+      }
+      return { submitted, confirmation };
+    }
+
+    function fileKindLabel(file) {
+      if (isConfirmationFile(file)) return "confirmation";
+      if (file.legacy || file.file_url || isExternalFileLocation(file.file_path)) return "legacy";
+      return "Silo storage";
+    }
+
+    function fileIconLabel(fileName) {
+      const ext = String(fileName || "").split(".").pop()?.toLowerCase() || "";
+      if (ext === "pdf") return "PDF";
+      if (["png", "jpg", "jpeg", "webp", "gif"].includes(ext)) return "IMG";
+      if (["xls", "xlsx", "csv"].includes(ext)) return "XLS";
+      if (["doc", "docx"].includes(ext)) return "DOC";
+      return "FILE";
+    }
+
+    function renderDrawerFileList(files, row, emptyMessage) {
+      if (!files.length) {
+        return `<div class="rm-file-empty">${escapeHtml(emptyMessage)}</div>`;
+      }
+
+      return files.map((file, index) => {
+        const meta = [
+          formatBytes(file.file_size),
+          file.mime_type || "",
+          fileKindLabel(file)
+        ].filter(Boolean).join(" · ");
+
+        return `
+          <div class="rm-file-card">
+            <div class="rm-file-card-icon mono" aria-hidden="true">${escapeHtml(fileIconLabel(file.file_name))}</div>
+            <div class="rm-file-card-body">
+              <div class="rm-file-card-name">${escapeHtml(file.file_name || `File ${index + 1}`)}</div>
+              <div class="rm-file-card-meta">${escapeHtml(meta || "Attachment")}</div>
+            </div>
+            <button
+              class="btn btn-soft btn-xs open-drawer-file-btn"
+              type="button"
+              data-path="${escapeHtml(file.file_path || "")}"
+              data-url="${escapeHtml(file.file_url || "")}"
+              data-name="${escapeHtml(file.file_name || `File ${index + 1}`)}"
+            >Open</button>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function bindDrawerFileButtons(row) {
+      document.querySelectorAll(".open-drawer-file-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          await openFile({
+            file_path: btn.getAttribute("data-path") || null,
+            file_url: btn.getAttribute("data-url") || null,
+            file_name: btn.getAttribute("data-name") || "attached document"
+          }, row.id, true, row);
+        });
+      });
+    }
+
+    function renderDrawerDocuments(row) {
+      const rowFiles = filesForRequest(row);
+      const { submitted, confirmation } = splitRequestFiles(rowFiles);
+      const isLegacyRequest = !!row.legacy_source;
+
+      els.legacyDocNote.hidden = !isLegacyRequest;
+      els.openLegacyBtn.hidden = !row.legacy_url;
+      els.openLegacyBtn.textContent = row.legacy_url && /jotform\.com/i.test(row.legacy_url)
+        ? "Open Jotform record"
+        : "Legacy record";
+
+      els.submittedFilesList.innerHTML = renderDrawerFileList(
+        submitted,
+        row,
+        "No documents submitted with this request."
+      );
+      els.confirmationFilesList.innerHTML = renderDrawerFileList(
+        confirmation,
+        row,
+        "No confirmation documents yet — upload check copies, wire proof, or reimbursement receipts below."
+      );
+      els.submittedFileCount.textContent = String(submitted.length);
+      els.confirmationFileCount.textContent = String(confirmation.length);
+
+      els.openFileBtn.disabled = !submitted.length;
+      els.openFileBtn.textContent = submitted.length > 1
+        ? (isLegacyRequest ? `Open first Jotform file (${submitted.length})` : `Open first submitted (${submitted.length})`)
+        : (isLegacyRequest ? "Open Jotform file" : "Open first submitted");
+
+      bindDrawerFileButtons(row);
+    }
+
+    async function uploadConfirmationFiles(fileList, requestId) {
+      const files = Array.from(fileList || []);
+      if (!files.length) return [];
+
+      const existing = state.files.filter(file => file.payment_request_id === requestId);
+      const maxSort = existing.reduce((max, file) => Math.max(max, Number(file.sort_order || 0)), 0);
+      const uploaded = [];
+
+      for (let index = 0; index < files.length; index++) {
+        const file = files[index];
+        const safeName = file.name.replace(/[^\w.\-]/g, "_");
+        const path = `${requestId}/confirmation/${Date.now()}-${index + 1}-${safeName}`;
+        const { error: uploadError } = await supabaseClient.storage
+          .from(BUCKET)
+          .upload(path, file, { cacheControl: "3600", upsert: false });
+
+        if (uploadError) throw uploadError;
+
+        uploaded.push({
+          payment_request_id: requestId,
+          file_name: file.name,
+          file_path: path,
+          file_url: null,
+          file_size: file.size || null,
+          mime_type: file.type || null,
+          sort_order: maxSort + index + 1,
+          created_by: state.currentUser?.id || null
+        });
+      }
+
+      if (uploaded.length) {
+        const { error: fileRowsError } = await supabaseClient
+          .from("payment_request_files")
+          .insert(uploaded);
+        if (fileRowsError) throw fileRowsError;
+      }
+
+      return uploaded;
+    }
+
+    async function handleConfirmationUpload() {
+      if (!state.currentRow?.id) return;
+
+      const files = els.confirmationFileInput.files;
+      if (!files?.length) {
+        showToast("Choose at least one file to upload.");
+        return;
+      }
+
+      els.uploadConfirmationBtn.disabled = true;
+      els.confirmationUploadStatus.textContent = "Uploading…";
+
+      try {
+        const uploaded = await uploadConfirmationFiles(files, state.currentRow.id);
+
+        for (const file of uploaded) {
+          await logActivity({
+            requestId: state.currentRow.id,
+            activityType: "file_uploaded",
+            message: `Uploaded confirmation document: ${file.file_name}`
+          });
+        }
+
+        state.files = await fetchRequestFiles();
+        state.activityRows = await fetchActivityRows();
+        const row = state.rows.find(r => r.id === state.currentRow.id);
+        if (row) {
+          state.currentRow = row;
+          renderDrawerDocuments(row);
+          renderDrawerSnapshot(row);
+          renderDrawerActivity(row);
+        }
+
+        els.confirmationFileInput.value = "";
+        els.confirmationUploadStatus.textContent = uploaded.length
+          ? `Uploaded ${uploaded.length} file${uploaded.length === 1 ? "" : "s"}.`
+          : "";
+        showToast(`Uploaded ${uploaded.length} confirmation document${uploaded.length === 1 ? "" : "s"}.`);
+      } catch (err) {
+        console.error(err);
+        els.confirmationUploadStatus.textContent = "";
+        showToast(`Upload failed: ${err.message || "Unknown error"}`, true);
+      } finally {
+        els.uploadConfirmationBtn.disabled = !els.confirmationFileInput.files?.length;
+      }
+    }
+
+    function renderDrawerSnapshot(row) {
+      const rowFiles = filesForRequest(row);
+      els.drawerSnapshot.innerHTML = `
+        <div class="mini-card">
+          <div class="label">Amount due</div>
+          <div class="value mono">${formatMoney(row.amount_due)}</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">Submitted</div>
+          <div class="value">${escapeHtml(formatDateTime(row.submitted_at))}</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">Status</div>
+          <div class="value">${badgeHtmlStatus(row.workflow_status)}</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">Completed</div>
+          <div class="value">${badgeHtmlCompleted(row.completed)}</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">Assigned</div>
+          <div class="value">${escapeHtml(assignedName(row.assigned_to))}</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">Files</div>
+          <div class="value mono">${formatNumber(rowFiles.length)}</div>
+        </div>
+        <div class="mini-card">
+          <div class="label">Due bucket</div>
+          <div class="value">${dueBucketBadge(dueBucket(row))}</div>
+        </div>
+      `;
+    }
+
+    function renderDrawerActivity(row) {
+      const rowActivity = state.activityRows
+        .filter(a => a.payment_request_id === row.id)
+        .slice(0, 20);
+
+      els.drawerActivity.innerHTML = rowActivity.length
+        ? rowActivity.map(a => `
+            <div class="activity-item">
+              <div class="rm-card-head">
+                <div class="rm-cell-primary">${escapeHtml(activityTypeLabel(a.activity_type))}</div>
+                <div class="rm-cell-meta">${escapeHtml(formatDateTime(a.created_at))}</div>
+              </div>
+              <div class="rm-cell-meta rm-activity-message">${escapeHtml(activityMessage(a))}</div>
+              <div class="rm-cell-meta">By ${escapeHtml(a.created_by_name || a.created_by_email || "System")}</div>
+            </div>
+          `).join("")
+        : `<div class="rm-muted">No activity yet.</div>`;
     }
 
     function fileButtonLabel(row) {
@@ -1469,7 +1782,9 @@
 
       state.currentRow = row;
       els.drawerTitle.textContent = row.effective_vendor_name || "Unknown vendor";
-      els.drawerSub.textContent = `${requestTypeLabel(row.request_type)} · ${formatMoney(row.amount_due)} · submitted ${formatDateTime(row.submitted_at)}`;
+      els.drawerSub.textContent = `${requestTypeLabel(row.request_type)} · submitted ${formatDateTime(row.submitted_at)}`;
+      els.drawerAmountBadge.textContent = formatMoney(row.amount_due);
+      els.drawerStatusRow.innerHTML = `${badgeHtmlStatus(row.workflow_status)} ${badgeHtmlCompleted(row.completed)} ${dueBucketBadge(dueBucket(row))}`;
 
       els.fEffectiveVendor.value = row.effective_vendor_name || "";
       els.fRequesterEmail.value = row.requester_email || "";
@@ -1491,95 +1806,13 @@
       els.fPaymentDetail.value = row.payment_detail || "";
       els.fInternalNotes.value = row.internal_notes || "";
 
-      const rowFiles = filesForRequest(row);
-      const isLegacyRequest = !!row.legacy_source;
+      els.confirmationFileInput.value = "";
+      els.confirmationUploadStatus.textContent = "";
+      els.uploadConfirmationBtn.disabled = true;
 
-      els.legacyDocNote.hidden = !isLegacyRequest;
-      els.openLegacyBtn.hidden = !row.legacy_url;
-      els.openLegacyBtn.textContent = row.legacy_url && /jotform\.com/i.test(row.legacy_url)
-        ? "Open Jotform record"
-        : "Legacy record";
-
-      els.fileMeta.innerHTML = rowFiles.length
-        ? `<div class="file-list">${rowFiles.map((file, index) => `
-            <div class="file-row">
-              <div class="min-w-0">
-                <div class="file-row-name">${escapeHtml(file.file_name || `File ${index + 1}`)}</div>
-                <div class="file-row-meta">${escapeHtml([formatBytes(file.file_size), file.mime_type || "", file.file_url || isExternalFileLocation(file.file_path) ? "external link" : "", file.legacy ? "legacy" : ""].filter(Boolean).join(" · ") || "Attachment")}</div>
-              </div>
-              <button
-                class="btn btn-soft btn-xs open-drawer-file-btn"
-                type="button"
-                data-path="${escapeHtml(file.file_path || "")}"
-                data-url="${escapeHtml(file.file_url || "")}"
-                data-name="${escapeHtml(file.file_name || `File ${index + 1}`)}"
-              >Open</button>
-            </div>
-          `).join("")}</div>`
-        : "No file attached";
-
-      document.querySelectorAll(".open-drawer-file-btn").forEach(btn => {
-        btn.addEventListener("click", async () => {
-          await openFile({
-            file_path: btn.getAttribute("data-path") || null,
-            file_url: btn.getAttribute("data-url") || null,
-            file_name: btn.getAttribute("data-name") || "attached document"
-          }, row.id, true, row);
-        });
-      });
-
-      els.openFileBtn.disabled = !rowFiles.length;
-      els.openFileBtn.textContent = rowFiles.length > 1
-        ? (isLegacyRequest ? `Open first Jotform file (${rowFiles.length})` : `Open first file (${rowFiles.length})`)
-        : (isLegacyRequest ? "Open Jotform file" : "Open file");
-
-      els.drawerSnapshot.innerHTML = `
-        <div class="mini-card">
-          <div class="label">Amount due</div>
-          <div class="value mono">${formatMoney(row.amount_due)}</div>
-        </div>
-        <div class="mini-card">
-          <div class="label">Submitted</div>
-          <div class="value">${escapeHtml(formatDateTime(row.submitted_at))}</div>
-        </div>
-        <div class="mini-card">
-          <div class="label">Status</div>
-          <div class="value">${badgeHtmlStatus(row.workflow_status)}</div>
-        </div>
-        <div class="mini-card">
-          <div class="label">Completed</div>
-          <div class="value">${badgeHtmlCompleted(row.completed)}</div>
-        </div>
-        <div class="mini-card">
-          <div class="label">Assigned</div>
-          <div class="value">${escapeHtml(assignedName(row.assigned_to))}</div>
-        </div>
-        <div class="mini-card">
-          <div class="label">Files</div>
-          <div class="value mono">${formatNumber(rowFiles.length)}</div>
-        </div>
-        <div class="mini-card">
-          <div class="label">Due bucket</div>
-          <div class="value">${dueBucketBadge(dueBucket(row))}</div>
-        </div>
-      `;
-
-      const rowActivity = state.activityRows
-        .filter(a => a.payment_request_id === row.id)
-        .slice(0, 20);
-
-      els.drawerActivity.innerHTML = rowActivity.length
-        ? rowActivity.map(a => `
-            <div class="activity-item">
-              <div class="rm-card-head">
-                <div class="rm-cell-primary">${escapeHtml(activityTypeLabel(a.activity_type))}</div>
-                <div class="rm-cell-meta">${escapeHtml(formatDateTime(a.created_at))}</div>
-              </div>
-              <div class="rm-cell-meta" style="margin-top:6px;color:var(--bcn-ink-2);">${escapeHtml(activityMessage(a))}</div>
-              <div class="rm-cell-meta" style="margin-top:4px;">By ${escapeHtml(a.created_by_name || a.created_by_email || "System")}</div>
-            </div>
-          `).join("")
-        : `<div class="rm-muted">No activity yet.</div>`;
+      renderDrawerDocuments(row);
+      renderDrawerSnapshot(row);
+      renderDrawerActivity(row);
 
       els.drawerBackdrop.classList.add("open");
       els.workbenchDrawer.classList.add("open");
@@ -1820,12 +2053,12 @@
       els.markPaidBtn.addEventListener("click", () => saveRow({ markPaid: true }));
       els.openFileBtn.addEventListener("click", async () => {
         if (!state.currentRow?.id) return;
-        const files = filesForRequest(state.currentRow);
-        if (!files.length) {
-          showToast("No file attached.");
+        const { submitted } = splitRequestFiles(filesForRequest(state.currentRow));
+        if (!submitted.length) {
+          showToast("No submitted document attached.");
           return;
         }
-        await openFile(files[0], state.currentRow.id, true, state.currentRow);
+        await openFile(submitted[0], state.currentRow.id, true, state.currentRow);
       });
       els.openLegacyBtn.addEventListener("click", () => {
         const url = state.currentRow?.legacy_url;
@@ -1835,6 +2068,13 @@
         }
         window.open(url, "_blank", "noopener,noreferrer");
       });
+      els.confirmationFileInput.addEventListener("change", () => {
+        els.uploadConfirmationBtn.disabled = !els.confirmationFileInput.files?.length;
+        if (!els.confirmationFileInput.files?.length) {
+          els.confirmationUploadStatus.textContent = "";
+        }
+      });
+      els.uploadConfirmationBtn.addEventListener("click", handleConfirmationUpload);
     }
 
     // Mount chrome synchronously — sidebar visible before any network call
