@@ -1,21 +1,25 @@
-# SILO retire / external manifest
+# SILO retire / product boundary docs
 
-This folder tracks tools that should **not appear in SILO product navigation** — either because they are being removed, rebuilt as native, or live outside SILO entirely.
+Tracks what belongs in **SILO product navigation** vs what is **outsourced**, **external**, **being removed**, or **synced via Sheets until Shopify**.
 
-**Goal:** SILO nav and finance hub show **native product only**. Legacy pages and external systems stay in the repo (or linked in docs) until each replacement ships.
+**Goal:** Nav shows native SILO only. Legacy files stay in repo until each replacement ships.
 
-## How to use
+## Folders
 
-| File | Purpose |
-|------|---------|
-| [manifest.md](./manifest.md) | Master inventory: native vs retire vs external vs rebuild |
-| [external-links.md](./external-links.md) | Bookmarks for systems that stay outside SILO (WPV, Power BI, etc.) |
+| Folder | Meaning |
+|--------|---------|
+| [native/](./native/README.md) | SILO-owned tools — Supabase (or app) data; belong in nav |
+| [sync-via-sheets/](./sync-via-sheets/README.md) | Native UI today; data still Sheets → Supabase until Shopify pipeline |
+| [outsourced/](./outsourced/README.md) | Sheet-as-UI or legacy intake — not product nav; rebuild native |
+| [external/](./external/README.md) | Not SILO — separate instance or link-out only |
+| [remove/](./remove/README.md) | Leaving SILO entirely (delete when safe) |
+| [rebuild/](./rebuild/README.md) | Planned native work (priority queue) |
 
-When you remove something from `silo-chrome.js` or `v2/finance.html`, add or update its row in `manifest.md` in the same PR.
+**Index:** [manifest.md](./manifest.md)
 
-## Decision rules
+## Rules
 
-1. **Native** — Supabase-backed (or syncing into Supabase); belongs in nav.
-2. **Retire from nav** — Sheet UI, Jotform, iframe legacy, or duplicate of a native tool; file stays until rebuilt.
-3. **External / not SILO** — Separate product or instance (WPV); document in `external-links.md`, never in nav.
-4. **Rebuild** — Planned native work; tracked in manifest with target outcome.
+1. Removing from nav → update the right folder README + `manifest.md` in the same PR.
+2. **Make Request** replaces purchase-only + receipt/travel Jotform intakes (receipt folds in).
+3. Open legacy Jotform rows → migrate into Request Manager (manual migration).
+4. P0 rebuild: **Shopify → Supabase** (replace Better Reports → Sheets for sales/inventory).

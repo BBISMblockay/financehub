@@ -17,10 +17,11 @@ Three buckets only. Check items off in PRs when done.
 - [ ] Finish Beacon shell migration ([SILO-BRAND.md](../../v2/SILO-BRAND.md) — fewer iframe legacy pages)
 - [ ] One canonical URL per tool (`/v2/...` preferred)
 - [ ] Same error/status pattern on all v2 pages
-- [ ] Native-only product nav — retired/external tools tracked in [retire/](./retire/README.md)
+- [ ] Native-only product nav — [retire/](./retire/README.md) subfolders (`native`, `sync-via-sheets`, `outsourced`, `external`, `remove`, `rebuild`)
 - [ ] Shopify → Supabase pipeline (replace Better Reports → Sheets sync)
-- [ ] Make Request (expand payment request for travel and other types)
-- [ ] Native cashflow planner (POs, payables, cash on hand)
+- [ ] Make Request (purchase + receipt + travel types)
+- [ ] Native cashflow planner; native mailroom
+- [ ] HR module (replaces payroll page)
 
 ---
 

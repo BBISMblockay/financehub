@@ -33,7 +33,8 @@
     {
       section: 'Payables',
       items: [
-        { id: 'finance/mailroom', label: 'Mailroom Inbox', href: '/v2/mailroom.html' },
+        { id: 'finance/checkwriter', label: 'Check writer', href: '/v2/checkwriter.html' },
+        { id: 'finance/recon', label: 'Reconciliation', href: '/v2/recon.html' },
       ],
     },
     {
@@ -65,6 +66,7 @@
         { id: 'purchasing/po-costing', label: 'PO Landed Cost', href: '/v2/po-costing.html' },
         { id: 'purchasing/po-report', label: 'PO Report', href: '/v2/po-report.html' },
         { id: 'purchasing/factories', label: 'Factories', href: '/pages/factories.html' },
+        { id: 'purchasing/buyer', label: 'Buyer workbench', href: '/v2/buyer.html' },
       ],
     },
     {
@@ -78,12 +80,13 @@
       items: [
         { id: 'inventory/workboard', label: 'Inventory Manager', href: '/v2/inventory.html' },
         { id: 'inventory/products', label: 'Product Hub', href: '/v2/product-manager.html' },
+        { id: 'inventory/sales-verification', label: 'Sales verification', href: '/v2/sales-verification.html' },
       ],
     },
     {
-      section: 'Reports',
+      section: 'Admin',
       items: [
-        { id: 'people/payroll', label: 'Payroll', href: '/v2/payroll.html' },
+        { id: 'admin/backend', label: 'Backend', href: '/v2/backend.html' },
       ],
     },
   ];
