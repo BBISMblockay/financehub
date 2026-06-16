@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Silo — Select Company</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <script src="../pages/config.js"></script>
+  <style>
+    .picker-wrap {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bcn-canvas, #f4f5f7);
+    }
+    .picker-card {
+      width: 100%;
+      max-width: 420px;
+      background: var(--bcn-surface, #fff);
+      border: 1px solid var(--bcn-border, #e2e5ea);
+      border-radius: 14px;
+      padding: 32px 28px;
+      box-shadow: 0 8px 28px rgba(2,6,23,.07);
+    }
+    .picker-logo {
+      width: 40px; height: 40px;
+      background: var(--bcn-band, #0f1117);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-weight: 700; font-size: 18px;
+      margin-bottom: 20px;
+    }
+    .picker-title {
+      font-size: 17px; font-weight: 600;
+      color: var(--bcn-ink, #111827);
+      margin-bottom: 4px;
+    }
+    .picker-sub {
+      font-size: 13px;
+      color: var(--bcn-ink-3, #6b7280);
+      margin-bottom: 24px;
+    }
+    .company-list { display: flex; flex-direction: column; gap: 10px; }
+    .company-btn {
+      display: flex; align-items: center; gap: 14px;
+      padding: 14px 16px;
+      border: 1.5px solid var(--bcn-border, #e2e5ea);
+      border-radius: 10px;
+      background: transparent;
+      cursor: pointer;
+      text-align: left;
+      transition: border-color .15s, background .15s;
+      font-family: inherit;
+      width: 100%;
+    }
+    .company-btn:hover {
+      border-color: var(--bcn-accent, #2563eb);
+      background: #eff6ff;
+    }
+    .company-avatar {
+      width: 36px; height: 36px;
+      border-radius: 8px;
+      background: var(--bcn-band, #0f1117);
+      color: #fff;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700;
+      flex-shrink: 0;
+      font-family: 'IBM Plex Mono', monospace;
+    }
+    .company-name {
+      font-size: 14px; font-weight: 600;
+      color: var(--bcn-ink, #111827);
+    }
+    .company-role {
+      font-size: 11px;
+      color: var(--bcn-ink-3, #6b7280);
+      font-family: 'IBM Plex Mono', monospace;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+    .picker-err {
+      margin-top: 16px;
+      padding: 10px 14px;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 8px;
+      color: #b91c1c;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="picker-wrap">
+    <div class="picker-card">
+      <div class="picker-logo">S</div>
+      <div class="picker-title">Choose a company</div>
+      <div class="picker-sub">You have access to multiple organizations. Select one to continue.</div>
+      <div class="company-list" id="companyList"></div>
+      <div class="picker-err" id="errMsg" style="display:none"></div>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const listEl = document.getElementById('companyList');
+      const errEl  = document.getElementById('errMsg');
+
+      function showErr(msg) {
+        errEl.textContent = msg;
+        errEl.style.display = '';
+      }
+
+      let companies = [];
+      try {
+        companies = JSON.parse(sessionStorage.getItem('__SILO_COMPANY_OPTIONS__') || '[]');
+      } catch (_) {}
+
+      if (!companies.length) {
+        // Nothing to pick — likely landed here directly. Bounce to login.
+        window.location.href = '/pages/login.html';
+        return;
+      }
+
+      companies.forEach(function (co) {
+        const btn = document.createElement('button');
+        btn.className = 'company-btn';
+
+        const initials = (co.title || co.entity_key || '?').slice(0, 2).toUpperCase();
+        btn.innerHTML = `
+          <div class="company-avatar">${initials}</div>
+          <div>
+            <div class="company-name">${co.title || co.entity_key}</div>
+            <div class="company-role">${co.role || 'member'}</div>
+          </div>
+        `;
+
+        btn.addEventListener('click', function () {
+          try {
+            if (window.__SILO_CONFIG__?.setActiveCompany) {
+              window.__SILO_CONFIG__.setActiveCompany(co);
+            } else {
+              sessionStorage.setItem('__SILO_COMPANY__', JSON.stringify(co));
+            }
+            sessionStorage.removeItem('__SILO_COMPANY_OPTIONS__');
+            window.location.href = '/v2/finance.html';
+          } catch (e) {
+            showErr('Could not set company: ' + e.message);
+          }
+        });
+
+        listEl.appendChild(btn);
+      });
+    })();
+  </script>
+</body>
+</html>

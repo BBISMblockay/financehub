@@ -316,6 +316,7 @@
     }
 
     const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
     const PO_STATUSES = ['Draft','Approved','Sent to Factory','Confirmed','In Production','Shipped','In Transit','Partially Received','Received','Closed','Cancelled'];
     const CATALOG_SELECT = 'id, sku, product_title, variant_title, product_type, upc, barcode, msrp, unit_cost, is_active, product_ready_for_po';
     const CATALOG_PREVIEW_LIMIT = 500;
@@ -369,15 +370,13 @@
       [el.btnSaveHeader, el.btnGeneratePdf, el.btnDuplicatePO, el.btnAddCatalogLine, el.btnBulkSku, el.btnImportLines, el.btnAddManualLine].forEach(btn => btn.disabled = !enabled || (btn !== el.btnSaveHeader && !state.currentPO?.id));
     }
 
-    async function loadFactories(){ const {data,error}=await sb.from('factories').select('id, factory_name, short_code').order('factory_name'); if(error) throw error; state.factories=data||[]; renderFactoryOptions(); renderFactoryFilter(); }
+    async function loadFactories(){ let _q=sb.from('factories').select('id, factory_name, short_code').order('factory_name'); if(_co?.id) _q=_q.eq('company_entity_id',_co.id); const {data,error}=await _q; if(error) throw error; state.factories=data||[]; renderFactoryOptions(); renderFactoryFilter(); }
     async function loadPOs(){ const {data,error}=await sb.from('v_po_header_summary').select('*').order('created_at',{ascending:false}).limit(300); if(error) throw error; state.poRows=data||[]; renderPOList(); }
     async function loadPOLines(poId){
       if(!poId){ state.currentLines=[]; state.costingCtx=null; if(el.kpiLanded) el.kpiLanded.textContent='—'; renderLines(); return; }
-      const {data,error}=await sb
-        .from('po_lines')
-        .select('*')
-        .eq('po_header_id',poId)
-        .order('created_at',{ascending:true});
+      let _q=sb.from('po_lines').select('*').eq('po_header_id',poId).order('created_at',{ascending:true});
+      if(_co?.id) _q=_q.eq('company_entity_id',_co.id);
+      const {data,error}=await _q;
       if(error) throw error;
       state.currentLines=sortLinesForDisplay(data||[]);
       renderLines();
@@ -470,11 +469,9 @@
     }
 
     async function loadCatalogProducts(){
-      const {data,error}=await sb
-        .from('products_master')
-        .select(CATALOG_SELECT)
-        .order('product_title',{ascending:true})
-        .limit(CATALOG_PREVIEW_LIMIT);
+      let _q=sb.from('products_master').select(CATALOG_SELECT).order('product_title',{ascending:true}).limit(CATALOG_PREVIEW_LIMIT);
+      if(_co?.id) _q=_q.eq('company_entity_id',_co.id);
+      const {data,error}=await _q;
       if(error) throw error;
       state.catalogRows=dedupeCatalogRows(data||[]).sort(compareProductLines);
     }
