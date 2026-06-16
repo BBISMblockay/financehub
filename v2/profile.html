@@ -173,6 +173,7 @@
     let db = null;
     let profile = null;
     let authUser = null;
+    const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
 
     const els = {
       bootStatus: document.getElementById('bootStatus'),
@@ -297,11 +298,11 @@
       if (!tokens.isAdmin && !tokens.finance) return;
       const today = todayIso();
       const [openRes, newRes, needsRes, paidTodayRes, overdueRes] = await Promise.all([
-        safeCount('payment_requests_v', q => q.eq('completed', false)),
-        safeCount('payment_requests_v', q => q.eq('completed', false).eq('workflow_status', 'new')),
-        safeCount('payment_requests_v', q => q.eq('completed', false).eq('workflow_status', 'needs_info')),
-        safeCount('payment_requests_v', q => q.eq('date_completed', today)),
-        safeCount('payment_requests_v', q => q.eq('completed', false).lt('due_date', today)),
+        safeCount('payment_requests_v', q => { let _q = q.eq('completed', false); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
+        safeCount('payment_requests_v', q => { let _q = q.eq('completed', false).eq('workflow_status', 'new'); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
+        safeCount('payment_requests_v', q => { let _q = q.eq('completed', false).eq('workflow_status', 'needs_info'); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
+        safeCount('payment_requests_v', q => { let _q = q.eq('date_completed', today); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
+        safeCount('payment_requests_v', q => { let _q = q.eq('completed', false).lt('due_date', today); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
       ]);
       if (!openRes.ok && !newRes.ok) return;
       if (newRes.ok && newRes.count > 0) {
@@ -328,7 +329,9 @@
       const weekEnd = addDaysIso(today, 7);
       let poRows = [];
       try {
-        const { data, error } = await db.from('v_po_incoming_summary').select('id,status,expected_arrival_date,po_name').limit(2000);
+        let _q = db.from('v_po_incoming_summary').select('id,status,expected_arrival_date,po_name').limit(2000);
+        if (_co?.id) _q = _q.eq('company_entity_id', _co.id);
+        const { data, error } = await _q;
         if (error) throw error;
         poRows = data || [];
       } catch (e) { return; }
@@ -348,7 +351,9 @@
       const weekEnd = addDaysIso(today, 7);
       let launches = [];
       try {
-        const { data, error } = await db.from('launch_calendar').select('id,title,launch_date,launch_readiness').gte('launch_date', today).lte('launch_date', weekEnd).order('launch_date', { ascending: true }).limit(100);
+        let _qlc = db.from('launch_calendar').select('id,title,launch_date,launch_readiness').gte('launch_date', today).lte('launch_date', weekEnd).order('launch_date', { ascending: true }).limit(100);
+        if (_co?.id) _qlc = _qlc.eq('company_entity_id', _co.id);
+        const { data, error } = await _qlc;
         if (error) throw error;
         launches = data || [];
       } catch (e) { return; }
@@ -361,11 +366,11 @@
       if (notReady.length > 0) {
         pushFeedItem(items, { kind: 'launch_readiness', title: `${notReady.length} launch${notReady.length === 1 ? '' : 'es'} not ready`, detail: 'Readiness needs review in the next 7 days.', href: '/v2/launch-calendar.html', severity: 'warn', count: notReady.length });
       }
-      const overdueTasks = await safeCount('launch_tasks', q => q.neq('status', 'done').not('due_date', 'is', null).lt('due_date', today));
+      const overdueTasks = await safeCount('launch_tasks', q => { let _q = q.neq('status', 'done').not('due_date', 'is', null).lt('due_date', today); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; });
       if (overdueTasks.ok && overdueTasks.count > 0) {
         pushFeedItem(items, { kind: 'launch_tasks', title: `${overdueTasks.count} overdue launch task${overdueTasks.count === 1 ? '' : 's'}`, detail: 'Past due and not done.', href: '/v2/launch-calendar.html', severity: 'high', count: overdueTasks.count });
       }
-      const atRisk = await safeCount('launch_product_readiness', q => q.eq('readiness_status', 'at_risk'));
+      const atRisk = await safeCount('launch_product_readiness', q => { let _q = q.eq('readiness_status', 'at_risk'); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; });
       if (atRisk.ok && atRisk.count > 0) {
         pushFeedItem(items, { kind: 'launch_products', title: `${atRisk.count} product${atRisk.count === 1 ? '' : 's'} at risk`, detail: 'Product readiness flagged at_risk.', href: '/v2/launch-calendar.html', severity: 'warn', count: atRisk.count });
       }
@@ -376,11 +381,11 @@
         const today = todayIso();
         const sevenDaysAgo = addDaysIso(today, -7);
         const [photoRes, readyRes, orphanRes, overdueTasksRes, myTasksRes] = await Promise.all([
-          safeCount('product_tracker', q => q.eq('photo_complete', 'pending').eq('is_live', false)),
-          safeCount('product_tracker', q => q.eq('photo_complete', 'complete').eq('copy_complete', true).eq('is_live', false)),
-          safeCount('product_tracker', q => q.is('launch_id', null).gte('created_at', sevenDaysAgo)),
-          safeCount('launch_tasks', q => q.neq('status', 'done').not('due_date', 'is', null).lt('due_date', today).eq('assigned_to_user_id', authUser?.id)),
-          safeCount('launch_tasks', q => q.neq('status', 'done').eq('assigned_to_user_id', authUser?.id)),
+          safeCount('product_tracker', q => { let _q = q.eq('photo_complete', 'pending').eq('is_live', false); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
+          safeCount('product_tracker', q => { let _q = q.eq('photo_complete', 'complete').eq('copy_complete', true).eq('is_live', false); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
+          safeCount('product_tracker', q => { let _q = q.is('launch_id', null).gte('created_at', sevenDaysAgo); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
+          safeCount('launch_tasks', q => { let _q = q.neq('status', 'done').not('due_date', 'is', null).lt('due_date', today).eq('assigned_to_user_id', authUser?.id); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
+          safeCount('launch_tasks', q => { let _q = q.neq('status', 'done').eq('assigned_to_user_id', authUser?.id); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
         ]);
         if (photoRes.ok && photoRes.count > 0) {
           pushFeedItem(items, { kind: 'tracker_photo_pending', title: `${photoRes.count} product${photoRes.count === 1 ? '' : 's'} need photos`, detail: 'Photo status is pending in Product Hub.', href: '/v2/product-manager.html', severity: photoRes.count > 5 ? 'warn' : 'info', count: photoRes.count });
@@ -404,7 +409,9 @@
       if (!tokens.isAdmin && !tokens.finance && !tokens.planning) return;
       const { monthStart, monthEnd } = currentMonthBounds();
       try {
-        const { count, error } = await db.from('revenue_projections').select('*', { count: 'exact', head: true }).gte('projection_date', monthStart).lte('projection_date', monthEnd);
+        let _qrp = db.from('revenue_projections').select('*', { count: 'exact', head: true }).gte('projection_date', monthStart).lte('projection_date', monthEnd);
+        if (_co?.id) _qrp = _qrp.eq('company_entity_id', _co.id);
+        const { count, error } = await _qrp;
         if (error) throw error;
         if (!count) {
           pushFeedItem(items, { kind: 'proj_empty', title: 'No projections this month', detail: 'Seed revenue plan in Planning scenarios.', href: '/v2/planning-scenarios.html', severity: 'warn' });
@@ -417,17 +424,14 @@
       const ACTIVE = ['Sent to Factory','Confirmed','In Production','Shipped','In Transit','Partially Received','Received'];
       const SHIPPED = ['Shipped','In Transit','Partially Received','Received'];
       try {
-        const { data: poData, error: poErr } = await db
-          .from('v_po_header_summary')
-          .select('id, status')
-          .in('status', ACTIVE)
-          .limit(500);
+        let _qpo = db.from('v_po_header_summary').select('id, status').in('status', ACTIVE).limit(500);
+        if (_co?.id) _qpo = _qpo.eq('company_entity_id', _co.id);
+        const { data: poData, error: poErr } = await _qpo;
         if (poErr) { console.warn('costing queue: po fetch failed', poErr.message); return; }
 
-        const { data: costData, error: costErr } = await db
-          .from('v_po_costing_summary')
-          .select('po_header_id, phase')
-          .limit(500);
+        let _qcost = db.from('v_po_costing_summary').select('po_header_id, phase').limit(500);
+        if (_co?.id) _qcost = _qcost.eq('company_entity_id', _co.id);
+        const { data: costData, error: costErr } = await _qcost;
         if (costErr) { console.warn('costing queue: costing fetch failed', costErr.message); return; }
 
         const costedIds = new Set((costData || []).map(r => r.po_header_id));
