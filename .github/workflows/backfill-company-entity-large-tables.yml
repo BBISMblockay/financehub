@@ -1,0 +1,133 @@
+name: Backfill company_entity_id (Large Tables)
+
+on:
+  workflow_dispatch:  # manual trigger only
+
+jobs:
+  backfill:
+    name: Backfill sales_by_day + inventory_on_hand
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      BASEBALLISM_ENTITY_ID: "3bd934c9-4cdd-429b-9076-f8f6b45d4eb7"
+      BATCH_SIZE: 50000
+
+    steps:
+      - name: Install psql
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y postgresql-client
+
+      - name: Backfill sales_by_day
+        env:
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          echo "Starting sales_by_day backfill..."
+
+          DB_HOST="db.mkquclffrvlzyecnabyf.supabase.co"
+          DB_USER="postgres"
+          DB_NAME="postgres"
+          ENTITY_ID="${BASEBALLISM_ENTITY_ID}"
+          BATCH=${BATCH_SIZE}
+          TOTAL=0
+
+          while true; do
+            UPDATED=$(psql \
+              "postgresql://${DB_USER}:${PGPASSWORD}@${DB_HOST}:5432/${DB_NAME}" \
+              --no-psqlrc -t -A \
+              -c "
+                WITH batch AS (
+                  SELECT id FROM sales_by_day
+                  WHERE company_entity_id IS NULL
+                  LIMIT ${BATCH}
+                  FOR UPDATE SKIP LOCKED
+                ), updated AS (
+                  UPDATE sales_by_day
+                  SET company_entity_id = '${ENTITY_ID}'
+                  FROM batch
+                  WHERE sales_by_day.id = batch.id
+                  RETURNING 1
+                )
+                SELECT COUNT(*) FROM updated;
+              ")
+
+            UPDATED=$(echo "${UPDATED}" | tr -d '[:space:]')
+            TOTAL=$((TOTAL + ${UPDATED:-0}))
+            echo "  → Batch updated ${UPDATED} rows (total so far: ${TOTAL})"
+
+            if [ "${UPDATED}" = "0" ] || [ -z "${UPDATED}" ]; then
+              echo "sales_by_day backfill complete. Total rows updated: ${TOTAL}"
+              break
+            fi
+
+            sleep 1
+          done
+
+      - name: Backfill inventory_on_hand
+        env:
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          echo "Starting inventory_on_hand backfill..."
+
+          DB_HOST="db.mkquclffrvlzyecnabyf.supabase.co"
+          DB_USER="postgres"
+          DB_NAME="postgres"
+          ENTITY_ID="${BASEBALLISM_ENTITY_ID}"
+          BATCH=${BATCH_SIZE}
+          TOTAL=0
+
+          while true; do
+            UPDATED=$(psql \
+              "postgresql://${DB_USER}:${PGPASSWORD}@${DB_HOST}:5432/${DB_NAME}" \
+              --no-psqlrc -t -A \
+              -c "
+                WITH batch AS (
+                  SELECT id FROM inventory_on_hand
+                  WHERE company_entity_id IS NULL
+                  LIMIT ${BATCH}
+                  FOR UPDATE SKIP LOCKED
+                ), updated AS (
+                  UPDATE inventory_on_hand
+                  SET company_entity_id = '${ENTITY_ID}'
+                  FROM batch
+                  WHERE inventory_on_hand.id = batch.id
+                  RETURNING 1
+                )
+                SELECT COUNT(*) FROM updated;
+              ")
+
+            UPDATED=$(echo "${UPDATED}" | tr -d '[:space:]')
+            TOTAL=$((TOTAL + ${UPDATED:-0}))
+            echo "  → Batch updated ${UPDATED} rows (total so far: ${TOTAL})"
+
+            if [ "${UPDATED}" = "0" ] || [ -z "${UPDATED}" ]; then
+              echo "inventory_on_hand backfill complete. Total rows updated: ${TOTAL}"
+              break
+            fi
+
+            sleep 1
+          done
+
+      - name: Verify backfill
+        env:
+          PGPASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: |
+          echo "Verifying null counts..."
+
+          psql \
+            "postgresql://postgres:${PGPASSWORD}@db.mkquclffrvlzyecnabyf.supabase.co:5432/postgres" \
+            --no-psqlrc \
+            -c "
+              SELECT
+                'sales_by_day' AS tbl,
+                COUNT(*) AS total,
+                COUNT(*) - COUNT(company_entity_id) AS remaining_nulls
+              FROM sales_by_day
+              UNION ALL
+              SELECT
+                'inventory_on_hand',
+                COUNT(*),
+                COUNT(*) - COUNT(company_entity_id)
+              FROM inventory_on_hand;
+            "
