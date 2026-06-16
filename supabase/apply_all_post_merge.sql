@@ -830,3 +830,53 @@ create unique index if not exists payment_requests_legacy_dedupe_uidx
     and legacy_external_id is not null
     and btrim(legacy_external_id) <> '';
 
+-- >>> SECTION 13: INSERT COMPANY STAMP (migration 20260616060000)
+-- =============================================================================
+create or replace function public.stamp_company_entity_id()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.company_entity_id is null then
+    new.company_entity_id := public.active_company_id();
+  end if;
+  return new;
+end;
+$$;
+
+create or replace function public.attach_stamp_company_entity_id_triggers()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  r record;
+begin
+  for r in
+    select c.table_name
+    from information_schema.columns c
+    join information_schema.tables t
+      on t.table_schema = c.table_schema
+     and t.table_name = c.table_name
+    where c.table_schema = 'public'
+      and c.column_name = 'company_entity_id'
+      and t.table_type = 'BASE TABLE'
+      and c.table_name not in ('inventory_on_hand', 'sales_by_day')
+  loop
+    execute format('drop trigger if exists stamp_company_entity_id on public.%I', r.table_name);
+    execute format(
+      'create trigger stamp_company_entity_id
+         before insert on public.%I
+         for each row
+         execute function public.stamp_company_entity_id()',
+      r.table_name
+    );
+  end loop;
+end;
+$$;
+
+select public.attach_stamp_company_entity_id_triggers();
+
