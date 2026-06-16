@@ -4,6 +4,14 @@ Short list of **resolved** issues. Active problems stay in [bugs.md](bugs.md).
 
 | When | Area | What was fixed |
 |------|------|----------------|
+| 2026-06 | Multi-tenant | **Phase 1 complete**: company context layer, RLS active-company isolation, view security_invoker — see multi-tenant section in roadmap.md |
+| 2026-06 | Multi-tenant | `profiles.active_company_id` column + `active_company_id()` / `set_active_company()` RPC functions — DB-level per-session company isolation |
+| 2026-06 | Multi-tenant | `security_invoker = true` on all 30+ views in public schema so RLS applies through views, not just on base tables |
+| 2026-06 | Multi-tenant | `company_entity_id` column backfilled on 40+ operational tables (excluding `inventory_on_hand` and `sales_by_day` — deferred) |
+| 2026-06 | Multi-tenant | Company picker page (`/v2/company-picker.html`) for users with multiple company memberships |
+| 2026-06 | Multi-tenant | `_co` + `company_entity_id` JS query filters added to profile.html work queue, tasks.html, projections.html, launch-calendar.html, po-builder.html, purchase_request.html, request_manager.html, po-costing.html, product-manager.html, product-samples.html, factories.html |
+| 2026-06 | Auth | Login resolves company via `entity_memberships`, auto-sets single company or routes to picker for multi-company users |
+|------|------|----------------|
 | 2026-06 | Supabase schema | Verified all tables, RLS, and policies healthy across PO builder, costing, profiles, and launch workbench |
 | 2026-06 | Supabase schema | Created missing `po_builder_can_write()` function (was in migration but hadn't applied) |
 | 2026-06 | RLS | Confirmed all 13 tables have RLS enabled; PO builder had pre-existing dashboard policies — all access working |
