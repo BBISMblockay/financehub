@@ -11,6 +11,7 @@
   <script src="v2-shell.js" defer></script>
   <script src="../pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="nav-config.js"></script>
   <script src="silo-chrome.js"></script>
   <style>
     :root { color-scheme: light; }
@@ -120,13 +121,13 @@
 
     <div class="fin-landing">
       <div class="fin-landing-head">
-        <h1>Finance Department</h1>
-        <p>Baseballism · SILO v2 console — select a tool from the sidebar or below.</p>
+        <h1 id="finLandingTitle">Finance Department</h1>
+        <p id="finLandingSub">Baseballism · SILO v2 console — select a tool from the sidebar or below.</p>
       </div>
 
       <div class="fin-sections">
 
-        <div class="fin-card">
+        <div class="fin-card" data-nav-profile="grandfathered">
           <div class="fin-card-head"><h2>Overview</h2></div>
           <div class="fin-links">
             <a class="fin-link" href="/v2/employeehub.html">Dashboard</a>
@@ -134,7 +135,7 @@
           </div>
         </div>
 
-        <div class="fin-card">
+        <div class="fin-card" data-nav-profile="grandfathered">
           <div class="fin-card-head"><h2>Payables</h2></div>
           <div class="fin-links">
             <a class="fin-link" href="/accountspayable.html">AP Manager</a>
@@ -143,7 +144,7 @@
           </div>
         </div>
 
-        <div class="fin-card">
+        <div class="fin-card" data-nav-profile="grandfathered">
           <div class="fin-card-head"><h2>Receivables</h2></div>
           <div class="fin-links">
             <a class="fin-link" href="/v2/baseballismwholesale.html">BBISM Receivables</a>
@@ -156,9 +157,9 @@
           <div class="fin-links">
             <a class="fin-link" href="/v2/purchase_request.html">Payment Request</a>
             <a class="fin-link" href="/v2/request_manager.html">Request Manager</a>
-            <a class="fin-link" href="https://www.jotform.com/grid/200496754119055" target="_blank" rel="noopener">Travel Requests <span class="fin-link-ext">EXT</span></a>
-            <a class="fin-link" href="https://www.jotform.com/grid/222686658265065" target="_blank" rel="noopener">Bars Requests <span class="fin-link-ext">EXT</span></a>
-            <a class="fin-link" href="/v2/travel.html">Travel Report</a>
+            <a class="fin-link" data-nav-profile="grandfathered" href="https://www.jotform.com/grid/200496754119055" target="_blank" rel="noopener">Travel Requests <span class="fin-link-ext">EXT</span></a>
+            <a class="fin-link" data-nav-profile="grandfathered" href="https://www.jotform.com/grid/222686658265065" target="_blank" rel="noopener">Bars Requests <span class="fin-link-ext">EXT</span></a>
+            <a class="fin-link" data-nav-profile="grandfathered" href="/v2/travel.html">Travel Report</a>
           </div>
         </div>
 
@@ -179,11 +180,11 @@
           <div class="fin-card-head"><h2>Inventory</h2></div>
           <div class="fin-links">
             <a class="fin-link" href="/v2/inventory.html">Inventory Manager</a>
-            <a class="fin-link" href="/v2/product-manager.html">Product Tags</a>
+            <a class="fin-link" href="/v2/product-manager.html">Product Hub</a>
           </div>
         </div>
 
-        <div class="fin-card">
+        <div class="fin-card" data-nav-profile="grandfathered">
           <div class="fin-card-head"><h2>Reports</h2></div>
           <div class="fin-links">
             <a class="fin-link" href="https://app.powerbi.com/view?r=eyJrIjoiY2U0MWI2ZmMtMTY3MS00MDY3LTg5NjctN2VlYjk0NGMxNzUzIiwidCI6IjIzYTkzNDJkLTFjODEtNGJkNS1hY2U0LThmYWY4ZWVlNTZiZCJ9" target="_blank" rel="noopener">BI Sales Dashboard <span class="fin-link-ext">EXT</span></a>
@@ -224,6 +225,22 @@
     crumbs: ['Finance Department'],
     supabaseClient,
   });
+
+  (function polishFinanceHub() {
+    if (!window.SiloChrome?.resolveNavProfile) return;
+    const company = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
+    if (window.SiloChrome.resolveNavProfile(company) !== 'standard') return;
+
+    const title = document.getElementById('finLandingTitle');
+    const sub = document.getElementById('finLandingSub');
+    if (title) title.textContent = company?.title || 'Company home';
+    if (sub) sub.textContent = 'SILO company console — select a tool from the sidebar or below.';
+
+    document.querySelectorAll('[data-nav-profile="grandfathered"]').forEach((el) => el.remove());
+    document.querySelectorAll('.fin-card').forEach((card) => {
+      if (!card.querySelector('.fin-link')) card.remove();
+    });
+  })();
 
   // Auth check: redirect to login if not signed in
   async function boot() {

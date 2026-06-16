@@ -7,6 +7,7 @@
      <link rel="stylesheet" href="beacon-mirrors-unified.css" />
      <link rel="stylesheet" href="v2-mobile.css" />
      <script src="v2-shell.js" defer></script>
+     <script src="nav-config.js"></script>
      <script src="silo-chrome.js"></script>
      <script>
        SiloChrome.mount({
@@ -20,83 +21,13 @@
    ======================================================================== */
 
 (function () {
-  /** Same sections + order as v2/finance.html; v2 hrefs where a mirror exists. */
-  const NAV_SECTIONS = [
-    {
-      section: 'Start',
-      items: [
-        { id: 'hub', label: 'SILO home', href: '/index.html' },
-        { id: 'finance/menu', label: 'Finance department', href: '/v2/finance.html' },
-        { id: 'people/profile', label: 'My profile', href: '/v2/profile.html' },
-      ],
-    },
-    {
-      section: 'Overview',
-      items: [
-        { id: 'people/dashboard', label: 'Dashboard', href: '/v2/employeehub.html' },
-      ],
-    },
-    {
-      section: 'Payables',
-      items: [
-        { id: 'finance/ap-manager', label: 'AP Manager', href: '/accountspayable.html' },
-        { id: 'finance/mailroom', label: 'Mailroom Inbox', href: '/v2/mailroom.html' },
-      ],
-    },
-    {
-      section: 'Receivables',
-      items: [
-        { id: 'wholesale/customers', label: 'BBISM Receivables', href: '/v2/baseballismwholesale.html' },
-        { id: 'wholesale/wpv', label: 'WPV Receivables', href: '/v2/wpvaccounts.html' },
-      ],
-    },
-    {
-      section: 'Requests',
-      items: [
-        { id: 'finance/payment-request', label: 'Payment Request', href: '/v2/purchase_request.html' },
-        { id: 'finance/request-manager', label: 'Request Manager', href: '/v2/request_manager.html' },
-        { id: 'finance/travel', label: 'Travel Report', href: '/v2/travel.html' },
-      ],
-    },
-    {
-      section: 'Planning',
-      items: [
-        { id: 'planning/revenue-projections', label: 'Revenue Projection', href: '/v2/projections.html' },
-        { id: 'planning/scenarios', label: 'Planning scenarios', href: '/v2/planning-scenarios.html' },
-        { id: 'planning/launch-calendar', label: 'Launch calendar', href: '/v2/launch-calendar.html' },
-        { id: 'planning/tasks', label: 'Task Manager', href: '/v2/tasks.html' },
-      ],
-    },
-    {
-      section: 'Purchasing',
-      items: [
-        { id: 'purchasing/po-builder', label: 'PO Builder', href: '/v2/po-builder.html' },
-        { id: 'purchasing/po-costing', label: 'PO Landed Cost', href: '/v2/po-costing.html' },
-        { id: 'purchasing/po-report', label: 'PO Report', href: '/v2/po-report.html' },
-        { id: 'purchasing/factories', label: 'Factories', href: '/pages/factories.html' },
-      ],
-    },
-    {
-      section: 'Creative',
-      items: [
-        { id: 'creative/product-samples', label: 'Product Tracker', href: '/v2/product-samples.html' },
-      ],
-    },
-    {
-      section: 'Inventory',
-      items: [
-        { id: 'inventory/workboard', label: 'Inventory Manager', href: '/v2/inventory.html' },
-        { id: 'inventory/products', label: 'Product Hub', href: '/v2/product-manager.html' },
-      ],
-    },
-    {
-      section: 'Reports',
-      items: [
-        { id: 'finance/sales-bi', label: 'BI Sales Dashboard', href: 'https://app.powerbi.com/view?r=eyJrIjoiY2U0MWI2ZmMtMTY3MS00MDY3LTg5NjctN2VlYjk0NGMxNzUzIiwidCI6IjIzYTkzNDJkLTFjODEtNGJkNS1hY2U0LThmYWY4ZWVlNTZiZCJ9', external: true },
-        { id: 'people/payroll', label: 'Payroll BI', href: '/v2/payroll.html' },
-      ],
-    },
-  ];
+  const Nav = window.SiloNav;
+  if (!Nav) {
+    console.error('SiloChrome: load nav-config.js before silo-chrome.js');
+    return;
+  }
+
+  const { resolveNavProfile, navSectionsForCompany } = Nav;
 
   const ICONS = {
     hub:        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" width="15" height="15"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>',
@@ -139,7 +70,17 @@
     localStorage.setItem(LS_SECTIONS_OPEN, JSON.stringify([...set]));
   }
 
+  function getActiveCompany() {
+    try {
+      return window.__SILO_CONFIG__?.getActiveCompany?.() || null;
+    } catch {
+      return null;
+    }
+  }
+
   function renderNavSections(active) {
+    const company = getActiveCompany();
+    const NAV_SECTIONS = navSectionsForCompany(company);
     // Determine which section contains the active item
     const activeSection = NAV_SECTIONS.find(s => s.items.some(i => i.id === active))?.section || null;
     const openSet = getSectionOpenSet();
@@ -170,6 +111,10 @@
 
   function renderSidebar(opts) {
     const { active, user } = opts;
+    const company = getActiveCompany();
+    const companyLine = company?.title
+      ? escHtml(company.title)
+      : 'v2.0 · prod';
 
     return `
       <aside class="silo-sidebar" role="navigation" aria-label="SILO menu">
@@ -178,7 +123,7 @@
             <div class="silo-sb-logo">S</div>
             <div class="silo-sb-brand-text">
               <div class="silo-sb-name">SILO</div>
-              <div class="silo-sb-ver">v2.0 · prod</div>
+              <div class="silo-sb-ver">${companyLine}</div>
             </div>
           </div>
           <button class="silo-sb-collapse" type="button" data-silo-action="collapse" aria-label="Collapse sidebar">
@@ -393,5 +338,5 @@
     window.location.href = '/pages/login.html';
   }
 
-  window.SiloChrome = { mount };
+  window.SiloChrome = { mount, resolveNavProfile, navSectionsForCompany };
 })();
