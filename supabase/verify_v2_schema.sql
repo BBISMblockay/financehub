@@ -113,7 +113,29 @@ where n.nspname = 'public'
   and t.tgname = 'stamp_company_entity_id'
   and not t.tgisinternal;
 
--- 7. Quick counts (0 is fine on a fresh install)
+-- 7. Shopify integrations Phase 1 (migration 20260617010000)
+select
+  want.name,
+  case when t.table_name is not null then 'ok' else 'MISSING — run 20260617010000_shopify_integrations_phase1.sql' end as status
+from (values
+  ('shopify_connections'),
+  ('shopify_location_mappings'),
+  ('sync_jobs')
+) as want(name)
+left join information_schema.tables t
+  on t.table_schema = 'public' and t.table_name = want.name;
+
+select
+  want.name,
+  case when f.proname is not null then 'ok' else 'MISSING — run 20260617010000_shopify_integrations_phase1.sql' end as status
+from (values
+  ('active_company_shopify_enabled'),
+  ('active_company_shopify_sync_mode')
+) as want(name)
+left join pg_proc f on f.proname = want.name
+left join pg_namespace n on n.oid = f.pronamespace and n.nspname = 'public';
+
+-- 8. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)       as factories,
   (select count(*) from public.po_headers)      as po_headers,

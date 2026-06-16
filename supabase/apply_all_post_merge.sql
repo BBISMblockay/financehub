@@ -880,3 +880,152 @@ $$;
 
 select public.attach_stamp_company_entity_id_triggers();
 
+-- >>> SECTION 14: SHOPIFY INTEGRATIONS PHASE 1 (migration 20260617010000)
+-- =============================================================================
+create table if not exists public.shopify_connections (
+  id                    uuid primary key default gen_random_uuid(),
+  company_entity_id     uuid not null references public.entities(id) on delete cascade,
+  shop_domain           text not null,
+  display_name          text,
+  location_tag_prefix   text,
+  credential_ref        text,
+  api_version           text not null default '2025-01',
+  sync_enabled          boolean not null default false,
+  history_days_default  integer not null default 90
+    check (history_days_default between 1 and 365),
+  meta                  jsonb not null default '{}'::jsonb,
+  created_at            timestamptz not null default now(),
+  updated_at            timestamptz not null default now(),
+  created_by            uuid references auth.users(id) on delete set null,
+  constraint shopify_connections_shop_domain_nonempty
+    check (btrim(shop_domain) <> ''),
+  constraint shopify_connections_company_shop_uidx
+    unique (company_entity_id, shop_domain)
+);
+
+create index if not exists shopify_connections_company_idx
+  on public.shopify_connections (company_entity_id);
+
+create table if not exists public.shopify_location_mappings (
+  id                    uuid primary key default gen_random_uuid(),
+  connection_id         uuid not null references public.shopify_connections(id) on delete cascade,
+  company_entity_id     uuid not null references public.entities(id) on delete cascade,
+  shopify_location_id   text not null,
+  shopify_location_name text,
+  silo_location_code    text,
+  location_id           bigint references public.locations(id) on delete set null,
+  is_sales_only         boolean not null default false,
+  notes                 text,
+  created_at            timestamptz not null default now(),
+  updated_at            timestamptz not null default now(),
+  constraint shopify_location_mappings_conn_loc_uidx
+    unique (connection_id, shopify_location_id)
+);
+
+create index if not exists shopify_location_mappings_connection_idx
+  on public.shopify_location_mappings (connection_id);
+
+create table if not exists public.sync_jobs (
+  id                uuid primary key default gen_random_uuid(),
+  company_entity_id uuid not null references public.entities(id) on delete cascade,
+  connection_id     uuid references public.shopify_connections(id) on delete set null,
+  job_type          text not null
+    check (job_type in (
+      'test_connection', 'history_import', 'incremental_sales',
+      'inventory_snapshot', 'catalog_sync'
+    )),
+  status            text not null default 'pending'
+    check (status in ('pending', 'running', 'completed', 'failed', 'cancelled')),
+  params            jsonb not null default '{}'::jsonb,
+  progress          jsonb not null default '{}'::jsonb,
+  error_message     text,
+  started_at        timestamptz,
+  finished_at       timestamptz,
+  created_at        timestamptz not null default now(),
+  created_by        uuid references auth.users(id) on delete set null
+);
+
+create index if not exists sync_jobs_company_status_idx
+  on public.sync_jobs (company_entity_id, status, created_at desc);
+
+drop trigger if exists shopify_connections_updated_at on public.shopify_connections;
+create trigger shopify_connections_updated_at
+  before update on public.shopify_connections
+  for each row execute function public.set_updated_at();
+
+drop trigger if exists shopify_location_mappings_updated_at on public.shopify_location_mappings;
+create trigger shopify_location_mappings_updated_at
+  before update on public.shopify_location_mappings
+  for each row execute function public.set_updated_at();
+
+create or replace function public.active_company_shopify_enabled()
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce(
+    (select (e.meta #>> '{integrations,shopify,enabled}')::boolean
+     from public.entities e where e.id = public.active_company_id()),
+    false
+  );
+$$;
+
+create or replace function public.active_company_shopify_sync_mode()
+returns text language sql stable security definer set search_path = public as $$
+  select coalesce(
+    (select e.meta #>> '{integrations,shopify,sync_mode}'
+     from public.entities e where e.id = public.active_company_id()),
+    'none'
+  );
+$$;
+
+update public.entities
+set meta = coalesce(meta, '{}'::jsonb) || jsonb_build_object(
+  'integrations', jsonb_build_object(
+    'shopify', jsonb_build_object('enabled', false, 'sync_mode', 'sheets')
+  )
+)
+where entity_key = 'baseballism'
+  and (meta #>> '{integrations,shopify,sync_mode}') is null;
+
+update public.entities
+set meta = coalesce(meta, '{}'::jsonb) || jsonb_build_object(
+  'integrations', jsonb_build_object(
+    'shopify', jsonb_build_object('enabled', false, 'sync_mode', 'api')
+  )
+)
+where entity_key = 'test-co'
+  and (meta #>> '{integrations,shopify,sync_mode}') is null;
+
+alter table public.shopify_connections enable row level security;
+alter table public.shopify_location_mappings enable row level security;
+alter table public.sync_jobs enable row level security;
+
+drop policy if exists "shopify_connections_active_select" on public.shopify_connections;
+create policy "shopify_connections_active_select" on public.shopify_connections
+  for select using (company_entity_id = active_company_id());
+
+drop policy if exists "shopify_connections_active_write" on public.shopify_connections;
+create policy "shopify_connections_active_write" on public.shopify_connections
+  for all using    (company_entity_id = active_company_id() and is_admin_user())
+  with check       (company_entity_id = active_company_id() and is_admin_user());
+
+drop policy if exists "shopify_location_mappings_active_select" on public.shopify_location_mappings;
+create policy "shopify_location_mappings_active_select" on public.shopify_location_mappings
+  for select using (company_entity_id = active_company_id());
+
+drop policy if exists "shopify_location_mappings_active_write" on public.shopify_location_mappings;
+create policy "shopify_location_mappings_active_write" on public.shopify_location_mappings
+  for all using    (company_entity_id = active_company_id() and is_admin_user())
+  with check       (company_entity_id = active_company_id() and is_admin_user());
+
+drop policy if exists "sync_jobs_active_select" on public.sync_jobs;
+create policy "sync_jobs_active_select" on public.sync_jobs
+  for select using (company_entity_id = active_company_id());
+
+drop policy if exists "sync_jobs_active_insert" on public.sync_jobs;
+create policy "sync_jobs_active_insert" on public.sync_jobs
+  for insert with check (company_entity_id = active_company_id() and is_admin_user());
+
+drop policy if exists "sync_jobs_active_update" on public.sync_jobs;
+create policy "sync_jobs_active_update" on public.sync_jobs
+  for update using    (company_entity_id = active_company_id() and is_admin_user())
+  with check          (company_entity_id = active_company_id() and is_admin_user());
+

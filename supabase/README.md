@@ -53,6 +53,9 @@ Run in order:
 13. **`migrations/20260616060000_stamp_company_entity_id_on_insert.sql`** — insert company stamp  
     `BEFORE INSERT` trigger on all `company_entity_id` tables (except `inventory_on_hand` / `sales_by_day`) stamps `active_company_id()` when the client omits the column. Pair with `withCompany()` in `pages/config.js` for UI writes.
 
+14. **`migrations/20260617010000_shopify_integrations_phase1.sql`** — Shopify ingestion schema (Phase 1)  
+    `shopify_connections`, `shopify_location_mappings`, `sync_jobs`, company integration flags in `entities.meta`. **No sync scripts yet** — see `docs/ops/shopify-ingestion.md`.
+
 ## App workflow after SQL succeeds
 
 1. **PO builder** (`/v2/po-builder.html`) — create header + lines (needs at least one factory)
@@ -98,7 +101,9 @@ SILO supports multiple companies in one Supabase project. Isolation is enforced 
 **Key column:** `company_entity_id uuid` on all operational tables  
 **Baseballism entity id:** `3bd934c9-4cdd-429b-9076-f8f6b45d4eb7`
 
-**Not yet isolated:** `inventory_on_hand`, `sales_by_day` (backfill deferred — these tables are Baseballism-specific via Google Sheets/Better Reports sync and need a new per-company data pipeline before they can be properly partitioned).
+**Not yet isolated:** `inventory_on_hand`, `sales_by_day` — backfill to Baseballism complete; RLS on analytics tables deferred until per-company API sync is live. Baseballism continues on Sheets nightly sync.
+
+**Shopify API ingestion (in progress):** Phase 1 schema only. Baseballism `sync_mode: sheets`, API disabled. See `docs/ops/shopify-ingestion.md`.
 
 ## Write access
 
@@ -127,6 +132,7 @@ supabase/
     20260616020000_rls_active_company_isolation.sql
     20260616030000_views_security_invoker.sql
     20260616060000_stamp_company_entity_id_on_insert.sql
+    20260617010000_shopify_integrations_phase1.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

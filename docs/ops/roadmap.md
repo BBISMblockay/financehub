@@ -37,6 +37,16 @@ Architecture: one Supabase project, multiple companies isolated at the DB level.
 - [x] Insert-side `company_entity_id` wiring — DB `BEFORE INSERT` trigger + `withCompany()` helpers in `pages/config.js` (no per-page patches required)
 - [ ] Company switcher in the sidebar (without requiring full logout/login)
 
+### Shopify ingestion (per-company API — additive, does not replace Sheets until cutover)
+
+See `docs/ops/shopify-ingestion.md`.
+
+- [x] Phase 1: `shopify_connections`, `shopify_location_mappings`, `sync_jobs` + `entities.meta.integrations.shopify` flags
+- [ ] Phase 2: `shopify-sync.mjs` orchestrator + separate GitHub Action (company-gated)
+- [ ] Phase 3: Company settings UI (multi-shop connect, location map, 90d history import)
+- [ ] Phase 4: View parity + RLS on `sales_by_day` / `inventory_on_hand`
+- [ ] Phase 5: Baseballism location-by-location cutover from `silo-sources.mjs`
+
 ---
 
 ## Next (v2 product)
