@@ -6,6 +6,7 @@
   <title>Silo — Select Company</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="../pages/config.js"></script>
   <style>
     .picker-wrap {
@@ -103,9 +104,14 @@
   </div>
 
   <script>
-    (function () {
+    (async function () {
       const listEl = document.getElementById('companyList');
       const errEl  = document.getElementById('errMsg');
+
+      const cfg = window.__SILO_CONFIG__ || {};
+      const _sb = (cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY)
+        ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY)
+        : null;
 
       function showErr(msg) {
         errEl.textContent = msg;
@@ -136,23 +142,30 @@
           </div>
         `;
 
-        btn.addEventListener('click', function () {
+        btn.addEventListener('click', async function () {
+          btn.disabled = true;
           try {
             if (window.__SILO_CONFIG__?.setActiveCompany) {
               window.__SILO_CONFIG__.setActiveCompany(co);
             } else {
               sessionStorage.setItem('__SILO_COMPANY__', JSON.stringify(co));
             }
+            // Write active company to DB so RLS enforces it server-side
+            if (_sb) {
+              const { error } = await _sb.rpc('set_active_company', { p_entity_id: co.id });
+              if (error) { showErr('Could not activate company: ' + error.message); btn.disabled = false; return; }
+            }
             sessionStorage.removeItem('__SILO_COMPANY_OPTIONS__');
             window.location.href = '/v2/finance.html';
           } catch (e) {
             showErr('Could not set company: ' + e.message);
+            btn.disabled = false;
           }
         });
 
         listEl.appendChild(btn);
       });
     })();
-  </script>
+    </script>
 </body>
 </html>
