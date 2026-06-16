@@ -9,9 +9,9 @@ on:
         default: "sales_by_day,inventory_on_hand"
         type: string
       batch_size:
-        description: "Rows per batch"
+        description: "Rows per batch (optional override; inventory default 2000, sales 10000)"
         required: false
-        default: "50000"
+        default: ""
         type: string
 
 jobs:

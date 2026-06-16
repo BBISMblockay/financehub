@@ -10,7 +10,7 @@
 //
 // Optional:
 //   BACKFILL_TABLES=sales_by_day,inventory_on_hand  (default: both)
-//   BATCH_SIZE=10000                                 (default: 10000)
+//   BATCH_SIZE=2000                                  (override per-table default)
 //
 // Run:
 //   node scripts/backfill-company-entity-large-tables.mjs
@@ -25,7 +25,18 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 }
 
 const BASEBALLISM_ENTITY_ID = "3bd934c9-4cdd-429b-9076-f8f6b45d4eb7";
-const BATCH_SIZE = parseInt(process.env.BATCH_SIZE || "10000", 10);
+
+/** inventory_on_hand rows are wide + heavily indexed; keep batches small. */
+const DEFAULT_BATCH_SIZE = {
+  sales_by_day: 10000,
+  inventory_on_hand: 2000,
+};
+
+function batchSizeFor(table) {
+  if (process.env.BATCH_SIZE) return parseInt(process.env.BATCH_SIZE, 10);
+  return DEFAULT_BATCH_SIZE[table] ?? 5000;
+}
+
 const TABLES = (process.env.BACKFILL_TABLES || "sales_by_day,inventory_on_hand")
   .split(",")
   .map((t) => t.trim())
@@ -36,7 +47,8 @@ const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 });
 
 async function backfillTable(table) {
-  console.log(`\n── ${table} ──`);
+  const batchSize = batchSizeFor(table);
+  console.log(`\n── ${table} (batch size: ${batchSize}) ──`);
   let total = 0;
   let batch = 0;
 
@@ -46,7 +58,7 @@ async function backfillTable(table) {
     const { data: updated, error } = await db.rpc("backfill_company_entity_batch", {
       p_table: table,
       p_entity_id: BASEBALLISM_ENTITY_ID,
-      p_batch_size: BATCH_SIZE,
+      p_batch_size: batchSize,
     });
 
     if (error) {
@@ -86,7 +98,13 @@ async function verify(table) {
 }
 
 console.log(`Backfill starting. Tables: ${TABLES.join(", ")}`);
-console.log(`Batch size: ${BATCH_SIZE}`);
+if (process.env.BATCH_SIZE) {
+  console.log(`Batch size override: ${process.env.BATCH_SIZE} (all tables)`);
+} else {
+  console.log(
+    `Batch sizes: ${TABLES.map((t) => `${t}=${batchSizeFor(t)}`).join(", ")}`
+  );
+}
 console.log(`Entity id: ${BASEBALLISM_ENTITY_ID}`);
 
 for (const table of TABLES) {
