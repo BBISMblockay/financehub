@@ -328,6 +328,7 @@
   }
 
   const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
 
   /* ── Status helper (forward declared so config error can use it) ── */
   function setStatus(msg, type = 'info', ms = 0) {
@@ -408,9 +409,13 @@
   async function loadAll() {
     setStatus('Loading…', 'info');
     try {
+      let _qt = db.from('launch_tasks').select('*').order('created_at', { ascending: false });
+      if (_co?.id) _qt = _qt.eq('company_entity_id', _co.id);
+      let _ql = db.from('launch_calendar').select('id, title, launch_date').order('launch_date', { ascending: false });
+      if (_co?.id) _ql = _ql.eq('company_entity_id', _co.id);
       const [tasksRes, launchRes, profilesRes, profileMe] = await Promise.all([
-        db.from('launch_tasks').select('*').order('created_at', { ascending: false }),
-        db.from('launch_calendar').select('id, title, launch_date').order('launch_date', { ascending: false }),
+        _qt,
+        _ql,
         db.from('profiles').select('id, name, email').eq('is_active', true).order('name'),
         db.from('profiles').select('role').eq('id', currentUser.id).single(),
       ]);
