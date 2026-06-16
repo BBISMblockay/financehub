@@ -113,6 +113,7 @@
     const REQUIRE_AUTH = Boolean(window.__SILO_CONFIG__?.REQUIRE_AUTH || window.REQUIRE_AUTH || false);
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) { document.body.innerHTML = '<div class="min-h-screen flex items-center justify-center p-6"><div class="glass max-w-xl p-6 text-center"><div class="text-xl font-bold text-slate-900">Missing Supabase config</div><div class="mt-2 text-sm text-slate-500">Provide SUPABASE_URL and SUPABASE_ANON_KEY through config.js.</div></div></div>'; throw new Error('Missing Supabase config'); }
     const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
 
     const OPTIONAL_COLUMNS = ['contact_phone', 'notes'];
     const BASE_COLUMNS = ['id', 'factory_name', 'short_code', 'contact_name', 'contact_email', ...OPTIONAL_COLUMNS];
@@ -143,7 +144,9 @@
       setStatus('Loading factories...');
       state.changed.clear(); el.btnSaveAllChanged.disabled = true;
       await detectOptionalColumns();
-      const { data, error } = await sb.from('factories').select(buildSelectColumns()).order('factory_name', { ascending: true });
+      let _q = sb.from('factories').select(buildSelectColumns()).order('factory_name', { ascending: true });
+      if (_co?.id) _q = _q.eq('company_entity_id', _co.id);
+      const { data, error } = await _q;
       if (error) throw error;
       state.factories = data || [];
       applyFilters();
@@ -230,7 +233,7 @@
     }
 
     async function createFactory(){
-      const { error } = await sb.from('factories').insert(newFactoryPayload());
+      const { error } = await sb.from('factories').insert({...newFactoryPayload(),...(_co?.id?{company_entity_id:_co.id}:{})});
       if (error) throw error;
       clearNewFactory(); modalClose(el.factoryModal); await loadFactories();
     }

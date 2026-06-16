@@ -514,6 +514,7 @@ async function boot() {
   cacheEls();
   if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) { setStatus('Missing Supabase config.', 'neg'); return; }
   db = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+  const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
   const { data:sess, error:sessErr } = await db.auth.getSession();
   if (sessErr) console.warn('getSession:', sessErr);
   if (!sess?.session) { window.location.href = '/pages/login.html'; return; }
@@ -742,7 +743,7 @@ async function quickSave(key, date, locId, input) {
   setStatus('Saving…', 'info');
 
   try {
-    const { error } = await db.from('revenue_projections').upsert([payload], { onConflict:'projection_date,location_id' });
+    const { error } = await db.from('revenue_projections').upsert([{...payload,...(_co?.id?{company_entity_id:_co.id}:{})}], { onConflict:'projection_date,location_id' });
     if (error) throw error;
     setStatus(`Saved · ${date} · ${locName(locId)} · ${fmtUSD(sales)}`, 'pos', 1600);
     state.inlineKey = null;
@@ -795,9 +796,9 @@ function restoreFilters() {
 /* ---- loaders ---------------------------------------------------------- */
 
 async function loadLocations() {
-  const { data, error } = await db.from('locations')
-    .select('id, location_code, location_name, domain, store_type, is_active')
-    .eq('is_active', true).order('location_name', { ascending:true });
+  let _q = db.from('locations').select('id, location_code, location_name, domain, store_type, is_active').eq('is_active', true).order('location_name', { ascending:true });
+  if (_co?.id) _q = _q.eq('company_entity_id', _co.id);
+  const { data, error } = await _q;
   if (error) throw error;
   state.locations = data || [];
   els.fLoc.innerHTML = '<option value="">ALL</option>' +
@@ -808,9 +809,9 @@ async function loadLocations() {
 }
 
 async function loadProjections() {
-  const { data, error } = await db.from('revenue_projections')
-    .select('id, projection_date, location_id, projected_units, projected_sales, notes, source, scenario, created_at, updated_at, created_by, updated_by, locations(id,location_name,location_code,domain,store_type)')
-    .eq('scenario','active').order('projection_date',{ascending:true}).range(0,1500000);
+  let _q = db.from('revenue_projections').select('id, projection_date, location_id, projected_units, projected_sales, notes, source, scenario, created_at, updated_at, created_by, updated_by, locations(id,location_name,location_code,domain,store_type)').eq('scenario','active').order('projection_date',{ascending:true}).range(0,1500000);
+  if (_co?.id) _q = _q.eq('company_entity_id', _co.id);
+  const { data, error } = await _q;
   if (error) throw error;
   state.projections = (data||[]).map(r => ({
     ...r,
@@ -832,6 +833,7 @@ async function loadCalendarEvents() {
   let q = db.from('launch_calendar').select('*').order('launch_date',{ascending:true}).range(0,500000);
   if (dateFrom) q=q.gte('launch_date',dateFrom);
   if (dateTo)   q=q.lte('launch_date',dateTo);
+  if (_co?.id)  q=q.eq('company_entity_id',_co.id);
   const { data, error } = await q;
   if (error) throw error;
   state.calendar = (data||[])
@@ -851,6 +853,7 @@ async function loadFullHistory() {
     .order('changed_at',{ascending:false}).limit(200);
   if (from) q=q.gte('projection_date',from);
   if (to)   q=q.lte('projection_date',to);
+  if (_co?.id) q=q.eq('company_entity_id',_co.id);
   const { data, error } = await q;
   if (error) { setStatus('History load failed: '+error.message,'neg'); return; }
   state.fullHistory = data||[];
@@ -1121,7 +1124,7 @@ async function saveProjection() {
   const saveBtn=document.querySelector('[data-action="save"]');
   saveBtn.disabled=true;
   try {
-    const { error }=await db.from('revenue_projections').upsert([payload],{onConflict:'projection_date,location_id'});
+    const { error }=await db.from('revenue_projections').upsert([{...payload,...(_co?.id?{company_entity_id:_co.id}:{})}],{onConflict:'projection_date,location_id'});
     if (error) throw error;
     setStatus(`Saved · ${date} · ${locName(locationId)} · ${fmtUSD(sales)}`,'pos',2200);
     await loadProjections();
@@ -1249,7 +1252,7 @@ async function importCsv(file) {
 
   if (!payload.length) { setStatus(`No valid rows. ${result.errors.slice(0,2).join(' ')}`,'neg'); return; }
   try {
-    const { error }=await db.from('revenue_projections').upsert(payload,{onConflict:'projection_date,location_id'});
+    const { error }=await db.from('revenue_projections').upsert(payload.map(r=>({...r,...(_co?.id?{company_entity_id:_co.id}:{})})),{onConflict:'projection_date,location_id'});
     if (error) throw error;
     setStatus(`Imported ${result.prepared}/${result.total} rows.${result.skipped?` Skipped ${result.skipped}`:''}`,'pos',3000);
     await loadProjections(); applyFiltersAndRender();

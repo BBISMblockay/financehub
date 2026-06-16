@@ -230,6 +230,7 @@
 
   const BUCKET = "payment-request-files";
   const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
 
   const els = {
     authCard: document.getElementById("authCard"),
@@ -475,11 +476,9 @@
   }
 
   async function fetchPriorVendors() {
-    const { data, error } = await supabaseClient
-      .from("payment_requests")
-      .select("vendor_name, vendor_name_manual")
-      .order("created_at", { ascending: false })
-      .limit(1000);
+    let _q = supabaseClient.from("payment_requests").select("vendor_name, vendor_name_manual").order("created_at", { ascending: false }).limit(1000);
+    if (_co?.id) _q = _q.eq("company_entity_id", _co.id);
+    const { data, error } = await _q;
     if (error) throw error;
     const vendorMap = new Map();
     (data || []).forEach(row => {
@@ -632,7 +631,7 @@
         updated_by: currentUser?.id || null
       };
 
-      const { error: insertError } = await supabaseClient.from("payment_requests").insert(payload);
+      const { error: insertError } = await supabaseClient.from("payment_requests").insert({...payload,...(_co?.id?{company_entity_id:_co.id}:{})});
       if (insertError) throw insertError;
 
       if (uploadedFiles.length) {

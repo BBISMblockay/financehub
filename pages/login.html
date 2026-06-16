@@ -238,8 +238,37 @@
         return ROUTE_BY_DEPARTMENT[department] || REDIRECT_TO;
       }
 
+      async function resolveCompany(userId) {
+        const { data, error } = await supabaseClient
+          .from('entity_memberships')
+          .select('role, entity:entities!inner(id, title, entity_key, meta)')
+          .eq('user_id', userId)
+          .eq('entity.entity_type', 'company');
+
+        if (error || !data || data.length === 0) {
+          // No company membership found — clear any stale value and continue
+          (window.__SILO_CONFIG__?.setActiveCompany || (() => {}))(null);
+          return null;
+        }
+
+        if (data.length === 1) {
+          const row = data[0];
+          const company = { ...row.entity, role: row.role };
+          (window.__SILO_CONFIG__?.setActiveCompany || (() => {}))(company);
+          return company;
+        }
+
+        // Multiple companies: redirect to picker
+        const companies = data.map(r => ({ ...r.entity, role: r.role }));
+        sessionStorage.setItem('__SILO_COMPANY_OPTIONS__', JSON.stringify(companies));
+        window.location.href = '/v2/company-picker.html';
+        return 'redirect';
+      }
+
       async function resolveAndRedirect(userId) {
         const profile = await getUserProfile(userId);
+        const result = await resolveCompany(userId);
+        if (result === 'redirect') return; // picker handles the rest
         const route = getRouteFromProfile(profile);
         window.location.href = route;
       }

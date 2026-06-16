@@ -690,6 +690,7 @@
   }
 
   const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
 
   // ── constants ─────────────────────────────────────────────────────────────
   const STATUSES = [
@@ -941,10 +942,9 @@
         .or(`product_title.ilike.%${clean}%,po_name.ilike.%${clean}%,factory_name.ilike.%${clean}%`)
         .order('expected_arrival_date', { ascending:true }).limit(25));
     } else {
-      ({ data, error } = await sb.from('products_master')
-        .select('id,sku,product_title,product_type,vendor_original')
-        .or(`product_title.ilike.%${clean}%,sku.ilike.%${clean}%`)
-        .limit(25));
+      let _qpm=sb.from('products_master').select('id,sku,product_title,product_type,vendor_original').or(`product_title.ilike.%${clean}%,sku.ilike.%${clean}%`).limit(25);
+      if(_co?.id) _qpm=_qpm.eq('company_entity_id',_co.id);
+      ({ data, error } = await _qpm);
     }
 
     if (error || !data?.length) {
@@ -1093,10 +1093,13 @@
   }
 
   async function loadReferenceData() {
+    let _qlc=sb.from('launch_calendar').select('id,title').order('title'); if(_co?.id) _qlc=_qlc.eq('company_entity_id',_co.id);
+    let _qph=sb.from('po_headers').select('id,po_name').order('po_name'); if(_co?.id) _qph=_qph.eq('company_entity_id',_co.id);
+    let _qf=sb.from('factories').select('id,factory_name').order('factory_name'); if(_co?.id) _qf=_qf.eq('company_entity_id',_co.id);
     const [lR,pR,fR,tR]=await Promise.all([
-      sb.from('launch_calendar').select('id,title').order('title'),
-      sb.from('po_headers').select('id,po_name').order('po_name'),
-      sb.from('factories').select('id,factory_name').order('factory_name'),
+      _qlc,
+      _qph,
+      _qf,
       sb.from('product_tags').select('product_type').limit(5000),
     ]);
     allLaunches     = lR.data||[];
