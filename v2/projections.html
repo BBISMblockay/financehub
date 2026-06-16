@@ -494,6 +494,7 @@ if (__SILO_DEMO__) {
 
 const cfg = window.__SILO_CONFIG__ || {};
 let db = null;
+const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
 
 const FILTER_KEY = 'silo_v2_proj_filters_v1';
 
@@ -514,7 +515,6 @@ async function boot() {
   cacheEls();
   if (!cfg.SUPABASE_URL || !cfg.SUPABASE_ANON_KEY) { setStatus('Missing Supabase config.', 'neg'); return; }
   db = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
-  const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
   const { data:sess, error:sessErr } = await db.auth.getSession();
   if (sessErr) console.warn('getSession:', sessErr);
   if (!sess?.session) { window.location.href = '/pages/login.html'; return; }
