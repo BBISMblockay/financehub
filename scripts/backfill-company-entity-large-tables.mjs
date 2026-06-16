@@ -25,7 +25,7 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 }
 
 const BASEBALLISM_ENTITY_ID = "3bd934c9-4cdd-429b-9076-f8f6b45d4eb7";
-const BATCH_SIZE = parseInt(process.env.BATCH_SIZE || "10000", 10);
+const BATCH_SIZE = parseInt(process.env.BATCH_SIZE || "5000", 10);
 const TABLES = (process.env.BACKFILL_TABLES || "sales_by_day,inventory_on_hand")
   .split(",")
   .map((t) => t.trim())

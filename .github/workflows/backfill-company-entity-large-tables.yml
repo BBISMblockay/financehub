@@ -11,7 +11,7 @@ on:
       batch_size:
         description: "Rows per batch"
         required: false
-        default: "50000"
+        default: "5000"
         type: string
 
 jobs:
