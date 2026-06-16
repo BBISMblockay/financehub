@@ -818,6 +818,7 @@ if (__SILO_DEMO__) {
 
 const cfg = window.__SILO_CONFIG__||{};
 let db = null;
+const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
 
 let currentUser = null;
 let profileById = new Map();
@@ -853,7 +854,6 @@ document.addEventListener('DOMContentLoaded', boot);
 async function boot(){
   if(!cfg.SUPABASE_URL||!cfg.SUPABASE_ANON_KEY){ setStatus('Missing Supabase config.','neg'); return; }
   db = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
-  const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
   const {data,error} = await db.auth.getUser();
   if(error||!data?.user){ location.href='/pages/login.html'; return; }
   currentUser = data.user;
