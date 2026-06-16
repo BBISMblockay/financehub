@@ -1,8 +1,8 @@
 // scripts/backfill-company-entity-large-tables.mjs
 //
 // One-time backfill of company_entity_id on sales_by_day and inventory_on_hand.
-// Uses the service role key (bypasses RLS) to stamp all null rows with the
-// Baseballism entity id. Runs in batches to avoid timeouts.
+// Calls the backfill_company_entity_batch() RPC which does the CTE+UPDATE
+// entirely in Postgres — avoids sending large ID lists over the wire.
 //
 // Required env vars:
 //   SUPABASE_URL
@@ -10,7 +10,7 @@
 //
 // Optional:
 //   BACKFILL_TABLES=sales_by_day,inventory_on_hand  (default: both)
-//   BATCH_SIZE=50000                                 (default: 50000)
+//   BATCH_SIZE=10000                                 (default: 10000)
 //
 // Run:
 //   node scripts/backfill-company-entity-large-tables.mjs
@@ -25,7 +25,7 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 }
 
 const BASEBALLISM_ENTITY_ID = "3bd934c9-4cdd-429b-9076-f8f6b45d4eb7";
-const BATCH_SIZE = parseInt(process.env.BATCH_SIZE || "50000", 10);
+const BATCH_SIZE = parseInt(process.env.BATCH_SIZE || "10000", 10);
 const TABLES = (process.env.BACKFILL_TABLES || "sales_by_day,inventory_on_hand")
   .split(",")
   .map((t) => t.trim())
@@ -43,39 +43,26 @@ async function backfillTable(table) {
   while (true) {
     batch++;
 
-    // Fetch a batch of IDs that still need stamping
-    const { data: rows, error: fetchErr } = await db
-      .from(table)
-      .select("id")
-      .is("company_entity_id", null)
-      .limit(BATCH_SIZE);
+    const { data: updated, error } = await db.rpc("backfill_company_entity_batch", {
+      p_table: table,
+      p_entity_id: BASEBALLISM_ENTITY_ID,
+      p_batch_size: BATCH_SIZE,
+    });
 
-    if (fetchErr) {
-      console.error(`  [batch ${batch}] fetch error:`, fetchErr.message);
-      throw fetchErr;
+    if (error) {
+      console.error(`  [batch ${batch}] rpc error:`, error.message || JSON.stringify(error));
+      throw error;
     }
 
-    if (!rows || rows.length === 0) {
+    const count = updated ?? 0;
+    total += count;
+    console.log(`  batch ${batch}: ${count} rows updated (total: ${total})`);
+
+    if (count === 0) {
       console.log(`  done. Total rows updated: ${total}`);
       break;
     }
 
-    const ids = rows.map((r) => r.id);
-
-    const { error: updateErr } = await db
-      .from(table)
-      .update({ company_entity_id: BASEBALLISM_ENTITY_ID })
-      .in("id", ids);
-
-    if (updateErr) {
-      console.error(`  [batch ${batch}] update error:`, updateErr.message);
-      throw updateErr;
-    }
-
-    total += ids.length;
-    console.log(`  batch ${batch}: ${ids.length} rows → total ${total}`);
-
-    // Short pause between batches to keep Supabase happy
     await new Promise((r) => setTimeout(r, 500));
   }
 
@@ -92,17 +79,15 @@ async function verify(table) {
     .select("*", { count: "exact", head: true })
     .is("company_entity_id", null);
 
+  const status = nulls === 0 ? "✓" : "⚠";
   console.log(
-    `  ${table}: ${total ?? "?"} total rows, ${nulls ?? "?"} remaining nulls`
+    `  ${status} ${table}: ${total ?? "?"} total, ${nulls ?? "?"} remaining nulls`
   );
-  if (nulls > 0) {
-    console.warn(`  ⚠ ${nulls} rows still unset in ${table}`);
-  }
 }
 
 console.log(`Backfill starting. Tables: ${TABLES.join(", ")}`);
 console.log(`Batch size: ${BATCH_SIZE}`);
-console.log(`Entity id: ${BASEBALLISM_ENTITY_ID}\n`);
+console.log(`Entity id: ${BASEBALLISM_ENTITY_ID}`);
 
 for (const table of TABLES) {
   await backfillTable(table);
