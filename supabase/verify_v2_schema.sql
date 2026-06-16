@@ -83,7 +83,37 @@ left join information_schema.columns col
  and col.table_name = 'payment_requests'
  and col.column_name = want.column_name;
 
--- 6. Quick counts (0 is fine on a fresh install)
+-- 6. Insert stamp (migration 20260616060000)
+select
+  want.name,
+  case when f.proname is not null then 'ok' else 'MISSING — run 20260616060000_stamp_company_entity_id_on_insert.sql' end as status
+from (values ('stamp_company_entity_id'), ('attach_stamp_company_entity_id_triggers')) as want(name)
+left join pg_proc f
+  on f.proname = want.name
+left join pg_namespace n on n.oid = f.pronamespace and n.nspname = 'public';
+
+select
+  count(*)::int as stamped_tables,
+  case
+    when count(*) >= (
+      select count(*) - 2
+      from information_schema.columns c
+      join information_schema.tables t
+        on t.table_schema = c.table_schema and t.table_name = c.table_name
+      where c.table_schema = 'public'
+        and c.column_name = 'company_entity_id'
+        and t.table_type = 'BASE TABLE'
+    ) then 'ok'
+    else 'MISSING — run attach_stamp_company_entity_id_triggers()'
+  end as status
+from pg_trigger t
+join pg_class c on c.oid = t.tgrelid
+join pg_namespace n on n.oid = c.relnamespace
+where n.nspname = 'public'
+  and t.tgname = 'stamp_company_entity_id'
+  and not t.tgisinternal;
+
+-- 7. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)       as factories,
   (select count(*) from public.po_headers)      as po_headers,

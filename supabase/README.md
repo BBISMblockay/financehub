@@ -50,6 +50,9 @@ Run in order:
 12. **`migrations/20260616030000_views_security_invoker.sql`** — view RLS propagation  
     Sets `security_invoker = true` on all 30+ views so RLS policies on base tables apply when data is accessed through a view. **Run after migration #11.**
 
+13. **`migrations/20260616060000_stamp_company_entity_id_on_insert.sql`** — insert company stamp  
+    `BEFORE INSERT` trigger on all `company_entity_id` tables (except `inventory_on_hand` / `sales_by_day`) stamps `active_company_id()` when the client omits the column. Pair with `withCompany()` in `pages/config.js` for UI writes.
+
 ## App workflow after SQL succeeds
 
 1. **PO builder** (`/v2/po-builder.html`) — create header + lines (needs at least one factory)
@@ -87,9 +90,11 @@ SILO supports multiple companies in one Supabase project. Isolation is enforced 
 3. Multi-company users: routed to `/v2/company-picker.html` to pick, then RPC is called
 4. All RLS policies use `company_entity_id = active_company_id()` — only rows belonging to the active company are visible
 5. All 30+ views have `security_invoker = true` so RLS applies through views
+6. `BEFORE INSERT` trigger `stamp_company_entity_id` stamps `company_entity_id` from `active_company_id()` when omitted (UI modules do not need per-page patches)
+7. Frontend helpers `withCompany(row)` / `withCompanyRows(rows)` in `pages/config.js` stamp inserts client-side for clarity
 
 **Key tables:** `entities` (`entity_type = 'company'`), `entity_memberships` (`entity_id`, `user_id`, `role`)  
-**Key functions:** `active_company_id()`, `set_active_company(p_entity_id uuid)`  
+**Key functions:** `active_company_id()`, `set_active_company(p_entity_id uuid)`, `stamp_company_entity_id()`, `attach_stamp_company_entity_id_triggers()`  
 **Key column:** `company_entity_id uuid` on all operational tables  
 **Baseballism entity id:** `3bd934c9-4cdd-429b-9076-f8f6b45d4eb7`
 
@@ -121,6 +126,7 @@ supabase/
     20260616010000_company_entity_backfill.sql
     20260616020000_rls_active_company_isolation.sql
     20260616030000_views_security_invoker.sql
+    20260616060000_stamp_company_entity_id_on_insert.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

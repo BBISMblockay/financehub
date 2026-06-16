@@ -17,5 +17,25 @@ window.__SILO_CONFIG__ = {
   setActiveCompany(company) {
     if (company) sessionStorage.setItem('__SILO_COMPANY__', JSON.stringify(company));
     else sessionStorage.removeItem('__SILO_COMPANY__');
+  },
+
+  // Stamp company_entity_id on insert payloads when a page omitted it.
+  // DB trigger is the safety net; prefer these helpers in new UI writes.
+  withCompany(row) {
+    if (!row || row.company_entity_id != null) return row;
+    const co = this.getActiveCompany();
+    if (!co?.id) return row;
+    return { ...row, company_entity_id: co.id };
+  },
+
+  withCompanyRows(rows) {
+    if (!Array.isArray(rows)) return rows;
+    const co = this.getActiveCompany();
+    if (!co?.id) return rows;
+    return rows.map((row) =>
+      row && row.company_entity_id == null
+        ? { ...row, company_entity_id: co.id }
+        : row
+    );
   }
 };

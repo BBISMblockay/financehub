@@ -34,7 +34,7 @@ Architecture: one Supabase project, multiple companies isolated at the DB level.
 - [ ] `sales_by_day` backfill (1M rows) — same; sales sync is Baseballism-specific (Google Sheets / Better Reports). New companies need their own sync pipeline.
 - [ ] Materialized views (`sales_monthly_product_type_rollup_mv`, `sales_sku_location_rollup_mv`) — cannot use `security_invoker`; blocked until sales backfill is done
 - [ ] Per-company nav menu — hide Baseballism-specific sections (AR, payroll, legacy finance) when on a non-Baseballism entity → see `docs/ops/nav-profiles.md` (PR in progress)
-- [ ] Insert-side `company_entity_id` wiring — pages currently require manual backfill; new records created via UI don't auto-stamp company yet
+- [x] Insert-side `company_entity_id` wiring — DB `BEFORE INSERT` trigger + `withCompany()` helpers in `pages/config.js` (no per-page patches required)
 - [ ] Company switcher in the sidebar (without requiring full logout/login)
 
 ---
