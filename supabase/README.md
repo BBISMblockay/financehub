@@ -41,6 +41,15 @@ Run in order:
 9. **`migrations/20260609000000_payment_requests_legacy_import.sql`** — legacy payment request import  
    Adds `legacy_source`, `legacy_url`, `legacy_external_id`, `imported_at` to `payment_requests` plus a dedupe index
 
+10. **`migrations/20260616010000_company_entity_backfill.sql`** — multi-tenant backfill  
+    Adds `company_entity_id uuid` to 40+ operational tables, backfills Baseballism entity id, creates `entities` and `entity_memberships` tables
+
+11. **`migrations/20260616020000_rls_active_company_isolation.sql`** — active-company RLS  
+    Adds `profiles.active_company_id`, `active_company_id()` function, `set_active_company()` RPC, and `*_active_*` RLS policies on all company-scoped tables. **Required for multi-tenant isolation.**
+
+12. **`migrations/20260616030000_views_security_invoker.sql`** — view RLS propagation  
+    Sets `security_invoker = true` on all 30+ views so RLS policies on base tables apply when data is accessed through a view. **Run after migration #11.**
+
 ## App workflow after SQL succeeds
 
 1. **PO builder** (`/v2/po-builder.html`) — create header + lines (needs at least one factory)
@@ -68,6 +77,24 @@ node scripts/import-payment-requests-legacy.mjs --file /path/to/your-export.tsv 
 
 Keep personal exports out of git when possible — `data/legacy-payment-requests*.csv` and `*.tsv` are gitignored locally.
 
+## Multi-tenant isolation
+
+SILO supports multiple companies in one Supabase project. Isolation is enforced at the DB level via `profiles.active_company_id`.
+
+**How it works:**
+1. At login, `resolveCompany()` in `pages/login.html` reads `entity_memberships` for the user
+2. Single-company users: `set_active_company(entity_id)` RPC is called automatically
+3. Multi-company users: routed to `/v2/company-picker.html` to pick, then RPC is called
+4. All RLS policies use `company_entity_id = active_company_id()` — only rows belonging to the active company are visible
+5. All 30+ views have `security_invoker = true` so RLS applies through views
+
+**Key tables:** `entities` (`entity_type = 'company'`), `entity_memberships` (`entity_id`, `user_id`, `role`)  
+**Key functions:** `active_company_id()`, `set_active_company(p_entity_id uuid)`  
+**Key column:** `company_entity_id uuid` on all operational tables  
+**Baseballism entity id:** `3bd934c9-4cdd-429b-9076-f8f6b45d4eb7`
+
+**Not yet isolated:** `inventory_on_hand`, `sales_by_day` (backfill deferred — these tables are Baseballism-specific via Google Sheets/Better Reports sync and need a new per-company data pipeline before they can be properly partitioned).
+
 ## Write access
 
 `profiles.role` is an enum with values: `owner`, `admin`, `user`.
@@ -89,6 +116,11 @@ supabase/
     20260602150000_launch_images_storage_bucket.sql
     20260603120000_launch_comments_author.sql
     20260603130000_launch_comments_author_denorm.sql
+    20260603140000_launch_tasks_assignee.sql
+    20260609000000_payment_requests_legacy_import.sql
+    20260616010000_company_entity_backfill.sql
+    20260616020000_rls_active_company_isolation.sql
+    20260616030000_views_security_invoker.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

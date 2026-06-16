@@ -169,6 +169,42 @@ CSS tokens (defined in `beacon.css`):
 
 ## Database — Supabase
 
+### Multi-tenant architecture
+
+SILO supports multiple companies in one Supabase project. Isolation is enforced at the DB level.
+
+**Key tables:**
+- `entities` — company registry (`entity_type = 'company'`, `entity_key`, `title`)
+- `entity_memberships` — links users to companies (`entity_id`, `user_id`, `role`)
+
+**Key column:** `company_entity_id uuid` on all operational tables (backfilled for Baseballism; `inventory_on_hand` and `sales_by_day` deferred).
+
+**Baseballism entity id:** `3bd934c9-4cdd-429b-9076-f8f6b45d4eb7`
+
+**Active-company flow:**
+1. Login calls `resolveCompany()` → reads `entity_memberships`
+2. Single company → `set_active_company(entity_id)` RPC called automatically
+3. Multiple companies → user routed to `/v2/company-picker.html` to pick, then RPC called
+4. RPC writes `profiles.active_company_id` for the session
+5. All RLS policies use `company_entity_id = active_company_id()` — only active company data visible
+
+**RLS helper functions:**
+```sql
+active_company_id()                    -- reads profiles.active_company_id for auth.uid()
+set_active_company(p_entity_id uuid)   -- validates membership then writes active_company_id
+```
+
+**Views:** All 30+ views in the public schema have `security_invoker = true` so RLS propagates through views, not just on base tables.
+
+**JS pattern on every page:**
+```js
+const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
+// then on every SELECT of a company-scoped table:
+if (_co?.id) query = query.eq('company_entity_id', _co.id);
+```
+
+**Not yet isolated:** `inventory_on_hand`, `sales_by_day` — backfill deferred. These depend on Baseballism-specific Google Sheets / Better Reports sync pipelines. New companies need their own data pipeline before these tables can be partitioned.
+
 ### Role system
 `profiles.role` is a Postgres enum (`app_role`) with values: `owner`, `admin`, `user`.
 - `owner` and `admin` get write access to PO tables
@@ -307,6 +343,11 @@ function setStatus(msg, type = 'info', ms = 0) {
 
 ## Current status (as of Jun 2026)
 
+### Multi-tenant isolation — Phase 1 complete
+DB-level company isolation is live. Users in multiple companies pick a company at login; all data reads are scoped to `profiles.active_company_id`. See `supabase/README.md` for migration details.
+
+**Deferred:** `inventory_on_hand` and `sales_by_day` backfill, per-company sync pipelines, insert-side `company_entity_id` auto-stamping, company switcher in sidebar.
+
 ### Tools fully on Beacon shell (Pattern 1)
 `projections.html`, `launch-calendar.html`, `profile.html`, `po-builder.html`, `po-costing.html`, `planning-scenarios.html`, `backend.html`
 
@@ -318,9 +359,10 @@ function setStatus(msg, type = 'info', ms = 0) {
 
 ### Open roadmap items
 See `docs/ops/roadmap.md` for current priorities. Key items:
+- Per-company nav menu (hide Baseballism-specific sections for other entities)
+- Insert-side `company_entity_id` auto-stamping on all create forms
+- Company switcher in sidebar (without full logout)
 - Finish Beacon shell migration for iframe/custom pages
-- One canonical URL per tool (`/v2/...`)
-- Standardize error handling across all pages
 - Smoke tests
 
 ### Known P2 items
