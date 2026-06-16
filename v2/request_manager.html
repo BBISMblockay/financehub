@@ -545,6 +545,7 @@
 
     const BUCKET = "payment-request-files";
     const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
 
     const state = {
       rows: [],
@@ -874,11 +875,9 @@
         const size = 1000;
 
         while (true) {
-          const { data, error } = await supabaseClient
-            .from("payment_requests")
-            .select("id, legacy_url, legacy_source, imported_at")
-            .not("legacy_source", "is", null)
-            .range(from, from + size - 1);
+          let _q = supabaseClient.from("payment_requests").select("id, legacy_url, legacy_source, imported_at").not("legacy_source", "is", null).range(from, from + size - 1);
+          if (_co?.id) _q = _q.eq("company_entity_id", _co.id);
+          const { data, error } = await _q;
 
           if (error) throw error;
           all = all.concat(data || []);
@@ -1687,7 +1686,8 @@
           old_value: oldValue,
           new_value: newValue,
           message,
-          created_by: state.currentUser?.id || null
+          created_by: state.currentUser?.id || null,
+          ...(_co?.id ? { company_entity_id: _co.id } : {}),
         });
 
       if (error) throw error;

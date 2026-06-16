@@ -853,6 +853,7 @@ document.addEventListener('DOMContentLoaded', boot);
 async function boot(){
   if(!cfg.SUPABASE_URL||!cfg.SUPABASE_ANON_KEY){ setStatus('Missing Supabase config.','neg'); return; }
   db = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+  const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
   const {data,error} = await db.auth.getUser();
   if(error||!data?.user){ location.href='/pages/login.html'; return; }
   currentUser = data.user;
@@ -1062,14 +1063,14 @@ async function loadCurrentProfile() {
 async function loadAll(shouldRender=true){
   await loadCurrentProfile();
   updateCommentComposeHint();
-  const [l,t,a,c,s,ch,p,pt] = await Promise.all([
-    db.from('launch_calendar').select('*').order('launch_date',{ascending:true}),
-    db.from('launch_tasks').select('*').order('created_at',{ascending:false}),
-    db.from('launch_assets').select('*').order('created_at',{ascending:false}),
-    db.from('launch_comments').select('*').order('created_at',{ascending:true}),
-    db.from('launch_system_links').select('*').order('created_at',{ascending:false}),
-    db.from('launch_channel_items').select('*').order('scheduled_date',{ascending:true}),
-    db.from('launch_product_readiness').select('*').order('created_at',{ascending:false}),
+  let _ql=db.from('launch_calendar').select('*').order('launch_date',{ascending:true}); if(_co?.id) _ql=_ql.eq('company_entity_id',_co.id);
+  let _qt=db.from('launch_tasks').select('*').order('created_at',{ascending:false}); if(_co?.id) _qt=_qt.eq('company_entity_id',_co.id);
+  let _qa=db.from('launch_assets').select('*').order('created_at',{ascending:false}); if(_co?.id) _qa=_qa.eq('company_entity_id',_co.id);
+  let _qc=db.from('launch_comments').select('*').order('created_at',{ascending:true}); if(_co?.id) _qc=_qc.eq('company_entity_id',_co.id);
+  let _qs=db.from('launch_system_links').select('*').order('created_at',{ascending:false}); if(_co?.id) _qs=_qs.eq('company_entity_id',_co.id);
+  let _qch=db.from('launch_channel_items').select('*').order('scheduled_date',{ascending:true}); if(_co?.id) _qch=_qch.eq('company_entity_id',_co.id);
+  let _qp=db.from('launch_product_readiness').select('*').order('created_at',{ascending:false}); if(_co?.id) _qp=_qp.eq('company_entity_id',_co.id);
+  const [l,t,a,c,s,ch,p,pt] = await Promise.all([_ql,_qt,_qa,_qc,_qs,_qch,_qp,
     db.from('product_tracker').select('*').order('created_at',{ascending:false}),
   ]);
   if(l.error) throw l.error;
@@ -1548,7 +1549,7 @@ async function saveLaunch(){
     if(!payload.title||!payload.launch_date){ $('formMsg').textContent='Title and date are required.'; return; }
     let res;
     if(id) res=await db.from('launch_calendar').update(payload).eq('id',id).select().single();
-    else { payload.created_by=currentUser.id; res=await db.from('launch_calendar').insert(payload).select().single(); }
+    else { payload.created_by=currentUser.id; if(_co?.id) payload.company_entity_id=_co.id; res=await db.from('launch_calendar').insert(payload).select().single(); }
     if(res?.error) throw res.error;
     const savedId=res.data?.id||id;
     const wasNew=!id;
@@ -1657,7 +1658,7 @@ async function quickAddProduct(payload){
   if(!activeLaunch) return;
   if(!payload.product_title){ setStatus('Product title is required.','neg',2500); return; }
   if(launchHasSimilarProduct(payload)&&!confirm('A similar product line already exists. Add anyway?')) return;
-  const row={...payload, launch_id:activeLaunch.id, created_by:currentUser.id};
+  const row={...payload, launch_id:activeLaunch.id, created_by:currentUser.id,...(_co?.id?{company_entity_id:_co.id}:{})};
   const {error}=await db.from('launch_product_readiness').insert([row]);
   if(error){ setStatus(error.message,'neg',3500); return; }
   $('prodLookupResults').innerHTML=''; $('prodLookupInput').value='';
@@ -1672,7 +1673,7 @@ async function saveProductReadiness(e){
   if(!editId&&launchHasSimilarProduct(payload)&&!confirm('A similar product line already exists. Save anyway?')) return;
   let error;
   if(editId){ ({error}=await db.from('launch_product_readiness').update(payload).eq('id',editId)); }
-  else { payload.launch_id=activeLaunch.id; payload.created_by=currentUser.id; ({error}=await db.from('launch_product_readiness').insert([payload])); }
+  else { payload.launch_id=activeLaunch.id; payload.created_by=currentUser.id; if(_co?.id) payload.company_entity_id=_co.id; ({error}=await db.from('launch_product_readiness').insert([payload])); }
   if(error){ setStatus(error.message,'neg',3500); return; }
   closeProductForm(); $('prodLookupResults').innerHTML='';
   setStatus(editId?'Product updated.':'Product saved.','pos',2000);
@@ -1730,7 +1731,7 @@ async function saveChannelItem(e){
   const editId=$('channelEditId').value;
   let error;
   if(editId){ ({error}=await db.from('launch_channel_items').update(payload).eq('id',editId)); }
-  else { payload.launch_id=activeLaunch.id; payload.created_by=currentUser.id; ({error}=await db.from('launch_channel_items').insert([payload])); }
+  else { payload.launch_id=activeLaunch.id; payload.created_by=currentUser.id; if(_co?.id) payload.company_entity_id=_co.id; ({error}=await db.from('launch_channel_items').insert([payload])); }
   if(error){ setStatus(error.message,'neg',3500); return; }
   closeChannelForm();
   setStatus(editId?'Initiative updated.':'Initiative saved.','pos',2000);
@@ -1781,7 +1782,7 @@ async function saveTask(e){
   const editId=$('taskEditId').value;
   let error;
   if(editId){ ({error}=await db.from('launch_tasks').update(payload).eq('id',editId)); }
-  else { payload.launch_id=activeLaunch.id; payload.status='open'; ({error}=await db.from('launch_tasks').insert([payload])); }
+  else { payload.launch_id=activeLaunch.id; payload.status='open'; if(_co?.id) payload.company_entity_id=_co.id; ({error}=await db.from('launch_tasks').insert([payload])); }
   if(error){ setStatus(error.message,'neg',3500); return; }
   closeTaskForm();
   setStatus(editId?'Task updated.':'Task saved.','pos',2000);
@@ -1817,7 +1818,7 @@ async function saveAsset(e){
   const editId=$('assetEditId').value;
   let error;
   if(editId){ ({error}=await db.from('launch_assets').update(payload).eq('id',editId)); }
-  else { payload.launch_id=activeLaunch.id; payload.uploaded_by=currentUser.id; ({error}=await db.from('launch_assets').insert([payload])); }
+  else { payload.launch_id=activeLaunch.id; payload.uploaded_by=currentUser.id; if(_co?.id) payload.company_entity_id=_co.id; ({error}=await db.from('launch_assets').insert([payload])); }
   if(error){ setStatus(error.message,'neg',3500); return; }
   closeAssetForm();
   setStatus(editId?'Asset updated.':'Asset saved.','pos',2000);
@@ -1854,7 +1855,7 @@ async function saveSystemLink(e){
   const editId=$('linkEditId').value;
   let error;
   if(editId){ ({error}=await db.from('launch_system_links').update(payload).eq('id',editId)); }
-  else { payload.launch_id=activeLaunch.id; payload.created_by=currentUser.id; ({error}=await db.from('launch_system_links').insert([payload])); }
+  else { payload.launch_id=activeLaunch.id; payload.created_by=currentUser.id; if(_co?.id) payload.company_entity_id=_co.id; ({error}=await db.from('launch_system_links').insert([payload])); }
   if(error){ setStatus(error.message,'neg',3500); return; }
   closeLinkForm();
   setStatus(editId?'Link updated.':'Link saved.','pos',2000);
@@ -1889,6 +1890,7 @@ async function saveComment(e){
     user_id: currentUser.id,
     comment: text,
     ...commentAuthorPayload(),
+    ...(_co?.id?{company_entity_id:_co.id}:{}),
   };
   let {error}=await db.from('launch_comments').insert([payload]);
   if(error && /author_/i.test(error.message||'')){
@@ -1943,8 +1945,9 @@ async function searchProductsMaster(q, opts={}){
   const mode=opts.mode||'shell';
   const clean=q.replaceAll('%','').trim();
   container.innerHTML=`<div class="bcn-empty">Searching…</div>`;
-  const {data,error}=await db.from('products_master').select('id,sku,product_title,variant_title,product_type,vendor_original,image_url')
-    .or(`product_title.ilike.%${clean}%,sku.ilike.%${clean}%`).limit(30);
+  let _qpm=db.from('products_master').select('id,sku,product_title,variant_title,product_type,vendor_original,image_url').or(`product_title.ilike.%${clean}%,sku.ilike.%${clean}%`).limit(30);
+  if(_co?.id) _qpm=_qpm.eq('company_entity_id',_co.id);
+  const {data,error}=await _qpm;
   if(error||!data?.length){ container.innerHTML=`<div class="bcn-empty">${error?error.message:'No products found.'}</div>`; return; }
   const grouped=groupByTitle(data||[]);
   container.innerHTML=grouped.map(row=>{

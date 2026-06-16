@@ -264,6 +264,7 @@
     return;
   }
   const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
 
   const { data: { session } } = await db.auth.getSession();
   if (!session) { window.location.href = '/pages/login.html?next=/v2/product-manager.html'; return; }
@@ -298,11 +299,15 @@
   window.switchTab = switchTab;
 
   async function loadAll() {
+    let _qlc = db.from('launch_calendar').select('id,title,launch_date').order('launch_date', { ascending: false });
+    if (_co?.id) _qlc = _qlc.eq('company_entity_id', _co.id);
+    let _qf = db.from('factories').select('id,name').order('name');
+    if (_co?.id) _qf = _qf.eq('company_entity_id', _co.id);
     const [tRes, sRes, lRes, fRes] = await Promise.all([
       db.from('product_tracker').select('*').order('created_at', { ascending: false }),
       db.from('product_samples').select('*').order('created_at', { ascending: false }),
-      db.from('launch_calendar').select('id,title,launch_date').order('launch_date', { ascending: false }),
-      db.from('factories').select('id,name').order('name'),
+      _qlc,
+      _qf,
     ]);
     if (tRes.error) { setStatus('Error loading products: ' + tRes.error.message, 'neg'); return; }
     allItems = tRes.data || [];
@@ -540,7 +545,9 @@
     const res = document.getElementById('phProdResults');
     if (!q) { res.style.display = 'none'; return; }
     prodSearchTimer = setTimeout(async () => {
-      const { data } = await db.from('products_master').select('id,product_title,sku').ilike('product_title', `%${q}%`).limit(12);
+      let _q = db.from('products_master').select('id,product_title,sku').ilike('product_title', `%${q}%`).limit(12);
+      if (_co?.id) _q = _q.eq('company_entity_id', _co.id);
+      const { data } = await _q;
       if (!data || !data.length) { res.innerHTML = '<div style="padding:8px 12px;color:var(--bcn-ink-3);font-size:12px;">No results</div>'; res.style.display = 'block'; return; }
       res.innerHTML = data.map(p =>
         `<div class="ph-prod-result" data-prod-id="${p.id}" data-prod-title="${escHtml(p.product_title||'')}" style="padding:8px 12px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--bcn-rule);">${escHtml(p.product_title||'')} <span style="color:var(--bcn-ink-3);font-size:11px;">${escHtml(p.sku||'')}</span></div>`

@@ -609,19 +609,9 @@
         const safe = String(term).replace(/[%,]/g, ' ').trim();
         if(!safe) continue;
 
-        const {data,error}=await sb
-          .from('products_master')
-          .select(CATALOG_SELECT)
-          .or([
-            `sku.ilike.%${safe}%`,
-            `product_title.ilike.%${safe}%`,
-            `variant_title.ilike.%${safe}%`,
-            `product_type.ilike.%${safe}%`,
-            `upc.ilike.%${safe}%`,
-            `barcode.ilike.%${safe}%`
-          ].join(','))
-          .order('product_title',{ascending:true})
-          .limit(CATALOG_SEARCH_LIMIT);
+        let _q=sb.from('products_master').select(CATALOG_SELECT).or([`sku.ilike.%${safe}%`,`product_title.ilike.%${safe}%`,`variant_title.ilike.%${safe}%`,`product_type.ilike.%${safe}%`,`upc.ilike.%${safe}%`,`barcode.ilike.%${safe}%`].join(',')).order('product_title',{ascending:true}).limit(CATALOG_SEARCH_LIMIT);
+        if(_co?.id) _q=_q.eq('company_entity_id',_co.id);
+        const {data,error}=await _q;
 
         if(error) throw error;
         for(const row of data || []) byId.set(String(row.id), row);
@@ -644,7 +634,7 @@
       if(!payload.po_name){ const {data,error}=await sb.rpc('generate_next_po_name',{p_factory_id:payload.factory_id}); if(error) throw error; payload.po_name=data; el.poName.value=data; }
       let savedId=state.currentPO?.id||null;
       if(savedId){ const {error}=await sb.from('po_headers').update(payload).eq('id',savedId); if(error) throw error; }
-      else { const {data,error}=await sb.from('po_headers').insert(payload).select('*').single(); if(error) throw error; state.currentPO=data; savedId=data.id; }
+      else { const {data,error}=await sb.from('po_headers').insert({...payload,...(_co?.id?{company_entity_id:_co.id}:{})}).select('*').single(); if(error) throw error; state.currentPO=data; savedId=data.id; }
       await refreshAll(); if(savedId) await openPO(savedId);
       collapseHeader();
     }
@@ -670,7 +660,7 @@
       if(!state.currentPO?.id){ alert('Save the PO header first.'); return; }
       if(!qty || Number(qty)<=0){ alert('Enter a quantity greater than 0.'); return; }
       const payload=productToLine(productId, qty);
-      const {error}=await sb.from('po_lines').insert(payload); if(error) throw error;
+      const {error}=await sb.from('po_lines').insert({...payload,...(_co?.id?{company_entity_id:_co.id}:{})}); if(error) throw error;
       await refreshAll(); await openPO(state.currentPO.id); modalClose(el.catalogModal);
     }
 
@@ -686,7 +676,7 @@
         return;
       }
 
-      const payload=selected.map(row=>productToLine(row.productId,row.qty));
+      const payload=selected.map(row=>({...productToLine(row.productId,row.qty),...(_co?.id?{company_entity_id:_co.id}:{})}));
       const {error}=await sb.from('po_lines').insert(payload);
       if(error) throw error;
 
@@ -704,7 +694,7 @@
     async function addManualLine(keepOpen=false){
       if(!state.currentPO?.id){ alert('Save the PO header first.'); return; }
       const payload=manualPayload(); if(!payload.title_snapshot || payload.qty<=0){ alert('Manual line needs at least a title and qty > 0.'); return; }
-      const {error}=await sb.from('po_lines').insert(payload); if(error) throw error;
+      const {error}=await sb.from('po_lines').insert({...payload,...(_co?.id?{company_entity_id:_co.id}:{})}); if(error) throw error;
       clearManualModal(); await refreshAll(); await openPO(state.currentPO.id); if(!keepOpen) modalClose(el.manualModal);
     }
 
@@ -794,8 +784,8 @@
       if(nameErr) throw nameErr;
       newName=nameData;
       const header={ po_name:newName, factory_id:po.factory_id, order_date:todayStr(), req_ship_date:po.req_ship_date||null, expected_arrival_date:po.expected_arrival_date||null, date_bucket:po.date_bucket||null, status:'Draft', wholesale_triggered:!!po.wholesale_triggered, is_new_product_po:!!po.is_new_product_po, notes:po.notes||null, internal_notes:po.internal_notes||null };
-      const {data:newPo,error:headerErr}=await sb.from('po_headers').insert(header).select('*').single(); if(headerErr) throw headerErr;
-      const copied=(state.currentLines||[]).map(line=>({ po_header_id:newPo.id, product_master_id:line.product_master_id||null, product_type_snapshot:line.product_type_snapshot||null, title_snapshot:line.title_snapshot||null, variant_title_snapshot:line.variant_title_snapshot||null, sku_snapshot:line.sku_snapshot||null, upc_snapshot:line.upc_snapshot||null, barcode_snapshot:line.barcode_snapshot||null, retail_price:line.retail_price||null, unit_cost:line.unit_cost||null, qty:Number(line.qty||0), retail_value:Number(line.retail_price||0)*Number(line.qty||0), line_notes:line.line_notes||null }));
+      const {data:newPo,error:headerErr}=await sb.from('po_headers').insert({...header,...(_co?.id?{company_entity_id:_co.id}:{})}).select('*').single(); if(headerErr) throw headerErr;
+      const copied=(state.currentLines||[]).map(line=>({...{ po_header_id:newPo.id, product_master_id:line.product_master_id||null, product_type_snapshot:line.product_type_snapshot||null, title_snapshot:line.title_snapshot||null, variant_title_snapshot:line.variant_title_snapshot||null, sku_snapshot:line.sku_snapshot||null, upc_snapshot:line.upc_snapshot||null, barcode_snapshot:line.barcode_snapshot||null, retail_price:line.retail_price||null, unit_cost:line.unit_cost||null, qty:Number(line.qty||0), retail_value:Number(line.retail_price||0)*Number(line.qty||0), line_notes:line.line_notes||null },...(_co?.id?{company_entity_id:_co.id}:{})}));
       if(copied.length){ const {error:lineErr}=await sb.from('po_lines').insert(copied); if(lineErr) throw lineErr; }
       await refreshAll(); await openPO(newPo.id); alert(`Duplicated PO as ${newName}`);
     }
@@ -825,10 +815,9 @@
 
       for(let i=0;i<uniqueSkus.length;i+=100){
         const chunk=uniqueSkus.slice(i,i+100);
-        const {data,error}=await sb
-          .from('products_master')
-          .select(CATALOG_SELECT)
-          .in('sku', chunk);
+        let _q=sb.from('products_master').select(CATALOG_SELECT).in('sku',chunk);
+        if(_co?.id) _q=_q.eq('company_entity_id',_co.id);
+        const {data,error}=await _q;
         if(error) throw error;
         for(const row of data||[]) productMap.set(String(row.sku||'').trim().toLowerCase(), row);
       }
@@ -840,7 +829,7 @@
         inserts.push(productRecordToLine(product, item.qty));
       }
 
-      if(inserts.length){ const {error}=await sb.from('po_lines').insert(inserts); if(error) throw error; await refreshAll(); await openPO(state.currentPO.id); }
+      if(inserts.length){ const _ins=inserts.map(r=>({...r,...(_co?.id?{company_entity_id:_co.id}:{})})); const {error}=await sb.from('po_lines').insert(_ins); if(error) throw error; await refreshAll(); await openPO(state.currentPO.id); }
       el.bulkSkuResult.innerHTML=`Added ${inserts.length} line${inserts.length===1?'':'s'}.${missing.length?`<br>Unmatched: ${missing.map(escapeHtml).join(', ')}`:''}`;
     }
 
@@ -863,7 +852,7 @@
       if(!state.currentPO?.id){ alert('Save/open a PO first.'); return; }
       const rows=parseImportRows(el.importText.value).sort(compareProductLines);
       if(!rows.length){ el.importResult.textContent='No valid import rows found.'; return; }
-      const {error}=await sb.from('po_lines').insert(rows); if(error) throw error;
+      const {error}=await sb.from('po_lines').insert(rows.map(r=>({...r,...(_co?.id?{company_entity_id:_co.id}:{})}))); if(error) throw error;
       await refreshAll(); await openPO(state.currentPO.id);
       el.importResult.textContent=`Imported ${rows.length} line${rows.length===1?'':'s'}.`;
     }

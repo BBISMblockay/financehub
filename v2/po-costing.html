@@ -431,6 +431,7 @@
     const db = (cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY)
       ? window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY)
       : null;
+    const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
     let authUser = null;
     let poRows = [];
     let ctx = null;
@@ -667,14 +668,9 @@
     async function prefillFreightFromPaymentRequest(poName) {
       if (!poName) return;
       try {
-        const { data } = await db
-          .from('payment_requests')
-          .select('amount_due, invoice_number, vendor_name')
-          .eq('request_type', 'inventory_freight')
-          .eq('internal_po_number', poName)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        let _q = db.from('payment_requests').select('amount_due, invoice_number, vendor_name').eq('request_type', 'inventory_freight').eq('internal_po_number', poName).order('created_at', { ascending: false }).limit(1);
+        if (_co?.id) _q = _q.eq('company_entity_id', _co.id);
+        const { data } = await _q.maybeSingle();
         if (data?.amount_due != null) {
           els.inFreight.value = Number(data.amount_due).toFixed(2);
           if (data.invoice_number && !els.inFreightRef.value) {

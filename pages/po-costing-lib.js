@@ -339,13 +339,14 @@
   }
 
   async function loadPoCostingContext(db, poId) {
+    const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
+    let _qh = db.from('po_headers').select('id, po_name, internal_notes, status').eq('id', poId);
+    if (_co?.id) _qh = _qh.eq('company_entity_id', _co.id);
+    let _qlines = db.from('po_lines').select('id, sku_snapshot, title_snapshot, variant_title_snapshot, unit_cost, qty, retail_price, line_notes, created_at').eq('po_header_id', poId).order('created_at', { ascending: true });
+    if (_co?.id) _qlines = _qlines.eq('company_entity_id', _co.id);
     const [{ data: header, error: hErr }, { data: lines, error: lErr }] = await Promise.all([
-      db.from('po_headers').select('id, po_name, internal_notes, status').eq('id', poId).maybeSingle(),
-      db
-        .from('po_lines')
-        .select('id, sku_snapshot, title_snapshot, variant_title_snapshot, unit_cost, qty, retail_price, line_notes, created_at')
-        .eq('po_header_id', poId)
-        .order('created_at', { ascending: true }),
+      _qh.maybeSingle(),
+      _qlines,
     ]);
     if (hErr) throw hErr;
     if (lErr) throw lErr;
