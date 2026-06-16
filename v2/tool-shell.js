@@ -9,6 +9,7 @@
        </div>
        <script src="../pages/config.js"></script>
        <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+       <script src="nav-config.js"></script>
        <script src="silo-chrome.js"></script>
        <script src="tool-shell.js"></script>
      </body>

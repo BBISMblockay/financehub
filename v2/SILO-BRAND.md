@@ -11,6 +11,7 @@ All v2 tools should match **Revenue projections**, **Profile**, and **PO builder
 <link rel="stylesheet" href="beacon-mirrors-unified.css" />
 <link rel="stylesheet" href="v2-mobile.css" />
 <script src="v2-shell.js" defer></script>
+<script src="nav-config.js"></script>
 <script src="silo-chrome.js"></script>
 ```
 
