@@ -1,116 +1,106 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Baseballism MLB Royalty Tool</title>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <link rel="stylesheet" href="styles.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MLB Royalty Report Generator</title>
+  <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-<div id="toast"></div>
-<div class="container">
+  <div class="container">
 
-  <div class="header">
-    <img src="Baseballism-MLB.jpeg" alt="Baseballism" class="header-logo">
-    <p>Royalty Report Generator</p>
-    <div class="divider"></div>
+    <!-- Header -->
+    <div class="header">
+      <img src="Baseballism-MLB.jpeg" alt="Baseballism x MLB" class="header-logo" />
+      <div class="logo-line">
+        <div class="logo-diamond"></div>
+        <h1>MLB <span>Royalty</span> Report Generator</h1>
+        <div class="logo-diamond"></div>
+      </div>
+      <p>Baseballism · Internal Tool</p>
+      <div class="divider"></div>
+    </div>
+
+    <!-- Mode Selector -->
+    <div class="mode-selector">
+      <div class="mode-card active" id="mode-online" onclick="setMode('online')">
+        <div class="mode-icon">🧢</div>
+        <div class="mode-info">
+          <div class="mode-name">Retail Online</div>
+          <div class="mode-desc">Online/Retail + Wholesale → MLB Submission</div>
+        </div>
+        <div class="mode-check" id="check-online">✓</div>
+      </div>
+      <div class="mode-card" id="mode-fanatics" onclick="setMode('fanatics')">
+        <div class="mode-icon">🏷️</div>
+        <div class="mode-info">
+          <div class="mode-name">Fanatics Hard Goods</div>
+          <div class="mode-desc">Shopify hard goods → Fanatics CSV</div>
+        </div>
+        <div class="mode-check" id="check-fanatics"></div>
+      </div>
+      <div class="mode-card" id="mode-milb" onclick="setMode('milb')">
+        <div class="mode-icon">⚾</div>
+        <div class="mode-info">
+          <div class="mode-name">MiLB Submission</div>
+          <div class="mode-desc">MiLB Sales → MiLB Royalty Statement</div>
+        </div>
+        <div class="mode-check" id="check-milb"></div>
+      </div>
+    </div>
+
+    <!-- Files -->
+    <div class="files-grid" style="margin-top:20px;">
+
+      <!-- Shopify Export — shown in both modes -->
+      <label class="file-slot mode-online mode-fanatics mode-milb" id="slot-shopify">
+        <input type="file" accept=".xlsx,.xls,.csv" onchange="loadFile('shopify', this)" />
+        <div class="slot-icon" id="icon-shopify">📊</div>
+        <div class="slot-info">
+          <div class="slot-name">Shopify Monthly Export</div>
+          <div class="slot-desc" id="desc-shopify">Monthly sales export — xlsx or csv</div>
+          <div class="slot-filename" id="fname-shopify"></div>
+        </div>
+        <span class="slot-badge waiting" id="badge-shopify">Waiting</span>
+      </label>
+
+
+
+
+    </div>
+
+    <!-- Missing files hint -->
+    <div class="missing-files" id="missing-files"></div>
+
+    <!-- Run Button -->
+    <button class="run-btn" id="run-btn" onclick="runTool()" disabled>
+      Generate Report
+    </button>
+
+    <!-- Log area -->
+    <div class="log-area" id="log-area"></div>
+
+    <!-- Error block -->
+    <div class="error-block" id="error-block">
+      <h3>❌ Cannot Continue — Unmapped Rows</h3>
+      <div id="error-rows"></div>
+      <div class="error-hint">
+        Update the Attribute Mapping or SKU Nickname Map in scripts.js,
+        then re-upload your Shopify export and run again.
+      </div>
+    </div>
+
+    <!-- Downloads -->
+    <div class="downloads" id="downloads">
+      <div class="downloads-label">Downloads Ready</div>
+    </div>
+
   </div>
 
-  <!-- Mode Selector -->
-  <div class="section-label">Step 1 — Choose Report Type</div>
-  <div class="mode-selector">
-    <div class="mode-card active" id="mode-online" onclick="setMode('online')">
-      <div class="mode-icon">🛒</div>
-      <div class="mode-info">
-        <div class="mode-name">Retail Online</div>
-        <div class="mode-desc">Shopify monthly sales export → MLB apparel submission</div>
-      </div>
-      <div class="mode-check" id="check-online">✓</div>
-    </div>
-    <div class="mode-card" id="mode-fanatics" onclick="setMode('fanatics')">
-      <div class="mode-icon">📦</div>
-      <div class="mode-info">
-        <div class="mode-name">Fanatics Hard Goods</div>
-        <div class="mode-desc">Fanatics CSV → bags, posters & wallets submission</div>
-      </div>
-      <div class="mode-check" id="check-fanatics"></div>
-    </div>
-  </div>
+  <!-- Toast -->
+  <div id="toast"></div>
 
-  <!-- File Slots -->
-  <div class="section-label" style="margin-top:32px;">Step 2 — Load Your Files</div>
-
-  <div class="files-grid">
-
-    <!-- Shopify export — used by both modes (different sheets) -->
-    <div class="file-slot mode-online mode-fanatics" id="slot-shopify" onclick="document.getElementById('input-shopify').click()">
-      <input type="file" id="input-shopify" accept=".xlsx" onchange="loadFile('shopify', this)">
-      <div class="slot-icon" id="icon-shopify">📊</div>
-      <div class="slot-info">
-        <div class="slot-name">Shopify Export</div>
-        <div class="slot-desc" id="desc-shopify">Monthly sales file — needs sheet "MLB Retail-Online"</div>
-        <div class="slot-filename" id="fname-shopify"></div>
-      </div>
-      <div class="slot-badge waiting" id="badge-shopify">Waiting</div>
-    </div>
-
-    <div class="file-slot mode-online" id="slot-reftables" onclick="document.getElementById('input-reftables').click()">
-      <input type="file" id="input-reftables" accept=".xlsx" onchange="loadFile('reftables', this)">
-      <div class="slot-icon" id="icon-reftables">🗺️</div>
-      <div class="slot-info">
-        <div class="slot-name">Reference Tables</div>
-        <div class="slot-desc">Reference_Tables_MLB.xlsx — saved automatically after first upload</div>
-        <div class="slot-filename" id="fname-reftables"></div>
-      </div>
-      <div class="slot-badge waiting" id="badge-reftables">Waiting</div>
-    </div>
-
-    <div class="file-slot mode-online" id="slot-attrmap" onclick="document.getElementById('input-attrmap').click()">
-      <input type="file" id="input-attrmap" accept=".xlsx" onchange="loadFile('attrmap', this)">
-      <div class="slot-icon" id="icon-attrmap">🏷️</div>
-      <div class="slot-info">
-        <div class="slot-name">Attribute Mapping</div>
-        <div class="slot-desc">Baseballism_Attribute_Mapping_FINAL_MLB.xlsx — saved automatically after first upload</div>
-        <div class="slot-filename" id="fname-attrmap"></div>
-      </div>
-      <div class="slot-badge waiting" id="badge-attrmap">Waiting</div>
-    </div>
-
-    <!-- Template — online mode only -->
-    <div class="file-slot mode-online" id="slot-template" onclick="document.getElementById('input-template').click()">
-      <input type="file" id="input-template" accept=".xlsx" onchange="loadFile('template', this)">
-      <div class="slot-icon" id="icon-template">📋</div>
-      <div class="slot-info">
-        <div class="slot-name">MLB Submission Template</div>
-        <div class="slot-desc">COPY.xlsx — saved automatically after first upload</div>
-        <div class="slot-filename" id="fname-template"></div>
-      </div>
-      <div class="slot-badge waiting" id="badge-template">Waiting</div>
-    </div>
-
-  </div>
-
-  <div class="section-label">Step 3 — Generate Reports</div>
-
-  <button class="run-btn" id="run-btn" onclick="runTool()" disabled>
-    Generate Reports
-  </button>
-  <div class="missing-files" id="missing-files"></div>
-
-  <div class="log-area" id="log-area"></div>
-
-  <div class="error-block" id="error-block">
-    <h3>❌ Cannot Continue — Unmapped Rows Found</h3>
-    <div id="error-rows"></div>
-    <p class="error-hint">Fix these rows in your Shopify export, or if it's a new product type or team nickname, let your developer know to add it to the mapping.</p>
-  </div>
-
-  <div class="downloads" id="downloads">
-    <div class="downloads-label">Downloads Ready</div>
-  </div>
-
-</div>
-<script src="scripts.js"></script>
+  <script src="xlsx.full.min.js"></script>
+  <script src="scripts.js"></script>
 </body>
 </html>
