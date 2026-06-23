@@ -15,6 +15,23 @@ DB-driven Shopify ingestion for **non-Baseballism** companies (or any entity wit
 
 **Company stamping:** every row gets `company_entity_id` from the connection (bulk tables have no insert trigger).
 
+### Sales row math (Shopify POS parity)
+
+Per order line, `sales_by_day` rows are built as:
+
+| Field | Source |
+|-------|--------|
+| Gross sales | `price × quantity` |
+| Discounts | line `discount_allocations` |
+| Refunds | `order.refunds[].refund_line_items` matched by `line_item_id` |
+| Net sales | gross − discounts − refunds |
+| Shipping | `total_shipping_price_set` (minus shipping refunds), allocated per line |
+| Duties / additional fees | order-level amounts, allocated per line |
+| Taxes | line `tax_lines` minus refunded tax |
+| **Total sales** | net + shipping + duties + fees + taxes |
+
+After changing this logic, **re-run a sales history import** from Integrations so existing rows are upserted with corrected amounts.
+
 ---
 
 ## One-time setup (per company)
