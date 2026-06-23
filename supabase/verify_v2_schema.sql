@@ -119,6 +119,20 @@ select
   case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='sync_jobs') then 'ok' else 'MISSING' end as sync_jobs,
   case when exists (select 1 from information_schema.columns where table_schema='public' and table_name='locations' and column_name='shopify_location_id') then 'ok' else 'MISSING' end as locations_shopify_location_id;
 
+select
+  col.column_name,
+  case when col.column_name is not null then 'ok' else 'MISSING — run 20260623110000_shopify_connections_schema_align.sql' end as status
+from (values
+  ('last_test_status'),
+  ('shop_name'),
+  ('shop_currency'),
+  ('access_token')
+) as want(column_name)
+left join information_schema.columns col
+  on col.table_schema = 'public'
+ and col.table_name = 'shopify_connections'
+ and col.column_name = want.column_name;
+
 -- 8. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,
