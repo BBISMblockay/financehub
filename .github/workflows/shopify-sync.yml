@@ -1,0 +1,61 @@
+name: Shopify API Sync
+
+on:
+  workflow_dispatch:
+    inputs:
+      sync_mode:
+        description: incremental | history | full
+        required: false
+        default: incremental
+      company_entity_id:
+        description: Optional company UUID (limit to one entity)
+        required: false
+      connection_id:
+        description: Optional shopify_connections.id
+        required: false
+      skip_inventory:
+        description: Set true to skip inventory snapshot
+        required: false
+        default: 'false'
+      skip_sales:
+        description: Set true to skip sales import
+        required: false
+        default: 'false'
+  schedule:
+    # 11:00 UTC — after nightly Sheets sync (10:30 UTC)
+    - cron: "0 11 * * *"
+
+jobs:
+  shopify-sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SHOPIFY_SYNC_MODE: ${{ github.event.inputs.sync_mode || 'incremental' }}
+      SHOPIFY_ONLY_COMPANY_ID: ${{ github.event.inputs.company_entity_id || '' }}
+      SHOPIFY_ONLY_CONNECTION_ID: ${{ github.event.inputs.connection_id || '' }}
+      SHOPIFY_SKIP_INVENTORY: ${{ github.event.inputs.skip_inventory || 'false' }}
+      SHOPIFY_SKIP_SALES: ${{ github.event.inputs.skip_sales || 'false' }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify Supabase envs exist
+        run: |
+          test -n "$SUPABASE_URL" || (echo "Missing SUPABASE_URL" && exit 1)
+          test -n "$SUPABASE_SERVICE_ROLE_KEY" || (echo "Missing SUPABASE_SERVICE_ROLE_KEY" && exit 1)
+          echo "Supabase env vars present"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run Shopify sync orchestrator
+        run: node scripts/shopify-sync.mjs
