@@ -96,7 +96,7 @@ Deno.serve(async (req) => {
     let scopesGranted: string[] = [];
     let scopesError: string | null = null;
 
-    const scopesRes = await shopifyOAuthGet(domain, access_token, 'access_scopes.json');
+    const scopesRes = await shopifyAdminGet(domain, access_token, '/access_scopes.json');
     if (scopesRes.ok) {
       const scopesJson = await scopesRes.json();
       scopesGranted = normalizeGranted(scopesJson);
