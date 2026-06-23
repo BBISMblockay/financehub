@@ -13,6 +13,7 @@ Short list of **resolved** issues. Active problems stay in [bugs.md](bugs.md).
 | 2026-06 | Multi-tenant | Insert hardening: `stamp_company_entity_id` trigger on all company-scoped tables (excl. inventory/sales bulk) + `withCompany()` / `withCompanyRows()` in `pages/config.js` |
 | 2026-06 | Shopify | Phase 2a: `access_scopes.json` on connection test; `scopes_granted` / `scopes_missing` on `shopify_connections`; UI scope warnings |
 | 2026-06 | Shopify | Hotfix: `access_scopes.json` must use `/admin/oauth/` (unversioned); versioned path returned 404 and false missing-scope warnings |
+| 2026-06 | Shopify | Revert PR #166 scope regression: restore client-side retest persist, clear stale `meta.scopes_fetch_error`, keep `/admin/oauth/access_scopes.json` |
 | 2026-06 | Auth | Login resolves company via `entity_memberships`, auto-sets single company or routes to picker for multi-company users |
 |------|------|----------------|
 | 2026-06 | Supabase schema | Verified all tables, RLS, and policies healthy across PO builder, costing, profiles, and launch workbench |

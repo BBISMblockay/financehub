@@ -59,11 +59,7 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json();
-    const { shop_domain, access_token, connection_id } = body as {
-      shop_domain: string;
-      access_token: string;
-      connection_id?: string;
-    };
+    const { shop_domain, access_token } = body as { shop_domain: string; access_token: string };
 
     if (!shop_domain || !access_token) {
       return new Response(JSON.stringify({ error: 'shop_domain and access_token are required' }), {
@@ -77,14 +73,6 @@ Deno.serve(async (req) => {
     const shopRes = await shopifyAdminGet(domain, access_token, '/shop.json');
     if (!shopRes.ok) {
       const text = await shopRes.text();
-      if (connection_id) {
-        await supabase.from('shopify_connections').update({
-          last_tested_at: new Date().toISOString(),
-          last_test_success: false,
-          last_test_status: 'error',
-          last_test_error: `HTTP ${shopRes.status}: ${text.slice(0, 300)}`,
-        }).eq('id', connection_id);
-      }
       return new Response(
         JSON.stringify({ ok: false, status: shopRes.status, error: text }),
         { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
@@ -112,21 +100,6 @@ Deno.serve(async (req) => {
       catalog_sync: missingForJob(scopesGranted, 'catalog_sync'),
     };
     const checkedAt = new Date().toISOString();
-
-    if (connection_id) {
-      await supabase.from('shopify_connections').update({
-        last_tested_at: checkedAt,
-        last_test_success: true,
-        last_test_status: 'ok',
-        last_test_error: null,
-        shop_name: shop.name,
-        shop_currency: shop.currency,
-        scopes_granted: scopesGranted,
-        scopes_missing: scopesMissing,
-        scopes_checked_at: checkedAt,
-        ...(scopesError ? { meta: { scopes_fetch_error: scopesError.slice(0, 500) } } : {}),
-      }).eq('id', connection_id);
-    }
 
     return new Response(
       JSON.stringify({
