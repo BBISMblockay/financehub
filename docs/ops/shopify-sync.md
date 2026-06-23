@@ -26,12 +26,11 @@ DB-driven Shopify ingestion for **non-Baseballism** companies (or any entity wit
 3. Add shop domain + custom app access token → **Test & Save**
 4. Confirm **all sync scopes granted** (green + no scope warning)
 
-### 2. Enable sync for that connection (SQL)
+### 2. Enable sync
 
-`sync_enabled` defaults to `false` so Baseballism is never touched accidentally.
+Either toggle **API sync enabled** on the Integrations page, or run SQL:
 
 ```sql
--- Replace with your connection id from shopify_connections
 update public.shopify_connections
 set sync_enabled = true
 where id = '<connection-uuid>'
@@ -57,7 +56,19 @@ Unmapped Shopify locations fall back to `{shop}_{location_name}` tags.
 
 ## Run sync
 
-### Manual (GitHub Actions)
+### From Integrations UI (recommended for customers)
+
+1. Settings → **Integrations** (admin, correct company selected)
+2. Enable **API sync enabled** for nightly incremental job (optional)
+3. **Sales history:** click **90d**, **365d**, or **730d** — imports run in ~30-day windows; keep the tab open until the progress bar completes
+4. **Inventory:** click **Sync now**
+5. If a long import is interrupted, click **Resume** (or **Cancel** to abort)
+
+Backfill progress is stored on the connection (`meta.history_backfill`) and in `sync_jobs`.
+
+**Deploy:** `supabase functions deploy shopify-sync-run` after merge.
+
+### Manual (GitHub Actions — ops / scheduled only)
 
 1. Repo → **Actions** → **Shopify API Sync** → **Run workflow**
 2. Inputs:
@@ -116,11 +127,14 @@ In the app: switch to the company → Inventory / Sales Verification should show
 
 ## Modes
 
-| Mode | Sales | Inventory |
-|------|-------|-----------|
-| `incremental` | Orders since last sync (or `SHOPIFY_DAYS_BACK`, default 2) | Snapshot |
-| `history` | `history_days_default` (default 90) lookback | — |
-| `full` | 90d history import | Snapshot |
+| Mode | Sales | Inventory | Trigger |
+|------|-------|-----------|---------|
+| UI **90d / 365d / 730d** | Windowed history import | — | Integrations → edge function |
+| UI **Sync now** | — | Snapshot | Integrations → edge function |
+| `incremental` (GHA) | Orders since last sync | Snapshot | Nightly 11:00 UTC |
+| `history` / `full` (GHA) | Windowed history | full only | Ops manual dispatch |
+
+Window size: **30 days** per chunk (tunable via `chunk_days` in edge request). 730d ≈ 25 windows; UI loops automatically.
 
 ---
 
@@ -135,6 +149,6 @@ In the app: switch to the company → Inventory / Sales Verification should show
 
 ## Next (Phase 3+)
 
-- Integrations UI: toggle `sync_enabled`, trigger history import, show `sync_jobs` progress
+- Show `sync_jobs` history inline on Integrations
 - `entities.meta.integrations.shopify` company-level flag
 - Baseballism online-only cutover from Sheets

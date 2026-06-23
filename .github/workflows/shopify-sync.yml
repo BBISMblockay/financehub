@@ -21,6 +21,13 @@ on:
         description: Set true to skip sales import
         required: false
         default: 'false'
+      history_days:
+        description: Override history days for history/full mode
+        required: false
+      history_chunk_days:
+        description: Days per history window (default 30)
+        required: false
+        default: '30'
   schedule:
     # 11:00 UTC — after nightly Sheets sync (10:30 UTC)
     - cron: "0 11 * * *"
@@ -38,6 +45,8 @@ jobs:
       SHOPIFY_ONLY_CONNECTION_ID: ${{ github.event.inputs.connection_id || '' }}
       SHOPIFY_SKIP_INVENTORY: ${{ github.event.inputs.skip_inventory || 'false' }}
       SHOPIFY_SKIP_SALES: ${{ github.event.inputs.skip_sales || 'false' }}
+      SHOPIFY_HISTORY_DAYS: ${{ github.event.inputs.history_days || '' }}
+      SHOPIFY_HISTORY_CHUNK_DAYS: ${{ github.event.inputs.history_chunk_days || '30' }}
 
     steps:
       - name: Checkout repo
