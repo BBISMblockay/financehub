@@ -46,12 +46,12 @@ order by e.kind, e.name;
 -- 2. Profile policies (needed for /v2/profile.html)
 select
   want.polname as policy_name,
-  case when pol.polname is not null then 'ok' else 'MISSING — run section 3 in apply_all_post_merge.sql' end as status
+  case when pol.policyname is not null then 'ok' else 'MISSING — run section 3 in apply_all_post_merge.sql' end as status
 from (values ('profiles_select_own'), ('profiles_update_own')) as want(polname)
 left join pg_policies pol
   on pol.schemaname = 'public'
  and pol.tablename = 'profiles'
- and pol.polname = want.polname;
+ and pol.policyname = want.polname;
 
 -- 3. Launch comment author columns (migrations 20260603120000 + 20260603130000)
 select
