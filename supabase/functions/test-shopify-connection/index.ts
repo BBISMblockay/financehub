@@ -1,9 +1,24 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import {
+  SHOPIFY_API_VERSION,
+  missingForJob,
+  missingForSync,
+  normalizeGranted,
+} from './shopify-scopes.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+async function shopifyGet(domain: string, token: string, path: string) {
+  return fetch(`https://${domain}/admin/api/${SHOPIFY_API_VERSION}${path}`, {
+    headers: {
+      'X-Shopify-Access-Token': token,
+      'Content-Type': 'application/json',
+    },
+  });
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -11,7 +26,6 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Verify caller is authenticated
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -44,16 +58,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Normalise domain — strip https:// and trailing slashes
     const domain = shop_domain.replace(/^https?:\/\//, '').replace(/\/$/, '');
 
-    const shopRes = await fetch(`https://${domain}/admin/api/2024-07/shop.json`, {
-      headers: {
-        'X-Shopify-Access-Token': access_token,
-        'Content-Type': 'application/json',
-      },
-    });
-
+    const shopRes = await shopifyGet(domain, access_token, '/shop.json');
     if (!shopRes.ok) {
       const text = await shopRes.text();
       return new Response(
@@ -63,6 +70,25 @@ Deno.serve(async (req) => {
     }
 
     const { shop } = await shopRes.json();
+
+    let scopesGranted: string[] = [];
+    let scopesError: string | null = null;
+
+    const scopesRes = await shopifyGet(domain, access_token, '/oauth/access_scopes.json');
+    if (scopesRes.ok) {
+      const scopesJson = await scopesRes.json();
+      scopesGranted = normalizeGranted(scopesJson);
+    } else {
+      scopesError = await scopesRes.text();
+    }
+
+    const scopesMissing = missingForSync(scopesGranted);
+    const missingByJob = {
+      history_import: missingForJob(scopesGranted, 'history_import'),
+      incremental_sales: missingForJob(scopesGranted, 'incremental_sales'),
+      inventory_snapshot: missingForJob(scopesGranted, 'inventory_snapshot'),
+      catalog_sync: missingForJob(scopesGranted, 'catalog_sync'),
+    };
 
     return new Response(
       JSON.stringify({
@@ -75,6 +101,12 @@ Deno.serve(async (req) => {
           plan_name: shop.plan_name,
           country_name: shop.country_name,
         },
+        scopes_granted: scopesGranted,
+        scopes_missing: scopesMissing,
+        scopes_ready_for_sync: scopesMissing.length === 0,
+        missing_by_job: missingByJob,
+        scopes_error: scopesError,
+        scopes_checked_at: new Date().toISOString(),
       }),
       { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
     );

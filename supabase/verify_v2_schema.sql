@@ -133,6 +133,19 @@ left join information_schema.columns col
  and col.table_name = 'shopify_connections'
  and col.column_name = want.column_name;
 
+select
+  col.column_name,
+  case when col.column_name is not null then 'ok' else 'MISSING — run 20260623120000_shopify_connections_scopes.sql' end as status
+from (values
+  ('scopes_granted'),
+  ('scopes_missing'),
+  ('scopes_checked_at')
+) as want(column_name)
+left join information_schema.columns col
+  on col.table_schema = 'public'
+ and col.table_name = 'shopify_connections'
+ and col.column_name = want.column_name;
+
 -- 8. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,
