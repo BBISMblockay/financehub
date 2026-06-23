@@ -1,4 +1,4 @@
-export const SHOPIFY_API_VERSION = '2024-07';
+export const SHOPIFY_API_VERSION = '2025-01';
 
 export const JOB_SCOPES: Record<string, string[]> = {
   test_connection: [],
