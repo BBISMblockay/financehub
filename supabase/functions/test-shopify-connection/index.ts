@@ -11,8 +11,18 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-async function shopifyGet(domain: string, token: string, path: string) {
-  return fetch(`https://${domain}/admin/api/${SHOPIFY_API_VERSION}${path}`, {
+async function shopifyAdminGet(domain: string, token: string, apiPath: string) {
+  return fetch(`https://${domain}/admin/api/${SHOPIFY_API_VERSION}${apiPath}`, {
+    headers: {
+      'X-Shopify-Access-Token': token,
+      'Content-Type': 'application/json',
+    },
+  });
+}
+
+/** OAuth metadata routes are NOT under /admin/api/{version}/ */
+async function shopifyOAuthGet(domain: string, token: string, oauthPath: string) {
+  return fetch(`https://${domain}/admin/oauth/${oauthPath}`, {
     headers: {
       'X-Shopify-Access-Token': token,
       'Content-Type': 'application/json',
@@ -60,7 +70,7 @@ Deno.serve(async (req) => {
 
     const domain = shop_domain.replace(/^https?:\/\//, '').replace(/\/$/, '');
 
-    const shopRes = await shopifyGet(domain, access_token, '/shop.json');
+    const shopRes = await shopifyAdminGet(domain, access_token, '/shop.json');
     if (!shopRes.ok) {
       const text = await shopRes.text();
       return new Response(
@@ -74,7 +84,7 @@ Deno.serve(async (req) => {
     let scopesGranted: string[] = [];
     let scopesError: string | null = null;
 
-    const scopesRes = await shopifyGet(domain, access_token, '/oauth/access_scopes.json');
+    const scopesRes = await shopifyOAuthGet(domain, access_token, 'access_scopes.json');
     if (scopesRes.ok) {
       const scopesJson = await scopesRes.json();
       scopesGranted = normalizeGranted(scopesJson);
