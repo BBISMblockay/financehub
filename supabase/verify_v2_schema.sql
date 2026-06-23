@@ -169,6 +169,18 @@ select
     else 'MISSING — run 20260624000000_sales_verification_company_scope.sql'
   end as refresh_sales_verification_per_company;
 
+select
+  case
+    when exists (
+      select 1
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public'
+        and p.proname = 'sales_verification_filtered_summary'
+    ) then 'ok'
+    else 'MISSING — run 20260624100000_sales_verification_filtered_summary.sql'
+  end as sales_verification_filtered_summary_rpc;
+
 -- 9. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,

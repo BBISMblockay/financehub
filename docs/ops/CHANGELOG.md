@@ -17,6 +17,7 @@ Short list of **resolved** issues. Active problems stay in [bugs.md](bugs.md).
 | 2026-06 | Shopify | Phase 2b: `shopify-sync.mjs` orchestrator, `shopify-sync.yml` workflow, `source=shopify_api` writes with `company_entity_id` |
 | 2026-06 | Shopify | UI-initiated windowed sales backfill (90/365/730d) + inventory sync via `shopify-sync-run` edge function; `sync_enabled` toggle on Integrations |
 | 2026-06 | Sales verification | `sales_by_day` + `sales_verification_store_comp_summary` scoped by `company_entity_id`; refresh RPC per company; Sheets sync stamps Baseballism id on insert |
+| 2026-06 | Sales verification | Server-side `sales_verification_filtered_summary` RPC replaces client row-chunk scans (fixes timeouts on large histories) |
 | 2026-06 | Auth | Login resolves company via `entity_memberships`, auto-sets single company or routes to picker for multi-company users |
 |------|------|----------------|
 | 2026-06 | Supabase schema | Verified all tables, RLS, and policies healthy across PO builder, costing, profiles, and launch workbench |
