@@ -124,7 +124,7 @@ Deno.serve(async (req) => {
         scopes_granted: scopesGranted,
         scopes_missing: scopesMissing,
         scopes_checked_at: checkedAt,
-        ...(scopesError ? { meta: { scopes_fetch_error: scopesError.slice(0, 500) } } : {}),
+        meta: scopesError ? { scopes_fetch_error: scopesError.slice(0, 500) } : {},
       }).eq('id', connection_id);
     }
 
