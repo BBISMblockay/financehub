@@ -322,7 +322,6 @@
           shop_currency: shop.currency,
           last_tested_at: new Date().toISOString(),
           last_test_status: 'ok',
-          last_test_error: null,
           created_by: _session?.user?.id,
         };
 
@@ -384,9 +383,10 @@
         const data = await res.json();
 
         const update = data.ok
-          ? { last_tested_at: new Date().toISOString(), last_test_status: 'ok', last_test_error: null,
+          ? { last_tested_at: new Date().toISOString(), last_test_status: 'ok',
               shop_name: data.shop?.name, shop_currency: data.shop?.currency }
-          : { last_tested_at: new Date().toISOString(), last_test_status: 'error', last_test_error: data.error || 'Unknown' };
+          : { last_tested_at: new Date().toISOString(), last_test_status: 'error',
+              last_test_error: (data.error || 'Unknown').slice(0, 500) };
 
         await db.from('shopify_connections').update(update).eq('id', id);
 
