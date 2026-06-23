@@ -233,8 +233,18 @@
       };
     }
 
-    function scopeWarningHtml(missing) {
+    function scopeWarningHtml(row) {
+      const missing = Array.isArray(row?.scopes_missing) ? row.scopes_missing : (row || []);
+      const granted = Array.isArray(row?.scopes_granted) ? row.scopes_granted : [];
+      const fetchErr = row?.meta?.scopes_fetch_error;
+
+      if (fetchErr) {
+        return `<div class="int-scope-warn">Could not read scopes from Shopify. Re-test after updating the connection.</div>`;
+      }
       if (!missing?.length) return '';
+      if (!granted?.length && missing.length >= 4) {
+        return `<div class="int-scope-warn">Scope check returned empty — click Re-test. If this persists, reinstall the custom app token in Shopify.</div>`;
+      }
       const labels = window.SiloShopifyScopes?.formatScopeList?.(missing) || missing.join(', ');
       return `<div class="int-scope-warn">Missing scopes for sync: ${escHtml(labels)}. Update your custom app in Shopify Admin, then Re-test.</div>`;
     }
@@ -268,7 +278,7 @@
           : 'Not tested';
 
         const missing = Array.isArray(row.scopes_missing) ? row.scopes_missing : [];
-        const scopeWarn = scopeWarningHtml(missing);
+        const scopeWarn = scopeWarningHtml(row);
 
         div.innerHTML = `
           <div class="int-conn-info">
@@ -360,6 +370,9 @@
           last_test_status: 'ok',
           created_by: _session?.user?.id,
           ...scopeFields,
+          ...(data.scopes_error
+            ? { meta: { scopes_fetch_error: String(data.scopes_error).slice(0, 500) } }
+            : { meta: { scopes_fetch_error: null } }),
         };
 
         const { error: saveErr } = await db
@@ -434,6 +447,9 @@
               shop_currency: data.shop?.currency,
               last_test_error: null,
               ...scopeFields,
+              meta: data.scopes_error
+                ? { scopes_fetch_error: String(data.scopes_error).slice(0, 500) }
+                : { scopes_fetch_error: null },
             }
           : {
               last_tested_at: new Date().toISOString(),
