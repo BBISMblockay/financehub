@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SILO · Integrations</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <script src="../pages/config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+  <script src="nav-config.js"></script>
+  <script src="silo-chrome.js"></script>
+  <style>
+    .int-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 16px;
+      padding: 20px 24px;
+    }
+    .int-card-logo {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: #96bf48;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .int-card-logo svg { width: 24px; height: 24px; }
+    .int-card-header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .int-card-meta { flex: 1; min-width: 0; }
+    .int-card-name { font-weight: 600; font-size: 14px; color: var(--bcn-ink); }
+    .int-card-desc { font-size: 12px; color: var(--bcn-ink-3); margin-top: 2px; }
+
+    .int-connection-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 12px;
+      background: var(--bcn-surface-2, #f8f9fa);
+      border-radius: 6px;
+      margin-bottom: 8px;
+      border: 1px solid var(--bcn-border, #e5e7eb);
+    }
+    .int-connection-row:last-of-type { margin-bottom: 12px; }
+    .int-conn-info { min-width: 0; flex: 1; }
+    .int-conn-domain { font-size: 13px; font-weight: 500; font-family: 'IBM Plex Mono', monospace; color: var(--bcn-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .int-conn-meta { font-size: 11px; color: var(--bcn-ink-3); margin-top: 2px; font-family: 'IBM Plex Mono', monospace; }
+    .int-conn-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+    .add-form { display: none; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--bcn-border, #e5e7eb); }
+    .add-form.open { display: block; }
+    .add-form .bcn-field-group { margin-bottom: 10px; }
+    .add-form .form-row { display: flex; gap: 8px; align-items: flex-end; }
+    .add-form .form-row .bcn-field-group { flex: 1; margin-bottom: 0; }
+
+    .test-result {
+      display: none;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-family: 'IBM Plex Mono', monospace;
+      margin-top: 10px;
+    }
+    .test-result.ok  { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; display: block; }
+    .test-result.err { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; display: block; }
+
+    .empty-state {
+      text-align: center;
+      padding: 24px 0 16px;
+      color: var(--bcn-ink-3);
+      font-size: 13px;
+    }
+    .empty-state strong { display: block; font-size: 14px; color: var(--bcn-ink-2); margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <div class="silo-app" id="silo-app">
+    <main class="silo-main">
+      <header class="bcn-header">
+        <div style="flex:1;min-width:0;">
+          <div class="bcn-header-title"><h1>Integrations</h1></div>
+        </div>
+      </header>
+
+      <div class="bcn-status" id="status" hidden></div>
+
+      <div class="int-grid" id="integrations-grid">
+        <!-- Shopify card -->
+        <div class="bcn-card" id="shopify-card">
+          <div class="bcn-card-header">
+            <div class="int-card-header">
+              <div class="int-card-logo">
+                <!-- Shopify bag icon -->
+                <svg viewBox="0 0 24 24" fill="white" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M15.337 3.17c-.01-.058-.062-.098-.121-.088-.056.01-1.373.254-1.373.254s-.913-.893-1.011-.992c-.098-.098-.29-.069-.365-.046l-.5.154C11.652 1.845 11.01 1.5 10.25 1.5c-.024 0-.047 0-.07.002C10.02 1.32 9.77 1.25 9.5 1.25 7.71 1.25 6.84 3.28 6.59 4.35l-1.77.547c-.55.172-.567.188-.64.704L3 18.43l11.647 2.07L19 19.12 15.337 3.17zM13.01 3.73l-.813.252v-.177c0-.489-.068-.883-.176-1.196.435.054.728.55.989 1.121zm-1.91-.455c.117.303.193.734.193 1.32v.088l-1.477.456c.285-1.08.82-1.606 1.284-1.864zm-.753-.26a.498.498 0 01.127.017c-.638.295-1.32 1.04-1.608 2.526l-1.213.375C7.95 4.672 8.617 3.016 10.347 3.016z"/>
+                </svg>
+              </div>
+              <div class="int-card-meta">
+                <div class="int-card-name">Shopify</div>
+                <div class="int-card-desc">Connect your store to sync inventory, orders, and locations</div>
+              </div>
+            </div>
+          </div>
+          <div class="bcn-card-body">
+            <div id="shopify-connections-list">
+              <div class="empty-state" id="shopify-empty">
+                <strong>No store connected</strong>
+                Add your Shopify Admin API token to get started
+              </div>
+            </div>
+
+            <button class="bcn-btn bcn-btn--ghost" id="btn-add-shopify" style="width:100%;">+ Add Shopify store</button>
+
+            <div class="add-form" id="shopify-add-form">
+              <div class="bcn-field-group">
+                <label class="bcn-label" for="shop-domain">Shop domain</label>
+                <input class="bcn-field bcn-field--mono" id="shop-domain" type="text"
+                  placeholder="yourstore.myshopify.com" autocomplete="off" spellcheck="false" />
+              </div>
+              <div class="bcn-field-group">
+                <label class="bcn-label" for="access-token">Admin API access token</label>
+                <input class="bcn-field bcn-field--mono" id="access-token" type="password"
+                  placeholder="shpat_…" autocomplete="off" />
+              </div>
+              <div class="form-row">
+                <button class="bcn-btn bcn-btn--ghost" id="btn-cancel-add">Cancel</button>
+                <button class="bcn-btn bcn-btn--primary" id="btn-test-save">Test &amp; Save</button>
+              </div>
+              <div class="test-result" id="test-result"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    const cfg = window.__SILO_CONFIG__ || {};
+    const SUPABASE_URL = cfg.SUPABASE_URL || '';
+    const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      document.getElementById('status').textContent = 'Missing Supabase config';
+      document.getElementById('status').className = 'bcn-status bcn-status--neg';
+      document.getElementById('status').hidden = false;
+    }
+
+    const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    const FUNCTIONS_URL = SUPABASE_URL.replace('/rest/v1', '') + '/functions/v1';
+
+    function setStatus(msg, type = 'info', ms = 0) {
+      const el = document.getElementById('status');
+      el.className = `bcn-status bcn-status--${type}`;
+      el.textContent = msg;
+      el.hidden = false;
+      if (ms) setTimeout(() => { el.hidden = true; }, ms);
+    }
+
+    // ── Auth + Chrome ──────────────────────────────────────────────
+    let _session = null;
+    let _co = null;
+
+    db.auth.getSession().then(async ({ data: { session } }) => {
+      if (!session) { window.location.href = '/pages/login.html'; return; }
+      _session = session;
+
+      const { data: profile } = await db
+        .from('profiles')
+        .select('name, email, role, active_company_id')
+        .eq('id', session.user.id)
+        .single();
+
+      if (profile?.role !== 'owner' && profile?.role !== 'admin') {
+        setStatus('Integrations settings require admin access.', 'neg');
+        return;
+      }
+
+      _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
+
+      window.SiloChrome.mount({
+        appEl: '#silo-app',
+        active: 'settings/integrations',
+        user: { email: profile?.email || session.user.email, role: profile?.role },
+        crumbs: ['Settings', 'Integrations'],
+        supabaseClient: db,
+      });
+
+      loadConnections();
+    });
+
+    // ── Load existing connections ──────────────────────────────────
+    async function loadConnections() {
+      let q = db.from('shopify_connections').select('*').order('created_at');
+      if (_co?.id) q = q.eq('company_entity_id', _co.id);
+      const { data, error } = await q;
+      if (error) { setStatus('Failed to load connections: ' + error.message, 'neg'); return; }
+      renderConnections(data || []);
+    }
+
+    function renderConnections(rows) {
+      const list = document.getElementById('shopify-connections-list');
+      const empty = document.getElementById('shopify-empty');
+
+      // Clear existing connection rows (keep empty state node)
+      list.querySelectorAll('.int-connection-row').forEach(el => el.remove());
+
+      if (!rows.length) {
+        empty.style.display = '';
+        return;
+      }
+      empty.style.display = 'none';
+
+      rows.forEach(row => {
+        const div = document.createElement('div');
+        div.className = 'int-connection-row';
+        div.dataset.id = row.id;
+
+        const statusDot = row.last_test_status === 'ok'
+          ? '<span class="bcn-dot bcn-dot--pos" title="Connected"></span>'
+          : row.last_test_status === 'error'
+            ? '<span class="bcn-dot bcn-dot--neg" title="Connection error"></span>'
+            : '<span class="bcn-dot" title="Not tested"></span>';
+
+        const testedAt = row.last_tested_at
+          ? new Date(row.last_tested_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+          : 'Not tested';
+
+        div.innerHTML = `
+          <div class="int-conn-info">
+            <div class="int-conn-domain">${statusDot} ${escHtml(row.shop_domain)}</div>
+            <div class="int-conn-meta">${row.shop_name ? escHtml(row.shop_name) + ' · ' : ''}Tested ${testedAt}</div>
+          </div>
+          <div class="int-conn-actions">
+            <button class="bcn-btn bcn-btn--ghost" style="font-size:12px;height:28px;padding:0 10px;"
+              onclick="retest('${row.id}')">Re-test</button>
+            <button class="bcn-btn bcn-btn--danger" style="font-size:12px;height:28px;padding:0 10px;"
+              onclick="removeConnection('${row.id}')">Remove</button>
+          </div>`;
+        list.insertBefore(div, empty);
+      });
+    }
+
+    function escHtml(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ── Add form toggle ────────────────────────────────────────────
+    document.getElementById('btn-add-shopify').addEventListener('click', () => {
+      document.getElementById('shopify-add-form').classList.add('open');
+      document.getElementById('btn-add-shopify').style.display = 'none';
+      document.getElementById('test-result').className = 'test-result';
+      document.getElementById('shop-domain').focus();
+    });
+
+    document.getElementById('btn-cancel-add').addEventListener('click', closeAddForm);
+
+    function closeAddForm() {
+      document.getElementById('shopify-add-form').classList.remove('open');
+      document.getElementById('btn-add-shopify').style.display = '';
+      document.getElementById('shop-domain').value = '';
+      document.getElementById('access-token').value = '';
+      document.getElementById('test-result').className = 'test-result';
+    }
+
+    // ── Test & Save ────────────────────────────────────────────────
+    document.getElementById('btn-test-save').addEventListener('click', async () => {
+      const domain = document.getElementById('shop-domain').value.trim();
+      const token  = document.getElementById('access-token').value.trim();
+      const resultEl = document.getElementById('test-result');
+      const btn = document.getElementById('btn-test-save');
+
+      if (!domain || !token) {
+        resultEl.className = 'test-result err';
+        resultEl.textContent = 'Both fields are required.';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.textContent = 'Testing…';
+      resultEl.className = 'test-result';
+
+      try {
+        const session = (await db.auth.getSession()).data.session;
+        const res = await fetch(`${SUPABASE_URL.replace('/rest/v1','')}/functions/v1/test-shopify-connection`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ shop_domain: domain, access_token: token }),
+        });
+
+        const data = await res.json();
+
+        if (!data.ok) {
+          resultEl.className = 'test-result err';
+          resultEl.textContent = `Connection failed (HTTP ${data.status || '?'}): ${data.error || 'Unknown error'}`;
+          btn.disabled = false;
+          btn.textContent = 'Test & Save';
+          return;
+        }
+
+        // Test passed — save to DB
+        const { shop } = data;
+        const payload = {
+          company_entity_id: _co?.id,
+          shop_domain: shop.myshopify_domain || domain,
+          access_token: token,
+          shop_name: shop.name,
+          shop_currency: shop.currency,
+          last_tested_at: new Date().toISOString(),
+          last_test_status: 'ok',
+          last_test_error: null,
+          created_by: _session?.user?.id,
+        };
+
+        const { error: saveErr } = await db
+          .from('shopify_connections')
+          .upsert(payload, { onConflict: 'company_entity_id,shop_domain' });
+
+        if (saveErr) {
+          resultEl.className = 'test-result err';
+          resultEl.textContent = 'Connected but failed to save: ' + saveErr.message;
+        } else {
+          resultEl.className = 'test-result ok';
+          resultEl.textContent = `✓ Connected to "${shop.name}" (${shop.currency}) — saved.`;
+
+          // Log a sync_job record
+          await db.from('sync_jobs').insert({
+            company_entity_id: _co?.id,
+            job_type: 'test_connection',
+            status: 'success',
+            started_at: new Date().toISOString(),
+            finished_at: new Date().toISOString(),
+            result: { shop },
+            created_by: _session?.user?.id,
+          });
+
+          setTimeout(() => { closeAddForm(); loadConnections(); }, 1500);
+        }
+      } catch (err) {
+        resultEl.className = 'test-result err';
+        resultEl.textContent = 'Request failed: ' + err.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Test & Save';
+      }
+    });
+
+    // ── Re-test existing connection ────────────────────────────────
+    async function retest(id) {
+      const { data: conn, error } = await db
+        .from('shopify_connections')
+        .select('shop_domain, access_token')
+        .eq('id', id)
+        .single();
+      if (error || !conn) { setStatus('Could not load connection', 'neg', 4000); return; }
+
+      setStatus('Testing connection…', 'info');
+
+      try {
+        const session = (await db.auth.getSession()).data.session;
+        const res = await fetch(`${SUPABASE_URL.replace('/rest/v1','')}/functions/v1/test-shopify-connection`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({ shop_domain: conn.shop_domain, access_token: conn.access_token }),
+        });
+        const data = await res.json();
+
+        const update = data.ok
+          ? { last_tested_at: new Date().toISOString(), last_test_status: 'ok', last_test_error: null,
+              shop_name: data.shop?.name, shop_currency: data.shop?.currency }
+          : { last_tested_at: new Date().toISOString(), last_test_status: 'error', last_test_error: data.error || 'Unknown' };
+
+        await db.from('shopify_connections').update(update).eq('id', id);
+
+        setStatus(data.ok ? '✓ Connection OK' : '✗ Connection failed: ' + (data.error || ''), data.ok ? 'pos' : 'neg', 4000);
+        loadConnections();
+      } catch (err) {
+        setStatus('Request failed: ' + err.message, 'neg', 5000);
+      }
+    }
+
+    // ── Remove connection ──────────────────────────────────────────
+    async function removeConnection(id) {
+      if (!confirm('Remove this Shopify connection? This cannot be undone.')) return;
+      const { error } = await db.from('shopify_connections').delete().eq('id', id);
+      if (error) { setStatus('Delete failed: ' + error.message, 'neg'); return; }
+      loadConnections();
+    }
+  </script>
+</body>
+</html>
