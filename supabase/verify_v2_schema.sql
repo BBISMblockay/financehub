@@ -113,10 +113,17 @@ where n.nspname = 'public'
   and t.tgname = 'stamp_company_entity_id'
   and not t.tgisinternal;
 
--- 7. Quick counts (0 is fine on a fresh install)
+-- 7. Shopify integration tables
 select
-  (select count(*) from public.factories)       as factories,
-  (select count(*) from public.po_headers)      as po_headers,
-  (select count(*) from public.po_costing)      as po_costing,
-  (select count(*) from public.profiles)        as profiles,
-  (select count(*) from public.launch_calendar) as launches;
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='shopify_connections') then 'ok' else 'MISSING' end as shopify_connections,
+  case when exists (select 1 from information_schema.tables where table_schema='public' and table_name='sync_jobs') then 'ok' else 'MISSING' end as sync_jobs,
+  case when exists (select 1 from information_schema.columns where table_schema='public' and table_name='locations' and column_name='shopify_location_id') then 'ok' else 'MISSING' end as locations_shopify_location_id;
+
+-- 8. Quick counts (0 is fine on a fresh install)
+select
+  (select count(*) from public.factories)            as factories,
+  (select count(*) from public.po_headers)           as po_headers,
+  (select count(*) from public.po_costing)           as po_costing,
+  (select count(*) from public.profiles)             as profiles,
+  (select count(*) from public.launch_calendar)      as launches,
+  (select count(*) from public.shopify_connections)  as shopify_connections;
