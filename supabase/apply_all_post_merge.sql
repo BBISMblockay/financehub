@@ -960,3 +960,37 @@ create policy "sync_jobs_write" on public.sync_jobs
 
 alter table public.locations
   add column if not exists shopify_location_id text;
+
+-- >>> SECTION 15: SHOPIFY SCHEMA ALIGN (migration 20260623110000)
+-- =============================================================================
+alter table public.shopify_connections
+  add column if not exists access_token        text,
+  add column if not exists last_test_status    text,
+  add column if not exists last_test_error     text,
+  add column if not exists shop_name           text,
+  add column if not exists shop_currency       text,
+  add column if not exists is_active           boolean not null default true,
+  add column if not exists updated_by          uuid references auth.users(id);
+
+alter table public.shopify_connections
+  drop constraint if exists shopify_connections_last_test_status_check;
+
+alter table public.shopify_connections
+  add constraint shopify_connections_last_test_status_check
+  check (last_test_status is null or last_test_status in ('ok', 'error'));
+
+alter table public.sync_jobs
+  add column if not exists result jsonb,
+  add column if not exists error  text;
+
+alter table public.sync_jobs
+  drop constraint if exists sync_jobs_status_check;
+
+alter table public.sync_jobs
+  add constraint sync_jobs_status_check
+  check (status in (
+    'pending', 'running', 'success', 'error',
+    'completed', 'failed', 'cancelled'
+  ));
+
+notify pgrst, 'reload schema';
