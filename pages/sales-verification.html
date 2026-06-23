@@ -572,6 +572,13 @@
       },
     });
 
+    const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
+
+    function applyCompanyScope(query) {
+      if (_co?.id) return query.eq('company_entity_id', _co.id);
+      return query;
+    }
+
     const SUMMARY_CHUNK = 2000;
     const DETAIL_PAGE_SIZE = 200;
 
@@ -786,7 +793,7 @@
     }
 
     function applyCommonFilters(query, filters) {
-      let q = query;
+      let q = applyCompanyScope(query);
 
       if (filters.location) {
         q = q.eq('location_tag', filters.location);
@@ -883,11 +890,14 @@
     }
 
     async function loadLocationOptions() {
-      const { data, error } = await sb
+      let q = sb
         .from('sales_by_day')
         .select('location_tag')
         .not('location_tag', 'is', null)
         .limit(100000);
+      q = applyCompanyScope(q);
+
+      const { data, error } = await q;
 
       if (error) throw error;
 

@@ -55,6 +55,10 @@ const SKIP_INVENTORY = process.env.SILO_SKIP_INVENTORY === "true";
 const SKIP_SALES = process.env.SILO_SKIP_SALES === "true";
 const SKIP_SUMMARY_REFRESH = process.env.SILO_SKIP_SUMMARY_REFRESH === "true";
 
+// Baseballism entity — Sheets/Better Reports sync is single-tenant today.
+const BASEBALLISM_ENTITY_ID =
+  process.env.SILO_COMPANY_ENTITY_ID || "3bd934c9-4cdd-429b-9076-f8f6b45d4eb7";
+
 // Legacy exact keys kept for reference; inventory mapping uses pickLoose below.
 const INV_HEADERS = {
   location: "Location",
@@ -603,6 +607,7 @@ function mapSalesRow(source, raw) {
   if (!sku && !productName) return null;
 
   return {
+    company_entity_id: BASEBALLISM_ENTITY_ID,
     location_tag: source.location_tag,
     location_name: source.location_name,
     source: "better_reports",
