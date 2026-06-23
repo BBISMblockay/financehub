@@ -43,10 +43,7 @@
     .int-card-desc { font-size: 12px; color: var(--bcn-ink-3); margin-top: 2px; }
 
     .int-connection-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 8px;
+      display: block;
       padding: 10px 12px;
       background: var(--bcn-surface-2, #f8f9fa);
       border-radius: 6px;
@@ -95,6 +92,62 @@
       font-size: 13px;
     }
     .empty-state strong { display: block; font-size: 14px; color: var(--bcn-ink-2); margin-bottom: 4px; }
+
+    .int-sync-panel {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px dashed var(--bcn-border, #e5e7eb);
+    }
+    .int-sync-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .int-sync-label {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--bcn-ink-2);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-right: 4px;
+    }
+    .int-sync-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--bcn-ink-2);
+      cursor: pointer;
+      user-select: none;
+    }
+    .int-progress {
+      display: none;
+      margin-top: 8px;
+      padding: 8px 10px;
+      background: var(--bcn-surface-2, #f8f9fa);
+      border-radius: 6px;
+      border: 1px solid var(--bcn-border, #e5e7eb);
+      font-size: 11px;
+      font-family: 'IBM Plex Mono', monospace;
+      color: var(--bcn-ink-2);
+      line-height: 1.5;
+    }
+    .int-progress.active { display: block; }
+    .int-progress-bar {
+      height: 4px;
+      background: #e5e7eb;
+      border-radius: 2px;
+      margin-top: 6px;
+      overflow: hidden;
+    }
+    .int-progress-bar > span {
+      display: block;
+      height: 100%;
+      background: var(--bcn-accent, #2563eb);
+      transition: width 0.25s ease;
+    }
   </style>
 </head>
 <body>
@@ -233,6 +286,84 @@
       };
     }
 
+    let _backfillBusy = false;
+
+    async function syncRun(body) {
+      const session = (await db.auth.getSession()).data.session;
+      const res = await fetch(`${FUNCTIONS_URL}/shopify-sync-run`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+          'apikey': SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.error || `Sync request failed (${res.status})`);
+      }
+      return data;
+    }
+
+    function backfillProgressHtml(row) {
+      const bf = row?.meta?.history_backfill;
+      if (!bf) return '';
+      if (bf.status === 'running') {
+        const pct = bf.windows_total
+          ? Math.round((Number(bf.windows_done || 0) / Number(bf.windows_total)) * 100)
+          : 0;
+        return `<div class="int-progress active" id="bf-progress-${row.id}">
+          <div>Importing sales history… ${bf.windows_done || 0}/${bf.windows_total || '?'} windows
+            · ${bf.orders_total || 0} orders · ${bf.sales_rows_total || 0} rows</div>
+          <div class="int-progress-bar"><span style="width:${pct}%"></span></div>
+        </div>`;
+      }
+      if (bf.status === 'complete') {
+        return `<div class="int-scope-warn" style="background:#f0fdf4;border-color:#bbf7d0;color:#166534;">
+          Last import complete: ${bf.sales_rows_total || 0} sales rows (${bf.target_days || '?'} days)
+        </div>`;
+      }
+      return '';
+    }
+
+    function syncPanelHtml(row) {
+      const missing = Array.isArray(row.scopes_missing) ? row.scopes_missing : [];
+      const canSync = !missing.length && row.last_test_status === 'ok';
+      const syncOn = !!row.sync_enabled;
+      const bf = row?.meta?.history_backfill;
+      const bfRunning = bf?.status === 'running';
+
+      if (!canSync) return '';
+
+      return `
+        <div class="int-sync-panel">
+          <label class="int-sync-toggle">
+            <input type="checkbox" ${syncOn ? 'checked' : ''} onchange="toggleSyncEnabled('${row.id}', this.checked)" />
+            API sync enabled (nightly job)
+          </label>
+          <div class="int-sync-row" style="margin-top:8px;">
+            <span class="int-sync-label">Sales history</span>
+            <button class="bcn-btn bcn-btn--ghost" style="font-size:11px;height:26px;padding:0 8px;"
+              ${bfRunning ? 'disabled' : ''} onclick="startHistoryBackfill('${row.id}', 90)">90d</button>
+            <button class="bcn-btn bcn-btn--ghost" style="font-size:11px;height:26px;padding:0 8px;"
+              ${bfRunning ? 'disabled' : ''} onclick="startHistoryBackfill('${row.id}', 365)">365d</button>
+            <button class="bcn-btn bcn-btn--ghost" style="font-size:11px;height:26px;padding:0 8px;"
+              ${bfRunning ? 'disabled' : ''} onclick="startHistoryBackfill('${row.id}', 730)">730d</button>
+            ${bfRunning ? `<button class="bcn-btn bcn-btn--ghost" style="font-size:11px;height:26px;padding:0 8px;"
+              onclick="resumeHistoryBackfill('${row.id}')">Resume</button>
+              <button class="bcn-btn bcn-btn--danger" style="font-size:11px;height:26px;padding:0 8px;"
+              onclick="cancelHistoryBackfill('${row.id}')">Cancel</button>` : ''}
+          </div>
+          <div class="int-sync-row">
+            <span class="int-sync-label">Inventory</span>
+            <button class="bcn-btn bcn-btn--ghost" style="font-size:11px;height:26px;padding:0 8px;"
+              onclick="runInventorySync('${row.id}')">Sync now</button>
+          </div>
+          ${backfillProgressHtml(row)}
+        </div>`;
+    }
+
     function scopeWarningHtml(row) {
       const missing = Array.isArray(row?.scopes_missing) ? row.scopes_missing : [];
       const granted = Array.isArray(row?.scopes_granted) ? row.scopes_granted : [];
@@ -280,17 +411,23 @@
         const scopeWarn = scopeWarningHtml(row);
 
         div.innerHTML = `
-          <div class="int-conn-info">
-            <div class="int-conn-domain">${statusDot} ${escHtml(row.shop_domain)}</div>
-            <div class="int-conn-meta">${row.shop_name ? escHtml(row.shop_name) + ' · ' : ''}Tested ${testedAt}</div>
-            ${scopeWarn}
-          </div>
-          <div class="int-conn-actions">
-            <button class="bcn-btn bcn-btn--ghost" style="font-size:12px;height:28px;padding:0 10px;"
-              onclick="retest('${row.id}')">Re-test</button>
-            <button class="bcn-btn bcn-btn--danger" style="font-size:12px;height:28px;padding:0 10px;"
-              onclick="removeConnection('${row.id}')">Remove</button>
+          <div style="flex:1;min-width:0;">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+              <div class="int-conn-info">
+                <div class="int-conn-domain">${statusDot} ${escHtml(row.shop_domain)}</div>
+                <div class="int-conn-meta">${row.shop_name ? escHtml(row.shop_name) + ' · ' : ''}Tested ${testedAt}${row.sync_enabled ? ' · sync on' : ''}</div>
+                ${scopeWarn}
+              </div>
+              <div class="int-conn-actions">
+                <button class="bcn-btn bcn-btn--ghost" style="font-size:12px;height:28px;padding:0 10px;"
+                  onclick="retest('${row.id}')">Re-test</button>
+                <button class="bcn-btn bcn-btn--danger" style="font-size:12px;height:28px;padding:0 10px;"
+                  onclick="removeConnection('${row.id}')">Remove</button>
+              </div>
+            </div>
+            ${syncPanelHtml(row)}
           </div>`;
+        div.style.display = 'block';
         list.insertBefore(div, empty);
       });
     }
@@ -478,6 +615,122 @@
       } catch (err) {
         setStatus('Request failed: ' + err.message, 'neg', 5000);
       }
+    }
+
+    function updateBackfillProgress(connectionId, progress) {
+      const el = document.getElementById(`bf-progress-${connectionId}`);
+      if (!el || !progress) return;
+      const pct = progress.windows_total
+        ? Math.round((Number(progress.windows_done || 0) / Number(progress.windows_total)) * 100)
+        : 0;
+      el.classList.add('active');
+      el.innerHTML = `
+        <div>Importing sales history… ${progress.windows_done || 0}/${progress.windows_total || '?'} windows
+          · ${progress.orders_total || 0} orders · ${progress.sales_rows_total || 0} rows</div>
+        <div class="int-progress-bar"><span style="width:${pct}%"></span></div>`;
+    }
+
+    async function runHistoryChunkLoop(connectionId, firstResponse) {
+      let res = firstResponse;
+      updateBackfillProgress(connectionId, res.progress);
+      while (res.continue) {
+        await new Promise((r) => setTimeout(r, 200));
+        res = await syncRun({
+          action: 'history_chunk',
+          connection_id: connectionId,
+          job_id: res.job_id,
+        });
+        updateBackfillProgress(connectionId, res.progress);
+      }
+      return res;
+    }
+
+    async function startHistoryBackfill(connectionId, historyDays) {
+      if (_backfillBusy) return;
+      if (!confirm(`Import ${historyDays} days of sales from Shopify? This runs in the background in your browser — keep this tab open until complete.`)) return;
+
+      _backfillBusy = true;
+      setStatus(`Starting ${historyDays}-day sales import…`, 'info');
+
+      try {
+        const res = await syncRun({
+          action: 'start_history_backfill',
+          connection_id: connectionId,
+          history_days: historyDays,
+        });
+        const final = await runHistoryChunkLoop(connectionId, res);
+        setStatus(
+          `✓ Sales import complete — ${final.progress?.sales_rows_total || 0} rows from ${final.progress?.orders_total || 0} orders`,
+          'pos',
+          8000,
+        );
+        loadConnections();
+      } catch (err) {
+        setStatus('Import failed: ' + err.message, 'neg', 8000);
+        loadConnections();
+      } finally {
+        _backfillBusy = false;
+      }
+    }
+
+    async function resumeHistoryBackfill(connectionId) {
+      if (_backfillBusy) return;
+      _backfillBusy = true;
+      setStatus('Resuming sales import…', 'info');
+      try {
+        const res = await syncRun({ action: 'history_chunk', connection_id: connectionId });
+        const final = await runHistoryChunkLoop(connectionId, res);
+        setStatus(
+          `✓ Sales import complete — ${final.progress?.sales_rows_total || 0} rows`,
+          'pos',
+          8000,
+        );
+        loadConnections();
+      } catch (err) {
+        setStatus('Resume failed: ' + err.message, 'neg', 8000);
+      } finally {
+        _backfillBusy = false;
+      }
+    }
+
+    async function cancelHistoryBackfill(connectionId) {
+      if (!confirm('Cancel the in-progress sales import?')) return;
+      try {
+        await syncRun({ action: 'cancel_history_backfill', connection_id: connectionId });
+        setStatus('Import cancelled', 'info', 4000);
+        loadConnections();
+      } catch (err) {
+        setStatus('Cancel failed: ' + err.message, 'neg', 5000);
+      }
+    }
+
+    async function runInventorySync(connectionId) {
+      setStatus('Syncing inventory…', 'info');
+      try {
+        const res = await syncRun({ action: 'inventory_snapshot', connection_id: connectionId });
+        setStatus(
+          `✓ Inventory synced — ${res.result?.inventory_rows_upserted || 0} rows`,
+          'pos',
+          6000,
+        );
+        loadConnections();
+      } catch (err) {
+        setStatus('Inventory sync failed: ' + err.message, 'neg', 6000);
+      }
+    }
+
+    async function toggleSyncEnabled(connectionId, enabled) {
+      const { error } = await db
+        .from('shopify_connections')
+        .update({ sync_enabled: enabled })
+        .eq('id', connectionId);
+      if (error) {
+        setStatus('Failed to update sync setting: ' + error.message, 'neg', 5000);
+        loadConnections();
+        return;
+      }
+      setStatus(enabled ? 'API sync enabled for nightly job' : 'API sync disabled', 'info', 3000);
+      loadConnections();
     }
 
     // ── Remove connection ──────────────────────────────────────────
