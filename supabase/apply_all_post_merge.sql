@@ -994,3 +994,12 @@ alter table public.sync_jobs
   ));
 
 notify pgrst, 'reload schema';
+
+-- >>> SECTION 16: SHOPIFY SCOPES (migration 20260623120000)
+-- =============================================================================
+alter table public.shopify_connections
+  add column if not exists scopes_granted    jsonb not null default '[]'::jsonb,
+  add column if not exists scopes_missing    jsonb not null default '[]'::jsonb,
+  add column if not exists scopes_checked_at timestamptz;
+
+notify pgrst, 'reload schema';

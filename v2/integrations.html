@@ -13,6 +13,7 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
   <script src="nav-config.js"></script>
   <script src="silo-chrome.js"></script>
+  <script src="shopify-scopes.js"></script>
   <style>
     .int-grid {
       display: grid;
@@ -74,6 +75,18 @@
     }
     .test-result.ok  { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; display: block; }
     .test-result.err { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; display: block; }
+    .test-result.warn { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; display: block; }
+
+    .int-scope-warn {
+      font-size: 11px;
+      color: #92400e;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 4px;
+      padding: 6px 8px;
+      margin-top: 6px;
+      line-height: 1.4;
+    }
 
     .empty-state {
       text-align: center;
@@ -208,6 +221,24 @@
       renderConnections(data || []);
     }
 
+    function scopeFieldsFromTest(data) {
+      const granted = data.scopes_granted
+        || window.SiloShopifyScopes?.normalizeGranted?.(data.scopes) || [];
+      const missing = data.scopes_missing
+        || window.SiloShopifyScopes?.missingForSync?.(granted) || [];
+      return {
+        scopes_granted: granted,
+        scopes_missing: missing,
+        scopes_checked_at: data.scopes_checked_at || new Date().toISOString(),
+      };
+    }
+
+    function scopeWarningHtml(missing) {
+      if (!missing?.length) return '';
+      const labels = window.SiloShopifyScopes?.formatScopeList?.(missing) || missing.join(', ');
+      return `<div class="int-scope-warn">Missing scopes for sync: ${escHtml(labels)}. Update your custom app in Shopify Admin, then Re-test.</div>`;
+    }
+
     function renderConnections(rows) {
       const list = document.getElementById('shopify-connections-list');
       const empty = document.getElementById('shopify-empty');
@@ -236,10 +267,14 @@
           ? new Date(row.last_tested_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
           : 'Not tested';
 
+        const missing = Array.isArray(row.scopes_missing) ? row.scopes_missing : [];
+        const scopeWarn = scopeWarningHtml(missing);
+
         div.innerHTML = `
           <div class="int-conn-info">
             <div class="int-conn-domain">${statusDot} ${escHtml(row.shop_domain)}</div>
             <div class="int-conn-meta">${row.shop_name ? escHtml(row.shop_name) + ' · ' : ''}Tested ${testedAt}</div>
+            ${scopeWarn}
           </div>
           <div class="int-conn-actions">
             <button class="bcn-btn bcn-btn--ghost" style="font-size:12px;height:28px;padding:0 10px;"
@@ -314,6 +349,7 @@
 
         // Test passed — save to DB
         const { shop } = data;
+        const scopeFields = scopeFieldsFromTest(data);
         const payload = {
           company_entity_id: _co?.id,
           shop_domain: shop.myshopify_domain || domain,
@@ -323,6 +359,7 @@
           last_tested_at: new Date().toISOString(),
           last_test_status: 'ok',
           created_by: _session?.user?.id,
+          ...scopeFields,
         };
 
         const { error: saveErr } = await db
@@ -333,8 +370,14 @@
           resultEl.className = 'test-result err';
           resultEl.textContent = 'Connected but failed to save: ' + saveErr.message;
         } else {
-          resultEl.className = 'test-result ok';
-          resultEl.textContent = `✓ Connected to "${shop.name}" (${shop.currency}) — saved.`;
+          const missing = scopeFields.scopes_missing || [];
+          if (missing.length) {
+            resultEl.className = 'test-result warn';
+            resultEl.textContent = `✓ Connected to "${shop.name}" — saved. Missing sync scopes: ${window.SiloShopifyScopes.formatScopeList(missing)}`;
+          } else {
+            resultEl.className = 'test-result ok';
+            resultEl.textContent = `✓ Connected to "${shop.name}" (${shop.currency}) — all sync scopes granted.`;
+          }
 
           // Log a sync_job record
           await db.from('sync_jobs').insert({
@@ -343,7 +386,7 @@
             status: 'success',
             started_at: new Date().toISOString(),
             finished_at: new Date().toISOString(),
-            result: { shop },
+            result: { shop, scopes_granted: scopeFields.scopes_granted, scopes_missing: scopeFields.scopes_missing },
             created_by: _session?.user?.id,
           });
 
@@ -382,15 +425,34 @@
         });
         const data = await res.json();
 
+        const scopeFields = data.ok ? scopeFieldsFromTest(data) : {};
         const update = data.ok
-          ? { last_tested_at: new Date().toISOString(), last_test_status: 'ok',
-              shop_name: data.shop?.name, shop_currency: data.shop?.currency }
-          : { last_tested_at: new Date().toISOString(), last_test_status: 'error',
-              last_test_error: (data.error || 'Unknown').slice(0, 500) };
+          ? {
+              last_tested_at: new Date().toISOString(),
+              last_test_status: 'ok',
+              shop_name: data.shop?.name,
+              shop_currency: data.shop?.currency,
+              last_test_error: null,
+              ...scopeFields,
+            }
+          : {
+              last_tested_at: new Date().toISOString(),
+              last_test_status: 'error',
+              last_test_error: (data.error || 'Unknown').slice(0, 500),
+            };
 
         await db.from('shopify_connections').update(update).eq('id', id);
 
-        setStatus(data.ok ? '✓ Connection OK' : '✗ Connection failed: ' + (data.error || ''), data.ok ? 'pos' : 'neg', 4000);
+        if (data.ok) {
+          const missing = scopeFields.scopes_missing || [];
+          if (missing.length) {
+            setStatus('✓ Connection OK — missing sync scopes: ' + window.SiloShopifyScopes.formatScopeList(missing), 'info', 6000);
+          } else {
+            setStatus('✓ Connection OK — all sync scopes granted', 'pos', 4000);
+          }
+        } else {
+          setStatus('✗ Connection failed: ' + (data.error || ''), 'neg', 4000);
+        }
         loadConnections();
       } catch (err) {
         setStatus('Request failed: ' + err.message, 'neg', 5000);
