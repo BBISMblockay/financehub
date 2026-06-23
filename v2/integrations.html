@@ -234,7 +234,7 @@
     }
 
     function scopeWarningHtml(row) {
-      const missing = Array.isArray(row?.scopes_missing) ? row.scopes_missing : (row || []);
+      const missing = Array.isArray(row?.scopes_missing) ? row.scopes_missing : [];
       const granted = Array.isArray(row?.scopes_granted) ? row.scopes_granted : [];
       const fetchErr = row?.meta?.scopes_fetch_error;
 
@@ -434,13 +434,38 @@
             'Authorization': `Bearer ${session.access_token}`,
             'apikey': SUPABASE_ANON_KEY,
           },
-          // Pass connection_id so the edge function writes results back directly
-          body: JSON.stringify({ shop_domain: conn.shop_domain, access_token: conn.access_token, connection_id: id }),
+          body: JSON.stringify({ shop_domain: conn.shop_domain, access_token: conn.access_token }),
         });
         const data = await res.json();
 
+        const scopeFields = data.ok ? scopeFieldsFromTest(data) : {};
+        const update = data.ok
+          ? {
+              last_tested_at: new Date().toISOString(),
+              last_test_status: 'ok',
+              last_test_success: true,
+              shop_name: data.shop?.name,
+              shop_currency: data.shop?.currency,
+              ...scopeFields,
+              meta: data.scopes_error
+                ? { scopes_fetch_error: String(data.scopes_error).slice(0, 500) }
+                : { scopes_fetch_error: null },
+            }
+          : {
+              last_tested_at: new Date().toISOString(),
+              last_test_status: 'error',
+              last_test_success: false,
+              last_test_error: (data.error || 'Unknown').slice(0, 500),
+            };
+
+        const { error: saveErr } = await db.from('shopify_connections').update(update).eq('id', id);
+        if (saveErr) {
+          setStatus('Test ran but failed to save: ' + saveErr.message, 'neg', 5000);
+          return;
+        }
+
         if (data.ok) {
-          const missing = data.scopes_missing || [];
+          const missing = scopeFields.scopes_missing || [];
           if (missing.length) {
             setStatus('✓ Connection OK — missing sync scopes: ' + window.SiloShopifyScopes.formatScopeList(missing), 'info', 6000);
           } else {
