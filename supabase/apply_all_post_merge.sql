@@ -1498,3 +1498,30 @@ GRANT EXECUTE ON FUNCTION public.sales_verification_filtered_summary(date, date,
   TO authenticated;
 
 notify pgrst, 'reload schema';
+
+-- ---------------------------------------------------------------------------
+-- 19. next_location_id() — global id allocator for locations inserts
+-- ---------------------------------------------------------------------------
+
+create or replace function public.next_location_id()
+returns bigint
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if not is_admin_user() then
+    raise exception 'Admin access required';
+  end if;
+
+  return (select coalesce(max(id), 0) + 1 from public.locations);
+end;
+$$;
+
+revoke all on function public.next_location_id() from public;
+grant execute on function public.next_location_id() to authenticated;
+
+comment on function public.next_location_id() is
+  'Returns next global locations.id for admin inserts (bypasses per-company RLS visibility).';
+
+notify pgrst, 'reload schema';
