@@ -1,5 +1,4 @@
-
-// Bundled copy — keep in sync with /scripts/lib/shopify-sync-core.mjs
+// Shared Shopify sync logic for Node (shopify-sync.mjs) and edge function (sync-core.ts).
 // Keep windowing / row shapes in sync across both.
 
 import crypto from 'node:crypto';
@@ -124,6 +123,77 @@ function sumTaxForLine(li) {
   );
 }
 
+function moneyAmount(priceSet) {
+  return Number(priceSet?.shop_money?.amount || 0);
+}
+
+function firstOrderMoney(order, ...keys) {
+  for (const key of keys) {
+    const amount = moneyAmount(order?.[key]);
+    if (amount) return amount;
+  }
+  return 0;
+}
+
+/** Refund subtotal + tax per line_item_id from order.refunds */
+export function buildLineItemRefundMap(order) {
+  const map = new Map();
+  for (const refund of order?.refunds || []) {
+    for (const rli of refund?.refund_line_items || []) {
+      const id = String(rli.line_item_id);
+      const prev = map.get(id) || { subtotal: 0, tax: 0 };
+      prev.subtotal += Number(rli.subtotal || 0);
+      prev.tax += Number(rli.total_tax || 0);
+      map.set(id, prev);
+    }
+  }
+  return map;
+}
+
+function sumRefundShipping(order) {
+  let total = 0;
+  for (const refund of order?.refunds || []) {
+    for (const rsl of refund?.refund_shipping_lines || []) {
+      total += moneyAmount(rsl.subtotal_amount_set)
+        || Number(rsl.subtotal || 0);
+    }
+    for (const adj of refund?.order_adjustments || []) {
+      const kind = String(adj?.kind || '').toLowerCase();
+      if (kind.includes('shipping')) {
+        total += Math.abs(Number(adj.amount || 0));
+      }
+    }
+  }
+  return total;
+}
+
+function allocatePerLine(orderAmount, lineCount) {
+  const count = Math.max(Number(lineCount) || 1, 1);
+  return Number(orderAmount || 0) / count;
+}
+
+function computeTotalSales({
+  grossSales,
+  discountAmount,
+  refundAmount,
+  shippingAmount,
+  dutiesAmount,
+  additionalFeesAmount,
+  taxAmount,
+}) {
+  const net =
+    Number(grossSales || 0)
+    - Number(discountAmount || 0)
+    - Number(refundAmount || 0);
+  return (
+    net
+    + Number(shippingAmount || 0)
+    + Number(dutiesAmount || 0)
+    + Number(additionalFeesAmount || 0)
+    + Number(taxAmount || 0)
+  );
+}
+
 export function computeSinceISO(now, lastSyncAt, daysBack) {
   if (lastSyncAt) {
     const d = new Date(lastSyncAt);
@@ -208,6 +278,8 @@ export function buildSalesRow({
   refundAmount,
   taxAmount,
   shippingAmount,
+  dutiesAmount = 0,
+  additionalFeesAmount = 0,
   totalSales,
   syncedAt,
   batchId,
@@ -220,6 +292,20 @@ export function buildSalesRow({
     productName || '',
     SOURCE,
   ]);
+
+  const netSales =
+    Number(grossSales || 0)
+    - Number(discountAmount || 0)
+    - Number(refundAmount || 0);
+  const resolvedTotalSales = totalSales ?? computeTotalSales({
+    grossSales,
+    discountAmount,
+    refundAmount,
+    shippingAmount,
+    dutiesAmount,
+    additionalFeesAmount,
+    taxAmount,
+  });
 
   return {
     company_entity_id: companyEntityId,
@@ -236,10 +322,10 @@ export function buildSalesRow({
     total_gross_sales: grossSales || 0,
     total_discounts: discountAmount || 0,
     total_refunds: refundAmount || 0,
-    total_net_sales: (grossSales || 0) - (discountAmount || 0) - (refundAmount || 0),
+    total_net_sales: netSales,
     taxes: taxAmount || 0,
     shipping: shippingAmount || 0,
-    total_sales: totalSales || 0,
+    total_sales: resolvedTotalSales,
     shop_domain: shopDomain,
     sync_batch_id: batchId,
     synced_at: syncedAt,
@@ -293,6 +379,25 @@ async function loadSkuMeta(headers, base) {
   return skuMeta;
 }
 
+export async function fetchShopifyLocations(connection) {
+  const apiVersion = connection.api_version || DEFAULT_API_VERSION;
+  const base = `https://${connection.shop_domain}/admin/api/${apiVersion}`;
+  const headers = {
+    'X-Shopify-Access-Token': connection.access_token,
+    'Content-Type': 'application/json',
+  };
+  const locations = await getAll(headers, `${base}/locations.json?limit=250`);
+  return (locations || []).map((loc) => ({
+    id: String(loc.id),
+    name: loc.name || '',
+    active: loc.active !== false,
+    address1: loc.address1 || null,
+    city: loc.city || null,
+    province: loc.province || null,
+    country: loc.country || null,
+  }));
+}
+
 async function loadLocationContext(supabase, connection, headers, base) {
   const dbLocationMap = await loadLocationMap(supabase, connection.company_entity_id);
   const locations = await getAll(headers, `${base}/locations.json?limit=250`);
@@ -330,21 +435,39 @@ export function ordersToSalesRows({
     const fallbackTag =
       fallbackInfo?.location_tag || normalizeLocationTag(connection, 'unknown');
 
-    const orderShipping = Number(
-      order?.current_total_shipping_price_set?.shop_money?.amount || 0,
+    const lineItems = (order.line_items || []).filter((li) => li?.sku);
+    const lineCount = lineItems.length || 1;
+    const refundMap = buildLineItemRefundMap(order);
+
+    const orderShippingGross = firstOrderMoney(
+      order,
+      'total_shipping_price_set',
+      'current_total_shipping_price_set',
     );
-    const lineCount =
-      Array.isArray(order.line_items) && order.line_items.length
-        ? order.line_items.length
-        : 1;
+    const orderShippingNet = Math.max(0, orderShippingGross - sumRefundShipping(order));
+    const orderDuties = firstOrderMoney(
+      order,
+      'original_total_duties_set',
+      'total_duties_set',
+      'current_total_duties_set',
+    );
+    const orderAdditionalFees = firstOrderMoney(
+      order,
+      'original_total_additional_fees_set',
+      'current_total_additional_fees_set',
+    );
 
-    for (const li of order.line_items || []) {
-      if (!li?.sku) continue;
+    const shippingShare = allocatePerLine(orderShippingNet, lineCount);
+    const dutiesShare = allocatePerLine(orderDuties, lineCount);
+    const feesShare = allocatePerLine(orderAdditionalFees, lineCount);
 
+    for (const li of lineItems) {
       const qty = Number(li.quantity || 0);
       const price = Number(li.price || 0);
       const discount = sumDiscountForLine(li);
-      const tax = sumTaxForLine(li);
+      const lineRefund = refundMap.get(String(li.id)) || { subtotal: 0, tax: 0 };
+      const refundAmount = lineRefund.subtotal;
+      const tax = Math.max(0, sumTaxForLine(li) - lineRefund.tax);
 
       const liLocId = li.location_id ? String(li.location_id) : orderLocId;
       const locInfo = liLocId
@@ -356,9 +479,15 @@ export function ordersToSalesRows({
       const locationName = locInfo?.location_name || locationTag;
 
       const grossSales = price * qty;
-      const refundAmount = 0;
-      const shippingAmount = orderShipping / lineCount;
-      const totalSales = grossSales - discount - refundAmount + tax + shippingAmount;
+      const totalSales = computeTotalSales({
+        grossSales,
+        discountAmount: discount,
+        refundAmount,
+        shippingAmount: shippingShare,
+        dutiesAmount: dutiesShare,
+        additionalFeesAmount: feesShare,
+        taxAmount: tax,
+      });
       const metaSku = skuMeta.get(li.sku) || {};
 
       const key = [orderDate, locationTag, li.sku].join('||');
@@ -382,7 +511,9 @@ export function ordersToSalesRows({
             discountAmount: discount,
             refundAmount,
             taxAmount: tax,
-            shippingAmount,
+            shippingAmount: shippingShare,
+            dutiesAmount: dutiesShare,
+            additionalFeesAmount: feesShare,
             totalSales,
             syncedAt,
             batchId,
@@ -396,7 +527,7 @@ export function ordersToSalesRows({
         cur.total_refunds += refundAmount;
         cur.total_net_sales += grossSales - discount - refundAmount;
         cur.taxes += tax;
-        cur.shipping += shippingAmount;
+        cur.shipping += shippingShare;
         cur.total_sales += totalSales;
       }
     }

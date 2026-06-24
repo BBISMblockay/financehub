@@ -148,6 +148,60 @@
       background: var(--bcn-accent, #2563eb);
       transition: width 0.25s ease;
     }
+
+    .int-loc-panel {
+      margin-top: 10px;
+      padding: 10px 12px;
+      background: var(--bcn-surface-2, #f8f9fa);
+      border-radius: 6px;
+      border: 1px solid var(--bcn-border, #e5e7eb);
+    }
+    .int-loc-panel[hidden] { display: none !important; }
+    .int-loc-head {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
+    }
+    .int-loc-summary { font-size: 12px; color: var(--bcn-ink-2); }
+    .int-loc-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    .int-loc-table th {
+      text-align: left;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--bcn-ink-3);
+      padding: 4px 6px 6px 0;
+      border-bottom: 1px solid var(--bcn-border, #e5e7eb);
+    }
+    .int-loc-table td {
+      padding: 8px 6px 8px 0;
+      vertical-align: top;
+      border-bottom: 1px solid var(--bcn-border, #e5e7eb);
+    }
+    .int-loc-table tr:last-child td { border-bottom: none; }
+    .int-loc-shopify-name { font-weight: 500; color: var(--bcn-ink); }
+    .int-loc-shopify-meta { font-size: 10px; color: var(--bcn-ink-3); font-family: 'IBM Plex Mono', monospace; margin-top: 2px; }
+    .int-loc-fields {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .int-loc-fields .bcn-field,
+    .int-loc-fields select.bcn-field {
+      font-size: 11px;
+      height: 28px;
+      padding: 0 8px;
+    }
+    .int-loc-mapped { color: #166534; font-size: 11px; font-family: 'IBM Plex Mono', monospace; }
+    .int-loc-unmapped { color: #92400e; font-size: 11px; }
   </style>
 </head>
 <body>
@@ -287,6 +341,24 @@
     }
 
     let _backfillBusy = false;
+    const _locMapperCache = new Map();
+
+    function slugifyLoc(value) {
+      return String(value || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '') || 'unknown';
+    }
+
+    function shopifyIdKeys(id) {
+      const raw = String(id || '');
+      return [raw, `gid://shopify/Location/${raw}`];
+    }
+
+    function siloLocForShopifyId(siloLocs, shopifyId) {
+      const keys = new Set(shopifyIdKeys(shopifyId));
+      return (siloLocs || []).find((loc) => keys.has(String(loc.shopify_location_id || ''))) || null;
+    }
 
     async function syncRun(body) {
       const session = (await db.auth.getSession()).data.session;
@@ -333,11 +405,11 @@
       const syncOn = !!row.sync_enabled;
       const bf = row?.meta?.history_backfill;
       const bfRunning = bf?.status === 'running';
+      const testedOk = row.last_test_status === 'ok';
 
-      if (!canSync) return '';
+      if (!testedOk) return '';
 
-      return `
-        <div class="int-sync-panel">
+      const syncBlock = canSync ? `
           <label class="int-sync-toggle">
             <input type="checkbox" ${syncOn ? 'checked' : ''} onchange="toggleSyncEnabled('${row.id}', this.checked)" />
             API sync enabled (nightly job)
@@ -360,7 +432,17 @@
             <button class="bcn-btn bcn-btn--ghost" style="font-size:11px;height:26px;padding:0 8px;"
               onclick="runInventorySync('${row.id}')">Sync now</button>
           </div>
-          ${backfillProgressHtml(row)}
+          ${backfillProgressHtml(row)}` : '';
+
+      return `
+        <div class="int-sync-panel">
+          ${syncBlock}
+          <div class="int-sync-row" ${canSync ? '' : 'style="margin-top:8px;"'}>
+            <span class="int-sync-label">Locations</span>
+            <button class="bcn-btn bcn-btn--ghost" style="font-size:11px;height:26px;padding:0 8px;"
+              onclick="toggleLocationMapper('${row.id}')">Map locations</button>
+          </div>
+          <div class="int-loc-panel" id="loc-panel-${row.id}" hidden></div>
         </div>`;
     }
 
@@ -731,6 +813,266 @@
       }
       setStatus(enabled ? 'API sync enabled for nightly job' : 'API sync disabled', 'info', 3000);
       loadConnections();
+    }
+
+    const STORE_TYPES = ['online', 'retail', 'outlet', 'pop_up', 'warehouse', 'wholesale'];
+
+    function locationMapperRowHtml(connectionId, shopLoc, siloLocs, shopDomain) {
+      const mapped = siloLocForShopifyId(siloLocs, shopLoc.id);
+      const rowId = `loc-row-${connectionId}-${shopLoc.id}`;
+      const selectId = `loc-select-${connectionId}-${shopLoc.id}`;
+      const fieldsId = `loc-fields-${connectionId}-${shopLoc.id}`;
+      const defaultCode = slugifyLoc(shopLoc.name);
+      const shopSlug = String(shopDomain || '').replace(/\.myshopify\.com$/i, '').replace(/[^a-z0-9]+/gi, '_');
+      const prefixedCode = `${shopSlug}_${defaultCode}`.replace(/__+/g, '_');
+
+      const options = ['<option value="">— Unmapped —</option>'];
+      for (const loc of siloLocs) {
+        const selected = mapped && String(loc.id) === String(mapped.id) ? ' selected' : '';
+        options.push(`<option value="${loc.id}"${selected}>${escHtml(loc.location_name)} (${escHtml(loc.location_code)})</option>`);
+      }
+      options.push('<option value="__new__">+ Create new SILO location</option>');
+
+      const storeTypeOpts = STORE_TYPES.map((t) =>
+        `<option value="${t}"${t === 'retail' ? ' selected' : ''}>${t}</option>`,
+      ).join('');
+
+      const mappedBadge = mapped
+        ? `<div class="int-loc-mapped">→ ${escHtml(mapped.location_code)}</div>`
+        : `<div class="int-loc-unmapped">Uses fallback tag until mapped</div>`;
+
+      return `<tr id="${rowId}">
+        <td>
+          <div class="int-loc-shopify-name">${escHtml(shopLoc.name)}</div>
+          <div class="int-loc-shopify-meta">Shopify #${escHtml(shopLoc.id)}${shopLoc.city ? ` · ${escHtml(shopLoc.city)}` : ''}</div>
+          ${mappedBadge}
+        </td>
+        <td>
+          <select class="bcn-field" id="${selectId}" style="width:100%;font-size:11px;height:28px;"
+            onchange="onLocationMapModeChange('${connectionId}', '${shopLoc.id}')">
+            ${options.join('')}
+          </select>
+          <div class="int-loc-fields" id="${fieldsId}" hidden>
+            <input class="bcn-field" type="text" placeholder="Location name"
+              value="${escHtml(shopLoc.name)}" data-field="name" />
+            <input class="bcn-field bcn-field--mono" type="text" placeholder="Location code"
+              value="${escHtml(prefixedCode)}" data-field="code" />
+            <select class="bcn-field" data-field="store_type">${storeTypeOpts}</select>
+            <input class="bcn-field bcn-field--mono" type="text" placeholder="Domain (optional)"
+              value="${escHtml(shopDomain || '')}" data-field="domain" />
+          </div>
+        </td>
+        <td style="white-space:nowrap;">
+          <button class="bcn-btn bcn-btn--primary" style="font-size:11px;height:26px;padding:0 8px;"
+            onclick="saveLocationMapping('${connectionId}', '${shopLoc.id}')">Save</button>
+          ${mapped ? `<button class="bcn-btn bcn-btn--ghost" style="font-size:11px;height:26px;padding:0 8px;margin-top:4px;"
+            onclick="clearLocationMapping('${connectionId}', '${shopLoc.id}', '${mapped.id}')">Clear</button>` : ''}
+        </td>
+      </tr>`;
+    }
+
+    function renderLocationMapper(connectionId, cache) {
+      const panel = document.getElementById(`loc-panel-${connectionId}`);
+      if (!panel) return;
+
+      const { shopifyLocations, siloLocations, shopDomain } = cache;
+      const mappedCount = (shopifyLocations || []).filter((s) => siloLocForShopifyId(siloLocations, s.id)).length;
+      const total = (shopifyLocations || []).length;
+
+      panel.innerHTML = `
+        <div class="int-loc-head">
+          <div class="int-loc-summary">${mappedCount} of ${total} Shopify locations mapped to SILO</div>
+          <button class="bcn-btn bcn-btn--ghost" style="font-size:11px;height:26px;padding:0 8px;"
+            onclick="refreshLocationMapper('${connectionId}')">Refresh</button>
+        </div>
+        ${mappedCount < total ? `<div class="int-scope-warn" style="margin-bottom:8px;">
+          Unmapped locations import as <code>{shop}_{name}</code> tags (e.g. baseballismdsg_unknown).
+          Map them here, then re-run a sales import to update existing rows.
+        </div>` : `<div class="int-scope-warn" style="margin-bottom:8px;background:#f0fdf4;border-color:#bbf7d0;color:#166534;">
+          All locations mapped. Re-run sales import if you changed mappings on existing data.
+        </div>`}
+        <table class="int-loc-table">
+          <thead>
+            <tr>
+              <th>Shopify</th>
+              <th>SILO location</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${(shopifyLocations || []).map((s) => locationMapperRowHtml(connectionId, s, siloLocations, shopDomain)).join('')}
+          </tbody>
+        </table>`;
+
+      for (const s of shopifyLocations || []) {
+        onLocationMapModeChange(connectionId, s.id);
+      }
+    }
+
+    function onLocationMapModeChange(connectionId, shopifyLocId) {
+      const select = document.getElementById(`loc-select-${connectionId}-${shopifyLocId}`);
+      const fields = document.getElementById(`loc-fields-${connectionId}-${shopifyLocId}`);
+      if (!select || !fields) return;
+      fields.hidden = select.value !== '__new__';
+    }
+
+    async function loadSiloLocations() {
+      let q = db
+        .from('locations')
+        .select('id, location_code, location_name, domain, store_type, shopify_location_id')
+        .order('location_name');
+      if (_co?.id) q = q.eq('company_entity_id', _co.id);
+      const { data, error } = await q;
+      if (error) throw new Error(error.message);
+      return data || [];
+    }
+
+    async function loadLocationMapperData(connectionId) {
+      const { data: conn, error: connErr } = await db
+        .from('shopify_connections')
+        .select('shop_domain')
+        .eq('id', connectionId)
+        .single();
+      if (connErr || !conn) throw new Error('Connection not found');
+
+      const [syncRes, siloLocations] = await Promise.all([
+        syncRun({ action: 'list_shopify_locations', connection_id: connectionId }),
+        loadSiloLocations(),
+      ]);
+
+      return {
+        shopifyLocations: syncRes.locations || [],
+        siloLocations,
+        shopDomain: conn.shop_domain,
+      };
+    }
+
+    async function refreshLocationMapper(connectionId) {
+      const panel = document.getElementById(`loc-panel-${connectionId}`);
+      if (panel) {
+        panel.innerHTML = '<div class="int-loc-summary">Loading Shopify locations…</div>';
+      }
+      try {
+        const cache = await loadLocationMapperData(connectionId);
+        _locMapperCache.set(connectionId, cache);
+        renderLocationMapper(connectionId, cache);
+      } catch (err) {
+        if (panel) {
+          panel.innerHTML = `<div class="int-scope-warn">Failed to load locations: ${escHtml(err.message)}</div>`;
+        }
+      }
+    }
+
+    async function toggleLocationMapper(connectionId) {
+      const panel = document.getElementById(`loc-panel-${connectionId}`);
+      if (!panel) return;
+
+      const isHidden = panel.hasAttribute('hidden');
+      if (!isHidden) {
+        panel.setAttribute('hidden', '');
+        return;
+      }
+
+      panel.removeAttribute('hidden');
+      await refreshLocationMapper(connectionId);
+    }
+
+    async function clearShopifyIdFromOthers(shopifyLocId, keepLocationId) {
+      const keys = shopifyIdKeys(shopifyLocId);
+      const siloLocs = await loadSiloLocations();
+      for (const loc of siloLocs) {
+        if (String(loc.id) === String(keepLocationId)) continue;
+        if (!keys.includes(String(loc.shopify_location_id || ''))) continue;
+        const { error } = await db
+          .from('locations')
+          .update({ shopify_location_id: null, updated_by: _session?.user?.id })
+          .eq('id', loc.id);
+        if (error) throw new Error(error.message);
+      }
+    }
+
+    async function saveLocationMapping(connectionId, shopifyLocId) {
+      const select = document.getElementById(`loc-select-${connectionId}-${shopifyLocId}`);
+      const fields = document.getElementById(`loc-fields-${connectionId}-${shopifyLocId}`);
+      if (!select) return;
+
+      const mode = select.value;
+      if (!mode) {
+        setStatus('Choose a SILO location or create new', 'info', 3000);
+        return;
+      }
+
+      setStatus('Saving location mapping…', 'info');
+
+      try {
+        if (mode === '__new__') {
+          const name = fields?.querySelector('[data-field="name"]')?.value?.trim();
+          const code = fields?.querySelector('[data-field="code"]')?.value?.trim();
+          const storeType = fields?.querySelector('[data-field="store_type"]')?.value || 'retail';
+          const domain = fields?.querySelector('[data-field="domain"]')?.value?.trim() || null;
+
+          if (!name || !code) {
+            setStatus('Location name and code are required', 'neg', 4000);
+            return;
+          }
+
+          const { data: maxRow, error: maxErr } = await db
+            .from('locations')
+            .select('id')
+            .order('id', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (maxErr) throw new Error(maxErr.message);
+
+          const nextId = Number(maxRow?.id || 0) + 1;
+          await clearShopifyIdFromOthers(shopifyLocId, null);
+
+          const { error: insErr } = await db.from('locations').insert({
+            id: nextId,
+            company_entity_id: _co?.id,
+            location_code: code,
+            location_name: name,
+            domain,
+            store_type: storeType,
+            shopify_location_id: String(shopifyLocId),
+            is_active: true,
+            created_by: _session?.user?.id,
+            updated_by: _session?.user?.id,
+          });
+          if (insErr) throw new Error(insErr.message);
+        } else {
+          await clearShopifyIdFromOthers(shopifyLocId, mode);
+          const { error: updErr } = await db
+            .from('locations')
+            .update({
+              shopify_location_id: String(shopifyLocId),
+              updated_by: _session?.user?.id,
+            })
+            .eq('id', mode);
+          if (updErr) throw new Error(updErr.message);
+        }
+
+        setStatus('✓ Location mapped — re-run sales import to update existing row tags', 'pos', 8000);
+        await refreshLocationMapper(connectionId);
+      } catch (err) {
+        setStatus('Save failed: ' + err.message, 'neg', 6000);
+      }
+    }
+
+    async function clearLocationMapping(connectionId, shopifyLocId, siloLocationId) {
+      if (!confirm('Remove Shopify mapping from this SILO location?')) return;
+      setStatus('Clearing mapping…', 'info');
+      try {
+        const { error } = await db
+          .from('locations')
+          .update({ shopify_location_id: null, updated_by: _session?.user?.id })
+          .eq('id', siloLocationId);
+        if (error) throw new Error(error.message);
+        setStatus('Mapping cleared', 'info', 4000);
+        await refreshLocationMapper(connectionId);
+      } catch (err) {
+        setStatus('Clear failed: ' + err.message, 'neg', 5000);
+      }
     }
 
     // ── Remove connection ──────────────────────────────────────────

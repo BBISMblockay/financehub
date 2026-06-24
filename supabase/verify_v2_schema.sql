@@ -146,7 +146,42 @@ left join information_schema.columns col
  and col.table_name = 'shopify_connections'
  and col.column_name = want.column_name;
 
--- 8. Quick counts (0 is fine on a fresh install)
+-- 8. Sales verification company scope (migration 20260624000000)
+select
+  want.policy_name,
+  case when pol.policyname is not null then 'ok' else 'MISSING — run 20260624000000_sales_verification_company_scope.sql' end as status
+from (values ('sales_by_day_active_select')) as want(policy_name)
+left join pg_policies pol
+  on pol.schemaname = 'public'
+ and pol.tablename = 'sales_by_day'
+ and pol.policyname = want.policy_name;
+
+select
+  case
+    when exists (
+      select 1
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public'
+        and p.proname = 'refresh_sales_verification_store_comp_summary'
+        and pg_get_functiondef(p.oid) ilike '%company_entity_id%'
+    ) then 'ok'
+    else 'MISSING — run 20260624000000_sales_verification_company_scope.sql'
+  end as refresh_sales_verification_per_company;
+
+select
+  case
+    when exists (
+      select 1
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public'
+        and p.proname = 'sales_verification_filtered_summary'
+    ) then 'ok'
+    else 'MISSING — run 20260624100000_sales_verification_filtered_summary.sql'
+  end as sales_verification_filtered_summary_rpc;
+
+-- 9. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,
   (select count(*) from public.po_headers)           as po_headers,

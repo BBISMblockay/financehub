@@ -572,7 +572,13 @@
       },
     });
 
-    const SUMMARY_CHUNK = 2000;
+    const _co = window.__SILO_CONFIG__?.getActiveCompany?.() || null;
+
+    function applyCompanyScope(query) {
+      if (_co?.id) return query.eq('company_entity_id', _co.id);
+      return query;
+    }
+
     const DETAIL_PAGE_SIZE = 200;
 
     const state = {
@@ -786,7 +792,7 @@
     }
 
     function applyCommonFilters(query, filters) {
-      let q = query;
+      let q = applyCompanyScope(query);
 
       if (filters.location) {
         q = q.eq('location_tag', filters.location);
@@ -818,29 +824,6 @@
         q = q.lt('total_net_sales', 0);
       }
 
-      return q;
-    }
-
-    function buildSummaryQuery(filters, from, to) {
-      let q = sb
-        .from('sales_by_day')
-        .select(`
-          day_date,
-          location_tag,
-          product_name,
-          sku,
-          total_quantity_sold,
-          total_gross_sales,
-          total_discounts,
-          total_refunds,
-          total_net_sales,
-          total_sales,
-          sync_batch_id
-        `)
-        .order('day_date', { ascending: true })
-        .range(from, to);
-
-      q = applyCommonFilters(q, filters);
       return q;
     }
 
@@ -884,101 +867,60 @@
 
     async function loadLocationOptions() {
       const { data, error } = await sb
-        .from('sales_by_day')
+        .from('sales_verification_store_comp_summary')
         .select('location_tag')
-        .not('location_tag', 'is', null)
-        .limit(100000);
+        .order('location_tag');
 
       if (error) throw error;
 
-      const options = [...new Set((data || []).map(r => r.location_tag).filter(Boolean))].sort();
+      const options = (data || []).map((r) => r.location_tag).filter(Boolean);
       state.locationOptions = options;
       el.locationFilter.innerHTML = ['<option value="">All locations</option>']
         .concat(options.map(loc => `<option value="${escapeHtml(loc)}">${escapeHtml(loc)}</option>`))
         .join('');
     }
 
-    async function computeSummary(filters) {
-      const summary = {
-        totalRows: 0,
-        totalUnits: 0,
-        totalNet: 0,
-        totalRefunds: 0,
-        minDate: null,
-        maxDate: null,
-        refundDiscrepancyCount: 0,
-        blankSkuCount: 0,
-        negativeNetCount: 0,
-        batchSet: new Set(),
-        locationMap: new Map()
+    function mapSummaryRpc(raw) {
+      const locations = (raw?.locations || []).map((loc) => ({
+        location_tag: loc.location_tag,
+        row_count: Number(loc.row_count || 0),
+        min_date: loc.min_date || null,
+        max_date: loc.max_date || null,
+        units: Number(loc.units || 0),
+        gross: Number(loc.gross || 0),
+        discounts: Number(loc.discounts || 0),
+        refunds: Number(loc.refunds || 0),
+        net: Number(loc.net || 0),
+        total_sales: Number(loc.total_sales || 0),
+      }));
+
+      return {
+        totalRows: Number(raw?.total_rows || 0),
+        totalUnits: Number(raw?.total_units || 0),
+        totalNet: Number(raw?.total_net || 0),
+        totalRefunds: Number(raw?.total_refunds || 0),
+        minDate: raw?.min_date || null,
+        maxDate: raw?.max_date || null,
+        refundDiscrepancyCount: Number(raw?.refund_discrepancy_count || 0),
+        blankSkuCount: Number(raw?.blank_sku_count || 0),
+        negativeNetCount: Number(raw?.negative_net_count || 0),
+        batchCount: Number(raw?.batch_count || 0),
+        locations,
+        locationCount: Number(raw?.location_count || locations.length),
       };
+    }
 
-      let from = 0;
-      let keepGoing = true;
-
-      while (keepGoing) {
-        setProgress(`Scanning rows ${numberFmt(from + 1)}+`);
-        const { data, error } = await buildSummaryQuery(filters, from, from + SUMMARY_CHUNK - 1);
-
-        if (error) throw error;
-
-        const rows = data || [];
-        if (!rows.length) break;
-
-        for (const row of rows) {
-          summary.totalRows += 1;
-          summary.totalUnits += Number(row.total_quantity_sold || 0);
-          summary.totalNet += Number(row.total_net_sales || 0);
-          summary.totalRefunds += Number(row.total_refunds || 0);
-
-          if (row.day_date && (!summary.minDate || row.day_date < summary.minDate)) summary.minDate = row.day_date;
-          if (row.day_date && (!summary.maxDate || row.day_date > summary.maxDate)) summary.maxDate = row.day_date;
-
-          if (isRefundDiscrepancyRow(row)) summary.refundDiscrepancyCount += 1;
-          if (isBlankSku(row)) summary.blankSkuCount += 1;
-          if (isNegativeNet(row)) summary.negativeNetCount += 1;
-          if (row.sync_batch_id) summary.batchSet.add(row.sync_batch_id);
-
-          const key = row.location_tag || 'unknown';
-          if (!summary.locationMap.has(key)) {
-            summary.locationMap.set(key, {
-              location_tag: key,
-              row_count: 0,
-              min_date: row.day_date || null,
-              max_date: row.day_date || null,
-              units: 0,
-              gross: 0,
-              discounts: 0,
-              refunds: 0,
-              net: 0,
-              total_sales: 0
-            });
-          }
-
-          const item = summary.locationMap.get(key);
-          item.row_count += 1;
-          if (row.day_date && (!item.min_date || row.day_date < item.min_date)) item.min_date = row.day_date;
-          if (row.day_date && (!item.max_date || row.day_date > item.max_date)) item.max_date = row.day_date;
-          item.units += Number(row.total_quantity_sold || 0);
-          item.gross += Number(row.total_gross_sales || 0);
-          item.discounts += Number(row.total_discounts || 0);
-          item.refunds += Number(row.total_refunds || 0);
-          item.net += Number(row.total_net_sales || 0);
-          item.total_sales += Number(row.total_sales || 0);
-        }
-
-        if (rows.length < SUMMARY_CHUNK) {
-          keepGoing = false;
-        } else {
-          from += SUMMARY_CHUNK;
-        }
-      }
-
-      summary.locations = [...summary.locationMap.values()].sort((a, b) => a.location_tag.localeCompare(b.location_tag));
-      summary.locationCount = summary.locations.length;
-      summary.batchCount = summary.batchSet.size;
-
-      return summary;
+    async function computeSummary(filters) {
+      setProgress('Aggregating filtered totals…');
+      const { data, error } = await sb.rpc('sales_verification_filtered_summary', {
+        p_date_from: filters.dateFrom || null,
+        p_date_to: filters.dateTo || null,
+        p_location_tag: filters.location || null,
+        p_search: filters.search || null,
+        p_quick: filters.quick || 'all',
+      });
+      if (error) throw error;
+      return mapSummaryRpc(data);
     }
 
     async function loadDetailPage(filters, page) {
@@ -1299,16 +1241,18 @@
 
         renderAll();
 
-        try {
-          setProgress('Updating comps snapshot');
-          await syncCompSummaryFromServer();
-        } catch (e) {
-          console.error(e);
-          state.matrixRows = [];
-          state.matrixClientFetchedAt = null;
-          state.summaryRefreshedAt = null;
-          if (el.storeCompsPanel.open) renderMatrix();
-          setStatus(`Loaded detail; comps snapshot failed: ${e.message || 'Unknown error'}`);
+        if (el.storeCompsPanel.open) {
+          try {
+            setProgress('Updating comps snapshot');
+            await syncCompSummaryFromServer();
+          } catch (e) {
+            console.error(e);
+            state.matrixRows = [];
+            state.matrixClientFetchedAt = null;
+            state.summaryRefreshedAt = null;
+            renderMatrix();
+            setStatus(`Loaded detail; comps snapshot failed: ${e.message || 'Unknown error'}`);
+          }
         }
 
         renderProvisionalBanner();

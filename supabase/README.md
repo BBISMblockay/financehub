@@ -53,6 +53,9 @@ Run in order:
 13. **`migrations/20260616060000_stamp_company_entity_id_on_insert.sql`** — insert company stamp  
     `BEFORE INSERT` trigger on all `company_entity_id` tables (except `inventory_on_hand` / `sales_by_day`) stamps `active_company_id()` when the client omits the column. Pair with `withCompany()` in `pages/config.js` for UI writes.
 
+14. **`migrations/20260624000000_sales_verification_company_scope.sql`** — sales verification multi-tenant  
+    Backfills `sales_by_day.company_entity_id`, rewrites `refresh_sales_verification_store_comp_summary()` per company, fixes summary PK to `(company_entity_id, location_tag)`, and adds `sales_by_day` RLS via `active_company_id()`.
+
 ## App workflow after SQL succeeds
 
 1. **PO builder** (`/v2/po-builder.html`) — create header + lines (needs at least one factory)
@@ -98,7 +101,7 @@ SILO supports multiple companies in one Supabase project. Isolation is enforced 
 **Key column:** `company_entity_id uuid` on all operational tables  
 **Baseballism entity id:** `3bd934c9-4cdd-429b-9076-f8f6b45d4eb7`
 
-**Not yet isolated:** `inventory_on_hand`, `sales_by_day` (backfill deferred — these tables are Baseballism-specific via Google Sheets/Better Reports sync and need a new per-company data pipeline before they can be properly partitioned).
+**Not yet isolated:** `inventory_on_hand` (backfill deferred — nightly Sheets sync is Baseballism-only today; Shopify inventory uses explicit `company_entity_id` on upsert).
 
 ## Write access
 
