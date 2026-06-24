@@ -3,6 +3,7 @@ import {
   DEFAULT_CHUNK_DAYS,
   fetchShopifyLocations,
   initHistoryBackfillState,
+  purgeShopifySalesForCompany,
   readMeta,
   runHistoryChunk,
   runInventorySnapshot,
@@ -157,6 +158,7 @@ async function handleStartHistoryBackfill(
     return handleHistoryChunk(admin, connection, state.job_id as string);
   }
 
+  await purgeShopifySalesForCompany(admin, connection.company_entity_id as string);
   state = initHistoryBackfillState({ historyDays, chunkDays });
 
   const jobId = existingJobId || await createJob(admin, connection, 'history_import', userId, {

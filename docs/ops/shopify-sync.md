@@ -73,6 +73,8 @@ where company_entity_id = '<company-entity-uuid>'
 
 Unmapped Shopify locations fall back to `{shop}_{location_name}` tags.
 
+**Sales location linking:** when Shopify omits `location_id` on orders (common for online stores), sales rows use your SILO mapping when the company has exactly one linked location. Product/SKU/amount metadata is unchanged. A fresh **history import** purges prior `shopify_api` sales rows for that company so location tags refresh cleanly.
+
 ---
 
 ## Run sync
