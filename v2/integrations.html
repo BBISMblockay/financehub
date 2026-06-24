@@ -360,9 +360,9 @@
       return [raw, `gid://shopify/Location/${raw}`];
     }
 
-    function siloLocForShopifyId(siloLocs, shopifyId) {
-      const keys = new Set(shopifyIdKeys(shopifyId));
-      return (siloLocs || []).find((loc) => keys.has(String(loc.shopify_location_id || ''))) || null;
+    function mappingForShopifyId(mappings, shopifyId) {
+      const raw = String(shopifyId || '');
+      return (mappings || []).find((m) => String(m.shopify_location_id) === raw) || null;
     }
 
     async function syncRun(body) {
@@ -770,8 +770,9 @@
 
     const STORE_TYPES = ['online', 'retail', 'outlet', 'pop_up', 'warehouse', 'wholesale'];
 
-    function locationMapperRowHtml(connectionId, shopLoc, siloLocs, shopDomain) {
-      const mapped = siloLocForShopifyId(siloLocs, shopLoc.id);
+    function locationMapperRowHtml(connectionId, shopLoc, siloLocs, existingMappings, shopDomain) {
+      const mapping = mappingForShopifyId(existingMappings, shopLoc.id);
+      const mappedSiloLoc = mapping ? (siloLocs || []).find((l) => String(l.id) === String(mapping.location_id)) : null;
       const rowId = `loc-row-${connectionId}-${shopLoc.id}`;
       const selectId = `loc-select-${connectionId}-${shopLoc.id}`;
       const fieldsId = `loc-fields-${connectionId}-${shopLoc.id}`;
@@ -781,7 +782,7 @@
 
       const options = ['<option value="">— Unmapped —</option>'];
       for (const loc of siloLocs) {
-        const selected = mapped && String(loc.id) === String(mapped.id) ? ' selected' : '';
+        const selected = mapping && String(loc.id) === String(mapping.location_id) ? ' selected' : '';
         options.push(`<option value="${loc.id}"${selected}>${escHtml(loc.location_name)} (${escHtml(loc.location_code)})</option>`);
       }
       options.push('<option value="__new__">+ Create new SILO location</option>');
@@ -790,8 +791,9 @@
         `<option value="${t}"${t === 'retail' ? ' selected' : ''}>${t}</option>`,
       ).join('');
 
-      const mappedBadge = mapped
-        ? `<div class="int-loc-mapped">→ ${escHtml(mapped.location_code)}</div>`
+      const displayCode = mappedSiloLoc?.location_code || mapping?.silo_location_code;
+      const mappedBadge = displayCode
+        ? `<div class="int-loc-mapped">→ ${escHtml(displayCode)}</div>`
         : `<div class="int-loc-unmapped">Uses fallback tag until mapped</div>`;
 
       return `<tr id="${rowId}">
@@ -818,8 +820,8 @@
         <td style="white-space:nowrap;">
           <button class="bcn-btn bcn-btn--primary" style="font-size:11px;height:26px;padding:0 8px;"
             onclick="saveLocationMapping('${connectionId}', '${shopLoc.id}')">Save</button>
-          ${mapped ? `<button class="bcn-btn bcn-btn--ghost" style="font-size:11px;height:26px;padding:0 8px;margin-top:4px;"
-            onclick="clearLocationMapping('${connectionId}', '${shopLoc.id}', '${mapped.id}')">Clear</button>` : ''}
+          ${mapping ? `<button class="bcn-btn bcn-btn--ghost" style="font-size:11px;height:26px;padding:0 8px;margin-top:4px;"
+            onclick="clearLocationMapping('${connectionId}', '${shopLoc.id}')">Clear</button>` : ''}
         </td>
       </tr>`;
     }
@@ -828,8 +830,8 @@
       const panel = document.getElementById(`loc-panel-${connectionId}`);
       if (!panel) return;
 
-      const { shopifyLocations, siloLocations, shopDomain } = cache;
-      const mappedCount = (shopifyLocations || []).filter((s) => siloLocForShopifyId(siloLocations, s.id)).length;
+      const { shopifyLocations, siloLocations, existingMappings, shopDomain } = cache;
+      const mappedCount = (shopifyLocations || []).filter((s) => mappingForShopifyId(existingMappings, s.id)).length;
       const total = (shopifyLocations || []).length;
 
       panel.innerHTML = `
@@ -853,7 +855,7 @@
             </tr>
           </thead>
           <tbody>
-            ${(shopifyLocations || []).map((s) => locationMapperRowHtml(connectionId, s, siloLocations, shopDomain)).join('')}
+            ${(shopifyLocations || []).map((s) => locationMapperRowHtml(connectionId, s, siloLocations, existingMappings, shopDomain)).join('')}
           </tbody>
         </table>`;
 
@@ -888,16 +890,27 @@
         .single();
       if (connErr || !conn) throw new Error('Connection not found');
 
-      const [syncRes, siloLocations] = await Promise.all([
+      const [syncRes, siloLocations, existingMappings] = await Promise.all([
         syncRun({ action: 'list_shopify_locations', connection_id: connectionId }),
         loadSiloLocations(),
+        loadConnectionMappings(connectionId),
       ]);
 
       return {
         shopifyLocations: syncRes.locations || [],
         siloLocations,
+        existingMappings,
         shopDomain: conn.shop_domain,
       };
+    }
+
+    async function loadConnectionMappings(connectionId) {
+      const { data, error } = await db
+        .from('shopify_location_mappings')
+        .select('shopify_location_id, location_id, silo_location_code, shopify_location_name')
+        .eq('connection_id', connectionId);
+      if (error) throw new Error(error.message);
+      return data || [];
     }
 
     async function refreshLocationMapper(connectionId) {
@@ -930,20 +943,6 @@
       await refreshLocationMapper(connectionId);
     }
 
-    async function clearShopifyIdFromOthers(shopifyLocId, keepLocationId) {
-      const keys = shopifyIdKeys(shopifyLocId);
-      const siloLocs = await loadSiloLocations();
-      for (const loc of siloLocs) {
-        if (String(loc.id) === String(keepLocationId)) continue;
-        if (!keys.includes(String(loc.shopify_location_id || ''))) continue;
-        const { error } = await db
-          .from('locations')
-          .update({ shopify_location_id: null, updated_by: _session?.user?.id })
-          .eq('id', loc.id);
-        if (error) throw new Error(error.message);
-      }
-    }
-
     async function saveLocationMapping(connectionId, shopifyLocId) {
       const select = document.getElementById(`loc-select-${connectionId}-${shopifyLocId}`);
       const fields = document.getElementById(`loc-fields-${connectionId}-${shopifyLocId}`);
@@ -957,7 +956,12 @@
 
       setStatus('Saving location mapping…', 'info');
 
+      const cache = _locMapperCache.get(connectionId);
+      const shopLocData = (cache?.shopifyLocations || []).find((l) => String(l.id) === String(shopifyLocId));
+
       try {
+        let locationId, locationCode;
+
         if (mode === '__new__') {
           const name = fields?.querySelector('[data-field="name"]')?.value?.trim();
           const code = fields?.querySelector('[data-field="code"]')?.value?.trim();
@@ -973,8 +977,6 @@
           if (idErr) throw new Error(idErr.message);
           if (!nextId) throw new Error('Could not allocate location id');
 
-          await clearShopifyIdFromOthers(shopifyLocId, null);
-
           const { error: insErr } = await db.from('locations').insert({
             id: Number(nextId),
             company_entity_id: _co?.id,
@@ -982,23 +984,30 @@
             location_name: name,
             domain,
             store_type: storeType,
-            shopify_location_id: String(shopifyLocId),
             is_active: true,
             created_by: _session?.user?.id,
             updated_by: _session?.user?.id,
           });
           if (insErr) throw new Error(insErr.message);
+
+          locationId = Number(nextId);
+          locationCode = code;
         } else {
-          await clearShopifyIdFromOthers(shopifyLocId, mode);
-          const { error: updErr } = await db
-            .from('locations')
-            .update({
-              shopify_location_id: String(shopifyLocId),
-              updated_by: _session?.user?.id,
-            })
-            .eq('id', mode);
-          if (updErr) throw new Error(updErr.message);
+          locationId = Number(mode);
+          locationCode = (cache?.siloLocations || []).find((l) => String(l.id) === mode)?.location_code || null;
         }
+
+        const { error: upsertErr } = await db
+          .from('shopify_location_mappings')
+          .upsert({
+            connection_id: connectionId,
+            company_entity_id: _co?.id,
+            shopify_location_id: String(shopifyLocId),
+            shopify_location_name: shopLocData?.name || null,
+            location_id: locationId,
+            silo_location_code: locationCode,
+          }, { onConflict: 'connection_id,shopify_location_id' });
+        if (upsertErr) throw new Error(upsertErr.message);
 
         setStatus('✓ Location mapped — re-run sales import to update existing row tags', 'pos', 8000);
         await refreshLocationMapper(connectionId);
@@ -1007,14 +1016,15 @@
       }
     }
 
-    async function clearLocationMapping(connectionId, shopifyLocId, siloLocationId) {
+    async function clearLocationMapping(connectionId, shopifyLocId) {
       if (!confirm('Remove Shopify mapping from this SILO location?')) return;
       setStatus('Clearing mapping…', 'info');
       try {
         const { error } = await db
-          .from('locations')
-          .update({ shopify_location_id: null, updated_by: _session?.user?.id })
-          .eq('id', siloLocationId);
+          .from('shopify_location_mappings')
+          .delete()
+          .eq('connection_id', connectionId)
+          .eq('shopify_location_id', String(shopifyLocId));
         if (error) throw new Error(error.message);
         setStatus('Mapping cleared', 'info', 4000);
         await refreshLocationMapper(connectionId);
