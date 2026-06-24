@@ -808,6 +808,9 @@
             ${options.join('')}
           </select>
           <div class="int-loc-fields" id="${fieldsId}" hidden>
+            <input class="bcn-field bcn-field--mono" type="text" placeholder="Location code (e.g. chicago)"
+              value="" data-field="existing-code" style="margin-top:4px;" />
+            <div style="font-size:10px;color:var(--bcn-ink-3);margin-bottom:4px;">Rename the SILO location code (affects all sales tags)</div>
             <input class="bcn-field" type="text" placeholder="Location name"
               value="${escHtml(shopLoc.name)}" data-field="name" />
             <input class="bcn-field bcn-field--mono" type="text" placeholder="Location code"
@@ -868,7 +871,29 @@
       const select = document.getElementById(`loc-select-${connectionId}-${shopifyLocId}`);
       const fields = document.getElementById(`loc-fields-${connectionId}-${shopifyLocId}`);
       if (!select || !fields) return;
-      fields.hidden = select.value !== '__new__';
+      const mode = select.value;
+      fields.hidden = !mode || mode === '';
+
+      const existingCodeWrap = fields.querySelector('[data-field="existing-code"]');
+      const existingCodeHint = existingCodeWrap?.nextElementSibling;
+      const newFields = fields.querySelectorAll('[data-field="name"],[data-field="code"],[data-field="store_type"],[data-field="domain"]');
+
+      if (mode === '__new__') {
+        if (existingCodeWrap) existingCodeWrap.hidden = true;
+        if (existingCodeHint) existingCodeHint.hidden = true;
+        newFields.forEach((el) => el.hidden = false);
+      } else if (mode) {
+        // Existing SILO location — show code rename field, pre-fill with current code
+        const cache = _locMapperCache.get(connectionId);
+        const siloLoc = (cache?.siloLocations || []).find((l) => String(l.id) === mode);
+        if (existingCodeWrap) {
+          existingCodeWrap.hidden = false;
+          existingCodeWrap.value = siloLoc?.location_code || '';
+          existingCodeWrap.placeholder = `Location code (e.g. chicago)`;
+        }
+        if (existingCodeHint) existingCodeHint.hidden = false;
+        newFields.forEach((el) => el.hidden = true);
+      }
     }
 
     async function loadSiloLocations() {
@@ -994,7 +1019,18 @@
           locationCode = code;
         } else {
           locationId = Number(mode);
-          locationCode = (cache?.siloLocations || []).find((l) => String(l.id) === mode)?.location_code || null;
+          const existingCode = fields?.querySelector('[data-field="existing-code"]')?.value?.trim();
+          const currentCode = (cache?.siloLocations || []).find((l) => String(l.id) === mode)?.location_code || null;
+          locationCode = existingCode || currentCode;
+
+          // Rename location code if changed
+          if (existingCode && existingCode !== currentCode) {
+            const { error: renameErr } = await db
+              .from('locations')
+              .update({ location_code: existingCode, updated_by: _session?.user?.id })
+              .eq('id', locationId);
+            if (renameErr) throw new Error(`Rename failed: ${renameErr.message}`);
+          }
         }
 
         const { error: upsertErr } = await db
