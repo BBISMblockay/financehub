@@ -249,6 +249,104 @@ export async function loadLocationMap(supabase, companyEntityId) {
   return byShopifyId;
 }
 
+/** SILO locations explicitly linked via locations.shopify_location_id */
+export async function loadSiloMappedLocations(supabase, companyEntityId) {
+  const { data, error } = await supabase
+    .from('locations')
+    .select('location_code, location_name, shopify_location_id')
+    .eq('company_entity_id', companyEntityId)
+    .not('shopify_location_id', 'is', null);
+
+  if (error) throw new Error(`locations load failed: ${error.message}`);
+
+  return (data || []).map((row) => {
+    const tag = slugify(row.location_code || row.location_name);
+    return {
+      location_tag: tag,
+      location_name: row.location_name || row.location_code || tag,
+      shopify_location_id: String(row.shopify_location_id),
+    };
+  });
+}
+
+function buildSiloMappedByShopifyId(siloMappedLocations) {
+  const map = new Map();
+  for (const entry of siloMappedLocations || []) {
+    for (const key of shopifyLocationKeys(entry.shopify_location_id)) {
+      map.set(normalizeShopifyLocationId(key), entry);
+    }
+  }
+  return map;
+}
+
+/** Shopify location ids present on an order payload (no extra API calls). */
+export function shopifyLocationIdsOnOrder(order) {
+  const ids = [];
+  const add = (id) => {
+    const raw = id != null && id !== '' ? String(id) : null;
+    if (raw && !ids.includes(raw)) ids.push(raw);
+  };
+
+  add(order?.location_id);
+  for (const f of order?.fulfillments || []) add(f?.location_id);
+  for (const li of order?.line_items || []) add(li?.location_id);
+
+  return ids;
+}
+
+/**
+ * Resolve SILO location_tag/name for sales_by_day aggregation only.
+ * Uses Shopify location ids when present, then SILO shopify_location_id mapping.
+ * Does not alter product/order metadata fields.
+ */
+export function resolveSalesRowLocation({
+  order,
+  lineItem,
+  siloMappedByShopifyId,
+  siloMappedLocations,
+  connection,
+}) {
+  const candidateIds = [];
+  if (lineItem?.location_id) candidateIds.push(String(lineItem.location_id));
+  for (const id of shopifyLocationIdsOnOrder(order)) {
+    if (!candidateIds.includes(id)) candidateIds.push(id);
+  }
+
+  for (const id of candidateIds) {
+    for (const key of shopifyLocationKeys(id)) {
+      const hit = siloMappedByShopifyId.get(normalizeShopifyLocationId(key));
+      if (hit) {
+        return {
+          location_tag: hit.location_tag,
+          location_name: hit.location_name,
+        };
+      }
+    }
+  }
+
+  // Shopify omitted location_id (common for online / some POS). If exactly one SILO
+  // mapping exists for this company, attribute sales to that linked location.
+  if (!candidateIds.length && siloMappedLocations?.length === 1) {
+    return {
+      location_tag: siloMappedLocations[0].location_tag,
+      location_name: siloMappedLocations[0].location_name,
+    };
+  }
+
+  const unknownTag = normalizeLocationTag(connection, 'unknown');
+  return { location_tag: unknownTag, location_name: unknownTag };
+}
+
+export async function purgeShopifySalesForCompany(supabase, companyEntityId) {
+  const { error } = await supabase
+    .from('sales_by_day')
+    .delete()
+    .eq('company_entity_id', companyEntityId)
+    .eq('source', SOURCE);
+
+  if (error) throw new Error(`sales_by_day purge failed: ${error.message}`);
+}
+
 export function resolveLocation(connection, shopifyLoc, dbMap) {
   for (const key of shopifyLocationKeys(shopifyLoc.id)) {
     const hit = dbMap.get(normalizeShopifyLocationId(key));
@@ -399,7 +497,11 @@ export async function fetchShopifyLocations(connection) {
 }
 
 async function loadLocationContext(supabase, connection, headers, base) {
-  const dbLocationMap = await loadLocationMap(supabase, connection.company_entity_id);
+  const [dbLocationMap, siloMappedLocations] = await Promise.all([
+    loadLocationMap(supabase, connection.company_entity_id),
+    loadSiloMappedLocations(supabase, connection.company_entity_id),
+  ]);
+  const siloMappedByShopifyId = buildSiloMappedByShopifyId(siloMappedLocations);
   const locations = await getAll(headers, `${base}/locations.json?limit=250`);
   const locationById = new Map();
   const locationInfoById = new Map();
@@ -410,14 +512,20 @@ async function loadLocationContext(supabase, connection, headers, base) {
     locationInfoById.set(String(loc.id), info);
   }
 
-  return { locations, locationById, locationInfoById };
+  return {
+    locations,
+    locationById,
+    locationInfoById,
+    siloMappedLocations,
+    siloMappedByShopifyId,
+  };
 }
 
 export function ordersToSalesRows({
   orders,
   connection,
-  locationById,
-  locationInfoById,
+  siloMappedLocations,
+  siloMappedByShopifyId,
   skuMeta,
   syncedAt,
   batchId,
@@ -430,10 +538,6 @@ export function ordersToSalesRows({
     newestOrderStamp = maxIso(newestOrderStamp, order.created_at);
 
     const orderDate = (order.created_at || '').slice(0, 10);
-    const orderLocId = order.location_id ? String(order.location_id) : null;
-    const fallbackInfo = orderLocId ? locationInfoById.get(orderLocId) : null;
-    const fallbackTag =
-      fallbackInfo?.location_tag || normalizeLocationTag(connection, 'unknown');
 
     const lineItems = (order.line_items || []).filter((li) => li?.sku);
     const lineCount = lineItems.length || 1;
@@ -469,14 +573,13 @@ export function ordersToSalesRows({
       const refundAmount = lineRefund.subtotal;
       const tax = Math.max(0, sumTaxForLine(li) - lineRefund.tax);
 
-      const liLocId = li.location_id ? String(li.location_id) : orderLocId;
-      const locInfo = liLocId
-        ? locationInfoById.get(liLocId) || fallbackInfo
-        : fallbackInfo;
-      const locationTag = liLocId
-        ? locationById.get(liLocId) || fallbackTag
-        : fallbackTag;
-      const locationName = locInfo?.location_name || locationTag;
+      const { location_tag: locationTag, location_name: locationName } = resolveSalesRowLocation({
+        order,
+        lineItem: li,
+        siloMappedByShopifyId,
+        siloMappedLocations,
+        connection,
+      });
 
       const grossSales = price * qty;
       const totalSales = computeTotalSales({
@@ -631,8 +734,8 @@ export async function runHistoryChunk(supabase, connection, {
   const { salesRows, newestOrderStamp } = ordersToSalesRows({
     orders,
     connection,
-    locationById: locationContext.locationById,
-    locationInfoById: locationContext.locationInfoById,
+    siloMappedLocations: locationContext.siloMappedLocations,
+    siloMappedByShopifyId: locationContext.siloMappedByShopifyId,
     skuMeta,
     syncedAt,
     batchId,
@@ -802,8 +905,8 @@ export async function runIncrementalSales(supabase, connection, {
   const { salesRows, newestOrderStamp } = ordersToSalesRows({
     orders,
     connection,
-    locationById: locationContext.locationById,
-    locationInfoById: locationContext.locationInfoById,
+    siloMappedLocations: locationContext.siloMappedLocations,
+    siloMappedByShopifyId: locationContext.siloMappedByShopifyId,
     skuMeta,
     syncedAt,
     batchId,
@@ -837,6 +940,7 @@ export async function runWindowedHistory(supabase, connection, {
   let state = meta.history_backfill;
 
   if (!state || state.status !== 'running') {
+    await purgeShopifySalesForCompany(supabase, connection.company_entity_id);
     state = initHistoryBackfillState({ historyDays, chunkDays });
     meta = { ...meta, history_backfill: state };
     await supabase.from('shopify_connections').update({ meta }).eq('id', connection.id);
