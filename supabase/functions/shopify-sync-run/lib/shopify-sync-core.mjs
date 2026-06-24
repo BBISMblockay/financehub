@@ -379,6 +379,25 @@ async function loadSkuMeta(headers, base) {
   return skuMeta;
 }
 
+export async function fetchShopifyLocations(connection) {
+  const apiVersion = connection.api_version || DEFAULT_API_VERSION;
+  const base = `https://${connection.shop_domain}/admin/api/${apiVersion}`;
+  const headers = {
+    'X-Shopify-Access-Token': connection.access_token,
+    'Content-Type': 'application/json',
+  };
+  const locations = await getAll(headers, `${base}/locations.json?limit=250`);
+  return (locations || []).map((loc) => ({
+    id: String(loc.id),
+    name: loc.name || '',
+    active: loc.active !== false,
+    address1: loc.address1 || null,
+    city: loc.city || null,
+    province: loc.province || null,
+    country: loc.country || null,
+  }));
+}
+
 async function loadLocationContext(supabase, connection, headers, base) {
   const dbLocationMap = await loadLocationMap(supabase, connection.company_entity_id);
   const locations = await getAll(headers, `${base}/locations.json?limit=250`);

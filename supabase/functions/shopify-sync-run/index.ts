@@ -1,6 +1,7 @@
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
   DEFAULT_CHUNK_DAYS,
+  fetchShopifyLocations,
   initHistoryBackfillState,
   readMeta,
   runHistoryChunk,
@@ -17,7 +18,8 @@ type Action =
   | 'start_history_backfill'
   | 'history_chunk'
   | 'cancel_history_backfill'
-  | 'inventory_snapshot';
+  | 'inventory_snapshot'
+  | 'list_shopify_locations';
 
 interface RequestBody {
   action: Action;
@@ -60,6 +62,33 @@ async function assertAdminWithConnection(
   if (!connectionReadyForSync(conn)) {
     throw new Error('Connection is missing required Shopify scopes');
   }
+
+  return conn;
+}
+
+async function assertAdminConnection(
+  userClient: SupabaseClient,
+  userId: string,
+  connectionId: string,
+) {
+  const { data: profile } = await userClient
+    .from('profiles')
+    .select('role')
+    .eq('id', userId)
+    .single();
+
+  if (!profile || !['owner', 'admin'].includes(String(profile.role))) {
+    throw new Error('Admin access required');
+  }
+
+  const { data: conn, error } = await userClient
+    .from('shopify_connections')
+    .select('*')
+    .eq('id', connectionId)
+    .single();
+
+  if (error || !conn) throw new Error('Connection not found');
+  if (!conn.access_token) throw new Error('Connection has no access token');
 
   return conn;
 }
@@ -317,6 +346,12 @@ Deno.serve(async (req) => {
     const { action, connection_id: connectionId } = body;
     if (!action || !connectionId) {
       return json({ ok: false, error: 'action and connection_id are required' }, 400);
+    }
+
+    if (action === 'list_shopify_locations') {
+      const connection = await assertAdminConnection(userClient, user.id, connectionId);
+      const locations = await fetchShopifyLocations(connection);
+      return json({ ok: true, locations });
     }
 
     const connection = await assertAdminWithConnection(userClient, user.id, connectionId);

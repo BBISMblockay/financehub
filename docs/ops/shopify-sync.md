@@ -58,7 +58,11 @@ Optional: set `history_days_default` (default 90) before first history import.
 
 ### 3. Map Shopify locations (recommended)
 
-Populate `locations.shopify_location_id` so API rows use your existing `location_tag` naming:
+**From Integrations UI:** open **Map locations** on your connection. For each Shopify location, link an existing SILO location or create a new one (name, code, store type, domain). SILO stores the Shopify location id on `locations.shopify_location_id`.
+
+After mapping, **re-run a sales history import** so existing `sales_by_day` rows pick up the correct `location_tag` (mapped locations use `location_code`; unmapped fall back to `{shop}_{name}`).
+
+**Manual SQL** (optional):
 
 ```sql
 update public.locations
