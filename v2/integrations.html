@@ -248,14 +248,9 @@
                 <input class="bcn-field bcn-field--mono" id="shop-domain" type="text"
                   placeholder="yourstore.myshopify.com" autocomplete="off" spellcheck="false" />
               </div>
-              <div class="bcn-field-group">
-                <label class="bcn-label" for="access-token">Admin API access token</label>
-                <input class="bcn-field bcn-field--mono" id="access-token" type="password"
-                  placeholder="shpat_…" autocomplete="off" />
-              </div>
               <div class="form-row">
                 <button class="bcn-btn bcn-btn--ghost" id="btn-cancel-add">Cancel</button>
-                <button class="bcn-btn bcn-btn--primary" id="btn-test-save">Test &amp; Save</button>
+                <button class="bcn-btn bcn-btn--primary" id="btn-connect-shopify">Connect with Shopify →</button>
               </div>
               <div class="test-result" id="test-result"></div>
             </div>
@@ -317,6 +312,16 @@
       });
 
       loadConnections();
+
+      // Handle OAuth redirect-back
+      const urlParams = new URLSearchParams(window.location.search);
+      if (urlParams.get('oauth_connected')) {
+        setStatus('✓ Shopify store connected — enable sync when ready.', 'pos', 8000);
+        history.replaceState({}, '', window.location.pathname);
+      } else if (urlParams.get('oauth_error')) {
+        setStatus('Shopify connection failed: ' + urlParams.get('oauth_error'), 'neg', 10000);
+        history.replaceState({}, '', window.location.pathname);
+      }
     });
 
     // ── Load existing connections ──────────────────────────────────
@@ -532,104 +537,52 @@
       document.getElementById('shopify-add-form').classList.remove('open');
       document.getElementById('btn-add-shopify').style.display = '';
       document.getElementById('shop-domain').value = '';
-      document.getElementById('access-token').value = '';
       document.getElementById('test-result').className = 'test-result';
     }
 
-    // ── Test & Save ────────────────────────────────────────────────
-    document.getElementById('btn-test-save').addEventListener('click', async () => {
+    // ── Connect with Shopify (OAuth) ───────────────────────────────
+    document.getElementById('btn-connect-shopify').addEventListener('click', async () => {
       const domain = document.getElementById('shop-domain').value.trim();
-      const token  = document.getElementById('access-token').value.trim();
       const resultEl = document.getElementById('test-result');
-      const btn = document.getElementById('btn-test-save');
+      const btn = document.getElementById('btn-connect-shopify');
 
-      if (!domain || !token) {
+      if (!domain) {
         resultEl.className = 'test-result err';
-        resultEl.textContent = 'Both fields are required.';
+        resultEl.textContent = 'Enter your shop domain first.';
+        return;
+      }
+
+      if (!_co?.id) {
+        resultEl.className = 'test-result err';
+        resultEl.textContent = 'No active company — refresh and try again.';
         return;
       }
 
       btn.disabled = true;
-      btn.textContent = 'Testing…';
+      btn.textContent = 'Redirecting…';
       resultEl.className = 'test-result';
 
       try {
         const session = (await db.auth.getSession()).data.session;
-        const res = await fetch(`${SUPABASE_URL.replace('/rest/v1','')}/functions/v1/test-shopify-connection`, {
+        const res = await fetch(`${FUNCTIONS_URL}/shopify-oauth-start`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${session.access_token}`,
             'apikey': SUPABASE_ANON_KEY,
           },
-          body: JSON.stringify({ shop_domain: domain, access_token: token }),
+          body: JSON.stringify({ shop_domain: domain, company_entity_id: _co.id }),
         });
-
         const data = await res.json();
-
-        if (!data.ok) {
-          resultEl.className = 'test-result err';
-          resultEl.textContent = `Connection failed (HTTP ${data.status || '?'}): ${data.error || 'Unknown error'}`;
-          btn.disabled = false;
-          btn.textContent = 'Test & Save';
-          return;
+        if (!res.ok || !data.url) {
+          throw new Error(data.error || 'Failed to start OAuth');
         }
-
-        // Test passed — save to DB
-        const { shop } = data;
-        const scopeFields = scopeFieldsFromTest(data);
-        const payload = {
-          company_entity_id: _co?.id,
-          shop_domain: shop.myshopify_domain || domain,
-          access_token: token,
-          shop_name: shop.name,
-          shop_currency: shop.currency,
-          last_tested_at: new Date().toISOString(),
-          last_test_status: 'ok',
-          last_test_success: true,
-          created_by: _session?.user?.id,
-          ...scopeFields,
-          ...(data.scopes_error
-            ? { meta: { scopes_fetch_error: String(data.scopes_error).slice(0, 500) } }
-            : { meta: { scopes_fetch_error: null } }),
-        };
-
-        const { error: saveErr } = await db
-          .from('shopify_connections')
-          .upsert(payload, { onConflict: 'company_entity_id,shop_domain' });
-
-        if (saveErr) {
-          resultEl.className = 'test-result err';
-          resultEl.textContent = 'Connected but failed to save: ' + saveErr.message;
-        } else {
-          const missing = scopeFields.scopes_missing || [];
-          if (missing.length) {
-            resultEl.className = 'test-result warn';
-            resultEl.textContent = `✓ Connected to "${shop.name}" — saved. Missing sync scopes: ${window.SiloShopifyScopes.formatScopeList(missing)}`;
-          } else {
-            resultEl.className = 'test-result ok';
-            resultEl.textContent = `✓ Connected to "${shop.name}" (${shop.currency}) — all sync scopes granted.`;
-          }
-
-          // Log a sync_job record
-          await db.from('sync_jobs').insert({
-            company_entity_id: _co?.id,
-            job_type: 'test_connection',
-            status: 'success',
-            started_at: new Date().toISOString(),
-            finished_at: new Date().toISOString(),
-            result: { shop, scopes_granted: scopeFields.scopes_granted, scopes_missing: scopeFields.scopes_missing },
-            created_by: _session?.user?.id,
-          });
-
-          setTimeout(() => { closeAddForm(); loadConnections(); }, 1500);
-        }
+        window.location.href = data.url;
       } catch (err) {
         resultEl.className = 'test-result err';
-        resultEl.textContent = 'Request failed: ' + err.message;
-      } finally {
+        resultEl.textContent = 'Error: ' + err.message;
         btn.disabled = false;
-        btn.textContent = 'Test & Save';
+        btn.textContent = 'Connect with Shopify →';
       }
     });
 
