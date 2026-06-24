@@ -1,22 +1,18 @@
-// Shared Shopify sync logic for the shopify-sync-run edge function.
-// Mirrors scripts/lib/shopify-sync-core.mjs but uses Web Crypto instead of node:crypto.
+// Shared Shopify sync logic for Node (shopify-sync.mjs) and edge function (sync-core.ts).
+// Keep windowing / row shapes in sync across both.
 
+import crypto from 'node:crypto';
 import { scopesMissingForJob } from './shopify-scopes.mjs';
 
 export const SOURCE = 'shopify_api';
 export const DEFAULT_API_VERSION = '2025-01';
 export const DEFAULT_CHUNK_DAYS = 30;
 
-async function sha256Hex(parts) {
-  const text = parts.map((p) => String(p ?? '')).join('|');
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(buf))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-export async function hashRow(parts) {
-  return sha256Hex(parts);
+export function hashRow(parts) {
+  return crypto
+    .createHash('sha256')
+    .update(parts.map((p) => String(p ?? '')).join('|'))
+    .digest('hex');
 }
 
 export function chunk(arr, size = 500) {
@@ -375,7 +371,7 @@ export function resolveLocation(connection, shopifyLoc, dbMap) {
   };
 }
 
-export async function buildSalesRow({
+export function buildSalesRow({
   companyEntityId,
   locationTag,
   locationName,
@@ -397,7 +393,7 @@ export async function buildSalesRow({
   syncedAt,
   batchId,
 }) {
-  const rowHash = await hashRow([
+  const rowHash = hashRow([
     companyEntityId,
     locationTag,
     orderDate,
@@ -536,7 +532,7 @@ async function loadLocationContext(supabase, connection, headers, base) {
   };
 }
 
-export async function ordersToSalesRows({
+export function ordersToSalesRows({
   orders,
   connection,
   siloMappedLocations,
@@ -614,7 +610,7 @@ export async function ordersToSalesRows({
       if (!cur) {
         dayMap.set(
           key,
-          await buildSalesRow({
+          buildSalesRow({
             companyEntityId: connection.company_entity_id,
             locationTag,
             locationName,
@@ -746,7 +742,7 @@ export async function runHistoryChunk(supabase, connection, {
   const locationContext = locationContextCache || await loadLocationContext(supabase, connection, headers, base);
   const skuMeta = skuMetaCache || await loadSkuMeta(headers, base);
   const orders = await fetchOrdersInWindow(headers, base, win.window_start, win.window_end);
-  const { salesRows, newestOrderStamp } = await ordersToSalesRows({
+  const { salesRows, newestOrderStamp } = ordersToSalesRows({
     orders,
     connection,
     siloMappedLocations: locationContext.siloMappedLocations,
@@ -868,7 +864,7 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
         total_available_quantity: Number(lvl.available ?? 0),
         snapshot_at: snapshotAt,
         sync_batch_id: batchId,
-        row_hash: await hashRow([
+        row_hash: hashRow([
           connection.company_entity_id,
           locationTag,
           sku,
@@ -918,7 +914,7 @@ export async function runIncrementalSales(supabase, connection, {
     `${base}/orders.json?status=any&created_at_min=${encodeURIComponent(sinceISO)}&limit=250`,
   );
 
-  const { salesRows, newestOrderStamp } = await ordersToSalesRows({
+  const { salesRows, newestOrderStamp } = ordersToSalesRows({
     orders,
     connection,
     siloMappedLocations: locationContext.siloMappedLocations,
