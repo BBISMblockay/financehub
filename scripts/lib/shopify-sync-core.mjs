@@ -911,7 +911,7 @@ export async function runIncrementalSales(supabase, connection, {
   const skuMeta = await loadSkuMeta(headers, base);
   const orders = await getAll(
     headers,
-    `${base}/orders.json?status=any&created_at_min=${encodeURIComponent(sinceISO)}&limit=250`,
+    `${base}/orders.json?status=any&created_at_min=${encodeURIComponent(sinceISO)}&created_at_max=${encodeURIComponent(syncedAt)}&limit=250`,
   );
 
   const { salesRows, newestOrderStamp } = ordersToSalesRows({
@@ -929,6 +929,7 @@ export async function runIncrementalSales(supabase, connection, {
   return {
     job_type: 'incremental_sales',
     window_since: sinceISO.slice(0, 10),
+    window_until: syncedAt.slice(0, 10),
     orders_fetched: orders.length,
     sales_rows_upserted: upserted,
     newest_order_stamp: newestOrderStamp,
