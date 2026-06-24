@@ -15,6 +15,7 @@ with expected as (
     ('view',    'v_po_costing_summary'),
     ('view',    'v_po_sku_prior_cost'),
     ('routine', 'generate_next_po_name'),
+    ('routine', 'next_location_id'),
     ('routine', 'po_builder_can_write'),
     ('routine', 'po_costing_can_write')
   ) as t(kind, name)
