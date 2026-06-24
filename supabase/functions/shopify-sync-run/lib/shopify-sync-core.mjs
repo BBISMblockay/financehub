@@ -347,6 +347,17 @@ export async function purgeShopifySalesForCompany(supabase, companyEntityId) {
   if (error) throw new Error(`sales_by_day purge failed: ${error.message}`);
 }
 
+export async function purgeShopifyInventoryForConnection(supabase, companyEntityId, shopDomain) {
+  const { error } = await supabase
+    .from('inventory_on_hand')
+    .delete()
+    .eq('company_entity_id', companyEntityId)
+    .eq('shop_domain', shopDomain)
+    .eq('source', SOURCE);
+
+  if (error) throw new Error(`inventory_on_hand purge failed: ${error.message}`);
+}
+
 export function resolveLocation(connection, shopifyLoc, dbMap) {
   for (const key of shopifyLocationKeys(shopifyLoc.id)) {
     const hit = dbMap.get(normalizeShopifyLocationId(key));
@@ -863,6 +874,7 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
     }
   }
 
+  await purgeShopifyInventoryForConnection(supabase, connection.company_entity_id, domain);
   const upserted = await upsertInChunks(supabase, 'inventory_on_hand', invRows, 'row_hash');
 
   return {
