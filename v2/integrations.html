@@ -1016,19 +1016,14 @@
             return;
           }
 
-          const { data: maxRow, error: maxErr } = await db
-            .from('locations')
-            .select('id')
-            .order('id', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          if (maxErr) throw new Error(maxErr.message);
+          const { data: nextId, error: idErr } = await db.rpc('next_location_id');
+          if (idErr) throw new Error(idErr.message);
+          if (!nextId) throw new Error('Could not allocate location id');
 
-          const nextId = Number(maxRow?.id || 0) + 1;
           await clearShopifyIdFromOthers(shopifyLocId, null);
 
           const { error: insErr } = await db.from('locations').insert({
-            id: nextId,
+            id: Number(nextId),
             company_entity_id: _co?.id,
             location_code: code,
             location_name: name,
