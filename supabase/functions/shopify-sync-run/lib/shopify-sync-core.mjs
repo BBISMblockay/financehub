@@ -734,8 +734,6 @@ export async function runHistoryChunk(supabase, connection, {
   const { salesRows, newestOrderStamp } = ordersToSalesRows({
     orders,
     connection,
-    locationById: locationContext.locationById,
-    locationInfoById: locationContext.locationInfoById,
     siloMappedLocations: locationContext.siloMappedLocations,
     siloMappedByShopifyId: locationContext.siloMappedByShopifyId,
     skuMeta,
@@ -907,8 +905,6 @@ export async function runIncrementalSales(supabase, connection, {
   const { salesRows, newestOrderStamp } = ordersToSalesRows({
     orders,
     connection,
-    locationById: locationContext.locationById,
-    locationInfoById: locationContext.locationInfoById,
     siloMappedLocations: locationContext.siloMappedLocations,
     siloMappedByShopifyId: locationContext.siloMappedByShopifyId,
     skuMeta,
