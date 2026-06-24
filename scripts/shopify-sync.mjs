@@ -164,7 +164,8 @@ async function main() {
   if (!SKIP_SUMMARY_REFRESH) {
     const { error } = await supabase.rpc('refresh_sales_verification_store_comp_summary');
     if (error) {
-      console.warn(`[warn] summary refresh: ${error.message}`);
+      hadError = true;
+      console.error(`[error] summary refresh: ${error.message}`);
     }
   }
 

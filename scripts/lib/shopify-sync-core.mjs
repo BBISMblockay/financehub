@@ -226,18 +226,17 @@ export async function upsertInChunks(supabase, table, rows, onConflict, chunkSiz
   return rows.length;
 }
 
-export async function loadLocationMap(supabase, companyEntityId, connectionId = null) {
-  // Layer 1: legacy locations.shopify_location_id (global, backward-compat)
-  const { data: legacyData, error: legacyErr } = await supabase
+export async function loadLocationMap(supabase, companyEntityId) {
+  const { data, error } = await supabase
     .from('locations')
     .select('location_code, location_name, shopify_location_id')
     .eq('company_entity_id', companyEntityId)
     .not('shopify_location_id', 'is', null);
 
-  if (legacyErr) throw new Error(`locations load failed: ${legacyErr.message}`);
+  if (error) throw new Error(`locations load failed: ${error.message}`);
 
   const byShopifyId = new Map();
-  for (const row of legacyData || []) {
+  for (const row of data || []) {
     const tag = slugify(row.location_code || row.location_name);
     const entry = {
       location_tag: tag,
@@ -247,30 +246,6 @@ export async function loadLocationMap(supabase, companyEntityId, connectionId = 
       byShopifyId.set(normalizeShopifyLocationId(key), entry);
     }
   }
-
-  // Layer 2: connection-scoped shopify_location_mappings (overrides layer 1, supports many-to-one)
-  if (connectionId) {
-    const { data: mappings, error: mapErr } = await supabase
-      .from('shopify_location_mappings')
-      .select('shopify_location_id, silo_location_code, locations(location_code, location_name)')
-      .eq('connection_id', connectionId);
-
-    if (mapErr) throw new Error(`shopify_location_mappings load failed: ${mapErr.message}`);
-
-    for (const row of mappings || []) {
-      const code = row.silo_location_code || row.locations?.location_code;
-      if (!code) continue;
-      const tag = slugify(code);
-      const entry = {
-        location_tag: tag,
-        location_name: row.locations?.location_name || tag,
-      };
-      for (const key of shopifyLocationKeys(row.shopify_location_id)) {
-        byShopifyId.set(normalizeShopifyLocationId(key), entry);
-      }
-    }
-  }
-
   return byShopifyId;
 }
 
@@ -534,7 +509,7 @@ export async function fetchShopifyLocations(connection) {
 
 async function loadLocationContext(supabase, connection, headers, base) {
   const [dbLocationMap, siloMappedLocations] = await Promise.all([
-    loadLocationMap(supabase, connection.company_entity_id, connection.id),
+    loadLocationMap(supabase, connection.company_entity_id),
     loadSiloMappedLocations(supabase, connection.company_entity_id),
   ]);
   const siloMappedByShopifyId = buildSiloMappedByShopifyId(siloMappedLocations);
@@ -824,7 +799,7 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
     'Content-Type': 'application/json',
   };
 
-  const dbLocationMap = await loadLocationMap(supabase, connection.company_entity_id, connection.id);
+  const dbLocationMap = await loadLocationMap(supabase, connection.company_entity_id);
   const locations = await getAll(headers, `${base}/locations.json?limit=250`);
   const variants = await getAll(headers, `${base}/variants.json?limit=250`);
   const products = await getAll(headers, `${base}/products.json?limit=250&status=active`);
@@ -936,7 +911,7 @@ export async function runIncrementalSales(supabase, connection, {
   const skuMeta = await loadSkuMeta(headers, base);
   const orders = await getAll(
     headers,
-    `${base}/orders.json?status=any&created_at_min=${encodeURIComponent(sinceISO)}&created_at_max=${encodeURIComponent(syncedAt)}&limit=250`,
+    `${base}/orders.json?status=any&created_at_min=${encodeURIComponent(sinceISO)}&limit=250`,
   );
 
   const { salesRows, newestOrderStamp } = ordersToSalesRows({
@@ -954,7 +929,6 @@ export async function runIncrementalSales(supabase, connection, {
   return {
     job_type: 'incremental_sales',
     window_since: sinceISO.slice(0, 10),
-    window_until: syncedAt.slice(0, 10),
     orders_fetched: orders.length,
     sales_rows_upserted: upserted,
     newest_order_stamp: newestOrderStamp,
