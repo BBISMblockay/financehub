@@ -831,7 +831,9 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
     });
   }
 
-  const invRows = [];
+  // Collapse by (locId, sku) — same SKU can appear on multiple inventory items
+  // at the same location; sum quantities so the upsert batch has no duplicates.
+  const invByKey = new Map();
 
   for (const loc of locations) {
     const locId = String(loc.id);
@@ -850,8 +852,15 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
       const sku = skuByInvItem.get(String(lvl.inventory_item_id));
       if (!sku) continue;
 
+      const rowHash = await hashRow([connection.company_entity_id, locId, sku, snapshotAt]);
+      const existing = invByKey.get(rowHash);
+      if (existing) {
+        existing.total_available_quantity += Number(lvl.available ?? 0);
+        continue;
+      }
+
       const metaSku = skuMeta.get(sku) || {};
-      invRows.push({
+      invByKey.set(rowHash, {
         company_entity_id: connection.company_entity_id,
         location_tag: locationTag,
         location_name: locationName,
@@ -868,15 +877,12 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
         total_available_quantity: Number(lvl.available ?? 0),
         snapshot_at: snapshotAt,
         sync_batch_id: batchId,
-        row_hash: await hashRow([
-          connection.company_entity_id,
-          locId,
-          sku,
-          snapshotAt,
-        ]),
+        row_hash: rowHash,
       });
     }
   }
+
+  const invRows = [...invByKey.values()];
 
   await purgeShopifyInventoryForConnection(supabase, connection.company_entity_id, domain);
   const upserted = await upsertInChunks(supabase, 'inventory_on_hand', invRows, 'row_hash');
