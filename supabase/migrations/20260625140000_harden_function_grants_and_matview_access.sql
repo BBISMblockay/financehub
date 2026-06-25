@@ -19,6 +19,9 @@ GRANT EXECUTE ON FUNCTION public.refresh_inventory_current_mv() TO authenticated
 GRANT EXECUTE ON FUNCTION public.refresh_sales_verification_store_comp_summary() TO authenticated;
 
 -- Block direct access to raw materialized views — use security wrapper views instead
-REVOKE SELECT ON public.inventory_on_hand_current_mv FROM anon, authenticated;
-REVOKE SELECT ON public.sales_sku_location_rollup_mv FROM anon, authenticated;
-REVOKE SELECT ON public.sales_monthly_product_type_rollup_mv FROM anon, authenticated;
+REVOKE SELECT ON public.inventory_on_hand_current_mv FROM anon;
+GRANT SELECT ON public.inventory_on_hand_current_mv TO authenticated;
+REVOKE SELECT ON public.sales_sku_location_rollup_mv FROM anon;
+GRANT SELECT ON public.sales_sku_location_rollup_mv TO authenticated;
+REVOKE SELECT ON public.sales_monthly_product_type_rollup_mv FROM anon;
+GRANT SELECT ON public.sales_monthly_product_type_rollup_mv TO authenticated;
