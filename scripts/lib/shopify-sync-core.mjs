@@ -370,8 +370,8 @@ export function resolveSalesRowLocation({
     };
   }
 
-  const unknownTag = normalizeLocationTag(connection, 'unknown');
-  return { location_tag: unknownTag, location_name: unknownTag };
+  // No mapping found — skip this row rather than writing a garbage unknown tag
+  return null;
 }
 
 export async function purgeShopifySalesForCompany(supabase, companyEntityId) {
@@ -401,11 +401,8 @@ export function resolveLocation(connection, shopifyLoc, dbMap) {
     if (hit) return hit;
   }
 
-  const locationName = shopifyLoc.name || 'Unknown';
-  return {
-    location_tag: normalizeLocationTag(connection, locationName),
-    location_name: locationName,
-  };
+  // No mapping found — skip this location rather than writing a garbage unknown tag
+  return null;
 }
 
 export function buildSalesRow({
@@ -621,13 +618,15 @@ export function ordersToSalesRows({
       const refundAmount = lineRefund.subtotal;
       const tax = Math.max(0, sumTaxForLine(li) - lineRefund.tax);
 
-      const { location_tag: locationTag, location_name: locationName } = resolveSalesRowLocation({
+      const resolvedLoc = resolveSalesRowLocation({
         order,
         lineItem: li,
         siloMappedByShopifyId,
         siloMappedLocations,
         connection,
       });
+      if (!resolvedLoc) continue;
+      const { location_tag: locationTag, location_name: locationName } = resolvedLoc;
 
       const grossSales = price * qty;
       const totalSales = computeTotalSales({
@@ -870,11 +869,12 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
 
   for (const loc of locations) {
     const locId = String(loc.id);
-    const { location_tag: locationTag, location_name: locationName } = resolveLocation(
-      connection,
-      loc,
-      dbLocationMap,
-    );
+    const resolvedLoc = resolveLocation(connection, loc, dbLocationMap);
+    if (!resolvedLoc) {
+      console.warn(`[inventory] No mapping for Shopify location "${loc.name}" (${loc.id}) — skipping`);
+      continue;
+    }
+    const { location_tag: locationTag, location_name: locationName } = resolvedLoc;
 
     const levels = await getAll(
       headers,
