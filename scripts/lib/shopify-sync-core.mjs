@@ -866,7 +866,7 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
         sync_batch_id: batchId,
         row_hash: hashRow([
           connection.company_entity_id,
-          locationTag,
+          locId,
           sku,
           snapshotAt,
         ]),
