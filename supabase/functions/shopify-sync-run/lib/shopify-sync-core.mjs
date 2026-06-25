@@ -231,6 +231,40 @@ export async function upsertInChunks(supabase, table, rows, onConflict, chunkSiz
 }
 
 export async function loadLocationMap(supabase, companyEntityId) {
+  const byShopifyId = new Map();
+
+  // Primary source: shopify_location_mappings (set via integrations UI)
+  const { data: mappings, error: mappingsError } = await supabase
+    .from('shopify_location_mappings')
+    .select('shopify_location_id, silo_location_code, location_id')
+    .eq('company_entity_id', companyEntityId);
+
+  if (mappingsError) throw new Error(`shopify_location_mappings load failed: ${mappingsError.message}`);
+
+  // Fetch location names for mapped location_ids
+  const locationIds = [...new Set((mappings || []).map((m) => m.location_id).filter(Boolean))];
+  const nameById = new Map();
+  if (locationIds.length) {
+    const { data: locs, error: locsError } = await supabase
+      .from('locations')
+      .select('id, location_name')
+      .in('id', locationIds);
+    if (locsError) throw new Error(`locations name load failed: ${locsError.message}`);
+    for (const l of locs || []) nameById.set(l.id, l.location_name);
+  }
+
+  for (const m of mappings || []) {
+    const tag = slugify(m.silo_location_code);
+    const entry = {
+      location_tag: tag,
+      location_name: nameById.get(m.location_id) || m.silo_location_code || tag,
+    };
+    for (const key of shopifyLocationKeys(m.shopify_location_id)) {
+      byShopifyId.set(normalizeShopifyLocationId(key), entry);
+    }
+  }
+
+  // Fallback: locations.shopify_location_id (legacy direct mapping)
   const { data, error } = await supabase
     .from('locations')
     .select('location_code, location_name, shopify_location_id')
@@ -239,7 +273,6 @@ export async function loadLocationMap(supabase, companyEntityId) {
 
   if (error) throw new Error(`locations load failed: ${error.message}`);
 
-  const byShopifyId = new Map();
   for (const row of data || []) {
     const tag = slugify(row.location_code || row.location_name);
     const entry = {
@@ -247,9 +280,12 @@ export async function loadLocationMap(supabase, companyEntityId) {
       location_name: row.location_name || row.location_code || tag,
     };
     for (const key of shopifyLocationKeys(row.shopify_location_id)) {
-      byShopifyId.set(normalizeShopifyLocationId(key), entry);
+      if (!byShopifyId.has(normalizeShopifyLocationId(key))) {
+        byShopifyId.set(normalizeShopifyLocationId(key), entry);
+      }
     }
   }
+
   return byShopifyId;
 }
 
