@@ -61,3 +61,8 @@ Architecture: one Supabase project, multiple companies isolated at the DB level.
 |------|-------------|
 | projections, launch-calendar, profile, po-builder, planning-scenarios | inventory, finance, employeehub (custom layout) |
 | | cashflow and others (iframe tool-shell) |
+
+## Security — Deferred
+
+### launch_task_templates RLS (P2)
+Currently has overly broad INSERT/UPDATE policy. Acceptable for now (admin-only users) but must be tightened before launch module is opened to non-admin users. Scope writes to `company_entity_id = active_company_id()` and role-gate mutations.
