@@ -182,7 +182,7 @@ function salesByDayRow({
 
   return {
     location_tag: locationTag,
-    source: "shopify",
+    source: "shopify_api",
     day_date: orderDate,
     product_name: productName || null,
     sku: sku || null,
@@ -445,7 +445,7 @@ async function runShopifySync(body = {}) {
 
         invRows.push({
           location_tag: locationTag,
-          source: "shopify",
+          source: "shopify_api",
           location: loc.name || null,
           product_title: meta.product_title || sku,
           variant_title: meta.variant_title || null,
