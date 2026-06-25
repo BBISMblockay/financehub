@@ -312,10 +312,6 @@ async function handleInventorySnapshot(
       finished_at: new Date().toISOString(),
       result,
     });
-    // Refresh materialized view so inventory page reads are instant
-    await admin.rpc('refresh_inventory_current_mv').catch((e: Error) =>
-      console.error('refresh_inventory_current_mv failed:', e.message)
-    );
     return { ok: true, job_id: jobId, result };
   } catch (err) {
     await updateJob(admin, jobId, {
