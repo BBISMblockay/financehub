@@ -339,8 +339,7 @@ export function shopifyLocationIdsOnOrder(order) {
 export function resolveSalesRowLocation({
   order,
   lineItem,
-  siloMappedByShopifyId,
-  siloMappedLocations,
+  locationMap,
   connection,
 }) {
   const candidateIds = [];
@@ -351,23 +350,15 @@ export function resolveSalesRowLocation({
 
   for (const id of candidateIds) {
     for (const key of shopifyLocationKeys(id)) {
-      const hit = siloMappedByShopifyId.get(normalizeShopifyLocationId(key));
-      if (hit) {
-        return {
-          location_tag: hit.location_tag,
-          location_name: hit.location_name,
-        };
-      }
+      const hit = locationMap.get(normalizeShopifyLocationId(key));
+      if (hit) return { location_tag: hit.location_tag, location_name: hit.location_name };
     }
   }
 
-  // Shopify omitted location_id (common for online / some POS). If exactly one SILO
-  // mapping exists for this company, attribute sales to that linked location.
-  if (!candidateIds.length && siloMappedLocations?.length === 1) {
-    return {
-      location_tag: siloMappedLocations[0].location_tag,
-      location_name: siloMappedLocations[0].location_name,
-    };
+  // No location_id on order — if exactly one mapping exists for this connection, use it
+  if (!candidateIds.length && locationMap.size === 1) {
+    const hit = [...locationMap.values()][0];
+    return { location_tag: hit.location_tag, location_name: hit.location_name };
   }
 
   // No mapping found — skip this row rather than writing a garbage unknown tag
@@ -553,6 +544,10 @@ async function loadLocationContext(supabase, connection, headers, base) {
 
   for (const loc of locations) {
     const info = resolveLocation(connection, loc, dbLocationMap);
+    if (!info) {
+      console.warn(`[inventory] No mapping for Shopify location "${loc.name}" (${loc.id}) — skipping`);
+      continue;
+    }
     locationById.set(String(loc.id), info.location_tag);
     locationInfoById.set(String(loc.id), info);
   }
@@ -563,14 +558,14 @@ async function loadLocationContext(supabase, connection, headers, base) {
     locationInfoById,
     siloMappedLocations,
     siloMappedByShopifyId,
+    dbLocationMap,
   };
 }
 
 export function ordersToSalesRows({
   orders,
   connection,
-  siloMappedLocations,
-  siloMappedByShopifyId,
+  locationMap,
   skuMeta,
   syncedAt,
   batchId,
@@ -621,8 +616,7 @@ export function ordersToSalesRows({
       const resolvedLoc = resolveSalesRowLocation({
         order,
         lineItem: li,
-        siloMappedByShopifyId,
-        siloMappedLocations,
+        locationMap,
         connection,
       });
       if (!resolvedLoc) continue;
@@ -781,8 +775,7 @@ export async function runHistoryChunk(supabase, connection, {
   const { salesRows, newestOrderStamp } = ordersToSalesRows({
     orders,
     connection,
-    siloMappedLocations: locationContext.siloMappedLocations,
-    siloMappedByShopifyId: locationContext.siloMappedByShopifyId,
+    locationMap: locationContext.dbLocationMap,
     skuMeta,
     syncedAt,
     batchId,
@@ -960,8 +953,7 @@ export async function runIncrementalSales(supabase, connection, {
   const { salesRows, newestOrderStamp } = ordersToSalesRows({
     orders,
     connection,
-    siloMappedLocations: locationContext.siloMappedLocations,
-    siloMappedByShopifyId: locationContext.siloMappedByShopifyId,
+    locationMap: locationContext.dbLocationMap,
     skuMeta,
     syncedAt,
     batchId,
