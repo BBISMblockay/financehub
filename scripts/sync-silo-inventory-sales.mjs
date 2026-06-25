@@ -824,6 +824,18 @@ async function main() {
     ? { mode: SALES_SYNC_MODE, upserted: 0, stats: [], skipped: true }
     : await syncSalesByDay();
 
+  // Refresh inventory materialized view after sync so inventory page reads are instant
+  if (!SKIP_INVENTORY) {
+    try {
+      console.log("Refreshing inventory_on_hand_current_mv...");
+      const { error: mvErr } = await supabase.rpc('refresh_inventory_current_mv');
+      if (mvErr) throw new Error(mvErr.message);
+      console.log("inventory_on_hand_current_mv refreshed.");
+    } catch (err) {
+      console.error("inventory_on_hand_current_mv refresh failed:", err.message);
+    }
+  }
+
   let salesSummaryRefreshed = false;
   let salesSummaryRefreshError = null;
 
