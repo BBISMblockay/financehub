@@ -68,3 +68,15 @@ jobs:
 
       - name: Run Shopify sync orchestrator
         run: node scripts/shopify-sync.mjs
+
+      - name: Refresh inventory mat view
+        run: |
+          node -e "
+          import('@supabase/supabase-js').then(({ createClient }) => {
+            const db = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
+            return db.rpc('refresh_inventory_current_mv');
+          }).then(({ error }) => {
+            if (error) { console.error('Mat view refresh failed:', error.message); process.exit(1); }
+            console.log('inventory_on_hand_current_mv refreshed');
+          });
+          "
