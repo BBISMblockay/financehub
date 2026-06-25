@@ -777,8 +777,7 @@
       const selectId = `loc-select-${connectionId}-${shopLoc.id}`;
       const fieldsId = `loc-fields-${connectionId}-${shopLoc.id}`;
       const defaultCode = slugifyLoc(shopLoc.name);
-      const shopSlug = String(shopDomain || '').replace(/\.myshopify\.com$/i, '').replace(/[^a-z0-9]+/gi, '_');
-      const prefixedCode = `${shopSlug}_${defaultCode}`.replace(/__+/g, '_');
+      const prefixedCode = defaultCode;
 
       const options = ['<option value="">— Unmapped —</option>'];
       for (const loc of siloLocs) {
