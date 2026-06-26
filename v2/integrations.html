@@ -30,9 +30,12 @@
     }
     .int-stores-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      grid-template-columns: repeat(2, 1fr);
       gap: 12px;
       margin-bottom: 24px;
+    }
+    @media (max-width: 860px) {
+      .int-stores-grid { grid-template-columns: 1fr; }
     }
 
     /* ── Store card ── */
@@ -366,14 +369,14 @@
       <div class="int-page">
         <p class="int-section-label">Shopify stores</p>
         <div class="int-stores-grid" id="integrations-grid">
-          <div id="shopify-connections-list">
-            <div class="empty-state" id="shopify-empty">
+          <div id="shopify-connections-list" style="display:contents;">
+            <div class="empty-state" id="shopify-empty" style="grid-column:1/-1;">
               <strong>No stores connected</strong>
               Connect a Shopify store to sync inventory and sales
             </div>
           </div>
 
-          <!-- Add store card / form -->
+          <!-- Add store card — lives in the grid alongside store cards -->
           <div id="shopify-add-card-wrap">
             <div class="int-add-card" id="btn-add-shopify" role="button" tabindex="0">
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#9ca3af" stroke-width="1.6" stroke-linecap="round">
