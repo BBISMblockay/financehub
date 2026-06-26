@@ -35,16 +35,3 @@ jobs:
       - name: Run Silo inventory + sales sync
         run: node scripts/sync-silo-inventory-sales.mjs
 
-      - name: Purge Better Reports rows covered by Shopify API
-        run: |
-          node -e "
-          import('@supabase/supabase-js').then(({ createClient }) => {
-            const db = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY, {
-              auth: { persistSession: false, autoRefreshToken: false }
-            });
-            return db.rpc('purge_better_reports_overlap').single();
-          }).then(({ data, error }) => {
-            if (error) { console.error('purge error:', error.message); process.exit(1); }
-            console.log('Purged Better Reports overlap rows:', data?.deleted_rows ?? data);
-          });
-          "
