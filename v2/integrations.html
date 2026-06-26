@@ -30,9 +30,12 @@
     }
     .int-stores-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      grid-template-columns: repeat(2, 1fr);
       gap: 12px;
       margin-bottom: 24px;
+    }
+    @media (max-width: 860px) {
+      .int-stores-grid { grid-template-columns: 1fr; }
     }
 
     /* ── Store card ── */
@@ -336,9 +339,6 @@
     .test-result.warn { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; display: block; }
 
     /* ── Legacy class aliases (keep JS working) ── */
-    .int-grid { display: contents; }
-    .int-connection-row { display: contents; }
-    .int-sync-panel { display: contents; }
     .int-sync-row { display: none; }
     .int-sync-label { display: none; }
     .int-sync-toggle { display: none; }
@@ -365,15 +365,14 @@
 
       <div class="int-page">
         <p class="int-section-label">Shopify stores</p>
-        <div class="int-stores-grid" id="integrations-grid">
-          <div id="shopify-connections-list">
-            <div class="empty-state" id="shopify-empty">
-              <strong>No stores connected</strong>
-              Connect a Shopify store to sync inventory and sales
-            </div>
+        <!-- Store cards + add card all direct children of the grid -->
+        <div class="int-stores-grid" id="shopify-connections-list">
+          <div class="empty-state" id="shopify-empty" style="grid-column:1/-1;">
+            <strong>No stores connected</strong>
+            Connect a Shopify store to sync inventory and sales
           </div>
 
-          <!-- Add store card / form -->
+          <!-- Add store card — last child in the grid -->
           <div id="shopify-add-card-wrap">
             <div class="int-add-card" id="btn-add-shopify" role="button" tabindex="0">
               <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#9ca3af" stroke-width="1.6" stroke-linecap="round">
@@ -621,8 +620,10 @@
     }
 
     function renderConnections(rows) {
+      // shopify-connections-list IS the grid — cards are direct children
       const list = document.getElementById('shopify-connections-list');
       const empty = document.getElementById('shopify-empty');
+      const addWrap = document.getElementById('shopify-add-card-wrap');
 
       list.querySelectorAll('.int-store-card').forEach(el => el.remove());
 
@@ -664,7 +665,7 @@
           ${scopeWarn ? scopeWarn : ''}
           ${syncPanelHtml(row)}`;
 
-        list.insertBefore(card, empty);
+        list.insertBefore(card, addWrap);
       });
     }
 
