@@ -18,7 +18,7 @@
     /* ── Page layout ── */
     .int-page {
       padding: 20px 24px;
-      max-width: 1200px;
+      max-width: 1400px;
     }
     .int-section-label {
       font-size: 11px;
@@ -26,330 +26,222 @@
       text-transform: uppercase;
       letter-spacing: 0.06em;
       color: var(--bcn-ink-3);
-      margin: 0 0 12px;
+      margin: 0 0 10px;
     }
     .int-stores-grid {
-      display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 12px;
+      display: block;
       margin-bottom: 24px;
     }
-    @media (max-width: 860px) {
-      .int-stores-grid { grid-template-columns: 1fr; }
-    }
 
-    /* ── Store card ── */
-    .int-store-card {
+    /* ── Store table ── */
+    .int-table-wrap {
       background: var(--bcn-surface, #fff);
       border: 1px solid var(--bcn-border, #e5e7eb);
       border-radius: 10px;
       overflow: hidden;
-      transition: box-shadow 0.15s ease;
+      margin-bottom: 16px;
     }
-    .int-store-card:hover { box-shadow: 0 2px 8px rgba(0,0,0,.06); }
-
-    .int-store-head {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 14px 16px 12px;
-      border-bottom: 1px solid var(--bcn-border, #e5e7eb);
-    }
-    .int-store-dot {
-      width: 8px; height: 8px;
-      border-radius: 50%;
-      flex-shrink: 0;
-      background: #d1d5db;
-    }
-    .int-store-dot--ok  { background: #22c55e; }
-    .int-store-dot--err { background: #ef4444; }
-
-    .int-store-info { flex: 1; min-width: 0; }
-    .int-store-name {
+    .int-table {
+      width: 100%;
+      border-collapse: collapse;
       font-size: 13px;
-      font-weight: 600;
-      color: var(--bcn-ink);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
-    .int-store-domain {
-      font-size: 11px;
-      font-family: 'IBM Plex Mono', monospace;
-      color: var(--bcn-ink-3);
-      margin-top: 1px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-    .int-store-head-actions { display: flex; gap: 6px; flex-shrink: 0; }
-
-    /* ── Nightly toggle row ── */
-    .int-nightly-row {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 16px;
-      border-bottom: 1px solid var(--bcn-border, #e5e7eb);
-      background: var(--bcn-surface-2, #f9fafb);
-    }
-    .int-nightly-label {
-      font-size: 12px;
-      color: var(--bcn-ink-2);
-      flex: 1;
-    }
-    .int-nightly-badge {
-      font-size: 10px;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      padding: 2px 7px;
-      border-radius: 99px;
-    }
-    .int-nightly-badge--on  { background: #dcfce7; color: #166534; }
-    .int-nightly-badge--off { background: #f3f4f6; color: #6b7280; }
-
-    /* ── Action groups ── */
-    .int-actions {
-      padding: 12px 16px;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .int-action-group {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .int-action-label {
+    .int-table thead th {
       font-size: 10px;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.05em;
       color: var(--bcn-ink-3);
-      width: 60px;
+      padding: 9px 12px;
+      text-align: left;
+      background: var(--bcn-surface-2, #f9fafb);
+      border-bottom: 1px solid var(--bcn-border, #e5e7eb);
+      white-space: nowrap;
+    }
+    .int-table tbody tr {
+      border-bottom: 1px solid var(--bcn-border, #e5e7eb);
+      transition: background 0.1s;
+    }
+    .int-table tbody tr:last-child { border-bottom: none; }
+    .int-table tbody tr:hover { background: #fafafa; }
+    .int-table td {
+      padding: 10px 12px;
+      vertical-align: middle;
+      white-space: nowrap;
+    }
+
+    /* status dot */
+    .int-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+      background: #d1d5db;
       flex-shrink: 0;
     }
-    .int-action-btns { display: flex; gap: 4px; flex-wrap: wrap; }
+    .int-dot--ok  { background: #22c55e; }
+    .int-dot--err { background: #ef4444; }
+
+    /* store name cell */
+    .int-store-name { font-weight: 600; color: var(--bcn-ink); font-size: 13px; }
+    .int-store-domain { font-size: 11px; font-family: 'IBM Plex Mono', monospace; color: var(--bcn-ink-3); margin-top: 1px; }
+
+    /* nightly toggle */
+    .int-nightly-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      color: var(--bcn-ink-2);
+    }
+    .int-nightly-badge {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      padding: 2px 6px;
+      border-radius: 99px;
+    }
+    .int-nightly-badge--on  { background: #dcfce7; color: #166534; }
+    .int-nightly-badge--off { background: #f3f4f6; color: #9ca3af; }
+
+    /* buttons */
     .int-btn {
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      height: 28px;
-      padding: 0 10px;
-      border-radius: 6px;
-      font-size: 12px;
+      height: 26px;
+      padding: 0 9px;
+      border-radius: 5px;
+      font-size: 11px;
       font-weight: 500;
       cursor: pointer;
       border: 1px solid transparent;
       background: none;
-      transition: background 0.1s, border-color 0.1s, color 0.1s;
+      transition: background 0.1s, border-color 0.1s;
       white-space: nowrap;
       font-family: inherit;
     }
-    .int-btn--ghost {
-      border-color: var(--bcn-border, #e5e7eb);
-      color: var(--bcn-ink-2);
-      background: var(--bcn-surface, #fff);
-    }
-    .int-btn--ghost:hover { background: var(--bcn-surface-2, #f3f4f6); border-color: #d1d5db; }
-    .int-btn--ghost:disabled { opacity: 0.45; cursor: default; }
-    .int-btn--primary {
-      background: var(--bcn-accent, #2563eb);
-      color: #fff;
-      border-color: var(--bcn-accent, #2563eb);
-    }
-    .int-btn--primary:hover { opacity: 0.9; }
-    .int-btn--danger {
-      background: #fef2f2;
-      color: #991b1b;
-      border-color: #fecaca;
-    }
+    .int-btn--ghost { border-color: var(--bcn-border, #e5e7eb); color: var(--bcn-ink-2); background: #fff; }
+    .int-btn--ghost:hover { background: #f3f4f6; }
+    .int-btn--ghost:disabled { opacity: 0.4; cursor: default; }
+    .int-btn--primary { background: var(--bcn-accent, #2563eb); color: #fff; border-color: var(--bcn-accent, #2563eb); }
+    .int-btn--primary:hover { opacity: 0.88; }
+    .int-btn--danger { background: #fef2f2; color: #991b1b; border-color: #fecaca; }
     .int-btn--danger:hover { background: #fee2e2; }
-    .int-btn--warn {
-      background: #fffbeb;
-      color: #92400e;
-      border-color: #fde68a;
-    }
+    .int-btn--warn { background: #fffbeb; color: #92400e; border-color: #fde68a; }
     .int-btn--warn:hover { background: #fef3c7; }
+    .int-btn-group { display: flex; gap: 3px; align-items: center; }
 
-    /* ── Progress ── */
+    /* status / progress inline */
+    .int-sync-status {
+      font-size: 11px;
+      font-family: 'IBM Plex Mono', monospace;
+      color: var(--bcn-ink-3);
+      white-space: nowrap;
+    }
+    .int-sync-status--ok { color: #166534; }
+    .int-sync-status--running { color: var(--bcn-accent, #2563eb); }
+
+    /* progress bar row (spans full table width) */
+    .int-progress-tr td {
+      padding: 0 12px 10px;
+      white-space: normal;
+    }
     .int-progress {
       display: none;
-      margin: 0 16px 12px;
-      padding: 10px 12px;
+      padding: 8px 10px;
       background: var(--bcn-surface-2, #f8f9fa);
-      border-radius: 8px;
+      border-radius: 6px;
       border: 1px solid var(--bcn-border, #e5e7eb);
       font-size: 11px;
       font-family: 'IBM Plex Mono', monospace;
       color: var(--bcn-ink-2);
-      line-height: 1.5;
     }
     .int-progress.active { display: block; }
-    .int-progress-bar {
-      height: 3px;
-      background: #e5e7eb;
-      border-radius: 2px;
-      margin-top: 8px;
-      overflow: hidden;
-    }
-    .int-progress-bar > span {
-      display: block;
-      height: 100%;
-      background: var(--bcn-accent, #2563eb);
-      transition: width 0.25s ease;
-    }
-    .int-last-sync {
-      margin: 0 16px 12px;
-      padding: 8px 10px;
-      background: #f0fdf4;
-      border: 1px solid #bbf7d0;
-      border-radius: 6px;
-      font-size: 11px;
-      color: #166534;
-      font-family: 'IBM Plex Mono', monospace;
-    }
+    .int-progress-bar { height: 3px; background: #e5e7eb; border-radius: 2px; margin-top: 6px; overflow: hidden; }
+    .int-progress-bar > span { display: block; height: 100%; background: var(--bcn-accent, #2563eb); transition: width 0.25s ease; }
 
-    /* ── Scope warning ── */
-    .int-scope-warn {
-      margin: 0 16px 10px;
-      padding: 8px 10px;
-      background: #fffbeb;
-      border: 1px solid #fde68a;
-      border-radius: 6px;
-      font-size: 11px;
-      color: #92400e;
-      line-height: 1.4;
-    }
-
-    /* ── Location mapper ── */
+    /* location mapper row */
+    .int-loc-tr td { padding: 0; white-space: normal; }
     .int-loc-panel {
-      border-top: 1px solid var(--bcn-border, #e5e7eb);
       padding: 12px 16px;
       background: var(--bcn-surface-2, #f9fafb);
+      border-top: 1px solid var(--bcn-border, #e5e7eb);
     }
     .int-loc-panel[hidden] { display: none !important; }
-    .int-loc-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 10px;
-    }
+    .int-loc-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
     .int-loc-summary { font-size: 12px; font-weight: 500; color: var(--bcn-ink-2); }
-    .int-loc-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 12px;
-    }
+    .int-loc-table { width: 100%; border-collapse: collapse; font-size: 12px; }
     .int-loc-table th {
-      text-align: left;
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      color: var(--bcn-ink-3);
-      padding: 4px 6px 6px 0;
+      text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+      color: var(--bcn-ink-3); padding: 4px 6px 6px 0;
       border-bottom: 1px solid var(--bcn-border, #e5e7eb);
     }
-    .int-loc-table td {
-      padding: 8px 6px 8px 0;
-      vertical-align: top;
-      border-bottom: 1px solid var(--bcn-border, #e5e7eb);
-    }
+    .int-loc-table td { padding: 8px 6px 8px 0; vertical-align: top; border-bottom: 1px solid var(--bcn-border, #e5e7eb); white-space: normal; }
     .int-loc-table tr:last-child td { border-bottom: none; }
     .int-loc-shopify-name { font-weight: 500; color: var(--bcn-ink); font-size: 12px; }
     .int-loc-shopify-meta { font-size: 10px; color: var(--bcn-ink-3); font-family: 'IBM Plex Mono', monospace; margin-top: 2px; }
-    .int-loc-fields {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 6px;
-      margin-top: 6px;
-    }
-    .int-loc-fields .bcn-field,
-    .int-loc-fields select.bcn-field {
-      font-size: 11px;
-      height: 28px;
-      padding: 0 8px;
-    }
+    .int-loc-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+    .int-loc-fields .bcn-field, .int-loc-fields select.bcn-field { font-size: 11px; height: 28px; padding: 0 8px; }
     .int-loc-mapped { color: #166534; font-size: 11px; font-family: 'IBM Plex Mono', monospace; }
     .int-loc-unmapped { color: #92400e; font-size: 11px; }
-    .int-loc-all-mapped {
-      padding: 8px 10px;
-      background: #f0fdf4;
-      border: 1px solid #bbf7d0;
-      border-radius: 6px;
-      font-size: 11px;
-      color: #166534;
-      margin-bottom: 10px;
-    }
-    .int-loc-warn-banner {
-      padding: 8px 10px;
+
+    /* scope warning */
+    .int-scope-warn {
+      padding: 6px 10px;
       background: #fffbeb;
       border: 1px solid #fde68a;
-      border-radius: 6px;
+      border-radius: 5px;
       font-size: 11px;
       color: #92400e;
-      margin-bottom: 10px;
+      line-height: 1.4;
+      white-space: normal;
     }
 
-    /* ── Add store card ── */
-    .int-add-card {
-      background: var(--bcn-surface, #fff);
-      border: 1px dashed var(--bcn-border, #d1d5db);
-      border-radius: 10px;
-      display: flex;
-      flex-direction: column;
+    /* add store row */
+    .int-add-row td { padding: 10px 12px; }
+    .int-add-trigger {
+      display: inline-flex;
       align-items: center;
-      justify-content: center;
-      padding: 28px 20px;
-      gap: 8px;
-      cursor: pointer;
-      transition: border-color 0.15s, background 0.15s;
-      min-height: 100px;
-    }
-    .int-add-card:hover { border-color: var(--bcn-accent, #2563eb); background: #f8faff; }
-    .int-add-card-label {
+      gap: 7px;
       font-size: 13px;
-      font-weight: 500;
-      color: var(--bcn-ink-2);
+      color: var(--bcn-ink-3);
+      cursor: pointer;
+      padding: 4px 0;
     }
-    .int-add-card-sub { font-size: 11px; color: var(--bcn-ink-3); }
-
-    /* ── Add store form (inline in card) ── */
-    .int-add-form-card {
-      background: var(--bcn-surface, #fff);
-      border: 1px solid var(--bcn-accent, #2563eb);
-      border-radius: 10px;
-      padding: 16px;
+    .int-add-trigger:hover { color: var(--bcn-accent, #2563eb); }
+    .int-add-form {
+      display: none;
+      padding: 12px 0 4px;
+      max-width: 420px;
     }
-    .int-add-form-card .bcn-field-group { margin-bottom: 10px; }
-    .int-add-form-card .form-row { display: flex; gap: 8px; align-items: flex-end; }
-    .int-add-form-card .form-row .bcn-field-group { flex: 1; margin-bottom: 0; }
+    .int-add-form.open { display: block; }
+    .int-add-form .bcn-field-group { margin-bottom: 10px; }
+    .int-add-form .form-row { display: flex; gap: 8px; align-items: flex-end; }
+    .int-add-form .form-row .bcn-field-group { flex: 1; margin-bottom: 0; }
 
     .test-result {
-      display: none;
-      padding: 8px 10px;
-      border-radius: 6px;
-      font-size: 12px;
-      font-family: 'IBM Plex Mono', monospace;
-      margin-top: 10px;
+      display: none; padding: 7px 10px; border-radius: 5px;
+      font-size: 11px; font-family: 'IBM Plex Mono', monospace; margin-top: 8px;
     }
     .test-result.ok  { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; display: block; }
     .test-result.err { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; display: block; }
     .test-result.warn { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; display: block; }
 
-    /* ── Legacy class aliases (keep JS working) ── */
+    .empty-state { padding: 32px; text-align: center; color: var(--bcn-ink-3); font-size: 13px; }
+    .empty-state strong { display: block; font-size: 14px; color: var(--bcn-ink-2); margin-bottom: 4px; }
+
+    /* hide legacy helpers that aren't used in table layout */
     .int-sync-row { display: none; }
     .int-sync-label { display: none; }
     .int-sync-toggle { display: none; }
-    .empty-state {
-      grid-column: 1/-1;
-      text-align: center;
-      padding: 40px 20px;
-      color: var(--bcn-ink-3);
-      font-size: 13px;
-    }
-    .empty-state strong { display: block; font-size: 14px; color: var(--bcn-ink-2); margin-bottom: 4px; }
+    .int-nightly-row { display: none; }
+    .int-actions { display: none; }
+    .int-store-card { display: contents; }
+    .int-store-head { display: none; }
+    .int-store-head-actions { display: none; }
+    .int-action-group { display: none; }
+    .int-last-sync { display: none; }
   </style>
 </head>
 <body>
@@ -365,38 +257,50 @@
 
       <div class="int-page">
         <p class="int-section-label">Shopify stores</p>
-        <!-- Store cards + add card all direct children of the grid -->
-        <div class="int-stores-grid" id="shopify-connections-list">
-          <div class="empty-state" id="shopify-empty" style="grid-column:1/-1;">
-            <strong>No stores connected</strong>
-            Connect a Shopify store to sync inventory and sales
-          </div>
-
-          <!-- Add store card — last child in the grid -->
-          <div id="shopify-add-card-wrap">
-            <div class="int-add-card" id="btn-add-shopify" role="button" tabindex="0">
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="#9ca3af" stroke-width="1.6" stroke-linecap="round">
-                <circle cx="10" cy="10" r="8.5"/>
-                <line x1="10" y1="6.5" x2="10" y2="13.5"/>
-                <line x1="6.5" y1="10" x2="13.5" y2="10"/>
-              </svg>
-              <span class="int-add-card-label">Add Shopify store</span>
-              <span class="int-add-card-sub">Connect via OAuth</span>
-            </div>
-
-            <div class="int-add-form-card add-form" id="shopify-add-form">
-              <div class="bcn-field-group">
-                <label class="bcn-label" for="shop-domain">Shop domain</label>
-                <input class="bcn-field bcn-field--mono" id="shop-domain" type="text"
-                  placeholder="yourstore.myshopify.com" autocomplete="off" spellcheck="false" />
-              </div>
-              <div class="form-row">
-                <button class="bcn-btn bcn-btn--ghost" id="btn-cancel-add">Cancel</button>
-                <button class="bcn-btn bcn-btn--primary" id="btn-connect-shopify">Connect with Shopify →</button>
-              </div>
-              <div class="test-result" id="test-result"></div>
-            </div>
-          </div>
+        <div class="int-table-wrap">
+          <table class="int-table">
+            <thead>
+              <tr>
+                <th style="width:20px;"></th>
+                <th>Store</th>
+                <th>Nightly sync</th>
+                <th>Sales history</th>
+                <th>Inventory</th>
+                <th>Locations</th>
+                <th>Last import</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="shopify-connections-list">
+              <tr><td colspan="8"><div class="empty-state" id="shopify-empty"><strong>No stores connected</strong>Add a Shopify store below</div></td></tr>
+            </tbody>
+            <tfoot>
+              <tr class="int-add-row" id="shopify-add-card-wrap">
+                <td colspan="8">
+                  <div class="int-add-trigger" id="btn-add-shopify" role="button" tabindex="0">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+                      <circle cx="8" cy="8" r="6.5"/>
+                      <line x1="8" y1="5" x2="8" y2="11"/>
+                      <line x1="5" y1="8" x2="11" y2="8"/>
+                    </svg>
+                    Add Shopify store
+                  </div>
+                  <div class="int-add-form add-form" id="shopify-add-form">
+                    <div class="bcn-field-group">
+                      <label class="bcn-label" for="shop-domain">Shop domain</label>
+                      <input class="bcn-field bcn-field--mono" id="shop-domain" type="text"
+                        placeholder="yourstore.myshopify.com" autocomplete="off" spellcheck="false" />
+                    </div>
+                    <div class="form-row">
+                      <button class="bcn-btn bcn-btn--ghost" id="btn-cancel-add">Cancel</button>
+                      <button class="bcn-btn bcn-btn--primary" id="btn-connect-shopify">Connect with Shopify →</button>
+                    </div>
+                    <div class="test-result" id="test-result"></div>
+                  </div>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
       </div>
     </main>
@@ -525,82 +429,36 @@
       return data;
     }
 
-    function backfillProgressHtml(row) {
+    function lastImportHtml(row) {
       const bf = row?.meta?.history_backfill;
-      if (!bf) return '';
+      if (!bf) return '<span class="int-sync-status">—</span>';
       if (bf.status === 'running') {
-        const pct = bf.windows_total
-          ? Math.round((Number(bf.windows_done || 0) / Number(bf.windows_total)) * 100)
-          : 0;
-        return `<div class="int-progress active" id="bf-progress-${row.id}">
-          <div>${bf.windows_done || 0}/${bf.windows_total || '?'} windows · ${bf.orders_total || 0} orders · ${bf.sales_rows_total || 0} rows</div>
-          <div class="int-progress-bar"><span style="width:${pct}%"></span></div>
-        </div>`;
+        const pct = bf.windows_total ? Math.round((Number(bf.windows_done||0)/Number(bf.windows_total))*100) : 0;
+        return `<span class="int-sync-status int-sync-status--running">${bf.windows_done||0}/${bf.windows_total||'?'} win</span>`;
       }
       if (bf.status === 'complete') {
-        return `<div class="int-last-sync">✓ Last import: ${bf.sales_rows_total || 0} rows · ${bf.target_days || '?'} days</div>`;
+        return `<span class="int-sync-status int-sync-status--ok">✓ ${(bf.sales_rows_total||0).toLocaleString()} rows · ${bf.target_days||'?'}d</span>`;
       }
-      return '';
+      return '<span class="int-sync-status">—</span>';
+    }
+
+    function progressRowHtml(row) {
+      const bf = row?.meta?.history_backfill;
+      if (!bf || bf.status !== 'running') return '';
+      const pct = bf.windows_total ? Math.round((Number(bf.windows_done||0)/Number(bf.windows_total))*100) : 0;
+      return `<tr class="int-progress-tr" id="bf-progress-tr-${row.id}">
+        <td colspan="8">
+          <div class="int-progress active" id="bf-progress-${row.id}">
+            <div>${bf.windows_done||0}/${bf.windows_total||'?'} windows · ${bf.orders_total||0} orders · ${bf.sales_rows_total||0} rows</div>
+            <div class="int-progress-bar"><span style="width:${pct}%"></span></div>
+          </div>
+        </td>
+      </tr>`;
     }
 
     function syncPanelHtml(row) {
-      const missing = Array.isArray(row.scopes_missing) ? row.scopes_missing : [];
-      const canSync = !missing.length && row.last_test_status === 'ok';
-      const syncOn = !!row.sync_enabled;
-      const bf = row?.meta?.history_backfill;
-      const bfRunning = bf?.status === 'running';
-      const testedOk = row.last_test_status === 'ok';
-
-      if (!testedOk) return '';
-
-      const nightlyRow = `
-        <div class="int-nightly-row">
-          <label class="int-nightly-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
-            <input type="checkbox" ${syncOn ? 'checked' : ''} onchange="toggleSyncEnabled('${row.id}', this.checked)" />
-            Nightly sync
-          </label>
-          <span class="int-nightly-badge ${syncOn ? 'int-nightly-badge--on' : 'int-nightly-badge--off'}">${syncOn ? 'ON' : 'OFF'}</span>
-        </div>`;
-
-      const actionsBlock = canSync ? `
-        <div class="int-actions">
-          <div class="int-action-group">
-            <span class="int-action-label">Sales</span>
-            <div class="int-action-btns">
-              <button class="int-btn int-btn--ghost" ${bfRunning ? 'disabled' : ''} onclick="startHistoryBackfill('${row.id}', 90)">90d</button>
-              <button class="int-btn int-btn--ghost" ${bfRunning ? 'disabled' : ''} onclick="startHistoryBackfill('${row.id}', 365)">365d</button>
-              <button class="int-btn int-btn--ghost" ${bfRunning ? 'disabled' : ''} onclick="startHistoryBackfill('${row.id}', 730)">730d</button>
-              ${bfRunning ? `
-              <button class="int-btn int-btn--warn" onclick="resumeHistoryBackfill('${row.id}')">Resume</button>
-              <button class="int-btn int-btn--danger" onclick="cancelHistoryBackfill('${row.id}')">Cancel</button>` : ''}
-            </div>
-          </div>
-          <div class="int-action-group">
-            <span class="int-action-label">Inventory</span>
-            <div class="int-action-btns">
-              <button class="int-btn int-btn--ghost" onclick="runInventorySync('${row.id}')">Sync now</button>
-            </div>
-          </div>
-          <div class="int-action-group">
-            <span class="int-action-label">Locations</span>
-            <div class="int-action-btns">
-              <button class="int-btn int-btn--ghost" onclick="toggleLocationMapper('${row.id}')">Map locations</button>
-            </div>
-          </div>
-        </div>
-        ${backfillProgressHtml(row)}
-        <div class="int-loc-panel" id="loc-panel-${row.id}" hidden></div>` : `
-        <div class="int-actions">
-          <div class="int-action-group">
-            <span class="int-action-label">Locations</span>
-            <div class="int-action-btns">
-              <button class="int-btn int-btn--ghost" onclick="toggleLocationMapper('${row.id}')">Map locations</button>
-            </div>
-          </div>
-        </div>
-        <div class="int-loc-panel" id="loc-panel-${row.id}" hidden></div>`;
-
-      return nightlyRow + actionsBlock;
+      // unused in table layout — kept for compat, returns empty
+      return '';
     }
 
     function scopeWarningHtml(row) {
@@ -620,53 +478,103 @@
     }
 
     function renderConnections(rows) {
-      // shopify-connections-list IS the grid — cards are direct children
-      const list = document.getElementById('shopify-connections-list');
+      const tbody = document.getElementById('shopify-connections-list');
       const empty = document.getElementById('shopify-empty');
-      const addWrap = document.getElementById('shopify-add-card-wrap');
 
-      list.querySelectorAll('.int-store-card').forEach(el => el.remove());
+      // Remove all previous store rows
+      tbody.querySelectorAll('.int-store-tr, .int-progress-tr, .int-loc-tr, .int-scope-tr').forEach(el => el.remove());
 
       if (!rows.length) {
-        empty.style.display = '';
+        empty.closest('tr').style.display = '';
         return;
       }
-      empty.style.display = 'none';
+      empty.closest('tr').style.display = 'none';
+
+      const frag = document.createDocumentFragment();
 
       rows.forEach(row => {
-        const card = document.createElement('div');
-        card.className = 'int-store-card';
-        card.dataset.id = row.id;
+        const missing = Array.isArray(row.scopes_missing) ? row.scopes_missing : [];
+        const canSync = !missing.length && row.last_test_status === 'ok';
+        const syncOn = !!row.sync_enabled;
+        const bf = row?.meta?.history_backfill;
+        const bfRunning = bf?.status === 'running';
+        const testedOk = row.last_test_status === 'ok';
 
-        const dotClass = row.last_test_status === 'ok'
-          ? 'int-store-dot int-store-dot--ok'
-          : row.last_test_status === 'error'
-            ? 'int-store-dot int-store-dot--err'
-            : 'int-store-dot';
+        const dotClass = row.last_test_status === 'ok' ? 'int-dot int-dot--ok'
+          : row.last_test_status === 'error' ? 'int-dot int-dot--err' : 'int-dot';
 
-        const testedAt = row.last_tested_at
-          ? new Date(row.last_tested_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-          : 'Not tested';
-
-        const scopeWarn = scopeWarningHtml(row);
-
-        card.innerHTML = `
-          <div class="int-store-head">
-            <span class="${dotClass}" title="${row.last_test_status === 'ok' ? 'Connected' : row.last_test_status === 'error' ? 'Error' : 'Not tested'}"></span>
-            <div class="int-store-info">
-              <div class="int-store-name">${row.shop_name ? escHtml(row.shop_name) : escHtml(row.shop_domain)}</div>
-              <div class="int-store-domain">${escHtml(row.shop_domain)} · ${testedAt}</div>
-            </div>
-            <div class="int-store-head-actions">
+        // Main store row
+        const tr = document.createElement('tr');
+        tr.className = 'int-store-tr';
+        tr.dataset.id = row.id;
+        tr.innerHTML = `
+          <td><span class="${dotClass}"></span></td>
+          <td>
+            <div class="int-store-name">${row.shop_name ? escHtml(row.shop_name) : escHtml(row.shop_domain)}</div>
+            <div class="int-store-domain">${escHtml(row.shop_domain)}</div>
+          </td>
+          <td>
+            ${testedOk ? `<label class="int-nightly-toggle">
+              <input type="checkbox" ${syncOn ? 'checked' : ''} onchange="toggleSyncEnabled('${row.id}', this.checked)" />
+              <span class="int-nightly-badge ${syncOn ? 'int-nightly-badge--on' : 'int-nightly-badge--off'}">${syncOn ? 'ON' : 'OFF'}</span>
+            </label>` : '—'}
+          </td>
+          <td>
+            ${canSync ? `<div class="int-btn-group">
+              <button class="int-btn int-btn--ghost" ${bfRunning?'disabled':''} onclick="startHistoryBackfill('${row.id}',90)">90d</button>
+              <button class="int-btn int-btn--ghost" ${bfRunning?'disabled':''} onclick="startHistoryBackfill('${row.id}',365)">365d</button>
+              <button class="int-btn int-btn--ghost" ${bfRunning?'disabled':''} onclick="startHistoryBackfill('${row.id}',730)">730d</button>
+              ${bfRunning ? `<button class="int-btn int-btn--warn" onclick="resumeHistoryBackfill('${row.id}')">Resume</button>
+              <button class="int-btn int-btn--danger" onclick="cancelHistoryBackfill('${row.id}')">Cancel</button>` : ''}
+            </div>` : '—'}
+          </td>
+          <td>
+            ${canSync ? `<button class="int-btn int-btn--ghost" onclick="runInventorySync('${row.id}')">Sync now</button>` : '—'}
+          </td>
+          <td>
+            ${testedOk ? `<button class="int-btn int-btn--ghost" onclick="toggleLocationMapper('${row.id}')">Map locations</button>` : '—'}
+          </td>
+          <td>${lastImportHtml(row)}</td>
+          <td>
+            <div class="int-btn-group">
               <button class="int-btn int-btn--ghost" onclick="retest('${row.id}')">Re-test</button>
               <button class="int-btn int-btn--danger" onclick="removeConnection('${row.id}')">Remove</button>
             </div>
-          </div>
-          ${scopeWarn ? scopeWarn : ''}
-          ${syncPanelHtml(row)}`;
+          </td>`;
+        frag.appendChild(tr);
 
-        list.insertBefore(card, addWrap);
+        // Scope warning row
+        const scopeWarn = scopeWarningHtml(row);
+        if (scopeWarn) {
+          const warnTr = document.createElement('tr');
+          warnTr.className = 'int-scope-tr';
+          warnTr.innerHTML = `<td colspan="8" style="padding:0 12px 8px;">${scopeWarn}</td>`;
+          frag.appendChild(warnTr);
+        }
+
+        // Progress row (if running)
+        if (bfRunning) {
+          const pct = bf.windows_total ? Math.round((Number(bf.windows_done||0)/Number(bf.windows_total))*100) : 0;
+          const progTr = document.createElement('tr');
+          progTr.className = 'int-progress-tr';
+          progTr.id = `bf-progress-tr-${row.id}`;
+          progTr.innerHTML = `<td colspan="8" style="padding:0 12px 10px;">
+            <div class="int-progress active" id="bf-progress-${row.id}">
+              <div>${bf.windows_done||0}/${bf.windows_total||'?'} windows · ${bf.orders_total||0} orders · ${bf.sales_rows_total||0} rows</div>
+              <div class="int-progress-bar"><span style="width:${pct}%"></span></div>
+            </div></td>`;
+          frag.appendChild(progTr);
+        }
+
+        // Location mapper row
+        const locTr = document.createElement('tr');
+        locTr.className = 'int-loc-tr';
+        locTr.id = `loc-tr-${row.id}`;
+        locTr.innerHTML = `<td colspan="8"><div class="int-loc-panel" id="loc-panel-${row.id}" hidden></div></td>`;
+        frag.appendChild(locTr);
       });
+
+      tbody.appendChild(frag);
     }
 
     function escHtml(s) {
@@ -806,14 +714,29 @@
     }
 
     function updateBackfillProgress(connectionId, progress) {
-      const el = document.getElementById(`bf-progress-${connectionId}`);
+      let el = document.getElementById(`bf-progress-${connectionId}`);
+      const tbody = document.getElementById('shopify-connections-list');
+
+      // Create progress row if it doesn't exist yet
+      if (!el) {
+        const locTr = document.getElementById(`loc-tr-${connectionId}`);
+        if (locTr) {
+          const progTr = document.createElement('tr');
+          progTr.className = 'int-progress-tr';
+          progTr.id = `bf-progress-tr-${connectionId}`;
+          progTr.innerHTML = `<td colspan="8" style="padding:0 12px 10px;">
+            <div class="int-progress active" id="bf-progress-${connectionId}"></div></td>`;
+          locTr.before(progTr);
+          el = document.getElementById(`bf-progress-${connectionId}`);
+        }
+      }
       if (!el || !progress) return;
       const pct = progress.windows_total
         ? Math.round((Number(progress.windows_done || 0) / Number(progress.windows_total)) * 100)
         : 0;
       el.classList.add('active');
       el.innerHTML = `
-        <div>Importing sales history… ${progress.windows_done || 0}/${progress.windows_total || '?'} windows
+        <div>${progress.windows_done || 0}/${progress.windows_total || '?'} windows
           · ${progress.orders_total || 0} orders · ${progress.sales_rows_total || 0} rows</div>
         <div class="int-progress-bar"><span style="width:${pct}%"></span></div>`;
     }
