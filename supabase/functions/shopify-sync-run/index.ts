@@ -1,12 +1,15 @@
 import { createClient, SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
-  DEFAULT_CHUNK_DAYS,
+  DEFAULT_UI_CHUNK_DAYS,
+  computeBackfillProgress,
+  deserializeSkuMetaCache,
   fetchShopifyLocations,
   initHistoryBackfillState,
   purgeShopifySalesForShop,
   readMeta,
   runHistoryChunk,
   runInventorySnapshot,
+  serializeSkuMetaCache,
 } from './lib/shopify-sync-core.mjs';
 import { connectionReadyForSync } from './lib/shopify-scopes.mjs';
 
@@ -142,6 +145,52 @@ async function updateJob(
   if (error) throw new Error(`sync_jobs update failed: ${error.message}`);
 }
 
+function buildProgress(state: Record<string, unknown>) {
+  const normalized = computeBackfillProgress(state) as Record<string, unknown>;
+  return {
+    windows_done: normalized.windows_done,
+    windows_total: normalized.windows_total,
+    orders_total: normalized.orders_total,
+    sales_rows_total: normalized.sales_rows_total,
+    range_start: normalized.range_start,
+    range_end: normalized.range_end,
+    cursor: normalized.cursor,
+    status: normalized.status,
+    chunk_days: normalized.chunk_days,
+  };
+}
+
+async function runHistoryChunkPersisted(
+  admin: SupabaseClient,
+  connection: Record<string, unknown>,
+  batchId: string,
+) {
+  const meta = readMeta(connection);
+  const cacheRaw = meta.history_backfill_caches as Record<string, unknown> | undefined;
+  const chunkResult = await runHistoryChunk(admin, connection, {
+    batchId,
+    skuMetaCache: deserializeSkuMetaCache(cacheRaw?.skuMeta),
+  });
+
+  const nextState = chunkResult.state as Record<string, unknown>;
+  const skuMetaJson = chunkResult.caches?.skuMeta
+    ? serializeSkuMetaCache(chunkResult.caches.skuMeta)
+    : cacheRaw?.skuMeta ?? null;
+
+  const patch: Record<string, unknown> = {
+    history_backfill: nextState,
+    history_backfill_caches: chunkResult.done ? null : (skuMetaJson ? { skuMeta: skuMetaJson } : null),
+  };
+  const mergedMeta = await mergeConnectionMeta(
+    admin,
+    connection.id as string,
+    meta,
+    patch,
+  );
+  connection.meta = mergedMeta;
+  return chunkResult;
+}
+
 async function handleStartHistoryBackfill(
   admin: SupabaseClient,
   connection: Record<string, unknown>,
@@ -155,7 +204,7 @@ async function handleStartHistoryBackfill(
   let state = meta.history_backfill as Record<string, unknown> | undefined;
 
   if (state?.status === 'running' && Number(state.target_days) === historyDays && state.job_id) {
-    return handleHistoryChunk(admin, connection, state.job_id as string);
+    return handleHistoryChunk(admin, connection, state.job_id as string, chunkDays);
   }
 
   await purgeShopifySalesForShop(
@@ -174,26 +223,18 @@ async function handleStartHistoryBackfill(
 
   await mergeConnectionMeta(admin, connection.id as string, meta, {
     history_backfill: { ...state, job_id: jobId },
+    history_backfill_caches: null,
   });
 
-  connection.meta = { ...meta, history_backfill: { ...state, job_id: jobId } };
-
-  const chunkResult = await runHistoryChunk(admin, connection, { batchId });
-  const nextState = chunkResult.state;
-  await mergeConnectionMeta(admin, connection.id as string, readMeta(connection), {
-    history_backfill: nextState,
-  });
-
-  const progress = {
-    windows_done: nextState.windows_done,
-    windows_total: nextState.windows_total,
-    orders_total: nextState.orders_total,
-    sales_rows_total: nextState.sales_rows_total,
-    range_start: nextState.range_start,
-    range_end: nextState.range_end,
-    cursor: nextState.cursor,
-    status: nextState.status,
+  connection.meta = {
+    ...meta,
+    history_backfill: { ...state, job_id: jobId },
+    history_backfill_caches: null,
   };
+
+  const chunkResult = await runHistoryChunkPersisted(admin, connection, batchId);
+  const nextState = chunkResult.state as Record<string, unknown>;
+  const progress = buildProgress(nextState);
 
   if (chunkResult.done) {
     await updateJob(admin, jobId, {
@@ -224,32 +265,28 @@ async function handleHistoryChunk(
   admin: SupabaseClient,
   connection: Record<string, unknown>,
   jobId?: string,
+  chunkDaysOverride?: number,
 ) {
   const meta = readMeta(connection);
-  const state = meta.history_backfill as Record<string, unknown> | undefined;
+  let state = meta.history_backfill as Record<string, unknown> | undefined;
   if (!state || state.status !== 'running') {
     throw new Error('No history backfill in progress. Start a new import from Settings.');
+  }
+
+  if (chunkDaysOverride && Number(chunkDaysOverride) > 0) {
+    state = { ...state, chunk_days: Number(chunkDaysOverride) };
+    const merged = await mergeConnectionMeta(admin, connection.id as string, meta, {
+      history_backfill: state,
+    });
+    connection.meta = merged;
   }
 
   const activeJobId = jobId || (state.job_id as string);
   const batchId = `ui-${Date.now()}`;
 
-  const chunkResult = await runHistoryChunk(admin, connection, { batchId });
-  const nextState = chunkResult.state;
-  await mergeConnectionMeta(admin, connection.id as string, meta, {
-    history_backfill: nextState,
-  });
-
-  const progress = {
-    windows_done: nextState.windows_done,
-    windows_total: nextState.windows_total,
-    orders_total: nextState.orders_total,
-    sales_rows_total: nextState.sales_rows_total,
-    range_start: nextState.range_start,
-    range_end: nextState.range_end,
-    cursor: nextState.cursor,
-    status: nextState.status,
-  };
+  const chunkResult = await runHistoryChunkPersisted(admin, connection, batchId);
+  const nextState = chunkResult.state as Record<string, unknown>;
+  const progress = buildProgress(nextState);
 
   if (activeJobId) {
     if (chunkResult.done) {
@@ -293,6 +330,7 @@ async function handleCancelHistoryBackfill(
   };
   await mergeConnectionMeta(admin, connection.id as string, meta, {
     history_backfill: nextState,
+    history_backfill_caches: null,
   });
 
   const jobId = state.job_id as string | undefined;
@@ -371,9 +409,12 @@ Deno.serve(async (req) => {
     switch (action) {
       case 'start_history_backfill': {
         const historyDays = Number(body.history_days || connection.history_days_default || 90);
-        const chunkDays = Number(body.chunk_days || DEFAULT_CHUNK_DAYS);
+        const chunkDays = Number(body.chunk_days || DEFAULT_UI_CHUNK_DAYS);
         if (historyDays < 1 || historyDays > 730) {
           return json({ ok: false, error: 'history_days must be between 1 and 730' }, 400);
+        }
+        if (chunkDays < 1 || chunkDays > 30) {
+          return json({ ok: false, error: 'chunk_days must be between 1 and 30' }, 400);
         }
         const result = await handleStartHistoryBackfill(
           admin,
@@ -386,7 +427,12 @@ Deno.serve(async (req) => {
         return json(result);
       }
       case 'history_chunk': {
-        const result = await handleHistoryChunk(admin, connection, body.job_id);
+        const result = await handleHistoryChunk(
+          admin,
+          connection,
+          body.job_id,
+          body.chunk_days,
+        );
         return json(result);
       }
       case 'cancel_history_backfill': {

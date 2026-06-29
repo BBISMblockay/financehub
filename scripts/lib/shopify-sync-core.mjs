@@ -7,6 +7,8 @@ import { scopesMissingForJob } from './shopify-scopes.mjs';
 export const SOURCE = 'shopify_api';
 export const DEFAULT_API_VERSION = '2025-01';
 export const DEFAULT_CHUNK_DAYS = 30;
+/** Smaller windows for Integrations UI / edge functions (CPU limit ~30s). */
+export const DEFAULT_UI_CHUNK_DAYS = 7;
 
 export function hashRow(parts) {
   return crypto
@@ -532,6 +534,37 @@ async function loadSkuMeta(headers, base) {
   return skuMeta;
 }
 
+export function serializeSkuMetaCache(skuMeta) {
+  if (!skuMeta || !(skuMeta instanceof Map)) return null;
+  return Object.fromEntries(skuMeta);
+}
+
+export function deserializeSkuMetaCache(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  return new Map(Object.entries(raw));
+}
+
+/** Recompute window counts from cursor (accurate after retries / CPU-limit interrupts). */
+export function computeBackfillProgress(state) {
+  if (!state?.range_start || !state?.range_end) return state;
+  const chunkDays = state.chunk_days || DEFAULT_CHUNK_DAYS;
+  const windows = planHistoryWindows(state.range_start, state.range_end, chunkDays);
+  const windowsTotal = windows.length;
+  let windowsDone = 0;
+  const cursor = state.cursor;
+  if (cursor) {
+    for (const win of windows) {
+      if (win.window_end <= cursor) windowsDone += 1;
+      else break;
+    }
+  }
+  return {
+    ...state,
+    windows_total: windowsTotal,
+    windows_done: windowsDone,
+  };
+}
+
 export async function fetchShopifyLocations(connection) {
   const apiVersion = connection.api_version || DEFAULT_API_VERSION;
   const base = `https://${connection.shop_domain}/admin/api/${apiVersion}`;
@@ -802,7 +835,7 @@ export async function runHistoryChunk(supabase, connection, {
 
   const upserted = await upsertInChunks(supabase, 'sales_by_day', salesRows, 'row_hash');
 
-  const nextState = {
+  const nextState = computeBackfillProgress({
     ...state,
     cursor: win.window_end,
     windows_done: (state.windows_done || 0) + 1,
@@ -811,7 +844,7 @@ export async function runHistoryChunk(supabase, connection, {
     last_window: win,
     last_newest_order_stamp: newestOrderStamp,
     updated_at: syncedAt,
-  };
+  });
 
   if (nextState.cursor >= nextState.range_end) {
     nextState.status = 'complete';

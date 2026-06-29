@@ -85,7 +85,7 @@ Unmapped Shopify locations fall back to `{shop}_{location_name}` tags.
 
 1. Settings → **Integrations** (admin, correct company selected)
 2. Enable **API sync enabled** for nightly incremental job (optional)
-3. **Sales history:** click **90d**, **365d**, or **730d** — imports run in ~30-day windows; keep the tab open until the progress bar completes
+3. **Sales history:** click **90d**, **365d**, or **730d** — imports run in **7-day windows** (edge CPU limit); keep the tab open until the progress bar completes. If you see **546**, click **Resume** — progress is saved.
 4. **Inventory:** click **Sync now**
 5. If a long import is interrupted, click **Resume** (or **Cancel** to abort)
 

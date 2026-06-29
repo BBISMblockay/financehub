@@ -411,6 +411,8 @@
       return (mappings || []).find((m) => String(m.shopify_location_id) === raw) || null;
     }
 
+    const UI_CHUNK_DAYS = 7;
+
     async function syncRun(body) {
       const session = (await db.auth.getSession()).data.session;
       const res = await fetch(`${FUNCTIONS_URL}/shopify-sync-run`, {
@@ -422,8 +424,14 @@
         },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
+      let data = {};
+      try { data = await res.json(); } catch { /* non-JSON (e.g. 546) */ }
       if (!res.ok || data.ok === false) {
+        if (res.status === 546) {
+          throw new Error(
+            'Chunk hit the edge CPU limit (546). Progress is saved — click Resume to continue.',
+          );
+        }
         throw new Error(data.error || `Sync request failed (${res.status})`);
       }
       return data;
@@ -732,7 +740,7 @@
       }
       if (!el || !progress) return;
       const pct = progress.windows_total
-        ? Math.round((Number(progress.windows_done || 0) / Number(progress.windows_total)) * 100)
+        ? Math.min(100, Math.round((Number(progress.windows_done || 0) / Number(progress.windows_total)) * 100))
         : 0;
       el.classList.add('active');
       el.innerHTML = `
@@ -750,6 +758,7 @@
           action: 'history_chunk',
           connection_id: connectionId,
           job_id: res.job_id,
+          chunk_days: UI_CHUNK_DAYS,
         });
         updateBackfillProgress(connectionId, res.progress);
       }
@@ -768,6 +777,7 @@
           action: 'start_history_backfill',
           connection_id: connectionId,
           history_days: historyDays,
+          chunk_days: UI_CHUNK_DAYS,
         });
         const final = await runHistoryChunkLoop(connectionId, res);
         setStatus(
@@ -777,7 +787,13 @@
         );
         loadConnections();
       } catch (err) {
-        setStatus('Import failed: ' + err.message, 'neg', 8000);
+        setStatus(
+          err.message.includes('546') || err.message.includes('CPU limit')
+            ? err.message
+            : 'Import failed: ' + err.message,
+          err.message.includes('546') || err.message.includes('CPU limit') ? 'info' : 'neg',
+          12000,
+        );
         loadConnections();
       } finally {
         _backfillBusy = false;
@@ -789,7 +805,11 @@
       _backfillBusy = true;
       setStatus('Resuming sales import…', 'info');
       try {
-        const res = await syncRun({ action: 'history_chunk', connection_id: connectionId });
+        const res = await syncRun({
+          action: 'history_chunk',
+          connection_id: connectionId,
+          chunk_days: UI_CHUNK_DAYS,
+        });
         const final = await runHistoryChunkLoop(connectionId, res);
         setStatus(
           `✓ Sales import complete — ${final.progress?.sales_rows_total || 0} rows`,
@@ -798,7 +818,13 @@
         );
         loadConnections();
       } catch (err) {
-        setStatus('Resume failed: ' + err.message, 'neg', 8000);
+        setStatus(
+          err.message.includes('546') || err.message.includes('CPU limit')
+            ? err.message
+            : 'Resume failed: ' + err.message,
+          err.message.includes('546') || err.message.includes('CPU limit') ? 'info' : 'neg',
+          12000,
+        );
       } finally {
         _backfillBusy = false;
       }
