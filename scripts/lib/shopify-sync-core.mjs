@@ -7,6 +7,8 @@ import { scopesMissingForJob } from './shopify-scopes.mjs';
 export const SOURCE = 'shopify_api';
 export const DEFAULT_API_VERSION = '2025-01';
 export const DEFAULT_CHUNK_DAYS = 30;
+/** Smaller windows for Integrations UI / edge functions (CPU limit ~30s). */
+export const DEFAULT_UI_CHUNK_DAYS = 7;
 
 export function hashRow(parts) {
   return crypto
@@ -371,6 +373,19 @@ export function resolveSalesRowLocation({
   return null;
 }
 
+/** Remove shopify_api sales for one shop only (safe for multi-store companies). */
+export async function purgeShopifySalesForShop(supabase, companyEntityId, shopDomain) {
+  const { error } = await supabase
+    .from('sales_by_day')
+    .delete()
+    .eq('company_entity_id', companyEntityId)
+    .eq('shop_domain', shopDomain)
+    .eq('source', SOURCE);
+
+  if (error) throw new Error(`sales_by_day purge failed: ${error.message}`);
+}
+
+/** @deprecated Prefer purgeShopifySalesForShop — company-wide purge breaks multi-store imports. */
 export async function purgeShopifySalesForCompany(supabase, companyEntityId) {
   const { error } = await supabase
     .from('sales_by_day')
@@ -517,6 +532,37 @@ async function loadSkuMeta(headers, base) {
   }
 
   return skuMeta;
+}
+
+export function serializeSkuMetaCache(skuMeta) {
+  if (!skuMeta || !(skuMeta instanceof Map)) return null;
+  return Object.fromEntries(skuMeta);
+}
+
+export function deserializeSkuMetaCache(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  return new Map(Object.entries(raw));
+}
+
+/** Recompute window counts from cursor (accurate after retries / CPU-limit interrupts). */
+export function computeBackfillProgress(state) {
+  if (!state?.range_start || !state?.range_end) return state;
+  const chunkDays = state.chunk_days || DEFAULT_CHUNK_DAYS;
+  const windows = planHistoryWindows(state.range_start, state.range_end, chunkDays);
+  const windowsTotal = windows.length;
+  let windowsDone = 0;
+  const cursor = state.cursor;
+  if (cursor) {
+    for (const win of windows) {
+      if (win.window_end <= cursor) windowsDone += 1;
+      else break;
+    }
+  }
+  return {
+    ...state,
+    windows_total: windowsTotal,
+    windows_done: windowsDone,
+  };
 }
 
 export async function fetchShopifyLocations(connection) {
@@ -789,7 +835,7 @@ export async function runHistoryChunk(supabase, connection, {
 
   const upserted = await upsertInChunks(supabase, 'sales_by_day', salesRows, 'row_hash');
 
-  const nextState = {
+  const nextState = computeBackfillProgress({
     ...state,
     cursor: win.window_end,
     windows_done: (state.windows_done || 0) + 1,
@@ -798,7 +844,7 @@ export async function runHistoryChunk(supabase, connection, {
     last_window: win,
     last_newest_order_stamp: newestOrderStamp,
     updated_at: syncedAt,
-  };
+  });
 
   if (nextState.cursor >= nextState.range_end) {
     nextState.status = 'complete';
@@ -993,7 +1039,11 @@ export async function runWindowedHistory(supabase, connection, {
   let state = meta.history_backfill;
 
   if (!state || state.status !== 'running') {
-    await purgeShopifySalesForCompany(supabase, connection.company_entity_id);
+    await purgeShopifySalesForShop(
+      supabase,
+      connection.company_entity_id,
+      connection.shop_domain,
+    );
     state = initHistoryBackfillState({ historyDays, chunkDays });
     meta = { ...meta, history_backfill: state };
     await supabase.from('shopify_connections').update({ meta }).eq('id', connection.id);

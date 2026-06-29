@@ -138,6 +138,16 @@ async function syncConnection(connection) {
   return results;
 }
 
+async function purgeBetterReportsOverlap(companyEntityId) {
+  const { data, error } = await supabase.rpc('purge_better_reports_overlap', {
+    p_company_entity_id: companyEntityId,
+  });
+  if (error) throw new Error(`purge_better_reports_overlap failed: ${error.message}`);
+  const deleted = data?.[0]?.deleted_rows ?? 0;
+  console.log(`[purge] better_reports overlap removed ${deleted} rows for ${companyEntityId}`);
+  return deleted;
+}
+
 async function main() {
   console.log(`[shopify-sync] mode=${SYNC_MODE} batch=${BATCH_ID}`);
 
@@ -162,6 +172,16 @@ async function main() {
   }
 
   if (!SKIP_SUMMARY_REFRESH) {
+    const companyIds = [...new Set(connections.map((c) => c.company_entity_id).filter(Boolean))];
+    for (const companyId of companyIds) {
+      try {
+        await purgeBetterReportsOverlap(companyId);
+      } catch (err) {
+        hadError = true;
+        console.error(`[error] purge overlap ${companyId}: ${err.message || err}`);
+      }
+    }
+
     const { error } = await supabase.rpc('refresh_sales_verification_store_comp_summary');
     if (error) {
       hadError = true;

@@ -73,7 +73,9 @@ where company_entity_id = '<company-entity-uuid>'
 
 Unmapped Shopify locations fall back to `{shop}_{location_name}` tags.
 
-**Sales location linking:** when Shopify omits `location_id` on orders (common for online stores), sales rows use your SILO mapping when the company has exactly one linked location. Product/SKU/amount metadata is unchanged. A fresh **history import** purges prior `shopify_api` sales rows for that company so location tags refresh cleanly.
+**Sales location linking:** when Shopify omits `location_id` on orders (common for online stores), sales rows use your SILO mapping when the company has exactly one linked location. Product/SKU/amount metadata is unchanged. A fresh **history import** purges prior `shopify_api` sales rows for **that shop only** (`shop_domain`) so location tags refresh without wiping other stores.
+
+**Multi-store companies:** Baseballism has one `company_entity_id` but many Shopify connections. History imports only purge/replace rows for the connection being imported — never the whole company.
 
 ---
 
@@ -83,7 +85,7 @@ Unmapped Shopify locations fall back to `{shop}_{location_name}` tags.
 
 1. Settings → **Integrations** (admin, correct company selected)
 2. Enable **API sync enabled** for nightly incremental job (optional)
-3. **Sales history:** click **90d**, **365d**, or **730d** — imports run in ~30-day windows; keep the tab open until the progress bar completes
+3. **Sales history:** click **90d**, **365d**, or **730d** — imports run in **7-day windows** (edge CPU limit); keep the tab open until the progress bar completes. If you see **546**, click **Resume** — progress is saved.
 4. **Inventory:** click **Sync now**
 5. If a long import is interrupted, click **Resume** (or **Cancel** to abort)
 

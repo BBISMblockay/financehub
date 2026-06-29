@@ -807,6 +807,18 @@ async function refreshSalesVerificationSummary() {
   console.log("Sales verification summary refreshed.");
 }
 
+async function purgeBetterReportsOverlap(companyEntityId) {
+  const { data, error } = await supabase.rpc("purge_better_reports_overlap", {
+    p_company_entity_id: companyEntityId,
+  });
+  if (error) {
+    throw new Error(`purge_better_reports_overlap failed: ${error.message}`);
+  }
+  const deleted = data?.[0]?.deleted_rows ?? 0;
+  console.log(`[purge] better_reports overlap removed ${deleted} rows for ${companyEntityId}`);
+  return deleted;
+}
+
 async function main() {
   console.log(`Starting Silo sync batch: ${BATCH_ID}`);
   console.log(`Snapshot at: ${SNAPSHOT_AT}`);
@@ -843,6 +855,9 @@ async function main() {
     console.log("Sales verification summary refresh skipped.");
   } else {
     try {
+      if (!SKIP_SALES) {
+        await purgeBetterReportsOverlap(BASEBALLISM_ENTITY_ID);
+      }
       await refreshSalesVerificationSummary();
       salesSummaryRefreshed = true;
     } catch (err) {

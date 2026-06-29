@@ -182,6 +182,40 @@ select
     else 'MISSING — run 20260624100000_sales_verification_filtered_summary.sql'
   end as sales_verification_filtered_summary_rpc;
 
+select
+  case
+    when exists (
+      select 1 from pg_views
+      where schemaname = 'public' and viewname = 'sales_by_day_verification_v'
+    ) then 'ok'
+    else 'MISSING — run 20260629120000_shopify_sales_verification_dedupe.sql'
+  end as sales_by_day_verification_view;
+
+select
+  case
+    when exists (
+      select 1
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public'
+        and p.proname = 'purge_better_reports_overlap'
+    ) then 'ok'
+    else 'MISSING — run 20260629120000_shopify_sales_verification_dedupe.sql'
+  end as purge_better_reports_overlap_rpc;
+
+select
+  case
+    when exists (
+      select 1
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public'
+        and p.proname = 'refresh_sales_verification_store_comp_summary'
+        and pg_get_functiondef(p.oid) ilike '%sales_by_day_verification_v%'
+    ) then 'ok'
+    else 'MISSING — run 20260629120000_shopify_sales_verification_dedupe.sql'
+  end as refresh_sales_verification_deduped;
+
 -- 9. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,
