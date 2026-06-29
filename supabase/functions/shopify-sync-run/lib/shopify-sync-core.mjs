@@ -364,6 +364,12 @@ export function resolveSalesRowLocation({
     return { location_tag: hit.location_tag, location_name: hit.location_name };
   }
 
+  // Fall back to the connection's default_location_code (set per-store in shopify_connections)
+  if (connection?.default_location_code) {
+    const tag = slugify(connection.default_location_code);
+    return { location_tag: tag, location_name: connection.default_location_code };
+  }
+
   // No mapping found — skip this row rather than writing a garbage unknown tag
   return null;
 }
