@@ -374,6 +374,19 @@ export function resolveSalesRowLocation({
   return null;
 }
 
+/** Remove shopify_api sales for one shop only (safe for multi-store companies). */
+export async function purgeShopifySalesForShop(supabase, companyEntityId, shopDomain) {
+  const { error } = await supabase
+    .from('sales_by_day')
+    .delete()
+    .eq('company_entity_id', companyEntityId)
+    .eq('shop_domain', shopDomain)
+    .eq('source', SOURCE);
+
+  if (error) throw new Error(`sales_by_day purge failed: ${error.message}`);
+}
+
+/** @deprecated Prefer purgeShopifySalesForShop — company-wide purge breaks multi-store imports. */
 export async function purgeShopifySalesForCompany(supabase, companyEntityId) {
   const { error } = await supabase
     .from('sales_by_day')
@@ -996,7 +1009,11 @@ export async function runWindowedHistory(supabase, connection, {
   let state = meta.history_backfill;
 
   if (!state || state.status !== 'running') {
-    await purgeShopifySalesForCompany(supabase, connection.company_entity_id);
+    await purgeShopifySalesForShop(
+      supabase,
+      connection.company_entity_id,
+      connection.shop_domain,
+    );
     state = initHistoryBackfillState({ historyDays, chunkDays });
     meta = { ...meta, history_backfill: state };
     await supabase.from('shopify_connections').update({ meta }).eq('id', connection.id);

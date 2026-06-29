@@ -3,7 +3,7 @@ import {
   DEFAULT_CHUNK_DAYS,
   fetchShopifyLocations,
   initHistoryBackfillState,
-  purgeShopifySalesForCompany,
+  purgeShopifySalesForShop,
   readMeta,
   runHistoryChunk,
   runInventorySnapshot,
@@ -158,7 +158,11 @@ async function handleStartHistoryBackfill(
     return handleHistoryChunk(admin, connection, state.job_id as string);
   }
 
-  await purgeShopifySalesForCompany(admin, connection.company_entity_id as string);
+  await purgeShopifySalesForShop(
+    admin,
+    connection.company_entity_id as string,
+    connection.shop_domain as string,
+  );
   state = initHistoryBackfillState({ historyDays, chunkDays });
 
   const jobId = existingJobId || await createJob(admin, connection, 'history_import', userId, {
@@ -196,6 +200,9 @@ async function handleStartHistoryBackfill(
       status: 'success',
       finished_at: new Date().toISOString(),
       result: { ...progress, chunks: [chunkResult.chunk], completed: true },
+    });
+    await admin.rpc('purge_better_reports_overlap', {
+      p_company_entity_id: connection.company_entity_id,
     });
     await admin.rpc('refresh_sales_verification_store_comp_summary');
   } else {
@@ -250,6 +257,9 @@ async function handleHistoryChunk(
         status: 'success',
         finished_at: new Date().toISOString(),
         result: { ...progress, last_chunk: chunkResult.chunk, completed: true },
+      });
+      await admin.rpc('purge_better_reports_overlap', {
+        p_company_entity_id: connection.company_entity_id,
       });
       await admin.rpc('refresh_sales_verification_store_comp_summary');
     } else {

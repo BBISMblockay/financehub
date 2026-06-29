@@ -73,7 +73,9 @@ where company_entity_id = '<company-entity-uuid>'
 
 Unmapped Shopify locations fall back to `{shop}_{location_name}` tags.
 
-**Sales location linking:** when Shopify omits `location_id` on orders (common for online stores), sales rows use your SILO mapping when the company has exactly one linked location. Product/SKU/amount metadata is unchanged. A fresh **history import** purges prior `shopify_api` sales rows for that company so location tags refresh cleanly.
+**Sales location linking:** when Shopify omits `location_id` on orders (common for online stores), sales rows use your SILO mapping when the company has exactly one linked location. Product/SKU/amount metadata is unchanged. A fresh **history import** purges prior `shopify_api` sales rows for **that shop only** (`shop_domain`) so location tags refresh without wiping other stores.
+
+**Multi-store companies:** Baseballism has one `company_entity_id` but many Shopify connections. History imports only purge/replace rows for the connection being imported — never the whole company.
 
 ---
 
