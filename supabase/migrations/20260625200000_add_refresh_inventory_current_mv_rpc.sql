@@ -8,6 +8,7 @@ RETURNS void
 LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public
+SET statement_timeout = '120s'
 AS $$
 BEGIN
   REFRESH MATERIALIZED VIEW CONCURRENTLY public.inventory_on_hand_current_mv;

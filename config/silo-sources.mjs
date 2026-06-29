@@ -24,6 +24,7 @@ export const INVENTORY_SOURCES = [
   {
     location_tag: "atlanta",
     location_name: "Atlanta",
+    shopify_migrated: true,
     shop_domain: null,
     gid: 186382360,
     inventory_csv_url:
@@ -36,6 +37,7 @@ export const INVENTORY_SOURCES = [
   {
     location_tag: "scottsdale",
     location_name: "Scottsdale",
+    shopify_migrated: true,
     shop_domain: null,
     gid: 1686608564,
     inventory_csv_url:
@@ -48,6 +50,7 @@ export const INVENTORY_SOURCES = [
   {
     location_tag: "st_louis",
     location_name: "St. Louis",
+    shopify_migrated: true,
     shop_domain: null,
     gid: 702923083,
     inventory_csv_url:
@@ -60,6 +63,7 @@ export const INVENTORY_SOURCES = [
   {
     location_tag: "mission_viejo",
     location_name: "Mission Viejo",
+    shopify_migrated: true,
     shop_domain: null,
     gid: 948572027,
     inventory_csv_url:
@@ -72,6 +76,7 @@ export const INVENTORY_SOURCES = [
   {
     location_tag: "texas",
     location_name: "Texas",
+    shopify_migrated: true,
     shop_domain: null,
     gid: 335482043,
     inventory_csv_url:
@@ -84,6 +89,7 @@ export const INVENTORY_SOURCES = [
   {
     location_tag: "cooperstown",
     location_name: "Cooperstown",
+    shopify_migrated: true,
     shop_domain: null,
     gid: 1924417187,
     inventory_csv_url:
@@ -96,6 +102,7 @@ export const INVENTORY_SOURCES = [
   {
     location_tag: "lakepoint",
     location_name: "Lakepoint",
+    shopify_migrated: true,
     shop_domain: null,
     gid: 2040225568,
     inventory_csv_url:
@@ -108,6 +115,7 @@ export const INVENTORY_SOURCES = [
   {
     location_tag: "ontario",
     location_name: "Ontario",
+    shopify_migrated: true,
     shop_domain: null,
     gid: 863008870,
     inventory_csv_url:
@@ -334,9 +342,10 @@ export function getInventorySources(sources = INVENTORY_SOURCES) {
 /**
  * Sources with daily/recent sales enabled.
  * Normal nightly sync uses sales_daily_csv_url.
+ * Skips locations marked shopify_migrated — those are now fed by the Shopify OAuth pipeline.
  */
 export function getSalesSources(sources = INVENTORY_SOURCES) {
-  return sources.filter((src) => !!src.sales_daily_csv_url);
+  return sources.filter((src) => !!src.sales_daily_csv_url && !src.shopify_migrated);
 }
 
 /**
