@@ -10,204 +10,198 @@
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
   <style>
-    /* ---- Page-specific layout ---- */
-    .sv-kpi-band { display:grid; grid-template-columns:repeat(6,1fr); gap:8px; padding:0 20px 16px; }
-    @media(max-width:1200px){ .sv-kpi-band{ grid-template-columns:repeat(3,1fr); } }
-    @media(max-width:640px){  .sv-kpi-band{ grid-template-columns:repeat(2,1fr); } }
+    /* ---- Page layout ---- */
+    .sv-scroll { flex:1; overflow-y:auto; min-height:0; }
 
-    .sv-body { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:12px; padding:0 20px 24px; align-items:start; }
-    @media(max-width:1100px){ .sv-body{ grid-template-columns:1fr; } }
+    /* ---- KPI band override: allow wrapping on small screens ---- */
+    .bcn-kpi-band { flex-wrap:wrap; }
 
-    .sv-col { display:flex; flex-direction:column; gap:12px; }
-
-    /* ---- Filter bar extras ---- */
-    .sv-filter-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:8px; align-items:end; margin-top:12px; }
-    @media(max-width:1200px){ .sv-filter-grid{ grid-template-columns:repeat(4,1fr); } }
+    /* ---- Filter section ---- */
+    .sv-filters {
+      background:var(--bcn-sunken);
+      border-bottom:1px solid var(--bcn-border);
+      padding:12px 18px;
+      display:flex; flex-direction:column; gap:10px;
+      flex-shrink:0;
+    }
+    .sv-filter-top { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .sv-filter-label { font-size:12px; font-weight:600; color:var(--bcn-ink); }
+    .sv-filter-sub   { font-size:11px; color:var(--bcn-ink-3); margin-top:2px; }
+    .sv-filter-grid  {
+      display:grid;
+      grid-template-columns:repeat(7,1fr);
+      gap:8px; align-items:end;
+    }
+    @media(max-width:1280px){ .sv-filter-grid{ grid-template-columns:repeat(4,1fr); } }
     @media(max-width:640px){  .sv-filter-grid{ grid-template-columns:1fr 1fr; } }
-
-    .sv-filter-actions { display:flex; align-items:flex-end; gap:6px; }
-    .sv-filter-actions .bcn-btn { flex:1; }
+    .sv-filter-actions { display:flex; align-items:flex-end; gap:5px; }
+    .sv-filter-actions .bcn-btn { flex:1; white-space:nowrap; }
+    .sv-status-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .sv-status   { font-size:11.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); }
+    .sv-progress { font-size:10px; font-weight:600; text-transform:uppercase; letter-spacing:.1em; color:var(--bcn-ink-4); font-family:var(--bcn-mono); }
 
     /* ---- Quick filter chips ---- */
-    .sv-chips { display:flex; flex-wrap:wrap; gap:6px; }
+    .sv-chips { display:flex; flex-wrap:wrap; gap:5px; }
     .sv-chip {
-      border:1px solid var(--bcn-border);
-      background:var(--bcn-surface);
-      border-radius:var(--bcn-radius);
-      padding:4px 12px;
-      font-size:.7rem;
-      font-weight:700;
-      color:var(--bcn-ink-3);
-      cursor:pointer;
-      user-select:none;
-      transition:background .12s,border-color .12s,color .12s;
-      font-family:var(--bcn-mono);
-      letter-spacing:.04em;
+      border:1px solid var(--bcn-border); background:var(--bcn-surface);
+      border-radius:var(--bcn-radius); padding:3px 10px;
+      font-size:10.5px; font-weight:700; color:var(--bcn-ink-3);
+      cursor:pointer; user-select:none; font-family:var(--bcn-mono);
+      transition:background .1s,border-color .1s,color .1s;
     }
-    .sv-chip:hover{ border-color:var(--bcn-border-strong); color:var(--bcn-ink-2); }
-    .sv-chip.active{ background:var(--bcn-band); color:var(--bcn-band-ink); border-color:var(--bcn-band); }
+    .sv-chip:hover  { border-color:var(--bcn-border-strong); color:var(--bcn-ink-2); }
+    .sv-chip.active { background:var(--bcn-band); color:var(--bcn-band-ink); border-color:var(--bcn-band); }
 
     /* ---- Provisional banner ---- */
-    .sv-provisional {
-      display:flex; align-items:flex-start; gap:10px;
-      border:1px solid var(--bcn-warn-border,#fde68a);
-      background:var(--bcn-warn-soft,#fffbeb);
-      color:var(--bcn-warn,#d97706);
-      border-radius:var(--bcn-radius);
-      padding:10px 16px;
-      font-size:.8rem; font-weight:600;
-      margin:0 20px;
+    .sv-banner {
+      display:flex; align-items:flex-start; gap:8px;
+      background:oklch(0.98 0.06 75 / .3); border:1px solid var(--bcn-warn-border,#fde68a);
+      color:var(--bcn-warn,#d97706); border-radius:var(--bcn-radius);
+      padding:9px 14px; font-size:11.5px; font-weight:600; margin:10px 18px 0;
     }
 
-    /* ---- Tables ---- */
+    /* ---- Content grid ---- */
+    .sv-content {
+      flex:1; padding:12px 18px 24px;
+      display:grid; grid-template-columns:minmax(0,1fr) 300px;
+      gap:12px; align-items:start;
+      overflow-y:auto; min-height:0;
+    }
+    @media(max-width:1100px){ .sv-content{ grid-template-columns:1fr; } }
+    .sv-col { display:flex; flex-direction:column; gap:12px; }
+
+    /* ---- Card title (no class in beacon — use h2 directly) ---- */
+    .bcn-card-header h2 { margin:0; font-size:12.5px; font-weight:600; color:var(--bcn-ink); }
+
+    /* ---- Tables (custom — bcn-table has fixed layout which breaks this page) ---- */
     .sv-table-wrap { overflow:auto; }
     .sv-table-wrap::-webkit-scrollbar{ height:6px; width:6px; }
     .sv-table-wrap::-webkit-scrollbar-thumb{ background:var(--bcn-border-strong); border-radius:3px; }
-    .bcn-table th { white-space:nowrap; }
-    .bcn-table td { vertical-align:middle; }
-    .num { text-align:right; font-variant-numeric:tabular-nums; font-family:var(--bcn-mono); }
+    .sv-tbl { width:100%; border-collapse:collapse; }
+    .sv-tbl th {
+      padding:8px 10px; font-size:10.5px; font-weight:600; color:var(--bcn-ink-3);
+      border-bottom:1px solid var(--bcn-border-strong); background:var(--bcn-sunken);
+      white-space:nowrap; text-align:left;
+      position:sticky; top:0; z-index:2;
+    }
+    .sv-tbl th.r  { text-align:right; }
+    .sv-tbl td {
+      padding:7px 10px; font-size:12px; color:var(--bcn-ink);
+      border-bottom:1px solid var(--bcn-border); vertical-align:middle;
+    }
+    .sv-tbl tbody tr:last-child td { border-bottom:none; }
+    .sv-tbl tbody tr:hover td { background:var(--bcn-sunken); }
+    .sv-tbl td.r { text-align:right; font-variant-numeric:tabular-nums; font-family:var(--bcn-mono); font-size:11.5px; }
+    .sv-tbl td.mono { font-family:var(--bcn-mono); font-size:11px; }
+    .sv-empty { padding:32px; text-align:center; color:var(--bcn-ink-4); font-family:var(--bcn-mono); font-size:11.5px; }
 
-    /* ---- Matrix comps table ---- */
-    .matrix-table { width:max-content; min-width:100%; border-collapse:collapse; }
-    .matrix-table thead tr:first-child th {
-      font-family:var(--bcn-mono); font-size:.6rem; text-transform:uppercase; letter-spacing:.14em;
-      color:var(--bcn-ink-3); padding:8px 10px; border-bottom:1px solid var(--bcn-border);
+    /* ---- Matrix comps ---- */
+    .matrix-tbl { width:max-content; min-width:100%; border-collapse:collapse; }
+    .matrix-tbl thead tr:first-child th {
+      font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.14em;
+      color:var(--bcn-ink-3); padding:7px 10px; border-bottom:1px solid var(--bcn-border);
       text-align:center; position:sticky; top:0; z-index:3; background:var(--bcn-sunken);
     }
-    .matrix-table thead tr:nth-child(2) th {
-      font-family:var(--bcn-mono); font-size:.6rem; text-transform:uppercase; letter-spacing:.1em;
-      color:var(--bcn-ink-3); padding:8px 10px; border-bottom:1px solid var(--bcn-border);
-      text-align:right; position:sticky; top:31px; z-index:3; background:var(--bcn-sunken);
+    .matrix-tbl thead tr:nth-child(2) th {
+      font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.08em;
+      color:var(--bcn-ink-3); padding:7px 10px; border-bottom:1px solid var(--bcn-border);
+      text-align:right; position:sticky; top:30px; z-index:3; background:var(--bcn-sunken);
     }
-    .matrix-table thead th:first-child,
-    .matrix-table tbody td:first-child { position:sticky; left:0; z-index:4; background:var(--bcn-surface); }
-    .matrix-table tbody td {
-      font-family:var(--bcn-mono); font-size:.72rem; font-variant-numeric:tabular-nums;
-      padding:8px 10px; border-bottom:1px solid var(--bcn-border); white-space:nowrap;
+    .matrix-tbl thead th:first-child,
+    .matrix-tbl tbody td:first-child { position:sticky; left:0; z-index:4; background:var(--bcn-surface); }
+    .matrix-tbl tbody td {
+      font-family:var(--bcn-mono); font-size:11.5px; font-variant-numeric:tabular-nums;
+      padding:7px 10px; border-bottom:1px solid var(--bcn-border); white-space:nowrap;
+      text-align:right;
     }
-    .matrix-table tbody tr:hover td { background:var(--bcn-sunken); }
-    .matrix-table .store-col { min-width:150px; font-weight:700; color:var(--bcn-ink); text-align:left!important; font-family:var(--bcn-font); }
-    .matrix-table .group-day  { background:var(--bcn-accent-soft,#eff6ff); }
-    .matrix-table .group-mtd  { background:#fdf6ee; }
-    .matrix-table .group-ytd  { background:var(--bcn-pos-soft,#f0fdf4); }
-    .matrix-table .group-meta { background:var(--bcn-sunken); }
+    .matrix-tbl tbody tr:hover td { background:var(--bcn-sunken); }
+    .matrix-tbl .m-store { min-width:140px; font-weight:600; color:var(--bcn-ink); text-align:left!important; font-family:var(--bcn-font); font-size:12px; }
+    .matrix-tbl .g-day  { background:oklch(0.97 0.03 245); }
+    .matrix-tbl .g-mtd  { background:oklch(0.98 0.02 60); }
+    .matrix-tbl .g-ytd  { background:oklch(0.97 0.03 145); }
+    .matrix-tbl .g-meta { background:var(--bcn-sunken); }
 
-    /* ---- Exceptions grid ---- */
-    .sv-exc-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; }
-    .sv-exc-cell {
-      border:1px solid var(--bcn-border); background:var(--bcn-sunken);
-      border-radius:var(--bcn-radius); padding:10px 12px;
-    }
-    .sv-exc-label { font-family:var(--bcn-mono); font-size:.6rem; font-weight:600; text-transform:uppercase; letter-spacing:.1em; color:var(--bcn-ink-4); margin-bottom:4px; }
-    .sv-exc-value { font-family:var(--bcn-mono); font-size:1.1rem; font-weight:700; color:var(--bcn-ink); }
+    /* ---- Exceptions ---- */
+    .sv-exc-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    .sv-exc-cell { border:1px solid var(--bcn-border); background:var(--bcn-sunken); border-radius:var(--bcn-radius); padding:10px 12px; }
+    .sv-exc-label { font-family:var(--bcn-mono); font-size:9.5px; font-weight:600; text-transform:uppercase; letter-spacing:.1em; color:var(--bcn-ink-4); margin-bottom:4px; }
+    .sv-exc-val   { font-family:var(--bcn-mono); font-size:1.15rem; font-weight:700; color:var(--bcn-ink); }
+
+    /* ---- Badges ---- */
+    .sv-tag { display:inline-flex; align-items:center; border-radius:var(--bcn-radius); padding:1px 6px; font-size:10px; font-weight:700; border:1px solid transparent; white-space:nowrap; font-family:var(--bcn-mono); margin-top:3px; }
+    .sv-tag--warn { background:oklch(0.98 0.06 75 / .4); color:var(--bcn-warn,#d97706); border-color:oklch(0.9 0.1 75); }
+    .sv-tag--neg  { background:var(--bcn-neg-soft,#fef2f2); color:var(--bcn-neg,#dc2626); border-color:var(--bcn-neg-border,#fecaca); }
 
     /* ---- Comps details ---- */
     details.sv-comps summary {
       cursor:pointer; list-style:none;
       display:flex; align-items:center; gap:6px;
-      font-size:.88rem; font-weight:800; color:var(--bcn-ink);
+      font-size:12.5px; font-weight:600; color:var(--bcn-ink);
+      padding:10px 12px;
+      border-bottom:1px solid var(--bcn-border-strong);
     }
     details.sv-comps summary::-webkit-details-marker { display:none; }
     details.sv-comps summary::before { content:"▶"; font-size:.55rem; color:var(--bcn-ink-4); transition:transform .15s; }
     details.sv-comps[open] summary::before { transform:rotate(90deg); }
+    .sv-comps-body { padding:12px 14px; display:flex; flex-direction:column; gap:10px; }
 
     /* ---- Pagination ---- */
-    .sv-pagination { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:12px; }
-    .sv-page-btns { display:flex; align-items:center; gap:6px; }
+    .sv-pagination { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+    .sv-page-btns  { display:flex; align-items:center; gap:5px; }
     .sv-page-btn {
-      min-width:30px; height:30px;
+      min-width:28px; height:28px;
       display:inline-flex; align-items:center; justify-content:center;
       border:1px solid var(--bcn-border); border-radius:var(--bcn-radius);
-      background:var(--bcn-surface); font-weight:700; font-size:.9rem;
+      background:var(--bcn-surface); font-weight:700; font-size:.85rem;
       cursor:pointer; color:var(--bcn-ink-2);
     }
     .sv-page-btn:hover:not(:disabled){ background:var(--bcn-sunken); }
     .sv-page-btn:disabled{ opacity:.4; cursor:not-allowed; }
-    .sv-page-indicator {
-      border:1px solid var(--bcn-border); border-radius:var(--bcn-radius);
-      padding:3px 10px; font-size:.72rem; font-weight:700;
-      font-family:var(--bcn-mono); color:var(--bcn-ink-2); background:var(--bcn-surface);
-    }
+    .sv-page-ind { border:1px solid var(--bcn-border); border-radius:var(--bcn-radius); padding:2px 9px; font-size:10.5px; font-weight:700; font-family:var(--bcn-mono); color:var(--bcn-ink-2); }
 
-    /* ---- Status row ---- */
-    .sv-status-row { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:10px; }
-    .sv-status { font-size:.78rem; color:var(--bcn-ink-3); }
-    .sv-progress { font-family:var(--bcn-mono); font-size:.65rem; font-weight:600; text-transform:uppercase; letter-spacing:.12em; color:var(--bcn-ink-4); }
-
-    /* ---- Badges ---- */
-    .sv-badge {
-      display:inline-flex; align-items:center;
-      border-radius:var(--bcn-radius); padding:2px 7px;
-      font-size:.68rem; font-weight:700; border:1px solid transparent;
-      white-space:nowrap; font-family:var(--bcn-mono);
-    }
-    .sv-badge--warn { background:var(--bcn-warn-soft,#fffbeb); color:var(--bcn-warn,#d97706); border-color:var(--bcn-warn-border,#fde68a); }
-    .sv-badge--neg  { background:var(--bcn-neg-soft,#fef2f2);  color:var(--bcn-neg,#dc2626);  border-color:var(--bcn-neg-border,#fecaca); }
-
-    .hidden { display:none!important; }
     .truncate-2 { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+    .hidden { display:none!important; }
   </style>
 </head>
 <body class="silo-brand">
 <div id="silo-app" class="silo-app">
-  <main class="silo-main" id="silo-main">
+  <main class="silo-main">
 
     <header class="bcn-header">
-      <div class="bcn-header-title">
-        <div class="bcn-breadcrumb"><span>Sales</span><span>Verification</span></div>
-        <h1 class="bcn-page-title">Sales Verification</h1>
+      <div style="flex:1;min-width:0">
+        <div class="bcn-header-title">
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Sales</span>
+        </div>
+        <h1>Sales Verification</h1>
+        <div class="bcn-header-sub">Set filters and Apply. KPIs and location table cover all matching rows; line detail is paged.</div>
       </div>
       <div class="bcn-header-actions">
-        <span id="lastRefreshPill" class="bcn-pill bcn-pill--dark">Last refresh: —</span>
+        <span id="lastRefreshPill" class="bcn-pill bcn-pill--dark" style="font-family:var(--bcn-mono);font-size:10.5px">Last refresh: —</span>
         <button id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
       </div>
     </header>
 
-    <div id="provisionalBanner" class="sv-provisional hidden">
-      <span>⚠</span>
-      <span id="provisionalText">Date range includes today — figures are provisional until the next sync.</span>
-    </div>
-
     <!-- KPI band -->
-    <div class="sv-kpi-band">
-      <div class="bcn-kpi">
-        <div class="bcn-kpi-label">Rows</div>
-        <div id="kpiRows" class="bcn-kpi-value">—</div>
-        <div class="bcn-kpi-delta">Filtered result count</div>
-      </div>
-      <div class="bcn-kpi">
-        <div class="bcn-kpi-label">Units</div>
-        <div id="kpiUnits" class="bcn-kpi-value">—</div>
-        <div class="bcn-kpi-delta">Total quantity sold</div>
-      </div>
-      <div class="bcn-kpi">
-        <div class="bcn-kpi-label">Net Sales</div>
-        <div id="kpiNet" class="bcn-kpi-value">—</div>
-        <div class="bcn-kpi-delta">Filtered rollup</div>
-      </div>
-      <div class="bcn-kpi">
-        <div class="bcn-kpi-label">Refunds</div>
-        <div id="kpiRefunds" class="bcn-kpi-value">—</div>
-        <div class="bcn-kpi-delta">Refund field rollup</div>
-      </div>
-      <div class="bcn-kpi">
-        <div class="bcn-kpi-label">Locations</div>
-        <div id="kpiLocations" class="bcn-kpi-value">—</div>
-        <div class="bcn-kpi-delta">Distinct filtered</div>
-      </div>
-      <div class="bcn-kpi">
-        <div class="bcn-kpi-label">Date Range</div>
-        <div id="kpiDateRange" class="bcn-kpi-value" style="font-size:.9rem">—</div>
-        <div class="bcn-kpi-delta">Min → max day</div>
-      </div>
+    <div class="bcn-kpi-band">
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Rows</div><div id="kpiRows" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Filtered count</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Units</div><div id="kpiUnits" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Qty sold</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Net Sales</div><div id="kpiNet" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Filtered rollup</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Refunds</div><div id="kpiRefunds" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Refund rollup</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Locations</div><div id="kpiLocations" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Distinct</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Date Range</div><div id="kpiDateRange" class="bcn-kpi-value" style="font-size:13px">—</div><div class="bcn-kpi-delta">Min → max day</div></div>
     </div>
 
-    <!-- Filter bar -->
-    <section class="bcn-filter-bar" style="flex-direction:column;align-items:stretch;gap:12px;padding:12px 20px 16px">
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <!-- Provisional banner -->
+    <div id="provisionalBanner" class="sv-banner hidden">
+      <span>⚠</span><span id="provisionalText">Date range includes today — figures are provisional until the next sync.</span>
+    </div>
+
+    <!-- Filter section -->
+    <div class="sv-filters">
+      <div class="sv-filter-top">
         <div>
-          <div style="font-size:.82rem;font-weight:700;color:var(--bcn-ink)">Filters</div>
-          <div style="font-size:.75rem;color:var(--bcn-ink-3);margin-top:2px">KPIs and location rollups use the full filtered set; row detail is paginated.</div>
+          <div class="sv-filter-label">Filters</div>
+          <div class="sv-filter-sub">KPIs and location rollups use the full filtered set; row detail is paginated.</div>
         </div>
         <div class="sv-chips" id="quickFilters">
           <button class="sv-chip active" data-quick="all">All Rows</button>
@@ -229,9 +223,7 @@
         </div>
         <div>
           <label class="bcn-label">Location</label>
-          <select id="locationFilter" class="bcn-field">
-            <option value="">All locations</option>
-          </select>
+          <select id="locationFilter" class="bcn-field"><option value="">All locations</option></select>
         </div>
         <div>
           <label class="bcn-label">Date From</label>
@@ -250,86 +242,84 @@
           <select id="sortBy" class="bcn-field">
             <option value="day_desc">Newest first</option>
             <option value="day_asc">Oldest first</option>
-            <option value="net_desc">Net sales high → low</option>
+            <option value="net_desc">Net high → low</option>
             <option value="qty_desc">Qty high → low</option>
           </select>
         </div>
         <div class="sv-filter-actions">
           <button id="btnApply" class="bcn-btn bcn-btn--primary">Apply</button>
-          <button id="btnReset" class="bcn-btn bcn-btn--ghost">Reset</button>
+          <button id="btnReset" class="bcn-btn">Reset</button>
         </div>
       </div>
       <div class="sv-status-row">
         <div id="statusText" class="sv-status">Ready.</div>
         <div id="progressText" class="sv-progress">Idle</div>
       </div>
-    </section>
+    </div>
 
-    <!-- Main body -->
-    <div class="sv-body">
+    <!-- Main content -->
+    <div class="sv-content">
       <div class="sv-col">
 
         <!-- By location -->
-        <section class="bcn-card">
+        <div class="bcn-card">
           <div class="bcn-card-header">
-            <span class="bcn-card-title">By location</span>
-            <span id="locationSummaryCount" class="sv-status">0 locations</span>
+            <h2>By location</h2>
+            <span id="locationSummaryCount" class="bcn-card-meta" style="margin-left:auto">0 locations</span>
           </div>
-          <div class="bcn-card-body" style="padding:0">
+          <div class="bcn-card-body" style="padding:0;overflow:visible">
             <div class="sv-table-wrap">
-              <table class="bcn-table" style="min-width:100%">
+              <table class="sv-tbl">
                 <thead>
                   <tr>
                     <th>Location</th>
-                    <th class="num">Rows</th>
+                    <th class="r">Rows</th>
                     <th>Min Date</th>
                     <th>Max Date</th>
-                    <th class="num">Units</th>
-                    <th class="num">Gross</th>
-                    <th class="num">Discounts</th>
-                    <th class="num">Refunds</th>
-                    <th class="num">Net</th>
-                    <th class="num">Total Sales</th>
+                    <th class="r">Units</th>
+                    <th class="r">Gross</th>
+                    <th class="r">Discounts</th>
+                    <th class="r">Refunds</th>
+                    <th class="r">Net</th>
+                    <th class="r">Total Sales</th>
                   </tr>
                 </thead>
                 <tbody id="locationSummaryBody">
-                  <tr><td colspan="10" class="bcn-table-empty">Loading…</td></tr>
+                  <tr><td colspan="10" class="sv-empty">Loading…</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
-        </section>
+        </div>
 
         <!-- Store comps -->
         <details class="bcn-card sv-comps" id="storeCompsPanel">
-          <summary style="padding:14px 16px">
+          <summary>
             Store vs prior year
-            <span style="font-size:.72rem;font-weight:500;color:var(--bcn-ink-3);margin-left:4px">(optional)</span>
+            <span style="font-size:11px;font-weight:400;color:var(--bcn-ink-3);margin-left:4px">(optional)</span>
           </summary>
-          <div style="padding:0 16px 8px">
-            <p style="font-size:.78rem;color:var(--bcn-ink-3);margin:0 0 10px">
-              Pre-aggregated comps (location filter only). Refreshes on every Apply / Refresh and when you open this section.
-            </p>
-            <div style="display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px;margin-bottom:10px">
+          <div class="sv-comps-body">
+            <p style="font-size:11.5px;color:var(--bcn-ink-3);margin:0">Pre-aggregated comps (location filter only). Refreshes on every Apply / Refresh and when you open this section.</p>
+            <div style="display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px">
               <div>
                 <label class="bcn-label">Metric</label>
-                <select id="metricMode" class="bcn-field" style="min-width:130px">
+                <select id="metricMode" class="bcn-field" style="min-width:120px">
                   <option value="sales" selected>Sales</option>
                   <option value="units">Units</option>
                   <option value="both">Both</option>
                 </select>
               </div>
-              <button type="button" id="btnReloadComps" class="bcn-btn bcn-btn--ghost">Reload comps</button>
+              <button type="button" id="btnReloadComps" class="bcn-btn">Reload comps</button>
               <div id="matrixMeta" class="sv-status" style="margin-left:auto;text-align:right;max-width:300px"></div>
             </div>
-            <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--bcn-border);padding-top:8px;margin-bottom:8px">
+            <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--bcn-border);padding-top:8px">
               <div id="matrixCount" class="sv-status">Closed — open to load</div>
             </div>
             <div class="sv-table-wrap">
-              <table class="matrix-table">
+              <table class="matrix-tbl">
                 <thead id="matrixHead"></thead>
                 <tbody id="matrixBody">
-                  <tr><td colspan="20" class="bcn-table-empty">Open this section to load comps…</td></tr>
+                  <tr><td colspan="20" class="sv-empty">Open this section to load comps…</td></tr>
                 </tbody>
               </table>
             </div>
@@ -337,14 +327,14 @@
         </details>
 
         <!-- Line detail -->
-        <section class="bcn-card">
+        <div class="bcn-card">
           <div class="bcn-card-header">
-            <span class="bcn-card-title">Line detail</span>
-            <span id="detailCount" class="sv-status">0 rows</span>
+            <h2>Line detail</h2>
+            <span id="detailCount" class="bcn-card-meta" style="margin-left:auto">0 rows</span>
           </div>
-          <div class="bcn-card-body" style="padding:0">
+          <div class="bcn-card-body" style="padding:0;overflow:visible">
             <div class="sv-table-wrap">
-              <table class="bcn-table" style="min-width:1260px">
+              <table class="sv-tbl" style="min-width:1200px">
                 <thead>
                   <tr>
                     <th>Day</th>
@@ -352,78 +342,66 @@
                     <th>SKU</th>
                     <th>Product</th>
                     <th>Type</th>
-                    <th class="num">Qty</th>
-                    <th class="num">Orders</th>
-                    <th class="num">Gross</th>
-                    <th class="num">Discounts</th>
-                    <th class="num">Refunds</th>
-                    <th class="num">Net</th>
-                    <th class="num">Taxes</th>
-                    <th class="num">Shipping</th>
-                    <th class="num">Total</th>
+                    <th class="r">Qty</th>
+                    <th class="r">Orders</th>
+                    <th class="r">Gross</th>
+                    <th class="r">Discounts</th>
+                    <th class="r">Refunds</th>
+                    <th class="r">Net</th>
+                    <th class="r">Taxes</th>
+                    <th class="r">Shipping</th>
+                    <th class="r">Total</th>
                   </tr>
                 </thead>
                 <tbody id="detailBody">
-                  <tr><td colspan="14" class="bcn-table-empty">Loading…</td></tr>
+                  <tr><td colspan="14" class="sv-empty">Loading…</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
           <div class="bcn-card-foot">
-            <div class="sv-pagination">
+            <div class="sv-pagination" style="width:100%">
               <div id="pageMeta" class="sv-status">Page 1</div>
               <div class="sv-page-btns">
                 <button id="btnPrevPage" class="sv-page-btn">‹</button>
-                <div id="pageIndicator" class="sv-page-indicator">1 / 1</div>
+                <div id="pageIndicator" class="sv-page-ind">1 / 1</div>
                 <button id="btnNextPage" class="sv-page-btn">›</button>
               </div>
             </div>
           </div>
-        </section>
+        </div>
 
-      </div>
+      </div><!-- /sv-col -->
 
       <!-- Sidebar -->
-      <aside class="sv-col">
-        <section class="bcn-card">
-          <div class="bcn-card-header"><span class="bcn-card-title">Exceptions</span></div>
+      <div class="sv-col">
+        <div class="bcn-card">
+          <div class="bcn-card-header"><h2>Exceptions</h2></div>
           <div class="bcn-card-body">
-            <div style="font-size:.78rem;color:var(--bcn-ink-3);margin-bottom:4px">Counts across the full filtered set.</div>
+            <div style="font-size:11.5px;color:var(--bcn-ink-3)">Counts across the full filtered set.</div>
             <div class="sv-exc-grid">
-              <div class="sv-exc-cell">
-                <div class="sv-exc-label">Refund disc.</div>
-                <div id="excRefundDiscrepancy" class="sv-exc-value">—</div>
-              </div>
-              <div class="sv-exc-cell">
-                <div class="sv-exc-label">Blank SKU</div>
-                <div id="excBlankSku" class="sv-exc-value">—</div>
-              </div>
-              <div class="sv-exc-cell">
-                <div class="sv-exc-label">Neg. net</div>
-                <div id="excNegativeNet" class="sv-exc-value">—</div>
-              </div>
-              <div class="sv-exc-cell">
-                <div class="sv-exc-label">Sync batches</div>
-                <div id="excBatchCount" class="sv-exc-value">—</div>
-              </div>
+              <div class="sv-exc-cell"><div class="sv-exc-label">Refund disc.</div><div id="excRefundDiscrepancy" class="sv-exc-val">—</div></div>
+              <div class="sv-exc-cell"><div class="sv-exc-label">Blank SKU</div><div id="excBlankSku" class="sv-exc-val">—</div></div>
+              <div class="sv-exc-cell"><div class="sv-exc-label">Neg. net</div><div id="excNegativeNet" class="sv-exc-val">—</div></div>
+              <div class="sv-exc-cell"><div class="sv-exc-label">Sync batches</div><div id="excBatchCount" class="sv-exc-val">—</div></div>
             </div>
           </div>
-        </section>
-
-        <section class="bcn-card">
-          <div class="bcn-card-header"><span class="bcn-card-title">Notes</span></div>
+        </div>
+        <div class="bcn-card">
+          <div class="bcn-card-header"><h2>Notes</h2></div>
           <div class="bcn-card-body">
-            <ul style="margin:0;padding:0 0 0 16px;display:flex;flex-direction:column;gap:6px;font-size:.78rem;color:var(--bcn-ink-3);line-height:1.5">
+            <ul style="margin:0;padding:0 0 0 14px;display:flex;flex-direction:column;gap:5px;font-size:11.5px;color:var(--bcn-ink-3);line-height:1.5">
               <li>"All history" scans in chunks and can take longer.</li>
               <li>Comps are a separate summary; reload with Apply, Refresh, or <strong>Reload comps</strong>.</li>
             </ul>
           </div>
-        </section>
-      </aside>
-    </div>
+        </div>
+      </div>
+
+    </div><!-- /sv-content -->
 
   </main>
-</div>
+</div><!-- /silo-app -->
 
 <script src="../pages/config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -435,33 +413,24 @@
   const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
 
   if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    document.getElementById('silo-main').innerHTML =
-      `<div class="bcn-card" style="margin:32px auto;max-width:480px;text-align:center;padding:32px">
-        <div style="font-weight:800;font-size:1rem">Missing Supabase config</div>
-        <div style="margin-top:8px;font-size:.82rem;color:var(--bcn-ink-3)">Provide SUPABASE_URL and SUPABASE_ANON_KEY through window.__SILO_CONFIG__ before loading this page.</div>
-      </div>`;
+    document.querySelector('.silo-main').innerHTML =
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
     throw new Error('Missing Supabase config');
   }
 
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    global: { fetch: (url, opts = {}) => fetch(url, { ...opts, cache: 'no-store' }) },
+    global:{ fetch:(url,o={})=>fetch(url,{...o,cache:'no-store'}) },
   });
-
   const _co = cfg.getActiveCompany?.() || null;
 
-  function applyCompanyScope(q) {
-    if (_co?.id) return q.eq('company_entity_id', _co.id);
-    return q;
-  }
+  function scopeQ(q){ return _co?.id ? q.eq('company_entity_id',_co.id) : q; }
 
-  const DETAIL_PAGE_SIZE = 200;
-
+  const PAGE = 200;
   const state = {
-    locationOptions: [],
-    currentPage: 1, totalPages: 1, totalRows: 0,
-    summary: null, detailRows: [], matrixRows: [],
-    summaryRefreshedAt: null, matrixClientFetchedAt: null,
-    quickFilter: 'all', lastRefreshAt: null, isLoading: false,
+    currentPage:1, totalPages:1, totalRows:0,
+    summary:null, detailRows:[], matrixRows:[],
+    summaryRefreshedAt:null, matrixFetchedAt:null,
+    quickFilter:'all', lastRefreshAt:null, isLoading:false,
   };
 
   const el = {
@@ -476,29 +445,28 @@
     dateTo:        document.getElementById('dateTo'),
     searchInput:   document.getElementById('searchInput'),
     sortBy:        document.getElementById('sortBy'),
-    quickFilters:  document.getElementById('quickFilters'),
-    lastRefreshPill:document.getElementById('lastRefreshPill'),
-    statusText:    document.getElementById('statusText'),
-    progressText:  document.getElementById('progressText'),
-    kpiRows:       document.getElementById('kpiRows'),
-    kpiUnits:      document.getElementById('kpiUnits'),
-    kpiNet:        document.getElementById('kpiNet'),
-    kpiRefunds:    document.getElementById('kpiRefunds'),
-    kpiLocations:  document.getElementById('kpiLocations'),
-    kpiDateRange:  document.getElementById('kpiDateRange'),
-    excRefundDiscrepancy: document.getElementById('excRefundDiscrepancy'),
-    excBlankSku:   document.getElementById('excBlankSku'),
-    excNegativeNet:document.getElementById('excNegativeNet'),
-    excBatchCount: document.getElementById('excBatchCount'),
-    locationSummaryBody:  document.getElementById('locationSummaryBody'),
-    locationSummaryCount: document.getElementById('locationSummaryCount'),
-    detailBody:    document.getElementById('detailBody'),
-    detailCount:   document.getElementById('detailCount'),
-    pageMeta:      document.getElementById('pageMeta'),
-    pageIndicator: document.getElementById('pageIndicator'),
-    provisionalBanner: document.getElementById('provisionalBanner'),
-    provisionalText:   document.getElementById('provisionalText'),
-    storeCompsPanel:   document.getElementById('storeCompsPanel'),
+    lastRefreshPill:    document.getElementById('lastRefreshPill'),
+    statusText:         document.getElementById('statusText'),
+    progressText:       document.getElementById('progressText'),
+    kpiRows:            document.getElementById('kpiRows'),
+    kpiUnits:           document.getElementById('kpiUnits'),
+    kpiNet:             document.getElementById('kpiNet'),
+    kpiRefunds:         document.getElementById('kpiRefunds'),
+    kpiLocations:       document.getElementById('kpiLocations'),
+    kpiDateRange:       document.getElementById('kpiDateRange'),
+    excRefundDiscrepancy:document.getElementById('excRefundDiscrepancy'),
+    excBlankSku:        document.getElementById('excBlankSku'),
+    excNegativeNet:     document.getElementById('excNegativeNet'),
+    excBatchCount:      document.getElementById('excBatchCount'),
+    locationSummaryBody: document.getElementById('locationSummaryBody'),
+    locationSummaryCount:document.getElementById('locationSummaryCount'),
+    detailBody:     document.getElementById('detailBody'),
+    detailCount:    document.getElementById('detailCount'),
+    pageMeta:       document.getElementById('pageMeta'),
+    pageIndicator:  document.getElementById('pageIndicator'),
+    provisionalBanner:  document.getElementById('provisionalBanner'),
+    provisionalText:    document.getElementById('provisionalText'),
+    storeCompsPanel:    document.getElementById('storeCompsPanel'),
     metricMode:    document.getElementById('metricMode'),
     matrixHead:    document.getElementById('matrixHead'),
     matrixBody:    document.getElementById('matrixBody'),
@@ -508,94 +476,72 @@
   };
 
   const money = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(v||0));
-  const moneyWhole = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(v||0));
-  const numberFmt = v => Number(v||0).toLocaleString();
-  const pctFmt = v => (v===null||v===undefined||Number.isNaN(Number(v))) ? '—' : `${(Number(v)*100).toFixed(1)}%`;
-  const fmtDate = v => v || '—';
-  const escHtml = str => String(str??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'","&#039;");
-  const fmtTs = ts => { if(!ts) return '—'; const d=new Date(ts); return Number.isNaN(d.getTime())?String(ts):d.toLocaleString(); };
+  const moneyW = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(v||0));
+  const numFmt = v => Number(v||0).toLocaleString();
+  const pct    = v => (v==null||Number.isNaN(Number(v)))?'—':`${(Number(v)*100).toFixed(1)}%`;
+  const esc    = s => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
+  const fmtTs  = ts => { if(!ts) return '—'; const d=new Date(ts); return isNaN(d)?String(ts):d.toLocaleString(); };
+  const today  = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
+  const addD   = (s,n) => { const d=new Date(`${s}T00:00:00`); d.setDate(d.getDate()+n); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
 
-  function todayStr() {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  }
-  function addDays(s, n) {
-    const d = new Date(`${s}T00:00:00`); d.setDate(d.getDate()+n);
-    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-  }
-
-  function setStatus(t){ el.statusText.textContent = t; }
-  function setProgress(t){ el.progressText.textContent = t; }
+  function setStatus(t){ el.statusText.textContent=t; }
+  function setProgress(t){ el.progressText.textContent=t; }
   function setLoading(v){
-    state.isLoading = v;
+    state.isLoading=v;
     [el.btnRefresh,el.btnApply,el.btnReset,el.btnReloadComps].forEach(b=>b.disabled=v);
-    el.btnPrevPage.disabled = v || state.currentPage<=1;
-    el.btnNextPage.disabled = v || state.currentPage>=state.totalPages;
+    el.btnPrevPage.disabled=v||state.currentPage<=1;
+    el.btnNextPage.disabled=v||state.currentPage>=state.totalPages;
   }
 
-  function getFilters() {
-    return {
-      preset:   el.presetFilter.value,
-      location: el.locationFilter.value.trim(),
-      dateFrom: el.dateFrom.value,
-      dateTo:   el.dateTo.value,
-      search:   el.searchInput.value.trim(),
-      sortBy:   el.sortBy.value,
-      quick:    state.quickFilter,
-    };
+  function getFilters(){
+    return { preset:el.presetFilter.value, location:el.locationFilter.value.trim(),
+      dateFrom:el.dateFrom.value, dateTo:el.dateTo.value,
+      search:el.searchInput.value.trim(), sortBy:el.sortBy.value, quick:state.quickFilter };
   }
 
-  function applyPresetDates() {
-    const p = el.presetFilter.value, today = todayStr();
-    if (p==='30d')     { el.dateFrom.value=addDays(today,-29); el.dateTo.value=today; }
-    else if (p==='90d'){ el.dateFrom.value=addDays(today,-89); el.dateTo.value=today; }
-    else if (p==='ytd'){ el.dateFrom.value=`${today.slice(0,4)}-01-01`; el.dateTo.value=today; }
-    else if (p==='all'){ el.dateFrom.value=''; el.dateTo.value=''; }
+  function applyPreset(){
+    const p=el.presetFilter.value, t=today();
+    if (p==='30d')      { el.dateFrom.value=addD(t,-29); el.dateTo.value=t; }
+    else if (p==='90d') { el.dateFrom.value=addD(t,-89); el.dateTo.value=t; }
+    else if (p==='ytd') { el.dateFrom.value=`${t.slice(0,4)}-01-01`; el.dateTo.value=t; }
+    else if (p==='all') { el.dateFrom.value=''; el.dateTo.value=''; }
   }
 
-  function resetFilters() {
-    el.presetFilter.value='90d'; applyPresetDates();
+  function resetFilters(){
+    el.presetFilter.value='90d'; applyPreset();
     el.locationFilter.value=''; el.searchInput.value=''; el.sortBy.value='day_desc';
     state.quickFilter='all';
     [...document.querySelectorAll('[data-quick]')].forEach(b=>b.classList.toggle('active',b.dataset.quick==='all'));
     state.currentPage=1;
   }
 
-  const isRefundDisc = r => ['[refund discrepancy]'].includes(String(r.product_name||'').trim().toLowerCase()) || ['[refund discrepancy]'].includes(String(r.sku||'').trim().toLowerCase());
-  const isBlankSku   = r => !String(r.sku||'').trim();
-  const isNegNet     = r => Number(r.total_net_sales||0) < 0;
+  const isRefDisc = r => ['[refund discrepancy]'].includes(String(r.product_name||'').trim().toLowerCase())||['[refund discrepancy]'].includes(String(r.sku||'').trim().toLowerCase());
+  const isBlank   = r => !String(r.sku||'').trim();
+  const isNegNet  = r => Number(r.total_net_sales||0)<0;
 
-  function escOr(v){ return String(v).replaceAll(',','\\,').replaceAll('(','\\(').replaceAll(')','\\)'); }
-
-  function applyCommonFilters(q, f) {
-    q = applyCompanyScope(q);
-    if (f.location)  q = q.eq('location_tag', f.location);
-    if (f.dateFrom)  q = q.gte('day_date', f.dateFrom);
-    if (f.dateTo)    q = q.lte('day_date', f.dateTo);
-    if (f.search) {
-      const t = escOr(`%${f.search}%`);
-      q = q.or([`product_name.ilike.${t}`,`sku.ilike.${t}`,`product_type.ilike.${t}`].join(','));
+  function applyFilters(q,f){
+    q=scopeQ(q);
+    if (f.location) q=q.eq('location_tag',f.location);
+    if (f.dateFrom) q=q.gte('day_date',f.dateFrom);
+    if (f.dateTo)   q=q.lte('day_date',f.dateTo);
+    if (f.search){
+      const t=String(f.search).replaceAll(',','\\,').replaceAll('(','\\(').replaceAll(')','\\)');
+      q=q.or([`product_name.ilike.%${t}%`,`sku.ilike.%${t}%`,`product_type.ilike.%${t}%`].join(','));
     }
-    if (f.quick==='refund_discrepancy') {
-      const t = escOr('[Refund discrepancy]');
-      q = q.or(`product_name.eq.${t},sku.eq.${t}`);
-    } else if (f.quick==='blank_sku') {
-      q = q.or('sku.is.null,sku.eq.');
-    } else if (f.quick==='negative_net') {
-      q = q.lt('total_net_sales', 0);
-    }
+    if (f.quick==='refund_discrepancy'){ const t=String('[Refund discrepancy]').replaceAll(',','\\,'); q=q.or(`product_name.eq.${t},sku.eq.${t}`); }
+    else if (f.quick==='blank_sku') q=q.or('sku.is.null,sku.eq.');
+    else if (f.quick==='negative_net') q=q.lt('total_net_sales',0);
     return q;
   }
 
-  async function computeSummary(f) {
+  async function computeSummary(f){
     setProgress('Aggregating…');
-    const { data, error } = await sb.rpc('sales_verification_filtered_summary', {
-      p_date_from:   f.dateFrom||null, p_date_to:    f.dateTo||null,
-      p_location_tag:f.location||null, p_search:     f.search||null,
-      p_quick:       f.quick||'all',
+    const { data,error } = await sb.rpc('sales_verification_filtered_summary',{
+      p_date_from:f.dateFrom||null, p_date_to:f.dateTo||null,
+      p_location_tag:f.location||null, p_search:f.search||null, p_quick:f.quick||'all',
     });
     if (error) throw error;
-    const locs = (data?.locations||[]).map(l=>({
+    const locs=(data?.locations||[]).map(l=>({
       location_tag:l.location_tag, row_count:Number(l.row_count||0),
       min_date:l.min_date||null, max_date:l.max_date||null,
       units:Number(l.units||0), gross:Number(l.gross||0),
@@ -604,8 +550,8 @@
     }));
     return {
       totalRows:Number(data?.total_rows||0), totalUnits:Number(data?.total_units||0),
-      totalNet:Number(data?.total_net||0),   totalRefunds:Number(data?.total_refunds||0),
-      minDate:data?.min_date||null,          maxDate:data?.max_date||null,
+      totalNet:Number(data?.total_net||0), totalRefunds:Number(data?.total_refunds||0),
+      minDate:data?.min_date||null, maxDate:data?.max_date||null,
       refundDiscrepancyCount:Number(data?.refund_discrepancy_count||0),
       blankSkuCount:Number(data?.blank_sku_count||0),
       negativeNetCount:Number(data?.negative_net_count||0),
@@ -614,273 +560,233 @@
     };
   }
 
-  async function loadDetailPage(f, page) {
-    const from=(page-1)*DETAIL_PAGE_SIZE, to=from+DETAIL_PAGE_SIZE-1;
-    let q = sb.from('sales_by_day').select('day_date,location_tag,location_name,product_name,sku,product_type,total_quantity_sold,total_orders,total_gross_sales,total_discounts,total_refunds,total_net_sales,taxes,shipping,total_sales');
-    q = applyCommonFilters(q, f);
+  async function loadDetailPage(f,page){
+    const from=(page-1)*PAGE, to=from+PAGE-1;
+    let q=sb.from('sales_by_day').select('day_date,location_tag,location_name,product_name,sku,product_type,total_quantity_sold,total_orders,total_gross_sales,total_discounts,total_refunds,total_net_sales,taxes,shipping,total_sales');
+    q=applyFilters(q,f);
     if (f.sortBy==='day_asc')   q=q.order('day_date',{ascending:true}).order('product_name',{ascending:true});
     else if (f.sortBy==='net_desc') q=q.order('total_net_sales',{ascending:false}).order('day_date',{ascending:false});
     else if (f.sortBy==='qty_desc') q=q.order('total_quantity_sold',{ascending:false}).order('day_date',{ascending:false});
     else q=q.order('day_date',{ascending:false}).order('product_name',{ascending:true});
-    q=q.range(from,to);
-    const { data, error } = await q;
+    const { data,error } = await q.range(from,to);
     if (error) throw error;
     return data||[];
   }
 
-  async function loadLocationOptions() {
-    const { data, error } = await sb.from('sales_verification_store_comp_summary').select('location_tag').order('location_tag');
+  async function loadLocationOptions(){
+    const { data,error } = await sb.from('sales_verification_store_comp_summary').select('location_tag').order('location_tag');
     if (error) throw error;
-    state.locationOptions = (data||[]).map(r=>r.location_tag).filter(Boolean);
-    el.locationFilter.innerHTML = ['<option value="">All locations</option>']
-      .concat(state.locationOptions.map(l=>`<option value="${escHtml(l)}">${escHtml(l)}</option>`)).join('');
+    el.locationFilter.innerHTML=['<option value="">All locations</option>']
+      .concat((data||[]).map(r=>r.location_tag).filter(Boolean).map(l=>`<option value="${esc(l)}">${esc(l)}</option>`)).join('');
   }
 
-  async function loadMatrix() {
-    let q = sb.from('sales_verification_store_comp_summary').select('*').order('location_tag',{ascending:true});
-    const loc = el.locationFilter.value.trim();
-    if (loc) q = q.eq('location_tag', loc);
-    const { data, error } = await q;
-    if (error) throw error;
-    state.matrixRows = data||[];
-    state.summaryRefreshedAt = data?.[0]?.refreshed_at||null;
+  async function loadMatrix(){
+    let q=sb.from('sales_verification_store_comp_summary').select('*').order('location_tag',{ascending:true});
+    const loc=el.locationFilter.value.trim(); if (loc) q=q.eq('location_tag',loc);
+    const { data,error } = await q; if (error) throw error;
+    state.matrixRows=data||[]; state.summaryRefreshedAt=data?.[0]?.refreshed_at||null;
   }
 
-  async function syncComps() {
-    await loadMatrix();
-    state.matrixClientFetchedAt = new Date().toISOString();
+  async function syncComps(){
+    await loadMatrix(); state.matrixFetchedAt=new Date().toISOString();
     if (el.storeCompsPanel.open) renderMatrix();
   }
 
-  function filtersMayIncludeCurrentDay() {
-    const f=getFilters(), today=todayStr();
+  function mayIncludeToday(){
+    const f=getFilters(),t=today();
     if (f.preset==='all'&&!f.dateFrom&&!f.dateTo) return false;
-    if (f.dateTo&&f.dateTo>=today) return true;
+    if (f.dateTo&&f.dateTo>=t) return true;
     if (!f.dateTo&&f.preset!=='all'&&f.preset!=='custom') return true;
-    if (f.preset==='custom'&&!f.dateTo&&f.dateFrom&&f.dateFrom<=today) return true;
     return false;
   }
 
   /* ---- Render ---- */
 
-  function renderKpis() {
-    const s=state.summary; if(!s) return;
-    el.kpiRows.textContent = numberFmt(s.totalRows);
-    el.kpiUnits.textContent = numberFmt(s.totalUnits);
-    el.kpiNet.textContent = money(s.totalNet);
-    el.kpiRefunds.textContent = money(s.totalRefunds);
-    el.kpiLocations.textContent = numberFmt(s.locationCount);
-    el.kpiDateRange.textContent = s.minDate&&s.maxDate ? `${s.minDate} → ${s.maxDate}` : '—';
-    el.lastRefreshPill.textContent = `Last refresh: ${fmtTs(state.lastRefreshAt)}`;
+  function renderKpis(){
+    const s=state.summary; if (!s) return;
+    el.kpiRows.textContent=numFmt(s.totalRows);
+    el.kpiUnits.textContent=numFmt(s.totalUnits);
+    el.kpiNet.textContent=money(s.totalNet);
+    el.kpiRefunds.textContent=money(s.totalRefunds);
+    el.kpiLocations.textContent=numFmt(s.locationCount);
+    el.kpiDateRange.textContent=s.minDate&&s.maxDate?`${s.minDate} → ${s.maxDate}`:'—';
+    el.lastRefreshPill.textContent=`Last refresh: ${fmtTs(state.lastRefreshAt)}`;
   }
 
-  function renderExceptions() {
-    const s=state.summary; if(!s) return;
-    el.excRefundDiscrepancy.textContent = numberFmt(s.refundDiscrepancyCount);
-    el.excBlankSku.textContent = numberFmt(s.blankSkuCount);
-    el.excNegativeNet.textContent = numberFmt(s.negativeNetCount);
-    el.excBatchCount.textContent = numberFmt(s.batchCount);
+  function renderExceptions(){
+    const s=state.summary; if (!s) return;
+    el.excRefundDiscrepancy.textContent=numFmt(s.refundDiscrepancyCount);
+    el.excBlankSku.textContent=numFmt(s.blankSkuCount);
+    el.excNegativeNet.textContent=numFmt(s.negativeNetCount);
+    el.excBatchCount.textContent=numFmt(s.batchCount);
   }
 
-  function renderLocationSummary() {
+  function renderLocationSummary(){
     const s=state.summary;
-    if (!s||!s.locations.length) {
+    if (!s||!s.locations.length){
       el.locationSummaryCount.textContent='0 locations';
-      el.locationSummaryBody.innerHTML=`<tr><td colspan="10" class="bcn-table-empty">No rows match current filters.</td></tr>`;
+      el.locationSummaryBody.innerHTML=`<tr><td colspan="10" class="sv-empty">No rows match current filters.</td></tr>`;
       return;
     }
     el.locationSummaryCount.textContent=`${s.locations.length} location${s.locations.length===1?'':'s'}`;
-    el.locationSummaryBody.innerHTML=s.locations.map(r=>`
-      <tr>
-        <td><strong>${escHtml(r.location_tag)}</strong></td>
-        <td class="num">${numberFmt(r.row_count)}</td>
-        <td class="bcn-mono" style="font-size:.75rem">${fmtDate(r.min_date)}</td>
-        <td class="bcn-mono" style="font-size:.75rem">${fmtDate(r.max_date)}</td>
-        <td class="num">${numberFmt(r.units)}</td>
-        <td class="num">${money(r.gross)}</td>
-        <td class="num">${money(r.discounts)}</td>
-        <td class="num">${money(r.refunds)}</td>
-        <td class="num" style="font-weight:700">${money(r.net)}</td>
-        <td class="num">${money(r.total_sales)}</td>
-      </tr>`).join('');
+    el.locationSummaryBody.innerHTML=s.locations.map(r=>`<tr>
+      <td><strong>${esc(r.location_tag)}</strong></td>
+      <td class="r">${numFmt(r.row_count)}</td>
+      <td class="mono">${r.min_date||'—'}</td>
+      <td class="mono">${r.max_date||'—'}</td>
+      <td class="r">${numFmt(r.units)}</td>
+      <td class="r">${money(r.gross)}</td>
+      <td class="r">${money(r.discounts)}</td>
+      <td class="r">${money(r.refunds)}</td>
+      <td class="r" style="font-weight:700">${money(r.net)}</td>
+      <td class="r">${money(r.total_sales)}</td>
+    </tr>`).join('');
   }
 
-  function renderDetailRows() {
+  function renderDetailRows(){
     const rows=state.detailRows||[];
-    if (!rows.length) {
-      el.detailBody.innerHTML=`<tr><td colspan="14" class="bcn-table-empty">No rows match current filters.</td></tr>`;
+    if (!rows.length){
+      el.detailBody.innerHTML=`<tr><td colspan="14" class="sv-empty">No rows match current filters.</td></tr>`;
     } else {
       el.detailBody.innerHTML=rows.map(r=>{
-        const badge = isRefundDisc(r) ? `<span class="sv-badge sv-badge--warn">Refund discrepancy</span>`
-                    : isBlankSku(r)   ? `<span class="sv-badge sv-badge--neg">Blank SKU</span>`
-                    : isNegNet(r)     ? `<span class="sv-badge sv-badge--warn">Negative net</span>`
-                    : '';
+        const tag=isRefDisc(r)?`<span class="sv-tag sv-tag--warn">Refund discrepancy</span>`
+                 :isBlank(r)?`<span class="sv-tag sv-tag--neg">Blank SKU</span>`
+                 :isNegNet(r)?`<span class="sv-tag sv-tag--warn">Negative net</span>`:'';
         return `<tr>
-          <td class="bcn-mono" style="font-size:.73rem">${fmtDate(r.day_date)}</td>
-          <td><strong>${escHtml(r.location_tag||'')}</strong></td>
-          <td class="bcn-mono" style="font-size:.73rem">${escHtml(r.sku||'—')}</td>
-          <td><div class="truncate-2" style="font-weight:600;max-width:220px">${escHtml(r.product_name||'—')}</div>${badge?`<div style="margin-top:3px">${badge}</div>`:''}</td>
-          <td style="color:var(--bcn-ink-3);font-size:.78rem">${escHtml(r.product_type||'—')}</td>
-          <td class="num">${numberFmt(r.total_quantity_sold||0)}</td>
-          <td class="num">${numberFmt(r.total_orders||0)}</td>
-          <td class="num">${money(r.total_gross_sales)}</td>
-          <td class="num">${money(r.total_discounts)}</td>
-          <td class="num">${money(r.total_refunds)}</td>
-          <td class="num" style="font-weight:700">${money(r.total_net_sales)}</td>
-          <td class="num">${money(r.taxes)}</td>
-          <td class="num">${money(r.shipping)}</td>
-          <td class="num">${money(r.total_sales)}</td>
+          <td class="mono">${r.day_date||'—'}</td>
+          <td><strong>${esc(r.location_tag||'')}</strong></td>
+          <td class="mono" style="font-size:11px">${esc(r.sku||'—')}</td>
+          <td><div class="truncate-2" style="font-weight:600;max-width:200px">${esc(r.product_name||'—')}</div>${tag}</td>
+          <td style="color:var(--bcn-ink-3);font-size:11.5px">${esc(r.product_type||'—')}</td>
+          <td class="r">${numFmt(r.total_quantity_sold||0)}</td>
+          <td class="r">${numFmt(r.total_orders||0)}</td>
+          <td class="r">${money(r.total_gross_sales)}</td>
+          <td class="r">${money(r.total_discounts)}</td>
+          <td class="r">${money(r.total_refunds)}</td>
+          <td class="r" style="font-weight:700">${money(r.total_net_sales)}</td>
+          <td class="r">${money(r.taxes)}</td>
+          <td class="r">${money(r.shipping)}</td>
+          <td class="r">${money(r.total_sales)}</td>
         </tr>`;
       }).join('');
     }
-    el.detailCount.textContent=`${numberFmt(state.totalRows)} rows in filtered result`;
+    el.detailCount.textContent=`${numFmt(state.totalRows)} rows in filtered result`;
     el.pageIndicator.textContent=`${state.currentPage} / ${state.totalPages}`;
-    const start=state.totalRows?((state.currentPage-1)*DETAIL_PAGE_SIZE)+1:0;
-    const end=Math.min(state.currentPage*DETAIL_PAGE_SIZE,state.totalRows);
-    el.pageMeta.textContent=state.totalRows?`Showing ${numberFmt(start)}–${numberFmt(end)} of ${numberFmt(state.totalRows)}`:'No rows';
+    const s=state.totalRows?((state.currentPage-1)*PAGE)+1:0, e=Math.min(state.currentPage*PAGE,state.totalRows);
+    el.pageMeta.textContent=state.totalRows?`Showing ${numFmt(s)}–${numFmt(e)} of ${numFmt(state.totalRows)}`:'No rows';
     el.btnPrevPage.disabled=state.isLoading||state.currentPage<=1;
     el.btnNextPage.disabled=state.isLoading||state.currentPage>=state.totalPages;
   }
 
-  function renderMatrix() {
+  function renderMatrix(){
     const rows=state.matrixRows||[], mode=el.metricMode.value;
     let cols='';
-    if (mode==='sales'||mode==='both') cols+=`
-      <th class="group-day">CY Net</th><th class="group-day">PY Net</th><th class="group-day">Var %</th>
-      <th class="group-mtd">CY Net</th><th class="group-mtd">PY Net</th><th class="group-mtd">Var %</th>
-      <th class="group-ytd">CY Net</th><th class="group-ytd">PY Net</th><th class="group-ytd">Var %</th>`;
-    if (mode==='units'||mode==='both') cols+=`
-      <th class="group-day">CY Units</th><th class="group-day">PY Units</th><th class="group-day">Var %</th>
-      <th class="group-mtd">CY Units</th><th class="group-mtd">PY Units</th><th class="group-mtd">Var %</th>
-      <th class="group-ytd">CY Units</th><th class="group-ytd">PY Units</th><th class="group-ytd">Var %</th>`;
-    cols+=`<th class="group-meta">Rows</th><th class="group-meta">Blank SKU</th><th class="group-meta">Discrepancy</th><th class="group-meta">Min Date</th><th class="group-meta">Max Date</th>`;
+    if (mode==='sales'||mode==='both') cols+=`<th class="g-day">CY Net</th><th class="g-day">PY Net</th><th class="g-day">Var %</th><th class="g-mtd">CY Net</th><th class="g-mtd">PY Net</th><th class="g-mtd">Var %</th><th class="g-ytd">CY Net</th><th class="g-ytd">PY Net</th><th class="g-ytd">Var %</th>`;
+    if (mode==='units'||mode==='both') cols+=`<th class="g-day">CY Units</th><th class="g-day">PY Units</th><th class="g-day">Var %</th><th class="g-mtd">CY Units</th><th class="g-mtd">PY Units</th><th class="g-mtd">Var %</th><th class="g-ytd">CY Units</th><th class="g-ytd">PY Units</th><th class="g-ytd">Var %</th>`;
+    cols+=`<th class="g-meta">Rows</th><th class="g-meta">Blank SKU</th><th class="g-meta">Discrepancy</th><th class="g-meta">Min Date</th><th class="g-meta">Max Date</th>`;
     const span=mode==='both'?6:3;
-    el.matrixHead.innerHTML=`<tr>
-      <th class="store-col" rowspan="2">Store</th>
-      <th class="group-day" colspan="${span}">Day</th>
-      <th class="group-mtd" colspan="${span}">MTD</th>
-      <th class="group-ytd" colspan="${span}">YTD</th>
-      <th class="group-meta" colspan="5">Verification</th>
-    </tr><tr>${cols}</tr>`;
-
-    if (!rows.length) {
+    el.matrixHead.innerHTML=`<tr><th class="m-store" rowspan="2">Store</th><th class="g-day" colspan="${span}">Day</th><th class="g-mtd" colspan="${span}">MTD</th><th class="g-ytd" colspan="${span}">YTD</th><th class="g-meta" colspan="5">Verification</th></tr><tr>${cols}</tr>`;
+    if (!rows.length){
       el.matrixCount.textContent='No rows';
-      el.matrixBody.innerHTML=`<tr><td colspan="30" class="bcn-table-empty">No comp rows for this location filter.</td></tr>`;
-      el.matrixMeta.textContent=state.matrixClientFetchedAt?`Last pull: ${fmtTs(state.matrixClientFetchedAt)}`:'';
+      el.matrixBody.innerHTML=`<tr><td colspan="30" class="sv-empty">No comp rows for this location filter.</td></tr>`;
+      el.matrixMeta.textContent=state.matrixFetchedAt?`Last pull: ${fmtTs(state.matrixFetchedAt)}`:'';
       return;
     }
     el.matrixCount.textContent=`${rows.length} store${rows.length===1?'':'s'}`;
-    const asOf=rows[0]?.as_of_date||'—', pyAsOf=rows[0]?.py_as_of_date||'—';
-    const srv=state.summaryRefreshedAt?`Server summary: ${fmtTs(state.summaryRefreshedAt)} · `:'';
-    const cli=state.matrixClientFetchedAt?`Pulled: ${fmtTs(state.matrixClientFetchedAt)} · `:'';
-    el.matrixMeta.textContent=`${cli}${srv}CY ${asOf} · PY ${pyAsOf}`;
+    el.matrixMeta.textContent=`${state.matrixFetchedAt?`Pulled: ${fmtTs(state.matrixFetchedAt)} · `:''}CY ${rows[0]?.as_of_date||'—'} · PY ${rows[0]?.py_as_of_date||'—'}`;
     el.matrixBody.innerHTML=rows.map(r=>{
-      let h=`<tr><td class="store-col">${escHtml(r.location_tag)}</td>`;
-      if (mode==='sales'||mode==='both') h+=`
-        <td class="group-day num">${moneyWhole(r.cur_day_net)}</td><td class="group-day num">${moneyWhole(r.py_day_net)}</td><td class="group-day num">${pctFmt(r.day_net_var_pct)}</td>
-        <td class="group-mtd num">${moneyWhole(r.cur_mtd_net)}</td><td class="group-mtd num">${moneyWhole(r.py_mtd_net)}</td><td class="group-mtd num">${pctFmt(r.mtd_net_var_pct)}</td>
-        <td class="group-ytd num">${moneyWhole(r.cur_ytd_net)}</td><td class="group-ytd num">${moneyWhole(r.py_ytd_net)}</td><td class="group-ytd num">${pctFmt(r.ytd_net_var_pct)}</td>`;
-      if (mode==='units'||mode==='both') h+=`
-        <td class="group-day num">${numberFmt(r.cur_day_qty)}</td><td class="group-day num">${numberFmt(r.py_day_qty)}</td><td class="group-day num">${pctFmt(r.day_qty_var_pct)}</td>
-        <td class="group-mtd num">${numberFmt(r.cur_mtd_qty)}</td><td class="group-mtd num">${numberFmt(r.py_mtd_qty)}</td><td class="group-mtd num">${pctFmt(r.mtd_qty_var_pct)}</td>
-        <td class="group-ytd num">${numberFmt(r.cur_ytd_qty)}</td><td class="group-ytd num">${numberFmt(r.py_ytd_qty)}</td><td class="group-ytd num">${pctFmt(r.ytd_qty_var_pct)}</td>`;
-      h+=`<td class="group-meta num">${numberFmt(r.row_count)}</td>
-          <td class="group-meta num">${numberFmt(r.blank_sku_rows)}</td>
-          <td class="group-meta num">${numberFmt(r.refund_discrepancy_rows)}</td>
-          <td class="group-meta bcn-mono" style="font-size:.72rem">${fmtDate(r.min_day_date)}</td>
-          <td class="group-meta bcn-mono" style="font-size:.72rem">${fmtDate(r.max_day_date)}</td></tr>`;
+      let h=`<tr><td class="m-store">${esc(r.location_tag)}</td>`;
+      if (mode==='sales'||mode==='both') h+=`<td class="g-day">${moneyW(r.cur_day_net)}</td><td class="g-day">${moneyW(r.py_day_net)}</td><td class="g-day">${pct(r.day_net_var_pct)}</td><td class="g-mtd">${moneyW(r.cur_mtd_net)}</td><td class="g-mtd">${moneyW(r.py_mtd_net)}</td><td class="g-mtd">${pct(r.mtd_net_var_pct)}</td><td class="g-ytd">${moneyW(r.cur_ytd_net)}</td><td class="g-ytd">${moneyW(r.py_ytd_net)}</td><td class="g-ytd">${pct(r.ytd_net_var_pct)}</td>`;
+      if (mode==='units'||mode==='both') h+=`<td class="g-day">${numFmt(r.cur_day_qty)}</td><td class="g-day">${numFmt(r.py_day_qty)}</td><td class="g-day">${pct(r.day_qty_var_pct)}</td><td class="g-mtd">${numFmt(r.cur_mtd_qty)}</td><td class="g-mtd">${numFmt(r.py_mtd_qty)}</td><td class="g-mtd">${pct(r.mtd_qty_var_pct)}</td><td class="g-ytd">${numFmt(r.cur_ytd_qty)}</td><td class="g-ytd">${numFmt(r.py_ytd_qty)}</td><td class="g-ytd">${pct(r.ytd_qty_var_pct)}</td>`;
+      h+=`<td class="g-meta">${numFmt(r.row_count)}</td><td class="g-meta">${numFmt(r.blank_sku_rows)}</td><td class="g-meta">${numFmt(r.refund_discrepancy_rows)}</td><td class="g-meta" style="font-size:10.5px">${r.min_day_date||'—'}</td><td class="g-meta" style="font-size:10.5px">${r.max_day_date||'—'}</td></tr>`;
       return h;
     }).join('');
   }
 
-  function renderProvisionalBanner() {
-    const today=todayStr(), asOf=state.matrixRows?.[0]?.as_of_date||null;
-    if (asOf&&asOf===today&&state.matrixRows?.length) {
+  function renderProvisional(){
+    const t=today(), asOf=state.matrixRows?.[0]?.as_of_date||null;
+    if (asOf&&asOf===t&&state.matrixRows?.length){
       el.provisionalText.textContent=`Comp summary as-of ${asOf}: current-day values may still be incomplete.`;
       el.provisionalBanner.classList.remove('hidden'); return;
     }
-    if (filtersMayIncludeCurrentDay()) {
-      el.provisionalText.textContent='Date filters include today — totals can change after the next sync.';
-      el.provisionalBanner.classList.remove('hidden'); return;
-    }
+    if (mayIncludeToday()){ el.provisionalText.textContent='Date filters include today — totals can change after the next sync.'; el.provisionalBanner.classList.remove('hidden'); return; }
     el.provisionalBanner.classList.add('hidden');
   }
 
-  function renderAll() { renderKpis(); renderExceptions(); renderLocationSummary(); renderDetailRows(); }
+  function renderAll(){ renderKpis(); renderExceptions(); renderLocationSummary(); renderDetailRows(); }
 
-  async function runFullLoad(resetPage=false) {
-    const f=getFilters();
-    if (resetPage) state.currentPage=1;
+  async function runFullLoad(resetPage=false){
+    const f=getFilters(); if (resetPage) state.currentPage=1;
     setLoading(true); setStatus('Loading…'); setProgress('Starting');
     try {
       const s=await computeSummary(f);
       state.summary=s; state.totalRows=s.totalRows;
-      state.totalPages=Math.max(1,Math.ceil(s.totalRows/DETAIL_PAGE_SIZE));
+      state.totalPages=Math.max(1,Math.ceil(s.totalRows/PAGE));
       if (state.currentPage>state.totalPages) state.currentPage=state.totalPages;
       setProgress(`Loading page ${state.currentPage}`);
       state.detailRows=await loadDetailPage(f,state.currentPage);
       state.lastRefreshAt=new Date().toISOString();
-      setStatus(s.totalRows?`Loaded ${numberFmt(s.totalRows)} rows across ${numberFmt(s.locationCount)} location${s.locationCount===1?'':'s'}.`:'No rows matched.');
+      setStatus(s.totalRows?`Loaded ${numFmt(s.totalRows)} rows across ${numFmt(s.locationCount)} location${s.locationCount===1?'':'s'}.`:'No rows matched.');
       renderAll();
-      if (el.storeCompsPanel.open) {
+      if (el.storeCompsPanel.open){
         try { setProgress('Updating comps'); await syncComps(); }
-        catch(e){ console.error(e); state.matrixRows=[]; renderMatrix(); setStatus(`Detail loaded; comps failed: ${e.message}`); }
+        catch(e){ console.error(e); state.matrixRows=[]; renderMatrix(); }
       }
-      renderProvisionalBanner(); setProgress('Complete');
-    } catch(e) {
-      console.error(e); setStatus(`Load failed: ${e.message||'Unknown error'}`); setProgress('Failed');
+      renderProvisional(); setProgress('Complete');
+    } catch(e){
+      console.error(e); setStatus(`Load failed: ${e.message}`); setProgress('Failed');
     } finally { setLoading(false); }
   }
 
-  async function changePage(n) {
+  async function changePage(n){
     if (n<1||n>state.totalPages||state.isLoading) return;
     state.currentPage=n; setLoading(true); setStatus(`Loading page ${n}…`); setProgress(`Page ${n}`);
-    try {
-      state.detailRows=await loadDetailPage(getFilters(),n);
-      renderDetailRows(); setStatus(`Page ${n} of ${state.totalPages}.`); setProgress('Complete');
-    } catch(e){ console.error(e); setStatus(`Page load failed: ${e.message}`); setProgress('Failed'); }
+    try { state.detailRows=await loadDetailPage(getFilters(),n); renderDetailRows(); setStatus(`Page ${n} of ${state.totalPages}.`); setProgress('Complete'); }
+    catch(e){ console.error(e); setStatus(`Page load failed: ${e.message}`); setProgress('Failed'); }
     finally { setLoading(false); }
   }
 
-  /* ---- Event listeners ---- */
-  el.btnRefresh.addEventListener('click', ()=>runFullLoad(false));
-  el.btnApply.addEventListener('click',   ()=>runFullLoad(true));
-  el.btnReset.addEventListener('click',   ()=>{ resetFilters(); runFullLoad(true); });
+  /* ---- Events ---- */
+  el.btnRefresh.addEventListener('click',()=>runFullLoad(false));
+  el.btnApply.addEventListener('click',()=>runFullLoad(true));
+  el.btnReset.addEventListener('click',()=>{ resetFilters(); runFullLoad(true); });
   el.btnPrevPage.addEventListener('click',()=>changePage(state.currentPage-1));
   el.btnNextPage.addEventListener('click',()=>changePage(state.currentPage+1));
-  el.presetFilter.addEventListener('change',()=>{ if(el.presetFilter.value!=='custom') applyPresetDates(); });
+  el.presetFilter.addEventListener('change',()=>{ if(el.presetFilter.value!=='custom') applyPreset(); });
   el.metricMode.addEventListener('change',()=>{ if(el.storeCompsPanel.open) renderMatrix(); });
   el.locationFilter.addEventListener('change',async()=>{
     if (!el.storeCompsPanel.open) return;
     el.btnReloadComps.disabled=true;
-    try { await syncComps(); renderProvisionalBanner(); } catch(e){ console.error(e); } finally { el.btnReloadComps.disabled=false; }
+    try { await syncComps(); renderProvisional(); } catch(e){ console.error(e); } finally { el.btnReloadComps.disabled=false; }
   });
   el.storeCompsPanel.addEventListener('toggle',async()=>{
     if (!el.storeCompsPanel.open) return;
     el.btnReloadComps.disabled=true;
-    try { setProgress('Loading comps'); await syncComps(); renderProvisionalBanner(); }
+    try { setProgress('Loading comps'); await syncComps(); renderProvisional(); }
     catch(e){ console.error(e); } finally { el.btnReloadComps.disabled=false; setProgress('Complete'); }
   });
   el.btnReloadComps.addEventListener('click',async()=>{
     if (!el.storeCompsPanel.open) el.storeCompsPanel.open=true;
     el.btnReloadComps.disabled=true;
-    try { await syncComps(); renderProvisionalBanner(); }
-    catch(e){ console.error(e); } finally { el.btnReloadComps.disabled=false; }
+    try { await syncComps(); renderProvisional(); } catch(e){ console.error(e); } finally { el.btnReloadComps.disabled=false; }
   });
   document.addEventListener('click',async ev=>{
-    const q=ev.target.closest('[data-quick]'); if(!q) return;
+    const q=ev.target.closest('[data-quick]'); if (!q) return;
     state.quickFilter=q.dataset.quick||'all';
     [...document.querySelectorAll('[data-quick]')].forEach(b=>b.classList.toggle('active',b===q));
     await runFullLoad(true);
   });
 
   /* ---- Boot ---- */
-  async function boot() {
-    // Mount chrome after page is ready
-    if (window.SiloChrome) {
+  async function boot(){
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session){ window.location.href='/pages/login.html'; return; }
+    const user = sess.data.session.user;
+
+    if (window.SiloChrome){
       window.SiloChrome.mount({
         appEl:'#silo-app', active:'sales/verification',
-        user:{ email:cfg.userEmail||'' },
+        user:{ email:user?.email||'', role:'admin' },
         crumbs:['Sales','Verification'],
         supabaseClient:sb,
       });
@@ -889,13 +795,12 @@
       await loadLocationOptions();
       resetFilters();
       await runFullLoad(true);
-    } catch(e) {
-      console.error(e);
-      setStatus(`Initial load failed: ${e.message||'Unknown error'}`);
+    } catch(e){
+      console.error(e); setStatus(`Initial load failed: ${e.message}`);
     }
   }
 
-  document.addEventListener('DOMContentLoaded', boot);
+  boot();
 </script>
 </body>
 </html>
