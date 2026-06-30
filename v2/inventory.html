@@ -1491,9 +1491,14 @@
         "total_available_quantity", "available_quantity", "avail_qty", "quantity_available", "quantity_on_hand", "on_hand", "qty_on_hand", "Total available quantity"
       ], 0));
 
-      const invValue = num(pick(o, [
-        "total_available_inventory_value", "available_inventory_value", "inventory_value", "retail_value", "inv_value", "value_on_hand", "Total available inventory value"
-      ], 0));
+      const retailPrice = num(o.retail_price, 0);
+      const invValue = (() => {
+        const explicit = num(pick(o, [
+          "total_available_inventory_value", "available_inventory_value", "inventory_value", "retail_value", "inv_value", "value_on_hand", "Total available inventory value"
+        ], 0));
+        if (explicit) return explicit;
+        return retailPrice > 0 ? retailPrice * avail : 0;
+      })();
 
       const qty7 = num(pick(o, ["qty_7d", "sold_7", "sold_7d", "quantity_sold_7d"], 0));
       const sold30 = num(pick(o, ["sold_30", "qty_30d", "quantity_sold_30d", "sold_30d"], 0));
