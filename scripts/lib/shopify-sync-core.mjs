@@ -637,7 +637,7 @@ export function ordersToSalesRows({
 
     const orderDate = (order.created_at || '').slice(0, 10);
 
-    const lineItems = (order.line_items || []).filter((li) => li?.sku);
+    const lineItems = (order.line_items || []).filter((li) => li?.sku || li?.title);
     const lineCount = lineItems.length || 1;
     const refundMap = buildLineItemRefundMap(order);
 
@@ -690,9 +690,10 @@ export function ordersToSalesRows({
         additionalFeesAmount: feesShare,
         taxAmount: tax,
       });
-      const metaSku = skuMeta.get(li.sku) || {};
+      const effectiveSku = li.sku || li.title || null;
+      const metaSku = (li.sku && skuMeta.get(li.sku)) || {};
 
-      const key = [orderDate, locationTag, li.sku].join('||');
+      const key = [orderDate, locationTag, effectiveSku].join('||');
       const cur = dayMap.get(key);
 
       if (!cur) {
@@ -704,7 +705,7 @@ export function ordersToSalesRows({
             locationName,
             shopDomain: domain,
             orderDate,
-            sku: li.sku,
+            sku: effectiveSku,
             productName: metaSku.product_title || li.title || null,
             productType: metaSku.product_type || null,
             vendorOriginal: metaSku.vendor_original || null,
