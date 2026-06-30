@@ -906,16 +906,19 @@
       const defaultCode = slugifyLoc(shopLoc.name);
       const prefixedCode = defaultCode;
 
+      const storeTypeOpts = STORE_TYPES.map((t) => {
+        const initial = mappedSiloLoc?.store_type || 'retail';
+        const selected = t === initial ? ' selected' : '';
+        return `<option value="${t}"${selected}>${t}</option>`;
+      }).join('');
+
       const options = ['<option value="">— Unmapped —</option>'];
       for (const loc of siloLocs) {
         const selected = mapping && String(loc.id) === String(mapping.location_id) ? ' selected' : '';
-        options.push(`<option value="${loc.id}"${selected}>${escHtml(loc.location_name)} (${escHtml(loc.location_code)})</option>`);
+        const typeLabel = loc.store_type ? ` · ${loc.store_type}` : '';
+        options.push(`<option value="${loc.id}"${selected}>${escHtml(loc.location_name)} (${escHtml(loc.location_code)})${escHtml(typeLabel)}</option>`);
       }
       options.push('<option value="__new__">+ Create new SILO location</option>');
-
-      const storeTypeOpts = STORE_TYPES.map((t) =>
-        `<option value="${t}"${t === 'retail' ? ' selected' : ''}>${t}</option>`,
-      ).join('');
 
       const displayCode = mappedSiloLoc?.location_code || mapping?.silo_location_code;
       const mappedBadge = displayCode
@@ -936,12 +939,12 @@
           <div class="int-loc-fields" id="${fieldsId}" hidden>
             <input class="bcn-field bcn-field--mono" type="text" placeholder="Location code (e.g. chicago)"
               value="" data-field="existing-code" style="margin-top:4px;" />
-            <div style="font-size:10px;color:var(--bcn-ink-3);margin-bottom:4px;">Rename the SILO location code (affects all sales tags)</div>
+            <div class="existing-code-hint" style="font-size:10px;color:var(--bcn-ink-3);margin-bottom:4px;">Rename the SILO location code (affects all sales tags)</div>
             <input class="bcn-field" type="text" placeholder="Location name"
               value="${escHtml(shopLoc.name)}" data-field="name" />
             <input class="bcn-field bcn-field--mono" type="text" placeholder="Location code"
               value="${escHtml(prefixedCode)}" data-field="code" />
-            <select class="bcn-field" data-field="store_type">${storeTypeOpts}</select>
+            <select class="bcn-field" data-field="store_type" aria-label="Store type">${storeTypeOpts}</select>
             <input class="bcn-field bcn-field--mono" type="text" placeholder="Domain (optional)"
               value="${escHtml(shopDomain || '')}" data-field="domain" />
           </div>
@@ -1001,24 +1004,29 @@
       fields.hidden = !mode || mode === '';
 
       const existingCodeWrap = fields.querySelector('[data-field="existing-code"]');
-      const existingCodeHint = existingCodeWrap?.nextElementSibling;
-      const newFields = fields.querySelectorAll('[data-field="name"],[data-field="code"],[data-field="store_type"],[data-field="domain"]');
+      const existingCodeHint = fields.querySelector('.existing-code-hint');
+      const storeTypeEl = fields.querySelector('[data-field="store_type"]');
+      const newOnlyFields = fields.querySelectorAll('[data-field="name"],[data-field="code"],[data-field="domain"]');
 
       if (mode === '__new__') {
         if (existingCodeWrap) existingCodeWrap.hidden = true;
         if (existingCodeHint) existingCodeHint.hidden = true;
-        newFields.forEach((el) => el.hidden = false);
+        newOnlyFields.forEach((el) => { el.hidden = false; });
+        if (storeTypeEl) storeTypeEl.hidden = false;
       } else if (mode) {
-        // Existing SILO location — show code rename field, pre-fill with current code
         const cache = _locMapperCache.get(connectionId);
         const siloLoc = (cache?.siloLocations || []).find((l) => String(l.id) === mode);
         if (existingCodeWrap) {
           existingCodeWrap.hidden = false;
           existingCodeWrap.value = siloLoc?.location_code || '';
-          existingCodeWrap.placeholder = `Location code (e.g. chicago)`;
+          existingCodeWrap.placeholder = 'Location code (e.g. chicago)';
         }
         if (existingCodeHint) existingCodeHint.hidden = false;
-        newFields.forEach((el) => el.hidden = true);
+        newOnlyFields.forEach((el) => { el.hidden = true; });
+        if (storeTypeEl) {
+          storeTypeEl.hidden = false;
+          storeTypeEl.value = siloLoc?.store_type || 'retail';
+        }
       }
     }
 
@@ -1113,11 +1121,11 @@
 
       try {
         let locationId, locationCode;
+        const storeType = fields?.querySelector('[data-field="store_type"]')?.value || 'retail';
 
         if (mode === '__new__') {
           const name = fields?.querySelector('[data-field="name"]')?.value?.trim();
           const code = fields?.querySelector('[data-field="code"]')?.value?.trim();
-          const storeType = fields?.querySelector('[data-field="store_type"]')?.value || 'retail';
           const domain = fields?.querySelector('[data-field="domain"]')?.value?.trim() || null;
 
           if (!name || !code) {
@@ -1148,15 +1156,19 @@
           locationId = Number(mode);
           const existingCode = fields?.querySelector('[data-field="existing-code"]')?.value?.trim();
           const currentCode = (cache?.siloLocations || []).find((l) => String(l.id) === mode)?.location_code || null;
+          const currentType = (cache?.siloLocations || []).find((l) => String(l.id) === mode)?.store_type || 'retail';
           locationCode = existingCode || currentCode;
 
-          // Rename location code if changed
-          if (existingCode && existingCode !== currentCode) {
-            const { error: renameErr } = await db
+          const locUpdate = { updated_by: _session?.user?.id };
+          if (existingCode && existingCode !== currentCode) locUpdate.location_code = existingCode;
+          if (storeType && storeType !== currentType) locUpdate.store_type = storeType;
+
+          if (Object.keys(locUpdate).length > 1) {
+            const { error: locErr } = await db
               .from('locations')
-              .update({ location_code: existingCode, updated_by: _session?.user?.id })
+              .update(locUpdate)
               .eq('id', locationId);
-            if (renameErr) throw new Error(`Rename failed: ${renameErr.message}`);
+            if (locErr) throw new Error(`Location update failed: ${locErr.message}`);
           }
         }
 
