@@ -1997,3 +1997,13 @@ END;
 $function$;
 
 SELECT public.refresh_sales_verification_store_comp_summary();
+
+-- 20260630120000_locations_company_scoped_unique.sql
+ALTER TABLE public.locations DROP CONSTRAINT IF EXISTS locations_location_code_key;
+ALTER TABLE public.locations DROP CONSTRAINT IF EXISTS locations_location_name_key;
+
+CREATE UNIQUE INDEX IF NOT EXISTS locations_company_location_code_key
+  ON public.locations (company_entity_id, location_code);
+
+CREATE UNIQUE INDEX IF NOT EXISTS locations_company_location_name_key
+  ON public.locations (company_entity_id, location_name);

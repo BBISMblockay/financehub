@@ -216,6 +216,17 @@ select
     else 'MISSING — run 20260629120000_shopify_sales_verification_dedupe.sql'
   end as refresh_sales_verification_deduped;
 
+select
+  case
+    when exists (
+      select 1 from pg_indexes
+      where schemaname = 'public'
+        and tablename = 'locations'
+        and indexname = 'locations_company_location_code_key'
+    ) then 'ok'
+    else 'MISSING — run 20260630120000_locations_company_scoped_unique.sql'
+  end as locations_company_scoped_unique;
+
 -- 9. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,
