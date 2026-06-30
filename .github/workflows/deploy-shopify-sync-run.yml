@@ -1,0 +1,45 @@
+name: Deploy shopify-sync-run Edge Function
+
+# Multi-file edge functions cannot be deployed from the Supabase dashboard
+# (index.ts imports ./lib/*.mjs). Use this workflow or the Supabase CLI instead.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Verify deploy token
+        run: |
+          test -n "$SUPABASE_ACCESS_TOKEN" || (
+            echo "Missing SUPABASE_ACCESS_TOKEN secret."
+            echo "Create one at https://supabase.com/dashboard/account/tokens"
+            echo "Then add it to repo Settings → Secrets → Actions."
+            exit 1
+          )
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy shopify-sync-run
+        run: |
+          supabase functions deploy shopify-sync-run \
+            --project-ref mkquclffrvlzyecnabyf
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Confirm retail-value symbols in bundle
+        run: |
+          rg -q 'variantUnitPrice' supabase/functions/shopify-sync-run/lib/shopify-sync-core.mjs
+          rg -q 'total_available_inventory_value' supabase/functions/shopify-sync-run/lib/shopify-sync-core.mjs
+          echo "shopify-sync-core.mjs includes inventory retail value logic"

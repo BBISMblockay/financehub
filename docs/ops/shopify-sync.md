@@ -93,7 +93,20 @@ Unmapped Shopify locations fall back to `{shop}_{location_name}` tags.
 
 Backfill progress is stored on the connection (`meta.history_backfill`) and in `sync_jobs`.
 
-**Deploy:** `supabase functions deploy shopify-sync-run` after merge.
+### Deploy `shopify-sync-run` edge function
+
+**The Supabase dashboard code editor is single-file only.** `index.ts` imports `./lib/shopify-sync-core.mjs` and `./lib/shopify-scopes.mjs`, so pasting only `index.ts` will fail to bundle or will run without the retail-value fix.
+
+Deploy all three files from the repo:
+
+| Method | Steps |
+|--------|--------|
+| **GitHub Actions (easiest)** | Add repo secret `SUPABASE_ACCESS_TOKEN` ([create token](https://supabase.com/dashboard/account/tokens)) → Actions → **Deploy shopify-sync-run Edge Function** → Run workflow |
+| **Supabase CLI** | `supabase login` then `supabase functions deploy shopify-sync-run --project-ref mkquclffrvlzyecnabyf` from repo root |
+
+After deploy, confirm `lib/shopify-sync-core.mjs` on the function includes `variantUnitPrice` and `total_available_inventory_value`, then re-sync inventory.
+
+**Inventory workaround (no edge deploy):** Actions → **Shopify API Sync** → `sync_mode: incremental`, `skip_sales: true`, optional `connection_id` for one store. Uses `scripts/lib/shopify-sync-core.mjs` directly (same retail-value logic as main).
 
 ### Manual (GitHub Actions — ops / scheduled only)
 
