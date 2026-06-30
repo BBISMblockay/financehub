@@ -13,6 +13,8 @@ DB-driven Shopify ingestion for **non-Baseballism** companies (or any entity wit
 
 **Source tag:** `shopify_api` (distinct from Sheets `better_reports` and legacy server `shopify`).
 
+**Inventory retail value:** `total_available_inventory_value` = `variant.price × available` (Shopify variant list price; matches BR “retail value” column intent).
+
 **Company stamping:** every row gets `company_entity_id` from the connection (bulk tables have no insert trigger).
 
 ### Sales row math (Shopify POS parity)
