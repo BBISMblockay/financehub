@@ -241,6 +241,32 @@
       border: 1px solid #fde68a;
       color: #92400e;
     }
+    .int-backfill-banner {
+      margin-bottom: 12px;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-size: 12px;
+      line-height: 1.5;
+      display: none;
+    }
+    .int-backfill-banner.active { display: block; }
+    .int-backfill-banner--info {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1e3a8a;
+    }
+    .int-backfill-banner--warn {
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      color: #92400e;
+    }
+    .int-onboarding-note {
+      font-size: 12px;
+      color: var(--bcn-ink-3);
+      line-height: 1.5;
+      margin: -4px 0 12px;
+      max-width: 720px;
+    }
 
     /* add store row */
     .int-add-row td { padding: 10px 12px; }
@@ -301,6 +327,8 @@
 
       <div class="int-page">
         <p class="int-section-label">Shopify stores</p>
+        <p class="int-onboarding-note">After connecting: map locations → enable nightly sync → import sales history (365d or 730d). <strong>Keep this tab open</strong> during import; if progress stops, click <strong>Resume</strong> until complete.</p>
+        <div class="int-backfill-banner" id="backfill-banner" hidden></div>
         <div class="int-table-wrap">
           <table class="int-table">
             <thead>
@@ -427,15 +455,76 @@
     }
 
     function syncBackfillPolling(rows) {
-      const anyRunning = (rows || []).some((r) => r?.meta?.history_backfill?.status === 'running');
+      const states = (rows || []).map((r) => ({ row: r, mode: backfillMode(r) }));
+      const anyRunning = states.some((s) => s.mode !== 'idle');
+      const needsResume = states.some((s) => s.mode === 'ui_paused');
+      const intervalMs = needsResume ? 10000 : 20000;
+
       if (anyRunning && !_backfillPollTimer) {
         _backfillPollTimer = setInterval(() => {
           if (!_backfillBusy) loadConnections();
-        }, 20000);
+        }, intervalMs);
       } else if (!anyRunning && _backfillPollTimer) {
         clearInterval(_backfillPollTimer);
         _backfillPollTimer = null;
+      } else if (anyRunning && _backfillPollTimer && needsResume) {
+        clearInterval(_backfillPollTimer);
+        _backfillPollTimer = setInterval(() => {
+          if (!_backfillBusy) loadConnections();
+        }, intervalMs);
       }
+
+      renderBackfillBanner(states);
+      remindPausedImports(states);
+    }
+
+    function renderBackfillBanner(states) {
+      const el = document.getElementById('backfill-banner');
+      if (!el) return;
+
+      const active = states.filter((s) => s.mode === 'ui_active');
+      const paused = states.filter((s) => s.mode === 'ui_paused');
+      const server = states.filter((s) => s.mode === 'server');
+
+      if (paused.length) {
+        const names = paused.map((s) => shopLabel(s.row)).join(', ');
+        el.className = 'int-backfill-banner active int-backfill-banner--warn';
+        el.innerHTML = `<strong>Import paused</strong> — ${escHtml(names)}: progress is saved. Click <strong>Resume</strong> on that store (keep this tab open). Repeat until Last import shows complete.`;
+        el.hidden = false;
+        return;
+      }
+      if (active.length) {
+        const names = active.map((s) => shopLabel(s.row)).join(', ');
+        el.className = 'int-backfill-banner active int-backfill-banner--info';
+        el.innerHTML = `<strong>Import running</strong> — ${escHtml(names)}: do not close this tab until complete.`;
+        el.hidden = false;
+        return;
+      }
+      if (server.length) {
+        const names = server.map((s) => shopLabel(s.row)).join(', ');
+        el.className = 'int-backfill-banner active int-backfill-banner--info';
+        el.innerHTML = `<strong>Import running on server</strong> — ${escHtml(names)}: this page refreshes every 20s. Do not click Cancel.`;
+        el.hidden = false;
+        return;
+      }
+      el.className = 'int-backfill-banner';
+      el.innerHTML = '';
+      el.hidden = true;
+    }
+
+    function shopLabel(row) {
+      return row?.shop_name || row?.shop_domain || 'store';
+    }
+
+    function remindPausedImports(states) {
+      const paused = states.filter((s) => s.mode === 'ui_paused');
+      if (!paused.length || _backfillBusy) return;
+      const bf = paused[0].row?.meta?.history_backfill;
+      setStatus(
+        `Import paused at ${bf?.windows_done || 0}/${bf?.windows_total || '?'} windows — click Resume on ${shopLabel(paused[0].row)}`,
+        'info',
+        0,
+      );
     }
 
     function scopeFieldsFromTest(data) {
@@ -464,15 +553,19 @@
       return 'server';
     }
 
-    function backfillHintHtml(mode) {
+    function backfillHintHtml(mode, row) {
+      const bf = row?.meta?.history_backfill;
+      const pct = bf?.windows_total
+        ? Math.round((Number(bf.windows_done || 0) / Number(bf.windows_total)) * 100)
+        : 0;
       if (mode === 'ui_active') {
-        return '<div class="int-backfill-hint int-backfill-hint--info">Import running in this tab — keep it open until complete.</div>';
+        return `<div class="int-backfill-hint int-backfill-hint--info"><strong>Import running</strong> — window ${bf?.windows_done || 0}/${bf?.windows_total || '?'} (${pct}%). Keep this tab open.</div>`;
       }
       if (mode === 'ui_paused') {
-        return '<div class="int-backfill-hint int-backfill-hint--warn"><strong>Import paused.</strong> Edge limit or closed tab — click <strong>Resume</strong> to continue. For large stores, use GitHub Actions instead.</div>';
+        return `<div class="int-backfill-hint int-backfill-hint--warn"><strong>Import paused</strong> at ${bf?.windows_done || 0}/${bf?.windows_total || '?'} windows. Click <strong>Resume</strong> to continue — repeat until complete.</div>`;
       }
       if (mode === 'server') {
-        return '<div class="int-backfill-hint int-backfill-hint--info"><strong>Running via server job</strong> (GitHub Actions). Refresh this page for progress — do not click Cancel.</div>';
+        return '<div class="int-backfill-hint int-backfill-hint--info"><strong>Server import running.</strong> Progress updates on refresh — do not click Cancel.</div>';
       }
       return '';
     }
@@ -511,6 +604,7 @@
       try { data = await res.json(); } catch { /* non-JSON (e.g. 546) */ }
       if (!res.ok || data.ok === false) {
         if (res.status === 546) {
+          setStatus('Import paused (edge limit) — click Resume to continue', 'info', 0);
           throw new Error(
             'Chunk hit the edge CPU limit (546). Progress is saved — click Resume to continue.',
           );
@@ -522,8 +616,12 @@
 
     function lastImportHtml(row) {
       const bf = row?.meta?.history_backfill;
+      const mode = backfillMode(row);
       if (!bf) return '<span class="int-sync-status">—</span>';
       if (bf.status === 'running') {
+        if (mode === 'ui_paused') {
+          return `<span class="int-sync-status" style="color:#92400e">Paused ${bf.windows_done||0}/${bf.windows_total||'?'} — Resume</span>`;
+        }
         return `<span class="int-sync-status int-sync-status--running">${bf.windows_done||0}/${bf.windows_total||'?'} win</span>`;
       }
       if (bf.status === 'complete') {
@@ -544,7 +642,7 @@
           <div class="int-progress active" id="bf-progress-${row.id}">
             <div>${bf.windows_done||0}/${bf.windows_total||'?'} windows · ${bf.orders_total||0} orders · ${bf.sales_rows_total||0} rows</div>
             <div class="int-progress-bar"><span style="width:${pct}%"></span></div>
-            ${backfillHintHtml(mode)}
+            ${backfillHintHtml(mode, row)}
           </div>
         </td>
       </tr>`;
@@ -658,7 +756,7 @@
             <div class="int-progress active" id="bf-progress-${row.id}">
               <div>${bf.windows_done||0}/${bf.windows_total||'?'} windows · ${bf.orders_total||0} orders · ${bf.sales_rows_total||0} rows</div>
               <div class="int-progress-bar"><span style="width:${pct}%"></span></div>
-              ${backfillHintHtml(bfMode)}
+              ${backfillHintHtml(bfMode, row)}
             </div></td>`;
           frag.appendChild(progTr);
         }
@@ -837,7 +935,7 @@
         <div>${progress.windows_done || 0}/${progress.windows_total || '?'} windows
           · ${progress.orders_total || 0} orders · ${progress.sales_rows_total || 0} rows</div>
         <div class="int-progress-bar"><span style="width:${pct}%"></span></div>
-        ${backfillHintHtml(mode)}`;
+        ${backfillHintHtml(mode, { meta: { history_backfill: progress } })}`;
     }
 
     async function runHistoryChunkLoop(connectionId, firstResponse) {
@@ -860,8 +958,8 @@
       if (_backfillBusy) return;
       if (!confirm(
         `Import ${historyDays} days of sales from Shopify?\n\n`
-        + 'This runs in your browser — keep this tab open. If it pauses (edge limit), click Resume.\n\n'
-        + 'Large stores (Online, FOD): prefer GitHub Actions — no Resume loop.',
+        + 'Runs in this browser — keep the tab open until Last import shows complete.\n'
+        + 'If import pauses, click Resume and repeat until done.',
       )) return;
 
       _backfillBusy = true;
