@@ -9,6 +9,12 @@ export const DEFAULT_CHUNK_DAYS = 30;
 /** Smaller windows for Integrations UI / edge functions (CPU limit ~30s). */
 export const DEFAULT_UI_CHUNK_DAYS = 7;
 
+/** Shopify variant.price (string dollars) → unit retail for inventory value. */
+export function variantUnitPrice(variant) {
+  const n = Number(variant?.price);
+  return Number.isFinite(n) && n >= 0 ? n : 0;
+}
+
 async function sha256Hex(parts) {
   const text = parts.map((p) => String(p ?? '')).join('|');
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
@@ -889,7 +895,7 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
   const products = await getAll(headers, `${base}/products.json?limit=250&status=active`);
   const productById = new Map(products.map((p) => [String(p.id), p]));
 
-  const skuByInvItem = new Map();
+  const invItemById = new Map();
   const skuMeta = new Map();
 
   for (const v of variants) {
@@ -897,8 +903,9 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
     const p = productById.get(String(v.product_id)) || {};
     const imageUrl =
       p.image?.src || (Array.isArray(p.images) && p.images[0]?.src) || null;
+    const unitPrice = variantUnitPrice(v);
 
-    skuByInvItem.set(String(v.inventory_item_id), v.sku);
+    invItemById.set(String(v.inventory_item_id), { sku: v.sku, unit_price: unitPrice });
     skuMeta.set(v.sku, {
       product_title: (p.title || '').trim() || v.sku,
       variant_title: v.title && v.title !== 'Default Title' ? v.title : null,
@@ -908,6 +915,7 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
         null,
       variant_barcode: v.barcode || null,
       product_image_url: imageUrl,
+      unit_price: unitPrice,
     });
   }
 
@@ -930,13 +938,18 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
     );
 
     for (const lvl of levels) {
-      const sku = skuByInvItem.get(String(lvl.inventory_item_id));
-      if (!sku) continue;
+      const invItem = invItemById.get(String(lvl.inventory_item_id));
+      if (!invItem?.sku) continue;
+
+      const { sku, unit_price: unitPrice } = invItem;
+      const qty = Number(lvl.available ?? 0);
+      const lineRetail = Math.round(qty * unitPrice * 100) / 100;
 
       const rowHash = await hashRow([connection.company_entity_id, locId, sku, snapshotAt]);
       const existing = invByKey.get(rowHash);
       if (existing) {
-        existing.total_available_quantity += Number(lvl.available ?? 0);
+        existing.total_available_quantity += qty;
+        existing.total_available_inventory_value += lineRetail;
         continue;
       }
 
@@ -955,7 +968,8 @@ export async function runInventorySnapshot(supabase, connection, { batchId } = {
         product_type: metaSku.product_type || null,
         product_image: null,
         product_image_url: metaSku.product_image_url || null,
-        total_available_quantity: Number(lvl.available ?? 0),
+        total_available_quantity: qty,
+        total_available_inventory_value: lineRetail,
         snapshot_at: snapshotAt,
         sync_batch_id: batchId,
         row_hash: rowHash,
