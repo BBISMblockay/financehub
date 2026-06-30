@@ -1012,7 +1012,12 @@
         if (existingCodeWrap) existingCodeWrap.hidden = true;
         if (existingCodeHint) existingCodeHint.hidden = true;
         newOnlyFields.forEach((el) => { el.hidden = false; });
-        if (storeTypeEl) storeTypeEl.hidden = false;
+        if (storeTypeEl) {
+          storeTypeEl.hidden = false;
+          const cache = _locMapperCache.get(connectionId);
+          if (/wholesale/i.test(cache?.shopDomain || '')) storeTypeEl.value = 'wholesale';
+          else if (/^online$|baseballism\.myshopify/i.test(cache?.shopDomain || '')) storeTypeEl.value = 'online';
+        }
       } else if (mode) {
         const cache = _locMapperCache.get(connectionId);
         const siloLoc = (cache?.siloLocations || []).find((l) => String(l.id) === mode);
