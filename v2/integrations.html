@@ -15,10 +15,24 @@
   <script src="silo-chrome.js"></script>
   <script src="shopify-scopes.js"></script>
   <style>
-    /* ── Page layout ── */
+    /* ── Page layout (scrollable within silo-main shell) ── */
+    #silo-app .silo-main {
+      min-height: 0;
+    }
+    #silo-app .silo-main > .bcn-header,
+    #silo-app .silo-main > #status {
+      flex-shrink: 0;
+    }
     .int-page {
-      padding: 20px 24px;
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 20px 24px 40px;
       max-width: 1400px;
+      width: 100%;
+      -webkit-overflow-scrolling: touch;
+      scrollbar-gutter: stable;
     }
     .int-section-label {
       font-size: 11px;
@@ -38,7 +52,8 @@
       background: var(--bcn-surface, #fff);
       border: 1px solid var(--bcn-border, #e5e7eb);
       border-radius: 10px;
-      overflow: hidden;
+      overflow-x: auto;
+      overflow-y: visible;
       margin-bottom: 16px;
     }
     .int-table {
@@ -57,6 +72,10 @@
       background: var(--bcn-surface-2, #f9fafb);
       border-bottom: 1px solid var(--bcn-border, #e5e7eb);
       white-space: nowrap;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      box-shadow: 0 1px 0 var(--bcn-border, #e5e7eb);
     }
     .int-table tbody tr {
       border-bottom: 1px solid var(--bcn-border, #e5e7eb);
@@ -167,6 +186,12 @@
       padding: 12px 16px;
       background: var(--bcn-surface-2, #f9fafb);
       border-top: 1px solid var(--bcn-border, #e5e7eb);
+    }
+    .int-loc-panel:not([hidden]) {
+      max-height: min(480px, 55vh);
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      scrollbar-width: thin;
     }
     .int-loc-panel[hidden] { display: none !important; }
     .int-loc-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
@@ -1067,6 +1092,7 @@
 
       panel.removeAttribute('hidden');
       await refreshLocationMapper(connectionId);
+      panel.closest('tr')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
 
     async function saveLocationMapping(connectionId, shopifyLocId) {
