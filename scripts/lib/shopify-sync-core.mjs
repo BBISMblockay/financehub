@@ -637,7 +637,7 @@ export function ordersToSalesRows({
 
     const orderDate = (order.created_at || '').slice(0, 10);
 
-    const lineItems = (order.line_items || []).filter((li) => li?.sku || li?.title);
+    const lineItems = (order.line_items || []).filter((li) => li?.sku || li?.title || Number(li?.price) > 0);
     const lineCount = lineItems.length || 1;
     const refundMap = buildLineItemRefundMap(order);
 
@@ -690,7 +690,7 @@ export function ordersToSalesRows({
         additionalFeesAmount: feesShare,
         taxAmount: tax,
       });
-      const effectiveSku = li.sku || li.title || null;
+      const effectiveSku = li.sku || li.title || 'None';
       const metaSku = (li.sku && skuMeta.get(li.sku)) || {};
 
       const key = [orderDate, locationTag, effectiveSku].join('||');
