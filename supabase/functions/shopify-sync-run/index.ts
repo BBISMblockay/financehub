@@ -360,6 +360,7 @@ async function handleInventorySnapshot(
       finished_at: new Date().toISOString(),
       result,
     });
+    await admin.rpc('refresh_inventory_current_mv');
     return { ok: true, job_id: jobId, result };
   } catch (err) {
     await updateJob(admin, jobId, {
