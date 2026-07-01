@@ -1296,6 +1296,12 @@
         return;
       }
 
+      _co = window.__SILO_CONFIG__?.getActiveCompany?.() || _co;
+      if (!_co?.id) {
+        setStatus('Active company not loaded — please reload the page', 'neg', 5000);
+        return;
+      }
+
       setStatus('Saving location mapping…', 'info');
 
       const cache = _locMapperCache.get(connectionId);
