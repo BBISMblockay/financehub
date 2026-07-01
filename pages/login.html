@@ -256,7 +256,7 @@
           const company = { ...row.entity, role: row.role };
           (window.__SILO_CONFIG__?.setActiveCompany || (() => {}))(company);
           // Write active company to DB so RLS enforces it server-side
-          await supabaseClient.rpc('set_active_company', { p_entity_id: company.id }).catch(() => {});
+          try { await supabaseClient.rpc('set_active_company', { p_entity_id: company.id }); } catch (_) {}
           return company;
         }
 
