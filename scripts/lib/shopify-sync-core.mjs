@@ -117,6 +117,10 @@ export async function getAll(headers, url) {
   return out;
 }
 
+function getShopifyItemType(li) {
+  return (li?.properties || []).find((p) => p?.name === '_shopify_item_type')?.value || null;
+}
+
 function sumDiscountForLine(li) {
   return (li?.discount_allocations || []).reduce(
     (sum, d) => sum + Number(d?.amount || 0),
@@ -637,7 +641,7 @@ export function ordersToSalesRows({
 
     const orderDate = (order.created_at || '').slice(0, 10);
 
-    const lineItems = (order.line_items || []).filter((li) => li?.sku || li?.title);
+    const lineItems = (order.line_items || []).filter((li) => li?.sku || li?.title || Number(li?.price) > 0 || getShopifyItemType(li));
     const lineCount = lineItems.length || 1;
     const refundMap = buildLineItemRefundMap(order);
 
@@ -690,7 +694,8 @@ export function ordersToSalesRows({
         additionalFeesAmount: feesShare,
         taxAmount: tax,
       });
-      const effectiveSku = li.sku || li.title || null;
+      const shopifyItemType = getShopifyItemType(li);
+      const effectiveSku = li.sku || li.title || shopifyItemType || 'None';
       const metaSku = (li.sku && skuMeta.get(li.sku)) || {};
 
       const key = [orderDate, locationTag, effectiveSku].join('||');
@@ -707,7 +712,7 @@ export function ordersToSalesRows({
             orderDate,
             sku: effectiveSku,
             productName: metaSku.product_title || li.title || null,
-            productType: metaSku.product_type || null,
+            productType: metaSku.product_type || shopifyItemType || null,
             vendorOriginal: metaSku.vendor_original || null,
             qty,
             grossSales,
