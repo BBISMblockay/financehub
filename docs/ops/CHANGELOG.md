@@ -4,6 +4,8 @@ Short list of **resolved** issues. Active problems stay in [bugs.md](bugs.md).
 
 | When | Area | What was fixed |
 |------|------|----------------|
+| 2026-07 | Shopify sync | BR-vs-API variance: incremental sync fetches by `updated_at` and rebuilds affected days (captures refunds/edits/cancellations on older orders); gift cards, cancelled and test orders excluded (Shopify report parity); history chunk boundary dates no longer overwritten with partial aggregates; `row_hash` includes `shop_domain` |
+| 2026-07 | Shopify sync | `purge_better_reports_overlap` rewritten as indexed semi-join (old self-join timed out on ~1M rows, leaving BR + shopify_api rows double-counted for recent days); duplicate active connections (chicago, dsg) deactivated; `default_location_code` set for main + wholesale shops so unfulfilled orders aren't dropped |
 | 2026-06 | Multi-tenant | **Phase 1 complete**: company context layer, RLS active-company isolation, view security_invoker — see multi-tenant section in roadmap.md |
 | 2026-06 | Multi-tenant | `profiles.active_company_id` column + `active_company_id()` / `set_active_company()` RPC functions — DB-level per-session company isolation |
 | 2026-06 | Multi-tenant | `security_invoker = true` on all 30+ views in public schema so RLS applies through views, not just on base tables |

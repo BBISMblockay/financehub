@@ -455,6 +455,7 @@ export function buildSalesRow({
     orderDate,
     sku || '',
     productName || '',
+    shopDomain || '',
     SOURCE,
   ]);
 
@@ -635,13 +636,25 @@ export function ordersToSalesRows({
   const domain = connection.shop_domain;
   const dayMap = new Map();
   let newestOrderStamp = null;
+  let newestUpdatedStamp = null;
+  const skipped = { cancelled_orders: 0, gift_card_lines: 0, no_location_lines: 0 };
 
   for (const order of orders) {
+    newestUpdatedStamp = maxIso(newestUpdatedStamp, order.updated_at || order.created_at);
+
+    // Shopify sales reports exclude cancelled and test orders — match that.
+    if (order.cancelled_at || order.test) {
+      if (order.cancelled_at) skipped.cancelled_orders += 1;
+      continue;
+    }
+
     newestOrderStamp = maxIso(newestOrderStamp, order.created_at);
 
     const orderDate = (order.created_at || '').slice(0, 10);
 
-    const lineItems = (order.line_items || []).filter((li) => li?.sku || li?.title || Number(li?.price) > 0 || getShopifyItemType(li));
+    // Gift card sales are liabilities, not sales, in Shopify reporting.
+    skipped.gift_card_lines += (order.line_items || []).filter((li) => li?.gift_card).length;
+    const lineItems = (order.line_items || []).filter((li) => !li?.gift_card && (li?.sku || li?.title || Number(li?.price) > 0 || getShopifyItemType(li)));
     const lineCount = lineItems.length || 1;
     const refundMap = buildLineItemRefundMap(order);
 
@@ -681,7 +694,10 @@ export function ordersToSalesRows({
         locationMap,
         connection,
       });
-      if (!resolvedLoc) continue;
+      if (!resolvedLoc) {
+        skipped.no_location_lines += 1;
+        continue;
+      }
       const { location_tag: locationTag, location_name: locationName } = resolvedLoc;
 
       const grossSales = price * qty;
@@ -744,7 +760,23 @@ export function ordersToSalesRows({
   return {
     salesRows: collapseSalesRows([...dayMap.values()]),
     newestOrderStamp,
+    newestUpdatedStamp,
+    skipped,
   };
+}
+
+/** Sorted unique YYYY-MM-DD dates → contiguous [{start, end}] runs. */
+export function contiguousDateRuns(dates) {
+  const runs = [];
+  for (const d of dates) {
+    const last = runs[runs.length - 1];
+    if (last && isoDateOnly(addDays(new Date(`${last.end}T00:00:00Z`), 1)) === d) {
+      last.end = d;
+    } else {
+      runs.push({ start: d, end: d });
+    }
+  }
+  return runs;
 }
 
 export function planHistoryWindows(rangeStart, rangeEnd, chunkDays) {
@@ -835,7 +867,14 @@ export async function runHistoryChunk(supabase, connection, {
 
   const locationContext = locationContextCache || await loadLocationContext(supabase, connection, headers, base);
   const skuMeta = skuMetaCache || await loadSkuMeta(headers, base);
-  const orders = await fetchOrdersInWindow(headers, base, win.window_start, win.window_end);
+
+  // Windows are fetched on UTC bounds but rows are bucketed by the order's
+  // shop-local date, so a boundary date straddles two windows. Over-fetch one
+  // day on each side, then keep only the dates this window fully covers —
+  // otherwise the next window's partial aggregate overwrites (via row_hash
+  // upsert) the complete aggregate written by this one.
+  const fetchStart = isoDateOnly(addDays(new Date(`${win.window_start}T00:00:00Z`), -1));
+  const orders = await fetchOrdersInWindow(headers, base, fetchStart, win.window_end);
   const { salesRows, newestOrderStamp } = ordersToSalesRows({
     orders,
     connection,
@@ -845,7 +884,12 @@ export async function runHistoryChunk(supabase, connection, {
     batchId,
   });
 
-  const upserted = await upsertInChunks(supabase, 'sales_by_day', salesRows, 'row_hash');
+  const isFinalWindow = win.window_end >= state.range_end;
+  const keepRows = salesRows.filter((r) =>
+    r.day_date >= win.window_start
+    && (isFinalWindow ? r.day_date <= win.window_end : r.day_date < win.window_end));
+
+  const upserted = await upsertInChunks(supabase, 'sales_by_day', keepRows, 'row_hash');
 
   const nextState = computeBackfillProgress({
     ...state,
@@ -1017,29 +1061,77 @@ export async function runIncrementalSales(supabase, connection, {
 
   const locationContext = await loadLocationContext(supabase, connection, headers, base);
   const skuMeta = await loadSkuMeta(headers, base);
-  const orders = await getAll(
+
+  // Fetch by updated_at (not created_at) so refunds, fulfillments, edits and
+  // cancellations on older orders are picked up, not just newly created orders.
+  const touched = await getAll(
     headers,
-    `${base}/orders.json?status=any&created_at_min=${encodeURIComponent(sinceISO)}&limit=250`,
+    `${base}/orders.json?status=any&updated_at_min=${encodeURIComponent(sinceISO)}&limit=250`,
   );
 
-  const { salesRows, newestOrderStamp } = ordersToSalesRows({
-    orders,
-    connection,
-    locationMap: locationContext.dbLocationMap,
-    skuMeta,
-    syncedAt,
-    batchId,
-  });
+  let newestOrderStamp = null;
+  let newestUpdatedStamp = null;
+  for (const order of touched) {
+    newestOrderStamp = maxIso(newestOrderStamp, order.created_at);
+    newestUpdatedStamp = maxIso(newestUpdatedStamp, order.updated_at || order.created_at);
+  }
 
-  const upserted = await upsertInChunks(supabase, 'sales_by_day', salesRows, 'row_hash');
+  const affectedDates = [...new Set(
+    touched.map((o) => (o.created_at || '').slice(0, 10)).filter(Boolean),
+  )].sort();
+
+  let rowsUpserted = 0;
+  let daysRebuilt = 0;
+  const skippedTotals = { cancelled_orders: 0, gift_card_lines: 0, no_location_lines: 0 };
+
+  // Rebuild every affected order-date in full: day aggregates can't be patched
+  // incrementally (a refund or edit changes an existing row), so re-fetch all
+  // orders for those dates and replace this shop's rows for them.
+  for (const run of contiguousDateRuns(affectedDates)) {
+    // Over-fetch one UTC day on each side so shop-local dates are complete.
+    const fetchStart = isoDateOnly(addDays(new Date(`${run.start}T00:00:00Z`), -1));
+    const fetchEnd = isoDateOnly(addDays(new Date(`${run.end}T00:00:00Z`), 1));
+    const orders = await fetchOrdersInWindow(headers, base, fetchStart, fetchEnd);
+
+    const { salesRows, skipped } = ordersToSalesRows({
+      orders,
+      connection,
+      locationMap: locationContext.dbLocationMap,
+      skuMeta,
+      syncedAt,
+      batchId,
+    });
+    for (const key of Object.keys(skippedTotals)) skippedTotals[key] += skipped[key] || 0;
+
+    const keepRows = salesRows.filter((r) => r.day_date >= run.start && r.day_date <= run.end);
+
+    // Delete-then-insert so removed, refunded, or re-located line items don't
+    // leave stale aggregate rows behind. Scoped to this shop + source + dates.
+    const { error: delError } = await supabase
+      .from('sales_by_day')
+      .delete()
+      .eq('company_entity_id', connection.company_entity_id)
+      .eq('shop_domain', connection.shop_domain)
+      .eq('source', SOURCE)
+      .gte('day_date', run.start)
+      .lte('day_date', run.end);
+    if (delError) throw new Error(`sales_by_day rebuild delete failed: ${delError.message}`);
+
+    rowsUpserted += await upsertInChunks(supabase, 'sales_by_day', keepRows, 'row_hash');
+    daysRebuilt += Math.round(
+      (new Date(`${run.end}T00:00:00Z`) - new Date(`${run.start}T00:00:00Z`)) / 86400000,
+    ) + 1;
+  }
 
   return {
     job_type: 'incremental_sales',
     window_since: sinceISO.slice(0, 10),
-    orders_fetched: orders.length,
-    sales_rows_upserted: upserted,
+    orders_fetched: touched.length,
+    days_rebuilt: daysRebuilt,
+    sales_rows_upserted: rowsUpserted,
+    rows_skipped: skippedTotals,
     newest_order_stamp: newestOrderStamp,
-    last_order_sync_at: newestOrderStamp || syncedAt,
+    last_order_sync_at: newestUpdatedStamp || syncedAt,
     last_sales_sync_at: syncedAt,
   };
 }

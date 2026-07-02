@@ -130,6 +130,7 @@ supabase/
     20260616020000_rls_active_company_isolation.sql
     20260616030000_views_security_invoker.sql
     20260616060000_stamp_company_entity_id_on_insert.sql
+    20260702170000_shopify_sync_variance_fixes.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
