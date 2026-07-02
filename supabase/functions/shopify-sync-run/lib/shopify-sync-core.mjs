@@ -388,14 +388,34 @@ export function resolveSalesRowLocation({
 
 /** Remove shopify_api sales for one shop only (safe for multi-store companies). */
 export async function purgeShopifySalesForShop(supabase, companyEntityId, shopDomain) {
-  const { error } = await supabase
+  // High-volume shops (main store: ~400k rows) exceed the API statement
+  // timeout on a single DELETE — walk the date range in 60-day slices.
+  const { data: oldest, error: boundsError } = await supabase
     .from('sales_by_day')
-    .delete()
+    .select('day_date')
     .eq('company_entity_id', companyEntityId)
     .eq('shop_domain', shopDomain)
-    .eq('source', SOURCE);
+    .eq('source', SOURCE)
+    .order('day_date', { ascending: true })
+    .limit(1);
+  if (boundsError) throw new Error(`sales_by_day purge failed: ${boundsError.message}`);
+  if (!oldest?.length) return;
 
-  if (error) throw new Error(`sales_by_day purge failed: ${error.message}`);
+  let cursor = oldest[0].day_date;
+  const end = isoDateOnly(addDays(new Date(), 2));
+  while (cursor <= end) {
+    const sliceEnd = isoDateOnly(addDays(new Date(`${cursor}T00:00:00Z`), 60));
+    const { error } = await supabase
+      .from('sales_by_day')
+      .delete()
+      .eq('company_entity_id', companyEntityId)
+      .eq('shop_domain', shopDomain)
+      .eq('source', SOURCE)
+      .gte('day_date', cursor)
+      .lt('day_date', sliceEnd);
+    if (error) throw new Error(`sales_by_day purge failed: ${error.message}`);
+    cursor = sliceEnd;
+  }
 }
 
 /** @deprecated Prefer purgeShopifySalesForShop — company-wide purge breaks multi-store imports. */
