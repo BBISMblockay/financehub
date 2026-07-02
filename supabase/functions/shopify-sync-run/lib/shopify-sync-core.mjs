@@ -166,23 +166,6 @@ export function buildLineItemRefundMap(order) {
   return map;
 }
 
-function sumRefundShipping(order) {
-  let total = 0;
-  for (const refund of order?.refunds || []) {
-    for (const rsl of refund?.refund_shipping_lines || []) {
-      total += moneyAmount(rsl.subtotal_amount_set)
-        || Number(rsl.subtotal || 0);
-    }
-    for (const adj of refund?.order_adjustments || []) {
-      const kind = String(adj?.kind || '').toLowerCase();
-      if (kind.includes('shipping')) {
-        total += Math.abs(Number(adj.amount || 0));
-      }
-    }
-  }
-  return total;
-}
-
 function allocatePerLine(orderAmount, lineCount) {
   const count = Math.max(Number(lineCount) || 1, 1);
   return Number(orderAmount || 0) / count;
@@ -522,6 +505,70 @@ export async function buildSalesRow({
   };
 }
 
+/**
+ * Negative row for a refund, dated by the refund's processed date (Shopify
+ * sales-report / Better Reports parity). Hashed per order + date + sku:
+ * refunds are immutable in Shopify, so these rows are additive-only — they
+ * are marked total_orders = 0 and exempted from day-rebuild deletes.
+ */
+export async function buildRefundRow({
+  companyEntityId,
+  locationTag,
+  locationName,
+  shopDomain,
+  refundDate,
+  sku,
+  productName,
+  productType,
+  vendorOriginal,
+  orderId,
+  qtyDelta,
+  refundAmount,
+  taxDelta,
+  shippingDelta,
+  netDelta,
+  totalDelta,
+  syncedAt,
+  batchId,
+}) {
+  const rowHash = await hashRow([
+    companyEntityId,
+    locationTag,
+    refundDate,
+    sku || '',
+    productName || '',
+    shopDomain || '',
+    String(orderId ?? ''),
+    'refund',
+    SOURCE,
+  ]);
+
+  return {
+    company_entity_id: companyEntityId,
+    location_tag: locationTag,
+    location_name: locationName,
+    source: SOURCE,
+    day_date: refundDate,
+    product_name: productName || null,
+    sku: sku || null,
+    product_type: productType || null,
+    vendor_original: vendorOriginal || null,
+    total_quantity_sold: qtyDelta || 0,
+    total_orders: 0,
+    total_gross_sales: 0,
+    total_discounts: 0,
+    total_refunds: refundAmount || 0,
+    total_net_sales: netDelta || 0,
+    taxes: taxDelta || 0,
+    shipping: shippingDelta || 0,
+    total_sales: totalDelta || 0,
+    shop_domain: shopDomain,
+    sync_batch_id: batchId,
+    synced_at: syncedAt,
+    row_hash: rowHash,
+  };
+}
+
 export function collapseSalesRows(rows) {
   const byHash = new Map();
 
@@ -658,6 +705,7 @@ export async function ordersToSalesRows({
 }) {
   const domain = connection.shop_domain;
   const dayMap = new Map();
+  const refundRows = [];
   let newestOrderStamp = null;
   let newestUpdatedStamp = null;
   const skipped = { cancelled_orders: 0, gift_card_lines: 0, no_location_lines: 0 };
@@ -679,14 +727,12 @@ export async function ordersToSalesRows({
     skipped.gift_card_lines += (order.line_items || []).filter((li) => li?.gift_card).length;
     const lineItems = (order.line_items || []).filter((li) => !li?.gift_card && (li?.sku || li?.title || Number(li?.price) > 0 || getShopifyItemType(li)));
     const lineCount = lineItems.length || 1;
-    const refundMap = buildLineItemRefundMap(order);
 
     const orderShippingGross = firstOrderMoney(
       order,
       'total_shipping_price_set',
       'current_total_shipping_price_set',
     );
-    const orderShippingNet = Math.max(0, orderShippingGross - sumRefundShipping(order));
     const orderDuties = firstOrderMoney(
       order,
       'original_total_duties_set',
@@ -699,7 +745,7 @@ export async function ordersToSalesRows({
       'current_total_additional_fees_set',
     );
 
-    const shippingShare = allocatePerLine(orderShippingNet, lineCount);
+    const shippingShare = allocatePerLine(orderShippingGross, lineCount);
     const dutiesShare = allocatePerLine(orderDuties, lineCount);
     const feesShare = allocatePerLine(orderAdditionalFees, lineCount);
 
@@ -707,9 +753,10 @@ export async function ordersToSalesRows({
       const qty = Number(li.quantity || 0);
       const price = Number(li.price || 0);
       const discount = sumDiscountForLine(li);
-      const lineRefund = refundMap.get(String(li.id)) || { subtotal: 0, tax: 0 };
-      const refundAmount = lineRefund.subtotal;
-      const tax = Math.max(0, sumTaxForLine(li) - lineRefund.tax);
+      // Refunds are NOT netted into the sale day — they're booked as negative
+      // rows on the refund's processed date below (Shopify report parity).
+      const refundAmount = 0;
+      const tax = sumTaxForLine(li);
 
       const resolvedLoc = resolveSalesRowLocation({
         order,
@@ -778,10 +825,130 @@ export async function ordersToSalesRows({
         cur.total_sales += totalSales;
       }
     }
+
+    // Returns: negative rows dated by the refund's processed date, matching
+    // Shopify sales reports / Better Reports (which book money-out on the day
+    // it happened, not as a restatement of the original order day).
+    const lineItemById = new Map((order.line_items || []).map((li) => [String(li.id), li]));
+
+    for (const refund of order.refunds || []) {
+      const refundDate = (refund.processed_at || refund.created_at || '').slice(0, 10);
+      if (!refundDate) continue;
+
+      for (const rli of refund.refund_line_items || []) {
+        const li = lineItemById.get(String(rli.line_item_id));
+        if (li?.gift_card) continue;
+
+        const resolvedLoc = resolveSalesRowLocation({ order, lineItem: li, locationMap, connection });
+        if (!resolvedLoc) {
+          skipped.no_location_lines += 1;
+          continue;
+        }
+
+        const subtotal = Number(rli.subtotal || 0);
+        const taxRefund = Number(rli.total_tax || 0);
+        const shopifyItemType = getShopifyItemType(li);
+        const effectiveSku = li?.sku || li?.title || shopifyItemType || 'None';
+        const metaSku = (li?.sku && skuMeta.get(li.sku)) || {};
+
+        refundRows.push(await buildRefundRow({
+          companyEntityId: connection.company_entity_id,
+          locationTag: resolvedLoc.location_tag,
+          locationName: resolvedLoc.location_name,
+          shopDomain: domain,
+          refundDate,
+          sku: effectiveSku,
+          productName: metaSku.product_title || li?.title || null,
+          productType: metaSku.product_type || shopifyItemType || null,
+          vendorOriginal: metaSku.vendor_original || null,
+          orderId: order.id,
+          qtyDelta: -Number(rli.quantity || 0),
+          refundAmount: subtotal,
+          taxDelta: -taxRefund,
+          shippingDelta: 0,
+          netDelta: -subtotal,
+          totalDelta: -(subtotal + taxRefund),
+          syncedAt,
+          batchId,
+        }));
+      }
+
+      // Order-level pieces: refunded shipping and refund discrepancies.
+      let shippingRefund = 0;
+      let shippingTax = 0;
+      let discrepancy = 0;
+      let discrepancyTax = 0;
+      for (const rsl of refund.refund_shipping_lines || []) {
+        shippingRefund += moneyAmount(rsl.subtotal_amount_set) || Number(rsl.subtotal || 0);
+      }
+      for (const adj of refund.order_adjustments || []) {
+        const kind = String(adj?.kind || '').toLowerCase();
+        if (kind.includes('shipping')) {
+          shippingRefund += Math.abs(Number(adj.amount || 0));
+          shippingTax += Math.abs(Number(adj.tax_amount || 0));
+        } else {
+          // adjustment amounts are negative when money is returned
+          discrepancy += Number(adj.amount || 0);
+          discrepancyTax += Number(adj.tax_amount || 0);
+        }
+      }
+
+      if (shippingRefund || shippingTax || discrepancy || discrepancyTax) {
+        const resolvedLoc = resolveSalesRowLocation({ order, lineItem: null, locationMap, connection });
+        if (!resolvedLoc) {
+          skipped.no_location_lines += 1;
+        } else {
+          if (shippingRefund || shippingTax) {
+            refundRows.push(await buildRefundRow({
+              companyEntityId: connection.company_entity_id,
+              locationTag: resolvedLoc.location_tag,
+              locationName: resolvedLoc.location_name,
+              shopDomain: domain,
+              refundDate,
+              sku: '[Shipping]',
+              productName: '[Shipping]',
+              productType: null,
+              vendorOriginal: null,
+              orderId: order.id,
+              qtyDelta: 0,
+              refundAmount: 0,
+              taxDelta: -shippingTax,
+              shippingDelta: -shippingRefund,
+              netDelta: 0,
+              totalDelta: -(shippingRefund + shippingTax),
+              syncedAt,
+              batchId,
+            }));
+          }
+          if (discrepancy || discrepancyTax) {
+            refundRows.push(await buildRefundRow({
+              companyEntityId: connection.company_entity_id,
+              locationTag: resolvedLoc.location_tag,
+              locationName: resolvedLoc.location_name,
+              shopDomain: domain,
+              refundDate,
+              sku: '[Refund discrepancy]',
+              productName: '[Refund discrepancy]',
+              productType: null,
+              vendorOriginal: null,
+              orderId: order.id,
+              qtyDelta: 0,
+              refundAmount: -discrepancy,
+              taxDelta: discrepancyTax,
+              shippingDelta: 0,
+              netDelta: discrepancy,
+              totalDelta: discrepancy + discrepancyTax,
+              syncedAt,
+              batchId,
+            }));
+          }
+        }
+      }
+    }
   }
 
   return {
-    salesRows: collapseSalesRows([...dayMap.values()]),
+    salesRows: collapseSalesRows([...dayMap.values(), ...refundRows]),
     newestOrderStamp,
     newestUpdatedStamp,
     skipped,
@@ -907,10 +1074,14 @@ export async function runHistoryChunk(supabase, connection, {
     batchId,
   });
 
+  // Refund rows (total_orders = 0) are keyed per order + refund date and may
+  // land outside the window's date range — keep them regardless; the upsert
+  // is idempotent per refund.
   const isFinalWindow = win.window_end >= state.range_end;
   const keepRows = salesRows.filter((r) =>
-    r.day_date >= win.window_start
-    && (isFinalWindow ? r.day_date <= win.window_end : r.day_date < win.window_end));
+    r.total_orders === 0
+    || (r.day_date >= win.window_start
+      && (isFinalWindow ? r.day_date <= win.window_end : r.day_date < win.window_end)));
 
   const upserted = await upsertInChunks(supabase, 'sales_by_day', keepRows, 'row_hash');
 
@@ -1126,16 +1297,21 @@ export async function runIncrementalSales(supabase, connection, {
     });
     for (const key of Object.keys(skippedTotals)) skippedTotals[key] += skipped[key] || 0;
 
-    const keepRows = salesRows.filter((r) => r.day_date >= run.start && r.day_date <= run.end);
+    const keepRows = salesRows.filter((r) =>
+      r.total_orders === 0 || (r.day_date >= run.start && r.day_date <= run.end));
 
-    // Delete-then-insert so removed, refunded, or re-located line items don't
-    // leave stale aggregate rows behind. Scoped to this shop + source + dates.
+    // Delete-then-insert so removed or edited line items don't leave stale
+    // aggregate rows behind. Scoped to this shop + source + dates, and only
+    // sales rows (total_orders > 0): refund rows on these dates may come from
+    // orders created long ago that this fetch doesn't cover — they're
+    // additive-only (refunds are immutable) and refreshed by hash upsert.
     const { error: delError } = await supabase
       .from('sales_by_day')
       .delete()
       .eq('company_entity_id', connection.company_entity_id)
       .eq('shop_domain', connection.shop_domain)
       .eq('source', SOURCE)
+      .gt('total_orders', 0)
       .gte('day_date', run.start)
       .lte('day_date', run.end);
     if (delError) throw new Error(`sales_by_day rebuild delete failed: ${delError.message}`);
