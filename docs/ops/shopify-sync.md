@@ -32,6 +32,24 @@ Per order line, `sales_by_day` rows are built as:
 | Taxes | line `tax_lines` minus refunded tax |
 | **Total sales** | net + shipping + duties + fees + taxes |
 
+Exclusions (Shopify sales-report parity): **cancelled orders**, **test orders**, and
+**gift card line items** (gift card sales are liabilities, not sales) are skipped and
+reported in the job result as `rows_skipped`.
+
+**Row identity:** `row_hash` = sha256 of
+`company | location_tag | day | sku | product_name | shop_domain | source` — shop_domain
+is included so two shops mapped to the same SILO location can't overwrite each other's rows.
+
+**Incremental sync** fetches orders by `updated_at_min` (not `created_at_min`) so refunds,
+fulfillments, edits, and cancellations on older orders are picked up. Every affected
+order-date is rebuilt in full (delete + reinsert scoped to that shop + source + dates), so
+day aggregates never drift. Known definitional difference vs Better Reports: SILO restates
+a refund on the **original order date**, BR books a negative row on the **refund date** —
+individual days can differ, multi-day windows converge.
+
+**History imports** over-fetch one UTC day per window and keep only fully-covered
+shop-local dates, so chunk-boundary days aren't overwritten with partial aggregates.
+
 After changing this logic, **re-run a sales history import** from Integrations so existing rows are upserted with corrected amounts.
 
 ---
