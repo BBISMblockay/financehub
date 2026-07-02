@@ -40,12 +40,18 @@ reported in the job result as `rows_skipped`.
 `company | location_tag | day | sku | product_name | shop_domain | source` — shop_domain
 is included so two shops mapped to the same SILO location can't overwrite each other's rows.
 
+**Refunds (Shopify report / BR parity):** refunds are NOT netted into the original
+order's day. Each refund emits negative rows dated by its `processed_at` date —
+per-SKU return rows (negative qty, `total_refunds` = merchandise subtotal, negative
+taxes), plus `[Shipping]` and `[Refund discrepancy]` rows for order-level pieces.
+Refund rows are hashed per order + refund date + sku, carry `total_orders = 0`, and
+are **additive-only** (Shopify refunds are immutable): day rebuilds delete and
+regenerate only sales rows (`total_orders > 0`) and leave refund rows in place.
+
 **Incremental sync** fetches orders by `updated_at_min` (not `created_at_min`) so refunds,
 fulfillments, edits, and cancellations on older orders are picked up. Every affected
-order-date is rebuilt in full (delete + reinsert scoped to that shop + source + dates), so
-day aggregates never drift. Known definitional difference vs Better Reports: SILO restates
-a refund on the **original order date**, BR books a negative row on the **refund date** —
-individual days can differ, multi-day windows converge.
+order-date's sales rows are rebuilt in full (delete + reinsert scoped to that shop +
+source + dates), so day aggregates never drift; new refunds upsert as dated rows.
 
 **History imports** over-fetch one UTC day per window and keep only fully-covered
 shop-local dates, so chunk-boundary days aren't overwritten with partial aggregates.
