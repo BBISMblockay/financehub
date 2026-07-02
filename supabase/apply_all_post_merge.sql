@@ -173,56 +173,61 @@ grant execute on function public.generate_next_po_name(uuid) to authenticated;
 -- Views
 -- ---------------------------------------------------------------------------
 
-create or replace view public.v_po_header_summary as
+-- NOTE (2026-07-02): these three view definitions are synced from the live DB
+-- (pg_get_viewdef). The originals predated po_headers.pdf_url / created_by and
+-- po_lines.product_master_id / line_notes; CREATE OR REPLACE VIEW cannot
+-- reorder columns, so re-running the stale definitions aborted this script
+-- ("cannot change name of view column \"pdf_url\" to \"created_at\"").
+
+create or replace view public.v_po_header_summary
+with (security_invoker = true) as
 select
-  h.id,
+  ph.id,
+  ph.po_name,
+  ph.factory_id,
+  f.factory_name,
+  ph.order_date,
+  ph.req_ship_date,
+  ph.expected_arrival_date,
+  ph.date_bucket,
+  ph.status,
+  ph.wholesale_triggered,
+  ph.is_new_product_po,
+  ph.notes,
+  ph.internal_notes,
+  ph.pdf_url,
+  ph.created_by,
+  ph.created_at,
+  ph.updated_at,
+  coalesce(sum(pl.qty), 0::bigint) as total_units,
+  coalesce(sum(pl.retail_value), 0::numeric)::numeric(14,2) as total_retail_value,
+  coalesce(sum(pl.unit_cost * pl.qty::numeric), 0::numeric)::numeric(14,2) as total_estimated_cost
+from public.po_headers ph
+left join public.factories f on f.id = ph.factory_id
+left join public.po_lines pl on pl.po_header_id = ph.id
+group by
+  ph.id, ph.po_name, ph.factory_id, f.factory_name,
+  ph.order_date, ph.req_ship_date, ph.expected_arrival_date, ph.date_bucket,
+  ph.status, ph.wholesale_triggered, ph.is_new_product_po,
+  ph.notes, ph.internal_notes, ph.pdf_url, ph.created_by, ph.created_at, ph.updated_at;
+
+create or replace view public.v_po_incoming_lines
+with (security_invoker = true) as
+select
+  h.id as po_header_id,
   h.po_name,
   h.factory_id,
   f.factory_name,
+  h.status,
   h.order_date,
   h.req_ship_date,
   h.expected_arrival_date,
   h.date_bucket,
-  h.status,
   h.wholesale_triggered,
   h.is_new_product_po,
-  h.notes,
-  h.internal_notes,
-  h.created_at,
-  h.updated_at,
-  coalesce(sum(l.qty), 0) as total_units,
-  coalesce(sum(l.retail_value), 0) as total_retail_value,
-  coalesce(sum(coalesce(l.unit_cost, 0) * coalesce(l.qty, 0)), 0) as total_estimated_cost,
-  count(l.id) as line_count,
-  count(distinct nullif(btrim(l.title_snapshot), '')) as style_count
-from public.po_headers h
-left join public.factories f on f.id = h.factory_id
-left join public.po_lines l on l.po_header_id = h.id
-group by
-  h.id, h.po_name, h.factory_id, f.factory_name,
-  h.order_date, h.req_ship_date, h.expected_arrival_date, h.date_bucket,
-  h.status, h.wholesale_triggered, h.is_new_product_po,
-  h.notes, h.internal_notes, h.created_at, h.updated_at;
-
-create or replace view public.v_po_incoming_summary as
-select
-  s.*,
-  s.created_at as po_created_at,
-  (s.total_retail_value - s.total_estimated_cost) as retail_cost_spread
-from public.v_po_header_summary s;
-
-create or replace view public.v_po_incoming_lines as
-select
-  h.id as po_header_id,
-  l.id as po_line_id,
-  h.po_name,
-  f.factory_name,
-  h.status,
-  h.order_date,
-  h.req_ship_date,
-  h.expected_arrival_date,
-  h.date_bucket,
   h.created_at as po_created_at,
+  l.id as po_line_id,
+  l.product_master_id,
   l.product_type_snapshot as product_type,
   l.title_snapshot as product_title,
   l.variant_title_snapshot as variant_title,
@@ -231,37 +236,78 @@ select
   l.qty,
   l.retail_price,
   l.unit_cost,
-  l.retail_value,
-  (coalesce(l.unit_cost, 0) * coalesce(l.qty, 0)) as estimated_cost
+  coalesce(l.retail_value, coalesce(l.qty, 0)::numeric * coalesce(l.retail_price, 0::numeric)) as retail_value,
+  coalesce(l.qty, 0)::numeric * coalesce(l.unit_cost, 0::numeric) as estimated_cost,
+  l.line_notes
 from public.po_headers h
-join public.po_lines l on l.po_header_id = h.id
-left join public.factories f on f.id = h.factory_id;
+left join public.factories f on f.id = h.factory_id
+left join public.po_lines l on l.po_header_id = h.id;
+
+create or replace view public.v_po_incoming_summary
+with (security_invoker = true) as
+select
+  po_header_id as id,
+  po_name,
+  factory_id,
+  factory_name,
+  status,
+  order_date,
+  req_ship_date,
+  expected_arrival_date,
+  date_bucket,
+  wholesale_triggered,
+  is_new_product_po,
+  po_created_at,
+  count(po_line_id) as line_count,
+  count(distinct product_title) as style_count,
+  sum(coalesce(qty, 0)) as total_units,
+  sum(coalesce(retail_value, 0::numeric)) as total_retail_value,
+  sum(coalesce(estimated_cost, 0::numeric)) as total_estimated_cost,
+  sum(coalesce(retail_value, 0::numeric)) - sum(coalesce(estimated_cost, 0::numeric)) as retail_cost_spread
+from public.v_po_incoming_lines
+group by
+  po_header_id, po_name, factory_id, factory_name, status, order_date,
+  req_ship_date, expected_arrival_date, date_bucket, wholesale_triggered,
+  is_new_product_po, po_created_at;
 
 -- Open PO lines for planning scenarios (non-closed / non-cancelled)
-create or replace view public.v_po_open_planning_lines as
+-- NOTE (2026-07-02): synced from the live DB (pg_get_viewdef) — the original
+-- definition predated planning-scenarios v2 columns (factory_id,
+-- product_master_id, product_key, retail_price, unit_cost) and the stricter
+-- status filter; CREATE OR REPLACE VIEW cannot reorder/drop view columns.
+create or replace view public.v_po_open_planning_lines
+with (security_invoker = true) as
 select
-  l.po_header_id,
-  l.id as po_line_id,
+  h.id as po_header_id,
   h.po_name,
   h.status,
+  h.factory_id,
   f.factory_name,
   h.order_date,
   h.req_ship_date,
   h.expected_arrival_date,
   coalesce(h.expected_arrival_date, h.req_ship_date, h.order_date) as planning_date,
-  to_char(coalesce(h.expected_arrival_date, h.req_ship_date, h.order_date), 'YYYY-MM') as month_key,
+  to_char(coalesce(h.expected_arrival_date, h.req_ship_date, h.order_date)::timestamptz, 'YYYY-MM') as month_key,
   h.date_bucket,
+  l.id as po_line_id,
+  l.product_master_id,
   l.product_type_snapshot as product_type,
   l.title_snapshot as product_title,
+  lower(regexp_replace(regexp_replace(regexp_replace(coalesce(l.title_snapshot, ''), '[''"]', '', 'g'), '&', 'and', 'g'), '[^a-zA-Z0-9]+', '-', 'g')) as product_key_raw,
+  trim(both '-' from lower(regexp_replace(regexp_replace(regexp_replace(coalesce(l.title_snapshot, ''), '[''"]', '', 'g'), '&', 'and', 'g'), '[^a-zA-Z0-9]+', '-', 'g'))) as product_key,
   l.variant_title_snapshot as variant_title,
   l.sku_snapshot as sku,
-  l.qty as incoming_units,
-  l.retail_value as incoming_retail_value,
-  (coalesce(l.unit_cost, 0) * coalesce(l.qty, 0)) as incoming_cost
+  l.upc_snapshot as upc,
+  coalesce(l.qty, 0) as incoming_units,
+  coalesce(l.retail_price, 0::numeric) as retail_price,
+  coalesce(l.unit_cost, 0::numeric) as unit_cost,
+  coalesce(l.retail_value, coalesce(l.qty, 0)::numeric * coalesce(l.retail_price, 0::numeric)) as incoming_retail_value,
+  coalesce(l.qty, 0)::numeric * coalesce(l.unit_cost, 0::numeric) as incoming_cost
 from public.po_headers h
-join public.po_lines l on l.po_header_id = h.id
 left join public.factories f on f.id = h.factory_id
-where coalesce(h.status, 'Draft') not in ('Closed', 'Cancelled', 'Received');
+left join public.po_lines l on l.po_header_id = h.id
+where h.status = any (array['Approved', 'Sent to Factory', 'Confirmed', 'In Production', 'Shipped', 'In Transit', 'Partially Received'])
+  and coalesce(l.qty, 0) <> 0;
 
 -- ---------------------------------------------------------------------------
 -- RLS
