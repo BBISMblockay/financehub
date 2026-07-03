@@ -27,7 +27,7 @@
         <div class="mode-icon">🧢</div>
         <div class="mode-info">
           <div class="mode-name">Retail Online</div>
-          <div class="mode-desc">Online/Retail + Wholesale → MLB Submission</div>
+          <div class="mode-desc">Shopify apparel → MLB submission xlsx</div>
         </div>
         <div class="mode-check" id="check-online">✓</div>
       </div>
@@ -39,33 +39,58 @@
         </div>
         <div class="mode-check" id="check-fanatics"></div>
       </div>
-      <div class="mode-card" id="mode-milb" onclick="setMode('milb')">
-        <div class="mode-icon">⚾</div>
-        <div class="mode-info">
-          <div class="mode-name">MiLB Submission</div>
-          <div class="mode-desc">MiLB Sales → MiLB Royalty Statement</div>
-        </div>
-        <div class="mode-check" id="check-milb"></div>
-      </div>
     </div>
 
     <!-- Files -->
     <div class="files-grid" style="margin-top:20px;">
 
       <!-- Shopify Export — shown in both modes -->
-      <label class="file-slot mode-online mode-fanatics mode-milb" id="slot-shopify">
+      <label class="file-slot mode-online mode-fanatics" id="slot-shopify">
         <input type="file" accept=".xlsx,.xls,.csv" onchange="loadFile('shopify', this)" />
         <div class="slot-icon" id="icon-shopify">📊</div>
         <div class="slot-info">
           <div class="slot-name">Shopify Monthly Export</div>
-          <div class="slot-desc" id="desc-shopify">Monthly sales export — xlsx or csv</div>
+          <div class="slot-desc" id="desc-shopify">Monthly sales file — needs sheet "MLB Retail-Online"</div>
           <div class="slot-filename" id="fname-shopify"></div>
         </div>
         <span class="slot-badge waiting" id="badge-shopify">Waiting</span>
       </label>
 
+      <!-- Reference Tables — online only -->
+      <label class="file-slot mode-online" id="slot-reftables">
+        <input type="file" accept=".xlsx,.xls" onchange="loadFile('reftables', this)" />
+        <div class="slot-icon" id="icon-reftables">📋</div>
+        <div class="slot-info">
+          <div class="slot-name">Reference Tables MLB</div>
+          <div class="slot-desc">Team asset codes &amp; retailer mapping</div>
+          <div class="slot-filename" id="fname-reftables"></div>
+        </div>
+        <span class="slot-badge waiting" id="badge-reftables">Waiting</span>
+      </label>
 
+      <!-- Attribute Mapping — online only -->
+      <label class="file-slot mode-online" id="slot-attrmap">
+        <input type="file" accept=".xlsx,.xls" onchange="loadFile('attrmap', this)" />
+        <div class="slot-icon" id="icon-attrmap">🗂️</div>
+        <div class="slot-info">
+          <div class="slot-name">Attribute Mapping</div>
+          <div class="slot-desc">Product type → MLB attribute codes</div>
+          <div class="slot-filename" id="fname-attrmap"></div>
+        </div>
+        <span class="slot-badge waiting" id="badge-attrmap">Waiting</span>
+      </label>
 
+      <!-- MLB Template — online only -->
+      <label class="file-slot mode-online" id="slot-template">
+        <input type="file" accept=".xlsx,.xls" onchange="loadFile('template', this)" />
+        <div class="slot-icon" id="icon-template">📄</div>
+        <div class="slot-info">
+          <div class="slot-name">MLB Submission Template</div>
+          <div class="slot-desc">Blank MLB USA template (preserves column styles)</div>
+          <div class="slot-filename" id="fname-template"></div>
+        </div>
+        <span class="slot-badge waiting" id="badge-template">Waiting</span>
+      </label>
 
     </div>
 
@@ -100,7 +125,7 @@
   <!-- Toast -->
   <div id="toast"></div>
 
-  <script src="xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="scripts.js"></script>
 </body>
 </html>
