@@ -1,5 +1,5 @@
 // ─── State ────────────────────────────────────────────────────────────────────
-const files = { shopify: null };
+const files = { shopify: null, reftables: null, attrmap: null, template: null };
 let currentMode = 'online'; // 'online' | 'fanatics'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -20,7 +20,7 @@ const HG_PRODUCT_MAP = {
   'canvas totes':  { attrCode: 10060747, product: 'Hard Goods > Bags & Luggage > Tote Bags' },
   'handbag strap': { attrCode: 10060747, product: 'Hard Goods > Bags & Luggage > Other Bags & Accessories' },
   'handbags':      { attrCode: 10060747, product: 'Hard Goods > Bags & Luggage > Tote Bags' },
-  'key chain':     { attrCode: 10061487, product: 'Hard Goods > Gifts/Novelties/Misc. > Key Chains' },
+  'key chain':     { attrCode: 10062362, product: 'Hard Goods > Jewelry > Money Clips' },
   "men's wallet":  { attrCode: 10062362, product: 'Hard Goods > Personal/Fashion Accessories > Wallets/Purses > Adult' },
   'poster':        { attrCode: 10062330, product: 'Hard Goods > Publishing/Posters/Art > Posters' },
 };
@@ -35,141 +35,8 @@ const WHOLESALE_STORES = ['Wholesale - MLB', 'Wholesale - Faire'];
 
 // ─── Wholesale MLB Constants ──────────────────────────────────────────────────
 // Applied to all Wholesale - MLB rows in the MLB submission
-const WHOLESALE_ROYALTY_RATE = 21;
+const WHOLESALE_ROYALTY_RATE = 14;
 const WHOLESALE_DIST_CHANNEL = 'INSTLEAG';
-
-// ─── MiLB Constants ───────────────────────────────────────────────────────────
-const MILB_ROYALTY_RATE  = 12;  // TODO: confirm rate with MiLB contract
-const MILB_DIST_CHANNEL  = 'AFFIL';
-const MILB_TERRITORY     = 'USA';
-const MILB_RETAILER_CODE = 5431;   // fallback only
-const MILB_RETAILER_NAME = 'Baseballism'; // fallback only
-
-// Maps trademark code → { name, code } per the DBH retailer list
-const MILB_RETAILER_MAP = {
-  "AKRR":   { name: "[MiLB] AKRON RUBBERDUCKS",              code: 1890 },
-  "ALBI":   { name: "[MiLB] ALBUQUERQUE ISOTOPES",           code: 1891 },
-  "ALTC":   { name: "[MiLB] ALTOONA CURVE",                  code: 1892 },
-  "ASP":    { name: "[MiLB] AMARILLO SOD POODLES",           code: 4853 },
-  "ARKT":   { name: "[MiLB] ARKANSAS TRAVELERS",             code: 1893 },
-  "ASHT":   { name: "[MiLB] ASHEVILLE TOURISTS",             code: 1894 },
-  "AGJ":    { name: "[MiLB] AUGUSTA GREENJACKETS",           code: 1896 },
-  "BELOSC": { name: "[MiLB] BELOIT SKY CARP",                code: 5612 },
-  "BINR":   { name: "[MiLB] BINGHAMTON RUMBLE PONIES",       code: 3868 },
-  "BILS":   { name: "[MiLB] BILOXI SHUCKERS",                code: 1901 },
-  "BHMB":   { name: "[MiLB] BIRMINGHAM BARONS",              code: 1903 },
-  "BOWH":   { name: "[MiLB] BOWLING GREEN HOT RODS",         code: 1907 },
-  "BRAM":   { name: "[MiLB] BRADENTON MARAUDERS",            code: 1908 },
-  "BKCL":   { name: "[MiLB] BROOKLYN CYCLONES",              code: 1911 },
-  "BUFF":   { name: "[MiLB] BUFFALO BISONS",                 code: 1912 },
-  "CRR":    { name: "[MiLB] CEDAR RAPIDS KERNELS",           code: 1916 },
-  "CRD":    { name: "[MiLB] CHARLESTON RIVERDOGS",           code: 1917 },
-  "CHAR":   { name: "[MiLB] CHARLOTTE KNIGHTS",              code: 1918 },
-  "CHAT":   { name: "[MiLB] CHATTANOOGA LOOKOUTS",           code: 1920 },
-  "CLWTR":  { name: "[MiLB] CLEARWATER THRESHERS",           code: 1921 },
-  "COLF":   { name: "[MiLB] COLUMBIA FIREFLIES",             code: 1924 },
-  "COLCL":  { name: "[MiLB] COLUMBUS CLIPPERS",              code: 1925 },
-  "COLCLI": { name: "[MiLB] COLUMBUS CLINGSTONES",           code: 5732 },
-  "CCH":    { name: "[MiLB] CORPUS CHRISTI HOOKS",           code: 1927 },
-  "DAYD":   { name: "[MiLB] DAYTON DRAGONS",                 code: 1929 },
-  "DAYT":   { name: "[MiLB] DAYTONA TORTUGAS",               code: 1930 },
-  "DELM":   { name: "[MiLB] DELMARVA SHOREBIRDS",            code: 1931 },
-  "DOWW":   { name: "[MiLB] DOWN EAST WOOD DUCKS",           code: 3870 },
-  "DBJ":    { name: "[MiLB] DUNEDIN BLUE JAYS",              code: 1932 },
-  "DURB":   { name: "[MiLB] DURHAM BULLS",                   code: 1933 },
-  "ELPC":   { name: "[MiLB] EL PASO CHIHUAHUAS",             code: 1934 },
-  "ERIE":   { name: "[MiLB] ERIE SEAWOLVES",                 code: 1936 },
-  "EUGN":   { name: "[MiLB] EUGENE EMERALDS",                code: 1937 },
-  "EVER":   { name: "[MiLB] EVERETT AQUASOX",                code: 1938 },
-  "FYWD":   { name: "[MiLB] FAYETTEVILLE WOODPECKERS",       code: 4854 },
-  "FTMYM":  { name: "[MiLB] FORT MYERS MIGHTY MUSSELS",      code: 5209 },
-  "FORT":   { name: "[MiLB] FORT WAYNE TINCAPS",             code: 1940 },
-  "FREK":   { name: "[MiLB] FREDERICK KEYS",                 code: 6623 },
-  "FRDN":   { name: "[MiLB] FREDERICKSBURG NATIONALS",       code: 5203 },
-  "FRES":   { name: "[MiLB] FRESNO GRIZZLIES",               code: 1942 },
-  "FRIR":   { name: "[MiLB] FRISCO ROUGHRIDERS",             code: 1943 },
-  "GREL":   { name: "[MiLB] GREAT LAKES LOONS",              code: 1946 },
-  "GRGR":   { name: "[MiLB] GREENSBORO GRASSHOPPERS",        code: 2834 },
-  "GRED":   { name: "[MiLB] GREENVILLE DRIVE",               code: 1948 },
-  "GWIS":   { name: "[MiLB] GWINNETT STRIPERS",              code: 5870 },
-  "HBS":    { name: "[MiLB] HARRISBURG SENATORS",            code: 1951 },
-  "HARTY":  { name: "[MiLB] HARTFORD YARD GOATS",            code: 1952 },
-  "HICC":   { name: "[MiLB] HICKORY CRAWDADS",               code: 1954 },
-  "HCHOW":  { name: "[MiLB] HILL CITY HOWLERS",              code: 6634 },
-  "HILH":   { name: "[MiLB] HILLSBORO HOPS",                 code: 1956 },
-  "HCS":    { name: "[MiLB] HUB CITY SPARTANBURGS",          code: 5734 },
-  "HVR":    { name: "[MiLB] HUDSON VALLEY RENEGADES",        code: 1957 },
-  "IND":    { name: "[MiLB] INDIANAPOLIS INDIANS",           code: 1959 },
-  "INLS":   { name: "[MiLB] INLAND EMPIRE 66ERS",            code: 1960 },
-  "IOWA":   { name: "[MiLB] IOWA CUBS",                      code: 1961 },
-  "JACJ":   { name: "[MiLB] JACKSONVILLE JUMBO SHRIMP",      code: 3872 },
-  "JSBC":   { name: "[MiLB] JERSEY SHORE BLUECLAWS",         code: 5438 },
-  "JUPI":   { name: "[MiLB] JUPITER HAMMERHEADS",            code: 1965 },
-  "KANCB":  { name: "[MiLB] KANNAPOLIS CANNON BALLERS",      code: 5204 },
-  "KNOXSM": { name: "[MiLB] KNOXVILLE SMOKIES",              code: 5736 },
-  "LAKC":   { name: "[MiLB] LAKE COUNTY CAPTAINS",           code: 1969 },
-  "LES":    { name: "[MiLB] LAKE ELSINORE STORM",            code: 1970 },
-  "LLT":    { name: "[MiLB] LAKELAND FLYING TIGERS",         code: 1971 },
-  "LANS":   { name: "[MiLB] LANSING LUGNUTS",                code: 1974 },
-  "LVA":    { name: "[MiLB] LAS VEGAS AVIATORS",             code: 4855 },
-  "LEHI":   { name: "[MiLB] LEHIGH VALLEY IRONPIGS",         code: 1976 },
-  "LOUB":   { name: "[MiLB] LOUISVILLE BATS",                code: 1978 },
-  "MEMP":   { name: "[MiLB] MEMPHIS REDBIRDS",               code: 1982 },
-  "MLRH":   { name: "[MiLB] MIDLAND ROCKHOUNDS",             code: 1983 },
-  "MNTB":   { name: "[MiLB] MONTGOMERY BISCUITS",            code: 1988 },
-  "MYRT":   { name: "[MiLB] MYRTLE BEACH PELICANS",          code: 1989 },
-  "NASH":   { name: "[MiLB] NASHVILLE SOUNDS",               code: 1990 },
-  "NHFC":   { name: "[MiLB] NEW HAMPSHIRE FISHER CATS",      code: 1991 },
-  "NORT":   { name: "[MiLB] NORFOLK TIDES",                  code: 1993 },
-  "NORN":   { name: "[MiLB] NORTHWEST ARKANSAS NATURALS",    code: 1994 },
-  "OKCC":   { name: "[MiLB] OKLAHOMA CITY COMETS",           code: 5733 },
-  "OMAS":   { name: "[MiLB] OMAHA STORM CHASERS",            code: 1997 },
-  "ONTTB":  { name: "[MiLB] ONTARIO TOWER BUZZERS",          code: 6621 },
-  "PALC":   { name: "[MiLB] PALM BEACH CARDINALS",           code: 1999 },
-  "PENB":   { name: "[MiLB] PENSACOLA BLUE WAHOOS",          code: 2001 },
-  "PEDC":   { name: "[MiLB] PEORIA CHIEFS",                  code: 2002 },
-  "PSD":    { name: "[MiLB] PORTLAND SEA DOGS",              code: 2003 },
-  "QCRB":   { name: "[MiLB] QUAD CITIES RIVER BANDITS",      code: 2007 },
-  "RANQ":   { name: "[MiLB] RANCHO CUCAMONGA QUAKES",        code: 2008 },
-  "RDNG":   { name: "[MiLB] READING FIGHTIN PHILS",          code: 3874 },
-  "RENA":   { name: "[MiLB] RENO ACES",                      code: 2010 },
-  "RICF":   { name: "[MiLB] RICHMOND FLYING SQUIRRELS",      code: 2011 },
-  "RRW":    { name: "[MiLB] ROCHESTER RED WINGS",            code: 2012 },
-  "RCTP":   { name: "[MiLB] ROCKET CITY TRASH PANDAS",       code: 4856 },
-  "ROMEE":  { name: "[MiLB] ROME EMPORERS",                  code: 5730 },
-  "RRE":    { name: "[MiLB] ROUND ROCK EXPRESS",             code: 2014 },
-  "SACR":   { name: "[MiLB] SACRAMENTO RIVER CATS",          code: 2015 },
-  "SALMRY": { name: "[MiLB] SALEM RIDGE YAKS",               code: 6620 },
-  "SALB":   { name: "[MiLB] SALT LAKE BEES",                 code: 2018 },
-  "SAM":    { name: "[MiLB] SAN ANTONIO MISSIONS",           code: 2019 },
-  "SJG":    { name: "[MiLB] SAN JOSE GIANTS",                code: 2020 },
-  "SCRR":   { name: "[MiLB] SCRANTON WILKES-BARRE RAILRIDERS", code: 2022 },
-  "SOMSPT": { name: "[MiLB] SOMERSET PATRIOTS",              code: 5434 },
-  "SOUC":   { name: "[MiLB] SOUTH BEND CUBS",                code: 2023 },
-  "SPIN":   { name: "[MiLB] SPOKANE INDIANS",                code: 2024 },
-  "SPIC":   { name: "[MiLB] SPRINGFIELD CARDINALS",          code: 2025 },
-  "SAIM":   { name: "[MiLB] ST. LUCIE METS",                 code: 2026 },
-  "SPS":    { name: "[MiLB] ST. PAUL SAINTS",                code: 5436 },
-  "STOP":   { name: "[MiLB] STOCKTON PORTS",                 code: 2029 },
-  "SUGLSC": { name: "[MiLB] SUGAR LAND SPACE COWBOYS",       code: 5613 },
-  "SYRCM":  { name: "[MiLB] SYRACUSE METS",                  code: 4857 },
-  "TACO":   { name: "[MiLB] TACOMA RAINIERS",                code: 2031 },
-  "TAMT":   { name: "[MiLB] TAMPA TARPONS",                  code: 5184 },
-  "TENS":   { name: "[MiLB] TENNESSEE SMOKIES",              code: 2033 },
-  "TMH":    { name: "[MiLB] TOLEDO MUD HENS",                code: 2034 },
-  "TCDD":   { name: "[MiLB] TRI-CITY DUST DEVILS",           code: 2036 },
-  "TLSA":   { name: "[MiLB] TULSA DRILLERS",                 code: 2038 },
-  "VANC":   { name: "[MiLB] VANCOUVER CANADIANS",            code: 2039 },
-  "VISR":   { name: "[MiLB] VISALIA RAWHIDE",                code: 2041 },
-  "WMWC":   { name: "[MiLB] WEST MICHIGAN WHITECAPS",        code: 2042 },
-  "CHSPBSX":{ name: "[MiLB] CHESAPEAKE BAYSOX",              code: 5731 },
-  "WTAWS":  { name: "[MILB] WICHITA WIND SURGE",             code: 5206 },
-  "WILB":   { name: "[MiLB] WILMINGTON BLUE ROCKS",          code: 2046 },
-  "WLWRB":  { name: "[MiLB] WILSON WARBIRDS",                code: 5735 },
-  "WIND":   { name: "[MiLB] WINSTON-SALEM DASH",             code: 2047 },
-  "WISC":   { name: "[MiLB] WISCONSIN TIMBER RATTLERS",      code: 2048 },
-  "WORCRS": { name: "[MiLB] WORCESTER RED SOX",              code: 5729 },
-};
 
 // Maps each team asset code → MLB club retailer ID + full legal club name
 // Source: Reference Tables MLB.xlsx › License Retailer tab
@@ -247,741 +114,6 @@ const SKU_NICKNAME_MAP = {
   "rockies":"COL",    "guardians":"CLEG",
 };
 
-// ─── MiLB Team Nickname → Trademark Code ─────────────────────────────────────
-// Keys = lowercase nickname/city as it appears in SKU parentheses.
-// e.g.  MiLB-L-6432(JumboShrimp)-Mens  →  JACJ
-// Add entries here when new MiLB team SKUs are introduced.
-const MILB_NICKNAME_MAP = {
-  // Akron
-  "aeros":"AKRO", "akronaeros":"AKRO",
-  "rubberducks":"AKRR", "rubber ducks":"AKRR", "akronrubberducks":"AKRR",
-  // Albany
-  "albanypolecats":"ALBP", "polecats":"ALBP",
-  // Albuquerque
-  "isotopes":"ALBI", "albuquerque":"ALBI", "albuquerqueisotopes":"ALBI",
-  // Altoona
-  "curve":"ALTC", "altoona":"ALTC",
-  // Amarillo
-  "sodpoodles":"ASP", "sod poodles":"ASP", "amarillo":"ASP",
-  // Arkansas
-  "travelers":"ARKT", "arkansastravelers":"ARKT",
-  // Asheville
-  "tourists":"ASHT", "asheville":"ASHT",
-  // Augusta
-  "greenjackets":"AGJ", "green jackets":"AGJ", "augusta":"AGJ",
-  // Beloit
-  "skycarp":"BELOSC", "sky carp":"BELOSC", "beloit":"BELOSC",
-  // Binghamton
-  "binghamtonmets":"BING",
-  "rumbleponies":"BINR", "rumble ponies":"BINR", "binghamton":"BINR",
-  // Biloxi
-  "shuckers":"BILS", "biloxi":"BILS",
-  // Birmingham
-  "barons":"BHMB", "birmingham":"BHMB",
-  // Bowling Green
-  "hotrods":"BOWH", "hot rods":"BOWH", "bowlinggreen":"BOWH",
-  // Bradenton
-  "marauders":"BRAM", "bradenton":"BRAM",
-  // Brooklyn
-  "cyclones":"BKCL", "brooklyn":"BKCL",
-  // Buffalo
-  "bisons":"BUFF", "buffalo":"BUFF",
-  // Cedar Rapids
-  "kernels":"CRR", "cedarrapids":"CRR",
-  "bunnies":"CDRBUN", "cedarrapidsbunnies":"CDRBUN",
-  // Charleston
-  "riverdogs":"CRD", "river dogs":"CRD", "charleston":"CRD",
-  // Charlotte
-  "knights":"CHAR", "charlotte":"CHAR",
-  // Chattanooga
-  "lookouts":"CHAT", "chattanooga":"CHAT",
-  // Chesapeake
-  "baysox":"CHSPBSX", "chesapeake":"CHSPBSX",
-  // Clearwater
-  "threshers":"CLWTR", "clearwater":"CLWTR",
-  // Columbia
-  "fireflies":"COLF", "columbia":"COLF",
-  // Columbus
-  "clippers":"COLCL", "columbus":"COLCL",
-  "clingstones":"COLCLI", "columbusclingstones":"COLCLI",
-  // Connecticut
-  "defenders":"COND", "connecticutdefenders":"COND",
-  // Corpus Christi
-  "hooks":"CCH", "corpus":"CCH", "corpuschristi":"CCH",
-  // Dayton
-  "dragons":"DAYD", "dayton":"DAYD",
-  // Daytona
-  "tortugas":"DAYT", "daytona":"DAYT",
-  // Delmarva
-  "shorebirds":"DELM", "delmarva":"DELM",
-  // Down East
-  "woodducks":"DOWW", "wood ducks":"DOWW", "downeast":"DOWW",
-  // Dunedin
-  "dunedinbluejays":"DBJ", "dunedin":"DBJ",
-  // Durham
-  "durham":"DURB", "bulls":"DURB", "durham bulls":"DURB",
-  // El Paso
-  "chihuahuas":"ELPC", "elpaso":"ELPC",
-  // Erie
-  "seawolves":"ERIE", "sea wolves":"ERIE", "erie":"ERIE",
-  // Eugene
-  "emeralds":"EUGN", "eugene":"EUGN",
-  // Everett
-  "aquasox":"EVER", "everett":"EVER",
-  // Fayetteville
-  "woodpeckers":"FYWD", "fayetteville":"FYWD",
-  // Fort Myers
-  "mightymussels":"FTMYM", "mighty mussels":"FTMYM", "fortmyers":"FTMYM",
-  // Fort Wayne
-  "tincaps":"FORT", "tin caps":"FORT", "fortwayne":"FORT",
-  // Frederick
-  "frederickkeys":"FREK", "frederick":"FREK",
-  // Fredericksburg
-  "fredericksburgnats":"FRDN", "fredericksburg":"FRDN",
-  // Fresno
-  "grizzlies":"FRES", "fresno":"FRES",
-  // Frisco
-  "roughriders":"FRIR", "rough riders":"FRIR", "frisco":"FRIR",
-  // Great Lakes
-  "loons":"GREL", "greatlakes":"GREL",
-  // Greensboro
-  "grasshoppers":"GRGR", "greensboro":"GRGR",
-  // Greenville
-  "drive":"GRED", "greenville":"GRED",
-  // Gwinnett
-  "stripers":"GWIS", "gwinnett":"GWIS",
-  // Harrisburg
-  "senators":"HBS", "harrisburg":"HBS",
-  // Hartford
-  "yardgoats":"HARTY", "yard goats":"HARTY", "hartford":"HARTY",
-  // Hickory
-  "crawdads":"HICC", "hickory":"HICC",
-  // Hill City
-  "howlers":"HCHOW", "hillcity":"HCHOW",
-  // Hillsboro
-  "hops":"HILH", "hillsboro":"HILH",
-  // Hub City
-  "spartanburgers":"HCS", "hubcity":"HCS",
-  // Hudson Valley
-  "renegades":"HVR", "hudsonvalley":"HVR",
-  // Indianapolis
-  "indianapolisindians":"IND", "indianapolis":"IND",
-  // Inland Empire
-  "66ers":"INLS", "inlandempire":"INLS",
-  // Iowa
-  "iowacubs":"IOWA", "iowa":"IOWA",
-  // Jacksonville
-  "jumboshrimp":"JACJ", "jumbo shrimp":"JACJ", "jacksonville":"JACJ",
-  "jacksonvillesuns":"JKSN",
-  // Jersey Shore
-  "blueclaws":"JSBC", "blue claws":"JSBC", "jerseyshore":"JSBC",
-  // Jupiter
-  "hammerheads":"JUPI", "jupiter":"JUPI",
-  // Kannapolis
-  "cannonballers":"KANCB", "cannon ballers":"KANCB", "kannapolis":"KANCB",
-  // Knoxville
-  "smokies":"KNOXSM", "knoxville":"KNOXSM",
-  // Lake County
-  "lakecounty":"LAKC",
-  // Lake Elsinore
-  "lakeelsinore":"LES", "elsinore":"LES",
-  // Lakeland
-  "flyingtigers":"LLT", "flying tigers":"LLT", "lakeland":"LLT",
-  // Lansing
-  "lugnuts":"LANS", "lansing":"LANS",
-  // Las Vegas
-  "aviators":"LVA", "lasvegas":"LVA",
-  // Lehigh Valley
-  "ironpigs":"LEHI", "iron pigs":"LEHI", "lehigh":"LEHI",
-  // Louisville
-  "louisvillebats":"LOUB", "louisville":"LOUB",
-  // Memphis
-  "redbirds":"MEMP", "memphis":"MEMP",
-  // Midland
-  "rockhounds":"MLRH", "rock hounds":"MLRH", "midland":"MLRH",
-  // Mississippi
-  "mississippibraves":"MISB", "mississippi":"MISB",
-  // Montgomery
-  "biscuits":"MNTB", "montgomery":"MNTB",
-  // Myrtle Beach
-  "myrtlebeach":"MYRT", "myrtlebeachpelicans":"MYRT",
-  // Nashville
-  "sounds":"NASH", "nashville":"NASH",
-  // New Hampshire
-  "fishercats":"NHFC", "fisher cats":"NHFC", "newhampshire":"NHFC",
-  // New Orleans
-  "babycakes":"NEWBC", "neworleansbabyakes":"NEWBC",
-  "neworleanspelicans":"NOP",
-  // Norfolk
-  "tides":"NORT", "norfolk":"NORT",
-  // Northwest Arkansas
-  "naturals":"NORN", "nwarkansas":"NORN",
-  // Oklahoma City
-  "comets":"OKCC", "okc":"OKCC",
-  "okcdodgers":"OKLD", "oklahomacitydodgers":"OKLD",
-  // Omaha
-  "stormchasers":"OMAS", "storm chasers":"OMAS", "omaha":"OMAS",
-  // Ontario
-  "towerbuzzers":"ONTTB", "ontario":"ONTTB",
-  // Palm Beach
-  "palmbeachcardinals":"PALC", "palmbeach":"PALC",
-  // Pensacola
-  "bluewahoos":"PENB", "blue wahoos":"PENB", "pensacola":"PENB",
-  // Peoria
-  "chiefs":"PEDC", "peoria":"PEDC",
-  // Portland
-  "seadogs":"PSD", "sea dogs":"PSD", "portlandseadogs":"PSD",
-  // Potomac
-  "potomaccannons":"POCA",
-  // Quad Cities
-  "riverbandits":"QCRB", "river bandits":"QCRB", "quadcities":"QCRB",
-  // Rancho Cucamonga
-  "quakes":"RANQ", "rancho":"RANQ",
-  // Reading
-  "fightinphils":"RDNG", "fightin phils":"RDNG", "reading":"RDNG",
-  // Reno
-  "reno":"RENA", "renoaces":"RENA",
-  "silversox":"RNSSX", "reno silver sox":"RNSSX",
-  // Richmond
-  "flyingsquirrels":"RICF", "flying squirrels":"RICF", "richmond":"RICF",
-  // Rochester
-  "redwings":"RRW", "red wings":"RRW", "rochester":"RRW",
-  // Rocket City
-  "trashpandas":"RCTP", "trash pandas":"RCTP", "rocketcity":"RCTP",
-  // Rome
-  "romebraves":"ROMB",
-  "emperors":"ROMEE", "romeemperors":"ROMEE",
-  // Round Rock
-  "express":"RRE", "roundrock":"RRE",
-  // Sacramento
-  "rivercats":"SACR", "river cats":"SACR", "sacramento":"SACR",
-  // Salem
-  "ridgeyaks":"SALMRY", "ridge yaks":"SALMRY", "salem":"SALMRY",
-  // Salt Lake
-  "saltlakebees":"SALB", "saltlake":"SALB",
-  // San Antonio
-  "missions":"SAM", "sanantonio":"SAM",
-  // San Jose
-  "sanjosegiants":"SJG", "sanjose":"SJG",
-  // Scranton/WB
-  "railriders":"SCRR", "rail riders":"SCRR", "scranton":"SCRR",
-  // Somerset
-  "somersetpatriots":"SOMSPT", "somerset":"SOMSPT",
-  // South Bend
-  "southbendcubs":"SOUC", "southbend":"SOUC",
-  // Spokane
-  "spokaneinidians":"SPIN", "spokane":"SPIN",
-  // Springfield
-  "cardinals":"SPIC", "springfieldcardinals":"SPIC", "springfield":"SPIC",
-  // St. Lucie
-  "stluciemets":"SAIM", "stlucie":"SAIM",
-  // St. Paul
-  "saints":"SPS", "stpaul":"SPS",
-  // Stockton
-  "ports":"STOP", "stockton":"STOP",
-  // Sugar Land
-  "spacecowboys":"SUGLSC", "space cowboys":"SUGLSC", "sugarland":"SUGLSC",
-  // Syracuse
-  "syracusemets":"SYRCM", "syracuse":"SYRCM",
-  // Tacoma
-  "rainiers":"TACO", "tacoma":"TACO",
-  // Tampa
-  "tarpons":"TAMT", "tampa":"TAMT",
-  // Tennessee
-  "tennesseesmokies":"TENS", "tennessee":"TENS",
-  // Toledo
-  "mudhens":"TMH", "mud hens":"TMH", "toledo":"TMH",
-  // Tri-City
-  "dustdevils":"TCDD", "dust devils":"TCDD", "tricity":"TCDD",
-  // Tulsa
-  "drillers":"TLSA", "tulsa":"TLSA",
-  // Vancouver
-  "canadians":"VANC", "vancouver":"VANC",
-  // Visalia
-  "rawhide":"VISR", "visalia":"VISR",
-  // West Michigan
-  "whitecaps":"WMWC", "westmichigan":"WMWC",
-  // Wichita
-  "windsurge":"WTAWS", "wind surge":"WTAWS", "wichita":"WTAWS",
-  // Wilmington
-  "bluerocks":"WILB", "blue rocks":"WILB", "wilmington":"WILB",
-  // Wilson
-  "warbirds":"WLWRB", "wilson":"WLWRB",
-  // Winston-Salem
-  "dash":"WIND", "winstonsalem":"WIND",
-  // Wisconsin
-  "timberrattlers":"WISC", "timber rattlers":"WISC", "wisconsin":"WISC",
-  // Worcester
-  "worcesterredsox":"WORCRS", "worcester":"WORCRS",
-  // Additional active / historical teams
-  "helenabrewers":"HELB",      "helena":"HELB",
-  "helenagoldsox":"HGS",
-  "huntsvillestars":"HNTS",    "huntsville":"HNTS",
-  "gems":"IFG",                "idahofallsgems":"IFG",       "idahofalls":"IFG",
-  "idahofallsbraves":"IDFB",
-  "jerseyitygiants":"JCG",     "jerseycitygiants":"JCG",
-  "peninsulapilots":"PNP",     "peninsula":"PNP",
-  "portlandducks":"PORD",
-  "pulaski":"PULB",            "pulaskibluejays":"PULB",
-  "pulaskimariners":"PULM",    "pulaskicounts":"PILCTS",
-  "readingaces":"READA",       "readingpretzels":"READP",
-  "rivercityrampage":"RCR",    "rivercityrumblers":"RCRB",
-  "riversidepilots":"RSPLT",   "riversideredwave":"RIRW",
-  "swingquadcities":"SWTQ",
-  "tricityatoms":"TRIC",       "tricityriplets":"TCT",
-  "brooklynwonders":"BROOW",
-  "connecticuttigers":"CONT",
-  "daytonducks":"DUCK",
-  "eriesailors":"ERS",
-  "evansvilletriplets":"EVAT",
-  "greensborobats":"GBAT",
-  "idahofallsbraves":"IDFB",
-  "kansascityblues":"KCB",
-  "conchs":"KWC",              "keywest":"KWC",
-  "lodi":"LODC",               "lodicroushers":"LODC",
-  "magicians":"LWMA",          "lowell":"LWMA",
-  "midlandcubs":"MIDCB",       "midlandangels":"MIDA",
-  "montgomeryrebels":"MOR",
-  "mudvillenine":"MUDN",
-  "oaks":"OAKO",               "oaklandoaks":"OAKO",
-  "omahagoldenspikes":"OMAGS",
-  "portlandparamounts":"POPA",
-  "princewilliamcannons":"PWC",
-  "romeromans":"ROMER",
-  "saginawjackrabbits":"SGNJKR", "jackrabbits":"SGNJKR", "jack rabbits":"SGNJKR",
-  "saltlakecitygulls":"SLCG",  "saltlakecitytrappers":"SLCT",
-  "saltlakestingers":"SLST",   "saltlakegulls":"SLTLG",   "saltlakebuzz":"SALTBZ",
-  "sarasotareds":"SARR",
-  "tampayankees":"TPAY",       "tampasmokers":"TAMP",
-  "toledoglasssox":"TOLE",
-  "capilanos":"VACA",          "vancouvercapilanos":"VACA", "vancouvermounties":"VAMO",
-  "visaliaoaks":"VISO",
-  "wichitafallsspudders":"WICHS",
-  "winstonsalemspirit":"WSS",
-  // Albany
-  "albanygov":"ALBG",          "albanytravelers":"ALBT",    "albanypolecats":"ALBP",
-  // Allentown
-  "allentownredbirds":"ALLRB", "allentownbrooks":"ATB",
-  // Amarillo
-  "amarillogoldsox":"AGS",     "gold sox":"AGS",
-  // Appleton
-  "foxes":"APPF",              "apppletonfoxes":"APPF",
-  // Asheville
-  "moonshiners":"ASHVM",
-  // Atlanta
-  "crackers":"ATLC",           "atlantacrackers":"ATLC",
-  // Auburn
-  "auburnamericans":"AUA",     "auburnredstars":"ARS",      "auburnsunsets":"AUBNS",
-  // Austin
-  "austinsenators":"AUSTSENTR",
-  // Bakersfield
-  "blaze":"BAKE",              "bakersfieldblaze":"BAKE",
-  // Batavia
-  "bataviclippers":"BATAC",    "batavia":"BATAC",
-  // Baton Rouge
-  "cajuns":"BRCA",             "batonrougecajuns":"BRCA",
-  "redsticks":"BRRS",          "red sticks":"BRRS",         "batonrougeredsticks":"BRRS",
-  // Beaumont
-  "exporters":"BEAU",          "beaumontexporters":"BEAU",
-  "goldengators":"BGG",        "golden gators":"BGG",
-  // Beloit
-  "snappers":"BELO",           "beloitsnappers":"BELO",
-  // Bend
-  "bucks":"BEND",              "bendbucks":"BEND",
-  // Binghamton
-  "binghamtontriplets":"BHT",
-  // Bisbee
-  "bisbeecopperkings":"BCK",   "bisbee":"BCK",
-  "bisbeedouglascopperkings":"BISC",
-  // Bluefield
-  "bluefieldorioles":"BLUFO",
-  // Bowie
-  "bowiebaysox":"BOWB",        "bowie":"BOWB",
-  // Bradenton
-  "bradentongrow":"BRAGR",
-  // Brevard County
-  "manatees":"BCM",            "brevard":"BCM",
-  // Bristol
-  "bristolboosters":"BRB",     "bristolwhitesox":"BRISV",   "bristolstateliners":"BSLI",
-  // Buies Creek
-  "buiescreekastros":"BUIA",
-  // Burlington
-  "burlingtonbees":"BURL",
-  // Calgary
-  "calgarycannons":"CALC",
-  // Capitol City
-  "capitolcitybombers":"CAPB", "bombers":"CAPB",
-  // Casper
-  "casperockies":"CARO",       "casper rockies":"CARO",
-  // Cape Fear
-  "crocs":"CFCRS",             "capefearcros":"CFCRS",
-  // Charleston
-  "charlestoncharlies":"CHAC", "charlestonrainbows":"CHARR",
-  "charlestonwheelers":"CHARW","charlestonalleycats":"CHRAC",
-  // Charlotte
-  "charlotteos":"CHARO",       "charlotterangers":"CHARRA", "charlottehornets":"CHH",
-  // Chesapeake
-  "chesapeakebaysox":"CHSPBSX",
-  // Clearwater
-  "clearwaterphillies":"CLEP",
-  // Clinton
-  "clintonpilots":"CLP",
-  // Colorado Springs
-  "coloradospringmillionaires":"COSMIL",
-  "skysox":"CSSS",             "sky sox":"CSSS",
-  // Columbus
-  "columbuscatfish":"COLC",    "columbusjets":"COLJ",       "columbusredbirds":"CRB",
-  "columbusredstixx":"COLRS",
-  // Connecticut
-  "connecticutdefenders":"COND",
-  // Dallas
-  "dallaseagles":"DALL",       "dallassteers":"DALST",      "dallasfwspurs":"DFTWS",
-  "spurs":"DFTWS",
-  // Danville
-  "danville97s":"DAN97S",
-  // Davenport
-  "davenportbluesox":"DVNBLSX",
-  // Dayton
-  "daytonacubs":"DAYC",        "daytonaisanders":"DAYI",
-  "daytonaaviatrs":"DAYA",     "daytonabeachadmirals":"DBA",
-  // Decatur
-  "commies":"DECC",
-  // Deland
-  "redhats":"DRH",             "red hats":"DRH",
-  // Denver
-  "denverbears":"DENB",        "zephyrs":"DENZ",            "denverzephyrs":"DENZ",
-  // Dublin
-  "dublinirish":"DUBL",        "dublingreensox":"DGS",
-  // Duluth
-  "duluthdukes":"DUDU",
-  // Durham
-  "tobaccionists":"DURBTBCCS",
-  // Eau Claire
-  "eauclairebears":"ECB",
-  // Edmonton
-  "edmontontrappers":"EDMT",
-  // El Paso
-  "elpasodablos":"EPD",        "elpasosunkings":"EPSK",     "elpasotexans":"EPT",
-  // Elmira
-  "elmirapioneer":"EMP",
-  // Eugene
-  "eugenelarks":"EULK",
-  // Evansville
-  "evansvilletriplets":"EVAT",
-  // Fort Myers
-  "fortmyersmiracle":"FORM",
-  // Fort Wayne
-  "fortwayneizards":"FORW",
-  // Fox Cities
-  "foxcitiesfoxes":"FCF",
-  // Fresno
-  "fresnoraisiners":"FRER",    "fresnosuns":"FRS",          "fresnosunsox":"FSS",
-  // Ft. Worth
-  "ftworthcats":"FWC",
-  // Gastonia
-  "gastoniarangers":"GAR",     "gastoniajets":"GASJ",
-  // Gate City
-  "gatecitypioners":"GCP",
-  // Great Falls
-  "greatfallselectrics":"GFE", "greatfallswhitesox":"GREW",
-  // Greeneville
-  "greenevilleastros":"GRA",
-  // Greenville
-  "greenvillebombers":"GRB",   "greenvillebraves":"GRNB",   "greenvillespinners":"GRS",
-  // Greensboro
-  "greensborobats":"GBAT",     "greensborohornets":"GBH",
-  // Goldsboro
-  "goldbugs":"GGB",
-  // Gwinnett
-  "gwinnettbraves":"GWIB",
-  // Hagerstown
-  "owls":"HAGO",               "hagerstownowls":"HAGO",
-  // Hardware City
-  "hardwarecityrockcats":"HCRC",
-  // Hartford
-  "hartfordbluebirds":"HARTBB",
-  // Havana
-  "havanacubans":"HAVC",       "havanasugarkings":"HAVS",
-  // Hawaii
-  "hawaiiislanders":"HAWI",
-  // High Desert
-  "mavericks":"HDM",           "highdesertmavericks":"HDM",
-  // High Point
-  "highpointfurnituremakers":"HPFM",
-  // Hollywood
-  "hollywoodstars":"HOLS",
-  // Hot Springs
-  "bathers":"HOTB",            "hotspringsbathers":"HOTB",
-  // Houston
-  "houstonbuffs":"HOUSB",      "houstonbuffalos":"HOUSBU",
-  // Iowa
-  "iowaoaks":"IOWAO",
-  // Jackson
-  "jacksongenerals":"JACG",
-  // Jacksonville Beach
-  "jacksonvillebeachseabirds":"JBSB",
-  // Jamestown
-  "jamestownjammers":"JJAM",
-  // Jersey City
-  "jerseyitygiants":"JCG",
-  // Kannapolis
-  "intimidators":"KANN",
-  // Keokuk
-  "keoukukernals":"KEOK",
-  // Kingston
-  "kingstoneagles":"KING",
-  // Kingsport
-  "kingsportroyals":"KINGR",
-  // Kinston
-  "kinstonindians":"KSTN",
-  // Kissimmee
-  "kissimmeecobras":"KISCO",
-  // Knoxville
-  "knoxvillesox":"KXVSX",
-  // Lakewood
-  "lakewoodblueclaws":"LDBC",
-  // Las Vegas
-  "51s":"LVA",                 "lasvegasstars":"LVGSTRS",
-  // Lethbridge
-  "lethbridgeblackdiamonds":"LBD", "lethbridgemounties":"LBM",
-  // Lexington
-  "colts":"LECO",
-  // Little Rock
-  "littlerocktravelers":"LRT",
-  // Lodi
-  "lodi":"LODC",
-  // Louisiana
-  "louisvillecolonials":"LOUC","colonels":"LOUIC",          "riverbats":"LOURB",
-  "louisvilleredbirds":"LRB",
-  // Lowell
-  "lowell":"LWMA",
-  // Macon
-  "peaches":"MACP",
-  // Madison
-  "madisonhatters":"MADH",     "muskies":"MADM",
-  // Maine
-  "maineguides":"MAIN",
-  // Miami
-  "miamibeachflamingos":"MBF", "miamigos":"MIAA",           "miamiiracle":"MIAM",
-  "miamisunsox":"MSSX",
-  // Michigan
-  "michiganbattlecats":"MIBC",
-  // Minneapolis
-  "millers":"MINMI",
-  // Minot
-  "mallards":"MIM",
-  // Missoula
-  "missoulatimberjacks":"MSTJ",
-  // Mobile
-  "mobilebears":"MOBE",        "baybears":"MOBI",
-  // Modesto
-  "modestoas":"MODA",
-  // Montgomery
-  "montgomeryrebels":"MOR",
-  // Montreal
-  "montrealroyals":"MONR",
-  // Mudville
-  "mudvillenine":"MUDN",
-  // Myrtle Beach
-  "myrtlebeachhurricanes":"MBH",
-  // Nashville
-  "nashvillevols":"NASHV",     "nashvillexpress":"NASHX",
-  // Nevada
-  "nevalunatics":"NEVLU",
-  // New Britain
-  "newbritainrockcats":"NEWB",
-  // New Haven
-  "newhavenblackcrows":"NHAV", "newhavenravens":"NHR",
-  // New Iberia
-  "newiberiapelicans":"NEWI",
-  // New Jersey
-  "newjerseycardinals":"NJC",
-  // New Orleans
-  "babycakes":"NEWBC",         "neworleanszephyrs":"NEWZ",  "neworleanspelicans":"NOP",
-  // Newark
-  "newarkbears":"NWB",         "newarkwaynepilots":"NWCP",
-  // Niagara Falls
-  "niagarafallsrapids":"NFR",
-  // Norfolk
-  "norfolkclams":"NOC",
-  // Oklahoma City
-  "89ers":"OKC89",             "okcbaseballclub":"OKCBC",   "oklacityredhawks":"OKL",
-  "okcitydodgers":"OKLD",
-  // Omaha
-  "omaharoyals":"OMAH",
-  // Oneonta
-  "oneontigers":"ONTG",
-  // Orlando
-  "orlandorays":"ORLRYS",      "orlandosunrays":"OSR",
-  // Ottawa
-  "ottawalynx":"OTTL",
-  // Panama City
-  "panamacityflyers":"PANC",
-  // Paris
-  "parisredpeppers":"PRP",
-  // Pawtucket
-  "pawtucketslaters":"PAWS",   "pawtucketredsox":"PSOX",
-  // Phoenix
-  "phoenixirebirds":"PXFB",
-  // Piedmont
-  "piedmontbollweevils":"PDBW",
-  // Pocatello
-  "pocatellogems":"POCAG",     "pocatelloposse":"POCP",
-  // Port City
-  "portcityroosters":"PCROS",
-  // Portland
-  "portlandbeavers":"PDBS",    "portlanluckybeavers":"PLB", "portlandrockies":"PROCK",
-  // Potomac
-  "potomacnationals":"POTN",
-  // Princeton
-  "princetonpatriots":"PRPAT",
-  // Providence
-  "providenceclamdiggers":"PCD","providencegrays":"PRG",
-  // Provo
-  "provoangels":"PROA",
-  // Pulaski
-  "pulaskimariners":"PULM",    "pulaskicounts":"PILCTS",
-  // Quebec
-  "quebeccarnavals":"QCARN",   "quebecaces":"QUA",
-  // Queens
-  "queenskings":"QNKG",
-  // Raleigh
-  "raleighcapitals":"RAC",
-  // Richmond
-  "richmondbraves":"RICH",     "richmondvirginians":"RICHM",
-  // River City
-  "rivercityrumblers":"RCRB",
-  // Rockford
-  "rockfordcubbies":"RCKFCUB", "rockfordexpos":"ROCKE",
-  // Rocky Mount
-  "rockymountpines":"RMP",
-  // Rome
-  "romebraves":"ROMB",
-  // Roswell
-  "roswellrockets":"ROSW",
-  // Redwood
-  "redwoodpioneers":"RWP",
-  // Sacramento
-  "sacramentosolons":"SACS",
-  // Saginaw
-  "saginawjackrabbits":"SGNJKR",
-  // Salem
-  "salembuccaneers":"SALBU",   "salemavalanche":"SALE",     "salemraglans":"SARA",
-  // Salinas
-  "salinaspurs":"SS",
-  // San Antonio
-  "sanantoniobullets":"SAB",
-  // San Bernardino
-  "sanbernardsinospirit":"SBS","sanbernardistampede":"SBST",
-  // San Francisco
-  "sanfranciscoseals":"SANS",  "sanfrancismissions":"SFMI",
-  // Sanford
-  "sanfordgreyhounds":"SAG",
-  // Santa Barbara
-  "santabarbaradodgers":"SBD",
-  // Savannah
-  "sandgnats":"SAVA",          "sand gnats":"SAVA",
-  // Scranton
-  "scrantonyankees":"SCRY",    "scrantonredbarons":"SRB",
-  // Seattle
-  "seattlerainiers":"SEAR",
-  // Shreveport
-  "shreveportcaptains":"SHC",  "shreveportsports":"SHREV",  "shreveportswampdragons":"SPSD",
-  // Sioux City
-  "siouxcitysoos":"SIOUX",
-  // South Bend
-  "southbendsilverhawks":"SBSH",
-  // Southern Oregon
-  "southernoregontimberjacks":"SOTJ",
-  // Southwest Michigan
-  "devilrays":"SMDR",          "southwestmichigandevilrays":"SMDR",
-  // Spokane
-  "spokanesmokeaters":"SSE",
-  // Springfield
-  "springfieldmerchants":"SPRM","sultansofspringfield":"SOS",
-  // St. Catharines
-  "stcathstompers":"SCSP",
-  // St. Cloud
-  "stcloudrox":"SCR",
-  // St. Petersburg
-  "stpetersburgdevilrays":"STPDR","stpetersburgsaints":"STPS",
-  // Stockton
-  "stocktonfliers":"STKF",
-  // Sugar Land
-  "skeeters":"SUGLSK",
-  // Sumter
-  "sumterflyers":"SUMF",
-  // Syracuse
-  "syracuseskychiefs":"SYCRSCH","syracusechiefs":"SYRA",
-  // Tacoma
-  "tacomatugs":"TACTG",
-  // Tennessee
-  "tennesseesmokies":"TENS",
-  // Tidewater
-  "tidewatertides":"TWT",
-  // Toronto
-  "torontomapleleafs":"TRML",
-  // Tucson
-  "tucsonpadres":"TUCP",       "tucsonsidewinders":"TUCS",
-  // Tulsa
-  "tulsaoilers":"TULSA",
-  // Utica
-  "uticabluesox":"UTBS",
-  // Vancouver
-  "vancouvermounties":"VAMO",
-  // Ventura County
-  "venturacountygulls":"VCG",
-  // Vermont
-  "vermontexpos":"VEXP",
-  // Vero Beach
-  "verobeachdodgers":"VBD",    "verobeachdevilrays":"VERD",
-  // Virginia
-  "virginiagenerals":"VIRG",
-  // Walla Walla
-  "wallawallapadres":"WWP",
-  // Waterloo
-  "waterloodiamonds":"WATD",
-  // Wausau
-  "wausautimbers":"WAUT",
-  // West Tenn
-  "westtenndiamondjax":"WEST",
-  // West Virginia
-  "westvirginiawheelers":"WVW",
-  // Wichita
-  "wichitaaeros":"WICA",       "wichitawranglers":"WICH",   "wichitaviators":"WICHA",
-  "wichitawitches":"WICW",     "wichitapilots":"WCHTAPLTS",
-  // Williamsport
-  "williamsportbills":"WILLB", "williamsportcrosscutters":"WPCC",
-  // Wilmington
-  "wilmingtonwaves":"WIMW",
-  // Winnipeg
-  "winnipegwhips":"WINW",
-  // Winston-Salem
-  "winstonwarthogs":"WINS",
-  // Worcester
-  "woosox":"WORWS",
-  // Yakima
-  "yakimabears":"YAKB",
-  // York
-  "yorkwhiteroses":"YKWR",
-};
-
-
-// ─── MiLB Subcategory Code Map ────────────────────────────────────────────────
-// Maps lowercase Shopify product type → MiLB Subcategory_code value
-const MILB_SUBCATEGORY_MAP = {
-  "t-shirts":         "Tshirts-10056726",              // Adult T-Shirts
-  "women":            "Tshirts-10056727",              // Women's T-Shirts
-  "youth":            "Tshirts-10056728",              // Youth T-Shirts
-  "shorts":           "Bottoms-10044821",              // Adult Shorts
-  "swim trunks":      "FashionApparel-10004949",       // Adult Swimwear
-  "youth shorts":     "Bottoms-10113156",              // Youth Shorts
-  "sweatshirt":       "FleeceTopsSweatshirt-10040819", // Adult Fleece Tops/Sweatshirts
-  "youth sweatshirt": "FleeceTopsSweatshirt-10091001", // Youth Fleece Tops/Sweatshirts
-  "men's jacket":     "Outerwear-10032555",            // Adult Jackets
-  "youth jacket":     "Outerwear-10114549",            // Youth Jackets
-};
-
 // ─── Asset Code Remaps for MLB submission ────────────────────────────────────
 // MLB groups city-shared franchises under one code in the submission file.
 // Update this map if MLB ever changes how they consolidate teams.
@@ -1021,7 +153,7 @@ function findSheet(wb, targetName) {
 }
 
 // ─── Persistent file keys (saved between sessions) ───────────────────────────
-const PERSISTENT_KEYS = ['shopify'];
+const PERSISTENT_KEYS = ['reftables', 'attrmap', 'template'];
 
 function formatSavedDate(isoString) {
   if (!isoString) return '';
@@ -1045,23 +177,22 @@ function setMode(mode) {
   // Update mode card active states
   document.getElementById('mode-online').classList.toggle('active', mode === 'online');
   document.getElementById('mode-fanatics').classList.toggle('active', mode === 'fanatics');
-  document.getElementById('mode-milb').classList.toggle('active', mode === 'milb');
   document.getElementById('check-online').textContent   = mode === 'online'   ? '✓' : '';
   document.getElementById('check-fanatics').textContent = mode === 'fanatics' ? '✓' : '';
-  document.getElementById('check-milb').textContent     = mode === 'milb'     ? '✓' : '';
 
   // Update shopify slot description based on mode
   const shopDesc = document.getElementById('desc-shopify');
   if (shopDesc) {
-    shopDesc.textContent = 'Monthly sales export — xlsx or csv';
+    shopDesc.textContent = mode === 'fanatics'
+      ? 'Monthly sales file — needs sheet "HardGoods"'
+      : 'Monthly sales file — needs sheet "MLB Retail-Online"';
   }
 
   // Show/hide file slots based on mode
   document.querySelectorAll('.file-slot').forEach(slot => {
     const isOnline   = slot.classList.contains('mode-online');
     const isFanatics = slot.classList.contains('mode-fanatics');
-    const isMilb     = slot.classList.contains('mode-milb');
-    const show = (mode === 'online' && isOnline) || (mode === 'fanatics' && isFanatics) || (mode === 'milb' && isMilb);
+    const show = (mode === 'online' && isOnline) || (mode === 'fanatics' && isFanatics);
     slot.classList.toggle('hidden', !show);
   });
 
@@ -1136,15 +267,18 @@ function showToast(msg) {
 }
 
 function checkReady() {
-  const REQUIRED = (currentMode === 'fanatics' || currentMode === 'milb')
+  const REQUIRED = currentMode === 'fanatics'
     ? ['shopify']
-    : ['shopify'];
+    : ['shopify', 'reftables', 'attrmap', 'template'];
 
   const allReady = REQUIRED.every(k => files[k] !== null);
   document.getElementById("run-btn").disabled = !allReady;
 
   const LABELS = {
-    shopify: "Shopify Export",
+    shopify:   "Shopify Export",
+    reftables: "Reference Tables",
+    attrmap:   "Attribute Mapping",
+    template:  "MLB Template",
   };
   const missing = REQUIRED.filter(k => files[k] === null).map(k => LABELS[k]);
 
@@ -1193,22 +327,54 @@ function loadReferenceTables(wb) {
   return { assetToTeam, teamToAsset };
 }
 
-// ─── Attribute Mapping (hardcoded) ───────────────────────────────────────────
-// All outerwear submits as Lightweight Outerwear (5199-5). Fleece (5199-2) not used.
-// Youth Shorts and Swim Trunks roll up into Adult Bottoms (5199-3 adult).
-// To add a new product type: add an entry here AND add the type to APPAREL_TYPES.
-const ATTR_MAPPING = {
-  "t-shirts":         { mlbProductId: '5199-1', attributeCode: 10056726, licenseeDesc: 'T-Shirt' },
-  "women":            { mlbProductId: '5199-1', attributeCode: 10056727, licenseeDesc: 'T-Shirt' },
-  "youth":            { mlbProductId: '5199-1', attributeCode: 10056728, licenseeDesc: 'T-Shirt' },
-  "shorts":           { mlbProductId: '5199-3', attributeCode: 10106180, licenseeDesc: 'Bottoms' },
-  "swim trunks":      { mlbProductId: '5199-3', attributeCode: 10106180, licenseeDesc: 'Bottoms' },
-  "youth shorts":     { mlbProductId: '5199-3', attributeCode: 10106180, licenseeDesc: 'Bottoms' },
-  "sweatshirt":       { mlbProductId: '5199-5', attributeCode: 10032571, licenseeDesc: 'Lightweight Outerwear' },
-  "youth sweatshirt": { mlbProductId: '5199-5', attributeCode: 10092153, licenseeDesc: 'Lightweight Outerwear' },
-  "men's jacket":     { mlbProductId: '5199-5', attributeCode: 10032571, licenseeDesc: 'Lightweight Outerwear' },
-  "youth jacket":     { mlbProductId: '5199-5', attributeCode: 10092153, licenseeDesc: 'Lightweight Outerwear' },
-};
+// ─── Attribute Mapping ────────────────────────────────────────────────────────
+function loadAttributeMapping(wb) {
+  const ws = wb.Sheets['Apparel'];
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null });
+
+  // Key includes MLB Product ID to disambiguate entries that share prodType+gender
+  // (e.g. 5199-2 Outerwear/Fleece and 5199-5 Outerwear/Lightweight both have Adult+Outerwear)
+  const detailedMapping = {};
+  for (let i = 3; i < rows.length; i++) {
+    const [mlbProdId, attrCode, , , brand, , gender, prodType, descriptive] = rows[i];
+    if (!prodType || brand !== 'Genuine Merchandise') continue;
+    const key = `${String(mlbProdId).trim()}||${String(prodType).trim().toLowerCase()}||${String(gender || '').trim().toLowerCase()}`;
+    detailedMapping[key] = {
+      mlbProductId: String(mlbProdId),
+      attributeCode: attrCode,
+      licenseeDesc: descriptive || prodType,
+    };
+  }
+
+  // Map Shopify product types to [mlbProdId, attrProdType, gender].
+  // Notes:
+  // - All outerwear (sweatshirts and jackets) submits as Lightweight Outerwear (5199-5).
+  //   Fleece (5199-2) is not used by Baseballism.
+  // - Youth Shorts and Swim Trunks both roll up into Adult Bottoms (5199-3 adult).
+  //   Verified against correct file: youth shorts qty + adult shorts qty = correct adult bottoms total.
+  const SHOPIFY_TO_ATTR = {
+    "t-shirts":         ["5199-1", "t-shirts",  "adult"],
+    "women":            ["5199-1", "t-shirts",  "women"],
+    "youth":            ["5199-1", "t-shirts",  "youth"],
+    "shorts":           ["5199-3", "pants",     "adult"],
+    "swim trunks":      ["5199-3", "pants",     "adult"],   // rolls into Adult Bottoms
+    "youth shorts":     ["5199-3", "pants",     "adult"],   // rolls into Adult Bottoms
+    "sweatshirt":       ["5199-5", "outerwear", "adult"],   // Lightweight Outerwear
+    "youth sweatshirt": ["5199-5", "outerwear", "youth"],   // Lightweight Outerwear
+    "men's jacket":     ["5199-5", "outerwear", "adult"],   // Lightweight Outerwear
+    "youth jacket":     ["5199-5", "outerwear", "youth"],   // Lightweight Outerwear
+  };
+
+  const mapping = {};
+  for (const [shopifyType, [mlbProdId, attrProdType, gender]] of Object.entries(SHOPIFY_TO_ATTR)) {
+    const key = `${mlbProdId}||${attrProdType}||${gender}`;
+    if (detailedMapping[key]) {
+      mapping[shopifyType] = detailedMapping[key];
+    }
+  }
+
+  return mapping;
+}
 
 // ─── Team Extraction ──────────────────────────────────────────────────────────
 function extractTeamFromSku(sku, productName, assetToTeam, teamToAsset) {
@@ -1218,7 +384,7 @@ function extractTeamFromSku(sku, productName, assetToTeam, teamToAsset) {
   // 1. Check for known multi-team event keywords
   for (const kw of ALL_EVENT_KEYWORDS) {
     if (fullStr.includes(kw.toLowerCase())) {
-      return { assetCode: 'MLB', teamName: 'MLB', isEvent: true };
+      return { assetCode: null, teamName: 'MLB', isEvent: true };
     }
   }
 
@@ -1239,7 +405,7 @@ function extractTeamFromSku(sku, productName, assetToTeam, teamToAsset) {
     }
   }
 
-  // 3. Fallback: scan SKU word by word (catches e.g. BravesFlag)
+  // 3. Fallback: scan full string word by word (catches e.g. BravesFlag)
   const words = sku.replace(/([A-Z])/g, ' $1').replace(/[-_]/g, ' ').toLowerCase().split(/\s+/).filter(Boolean);
   for (let len = 4; len >= 1; len--) {
     for (let i = 0; i <= words.length - len; i++) {
@@ -1247,19 +413,6 @@ function extractTeamFromSku(sku, productName, assetToTeam, teamToAsset) {
       const spaced    = words.slice(i, i + len).join(' ').replace(/[^a-z0-9 ]/g, '').trim();
       const code = SKU_NICKNAME_MAP[candidate] || SKU_NICKNAME_MAP[spaced];
       if (code) return { assetCode: code, teamName: assetToTeam[code] || candidate, isEvent: false };
-    }
-  }
-
-  // 4. SKU found nothing — scan product name
-  if (productName) {
-    const pwords = productName.replace(/([A-Z])/g, ' $1').replace(/[-_]/g, ' ').toLowerCase().split(/\s+/).filter(Boolean);
-    for (let len = 4; len >= 1; len--) {
-      for (let i = 0; i <= pwords.length - len; i++) {
-        const candidate = pwords.slice(i, i + len).join('').replace(/[^a-z0-9]/g, '');
-        const spaced    = pwords.slice(i, i + len).join(' ').replace(/[^a-z0-9 ]/g, '').trim();
-        const code = SKU_NICKNAME_MAP[candidate] || SKU_NICKNAME_MAP[spaced];
-        if (code) return { assetCode: code, teamName: assetToTeam[code] || candidate, isEvent: false };
-      }
     }
   }
 
@@ -1299,7 +452,7 @@ function detectProductTypeFromName(productName) {
   return null;
 }
 // ─── Enrich Shopify Sheet ─────────────────────────────────────────────────────
-function enrichSheet(ws, assetToTeam, teamToAsset, ATTR_MAPPING) {
+function enrichSheet(ws, assetToTeam, teamToAsset, attrMapping) {
   const rows = XLSX.utils.sheet_to_json(ws, { defval: null });
   const enriched = [], flagged = [];
 
@@ -1308,7 +461,6 @@ function enrichSheet(ws, assetToTeam, teamToAsset, ATTR_MAPPING) {
     const sku         = row['SKU'];
     const productName = row['Product name'];
     const productType = row['Product type'];
-    if (!sku && !productName) continue; // skip blank trailing rows
     const qty         = row['Total quantity sold'] || 0;
     const gross       = stripDollar(row['Total gross sales']);
     const discounts   = stripDollar(row['Total discounts']);
@@ -1323,15 +475,12 @@ function enrichSheet(ws, assetToTeam, teamToAsset, ATTR_MAPPING) {
     const resolvedType = (productType && String(productType).trim())
       || detectProductTypeFromName(productName);
     const prodKey  = resolvedType ? String(resolvedType).trim().toLowerCase() : '';
-    const prodInfo = ATTR_MAPPING[prodKey] || null;
+    const prodInfo = attrMapping[prodKey] || null;
     const usedFallback = !productType && resolvedType;
-
-    // Rows with no product type AND no name-based fallback are non-apparel (e.g. wallets, bats) — skip silently
-    if (!productType && !resolvedType) continue;
 
     const flagReasons = [];
     if (!assetCode && !isEvent) flagReasons.push(`Unknown team in SKU: ${sku}`);
-    if (!prodInfo) flagReasons.push(`Product type "${resolvedType || productType}" is not recognized — add it to APPAREL_TYPES and SHOPIFY_TO_ATTR in scripts.js`);
+    if (!prodInfo) flagReasons.push(`Unknown product type — not found in column or product name: "${productName}"`);
     if (usedFallback && prodInfo) console.log(`Fallback used for row ${i+2}: "${productName}" -> ${resolvedType}`);
 
     enriched.push({
@@ -1386,6 +535,8 @@ function groupRows(enriched, assetToTeam) {
   const groups = new Map();
 
   for (const r of enriched) {
+    // Event products (Opening Day, All Stars, etc.) have no asset code — exclude from submission
+    if (r.isEvent) continue;
 
     const rawCode   = r.assetCode || 'MLB';
     const assetCode = ASSET_CODE_REMAP[rawCode] || rawCode;
@@ -1443,55 +594,54 @@ function groupRows(enriched, assetToTeam) {
 // extracts team via same SKU scan logic as Retail Online, maps store to channel,
 // groups by Asset Code + Attribute Code + Channel.
 // Derive Fanatics product category from product name for attribute code 10062362
-// Returns { attrCode, product } for men's wallet products based on product name.
-// Money Clip Wallets → Jewelry > Money Clips, attr 10062362
-// Scorebook/Bifold Wallets → Wallets/Purses > Adult, attr 10062364
-function getWalletInfo(productName) {
+// Money Clip Wallets → Jewelry > Money Clips
+// Scorebook/Bifold Wallets → Wallets/Purses > Adult
+// Key Chain → Jewelry > Money Clips
+function getWalletCategory(productName) {
   const lower = productName.toLowerCase();
-  if (lower.includes('money clip')) {
-    return { attrCode: 10062362, product: 'Hard Goods > Jewelry > Money Clips' };
+  if (lower.includes('money clip') || lower.includes('key chain')) {
+    return 'Hard Goods > Jewelry > Money Clips';
   }
-  return { attrCode: 10062364, product: 'Hard Goods > Personal/Fashion Accessories > Wallets/Purses > Adult' };
+  return 'Hard Goods > Personal/Fashion Accessories > Wallets/Purses > Adult';
 }
 
 function parseHardGoodsSheet(ws) {
-  const rawRows = XLSX.utils.sheet_to_json(ws, { defval: null });
-  // Normalize all column keys to lowercase so lookups work regardless of casing
-  const rows    = rawRows.map(r => Object.fromEntries(Object.entries(r).map(([k,v]) => [k.toLowerCase().trim(), v])));
+  const rows    = XLSX.utils.sheet_to_json(ws, { defval: null });
   const output  = [];
   const skipped = [];
 
   for (let i = 0; i < rows.length; i++) {
     const row         = rows[i];
-    const productName = String(row['product name']        || '').trim();
-    const sku         = String(row['product sku'] || row['sku'] || '').trim();
-    const productType = String(row['product type']        || '').trim().toLowerCase();
-    const qty         = Number(row['total quantity sold']) || 0;
-    const gross       = Number(row['total gross sales'])   || 0;
-    const discount    = Number(row['total discount'] || row['total discounts']) || 0;
-    const refund      = Number(row['total refund']   || row['total refunds'])   || 0;
-    const netSales    = Number(row['total net sales'])     || 0;
-    const moRaw = row['mo'] || row['month'] || row['mo name'] || row['moname'] || '';
+    const productName = String(row['Product Name']        || '').trim();
+    const sku         = String(row['Product SKU']         || '').trim();
+    const productType = String(row['Product Type']        || '').trim().toLowerCase();
+    const qty         = Number(row['Total Quantity Sold']) || 0;
+    const gross       = Number(row['Total Gross Sales'])   || 0;
+    const discount    = Number(row['Total Discount'])      || 0;
+    const refund      = Number(row['Total Refund'])        || 0;
+    const netSales    = Number(row['Total Net sales'])     || 0;
+    // Accept several common month column names
+    const moRaw = row['Mo'] || row['Month'] || row['Mo Name'] || row['MoName'] || '';
     const mo    = moRaw ? String(moRaw).toUpperCase().slice(0, 3) : 'UNK';
 
     // Skip MiLB rows — if column is missing entirely, assume MLB
-    const mlbFlag = row['mlb/milb'];
-    if (mlbFlag && mlbFlag !== 'MLB') continue;
+    const mlbFlag = row['MLB/MiLB'];
+    if (mlbFlag !== undefined && mlbFlag !== null && mlbFlag !== 'MLB') continue;
 
-    // Skip only if gross is also zero — zero-qty rows with positive gross still need to be reported
-    if (qty === 0 && gross === 0) continue;
+    // Skip zero-quantity rows (returns that wiped out all sales)
+    if (qty === 0) continue;
 
     // Map product type → attribute code + Fanatics product category
     const prodInfo = HG_PRODUCT_MAP[productType];
     if (!prodInfo) {
-      skipped.push(`Row ${i + 2}: Product type "${productType}" is not recognized — add it to HG_PRODUCT_MAP in scripts.js`);
+      skipped.push(`Row ${i + 2}: Unknown product type "${productType}"`);
       continue;
     }
 
-    // For wallets, refine product path and attr code by product name
-    const walletInfo = prodInfo.attrCode === 10062362 ? getWalletInfo(productName) : null;
-    const product  = walletInfo ? walletInfo.product  : prodInfo.product;
-    const attrCode = walletInfo ? walletInfo.attrCode : prodInfo.attrCode;
+    // For wallets/key chains, refine product category by product name
+    const product = prodInfo.attrCode === 10062362
+      ? getWalletCategory(productName)
+      : prodInfo.product;
 
     // Extract team — same logic as Retail Online
     const { assetCode, teamName } = extractTeamFromSku(sku, productName, ASSET_FULL_NAME, {});
@@ -1507,7 +657,7 @@ function parseHardGoodsSheet(ws) {
       teamName:  ASSET_FULL_NAME[assetCode] || teamName,
       channel:   CHANNEL_ONLINE,
       product,
-      attrCode,
+      attrCode:  prodInfo.attrCode,
       productName,
       qty,
       gross,
@@ -1543,8 +693,9 @@ function writeFanaticsSubmission(groups) {
   const wsData = [headers];
 
   for (const g of groups) {
-    const listPrice = g.qty !== 0 ? +(g.gross    / Math.abs(g.qty)).toFixed(2) : g.gross;
-    const unitPrice = g.qty !== 0 ? +(g.netSales / Math.abs(g.qty)).toFixed(2) : g.netSales;
+    // qty is guaranteed > 0 (zero rows are skipped in parse)
+    const listPrice = +(g.gross    / g.qty).toFixed(2);
+    const unitPrice = +(g.netSales / g.qty).toFixed(2);
 
     wsData.push([
       'North America > United States of America',
@@ -1575,7 +726,7 @@ function writeFanaticsSubmission(groups) {
 }
 
 // ─── Write MLB Submission File ────────────────────────────────────────────────
-function writeMLBSubmission(enriched, hardGoodsGroups, wholesaleGroups, assetToTeam) {
+function writeMLBSubmission(enriched, hardGoodsGroups, wholesaleGroups, templateWb, assetToTeam) {
   const wb = XLSX.utils.book_new();
   const headers = [
     'Month','Year','MLB Contract #','MLB Contract Version','MLB Product ID',
@@ -1607,7 +758,7 @@ function writeMLBSubmission(enriched, hardGoodsGroups, wholesaleGroups, assetToT
       r.retailerCode, r.retailerName, r.assetCode, r.attributeCode,
       unitPrice,                                                   // L: Retail/Wholesale Price
       r.qty,
-      +r.gross.toFixed(2),                                         // N: Gross Sales (exact from source)
+      { f: `M${rowNum}*L${rowNum}` },                              // N: Gross Sales
       r.discounts, r.refunds,
       { f: `N${rowNum}-O${rowNum}-P${rowNum}` },                   // Q: Net Sales
       r.royaltyRate, 0,
@@ -1631,6 +782,37 @@ function writeMLBSubmission(enriched, hardGoodsGroups, wholesaleGroups, assetToT
     }
   }
 
+  // ── Preserve green column highlighting from template ──────────────────────
+  // Read styles from the template's MLB USA sheet (header row + first data row).
+  // For each column that has a fill style, apply it to every data row we wrote.
+  const tmplWs = templateWb && templateWb.Sheets['MLB USA'];
+  if (tmplWs) {
+    const colStyles = {}; // col index → style object
+
+    // Check header row (r=0) and first data row (r=1) — whichever has a fill wins
+    for (let checkRow = 1; checkRow >= 0; checkRow--) {
+      for (let c = 0; c < headers.length; c++) {
+        const addr = XLSX.utils.encode_cell({ r: checkRow, c });
+        const cell = tmplWs[addr];
+        if (cell && cell.s && cell.s.fill && cell.s.fill.fgColor) {
+          colStyles[c] = JSON.parse(JSON.stringify(cell.s));
+        }
+      }
+    }
+
+    // Apply those styles to every data row (skip row 0 = our header)
+    if (Object.keys(colStyles).length > 0) {
+      const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+      for (let r = 1; r <= range.e.r; r++) {
+        for (const [colStr, style] of Object.entries(colStyles)) {
+          const c    = parseInt(colStr);
+          const addr = XLSX.utils.encode_cell({ r, c });
+          if (!ws[addr]) ws[addr] = { t: 'z', v: null };
+          ws[addr].s = style;
+        }
+      }
+    }
+  }
 
   XLSX.utils.book_append_sheet(wb, ws, 'MLB USA');
   return wb;
@@ -1683,234 +865,6 @@ function addDownloadCSV(csv, filename, description) {
   section.appendChild(btn);
 }
 
-// ─── MiLB Team Extraction ─────────────────────────────────────────────────────
-// Scans a plain text string (space-separated words) for a non-ambiguous MILB_NICKNAME_MAP match.
-function scanTextForMiLBTeam(text) {
-  if (!text) return null;
-  const words = text.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean);
-  for (let len = 3; len >= 1; len--) {
-    for (let i = 0; i <= words.length - len; i++) {
-      const candidate = words.slice(i, i + len).join('');
-      const spaced    = words.slice(i, i + len).join(' ').trim();
-      const code = MILB_NICKNAME_MAP[candidate] || MILB_NICKNAME_MAP[spaced];
-      if (code) return code;
-    }
-  }
-  return null;
-}
-
-// Returns trademark code string, or null if not found in SKU or product name.
-function extractMiLBTeamFromSku(sku, productName) {
-  if (!sku) return null;
-  // 1. Parentheses: MiLB-L-6432(JumboShrimp)-Mens
-  const match = sku.match(/\(([^)]+)\)/);
-  if (match) {
-    const raw  = match[1];
-    const code = MILB_NICKNAME_MAP[raw.toLowerCase().replace(/\s+/g, '')] ||
-                 MILB_NICKNAME_MAP[raw.toLowerCase()];
-    if (code) return code;
-  }
-  // 2. Word-scan fallback (camelCase split)
-  const words = sku.replace(/([A-Z])/g, ' $1').replace(/[-_]/g, ' ').toLowerCase().split(/\s+/).filter(Boolean);
-  for (let len = 3; len >= 1; len--) {
-    for (let i = 0; i <= words.length - len; i++) {
-      const candidate = words.slice(i, i + len).join('').replace(/[^a-z0-9]/g, '');
-      const spaced    = words.slice(i, i + len).join(' ').replace(/[^a-z0-9 ]/g, '').trim();
-      const code = MILB_NICKNAME_MAP[candidate] || MILB_NICKNAME_MAP[spaced];
-      if (code) return code;
-    }
-  }
-  // 3. SKU scan found nothing — try product name
-  return scanTextForMiLBTeam(productName);
-}
-
-// ─── Filter Export to MiLB Retail Rows ───────────────────────────────────────
-function filterExportToMiLBRetail(ws) {
-  const rows = XLSX.utils.sheet_to_json(ws, { defval: null });
-  const filtered = rows.filter(r => {
-    if (!String(r['SKU'] || '').startsWith('MiLB-')) return false;
-    const pt = (r['Product type'] || '').toLowerCase();
-    return pt === '' || APPAREL_TYPES.includes(pt); // empty product type passes through for name-based fallback
-  });
-  return XLSX.utils.json_to_sheet(filtered);
-}
-
-// ─── Write MiLB Submission File ───────────────────────────────────────────────
-function writeMiLBSubmission(groups) {
-  const headers = [
-    'Trademark(*)', 'Territory(*)', 'Subcategory_code(*)', 'Dist_Channel(*)',
-    'Gross_Sales(*)', 'Total_Units(*)', 'Royalty_Sales(*)', 'Product description(*)',
-    'Retailer_Name(*)', 'Retailer_Code(*)', 'Retailer_Address', 'Retailer_City',
-    'Retailer_State', 'Retailer_Zip', 'Retailer_Country', 'Invoice_Date',
-    'Invoice_Number', 'UPI', 'License_Type', 'MRU_Units',
-  ];
-  const wsData = [headers];
-  for (const g of groups) {
-    wsData.push([
-      g.trademark, MILB_TERRITORY, g.subcategoryCode, MILB_DIST_CHANNEL,
-      +g.grossSales.toFixed(2), g.totalUnits, +g.royaltySales.toFixed(2),
-      g.productDesc,
-      (MILB_RETAILER_MAP[g.trademark] || { name: MILB_RETAILER_NAME }).name,
-      (MILB_RETAILER_MAP[g.trademark] || { code: MILB_RETAILER_CODE }).code,
-      null, null, null, null, null,
-      null, null, null, null, null,
-    ]);
-  }
-  const wb = XLSX.utils.book_new();
-  const ws = XLSX.utils.aoa_to_sheet(wsData);
-
-  // Apply number formats: E=Gross_Sales($), F=Total_Units(int), G=Royalty_Sales($)
-  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-  for (let r = 1; r <= range.e.r; r++) {
-    for (const [c, fmt] of [[4, '$#,##0.00'], [5, '0'], [6, '$#,##0.00']]) {
-      const addr = XLSX.utils.encode_cell({ r, c });
-      if (!ws[addr]) ws[addr] = { t: 'n', v: 0 };
-      ws[addr].z = fmt;
-    }
-  }
-
-  XLSX.utils.book_append_sheet(wb, ws, 'Royalty Statement');
-  return wb;
-}
-
-// ─── MiLB Mode ────────────────────────────────────────────────────────────────
-async function runMiLBMode() {
-  log('════════════════════════════════════════════════════════════', 'dim');
-  log('  MiLB → MiLB Royalty Submission', 'head');
-  log('════════════════════════════════════════════════════════════', 'dim');
-  log('');
-
-  try {
-    log('📂 Loading Shopify export...', 'info');
-    const shopWb = XLSX.read(files.shopify.data, { type: 'array' });
-    log(`  Sheets found: ${shopWb.SheetNames.join(', ')}`, 'dim');
-
-    const milbSheetName   = findSheet(shopWb, 'MiLB') || findSheet(shopWb, 'MiLB Retail');
-    const exportSheetName = findSheet(shopWb, 'Export');
-    let ws;
-
-    if (milbSheetName) {
-      ws = shopWb.Sheets[milbSheetName];
-      log(`  ✓ Found sheet "${milbSheetName}"`, 'ok');
-    } else if (exportSheetName) {
-      ws = filterExportToMiLBRetail(shopWb.Sheets[exportSheetName]);
-      log(`  ✓ Raw Export detected — auto-filtered to MiLB apparel rows`, 'ok');
-    } else {
-      ws = shopWb.Sheets[shopWb.SheetNames[0]];
-      log(`  ⚠  No "MiLB" or "Export" sheet — trying "${shopWb.SheetNames[0]}"`, 'warn');
-    }
-
-    const rows = XLSX.utils.sheet_to_json(ws, { defval: null });
-    log(`  ✓ ${rows.length} row(s) to process`, 'ok');
-    log('', 'info');
-
-    const groups  = new Map();
-    const skipped = [];
-    let monthLabel = 'UNK';
-
-    for (let i = 0; i < rows.length; i++) {
-      const row         = rows[i];
-      const sku         = String(row['SKU'] || '').trim();
-      const productName = String(row['Product name'] || '').trim();
-      const productType = String(row['Product type'] || '').trim().toLowerCase();
-      const qty         = Number(row['Total quantity sold']) || 0;
-      const gross       = stripDollar(row['Total gross sales']);
-      const discounts   = stripDollar(row['Total discounts']);
-      const refunds     = stripDollar(row['Total refunds']);
-      const netSales    = stripDollar(row['Total net sales']);
-      const moName      = row['Mo Name'] || row['Mo'] || '';
-
-      if (qty === 0 && gross === 0) continue;
-      if (monthLabel === 'UNK' && moName) monthLabel = String(moName).toUpperCase().slice(0, 3);
-
-      // Silently skip MLB- prefix SKUs — they belong to the MLB tool, not MiLB
-      if (sku.startsWith('MLB-')) continue;
-
-      const trademark = extractMiLBTeamFromSku(sku, productName);
-      if (!trademark) {
-        skipped.push(`Row ${i + 2}: MiLB team not recognized in SKU "${sku}" or product name "${productName}" — add the team nickname and trademark code to MILB_NICKNAME_MAP in scripts.js`);
-        continue;
-      }
-
-      // If Shopify says "youth" but the product name contains "shorts", override to youth shorts
-      let resolvedType = productType;
-      if (!resolvedType) {
-        // Empty product type — infer from product name keywords
-        const lname = productName.toLowerCase();
-        if (lname.includes('youth') && lname.includes('shorts')) resolvedType = 'youth shorts';
-        else if (lname.includes('youth') && lname.includes('jacket')) resolvedType = 'youth jacket';
-        else if (lname.includes('youth') && (lname.includes('sweatshirt') || lname.includes('hoodie'))) resolvedType = 'youth sweatshirt';
-        else if (lname.includes('youth')) resolvedType = 'youth';
-        else if (lname.includes('hoodie') || lname.includes('sweatshirt')) resolvedType = 'sweatshirt';
-        else if (lname.includes('shorts')) resolvedType = 'shorts';
-        else if (lname.includes('jacket')) resolvedType = "men's jacket";
-        else if (lname.includes('anthem') || lname.includes('t-shirt') || lname.includes('tshirt') || lname.includes('tee') || lname.includes('polo')) resolvedType = 't-shirts';
-      }
-      if (resolvedType === 'youth' && productName.toLowerCase().includes('shorts')) {
-        resolvedType = 'youth shorts';
-      } else if (resolvedType === 'youth' && productName.toLowerCase().includes('jacket')) {
-        resolvedType = 'youth jacket';
-      } else if (resolvedType === 'youth' && productName.toLowerCase().includes('sweatshirt')) {
-        resolvedType = 'youth sweatshirt';
-      }
-
-      const subcategoryCode = MILB_SUBCATEGORY_MAP[resolvedType];
-      if (!subcategoryCode) {
-        skipped.push(`Row ${i + 2}: Unknown product type "${productType}" (SKU: ${sku})`);
-        continue;
-      }
-
-      const key = `${trademark}||${subcategoryCode}||${productName}`;
-      if (!groups.has(key)) {
-        groups.set(key, { trademark, subcategoryCode, productDesc: productName, grossSales: 0, totalUnits: 0, royaltySales: 0, totalDiscounts: 0, totalRefunds: 0 });
-      }
-      const g = groups.get(key);
-      g.grossSales      += gross;
-      g.totalUnits      += qty;
-      g.totalDiscounts  += discounts;
-      g.totalRefunds    += refunds;
-      g.royaltySales     = g.grossSales - g.totalDiscounts - g.totalRefunds;
-    }
-
-    if (skipped.length > 0) {
-      log(`  ⚠  ${skipped.length} row(s) skipped:`, 'warn');
-      for (const s of skipped) log(`     ${s}`, 'warn');
-      log('', 'info');
-    }
-
-    const sorted = Array.from(groups.values()).sort((a, b) => {
-      if (a.trademark !== b.trademark) return a.trademark.localeCompare(b.trademark);
-      return a.subcategoryCode.localeCompare(b.subcategoryCode);
-    });
-
-    if (sorted.length === 0) {
-      log('  ❌ No MiLB rows processed. Verify SKUs start with "MiLB-" and product types are recognized.', 'error');
-      return;
-    }
-
-    log(`  ${'Trademark'.padEnd(10)} | ${'Subcategory'.padEnd(35)} | ${'Units'.padStart(5)} | Royalty Sales`, 'dim');
-    log(`  ${'─'.repeat(72)}`, 'dim');
-    for (const g of sorted) {
-      log(`  ${g.trademark.padEnd(10)} | ${g.subcategoryCode.padEnd(35)} | ${String(g.totalUnits).padStart(5)} | $${g.royaltySales.toFixed(2)}`, 'dim');
-    }
-
-    log('', 'info');
-    log('📋 Writing MiLB submission file...', 'info');
-    const milbWb   = writeMiLBSubmission(sorted);
-    const milbName = `milb_submission_${monthLabel}.xlsx`;
-    log(`  ✓ ${milbName}`, 'ok');
-    addDownload(milbWb, milbName, 'MiLB Royalty Statement — upload to DBH portal');
-
-    log('', 'info');
-    log('🎉 Done! Click the button above to download.', 'ok');
-
-  } catch (err) {
-    log('', 'info');
-    log(`❌ Unexpected error: ${err.message}`, 'error');
-    console.error(err);
-  }
-}
-
 // ─── Main Run ─────────────────────────────────────────────────────────────────
 async function runTool() {
   clearLog();
@@ -1918,8 +872,6 @@ async function runTool() {
 
   if (currentMode === 'fanatics') {
     await runFanaticsMode();
-  } else if (currentMode === 'milb') {
-    await runMiLBMode();
   } else {
     await runOnlineMode();
   }
@@ -1932,14 +884,10 @@ async function runTool() {
 // Output worksheet has the same column layout as a pre-split MLB Retail-Online sheet.
 function filterExportToRetailOnline(ws) {
   const rows = XLSX.utils.sheet_to_json(ws, { defval: null });
-  const filtered = rows.filter(r => {
-    const pt = (r['Product type'] || '').toLowerCase();
-    const sku = String(r['SKU'] || '');
-    // Allow blank product type through so name-based fallback in enrichSheet can handle it
-    return (pt === '' || APPAREL_TYPES.includes(pt)) &&
-      !WHOLESALE_STORES.includes(r['Store']) &&
-      !sku.startsWith('MiLB-');
-  });
+  const filtered = rows.filter(r =>
+    APPAREL_TYPES.includes((r['Product type'] || '').toLowerCase()) &&
+    !WHOLESALE_STORES.includes(r['Store'])
+  );
   return XLSX.utils.json_to_sheet(filtered);
 }
 
@@ -2014,14 +962,9 @@ async function runFanaticsMode() {
     }
 
     log('🛍️  Parsing Hard Goods...', 'info');
-    let { groups, skipped } = parseHardGoodsSheet(ws);
-
-    // If named sheet produced nothing, fall back to Export auto-filter
-    if (groups.length === 0 && hardGoodsName && exportName) {
-      log(`  ⚠  Sheet "${hardGoodsName}" had no usable data — falling back to Export`, 'warn');
-      ws = filterExportToHardGoods(shopWb.Sheets[exportName]);
-      ({ groups, skipped } = parseHardGoodsSheet(ws));
-    }
+    const _hgDebugRows = XLSX.utils.sheet_to_json(ws, { defval: null, header: 1 });
+    if (_hgDebugRows.length) log(`  Columns: ${_hgDebugRows[0].join(' | ')}`, 'dim');
+    const { groups, skipped } = parseHardGoodsSheet(ws);
     log(`  ✓ ${groups.length} groups across ${new Set(groups.map(g => g.assetCode)).size} teams`, 'ok');
 
     if (skipped.length > 0) {
@@ -2068,16 +1011,16 @@ async function runOnlineMode() {
 
   try {
     log('📂 Loading reference data...', 'info');
-    const shopWb = XLSX.read(files.shopify.data, { type: 'array' });
+    const refWb  = XLSX.read(files.reftables.data, { type: 'array' });
+    const attrWb = XLSX.read(files.attrmap.data,   { type: 'array' });
+    const tmplWb = XLSX.read(files.template.data,  { type: 'array', cellStyles: true });
+    const shopWb = XLSX.read(files.shopify.data,   { type: 'array' });
 
-    const assetToTeam = { ...ASSET_FULL_NAME };
-    const teamToAsset = {};
-    for (const [code, name] of Object.entries(ASSET_FULL_NAME)) {
-      const key = name.toLowerCase();
-      if (!teamToAsset[key]) teamToAsset[key] = code;
-    }
-    log(`  ✓ ${Object.keys(assetToTeam).length} team asset codes (hardcoded)`, 'ok');
-    log(`  ✓ ${Object.keys(ATTR_MAPPING).length} product type mappings (hardcoded)`, 'ok');
+    const { assetToTeam, teamToAsset } = loadReferenceTables(refWb);
+    log(`  ✓ Loaded ${Object.keys(assetToTeam).length} team asset codes`, 'ok');
+
+    const attrMapping = loadAttributeMapping(attrWb);
+    log(`  ✓ Loaded ${Object.keys(attrMapping).length} product type mappings`, 'ok');
 
     log('', 'info');
     log('🔍 Inspecting file...', 'info');
@@ -2086,19 +1029,13 @@ async function runOnlineMode() {
     // ── Step 1: Detect whether file is raw or pre-split ───────────────────────
     // Pre-split = already has named sheets (MLB Retail-Online, Wholesale-MLB, etc.)
     // Raw       = single Export sheet with everything mixed together
-    // CSV files have no named sheets — treat single-sheet CSVs as raw exports
-    const isSingleSheet = shopWb.SheetNames.length === 1;
-    const exportSheetName    = findSheet(shopWb, 'Export')
-                            || (isSingleSheet ? shopWb.SheetNames[0] : null);
-    const wholesaleSheetName = findSheet(shopWb, 'Wholesale-MLB')
-                            || findSheet(shopWb, 'WholesaleMLB')
-                            || findSheet(shopWb, 'MLB Wholesale')
-                            || findSheet(shopWb, 'Wholesale');
+    const exportSheetName    = findSheet(shopWb, 'Export');
     const retailSheetName    = findSheet(shopWb, 'MLB Retail-Online')
                             || findSheet(shopWb, 'MLB')
-                            || findSheet(shopWb, 'Online Retail')
-                            || findSheet(shopWb, 'Online-Retail')
                             || detectRetailSheet(shopWb, [wholesaleSheetName, exportSheetName]);
+    const wholesaleSheetName = findSheet(shopWb, 'Wholesale-MLB')
+                            || findSheet(shopWb, 'WholesaleMLB')
+                            || findSheet(shopWb, 'Wholesale');
     const isRaw = !!exportSheetName && !retailSheetName;
 
     if (isRaw) {
@@ -2132,16 +1069,13 @@ async function runOnlineMode() {
 
     if (wholesaleWs) {
       log(`  ✓ Wholesale source: ${wholesaleSource}`, 'ok');
-      const { enriched: wsEnriched } = enrichSheet(wholesaleWs, assetToTeam, teamToAsset, ATTR_MAPPING);
+      const { enriched: wsEnriched } = enrichSheet(wholesaleWs, assetToTeam, teamToAsset, attrMapping);
       let wsSkipped = 0;
       for (const r of wsEnriched) {
-        if (r.flagged) {
-          log(`  ⚠  Wholesale row skipped — ${r.flagReasons.join('; ')} (SKU: ${r.sku})`, 'warn');
-          wsSkipped++; continue;
-        }
+        if (r.flagged) { wsSkipped++; continue; }
         const retailer = WHOLESALE_RETAILER_MAP[r.assetCode];
         if (!retailer) {
-          log(`  ⚠  Wholesale row skipped — no retailer mapping for asset code "${r.assetCode}" (SKU: ${r.sku}) — add it to WHOLESALE_RETAILER_MAP in scripts.js`, 'warn');
+          log(`  ⚠  No wholesale retailer mapping for "${r.assetCode}" (${r.sku}) — skipped`, 'warn');
           r.flagged = true; wsSkipped++;
           continue;
         }
@@ -2153,8 +1087,8 @@ async function runOnlineMode() {
       const validWs = wsEnriched.filter(r => !r.flagged);
       wholesaleGroups = groupRows(validWs, assetToTeam);
       const teamCount = new Set(wholesaleGroups.map(g => g.assetCode)).size;
-      log(`  ✓ ${wholesaleGroups.length} wholesale group(s) across ${teamCount} team(s) @ 21% INSTLEAG`, 'ok');
-      if (wsSkipped > 0) log(`  ⚠  ${wsSkipped} wholesale row(s) skipped — see details above`, 'warn');
+      log(`  ✓ ${wholesaleGroups.length} wholesale group(s) across ${teamCount} team(s) @ 14% INSTLEAG`, 'ok');
+      if (wsSkipped > 0) log(`  ⚠  ${wsSkipped} wholesale row(s) skipped`, 'warn');
     } else {
       log(`  — No wholesale rows found`, 'dim');
     }
@@ -2177,7 +1111,7 @@ async function runOnlineMode() {
       }
 
       log(`🔄 Step 1: Enriching ${label} data...`, 'info');
-      const { enriched, flagged } = enrichSheet(ws, assetToTeam, teamToAsset, ATTR_MAPPING);
+      const { enriched, flagged } = enrichSheet(ws, assetToTeam, teamToAsset, attrMapping);
       log(`  ✓ Processed ${enriched.length} rows`, 'ok');
 
       // Hard stop on unmapped rows
@@ -2194,8 +1128,14 @@ async function runOnlineMode() {
         if (months.length) monthLabel = String(months[0]).toUpperCase().slice(0, 3);
       }
 
+      log(`💾 Writing BBSM working file...`, 'info');
+      const bbsmWb   = writeBBSM(enriched, label);
+      const bbsmName = `bbsm_${label.toLowerCase()}_${monthLabel}.xlsx`;
+      log(`  ✓ ${bbsmName}`, 'ok');
+      addDownload(bbsmWb, bbsmName, `BBSM enriched working file — ${label}`);
+
       log(`📋 Step 2: Filling MLB submission template...`, 'info');
-      const mlbWb   = writeMLBSubmission(enriched, null, wholesaleGroups, assetToTeam);
+      const mlbWb   = writeMLBSubmission(enriched, null, wholesaleGroups, tmplWb, assetToTeam);
       const mlbName = `mlb_submission_${label.toLowerCase()}_${monthLabel}.xlsx`;
       log(`  ✓ ${mlbName}`, 'ok');
       addDownload(mlbWb, mlbName, `MLB submission file — ${label}`);
