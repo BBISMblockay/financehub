@@ -131,6 +131,7 @@ supabase/
     20260616030000_views_security_invoker.sql
     20260616060000_stamp_company_entity_id_on_insert.sql
     20260702170000_shopify_sync_variance_fixes.sql
+    20260706220000_store_comp_summary_total_sales.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

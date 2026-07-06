@@ -90,11 +90,11 @@
       </div>
     </header>
 
-    <!-- KPI band: company-wide totals -->
+    <!-- KPI band: company-wide totals (tax/shipping-inclusive, matches the legacy PBI dashboard) -->
     <div class="bcn-kpi-band">
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Today Net</div><div id="kpiDayNet" class="bcn-kpi-value">—</div><div id="kpiDayVar" class="bcn-kpi-delta">vs LY —</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">MTD Net</div><div id="kpiMtdNet" class="bcn-kpi-value">—</div><div id="kpiMtdVar" class="bcn-kpi-delta">vs LY —</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">YTD Net</div><div id="kpiYtdNet" class="bcn-kpi-value">—</div><div id="kpiYtdVar" class="bcn-kpi-delta">vs LY —</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Today Total</div><div id="kpiDayNet" class="bcn-kpi-value">—</div><div id="kpiDayVar" class="bcn-kpi-delta">vs LY —</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">MTD Total</div><div id="kpiMtdNet" class="bcn-kpi-value">—</div><div id="kpiMtdVar" class="bcn-kpi-delta">vs LY —</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">YTD Total</div><div id="kpiYtdNet" class="bcn-kpi-value">—</div><div id="kpiYtdVar" class="bcn-kpi-delta">vs LY —</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Today Units</div><div id="kpiDayQty" class="bcn-kpi-value">—</div><div id="kpiDayQtyVar" class="bcn-kpi-delta">vs LY —</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Locations</div><div id="kpiLocCount" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">In current filter</div></div>
     </div>
@@ -107,10 +107,10 @@
       <div class="ov-meta-row">
         <div>
           <label class="bcn-label" style="margin-right:6px">Metric</label>
-          <select id="metricMode" class="bcn-field" style="min-width:120px;display:inline-block">
-            <option value="sales" selected>Net Sales</option>
+          <select id="metricMode" class="bcn-field" style="min-width:150px;display:inline-block">
+            <option value="total" selected>Total Sales (matches PBI)</option>
+            <option value="sales">Net Sales</option>
             <option value="units">Units</option>
-            <option value="both">Both</option>
           </select>
         </div>
         <div id="statusText" class="ov-status">Loading…</div>
@@ -245,9 +245,11 @@
   function renderKpis(){
     const rows=visibleRows();
     const sum=(k)=>rows.reduce((a,r)=>a+Number(r[k]||0),0);
-    const dayNet=sum('cur_day_net'), pyDayNet=sum('py_day_net');
-    const mtdNet=sum('cur_mtd_net'), pyMtdNet=sum('py_mtd_net');
-    const ytdNet=sum('cur_ytd_net'), pyYtdNet=sum('py_ytd_net');
+    // KPI band always headlines Total Sales (tax/shipping-inclusive) — the figure
+    // that matches the legacy PBI dashboard — regardless of the matrix's Metric toggle.
+    const dayNet=sum('cur_day_total'), pyDayNet=sum('py_day_total');
+    const mtdNet=sum('cur_mtd_total'), pyMtdNet=sum('py_mtd_total');
+    const ytdNet=sum('cur_ytd_total'), pyYtdNet=sum('py_ytd_total');
     const dayQty=sum('cur_day_qty'), pyDayQty=sum('py_day_qty');
 
     el.kpiDayNet.textContent=money(dayNet);
@@ -267,69 +269,56 @@
     el.kpiDayQtyVar.className=`bcn-kpi-delta ${dayQtyVar>=0?'bcn-kpi-delta--pos':'bcn-kpi-delta--neg'}`;
   }
 
+  // Field-key sets per metric mode — single-select (matches PBI's one-metric-
+  // at-a-time store table rather than a combinatorial "both" option.
+  const METRIC_FIELDS = {
+    total: { prefix:'total', label:'Total', fmt:moneyW },
+    sales: { prefix:'net',   label:'Net',   fmt:moneyW },
+    units: { prefix:'qty',   label:'Units', fmt:numFmt },
+  };
+
+  function periodCols(r, period, fields){
+    const cur = r[`cur_${period}_${fields.prefix}`], py = r[`py_${period}_${fields.prefix}`];
+    const varPctField = r[`${period}_${fields.prefix}_var_pct`];
+    return `<td class="g-${period}">${fields.fmt(cur)}</td><td class="g-${period}">${fields.fmt(py)}</td><td class="g-${period} ${pctClass(varPctField)}">${pctStr(varPctField==null?null:varPctField*100)}</td>`;
+  }
+
   function renderMatrix(){
     const rows=visibleRows(), mode=el.metricMode.value;
-    let cols='';
-    if (mode==='sales'||mode==='both') cols+=`<th class="g-day">CY Net</th><th class="g-day">PY Net</th><th class="g-day">Var %</th><th class="g-mtd">CY Net</th><th class="g-mtd">PY Net</th><th class="g-mtd">Var %</th><th class="g-ytd">CY Net</th><th class="g-ytd">PY Net</th><th class="g-ytd">Var %</th>`;
-    if (mode==='units'||mode==='both') cols+=`<th class="g-day">CY Units</th><th class="g-day">PY Units</th><th class="g-day">Var %</th><th class="g-mtd">CY Units</th><th class="g-mtd">PY Units</th><th class="g-mtd">Var %</th><th class="g-ytd">CY Units</th><th class="g-ytd">PY Units</th><th class="g-ytd">Var %</th>`;
-    const span = mode==='both'?6:3;
-    el.matrixHead.innerHTML=`<tr><th class="m-store" rowspan="2">Store</th><th class="g-day" colspan="${span}">Day</th><th class="g-mtd" colspan="${span}">MTD</th><th class="g-ytd" colspan="${span}">YTD</th></tr><tr>${cols}</tr>`;
+    const fields = METRIC_FIELDS[mode] || METRIC_FIELDS.total;
+    const cols = `<th class="g-day">CY ${fields.label}</th><th class="g-day">PY ${fields.label}</th><th class="g-day">Var %</th>`
+      + `<th class="g-mtd">CY ${fields.label}</th><th class="g-mtd">PY ${fields.label}</th><th class="g-mtd">Var %</th>`
+      + `<th class="g-ytd">CY ${fields.label}</th><th class="g-ytd">PY ${fields.label}</th><th class="g-ytd">Var %</th>`;
+    el.matrixHead.innerHTML=`<tr><th class="m-store" rowspan="2">Store</th><th class="g-day" colspan="3">Day</th><th class="g-mtd" colspan="3">MTD</th><th class="g-ytd" colspan="3">YTD</th></tr><tr>${cols}</tr>`;
 
     if (!rows.length){
       el.rowCount.textContent='0 locations';
-      el.matrixBody.innerHTML=`<tr><td class="ov-empty" colspan="${1+span*(mode==='both'?2:1)}">No stores in this group.</td></tr>`;
+      el.matrixBody.innerHTML=`<tr><td class="ov-empty" colspan="10">No stores in this group.</td></tr>`;
       return;
     }
     el.rowCount.textContent=`${rows.length} location${rows.length===1?'':'s'}`;
 
     const rowHtml = (r) => {
       const group = state.groupByTag.get(r.location_tag)||'retail';
-      let h=`<td class="m-store"><strong>${esc(r.location_tag)}</strong><span class="m-group bcn-pill bcn-pill--accent" style="font-size:9px;padding:0 6px">${esc(group)}</span></td>`;
-      if (mode==='sales'||mode==='both'){
-        const dv=r.day_net_var_pct, mv=r.mtd_net_var_pct, yv=r.ytd_net_var_pct;
-        h+=`<td class="g-day">${moneyW(r.cur_day_net)}</td><td class="g-day">${moneyW(r.py_day_net)}</td><td class="g-day ${pctClass(dv)}">${pctStr(dv==null?null:dv*100)}</td>`
-         +`<td class="g-mtd">${moneyW(r.cur_mtd_net)}</td><td class="g-mtd">${moneyW(r.py_mtd_net)}</td><td class="g-mtd ${pctClass(mv)}">${pctStr(mv==null?null:mv*100)}</td>`
-         +`<td class="g-ytd">${moneyW(r.cur_ytd_net)}</td><td class="g-ytd">${moneyW(r.py_ytd_net)}</td><td class="g-ytd ${pctClass(yv)}">${pctStr(yv==null?null:yv*100)}</td>`;
-      }
-      if (mode==='units'||mode==='both'){
-        const dv=r.day_qty_var_pct, mv=r.mtd_qty_var_pct, yv=r.ytd_qty_var_pct;
-        h+=`<td class="g-day">${numFmt(r.cur_day_qty)}</td><td class="g-day">${numFmt(r.py_day_qty)}</td><td class="g-day ${pctClass(dv)}">${pctStr(dv==null?null:dv*100)}</td>`
-         +`<td class="g-mtd">${numFmt(r.cur_mtd_qty)}</td><td class="g-mtd">${numFmt(r.py_mtd_qty)}</td><td class="g-mtd ${pctClass(mv)}">${pctStr(mv==null?null:mv*100)}</td>`
-         +`<td class="g-ytd">${numFmt(r.cur_ytd_qty)}</td><td class="g-ytd">${numFmt(r.py_ytd_qty)}</td><td class="g-ytd ${pctClass(yv)}">${pctStr(yv==null?null:yv*100)}</td>`;
-      }
-      return h;
+      const h=`<td class="m-store"><strong>${esc(r.location_tag)}</strong><span class="m-group bcn-pill bcn-pill--accent" style="font-size:9px;padding:0 6px">${esc(group)}</span></td>`;
+      return h + periodCols(r,'day',fields) + periodCols(r,'mtd',fields) + periodCols(r,'ytd',fields);
     };
 
     let bodyHtml = rows.map(r=>`<tr>${rowHtml(r)}</tr>`).join('');
 
-    // Grand total row
+    // Grand total row — re-sum raw dollars/units, then recompute var% (never
+    // average the per-store var% values, which would be wrong for a total).
     const sum=(k)=>rows.reduce((a,r)=>a+Number(r[k]||0),0);
-    const totalRow = {
-      location_tag:'Total', cur_day_net:sum('cur_day_net'), py_day_net:sum('py_day_net'),
-      cur_mtd_net:sum('cur_mtd_net'), py_mtd_net:sum('py_mtd_net'),
-      cur_ytd_net:sum('cur_ytd_net'), py_ytd_net:sum('py_ytd_net'),
-      cur_day_qty:sum('cur_day_qty'), py_day_qty:sum('py_day_qty'),
-      cur_mtd_qty:sum('cur_mtd_qty'), py_mtd_qty:sum('py_mtd_qty'),
-      cur_ytd_qty:sum('cur_ytd_qty'), py_ytd_qty:sum('py_ytd_qty'),
-      day_net_var_pct:varPct(sum('cur_day_net'),sum('py_day_net'))/100,
-      mtd_net_var_pct:varPct(sum('cur_mtd_net'),sum('py_mtd_net'))/100,
-      ytd_net_var_pct:varPct(sum('cur_ytd_net'),sum('py_ytd_net'))/100,
-      day_qty_var_pct:varPct(sum('cur_day_qty'),sum('py_day_qty'))/100,
-      mtd_qty_var_pct:varPct(sum('cur_mtd_qty'),sum('py_mtd_qty'))/100,
-      ytd_qty_var_pct:varPct(sum('cur_ytd_qty'),sum('py_ytd_qty'))/100,
-    };
-    let totalHtml = `<td class="m-store"><strong>Total</strong></td>`;
-    if (mode==='sales'||mode==='both'){
-      totalHtml+=`<td class="g-day">${moneyW(totalRow.cur_day_net)}</td><td class="g-day">${moneyW(totalRow.py_day_net)}</td><td class="g-day">${pctStr(totalRow.day_net_var_pct*100)}</td>`
-        +`<td class="g-mtd">${moneyW(totalRow.cur_mtd_net)}</td><td class="g-mtd">${moneyW(totalRow.py_mtd_net)}</td><td class="g-mtd">${pctStr(totalRow.mtd_net_var_pct*100)}</td>`
-        +`<td class="g-ytd">${moneyW(totalRow.cur_ytd_net)}</td><td class="g-ytd">${moneyW(totalRow.py_ytd_net)}</td><td class="g-ytd">${pctStr(totalRow.ytd_net_var_pct*100)}</td>`;
+    const totalRow = { location_tag:'Total' };
+    for (const period of ['day','mtd','ytd']){
+      for (const key of Object.values(METRIC_FIELDS)){
+        const curKey=`cur_${period}_${key.prefix}`, pyKey=`py_${period}_${key.prefix}`;
+        totalRow[curKey]=sum(curKey); totalRow[pyKey]=sum(pyKey);
+        const v=varPct(totalRow[curKey],totalRow[pyKey]);
+        totalRow[`${period}_${key.prefix}_var_pct`] = v==null?null:v/100;
+      }
     }
-    if (mode==='units'||mode==='both'){
-      totalHtml+=`<td class="g-day">${numFmt(totalRow.cur_day_qty)}</td><td class="g-day">${numFmt(totalRow.py_day_qty)}</td><td class="g-day">${pctStr(totalRow.day_qty_var_pct*100)}</td>`
-        +`<td class="g-mtd">${numFmt(totalRow.cur_mtd_qty)}</td><td class="g-mtd">${numFmt(totalRow.py_mtd_qty)}</td><td class="g-mtd">${pctStr(totalRow.mtd_qty_var_pct*100)}</td>`
-        +`<td class="g-ytd">${numFmt(totalRow.cur_ytd_qty)}</td><td class="g-ytd">${numFmt(totalRow.py_ytd_qty)}</td><td class="g-ytd">${pctStr(totalRow.ytd_qty_var_pct*100)}</td>`;
-    }
-    bodyHtml += `<tr class="ov-total">${totalHtml}</tr>`;
+    bodyHtml += `<tr class="ov-total"><td class="m-store"><strong>Total</strong></td>${periodCols(totalRow,'day',fields)}${periodCols(totalRow,'mtd',fields)}${periodCols(totalRow,'ytd',fields)}</tr>`;
 
     el.matrixBody.innerHTML = bodyHtml;
   }
