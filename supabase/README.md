@@ -132,6 +132,7 @@ supabase/
     20260616060000_stamp_company_entity_id_on_insert.sql
     20260702170000_shopify_sync_variance_fixes.sql
     20260706220000_store_comp_summary_total_sales.sql
+    20260706230000_fix_store_comp_summary_refresh_timeout.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
