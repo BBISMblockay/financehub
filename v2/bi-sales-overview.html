@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Sales Performance Overview</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <style>
+    .bcn-kpi-band { flex-wrap:wrap; }
+
+    .ov-filters {
+      background:var(--bcn-sunken);
+      border-bottom:1px solid var(--bcn-border);
+      padding:12px 18px;
+      display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+      flex-shrink:0;
+    }
+    .ov-chips { display:flex; flex-wrap:wrap; gap:5px; }
+    .ov-chip {
+      border:1px solid var(--bcn-border); background:var(--bcn-surface);
+      border-radius:var(--bcn-radius); padding:4px 12px;
+      font-size:11px; font-weight:700; color:var(--bcn-ink-3);
+      cursor:pointer; user-select:none; font-family:var(--bcn-mono);
+      transition:background .1s,border-color .1s,color .1s;
+    }
+    .ov-chip:hover  { border-color:var(--bcn-border-strong); color:var(--bcn-ink-2); }
+    .ov-chip.active { background:var(--bcn-band); color:var(--bcn-band-ink); border-color:var(--bcn-band); }
+    .ov-meta-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .ov-status { font-size:11.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); }
+
+    .ov-content { flex:1; padding:12px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:12px; }
+
+    .ov-table-wrap { overflow:auto; }
+    .ov-table-wrap::-webkit-scrollbar{ height:6px; width:6px; }
+    .ov-table-wrap::-webkit-scrollbar-thumb{ background:var(--bcn-border-strong); border-radius:3px; }
+
+    .ov-tbl { width:max-content; min-width:100%; border-collapse:collapse; }
+    .ov-tbl thead tr:first-child th {
+      font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.14em;
+      color:var(--bcn-ink-3); padding:7px 10px; border-bottom:1px solid var(--bcn-border);
+      text-align:center; position:sticky; top:0; z-index:3; background:var(--bcn-sunken);
+    }
+    .ov-tbl thead tr:nth-child(2) th {
+      font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.08em;
+      color:var(--bcn-ink-3); padding:7px 10px; border-bottom:1px solid var(--bcn-border);
+      text-align:right; position:sticky; top:30px; z-index:3; background:var(--bcn-sunken);
+    }
+    .ov-tbl thead th:first-child,
+    .ov-tbl tbody td:first-child { position:sticky; left:0; z-index:4; background:var(--bcn-surface); }
+    .ov-tbl tbody td {
+      font-family:var(--bcn-mono); font-size:11.5px; font-variant-numeric:tabular-nums;
+      padding:7px 10px; border-bottom:1px solid var(--bcn-border); white-space:nowrap;
+      text-align:right;
+    }
+    .ov-tbl tbody tr:hover td { background:var(--bcn-sunken); }
+    .ov-tbl .m-store { min-width:160px; text-align:left!important; font-family:var(--bcn-font); }
+    .ov-tbl .m-store strong { font-weight:600; color:var(--bcn-ink); font-size:12px; }
+    .ov-tbl .m-group { display:inline-block; margin-top:2px; }
+    .ov-tbl .g-day  { background:oklch(0.97 0.03 245); }
+    .ov-tbl .g-mtd  { background:oklch(0.98 0.02 60); }
+    .ov-tbl .g-ytd  { background:oklch(0.97 0.03 145); }
+    .ov-tbl .var-pos { color:var(--bcn-pos); font-weight:700; }
+    .ov-tbl .var-neg { color:var(--bcn-neg); font-weight:700; }
+    .ov-tbl tbody tr.ov-total td { background:var(--bcn-band); color:var(--bcn-band-ink); font-weight:700; border-bottom:none; }
+    .ov-tbl tbody tr.ov-total td.m-store { background:var(--bcn-band); }
+    .ov-tbl tbody tr.ov-total:hover td { background:var(--bcn-band); }
+
+    .ov-empty { padding:32px; text-align:center; color:var(--bcn-ink-4); font-family:var(--bcn-mono); font-size:11.5px; }
+  </style>
+</head>
+<body class="silo-brand">
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0">
+        <div class="bcn-header-title">
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
+        </div>
+        <h1>Sales Performance Overview</h1>
+        <div class="bcn-header-sub">Day / MTD / YTD vs. prior year, by store. Refreshes automatically after nightly sync — see <a href="/v2/sales-verification.html">Sales Verification</a> for row-level detail.</div>
+      </div>
+      <div class="bcn-header-actions">
+        <span id="lastRefreshPill" class="bcn-pill bcn-pill--dark" style="font-family:var(--bcn-mono);font-size:10.5px">Comps as of: —</span>
+        <button id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
+      </div>
+    </header>
+
+    <!-- KPI band: company-wide totals -->
+    <div class="bcn-kpi-band">
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Today Net</div><div id="kpiDayNet" class="bcn-kpi-value">—</div><div id="kpiDayVar" class="bcn-kpi-delta">vs LY —</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">MTD Net</div><div id="kpiMtdNet" class="bcn-kpi-value">—</div><div id="kpiMtdVar" class="bcn-kpi-delta">vs LY —</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">YTD Net</div><div id="kpiYtdNet" class="bcn-kpi-value">—</div><div id="kpiYtdVar" class="bcn-kpi-delta">vs LY —</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Today Units</div><div id="kpiDayQty" class="bcn-kpi-value">—</div><div id="kpiDayQtyVar" class="bcn-kpi-delta">vs LY —</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Locations</div><div id="kpiLocCount" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">In current filter</div></div>
+    </div>
+
+    <!-- Filters -->
+    <div class="ov-filters">
+      <div class="ov-chips" id="groupFilters">
+        <button class="ov-chip active" data-group="all">All Stores</button>
+      </div>
+      <div class="ov-meta-row">
+        <div>
+          <label class="bcn-label" style="margin-right:6px">Metric</label>
+          <select id="metricMode" class="bcn-field" style="min-width:120px;display:inline-block">
+            <option value="sales" selected>Net Sales</option>
+            <option value="units">Units</option>
+            <option value="both">Both</option>
+          </select>
+        </div>
+        <div id="statusText" class="ov-status">Loading…</div>
+      </div>
+    </div>
+
+    <div class="ov-content">
+      <div class="bcn-card">
+        <div class="bcn-card-header">
+          <h2>By location — Day / MTD / YTD vs. prior year</h2>
+          <span id="rowCount" class="bcn-card-meta" style="margin-left:auto">0 locations</span>
+        </div>
+        <div class="bcn-card-body" style="padding:0;overflow:visible">
+          <div class="ov-table-wrap">
+            <table class="ov-tbl">
+              <thead id="matrixHead"></thead>
+              <tbody id="matrixBody">
+                <tr><td class="ov-empty">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
+    throw new Error('Missing Supabase config');
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global:{ fetch:(url,o={})=>fetch(url,{...o,cache:'no-store'}) },
+  });
+  const _co = cfg.getActiveCompany?.() || null;
+  function scopeQ(q){ return _co?.id ? q.eq('company_entity_id',_co.id) : q; }
+
+  // Mirrors slugify() in scripts/lib/shopify-sync-core.mjs — must match exactly
+  // to join locations.store_type onto sales_verification_store_comp_summary.location_tag.
+  function slugify(v){
+    return String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'unknown';
+  }
+
+  const state = { rows:[], groupByTag:new Map(), activeGroup:'all', groups:[] };
+
+  const el = {
+    btnRefresh:  document.getElementById('btnRefresh'),
+    lastRefreshPill: document.getElementById('lastRefreshPill'),
+    statusText:  document.getElementById('statusText'),
+    metricMode:  document.getElementById('metricMode'),
+    groupFilters:document.getElementById('groupFilters'),
+    rowCount:    document.getElementById('rowCount'),
+    matrixHead:  document.getElementById('matrixHead'),
+    matrixBody:  document.getElementById('matrixBody'),
+    kpiDayNet:   document.getElementById('kpiDayNet'),
+    kpiDayVar:   document.getElementById('kpiDayVar'),
+    kpiMtdNet:   document.getElementById('kpiMtdNet'),
+    kpiMtdVar:   document.getElementById('kpiMtdVar'),
+    kpiYtdNet:   document.getElementById('kpiYtdNet'),
+    kpiYtdVar:   document.getElementById('kpiYtdVar'),
+    kpiDayQty:   document.getElementById('kpiDayQty'),
+    kpiDayQtyVar:document.getElementById('kpiDayQtyVar'),
+    kpiLocCount: document.getElementById('kpiLocCount'),
+  };
+
+  const money  = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(v||0));
+  const moneyW = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(v||0));
+  const numFmt = v => Number(v||0).toLocaleString();
+  const esc    = s => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
+  const fmtTs  = ts => { if(!ts) return '—'; const d=new Date(ts); return isNaN(d)?String(ts):d.toLocaleString(); };
+  function varPct(cur,py){
+    const c=Number(cur||0), p=Number(py||0);
+    if (!p) return null;
+    return ((c-p)/Math.abs(p))*100;
+  }
+  function pctStr(v){
+    if (v==null||Number.isNaN(v)) return '—';
+    return `${v>0?'+':''}${v.toFixed(1)}%`;
+  }
+  function pctClass(v){ if (v==null) return ''; return v>=0?'var-pos':'var-neg'; }
+
+  function setStatus(t){ el.statusText.textContent=t; }
+
+  async function loadStoreGroups(){
+    let q = sb.from('locations').select('location_code,location_name,store_type');
+    q = scopeQ(q);
+    const { data,error } = await q;
+    if (error) throw error;
+    const map=new Map();
+    const groupSet=new Set();
+    for (const row of data||[]){
+      const tag=slugify(row.location_code||row.location_name);
+      const group=(row.store_type||'retail').toLowerCase();
+      map.set(tag,group);
+      groupSet.add(group);
+    }
+    state.groupByTag=map;
+    state.groups=[...groupSet].sort();
+  }
+
+  async function loadMatrix(){
+    let q = sb.from('sales_verification_store_comp_summary').select('*').order('location_tag',{ascending:true});
+    q = scopeQ(q);
+    const { data,error } = await q;
+    if (error) throw error;
+    state.rows = data||[];
+  }
+
+  function renderGroupChips(){
+    const chips = ['<button class="ov-chip active" data-group="all">All Stores</button>']
+      .concat(state.groups.map(g=>`<button class="ov-chip" data-group="${esc(g)}">${esc(g.charAt(0).toUpperCase()+g.slice(1))}</button>`));
+    el.groupFilters.innerHTML = chips.join('');
+  }
+
+  function visibleRows(){
+    if (state.activeGroup==='all') return state.rows;
+    return state.rows.filter(r=>(state.groupByTag.get(r.location_tag)||'retail')===state.activeGroup);
+  }
+
+  function renderKpis(){
+    const rows=visibleRows();
+    const sum=(k)=>rows.reduce((a,r)=>a+Number(r[k]||0),0);
+    const dayNet=sum('cur_day_net'), pyDayNet=sum('py_day_net');
+    const mtdNet=sum('cur_mtd_net'), pyMtdNet=sum('py_mtd_net');
+    const ytdNet=sum('cur_ytd_net'), pyYtdNet=sum('py_ytd_net');
+    const dayQty=sum('cur_day_qty'), pyDayQty=sum('py_day_qty');
+
+    el.kpiDayNet.textContent=money(dayNet);
+    el.kpiMtdNet.textContent=money(mtdNet);
+    el.kpiYtdNet.textContent=money(ytdNet);
+    el.kpiDayQty.textContent=numFmt(dayQty);
+    el.kpiLocCount.textContent=numFmt(rows.length);
+
+    const dayVar=varPct(dayNet,pyDayNet), mtdVar=varPct(mtdNet,pyMtdNet), ytdVar=varPct(ytdNet,pyYtdNet), dayQtyVar=varPct(dayQty,pyDayQty);
+    el.kpiDayVar.textContent=`vs LY ${pctStr(dayVar)}`;
+    el.kpiDayVar.className=`bcn-kpi-delta ${dayVar>=0?'bcn-kpi-delta--pos':'bcn-kpi-delta--neg'}`;
+    el.kpiMtdVar.textContent=`vs LY ${pctStr(mtdVar)}`;
+    el.kpiMtdVar.className=`bcn-kpi-delta ${mtdVar>=0?'bcn-kpi-delta--pos':'bcn-kpi-delta--neg'}`;
+    el.kpiYtdVar.textContent=`vs LY ${pctStr(ytdVar)}`;
+    el.kpiYtdVar.className=`bcn-kpi-delta ${ytdVar>=0?'bcn-kpi-delta--pos':'bcn-kpi-delta--neg'}`;
+    el.kpiDayQtyVar.textContent=`vs LY ${pctStr(dayQtyVar)}`;
+    el.kpiDayQtyVar.className=`bcn-kpi-delta ${dayQtyVar>=0?'bcn-kpi-delta--pos':'bcn-kpi-delta--neg'}`;
+  }
+
+  function renderMatrix(){
+    const rows=visibleRows(), mode=el.metricMode.value;
+    let cols='';
+    if (mode==='sales'||mode==='both') cols+=`<th class="g-day">CY Net</th><th class="g-day">PY Net</th><th class="g-day">Var %</th><th class="g-mtd">CY Net</th><th class="g-mtd">PY Net</th><th class="g-mtd">Var %</th><th class="g-ytd">CY Net</th><th class="g-ytd">PY Net</th><th class="g-ytd">Var %</th>`;
+    if (mode==='units'||mode==='both') cols+=`<th class="g-day">CY Units</th><th class="g-day">PY Units</th><th class="g-day">Var %</th><th class="g-mtd">CY Units</th><th class="g-mtd">PY Units</th><th class="g-mtd">Var %</th><th class="g-ytd">CY Units</th><th class="g-ytd">PY Units</th><th class="g-ytd">Var %</th>`;
+    const span = mode==='both'?6:3;
+    el.matrixHead.innerHTML=`<tr><th class="m-store" rowspan="2">Store</th><th class="g-day" colspan="${span}">Day</th><th class="g-mtd" colspan="${span}">MTD</th><th class="g-ytd" colspan="${span}">YTD</th></tr><tr>${cols}</tr>`;
+
+    if (!rows.length){
+      el.rowCount.textContent='0 locations';
+      el.matrixBody.innerHTML=`<tr><td class="ov-empty" colspan="${1+span*(mode==='both'?2:1)}">No stores in this group.</td></tr>`;
+      return;
+    }
+    el.rowCount.textContent=`${rows.length} location${rows.length===1?'':'s'}`;
+
+    const rowHtml = (r) => {
+      const group = state.groupByTag.get(r.location_tag)||'retail';
+      let h=`<td class="m-store"><strong>${esc(r.location_tag)}</strong><span class="ov-tbl m-group bcn-pill bcn-pill--accent" style="font-size:9px;padding:0 6px">${esc(group)}</span></td>`;
+      if (mode==='sales'||mode==='both'){
+        const dv=r.day_net_var_pct, mv=r.mtd_net_var_pct, yv=r.ytd_net_var_pct;
+        h+=`<td class="g-day">${moneyW(r.cur_day_net)}</td><td class="g-day">${moneyW(r.py_day_net)}</td><td class="g-day ${pctClass(dv)}">${pctStr(dv==null?null:dv*100)}</td>`
+         +`<td class="g-mtd">${moneyW(r.cur_mtd_net)}</td><td class="g-mtd">${moneyW(r.py_mtd_net)}</td><td class="g-mtd ${pctClass(mv)}">${pctStr(mv==null?null:mv*100)}</td>`
+         +`<td class="g-ytd">${moneyW(r.cur_ytd_net)}</td><td class="g-ytd">${moneyW(r.py_ytd_net)}</td><td class="g-ytd ${pctClass(yv)}">${pctStr(yv==null?null:yv*100)}</td>`;
+      }
+      if (mode==='units'||mode==='both'){
+        const dv=r.day_qty_var_pct, mv=r.mtd_qty_var_pct, yv=r.ytd_qty_var_pct;
+        h+=`<td class="g-day">${numFmt(r.cur_day_qty)}</td><td class="g-day">${numFmt(r.py_day_qty)}</td><td class="g-day ${pctClass(dv)}">${pctStr(dv==null?null:dv*100)}</td>`
+         +`<td class="g-mtd">${numFmt(r.cur_mtd_qty)}</td><td class="g-mtd">${numFmt(r.py_mtd_qty)}</td><td class="g-mtd ${pctClass(mv)}">${pctStr(mv==null?null:mv*100)}</td>`
+         +`<td class="g-ytd">${numFmt(r.cur_ytd_qty)}</td><td class="g-ytd">${numFmt(r.py_ytd_qty)}</td><td class="g-ytd ${pctClass(yv)}">${pctStr(yv==null?null:yv*100)}</td>`;
+      }
+      return h;
+    };
+
+    let bodyHtml = rows.map(r=>`<tr>${rowHtml(r)}</tr>`).join('');
+
+    // Grand total row
+    const sum=(k)=>rows.reduce((a,r)=>a+Number(r[k]||0),0);
+    const totalRow = {
+      location_tag:'Total', cur_day_net:sum('cur_day_net'), py_day_net:sum('py_day_net'),
+      cur_mtd_net:sum('cur_mtd_net'), py_mtd_net:sum('py_mtd_net'),
+      cur_ytd_net:sum('cur_ytd_net'), py_ytd_net:sum('py_ytd_net'),
+      cur_day_qty:sum('cur_day_qty'), py_day_qty:sum('py_day_qty'),
+      cur_mtd_qty:sum('cur_mtd_qty'), py_mtd_qty:sum('py_mtd_qty'),
+      cur_ytd_qty:sum('cur_ytd_qty'), py_ytd_qty:sum('py_ytd_qty'),
+      day_net_var_pct:varPct(sum('cur_day_net'),sum('py_day_net'))/100,
+      mtd_net_var_pct:varPct(sum('cur_mtd_net'),sum('py_mtd_net'))/100,
+      ytd_net_var_pct:varPct(sum('cur_ytd_net'),sum('py_ytd_net'))/100,
+      day_qty_var_pct:varPct(sum('cur_day_qty'),sum('py_day_qty'))/100,
+      mtd_qty_var_pct:varPct(sum('cur_mtd_qty'),sum('py_mtd_qty'))/100,
+      ytd_qty_var_pct:varPct(sum('cur_ytd_qty'),sum('py_ytd_qty'))/100,
+    };
+    let totalHtml = `<td class="m-store"><strong>Total</strong></td>`;
+    if (mode==='sales'||mode==='both'){
+      totalHtml+=`<td class="g-day">${moneyW(totalRow.cur_day_net)}</td><td class="g-day">${moneyW(totalRow.py_day_net)}</td><td class="g-day">${pctStr(totalRow.day_net_var_pct*100)}</td>`
+        +`<td class="g-mtd">${moneyW(totalRow.cur_mtd_net)}</td><td class="g-mtd">${moneyW(totalRow.py_mtd_net)}</td><td class="g-mtd">${pctStr(totalRow.mtd_net_var_pct*100)}</td>`
+        +`<td class="g-ytd">${moneyW(totalRow.cur_ytd_net)}</td><td class="g-ytd">${moneyW(totalRow.py_ytd_net)}</td><td class="g-ytd">${pctStr(totalRow.ytd_net_var_pct*100)}</td>`;
+    }
+    if (mode==='units'||mode==='both'){
+      totalHtml+=`<td class="g-day">${numFmt(totalRow.cur_day_qty)}</td><td class="g-day">${numFmt(totalRow.py_day_qty)}</td><td class="g-day">${pctStr(totalRow.day_qty_var_pct*100)}</td>`
+        +`<td class="g-mtd">${numFmt(totalRow.cur_mtd_qty)}</td><td class="g-mtd">${numFmt(totalRow.py_mtd_qty)}</td><td class="g-mtd">${pctStr(totalRow.mtd_qty_var_pct*100)}</td>`
+        +`<td class="g-ytd">${numFmt(totalRow.cur_ytd_qty)}</td><td class="g-ytd">${numFmt(totalRow.py_ytd_qty)}</td><td class="g-ytd">${pctStr(totalRow.ytd_qty_var_pct*100)}</td>`;
+    }
+    bodyHtml += `<tr class="ov-total">${totalHtml}</tr>`;
+
+    el.matrixBody.innerHTML = bodyHtml;
+  }
+
+  function renderAll(){ renderKpis(); renderMatrix(); }
+
+  async function runLoad(){
+    setStatus('Loading…');
+    try {
+      await Promise.all([loadStoreGroups(), loadMatrix()]);
+      renderGroupChips();
+      renderAll();
+      const asOf = state.rows[0]?.as_of_date || null;
+      const pyAsOf = state.rows[0]?.py_as_of_date || null;
+      const refreshedAt = state.rows[0]?.refreshed_at || null;
+      el.lastRefreshPill.textContent = asOf ? `Comps as of: ${asOf} (LY ${pyAsOf||'—'})` : 'Comps as of: —';
+      setStatus(`Loaded ${state.rows.length} location${state.rows.length===1?'':'s'}. Summary refreshed: ${fmtTs(refreshedAt)}.`);
+    } catch(e){
+      console.error(e);
+      setStatus(`Load failed: ${e.message}`);
+    }
+  }
+
+  el.btnRefresh.addEventListener('click', runLoad);
+  el.metricMode.addEventListener('change', renderMatrix);
+  el.groupFilters.addEventListener('click', (ev)=>{
+    const btn = ev.target.closest('[data-group]');
+    if (!btn) return;
+    state.activeGroup = btn.dataset.group;
+    [...el.groupFilters.querySelectorAll('[data-group]')].forEach(b=>b.classList.toggle('active', b===btn));
+    renderAll();
+  });
+
+  async function boot(){
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session){ window.location.href='/pages/login.html'; return; }
+    const user = sess.data.session.user;
+
+    if (window.SiloChrome){
+      window.SiloChrome.mount({
+        appEl:'#silo-app', active:'reports/sales-overview',
+        user:{ email:user?.email||'', role:'admin' },
+        crumbs:['Reports','Sales Performance Overview'],
+        supabaseClient:sb,
+      });
+    }
+    await runLoad();
+  }
+
+  boot();
+</script>
+</body>
+</html>

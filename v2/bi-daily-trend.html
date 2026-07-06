@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Daily Sales Trend</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <style>
+    .bcn-kpi-band { flex-wrap:wrap; }
+
+    .dt-filters {
+      background:var(--bcn-sunken);
+      border-bottom:1px solid var(--bcn-border);
+      padding:12px 18px;
+      display:flex; align-items:flex-end; justify-content:space-between; gap:12px; flex-wrap:wrap;
+      flex-shrink:0;
+    }
+    .dt-filter-group { display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; }
+    .dt-chips { display:flex; flex-wrap:wrap; gap:5px; }
+    .dt-chip {
+      border:1px solid var(--bcn-border); background:var(--bcn-surface);
+      border-radius:var(--bcn-radius); padding:4px 12px;
+      font-size:11px; font-weight:700; color:var(--bcn-ink-3);
+      cursor:pointer; user-select:none; font-family:var(--bcn-mono);
+    }
+    .dt-chip.active { background:var(--bcn-band); color:var(--bcn-band-ink); border-color:var(--bcn-band); }
+    .dt-status { font-size:11.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); }
+
+    .dt-content { flex:1; padding:12px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:12px; }
+
+    /* ---- Chart ---- */
+    .dt-chart-wrap { position:relative; width:100%; }
+    .dt-chart-wrap svg { display:block; width:100%; height:auto; overflow:visible; }
+    .dt-gridline { stroke:var(--bcn-border); stroke-width:1; }
+    .dt-axis-label { fill:var(--bcn-ink-3); font-size:10px; font-family:var(--bcn-mono); }
+    .dt-line-cur { fill:none; stroke:var(--bcn-accent); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+    .dt-area-cur { fill:var(--bcn-accent); opacity:.10; }
+    .dt-line-py  { fill:none; stroke:var(--bcn-ink-3); stroke-width:2; stroke-dasharray:5 4; stroke-linejoin:round; stroke-linecap:round; }
+    .dt-dot-cur  { fill:var(--bcn-accent); stroke:var(--bcn-surface); stroke-width:2; }
+    .dt-dot-py   { fill:var(--bcn-ink-3); stroke:var(--bcn-surface); stroke-width:2; }
+    .dt-endlabel { font-size:11px; font-weight:700; font-family:var(--bcn-mono); }
+    .dt-crosshair { stroke:var(--bcn-border-strong); stroke-width:1; pointer-events:none; }
+    .dt-hit { fill:transparent; }
+
+    .dt-legend { display:flex; align-items:center; gap:16px; font-size:11.5px; color:var(--bcn-ink-2); }
+    .dt-legend-item { display:flex; align-items:center; gap:6px; }
+    .dt-legend-key { display:inline-block; width:18px; height:0; border-top:2px solid; }
+    .dt-legend-key.cur { border-color:var(--bcn-accent); border-top-style:solid; }
+    .dt-legend-key.py  { border-color:var(--bcn-ink-3); border-top-style:dashed; }
+
+    .dt-tooltip {
+      position:absolute; pointer-events:none; z-index:5;
+      background:var(--bcn-band); color:var(--bcn-band-ink);
+      border-radius:var(--bcn-radius); padding:8px 10px; font-size:11.5px;
+      white-space:nowrap; opacity:0; transition:opacity .08s;
+      box-shadow:0 4px 12px oklch(0 0 0 / .18);
+    }
+    .dt-tooltip.show { opacity:1; }
+    .dt-tooltip .tt-date { font-family:var(--bcn-mono); font-size:10px; color:var(--bcn-band-ink-3); margin-bottom:4px; }
+    .dt-tooltip .tt-row { display:flex; align-items:center; gap:6px; }
+    .dt-tooltip .tt-key { width:10px; height:2px; border-radius:1px; }
+    .dt-tooltip .tt-key.cur { background:var(--bcn-accent); }
+    .dt-tooltip .tt-key.py  { background:var(--bcn-ink-3); }
+    .dt-tooltip .tt-val { font-weight:700; margin-left:auto; }
+
+    .dt-table-wrap { display:none; overflow:auto; max-height:340px; }
+    .dt-table-wrap.show { display:block; }
+    .dt-tbl { width:100%; border-collapse:collapse; }
+    .dt-tbl th { padding:6px 10px; font-size:10.5px; font-weight:600; color:var(--bcn-ink-3); border-bottom:1px solid var(--bcn-border-strong); background:var(--bcn-sunken); text-align:right; position:sticky; top:0; }
+    .dt-tbl th:first-child { text-align:left; }
+    .dt-tbl td { padding:6px 10px; font-size:11.5px; font-family:var(--bcn-mono); text-align:right; border-bottom:1px solid var(--bcn-border); font-variant-numeric:tabular-nums; }
+    .dt-tbl td:first-child { text-align:left; font-family:var(--bcn-font); }
+    .dt-empty { padding:32px; text-align:center; color:var(--bcn-ink-4); font-family:var(--bcn-mono); font-size:11.5px; }
+  </style>
+</head>
+<body class="silo-brand">
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0">
+        <div class="bcn-header-title">
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
+        </div>
+        <h1>Daily Sales Trend</h1>
+        <div class="bcn-header-sub">Net sales / units over time, current period vs. same days last year. Prior-year values align by day offset, not calendar date.</div>
+      </div>
+      <div class="bcn-header-actions">
+        <button id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
+      </div>
+    </header>
+
+    <div class="bcn-kpi-band">
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Period Net</div><div id="kpiPeriodNet" class="bcn-kpi-value">—</div><div id="kpiPeriodVar" class="bcn-kpi-delta">vs LY —</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Period Units</div><div id="kpiPeriodQty" class="bcn-kpi-value">—</div><div id="kpiPeriodQtyVar" class="bcn-kpi-delta">vs LY —</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Best Day</div><div id="kpiBestDay" class="bcn-kpi-value" style="font-size:14px">—</div><div id="kpiBestDayVal" class="bcn-kpi-delta">—</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Days</div><div id="kpiDayCount" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">In range</div></div>
+    </div>
+
+    <div class="dt-filters">
+      <div class="dt-filter-group">
+        <div>
+          <label class="bcn-label">Range</label>
+          <select id="rangePreset" class="bcn-field">
+            <option value="30">Last 30 days</option>
+            <option value="90" selected>Last 90 days</option>
+            <option value="180">Last 180 days</option>
+          </select>
+        </div>
+        <div>
+          <label class="bcn-label">Metric</label>
+          <select id="metricMode" class="bcn-field">
+            <option value="sales" selected>Net Sales</option>
+            <option value="units">Units</option>
+          </select>
+        </div>
+        <div>
+          <label class="bcn-label">Store group</label>
+          <div class="dt-chips" id="groupFilters">
+            <button class="dt-chip active" data-group="all">All Stores</button>
+          </div>
+        </div>
+      </div>
+      <div id="statusText" class="dt-status">Loading…</div>
+    </div>
+
+    <div class="dt-content">
+      <div class="bcn-card">
+        <div class="bcn-card-header">
+          <h2>Trend</h2>
+          <div class="dt-legend" style="margin-left:auto">
+            <div class="dt-legend-item"><span class="dt-legend-key cur"></span>Current period</div>
+            <div class="dt-legend-item"><span class="dt-legend-key py"></span>Prior year (same day offset)</div>
+          </div>
+          <button id="btnToggleTable" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">View as table</button>
+        </div>
+        <div class="bcn-card-body">
+          <div class="dt-chart-wrap" id="chartWrap">
+            <div class="dt-empty" id="chartEmpty">Loading…</div>
+          </div>
+          <div class="dt-table-wrap" id="tableWrap">
+            <table class="dt-tbl">
+              <thead><tr><th>Day (current)</th><th>Current</th><th>Prior year</th><th>Var</th></tr></thead>
+              <tbody id="tableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
+    throw new Error('Missing Supabase config');
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global:{ fetch:(url,o={})=>fetch(url,{...o,cache:'no-store'}) },
+  });
+  const _co = cfg.getActiveCompany?.() || null;
+  function scopeQ(q){ return _co?.id ? q.eq('company_entity_id',_co.id) : q; }
+
+  function slugify(v){
+    return String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'unknown';
+  }
+
+  const state = {
+    groupByTag:new Map(), groups:[], activeGroup:'all',
+    days:[], showTable:false,
+  };
+
+  const el = {
+    btnRefresh: document.getElementById('btnRefresh'),
+    btnToggleTable: document.getElementById('btnToggleTable'),
+    rangePreset: document.getElementById('rangePreset'),
+    metricMode: document.getElementById('metricMode'),
+    groupFilters: document.getElementById('groupFilters'),
+    statusText: document.getElementById('statusText'),
+    chartWrap: document.getElementById('chartWrap'),
+    chartEmpty: document.getElementById('chartEmpty'),
+    tableWrap: document.getElementById('tableWrap'),
+    tableBody: document.getElementById('tableBody'),
+    kpiPeriodNet: document.getElementById('kpiPeriodNet'),
+    kpiPeriodVar: document.getElementById('kpiPeriodVar'),
+    kpiPeriodQty: document.getElementById('kpiPeriodQty'),
+    kpiPeriodQtyVar: document.getElementById('kpiPeriodQtyVar'),
+    kpiBestDay: document.getElementById('kpiBestDay'),
+    kpiBestDayVal: document.getElementById('kpiBestDayVal'),
+    kpiDayCount: document.getElementById('kpiDayCount'),
+  };
+
+  const money  = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(v||0));
+  const moneyW = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(v||0));
+  const numFmt = v => Number(v||0).toLocaleString();
+  const isoDateOnly = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const addDays = (s,n) => { const d=new Date(`${s}T00:00:00`); d.setDate(d.getDate()+n); return isoDateOnly(d); };
+  const addYears = (s,n) => {
+    const d=new Date(`${s}T00:00:00`);
+    const wasFeb29 = d.getMonth()===1 && d.getDate()===29;
+    d.setFullYear(d.getFullYear()+n);
+    // setFullYear overflows Feb 29 into Mar 1 when the target year isn't a leap
+    // year — clamp back to Feb 28 so the PY offset never drifts by a day.
+    if (wasFeb29 && d.getMonth()===2) d.setDate(0);
+    return isoDateOnly(d);
+  };
+  function setStatus(t){ el.statusText.textContent=t; }
+
+  async function loadStoreGroups(){
+    let q = sb.from('locations').select('location_code,location_name,store_type');
+    q = scopeQ(q);
+    const { data,error } = await q;
+    if (error) throw error;
+    const map=new Map(); const groupSet=new Set();
+    for (const row of data||[]){
+      const tag=slugify(row.location_code||row.location_name);
+      const group=(row.store_type||'retail').toLowerCase();
+      map.set(tag,group); groupSet.add(group);
+    }
+    state.groupByTag=map; state.groups=[...groupSet].sort();
+  }
+
+  function renderGroupChips(){
+    const chips = ['<button class="dt-chip active" data-group="all">All Stores</button>']
+      .concat(state.groups.map(g=>`<button class="dt-chip" data-group="${g}">${g.charAt(0).toUpperCase()+g.slice(1)}</button>`));
+    el.groupFilters.innerHTML = chips.join('');
+  }
+
+  // Paged fetch — mirrors planning-scenarios.html's loadPaged pattern.
+  async function loadPagedRange(dateFrom,dateTo){
+    const PAGE_SIZE=10000; let from=0, out=[];
+    for(;;){
+      let q = sb.from('sales_by_day_verification_v')
+        .select('day_date,location_tag,total_net_sales,total_quantity_sold')
+        .gte('day_date',dateFrom).lte('day_date',dateTo)
+        .range(from,from+PAGE_SIZE-1);
+      q = scopeQ(q);
+      const { data,error } = await q;
+      if (error) throw error;
+      out = out.concat(data||[]);
+      if (!data || data.length<PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+    return out;
+  }
+
+  function aggregateByDay(rows,rangeStart,rangeEnd){
+    const byDay=new Map();
+    for (const r of rows){
+      const group = state.groupByTag.get(r.location_tag)||'retail';
+      if (state.activeGroup!=='all' && group!==state.activeGroup) continue;
+      const cur = byDay.get(r.day_date) || { net:0, qty:0 };
+      cur.net += Number(r.total_net_sales||0);
+      cur.qty += Number(r.total_quantity_sold||0);
+      byDay.set(r.day_date, cur);
+    }
+    // Fill every day in range so gaps render as zero, not a break in the line.
+    const out=[]; let d=rangeStart;
+    while (d<=rangeEnd){
+      const v = byDay.get(d) || { net:0, qty:0 };
+      out.push({ day:d, net:v.net, qty:v.qty });
+      d = addDays(d,1);
+    }
+    return out;
+  }
+
+  // Recompute from already-fetched raw rows — used when only the store-group
+  // filter changes, so switching groups never re-hits the network.
+  function recompute(){
+    const { curRowsRaw, pyRowsRaw, curFrom, curTo, pyFrom, pyTo } = state;
+    if (!curRowsRaw) return;
+    const curDays = aggregateByDay(curRowsRaw,curFrom,curTo);
+    const pyDays  = aggregateByDay(pyRowsRaw,pyFrom,pyTo);
+    state.days = curDays.map((c,i)=>({ day:c.day, net:c.net, qty:c.qty, pyNet:pyDays[i]?.net??0, pyQty:pyDays[i]?.qty??0 }));
+    renderAll();
+    setStatus(`Loaded ${state.days.length} days (${curFrom} → ${curTo}), ${curRowsRaw.length} rows scanned.`);
+  }
+
+  async function runLoad(){
+    setStatus('Loading…');
+    try {
+      await loadStoreGroups();
+      renderGroupChips();
+
+      const days = Number(el.rangePreset.value);
+      const today = isoDateOnly(new Date());
+      const curFrom = addDays(today, -(days-1)), curTo = today;
+      const pyFrom = addYears(curFrom,-1), pyTo = addYears(curTo,-1);
+
+      const [curRowsRaw, pyRowsRaw] = await Promise.all([
+        loadPagedRange(curFrom,curTo),
+        loadPagedRange(pyFrom,pyTo),
+      ]);
+      Object.assign(state, { curRowsRaw, pyRowsRaw, curFrom, curTo, pyFrom, pyTo });
+      recompute();
+    } catch(e){
+      console.error(e);
+      setStatus(`Load failed: ${e.message}`);
+    }
+  }
+
+  function metricKey(){ return el.metricMode.value==='units' ? {cur:'qty',py:'pyQty'} : {cur:'net',py:'pyNet'}; }
+  const fmtVal = v => el.metricMode.value==='units' ? numFmt(v) : money(v);
+  const fmtValW = v => el.metricMode.value==='units' ? numFmt(v) : moneyW(v);
+
+  function renderKpis(){
+    const k=metricKey(), days=state.days;
+    if (!days.length){
+      [el.kpiPeriodNet,el.kpiPeriodQty,el.kpiBestDay,el.kpiBestDayVal,el.kpiDayCount].forEach(e=>e.textContent='—');
+      return;
+    }
+    const sumCur=days.reduce((a,d)=>a+d[k.cur],0), sumPy=days.reduce((a,d)=>a+d[k.py],0);
+    const varPct = sumPy ? ((sumCur-sumPy)/Math.abs(sumPy))*100 : null;
+    el.kpiPeriodNet.textContent = fmtVal(days.reduce((a,d)=>a+d.net,0));
+    el.kpiPeriodQty.textContent = numFmt(days.reduce((a,d)=>a+d.qty,0));
+    const varStr = varPct==null?'—':`${varPct>0?'+':''}${varPct.toFixed(1)}%`;
+    el.kpiPeriodVar.textContent = `vs LY ${varStr}`;
+    el.kpiPeriodVar.className = `bcn-kpi-delta ${varPct>=0?'bcn-kpi-delta--pos':'bcn-kpi-delta--neg'}`;
+    el.kpiPeriodQtyVar.textContent = el.kpiPeriodVar.textContent;
+    el.kpiPeriodQtyVar.className = el.kpiPeriodVar.className;
+    const best = days.reduce((a,d)=>d[k.cur]>a[k.cur]?d:a, days[0]);
+    el.kpiBestDay.textContent = best.day;
+    el.kpiBestDayVal.textContent = fmtVal(best[k.cur]);
+    el.kpiDayCount.textContent = numFmt(days.length);
+  }
+
+  function renderTable(){
+    const k=metricKey(), days=state.days;
+    if (!days.length){ el.tableBody.innerHTML=`<tr><td colspan="4" class="dt-empty">No data.</td></tr>`; return; }
+    el.tableBody.innerHTML = days.map(d=>{
+      const cur=d[k.cur], py=d[k.py];
+      const v = py ? ((cur-py)/Math.abs(py))*100 : null;
+      return `<tr><td>${d.day}</td><td>${fmtVal(cur)}</td><td>${fmtVal(py)}</td><td>${v==null?'—':`${v>0?'+':''}${v.toFixed(1)}%`}</td></tr>`;
+    }).join('');
+  }
+
+  function renderChart(){
+    const k=metricKey(), days=state.days;
+    el.chartWrap.querySelectorAll('svg,.dt-tooltip').forEach(n=>n.remove());
+    if (!days.length){
+      el.chartEmpty.style.display='block'; el.chartEmpty.textContent='No data in range.';
+      return;
+    }
+    el.chartEmpty.style.display='none';
+
+    const W=1000, H=340, padL=64, padR=20, padT=16, padB=32;
+    const plotW=W-padL-padR, plotH=H-padT-padB;
+    const n=days.length;
+    const maxVal = Math.max(1, ...days.map(d=>Math.max(d[k.cur],d[k.py])));
+    const niceMax = (() => {
+      const mag = Math.pow(10, Math.floor(Math.log10(maxVal)));
+      const step = Math.ceil(maxVal/mag/0.5)*0.5*mag;
+      return step;
+    })();
+    const x = i => padL + (n<=1?0:(i/(n-1))*plotW);
+    const y = v => padT + plotH - (v/niceMax)*plotH;
+
+    const curPts = days.map((d,i)=>[x(i),y(d[k.cur])]);
+    const pyPts  = days.map((d,i)=>[x(i),y(d[k.py])]);
+    const pathOf = pts => pts.map((p,i)=>`${i===0?'M':'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+    const areaOf = pts => `${pathOf(pts)} L${pts[pts.length-1][0].toFixed(1)},${(padT+plotH).toFixed(1)} L${pts[0][0].toFixed(1)},${(padT+plotH).toFixed(1)} Z`;
+
+    const gridSteps=4;
+    let gridSvg='', axisSvg='';
+    for (let s=0;s<=gridSteps;s++){
+      const v = niceMax*(s/gridSteps);
+      const gy = y(v);
+      gridSvg += `<line class="dt-gridline" x1="${padL}" y1="${gy.toFixed(1)}" x2="${W-padR}" y2="${gy.toFixed(1)}" />`;
+      axisSvg += `<text class="dt-axis-label" x="${padL-8}" y="${(gy+3).toFixed(1)}" text-anchor="end">${fmtValW(v)}</text>`;
+    }
+    const xTickIdx = [0, Math.floor((n-1)/2), n-1].filter((v,i,a)=>a.indexOf(v)===v);
+    for (const i of xTickIdx){
+      axisSvg += `<text class="dt-axis-label" x="${x(i).toFixed(1)}" y="${H-8}" text-anchor="middle">${days[i].day.slice(5)}</text>`;
+    }
+
+    const lastCur = curPts[curPts.length-1], lastPy = pyPts[pyPts.length-1];
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+    svg.setAttribute('preserveAspectRatio','none');
+    svg.innerHTML = `
+      ${gridSvg}
+      <path class="dt-area-cur" d="${areaOf(curPts)}" />
+      <path class="dt-line-py" d="${pathOf(pyPts)}" />
+      <path class="dt-line-cur" d="${pathOf(curPts)}" />
+      <circle class="dt-dot-py" cx="${lastPy[0].toFixed(1)}" cy="${lastPy[1].toFixed(1)}" r="4.5" />
+      <circle class="dt-dot-cur" cx="${lastCur[0].toFixed(1)}" cy="${lastCur[1].toFixed(1)}" r="4.5" />
+      <text class="dt-endlabel" x="${(lastCur[0]-4).toFixed(1)}" y="${(lastCur[1]-10).toFixed(1)}" text-anchor="end" fill="var(--bcn-accent)">${fmtValW(days[n-1][k.cur])}</text>
+      ${axisSvg}
+      <line class="dt-crosshair" id="dtCrosshair" x1="0" y1="${padT}" x2="0" y2="${padT+plotH}" style="display:none" />
+      <rect class="dt-hit" x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" id="dtHit" />
+    `;
+    el.chartWrap.appendChild(svg);
+
+    const tooltip = document.createElement('div');
+    tooltip.className='dt-tooltip';
+    el.chartWrap.appendChild(tooltip);
+
+    const hit = svg.querySelector('#dtHit');
+    const crosshair = svg.querySelector('#dtCrosshair');
+
+    function pointerToIndex(evt){
+      const rect = svg.getBoundingClientRect();
+      const svgX = ((evt.clientX-rect.left)/rect.width)*W;
+      const t = (svgX-padL)/plotW;
+      return Math.max(0, Math.min(n-1, Math.round(t*(n-1))));
+    }
+    function showTooltip(i,evt){
+      const d=days[i];
+      crosshair.style.display='block';
+      crosshair.setAttribute('x1',x(i).toFixed(1)); crosshair.setAttribute('x2',x(i).toFixed(1));
+      tooltip.innerHTML = `<div class="tt-date">${d.day}</div>
+        <div class="tt-row"><span class="tt-key cur"></span>Current<span class="tt-val">${fmtVal(d[k.cur])}</span></div>
+        <div class="tt-row"><span class="tt-key py"></span>Prior year<span class="tt-val">${fmtVal(d[k.py])}</span></div>`;
+      const rect = el.chartWrap.getBoundingClientRect();
+      const svgRect = svg.getBoundingClientRect();
+      const px = svgRect.left - rect.left + (x(i)/W)*svgRect.width;
+      tooltip.style.left = `${Math.min(px+12, rect.width-180)}px`;
+      tooltip.style.top = `12px`;
+      tooltip.classList.add('show');
+    }
+    hit.addEventListener('pointermove', evt => showTooltip(pointerToIndex(evt), evt));
+    hit.addEventListener('pointerleave', () => { tooltip.classList.remove('show'); crosshair.style.display='none'; });
+  }
+
+  function renderAll(){ renderKpis(); renderChart(); renderTable(); }
+
+  el.btnRefresh.addEventListener('click', runLoad);
+  el.rangePreset.addEventListener('change', runLoad);
+  el.metricMode.addEventListener('change', renderAll);
+  el.btnToggleTable.addEventListener('click', () => {
+    state.showTable = !state.showTable;
+    el.tableWrap.classList.toggle('show', state.showTable);
+    el.btnToggleTable.textContent = state.showTable ? 'View as chart' : 'View as table';
+  });
+  el.groupFilters.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-group]'); if (!btn) return;
+    state.activeGroup = btn.dataset.group;
+    [...el.groupFilters.querySelectorAll('[data-group]')].forEach(b=>b.classList.toggle('active', b===btn));
+    recompute();
+  });
+
+  async function boot(){
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session){ window.location.href='/pages/login.html'; return; }
+    const user = sess.data.session.user;
+
+    if (window.SiloChrome){
+      window.SiloChrome.mount({
+        appEl:'#silo-app', active:'reports/daily-trend',
+        user:{ email:user?.email||'', role:'admin' },
+        crumbs:['Reports','Daily Sales Trend'],
+        supabaseClient:sb,
+      });
+    }
+    await runLoad();
+  }
+
+  boot();
+</script>
+</body>
+</html>
