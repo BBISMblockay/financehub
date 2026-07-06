@@ -284,7 +284,7 @@
 
     const rowHtml = (r) => {
       const group = state.groupByTag.get(r.location_tag)||'retail';
-      let h=`<td class="m-store"><strong>${esc(r.location_tag)}</strong><span class="ov-tbl m-group bcn-pill bcn-pill--accent" style="font-size:9px;padding:0 6px">${esc(group)}</span></td>`;
+      let h=`<td class="m-store"><strong>${esc(r.location_tag)}</strong><span class="m-group bcn-pill bcn-pill--accent" style="font-size:9px;padding:0 6px">${esc(group)}</span></td>`;
       if (mode==='sales'||mode==='both'){
         const dv=r.day_net_var_pct, mv=r.mtd_net_var_pct, yv=r.ytd_net_var_pct;
         h+=`<td class="g-day">${moneyW(r.cur_day_net)}</td><td class="g-day">${moneyW(r.py_day_net)}</td><td class="g-day ${pctClass(dv)}">${pctStr(dv==null?null:dv*100)}</td>`
