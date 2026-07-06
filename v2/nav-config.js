@@ -56,7 +56,9 @@
     { id: 'inventory/workboard', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Inventory Manager', href: '/v2/inventory.html', profiles: ['grandfathered', 'standard'] },
     { id: 'inventory/products', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Product Hub', href: '/v2/product-manager.html', profiles: ['grandfathered', 'standard'] },
 
-    { id: 'finance/sales-bi', section: 'Reports', label: 'BI Sales Dashboard', href: 'https://app.powerbi.com/view?r=eyJrIjoiY2U0MWI2ZmMtMTY3MS00MDY3LTg5NjctN2VlYjk0NGMxNzUzIiwidCI6IjIzYTkzNDJkLTFjODEtNGJkNS1hY2U0LThmYWY4ZWVlNTZiZCJ9', external: true, profiles: ['grandfathered'] },
+    { id: 'reports/sales-overview', section: 'Reports', label: 'Sales Performance Overview', href: '/v2/bi-sales-overview.html', profiles: ['grandfathered'] },
+    { id: 'reports/daily-trend', section: 'Reports', label: 'Daily Sales Trend', href: '/v2/bi-daily-trend.html', profiles: ['grandfathered'] },
+    { id: 'finance/sales-bi', section: 'Reports', label: 'BI Sales Dashboard (legacy)', href: 'https://app.powerbi.com/view?r=eyJrIjoiY2U0MWI2ZmMtMTY3MS00MDY3LTg5NjctN2VlYjk0NGMxNzUzIiwidCI6IjIzYTkzNDJkLTFjODEtNGJkNS1hY2U0LThmYWY4ZWVlNTZiZCJ9', external: true, profiles: ['grandfathered'] },
     { id: 'people/payroll', section: 'Reports', label: 'Payroll BI', href: '/v2/payroll.html', profiles: ['grandfathered'] },
 
     { id: 'settings/integrations', section: 'Settings', label: 'Integrations', href: '/v2/integrations.html', profiles: ['grandfathered', 'standard'] },
