@@ -59,6 +59,23 @@
     .rt-bucket-tag.product   { background:var(--bcn-neg-soft,#fef2f2); color:var(--bcn-neg,#dc2626); }
     .rt-bucket-tag.shipping  { background:var(--bcn-accent-soft); color:var(--bcn-accent); }
     .rt-bucket-tag.discrepancy { background:oklch(0.98 0.06 75 / .4); color:var(--bcn-warn,#d97706); }
+
+    /* ---- By-reason bar chart (single measure, category color reused from
+       the bucket tags above so a reason means the same color everywhere) ---- */
+    .rt-bar-chart { padding:14px 16px 4px; display:flex; flex-direction:column; gap:9px; }
+    .rt-bar-row { display:flex; align-items:center; gap:10px; }
+    .rt-bar-label { width:132px; flex-shrink:0; font-size:11.5px; color:var(--bcn-ink-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .rt-bar-track { flex:1; height:16px; background:var(--bcn-sunken); border-radius:4px; }
+    .rt-bar-fill { height:100%; border-radius:4px; min-width:3px; }
+    .rt-bar-fill.product { background:var(--bcn-neg,#dc2626); }
+    .rt-bar-fill.shipping { background:var(--bcn-accent); }
+    .rt-bar-fill.discrepancy { background:var(--bcn-warn,#d97706); }
+    .rt-bar-value { width:76px; flex-shrink:0; text-align:right; font-family:var(--bcn-mono); font-size:11px; font-weight:700; color:var(--bcn-ink); }
+
+    /* ---- Custom date range ---- */
+    .rt-daterange { display:flex; align-items:center; gap:6px; }
+    .rt-daterange input[type="date"] { width:132px; }
+    .rt-date-sep { color:var(--bcn-ink-3); font-size:11px; }
   </style>
 </head>
 <body class="silo-brand">
@@ -89,11 +106,16 @@
       <div class="rt-filter-group">
         <div>
           <label class="bcn-label">Range</label>
-          <select id="rangePreset" class="bcn-field">
-            <option value="30">Last 30 days</option>
-            <option value="90" selected>Last 90 days</option>
-            <option value="180">Last 180 days</option>
-          </select>
+          <div class="rt-daterange">
+            <input type="date" id="dateFrom" class="bcn-field" />
+            <span class="rt-date-sep">–</span>
+            <input type="date" id="dateTo" class="bcn-field" />
+          </div>
+          <div class="rt-chips" id="rangePresets" style="margin-top:6px">
+            <button class="rt-chip" data-days="30">30d</button>
+            <button class="rt-chip active" data-days="90">90d</button>
+            <button class="rt-chip" data-days="180">180d</button>
+          </div>
         </div>
         <div>
           <label class="bcn-label">Store group</label>
@@ -111,6 +133,7 @@
           <h2>By reason</h2>
           <span id="reasonCount" class="bcn-card-meta" style="margin-left:auto">0 rows</span>
         </div>
+        <div class="rt-bar-chart" id="reasonChart"></div>
         <div class="bcn-card-body" style="padding:0;overflow:visible">
           <table class="rt-tbl">
             <thead><tr><th>Reason</th><th class="r">Count</th><th class="r">Refund $</th><th class="r">% of total</th></tr></thead>
@@ -189,13 +212,29 @@
     return 'product';
   }
 
-  const state = { groupByTag:new Map(), groups:[], activeGroup:'all', saleRows:[], refundRows:[], pySaleRows:[], pyRefundRows:[] };
+  // Shared across bi-returns.html / bi-top-sellers.html / bi-daily-trend.html
+  // (not bi-sales-overview.html or bi-dashboard.html) so switching between
+  // these reports keeps the store-group / date-range filter in sync instead
+  // of resetting every time.
+  const SHARED_FILTER_KEY = 'silo:bi:filters';
+  function loadSharedFilters(){
+    try { return JSON.parse(sessionStorage.getItem(SHARED_FILTER_KEY)) || {}; } catch { return {}; }
+  }
+  function saveSharedFilters(patch){
+    try { sessionStorage.setItem(SHARED_FILTER_KEY, JSON.stringify({ ...loadSharedFilters(), ...patch })); } catch {}
+  }
+
+  const shared = loadSharedFilters();
+  const state = { groupByTag:new Map(), groups:[], activeGroup:shared.storeGroup||'all', saleRows:[], refundRows:[], pySaleRows:[], pyRefundRows:[] };
 
   const el = {
     btnRefresh: document.getElementById('btnRefresh'),
-    rangePreset: document.getElementById('rangePreset'),
+    dateFrom: document.getElementById('dateFrom'),
+    dateTo: document.getElementById('dateTo'),
+    rangePresets: document.getElementById('rangePresets'),
     groupFilters: document.getElementById('groupFilters'),
     statusText: document.getElementById('statusText'),
+    reasonChart: document.getElementById('reasonChart'),
     reasonBody: document.getElementById('reasonBody'),
     reasonCount: document.getElementById('reasonCount'),
     locationBody: document.getElementById('locationBody'),
@@ -291,10 +330,13 @@
     try {
       await loadStoreGroups();
       renderGroupChips();
+      // Restore the persisted store-group filter (fall back to "all" if this
+      // page's location set doesn't have that group, e.g. a company with no
+      // wholesale locations).
+      if (state.activeGroup!=='all' && !state.groups.includes(state.activeGroup)) state.activeGroup='all';
+      [...el.groupFilters.querySelectorAll('[data-group]')].forEach(b=>b.classList.toggle('active', b.dataset.group===state.activeGroup));
 
-      const days = Number(el.rangePreset.value);
-      const today = isoDateOnly(new Date());
-      const curFrom = addDays(today, -(days-1)), curTo = today;
+      const curFrom = el.dateFrom.value, curTo = el.dateTo.value;
       const pyFrom = addYears(curFrom,-1), pyTo = addYears(curTo,-1);
 
       const [curRowsRaw, pyRowsRaw] = await Promise.all([
@@ -307,6 +349,17 @@
       console.error(e);
       setStatus(`Load failed: ${e.message}`);
     }
+  }
+
+  function setRange(dateFrom,dateTo,{persist=true}={}){
+    el.dateFrom.value = dateFrom;
+    el.dateTo.value = dateTo;
+    if (persist) saveSharedFilters({ dateFrom, dateTo });
+  }
+  function applyPreset(days){
+    const today = isoDateOnly(new Date());
+    setRange(addDays(today,-(days-1)), today);
+    [...el.rangePresets.querySelectorAll('[data-days]')].forEach(b=>b.classList.toggle('active', Number(b.dataset.days)===days));
   }
 
   function renderKpis(){
@@ -332,7 +385,7 @@
     el.kpiRefundRateVar.className = `bcn-kpi-delta ${rateVarPts<=0?'bcn-kpi-delta--pos':'bcn-kpi-delta--neg'}`;
   }
 
-  function renderReasonTable(){
+  function computeReasonBuckets(){
     const byBucket = new Map();
     for (const r of state.refundRows){
       const b = reasonBucket(r);
@@ -341,7 +394,23 @@
       cur.amount += -Number(r.total_sales||0);
       byBucket.set(b, cur);
     }
-    const rows = [...byBucket.entries()].sort((a,b)=>b[1].amount-a[1].amount);
+    return [...byBucket.entries()].sort((a,b)=>b[1].amount-a[1].amount);
+  }
+
+  function renderReasonChart(rows){
+    if (!rows.length){ el.reasonChart.innerHTML=''; return; }
+    const max = Math.max(1, ...rows.map(([,v])=>v.amount));
+    el.reasonChart.innerHTML = rows.map(([bucket,v])=>{
+      const pct = Math.max(2,(v.amount/max)*100);
+      return `<div class="rt-bar-row">
+        <div class="rt-bar-label">${esc(bucket)}</div>
+        <div class="rt-bar-track"><div class="rt-bar-fill ${bucketClass(bucket)}" style="width:${pct.toFixed(1)}%"></div></div>
+        <div class="rt-bar-value">${money(v.amount)}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderReasonTable(rows){
     const total = rows.reduce((a,[,v])=>a+v.amount,0);
     el.reasonCount.textContent = `${state.refundRows.length} rows`;
     if (!rows.length){
@@ -377,12 +446,19 @@
       el.locationBody.innerHTML = `<tr><td colspan="4" class="rt-empty">No data in this range.</td></tr>`;
       return;
     }
-    el.locationBody.innerHTML = rows.map(r=>`<tr>
+    // Heat-scale the Refund $ column only — one loud signal per table, not a
+    // wall of color; wash uses the existing --bcn-neg token via color-mix so
+    // it tracks the theme (light/dark) automatically.
+    const maxRefund = Math.max(1, ...rows.map(r=>r.refund));
+    el.locationBody.innerHTML = rows.map(r=>{
+      const heat = `color-mix(in oklab, var(--bcn-neg) ${Math.round(8+52*(r.refund/maxRefund))}%, transparent)`;
+      return `<tr>
       <td><strong>${esc(r.loc)}</strong></td>
-      <td class="r">${money(r.refund)}</td>
+      <td class="r" style="background:${heat}">${money(r.refund)}</td>
       <td class="r">${money(r.gross)}</td>
       <td class="r">${r.gross?((r.refund/r.gross)*100).toFixed(2):'0.00'}%</td>
-    </tr>`).join('');
+    </tr>`;
+    }).join('');
   }
 
   function renderSkuTable(){
@@ -409,14 +485,36 @@
     </tr>`).join('');
   }
 
-  function renderAll(){ renderKpis(); renderReasonTable(); renderLocationTable(); renderSkuTable(); }
+  function renderAll(){
+    renderKpis();
+    const reasonRows = computeReasonBuckets();
+    renderReasonChart(reasonRows);
+    renderReasonTable(reasonRows);
+    renderLocationTable();
+    renderSkuTable();
+  }
 
   el.btnRefresh.addEventListener('click', runLoad);
-  el.rangePreset.addEventListener('change', runLoad);
+  el.rangePresets.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-days]'); if (!btn) return;
+    applyPreset(Number(btn.dataset.days));
+    runLoad();
+  });
+  el.dateFrom.addEventListener('change', () => {
+    [...el.rangePresets.querySelectorAll('[data-days]')].forEach(b=>b.classList.remove('active'));
+    saveSharedFilters({ dateFrom: el.dateFrom.value, dateTo: el.dateTo.value });
+    runLoad();
+  });
+  el.dateTo.addEventListener('change', () => {
+    [...el.rangePresets.querySelectorAll('[data-days]')].forEach(b=>b.classList.remove('active'));
+    saveSharedFilters({ dateFrom: el.dateFrom.value, dateTo: el.dateTo.value });
+    runLoad();
+  });
   el.groupFilters.addEventListener('click', (ev) => {
     const btn = ev.target.closest('[data-group]'); if (!btn) return;
     state.activeGroup = btn.dataset.group;
     [...el.groupFilters.querySelectorAll('[data-group]')].forEach(b=>b.classList.toggle('active', b===btn));
+    saveSharedFilters({ storeGroup: state.activeGroup });
     recompute();
   });
 
@@ -433,6 +531,16 @@
         supabaseClient:sb,
       });
     }
+
+    // Restore a persisted custom range if one exists; otherwise default to
+    // the 90-day preset (this page's original default).
+    if (shared.dateFrom && shared.dateTo){
+      setRange(shared.dateFrom, shared.dateTo, { persist:false });
+      [...el.rangePresets.querySelectorAll('[data-days]')].forEach(b=>b.classList.remove('active'));
+    } else {
+      applyPreset(90);
+    }
+
     await runLoad();
   }
 

@@ -30,6 +30,10 @@
     .dt-chip.active { background:var(--bcn-band); color:var(--bcn-band-ink); border-color:var(--bcn-band); }
     .dt-status { font-size:11.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); }
 
+    .dt-daterange { display:flex; align-items:center; gap:6px; }
+    .dt-daterange input[type="date"] { width:132px; }
+    .dt-date-sep { color:var(--bcn-ink-3); font-size:11px; }
+
     .dt-content { flex:1; padding:12px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:12px; }
 
     /* ---- Chart ---- */
@@ -105,11 +109,16 @@
       <div class="dt-filter-group">
         <div>
           <label class="bcn-label">Range</label>
-          <select id="rangePreset" class="bcn-field">
-            <option value="30">Last 30 days</option>
-            <option value="90" selected>Last 90 days</option>
-            <option value="180">Last 180 days</option>
-          </select>
+          <div class="dt-daterange">
+            <input type="date" id="dateFrom" class="bcn-field" />
+            <span class="dt-date-sep">–</span>
+            <input type="date" id="dateTo" class="bcn-field" />
+          </div>
+          <div class="dt-chips" id="rangePresets" style="margin-top:6px">
+            <button class="dt-chip" data-days="30">30d</button>
+            <button class="dt-chip active" data-days="90">90d</button>
+            <button class="dt-chip" data-days="180">180d</button>
+          </div>
         </div>
         <div>
           <label class="bcn-label">Metric</label>
@@ -180,15 +189,28 @@
     return String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'unknown';
   }
 
+  // Shared with bi-returns.html / bi-top-sellers.html (not bi-sales-overview.html
+  // or bi-dashboard.html) so store-group / date-range stay in sync across reports.
+  const SHARED_FILTER_KEY = 'silo:bi:filters';
+  function loadSharedFilters(){
+    try { return JSON.parse(sessionStorage.getItem(SHARED_FILTER_KEY)) || {}; } catch { return {}; }
+  }
+  function saveSharedFilters(patch){
+    try { sessionStorage.setItem(SHARED_FILTER_KEY, JSON.stringify({ ...loadSharedFilters(), ...patch })); } catch {}
+  }
+  const shared = loadSharedFilters();
+
   const state = {
-    groupByTag:new Map(), groups:[], activeGroup:'all',
+    groupByTag:new Map(), groups:[], activeGroup:shared.storeGroup||'all',
     days:[], showTable:false,
   };
 
   const el = {
     btnRefresh: document.getElementById('btnRefresh'),
     btnToggleTable: document.getElementById('btnToggleTable'),
-    rangePreset: document.getElementById('rangePreset'),
+    dateFrom: document.getElementById('dateFrom'),
+    dateTo: document.getElementById('dateTo'),
+    rangePresets: document.getElementById('rangePresets'),
     metricMode: document.getElementById('metricMode'),
     groupFilters: document.getElementById('groupFilters'),
     statusText: document.getElementById('statusText'),
@@ -296,10 +318,12 @@
     try {
       await loadStoreGroups();
       renderGroupChips();
+      // Restore the persisted store-group filter (fall back to "all" if this
+      // page's location set doesn't have that group).
+      if (state.activeGroup!=='all' && !state.groups.includes(state.activeGroup)) state.activeGroup='all';
+      [...el.groupFilters.querySelectorAll('[data-group]')].forEach(b=>b.classList.toggle('active', b.dataset.group===state.activeGroup));
 
-      const days = Number(el.rangePreset.value);
-      const today = isoDateOnly(new Date());
-      const curFrom = addDays(today, -(days-1)), curTo = today;
+      const curFrom = el.dateFrom.value, curTo = el.dateTo.value;
       const pyFrom = addYears(curFrom,-1), pyTo = addYears(curTo,-1);
 
       const [curRowsRaw, pyRowsRaw] = await Promise.all([
@@ -312,6 +336,17 @@
       console.error(e);
       setStatus(`Load failed: ${e.message}`);
     }
+  }
+
+  function setRange(dateFrom,dateTo,{persist=true}={}){
+    el.dateFrom.value = dateFrom;
+    el.dateTo.value = dateTo;
+    if (persist) saveSharedFilters({ dateFrom, dateTo });
+  }
+  function applyPreset(days){
+    const today = isoDateOnly(new Date());
+    setRange(addDays(today,-(days-1)), today);
+    [...el.rangePresets.querySelectorAll('[data-days]')].forEach(b=>b.classList.toggle('active', Number(b.dataset.days)===days));
   }
 
   function metricKey(){ return el.metricMode.value==='units' ? {cur:'qty',py:'pyQty'} : {cur:'net',py:'pyNet'}; }
@@ -441,7 +476,21 @@
   function renderAll(){ renderKpis(); renderChart(); renderTable(); }
 
   el.btnRefresh.addEventListener('click', runLoad);
-  el.rangePreset.addEventListener('change', runLoad);
+  el.rangePresets.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-days]'); if (!btn) return;
+    applyPreset(Number(btn.dataset.days));
+    runLoad();
+  });
+  el.dateFrom.addEventListener('change', () => {
+    [...el.rangePresets.querySelectorAll('[data-days]')].forEach(b=>b.classList.remove('active'));
+    saveSharedFilters({ dateFrom: el.dateFrom.value, dateTo: el.dateTo.value });
+    runLoad();
+  });
+  el.dateTo.addEventListener('change', () => {
+    [...el.rangePresets.querySelectorAll('[data-days]')].forEach(b=>b.classList.remove('active'));
+    saveSharedFilters({ dateFrom: el.dateFrom.value, dateTo: el.dateTo.value });
+    runLoad();
+  });
   el.metricMode.addEventListener('change', renderAll);
   el.btnToggleTable.addEventListener('click', () => {
     state.showTable = !state.showTable;
@@ -452,6 +501,7 @@
     const btn = ev.target.closest('[data-group]'); if (!btn) return;
     state.activeGroup = btn.dataset.group;
     [...el.groupFilters.querySelectorAll('[data-group]')].forEach(b=>b.classList.toggle('active', b===btn));
+    saveSharedFilters({ storeGroup: state.activeGroup });
     recompute();
   });
 
@@ -468,6 +518,14 @@
         supabaseClient:sb,
       });
     }
+
+    if (shared.dateFrom && shared.dateTo){
+      setRange(shared.dateFrom, shared.dateTo, { persist:false });
+      [...el.rangePresets.querySelectorAll('[data-days]')].forEach(b=>b.classList.remove('active'));
+    } else {
+      applyPreset(90);
+    }
+
     await runLoad();
   }
 
