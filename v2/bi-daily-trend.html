@@ -147,6 +147,7 @@
             <div class="dt-legend-item"><span class="dt-legend-key py"></span>Prior year (same day offset)</div>
           </div>
           <button id="btnToggleTable" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">View as table</button>
+          <button id="btnExport" class="bcn-btn bcn-btn--ghost" style="margin-left:6px">Export CSV</button>
         </div>
         <div class="bcn-card-body">
           <div class="dt-chart-wrap" id="chartWrap">
@@ -209,6 +210,7 @@
   const el = {
     btnRefresh: document.getElementById('btnRefresh'),
     btnToggleTable: document.getElementById('btnToggleTable'),
+    btnExport: document.getElementById('btnExport'),
     dateFrom: document.getElementById('dateFrom'),
     dateTo: document.getElementById('dateTo'),
     rangePresets: document.getElementById('rangePresets'),
@@ -243,6 +245,22 @@
     return isoDateOnly(d);
   };
   function setStatus(t){ el.statusText.textContent=t; }
+
+  // Exports whatever is currently on screen — same date range, store-group,
+  // and metric mode already applied, not a fresh unfiltered fetch.
+  function downloadCsv(filename, headers, rows){
+    const cell = v => {
+      const s = String(v??'');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+    };
+    const lines = [headers.map(cell).join(',')].concat(rows.map(r=>r.map(cell).join(',')));
+    const blob = new Blob([lines.join('\r\n')], { type:'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
 
   async function loadStoreGroups(){
     let q = sb.from('locations').select('location_code,location_name,store_type');
@@ -479,9 +497,21 @@
     hit.addEventListener('pointerleave', () => { tooltip.classList.remove('show'); crosshair.style.display='none'; });
   }
 
+  function exportTrendCsv(){
+    const k=metricKey(), days=state.days;
+    const headers = ['Day','Current','Prior year','Var %'];
+    const rows = days.map(d=>{
+      const cur=d[k.cur], py=d[k.py];
+      const v = py ? ((cur-py)/Math.abs(py))*100 : null;
+      return [d.day, cur, py, v==null?'':v.toFixed(2)];
+    });
+    downloadCsv(`daily-trend-${el.metricMode.value}.csv`, headers, rows);
+  }
+
   function renderAll(){ renderKpis(); renderChart(); renderTable(); }
 
   el.btnRefresh.addEventListener('click', runLoad);
+  el.btnExport.addEventListener('click', exportTrendCsv);
   el.rangePresets.addEventListener('click', (ev) => {
     const btn = ev.target.closest('[data-days]'); if (!btn) return;
     applyPreset(Number(btn.dataset.days));

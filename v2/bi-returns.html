@@ -135,6 +135,7 @@
         <div class="bcn-card-header">
           <h2>By reason</h2>
           <span id="reasonCount" class="bcn-card-meta" style="margin-left:auto">0 rows</span>
+          <button id="btnExportReason" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">Export CSV</button>
         </div>
         <div class="rt-bar-chart" id="reasonChart"></div>
         <div class="bcn-card-body" style="padding:0;overflow:visible">
@@ -149,6 +150,7 @@
         <div class="bcn-card-header">
           <h2>By location</h2>
           <span id="locationCount" class="bcn-card-meta" style="margin-left:auto">0 locations</span>
+          <button id="btnExportLocation" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">Export CSV</button>
         </div>
         <div class="bcn-card-body" style="padding:0;overflow:visible">
           <table class="rt-tbl">
@@ -162,6 +164,7 @@
         <div class="bcn-card-header">
           <h2>Top returned SKUs</h2>
           <span id="skuCount" class="bcn-card-meta" style="margin-left:auto">0 SKUs</span>
+          <button id="btnExportSku" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">Export CSV</button>
         </div>
         <div class="bcn-card-body" style="padding:0;overflow:visible">
           <table class="rt-tbl">
@@ -230,10 +233,13 @@
   }
 
   const shared = loadSharedFilters();
-  const state = { groupByTag:new Map(), groups:[], activeGroup:shared.storeGroup||'all', saleRows:[], refundRows:[], pySaleRows:[], pyRefundRows:[] };
+  const state = { groupByTag:new Map(), groups:[], activeGroup:shared.storeGroup||'all', saleRows:[], refundRows:[], pySaleRows:[], pyRefundRows:[], lastReasonRows:[], lastLocationRows:[], lastSkuRows:[] };
 
   const el = {
     btnRefresh: document.getElementById('btnRefresh'),
+    btnExportReason: document.getElementById('btnExportReason'),
+    btnExportLocation: document.getElementById('btnExportLocation'),
+    btnExportSku: document.getElementById('btnExportSku'),
     dateFrom: document.getElementById('dateFrom'),
     dateTo: document.getElementById('dateTo'),
     rangePresets: document.getElementById('rangePresets'),
@@ -275,6 +281,37 @@
   }
   function pctStr(v){ if (v==null||Number.isNaN(v)) return '—'; return `${v>0?'+':''}${v.toFixed(1)}%`; }
   function setStatus(t){ el.statusText.textContent=t; }
+
+  // Exports whatever is currently on screen — same date range and
+  // store-group filters already applied, and the full matching set (not
+  // capped to the top 25 SKUs shown in the table).
+  function downloadCsv(filename, headers, rows){
+    const cell = v => {
+      const s = String(v??'');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+    };
+    const lines = [headers.map(cell).join(',')].concat(rows.map(r=>r.map(cell).join(',')));
+    const blob = new Blob([lines.join('\r\n')], { type:'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+  function exportReasonCsv(){
+    downloadCsv('returns-by-reason.csv', ['Reason','Count','Refund $','% of total'], (()=>{
+      const total = state.lastReasonRows.reduce((a,[,v])=>a+v.amount,0);
+      return state.lastReasonRows.map(([bucket,v])=>[bucket, v.count, v.amount.toFixed(2), total?((v.amount/total)*100).toFixed(1):'0.0']);
+    })());
+  }
+  function exportLocationCsv(){
+    downloadCsv('returns-by-location.csv', ['Location','Refund $','Gross $','Refund rate %'],
+      state.lastLocationRows.map(r=>[r.loc, r.refund.toFixed(2), r.gross.toFixed(2), r.gross?((r.refund/r.gross)*100).toFixed(2):'0.00']));
+  }
+  function exportSkuCsv(){
+    downloadCsv('returns-top-skus.csv', ['SKU','Product','Qty returned','Refund $'],
+      state.lastSkuRows.map(([sku,v])=>[sku, v.product_name||'', v.qty, v.refund.toFixed(2)]));
+  }
 
   async function loadStoreGroups(){
     let q = sb.from('locations').select('location_code,location_name,store_type');
@@ -456,6 +493,7 @@
       .map(([loc,v])=>({ loc, refund:v.refund||0, gross:v.gross||0 }))
       .filter(r=>r.refund!==0 || r.gross!==0)
       .sort((a,b)=>b.refund-a.refund);
+    state.lastLocationRows = rows;
     el.locationCount.textContent = `${rows.length} location${rows.length===1?'':'s'}`;
     if (!rows.length){
       el.locationBody.innerHTML = `<tr><td colspan="4" class="rt-empty">No data in this range.</td></tr>`;
@@ -486,7 +524,9 @@
       cur.refund += -Number(r.total_sales||0);
       bySku.set(key, cur);
     }
-    const rows = [...bySku.entries()].sort((a,b)=>b[1].refund-a[1].refund).slice(0,25);
+    const allRows = [...bySku.entries()].sort((a,b)=>b[1].refund-a[1].refund);
+    state.lastSkuRows = allRows;
+    const rows = allRows.slice(0,25);
     el.skuCount.textContent = `${bySku.size} SKU${bySku.size===1?'':'s'}`;
     if (!rows.length){
       el.skuBody.innerHTML = `<tr><td colspan="4" class="rt-empty">No product returns in this range.</td></tr>`;
@@ -503,6 +543,7 @@
   function renderAll(){
     renderKpis();
     const reasonRows = computeReasonBuckets();
+    state.lastReasonRows = reasonRows;
     renderReasonChart(reasonRows);
     renderReasonTable(reasonRows);
     renderLocationTable();
@@ -510,6 +551,9 @@
   }
 
   el.btnRefresh.addEventListener('click', runLoad);
+  el.btnExportReason.addEventListener('click', exportReasonCsv);
+  el.btnExportLocation.addEventListener('click', exportLocationCsv);
+  el.btnExportSku.addEventListener('click', exportSkuCsv);
   el.rangePresets.addEventListener('click', (ev) => {
     const btn = ev.target.closest('[data-days]'); if (!btn) return;
     applyPreset(Number(btn.dataset.days));

@@ -124,6 +124,7 @@
         <div class="bcn-card-header">
           <h2>Top 50 sellers</h2>
           <span id="leaderCount" class="bcn-card-meta" style="margin-left:auto">0 rows</span>
+          <button id="btnExportLeader" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">Export CSV</button>
         </div>
         <div class="bcn-card-body" style="padding:0;overflow:visible">
           <table class="ts-tbl">
@@ -141,6 +142,7 @@
           <div class="bcn-card-header">
             <h2>By product type</h2>
             <span id="typeCount" class="bcn-card-meta" style="margin-left:auto">0 types</span>
+            <button id="btnExportType" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">Export CSV</button>
           </div>
           <div class="ts-bar-chart" id="typeChart"></div>
           <div class="bcn-card-body" style="padding:0;overflow:visible">
@@ -155,6 +157,7 @@
           <div class="bcn-card-header">
             <h2>By location</h2>
             <span id="locationCount" class="bcn-card-meta" style="margin-left:auto">0 locations</span>
+            <button id="btnExportLocation" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">Export CSV</button>
           </div>
           <div class="bcn-card-body" style="padding:0;overflow:visible">
             <table class="ts-tbl">
@@ -219,10 +222,13 @@
   }
   const shared = loadSharedFilters();
 
-  const state = { groupByTag:new Map(), groups:[], activeGroup:shared.storeGroup||'all', activeType:'', activeWindow:'30', rowsRaw:[], rows:[] };
+  const state = { groupByTag:new Map(), groups:[], activeGroup:shared.storeGroup||'all', activeType:'', activeWindow:'30', rowsRaw:[], rows:[], lastLeaderRows:[], lastTypeRows:[], lastLocationRows:[] };
 
   const el = {
     btnRefresh: document.getElementById('btnRefresh'),
+    btnExportLeader: document.getElementById('btnExportLeader'),
+    btnExportType: document.getElementById('btnExportType'),
+    btnExportLocation: document.getElementById('btnExportLocation'),
     windowSelect: document.getElementById('windowSelect'),
     typeSelect: document.getElementById('typeSelect'),
     groupFilters: document.getElementById('groupFilters'),
@@ -246,6 +252,42 @@
   const money  = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(v||0));
   const esc    = s => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
   function setStatus(t){ el.statusText.textContent=t; }
+
+  // Exports whatever is currently on screen — same window/type/store-group
+  // filters already applied, and the full matching set (not capped to the
+  // top 50/25 rows shown in each table).
+  function downloadCsv(filename, headers, rows){
+    const cell = v => {
+      const s = String(v??'');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+    };
+    const lines = [headers.map(cell).join(',')].concat(rows.map(r=>r.map(cell).join(',')));
+    const blob = new Blob([lines.join('\r\n')], { type:'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+  function exportLeaderCsv(){
+    const { qtyCol, avgCol } = WINDOWS[state.activeWindow];
+    downloadCsv(`top-sellers-${state.activeWindow}d.csv`,
+      ['Product','SKU','Location','Type','Qty','Avg/day','On hand','Days of cover'],
+      state.lastLeaderRows.map(r=>{
+        const avg = Number(r[avgCol]||0);
+        const days = avg>0 ? Number(r.total_available_quantity||0)/avg : '';
+        return [r.product_title||'', r.variant_sku||'', r.location_name||r.location_tag||'', r.product_type||'Uncategorized', r[qtyCol]||0, avg.toFixed(1), r.total_available_quantity||0, days===''?'':days.toFixed(1)];
+      }));
+  }
+  function exportTypeCsv(){
+    const total = state.lastTypeRows.reduce((a,r)=>a+r.qty,0);
+    downloadCsv(`top-sellers-by-type-${state.activeWindow}d.csv`, ['Type','Qty','SKUs','% of total'],
+      state.lastTypeRows.map(r=>[r.type, r.qty, r.skus, total?((r.qty/total)*100).toFixed(1):'0.0']));
+  }
+  function exportLocationCsv(){
+    downloadCsv(`top-sellers-by-location-${state.activeWindow}d.csv`, ['Location','Qty','SKUs'],
+      state.lastLocationRows.map(r=>[r.loc, r.qty, r.skus]));
+  }
 
   function coverTag(days){
     if (days==null) return `<span class="ts-cover-tag na">N/A</span>`;
@@ -359,7 +401,9 @@
 
   function renderLeaderboard(){
     const { qtyCol, avgCol } = WINDOWS[state.activeWindow];
-    const rows = [...state.rows].sort((a,b)=>Number(b[qtyCol]||0)-Number(a[qtyCol]||0)).slice(0,50);
+    const allRows = [...state.rows].sort((a,b)=>Number(b[qtyCol]||0)-Number(a[qtyCol]||0));
+    state.lastLeaderRows = allRows;
+    const rows = allRows.slice(0,50);
     el.leaderCount.textContent = `${state.rows.length} rows`;
     if (!rows.length){
       el.leaderBody.innerHTML = `<tr><td colspan="8" class="ts-empty">No sales in this range.</td></tr>`;
@@ -413,6 +457,7 @@
   }
 
   function renderTypeTable(rows){
+    state.lastTypeRows = rows;
     const total = rows.reduce((a,r)=>a+r.qty,0);
     el.typeCount.textContent = `${rows.length} types`;
     if (!rows.length){
@@ -438,6 +483,7 @@
       byLoc.set(key,cur);
     }
     const rows = [...byLoc.entries()].map(([loc,v])=>({ loc, qty:v.qty, skus:v.skus.size })).sort((a,b)=>b.qty-a.qty);
+    state.lastLocationRows = rows;
     el.locationCount.textContent = `${rows.length} location${rows.length===1?'':'s'}`;
     if (!rows.length){
       el.locationBody.innerHTML = `<tr><td colspan="3" class="ts-empty">No data.</td></tr>`;
@@ -460,6 +506,9 @@
   }
 
   el.btnRefresh.addEventListener('click', runLoad);
+  el.btnExportLeader.addEventListener('click', exportLeaderCsv);
+  el.btnExportType.addEventListener('click', exportTypeCsv);
+  el.btnExportLocation.addEventListener('click', exportLocationCsv);
   el.windowSelect.addEventListener('change', runLoad);
   el.typeSelect.addEventListener('change', () => { state.activeType = el.typeSelect.value; recompute(); });
   el.groupFilters.addEventListener('click', (ev) => {
