@@ -873,6 +873,10 @@ async function boot(){
   try {
     await loadAll();
     setStatus('Ready.','pos',1400);
+    // Deep link: ?launch=<id> opens that launch's drawer directly (used by
+    // the Products page and anywhere else that references a launch).
+    const deepLaunch = new URLSearchParams(location.search).get('launch');
+    if (deepLaunch) openDrawer(deepLaunch);
   } catch(e){
     console.error(e);
     setStatus('Load failed: '+(e?.message||e),'neg');
@@ -1372,7 +1376,7 @@ function renderProductReadiness(rows, trackerRows){
   if(trackerRows.length){
     const hdr=document.createElement('div');
     hdr.style.cssText='margin:14px 0 6px;display:flex;align-items:center;gap:10px;';
-    hdr.innerHTML=`<span style="font-family:var(--bcn-mono);font-size:9.5px;font-weight:700;letter-spacing:.1em;color:var(--bcn-ink-3);text-transform:uppercase;">From Product Tracker</span><a href="/v2/product-samples.html" style="font-size:10px;color:var(--bcn-accent);font-weight:600;">Open Tracker →</a>`;
+    hdr.innerHTML=`<span style="font-family:var(--bcn-mono);font-size:9.5px;font-weight:700;letter-spacing:.1em;color:var(--bcn-ink-3);text-transform:uppercase;">From Product Pipeline</span><a href="/v2/products.html?tab=pipeline" style="font-size:10px;color:var(--bcn-accent);font-weight:600;">Open Products →</a>`;
     list.appendChild(hdr);
     trackerRows.forEach(x=>{
       const photoCls=x.photo_complete==='complete'?'bcn-pill--pos':'';
@@ -1380,7 +1384,7 @@ function renderProductReadiness(rows, trackerRows){
       const div=document.createElement('div');
       div.className='dp-item';
       div.style.borderLeft='3px solid oklch(0.60 0.18 75)';
-      div.innerHTML=`<div style="flex:1;min-width:0;"><div class="dp-item-title">${esc(x.product_title)}</div><div class="dp-item-meta">${esc([x.product_type,x.manufacturer,x.collection,x.bulk_eta?`ETA ${fmt(x.bulk_eta)}`:null,x.on_hand?`On Hand: ${x.on_hand}`:null].filter(Boolean).join(' · '))}</div></div><div class="prod-row-actions"><span class="bcn-pill ${photoCls}">${esc(photoLbl)}</span>${x.copy_complete?'<span class="bcn-pill bcn-pill--pos">Copy Done</span>':''}${x.is_live?'<span class="bcn-pill bcn-pill--pos">Live</span>':''}</div>`;
+      div.innerHTML=`<div style="flex:1;min-width:0;"><div class="dp-item-title">${esc(x.product_title)}</div><div class="dp-item-meta">${esc([x.product_type,x.manufacturer,x.collection,x.bulk_eta?`ETA ${fmt(x.bulk_eta)}`:null,x.on_hand?`On Hand: ${x.on_hand}`:null].filter(Boolean).join(' · '))}</div></div><div class="prod-row-actions"><span class="bcn-pill ${photoCls}">${esc(photoLbl)}</span>${x.copy_complete?'<span class="bcn-pill bcn-pill--pos">Copy Done</span>':''}${x.is_live?'<span class="bcn-pill bcn-pill--pos">Live</span>':''}<a href="/v2/products.html?item=${encodeURIComponent(x.id)}" style="font-size:10px;color:var(--bcn-accent);font-weight:600;white-space:nowrap;">Open →</a></div>`;
       list.appendChild(div);
     });
   }

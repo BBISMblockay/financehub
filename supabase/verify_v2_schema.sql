@@ -240,6 +240,17 @@ select
     else 'MISSING — run 20260707030000_comp_summary_complete_day_anchor.sql'
   end as refresh_complete_day_anchor;
 
+select
+  case
+    when exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'product_samples'
+        and column_name = 'tracker_id'
+    ) then 'ok'
+    else 'MISSING — run 20260708000000_product_samples_tracker_link.sql'
+  end as product_samples_tracker_link;
+
 -- 9. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,

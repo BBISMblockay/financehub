@@ -51,10 +51,8 @@
     { id: 'purchasing/po-report', section: 'Purchasing', label: 'PO Report', href: '/v2/po-report.html', profiles: ['grandfathered', 'standard'] },
     { id: 'purchasing/factories', section: 'Purchasing', label: 'Factories', href: '/pages/factories.html', profiles: ['grandfathered', 'standard'] },
 
-    { id: 'creative/product-samples', section: 'Creative', sectionStandard: 'Product & inventory', label: 'Product Tracker', href: '/v2/product-samples.html', profiles: ['grandfathered', 'standard'] },
-
     { id: 'inventory/workboard', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Inventory Manager', href: '/v2/inventory.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'inventory/products', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Product Hub', href: '/v2/product-manager.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'inventory/products', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Products', href: '/v2/products.html', profiles: ['grandfathered', 'standard'] },
 
     { id: 'reports/dashboard', section: 'Reports', label: 'Dashboard', href: '/v2/bi-dashboard.html', profiles: ['grandfathered'] },
     { id: 'reports/sales-overview', section: 'Reports', label: 'Sales Performance Overview', href: '/v2/bi-sales-overview.html', profiles: ['grandfathered'] },
