@@ -16,7 +16,7 @@ No open P1s.
 
 | Issue | Workaround |
 |-------|------------|
-| BI vs Shopify report component variance (online, Jan–Jun): Returns ~$94k low (refunds booked at post-discount `rli.subtotal`; likely exchange/store-credit returns carry $0 subtotals — Redo), and ~$84k of ~100%-discounted free-gift promo lines missing on 6/7, 6/8, 6/17, 6/18. Net sales tie within 0.1%/month — classification only, no missing money | Needs 2–3 raw June orders from `baseballism.myshopify.com` (main store) to confirm mechanism before patching sync; shipping-tax portion (~$31k) already fixed |
+| BI vs Shopify report variance (online, Jan–Jun) restates only after a history re-import — sync fixes (cancelled orders included, shipping tax) apply to new days immediately but historical rows keep the old math until the backfill runs | Run Actions → "Shopify API Sync" with `sync_mode=history`, `history_days=200`, then re-reconcile against the Shopify export. If a residual Returns gap remains after restate, suspect exchange/store-credit returns (Redo) with $0 refund subtotals |
 | Costing fallback JSON in `po_headers.internal_notes` | Apply migrations; move data into `po_costing` |
 | Old bookmarks hit `/finance.html` instead of `/v2/finance.html` | Use `/v2/*` paths; update links in `silo-chrome.js` |
 | Many v2 pages still iframe legacy HTML | Expected until Beacon migration (see roadmap) |
