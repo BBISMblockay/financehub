@@ -119,7 +119,7 @@
     </header>
 
     <div class="bcn-kpi-band">
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Today Total</div><div id="kpiDayTotal" class="bcn-kpi-value">—</div><div id="kpiDayVar" class="bcn-kpi-delta">vs LY —</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label" id="kpiDayLabel">Last Day Total</div><div id="kpiDayTotal" class="bcn-kpi-value">—</div><div id="kpiDayVar" class="bcn-kpi-delta">vs LY —</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">MTD Total</div><div id="kpiMtdTotal" class="bcn-kpi-value">—</div><div id="kpiMtdVar" class="bcn-kpi-delta">vs LY —</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">YTD Total</div><div id="kpiYtdTotal" class="bcn-kpi-value">—</div><div id="kpiYtdVar" class="bcn-kpi-delta">vs LY —</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Refund Rate</div><div id="kpiRefundRate" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Trailing 30 days</div></div>
@@ -529,6 +529,12 @@
       const pyAsOf = state.compRows[0]?.py_as_of_date || null;
       const refreshedAt = state.compRows[0]?.refreshed_at || null;
       el.lastRefreshPill.textContent = asOf ? `Comps as of: ${asOf} (LY ${pyAsOf||'—'})` : 'Comps as of: —';
+      // Comps anchor to the last complete day, so "Today" would be a lie —
+      // name the day the numbers actually cover.
+      const dayLblM = /^(\d{4})-(\d{2})-(\d{2})$/.exec(asOf||'');
+      document.getElementById('kpiDayLabel').textContent = dayLblM
+        ? `${new Date(Date.UTC(+dayLblM[1], +dayLblM[2]-1, +dayLblM[3])).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'})} Total`
+        : 'Last Day Total';
       setStatus(`Summary refreshed: ${fmtTs(refreshedAt)}.`);
     } catch(e){
       console.error(e);

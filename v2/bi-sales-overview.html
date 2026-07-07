@@ -116,7 +116,7 @@
           <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
         </div>
         <h1>Sales Performance Overview</h1>
-        <div class="bcn-header-sub">Day / MTD / YTD vs. prior year, by store. Refreshes automatically after nightly sync — see <a href="/v2/sales-verification.html">Sales Report</a> for row-level detail.</div>
+        <div class="bcn-header-sub">Day / MTD / YTD vs. prior year, by store, through the last complete day — the in-progress day is excluded so CY and PY always compare full days. Refreshes automatically after nightly sync — see <a href="/v2/sales-verification.html">Sales Report</a> for row-level detail.</div>
       </div>
       <div class="bcn-header-actions">
         <span id="lastRefreshPill" class="bcn-pill bcn-pill--dark" style="font-family:var(--bcn-mono);font-size:10.5px">Comps as of: —</span>
@@ -126,10 +126,10 @@
 
     <!-- KPI band: company-wide totals (tax/shipping-inclusive, matches the legacy PBI dashboard) -->
     <div class="bcn-kpi-band">
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Today Total</div><div id="kpiDayNet" class="bcn-kpi-value">—</div><div id="kpiDayVar" class="bcn-kpi-delta">vs LY —</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label" id="kpiDayLabel">Last Day Total</div><div id="kpiDayNet" class="bcn-kpi-value">—</div><div id="kpiDayVar" class="bcn-kpi-delta">vs LY —</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">MTD Total</div><div id="kpiMtdNet" class="bcn-kpi-value">—</div><div id="kpiMtdVar" class="bcn-kpi-delta">vs LY —</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">YTD Total</div><div id="kpiYtdNet" class="bcn-kpi-value">—</div><div id="kpiYtdVar" class="bcn-kpi-delta">vs LY —</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Today Units</div><div id="kpiDayQty" class="bcn-kpi-value">—</div><div id="kpiDayQtyVar" class="bcn-kpi-delta">vs LY —</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label" id="kpiDayQtyLabel">Last Day Units</div><div id="kpiDayQty" class="bcn-kpi-value">—</div><div id="kpiDayQtyVar" class="bcn-kpi-delta">vs LY —</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Locations</div><div id="kpiLocCount" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">In current filter</div></div>
     </div>
 
@@ -233,6 +233,8 @@
     kpiYtdVar:   document.getElementById('kpiYtdVar'),
     kpiDayQty:   document.getElementById('kpiDayQty'),
     kpiDayQtyVar:document.getElementById('kpiDayQtyVar'),
+    kpiDayLabel: document.getElementById('kpiDayLabel'),
+    kpiDayQtyLabel: document.getElementById('kpiDayQtyLabel'),
     kpiLocCount: document.getElementById('kpiLocCount'),
   };
 
@@ -241,6 +243,13 @@
   const numFmt = v => Number(v||0).toLocaleString();
   const esc    = s => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
   const fmtTs  = ts => { if(!ts) return '—'; const d=new Date(ts); return isNaN(d)?String(ts):d.toLocaleString(); };
+  // 'YYYY-MM-DD' → 'Jul 6'. Parsed as UTC parts, not new Date(str), which
+  // would shift the label a day back in US timezones.
+  function fmtDayLabel(iso){
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso||'');
+    if (!m) return null;
+    return new Date(Date.UTC(+m[1], +m[2]-1, +m[3])).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'});
+  }
 
   // Exports whatever is currently on screen — same filters, same computed
   // rows the table renders from, not a fresh unfiltered fetch.
@@ -430,6 +439,11 @@
       const pyAsOf = state.rows[0]?.py_as_of_date || null;
       const refreshedAt = state.rows[0]?.refreshed_at || null;
       el.lastRefreshPill.textContent = asOf ? `Comps as of: ${asOf} (LY ${pyAsOf||'—'})` : 'Comps as of: —';
+      // Comps anchor to the last complete day, so "Today" would be a lie —
+      // name the day the numbers actually cover.
+      const dayLbl = fmtDayLabel(asOf);
+      el.kpiDayLabel.textContent = dayLbl ? `${dayLbl} Total` : 'Last Day Total';
+      el.kpiDayQtyLabel.textContent = dayLbl ? `${dayLbl} Units` : 'Last Day Units';
       setStatus(`Loaded ${state.rows.length} location${state.rows.length===1?'':'s'}. Summary refreshed: ${fmtTs(refreshedAt)}.`);
     } catch(e){
       console.error(e);
