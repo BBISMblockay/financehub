@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Product Search</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <style>
+    .bcn-kpi-band { flex-wrap:wrap; }
+
+    .ps-filters {
+      background:var(--bcn-sunken);
+      border-bottom:1px solid var(--bcn-border);
+      padding:12px 18px;
+      display:flex; flex-direction:column; gap:10px;
+      flex-shrink:0;
+    }
+    .ps-filter-row { display:flex; align-items:flex-end; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+    .ps-filter-group { display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; }
+    .ps-search-input { width:190px; }
+    .ps-chips { display:flex; flex-wrap:wrap; gap:5px; }
+    .ps-chip {
+      border:1px solid var(--bcn-border); background:var(--bcn-surface);
+      border-radius:var(--bcn-radius); padding:4px 12px;
+      font-size:11px; font-weight:700; color:var(--bcn-ink-3);
+      cursor:pointer; user-select:none; font-family:var(--bcn-mono);
+    }
+    .ps-chip.active { background:var(--bcn-band); color:var(--bcn-band-ink); border-color:var(--bcn-band); }
+    .ps-status { font-size:11.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); }
+    .ps-daterange { display:flex; align-items:center; gap:6px; }
+    .ps-daterange input[type="date"] { width:132px; }
+    .ps-date-sep { color:var(--bcn-ink-3); font-size:11px; }
+    .ps-col-toggles { display:flex; align-items:center; gap:14px; }
+    .ps-col-toggle { display:flex; align-items:center; gap:5px; font-size:12px; color:var(--bcn-ink-2); cursor:pointer; user-select:none; }
+    .ps-col-toggle input { cursor:pointer; }
+
+    .ps-content { flex:1; padding:12px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:12px; }
+
+    .ps-table-wrap { overflow:auto; }
+    .ps-table-wrap::-webkit-scrollbar{ height:6px; width:6px; }
+    .ps-table-wrap::-webkit-scrollbar-thumb{ background:var(--bcn-border-strong); border-radius:3px; }
+
+    .ps-tbl { width:max-content; min-width:100%; border-collapse:collapse; }
+    .ps-tbl th {
+      font-family:var(--bcn-mono); font-size:10px; text-transform:uppercase; letter-spacing:.08em;
+      color:var(--bcn-ink-3); padding:7px 10px; border-bottom:1px solid var(--bcn-border);
+      white-space:nowrap; text-align:right; position:sticky; top:0; z-index:3; background:var(--bcn-sunken);
+      cursor:pointer; user-select:none;
+    }
+    .ps-tbl th:hover { color:var(--bcn-ink); }
+    .ps-tbl th.l { text-align:left; }
+    .ps-tbl th:first-child { position:sticky; left:0; z-index:4; min-width:170px; }
+    .ps-tbl th .arrow { margin-left:3px; opacity:.6; }
+    .ps-tbl td {
+      font-family:var(--bcn-mono); font-size:11.5px; font-variant-numeric:tabular-nums;
+      padding:7px 10px; border-bottom:1px solid var(--bcn-border); white-space:nowrap; text-align:right;
+    }
+    .ps-tbl td.l { text-align:left; font-family:var(--bcn-font); }
+    .ps-tbl td:first-child { position:sticky; left:0; z-index:2; background:var(--bcn-surface); }
+    .ps-tbl tbody tr:hover td { background:var(--bcn-sunken); }
+    .ps-prod-sku { color:var(--bcn-ink-3); font-size:11px; }
+    .ps-empty { padding:32px; text-align:center; color:var(--bcn-ink-4); font-family:var(--bcn-mono); font-size:11.5px; }
+    .ps-cap-note { padding:8px 16px; font-size:11px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); border-top:1px solid var(--bcn-border); }
+
+    .bcn-btn.is-loading { opacity:.6; pointer-events:none; }
+
+    @media (max-width:640px) {
+      .ps-search-input { width:100%; }
+      .ps-filter-group { width:100%; }
+    }
+  </style>
+</head>
+<body class="silo-brand">
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0">
+        <div class="bcn-header-title">
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
+        </div>
+        <h1>Product Search</h1>
+        <div class="bcn-header-sub">Row-level drill-down by product name or SKU over any date range. Add Store or Month as columns to break results out further.</div>
+      </div>
+      <div class="bcn-header-actions">
+        <button id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
+      </div>
+    </header>
+
+    <div class="bcn-kpi-band">
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Results</div><div id="kpiResults" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">rows matched</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Total Sales</div><div id="kpiTotal" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">in results</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Units</div><div id="kpiUnits" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">in results</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Distinct SKUs</div><div id="kpiSkus" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">in results</div></div>
+    </div>
+
+    <div class="ps-filters">
+      <div class="ps-filter-row">
+        <div class="ps-filter-group">
+          <div>
+            <label class="bcn-label">Product name</label>
+            <input type="text" id="searchName" class="bcn-field ps-search-input" placeholder="Search product name…" />
+          </div>
+          <div>
+            <label class="bcn-label">SKU</label>
+            <input type="text" id="searchSku" class="bcn-field ps-search-input" placeholder="Search SKU…" />
+          </div>
+          <div>
+            <label class="bcn-label">Product type</label>
+            <select id="typeSelect" class="bcn-field"><option value="">All types</option></select>
+          </div>
+        </div>
+        <div id="statusText" class="ps-status">Loading…</div>
+      </div>
+      <div class="ps-filter-row">
+        <div class="ps-filter-group">
+          <div>
+            <label class="bcn-label">Range</label>
+            <div class="ps-daterange">
+              <input type="date" id="dateFrom" class="bcn-field" />
+              <span class="ps-date-sep">–</span>
+              <input type="date" id="dateTo" class="bcn-field" />
+            </div>
+            <div class="ps-chips" id="rangePresets" style="margin-top:6px">
+              <button class="ps-chip active" data-days="30">30d</button>
+              <button class="ps-chip" data-days="90">90d</button>
+              <button class="ps-chip" data-days="180">180d</button>
+            </div>
+          </div>
+          <div>
+            <label class="bcn-label">Store group</label>
+            <div class="ps-chips" id="groupFilters">
+              <button class="ps-chip active" data-group="all">All Stores</button>
+            </div>
+          </div>
+        </div>
+        <div class="ps-col-toggles">
+          <label class="ps-col-toggle"><input type="checkbox" id="toggleStore" /> Add Store column</label>
+          <label class="ps-col-toggle"><input type="checkbox" id="toggleMonth" /> Add Month column</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="ps-content">
+      <div class="bcn-card">
+        <div class="bcn-card-header">
+          <h2>Results</h2>
+          <span id="rowCount" class="bcn-card-meta" style="margin-left:auto">0 rows</span>
+        </div>
+        <div class="bcn-card-body" style="padding:0;overflow:visible">
+          <div class="ps-table-wrap">
+            <table class="ps-tbl">
+              <thead id="tblHead"></thead>
+              <tbody id="tblBody"><tr><td class="ps-empty">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <div id="capNote" class="ps-cap-note" hidden></div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
+    throw new Error('Missing Supabase config');
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global:{ fetch:(url,o={})=>fetch(url,{...o,cache:'no-store'}) },
+  });
+  const _co = cfg.getActiveCompany?.() || null;
+  function scopeQ(q){ return _co?.id ? q.eq('company_entity_id',_co.id) : q; }
+
+  function slugify(v){
+    return String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'unknown';
+  }
+
+  // Shared with bi-returns.html / bi-top-sellers.html / bi-daily-trend.html so
+  // store-group / date-range stay in sync across reports.
+  const SHARED_FILTER_KEY = 'silo:bi:filters';
+  function loadSharedFilters(){
+    try { return JSON.parse(sessionStorage.getItem(SHARED_FILTER_KEY)) || {}; } catch { return {}; }
+  }
+  function saveSharedFilters(patch){
+    try { sessionStorage.setItem(SHARED_FILTER_KEY, JSON.stringify({ ...loadSharedFilters(), ...patch })); } catch {}
+  }
+  const shared = loadSharedFilters();
+
+  const RESULT_CAP = 200;
+
+  const state = {
+    groupByTag:new Map(), groups:[], activeGroup:shared.storeGroup||'all',
+    activeType:'', searchName:'', searchSku:'',
+    showStore:false, showMonth:false,
+    sortKey:'total', sortDir:'desc',
+    rowsRaw:[],
+  };
+
+  const el = {
+    btnRefresh: document.getElementById('btnRefresh'),
+    searchName: document.getElementById('searchName'),
+    searchSku: document.getElementById('searchSku'),
+    typeSelect: document.getElementById('typeSelect'),
+    dateFrom: document.getElementById('dateFrom'),
+    dateTo: document.getElementById('dateTo'),
+    rangePresets: document.getElementById('rangePresets'),
+    groupFilters: document.getElementById('groupFilters'),
+    toggleStore: document.getElementById('toggleStore'),
+    toggleMonth: document.getElementById('toggleMonth'),
+    statusText: document.getElementById('statusText'),
+    rowCount: document.getElementById('rowCount'),
+    tblHead: document.getElementById('tblHead'),
+    tblBody: document.getElementById('tblBody'),
+    capNote: document.getElementById('capNote'),
+    kpiResults: document.getElementById('kpiResults'),
+    kpiTotal: document.getElementById('kpiTotal'),
+    kpiUnits: document.getElementById('kpiUnits'),
+    kpiSkus: document.getElementById('kpiSkus'),
+  };
+
+  const money  = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(v||0));
+  const numFmt = v => Number(v||0).toLocaleString();
+  const esc    = s => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
+  const isoDateOnly = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const addDays = (s,n) => { const d=new Date(`${s}T00:00:00`); d.setDate(d.getDate()+n); return isoDateOnly(d); };
+  const monthLabel = mk => { const [y,m]=mk.split('-'); return new Date(`${y}-${m}-01T00:00:00`).toLocaleDateString('en-US',{month:'short',year:'numeric'}); };
+  function setStatus(t){ el.statusText.textContent=t; }
+
+  async function loadStoreGroups(){
+    let q = sb.from('locations').select('location_code,location_name,store_type');
+    q = scopeQ(q);
+    const { data,error } = await q;
+    if (error) throw error;
+    const map=new Map(); const groupSet=new Set();
+    for (const row of data||[]){
+      const tag=slugify(row.location_code||row.location_name);
+      const group=(row.store_type||'retail').toLowerCase();
+      map.set(tag,group); groupSet.add(group);
+    }
+    state.groupByTag=map; state.groups=[...groupSet].sort();
+  }
+
+  function renderGroupChips(){
+    const chips = ['<button class="ps-chip active" data-group="all">All Stores</button>']
+      .concat(state.groups.map(g=>`<button class="ps-chip" data-group="${g}">${g.charAt(0).toUpperCase()+g.slice(1)}</button>`));
+    el.groupFilters.innerHTML = chips.join('');
+  }
+
+  function renderTypeOptions(){
+    const types = [...new Set(state.rowsRaw.map(r=>r.product_type).filter(Boolean))].sort();
+    const prev = el.typeSelect.value;
+    el.typeSelect.innerHTML = `<option value="">All types</option>` + types.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');
+    if (types.includes(prev)) el.typeSelect.value = prev;
+  }
+
+  function inGroup(r){
+    if (state.activeGroup==='all') return true;
+    return (state.groupByTag.get(r.location_tag)||'retail')===state.activeGroup;
+  }
+
+  // Paged fetch — mirrors the rest of the suite. No total_orders filter here:
+  // Product Search shows raw activity (sales AND refund adjustment rows),
+  // matching the legacy PBI row-level export it's replacing.
+  async function loadPagedRange(dateFrom,dateTo){
+    const PAGE_SIZE=10000; let from=0, out=[];
+    for(;;){
+      let q = sb.from('sales_by_day_verification_v')
+        .select('day_date,location_tag,location_name,product_name,sku,product_type,total_quantity_sold,total_gross_sales,total_discounts,total_refunds,total_net_sales,total_sales')
+        .gte('day_date',dateFrom).lte('day_date',dateTo)
+        .range(from,from+PAGE_SIZE-1);
+      q = scopeQ(q);
+      const { data,error } = await q;
+      if (error) throw error;
+      out = out.concat(data||[]);
+      if (!data || data.length<PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+    return out;
+  }
+
+  // Grouping grain follows whichever optional columns are switched on —
+  // adding "Store" or "Month" doesn't just show a column, it re-aggregates
+  // to that level of detail (same behavior as PBI's field well).
+  function computeRows(){
+    const nameQuery = state.searchName.trim().toLowerCase();
+    const skuQuery = state.searchSku.trim().toLowerCase();
+    const byKey = new Map();
+    for (const r of state.rowsRaw){
+      if (!inGroup(r)) continue;
+      if (state.activeType && r.product_type !== state.activeType) continue;
+      if (nameQuery && !String(r.product_name||'').toLowerCase().includes(nameQuery)) continue;
+      if (skuQuery && !String(r.sku||'').toLowerCase().includes(skuQuery)) continue;
+
+      const monthKey = String(r.day_date).slice(0,7);
+      const keyParts = [r.sku||'', r.product_name||'', r.product_type||''];
+      if (state.showStore) keyParts.push(r.location_tag||'');
+      if (state.showMonth) keyParts.push(monthKey);
+      const key = keyParts.join('␟');
+
+      const cur = byKey.get(key) || {
+        sku:r.sku||'', product_name:r.product_name||'', product_type:r.product_type||'Uncategorized',
+        location_name: state.showStore ? (r.location_name||r.location_tag||'—') : null,
+        month: state.showMonth ? monthKey : null,
+        qty:0, gross:0, discounts:0, refunds:0, net:0, total:0,
+      };
+      cur.qty += Number(r.total_quantity_sold||0);
+      cur.gross += Number(r.total_gross_sales||0);
+      cur.discounts += Number(r.total_discounts||0);
+      cur.refunds += Number(r.total_refunds||0);
+      cur.net += Number(r.total_net_sales||0);
+      cur.total += Number(r.total_sales||0);
+      byKey.set(key, cur);
+    }
+    return [...byKey.values()];
+  }
+
+  const SORT_FIELDS = {
+    product: r=>r.product_name.toLowerCase(),
+    sku: r=>(r.sku||'').toLowerCase(),
+    type: r=>r.product_type.toLowerCase(),
+    store: r=>(r.location_name||'').toLowerCase(),
+    month: r=>r.month||'',
+    qty: r=>r.qty, gross: r=>r.gross, discounts: r=>r.discounts,
+    refunds: r=>r.refunds, net: r=>r.net, total: r=>r.total,
+  };
+
+  function sortRows(rows){
+    const getter = SORT_FIELDS[state.sortKey] || SORT_FIELDS.total;
+    const dir = state.sortDir==='asc' ? 1 : -1;
+    return [...rows].sort((a,b)=>{
+      const av=getter(a), bv=getter(b);
+      if (av<bv) return -1*dir; if (av>bv) return 1*dir; return 0;
+    });
+  }
+
+  function recompute(){
+    renderAll();
+    setStatus(`Scanned ${state.rowsRaw.length} rows.`);
+  }
+
+  async function runLoad(){
+    setStatus('Loading…');
+    el.btnRefresh.disabled = true;
+    el.btnRefresh.classList.add('is-loading');
+    try {
+      await loadStoreGroups();
+      renderGroupChips();
+      if (state.activeGroup!=='all' && !state.groups.includes(state.activeGroup)) state.activeGroup='all';
+      [...el.groupFilters.querySelectorAll('[data-group]')].forEach(b=>b.classList.toggle('active', b.dataset.group===state.activeGroup));
+
+      const dateFrom = el.dateFrom.value, dateTo = el.dateTo.value;
+      state.rowsRaw = await loadPagedRange(dateFrom, dateTo);
+      renderTypeOptions();
+      recompute();
+    } catch(e){
+      console.error(e);
+      setStatus(`Load failed: ${e.message}`);
+    } finally {
+      el.btnRefresh.disabled = false;
+      el.btnRefresh.classList.remove('is-loading');
+    }
+  }
+
+  function setRange(dateFrom,dateTo,{persist=true}={}){
+    el.dateFrom.value = dateFrom;
+    el.dateTo.value = dateTo;
+    if (persist) saveSharedFilters({ dateFrom, dateTo });
+  }
+  function applyPreset(days){
+    const today = isoDateOnly(new Date());
+    setRange(addDays(today,-(days-1)), today);
+    [...el.rangePresets.querySelectorAll('[data-days]')].forEach(b=>b.classList.toggle('active', Number(b.dataset.days)===days));
+  }
+
+  function colDef(){
+    const cols = [
+      { key:'product', label:'Product', l:true },
+      { key:'sku', label:'SKU', l:true },
+      { key:'type', label:'Type', l:true },
+    ];
+    if (state.showStore) cols.push({ key:'store', label:'Store', l:true });
+    if (state.showMonth) cols.push({ key:'month', label:'Month', l:true });
+    cols.push(
+      { key:'qty', label:'Qty', fmt:numFmt },
+      { key:'gross', label:'Gross $', fmt:money },
+      { key:'discounts', label:'Discounts $', fmt:money },
+      { key:'refunds', label:'Refunds $', fmt:money },
+      { key:'net', label:'Net $', fmt:money },
+      { key:'total', label:'Total $', fmt:money },
+    );
+    return cols;
+  }
+
+  function renderHead(){
+    const cols = colDef();
+    el.tblHead.innerHTML = `<tr>${cols.map(c=>{
+      const arrow = state.sortKey===c.key ? `<span class="arrow">${state.sortDir==='asc'?'▲':'▼'}</span>` : '';
+      return `<th class="${c.l?'l':''}" data-sort="${c.key}">${esc(c.label)}${arrow}</th>`;
+    }).join('')}</tr>`;
+  }
+
+  function renderKpis(rows){
+    const total = rows.reduce((a,r)=>a+r.total,0);
+    const qty = rows.reduce((a,r)=>a+r.qty,0);
+    const skus = new Set(rows.map(r=>r.sku).filter(Boolean)).size;
+    el.kpiResults.textContent = numFmt(rows.length);
+    el.kpiTotal.textContent = money(total);
+    el.kpiUnits.textContent = numFmt(qty);
+    el.kpiSkus.textContent = numFmt(skus);
+  }
+
+  function renderTable(allRows){
+    const cols = colDef();
+    el.rowCount.textContent = `${allRows.length} row${allRows.length===1?'':'s'}`;
+    if (!allRows.length){
+      el.tblBody.innerHTML = `<tr><td class="ps-empty" colspan="${cols.length}">No results — try widening the search or date range.</td></tr>`;
+      el.capNote.hidden = true;
+      return;
+    }
+    const shown = allRows.slice(0,RESULT_CAP);
+    el.tblBody.innerHTML = shown.map(r=>`<tr>
+      <td class="l">${esc(r.product_name)||'—'}</td>
+      <td class="l ps-prod-sku">${esc(r.sku)||'—'}</td>
+      <td class="l">${esc(r.product_type)}</td>
+      ${state.showStore ? `<td class="l">${esc(r.location_name)}</td>` : ''}
+      ${state.showMonth ? `<td class="l">${esc(monthLabel(r.month))}</td>` : ''}
+      <td>${numFmt(r.qty)}</td>
+      <td>${money(r.gross)}</td>
+      <td>${money(r.discounts)}</td>
+      <td>${money(r.refunds)}</td>
+      <td>${money(r.net)}</td>
+      <td>${money(r.total)}</td>
+    </tr>`).join('');
+
+    if (allRows.length>RESULT_CAP){
+      el.capNote.hidden = false;
+      el.capNote.textContent = `Showing top ${RESULT_CAP} of ${allRows.length} rows by ${colDef().find(c=>c.key===state.sortKey)?.label||'Total $'} — narrow your search to see more.`;
+    } else {
+      el.capNote.hidden = true;
+    }
+  }
+
+  function renderAll(){
+    const rows = sortRows(computeRows());
+    renderHead();
+    renderKpis(rows);
+    renderTable(rows);
+  }
+
+  el.btnRefresh.addEventListener('click', runLoad);
+  el.searchName.addEventListener('input', () => { state.searchName = el.searchName.value; renderAll(); });
+  el.searchSku.addEventListener('input', () => { state.searchSku = el.searchSku.value; renderAll(); });
+  el.typeSelect.addEventListener('change', () => { state.activeType = el.typeSelect.value; renderAll(); });
+  el.toggleStore.addEventListener('change', () => { state.showStore = el.toggleStore.checked; renderAll(); });
+  el.toggleMonth.addEventListener('change', () => { state.showMonth = el.toggleMonth.checked; renderAll(); });
+  el.tblHead.addEventListener('click', (ev) => {
+    const th = ev.target.closest('[data-sort]'); if (!th) return;
+    const key = th.dataset.sort;
+    if (state.sortKey===key) state.sortDir = state.sortDir==='asc' ? 'desc' : 'asc';
+    else { state.sortKey = key; state.sortDir = 'desc'; }
+    renderAll();
+  });
+  el.rangePresets.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-days]'); if (!btn) return;
+    applyPreset(Number(btn.dataset.days));
+    runLoad();
+  });
+  el.dateFrom.addEventListener('change', () => {
+    [...el.rangePresets.querySelectorAll('[data-days]')].forEach(b=>b.classList.remove('active'));
+    saveSharedFilters({ dateFrom: el.dateFrom.value, dateTo: el.dateTo.value });
+    runLoad();
+  });
+  el.dateTo.addEventListener('change', () => {
+    [...el.rangePresets.querySelectorAll('[data-days]')].forEach(b=>b.classList.remove('active'));
+    saveSharedFilters({ dateFrom: el.dateFrom.value, dateTo: el.dateTo.value });
+    runLoad();
+  });
+  el.groupFilters.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-group]'); if (!btn) return;
+    state.activeGroup = btn.dataset.group;
+    [...el.groupFilters.querySelectorAll('[data-group]')].forEach(b=>b.classList.toggle('active', b===btn));
+    saveSharedFilters({ storeGroup: state.activeGroup });
+    recompute();
+  });
+
+  async function boot(){
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session){ window.location.href='/pages/login.html'; return; }
+    const user = sess.data.session.user;
+
+    if (window.SiloChrome){
+      window.SiloChrome.mount({
+        appEl:'#silo-app', active:'reports/product-search',
+        user:{ email:user?.email||'', role:'admin' },
+        crumbs:['Reports','Product Search'],
+        supabaseClient:sb,
+      });
+    }
+
+    if (shared.dateFrom && shared.dateTo){
+      setRange(shared.dateFrom, shared.dateTo, { persist:false });
+      [...el.rangePresets.querySelectorAll('[data-days]')].forEach(b=>b.classList.remove('active'));
+    } else {
+      applyPreset(30);
+    }
+
+    await runLoad();
+  }
+
+  boot();
+</script>
+</body>
+</html>
