@@ -745,7 +745,16 @@ export async function ordersToSalesRows({
       'current_total_additional_fees_set',
     );
 
+    // Tax charged on shipping lives on shipping_lines[].tax_lines, never on a
+    // line_item — Shopify's Taxes column includes it, so allocate it per line
+    // alongside the shipping charge itself.
+    const orderShippingTax = (order.shipping_lines || []).reduce(
+      (sum, sl) => sum + (sl?.tax_lines || []).reduce((s, t) => s + Number(t?.price || 0), 0),
+      0,
+    );
+
     const shippingShare = allocatePerLine(orderShippingGross, lineCount);
+    const shippingTaxShare = allocatePerLine(orderShippingTax, lineCount);
     const dutiesShare = allocatePerLine(orderDuties, lineCount);
     const feesShare = allocatePerLine(orderAdditionalFees, lineCount);
 
@@ -756,7 +765,7 @@ export async function ordersToSalesRows({
       // Refunds are NOT netted into the sale day — they're booked as negative
       // rows on the refund's processed date below (Shopify report parity).
       const refundAmount = 0;
-      const tax = sumTaxForLine(li);
+      const tax = sumTaxForLine(li) + shippingTaxShare;
 
       const resolvedLoc = resolveSalesRowLocation({
         order,
