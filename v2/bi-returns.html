@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Returns &amp; Refunds</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <style>
+    .bcn-kpi-band { flex-wrap:wrap; }
+
+    .rt-filters {
+      background:var(--bcn-sunken);
+      border-bottom:1px solid var(--bcn-border);
+      padding:12px 18px;
+      display:flex; align-items:flex-end; justify-content:space-between; gap:12px; flex-wrap:wrap;
+      flex-shrink:0;
+    }
+    .rt-filter-group { display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; }
+    .rt-chips { display:flex; flex-wrap:wrap; gap:5px; }
+    .rt-chip {
+      border:1px solid var(--bcn-border); background:var(--bcn-surface);
+      border-radius:var(--bcn-radius); padding:4px 12px;
+      font-size:11px; font-weight:700; color:var(--bcn-ink-3);
+      cursor:pointer; user-select:none; font-family:var(--bcn-mono);
+    }
+    .rt-chip.active { background:var(--bcn-band); color:var(--bcn-band-ink); border-color:var(--bcn-band); }
+    .rt-status { font-size:11.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); }
+
+    .rt-content {
+      flex:1; padding:12px 18px 24px;
+      display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:start;
+      overflow-y:auto; min-height:0;
+    }
+    @media(max-width:1000px){ .rt-content{ grid-template-columns:1fr; } }
+    .rt-content .bcn-card:first-child { grid-column:1 / -1; }
+
+    .rt-tbl { width:100%; border-collapse:collapse; }
+    .rt-tbl th {
+      padding:7px 10px; font-size:10.5px; font-weight:600; color:var(--bcn-ink-3);
+      border-bottom:1px solid var(--bcn-border-strong); background:var(--bcn-sunken);
+      white-space:nowrap; text-align:left;
+    }
+    .rt-tbl th.r { text-align:right; }
+    .rt-tbl td {
+      padding:7px 10px; font-size:12px; color:var(--bcn-ink);
+      border-bottom:1px solid var(--bcn-border);
+    }
+    .rt-tbl tbody tr:last-child td { border-bottom:none; }
+    .rt-tbl tbody tr:hover td { background:var(--bcn-sunken); }
+    .rt-tbl td.r { text-align:right; font-variant-numeric:tabular-nums; font-family:var(--bcn-mono); font-size:11.5px; }
+    .rt-tbl td.mono { font-family:var(--bcn-mono); font-size:11px; }
+    .rt-empty { padding:32px; text-align:center; color:var(--bcn-ink-4); font-family:var(--bcn-mono); font-size:11.5px; }
+
+    .rt-bucket-tag { display:inline-flex; align-items:center; border-radius:var(--bcn-radius); padding:1px 7px; font-size:10px; font-weight:700; font-family:var(--bcn-mono); }
+    .rt-bucket-tag.product   { background:var(--bcn-neg-soft,#fef2f2); color:var(--bcn-neg,#dc2626); }
+    .rt-bucket-tag.shipping  { background:var(--bcn-accent-soft); color:var(--bcn-accent); }
+    .rt-bucket-tag.discrepancy { background:oklch(0.98 0.06 75 / .4); color:var(--bcn-warn,#d97706); }
+  </style>
+</head>
+<body class="silo-brand">
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0">
+        <div class="bcn-header-title">
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
+        </div>
+        <h1>Returns &amp; Refunds</h1>
+        <div class="bcn-header-sub">Refunds booked on the day they were processed (not the original sale day) — matches Shopify's own reporting. Breaks out product returns, shipping refunds, and refund discrepancies separately.</div>
+      </div>
+      <div class="bcn-header-actions">
+        <button id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
+      </div>
+    </header>
+
+    <div class="bcn-kpi-band">
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Period Refunds</div><div id="kpiRefundTotal" class="bcn-kpi-value">—</div><div id="kpiRefundVar" class="bcn-kpi-delta">vs LY —</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Refund Rate</div><div id="kpiRefundRate" class="bcn-kpi-value">—</div><div id="kpiRefundRateVar" class="bcn-kpi-delta">vs LY —</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Returned Units</div><div id="kpiUnitsReturned" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Product returns only</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Distinct SKUs</div><div id="kpiDistinctSkus" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Returned in period</div></div>
+    </div>
+
+    <div class="rt-filters">
+      <div class="rt-filter-group">
+        <div>
+          <label class="bcn-label">Range</label>
+          <select id="rangePreset" class="bcn-field">
+            <option value="30">Last 30 days</option>
+            <option value="90" selected>Last 90 days</option>
+            <option value="180">Last 180 days</option>
+          </select>
+        </div>
+        <div>
+          <label class="bcn-label">Store group</label>
+          <div class="rt-chips" id="groupFilters">
+            <button class="rt-chip active" data-group="all">All Stores</button>
+          </div>
+        </div>
+      </div>
+      <div id="statusText" class="rt-status">Loading…</div>
+    </div>
+
+    <div class="rt-content">
+      <div class="bcn-card">
+        <div class="bcn-card-header">
+          <h2>By reason</h2>
+          <span id="reasonCount" class="bcn-card-meta" style="margin-left:auto">0 rows</span>
+        </div>
+        <div class="bcn-card-body" style="padding:0;overflow:visible">
+          <table class="rt-tbl">
+            <thead><tr><th>Reason</th><th class="r">Count</th><th class="r">Refund $</th><th class="r">% of total</th></tr></thead>
+            <tbody id="reasonBody"><tr><td colspan="4" class="rt-empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="bcn-card">
+        <div class="bcn-card-header">
+          <h2>By location</h2>
+          <span id="locationCount" class="bcn-card-meta" style="margin-left:auto">0 locations</span>
+        </div>
+        <div class="bcn-card-body" style="padding:0;overflow:visible">
+          <table class="rt-tbl">
+            <thead><tr><th>Location</th><th class="r">Refund $</th><th class="r">Gross $</th><th class="r">Refund rate</th></tr></thead>
+            <tbody id="locationBody"><tr><td colspan="4" class="rt-empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="bcn-card">
+        <div class="bcn-card-header">
+          <h2>Top returned SKUs</h2>
+          <span id="skuCount" class="bcn-card-meta" style="margin-left:auto">0 SKUs</span>
+        </div>
+        <div class="bcn-card-body" style="padding:0;overflow:visible">
+          <table class="rt-tbl">
+            <thead><tr><th>SKU</th><th>Product</th><th class="r">Qty returned</th><th class="r">Refund $</th></tr></thead>
+            <tbody id="skuBody"><tr><td colspan="4" class="rt-empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
+    throw new Error('Missing Supabase config');
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global:{ fetch:(url,o={})=>fetch(url,{...o,cache:'no-store'}) },
+  });
+  const _co = cfg.getActiveCompany?.() || null;
+  function scopeQ(q){ return _co?.id ? q.eq('company_entity_id',_co.id) : q; }
+
+  function slugify(v){
+    return String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'unknown';
+  }
+
+  // Same classification the sync writes: [Shipping] and [Refund discrepancy]
+  // are sentinel sku/product_name values for order-level refund pieces;
+  // everything else with total_orders = 0 is a genuine per-SKU product return.
+  function reasonBucket(r){
+    const key = String(r.sku || r.product_name || '').trim().toLowerCase();
+    if (key === '[shipping]') return 'Shipping refund';
+    if (key === '[refund discrepancy]') return 'Refund discrepancy';
+    return 'Product return';
+  }
+  function bucketClass(bucket){
+    if (bucket === 'Shipping refund') return 'shipping';
+    if (bucket === 'Refund discrepancy') return 'discrepancy';
+    return 'product';
+  }
+
+  const state = { groupByTag:new Map(), groups:[], activeGroup:'all', saleRows:[], refundRows:[], pySaleRows:[], pyRefundRows:[] };
+
+  const el = {
+    btnRefresh: document.getElementById('btnRefresh'),
+    rangePreset: document.getElementById('rangePreset'),
+    groupFilters: document.getElementById('groupFilters'),
+    statusText: document.getElementById('statusText'),
+    reasonBody: document.getElementById('reasonBody'),
+    reasonCount: document.getElementById('reasonCount'),
+    locationBody: document.getElementById('locationBody'),
+    locationCount: document.getElementById('locationCount'),
+    skuBody: document.getElementById('skuBody'),
+    skuCount: document.getElementById('skuCount'),
+    kpiRefundTotal: document.getElementById('kpiRefundTotal'),
+    kpiRefundVar: document.getElementById('kpiRefundVar'),
+    kpiRefundRate: document.getElementById('kpiRefundRate'),
+    kpiRefundRateVar: document.getElementById('kpiRefundRateVar'),
+    kpiUnitsReturned: document.getElementById('kpiUnitsReturned'),
+    kpiDistinctSkus: document.getElementById('kpiDistinctSkus'),
+  };
+
+  const money  = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(v||0));
+  const numFmt = v => Number(v||0).toLocaleString();
+  const esc    = s => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
+  const isoDateOnly = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const addDays = (s,n) => { const d=new Date(`${s}T00:00:00`); d.setDate(d.getDate()+n); return isoDateOnly(d); };
+  const addYears = (s,n) => {
+    const d=new Date(`${s}T00:00:00`);
+    const wasFeb29 = d.getMonth()===1 && d.getDate()===29;
+    d.setFullYear(d.getFullYear()+n);
+    if (wasFeb29 && d.getMonth()===2) d.setDate(0);
+    return isoDateOnly(d);
+  };
+  function varPct(cur,py){
+    const c=Number(cur||0), p=Number(py||0);
+    if (!p) return null;
+    return ((c-p)/Math.abs(p))*100;
+  }
+  function pctStr(v){ if (v==null||Number.isNaN(v)) return '—'; return `${v>0?'+':''}${v.toFixed(1)}%`; }
+  function setStatus(t){ el.statusText.textContent=t; }
+
+  async function loadStoreGroups(){
+    let q = sb.from('locations').select('location_code,location_name,store_type');
+    q = scopeQ(q);
+    const { data,error } = await q;
+    if (error) throw error;
+    const map=new Map(); const groupSet=new Set();
+    for (const row of data||[]){
+      const tag=slugify(row.location_code||row.location_name);
+      const group=(row.store_type||'retail').toLowerCase();
+      map.set(tag,group); groupSet.add(group);
+    }
+    state.groupByTag=map; state.groups=[...groupSet].sort();
+  }
+
+  function renderGroupChips(){
+    const chips = ['<button class="rt-chip active" data-group="all">All Stores</button>']
+      .concat(state.groups.map(g=>`<button class="rt-chip" data-group="${g}">${g.charAt(0).toUpperCase()+g.slice(1)}</button>`));
+    el.groupFilters.innerHTML = chips.join('');
+  }
+
+  // Paged fetch — mirrors bi-daily-trend.html / planning-scenarios.html.
+  async function loadPagedRange(dateFrom,dateTo){
+    const PAGE_SIZE=10000; let from=0, out=[];
+    for(;;){
+      let q = sb.from('sales_by_day_verification_v')
+        .select('day_date,location_tag,sku,product_name,total_orders,total_quantity_sold,total_refunds,total_gross_sales,taxes,shipping,total_sales')
+        .gte('day_date',dateFrom).lte('day_date',dateTo)
+        .range(from,from+PAGE_SIZE-1);
+      q = scopeQ(q);
+      const { data,error } = await q;
+      if (error) throw error;
+      out = out.concat(data||[]);
+      if (!data || data.length<PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+    return out;
+  }
+
+  function inGroup(r){
+    if (state.activeGroup==='all') return true;
+    return (state.groupByTag.get(r.location_tag)||'retail')===state.activeGroup;
+  }
+
+  // Recompute from already-fetched raw rows — used when only the store-group
+  // filter changes, so switching groups never re-hits the network.
+  function recompute(){
+    const { curRowsRaw, pyRowsRaw, curFrom, curTo } = state;
+    if (!curRowsRaw) return;
+    state.saleRows      = curRowsRaw.filter(r=>r.total_orders>0 && inGroup(r));
+    state.refundRows    = curRowsRaw.filter(r=>r.total_orders===0 && inGroup(r));
+    state.pySaleRows    = pyRowsRaw.filter(r=>r.total_orders>0 && inGroup(r));
+    state.pyRefundRows  = pyRowsRaw.filter(r=>r.total_orders===0 && inGroup(r));
+    renderAll();
+    setStatus(`Loaded ${state.refundRows.length} refund rows (${curFrom} → ${curTo}), ${curRowsRaw.length + pyRowsRaw.length} rows scanned.`);
+  }
+
+  async function runLoad(){
+    setStatus('Loading…');
+    try {
+      await loadStoreGroups();
+      renderGroupChips();
+
+      const days = Number(el.rangePreset.value);
+      const today = isoDateOnly(new Date());
+      const curFrom = addDays(today, -(days-1)), curTo = today;
+      const pyFrom = addYears(curFrom,-1), pyTo = addYears(curTo,-1);
+
+      const [curRowsRaw, pyRowsRaw] = await Promise.all([
+        loadPagedRange(curFrom,curTo),
+        loadPagedRange(pyFrom,pyTo),
+      ]);
+      Object.assign(state, { curRowsRaw, pyRowsRaw, curFrom, curTo });
+      recompute();
+    } catch(e){
+      console.error(e);
+      setStatus(`Load failed: ${e.message}`);
+    }
+  }
+
+  function renderKpis(){
+    const refundTotal = state.refundRows.reduce((a,r)=>a - Number(r.total_sales||0), 0); // refund rows are negative
+    const pyRefundTotal = state.pyRefundRows.reduce((a,r)=>a - Number(r.total_sales||0), 0);
+    const grossTotal = state.saleRows.reduce((a,r)=>a + Number(r.total_gross_sales||0), 0);
+    const pyGrossTotal = state.pySaleRows.reduce((a,r)=>a + Number(r.total_gross_sales||0), 0);
+    const rate = grossTotal ? (refundTotal/grossTotal)*100 : null;
+    const pyRate = pyGrossTotal ? (pyRefundTotal/pyGrossTotal)*100 : null;
+    const unitsReturned = state.refundRows.filter(r=>reasonBucket(r)==='Product return').reduce((a,r)=>a - Number(r.total_quantity_sold||0), 0);
+    const distinctSkus = new Set(state.refundRows.filter(r=>reasonBucket(r)==='Product return').map(r=>r.sku)).size;
+
+    el.kpiRefundTotal.textContent = money(refundTotal);
+    el.kpiRefundRate.textContent = rate==null ? '—' : `${rate.toFixed(2)}%`;
+    el.kpiUnitsReturned.textContent = numFmt(unitsReturned);
+    el.kpiDistinctSkus.textContent = numFmt(distinctSkus);
+
+    const refundVar = varPct(refundTotal,pyRefundTotal);
+    el.kpiRefundVar.textContent = `vs LY ${pctStr(refundVar)}`;
+    el.kpiRefundVar.className = `bcn-kpi-delta ${refundVar>=0?'bcn-kpi-delta--pos':'bcn-kpi-delta--neg'}`;
+    const rateVarPts = (rate!=null && pyRate!=null) ? rate-pyRate : null;
+    el.kpiRefundRateVar.textContent = rateVarPts==null ? 'vs LY —' : `vs LY ${rateVarPts>0?'+':''}${rateVarPts.toFixed(2)}pt`;
+    el.kpiRefundRateVar.className = `bcn-kpi-delta ${rateVarPts<=0?'bcn-kpi-delta--pos':'bcn-kpi-delta--neg'}`;
+  }
+
+  function renderReasonTable(){
+    const byBucket = new Map();
+    for (const r of state.refundRows){
+      const b = reasonBucket(r);
+      const cur = byBucket.get(b) || { count:0, amount:0 };
+      cur.count += 1;
+      cur.amount += -Number(r.total_sales||0);
+      byBucket.set(b, cur);
+    }
+    const rows = [...byBucket.entries()].sort((a,b)=>b[1].amount-a[1].amount);
+    const total = rows.reduce((a,[,v])=>a+v.amount,0);
+    el.reasonCount.textContent = `${state.refundRows.length} rows`;
+    if (!rows.length){
+      el.reasonBody.innerHTML = `<tr><td colspan="4" class="rt-empty">No refunds in this range.</td></tr>`;
+      return;
+    }
+    el.reasonBody.innerHTML = rows.map(([bucket,v])=>`<tr>
+      <td><span class="rt-bucket-tag ${bucketClass(bucket)}">${esc(bucket)}</span></td>
+      <td class="r">${numFmt(v.count)}</td>
+      <td class="r">${money(v.amount)}</td>
+      <td class="r">${total?((v.amount/total)*100).toFixed(1):'0.0'}%</td>
+    </tr>`).join('');
+  }
+
+  function renderLocationTable(){
+    const byLoc = new Map();
+    for (const r of state.refundRows){
+      const cur = byLoc.get(r.location_tag) || { refund:0 };
+      cur.refund += -Number(r.total_sales||0);
+      byLoc.set(r.location_tag, cur);
+    }
+    for (const r of state.saleRows){
+      const cur = byLoc.get(r.location_tag) || { refund:0 };
+      cur.gross = (cur.gross||0) + Number(r.total_gross_sales||0);
+      byLoc.set(r.location_tag, cur);
+    }
+    const rows = [...byLoc.entries()]
+      .map(([loc,v])=>({ loc, refund:v.refund||0, gross:v.gross||0 }))
+      .filter(r=>r.refund!==0 || r.gross!==0)
+      .sort((a,b)=>b.refund-a.refund);
+    el.locationCount.textContent = `${rows.length} location${rows.length===1?'':'s'}`;
+    if (!rows.length){
+      el.locationBody.innerHTML = `<tr><td colspan="4" class="rt-empty">No data in this range.</td></tr>`;
+      return;
+    }
+    el.locationBody.innerHTML = rows.map(r=>`<tr>
+      <td><strong>${esc(r.loc)}</strong></td>
+      <td class="r">${money(r.refund)}</td>
+      <td class="r">${money(r.gross)}</td>
+      <td class="r">${r.gross?((r.refund/r.gross)*100).toFixed(2):'0.00'}%</td>
+    </tr>`).join('');
+  }
+
+  function renderSkuTable(){
+    const bySku = new Map();
+    for (const r of state.refundRows){
+      if (reasonBucket(r) !== 'Product return') continue;
+      const key = r.sku || '(none)';
+      const cur = bySku.get(key) || { product_name:r.product_name, qty:0, refund:0 };
+      cur.qty -= Number(r.total_quantity_sold||0);
+      cur.refund += -Number(r.total_sales||0);
+      bySku.set(key, cur);
+    }
+    const rows = [...bySku.entries()].sort((a,b)=>b[1].refund-a[1].refund).slice(0,25);
+    el.skuCount.textContent = `${bySku.size} SKU${bySku.size===1?'':'s'}`;
+    if (!rows.length){
+      el.skuBody.innerHTML = `<tr><td colspan="4" class="rt-empty">No product returns in this range.</td></tr>`;
+      return;
+    }
+    el.skuBody.innerHTML = rows.map(([sku,v])=>`<tr>
+      <td class="mono" style="font-family:var(--bcn-mono);font-size:11px">${esc(sku)}</td>
+      <td>${esc(v.product_name||'—')}</td>
+      <td class="r">${numFmt(v.qty)}</td>
+      <td class="r">${money(v.refund)}</td>
+    </tr>`).join('');
+  }
+
+  function renderAll(){ renderKpis(); renderReasonTable(); renderLocationTable(); renderSkuTable(); }
+
+  el.btnRefresh.addEventListener('click', runLoad);
+  el.rangePreset.addEventListener('change', runLoad);
+  el.groupFilters.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-group]'); if (!btn) return;
+    state.activeGroup = btn.dataset.group;
+    [...el.groupFilters.querySelectorAll('[data-group]')].forEach(b=>b.classList.toggle('active', b===btn));
+    recompute();
+  });
+
+  async function boot(){
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session){ window.location.href='/pages/login.html'; return; }
+    const user = sess.data.session.user;
+
+    if (window.SiloChrome){
+      window.SiloChrome.mount({
+        appEl:'#silo-app', active:'reports/returns',
+        user:{ email:user?.email||'', role:'admin' },
+        crumbs:['Reports','Returns & Refunds'],
+        supabaseClient:sb,
+      });
+    }
+    await runLoad();
+  }
+
+  boot();
+</script>
+</body>
+</html>

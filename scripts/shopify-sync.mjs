@@ -187,6 +187,12 @@ async function main() {
       hadError = true;
       console.error(`[error] summary refresh: ${error.message}`);
     }
+
+    const { error: velocityError } = await supabase.rpc('refresh_sales_velocity_mv');
+    if (velocityError) {
+      hadError = true;
+      console.error(`[error] velocity mv refresh: ${velocityError.message}`);
+    }
   }
 
   console.log('[shopify-sync] done', JSON.stringify(allResults, null, 2));

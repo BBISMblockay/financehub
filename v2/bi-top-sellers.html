@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Top Sellers</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <style>
+    .bcn-kpi-band { flex-wrap:wrap; }
+
+    .ts-filters {
+      background:var(--bcn-sunken);
+      border-bottom:1px solid var(--bcn-border);
+      padding:12px 18px;
+      display:flex; align-items:flex-end; justify-content:space-between; gap:12px; flex-wrap:wrap;
+      flex-shrink:0;
+    }
+    .ts-filter-group { display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; }
+    .ts-chips { display:flex; flex-wrap:wrap; gap:5px; }
+    .ts-chip {
+      border:1px solid var(--bcn-border); background:var(--bcn-surface);
+      border-radius:var(--bcn-radius); padding:4px 12px;
+      font-size:11px; font-weight:700; color:var(--bcn-ink-3);
+      cursor:pointer; user-select:none; font-family:var(--bcn-mono);
+    }
+    .ts-chip.active { background:var(--bcn-band); color:var(--bcn-band-ink); border-color:var(--bcn-band); }
+    .ts-status { font-size:11.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); }
+
+    .ts-content { flex:1; padding:12px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:12px; }
+    .ts-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:start; }
+    @media(max-width:1000px){ .ts-grid2{ grid-template-columns:1fr; } }
+
+    .ts-tbl { width:100%; border-collapse:collapse; }
+    .ts-tbl th {
+      padding:7px 10px; font-size:10.5px; font-weight:600; color:var(--bcn-ink-3);
+      border-bottom:1px solid var(--bcn-border-strong); background:var(--bcn-sunken);
+      white-space:nowrap; text-align:left;
+    }
+    .ts-tbl th.r { text-align:right; }
+    .ts-tbl td {
+      padding:7px 10px; font-size:12px; color:var(--bcn-ink);
+      border-bottom:1px solid var(--bcn-border);
+    }
+    .ts-tbl tbody tr:last-child td { border-bottom:none; }
+    .ts-tbl tbody tr:hover td { background:var(--bcn-sunken); }
+    .ts-tbl td.r { text-align:right; font-variant-numeric:tabular-nums; font-family:var(--bcn-mono); font-size:11.5px; }
+    .ts-tbl td.mono { font-family:var(--bcn-mono); font-size:11px; }
+    .ts-tbl td.rank { font-family:var(--bcn-mono); font-size:11px; color:var(--bcn-ink-3); text-align:right; width:1%; }
+    .ts-empty { padding:32px; text-align:center; color:var(--bcn-ink-4); font-family:var(--bcn-mono); font-size:11.5px; }
+    .ts-prod-name { font-weight:600; }
+    .ts-prod-variant { color:var(--bcn-ink-3); font-size:11px; }
+
+    .ts-cover-tag { display:inline-flex; align-items:center; border-radius:var(--bcn-radius); padding:1px 7px; font-size:10px; font-weight:700; font-family:var(--bcn-mono); }
+    .ts-cover-tag.risk { background:var(--bcn-neg-soft,#fef2f2); color:var(--bcn-neg,#dc2626); }
+    .ts-cover-tag.watch { background:oklch(0.98 0.06 75 / .4); color:var(--bcn-warn,#d97706); }
+    .ts-cover-tag.ok { background:var(--bcn-pos-soft,#f0fdf4); color:var(--bcn-pos,#16a34a); }
+    .ts-cover-tag.na { background:var(--bcn-sunken); color:var(--bcn-ink-4); }
+  </style>
+</head>
+<body class="silo-brand">
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0">
+        <div class="bcn-header-title">
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
+        </div>
+        <h1>Top Sellers</h1>
+        <div class="bcn-header-sub">Ranked by units sold in the selected trailing window, with on-hand inventory and days-of-cover from the latest snapshot.</div>
+      </div>
+      <div class="bcn-header-actions">
+        <button id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
+      </div>
+    </header>
+
+    <div class="bcn-kpi-band">
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Units Sold</div><div id="kpiUnits" class="bcn-kpi-value">—</div><div id="kpiUnitsSub" class="bcn-kpi-delta">selected window</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Distinct SKUs Selling</div><div id="kpiSkus" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">of total catalog on hand</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Avg Days of Cover</div><div id="kpiCover" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">median across selling SKUs</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">At Risk of Stockout</div><div id="kpiRisk" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">≤14 days of cover</div></div>
+    </div>
+
+    <div class="ts-filters">
+      <div class="ts-filter-group">
+        <div>
+          <label class="bcn-label">Velocity window</label>
+          <select id="windowSelect" class="bcn-field">
+            <option value="7">Last 7 days</option>
+            <option value="30" selected>Last 30 days</option>
+            <option value="90">Last 90 days</option>
+            <option value="365">Last 365 days</option>
+          </select>
+        </div>
+        <div>
+          <label class="bcn-label">Product type</label>
+          <select id="typeSelect" class="bcn-field"><option value="">All types</option></select>
+        </div>
+        <div>
+          <label class="bcn-label">Store group</label>
+          <div class="ts-chips" id="groupFilters">
+            <button class="ts-chip active" data-group="all">All Stores</button>
+          </div>
+        </div>
+      </div>
+      <div id="statusText" class="ts-status">Loading…</div>
+    </div>
+
+    <div class="ts-content">
+      <div class="bcn-card">
+        <div class="bcn-card-header">
+          <h2>Top 50 sellers</h2>
+          <span id="leaderCount" class="bcn-card-meta" style="margin-left:auto">0 rows</span>
+        </div>
+        <div class="bcn-card-body" style="padding:0;overflow:visible">
+          <table class="ts-tbl">
+            <thead><tr>
+              <th></th><th>Product</th><th>Location</th><th>Type</th>
+              <th class="r" id="colQty">Qty</th><th class="r">Avg/day</th><th class="r">On hand</th><th class="r">Cover</th>
+            </tr></thead>
+            <tbody id="leaderBody"><tr><td colspan="8" class="ts-empty">Loading…</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="ts-grid2">
+        <div class="bcn-card">
+          <div class="bcn-card-header">
+            <h2>By product type</h2>
+            <span id="typeCount" class="bcn-card-meta" style="margin-left:auto">0 types</span>
+          </div>
+          <div class="bcn-card-body" style="padding:0;overflow:visible">
+            <table class="ts-tbl">
+              <thead><tr><th>Type</th><th class="r">Qty</th><th class="r">SKUs</th><th class="r">% of total</th></tr></thead>
+              <tbody id="typeBody"><tr><td colspan="4" class="ts-empty">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="bcn-card">
+          <div class="bcn-card-header">
+            <h2>By location</h2>
+            <span id="locationCount" class="bcn-card-meta" style="margin-left:auto">0 locations</span>
+          </div>
+          <div class="bcn-card-body" style="padding:0;overflow:visible">
+            <table class="ts-tbl">
+              <thead><tr><th>Location</th><th class="r">Qty</th><th class="r">SKUs</th></tr></thead>
+              <tbody id="locationBody"><tr><td colspan="3" class="ts-empty">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
+    throw new Error('Missing Supabase config');
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global:{ fetch:(url,o={})=>fetch(url,{...o,cache:'no-store'}) },
+  });
+  const _co = cfg.getActiveCompany?.() || null;
+  function scopeQ(q){ return _co?.id ? q.eq('company_entity_id',_co.id) : q; }
+
+  function slugify(v){
+    return String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'unknown';
+  }
+
+  // inventory_workboard_v aliases qty_30d as `sold_30`; the other windows
+  // keep their natural column names. One-line map so the rest of the page
+  // never has to special-case the 30d column.
+  const WINDOWS = {
+    '7':   { qtyCol:'qty_7d',   avgCol:'avg_day_7',   label:'7d'  },
+    '30':  { qtyCol:'sold_30',  avgCol:'avg_day_30',  label:'30d' },
+    '90':  { qtyCol:'qty_90d',  avgCol:'avg_day_90',  label:'90d' },
+    '365': { qtyCol:'qty_365d', avgCol:'avg_day_365', label:'365d' },
+  };
+
+  // "return,package_protection" is a checkout add-on fee line, not a real
+  // SKU — excluded so it doesn't dominate the leaderboard.
+  const EXCLUDED_TYPES = new Set(['return,package_protection']);
+
+  const state = { groupByTag:new Map(), groups:[], activeGroup:'all', activeType:'', activeWindow:'30', rowsRaw:[], rows:[] };
+
+  const el = {
+    btnRefresh: document.getElementById('btnRefresh'),
+    windowSelect: document.getElementById('windowSelect'),
+    typeSelect: document.getElementById('typeSelect'),
+    groupFilters: document.getElementById('groupFilters'),
+    statusText: document.getElementById('statusText'),
+    colQty: document.getElementById('colQty'),
+    leaderBody: document.getElementById('leaderBody'),
+    leaderCount: document.getElementById('leaderCount'),
+    typeBody: document.getElementById('typeBody'),
+    typeCount: document.getElementById('typeCount'),
+    locationBody: document.getElementById('locationBody'),
+    locationCount: document.getElementById('locationCount'),
+    kpiUnits: document.getElementById('kpiUnits'),
+    kpiUnitsSub: document.getElementById('kpiUnitsSub'),
+    kpiSkus: document.getElementById('kpiSkus'),
+    kpiCover: document.getElementById('kpiCover'),
+    kpiRisk: document.getElementById('kpiRisk'),
+  };
+
+  const numFmt = v => Number(v||0).toLocaleString();
+  const money  = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(v||0));
+  const esc    = s => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
+  function setStatus(t){ el.statusText.textContent=t; }
+
+  function coverTag(days){
+    if (days==null) return `<span class="ts-cover-tag na">N/A</span>`;
+    if (days<=14) return `<span class="ts-cover-tag risk">${days.toFixed(0)}d</span>`;
+    if (days<=45) return `<span class="ts-cover-tag watch">${days.toFixed(0)}d</span>`;
+    return `<span class="ts-cover-tag ok">${days.toFixed(0)}d</span>`;
+  }
+
+  async function loadStoreGroups(){
+    let q = sb.from('locations').select('location_code,location_name,store_type');
+    q = scopeQ(q);
+    const { data,error } = await q;
+    if (error) throw error;
+    const map=new Map(); const groupSet=new Set();
+    for (const row of data||[]){
+      const tag=slugify(row.location_code||row.location_name);
+      const group=(row.store_type||'retail').toLowerCase();
+      map.set(tag,group); groupSet.add(group);
+    }
+    state.groupByTag=map; state.groups=[...groupSet].sort();
+  }
+
+  function renderGroupChips(){
+    const chips = ['<button class="ts-chip active" data-group="all">All Stores</button>']
+      .concat(state.groups.map(g=>`<button class="ts-chip" data-group="${g}">${g.charAt(0).toUpperCase()+g.slice(1)}</button>`));
+    el.groupFilters.innerHTML = chips.join('');
+  }
+
+  function renderTypeOptions(){
+    const types = [...new Set(state.rowsRaw.map(r=>r.product_type).filter(t=>t && !EXCLUDED_TYPES.has(t)))].sort();
+    const prev = el.typeSelect.value;
+    el.typeSelect.innerHTML = `<option value="">All types</option>` + types.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join('');
+    if (types.includes(prev)) el.typeSelect.value = prev;
+  }
+
+  function inGroup(r){
+    if (state.activeGroup==='all') return true;
+    return (state.groupByTag.get(r.location_tag)||'retail')===state.activeGroup;
+  }
+  function inType(r){
+    if (!state.activeType) return true;
+    return r.product_type===state.activeType;
+  }
+
+  // Paged fetch — only rows with qty > 0 for the selected window, so we
+  // never pull the full (mostly zero-sale) inventory catalog over the wire.
+  async function loadWindowRows(windowKey){
+    const { qtyCol } = WINDOWS[windowKey];
+    const PAGE_SIZE=10000; let from=0, out=[];
+    for(;;){
+      let q = sb.from('inventory_workboard_v')
+        .select(`location_tag,location_name,product_type,product_title,variant_title,variant_sku,retail_price,total_available_quantity,qty_7d,sold_30,qty_90d,qty_365d,avg_day_7,avg_day_30,avg_day_90,avg_day_365,days_oos,velocity_basis,last_sold_date,company_entity_id`)
+        .gt(qtyCol, 0)
+        .order(qtyCol, { ascending:false })
+        .range(from,from+PAGE_SIZE-1);
+      q = scopeQ(q);
+      const { data,error } = await q;
+      if (error) throw error;
+      out = out.concat(data||[]);
+      if (!data || data.length<PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+    return out.filter(r=>!EXCLUDED_TYPES.has(r.product_type));
+  }
+
+  function recompute(){
+    state.rows = state.rowsRaw.filter(r=>inGroup(r) && inType(r));
+    renderAll();
+    setStatus(`Loaded ${state.rows.length} of ${state.rowsRaw.length} selling SKU/location rows (${WINDOWS[state.activeWindow].label} window).`);
+  }
+
+  async function runLoad(){
+    setStatus('Loading…');
+    try {
+      await loadStoreGroups();
+      renderGroupChips();
+
+      state.activeWindow = el.windowSelect.value;
+      state.rowsRaw = await loadWindowRows(state.activeWindow);
+      renderTypeOptions();
+      recompute();
+    } catch(e){
+      console.error(e);
+      setStatus(`Load failed: ${e.message}`);
+    }
+  }
+
+  function renderKpis(){
+    const { qtyCol, avgCol, label } = WINDOWS[state.activeWindow];
+    const totalUnits = state.rows.reduce((a,r)=>a + Number(r[qtyCol]||0), 0);
+    const distinctSkus = new Set(state.rows.map(r=>r.variant_sku)).size;
+    const covers = state.rows.map(r=>{
+      const avg = Number(r[avgCol]||0);
+      if (!avg) return null;
+      return Number(r.total_available_quantity||0)/avg;
+    }).filter(v=>v!=null).sort((a,b)=>a-b);
+    const median = covers.length ? covers[Math.floor(covers.length/2)] : null;
+    const atRisk = covers.filter(v=>v<=14).length;
+
+    el.kpiUnits.textContent = numFmt(totalUnits);
+    el.kpiUnitsSub.textContent = `${label} window`;
+    el.kpiSkus.textContent = numFmt(distinctSkus);
+    el.kpiCover.textContent = median==null ? '—' : `${median.toFixed(0)}d`;
+    el.kpiRisk.textContent = numFmt(atRisk);
+    el.colQty.textContent = `Qty (${label})`;
+  }
+
+  function renderLeaderboard(){
+    const { qtyCol, avgCol } = WINDOWS[state.activeWindow];
+    const rows = [...state.rows].sort((a,b)=>Number(b[qtyCol]||0)-Number(a[qtyCol]||0)).slice(0,50);
+    el.leaderCount.textContent = `${state.rows.length} rows`;
+    if (!rows.length){
+      el.leaderBody.innerHTML = `<tr><td colspan="8" class="ts-empty">No sales in this range.</td></tr>`;
+      return;
+    }
+    el.leaderBody.innerHTML = rows.map((r,i)=>{
+      const avg = Number(r[avgCol]||0);
+      const days = avg>0 ? Number(r.total_available_quantity||0)/avg : null;
+      return `<tr>
+        <td class="rank">${i+1}</td>
+        <td><div class="ts-prod-name">${esc(r.product_title||'—')}</div><div class="ts-prod-variant">${esc(r.variant_title||'')} ${esc(r.variant_sku||'')}</div></td>
+        <td>${esc(r.location_name||r.location_tag||'—')}</td>
+        <td>${esc(r.product_type||'Uncategorized')}</td>
+        <td class="r">${numFmt(r[qtyCol])}</td>
+        <td class="r">${avg.toFixed(1)}</td>
+        <td class="r">${numFmt(r.total_available_quantity)}</td>
+        <td class="r">${coverTag(days)}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  function renderTypeTable(){
+    const { qtyCol } = WINDOWS[state.activeWindow];
+    const byType = new Map();
+    for (const r of state.rows){
+      const key = r.product_type || 'Uncategorized';
+      const cur = byType.get(key) || { qty:0, skus:new Set() };
+      cur.qty += Number(r[qtyCol]||0);
+      cur.skus.add(r.variant_sku);
+      byType.set(key,cur);
+    }
+    const rows = [...byType.entries()].map(([type,v])=>({ type, qty:v.qty, skus:v.skus.size })).sort((a,b)=>b.qty-a.qty);
+    const total = rows.reduce((a,r)=>a+r.qty,0);
+    el.typeCount.textContent = `${rows.length} types`;
+    if (!rows.length){
+      el.typeBody.innerHTML = `<tr><td colspan="4" class="ts-empty">No data.</td></tr>`;
+      return;
+    }
+    el.typeBody.innerHTML = rows.slice(0,25).map(r=>`<tr>
+      <td>${esc(r.type)}</td>
+      <td class="r">${numFmt(r.qty)}</td>
+      <td class="r">${numFmt(r.skus)}</td>
+      <td class="r">${total?((r.qty/total)*100).toFixed(1):'0.0'}%</td>
+    </tr>`).join('');
+  }
+
+  function renderLocationTable(){
+    const { qtyCol } = WINDOWS[state.activeWindow];
+    const byLoc = new Map();
+    for (const r of state.rows){
+      const key = r.location_name || r.location_tag || 'Unknown';
+      const cur = byLoc.get(key) || { qty:0, skus:new Set() };
+      cur.qty += Number(r[qtyCol]||0);
+      cur.skus.add(r.variant_sku);
+      byLoc.set(key,cur);
+    }
+    const rows = [...byLoc.entries()].map(([loc,v])=>({ loc, qty:v.qty, skus:v.skus.size })).sort((a,b)=>b.qty-a.qty);
+    el.locationCount.textContent = `${rows.length} location${rows.length===1?'':'s'}`;
+    if (!rows.length){
+      el.locationBody.innerHTML = `<tr><td colspan="3" class="ts-empty">No data.</td></tr>`;
+      return;
+    }
+    el.locationBody.innerHTML = rows.map(r=>`<tr>
+      <td><strong>${esc(r.loc)}</strong></td>
+      <td class="r">${numFmt(r.qty)}</td>
+      <td class="r">${numFmt(r.skus)}</td>
+    </tr>`).join('');
+  }
+
+  function renderAll(){ renderKpis(); renderLeaderboard(); renderTypeTable(); renderLocationTable(); }
+
+  el.btnRefresh.addEventListener('click', runLoad);
+  el.windowSelect.addEventListener('change', runLoad);
+  el.typeSelect.addEventListener('change', () => { state.activeType = el.typeSelect.value; recompute(); });
+  el.groupFilters.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-group]'); if (!btn) return;
+    state.activeGroup = btn.dataset.group;
+    [...el.groupFilters.querySelectorAll('[data-group]')].forEach(b=>b.classList.toggle('active', b===btn));
+    recompute();
+  });
+
+  async function boot(){
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session){ window.location.href='/pages/login.html'; return; }
+    const user = sess.data.session.user;
+
+    if (window.SiloChrome){
+      window.SiloChrome.mount({
+        appEl:'#silo-app', active:'reports/top-sellers',
+        user:{ email:user?.email||'', role:'admin' },
+        crumbs:['Reports','Top Sellers'],
+        supabaseClient:sb,
+      });
+    }
+    await runLoad();
+  }
+
+  boot();
+</script>
+</body>
+</html>

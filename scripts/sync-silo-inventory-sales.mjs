@@ -807,6 +807,18 @@ async function refreshSalesVerificationSummary() {
   console.log("Sales verification summary refreshed.");
 }
 
+async function refreshSalesVelocityMv() {
+  console.log("Refreshing sales_velocity_by_sku_location_mv...");
+
+  const { error } = await supabase.rpc("refresh_sales_velocity_mv");
+
+  if (error) {
+    throw new Error(`sales velocity mv refresh failed: ${error.message}`);
+  }
+
+  console.log("sales_velocity_by_sku_location_mv refreshed.");
+}
+
 async function purgeBetterReportsOverlap(companyEntityId) {
   const { data, error } = await supabase.rpc("purge_better_reports_overlap", {
     p_company_entity_id: companyEntityId,
@@ -863,6 +875,13 @@ async function main() {
     } catch (err) {
       salesSummaryRefreshError = err.message;
       console.error("Sales verification summary refresh failed:");
+      console.error(err);
+    }
+
+    try {
+      await refreshSalesVelocityMv();
+    } catch (err) {
+      console.error("sales_velocity_by_sku_location_mv refresh failed:");
       console.error(err);
     }
   }
