@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Reports Dashboard</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <style>
+    .bcn-kpi-band { flex-wrap:wrap; }
+
+    .db-status-row {
+      background:var(--bcn-sunken); border-bottom:1px solid var(--bcn-border);
+      padding:8px 18px; display:flex; align-items:center; justify-content:flex-end;
+      flex-shrink:0;
+    }
+    .db-status { font-size:11.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); }
+
+    .db-content { flex:1; padding:12px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:12px; }
+    /* .bcn-card sets overflow:hidden + min-height:0 for scrollable-table cards
+       elsewhere; in a flex column with >1 sibling that lets it shrink below
+       its own content (clipping the chart's SVG) instead of letting this
+       column scroll. Direct children keep their natural height; the column
+       scrolls if the page is taller than the viewport. */
+    .db-content > .bcn-card,
+    .db-content > .db-grid3 { flex-shrink:0; }
+
+    .db-card-foot {
+      padding:9px 16px; border-top:1px solid var(--bcn-border);
+      display:flex; justify-content:flex-end;
+    }
+    .db-card-foot a {
+      font-family:var(--bcn-mono); font-size:11px; font-weight:700; color:var(--bcn-accent);
+      text-decoration:none;
+    }
+    .db-card-foot a:hover { text-decoration:underline; }
+
+    /* ---- Trend chart (condensed variant of bi-daily-trend.html) ---- */
+    .db-chart-wrap { position:relative; width:100%; }
+    .db-chart-wrap svg { display:block; width:100%; height:auto; overflow:visible; }
+    .db-gridline { stroke:var(--bcn-border); stroke-width:1; }
+    .db-axis-label { fill:var(--bcn-ink-3); font-size:10px; font-family:var(--bcn-mono); }
+    .db-line-cur { fill:none; stroke:var(--bcn-accent); stroke-width:2; stroke-linejoin:round; stroke-linecap:round; }
+    .db-area-cur { fill:var(--bcn-accent); opacity:.10; }
+    .db-line-py  { fill:none; stroke:var(--bcn-ink-3); stroke-width:2; stroke-dasharray:5 4; stroke-linejoin:round; stroke-linecap:round; }
+    .db-dot-cur  { fill:var(--bcn-accent); stroke:var(--bcn-surface); stroke-width:2; }
+    .db-dot-py   { fill:var(--bcn-ink-3); stroke:var(--bcn-surface); stroke-width:2; }
+    .db-endlabel { font-size:11px; font-weight:700; font-family:var(--bcn-mono); }
+    .db-crosshair { stroke:var(--bcn-border-strong); stroke-width:1; pointer-events:none; }
+    .db-hit { fill:transparent; }
+    .db-legend { display:flex; align-items:center; gap:16px; font-size:11.5px; color:var(--bcn-ink-2); }
+    .db-legend-item { display:flex; align-items:center; gap:6px; }
+    .db-legend-key { display:inline-block; width:18px; height:0; border-top:2px solid; }
+    .db-legend-key.cur { border-color:var(--bcn-accent); border-top-style:solid; }
+    .db-legend-key.py  { border-color:var(--bcn-ink-3); border-top-style:dashed; }
+    .db-tooltip {
+      position:absolute; pointer-events:none; z-index:5;
+      background:var(--bcn-band); color:var(--bcn-band-ink);
+      border-radius:var(--bcn-radius); padding:8px 10px; font-size:11.5px;
+      white-space:nowrap; opacity:0; transition:opacity .08s;
+      box-shadow:0 4px 12px oklch(0 0 0 / .18);
+    }
+    .db-tooltip.show { opacity:1; }
+    .db-tooltip .tt-date { font-family:var(--bcn-mono); font-size:10px; color:var(--bcn-band-ink-3); margin-bottom:4px; }
+    .db-tooltip .tt-row { display:flex; align-items:center; gap:6px; }
+    .db-tooltip .tt-key { width:10px; height:2px; border-radius:1px; }
+    .db-tooltip .tt-key.cur { background:var(--bcn-accent); }
+    .db-tooltip .tt-key.py  { background:var(--bcn-ink-3); }
+    .db-tooltip .tt-val { font-weight:700; margin-left:auto; }
+    .db-empty { padding:32px; text-align:center; color:var(--bcn-ink-4); font-family:var(--bcn-mono); font-size:11.5px; }
+
+    /* ---- Snapshot grid ---- */
+    .db-grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; align-items:start; }
+    @media(max-width:1100px){ .db-grid3{ grid-template-columns:1fr; } }
+
+    .db-list { display:flex; flex-direction:column; }
+    .db-row {
+      display:flex; align-items:center; gap:8px; padding:8px 16px;
+      border-bottom:1px solid var(--bcn-border); font-size:12px;
+    }
+    .db-row:last-child { border-bottom:none; }
+    .db-row .rank { font-family:var(--bcn-mono); font-size:10.5px; color:var(--bcn-ink-3); width:14px; flex-shrink:0; }
+    .db-row .main { flex:1; min-width:0; }
+    .db-row .name { font-weight:600; color:var(--bcn-ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .db-row .sub { font-size:10.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .db-row .val { font-family:var(--bcn-mono); font-size:12px; font-weight:700; text-align:right; flex-shrink:0; }
+
+    .db-var-pill { font-size:10.5px; padding:1px 6px; }
+    .db-var-pill .arrow { margin-right:2px; }
+
+    .db-snap-stats { display:flex; gap:0; border-bottom:1px solid var(--bcn-border); }
+    .db-snap-stat { flex:1; padding:12px 16px; border-right:1px solid var(--bcn-border); }
+    .db-snap-stat:last-child { border-right:none; }
+    .db-snap-stat-label { font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.08em; color:var(--bcn-ink-3); }
+    .db-snap-stat-value { font-family:var(--bcn-mono); font-size:17px; font-weight:600; color:var(--bcn-ink); margin-top:3px; }
+
+    .bcn-btn.is-loading { opacity:.6; pointer-events:none; }
+  </style>
+</head>
+<body class="silo-brand">
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0">
+        <div class="bcn-header-title">
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
+        </div>
+        <h1>Reports Dashboard</h1>
+        <div class="bcn-header-sub">Company performance at a glance. Every card below links to its full report for detail and filtering.</div>
+      </div>
+      <div class="bcn-header-actions">
+        <span id="lastRefreshPill" class="bcn-pill bcn-pill--dark" style="font-family:var(--bcn-mono);font-size:10.5px">Comps as of: —</span>
+        <button id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
+      </div>
+    </header>
+
+    <div class="bcn-kpi-band">
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Today Total</div><div id="kpiDayTotal" class="bcn-kpi-value">—</div><div id="kpiDayVar" class="bcn-kpi-delta">vs LY —</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">MTD Total</div><div id="kpiMtdTotal" class="bcn-kpi-value">—</div><div id="kpiMtdVar" class="bcn-kpi-delta">vs LY —</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">YTD Total</div><div id="kpiYtdTotal" class="bcn-kpi-value">—</div><div id="kpiYtdVar" class="bcn-kpi-delta">vs LY —</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Refund Rate</div><div id="kpiRefundRate" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Trailing 30 days</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Best Mover</div><div id="kpiBestMover" class="bcn-kpi-value" style="font-size:15px">—</div><div id="kpiBestMoverVal" class="bcn-kpi-delta">MTD vs LY</div></div>
+    </div>
+
+    <div class="db-status-row"><div id="statusText" class="db-status">Loading…</div></div>
+
+    <div class="db-content">
+      <div class="bcn-card">
+        <div class="bcn-card-header">
+          <h2>Sales Trend — Last 30 Days</h2>
+          <div class="db-legend" style="margin-left:auto">
+            <div class="db-legend-item"><span class="db-legend-key cur"></span>Current</div>
+            <div class="db-legend-item"><span class="db-legend-key py"></span>Prior year</div>
+          </div>
+        </div>
+        <div class="bcn-card-body">
+          <div class="db-chart-wrap" id="chartWrap">
+            <div class="db-empty" id="chartEmpty">Loading…</div>
+          </div>
+        </div>
+        <div class="db-card-foot"><a href="/v2/bi-daily-trend.html">View full Daily Sales Trend report →</a></div>
+      </div>
+
+      <div class="db-grid3">
+        <div class="bcn-card">
+          <div class="bcn-card-header"><h2>Top Movers</h2></div>
+          <div class="bcn-card-body" style="padding:0;overflow:visible">
+            <div class="db-list" id="moversList"><div class="db-empty">Loading…</div></div>
+          </div>
+          <div class="db-card-foot"><a href="/v2/bi-sales-overview.html">View full Sales Overview →</a></div>
+        </div>
+
+        <div class="bcn-card">
+          <div class="bcn-card-header"><h2>Top Sellers</h2></div>
+          <div class="bcn-card-body" style="padding:0;overflow:visible">
+            <div class="db-list" id="sellersList"><div class="db-empty">Loading…</div></div>
+          </div>
+          <div class="db-card-foot"><a href="/v2/bi-top-sellers.html">View full Top Sellers report →</a></div>
+        </div>
+
+        <div class="bcn-card">
+          <div class="bcn-card-header"><h2>Returns Snapshot</h2></div>
+          <div class="db-snap-stats">
+            <div class="db-snap-stat"><div class="db-snap-stat-label">Refund $</div><div id="snapRefundTotal" class="db-snap-stat-value">—</div></div>
+            <div class="db-snap-stat"><div class="db-snap-stat-label">Rate</div><div id="snapRefundRate" class="db-snap-stat-value">—</div></div>
+          </div>
+          <div class="bcn-card-body" style="padding:0;overflow:visible">
+            <div class="db-list" id="returnsList"><div class="db-empty">Loading…</div></div>
+          </div>
+          <div class="db-card-foot"><a href="/v2/bi-returns.html">View full Returns & Refunds report →</a></div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
+    throw new Error('Missing Supabase config');
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global:{ fetch:(url,o={})=>fetch(url,{...o,cache:'no-store'}) },
+  });
+  const _co = cfg.getActiveCompany?.() || null;
+  function scopeQ(q){ return _co?.id ? q.eq('company_entity_id',_co.id) : q; }
+
+  // "return,package_protection" is a checkout add-on fee line, not a real SKU.
+  const EXCLUDED_TYPES = new Set(['return,package_protection']);
+  // Same classification the sync writes for order-level refund pieces.
+  function reasonBucket(r){
+    const key = String(r.sku || r.product_name || '').trim().toLowerCase();
+    if (key === '[shipping]') return 'Shipping refund';
+    if (key === '[refund discrepancy]') return 'Refund discrepancy';
+    return 'Product return';
+  }
+
+  const state = { compRows:[], trendDays:[], sellers:[], refundTotal:0, refundRate:null, topReason:null, topSku:null };
+
+  const el = {
+    btnRefresh: document.getElementById('btnRefresh'),
+    lastRefreshPill: document.getElementById('lastRefreshPill'),
+    statusText: document.getElementById('statusText'),
+    chartWrap: document.getElementById('chartWrap'),
+    chartEmpty: document.getElementById('chartEmpty'),
+    moversList: document.getElementById('moversList'),
+    sellersList: document.getElementById('sellersList'),
+    returnsList: document.getElementById('returnsList'),
+    snapRefundTotal: document.getElementById('snapRefundTotal'),
+    snapRefundRate: document.getElementById('snapRefundRate'),
+    kpiDayTotal: document.getElementById('kpiDayTotal'),
+    kpiDayVar: document.getElementById('kpiDayVar'),
+    kpiMtdTotal: document.getElementById('kpiMtdTotal'),
+    kpiMtdVar: document.getElementById('kpiMtdVar'),
+    kpiYtdTotal: document.getElementById('kpiYtdTotal'),
+    kpiYtdVar: document.getElementById('kpiYtdVar'),
+    kpiRefundRate: document.getElementById('kpiRefundRate'),
+    kpiBestMover: document.getElementById('kpiBestMover'),
+    kpiBestMoverVal: document.getElementById('kpiBestMoverVal'),
+  };
+
+  const money  = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(v||0));
+  const moneyW = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(v||0));
+  const numFmt = v => Number(v||0).toLocaleString();
+  const esc    = s => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
+  const fmtTs  = ts => { if(!ts) return '—'; const d=new Date(ts); return isNaN(d)?String(ts):d.toLocaleString(); };
+  const isoDateOnly = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const addDays = (s,n) => { const d=new Date(`${s}T00:00:00`); d.setDate(d.getDate()+n); return isoDateOnly(d); };
+  const addYears = (s,n) => {
+    const d=new Date(`${s}T00:00:00`);
+    const wasFeb29 = d.getMonth()===1 && d.getDate()===29;
+    d.setFullYear(d.getFullYear()+n);
+    if (wasFeb29 && d.getMonth()===2) d.setDate(0);
+    return isoDateOnly(d);
+  };
+  function varPct(cur,py){
+    const c=Number(cur||0), p=Number(py||0);
+    if (!p) return null;
+    return ((c-p)/Math.abs(p))*100;
+  }
+  function pctStr(v){ if (v==null||Number.isNaN(v)) return '—'; return `${v>0?'+':''}${v.toFixed(1)}%`; }
+  function arrowFor(v){ if (v==null||Number.isNaN(v)||v===0) return ''; return v>0?'▲':'▼'; }
+  function kpiDeltaText(v){ const a=arrowFor(v); return `vs LY ${a?a+' ':''}${pctStr(v)}`; }
+  function varPill(v){
+    if (v==null||Number.isNaN(v)) return `<span class="bcn-pill db-var-pill">—</span>`;
+    const cls = v>=0 ? 'bcn-pill--pos' : 'bcn-pill--neg';
+    const a = arrowFor(v);
+    return `<span class="bcn-pill db-var-pill ${cls}">${a?`<span class="arrow">${a}</span>`:''}${pctStr(v)}</span>`;
+  }
+  function setStatus(t){ el.statusText.textContent=t; }
+
+  async function loadCompSummary(){
+    let q = sb.from('sales_verification_store_comp_summary').select('*').order('location_tag',{ascending:true});
+    q = scopeQ(q);
+    const { data,error } = await q;
+    if (error) throw error;
+    state.compRows = data||[];
+  }
+
+  // Paged fetch (mirrors bi-daily-trend.html / bi-returns.html) — 30 days,
+  // current + same-day-offset prior year, company-wide (no store filter on
+  // a glance dashboard — full filtering lives in the dedicated reports).
+  async function loadTrendAndReturns(){
+    const today = isoDateOnly(new Date());
+    const curFrom = addDays(today,-29), curTo = today;
+    const pyFrom = addYears(curFrom,-1), pyTo = addYears(curTo,-1);
+
+    async function loadPagedRange(dateFrom,dateTo){
+      const PAGE_SIZE=10000; let from=0, out=[];
+      for(;;){
+        let q = sb.from('sales_by_day_verification_v')
+          .select('day_date,sku,product_name,total_orders,total_quantity_sold,total_gross_sales,total_sales')
+          .gte('day_date',dateFrom).lte('day_date',dateTo)
+          .range(from,from+PAGE_SIZE-1);
+        q = scopeQ(q);
+        const { data,error } = await q;
+        if (error) throw error;
+        out = out.concat(data||[]);
+        if (!data || data.length<PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+      return out;
+    }
+
+    const [curRows, pyRows] = await Promise.all([loadPagedRange(curFrom,curTo), loadPagedRange(pyFrom,pyTo)]);
+
+    // Trend: sum total_sales per day (nets refunds against sales automatically
+    // since refund rows already carry negative total_sales on their processed date).
+    function aggregateByDay(rows,rangeStart,rangeEnd){
+      const byDay=new Map();
+      for (const r of rows){
+        const cur = byDay.get(r.day_date) || 0;
+        byDay.set(r.day_date, cur + Number(r.total_sales||0));
+      }
+      const out=[]; let d=rangeStart;
+      while (d<=rangeEnd){ out.push({ day:d, total:byDay.get(d)||0 }); d=addDays(d,1); }
+      return out;
+    }
+    const curDays = aggregateByDay(curRows,curFrom,curTo);
+    const pyDays  = aggregateByDay(pyRows,pyFrom,pyTo);
+    state.trendDays = curDays.map((c,i)=>({ day:c.day, total:c.total, pyTotal:pyDays[i]?.total??0 }));
+
+    // Returns snapshot: trailing 30 days only (current period, not PY).
+    const refundRows = curRows.filter(r=>r.total_orders===0);
+    const saleRows = curRows.filter(r=>r.total_orders>0);
+    const refundTotal = refundRows.reduce((a,r)=>a - Number(r.total_sales||0), 0);
+    const grossTotal = saleRows.reduce((a,r)=>a + Number(r.total_gross_sales||0), 0);
+    state.refundTotal = refundTotal;
+    state.refundRate = grossTotal ? (refundTotal/grossTotal)*100 : null;
+
+    const byBucket = new Map();
+    const bySku = new Map();
+    for (const r of refundRows){
+      const b = reasonBucket(r);
+      byBucket.set(b, (byBucket.get(b)||0) - Number(r.total_sales||0));
+      if (b==='Product return'){
+        const key = r.sku || '(none)';
+        const cur = bySku.get(key) || { product_name:r.product_name, amount:0 };
+        cur.amount += -Number(r.total_sales||0);
+        bySku.set(key, cur);
+      }
+    }
+    state.topReason = [...byBucket.entries()].sort((a,b)=>b[1]-a[1])[0] || null;
+    const topSkuEntry = [...bySku.entries()].sort((a,b)=>b[1].amount-a[1].amount)[0] || null;
+    state.topSku = topSkuEntry ? { sku:topSkuEntry[0], ...topSkuEntry[1] } : null;
+  }
+
+  async function loadTopSellers(){
+    let q = sb.from('inventory_workboard_v')
+      .select('product_title,variant_title,variant_sku,location_tag,location_name,total_available_quantity,sold_30')
+      .gt('sold_30',0)
+      .neq('product_type','return,package_protection')
+      .order('sold_30',{ascending:false})
+      .limit(5);
+    q = scopeQ(q);
+    const { data,error } = await q;
+    if (error) throw error;
+    state.sellers = data||[];
+  }
+
+  function renderKpis(){
+    const rows = state.compRows;
+    const sum=(k)=>rows.reduce((a,r)=>a+Number(r[k]||0),0);
+    const dayTotal=sum('cur_day_total'), pyDayTotal=sum('py_day_total');
+    const mtdTotal=sum('cur_mtd_total'), pyMtdTotal=sum('py_mtd_total');
+    const ytdTotal=sum('cur_ytd_total'), pyYtdTotal=sum('py_ytd_total');
+
+    el.kpiDayTotal.textContent = money(dayTotal);
+    el.kpiMtdTotal.textContent = money(mtdTotal);
+    el.kpiYtdTotal.textContent = money(ytdTotal);
+    el.kpiRefundRate.textContent = state.refundRate==null ? '—' : `${state.refundRate.toFixed(2)}%`;
+
+    const dayVar=varPct(dayTotal,pyDayTotal), mtdVar=varPct(mtdTotal,pyMtdTotal), ytdVar=varPct(ytdTotal,pyYtdTotal);
+    el.kpiDayVar.textContent = kpiDeltaText(dayVar);
+    el.kpiDayVar.className = `bcn-kpi-delta ${dayVar>=0?'bcn-kpi-delta--pos':'bcn-kpi-delta--neg'}`;
+    el.kpiMtdVar.textContent = kpiDeltaText(mtdVar);
+    el.kpiMtdVar.className = `bcn-kpi-delta ${mtdVar>=0?'bcn-kpi-delta--pos':'bcn-kpi-delta--neg'}`;
+    el.kpiYtdVar.textContent = kpiDeltaText(ytdVar);
+    el.kpiYtdVar.className = `bcn-kpi-delta ${ytdVar>=0?'bcn-kpi-delta--pos':'bcn-kpi-delta--neg'}`;
+
+    const withVar = rows.filter(r=>r.mtd_total_var_pct!=null);
+    const best = withVar.reduce((a,r)=>(a==null||r.mtd_total_var_pct>a.mtd_total_var_pct)?r:a, null);
+    if (best){
+      el.kpiBestMover.textContent = best.location_tag;
+      el.kpiBestMoverVal.innerHTML = varPill(best.mtd_total_var_pct*100);
+    } else {
+      el.kpiBestMover.textContent = '—';
+      el.kpiBestMoverVal.textContent = 'MTD vs LY';
+    }
+  }
+
+  function renderMovers(){
+    const withVar = state.compRows.filter(r=>r.mtd_total_var_pct!=null);
+    if (!withVar.length){
+      el.moversList.innerHTML = `<div class="db-empty">No comp data yet.</div>`;
+      return;
+    }
+    const sorted = [...withVar].sort((a,b)=>b.mtd_total_var_pct-a.mtd_total_var_pct);
+    const up = sorted.slice(0,3);
+    const down = sorted.slice(-3).reverse().filter(r=>!up.includes(r));
+    const rows = [...up, ...down];
+    el.moversList.innerHTML = rows.map(r=>`<div class="db-row">
+      <div class="main"><div class="name">${esc(r.location_tag)}</div><div class="sub">MTD Total ${moneyW(r.cur_mtd_total)}</div></div>
+      <div class="val">${varPill(r.mtd_total_var_pct*100)}</div>
+    </div>`).join('');
+  }
+
+  function renderSellers(){
+    if (!state.sellers.length){
+      el.sellersList.innerHTML = `<div class="db-empty">No sales in the last 30 days.</div>`;
+      return;
+    }
+    el.sellersList.innerHTML = state.sellers.map((r,i)=>`<div class="db-row">
+      <div class="rank">${i+1}</div>
+      <div class="main"><div class="name">${esc(r.product_title||'—')}</div><div class="sub">${esc(r.variant_title||'')} ${esc(r.variant_sku||'')} · ${esc(r.location_name||r.location_tag||'')}</div></div>
+      <div class="val">${numFmt(r.sold_30)}</div>
+    </div>`).join('');
+  }
+
+  function renderReturns(){
+    el.snapRefundTotal.textContent = money(state.refundTotal);
+    el.snapRefundRate.textContent = state.refundRate==null ? '—' : `${state.refundRate.toFixed(2)}%`;
+    const rows = [];
+    if (state.topReason) rows.push({ label:'Top reason', name:state.topReason[0], val:state.topReason[1] });
+    if (state.topSku) rows.push({ label:'Top returned SKU', name:`${state.topSku.product_name||state.topSku.sku} (${state.topSku.sku})`, val:state.topSku.amount });
+    if (!rows.length){
+      el.returnsList.innerHTML = `<div class="db-empty">No refunds in the last 30 days.</div>`;
+      return;
+    }
+    el.returnsList.innerHTML = rows.map(r=>`<div class="db-row">
+      <div class="main"><div class="name">${esc(r.name)}</div><div class="sub">${esc(r.label)}</div></div>
+      <div class="val">${money(r.val)}</div>
+    </div>`).join('');
+  }
+
+  function renderChart(){
+    const days = state.trendDays;
+    el.chartWrap.querySelectorAll('svg,.db-tooltip').forEach(n=>n.remove());
+    if (!days.length){
+      el.chartEmpty.style.display='block'; el.chartEmpty.textContent='No data in range.';
+      return;
+    }
+    el.chartEmpty.style.display='none';
+
+    const W=1000, H=260, padL=64, padR=20, padT=16, padB=28;
+    const plotW=W-padL-padR, plotH=H-padT-padB;
+    const n=days.length;
+    const maxVal = Math.max(1, ...days.map(d=>Math.max(d.total,d.pyTotal)));
+    const niceMax = (() => {
+      const mag = Math.pow(10, Math.floor(Math.log10(maxVal)));
+      const step = Math.ceil(maxVal/mag/0.5)*0.5*mag;
+      return step;
+    })();
+    const x = i => padL + (n<=1?0:(i/(n-1))*plotW);
+    const y = v => padT + plotH - (v/niceMax)*plotH;
+
+    const curPts = days.map((d,i)=>[x(i),y(d.total)]);
+    const pyPts  = days.map((d,i)=>[x(i),y(d.pyTotal)]);
+    const pathOf = pts => pts.map((p,i)=>`${i===0?'M':'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+    const areaOf = pts => `${pathOf(pts)} L${pts[pts.length-1][0].toFixed(1)},${(padT+plotH).toFixed(1)} L${pts[0][0].toFixed(1)},${(padT+plotH).toFixed(1)} Z`;
+
+    const gridSteps=4;
+    let gridSvg='', axisSvg='';
+    for (let s=0;s<=gridSteps;s++){
+      const v = niceMax*(s/gridSteps);
+      const gy = y(v);
+      gridSvg += `<line class="db-gridline" x1="${padL}" y1="${gy.toFixed(1)}" x2="${W-padR}" y2="${gy.toFixed(1)}" />`;
+      axisSvg += `<text class="db-axis-label" x="${padL-8}" y="${(gy+3).toFixed(1)}" text-anchor="end">${moneyW(v)}</text>`;
+    }
+    const xTickIdx = [0, Math.floor((n-1)/2), n-1].filter((v,i,a)=>a.indexOf(v)===v);
+    for (const i of xTickIdx){
+      axisSvg += `<text class="db-axis-label" x="${x(i).toFixed(1)}" y="${H-8}" text-anchor="middle">${days[i].day.slice(5)}</text>`;
+    }
+
+    const lastCur = curPts[curPts.length-1];
+
+    const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svg.setAttribute('viewBox',`0 0 ${W} ${H}`);
+    svg.setAttribute('preserveAspectRatio','none');
+    svg.innerHTML = `
+      ${gridSvg}
+      <path class="db-area-cur" d="${areaOf(curPts)}" />
+      <path class="db-line-py" d="${pathOf(pyPts)}" />
+      <path class="db-line-cur" d="${pathOf(curPts)}" />
+      <circle class="db-dot-cur" cx="${lastCur[0].toFixed(1)}" cy="${lastCur[1].toFixed(1)}" r="4.5" />
+      <text class="db-endlabel" x="${(lastCur[0]-4).toFixed(1)}" y="${(lastCur[1]-10).toFixed(1)}" text-anchor="end" fill="var(--bcn-accent)">${moneyW(days[n-1].total)}</text>
+      ${axisSvg}
+      <line class="db-crosshair" id="dbCrosshair" x1="0" y1="${padT}" x2="0" y2="${padT+plotH}" style="display:none" />
+      <rect class="db-hit" x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" id="dbHit" />
+    `;
+    el.chartWrap.appendChild(svg);
+
+    const tooltip = document.createElement('div');
+    tooltip.className='db-tooltip';
+    el.chartWrap.appendChild(tooltip);
+
+    const hit = svg.querySelector('#dbHit');
+    const crosshair = svg.querySelector('#dbCrosshair');
+
+    function pointerToIndex(evt){
+      const rect = svg.getBoundingClientRect();
+      const svgX = ((evt.clientX-rect.left)/rect.width)*W;
+      const t = (svgX-padL)/plotW;
+      return Math.max(0, Math.min(n-1, Math.round(t*(n-1))));
+    }
+    function showTooltip(i){
+      const d=days[i];
+      crosshair.style.display='block';
+      crosshair.setAttribute('x1',x(i).toFixed(1)); crosshair.setAttribute('x2',x(i).toFixed(1));
+      tooltip.innerHTML = `<div class="tt-date">${d.day}</div>
+        <div class="tt-row"><span class="tt-key cur"></span>Current<span class="tt-val">${money(d.total)}</span></div>
+        <div class="tt-row"><span class="tt-key py"></span>Prior year<span class="tt-val">${money(d.pyTotal)}</span></div>`;
+      const rect = el.chartWrap.getBoundingClientRect();
+      const svgRect = svg.getBoundingClientRect();
+      const px = svgRect.left - rect.left + (x(i)/W)*svgRect.width;
+      tooltip.style.left = `${Math.min(px+12, rect.width-180)}px`;
+      tooltip.style.top = `12px`;
+      tooltip.classList.add('show');
+    }
+    hit.addEventListener('pointermove', evt => showTooltip(pointerToIndex(evt)));
+    hit.addEventListener('pointerleave', () => { tooltip.classList.remove('show'); crosshair.style.display='none'; });
+  }
+
+  function renderAll(){ renderKpis(); renderChart(); renderMovers(); renderSellers(); renderReturns(); }
+
+  async function runLoad(){
+    setStatus('Loading…');
+    el.btnRefresh.disabled = true;
+    el.btnRefresh.classList.add('is-loading');
+    try {
+      await Promise.all([loadCompSummary(), loadTrendAndReturns(), loadTopSellers()]);
+      renderAll();
+      const asOf = state.compRows[0]?.as_of_date || null;
+      const pyAsOf = state.compRows[0]?.py_as_of_date || null;
+      const refreshedAt = state.compRows[0]?.refreshed_at || null;
+      el.lastRefreshPill.textContent = asOf ? `Comps as of: ${asOf} (LY ${pyAsOf||'—'})` : 'Comps as of: —';
+      setStatus(`Summary refreshed: ${fmtTs(refreshedAt)}.`);
+    } catch(e){
+      console.error(e);
+      setStatus(`Load failed: ${e.message}`);
+    } finally {
+      el.btnRefresh.disabled = false;
+      el.btnRefresh.classList.remove('is-loading');
+    }
+  }
+
+  el.btnRefresh.addEventListener('click', runLoad);
+
+  async function boot(){
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session){ window.location.href='/pages/login.html'; return; }
+    const user = sess.data.session.user;
+
+    if (window.SiloChrome){
+      window.SiloChrome.mount({
+        appEl:'#silo-app', active:'reports/dashboard',
+        user:{ email:user?.email||'', role:'admin' },
+        crumbs:['Reports','Dashboard'],
+        supabaseClient:sb,
+      });
+    }
+    await runLoad();
+  }
+
+  boot();
+</script>
+</body>
+</html>
