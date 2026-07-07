@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Product Type Performance</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <style>
+    .bcn-kpi-band { flex-wrap:wrap; }
+
+    .pt-filters {
+      background:var(--bcn-sunken);
+      border-bottom:1px solid var(--bcn-border);
+      padding:12px 18px;
+      display:flex; align-items:flex-end; justify-content:space-between; gap:12px; flex-wrap:wrap;
+      flex-shrink:0;
+    }
+    .pt-filter-group { display:flex; align-items:flex-end; gap:10px; flex-wrap:wrap; }
+    .pt-chips { display:flex; flex-wrap:wrap; gap:5px; }
+    .pt-chip {
+      border:1px solid var(--bcn-border); background:var(--bcn-surface);
+      border-radius:var(--bcn-radius); padding:4px 12px;
+      font-size:11px; font-weight:700; color:var(--bcn-ink-3);
+      cursor:pointer; user-select:none; font-family:var(--bcn-mono);
+    }
+    .pt-chip.active { background:var(--bcn-band); color:var(--bcn-band-ink); border-color:var(--bcn-band); }
+    .pt-status { font-size:11.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); }
+
+    .pt-content { flex:1; padding:12px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:12px; }
+
+    .pt-table-wrap { overflow:auto; }
+    .pt-table-wrap::-webkit-scrollbar{ height:6px; width:6px; }
+    .pt-table-wrap::-webkit-scrollbar-thumb{ background:var(--bcn-border-strong); border-radius:3px; }
+
+    .pt-tbl { width:max-content; min-width:100%; border-collapse:collapse; }
+    .pt-tbl th {
+      font-family:var(--bcn-mono); font-size:10px; text-transform:uppercase; letter-spacing:.08em;
+      color:var(--bcn-ink-3); padding:7px 10px; border-bottom:1px solid var(--bcn-border);
+      text-align:right; white-space:nowrap; position:sticky; top:0; z-index:3; background:var(--bcn-sunken);
+    }
+    .pt-tbl th:first-child, .pt-tbl td:first-child {
+      text-align:left; position:sticky; left:0; z-index:4; background:var(--bcn-surface); min-width:150px;
+    }
+    .pt-tbl th:first-child { z-index:5; background:var(--bcn-sunken); }
+    .pt-tbl th.total-col, .pt-tbl td.total-col { border-left:2px solid var(--bcn-border-strong); }
+    .pt-tbl tbody td {
+      font-family:var(--bcn-mono); font-size:11.5px; font-variant-numeric:tabular-nums;
+      padding:7px 10px; border-bottom:1px solid var(--bcn-border); white-space:nowrap; text-align:right;
+    }
+    .pt-tbl tbody tr:hover td { background:var(--bcn-sunken); }
+    .pt-tbl tbody tr.pt-total td { background:var(--bcn-band); color:var(--bcn-band-ink); font-weight:700; border-bottom:none; }
+    .pt-tbl tbody tr.pt-total:hover td { background:var(--bcn-band); }
+    .pt-tbl td.total-col, .pt-tbl th.total-col { font-weight:700; }
+    .pt-empty { padding:32px; text-align:center; color:var(--bcn-ink-4); font-family:var(--bcn-mono); font-size:11.5px; }
+
+    .bcn-btn.is-loading { opacity:.6; pointer-events:none; }
+  </style>
+</head>
+<body class="silo-brand">
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0">
+        <div class="bcn-header-title">
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
+        </div>
+        <h1>Product Type Performance</h1>
+        <div class="bcn-header-sub">Product type by month, sorted by period total. Switch metric to compare gross, discounts, or units.</div>
+      </div>
+      <div class="bcn-header-actions">
+        <button id="btnRefresh" class="bcn-btn bcn-btn--ghost">Refresh</button>
+      </div>
+    </header>
+
+    <div class="bcn-kpi-band">
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Period Total</div><div id="kpiTotal" class="bcn-kpi-value">—</div><div id="kpiTotalSub" class="bcn-kpi-delta">selected range</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Top Product Type</div><div id="kpiTopType" class="bcn-kpi-value" style="font-size:15px">—</div><div id="kpiTopTypeVal" class="bcn-kpi-delta">—</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Product Types</div><div id="kpiTypeCount" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">active in range</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Months Covered</div><div id="kpiMonthCount" class="bcn-kpi-value">—</div><div id="kpiMonthRange" class="bcn-kpi-delta">—</div></div>
+    </div>
+
+    <div class="pt-filters">
+      <div class="pt-filter-group">
+        <div>
+          <label class="bcn-label">Range</label>
+          <div class="pt-chips" id="rangePresets">
+            <button class="pt-chip" data-months="3">3 mo</button>
+            <button class="pt-chip active" data-months="6">6 mo</button>
+            <button class="pt-chip" data-months="12">12 mo</button>
+          </div>
+        </div>
+        <div>
+          <label class="bcn-label">Metric</label>
+          <select id="metricMode" class="bcn-field">
+            <option value="total" selected>Total Sales</option>
+            <option value="gross">Gross Sales</option>
+            <option value="discounts">Discounts</option>
+            <option value="units">Units</option>
+          </select>
+        </div>
+        <div>
+          <label class="bcn-label">Store group</label>
+          <div class="pt-chips" id="groupFilters">
+            <button class="pt-chip active" data-group="all">All Stores</button>
+          </div>
+        </div>
+      </div>
+      <div id="statusText" class="pt-status">Loading…</div>
+    </div>
+
+    <div class="pt-content">
+      <div class="bcn-card">
+        <div class="bcn-card-header">
+          <h2>By product type &amp; month</h2>
+          <span id="rowCount" class="bcn-card-meta" style="margin-left:auto">0 types</span>
+        </div>
+        <div class="bcn-card-body" style="padding:0;overflow:visible">
+          <div class="pt-table-wrap">
+            <table class="pt-tbl">
+              <thead id="matrixHead"></thead>
+              <tbody id="matrixBody"><tr><td class="pt-empty">Loading…</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
+    throw new Error('Missing Supabase config');
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global:{ fetch:(url,o={})=>fetch(url,{...o,cache:'no-store'}) },
+  });
+  const _co = cfg.getActiveCompany?.() || null;
+  function scopeQ(q){ return _co?.id ? q.eq('company_entity_id',_co.id) : q; }
+
+  function slugify(v){
+    return String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'unknown';
+  }
+
+  // Shared with bi-returns.html / bi-top-sellers.html / bi-daily-trend.html so
+  // the store-group filter stays in sync across reports.
+  const SHARED_FILTER_KEY = 'silo:bi:filters';
+  function loadSharedFilters(){
+    try { return JSON.parse(sessionStorage.getItem(SHARED_FILTER_KEY)) || {}; } catch { return {}; }
+  }
+  function saveSharedFilters(patch){
+    try { sessionStorage.setItem(SHARED_FILTER_KEY, JSON.stringify({ ...loadSharedFilters(), ...patch })); } catch {}
+  }
+  const shared = loadSharedFilters();
+
+  const METRIC_FIELDS = {
+    total:     { key:'total',     label:'Total $',    fmt:v=>moneyW(v) },
+    gross:     { key:'gross',     label:'Gross $',     fmt:v=>moneyW(v) },
+    discounts: { key:'discounts', label:'Discounts $', fmt:v=>moneyW(v) },
+    units:     { key:'qty',       label:'Units',       fmt:v=>numFmt(v) },
+  };
+
+  const state = {
+    groupByTag:new Map(), groups:[], activeGroup:shared.storeGroup||'all',
+    activeMonths:6, rowsRaw:[], months:[], byType:new Map(),
+  };
+
+  const el = {
+    btnRefresh: document.getElementById('btnRefresh'),
+    rangePresets: document.getElementById('rangePresets'),
+    metricMode: document.getElementById('metricMode'),
+    groupFilters: document.getElementById('groupFilters'),
+    statusText: document.getElementById('statusText'),
+    rowCount: document.getElementById('rowCount'),
+    matrixHead: document.getElementById('matrixHead'),
+    matrixBody: document.getElementById('matrixBody'),
+    kpiTotal: document.getElementById('kpiTotal'),
+    kpiTotalSub: document.getElementById('kpiTotalSub'),
+    kpiTopType: document.getElementById('kpiTopType'),
+    kpiTopTypeVal: document.getElementById('kpiTopTypeVal'),
+    kpiTypeCount: document.getElementById('kpiTypeCount'),
+    kpiMonthCount: document.getElementById('kpiMonthCount'),
+    kpiMonthRange: document.getElementById('kpiMonthRange'),
+  };
+
+  const moneyW = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(v||0));
+  const money  = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(v||0));
+  const numFmt = v => Number(v||0).toLocaleString();
+  const esc    = s => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
+  const isoDateOnly = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const monthLabel = mk => { const [y,m]=mk.split('-'); return new Date(`${y}-${m}-01T00:00:00`).toLocaleDateString('en-US',{month:'short',year:'2-digit'}); };
+  function setStatus(t){ el.statusText.textContent=t; }
+
+  function monthsBack(n){
+    const out=[]; const today=new Date();
+    for (let i=n-1;i>=0;i--){
+      const d = new Date(today.getFullYear(), today.getMonth()-i, 1);
+      out.push(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+    }
+    return out;
+  }
+
+  async function loadStoreGroups(){
+    let q = sb.from('locations').select('location_code,location_name,store_type');
+    q = scopeQ(q);
+    const { data,error } = await q;
+    if (error) throw error;
+    const map=new Map(); const groupSet=new Set();
+    for (const row of data||[]){
+      const tag=slugify(row.location_code||row.location_name);
+      const group=(row.store_type||'retail').toLowerCase();
+      map.set(tag,group); groupSet.add(group);
+    }
+    state.groupByTag=map; state.groups=[...groupSet].sort();
+  }
+
+  function renderGroupChips(){
+    const chips = ['<button class="pt-chip active" data-group="all">All Stores</button>']
+      .concat(state.groups.map(g=>`<button class="pt-chip" data-group="${g}">${g.charAt(0).toUpperCase()+g.slice(1)}</button>`));
+    el.groupFilters.innerHTML = chips.join('');
+  }
+
+  function inGroup(r){
+    if (state.activeGroup==='all') return true;
+    return (state.groupByTag.get(r.location_tag)||'retail')===state.activeGroup;
+  }
+
+  // Paged fetch — narrow column set since a 12-month window can be several
+  // hundred thousand rows; mirrors the paging pattern used across the suite.
+  async function loadPagedRange(dateFrom,dateTo){
+    const PAGE_SIZE=10000; let from=0, out=[];
+    for(;;){
+      let q = sb.from('sales_by_day_verification_v')
+        .select('day_date,location_tag,product_type,total_quantity_sold,total_gross_sales,total_discounts,total_sales')
+        .gte('day_date',dateFrom).lte('day_date',dateTo)
+        .range(from,from+PAGE_SIZE-1);
+      q = scopeQ(q);
+      const { data,error } = await q;
+      if (error) throw error;
+      out = out.concat(data||[]);
+      if (!data || data.length<PAGE_SIZE) break;
+      from += PAGE_SIZE;
+    }
+    return out;
+  }
+
+  function recompute(){
+    const months = monthsBack(state.activeMonths);
+    const monthSet = new Set(months);
+    const byType = new Map();
+    for (const r of state.rowsRaw){
+      if (!inGroup(r)) continue;
+      const mk = String(r.day_date).slice(0,7);
+      if (!monthSet.has(mk)) continue;
+      const type = r.product_type || 'Uncategorized';
+      if (!byType.has(type)) byType.set(type, new Map());
+      const byMonth = byType.get(type);
+      const cur = byMonth.get(mk) || { gross:0, discounts:0, qty:0, total:0 };
+      cur.gross += Number(r.total_gross_sales||0);
+      cur.discounts += Number(r.total_discounts||0);
+      cur.qty += Number(r.total_quantity_sold||0);
+      cur.total += Number(r.total_sales||0);
+      byMonth.set(mk, cur);
+    }
+    state.months = months;
+    state.byType = byType;
+    renderAll();
+    setStatus(`Loaded ${state.rowsRaw.length} rows across ${months.length} month${months.length===1?'':'s'} (${monthLabel(months[0])} – ${monthLabel(months[months.length-1])}).`);
+  }
+
+  async function runLoad(){
+    setStatus('Loading…');
+    el.btnRefresh.disabled = true;
+    el.btnRefresh.classList.add('is-loading');
+    try {
+      await loadStoreGroups();
+      renderGroupChips();
+      if (state.activeGroup!=='all' && !state.groups.includes(state.activeGroup)) state.activeGroup='all';
+      [...el.groupFilters.querySelectorAll('[data-group]')].forEach(b=>b.classList.toggle('active', b.dataset.group===state.activeGroup));
+
+      const months = monthsBack(state.activeMonths);
+      const dateFrom = `${months[0]}-01`;
+      const today = isoDateOnly(new Date());
+      state.rowsRaw = await loadPagedRange(dateFrom, today);
+      recompute();
+    } catch(e){
+      console.error(e);
+      setStatus(`Load failed: ${e.message}`);
+    } finally {
+      el.btnRefresh.disabled = false;
+      el.btnRefresh.classList.remove('is-loading');
+    }
+  }
+
+  function typeRows(){
+    const field = METRIC_FIELDS[el.metricMode.value] || METRIC_FIELDS.total;
+    const rows = [...state.byType.entries()].map(([type,byMonth])=>{
+      const values = state.months.map(mk => byMonth.get(mk)?.[field.key] ?? 0);
+      const total = values.reduce((a,v)=>a+v,0);
+      return { type, values, total };
+    });
+    rows.sort((a,b)=>b.total-a.total);
+    return { field, rows };
+  }
+
+  function renderKpis(){
+    const { rows } = typeRows();
+    const grandTotal = rows.reduce((a,r)=>a+r.total,0);
+    el.kpiTotal.textContent = moneyW(grandTotal);
+    el.kpiTotalSub.textContent = `${state.months.length} month${state.months.length===1?'':'s'}`;
+    if (rows.length){
+      el.kpiTopType.textContent = rows[0].type;
+      el.kpiTopTypeVal.textContent = moneyW(rows[0].total);
+    } else {
+      el.kpiTopType.textContent = '—';
+      el.kpiTopTypeVal.textContent = '—';
+    }
+    el.kpiTypeCount.textContent = numFmt(rows.length);
+    el.kpiMonthCount.textContent = numFmt(state.months.length);
+    el.kpiMonthRange.textContent = state.months.length ? `${monthLabel(state.months[0])} – ${monthLabel(state.months[state.months.length-1])}` : '—';
+  }
+
+  function renderMatrix(){
+    const { field, rows } = typeRows();
+    el.matrixHead.innerHTML = `<tr><th>Product type</th>${state.months.map(mk=>`<th>${monthLabel(mk)}</th>`).join('')}<th class="total-col">Total</th></tr>`;
+
+    if (!rows.length){
+      el.rowCount.textContent = '0 types';
+      el.matrixBody.innerHTML = `<tr><td class="pt-empty" colspan="${state.months.length+2}">No data in this range.</td></tr>`;
+      return;
+    }
+    el.rowCount.textContent = `${rows.length} type${rows.length===1?'':'s'}`;
+
+    let bodyHtml = rows.map(r=>`<tr>
+      <td>${esc(r.type)}</td>
+      ${r.values.map(v=>`<td>${field.fmt(v)}</td>`).join('')}
+      <td class="total-col">${field.fmt(r.total)}</td>
+    </tr>`).join('');
+
+    const monthTotals = state.months.map((_,i)=>rows.reduce((a,r)=>a+r.values[i],0));
+    const grandTotal = monthTotals.reduce((a,v)=>a+v,0);
+    bodyHtml += `<tr class="pt-total">
+      <td>Total</td>
+      ${monthTotals.map(v=>`<td>${field.fmt(v)}</td>`).join('')}
+      <td class="total-col">${field.fmt(grandTotal)}</td>
+    </tr>`;
+
+    el.matrixBody.innerHTML = bodyHtml;
+  }
+
+  function renderAll(){ renderKpis(); renderMatrix(); }
+
+  el.btnRefresh.addEventListener('click', runLoad);
+  el.metricMode.addEventListener('change', renderAll);
+  el.rangePresets.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-months]'); if (!btn) return;
+    state.activeMonths = Number(btn.dataset.months);
+    [...el.rangePresets.querySelectorAll('[data-months]')].forEach(b=>b.classList.toggle('active', b===btn));
+    runLoad();
+  });
+  el.groupFilters.addEventListener('click', (ev) => {
+    const btn = ev.target.closest('[data-group]'); if (!btn) return;
+    state.activeGroup = btn.dataset.group;
+    [...el.groupFilters.querySelectorAll('[data-group]')].forEach(b=>b.classList.toggle('active', b===btn));
+    saveSharedFilters({ storeGroup: state.activeGroup });
+    recompute();
+  });
+
+  async function boot(){
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session){ window.location.href='/pages/login.html'; return; }
+    const user = sess.data.session.user;
+
+    if (window.SiloChrome){
+      window.SiloChrome.mount({
+        appEl:'#silo-app', active:'reports/product-types',
+        user:{ email:user?.email||'', role:'admin' },
+        crumbs:['Reports','Product Type Performance'],
+        supabaseClient:sb,
+      });
+    }
+    await runLoad();
+  }
+
+  boot();
+</script>
+</body>
+</html>

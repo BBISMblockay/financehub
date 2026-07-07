@@ -59,6 +59,7 @@
     .rt-bucket-tag.product   { background:var(--bcn-neg-soft,#fef2f2); color:var(--bcn-neg,#dc2626); }
     .rt-bucket-tag.shipping  { background:var(--bcn-accent-soft); color:var(--bcn-accent); }
     .rt-bucket-tag.discrepancy { background:oklch(0.98 0.06 75 / .4); color:var(--bcn-warn,#d97706); }
+    .rt-bucket-tag.tax { background:var(--bcn-sunken); color:var(--bcn-ink-3); }
 
     /* ---- By-reason bar chart (single measure, category color reused from
        the bucket tags above so a reason means the same color everywhere) ---- */
@@ -70,6 +71,7 @@
     .rt-bar-fill.product { background:var(--bcn-neg,#dc2626); }
     .rt-bar-fill.shipping { background:var(--bcn-accent); }
     .rt-bar-fill.discrepancy { background:var(--bcn-warn,#d97706); }
+    .rt-bar-fill.tax { background:var(--bcn-ink-3); }
     .rt-bar-value { width:76px; flex-shrink:0; text-align:right; font-family:var(--bcn-mono); font-size:11px; font-weight:700; color:var(--bcn-ink); }
 
     /* ---- Custom date range ---- */
@@ -100,6 +102,7 @@
       <div class="bcn-kpi"><div class="bcn-kpi-label">Refund Rate</div><div id="kpiRefundRate" class="bcn-kpi-value">—</div><div id="kpiRefundRateVar" class="bcn-kpi-delta">vs LY —</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Returned Units</div><div id="kpiUnitsReturned" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Product returns only</div></div>
       <div class="bcn-kpi"><div class="bcn-kpi-label">Distinct SKUs</div><div id="kpiDistinctSkus" class="bcn-kpi-value">—</div><div class="bcn-kpi-delta">Returned in period</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Period Discounts</div><div id="kpiDiscountTotal" class="bcn-kpi-value">—</div><div id="kpiDiscountVar" class="bcn-kpi-delta">vs LY —</div></div>
     </div>
 
     <div class="rt-filters">
@@ -204,11 +207,13 @@
     const key = String(r.sku || r.product_name || '').trim().toLowerCase();
     if (key === '[shipping]') return 'Shipping refund';
     if (key === '[refund discrepancy]') return 'Refund discrepancy';
+    if (key === '[tax]') return 'Tax adjustment';
     return 'Product return';
   }
   function bucketClass(bucket){
     if (bucket === 'Shipping refund') return 'shipping';
     if (bucket === 'Refund discrepancy') return 'discrepancy';
+    if (bucket === 'Tax adjustment') return 'tax';
     return 'product';
   }
 
@@ -247,6 +252,8 @@
     kpiRefundRateVar: document.getElementById('kpiRefundRateVar'),
     kpiUnitsReturned: document.getElementById('kpiUnitsReturned'),
     kpiDistinctSkus: document.getElementById('kpiDistinctSkus'),
+    kpiDiscountTotal: document.getElementById('kpiDiscountTotal'),
+    kpiDiscountVar: document.getElementById('kpiDiscountVar'),
   };
 
   const money  = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(v||0));
@@ -294,7 +301,7 @@
     const PAGE_SIZE=10000; let from=0, out=[];
     for(;;){
       let q = sb.from('sales_by_day_verification_v')
-        .select('day_date,location_tag,sku,product_name,total_orders,total_quantity_sold,total_refunds,total_gross_sales,taxes,shipping,total_sales')
+        .select('day_date,location_tag,sku,product_name,total_orders,total_quantity_sold,total_refunds,total_gross_sales,total_discounts,taxes,shipping,total_sales')
         .gte('day_date',dateFrom).lte('day_date',dateTo)
         .range(from,from+PAGE_SIZE-1);
       q = scopeQ(q);
@@ -371,11 +378,16 @@
     const pyRate = pyGrossTotal ? (pyRefundTotal/pyGrossTotal)*100 : null;
     const unitsReturned = state.refundRows.filter(r=>reasonBucket(r)==='Product return').reduce((a,r)=>a - Number(r.total_quantity_sold||0), 0);
     const distinctSkus = new Set(state.refundRows.filter(r=>reasonBucket(r)==='Product return').map(r=>r.sku)).size;
+    // Discounts apply to sale-side rows only — a companion "other deduction
+    // from gross" figure alongside refunds, not itself a refund.
+    const discountTotal = state.saleRows.reduce((a,r)=>a + Number(r.total_discounts||0), 0);
+    const pyDiscountTotal = state.pySaleRows.reduce((a,r)=>a + Number(r.total_discounts||0), 0);
 
     el.kpiRefundTotal.textContent = money(refundTotal);
     el.kpiRefundRate.textContent = rate==null ? '—' : `${rate.toFixed(2)}%`;
     el.kpiUnitsReturned.textContent = numFmt(unitsReturned);
     el.kpiDistinctSkus.textContent = numFmt(distinctSkus);
+    el.kpiDiscountTotal.textContent = money(discountTotal);
 
     const refundVar = varPct(refundTotal,pyRefundTotal);
     el.kpiRefundVar.textContent = `vs LY ${pctStr(refundVar)}`;
@@ -383,6 +395,9 @@
     const rateVarPts = (rate!=null && pyRate!=null) ? rate-pyRate : null;
     el.kpiRefundRateVar.textContent = rateVarPts==null ? 'vs LY —' : `vs LY ${rateVarPts>0?'+':''}${rateVarPts.toFixed(2)}pt`;
     el.kpiRefundRateVar.className = `bcn-kpi-delta ${rateVarPts<=0?'bcn-kpi-delta--pos':'bcn-kpi-delta--neg'}`;
+    const discountVar = varPct(discountTotal,pyDiscountTotal);
+    el.kpiDiscountVar.textContent = `vs LY ${pctStr(discountVar)}`;
+    el.kpiDiscountVar.className = `bcn-kpi-delta ${discountVar<=0?'bcn-kpi-delta--pos':'bcn-kpi-delta--neg'}`;
   }
 
   function computeReasonBuckets(){

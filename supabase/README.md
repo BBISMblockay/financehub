@@ -134,6 +134,7 @@ supabase/
     20260706220000_store_comp_summary_total_sales.sql
     20260706230000_fix_store_comp_summary_refresh_timeout.sql
     20260707000000_wire_sales_velocity_mv_refresh.sql
+    20260707010000_store_comp_summary_discounts.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
