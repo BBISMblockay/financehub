@@ -227,6 +227,19 @@ select
     else 'MISSING — run 20260630120000_locations_company_scoped_unique.sql'
   end as locations_company_scoped_unique;
 
+select
+  case
+    when exists (
+      select 1
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public'
+        and p.proname = 'refresh_sales_verification_store_comp_summary'
+        and pg_get_functiondef(p.oid) ilike '%America/Los_Angeles%'
+    ) then 'ok'
+    else 'MISSING — run 20260707030000_comp_summary_complete_day_anchor.sql'
+  end as refresh_complete_day_anchor;
+
 -- 9. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,
