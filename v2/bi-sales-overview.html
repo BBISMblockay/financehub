@@ -63,13 +63,47 @@
     .ov-tbl .g-day  { background:oklch(0.97 0.03 245); }
     .ov-tbl .g-mtd  { background:oklch(0.98 0.02 60); }
     .ov-tbl .g-ytd  { background:oklch(0.97 0.03 145); }
-    .ov-tbl .var-pos { color:var(--bcn-pos); font-weight:700; }
-    .ov-tbl .var-neg { color:var(--bcn-neg); font-weight:700; }
+    .ov-tbl .g-lead { border-left:2px solid var(--bcn-border-strong); }
     .ov-tbl tbody tr.ov-total td { background:var(--bcn-band); color:var(--bcn-band-ink); font-weight:700; border-bottom:none; }
     .ov-tbl tbody tr.ov-total td.m-store { background:var(--bcn-band); }
     .ov-tbl tbody tr.ov-total:hover td { background:var(--bcn-band); }
 
+    /* Var% pills — color + arrow glyph together, never color alone. */
+    .ov-var-pill { font-size:10.5px; padding:1px 6px; }
+    .ov-var-pill .arrow { margin-right:2px; }
+
+    /* Period switcher collapses the matrix to one Day/MTD/YTD column group at
+       a time — the full 9-column matrix is hard to parse on a phone even with
+       horizontal scroll, so mobile defaults to a single period (see boot()). */
+    #ovTableWrap[data-period="day"] .g-mtd,
+    #ovTableWrap[data-period="day"] .g-ytd,
+    #ovTableWrap[data-period="mtd"] .g-day,
+    #ovTableWrap[data-period="mtd"] .g-ytd,
+    #ovTableWrap[data-period="ytd"] .g-day,
+    #ovTableWrap[data-period="ytd"] .g-mtd { display:none; }
+
     .ov-empty { padding:32px; text-align:center; color:var(--bcn-ink-4); font-family:var(--bcn-mono); font-size:11.5px; }
+    .ov-spinner {
+      display:inline-block; width:12px; height:12px; margin-right:7px; vertical-align:-2px;
+      border:2px solid var(--bcn-border-strong); border-top-color:var(--bcn-accent);
+      border-radius:50%; animation:ov-spin .7s linear infinite;
+    }
+    @keyframes ov-spin { to { transform:rotate(360deg); } }
+
+    .bcn-btn.is-loading { opacity:.6; pointer-events:none; }
+
+    @media (max-width:640px) {
+      .ov-chip { padding:7px 14px; font-size:12px; }
+      .ov-filters { padding:10px 14px; gap:10px; }
+      .ov-meta-row { width:100%; }
+      .ov-meta-row #metricMode { flex:1; min-width:0; }
+      /* Free up width for the data columns — the group pill is redundant with
+         the store-group chips right above, and 160px for the name alone
+         leaves too little room for CY/PY/Var in a single-period mobile view. */
+      .ov-tbl .m-store { min-width:92px; }
+      .ov-tbl .m-group { display:none; }
+      .ov-tbl tbody td, .ov-tbl thead th { padding:6px 7px; }
+    }
   </style>
 </head>
 <body class="silo-brand">
@@ -106,6 +140,15 @@
       </div>
       <div class="ov-meta-row">
         <div>
+          <label class="bcn-label" style="margin-right:6px">Period</label>
+          <div class="ov-chips" id="periodFilters">
+            <button class="ov-chip active" data-period="all">All</button>
+            <button class="ov-chip" data-period="day">Day</button>
+            <button class="ov-chip" data-period="mtd">MTD</button>
+            <button class="ov-chip" data-period="ytd">YTD</button>
+          </div>
+        </div>
+        <div>
           <label class="bcn-label" style="margin-right:6px">Metric</label>
           <select id="metricMode" class="bcn-field" style="min-width:150px;display:inline-block">
             <option value="total" selected>Total Sales (matches PBI)</option>
@@ -124,11 +167,11 @@
           <span id="rowCount" class="bcn-card-meta" style="margin-left:auto">0 locations</span>
         </div>
         <div class="bcn-card-body" style="padding:0;overflow:visible">
-          <div class="ov-table-wrap">
+          <div class="ov-table-wrap" id="ovTableWrap">
             <table class="ov-tbl">
               <thead id="matrixHead"></thead>
               <tbody id="matrixBody">
-                <tr><td class="ov-empty">Loading…</td></tr>
+                <tr><td class="ov-empty"><span class="ov-spinner"></span>Loading…</td></tr>
               </tbody>
             </table>
           </div>
@@ -166,7 +209,7 @@
     return String(v||'').toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'') || 'unknown';
   }
 
-  const state = { rows:[], groupByTag:new Map(), activeGroup:'all', groups:[] };
+  const state = { rows:[], groupByTag:new Map(), activeGroup:'all', activePeriod:'all', groups:[] };
 
   const el = {
     btnRefresh:  document.getElementById('btnRefresh'),
@@ -174,6 +217,8 @@
     statusText:  document.getElementById('statusText'),
     metricMode:  document.getElementById('metricMode'),
     groupFilters:document.getElementById('groupFilters'),
+    periodFilters: document.getElementById('periodFilters'),
+    ovTableWrap: document.getElementById('ovTableWrap'),
     rowCount:    document.getElementById('rowCount'),
     matrixHead:  document.getElementById('matrixHead'),
     matrixBody:  document.getElementById('matrixBody'),
@@ -202,7 +247,15 @@
     if (v==null||Number.isNaN(v)) return '—';
     return `${v>0?'+':''}${v.toFixed(1)}%`;
   }
-  function pctClass(v){ if (v==null) return ''; return v>=0?'var-pos':'var-neg'; }
+  // Arrow + color together — a var% swing should never be color-alone.
+  function arrowFor(v){ if (v==null||Number.isNaN(v)||v===0) return ''; return v>0?'▲':'▼'; }
+  function kpiDeltaText(v){ const a=arrowFor(v); return `vs LY ${a?a+' ':''}${pctStr(v)}`; }
+  function varPill(v){
+    if (v==null||Number.isNaN(v)) return `<span class="bcn-pill ov-var-pill">—</span>`;
+    const cls = v>=0 ? 'bcn-pill--pos' : 'bcn-pill--neg';
+    const a = arrowFor(v);
+    return `<span class="bcn-pill ov-var-pill ${cls}">${a?`<span class="arrow">${a}</span>`:''}${pctStr(v)}</span>`;
+  }
 
   function setStatus(t){ el.statusText.textContent=t; }
 
@@ -259,13 +312,13 @@
     el.kpiLocCount.textContent=numFmt(rows.length);
 
     const dayVar=varPct(dayNet,pyDayNet), mtdVar=varPct(mtdNet,pyMtdNet), ytdVar=varPct(ytdNet,pyYtdNet), dayQtyVar=varPct(dayQty,pyDayQty);
-    el.kpiDayVar.textContent=`vs LY ${pctStr(dayVar)}`;
+    el.kpiDayVar.textContent=kpiDeltaText(dayVar);
     el.kpiDayVar.className=`bcn-kpi-delta ${dayVar>=0?'bcn-kpi-delta--pos':'bcn-kpi-delta--neg'}`;
-    el.kpiMtdVar.textContent=`vs LY ${pctStr(mtdVar)}`;
+    el.kpiMtdVar.textContent=kpiDeltaText(mtdVar);
     el.kpiMtdVar.className=`bcn-kpi-delta ${mtdVar>=0?'bcn-kpi-delta--pos':'bcn-kpi-delta--neg'}`;
-    el.kpiYtdVar.textContent=`vs LY ${pctStr(ytdVar)}`;
+    el.kpiYtdVar.textContent=kpiDeltaText(ytdVar);
     el.kpiYtdVar.className=`bcn-kpi-delta ${ytdVar>=0?'bcn-kpi-delta--pos':'bcn-kpi-delta--neg'}`;
-    el.kpiDayQtyVar.textContent=`vs LY ${pctStr(dayQtyVar)}`;
+    el.kpiDayQtyVar.textContent=kpiDeltaText(dayQtyVar);
     el.kpiDayQtyVar.className=`bcn-kpi-delta ${dayQtyVar>=0?'bcn-kpi-delta--pos':'bcn-kpi-delta--neg'}`;
   }
 
@@ -277,19 +330,20 @@
     units: { prefix:'qty',   label:'Units', fmt:numFmt },
   };
 
-  function periodCols(r, period, fields){
+  function periodCols(r, period, fields, lead){
     const cur = r[`cur_${period}_${fields.prefix}`], py = r[`py_${period}_${fields.prefix}`];
     const varPctField = r[`${period}_${fields.prefix}_var_pct`];
-    return `<td class="g-${period}">${fields.fmt(cur)}</td><td class="g-${period}">${fields.fmt(py)}</td><td class="g-${period} ${pctClass(varPctField)}">${pctStr(varPctField==null?null:varPctField*100)}</td>`;
+    const pct = varPctField==null?null:varPctField*100;
+    return `<td class="g-${period}${lead?' g-lead':''}">${fields.fmt(cur)}</td><td class="g-${period}">${fields.fmt(py)}</td><td class="g-${period}">${varPill(pct)}</td>`;
   }
 
   function renderMatrix(){
     const rows=visibleRows(), mode=el.metricMode.value;
     const fields = METRIC_FIELDS[mode] || METRIC_FIELDS.total;
     const cols = `<th class="g-day">CY ${fields.label}</th><th class="g-day">PY ${fields.label}</th><th class="g-day">Var %</th>`
-      + `<th class="g-mtd">CY ${fields.label}</th><th class="g-mtd">PY ${fields.label}</th><th class="g-mtd">Var %</th>`
-      + `<th class="g-ytd">CY ${fields.label}</th><th class="g-ytd">PY ${fields.label}</th><th class="g-ytd">Var %</th>`;
-    el.matrixHead.innerHTML=`<tr><th class="m-store" rowspan="2">Store</th><th class="g-day" colspan="3">Day</th><th class="g-mtd" colspan="3">MTD</th><th class="g-ytd" colspan="3">YTD</th></tr><tr>${cols}</tr>`;
+      + `<th class="g-mtd g-lead">CY ${fields.label}</th><th class="g-mtd">PY ${fields.label}</th><th class="g-mtd">Var %</th>`
+      + `<th class="g-ytd g-lead">CY ${fields.label}</th><th class="g-ytd">PY ${fields.label}</th><th class="g-ytd">Var %</th>`;
+    el.matrixHead.innerHTML=`<tr><th class="m-store" rowspan="2">Store</th><th class="g-day" colspan="3">Day</th><th class="g-mtd g-lead" colspan="3">MTD</th><th class="g-ytd g-lead" colspan="3">YTD</th></tr><tr>${cols}</tr>`;
 
     if (!rows.length){
       el.rowCount.textContent='0 locations';
@@ -301,7 +355,7 @@
     const rowHtml = (r) => {
       const group = state.groupByTag.get(r.location_tag)||'retail';
       const h=`<td class="m-store"><strong>${esc(r.location_tag)}</strong><span class="m-group bcn-pill bcn-pill--accent" style="font-size:9px;padding:0 6px">${esc(group)}</span></td>`;
-      return h + periodCols(r,'day',fields) + periodCols(r,'mtd',fields) + periodCols(r,'ytd',fields);
+      return h + periodCols(r,'day',fields,false) + periodCols(r,'mtd',fields,true) + periodCols(r,'ytd',fields,true);
     };
 
     let bodyHtml = rows.map(r=>`<tr>${rowHtml(r)}</tr>`).join('');
@@ -318,7 +372,7 @@
         totalRow[`${period}_${key.prefix}_var_pct`] = v==null?null:v/100;
       }
     }
-    bodyHtml += `<tr class="ov-total"><td class="m-store"><strong>Total</strong></td>${periodCols(totalRow,'day',fields)}${periodCols(totalRow,'mtd',fields)}${periodCols(totalRow,'ytd',fields)}</tr>`;
+    bodyHtml += `<tr class="ov-total"><td class="m-store"><strong>Total</strong></td>${periodCols(totalRow,'day',fields,false)}${periodCols(totalRow,'mtd',fields,true)}${periodCols(totalRow,'ytd',fields,true)}</tr>`;
 
     el.matrixBody.innerHTML = bodyHtml;
   }
@@ -327,6 +381,9 @@
 
   async function runLoad(){
     setStatus('Loading…');
+    el.btnRefresh.disabled = true;
+    el.btnRefresh.classList.add('is-loading');
+    el.matrixBody.innerHTML = `<tr><td class="ov-empty"><span class="ov-spinner"></span>Loading…</td></tr>`;
     try {
       await Promise.all([loadStoreGroups(), loadMatrix()]);
       renderGroupChips();
@@ -339,6 +396,9 @@
     } catch(e){
       console.error(e);
       setStatus(`Load failed: ${e.message}`);
+    } finally {
+      el.btnRefresh.disabled = false;
+      el.btnRefresh.classList.remove('is-loading');
     }
   }
 
@@ -350,6 +410,13 @@
     state.activeGroup = btn.dataset.group;
     [...el.groupFilters.querySelectorAll('[data-group]')].forEach(b=>b.classList.toggle('active', b===btn));
     renderAll();
+  });
+  el.periodFilters.addEventListener('click', (ev)=>{
+    const btn = ev.target.closest('[data-period]');
+    if (!btn) return;
+    state.activePeriod = btn.dataset.period;
+    [...el.periodFilters.querySelectorAll('[data-period]')].forEach(b=>b.classList.toggle('active', b===btn));
+    el.ovTableWrap.dataset.period = state.activePeriod;
   });
 
   async function boot(){
@@ -365,6 +432,16 @@
         supabaseClient:sb,
       });
     }
+
+    // The full 9-column matrix is hard to read on a phone even with horizontal
+    // scroll — default narrow viewports to a single period (Day) and let the
+    // wider desktop layout keep showing all three side by side.
+    if (window.matchMedia('(max-width: 640px)').matches){
+      state.activePeriod = 'day';
+      el.ovTableWrap.dataset.period = 'day';
+      [...el.periodFilters.querySelectorAll('[data-period]')].forEach(b=>b.classList.toggle('active', b.dataset.period==='day'));
+    }
+
     await runLoad();
   }
 
