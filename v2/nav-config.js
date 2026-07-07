@@ -56,6 +56,7 @@
     { id: 'inventory/workboard', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Inventory Manager', href: '/v2/inventory.html', profiles: ['grandfathered', 'standard'] },
     { id: 'inventory/products', section: 'Inventory', sectionStandard: 'Product & inventory', label: 'Product Hub', href: '/v2/product-manager.html', profiles: ['grandfathered', 'standard'] },
 
+    { id: 'reports/dashboard', section: 'Reports', label: 'Dashboard', href: '/v2/bi-dashboard.html', profiles: ['grandfathered'] },
     { id: 'reports/sales-overview', section: 'Reports', label: 'Sales Performance Overview', href: '/v2/bi-sales-overview.html', profiles: ['grandfathered'] },
     { id: 'reports/daily-trend', section: 'Reports', label: 'Daily Sales Trend', href: '/v2/bi-daily-trend.html', profiles: ['grandfathered'] },
     { id: 'reports/returns', section: 'Reports', label: 'Returns & Refunds', href: '/v2/bi-returns.html', profiles: ['grandfathered'] },
