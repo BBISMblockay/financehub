@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>SILO · Sales Verification</title>
+  <title>SILO · Sales Report</title>
   <link rel="stylesheet" href="beacon.css" />
   <link rel="stylesheet" href="silo-brand.css" />
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
@@ -95,55 +95,28 @@
     .sv-tbl td.mono { font-family:var(--bcn-mono); font-size:11px; }
     .sv-empty { padding:32px; text-align:center; color:var(--bcn-ink-4); font-family:var(--bcn-mono); font-size:11.5px; }
 
-    /* ---- Matrix comps ---- */
-    .matrix-tbl { width:max-content; min-width:100%; border-collapse:collapse; }
-    .matrix-tbl thead tr:first-child th {
-      font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.14em;
-      color:var(--bcn-ink-3); padding:7px 10px; border-bottom:1px solid var(--bcn-border);
-      text-align:center; position:sticky; top:0; z-index:3; background:var(--bcn-sunken);
-    }
-    .matrix-tbl thead tr:nth-child(2) th {
-      font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.08em;
-      color:var(--bcn-ink-3); padding:7px 10px; border-bottom:1px solid var(--bcn-border);
-      text-align:right; position:sticky; top:30px; z-index:3; background:var(--bcn-sunken);
-    }
-    .matrix-tbl thead th:first-child,
-    .matrix-tbl tbody td:first-child { position:sticky; left:0; z-index:4; background:var(--bcn-surface); }
-    .matrix-tbl tbody td {
-      font-family:var(--bcn-mono); font-size:11.5px; font-variant-numeric:tabular-nums;
-      padding:7px 10px; border-bottom:1px solid var(--bcn-border); white-space:nowrap;
-      text-align:right;
-    }
-    .matrix-tbl tbody tr:hover td { background:var(--bcn-sunken); }
-    .matrix-tbl .m-store { min-width:140px; font-weight:600; color:var(--bcn-ink); text-align:left!important; font-family:var(--bcn-font); font-size:12px; }
-    .matrix-tbl .g-day  { background:oklch(0.97 0.03 245); }
-    .matrix-tbl .g-mtd  { background:oklch(0.98 0.02 60); }
-    .matrix-tbl .g-ytd  { background:oklch(0.97 0.03 145); }
-    .matrix-tbl .g-meta { background:var(--bcn-sunken); }
-
     /* ---- Exceptions ---- */
     .sv-exc-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-    .sv-exc-cell { border:1px solid var(--bcn-border); background:var(--bcn-sunken); border-radius:var(--bcn-radius); padding:10px 12px; }
+    .sv-exc-cell { border:1px solid var(--bcn-border); background:var(--bcn-sunken); border-radius:var(--bcn-radius); padding:10px 12px; transition:background .15s,border-color .15s; }
+    .sv-exc-cell.is-clear { background:var(--bcn-pos-soft,#f0fdf4); border-color:var(--bcn-pos-border,#bbf7d0); }
+    .sv-exc-cell.is-flagged { background:var(--bcn-neg-soft,#fef2f2); border-color:var(--bcn-neg-border,#fecaca); }
     .sv-exc-label { font-family:var(--bcn-mono); font-size:9.5px; font-weight:600; text-transform:uppercase; letter-spacing:.1em; color:var(--bcn-ink-4); margin-bottom:4px; }
     .sv-exc-val   { font-family:var(--bcn-mono); font-size:1.15rem; font-weight:700; color:var(--bcn-ink); }
+    .sv-exc-cell.is-clear .sv-exc-val   { color:var(--bcn-pos,#16a34a); }
+    .sv-exc-cell.is-flagged .sv-exc-val { color:var(--bcn-neg,#dc2626); }
+
+    .sv-spinner {
+      display:inline-block; width:12px; height:12px; margin-right:7px; vertical-align:-2px;
+      border:2px solid var(--bcn-border-strong); border-top-color:var(--bcn-accent);
+      border-radius:50%; animation:sv-spin .7s linear infinite;
+    }
+    @keyframes sv-spin { to { transform:rotate(360deg); } }
+    .bcn-btn.is-loading { opacity:.6; pointer-events:none; }
 
     /* ---- Badges ---- */
     .sv-tag { display:inline-flex; align-items:center; border-radius:var(--bcn-radius); padding:1px 6px; font-size:10px; font-weight:700; border:1px solid transparent; white-space:nowrap; font-family:var(--bcn-mono); margin-top:3px; }
     .sv-tag--warn { background:oklch(0.98 0.06 75 / .4); color:var(--bcn-warn,#d97706); border-color:oklch(0.9 0.1 75); }
     .sv-tag--neg  { background:var(--bcn-neg-soft,#fef2f2); color:var(--bcn-neg,#dc2626); border-color:var(--bcn-neg-border,#fecaca); }
-
-    /* ---- Comps details ---- */
-    details.sv-comps summary {
-      cursor:pointer; list-style:none;
-      display:flex; align-items:center; gap:6px;
-      font-size:12.5px; font-weight:600; color:var(--bcn-ink);
-      padding:10px 12px;
-      border-bottom:1px solid var(--bcn-border-strong);
-    }
-    details.sv-comps summary::-webkit-details-marker { display:none; }
-    details.sv-comps summary::before { content:"▶"; font-size:.55rem; color:var(--bcn-ink-4); transition:transform .15s; }
-    details.sv-comps[open] summary::before { transform:rotate(90deg); }
-    .sv-comps-body { padding:12px 14px; display:flex; flex-direction:column; gap:10px; }
 
     /* ---- Pagination ---- */
     .sv-pagination { display:flex; align-items:center; justify-content:space-between; gap:8px; }
@@ -170,10 +143,10 @@
     <header class="bcn-header">
       <div style="flex:1;min-width:0">
         <div class="bcn-header-title">
-          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Sales</span>
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Reports</span>
         </div>
-        <h1>Sales Verification</h1>
-        <div class="bcn-header-sub">Set filters and Apply. KPIs and location table cover all matching rows; line detail is paged.</div>
+        <h1>Sales Report</h1>
+        <div class="bcn-header-sub">Row-level sales activity with location rollups and sync exception flags. For store-vs-prior-year comparisons, see <a href="/v2/bi-sales-overview.html">Sales Performance Overview</a>.</div>
       </div>
       <div class="bcn-header-actions">
         <span id="lastRefreshPill" class="bcn-pill bcn-pill--dark" style="font-family:var(--bcn-mono);font-size:10.5px">Last refresh: —</span>
@@ -266,6 +239,7 @@
           <div class="bcn-card-header">
             <h2>By location</h2>
             <span id="locationSummaryCount" class="bcn-card-meta" style="margin-left:auto">0 locations</span>
+            <button id="btnExportLocation" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">Export CSV</button>
           </div>
           <div class="bcn-card-body" style="padding:0;overflow:visible">
             <div class="sv-table-wrap">
@@ -280,57 +254,26 @@
                     <th class="r">Gross</th>
                     <th class="r">Discounts</th>
                     <th class="r">Refunds</th>
+                    <th class="r">Taxes</th>
+                    <th class="r">Shipping</th>
                     <th class="r">Net</th>
                     <th class="r">Total Sales</th>
                   </tr>
                 </thead>
                 <tbody id="locationSummaryBody">
-                  <tr><td colspan="10" class="sv-empty">Loading…</td></tr>
+                  <tr><td colspan="12" class="sv-empty"><span class="sv-spinner"></span>Loading…</td></tr>
                 </tbody>
               </table>
             </div>
           </div>
         </div>
 
-        <!-- Store comps -->
-        <details class="bcn-card sv-comps" id="storeCompsPanel">
-          <summary>
-            Store vs prior year
-            <span style="font-size:11px;font-weight:400;color:var(--bcn-ink-3);margin-left:4px">(optional)</span>
-          </summary>
-          <div class="sv-comps-body">
-            <p style="font-size:11.5px;color:var(--bcn-ink-3);margin:0">Pre-aggregated comps (location filter only). Refreshes on every Apply / Refresh and when you open this section.</p>
-            <div style="display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px">
-              <div>
-                <label class="bcn-label">Metric</label>
-                <select id="metricMode" class="bcn-field" style="min-width:120px">
-                  <option value="sales" selected>Sales</option>
-                  <option value="units">Units</option>
-                  <option value="both">Both</option>
-                </select>
-              </div>
-              <button type="button" id="btnReloadComps" class="bcn-btn">Reload comps</button>
-              <div id="matrixMeta" class="sv-status" style="margin-left:auto;text-align:right;max-width:300px"></div>
-            </div>
-            <div style="display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--bcn-border);padding-top:8px">
-              <div id="matrixCount" class="sv-status">Closed — open to load</div>
-            </div>
-            <div class="sv-table-wrap">
-              <table class="matrix-tbl">
-                <thead id="matrixHead"></thead>
-                <tbody id="matrixBody">
-                  <tr><td colspan="20" class="sv-empty">Open this section to load comps…</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </details>
-
         <!-- Line detail -->
         <div class="bcn-card">
           <div class="bcn-card-header">
             <h2>Line detail</h2>
             <span id="detailCount" class="bcn-card-meta" style="margin-left:auto">0 rows</span>
+            <button id="btnExportDetail" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">Export page CSV</button>
           </div>
           <div class="bcn-card-body" style="padding:0;overflow:visible">
             <div class="sv-table-wrap">
@@ -354,7 +297,7 @@
                   </tr>
                 </thead>
                 <tbody id="detailBody">
-                  <tr><td colspan="14" class="sv-empty">Loading…</td></tr>
+                  <tr><td colspan="14" class="sv-empty"><span class="sv-spinner"></span>Loading…</td></tr>
                 </tbody>
               </table>
             </div>
@@ -380,9 +323,9 @@
           <div class="bcn-card-body">
             <div style="font-size:11.5px;color:var(--bcn-ink-3)">Counts across the full filtered set.</div>
             <div class="sv-exc-grid">
-              <div class="sv-exc-cell"><div class="sv-exc-label">Refund disc.</div><div id="excRefundDiscrepancy" class="sv-exc-val">—</div></div>
-              <div class="sv-exc-cell"><div class="sv-exc-label">Blank SKU</div><div id="excBlankSku" class="sv-exc-val">—</div></div>
-              <div class="sv-exc-cell"><div class="sv-exc-label">Neg. net</div><div id="excNegativeNet" class="sv-exc-val">—</div></div>
+              <div id="excRefundDiscrepancyCell" class="sv-exc-cell"><div class="sv-exc-label">Refund disc.</div><div id="excRefundDiscrepancy" class="sv-exc-val">—</div></div>
+              <div id="excBlankSkuCell" class="sv-exc-cell"><div class="sv-exc-label">Blank SKU</div><div id="excBlankSku" class="sv-exc-val">—</div></div>
+              <div id="excNegativeNetCell" class="sv-exc-cell"><div class="sv-exc-label">Neg. net</div><div id="excNegativeNet" class="sv-exc-val">—</div></div>
               <div class="sv-exc-cell"><div class="sv-exc-label">Sync batches</div><div id="excBatchCount" class="sv-exc-val">—</div></div>
             </div>
           </div>
@@ -392,7 +335,8 @@
           <div class="bcn-card-body">
             <ul style="margin:0;padding:0 0 0 14px;display:flex;flex-direction:column;gap:5px;font-size:11.5px;color:var(--bcn-ink-3);line-height:1.5">
               <li>"All history" scans in chunks and can take longer.</li>
-              <li>Comps are a separate summary; reload with Apply, Refresh, or <strong>Reload comps</strong>.</li>
+              <li>Line detail export covers the current page only — narrow your filters or page through for more.</li>
+              <li>Need store-vs-prior-year comparisons? See <a href="/v2/bi-sales-overview.html">Sales Performance Overview</a>.</li>
             </ul>
           </div>
         </div>
@@ -428,8 +372,7 @@
   const PAGE = 200;
   const state = {
     currentPage:1, totalPages:1, totalRows:0,
-    summary:null, detailRows:[], matrixRows:[],
-    summaryRefreshedAt:null, matrixFetchedAt:null,
+    summary:null, detailRows:[],
     quickFilter:'all', lastRefreshAt:null, isLoading:false,
   };
 
@@ -439,6 +382,8 @@
     btnReset:      document.getElementById('btnReset'),
     btnPrevPage:   document.getElementById('btnPrevPage'),
     btnNextPage:   document.getElementById('btnNextPage'),
+    btnExportLocation: document.getElementById('btnExportLocation'),
+    btnExportDetail:   document.getElementById('btnExportDetail'),
     presetFilter:  document.getElementById('presetFilter'),
     locationFilter:document.getElementById('locationFilter'),
     dateFrom:      document.getElementById('dateFrom'),
@@ -458,6 +403,9 @@
     excBlankSku:        document.getElementById('excBlankSku'),
     excNegativeNet:     document.getElementById('excNegativeNet'),
     excBatchCount:      document.getElementById('excBatchCount'),
+    excRefundDiscrepancyCell: document.getElementById('excRefundDiscrepancyCell'),
+    excBlankSkuCell:    document.getElementById('excBlankSkuCell'),
+    excNegativeNetCell: document.getElementById('excNegativeNetCell'),
     locationSummaryBody: document.getElementById('locationSummaryBody'),
     locationSummaryCount:document.getElementById('locationSummaryCount'),
     detailBody:     document.getElementById('detailBody'),
@@ -466,19 +414,10 @@
     pageIndicator:  document.getElementById('pageIndicator'),
     provisionalBanner:  document.getElementById('provisionalBanner'),
     provisionalText:    document.getElementById('provisionalText'),
-    storeCompsPanel:    document.getElementById('storeCompsPanel'),
-    metricMode:    document.getElementById('metricMode'),
-    matrixHead:    document.getElementById('matrixHead'),
-    matrixBody:    document.getElementById('matrixBody'),
-    matrixCount:   document.getElementById('matrixCount'),
-    matrixMeta:    document.getElementById('matrixMeta'),
-    btnReloadComps:document.getElementById('btnReloadComps'),
   };
 
   const money = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(Number(v||0));
-  const moneyW = v => new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(v||0));
   const numFmt = v => Number(v||0).toLocaleString();
-  const pct    = v => (v==null||Number.isNaN(Number(v)))?'—':`${(Number(v)*100).toFixed(1)}%`;
   const esc    = s => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
   const fmtTs  = ts => { if(!ts) return '—'; const d=new Date(ts); return isNaN(d)?String(ts):d.toLocaleString(); };
   const today  = () => { const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; };
@@ -488,9 +427,39 @@
   function setProgress(t){ el.progressText.textContent=t; }
   function setLoading(v){
     state.isLoading=v;
-    [el.btnRefresh,el.btnApply,el.btnReset,el.btnReloadComps].forEach(b=>b.disabled=v);
+    [el.btnRefresh,el.btnApply,el.btnReset].forEach(b=>{ b.disabled=v; b.classList.toggle('is-loading',v); });
     el.btnPrevPage.disabled=v||state.currentPage<=1;
     el.btnNextPage.disabled=v||state.currentPage>=state.totalPages;
+  }
+
+  // Exports whatever is currently on screen. Line detail is paginated over
+  // what can be the entire sales history, so its export covers the current
+  // page only (labeled as such) — By location covers the full filtered set,
+  // matching the export convention used across the rest of the BI suite.
+  function downloadCsv(filename, headers, rows){
+    const cell = v => {
+      const s = String(v??'');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+    };
+    const lines = [headers.map(cell).join(',')].concat(rows.map(r=>r.map(cell).join(',')));
+    const blob = new Blob([lines.join('\r\n')], { type:'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+  function exportLocationCsv(){
+    const rows = state.summary?.locations || [];
+    downloadCsv('sales-report-by-location.csv',
+      ['Location','Rows','Min Date','Max Date','Units','Gross','Discounts','Refunds','Taxes','Shipping','Net','Total Sales'],
+      rows.map(r=>[r.location_tag, r.row_count, r.min_date||'', r.max_date||'', r.units, r.gross.toFixed(2), r.discounts.toFixed(2), r.refunds.toFixed(2), r.taxes.toFixed(2), r.shipping.toFixed(2), r.net.toFixed(2), r.total_sales.toFixed(2)]));
+  }
+  function exportDetailCsv(){
+    const rows = state.detailRows || [];
+    downloadCsv(`sales-report-line-detail-page${state.currentPage}.csv`,
+      ['Day','Location','SKU','Product','Type','Qty','Orders','Gross','Discounts','Refunds','Net','Taxes','Shipping','Total'],
+      rows.map(r=>[r.day_date||'', r.location_tag||'', r.sku||'', r.product_name||'', r.product_type||'', r.total_quantity_sold||0, r.total_orders||0, Number(r.total_gross_sales||0).toFixed(2), Number(r.total_discounts||0).toFixed(2), Number(r.total_refunds||0).toFixed(2), Number(r.total_net_sales||0).toFixed(2), Number(r.taxes||0).toFixed(2), Number(r.shipping||0).toFixed(2), Number(r.total_sales||0).toFixed(2)]));
   }
 
   function getFilters(){
@@ -546,6 +515,7 @@
       min_date:l.min_date||null, max_date:l.max_date||null,
       units:Number(l.units||0), gross:Number(l.gross||0),
       discounts:Number(l.discounts||0), refunds:Number(l.refunds||0),
+      taxes:Number(l.taxes||0), shipping:Number(l.shipping||0),
       net:Number(l.net||0), total_sales:Number(l.total_sales||0),
     }));
     return {
@@ -582,19 +552,6 @@
       .concat((data||[]).map(r=>r.location_tag).filter(Boolean).map(l=>`<option value="${esc(l)}">${esc(l)}</option>`)).join('');
   }
 
-  async function loadMatrix(){
-    let q=sb.from('sales_verification_store_comp_summary').select('*').order('location_tag',{ascending:true});
-    q = scopeQ(q);
-    const loc=el.locationFilter.value.trim(); if (loc) q=q.eq('location_tag',loc);
-    const { data,error } = await q; if (error) throw error;
-    state.matrixRows=data||[]; state.summaryRefreshedAt=data?.[0]?.refreshed_at||null;
-  }
-
-  async function syncComps(){
-    await loadMatrix(); state.matrixFetchedAt=new Date().toISOString();
-    if (el.storeCompsPanel.open) renderMatrix();
-  }
-
   function mayIncludeToday(){
     const f=getFilters(),t=today();
     if (f.preset==='all'&&!f.dateFrom&&!f.dateTo) return false;
@@ -616,11 +573,16 @@
     el.lastRefreshPill.textContent=`Last refresh: ${fmtTs(state.lastRefreshAt)}`;
   }
 
+  function setExcCell(cell,valueEl,count){
+    valueEl.textContent=numFmt(count);
+    cell.classList.toggle('is-clear',count===0);
+    cell.classList.toggle('is-flagged',count>0);
+  }
   function renderExceptions(){
     const s=state.summary; if (!s) return;
-    el.excRefundDiscrepancy.textContent=numFmt(s.refundDiscrepancyCount);
-    el.excBlankSku.textContent=numFmt(s.blankSkuCount);
-    el.excNegativeNet.textContent=numFmt(s.negativeNetCount);
+    setExcCell(el.excRefundDiscrepancyCell,el.excRefundDiscrepancy,s.refundDiscrepancyCount);
+    setExcCell(el.excBlankSkuCell,el.excBlankSku,s.blankSkuCount);
+    setExcCell(el.excNegativeNetCell,el.excNegativeNet,s.negativeNetCount);
     el.excBatchCount.textContent=numFmt(s.batchCount);
   }
 
@@ -628,7 +590,7 @@
     const s=state.summary;
     if (!s||!s.locations.length){
       el.locationSummaryCount.textContent='0 locations';
-      el.locationSummaryBody.innerHTML=`<tr><td colspan="10" class="sv-empty">No rows match current filters.</td></tr>`;
+      el.locationSummaryBody.innerHTML=`<tr><td colspan="12" class="sv-empty">No rows match current filters.</td></tr>`;
       return;
     }
     el.locationSummaryCount.textContent=`${s.locations.length} location${s.locations.length===1?'':'s'}`;
@@ -641,6 +603,8 @@
       <td class="r">${money(r.gross)}</td>
       <td class="r">${money(r.discounts)}</td>
       <td class="r">${money(r.refunds)}</td>
+      <td class="r">${money(r.taxes)}</td>
+      <td class="r">${money(r.shipping)}</td>
       <td class="r" style="font-weight:700">${money(r.net)}</td>
       <td class="r">${money(r.total_sales)}</td>
     </tr>`).join('');
@@ -681,37 +645,7 @@
     el.btnNextPage.disabled=state.isLoading||state.currentPage>=state.totalPages;
   }
 
-  function renderMatrix(){
-    const rows=state.matrixRows||[], mode=el.metricMode.value;
-    let cols='';
-    if (mode==='sales'||mode==='both') cols+=`<th class="g-day">CY Net</th><th class="g-day">PY Net</th><th class="g-day">Var %</th><th class="g-mtd">CY Net</th><th class="g-mtd">PY Net</th><th class="g-mtd">Var %</th><th class="g-ytd">CY Net</th><th class="g-ytd">PY Net</th><th class="g-ytd">Var %</th>`;
-    if (mode==='units'||mode==='both') cols+=`<th class="g-day">CY Units</th><th class="g-day">PY Units</th><th class="g-day">Var %</th><th class="g-mtd">CY Units</th><th class="g-mtd">PY Units</th><th class="g-mtd">Var %</th><th class="g-ytd">CY Units</th><th class="g-ytd">PY Units</th><th class="g-ytd">Var %</th>`;
-    cols+=`<th class="g-meta">Rows</th><th class="g-meta">Blank SKU</th><th class="g-meta">Discrepancy</th><th class="g-meta">Min Date</th><th class="g-meta">Max Date</th>`;
-    const span=mode==='both'?6:3;
-    el.matrixHead.innerHTML=`<tr><th class="m-store" rowspan="2">Store</th><th class="g-day" colspan="${span}">Day</th><th class="g-mtd" colspan="${span}">MTD</th><th class="g-ytd" colspan="${span}">YTD</th><th class="g-meta" colspan="5">Verification</th></tr><tr>${cols}</tr>`;
-    if (!rows.length){
-      el.matrixCount.textContent='No rows';
-      el.matrixBody.innerHTML=`<tr><td colspan="30" class="sv-empty">No comp rows for this location filter.</td></tr>`;
-      el.matrixMeta.textContent=state.matrixFetchedAt?`Last pull: ${fmtTs(state.matrixFetchedAt)}`:'';
-      return;
-    }
-    el.matrixCount.textContent=`${rows.length} store${rows.length===1?'':'s'}`;
-    el.matrixMeta.textContent=`${state.matrixFetchedAt?`Pulled: ${fmtTs(state.matrixFetchedAt)} · `:''}CY ${rows[0]?.as_of_date||'—'} · PY ${rows[0]?.py_as_of_date||'—'}`;
-    el.matrixBody.innerHTML=rows.map(r=>{
-      let h=`<tr><td class="m-store">${esc(r.location_tag)}</td>`;
-      if (mode==='sales'||mode==='both') h+=`<td class="g-day">${moneyW(r.cur_day_net)}</td><td class="g-day">${moneyW(r.py_day_net)}</td><td class="g-day">${pct(r.day_net_var_pct)}</td><td class="g-mtd">${moneyW(r.cur_mtd_net)}</td><td class="g-mtd">${moneyW(r.py_mtd_net)}</td><td class="g-mtd">${pct(r.mtd_net_var_pct)}</td><td class="g-ytd">${moneyW(r.cur_ytd_net)}</td><td class="g-ytd">${moneyW(r.py_ytd_net)}</td><td class="g-ytd">${pct(r.ytd_net_var_pct)}</td>`;
-      if (mode==='units'||mode==='both') h+=`<td class="g-day">${numFmt(r.cur_day_qty)}</td><td class="g-day">${numFmt(r.py_day_qty)}</td><td class="g-day">${pct(r.day_qty_var_pct)}</td><td class="g-mtd">${numFmt(r.cur_mtd_qty)}</td><td class="g-mtd">${numFmt(r.py_mtd_qty)}</td><td class="g-mtd">${pct(r.mtd_qty_var_pct)}</td><td class="g-ytd">${numFmt(r.cur_ytd_qty)}</td><td class="g-ytd">${numFmt(r.py_ytd_qty)}</td><td class="g-ytd">${pct(r.ytd_qty_var_pct)}</td>`;
-      h+=`<td class="g-meta">${numFmt(r.row_count)}</td><td class="g-meta">${numFmt(r.blank_sku_rows)}</td><td class="g-meta">${numFmt(r.refund_discrepancy_rows)}</td><td class="g-meta" style="font-size:10.5px">${r.min_day_date||'—'}</td><td class="g-meta" style="font-size:10.5px">${r.max_day_date||'—'}</td></tr>`;
-      return h;
-    }).join('');
-  }
-
   function renderProvisional(){
-    const t=today(), asOf=state.matrixRows?.[0]?.as_of_date||null;
-    if (asOf&&asOf===t&&state.matrixRows?.length){
-      el.provisionalText.textContent=`Comp summary as-of ${asOf}: current-day values may still be incomplete.`;
-      el.provisionalBanner.classList.remove('hidden'); return;
-    }
     if (mayIncludeToday()){ el.provisionalText.textContent='Date filters include today — totals can change after the next sync.'; el.provisionalBanner.classList.remove('hidden'); return; }
     el.provisionalBanner.classList.add('hidden');
   }
@@ -731,10 +665,6 @@
       state.lastRefreshAt=new Date().toISOString();
       setStatus(s.totalRows?`Loaded ${numFmt(s.totalRows)} rows across ${numFmt(s.locationCount)} location${s.locationCount===1?'':'s'}.`:'No rows matched.');
       renderAll();
-      if (el.storeCompsPanel.open){
-        try { setProgress('Updating comps'); await syncComps(); }
-        catch(e){ console.error(e); state.matrixRows=[]; renderMatrix(); }
-      }
       renderProvisional(); setProgress('Complete');
     } catch(e){
       console.error(e); setStatus(`Load failed: ${e.message}`); setProgress('Failed');
@@ -755,24 +685,9 @@
   el.btnReset.addEventListener('click',()=>{ resetFilters(); runFullLoad(true); });
   el.btnPrevPage.addEventListener('click',()=>changePage(state.currentPage-1));
   el.btnNextPage.addEventListener('click',()=>changePage(state.currentPage+1));
+  el.btnExportLocation.addEventListener('click',exportLocationCsv);
+  el.btnExportDetail.addEventListener('click',exportDetailCsv);
   el.presetFilter.addEventListener('change',()=>{ if(el.presetFilter.value!=='custom') applyPreset(); });
-  el.metricMode.addEventListener('change',()=>{ if(el.storeCompsPanel.open) renderMatrix(); });
-  el.locationFilter.addEventListener('change',async()=>{
-    if (!el.storeCompsPanel.open) return;
-    el.btnReloadComps.disabled=true;
-    try { await syncComps(); renderProvisional(); } catch(e){ console.error(e); } finally { el.btnReloadComps.disabled=false; }
-  });
-  el.storeCompsPanel.addEventListener('toggle',async()=>{
-    if (!el.storeCompsPanel.open) return;
-    el.btnReloadComps.disabled=true;
-    try { setProgress('Loading comps'); await syncComps(); renderProvisional(); }
-    catch(e){ console.error(e); } finally { el.btnReloadComps.disabled=false; setProgress('Complete'); }
-  });
-  el.btnReloadComps.addEventListener('click',async()=>{
-    if (!el.storeCompsPanel.open) el.storeCompsPanel.open=true;
-    el.btnReloadComps.disabled=true;
-    try { await syncComps(); renderProvisional(); } catch(e){ console.error(e); } finally { el.btnReloadComps.disabled=false; }
-  });
   document.addEventListener('click',async ev=>{
     const q=ev.target.closest('[data-quick]'); if (!q) return;
     state.quickFilter=q.dataset.quick||'all';
@@ -788,9 +703,9 @@
 
     if (window.SiloChrome){
       window.SiloChrome.mount({
-        appEl:'#silo-app', active:'sales/verification',
+        appEl:'#silo-app', active:'reports/sales-report',
         user:{ email:user?.email||'', role:'admin' },
-        crumbs:['Sales','Verification'],
+        crumbs:['Reports','Sales Report'],
         supabaseClient:sb,
       });
     }
