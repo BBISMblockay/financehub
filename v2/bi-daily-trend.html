@@ -125,6 +125,7 @@
           <select id="metricMode" class="bcn-field">
             <option value="sales" selected>Net Sales</option>
             <option value="units">Units</option>
+            <option value="discounts">Discounts</option>
           </select>
         </div>
         <div>
@@ -268,7 +269,7 @@
     const PAGE_SIZE=10000; let from=0, out=[];
     for(;;){
       let q = sb.from('sales_by_day_verification_v')
-        .select('day_date,location_tag,total_net_sales,total_quantity_sold')
+        .select('day_date,location_tag,total_net_sales,total_quantity_sold,total_discounts')
         .gte('day_date',dateFrom).lte('day_date',dateTo)
         .range(from,from+PAGE_SIZE-1);
       q = scopeQ(q);
@@ -286,16 +287,17 @@
     for (const r of rows){
       const group = state.groupByTag.get(r.location_tag)||'retail';
       if (state.activeGroup!=='all' && group!==state.activeGroup) continue;
-      const cur = byDay.get(r.day_date) || { net:0, qty:0 };
+      const cur = byDay.get(r.day_date) || { net:0, qty:0, discounts:0 };
       cur.net += Number(r.total_net_sales||0);
       cur.qty += Number(r.total_quantity_sold||0);
+      cur.discounts += Number(r.total_discounts||0);
       byDay.set(r.day_date, cur);
     }
     // Fill every day in range so gaps render as zero, not a break in the line.
     const out=[]; let d=rangeStart;
     while (d<=rangeEnd){
-      const v = byDay.get(d) || { net:0, qty:0 };
-      out.push({ day:d, net:v.net, qty:v.qty });
+      const v = byDay.get(d) || { net:0, qty:0, discounts:0 };
+      out.push({ day:d, net:v.net, qty:v.qty, discounts:v.discounts });
       d = addDays(d,1);
     }
     return out;
@@ -308,7 +310,7 @@
     if (!curRowsRaw) return;
     const curDays = aggregateByDay(curRowsRaw,curFrom,curTo);
     const pyDays  = aggregateByDay(pyRowsRaw,pyFrom,pyTo);
-    state.days = curDays.map((c,i)=>({ day:c.day, net:c.net, qty:c.qty, pyNet:pyDays[i]?.net??0, pyQty:pyDays[i]?.qty??0 }));
+    state.days = curDays.map((c,i)=>({ day:c.day, net:c.net, qty:c.qty, discounts:c.discounts, pyNet:pyDays[i]?.net??0, pyQty:pyDays[i]?.qty??0, pyDiscounts:pyDays[i]?.discounts??0 }));
     renderAll();
     setStatus(`Loaded ${state.days.length} days (${curFrom} → ${curTo}), ${curRowsRaw.length} rows scanned.`);
   }
@@ -349,7 +351,11 @@
     [...el.rangePresets.querySelectorAll('[data-days]')].forEach(b=>b.classList.toggle('active', Number(b.dataset.days)===days));
   }
 
-  function metricKey(){ return el.metricMode.value==='units' ? {cur:'qty',py:'pyQty'} : {cur:'net',py:'pyNet'}; }
+  function metricKey(){
+    if (el.metricMode.value==='units') return {cur:'qty',py:'pyQty'};
+    if (el.metricMode.value==='discounts') return {cur:'discounts',py:'pyDiscounts'};
+    return {cur:'net',py:'pyNet'};
+  }
   const fmtVal = v => el.metricMode.value==='units' ? numFmt(v) : money(v);
   const fmtValW = v => el.metricMode.value==='units' ? numFmt(v) : moneyW(v);
 

@@ -154,6 +154,7 @@
             <option value="total" selected>Total Sales (matches PBI)</option>
             <option value="sales">Net Sales</option>
             <option value="units">Units</option>
+            <option value="discounts">Discounts</option>
           </select>
         </div>
         <div id="statusText" class="ov-status">Loading…</div>
@@ -325,9 +326,10 @@
   // Field-key sets per metric mode — single-select (matches PBI's one-metric-
   // at-a-time store table rather than a combinatorial "both" option.
   const METRIC_FIELDS = {
-    total: { prefix:'total', label:'Total', fmt:moneyW },
-    sales: { prefix:'net',   label:'Net',   fmt:moneyW },
-    units: { prefix:'qty',   label:'Units', fmt:numFmt },
+    total:     { prefix:'total',     label:'Total',     fmt:moneyW },
+    sales:     { prefix:'net',       label:'Net',       fmt:moneyW },
+    units:     { prefix:'qty',       label:'Units',     fmt:numFmt },
+    discounts: { prefix:'discounts', label:'Discounts', fmt:moneyW },
   };
 
   function periodCols(r, period, fields, lead){
