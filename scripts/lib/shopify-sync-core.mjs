@@ -710,11 +710,14 @@ export function ordersToSalesRows({
   for (const order of orders) {
     newestUpdatedStamp = maxIso(newestUpdatedStamp, order.updated_at || order.created_at);
 
-    // Shopify sales reports exclude cancelled and test orders — match that.
-    if (order.cancelled_at || order.test) {
-      if (order.cancelled_at) skipped.cancelled_orders += 1;
-      continue;
-    }
+    // Shopify sales reports INCLUDE cancelled orders: the sale stays on the
+    // books and any cancellation refund shows up as a Return dated when it
+    // was processed. Skipping them hid $24.3k gross / $23.0k discounts of
+    // cancelled TikTok-Shop "Seller discount" orders on 2026-06-07 alone —
+    // the bulk of the BI-vs-Shopify report variance. Only test orders are
+    // excluded. cancelled_orders is still counted for observability.
+    if (order.test) continue;
+    if (order.cancelled_at) skipped.cancelled_orders += 1;
 
     newestOrderStamp = maxIso(newestOrderStamp, order.created_at);
 
