@@ -118,6 +118,7 @@
         <div class="bcn-card-header">
           <h2>By product type &amp; month</h2>
           <span id="rowCount" class="bcn-card-meta" style="margin-left:auto">0 types</span>
+          <button id="btnExport" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">Export CSV</button>
         </div>
         <div class="bcn-card-body" style="padding:0;overflow:visible">
           <div class="pt-table-wrap">
@@ -183,6 +184,7 @@
 
   const el = {
     btnRefresh: document.getElementById('btnRefresh'),
+    btnExport: document.getElementById('btnExport'),
     rangePresets: document.getElementById('rangePresets'),
     metricMode: document.getElementById('metricMode'),
     groupFilters: document.getElementById('groupFilters'),
@@ -206,6 +208,22 @@
   const isoDateOnly = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const monthLabel = mk => { const [y,m]=mk.split('-'); return new Date(`${y}-${m}-01T00:00:00`).toLocaleDateString('en-US',{month:'short',year:'2-digit'}); };
   function setStatus(t){ el.statusText.textContent=t; }
+
+  // Exports whatever is currently on screen — same range/metric/store-group
+  // filters already applied.
+  function downloadCsv(filename, headers, rows){
+    const cell = v => {
+      const s = String(v??'');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+    };
+    const lines = [headers.map(cell).join(',')].concat(rows.map(r=>r.map(cell).join(',')));
+    const blob = new Blob([lines.join('\r\n')], { type:'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
 
   function monthsBack(n){
     const out=[]; const today=new Date();
@@ -364,9 +382,19 @@
     el.matrixBody.innerHTML = bodyHtml;
   }
 
+  function exportMatrixCsv(){
+    const { field, rows } = typeRows();
+    const headers = ['Product type', ...state.months.map(monthLabel), 'Total'];
+    const csvRows = rows.map(r=>[r.type, ...r.values, r.total]);
+    const monthTotals = state.months.map((_,i)=>rows.reduce((a,r)=>a+r.values[i],0));
+    csvRows.push(['Total', ...monthTotals, monthTotals.reduce((a,v)=>a+v,0)]);
+    downloadCsv(`product-types-${el.metricMode.value}.csv`, headers, csvRows);
+  }
+
   function renderAll(){ renderKpis(); renderMatrix(); }
 
   el.btnRefresh.addEventListener('click', runLoad);
+  el.btnExport.addEventListener('click', exportMatrixCsv);
   el.metricMode.addEventListener('change', renderAll);
   el.rangePresets.addEventListener('click', (ev) => {
     const btn = ev.target.closest('[data-months]'); if (!btn) return;

@@ -166,6 +166,7 @@
         <div class="bcn-card-header">
           <h2>By location — Day / MTD / YTD vs. prior year</h2>
           <span id="rowCount" class="bcn-card-meta" style="margin-left:auto">0 locations</span>
+          <button id="btnExport" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">Export CSV</button>
         </div>
         <div class="bcn-card-body" style="padding:0;overflow:visible">
           <div class="ov-table-wrap" id="ovTableWrap">
@@ -214,6 +215,7 @@
 
   const el = {
     btnRefresh:  document.getElementById('btnRefresh'),
+    btnExport:   document.getElementById('btnExport'),
     lastRefreshPill: document.getElementById('lastRefreshPill'),
     statusText:  document.getElementById('statusText'),
     metricMode:  document.getElementById('metricMode'),
@@ -239,6 +241,23 @@
   const numFmt = v => Number(v||0).toLocaleString();
   const esc    = s => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
   const fmtTs  = ts => { if(!ts) return '—'; const d=new Date(ts); return isNaN(d)?String(ts):d.toLocaleString(); };
+
+  // Exports whatever is currently on screen — same filters, same computed
+  // rows the table renders from, not a fresh unfiltered fetch.
+  function downloadCsv(filename, headers, rows){
+    const cell = v => {
+      const s = String(v??'');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+    };
+    const lines = [headers.map(cell).join(',')].concat(rows.map(r=>r.map(cell).join(',')));
+    const blob = new Blob([lines.join('\r\n')], { type:'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   function varPct(cur,py){
     const c=Number(cur||0), p=Number(py||0);
     if (!p) return null;
@@ -379,6 +398,23 @@
     el.matrixBody.innerHTML = bodyHtml;
   }
 
+  function exportMatrixCsv(){
+    const rows=visibleRows(), mode=el.metricMode.value;
+    const fields = METRIC_FIELDS[mode] || METRIC_FIELDS.total;
+    const periods = state.activePeriod==='all' ? ['day','mtd','ytd'] : [state.activePeriod];
+    const periodLabel = { day:'Day', mtd:'MTD', ytd:'YTD' };
+    const headers = ['Store', ...periods.flatMap(p=>[`${periodLabel[p]} CY ${fields.label}`,`${periodLabel[p]} PY ${fields.label}`,`${periodLabel[p]} Var %`])];
+    const csvRows = rows.map(r=>[
+      r.location_tag,
+      ...periods.flatMap(p=>{
+        const cur=r[`cur_${p}_${fields.prefix}`], py=r[`py_${p}_${fields.prefix}`];
+        const v=r[`${p}_${fields.prefix}_var_pct`];
+        return [cur??0, py??0, v==null?'':(v*100).toFixed(2)];
+      }),
+    ]);
+    downloadCsv(`sales-overview-${mode}.csv`, headers, csvRows);
+  }
+
   function renderAll(){ renderKpis(); renderMatrix(); }
 
   async function runLoad(){
@@ -405,6 +441,7 @@
   }
 
   el.btnRefresh.addEventListener('click', runLoad);
+  el.btnExport.addEventListener('click', exportMatrixCsv);
   el.metricMode.addEventListener('change', renderMatrix);
   el.groupFilters.addEventListener('click', (ev)=>{
     const btn = ev.target.closest('[data-group]');

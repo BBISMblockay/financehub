@@ -150,6 +150,7 @@
         <div class="bcn-card-header">
           <h2>Results</h2>
           <span id="rowCount" class="bcn-card-meta" style="margin-left:auto">0 rows</span>
+          <button id="btnExport" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">Export CSV</button>
         </div>
         <div class="bcn-card-body" style="padding:0;overflow:visible">
           <div class="ps-table-wrap">
@@ -209,11 +210,13 @@
     activeType:'', searchName:'', searchSku:'',
     showStore:false, showMonth:false,
     sortKey:'total', sortDir:'desc',
-    rowsRaw:[],
+    rowsRaw:[], lastRows:[],
   };
 
   const el = {
     btnRefresh: document.getElementById('btnRefresh'),
+    btnExport: document.getElementById('btnExport'),
+    btnExport: document.getElementById('btnExport'),
     searchName: document.getElementById('searchName'),
     searchSku: document.getElementById('searchSku'),
     typeSelect: document.getElementById('typeSelect'),
@@ -241,6 +244,36 @@
   const addDays = (s,n) => { const d=new Date(`${s}T00:00:00`); d.setDate(d.getDate()+n); return isoDateOnly(d); };
   const monthLabel = mk => { const [y,m]=mk.split('-'); return new Date(`${y}-${m}-01T00:00:00`).toLocaleDateString('en-US',{month:'short',year:'numeric'}); };
   function setStatus(t){ el.statusText.textContent=t; }
+
+  // Exports the full filtered+sorted set — not just the 200-row on-screen
+  // cap — with whichever Store/Month columns are currently toggled on.
+  function downloadCsv(filename, headers, rows){
+    const cell = v => {
+      const s = String(v??'');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+    };
+    const lines = [headers.map(cell).join(',')].concat(rows.map(r=>r.map(cell).join(',')));
+    const blob = new Blob([lines.join('\r\n')], { type:'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+  function exportResultsCsv(){
+    const headers = ['Product','SKU','Type'];
+    if (state.showStore) headers.push('Store');
+    if (state.showMonth) headers.push('Month');
+    headers.push('Qty','Gross $','Discounts $','Refunds $','Net $','Total $');
+    const rows = state.lastRows.map(r=>{
+      const row = [r.product_name||'', r.sku||'', r.product_type];
+      if (state.showStore) row.push(r.location_name||'');
+      if (state.showMonth) row.push(monthLabel(r.month));
+      row.push(r.qty, r.gross.toFixed(2), r.discounts.toFixed(2), r.refunds.toFixed(2), r.net.toFixed(2), r.total.toFixed(2));
+      return row;
+    });
+    downloadCsv('product-search-results.csv', headers, rows);
+  }
 
   async function loadStoreGroups(){
     let q = sb.from('locations').select('location_code,location_name,store_type');
@@ -458,12 +491,14 @@
 
   function renderAll(){
     const rows = sortRows(computeRows());
+    state.lastRows = rows;
     renderHead();
     renderKpis(rows);
     renderTable(rows);
   }
 
   el.btnRefresh.addEventListener('click', runLoad);
+  el.btnExport.addEventListener('click', exportResultsCsv);
   el.searchName.addEventListener('input', () => { state.searchName = el.searchName.value; renderAll(); });
   el.searchSku.addEventListener('input', () => { state.searchSku = el.searchSku.value; renderAll(); });
   el.typeSelect.addEventListener('change', () => { state.activeType = el.typeSelect.value; renderAll(); });
