@@ -59,6 +59,15 @@
     .ts-cover-tag.watch { background:oklch(0.98 0.06 75 / .4); color:var(--bcn-warn,#d97706); }
     .ts-cover-tag.ok { background:var(--bcn-pos-soft,#f0fdf4); color:var(--bcn-pos,#16a34a); }
     .ts-cover-tag.na { background:var(--bcn-sunken); color:var(--bcn-ink-4); }
+
+    /* ---- By-product-type bar chart (single measure, single hue — the axis
+       labels already carry identity, so color isn't doing identity work) ---- */
+    .ts-bar-chart { padding:14px 16px 4px; display:flex; flex-direction:column; gap:8px; }
+    .ts-bar-row { display:flex; align-items:center; gap:10px; }
+    .ts-bar-label { width:120px; flex-shrink:0; font-size:11.5px; color:var(--bcn-ink-2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .ts-bar-track { flex:1; height:14px; background:var(--bcn-sunken); border-radius:4px; }
+    .ts-bar-fill { height:100%; border-radius:4px; min-width:3px; background:var(--bcn-accent); }
+    .ts-bar-value { width:60px; flex-shrink:0; text-align:right; font-family:var(--bcn-mono); font-size:11px; font-weight:700; color:var(--bcn-ink); }
   </style>
 </head>
 <body class="silo-brand">
@@ -133,6 +142,7 @@
             <h2>By product type</h2>
             <span id="typeCount" class="bcn-card-meta" style="margin-left:auto">0 types</span>
           </div>
+          <div class="ts-bar-chart" id="typeChart"></div>
           <div class="bcn-card-body" style="padding:0;overflow:visible">
             <table class="ts-tbl">
               <thead><tr><th>Type</th><th class="r">Qty</th><th class="r">SKUs</th><th class="r">% of total</th></tr></thead>
@@ -198,7 +208,18 @@
   // SKU — excluded so it doesn't dominate the leaderboard.
   const EXCLUDED_TYPES = new Set(['return,package_protection']);
 
-  const state = { groupByTag:new Map(), groups:[], activeGroup:'all', activeType:'', activeWindow:'30', rowsRaw:[], rows:[] };
+  // Shared with bi-returns.html / bi-daily-trend.html so the store-group
+  // filter stays in sync across reports instead of resetting on every visit.
+  const SHARED_FILTER_KEY = 'silo:bi:filters';
+  function loadSharedFilters(){
+    try { return JSON.parse(sessionStorage.getItem(SHARED_FILTER_KEY)) || {}; } catch { return {}; }
+  }
+  function saveSharedFilters(patch){
+    try { sessionStorage.setItem(SHARED_FILTER_KEY, JSON.stringify({ ...loadSharedFilters(), ...patch })); } catch {}
+  }
+  const shared = loadSharedFilters();
+
+  const state = { groupByTag:new Map(), groups:[], activeGroup:shared.storeGroup||'all', activeType:'', activeWindow:'30', rowsRaw:[], rows:[] };
 
   const el = {
     btnRefresh: document.getElementById('btnRefresh'),
@@ -209,6 +230,7 @@
     colQty: document.getElementById('colQty'),
     leaderBody: document.getElementById('leaderBody'),
     leaderCount: document.getElementById('leaderCount'),
+    typeChart: document.getElementById('typeChart'),
     typeBody: document.getElementById('typeBody'),
     typeCount: document.getElementById('typeCount'),
     locationBody: document.getElementById('locationBody'),
@@ -300,6 +322,10 @@
     try {
       await loadStoreGroups();
       renderGroupChips();
+      // Restore the persisted store-group filter (fall back to "all" if this
+      // page's location set doesn't have that group).
+      if (state.activeGroup!=='all' && !state.groups.includes(state.activeGroup)) state.activeGroup='all';
+      [...el.groupFilters.querySelectorAll('[data-group]')].forEach(b=>b.classList.toggle('active', b.dataset.group===state.activeGroup));
 
       state.activeWindow = el.windowSelect.value;
       state.rowsRaw = await loadWindowRows(state.activeWindow);
@@ -339,15 +365,19 @@
       el.leaderBody.innerHTML = `<tr><td colspan="8" class="ts-empty">No sales in this range.</td></tr>`;
       return;
     }
+    // Heat-scale the Qty column — one loud signal on an already-ranked list,
+    // using --bcn-accent via color-mix so it tracks the theme automatically.
+    const maxQty = Math.max(1, ...rows.map(r=>Number(r[qtyCol]||0)));
     el.leaderBody.innerHTML = rows.map((r,i)=>{
       const avg = Number(r[avgCol]||0);
       const days = avg>0 ? Number(r.total_available_quantity||0)/avg : null;
+      const heat = `color-mix(in oklab, var(--bcn-accent) ${Math.round(6+42*(Number(r[qtyCol]||0)/maxQty))}%, transparent)`;
       return `<tr>
         <td class="rank">${i+1}</td>
         <td><div class="ts-prod-name">${esc(r.product_title||'—')}</div><div class="ts-prod-variant">${esc(r.variant_title||'')} ${esc(r.variant_sku||'')}</div></td>
         <td>${esc(r.location_name||r.location_tag||'—')}</td>
         <td>${esc(r.product_type||'Uncategorized')}</td>
-        <td class="r">${numFmt(r[qtyCol])}</td>
+        <td class="r" style="background:${heat}">${numFmt(r[qtyCol])}</td>
         <td class="r">${avg.toFixed(1)}</td>
         <td class="r">${numFmt(r.total_available_quantity)}</td>
         <td class="r">${coverTag(days)}</td>
@@ -355,7 +385,21 @@
     }).join('');
   }
 
-  function renderTypeTable(){
+  function renderTypeChart(rows){
+    if (!rows.length){ el.typeChart.innerHTML=''; return; }
+    const top = rows.slice(0,8);
+    const max = Math.max(1, ...top.map(r=>r.qty));
+    el.typeChart.innerHTML = top.map(r=>{
+      const pct = Math.max(2,(r.qty/max)*100);
+      return `<div class="ts-bar-row">
+        <div class="ts-bar-label" title="${esc(r.type)}">${esc(r.type)}</div>
+        <div class="ts-bar-track"><div class="ts-bar-fill" style="width:${pct.toFixed(1)}%"></div></div>
+        <div class="ts-bar-value">${numFmt(r.qty)}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function computeTypeRows(){
     const { qtyCol } = WINDOWS[state.activeWindow];
     const byType = new Map();
     for (const r of state.rows){
@@ -365,7 +409,10 @@
       cur.skus.add(r.variant_sku);
       byType.set(key,cur);
     }
-    const rows = [...byType.entries()].map(([type,v])=>({ type, qty:v.qty, skus:v.skus.size })).sort((a,b)=>b.qty-a.qty);
+    return [...byType.entries()].map(([type,v])=>({ type, qty:v.qty, skus:v.skus.size })).sort((a,b)=>b.qty-a.qty);
+  }
+
+  function renderTypeTable(rows){
     const total = rows.reduce((a,r)=>a+r.qty,0);
     el.typeCount.textContent = `${rows.length} types`;
     if (!rows.length){
@@ -403,7 +450,14 @@
     </tr>`).join('');
   }
 
-  function renderAll(){ renderKpis(); renderLeaderboard(); renderTypeTable(); renderLocationTable(); }
+  function renderAll(){
+    renderKpis();
+    renderLeaderboard();
+    const typeRows = computeTypeRows();
+    renderTypeChart(typeRows);
+    renderTypeTable(typeRows);
+    renderLocationTable();
+  }
 
   el.btnRefresh.addEventListener('click', runLoad);
   el.windowSelect.addEventListener('change', runLoad);
@@ -412,6 +466,7 @@
     const btn = ev.target.closest('[data-group]'); if (!btn) return;
     state.activeGroup = btn.dataset.group;
     [...el.groupFilters.querySelectorAll('[data-group]')].forEach(b=>b.classList.toggle('active', b===btn));
+    saveSharedFilters({ storeGroup: state.activeGroup });
     recompute();
   });
 
