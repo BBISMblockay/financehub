@@ -137,6 +137,7 @@ supabase/
     20260707010000_store_comp_summary_discounts.sql
     20260707020000_sales_verification_summary_tax_shipping.sql
     20260707030000_comp_summary_complete_day_anchor.sql
+    20260708000000_product_samples_tracker_link.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

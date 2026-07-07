@@ -389,13 +389,13 @@
           safeCount('launch_tasks', q => { let _q = q.neq('status', 'done').eq('assigned_to_user_id', authUser?.id); if (_co?.id) _q = _q.eq('company_entity_id', _co.id); return _q; }),
         ]);
         if (photoRes.ok && photoRes.count > 0) {
-          pushFeedItem(items, { kind: 'tracker_photo_pending', title: `${photoRes.count} product${photoRes.count === 1 ? '' : 's'} need photos`, detail: 'Photo status is pending in Product Hub.', href: '/v2/product-manager.html', severity: photoRes.count > 5 ? 'warn' : 'info', count: photoRes.count });
+          pushFeedItem(items, { kind: 'tracker_photo_pending', title: `${photoRes.count} product${photoRes.count === 1 ? '' : 's'} need photos`, detail: 'Photo status is pending in Products.', href: '/v2/products.html?tab=pipeline', severity: photoRes.count > 5 ? 'warn' : 'info', count: photoRes.count });
         }
         if (readyRes.ok && readyRes.count > 0) {
-          pushFeedItem(items, { kind: 'tracker_ready_not_live', title: `${readyRes.count} product${readyRes.count === 1 ? '' : 's'} ready but not live`, detail: 'Photo + copy done — waiting to go live.', href: '/v2/product-manager.html', severity: 'warn', count: readyRes.count });
+          pushFeedItem(items, { kind: 'tracker_ready_not_live', title: `${readyRes.count} product${readyRes.count === 1 ? '' : 's'} ready but not live`, detail: 'Photo + copy done — waiting to go live.', href: '/v2/products.html?tab=pipeline', severity: 'warn', count: readyRes.count });
         }
         if (orphanRes.ok && orphanRes.count > 0) {
-          pushFeedItem(items, { kind: 'tracker_unlinked', title: `${orphanRes.count} new product${orphanRes.count === 1 ? '' : 's'} not linked to a launch`, detail: 'Added in last 7 days with no launch.', href: '/v2/product-manager.html', severity: 'info', count: orphanRes.count });
+          pushFeedItem(items, { kind: 'tracker_unlinked', title: `${orphanRes.count} new product${orphanRes.count === 1 ? '' : 's'} not linked to a launch`, detail: 'Added in last 7 days with no launch.', href: '/v2/products.html?tab=pipeline', severity: 'info', count: orphanRes.count });
         }
         if (overdueTasksRes.ok && overdueTasksRes.count > 0) {
           pushFeedItem(items, { kind: 'my_tasks_overdue', title: `${overdueTasksRes.count} of your tasks overdue`, detail: 'Assigned to you, past due date.', href: '/v2/tasks.html', severity: 'high', count: overdueTasksRes.count });
