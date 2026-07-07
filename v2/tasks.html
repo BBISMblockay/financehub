@@ -124,7 +124,7 @@
         <div class="bcn-header-title">
           <h1>Task Manager</h1>
         </div>
-        <div class="bcn-header-sub">All launch tasks across SILO</div>
+        <div class="bcn-header-sub">Launch tasks and evergreen to-dos — everything, or one person's prioritized list.</div>
       </div>
       <div class="bcn-header-actions">
         <button class="bcn-btn bcn-btn--primary" id="btnNew">+ New Task</button>
@@ -133,6 +133,18 @@
 
     <!-- Status bar -->
     <div class="bcn-status" id="status" hidden></div>
+
+    <!-- View switcher: everything vs a single person's ordered list -->
+    <div style="display:flex;align-items:center;gap:8px;margin:12px 0 0;flex-wrap:wrap;">
+      <div class="bcn-tabs" style="margin:0;">
+        <button class="bcn-tab bcn-tab--active" id="viewAllTab">All Tasks</button>
+        <button class="bcn-tab" id="viewMyTab">My List</button>
+      </div>
+      <select class="bcn-field" id="viewPersonSel" style="max-width:200px;">
+        <option value="">Someone's list…</option>
+      </select>
+      <button class="bcn-btn bcn-btn--ghost" id="btnAutoArrange" style="display:none;" title="Order by priority, then due date, then shortest first">Auto-arrange</button>
+    </div>
 
     <!-- KPI Band -->
     <section class="bcn-kpi-band" id="kpiBand">
@@ -166,6 +178,7 @@
       <div class="bcn-filter">
         <select class="bcn-field" id="fLaunch">
           <option value="">All launches</option>
+          <option value="__evergreen__">Evergreen (no launch)</option>
         </select>
       </div>
       <div class="bcn-filter">
@@ -207,12 +220,14 @@
           <table class="bcn-table" id="tasksTable">
             <thead>
               <tr>
+                <th class="tm-order-col" style="display:none;width:64px;">Order</th>
                 <th>Title</th>
                 <th>Launch</th>
                 <th>Assignee</th>
                 <th>Priority</th>
                 <th>Type</th>
                 <th>Due</th>
+                <th>Est.</th>
                 <th>Status</th>
                 <th></th>
               </tr>
@@ -247,11 +262,11 @@
       <input class="bcn-field" type="text" id="dTitle" placeholder="Describe the task…" />
     </div>
 
-    <!-- Launch (required) -->
+    <!-- Launch (optional — leave blank for evergreen tasks) -->
     <div class="bcn-field-group">
-      <label class="bcn-label" for="dLaunch">Launch <span style="color:var(--bcn-neg)">*</span></label>
+      <label class="bcn-label" for="dLaunch">Launch <span style="font-weight:400;color:var(--bcn-ink-3)">(optional)</span></label>
       <select class="bcn-field" id="dLaunch">
-        <option value="">Select a launch…</option>
+        <option value="">— Evergreen (no launch) —</option>
       </select>
     </div>
 
@@ -287,6 +302,31 @@
       <div class="bcn-field-group">
         <label class="bcn-label" for="dDueDate">Due date</label>
         <input class="bcn-field bcn-field--mono" type="date" id="dDueDate" />
+      </div>
+    </div>
+
+    <div class="tm-field-row">
+      <!-- Estimated effort -->
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="dEstimate">Estimated time</label>
+        <select class="bcn-field" id="dEstimate">
+          <option value="">—</option>
+          <option value="15">15 min</option>
+          <option value="30">30 min</option>
+          <option value="60">1 hour</option>
+          <option value="120">2 hours</option>
+          <option value="240">Half day</option>
+          <option value="480">Full day</option>
+          <option value="960">Multi-day</option>
+        </select>
+      </div>
+      <!-- Private -->
+      <div class="bcn-field-group" style="display:flex;flex-direction:column;justify-content:flex-end;">
+        <label class="bcn-label">&nbsp;</label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;padding:6px 0;">
+          <input type="checkbox" id="dPrivate" style="width:15px;height:15px;" />
+          <span style="font-size:12px;font-weight:600;">Private <span style="font-weight:400;color:var(--bcn-ink-3)">(assignee + creator only)</span></span>
+        </label>
       </div>
     </div>
 
@@ -444,7 +484,7 @@
   function populateFilterDropdowns() {
     // filter: launches
     const fLaunch = document.getElementById('fLaunch');
-    fLaunch.innerHTML = '<option value="">All launches</option>';
+    fLaunch.innerHTML = '<option value="">All launches</option><option value="__evergreen__">Evergreen (no launch)</option>';
     allLaunches.forEach(l => {
       const o = document.createElement('option');
       o.value = l.id; o.textContent = l.title;
@@ -472,7 +512,7 @@
 
     // drawer: launches
     const dLaunch = document.getElementById('dLaunch');
-    dLaunch.innerHTML = '<option value="">Select a launch…</option>';
+    dLaunch.innerHTML = '<option value="">— Evergreen (no launch) —</option>';
     allLaunches.forEach(l => {
       const o = document.createElement('option');
       o.value = l.id; o.textContent = l.title;
@@ -486,6 +526,15 @@
       const o = document.createElement('option');
       o.value = p.id; o.textContent = p.name || p.email;
       dAssignee.appendChild(o);
+    });
+
+    // view switcher: person list
+    const vSel = document.getElementById('viewPersonSel');
+    vSel.innerHTML = '<option value="">Someone\'s list…</option>';
+    allProfiles.filter(p => p.id !== currentUser.id).forEach(p => {
+      const o = document.createElement('option');
+      o.value = p.id; o.textContent = p.name || p.email;
+      vSel.appendChild(o);
     });
   }
 
@@ -504,6 +553,39 @@
     document.getElementById('kpiUnassigned').textContent = unassigned.length;
   }
 
+  /* ── View mode (all vs one person's ordered list) ─────────────── */
+  let viewUserId = null;   // null = All Tasks; otherwise a profile id
+
+  const PRIORITY_RANK = { critical: 0, high: 1, normal: 2, low: 3 };
+  function autoRank(a, b) {
+    const pr = (PRIORITY_RANK[a.priority] ?? 2) - (PRIORITY_RANK[b.priority] ?? 2);
+    if (pr) return pr;
+    const da = a.due_date || '9999-12-31', db_ = b.due_date || '9999-12-31';
+    if (da !== db_) return da < db_ ? -1 : 1;
+    // shorter tasks float up — quick wins first
+    return (a.estimated_minutes ?? 1e9) - (b.estimated_minutes ?? 1e9);
+  }
+
+  function fmtEst(min) {
+    if (!min) return '—';
+    if (min < 60) return min + 'm';
+    if (min === 240) return '½d';
+    if (min === 480) return '1d';
+    if (min > 480) return '1d+';
+    return (min / 60) + 'h';
+  }
+
+  function setViewMode(userId) {
+    viewUserId = userId;
+    document.getElementById('viewAllTab').classList.toggle('bcn-tab--active', !userId);
+    document.getElementById('viewMyTab').classList.toggle('bcn-tab--active', userId === currentUser.id);
+    const sel = document.getElementById('viewPersonSel');
+    sel.value = (userId && userId !== currentUser.id) ? userId : '';
+    document.getElementById('btnAutoArrange').style.display = userId ? '' : 'none';
+    document.querySelectorAll('.tm-order-col').forEach(el => { el.style.display = userId ? '' : 'none'; });
+    applyFilters();
+  }
+
   /* ── Filter logic ──────────────────────────────────────────────── */
   function applyFilters() {
     const search   = document.getElementById('fSearch').value.trim().toLowerCase();
@@ -518,7 +600,9 @@
         const hay = ((t.task_title || '') + ' ' + (t.notes || '')).toLowerCase();
         if (!hay.includes(search)) return false;
       }
-      if (launch && t.launch_id !== launch) return false;
+      if (launch === '__evergreen__') { if (t.launch_id) return false; }
+      else if (launch && t.launch_id !== launch) return false;
+      if (viewUserId && t.assigned_to_user_id !== viewUserId) return false;
       if (assignee === '__me__'   && t.assigned_to_user_id !== currentUser.id) return false;
       if (assignee === '__none__' && t.assigned_to_user_id)                    return false;
       if (assignee && assignee !== '__me__' && assignee !== '__none__' && t.assigned_to_user_id !== assignee) return false;
@@ -538,6 +622,11 @@
       return true;
     });
 
+    if (viewUserId) {
+      // Person view: manual order (sort_order), unordered rows sink to the bottom.
+      filteredTasks.sort((a, b) => (a.sort_order ?? 1e9) - (b.sort_order ?? 1e9));
+    }
+
     renderTable(filteredTasks);
   }
 
@@ -552,16 +641,25 @@
   function renderTable(rows) {
     const tbody = document.getElementById('tasksTbody');
     if (!rows.length) {
-      tbody.innerHTML = '<tr><td colspan="8" class="tm-empty">No tasks match your filters.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="10" class="tm-empty">No tasks match your filters.</td></tr>';
       return;
     }
 
-    tbody.innerHTML = rows.map(t => {
+    tbody.innerHTML = rows.map((t, idx) => {
       const dc     = dueCss(t.due_date, t.status);
       const rowCls = dc ? `tm-row--${dc}` : '';
       const dueCls = dc ? `tm-due--${dc}` : '';
       const lName  = launchName(t.launch_id);
       const aName  = t.assigned_to_name || (t.assigned_to_user_id ? profileName(t.assigned_to_user_id) : '—');
+      const launchCell = t.launch_id
+        ? `<a href="/v2/launch-calendar.html?launch=${encodeURIComponent(t.launch_id)}" style="color:var(--bcn-accent);font-weight:600;text-decoration:none;">${escHtml(lName)}</a>`
+        : '<span class="bcn-pill bcn-pill--dark" style="font-size:10px;">Evergreen</span>';
+      const orderCell = viewUserId
+        ? `<td class="tm-order-col" style="white-space:nowrap;">
+            <button class="tm-btn-edit" data-move-up="${escHtml(t.id)}" ${idx===0?'disabled':''} title="Move up">↑</button>
+            <button class="tm-btn-edit" data-move-down="${escHtml(t.id)}" ${idx===rows.length-1?'disabled':''} title="Move down">↓</button>
+          </td>`
+        : '';
 
       const statusSel = `<select class="tm-status-sel" data-id="${escHtml(t.id)}" aria-label="Status">
         <option value="open"${t.status === 'open' ? ' selected' : ''}>Open</option>
@@ -570,12 +668,14 @@
       </select>`;
 
       return `<tr class="${rowCls}" data-task-id="${escHtml(t.id)}">
-        <td style="max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(t.task_title || '')}">${escHtml(t.task_title || '')}</td>
-        <td>${escHtml(lName)}</td>
+        ${orderCell}
+        <td style="max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${escHtml(t.task_title || '')}">${t.is_private ? '<span title="Private" style="margin-right:4px;">🔒</span>' : ''}${escHtml(t.task_title || '')}</td>
+        <td>${launchCell}</td>
         <td>${escHtml(aName)}</td>
         <td>${priorityPill(t.priority)}</td>
         <td>${escHtml(t.task_type || '—')}</td>
         <td class="bcn-mono ${dueCls}" style="white-space:nowrap;">${fmtDate(t.due_date)}</td>
+        <td class="bcn-mono" style="white-space:nowrap;">${fmtEst(t.estimated_minutes)}</td>
         <td>${statusSel}</td>
         <td><button class="tm-btn-edit" data-edit-task="${escHtml(t.id)}">Edit</button></td>
       </tr>`;
@@ -613,6 +713,40 @@
     applyFilters();
   }
 
+  /* ── Reorder (person view) ─────────────────────────────────────── */
+  async function persistOrder(pairs) {
+    // pairs: [{id, sort_order}] — small lists, parallel updates are fine
+    const results = await Promise.all(pairs.map(pr =>
+      db.from('launch_tasks').update({ sort_order: pr.sort_order }).eq('id', pr.id)));
+    const err = results.find(r => r.error);
+    if (err) { setStatus('Reorder failed: ' + err.error.message, 'neg', 4000); return false; }
+    return true;
+  }
+
+  async function moveTask(id, dir) {
+    const rows = filteredTasks;
+    const idx = rows.findIndex(t => t.id === id);
+    const swap = rows[idx + dir];
+    if (idx < 0 || !swap) return;
+    const cur = rows[idx];
+    // Normalize both to their positions, then swap
+    const a = { id: cur.id,  sort_order: idx + dir + 1 };
+    const b = { id: swap.id, sort_order: idx + 1 };
+    if (!await persistOrder([a, b])) return;
+    cur.sort_order = a.sort_order; swap.sort_order = b.sort_order;
+    applyFilters();
+  }
+
+  async function autoArrange() {
+    if (!viewUserId) return;
+    const rows = [...filteredTasks].sort(autoRank);
+    const pairs = rows.map((t, i) => ({ id: t.id, sort_order: i + 1 }));
+    if (!await persistOrder(pairs)) return;
+    pairs.forEach(pr => { const t = allTasks.find(x => x.id === pr.id); if (t) t.sort_order = pr.sort_order; });
+    setStatus('List arranged: priority, then due date, then quickest first.', 'pos', 3500);
+    applyFilters();
+  }
+
   /* ── Drawer ────────────────────────────────────────────────────── */
   function openDrawer(task) {
     const isNew = !task;
@@ -624,7 +758,9 @@
     document.getElementById('dDueDate').value           = isNew ? '' : (task.due_date || '');
     document.getElementById('dNotes').value             = isNew ? '' : (task.notes || '');
     document.getElementById('dPriority').value          = isNew ? 'normal' : (task.priority || 'normal');
-    document.getElementById('dAssignee').value          = isNew ? '' : (task.assigned_to_user_id || '');
+    document.getElementById('dAssignee').value          = isNew ? (viewUserId || '') : (task.assigned_to_user_id || '');
+    document.getElementById('dEstimate').value          = isNew ? '' : (task.estimated_minutes || '');
+    document.getElementById('dPrivate').checked         = isNew ? false : !!task.is_private;
 
     const statusRow = document.getElementById('dStatusRow');
     const btnDelete = document.getElementById('btnDelete');
@@ -658,24 +794,20 @@
       document.getElementById('dTitle').focus();
       return;
     }
-    if (!launchId) {
-      setStatus('Please select a launch — tasks must be associated with a launch.', 'neg', 4000);
-      document.getElementById('dLaunch').focus();
-      return;
-    }
-
     const assigneeProfile = assigneeId ? allProfiles.find(p => p.id === assigneeId) : null;
     const assigneeName    = assigneeProfile ? (assigneeProfile.name || assigneeProfile.email) : null;
 
     const payload = {
       task_title:          title,
-      launch_id:           launchId,
+      launch_id:           launchId || null,
       task_type:           document.getElementById('dType').value.trim() || null,
       due_date:            document.getElementById('dDueDate').value     || null,
       notes:               document.getElementById('dNotes').value.trim()   || null,
       priority:            document.getElementById('dPriority').value    || 'normal',
       assigned_to_user_id: assigneeId || null,
       assigned_to_name:    assigneeName,
+      estimated_minutes:   Number(document.getElementById('dEstimate').value) || null,
+      is_private:          document.getElementById('dPrivate').checked,
     };
 
     if (id) {
@@ -690,6 +822,10 @@
       }
     } else {
       payload.status = 'open';
+      payload.created_by = currentUser.id;
+      // append to the bottom of the assignee's list
+      const peers = allTasks.filter(t => t.assigned_to_user_id === (assigneeId || null));
+      payload.sort_order = Math.max(0, ...peers.map(t => t.sort_order || 0)) + 1;
     }
 
     const btnSave = document.getElementById('btnSave');
@@ -753,6 +889,19 @@
   });
 
   document.getElementById('btnNew').addEventListener('click', () => openDrawer(null));
+  document.getElementById('viewAllTab').addEventListener('click', () => setViewMode(null));
+  document.getElementById('viewMyTab').addEventListener('click', () => setViewMode(currentUser.id));
+  document.getElementById('viewPersonSel').addEventListener('change', e => {
+    if (e.target.value) setViewMode(e.target.value);
+    else setViewMode(null);
+  });
+  document.getElementById('btnAutoArrange').addEventListener('click', autoArrange);
+  document.getElementById('tasksTbody').addEventListener('click', e => {
+    const up = e.target.closest('[data-move-up]');
+    if (up) { moveTask(up.dataset.moveUp, -1); return; }
+    const dn = e.target.closest('[data-move-down]');
+    if (dn) { moveTask(dn.dataset.moveDown, 1); return; }
+  });
   document.getElementById('btnDrawerClose').addEventListener('click', closeDrawer);
   document.getElementById('btnCancel').addEventListener('click', closeDrawer);
   document.getElementById('tmOverlay').addEventListener('click', closeDrawer);
@@ -765,6 +914,18 @@
 
   /* ── Bootstrap ─────────────────────────────────────────────────── */
   await loadAll();
+
+  // Deep links: ?view=me|<userId>, ?launch=<id|evergreen>, ?assignee=<id|me>
+  {
+    const qp = new URLSearchParams(location.search);
+    const v = qp.get('view');
+    if (v === 'me') setViewMode(currentUser.id);
+    else if (v) setViewMode(v);
+    const l = qp.get('launch');
+    if (l) { document.getElementById('fLaunch').value = (l === 'evergreen') ? '__evergreen__' : l; applyFilters(); }
+    const a = qp.get('assignee');
+    if (a) { document.getElementById('fAssignee').value = (a === 'me') ? '__me__' : a; applyFilters(); }
+  }
 
   /* ── Mount chrome ──────────────────────────────────────────────── */
   if (window.SiloChrome) {

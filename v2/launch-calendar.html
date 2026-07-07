@@ -500,6 +500,7 @@
         <div style="display:flex;gap:8px;align-items:center;margin:0 0 10px;flex-wrap:wrap;">
           <button class="bcn-btn bcn-btn--mono" type="button" id="showTaskFormBtn">+ TASK</button>
           <span class="dp-sub" id="taskListMeta" style="margin:0;">—</span>
+          <a id="openTaskManagerLink" href="/v2/tasks.html" style="margin-left:auto;font-size:10px;color:var(--bcn-accent);font-weight:600;">Open in Task Manager →</a>
         </div>
         <form id="taskForm" style="display:none;">
           <div class="dp-inline-form">
@@ -1269,6 +1270,8 @@ function renderAgenda(){
 function openDrawer(id){
   activeLaunch=launches.find(x=>String(x.id)===String(id));
   if(!activeLaunch) return;
+  const tmLink=$('openTaskManagerLink');
+  if(tmLink) tmLink.href='/v2/tasks.html?launch='+encodeURIComponent(activeLaunch.id);
   $('drawerTitle').textContent=activeLaunch.title||activeLaunch.product_title||'Launch';
   $('drawerSub').textContent=`${fmt(activeLaunch.launch_date)} · ${activeLaunch.launch_readiness||'not_reviewed'}`;
   $('detailDrawer').classList.add('open');

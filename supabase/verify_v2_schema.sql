@@ -251,6 +251,20 @@ select
     else 'MISSING — run 20260708000000_product_samples_tracker_link.sql'
   end as product_samples_tracker_link;
 
+select
+  case
+    when exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'launch_tasks'
+        and column_name = 'launch_id' and is_nullable = 'YES'
+    ) and exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'launch_tasks'
+        and column_name = 'is_private'
+    ) then 'ok'
+    else 'MISSING — run 20260708010000_tasks_evergreen_personal.sql'
+  end as tasks_evergreen_personal;
+
 -- 9. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,
