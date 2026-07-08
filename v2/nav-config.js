@@ -29,17 +29,15 @@
     { id: 'finance/menu', section: 'Start', label: 'Finance department', labelStandard: 'Company home', href: '/v2/finance.html', profiles: ['grandfathered', 'standard'] },
     { id: 'people/profile', section: 'Start', label: 'My profile', href: '/v2/profile.html', profiles: ['grandfathered', 'standard'] },
 
-    { id: 'people/dashboard', section: 'Overview', label: 'Dashboard', href: '/v2/employeehub.html', profiles: ['grandfathered'] },
+    { id: 'people/dashboard', section: 'Start', label: 'Employee Hub', href: '/v2/employeehub.html', profiles: ['grandfathered'] },
 
-    { id: 'finance/ap-manager', section: 'Payables', label: 'AP Manager', href: '/accountspayable.html', profiles: ['grandfathered'] },
-    { id: 'finance/mailroom', section: 'Payables', label: 'Mailroom Inbox', href: '/v2/mailroom.html', profiles: ['grandfathered'] },
-
-    { id: 'wholesale/customers', section: 'Receivables', label: 'BBISM Receivables', href: '/v2/baseballismwholesale.html', profiles: ['grandfathered'] },
-    { id: 'wholesale/wpv', section: 'Receivables', label: 'WPV Receivables', href: '/v2/wpvaccounts.html', profiles: ['grandfathered'] },
-
-    { id: 'finance/payment-request', section: 'Requests', sectionStandard: 'Operations', label: 'Payment Request', href: '/v2/purchase_request.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'finance/request-manager', section: 'Requests', sectionStandard: 'Operations', label: 'Request Manager', href: '/v2/request_manager.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'finance/travel', section: 'Requests', sectionStandard: 'Operations', label: 'Travel Report', href: '/v2/travel.html', profiles: ['grandfathered'] },
+    { id: 'finance/ap-manager', section: 'Accounting', label: 'AP Manager', href: '/accountspayable.html', profiles: ['grandfathered'] },
+    { id: 'finance/mailroom', section: 'Accounting', label: 'Mailroom Inbox', href: '/v2/mailroom.html', profiles: ['grandfathered'] },
+    { id: 'wholesale/customers', section: 'Accounting', label: 'BBISM Receivables', href: '/v2/baseballismwholesale.html', profiles: ['grandfathered'] },
+    { id: 'wholesale/wpv', section: 'Accounting', label: 'WPV Receivables', href: '/v2/wpvaccounts.html', profiles: ['grandfathered'] },
+    { id: 'finance/payment-request', section: 'Accounting', sectionStandard: 'Operations', label: 'Payment Request', href: '/v2/purchase_request.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'finance/request-manager', section: 'Accounting', sectionStandard: 'Operations', label: 'Request Manager', href: '/v2/request_manager.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'finance/travel', section: 'Accounting', sectionStandard: 'Operations', label: 'Travel Report', href: '/v2/travel.html', profiles: ['grandfathered'] },
 
     { id: 'planning/revenue-projections', section: 'Planning', label: 'Revenue Projection', href: '/v2/projections.html', profiles: ['grandfathered', 'standard'] },
     { id: 'planning/scenarios', section: 'Planning', label: 'Planning scenarios', href: '/v2/planning-scenarios.html', profiles: ['grandfathered', 'standard'] },
@@ -68,7 +66,7 @@
     { id: 'settings/integrations', section: 'Settings', label: 'Integrations', href: '/v2/integrations.html', profiles: ['grandfathered', 'standard'] },
   ];
 
-  const STANDARD_SECTION_ORDER = ['Start', 'Operations', 'Planning', 'Purchasing', 'Product & inventory'];
+  const STANDARD_SECTION_ORDER = ['Start', 'Operations', 'Planning', 'Purchasing', 'Product & inventory', 'Settings'];
 
   /**
    * @param {'grandfathered' | 'standard'} profile
