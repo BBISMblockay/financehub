@@ -1790,9 +1790,9 @@
   async function loadCatalog(){
     const PAGE=1000; let from=0; const rows=[];
     for(;;){
-      // product_tags has no company_entity_id (multi-tenant backfill deferred
-      // for this table) — do not scope it or the query 400s.
-      const {data,error}=await sb.from('product_tags').select('*').order('id',{ascending:true}).range(from,from+PAGE-1);
+      let q=sb.from('product_tags').select('*').order('id',{ascending:true}).range(from,from+PAGE-1);
+      if(_co?.id) q=q.eq('company_entity_id',_co.id);
+      const {data,error}=await q;
       if(error) throw error;
       rows.push(...(data||[]));
       if(!data||data.length<PAGE) break;

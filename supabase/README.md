@@ -139,6 +139,7 @@ supabase/
     20260707030000_comp_summary_complete_day_anchor.sql
     20260708000000_product_samples_tracker_link.sql
     20260708010000_tasks_evergreen_personal.sql
+    20260708020000_product_tags_company_scope.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
