@@ -104,8 +104,12 @@
   function renderSidebar(opts) {
     const { active, user } = opts;
     const company = getActiveCompany();
+    // Company name doubles as the switcher — the picker self-loads
+    // memberships and returns here via ?next= after set_active_company.
+    const switchHref = '/v2/company-picker.html?next='
+      + encodeURIComponent(window.location.pathname + window.location.search);
     const companyLine = company?.title
-      ? escHtml(company.title)
+      ? `<a href="${escHtml(switchHref)}" title="Switch company" style="color:inherit;text-decoration:none;">${escHtml(company.title)} <span style="opacity:.55" aria-hidden="true">⇄</span></a>`
       : 'v2.0 · prod';
 
     return `

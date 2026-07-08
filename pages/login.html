@@ -260,10 +260,12 @@
           return company;
         }
 
-        // Multiple companies: redirect to picker
+        // Multiple companies: redirect to picker (carrying ?next through so
+        // deep links survive the extra hop)
         const companies = data.map(r => ({ ...r.entity, role: r.role }));
         sessionStorage.setItem('__SILO_COMPANY_OPTIONS__', JSON.stringify(companies));
-        window.location.href = '/v2/company-picker.html';
+        const pickerNext = safeNextPath();
+        window.location.href = '/v2/company-picker.html' + (pickerNext ? '?next=' + encodeURIComponent(pickerNext) : '');
         return 'redirect';
       }
 

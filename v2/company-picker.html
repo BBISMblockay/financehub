@@ -118,15 +118,34 @@
         errEl.style.display = '';
       }
 
+      // Same-origin absolute paths only; anything else falls back to Home.
+      function safeNext() {
+        const raw = new URLSearchParams(window.location.search).get('next') || '';
+        if (!raw.startsWith('/') || raw.startsWith('//')) return null;
+        if (raw.startsWith('/pages/login') || raw.startsWith('/v2/company-picker')) return null;
+        return raw;
+      }
+      const DEST = safeNext() || '/v2/finance.html';
+
       let companies = [];
       try {
         companies = JSON.parse(sessionStorage.getItem('__SILO_COMPANY_OPTIONS__') || '[]');
       } catch (_) {}
 
       if (!companies.length) {
-        // Nothing to pick — likely landed here directly. Bounce to login.
-        window.location.href = '/pages/login.html';
-        return;
+        // No options staged by login — this is a direct visit (the sidebar's
+        // company switcher). Load memberships ourselves.
+        if (!_sb) { window.location.href = '/pages/login.html'; return; }
+        const { data: sess } = await _sb.auth.getSession();
+        if (!sess?.session?.user) { window.location.href = '/pages/login.html'; return; }
+        const { data: rows, error: memErr } = await _sb
+          .from('entity_memberships')
+          .select('role, entity:entities!inner(id, title, entity_key, meta)')
+          .eq('user_id', sess.session.user.id)
+          .eq('entity.entity_type', 'company');
+        if (memErr) { showErr('Could not load companies: ' + memErr.message); return; }
+        companies = (rows || []).map(r => ({ ...r.entity, role: r.role }));
+        if (!companies.length) { window.location.href = DEST; return; }
       }
 
       companies.forEach(function (co) {
@@ -156,7 +175,7 @@
               if (error) { showErr('Could not activate company: ' + error.message); btn.disabled = false; return; }
             }
             sessionStorage.removeItem('__SILO_COMPANY_OPTIONS__');
-            window.location.href = '/v2/finance.html';
+            window.location.href = DEST;
           } catch (e) {
             showErr('Could not set company: ' + e.message);
             btn.disabled = false;
