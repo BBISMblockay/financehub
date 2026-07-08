@@ -589,7 +589,7 @@
 
   <script src="/pages/embed.js"></script>
   <script src="../pages/config.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
     const LOGIN_PATH = "/pages/login.html?next=" + encodeURIComponent((location.pathname + location.search) || "/v2/employeehub.html");
 
@@ -885,8 +885,12 @@
       supabaseClient = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
       const { data: sessionData } = await supabaseClient.auth.getSession();
       if (!sessionData?.session?.user) {
+        // Behave like every other v2 page: bounce to login (which honors
+        // ?next=) instead of stranding the user on the sign-in card. The card
+        // stays visible underneath as a fallback if the redirect is blocked.
         els.authBoot.style.display = "";
         els.appShell.hidden = true;
+        window.location.href = LOGIN_PATH;
         return;
       }
 
@@ -971,7 +975,14 @@
       }
     }
 
-    boot();
-
+    boot().catch(err => {
+      console.error('Employee hub boot failed:', err);
+      if (els.authErr) {
+        els.authErr.hidden = false;
+        els.authErr.textContent = 'Failed to load: ' + (err?.message || err);
+      }
+      if (els.authBoot) els.authBoot.style.display = "";
+    });
+  </script>
 </body>
 </html>
