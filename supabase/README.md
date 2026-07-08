@@ -141,6 +141,8 @@ supabase/
     20260708010000_tasks_evergreen_personal.sql
     20260708020000_product_tags_company_scope.sql
     20260708030000_inventory_on_hand_company_scope.sql
+    20260708040000_sales_rollup_mv_company_scope.sql
+    20260708050000_sales_velocity_mv_company_scope.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

@@ -194,6 +194,12 @@ async function main() {
       console.error(`[error] velocity mv refresh: ${velocityError.message}`);
     }
 
+    const { error: rollupError } = await supabase.rpc('refresh_sales_monthly_rollup_mv');
+    if (rollupError) {
+      hadError = true;
+      console.error(`[error] monthly rollup mv refresh: ${rollupError.message}`);
+    }
+
     // The retired Sheets sync used to refresh this after its inventory
     // import — with Shopify as the sole inventory source, it happens here.
     if (!SKIP_INVENTORY) {

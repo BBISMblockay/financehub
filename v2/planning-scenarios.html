@@ -823,7 +823,8 @@
    v1 math is unchanged. Filter scoping (#80) preserved.
 ──────────────────────────────────────────────────────────────────────── */
 console.log("Silo Planning Scenarios: v1 calculator + Silo chrome + projection seed");
-const SALES_VIEW="sales_monthly_product_type_rollup_mv";
+// Company-filtered view over the rollup MV — the MV itself is service_role-only (RLS-free).
+const SALES_VIEW="sales_monthly_product_type_rollup_v";
 const INVENTORY_VIEW="inventory_workboard_v";
 const OPEN_PO_VIEW="v_po_open_planning_lines";
 const REVENUE_PROJ_TABLE="revenue_projections";

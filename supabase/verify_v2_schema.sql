@@ -293,6 +293,34 @@ select
     else 'MISSING — run 20260708030000_inventory_on_hand_company_scope.sql'
   end as inventory_on_hand_company_scope;
 
+select
+  case
+    when exists (
+      select 1 from pg_attribute
+      where attrelid = 'public.sales_monthly_product_type_rollup_mv'::regclass
+        and attname = 'company_entity_id' and not attisdropped
+    ) and not exists (
+      select 1 from information_schema.role_table_grants
+      where table_name = 'sales_monthly_product_type_rollup_mv'
+        and grantee = 'authenticated' and privilege_type = 'SELECT'
+    ) then 'ok'
+    else 'MISSING — run 20260708040000_sales_rollup_mv_company_scope.sql'
+  end as sales_rollup_mv_company_scope;
+
+select
+  case
+    when exists (
+      select 1 from pg_attribute
+      where attrelid = 'public.sales_velocity_by_sku_location_mv'::regclass
+        and attname = 'company_entity_id' and not attisdropped
+    ) and not exists (
+      select 1 from information_schema.role_table_grants
+      where table_name = 'sales_velocity_by_sku_location_mv'
+        and grantee in ('authenticated','PUBLIC') and privilege_type = 'SELECT'
+    ) then 'ok'
+    else 'MISSING — run 20260708050000_sales_velocity_mv_company_scope.sql'
+  end as sales_velocity_mv_company_scope;
+
 -- 9. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,
