@@ -193,6 +193,16 @@ async function main() {
       hadError = true;
       console.error(`[error] velocity mv refresh: ${velocityError.message}`);
     }
+
+    // The retired Sheets sync used to refresh this after its inventory
+    // import — with Shopify as the sole inventory source, it happens here.
+    if (!SKIP_INVENTORY) {
+      const { error: invMvError } = await supabase.rpc('refresh_inventory_current_mv');
+      if (invMvError) {
+        hadError = true;
+        console.error(`[error] inventory mv refresh: ${invMvError.message}`);
+      }
+    }
   }
 
   console.log('[shopify-sync] done', JSON.stringify(allResults, null, 2));

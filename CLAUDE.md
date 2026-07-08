@@ -280,10 +280,11 @@ Always run `supabase/verify_v2_schema.sql` in the Supabase SQL Editor. All rows 
 
 | Workflow | Schedule | What it does |
 |----------|----------|-------------|
-| `nightly-silo-sync.yml` | Daily 10:30 UTC | Runs `scripts/sync-silo-inventory-sales.mjs` — reads Google Sheets, writes inventory + sales to Supabase |
+| `shopify-sync.yml` | Daily 11:00 UTC | Shopify API sync — sales + inventory for all connected stores, then refreshes comp summary, sales velocity MV, and inventory current MV |
+| `nightly-silo-sync.yml` | **Retired** (manual only) | Legacy Google Sheets / Better Reports import — retired 2026-07-08 after verifying Shopify covers every sales + inventory location. BR history remains in `sales_by_day` for pre-API reporting |
 | `ar-sync.yml` | Manual / scheduled | AR (accounts receivable) sync |
 
-**One sync, one source of truth.** Sales and inventory come from Google Sheets via the nightly GitHub Action. There is no dual-write conflict.
+**One sync, one source of truth.** Sales and inventory come from the Shopify API via the nightly GitHub Action. There is no dual-write conflict.
 
 Secrets required: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (set in GitHub repo settings).
 
