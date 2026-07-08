@@ -728,11 +728,19 @@ export function ordersToSalesRows({
     const lineItems = (order.line_items || []).filter((li) => !li?.gift_card && (li?.sku || li?.title || Number(li?.price) > 0 || getShopifyItemType(li)));
     const lineCount = lineItems.length || 1;
 
-    const orderShippingGross = firstOrderMoney(
-      order,
-      'total_shipping_price_set',
-      'current_total_shipping_price_set',
-    );
+    // total_shipping_price_set is the PRE-discount shipping charge. Shopify
+    // sales reports show shipping net of shipping discounts (e.g. a 100%-off
+    // "Baseballism Fast Pass" code books as $0, not $9.99), and that discount
+    // lives only on shipping_lines[].discounted_price(_set) — no refund object
+    // is created. Refunded shipping stays separate: it's booked as negative
+    // [Shipping] rows on the refund's processed date below.
+    const shippingLines = Array.isArray(order.shipping_lines) ? order.shipping_lines : [];
+    const orderShippingGross = shippingLines.length
+      ? shippingLines.reduce((sum, sl) => {
+        const set = sl?.discounted_price_set || sl?.price_set;
+        return sum + (set ? moneyAmount(set) : Number(sl?.discounted_price ?? sl?.price ?? 0));
+      }, 0)
+      : firstOrderMoney(order, 'total_shipping_price_set', 'current_total_shipping_price_set');
     const orderDuties = firstOrderMoney(
       order,
       'original_total_duties_set',
