@@ -48,7 +48,6 @@
 
   const LS_COLLAPSED     = 'silo.sidebar.collapsed';
   const LS_THEME         = 'silo.theme';
-  const LS_SECTIONS_OPEN = 'silo.nav.sections.open';
 
   function el(html) {
     const t = document.createElement('template');
@@ -61,14 +60,10 @@
       .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
-  function getSectionOpenSet() {
-    try { return new Set(JSON.parse(localStorage.getItem(LS_SECTIONS_OPEN) || '[]')); }
-    catch { return new Set(); }
-  }
-
-  function setSectionOpenSet(set) {
-    localStorage.setItem(LS_SECTIONS_OPEN, JSON.stringify([...set]));
-  }
+  // Accordion nav: exactly one section open at a time. Nothing persists —
+  // each page load opens only the section containing the active page, so the
+  // menu always "resets" instead of accumulating expanded sections. (The old
+  // silo.nav.sections.open localStorage set grew forever; it is abandoned.)
 
   function getActiveCompany() {
     try {
@@ -83,12 +78,9 @@
     const NAV_SECTIONS = navSectionsForCompany(company);
     // Determine which section contains the active item
     const activeSection = NAV_SECTIONS.find(s => s.items.some(i => i.id === active))?.section || null;
-    const openSet = getSectionOpenSet();
-    // Always open the active section
-    if (activeSection) openSet.add(activeSection);
 
     return NAV_SECTIONS.map(sec => {
-      const isOpen = openSet.has(sec.section);
+      const isOpen = sec.section === activeSection;
       const links = sec.items.map(item => {
         const isActive = item.id === active;
         const ext = item.external ? ' target="_blank" rel="noopener noreferrer"' : '';
@@ -254,12 +246,18 @@
         e.preventDefault();
         const name = sectionBtn.getAttribute('data-section');
         const sectionEl = sidebar.querySelector(`.silo-sb-section[data-section="${name}"]`);
-        const openSet = getSectionOpenSet();
-        if (openSet.has(name)) { openSet.delete(name); } else { openSet.add(name); }
-        setSectionOpenSet(openSet);
-        const isNowOpen = openSet.has(name);
-        sectionEl && sectionEl.classList.toggle('silo-sb-section--open', isNowOpen);
-        sectionBtn.setAttribute('aria-expanded', isNowOpen);
+        const wasOpen = sectionEl && sectionEl.classList.contains('silo-sb-section--open');
+        // Accordion: close every section, then open the clicked one (unless
+        // it was already open — then it just closes).
+        sidebar.querySelectorAll('.silo-sb-section').forEach(el => {
+          el.classList.remove('silo-sb-section--open');
+          const btn = el.querySelector('[data-silo-action="section-toggle"]');
+          if (btn) btn.setAttribute('aria-expanded', 'false');
+        });
+        if (sectionEl && !wasOpen) {
+          sectionEl.classList.add('silo-sb-section--open');
+          sectionBtn.setAttribute('aria-expanded', 'true');
+        }
         return;
       }
       if (e.target.closest('.silo-sb-link')) {
