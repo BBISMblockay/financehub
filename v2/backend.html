@@ -211,7 +211,6 @@
 
       <div class="flex items-center gap-2">
         <button id="themeBtn" class="btn" title="Toggle theme">Theme <span id="themeLabel" class="ml-2 font-extrabold">Light</span></button>
-        <a class="btn" href="/v2/executive.html">Owner cockpit</a>
         <button id="refreshBtn" class="btn btn-primary">Refresh</button>
         <button id="logoutBtn" class="btn btn-danger">Logout</button>
       </div>
@@ -626,7 +625,7 @@
 
       if (!allowed){
         alert("Access denied: owner/admin/superadmin required.");
-        window.location.href = "/pages/executive.html";
+        window.location.href = "/v2/finance.html";
         return false;
       }
       return true;
