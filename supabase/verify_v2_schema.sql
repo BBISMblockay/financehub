@@ -299,12 +299,9 @@ select
       select 1 from pg_attribute
       where attrelid = 'public.sales_monthly_product_type_rollup_mv'::regclass
         and attname = 'company_entity_id' and not attisdropped
-    ) and not exists (
-      select 1 from information_schema.role_table_grants
-      where table_name = 'sales_monthly_product_type_rollup_mv'
-        and grantee = 'authenticated' and privilege_type = 'SELECT'
-    ) then 'ok'
-    else 'MISSING — run 20260708040000_sales_rollup_mv_company_scope.sql'
+    ) and not has_table_privilege('authenticated', 'public.sales_monthly_product_type_rollup_mv', 'SELECT')
+    then 'ok'
+    else 'MISSING — run 20260708040000 + 20260708060000'
   end as sales_rollup_mv_company_scope;
 
 select
@@ -313,12 +310,10 @@ select
       select 1 from pg_attribute
       where attrelid = 'public.sales_velocity_by_sku_location_mv'::regclass
         and attname = 'company_entity_id' and not attisdropped
-    ) and not exists (
-      select 1 from information_schema.role_table_grants
-      where table_name = 'sales_velocity_by_sku_location_mv'
-        and grantee in ('authenticated','PUBLIC') and privilege_type = 'SELECT'
-    ) then 'ok'
-    else 'MISSING — run 20260708050000_sales_velocity_mv_company_scope.sql'
+    ) and not has_table_privilege('authenticated', 'public.sales_velocity_by_sku_location_mv', 'SELECT')
+      and not has_table_privilege('authenticated', 'public.inventory_on_hand_current_mv', 'SELECT')
+    then 'ok'
+    else 'MISSING — run 20260708050000 + 20260708060000'
   end as sales_velocity_mv_company_scope;
 
 -- 9. Quick counts (0 is fine on a fresh install)
