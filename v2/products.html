@@ -1215,12 +1215,12 @@
       _qlc,
       _qph,
       _qf,
-      sb.from('product_tags').select('product_type').limit(5000),
+      sb.from('product_tags').select('type').limit(5000),
     ]);
     allLaunches     = lR.data||[];
     allPOs          = pR.data||[];
     allFactories    = fR.data||[];
-    allProductTypes = [...new Set((tR.data||[]).map(t=>t.product_type).filter(Boolean))].sort();
+    allProductTypes = [...new Set((tR.data||[]).map(t=>t.type).filter(Boolean))].sort();
   }
 
   function fillSelect(id, items, valFn, lblFn, blank) {
@@ -1790,9 +1790,9 @@
   async function loadCatalog(){
     const PAGE=1000; let from=0; const rows=[];
     for(;;){
-      let q=sb.from('product_tags').select('*').order('id',{ascending:true}).range(from,from+PAGE-1);
-      if(_co?.id) q=q.eq('company_entity_id',_co.id);
-      const {data,error}=await q;
+      // product_tags has no company_entity_id (multi-tenant backfill deferred
+      // for this table) — do not scope it or the query 400s.
+      const {data,error}=await sb.from('product_tags').select('*').order('id',{ascending:true}).range(from,from+PAGE-1);
       if(error) throw error;
       rows.push(...(data||[]));
       if(!data||data.length<PAGE) break;
@@ -2007,7 +2007,13 @@
       currentUser=data.session.user;
     }
     try {
-      await Promise.all([loadReferenceData(), loadSamples(), loadTrackerItems(), loadCatalog()]);
+      await Promise.all([loadReferenceData(), loadSamples(), loadTrackerItems()]);
+      try {
+        await loadCatalog();
+      } catch (catErr) {
+        console.error('Catalog load failed:', catErr);
+        $('ctBody').innerHTML = `<tr><td colspan="15" class="smp-empty">Catalog failed to load: ${esc(catErr.message||catErr)}</td></tr>`;
+      }
       populateLaunchFilter();
       populatePtFilters();
       renderKPIs();
