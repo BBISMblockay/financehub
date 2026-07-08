@@ -28,7 +28,6 @@
     { id: 'finance/menu', section: 'Start', label: 'Home', href: '/v2/finance.html', profiles: ['grandfathered', 'standard'] },
     { id: 'people/profile', section: 'Start', label: 'My Profile', href: '/v2/profile.html', profiles: ['grandfathered', 'standard'] },
 
-    { id: 'people/dashboard', section: 'Start', label: 'Employee Hub', href: '/v2/employeehub.html', profiles: ['grandfathered'] },
 
     { id: 'finance/ap-manager', section: 'Accounting', label: 'AP Manager', href: '/accountspayable.html', profiles: ['grandfathered'] },
     { id: 'finance/mailroom', section: 'Accounting', label: 'Mailroom Inbox', href: '/v2/mailroom.html', profiles: ['grandfathered'] },
