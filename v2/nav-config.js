@@ -25,9 +25,8 @@
    * labelStandard: optional link label for standard profile
    */
   const NAV_ITEMS = [
-    { id: 'hub', section: 'Start', label: 'SILO home', href: '/index.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'finance/menu', section: 'Start', label: 'Finance department', labelStandard: 'Company home', href: '/v2/finance.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'people/profile', section: 'Start', label: 'My profile', href: '/v2/profile.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'finance/menu', section: 'Start', label: 'Home', href: '/v2/finance.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'people/profile', section: 'Start', label: 'My Profile', href: '/v2/profile.html', profiles: ['grandfathered', 'standard'] },
 
     { id: 'people/dashboard', section: 'Start', label: 'Employee Hub', href: '/v2/employeehub.html', profiles: ['grandfathered'] },
 
