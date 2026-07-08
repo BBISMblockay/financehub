@@ -267,11 +267,22 @@
         return 'redirect';
       }
 
+      // Pages redirect here with ?next=<path> so users land back where they
+      // started after signing in. Same-origin absolute paths only — anything
+      // else (external URLs, protocol-relative, a loop back to login) is
+      // ignored in favor of the department route.
+      function safeNextPath() {
+        const raw = new URLSearchParams(window.location.search).get('next') || '';
+        if (!raw.startsWith('/') || raw.startsWith('//')) return null;
+        if (raw.startsWith('/pages/login')) return null;
+        return raw;
+      }
+
       async function resolveAndRedirect(userId) {
         const profile = await getUserProfile(userId);
         const result = await resolveCompany(userId);
         if (result === 'redirect') return; // picker handles the rest
-        const route = getRouteFromProfile(profile);
+        const route = safeNextPath() || getRouteFromProfile(profile);
         window.location.href = route;
       }
 
