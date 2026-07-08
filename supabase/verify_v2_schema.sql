@@ -279,6 +279,20 @@ select
     else 'MISSING — run 20260708020000_product_tags_company_scope.sql'
   end as product_tags_company_scope;
 
+select
+  case
+    when exists (
+      select 1 from pg_policies
+      where schemaname = 'public' and tablename = 'inventory_on_hand'
+        and policyname = 'inventory_on_hand_active_write'
+    ) and not exists (
+      select 1 from pg_policies
+      where schemaname = 'public' and tablename = 'inventory_on_hand'
+        and policyname = 'inventory_on_hand_admin_all'
+    ) then 'ok'
+    else 'MISSING — run 20260708030000_inventory_on_hand_company_scope.sql'
+  end as inventory_on_hand_company_scope;
+
 -- 9. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,
