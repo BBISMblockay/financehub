@@ -143,6 +143,7 @@ supabase/
     20260708030000_inventory_on_hand_company_scope.sql
     20260708040000_sales_rollup_mv_company_scope.sql
     20260708050000_sales_velocity_mv_company_scope.sql
+    20260708060000_mv_reader_views_definer.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
