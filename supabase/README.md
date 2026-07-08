@@ -101,7 +101,7 @@ SILO supports multiple companies in one Supabase project. Isolation is enforced 
 **Key column:** `company_entity_id uuid` on all operational tables  
 **Baseballism entity id:** `3bd934c9-4cdd-429b-9076-f8f6b45d4eb7`
 
-**Not yet isolated:** `inventory_on_hand` (backfill deferred — nightly Sheets sync is Baseballism-only today; Shopify inventory uses explicit `company_entity_id` on upsert).
+**All operational tables are company-isolated** as of 20260708030000 (`inventory_on_hand` was the last holdout: Sheets-sync rows are now stamped, legacy NULLs backfilled, and the company-blind admin policy replaced).
 
 ## Write access
 
@@ -140,6 +140,7 @@ supabase/
     20260708000000_product_samples_tracker_link.sql
     20260708010000_tasks_evergreen_personal.sql
     20260708020000_product_tags_company_scope.sql
+    20260708030000_inventory_on_hand_company_scope.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

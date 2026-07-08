@@ -562,6 +562,7 @@ function mapInventoryRow(source, raw) {
   const productImageUrl = pickLoose(raw, ["Product Image url", "Product Image"]);
 
   return {
+    company_entity_id: BASEBALLISM_ENTITY_ID,
     location_tag: source.location_tag,
     location_name: source.location_name,
     source: "better_reports",
