@@ -265,6 +265,20 @@ select
     else 'MISSING — run 20260708010000_tasks_evergreen_personal.sql'
   end as tasks_evergreen_personal;
 
+select
+  case
+    when exists (
+      select 1 from information_schema.columns
+      where table_schema = 'public' and table_name = 'product_tags'
+        and column_name = 'company_entity_id'
+    ) and exists (
+      select 1 from pg_policies
+      where schemaname = 'public' and tablename = 'product_tags'
+        and policyname = 'product_tags_active_select'
+    ) then 'ok'
+    else 'MISSING — run 20260708020000_product_tags_company_scope.sql'
+  end as product_tags_company_scope;
+
 -- 9. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,
