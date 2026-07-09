@@ -10,46 +10,353 @@
   <link rel="stylesheet" href="v2-mobile.css" />
   <script src="v2-shell.js" defer></script>
   <style>
-    .ax-filters {
-      background:var(--bcn-sunken);
-      border-bottom:1px solid var(--bcn-border);
-      padding:12px 18px;
-      display:flex; align-items:flex-end; gap:14px; flex-wrap:wrap;
-      flex-shrink:0;
+    :root {
+      --ax-green: var(--bcn-pos, #15803d);
+      --ax-red: var(--bcn-neg, #b42318);
+      --ax-blue: #2563eb;
+      --ax-soft: rgba(15, 23, 42, .035);
+      --ax-soft-2: rgba(15, 23, 42, .06);
+      --ax-shadow: 0 1px 2px rgba(15,23,42,.06), 0 8px 24px rgba(15,23,42,.04);
     }
-    .ax-status { font-size:11.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); margin-left:auto; }
+
+    .silo-main {
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .bcn-header {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      background: var(--bcn-panel);
+      border-bottom: 1px solid var(--bcn-border);
+    }
+
+    .ax-page {
+      flex: 1;
+      min-height: 0;
+      overflow: auto;
+      background: var(--bcn-bg);
+    }
+
+    .ax-filters {
+      background: var(--bcn-sunken);
+      border-bottom: 1px solid var(--bcn-border);
+      padding: 12px 18px;
+      display: flex;
+      align-items: flex-end;
+      gap: 12px;
+      flex-wrap: wrap;
+      position: sticky;
+      top: 62px;
+      z-index: 25;
+    }
+
+    .ax-status {
+      font-size: 11px;
+      color: var(--bcn-ink-3);
+      font-family: var(--bcn-mono);
+      margin-left: auto;
+      white-space: nowrap;
+    }
 
     .ax-content {
-      flex:1; padding:12px 18px 24px;
-      display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:start;
-      overflow-y:auto; min-height:0;
+      padding: 14px 18px 28px;
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(360px, .75fr);
+      gap: 14px;
+      align-items: start;
     }
-    @media(max-width:1100px){ .ax-content{ grid-template-columns:1fr; } }
-    .ax-content .bcn-card--wide { grid-column:1 / -1; }
 
-    .ax-tbl { width:100%; border-collapse:collapse; }
+    @media(max-width: 1180px) {
+      .ax-content {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .ax-wide {
+      grid-column: 1 / -1;
+    }
+
+    .ax-card {
+      background: var(--bcn-panel);
+      border: 1px solid var(--bcn-border);
+      border-radius: 12px;
+      box-shadow: var(--ax-shadow);
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    .ax-card-header {
+      min-height: 42px;
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid var(--bcn-border);
+      background: linear-gradient(180deg, rgba(255,255,255,.82), rgba(255,255,255,.5));
+    }
+
+    .ax-card-title {
+      font-size: 13px;
+      font-weight: 750;
+      color: var(--bcn-ink);
+      letter-spacing: -.01em;
+    }
+
+    .ax-card-sub {
+      font-size: 10.5px;
+      color: var(--bcn-ink-3);
+      font-family: var(--bcn-mono);
+      white-space: nowrap;
+    }
+
+    .ax-card-body {
+      padding: 0;
+      min-width: 0;
+    }
+
+    .ax-pad {
+      padding: 12px;
+    }
+
+    .ax-scroll {
+      max-height: 500px;
+      overflow: auto;
+      min-width: 0;
+    }
+
+    .ax-scroll--journal {
+      max-height: 470px;
+    }
+
+    .ax-scroll--register {
+      max-height: 520px;
+    }
+
+    .ax-table-wrap {
+      width: 100%;
+      overflow: auto;
+    }
+
+    .ax-tbl {
+      width: 100%;
+      min-width: 720px;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .ax-tbl--compact {
+      min-width: 600px;
+    }
+
     .ax-tbl th {
-      padding:7px 10px; font-size:10.5px; font-weight:600; color:var(--bcn-ink-3);
-      border-bottom:1px solid var(--bcn-border-strong); background:var(--bcn-sunken);
-      white-space:nowrap; text-align:left;
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      padding: 8px 10px;
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--bcn-ink-3);
+      border-bottom: 1px solid var(--bcn-border-strong);
+      background: var(--bcn-sunken);
+      white-space: nowrap;
+      text-align: left;
+      text-transform: uppercase;
+      letter-spacing: .04em;
     }
-    .ax-tbl td {
-      padding:6px 10px; font-size:12px; border-bottom:1px solid var(--bcn-border);
-      white-space:nowrap;
-    }
-    .ax-tbl .num { text-align:right; font-family:var(--bcn-mono); }
-    .ax-tbl th.num { text-align:right; }
-    .ax-loc-row td {
-      background:var(--bcn-sunken); font-weight:700; font-family:var(--bcn-mono);
-      font-size:11px; color:var(--bcn-ink-2);
-    }
-    .ax-total-row td { font-weight:700; border-top:1px solid var(--bcn-border-strong); }
-    .ax-cr { color:var(--bcn-pos); }
-    .ax-scroll { max-height:520px; overflow:auto; }
 
-    .ax-map-grid { display:grid; grid-template-columns:auto 1fr; gap:8px 12px; align-items:center; padding:4px 0; }
-    .ax-map-key { font-family:var(--bcn-mono); font-size:11px; color:var(--bcn-ink-3); white-space:nowrap; }
-    .ax-hint { font-size:11px; color:var(--bcn-ink-3); margin-top:8px; line-height:1.5; }
+    .ax-tbl td {
+      padding: 7px 10px;
+      font-size: 12px;
+      border-bottom: 1px solid var(--bcn-border);
+      white-space: nowrap;
+      background: var(--bcn-panel);
+      vertical-align: middle;
+    }
+
+    .ax-tbl tr:hover td {
+      background: rgba(37, 99, 235, .035);
+    }
+
+    .ax-tbl .num,
+    .ax-tbl th.num {
+      text-align: right;
+      font-family: var(--bcn-mono);
+    }
+
+    .ax-tbl .account {
+      min-width: 320px;
+      white-space: normal;
+      line-height: 1.35;
+    }
+
+    .ax-loc-row td {
+      position: sticky;
+      top: 29px;
+      z-index: 2;
+      background: #f1f5f9 !important;
+      font-weight: 800;
+      font-family: var(--bcn-mono);
+      font-size: 11px;
+      color: var(--bcn-ink-2);
+      border-top: 1px solid var(--bcn-border-strong);
+      border-bottom: 1px solid var(--bcn-border-strong);
+    }
+
+    .ax-total-row td {
+      font-weight: 800;
+      background: #fafafa !important;
+      border-bottom: 2px solid var(--bcn-border-strong);
+    }
+
+    .ax-grand-row td {
+      font-weight: 900;
+      background: #eef2ff !important;
+      border-top: 2px solid var(--bcn-border-strong);
+      border-bottom: 2px solid var(--bcn-border-strong);
+    }
+
+    .ax-cr {
+      color: var(--ax-green);
+    }
+
+    .ax-dr {
+      color: var(--bcn-ink);
+    }
+
+    .ax-muted {
+      color: var(--bcn-ink-3);
+    }
+
+    .ax-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--bcn-border);
+      background: var(--bcn-sunken);
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 10.5px;
+      font-family: var(--bcn-mono);
+      color: var(--bcn-ink-2);
+      white-space: nowrap;
+    }
+
+    .ax-map-grid {
+      display: grid;
+      grid-template-columns: minmax(165px, 230px) minmax(260px, 1fr);
+      gap: 8px 12px;
+      align-items: center;
+      padding: 2px 0;
+    }
+
+    @media(max-width: 720px) {
+      .ax-map-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .ax-map-key {
+      font-family: var(--bcn-mono);
+      font-size: 10.5px;
+      color: var(--bcn-ink-3);
+      white-space: nowrap;
+    }
+
+    .ax-map-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .ax-hint {
+      font-size: 11px;
+      color: var(--bcn-ink-3);
+      margin-top: 10px;
+      line-height: 1.5;
+      background: var(--bcn-sunken);
+      border: 1px solid var(--bcn-border);
+      border-radius: 10px;
+      padding: 10px;
+    }
+
+    .ax-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(160px, 1fr));
+      gap: 10px;
+      padding: 12px;
+      border-bottom: 1px solid var(--bcn-border);
+      background: var(--bcn-sunken);
+    }
+
+    @media(max-width: 1000px) {
+      .ax-summary-grid {
+        grid-template-columns: repeat(2, minmax(160px, 1fr));
+      }
+    }
+
+    @media(max-width: 560px) {
+      .ax-summary-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .ax-mini-kpi {
+      background: var(--bcn-panel);
+      border: 1px solid var(--bcn-border);
+      border-radius: 10px;
+      padding: 10px;
+    }
+
+    .ax-mini-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--bcn-ink-3);
+      font-weight: 750;
+    }
+
+    .ax-mini-value {
+      margin-top: 4px;
+      font-size: 18px;
+      font-weight: 850;
+      letter-spacing: -.02em;
+      color: var(--bcn-ink);
+      font-family: var(--bcn-mono);
+    }
+
+    .ax-callout {
+      margin: 12px;
+      padding: 10px 12px;
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 10px;
+      color: #9a3412;
+      font-size: 11.5px;
+      line-height: 1.45;
+    }
+
+    .ax-empty {
+      color: var(--bcn-ink-3);
+      padding: 16px;
+      font-size: 12px;
+    }
+
+    .ax-right-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .bcn-kpi-value {
+      font-family: var(--bcn-mono);
+    }
   </style>
 </head>
 <body>
@@ -58,7 +365,7 @@
     <header class="bcn-header">
       <div>
         <div class="bcn-header-title">Accounting Export</div>
-        <div class="bcn-header-sub" id="subTitle">Journal-ready sales &amp; payout entries</div>
+        <div class="bcn-header-sub" id="subTitle">Journal-ready Shopify sales and payout entries</div>
       </div>
       <div class="bcn-header-actions">
         <button class="bcn-btn" id="btnExportRegister">Deposit register CSV</button>
@@ -67,67 +374,167 @@
     </header>
 
     <section class="bcn-kpi-band">
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Total sales</div><div class="bcn-kpi-value" id="kpiTotal">—</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">AR (sales entries)</div><div class="bcn-kpi-value" id="kpiAr">—</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Processing fees</div><div class="bcn-kpi-value" id="kpiFees">—</div></div>
-      <div class="bcn-kpi"><div class="bcn-kpi-label">Net deposits</div><div class="bcn-kpi-value" id="kpiDeposits">—</div></div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">Total sales</div>
+        <div class="bcn-kpi-value" id="kpiTotal">—</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">Shopify clearing</div>
+        <div class="bcn-kpi-value" id="kpiAr">—</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">Processing fees</div>
+        <div class="bcn-kpi-value" id="kpiFees">—</div>
+      </div>
+      <div class="bcn-kpi">
+        <div class="bcn-kpi-label">Net deposits</div>
+        <div class="bcn-kpi-value" id="kpiDeposits">—</div>
+      </div>
     </section>
 
-    <div class="ax-filters">
-      <div class="bcn-field-group">
-        <label class="bcn-label" for="month">Period (month)</label>
-        <input type="month" id="month" class="bcn-field bcn-field--mono" />
-      </div>
-      <button class="bcn-btn bcn-btn--dark" id="btnRun">Generate</button>
-      <div class="ax-status" id="axStatus">Pick a month and hit Generate.</div>
-    </div>
-
-    <div class="bcn-status" id="status" hidden></div>
-
-    <div class="ax-content">
-
-      <div class="bcn-card bcn-card--wide">
-        <div class="bcn-card-header"><span>Sales journal — by location</span></div>
-        <div class="bcn-card-body ax-scroll">
-          <table class="ax-tbl" id="tblSales">
-            <thead><tr><th>Account</th><th class="num">DR</th><th class="num">CR</th></tr></thead>
-            <tbody><tr><td colspan="3" style="color:var(--bcn-ink-3)">No data yet.</td></tr></tbody>
-          </table>
+    <div class="ax-page">
+      <div class="ax-filters">
+        <div class="bcn-field-group">
+          <label class="bcn-label" for="month">Period month</label>
+          <input type="month" id="month" class="bcn-field bcn-field--mono" />
         </div>
+        <button class="bcn-btn bcn-btn--dark" id="btnRun">Generate</button>
+        <div class="ax-status" id="axStatus">Pick a month and hit Generate.</div>
       </div>
 
-      <div class="bcn-card">
-        <div class="bcn-card-header"><span>Processing fees — by store</span></div>
-        <div class="bcn-card-body ax-scroll">
-          <table class="ax-tbl" id="tblFees">
-            <thead><tr><th>Store</th><th class="num">Fees (DR)</th><th class="num">AR (CR)</th><th class="num">Net deposited</th><th class="num">Payouts</th></tr></thead>
-            <tbody><tr><td colspan="5" style="color:var(--bcn-ink-3)">No data yet.</td></tr></tbody>
-          </table>
-        </div>
-      </div>
+      <div class="bcn-status" id="status" hidden></div>
 
-      <div class="bcn-card">
-        <div class="bcn-card-header"><span>Chart of accounts mapping</span></div>
-        <div class="bcn-card-body">
-          <div class="ax-map-grid" id="mapGrid"></div>
-          <button class="bcn-btn" id="btnSaveMap" style="margin-top:10px">Save mapping</button>
-          <div class="ax-hint">
-            <code>{location}</code> in a template is replaced with the location name.
-            These names are used in the journal table above and the CSV export.
+      <div class="ax-content">
+        <div class="ax-card ax-wide">
+          <div class="ax-card-header">
+            <div>
+              <div class="ax-card-title">Sales journal — by location</div>
+              <div class="ax-card-sub">Summary JE: gross revenue, shipping, refunds, discounts, sales tax, and Shopify clearing</div>
+            </div>
+            <div class="ax-right-actions">
+              <span class="ax-chip" id="journalBalanceChip">Balanced: —</span>
+            </div>
+          </div>
+
+          <div class="ax-summary-grid">
+            <div class="ax-mini-kpi">
+              <div class="ax-mini-label">Journal DR</div>
+              <div class="ax-mini-value" id="sumDr">—</div>
+            </div>
+            <div class="ax-mini-kpi">
+              <div class="ax-mini-label">Journal CR</div>
+              <div class="ax-mini-value" id="sumCr">—</div>
+            </div>
+            <div class="ax-mini-kpi">
+              <div class="ax-mini-label">Difference</div>
+              <div class="ax-mini-value" id="sumDiff">—</div>
+            </div>
+            <div class="ax-mini-kpi">
+              <div class="ax-mini-label">Locations</div>
+              <div class="ax-mini-value" id="sumLocations">—</div>
+            </div>
+          </div>
+
+          <div class="ax-card-body ax-scroll ax-scroll--journal">
+            <div class="ax-table-wrap">
+              <table class="ax-tbl" id="tblSales">
+                <thead>
+                  <tr>
+                    <th>Account</th>
+                    <th class="num">Debit</th>
+                    <th class="num">Credit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td colspan="3" class="ax-empty">No data yet.</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
-      </div>
 
-      <div class="bcn-card bcn-card--wide">
-        <div class="bcn-card-header"><span>Deposit register (bank reconciliation)</span></div>
-        <div class="bcn-card-body ax-scroll">
-          <table class="ax-tbl" id="tblRegister">
-            <thead><tr><th>Payout date</th><th>Store</th><th>Status</th><th class="num">Charges gross</th><th class="num">Fees</th><th class="num">Refunds</th><th class="num">Adjustments</th><th class="num">Net deposit</th></tr></thead>
-            <tbody><tr><td colspan="8" style="color:var(--bcn-ink-3)">No data yet.</td></tr></tbody>
-          </table>
+        <div class="ax-card">
+          <div class="ax-card-header">
+            <div>
+              <div class="ax-card-title">Processing fees — by store</div>
+              <div class="ax-card-sub">Fee JE clears against Shopify clearing</div>
+            </div>
+          </div>
+          <div class="ax-card-body ax-scroll">
+            <div class="ax-table-wrap">
+              <table class="ax-tbl ax-tbl--compact" id="tblFees">
+                <thead>
+                  <tr>
+                    <th>Store</th>
+                    <th class="num">Fees DR</th>
+                    <th class="num">Clearing CR</th>
+                    <th class="num">Net deposited</th>
+                    <th class="num">Payouts</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td colspan="5" class="ax-empty">No data yet.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
-      </div>
 
+        <div class="ax-card">
+          <div class="ax-card-header">
+            <div>
+              <div class="ax-card-title">Chart of accounts mapping</div>
+              <div class="ax-card-sub">Used by the table and CSV export</div>
+            </div>
+          </div>
+          <div class="ax-card-body ax-pad">
+            <div class="ax-map-grid" id="mapGrid"></div>
+            <div class="ax-map-actions">
+              <button class="bcn-btn bcn-btn--primary" id="btnSaveMap">Save mapping</button>
+              <button class="bcn-btn" id="btnRecommendedMap">Apply recommended names</button>
+            </div>
+            <div class="ax-hint">
+              <b>Accounting note:</b> discounts are contra-revenue, sales tax payable is a liability,
+              and Shopify deposits should clear through a Shopify clearing account instead of generic AR.
+              Use <code>{location}</code> in a template to insert the location name.
+            </div>
+          </div>
+        </div>
+
+        <div class="ax-card ax-wide">
+          <div class="ax-card-header">
+            <div>
+              <div class="ax-card-title">Deposit register — bank reconciliation</div>
+              <div class="ax-card-sub">Payout-level detail to tie Shopify deposits to bank activity</div>
+            </div>
+            <div class="ax-right-actions">
+              <span class="ax-chip" id="registerChip">Payouts: —</span>
+            </div>
+          </div>
+          <div class="ax-card-body ax-scroll ax-scroll--register">
+            <div class="ax-table-wrap">
+              <table class="ax-tbl" id="tblRegister">
+                <thead>
+                  <tr>
+                    <th>Payout date</th>
+                    <th>Store</th>
+                    <th>Status</th>
+                    <th class="num">Charges gross</th>
+                    <th class="num">Fees</th>
+                    <th class="num">Refunds</th>
+                    <th class="num">Adjustments</th>
+                    <th class="num">Net deposit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr><td colspan="8" class="ax-empty">No data yet.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+      </div>
     </div>
   </main>
 </div>
@@ -148,8 +555,9 @@
   }
 
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    global:{ fetch:(url,o={})=>fetch(url,{...o,cache:'no-store'}) },
+    global: { fetch: (url, o = {}) => fetch(url, { ...o, cache: 'no-store' }) },
   });
+
   const _co = cfg.getActiveCompany?.() || null;
 
   const el = {
@@ -162,263 +570,504 @@
     tblRegister: document.querySelector('#tblRegister tbody'),
     mapGrid: document.getElementById('mapGrid'),
     btnSaveMap: document.getElementById('btnSaveMap'),
+    btnRecommendedMap: document.getElementById('btnRecommendedMap'),
     btnExportJournal: document.getElementById('btnExportJournal'),
     btnExportRegister: document.getElementById('btnExportRegister'),
     kpiTotal: document.getElementById('kpiTotal'),
     kpiAr: document.getElementById('kpiAr'),
     kpiFees: document.getElementById('kpiFees'),
     kpiDeposits: document.getElementById('kpiDeposits'),
+    sumDr: document.getElementById('sumDr'),
+    sumCr: document.getElementById('sumCr'),
+    sumDiff: document.getElementById('sumDiff'),
+    sumLocations: document.getElementById('sumLocations'),
+    journalBalanceChip: document.getElementById('journalBalanceChip'),
+    registerChip: document.getElementById('registerChip'),
   };
 
-  function setStatus(msg, type='info', ms=0){
+  function setStatus(msg, type = 'info', ms = 0) {
     const s = document.getElementById('status');
     s.className = `bcn-status bcn-status--${type}`;
-    s.textContent = msg; s.hidden = false;
-    if (ms) setTimeout(()=>{ s.hidden = true; }, ms);
+    s.textContent = msg;
+    s.hidden = false;
+    if (ms) setTimeout(() => { s.hidden = true; }, ms);
   }
 
-  const fmt = (n)=> Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2, maximumFractionDigits:2});
-  const money = (n)=> '$' + fmt(Math.abs(Number(n||0)));
+  const fmt = (n) => Number(n || 0).toLocaleString('en-US', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 
-  // COA keys and display labels (defaults seeded in accounting_coa_map).
-  const MAP_KEYS = [
-    ['revenue_template',    'Revenue (per location)'],
-    ['freight',             'Freight / shipping income'],
-    ['refunds_template',    'Refunds (per location)'],
-    ['discounts',           'Discounts'],
-    ['tax_liability',       'Sales tax (DR side)'],
-    ['tax_payable',         'Sales tax (CR side)'],
-    ['accounts_receivable', 'Accounts receivable'],
-    ['processing_fees',     'Processing fees'],
-  ];
-  const MAP_DEFAULTS = {
-    revenue_template: 'In Store Retail Revenue - Shopify ({location})',
-    freight: 'Freight Revenue',
-    refunds_template: 'Sales Refunds - ({location})',
-    discounts: 'COGS - Sales Discounts',
-    tax_liability: 'COGS - Sales Tax Liability',
-    tax_payable: 'Sales Tax Payable',
-    accounts_receivable: 'Accounts Receivable',
-    processing_fees: 'COGS - Processing Fees',
+  const money = (n) => {
+    const v = Number(n || 0);
+    const sign = v < 0 ? '-' : '';
+    return sign + '$' + fmt(Math.abs(v));
   };
 
-  const state = { coa: { ...MAP_DEFAULTS }, buckets: [], payouts: [], storeNames: new Map(), period: null };
+  const MAP_KEYS = [
+    ['revenue_template',    'Revenue per location'],
+    ['freight',             'Shipping income'],
+    ['refunds_template',    'Refunds per location'],
+    ['discounts',           'Discounts / contra revenue'],
+    ['tax_liability',       'Sales tax clearing DR'],
+    ['tax_payable',         'Sales tax payable CR'],
+    ['accounts_receivable', 'Shopify clearing'],
+    ['processing_fees',     'Processing fees'],
+  ];
 
-  function coa(key, location){
+  const MAP_DEFAULTS = {
+    revenue_template: 'Retail Revenue - Shopify ({location})',
+    freight: 'Shipping Revenue - Shopify',
+    refunds_template: 'Sales Refunds - Shopify ({location})',
+    discounts: 'Sales Discounts - Shopify',
+    tax_liability: 'Sales Tax Clearing',
+    tax_payable: 'Sales Tax Payable',
+    accounts_receivable: 'Shopify Clearing',
+    processing_fees: 'Shopify Processing Fees',
+  };
+
+  const LEGACY_RENAMES = {
+    'In Store Retail Revenue - Shopify ({location})': MAP_DEFAULTS.revenue_template,
+    'Freight Revenue': MAP_DEFAULTS.freight,
+    'Sales Refunds - ({location})': MAP_DEFAULTS.refunds_template,
+    'COGS - Sales Discounts': MAP_DEFAULTS.discounts,
+    'COGS - Sales Tax Liability': MAP_DEFAULTS.tax_liability,
+    'Accounts Receivable': MAP_DEFAULTS.accounts_receivable,
+    'COGS - Processing Fees': MAP_DEFAULTS.processing_fees,
+  };
+
+  const state = {
+    coa: { ...MAP_DEFAULTS },
+    buckets: [],
+    payouts: [],
+    storeNames: new Map(),
+    period: null,
+  };
+
+  function esc(v) {
+    return String(v ?? '').replace(/[&<>"']/g, (m) => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;',
+    }[m]));
+  }
+
+  function coa(key, location) {
     const raw = state.coa[key] || MAP_DEFAULTS[key] || key;
     return raw.replace('{location}', location || '');
   }
 
-  function prettyStore(domain){
+  function prettyStore(domain) {
     if (state.storeNames.has(domain)) return state.storeNames.get(domain);
-    return String(domain||'').replace('.myshopify.com','').replace(/^baseballism-?/,'') || domain;
+    return String(domain || '').replace('.myshopify.com', '').replace(/^baseballism-?/i, '') || domain;
   }
 
-  function monthRange(val){
-    // val = 'YYYY-MM' → [first, first-of-next)
+  function monthRange(val) {
     const [y, m] = val.split('-').map(Number);
     const from = `${val}-01`;
-    const next = m === 12 ? `${y+1}-01-01` : `${y}-${String(m+1).padStart(2,'0')}-01`;
+    const next = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
     return [from, next];
   }
 
-  // ---- journal math (mirrors the existing Google Sheets entries) ----
-  // Sales entry per location:
-  //   CR revenue = gross     | CR freight = shipping | CR tax payable = taxes
-  //   DR refunds, DR discounts, DR tax liability = taxes
-  //   DR AR = gross - discounts - refunds + shipping   (tax pair cancels)
-  function salesEntryLines(b){
+  function round2(n) {
+    return Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100;
+  }
+
+  function salesEntryLines(b) {
     const loc = b.location_name || b.location_tag;
-    const ar = Number(b.gross) - Number(b.discounts) - Number(b.refunds) + Number(b.shipping);
+    const gross = Number(b.gross || 0);
+    const discounts = Number(b.discounts || 0);
+    const refunds = Number(b.refunds || 0);
+    const shipping = Number(b.shipping || 0);
+    const taxes = Number(b.taxes || 0);
+    const ar = gross - discounts - refunds + shipping;
+
     return [
-      { account: coa('revenue_template', loc), dr: 0, cr: Number(b.gross) },
-      { account: coa('freight'), dr: 0, cr: Number(b.shipping) },
-      { account: coa('refunds_template', loc), dr: Number(b.refunds), cr: 0 },
-      { account: coa('discounts'), dr: Number(b.discounts), cr: 0 },
-      { account: coa('tax_liability'), dr: Number(b.taxes), cr: 0 },
-      { account: coa('tax_payable'), dr: 0, cr: Number(b.taxes) },
+      { account: coa('revenue_template', loc), dr: 0, cr: gross },
+      { account: coa('freight'), dr: 0, cr: shipping },
+      { account: coa('refunds_template', loc), dr: refunds, cr: 0 },
+      { account: coa('discounts'), dr: discounts, cr: 0 },
+      { account: coa('tax_liability'), dr: taxes, cr: 0 },
+      { account: coa('tax_payable'), dr: 0, cr: taxes },
       { account: coa('accounts_receivable'), dr: ar, cr: 0 },
     ];
   }
 
-  function feeRowsByStore(){
+  function feeRowsByStore() {
     const byStore = new Map();
-    for (const p of state.payouts){
-      const cur = byStore.get(p.shop_domain) || { fees:0, net:0, count:0 };
-      cur.fees += Number(p.charges_fee) + Number(p.refunds_fee) + Number(p.adjustments_fee);
-      cur.net += Number(p.amount_net);
+    for (const p of state.payouts) {
+      const cur = byStore.get(p.shop_domain) || { fees: 0, net: 0, count: 0 };
+      cur.fees += Number(p.charges_fee || 0) + Number(p.refunds_fee || 0) + Number(p.adjustments_fee || 0);
+      cur.net += Number(p.amount_net || 0);
       cur.count += 1;
       byStore.set(p.shop_domain, cur);
     }
-    return [...byStore.entries()].sort((a,b)=>b[1].fees - a[1].fees);
+    return [...byStore.entries()].sort((a, b) => b[1].fees - a[1].fees);
   }
 
-  // ---- rendering ----
-  function render(){
-    // Sales journal
+  function computeTotals() {
+    let salesTotal = 0;
+    let clearingTotal = 0;
+    let salesDr = 0;
+    let salesCr = 0;
+    let feeDr = 0;
+    let feeCr = 0;
+    let depositsTotal = 0;
+
+    for (const b of state.buckets) {
+      salesTotal += Number(b.total || 0);
+      const lines = salesEntryLines(b);
+      for (const l of lines) {
+        salesDr += Number(l.dr || 0);
+        salesCr += Number(l.cr || 0);
+      }
+      const clearing = lines.find(l => l.account === coa('accounts_receivable', b.location_name || b.location_tag));
+      clearingTotal += Number(clearing?.dr || 0);
+    }
+
+    for (const [, v] of feeRowsByStore()) {
+      feeDr += Number(v.fees || 0);
+      feeCr += Number(v.fees || 0);
+      depositsTotal += Number(v.net || 0);
+    }
+
+    return {
+      salesTotal,
+      clearingTotal,
+      feeDr,
+      feeCr,
+      depositsTotal,
+      journalDr: salesDr + feeDr,
+      journalCr: salesCr + feeCr,
+      diff: round2((salesDr + feeDr) - (salesCr + feeCr)),
+    };
+  }
+
+  function render() {
     const rowsHtml = [];
-    let arTotal = 0, salesTotal = 0;
-    for (const b of state.buckets){
+    let journalDr = 0;
+    let journalCr = 0;
+
+    for (const b of state.buckets) {
       const loc = b.location_name || b.location_tag;
       const lines = salesEntryLines(b);
-      const dr = lines.reduce((s,l)=>s+l.dr,0), cr = lines.reduce((s,l)=>s+l.cr,0);
-      arTotal += lines[6].dr;
-      salesTotal += Number(b.total);
-      rowsHtml.push(`<tr class="ax-loc-row"><td colspan="3">${loc} — total sales ${money(b.total)}</td></tr>`);
-      for (const l of lines){
+      const dr = lines.reduce((s, l) => s + Number(l.dr || 0), 0);
+      const cr = lines.reduce((s, l) => s + Number(l.cr || 0), 0);
+      journalDr += dr;
+      journalCr += cr;
+
+      rowsHtml.push(`<tr class="ax-loc-row"><td colspan="3">${esc(loc)} — total sales ${money(b.total)}</td></tr>`);
+
+      for (const l of lines) {
         if (!l.dr && !l.cr) continue;
-        rowsHtml.push(`<tr><td>${l.account}</td><td class="num">${l.dr ? fmt(l.dr) : ''}</td><td class="num ax-cr">${l.cr ? fmt(l.cr) : ''}</td></tr>`);
+        rowsHtml.push(
+          `<tr>
+            <td class="account">${esc(l.account)}</td>
+            <td class="num ax-dr">${l.dr ? fmt(l.dr) : ''}</td>
+            <td class="num ax-cr">${l.cr ? fmt(l.cr) : ''}</td>
+          </tr>`
+        );
       }
-      rowsHtml.push(`<tr class="ax-total-row"><td>Total (balanced)</td><td class="num">${fmt(dr)}</td><td class="num ax-cr">${fmt(cr)}</td></tr>`);
+
+      rowsHtml.push(
+        `<tr class="ax-total-row">
+          <td>Total — ${esc(loc)}</td>
+          <td class="num">${fmt(dr)}</td>
+          <td class="num ax-cr">${fmt(cr)}</td>
+        </tr>`
+      );
     }
-    el.tblSales.innerHTML = rowsHtml.join('') || '<tr><td colspan="3" style="color:var(--bcn-ink-3)">No sales in this period.</td></tr>';
 
-    // Fees
     const fees = feeRowsByStore();
-    let feesTotal = 0, depositsTotal = 0;
-    el.tblFees.innerHTML = fees.map(([domain, v])=>{
-      feesTotal += v.fees; depositsTotal += v.net;
-      return `<tr><td>${prettyStore(domain)}</td><td class="num">${fmt(v.fees)}</td><td class="num ax-cr">${fmt(v.fees)}</td><td class="num">${fmt(v.net)}</td><td class="num">${v.count}</td></tr>`;
-    }).join('') || '<tr><td colspan="5" style="color:var(--bcn-ink-3)">No payouts in this period.</td></tr>';
+    let feesTotal = 0;
+    let depositsTotal = 0;
 
-    // Register
-    el.tblRegister.innerHTML = state.payouts.map(p=>{
-      const fees = Number(p.charges_fee)+Number(p.refunds_fee)+Number(p.adjustments_fee);
-      return `<tr><td>${p.payout_date}</td><td>${prettyStore(p.shop_domain)}</td><td>${p.status||''}</td>`
-        + `<td class="num">${fmt(p.charges_gross)}</td><td class="num">${fmt(fees)}</td>`
-        + `<td class="num">${fmt(p.refunds_gross)}</td><td class="num">${fmt(p.adjustments_gross)}</td>`
-        + `<td class="num"><b>${fmt(p.amount_net)}</b></td></tr>`;
-    }).join('') || '<tr><td colspan="8" style="color:var(--bcn-ink-3)">No payouts in this period.</td></tr>';
+    const feeHtml = fees.map(([domain, v]) => {
+      feesTotal += Number(v.fees || 0);
+      depositsTotal += Number(v.net || 0);
+      return `<tr>
+        <td>${esc(prettyStore(domain))}</td>
+        <td class="num">${fmt(v.fees)}</td>
+        <td class="num ax-cr">${fmt(v.fees)}</td>
+        <td class="num"><b>${fmt(v.net)}</b></td>
+        <td class="num">${v.count}</td>
+      </tr>`;
+    }).join('');
 
-    el.kpiTotal.textContent = money(salesTotal);
-    el.kpiAr.textContent = money(arTotal);
-    el.kpiFees.textContent = money(feesTotal);
-    el.kpiDeposits.textContent = money(depositsTotal);
-    el.axStatus.textContent = `${state.buckets.length} locations · ${state.payouts.length} payouts · ${state.period}`;
+    for (const [, v] of fees) {
+      journalDr += Number(v.fees || 0);
+      journalCr += Number(v.fees || 0);
+    }
+
+    if (state.buckets.length || fees.length) {
+      rowsHtml.push(
+        `<tr class="ax-grand-row">
+          <td>Grand total journal including processing fees</td>
+          <td class="num">${fmt(journalDr)}</td>
+          <td class="num ax-cr">${fmt(journalCr)}</td>
+        </tr>`
+      );
+    }
+
+    el.tblSales.innerHTML = rowsHtml.join('') ||
+      '<tr><td colspan="3" class="ax-empty">No sales in this period.</td></tr>';
+
+    el.tblFees.innerHTML = feeHtml ||
+      '<tr><td colspan="5" class="ax-empty">No payouts in this period.</td></tr>';
+
+    el.tblRegister.innerHTML = state.payouts.map(p => {
+      const fees = Number(p.charges_fee || 0) + Number(p.refunds_fee || 0) + Number(p.adjustments_fee || 0);
+      return `<tr>
+        <td>${esc(p.payout_date)}</td>
+        <td>${esc(prettyStore(p.shop_domain))}</td>
+        <td>${esc(p.status || '')}</td>
+        <td class="num">${fmt(p.charges_gross)}</td>
+        <td class="num">${fmt(fees)}</td>
+        <td class="num">${fmt(p.refunds_gross)}</td>
+        <td class="num">${fmt(p.adjustments_gross)}</td>
+        <td class="num"><b>${fmt(p.amount_net)}</b></td>
+      </tr>`;
+    }).join('') || '<tr><td colspan="8" class="ax-empty">No payouts in this period.</td></tr>';
+
+    const totals = computeTotals();
+
+    el.kpiTotal.textContent = money(totals.salesTotal);
+    el.kpiAr.textContent = money(totals.clearingTotal);
+    el.kpiFees.textContent = money(totals.feeDr);
+    el.kpiDeposits.textContent = money(totals.depositsTotal);
+
+    el.sumDr.textContent = money(totals.journalDr);
+    el.sumCr.textContent = money(totals.journalCr);
+    el.sumDiff.textContent = money(totals.diff);
+    el.sumLocations.textContent = String(state.buckets.length);
+
+    const balanced = Math.abs(totals.diff) < 0.01;
+    el.journalBalanceChip.textContent = balanced ? 'Balanced: yes' : `Balanced: off by ${money(totals.diff)}`;
+    el.journalBalanceChip.style.color = balanced ? 'var(--ax-green)' : 'var(--ax-red)';
+
+    el.registerChip.textContent = `${state.payouts.length} payouts`;
+    el.axStatus.textContent = `${state.buckets.length} locations · ${state.payouts.length} payouts · ${state.period || 'no period'}`;
   }
 
-  function renderMap(){
+  function renderMap() {
     el.mapGrid.innerHTML = MAP_KEYS.map(([key, label]) =>
-      `<div class="ax-map-key">${label}</div>`
-      + `<input class="bcn-field bcn-field--mono" data-map-key="${key}" value="${(state.coa[key]||'').replace(/"/g,'&quot;')}" />`
+      `<div class="ax-map-key">${esc(label)}</div>
+       <input class="bcn-field bcn-field--mono" data-map-key="${esc(key)}" value="${esc(state.coa[key] || '')}" />`
     ).join('');
   }
 
-  // ---- CSV ----
-  function csvEscape(v){
-    const s = String(v ?? '');
-    return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s;
+  function applyRecommendedMap() {
+    state.coa = { ...MAP_DEFAULTS };
+    renderMap();
+    render();
+    setStatus('Recommended account names applied. Save mapping to persist them.', 'info', 4000);
   }
-  function downloadCsv(name, rows){
-    const blob = new Blob([rows.map(r=>r.map(csvEscape).join(',')).join('\n')], { type:'text/csv' });
+
+  function csvEscape(v) {
+    const s = String(v ?? '');
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }
+
+  function downloadCsv(name, rows) {
+    const blob = new Blob([rows.map(r => r.map(csvEscape).join(',')).join('\n')], { type: 'text/csv' });
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = name; a.click();
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
     URL.revokeObjectURL(a.href);
   }
 
-  function exportJournal(){
-    if (!state.period){ setStatus('Generate a period first.', 'info', 3000); return; }
-    const rows = [['Period','Entry','Location','Account','DR','CR']];
-    for (const b of state.buckets){
+  function exportJournal() {
+    if (!state.period) {
+      setStatus('Generate a period first.', 'info', 3000);
+      return;
+    }
+
+    const rows = [['Period', 'Entry', 'Location', 'Account', 'Debit', 'Credit']];
+
+    for (const b of state.buckets) {
       const loc = b.location_name || b.location_tag;
-      for (const l of salesEntryLines(b)){
+      for (const l of salesEntryLines(b)) {
         if (!l.dr && !l.cr) continue;
-        rows.push([state.period, 'Shopify Sales', loc, l.account, l.dr ? l.dr.toFixed(2) : '', l.cr ? l.cr.toFixed(2) : '']);
+        rows.push([
+          state.period,
+          'Shopify Sales Summary',
+          loc,
+          l.account,
+          l.dr ? Number(l.dr).toFixed(2) : '',
+          l.cr ? Number(l.cr).toFixed(2) : '',
+        ]);
       }
     }
-    for (const [domain, v] of feeRowsByStore()){
+
+    for (const [domain, v] of feeRowsByStore()) {
       if (!v.fees) continue;
-      rows.push([state.period, 'Shopify Payout Fees', prettyStore(domain), coa('processing_fees'), v.fees.toFixed(2), '']);
-      rows.push([state.period, 'Shopify Payout Fees', prettyStore(domain), coa('accounts_receivable'), '', v.fees.toFixed(2)]);
+      rows.push([state.period, 'Shopify Payout Fees', prettyStore(domain), coa('processing_fees'), Number(v.fees).toFixed(2), '']);
+      rows.push([state.period, 'Shopify Payout Fees', prettyStore(domain), coa('accounts_receivable'), '', Number(v.fees).toFixed(2)]);
     }
+
     downloadCsv(`silo-journal-${state.period}.csv`, rows);
   }
 
-  function exportRegister(){
-    if (!state.period){ setStatus('Generate a period first.', 'info', 3000); return; }
-    const rows = [['Payout date','Store','Status','Charges gross','Fees','Refunds gross','Adjustments gross','Net deposit','Payout id']];
-    for (const p of state.payouts){
-      const fees = Number(p.charges_fee)+Number(p.refunds_fee)+Number(p.adjustments_fee);
-      rows.push([p.payout_date, prettyStore(p.shop_domain), p.status||'', Number(p.charges_gross).toFixed(2),
-        fees.toFixed(2), Number(p.refunds_gross).toFixed(2), Number(p.adjustments_gross).toFixed(2),
-        Number(p.amount_net).toFixed(2), p.payout_id]);
+  function exportRegister() {
+    if (!state.period) {
+      setStatus('Generate a period first.', 'info', 3000);
+      return;
     }
+
+    const rows = [['Payout date', 'Store', 'Status', 'Charges gross', 'Fees', 'Refunds gross', 'Adjustments gross', 'Net deposit', 'Payout id']];
+
+    for (const p of state.payouts) {
+      const fees = Number(p.charges_fee || 0) + Number(p.refunds_fee || 0) + Number(p.adjustments_fee || 0);
+      rows.push([
+        p.payout_date,
+        prettyStore(p.shop_domain),
+        p.status || '',
+        Number(p.charges_gross || 0).toFixed(2),
+        fees.toFixed(2),
+        Number(p.refunds_gross || 0).toFixed(2),
+        Number(p.adjustments_gross || 0).toFixed(2),
+        Number(p.amount_net || 0).toFixed(2),
+        p.payout_id,
+      ]);
+    }
+
     downloadCsv(`silo-deposits-${state.period}.csv`, rows);
   }
 
-  // ---- data ----
-  async function loadCoaMap(){
+  async function loadCoaMap() {
     const { data, error } = await sb.from('accounting_coa_map').select('map_key, account_name');
-    if (error){ console.warn('coa map load failed', error); return; }
-    for (const r of data || []) state.coa[r.map_key] = r.account_name;
+    if (error) {
+      console.warn('COA map load failed', error);
+      return;
+    }
+
+    for (const r of data || []) {
+      const raw = r.account_name || '';
+      state.coa[r.map_key] = LEGACY_RENAMES[raw] || raw;
+    }
   }
 
-  async function saveCoaMap(){
+  async function saveCoaMap() {
     const inputs = [...el.mapGrid.querySelectorAll('[data-map-key]')];
+
     const rows = inputs.map(i => ({
       map_key: i.dataset.mapKey,
       account_name: i.value.trim() || MAP_DEFAULTS[i.dataset.mapKey],
       updated_at: new Date().toISOString(),
       ...(_co?.id ? { company_entity_id: _co.id } : {}),
     }));
-    const { error } = await sb.from('accounting_coa_map').upsert(rows, { onConflict: 'company_entity_id,map_key' });
-    if (error){ setStatus(`Save failed: ${error.message}`, 'neg', 6000); return; }
+
+    const { error } = await sb
+      .from('accounting_coa_map')
+      .upsert(rows, { onConflict: 'company_entity_id,map_key' });
+
+    if (error) {
+      setStatus(`Save failed: ${error.message}`, 'neg', 6000);
+      return;
+    }
+
     for (const r of rows) state.coa[r.map_key] = r.account_name;
     setStatus('Mapping saved.', 'pos', 2500);
     render();
   }
 
-  async function loadStoreNames(){
+  async function loadStoreNames() {
     const { data } = await sb.from('shopify_connections').select('shop_domain, shop_name');
-    for (const r of data || []){
-      if (r.shop_name) state.storeNames.set(r.shop_domain, String(r.shop_name).replace(/^Baseballism\s*/i,'').trim() || r.shop_name);
+
+    for (const r of data || []) {
+      if (r.shop_name) {
+        state.storeNames.set(
+          r.shop_domain,
+          String(r.shop_name).replace(/^Baseballism\s*/i, '').trim() || r.shop_name
+        );
+      }
     }
   }
 
-  async function run(){
+  async function run() {
     const val = el.month.value;
-    if (!val){ setStatus('Pick a month first.', 'info', 3000); return; }
+    if (!val) {
+      setStatus('Pick a month first.', 'info', 3000);
+      return;
+    }
+
     const [from, to] = monthRange(val);
     el.axStatus.textContent = 'Loading…';
+    el.btnRun.disabled = true;
 
-    const [bucketsRes, payoutsRes] = await Promise.all([
-      sb.rpc('accounting_sales_buckets', { p_from: from, p_to: to }),
-      sb.from('shopify_payouts').select('*').gte('payout_date', from).lt('payout_date', to)
-        .order('payout_date', { ascending: true }).limit(2000),
-    ]);
-    if (bucketsRes.error){ setStatus(`Sales load failed: ${bucketsRes.error.message}`, 'neg', 8000); el.axStatus.textContent='Failed.'; return; }
-    if (payoutsRes.error){ setStatus(`Payouts load failed: ${payoutsRes.error.message}`, 'neg', 8000); el.axStatus.textContent='Failed.'; return; }
+    try {
+      const [bucketsRes, payoutsRes] = await Promise.all([
+        sb.rpc('accounting_sales_buckets', { p_from: from, p_to: to }),
+        sb.from('shopify_payouts')
+          .select('*')
+          .gte('payout_date', from)
+          .lt('payout_date', to)
+          .order('payout_date', { ascending: true })
+          .limit(5000),
+      ]);
 
-    state.buckets = (bucketsRes.data || []).filter(b => Number(b.total) || Number(b.gross) || Number(b.refunds));
-    state.payouts = payoutsRes.data || [];
-    state.period = val;
-    el.subTitle.textContent = `Journal-ready sales & payout entries — ${val}`;
-    render();
+      if (bucketsRes.error) {
+        setStatus(`Sales load failed: ${bucketsRes.error.message}`, 'neg', 8000);
+        el.axStatus.textContent = 'Failed.';
+        return;
+      }
+
+      if (payoutsRes.error) {
+        setStatus(`Payouts load failed: ${payoutsRes.error.message}`, 'neg', 8000);
+        el.axStatus.textContent = 'Failed.';
+        return;
+      }
+
+      state.buckets = (bucketsRes.data || []).filter(b =>
+        Number(b.total || 0) ||
+        Number(b.gross || 0) ||
+        Number(b.refunds || 0) ||
+        Number(b.discounts || 0) ||
+        Number(b.shipping || 0) ||
+        Number(b.taxes || 0)
+      );
+
+      state.payouts = payoutsRes.data || [];
+      state.period = val;
+      el.subTitle.textContent = `Journal-ready Shopify sales and payout entries — ${val}`;
+      render();
+    } finally {
+      el.btnRun.disabled = false;
+    }
   }
 
   el.btnRun.addEventListener('click', run);
   el.btnSaveMap.addEventListener('click', saveCoaMap);
+  el.btnRecommendedMap.addEventListener('click', applyRecommendedMap);
   el.btnExportJournal.addEventListener('click', exportJournal);
   el.btnExportRegister.addEventListener('click', exportRegister);
 
-  async function boot(){
+  async function boot() {
     const sess = await sb.auth.getSession();
-    if (!sess?.data?.session){ window.location.href = '/pages/login.html?next=' + encodeURIComponent(location.pathname + location.search); return; }
+
+    if (!sess?.data?.session) {
+      window.location.href = '/pages/login.html?next=' + encodeURIComponent(location.pathname + location.search);
+      return;
+    }
+
     const user = sess.data.session.user;
 
-    if (window.SiloChrome){
+    if (window.SiloChrome) {
       window.SiloChrome.mount({
-        appEl:'#silo-app', active:'finance/accounting-export',
-        user:{ email:user?.email||'', role:'admin' },
-        crumbs:['Accounting','Accounting Export'],
-        supabaseClient:sb,
+        appEl: '#silo-app',
+        active: 'finance/accounting-export',
+        user: { email: user?.email || '', role: 'admin' },
+        crumbs: ['Accounting', 'Accounting Export'],
+        supabaseClient: sb,
       });
     }
 
-    // Default to the last complete month.
     const now = new Date();
-    const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth()-1, 1));
-    el.month.value = prev.toISOString().slice(0,7);
+    const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+    el.month.value = prev.toISOString().slice(0, 7);
 
     await Promise.all([loadCoaMap(), loadStoreNames()]);
     renderMap();
