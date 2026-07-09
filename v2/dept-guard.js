@@ -16,6 +16,10 @@
   const ALLOWED = String(script?.dataset?.departments || 'exec,finance')
     .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
   const REDIRECT = script?.dataset?.redirect || '/v2/finance.html';
+  // Pages with no auth flow of their own (legacy Sheets-backed pages) set
+  // data-require-session — anonymous visitors go to login instead of
+  // falling through.
+  const REQUIRE_SESSION = script?.dataset?.requireSession === 'true';
   const SS_DEPT = 'silo:nav:department';
 
   function cached() {
@@ -33,7 +37,13 @@
       const sb = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
       const sess = await sb.auth.getSession();
       const uid = sess?.data?.session?.user?.id;
-      if (!uid) return; // not signed in — the page's own auth flow handles it
+      if (!uid) {
+        if (REQUIRE_SESSION) {
+          window.location.replace('/pages/login.html?next='
+            + encodeURIComponent(window.location.pathname + window.location.search));
+        }
+        return; // signed-in flow is otherwise the page's own concern
+      }
       const { data, error } = await sb.from('profiles').select('department, role').eq('id', uid).single();
       if (error || !data) return; // fail open; RLS is the real gate
       dept = String(data.department || 'unknown').toLowerCase();

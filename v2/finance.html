@@ -127,7 +127,7 @@
 
       <div class="fin-sections">
 
-        <div class="fin-card" data-nav-profile="grandfathered">
+        <div class="fin-card" data-nav-profile="grandfathered" data-departments="exec,finance">
           <div class="fin-card-head"><h2>Payables</h2></div>
           <div class="fin-links">
             <a class="fin-link" href="/accountspayable.html">AP Manager</a>
@@ -136,7 +136,7 @@
           </div>
         </div>
 
-        <div class="fin-card" data-nav-profile="grandfathered">
+        <div class="fin-card" data-nav-profile="grandfathered" data-departments="exec,finance">
           <div class="fin-card-head"><h2>Receivables</h2></div>
           <div class="fin-links">
             <a class="fin-link" href="/v2/baseballismwholesale.html">BBISM Receivables</a>
@@ -148,7 +148,7 @@
           <div class="fin-card-head"><h2>Requests</h2></div>
           <div class="fin-links">
             <a class="fin-link" href="/v2/purchase_request.html">Payment Request</a>
-            <a class="fin-link" href="/v2/request_manager.html">Request Manager</a>
+            <a class="fin-link" data-departments="exec,finance" href="/v2/request_manager.html">Request Manager</a>
             <a class="fin-link" data-nav-profile="grandfathered" href="https://www.jotform.com/grid/200496754119055" target="_blank" rel="noopener">Travel Requests <span class="fin-link-ext">EXT</span></a>
             <a class="fin-link" data-nav-profile="grandfathered" href="https://www.jotform.com/grid/222686658265065" target="_blank" rel="noopener">Bars Requests <span class="fin-link-ext">EXT</span></a>
             <a class="fin-link" data-nav-profile="grandfathered" href="/v2/travel.html">Travel Report</a>
@@ -185,7 +185,7 @@
           <div class="fin-card-head"><h2>Reports</h2></div>
           <div class="fin-links">
             <a class="fin-link" href="https://app.powerbi.com/view?r=eyJrIjoiY2U0MWI2ZmMtMTY3MS00MDY3LTg5NjctN2VlYjk0NGMxNzUzIiwidCI6IjIzYTkzNDJkLTFjODEtNGJkNS1hY2U0LThmYWY4ZWVlNTZiZCJ9" target="_blank" rel="noopener">BI Sales Dashboard <span class="fin-link-ext">EXT</span></a>
-            <a class="fin-link" href="/v2/payroll.html">Payroll BI</a>
+            <a class="fin-link" data-departments="exec,finance" href="/v2/payroll.html">Payroll BI</a>
           </div>
         </div>
 
@@ -234,6 +234,33 @@
     if (sub) sub.textContent = 'SILO company console — select a tool from the sidebar or below.';
 
     document.querySelectorAll('[data-nav-profile="grandfathered"]').forEach((el) => el.remove());
+    document.querySelectorAll('.fin-card').forEach((card) => {
+      if (!card.querySelector('.fin-link')) card.remove();
+    });
+  })();
+
+  // Department filter for the tool cards — mirrors the sidebar rules.
+  // Cards/links tagged data-departments show only for those departments
+  // (same session cache as silo-chrome; unresolved = show everything).
+  (async function filterCardsByDepartment() {
+    const SS_DEPT = 'silo:nav:department';
+    let dept = null;
+    try { dept = sessionStorage.getItem(SS_DEPT); } catch {}
+    if (!dept) {
+      if (!supabaseClient) return;
+      try {
+        const sess = await supabaseClient.auth.getSession();
+        const uid = sess?.data?.session?.user?.id;
+        if (!uid) return;
+        const { data } = await supabaseClient.from('profiles').select('department').eq('id', uid).single();
+        dept = String(data?.department || 'unknown').toLowerCase();
+        try { sessionStorage.setItem(SS_DEPT, dept); } catch {}
+      } catch { return; }
+    }
+    document.querySelectorAll('[data-departments]').forEach((el) => {
+      const allowed = el.dataset.departments.split(',').map((s) => s.trim().toLowerCase());
+      if (!allowed.includes(dept)) el.remove();
+    });
     document.querySelectorAll('.fin-card').forEach((card) => {
       if (!card.querySelector('.fin-link')) card.remove();
     });
