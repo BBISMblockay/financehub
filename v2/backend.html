@@ -1,6 +1,9 @@
 <!-- backend.html
      Silo ERP — Backend Hub (Supabase-only, NO custom server required)
 
+     UI/UX polish only. Existing IDs, Supabase RPC calls, auth guard, dialogs,
+     filters, actions, shortcuts, and data flow are intentionally preserved.
+
      Schemas:
      ✅ public.profiles: id, name, email, role, department, is_active, created_at, updated_at, (optional notes)
      ✅ public.access_requests: id, created_at, status, email, full_name, department, requested_role, note
@@ -21,175 +24,172 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>SILO · Backend hub</title>
   <link rel="stylesheet" href="beacon.css" />
-
-    <link rel="stylesheet" href="silo-brand.css" />
-<!-- Tailwind (dev warning is OK; for prod, compile Tailwind instead of CDN) -->
+  <link rel="stylesheet" href="silo-brand.css" />
   <script src="https://cdn.tailwindcss.com"></script>
-
-  <!-- Config + Supabase -->
   <script src="../pages/config.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.1/dist/umd/supabase.js"></script>
 
   <style>
     :root[data-theme="light"]{
-      --bg:#f6f7fb; --panel:#fff; --panel2:#f8fafc; --panel3:#f1f5f9;
-      --border:rgba(15,23,42,.10);
-      --text:rgba(15,23,42,.92);
-      --muted:rgba(15,23,42,.66);
-      --muted2:rgba(15,23,42,.46);
-      --shadow1:0 1px 2px rgba(2,6,23,.05);
-      --shadow2:0 10px 22px rgba(2,6,23,.08);
-      --ring:rgba(37,99,235,.18);
-      --accent:#1d4ed8; --good:#166534; --warn:#b45309; --danger:#b91c1c;
+      --bg:#f4f5f6;
+      --surface:#ffffff;
+      --surface-2:#f9fafb;
+      --surface-3:#eef1f3;
+      --line:#dfe4e8;
+      --line-strong:#c9d0d6;
+      --ink:#101418;
+      --muted:#5f6b76;
+      --muted-2:#87919b;
+      --blue:#006edb;
+      --blue-soft:#e8f2ff;
+      --green:#138a35;
+      --green-soft:#eaf7ee;
+      --amber:#b86b00;
+      --amber-soft:#fff5e5;
+      --red:#b42318;
+      --red-soft:#fff0ee;
+      --shadow:0 1px 2px rgba(16,24,40,.05);
+      --focus:0 0 0 3px rgba(0,110,219,.16);
     }
     :root[data-theme="dark"]{
-      --bg:#070b18; --panel:#0b1226; --panel2:#0a1022; --panel3:#0f172a;
-      --border:rgba(255,255,255,.12);
-      --text:rgba(255,255,255,.92);
-      --muted:rgba(255,255,255,.74);
-      --muted2:rgba(255,255,255,.54);
-      --shadow1:0 1px 2px rgba(0,0,0,.55);
-      --shadow2:0 10px 22px rgba(0,0,0,.50);
-      --ring:rgba(56,189,248,.18);
-      --accent:#60a5fa; --good:#22c55e; --warn:#fbbf24; --danger:#fb7185;
+      --bg:#0f1215;
+      --surface:#171b20;
+      --surface-2:#1d2228;
+      --surface-3:#242b33;
+      --line:#2e363f;
+      --line-strong:#3c4651;
+      --ink:#f5f7f9;
+      --muted:#b2bbc5;
+      --muted-2:#7f8b96;
+      --blue:#66b2ff;
+      --blue-soft:#13283c;
+      --green:#4ade80;
+      --green-soft:#14311f;
+      --amber:#fbbf24;
+      --amber-soft:#33260d;
+      --red:#fb7185;
+      --red-soft:#35181d;
+      --shadow:0 1px 2px rgba(0,0,0,.35);
+      --focus:0 0 0 3px rgba(102,178,255,.18);
     }
-    html, body{
-      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-      letter-spacing: -0.01em;
-      background: var(--bg);
-      color: var(--text);
-    }
-    .mono{ font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; }
-    .card{
-      background: var(--panel);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      box-shadow: var(--shadow1);
-    }
-    .btn{
-      display:inline-flex; align-items:center; justify-content:center;
-      height: 38px; padding: 0 .9rem;
-      border-radius: 10px;
-      border: 1px solid var(--border);
-      background: var(--panel);
-      font-weight: 800; font-size: .875rem;
-      transition: background .12s ease, box-shadow .12s ease, transform .08s ease;
-      user-select:none; white-space:nowrap;
-    }
-    .btn:hover{ background: var(--panel2); box-shadow: var(--shadow2); }
-    .btn:active{ transform: translateY(1px); }
-    .btn:focus{ outline:none; box-shadow: 0 0 0 4px var(--ring); }
-    .btn-primary{
-      background: var(--accent);
-      color: #fff;
-      border-color: color-mix(in oklab, var(--accent) 80%, #000);
-      box-shadow: 0 6px 14px color-mix(in oklab, var(--accent) 18%, transparent);
-    }
-    .btn-primary:hover{ background: color-mix(in oklab, var(--accent) 90%, #000); }
-    :root[data-theme="dark"] .btn-primary{
-      color:#071122;
-      background: color-mix(in oklab, var(--accent) 86%, white);
-      border-color: color-mix(in oklab, var(--accent) 80%, white);
-    }
-    .btn-danger{
-      background: color-mix(in oklab, var(--danger) 18%, var(--panel));
-      border-color: color-mix(in oklab, var(--danger) 30%, var(--border));
-      color: var(--danger);
-      box-shadow:none;
-    }
-    .btn-danger:hover{ background: color-mix(in oklab, var(--danger) 24%, var(--panel2)); box-shadow:none; }
-    .btn-soft{
-      background: color-mix(in oklab, var(--accent) 10%, var(--panel));
-      border-color: color-mix(in oklab, var(--accent) 18%, var(--border));
-      color: var(--text);
-      box-shadow:none;
-    }
-    .btn-soft:hover{ background: color-mix(in oklab, var(--accent) 14%, var(--panel2)); box-shadow:none; }
 
-    .input, .select{
-      height: 38px;
-      border-radius: 10px;
-      padding: 0 .85rem;
-      border: 1px solid var(--border);
-      background: var(--panel);
-      font-weight: 800;
-      font-size: .875rem;
+    *{ box-sizing:border-box; }
+    html,body{ min-height:100%; }
+    body.themeable{
+      margin:0;
+      background:var(--bg);
+      color:var(--ink);
+      font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      letter-spacing:-.015em;
     }
-    .input:focus, .select:focus{ outline:none; box-shadow: 0 0 0 4px var(--ring); }
+    .mono{ font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace; font-variant-numeric:tabular-nums; font-feature-settings:"tnum" 1; }
+    .muted{ color:var(--muted); }
+    .muted2{ color:var(--muted-2); }
+    .divider{ height:1px; background:var(--line); }
+
+    .page-shell{ min-height:100vh; background:var(--bg); }
+    .silo-bar{
+      position:sticky; top:0; z-index:40;
+      height:44px;
+      display:flex; align-items:center; justify-content:space-between; gap:14px;
+      padding:0 16px;
+      border-bottom:1px solid var(--line);
+      background:color-mix(in oklab,var(--surface) 90%,transparent);
+      backdrop-filter:blur(10px);
+    }
+    .crumbs{ display:flex; align-items:center; gap:9px; min-width:0; font-size:11px; text-transform:uppercase; letter-spacing:.16em; color:var(--muted-2); }
+    .crumbs b{ color:var(--ink); font-weight:900; }
+    .bar-left{ display:flex; align-items:center; gap:10px; min-width:0; }
+    .menu-chip{ width:26px; height:26px; border:1px solid var(--line); border-radius:6px; display:grid; place-items:center; background:var(--surface); color:var(--muted); box-shadow:var(--shadow); }
+    .bar-right{ display:flex; align-items:center; gap:8px; white-space:nowrap; min-width:0; }
+
+    .page{ padding:18px 18px 28px; }
+    .page-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; padding:4px 0 16px; }
+    .page-kicker{ font-size:11px; color:var(--muted-2); text-transform:uppercase; letter-spacing:.14em; font-weight:800; }
+    .page-title{ margin-top:3px; font-size:24px; line-height:1.05; font-weight:900; letter-spacing:-.04em; }
+    .page-sub{ margin-top:4px; color:var(--muted); font-size:13px; max-width:760px; }
+    .page-actions{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+
+    .strip{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); border:1px solid var(--line); background:var(--surface); box-shadow:var(--shadow); }
+    .metric{ min-height:78px; padding:14px 16px; border-right:1px solid var(--line); }
+    .metric:last-child{ border-right:0; }
+    .metric-label,.section-title{ font-size:10px; text-transform:uppercase; letter-spacing:.16em; color:var(--muted-2); font-weight:900; }
+    .metric-value{ margin-top:5px; font-size:22px; line-height:1; font-weight:900; letter-spacing:-.045em; }
+    .metric-sub{ margin-top:4px; font-size:11px; color:var(--muted-2); }
+
+    .panel{ margin-top:14px; border:1px solid var(--line); background:var(--surface); box-shadow:var(--shadow); }
+    .panel-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:14px 16px; border-bottom:1px solid var(--line); }
+    .panel-title{ margin-top:3px; font-size:15px; font-weight:900; letter-spacing:-.025em; }
+    .panel-sub{ margin-top:2px; font-size:12px; color:var(--muted); }
+    .panel-actions{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+    .panel-body{ padding:14px 16px; }
+    .side-grid{ display:grid; grid-template-columns:minmax(0,1fr) 360px; gap:14px; align-items:start; }
+
+    .btn{
+      display:inline-flex; align-items:center; justify-content:center; gap:7px;
+      height:32px; padding:0 12px; border-radius:6px;
+      border:1px solid var(--line-strong); background:var(--surface);
+      color:var(--ink); font-size:12px; font-weight:800; line-height:1; white-space:nowrap;
+      box-shadow:var(--shadow); transition:background .12s ease,border-color .12s ease,transform .08s ease;
+    }
+    .btn:hover{ background:var(--surface-2); border-color:var(--muted-2); }
+    .btn:active{ transform:translateY(1px); }
+    .btn:focus{ outline:none; box-shadow:var(--focus); }
+    .btn-primary{ background:var(--blue); color:#fff; border-color:var(--blue); }
+    .btn-primary:hover{ background:color-mix(in oklab,var(--blue) 86%,#000); border-color:color-mix(in oklab,var(--blue) 86%,#000); }
+    .btn-danger{ background:var(--red-soft); border-color:color-mix(in oklab,var(--red) 38%,var(--line)); color:var(--red); }
+    .btn-soft{ background:var(--surface-2); border-color:var(--line); color:var(--ink); }
+
+    .input,.select{
+      height:32px; border-radius:0; border:1px solid var(--line-strong); background:var(--surface);
+      color:var(--ink); padding:0 10px; font-size:12px; font-weight:750; min-width:0;
+    }
+    .input::placeholder{ color:var(--muted-2); }
+    .input:focus,.select:focus{ outline:none; box-shadow:var(--focus); border-color:var(--blue); }
+    .toolbar-row{ display:grid; grid-template-columns:minmax(180px,1fr) 180px 180px 148px; border-bottom:1px solid var(--line); background:var(--surface-2); }
+    .toolbar-row > *{ border-right:1px solid var(--line); }
+    .toolbar-row > *:last-child{ border-right:0; }
+    .toolbar-row .input,.toolbar-row .select,.toolbar-row .btn{ width:100%; height:40px; border:0; border-radius:0; box-shadow:none; background:transparent; }
 
     .pill{
-      display:inline-flex; align-items:center; gap:.45rem;
-      padding:.22rem .65rem;
-      border-radius: 999px;
-      border: 1px solid var(--border);
-      background: var(--panel2);
-      font-size:.72rem;
-      font-weight: 900;
-      letter-spacing:.02em;
-      color: var(--muted);
-      white-space: nowrap;
+      display:inline-flex; align-items:center; gap:5px; min-height:20px; padding:2px 7px; border-radius:4px;
+      border:1px solid var(--line); background:var(--surface-2); color:var(--muted);
+      font-size:10px; font-weight:900; letter-spacing:.08em; text-transform:uppercase; white-space:nowrap;
     }
-    .dot{ width:.44rem; height:.44rem; border-radius:999px; display:inline-block; }
-    .pill-good{ color: var(--good); border-color: color-mix(in oklab, var(--good) 30%, var(--border)); }
-    .pill-warn{ color: var(--warn); border-color: color-mix(in oklab, var(--warn) 30%, var(--border)); }
-    .pill-danger{ color: var(--danger); border-color: color-mix(in oklab, var(--danger) 30%, var(--border)); }
+    .dot{ width:6px; height:6px; border-radius:999px; display:inline-block; background:var(--muted-2); }
+    .pill-good{ color:var(--green); background:var(--green-soft); border-color:color-mix(in oklab,var(--green) 35%,var(--line)); }
+    .pill-warn{ color:var(--amber); background:var(--amber-soft); border-color:color-mix(in oklab,var(--amber) 35%,var(--line)); }
+    .pill-danger{ color:var(--red); background:var(--red-soft); border-color:color-mix(in oklab,var(--red) 35%,var(--line)); }
+    .kbd{ display:inline-flex; min-width:22px; height:22px; align-items:center; justify-content:center; border:1px solid var(--line); background:var(--surface-2); border-radius:4px; color:var(--muted); font-size:10px; font-weight:900; }
 
-    .section-title{
-      font-size: .72rem;
-      letter-spacing: .14em;
-      text-transform: uppercase;
-      color: var(--muted2);
-      font-weight: 950;
-    }
-    .muted{ color: var(--muted); }
-    .muted2{ color: var(--muted2); }
+    .table{ width:100%; border-collapse:collapse; background:var(--surface); }
+    .table thead th{ height:34px; padding:0 10px; border-bottom:1px solid var(--line-strong); border-right:1px solid var(--line); background:var(--surface-2); color:var(--muted); font-size:10px; font-weight:900; letter-spacing:.06em; text-transform:uppercase; }
+    .table thead th:last-child{ border-right:0; }
+    .table tbody td{ padding:9px 10px; border-bottom:1px solid var(--line); border-right:1px solid color-mix(in oklab,var(--line) 60%,transparent); vertical-align:middle; font-size:12px; }
+    .table tbody td:last-child{ border-right:0; }
+    .table tbody tr:hover td{ background:var(--surface-2); }
+    .table tbody tr:last-child td{ border-bottom:0; }
+    .table .font-black{ font-weight:850; }
 
-    .table{
-      width: 100%;
-      border-collapse: separate;
-      border-spacing: 0;
-      overflow: hidden;
-      border-radius: 12px;
-      border: 1px solid var(--border);
-      background: var(--panel);
-    }
-    .table thead th{
-      font-size: .68rem;
-      letter-spacing: .14em;
-      text-transform: uppercase;
-      color: var(--muted2);
-      background: var(--panel2);
-      border-bottom: 1px solid var(--border);
-      padding: .7rem .85rem;
-      white-space: nowrap;
-      font-weight: 950;
-    }
-    .table tbody td{
-      padding: .7rem .85rem;
-      border-bottom: 1px solid color-mix(in oklab, var(--border) 70%, transparent);
-      vertical-align: top;
-    }
-    .table tbody tr:hover td{ background: var(--panel2); }
-    .table tbody tr:last-child td{ border-bottom: 0; }
+    .scrollbar{ overflow:auto; }
+    .scrollbar::-webkit-scrollbar{ width:10px; height:10px; }
+    .scrollbar::-webkit-scrollbar-thumb{ background:#9aa3ad; border:2px solid transparent; background-clip:content-box; border-radius:999px; }
+    .scrollbar::-webkit-scrollbar-track{ background:transparent; }
 
-    .scrollbar::-webkit-scrollbar { height: 10px; width: 10px; }
-    .scrollbar::-webkit-scrollbar-thumb { background: rgba(148,163,184,.85); border-radius: 999px; }
-    .scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .side-card{ border:1px solid var(--line); background:var(--surface); box-shadow:var(--shadow); }
+    .signal-list{ padding:12px; }
+    #signalsBox .flex{ padding:8px 0; border-bottom:1px solid var(--line); }
+    #signalsBox .flex:last-child{ border-bottom:0; }
 
-    dialog::backdrop { background: rgba(15, 23, 42, 0.55); }
-    dialog{ border:0; background:transparent; }
+    dialog::backdrop{ background:rgba(0,0,0,.48); }
+    dialog{ border:0; background:transparent; color:var(--ink); }
+    .dialog-card{ border:1px solid var(--line); background:var(--surface); box-shadow:0 18px 60px rgba(0,0,0,.30); }
+    .dialog-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; padding:14px 16px; border-bottom:1px solid var(--line); background:var(--surface-2); }
+    .dialog-body{ padding:16px; }
+    .dialog-foot{ padding:12px 16px; border-top:1px solid var(--line); background:var(--surface-2); }
 
-    .kbd{
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-      font-size: 11px;
-      padding: 2px 6px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: var(--panel2);
-      color: var(--muted);
-      font-weight: 900;
-    }
-    .divider{ height:1px; background: var(--border); }
+    @media (max-width:1180px){ .side-grid{ grid-template-columns:1fr; } .strip{ grid-template-columns:repeat(2,minmax(0,1fr)); } .metric:nth-child(2){ border-right:0; } .metric:nth-child(-n+2){ border-bottom:1px solid var(--line); } }
+    @media (max-width:780px){ .silo-bar{ height:auto; min-height:44px; align-items:flex-start; padding:10px 12px; flex-direction:column; } .bar-right{ flex-wrap:wrap; } .page{ padding:14px 10px 24px; } .page-head{ flex-direction:column; } .page-actions{ justify-content:flex-start; } .strip{ grid-template-columns:1fr; } .metric{ border-right:0; border-bottom:1px solid var(--line); } .metric:last-child{ border-bottom:0; } .toolbar-row{ grid-template-columns:1fr; } .toolbar-row > *{ border-right:0; border-bottom:1px solid var(--line); } .toolbar-row > *:last-child{ border-bottom:0; } }
   </style>
   <link rel="stylesheet" href="beacon-mirrors-unified.css" />
   <link rel="stylesheet" href="v2-mobile.css" />
@@ -197,136 +197,104 @@
 </head>
 
 <body class="themeable">
-  <!-- Top bar -->
-  <div class="sticky top-0 z-40" style="background: color-mix(in oklab, var(--bg) 82%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border);">
-    <div class="mx-auto max-w-[1400px] px-4 py-3 flex items-center justify-between gap-3">
-      <div class="min-w-0">
-        <div class="flex items-center gap-2 flex-wrap">
-          <span class="pill"><span class="dot" style="background: var(--accent)"></span>Silo ERP</span>
-          <span class="pill">Backend Hub</span>
-          <span id="rolePill" class="pill"><span class="dot" style="background: var(--accent)"></span>Role: —</span>
-        </div>
-        <div class="mt-1 text-lg font-semibold tracking-tight">Systems & Access Management</div>
+  <div class="page-shell">
+    <div class="silo-bar">
+      <div class="bar-left">
+        <div class="menu-chip" aria-hidden="true">☰</div>
+        <div class="crumbs"><span>Settings</span><span>/</span><b>Backend Hub</b></div>
       </div>
-
-      <div class="flex items-center gap-2">
-        <button id="themeBtn" class="btn" title="Toggle theme">Theme <span id="themeLabel" class="ml-2 font-extrabold">Light</span></button>
+      <div class="bar-right">
+        <span id="accessStatePill" class="pill pill-warn"><span class="dot" style="background: var(--amber)"></span>Access: checking…</span>
+        <span id="rolePill" class="pill"><span class="dot" style="background: var(--blue)"></span>Role: —</span>
+        <span class="pill"><span class="dot" style="background: var(--green)"></span>Supabase <span id="sbUrlPill" class="mono">—</span></span>
+        <span class="pill">Last sync <span id="lastRefresh" class="mono">—</span></span>
+        <button id="themeBtn" class="btn" title="Toggle theme">Theme <span id="themeLabel">Light</span></button>
         <button id="refreshBtn" class="btn btn-primary">Refresh</button>
-        <button id="logoutBtn" class="btn btn-danger">Logout</button>
-      </div>
-    </div>
-  </div>
-
-  <main class="mx-auto max-w-[1400px] px-4 py-4 space-y-4">
-    <!-- Context row -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-      <div class="card p-5 lg:col-span-7">
-        <div class="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <div class="section-title">Context</div>
-            <div class="mt-2 text-xl font-semibold tracking-tight">Admin control plane</div>
-            <div class="mt-2 text-sm muted">
-              Supabase-only backend hub. Users request access via <span class="mono">login.html</span> → <span class="mono">access_requests</span>.
-              Approve to upsert <span class="mono">profiles</span> by matching <span class="mono">auth.users</span> on email.
-            </div>
-          </div>
-          <div class="text-right">
-            <div class="section-title">Signed in</div>
-            <div id="authEmail" class="mt-2 mono text-sm font-black">—</div>
-            <div id="authUid" class="mt-1 mono text-xs muted2">—</div>
-          </div>
-        </div>
-
-        <div class="mt-4 flex flex-wrap items-center gap-2">
-          <span class="pill"><span class="dot" style="background: var(--accent)"></span>Supabase: <span id="sbUrlPill" class="mono">—</span></span>
-          <span class="pill"><span class="dot" style="background: var(--accent)"></span>Last refresh: <span id="lastRefresh" class="mono">—</span></span>
-          <span id="accessStatePill" class="pill pill-warn"><span class="dot" style="background: var(--warn)"></span>Access: checking…</span>
-        </div>
-
-        <div id="bootMsg" class="mt-3 text-sm muted2">—</div>
-      </div>
-
-      <div class="card p-5 lg:col-span-5">
-        <div class="flex items-start justify-between gap-3 flex-wrap">
-          <div>
-            <div class="section-title">Health</div>
-            <div class="mt-2 text-lg font-semibold">Supabase + data</div>
-            <div class="mt-1 text-sm muted">Latency + row counts (via RPC).</div>
-          </div>
-          <span id="healthPill" class="pill"><span class="dot" style="background: var(--accent)"></span>—</span>
-        </div>
-
-        <div class="mt-4 grid grid-cols-2 gap-3">
-          <div class="card p-4" style="background: var(--panel2); box-shadow:none;">
-            <div class="section-title">Latency</div>
-            <div id="sbLatency" class="mt-2 text-sm font-extrabold muted">—</div>
-            <div id="sbLatencySub" class="mt-1 text-xs muted2 mono">—</div>
-          </div>
-          <div class="card p-4" style="background: var(--panel2); box-shadow:none;">
-            <div class="section-title">Profiles</div>
-            <div id="profilesCount" class="mt-2 text-sm font-extrabold muted">—</div>
-            <div id="profilesCountSub" class="mt-1 text-xs muted2 mono">—</div>
-          </div>
-          <div class="card p-4" style="background: var(--panel2); box-shadow:none;">
-            <div class="section-title">Access requests</div>
-            <div id="reqCount" class="mt-2 text-sm font-extrabold muted">—</div>
-            <div id="reqCountSub" class="mt-1 text-xs muted2 mono">—</div>
-          </div>
-          <div class="card p-4" style="background: var(--panel2); box-shadow:none;">
-            <div class="section-title">Notes</div>
-            <div id="healthNote" class="mt-2 text-sm font-extrabold muted">—</div>
-            <div class="mt-1 text-xs muted2">If counts fail, ensure admin RPCs exist.</div>
-          </div>
-        </div>
+        <button id="logoutBtn" class="btn">Logout</button>
       </div>
     </div>
 
-    <!-- Main row -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-      <section class="lg:col-span-8 space-y-4">
-        <!-- Access Requests -->
-        <div class="card p-5">
-          <div class="flex items-start justify-between gap-3 flex-wrap">
-            <div>
-              <div class="section-title">Access</div>
-              <div class="mt-2 text-lg font-semibold">Pending access requests</div>
-              <div class="mt-1 text-sm muted">Approve to create/activate a <span class="mono">profiles</span> row for that auth user email.</div>
-            </div>
-            <div class="flex items-center gap-2">
-              <button id="reqReloadBtn" class="btn btn-soft">Reload</button>
-              <span class="kbd">A</span>
-            </div>
-          </div>
-
-          <div class="mt-4 overflow-x-auto scrollbar">
-            <table class="table min-w-full text-sm">
-              <thead>
-                <tr>
-                  <th class="text-left">User</th>
-                  <th class="text-left">Requested</th>
-                  <th class="text-left">Note</th>
-                  <th class="text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody id="reqTbody">
-                <tr><td colspan="4" class="muted2">Loading…</td></tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div id="reqMsg" class="mt-3 text-sm muted2">—</div>
+    <main class="page">
+      <section class="page-head">
+        <div>
+          <div class="page-kicker">Admin control plane</div>
+          <h1 class="page-title">Backend Hub</h1>
+          <p class="page-sub">
+            Manage Silo profiles, admin access requests, user roles, departments, and active status. Supabase-only workflow using the existing profile and access RPCs.
+          </p>
+          <div class="mt-2 text-xs muted2"><span id="bootMsg">—</span></div>
         </div>
+        <div class="page-actions">
+          <span class="pill">Signed in <span id="authEmail" class="mono">—</span></span>
+          <span class="pill"><span id="authUid" class="mono">—</span></span>
+        </div>
+      </section>
 
-        <!-- Directory -->
-        <div class="card p-5">
-          <div class="flex items-start justify-between gap-3 flex-wrap">
-            <div>
-              <div class="section-title">Directory</div>
-              <div class="mt-2 text-lg font-semibold">Profiles</div>
-              <div class="mt-1 text-sm muted">Search, filter, and adjust department/role/is_active.</div>
+      <section class="strip" aria-label="System health metrics">
+        <div class="metric">
+          <div class="metric-label">Latency</div>
+          <div id="sbLatency" class="metric-value mono">—</div>
+          <div id="sbLatencySub" class="metric-sub mono">—</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Profiles</div>
+          <div id="profilesCount" class="metric-value mono">—</div>
+          <div id="profilesCountSub" class="metric-sub mono">—</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Access requests</div>
+          <div id="reqCount" class="metric-value mono">—</div>
+          <div id="reqCountSub" class="metric-sub mono">—</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Health</div>
+          <div class="mt-2"><span id="healthPill" class="pill"><span class="dot" style="background: var(--blue)"></span>—</span></div>
+          <div id="healthNote" class="metric-sub">—</div>
+        </div>
+      </section>
+
+      <section class="side-grid">
+        <div>
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <div class="section-title">Access</div>
+                <div class="panel-title">Pending access requests</div>
+                <div class="panel-sub">Approve to create/activate a profiles row for the matching auth user email.</div>
+              </div>
+              <div class="panel-actions">
+                <span class="kbd">A</span>
+                <button id="reqReloadBtn" class="btn btn-soft">Reload</button>
+              </div>
             </div>
-            <div class="flex items-center gap-2">
-              <input id="userSearch" class="input" style="width: 260px;" placeholder="Search email/name…" />
+            <div class="scrollbar">
+              <table class="table min-w-full">
+                <thead>
+                  <tr>
+                    <th class="text-left">User</th>
+                    <th class="text-left">Requested</th>
+                    <th class="text-left">Note</th>
+                    <th class="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="reqTbody">
+                  <tr><td colspan="4" class="muted2">Loading…</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div id="reqMsg" class="px-4 py-3 text-xs muted2 border-t" style="border-color:var(--line);">—</div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <div>
+                <div class="section-title">Directory</div>
+                <div class="panel-title">Profiles</div>
+                <div class="panel-sub">Search, filter, and adjust department, role, and active status.</div>
+              </div>
+            </div>
+            <div class="toolbar-row">
+              <input id="userSearch" class="input" placeholder="Search email/name…" />
               <select id="roleFilter" class="select">
                 <option value="all">All roles</option>
                 <option value="owner">owner</option>
@@ -346,192 +314,138 @@
               </select>
               <button id="usersReloadBtn" class="btn">Reload</button>
             </div>
-          </div>
-
-          <div class="mt-4 overflow-x-auto scrollbar">
-            <table class="table min-w-full text-sm">
-              <thead>
-                <tr>
-                  <th class="text-left">User</th>
-                  <th class="text-left">Dept</th>
-                  <th class="text-left">Role</th>
-                  <th class="text-left">Status</th>
-                  <th class="text-right">Updated</th>
-                  <th class="text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody id="usersTbody">
-                <tr><td colspan="6" class="muted2">Loading…</td></tr>
-              </tbody>
-            </table>
-          </div>
-
-          <div class="mt-3 flex items-center justify-between gap-2 text-xs muted2">
-            <div>Profiles loaded: <span id="usersCount" class="mono">—</span></div>
-            <div class="mono">Tip: click a row to edit</div>
-          </div>
-        </div>
-      </section>
-
-      <aside class="lg:col-span-4 space-y-4">
-        <!-- Signals -->
-        <div class="card p-5">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <div class="section-title">Signals</div>
-              <div class="mt-2 text-lg font-semibold">Operational alerts</div>
-              <div class="mt-1 text-sm muted">Derived from health & queue.</div>
+            <div class="scrollbar">
+              <table class="table min-w-full">
+                <thead>
+                  <tr>
+                    <th class="text-left">User</th>
+                    <th class="text-left">Dept</th>
+                    <th class="text-left">Role</th>
+                    <th class="text-left">Status</th>
+                    <th class="text-right">Updated</th>
+                    <th class="text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="usersTbody">
+                  <tr><td colspan="6" class="muted2">Loading…</td></tr>
+                </tbody>
+              </table>
             </div>
-            <span class="kbd">S</span>
-          </div>
-          <div id="signalsBox" class="mt-4 space-y-2 text-sm">
-            <div class="muted2">Loading…</div>
-          </div>
+            <div class="px-4 py-3 flex items-center justify-between gap-2 text-xs muted2 border-t" style="border-color:var(--line);">
+              <div>Profiles loaded: <span id="usersCount" class="mono">—</span></div>
+              <div class="mono">Click a row to edit</div>
+            </div>
+          </section>
         </div>
 
-        <!-- Help -->
-        <div class="card p-5">
-          <div class="section-title">Notes</div>
-          <div class="mt-2 text-sm muted">
-            <div class="font-black">Workflow</div>
-            <ol class="list-decimal ml-5 mt-2 space-y-1">
-              <li>User logs in → creates <span class="mono">access_requests</span> row</li>
-              <li>You approve → upserts <span class="mono">profiles</span> by matching <span class="mono">auth.users</span> on email</li>
-              <li>App pages gate by <span class="mono">profiles.role</span> and <span class="mono">is_active</span></li>
-            </ol>
-          </div>
-          <div class="divider my-4"></div>
-          <div class="text-xs muted2">
-            If “profiles list” fails: ensure admin RPCs exist (admin_list_profiles/admin_update_profile).
-          </div>
-        </div>
-      </aside>
-    </div>
-  </main>
+        <aside>
+          <section class="side-card">
+            <div class="panel-head">
+              <div>
+                <div class="section-title">Signals</div>
+                <div class="panel-title">Operational alerts</div>
+                <div class="panel-sub">Derived from health and request queue.</div>
+              </div>
+              <span class="kbd">S</span>
+            </div>
+            <div id="signalsBox" class="signal-list text-sm">
+              <div class="muted2">Loading…</div>
+            </div>
+          </section>
+
+          <section class="side-card mt-4">
+            <div class="panel-head">
+              <div>
+                <div class="section-title">Workflow</div>
+                <div class="panel-title">Access flow</div>
+              </div>
+            </div>
+            <div class="panel-body text-xs muted leading-6">
+              <div><b>1.</b> User logs in and creates an access_requests row.</div>
+              <div><b>2.</b> Admin approves and upserts public.profiles.</div>
+              <div><b>3.</b> App pages gate by profiles.role and is_active.</div>
+              <div class="divider my-3"></div>
+              <div class="muted2">If profile lists fail, confirm admin_list_profiles and admin_update_profile RPCs exist.</div>
+            </div>
+          </section>
+        </aside>
+      </section>
+    </main>
+  </div>
 
   <!-- User edit dialog -->
-  <dialog id="userDialog" class="w-[min(860px,calc(100vw-24px))] rounded-2xl p-0 shadow-xl">
-    <div class="card overflow-hidden" style="box-shadow: var(--shadow2); border-radius: 16px;">
-      <div class="flex items-start justify-between gap-3 border-b p-4" style="border-color: var(--border);">
+  <dialog id="userDialog" class="w-[min(860px,calc(100vw-24px))] p-0">
+    <div class="dialog-card overflow-hidden">
+      <div class="dialog-head">
         <div class="min-w-0">
-          <div class="text-xs muted2 font-black">Profile</div>
-          <div id="dlgEmail" class="mt-1 text-lg font-semibold truncate">—</div>
+          <div class="section-title">Profile</div>
+          <div id="dlgEmail" class="mt-1 text-lg font-black truncate">—</div>
           <div id="dlgUid" class="mt-1 mono text-xs muted2 truncate">—</div>
         </div>
-        <div class="flex items-center gap-2">
-          <button id="dlgCloseBtn" class="btn">Close</button>
-        </div>
+        <button id="dlgCloseBtn" class="btn">Close</button>
       </div>
-
-      <div class="p-4 space-y-4">
+      <div class="dialog-body space-y-4">
         <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
           <div class="md:col-span-5">
-            <label class="text-xs font-black muted2">Name</label>
+            <label class="section-title">Name</label>
             <input id="dlgName" class="input w-full mt-1" placeholder="Full name" />
           </div>
           <div class="md:col-span-4">
-            <label class="text-xs font-black muted2">Department</label>
+            <label class="section-title">Department</label>
             <select id="dlgDept" class="select w-full mt-1">
-              <option value="">—</option>
-              <option value="ops">ops</option>
-              <option value="finance">finance</option>
-              <option value="logistics">logistics</option>
-              <option value="marketing">marketing</option>
-              <option value="retail">retail</option>
-              <option value="exec">exec</option>
+              <option value="">—</option><option value="ops">ops</option><option value="finance">finance</option><option value="logistics">logistics</option><option value="marketing">marketing</option><option value="retail">retail</option><option value="exec">exec</option>
             </select>
           </div>
           <div class="md:col-span-3">
-            <label class="text-xs font-black muted2">Role</label>
+            <label class="section-title">Role</label>
             <select id="dlgRole" class="select w-full mt-1">
-              <option value="viewer">viewer</option>
-              <option value="member">member</option>
-              <option value="admin">admin</option>
-              <option value="owner">owner</option>
-              <option value="superadmin">superadmin</option>
+              <option value="viewer">viewer</option><option value="member">member</option><option value="admin">admin</option><option value="owner">owner</option><option value="superadmin">superadmin</option>
             </select>
           </div>
         </div>
-
         <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
           <div class="md:col-span-4">
-            <label class="text-xs font-black muted2">Status</label>
-            <select id="dlgStatus" class="select w-full mt-1">
-              <option value="active">active</option>
-              <option value="disabled">disabled</option>
-            </select>
+            <label class="section-title">Status</label>
+            <select id="dlgStatus" class="select w-full mt-1"><option value="active">active</option><option value="disabled">disabled</option></select>
           </div>
           <div class="md:col-span-8">
-            <label class="text-xs font-black muted2">Notes (optional)</label>
-            <input id="dlgNotes" class="input w-full mt-1" placeholder="(optional) notes column if present" />
+            <label class="section-title">Notes</label>
+            <input id="dlgNotes" class="input w-full mt-1" placeholder="optional notes column if present" />
           </div>
         </div>
-
         <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-          <div class="md:col-span-8 text-xs muted2">
-            Saved via RPC (<span class="mono">admin_update_profile</span>).
-          </div>
-          <div class="md:col-span-4 flex gap-2">
-            <button id="dlgSaveBtn" class="btn btn-primary flex-1">Save</button>
-            <button id="dlgDisableBtn" class="btn btn-danger flex-1">Disable</button>
-          </div>
+          <div class="md:col-span-8 text-xs muted2">Saved via RPC <span class="mono">admin_update_profile</span>.</div>
+          <div class="md:col-span-4 flex gap-2"><button id="dlgSaveBtn" class="btn btn-primary flex-1">Save</button><button id="dlgDisableBtn" class="btn btn-danger flex-1">Disable</button></div>
         </div>
-
         <div id="dlgMsg" class="text-sm muted2">—</div>
       </div>
-
-      <div class="border-t p-4" style="border-color: var(--border); background: var(--panel2);">
-        <div class="text-xs muted2">
-          Table: <span class="mono">public.profiles</span> uses <span class="mono">is_active</span>.
-        </div>
-      </div>
+      <div class="dialog-foot text-xs muted2">Table: <span class="mono">public.profiles</span> uses <span class="mono">is_active</span>.</div>
     </div>
   </dialog>
 
   <!-- Approve dialog -->
-  <dialog id="approveDialog" class="w-[min(760px,calc(100vw-24px))] rounded-2xl p-0 shadow-xl">
-    <div class="card overflow-hidden" style="box-shadow: var(--shadow2); border-radius: 16px;">
-      <div class="flex items-start justify-between gap-3 border-b p-4" style="border-color: var(--border);">
+  <dialog id="approveDialog" class="w-[min(760px,calc(100vw-24px))] p-0">
+    <div class="dialog-card overflow-hidden">
+      <div class="dialog-head">
         <div class="min-w-0">
-          <div class="text-xs muted2 font-black">Approve request</div>
-          <div id="apprEmail" class="mt-1 text-lg font-semibold truncate">—</div>
+          <div class="section-title">Approve request</div>
+          <div id="apprEmail" class="mt-1 text-lg font-black truncate">—</div>
           <div id="apprReqId" class="mt-1 mono text-xs muted2 truncate">—</div>
         </div>
-        <div class="flex items-center gap-2">
-          <button id="apprCloseBtn" class="btn">Close</button>
-        </div>
+        <button id="apprCloseBtn" class="btn">Close</button>
       </div>
-
-      <div class="p-4 space-y-4">
+      <div class="dialog-body space-y-4">
         <div class="grid grid-cols-1 md:grid-cols-12 gap-3">
           <div class="md:col-span-6">
-            <label class="text-xs font-black muted2">Department</label>
-            <select id="apprDept" class="select w-full mt-1">
-              <option value="ops">ops</option>
-              <option value="finance">finance</option>
-              <option value="logistics">logistics</option>
-              <option value="marketing">marketing</option>
-              <option value="retail">retail</option>
-              <option value="exec">exec</option>
-            </select>
+            <label class="section-title">Department</label>
+            <select id="apprDept" class="select w-full mt-1"><option value="ops">ops</option><option value="finance">finance</option><option value="logistics">logistics</option><option value="marketing">marketing</option><option value="retail">retail</option><option value="exec">exec</option></select>
           </div>
           <div class="md:col-span-6">
-            <label class="text-xs font-black muted2">Role</label>
-            <select id="apprRole" class="select w-full mt-1">
-              <option value="member">member</option>
-              <option value="viewer">viewer</option>
-              <option value="admin">admin</option>
-              <option value="owner">owner</option>
-              <option value="superadmin">superadmin</option>
-            </select>
+            <label class="section-title">Role</label>
+            <select id="apprRole" class="select w-full mt-1"><option value="member">member</option><option value="viewer">viewer</option><option value="admin">admin</option><option value="owner">owner</option><option value="superadmin">superadmin</option></select>
           </div>
         </div>
-
-        <div class="flex gap-2">
-          <button id="apprApproveBtn" class="btn btn-primary flex-1">Approve</button>
-          <button id="apprDenyBtn" class="btn btn-danger flex-1">Deny</button>
-        </div>
-
+        <div class="flex gap-2"><button id="apprApproveBtn" class="btn btn-primary flex-1">Approve</button><button id="apprDenyBtn" class="btn btn-danger flex-1">Deny</button></div>
         <div id="apprMsg" class="text-sm muted2">—</div>
       </div>
     </div>
