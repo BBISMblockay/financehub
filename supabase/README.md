@@ -101,7 +101,7 @@ SILO supports multiple companies in one Supabase project. Isolation is enforced 
 **Key column:** `company_entity_id uuid` on all operational tables  
 **Baseballism entity id:** `3bd934c9-4cdd-429b-9076-f8f6b45d4eb7`
 
-**All operational tables are company-isolated** as of 20260708030000 (`inventory_on_hand` was the last holdout: Sheets-sync rows are now stamped, legacy NULLs backfilled, and the company-blind admin policy replaced).
+**All operational tables are company-isolated** as of 20260709000000. `inventory_on_hand` was the last data holdout (20260708030000: Sheets-sync rows stamped, legacy NULLs backfilled, company-blind admin policy replaced); `launch_task_templates` was the last schema holdout (20260709000000: empty table with `true` policies, scoped before first use). A full audit of every remaining table/view without `company_entity_id` confirmed the rest are correct by design: the `entity_*` family, `activity_events`, and `files` scope by membership, `profiles` is per-user, `job_sync_state` is service_role-only (RLS on, zero policies = deny clients), and all 31 flagged views are either security_invoker over scoped tables or DEFINER MV readers filtering `active_company_id()`.
 
 ## Write access
 
@@ -144,6 +144,7 @@ supabase/
     20260708040000_sales_rollup_mv_company_scope.sql
     20260708050000_sales_velocity_mv_company_scope.sql
     20260708060000_mv_reader_views_definer.sql
+    20260709000000_launch_task_templates_company_scope.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
