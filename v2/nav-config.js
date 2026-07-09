@@ -19,8 +19,16 @@
     return 'standard';
   }
 
+  // Departments that see finance-sensitive links. Employee-facing forms
+  // (Payment Request, Travel Report) are NOT gated — everyone submits those.
+  // Nav hiding is UX only; the data itself is gated by department-aware RLS.
+  const FINANCE_DEPTS = ['exec', 'finance'];
+
   /**
    * profiles: which nav profiles include this link
+   * departments: user departments that see this link (absent = everyone;
+   *              a null/unresolved department shows everything, an unlisted
+   *              one hides the link)
    * sectionStandard: optional section label for standard profile
    * labelStandard: optional link label for standard profile
    */
@@ -29,13 +37,13 @@
     { id: 'people/profile', section: 'Start', label: 'My Profile', href: '/v2/profile.html', profiles: ['grandfathered', 'standard'] },
 
 
-    { id: 'finance/accounting-export', section: 'Accounting', sectionStandard: 'Operations', label: 'Accounting Export', href: '/v2/accounting-export.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'finance/ap-manager', section: 'Accounting', label: 'AP Manager', href: '/accountspayable.html', profiles: ['grandfathered'] },
-    { id: 'finance/mailroom', section: 'Accounting', label: 'Mailroom Inbox', href: '/v2/mailroom.html', profiles: ['grandfathered'] },
-    { id: 'wholesale/customers', section: 'Accounting', label: 'BBISM Receivables', href: '/v2/baseballismwholesale.html', profiles: ['grandfathered'] },
-    { id: 'wholesale/wpv', section: 'Accounting', label: 'WPV Receivables', href: '/v2/wpvaccounts.html', profiles: ['grandfathered'] },
+    { departments: FINANCE_DEPTS, id: 'finance/accounting-export', section: 'Accounting', sectionStandard: 'Operations', label: 'Accounting Export', href: '/v2/accounting-export.html', profiles: ['grandfathered', 'standard'] },
+    { departments: FINANCE_DEPTS, id: 'finance/ap-manager', section: 'Accounting', label: 'AP Manager', href: '/accountspayable.html', profiles: ['grandfathered'] },
+    { departments: FINANCE_DEPTS, id: 'finance/mailroom', section: 'Accounting', label: 'Mailroom Inbox', href: '/v2/mailroom.html', profiles: ['grandfathered'] },
+    { departments: FINANCE_DEPTS, id: 'wholesale/customers', section: 'Accounting', label: 'BBISM Receivables', href: '/v2/baseballismwholesale.html', profiles: ['grandfathered'] },
+    { departments: FINANCE_DEPTS, id: 'wholesale/wpv', section: 'Accounting', label: 'WPV Receivables', href: '/v2/wpvaccounts.html', profiles: ['grandfathered'] },
     { id: 'finance/payment-request', section: 'Accounting', sectionStandard: 'Operations', label: 'Payment Request', href: '/v2/purchase_request.html', profiles: ['grandfathered', 'standard'] },
-    { id: 'finance/request-manager', section: 'Accounting', sectionStandard: 'Operations', label: 'Request Manager', href: '/v2/request_manager.html', profiles: ['grandfathered', 'standard'] },
+    { departments: FINANCE_DEPTS, id: 'finance/request-manager', section: 'Accounting', sectionStandard: 'Operations', label: 'Request Manager', href: '/v2/request_manager.html', profiles: ['grandfathered', 'standard'] },
     { id: 'finance/travel', section: 'Accounting', sectionStandard: 'Operations', label: 'Travel Report', href: '/v2/travel.html', profiles: ['grandfathered'] },
 
     { id: 'planning/revenue-projections', section: 'Planning', label: 'Revenue Projection', href: '/v2/projections.html', profiles: ['grandfathered', 'standard'] },
@@ -60,7 +68,7 @@
     { id: 'reports/product-search', section: 'Reports', label: 'Product Search', href: '/v2/bi-product-search.html', profiles: ['grandfathered'] },
     { id: 'reports/sales-report', section: 'Reports', label: 'Sales Report', href: '/v2/sales-verification.html', profiles: ['grandfathered'] },
     { id: 'finance/sales-bi', section: 'Reports', label: 'BI Sales Dashboard (legacy)', href: 'https://app.powerbi.com/view?r=eyJrIjoiY2U0MWI2ZmMtMTY3MS00MDY3LTg5NjctN2VlYjk0NGMxNzUzIiwidCI6IjIzYTkzNDJkLTFjODEtNGJkNS1hY2U0LThmYWY4ZWVlNTZiZCJ9', external: true, profiles: ['grandfathered'] },
-    { id: 'people/payroll', section: 'Reports', label: 'Payroll BI', href: '/v2/payroll.html', profiles: ['grandfathered'] },
+    { departments: FINANCE_DEPTS, id: 'people/payroll', section: 'Reports', label: 'Payroll BI', href: '/v2/payroll.html', profiles: ['grandfathered'] },
 
     { id: 'settings/integrations', section: 'Settings', label: 'Integrations', href: '/v2/integrations.html', profiles: ['grandfathered', 'standard'] },
   ];
@@ -71,8 +79,11 @@
    * @param {'grandfathered' | 'standard'} profile
    * @returns {{ section: string, items: typeof NAV_ITEMS }[]}
    */
-  function navSectionsForProfile(profile) {
-    const visible = NAV_ITEMS.filter((item) => item.profiles.includes(profile));
+  function navSectionsForProfile(profile, department) {
+    const dept = department ? String(department).toLowerCase() : null;
+    const visible = NAV_ITEMS.filter((item) =>
+      item.profiles.includes(profile)
+      && (!item.departments || !dept || item.departments.includes(dept)));
     const bySection = new Map();
 
     for (const item of visible) {
@@ -106,8 +117,8 @@
   /**
    * @param {SiloCompany | null | undefined} company
    */
-  function navSectionsForCompany(company) {
-    return navSectionsForProfile(resolveNavProfile(company));
+  function navSectionsForCompany(company, department) {
+    return navSectionsForProfile(resolveNavProfile(company), department);
   }
 
   global.SiloNav = {

@@ -152,6 +152,10 @@
       const REDIRECT_TO = (CFG.REDIRECT_TO || "/v2/finance.html").trim();
       const EXPECT_EMAIL_CONFIRMATION = !!CFG.EXPECT_EMAIL_CONFIRMATION;
 
+      // Landing on login means a (re)auth is happening — drop the cached
+      // nav department so a different user in the same tab can't inherit it.
+      try { sessionStorage.removeItem("silo:nav:department"); } catch {}
+
       const statusEl = document.getElementById("status");
       const envInfo = document.getElementById("envInfo");
       const btnSignout = document.getElementById("btnSignout");
