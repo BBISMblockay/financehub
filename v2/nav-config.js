@@ -34,6 +34,7 @@
    */
   const NAV_ITEMS = [
     { id: 'finance/menu', section: 'Start', label: 'Home', href: '/v2/finance.html', profiles: ['grandfathered', 'standard'] },
+    { id: 'start/insights', section: 'Start', label: 'Action Items', href: '/v2/insights.html', profiles: ['grandfathered', 'standard'] },
     { id: 'people/profile', section: 'Start', label: 'My Profile', href: '/v2/profile.html', profiles: ['grandfathered', 'standard'] },
 
 

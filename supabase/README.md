@@ -103,6 +103,15 @@ SILO supports multiple companies in one Supabase project. Isolation is enforced 
 
 **All operational tables are company-isolated** as of 20260709000000. `inventory_on_hand` was the last data holdout (20260708030000: Sheets-sync rows stamped, legacy NULLs backfilled, company-blind admin policy replaced); `launch_task_templates` was the last schema holdout (20260709000000: empty table with `true` policies, scoped before first use). A full audit of every remaining table/view without `company_entity_id` confirmed the rest are correct by design: the `entity_*` family, `activity_events`, and `files` scope by membership, `profiles` is per-user, `job_sync_state` is service_role-only (RLS on, zero policies = deny clients), and all 31 flagged views are either security_invoker over scoped tables or DEFINER MV readers filtering `active_company_id()`.
 
+## Action Items & Insights digest
+
+`/v2/insights.html` reads a nightly-generated digest from `silo_insights_digest`, populated by `scripts/generate-insights.mjs` as the last step of the Shopify sync workflow. Two parts:
+
+1. **Findings** — `compute_silo_insights(company_entity_id)` is a deterministic SQL rules engine (sales pace vs prior year, inventory stockout risk / dead stock, purchasing draft/overdue POs, launch readiness / overdue tasks, AR aging, AP overdue/large payment requests). Thresholds are hardcoded in the migration with comments explaining each one.
+2. **Narrative** — the findings JSON is sent to the Anthropic API with a system prompt that forbids inventing any fact beyond what's given. Requires the `ANTHROPIC_API_KEY` GitHub Actions secret; without it the step still stores findings, just with `narrative = null`, and the UI falls back to "AI summary not available — see the findings below." The workflow step is `continue-on-error: true` so a narrative-generation hiccup never fails the sync.
+
+AR/AP findings are hidden client-side for non-finance departments (same session-cached department used for nav filtering) — see `v2/dept-guard.js` / the department plan in `docs/ops/`.
+
 ## Write access
 
 `profiles.role` is an enum with values: `owner`, `admin`, `user`.
@@ -149,6 +158,7 @@ supabase/
     20260709020000_sync_jobs_allow_payouts_sync.sql
     20260709030000_slack_po_status_accuracy.sql
     20260709040000_slack_skip_draft_po_posts.sql
+    20260709050000_silo_insights_engine.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

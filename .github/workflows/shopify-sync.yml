@@ -82,3 +82,13 @@ jobs:
             console.log('inventory_on_hand_current_mv refreshed');
           });
           "
+
+      - name: Generate Action Items & Insights digest
+        # Runs after sales/inventory are fresh so the sales/stockout findings
+        # reflect tonight's data. ANTHROPIC_API_KEY is optional — without it
+        # the script still stores findings (no AI narrative) rather than
+        # failing. continue-on-error so an LLM API hiccup never fails the sync.
+        continue-on-error: true
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: node scripts/generate-insights.mjs
