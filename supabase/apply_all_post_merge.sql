@@ -4509,3 +4509,26 @@ end;
 $$;
 
 revoke execute on function public.send_daily_slack_summary() from public, anon;
+
+-- ============================================================
+-- 20260709040000_slack_skip_draft_po_posts.sql
+-- Don't post Draft POs to Slack (PO_SENT trigger announces the send)
+-- ============================================================
+create or replace function public.notify_slack_po_created()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if coalesce(new.status, '') <> 'Draft' then
+    perform net.http_post(
+      url  := 'https://mkquclffrvlzyecnabyf.supabase.co/functions/v1/notify-slack',
+      body := jsonb_build_object('type', 'PO_CREATED', 'record', row_to_json(new))
+    );
+  end if;
+  return new;
+end;
+$$;
+
+revoke execute on function public.notify_slack_po_created() from public, anon;

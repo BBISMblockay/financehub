@@ -148,6 +148,7 @@ supabase/
     20260709010000_shopify_payouts_accounting.sql
     20260709020000_sync_jobs_allow_payouts_sync.sql
     20260709030000_slack_po_status_accuracy.sql
+    20260709040000_slack_skip_draft_po_posts.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
