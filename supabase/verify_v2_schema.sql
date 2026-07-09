@@ -316,6 +316,20 @@ select
     else 'MISSING — run 20260708050000 + 20260708060000'
   end as sales_velocity_mv_company_scope;
 
+select
+  case
+    when exists (
+      select 1 from pg_policies
+      where schemaname = 'public' and tablename = 'launch_task_templates'
+        and policyname = 'launch_task_templates_active_select'
+    ) and not exists (
+      select 1 from pg_policies
+      where schemaname = 'public' and tablename = 'launch_task_templates'
+        and policyname = 'launch task templates read authenticated'
+    ) then 'ok'
+    else 'MISSING — run 20260709000000_launch_task_templates_company_scope.sql'
+  end as launch_task_templates_company_scope;
+
 -- 9. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,

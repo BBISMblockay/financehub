@@ -4246,3 +4246,37 @@ grant select on public.inventory_on_hand_current_v to authenticated;
 grant select on public.sales_velocity_by_sku_location_v to authenticated;
 grant select on public.sales_monthly_product_type_rollup_v to authenticated;
 grant select on public.inventory_workboard_v to authenticated;
+
+-- ============================================================
+-- 20260709000000_launch_task_templates_company_scope.sql
+-- Company-scope launch_task_templates (last unscoped app-data table)
+-- ============================================================
+
+alter table public.launch_task_templates
+  add column if not exists company_entity_id uuid references public.entities(id);
+
+update public.launch_task_templates
+   set company_entity_id = '3bd934c9-4cdd-429b-9076-f8f6b45d4eb7'
+ where company_entity_id is null;
+
+select public.attach_stamp_company_entity_id_triggers();
+
+drop policy if exists "launch task templates read authenticated" on public.launch_task_templates;
+drop policy if exists "launch task templates insert authenticated" on public.launch_task_templates;
+drop policy if exists "launch task templates update authenticated" on public.launch_task_templates;
+
+drop policy if exists launch_task_templates_active_select on public.launch_task_templates;
+create policy launch_task_templates_active_select
+  on public.launch_task_templates for select to authenticated
+  using (company_entity_id = public.active_company_id());
+
+drop policy if exists launch_task_templates_active_insert on public.launch_task_templates;
+create policy launch_task_templates_active_insert
+  on public.launch_task_templates for insert to authenticated
+  with check (company_entity_id = public.active_company_id());
+
+drop policy if exists launch_task_templates_active_update on public.launch_task_templates;
+create policy launch_task_templates_active_update
+  on public.launch_task_templates for update to authenticated
+  using (company_entity_id = public.active_company_id())
+  with check (company_entity_id = public.active_company_id());
