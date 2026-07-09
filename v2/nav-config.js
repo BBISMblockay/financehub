@@ -29,6 +29,7 @@
     { id: 'people/profile', section: 'Start', label: 'My Profile', href: '/v2/profile.html', profiles: ['grandfathered', 'standard'] },
 
 
+    { id: 'finance/accounting-export', section: 'Accounting', sectionStandard: 'Operations', label: 'Accounting Export', href: '/v2/accounting-export.html', profiles: ['grandfathered', 'standard'] },
     { id: 'finance/ap-manager', section: 'Accounting', label: 'AP Manager', href: '/accountspayable.html', profiles: ['grandfathered'] },
     { id: 'finance/mailroom', section: 'Accounting', label: 'Mailroom Inbox', href: '/v2/mailroom.html', profiles: ['grandfathered'] },
     { id: 'wholesale/customers', section: 'Accounting', label: 'BBISM Receivables', href: '/v2/baseballismwholesale.html', profiles: ['grandfathered'] },

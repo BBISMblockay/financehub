@@ -6,6 +6,7 @@ export const JOB_SCOPES: Record<string, string[]> = {
   incremental_sales: ['read_orders'],
   inventory_snapshot: ['read_inventory', 'read_locations'],
   catalog_sync: ['read_products'],
+  payouts_sync: ['read_shopify_payments_payouts'],
 };
 
 /** Union of scopes needed before any Phase 2 sync */

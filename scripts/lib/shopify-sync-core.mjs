@@ -1131,6 +1131,85 @@ export async function runHistoryChunk(supabase, connection, {
   };
 }
 
+/**
+ * Shopify Payments payouts → shopify_payouts. Feeds the Accounting Export
+ * (deposit register for bank rec + monthly processing-fee journal entry).
+ * Payout ids are globally unique, so duplicate connections to the same shop
+ * converge on the same rows via the payout_id upsert.
+ */
+export async function runPayoutsSync(supabase, connection, { batchId } = {}) {
+  const granted = grantedScopes(connection);
+  const missing = scopesMissingForJob(granted, 'payouts_sync');
+  if (missing.length) {
+    return { skipped: true, missing };
+  }
+
+  const apiVersion = connection.api_version || DEFAULT_API_VERSION;
+  const base = `https://${connection.shop_domain}/admin/api/${apiVersion}`;
+  const headers = {
+    'X-Shopify-Access-Token': connection.access_token,
+    'Content-Type': 'application/json',
+  };
+  const syncedAt = new Date().toISOString();
+
+  // First run pulls the full books year; after that, re-fetch a trailing
+  // window so status transitions (scheduled → in_transit → paid) and late
+  // adjustments update the stored rows.
+  const { data: newest, error: newestError } = await supabase
+    .from('shopify_payouts')
+    .select('payout_date')
+    .eq('company_entity_id', connection.company_entity_id)
+    .eq('shop_domain', connection.shop_domain)
+    .order('payout_date', { ascending: false })
+    .limit(1);
+  if (newestError) throw new Error(`shopify_payouts read failed: ${newestError.message}`);
+
+  const since = newest?.length
+    ? isoDateOnly(addDays(new Date(`${newest[0].payout_date}T00:00:00Z`), -14))
+    : '2026-01-01';
+
+  let payouts;
+  try {
+    payouts = await getAll(
+      headers,
+      `${base}/shopify_payments/payouts.json?limit=250&date_min=${since}`,
+    );
+  } catch (err) {
+    // Stores without Shopify Payments enabled 404 on this endpoint.
+    if (/404|Not Found/i.test(String(err?.message || err))) {
+      return { skipped: true, reason: 'no_shopify_payments' };
+    }
+    throw err;
+  }
+
+  const money = (v) => Number(v || 0);
+  const rows = payouts.map((p) => ({
+    company_entity_id: connection.company_entity_id,
+    connection_id: connection.id,
+    shop_domain: connection.shop_domain,
+    payout_id: String(p.id),
+    payout_date: p.date,
+    status: p.status || null,
+    currency: p.currency || null,
+    amount_net: money(p.amount),
+    charges_gross: money(p.summary?.charges_gross_amount),
+    charges_fee: money(p.summary?.charges_fee_amount),
+    refunds_gross: money(p.summary?.refunds_gross_amount),
+    refunds_fee: money(p.summary?.refunds_fee_amount),
+    adjustments_gross: money(p.summary?.adjustments_gross_amount),
+    adjustments_fee: money(p.summary?.adjustments_fee_amount),
+    reserved_funds_gross: money(p.summary?.reserved_funds_gross_amount),
+    reserved_funds_fee: money(p.summary?.reserved_funds_fee_amount),
+    retried_payouts_gross: money(p.summary?.retried_payouts_gross_amount),
+    retried_payouts_fee: money(p.summary?.retried_payouts_fee_amount),
+    synced_at: syncedAt,
+    sync_batch_id: batchId || null,
+  }));
+
+  const upserted = await upsertInChunks(supabase, 'shopify_payouts', rows, 'payout_id');
+  return { payouts_upserted: upserted, since };
+}
+
 export async function runInventorySnapshot(supabase, connection, { batchId } = {}) {
   const granted = grantedScopes(connection);
   const missing = scopesMissingForJob(granted, 'inventory_snapshot');

@@ -9,6 +9,7 @@ import {
   DEFAULT_CHUNK_DAYS,
   runIncrementalSales,
   runInventorySnapshot,
+  runPayoutsSync,
   runWindowedHistory,
 } from './lib/shopify-sync-core.mjs';
 
@@ -29,6 +30,7 @@ const ONLY_COMPANY_ID = process.env.SHOPIFY_ONLY_COMPANY_ID || '';
 const ONLY_CONNECTION_ID = process.env.SHOPIFY_ONLY_CONNECTION_ID || '';
 const SKIP_SALES = process.env.SHOPIFY_SKIP_SALES === 'true';
 const SKIP_INVENTORY = process.env.SHOPIFY_SKIP_INVENTORY === 'true';
+const SKIP_PAYOUTS = process.env.SHOPIFY_SKIP_PAYOUTS === 'true';
 const SKIP_SUMMARY_REFRESH = process.env.SHOPIFY_SKIP_SUMMARY_REFRESH === 'true';
 
 const BATCH_ID =
@@ -116,6 +118,23 @@ async function syncConnection(connection) {
       await finishJob(jobId, 'success', result);
       results.jobs.push(result);
       console.log(`[ok] ${connection.shop_domain} incremental_sales: ${result.sales_rows_upserted} rows`);
+    } catch (err) {
+      await finishJob(jobId, 'error', { error: err.message || String(err) });
+      throw err;
+    }
+  }
+
+  if (!SKIP_PAYOUTS && (SYNC_MODE === 'incremental' || SYNC_MODE === 'full')) {
+    const jobId = await startJob(connection, 'payouts_sync');
+    try {
+      const result = await runPayoutsSync(supabase, connection, { batchId: BATCH_ID });
+      await finishJob(jobId, 'success', result);
+      results.jobs.push(result);
+      if (result.skipped) {
+        console.log(`[skip] ${connection.shop_domain} payouts_sync: ${result.reason || result.missing?.join(',')}`);
+      } else {
+        console.log(`[ok] ${connection.shop_domain} payouts_sync: ${result.payouts_upserted} payouts since ${result.since}`);
+      }
     } catch (err) {
       await finishJob(jobId, 'error', { error: err.message || String(err) });
       throw err;
