@@ -73,9 +73,35 @@
     }
   }
 
-  function renderNavSections(active) {
+  // Department-based nav filtering. The department comes from profiles and
+  // is cached per session; the first render of a fresh session shows the
+  // unfiltered nav (null department = no filtering) and re-renders once the
+  // profile fetch lands. Hiding is UX only — the data behind finance links
+  // is gated by department-aware RLS, not by this menu.
+  const SS_DEPT = 'silo:nav:department';
+  function getCachedDepartment() {
+    try { return sessionStorage.getItem(SS_DEPT) || null; } catch { return null; }
+  }
+  async function resolveDepartment(sb) {
+    const cached = getCachedDepartment();
+    if (cached) return cached;
+    if (!sb) return null;
+    try {
+      const sess = await sb.auth.getSession();
+      const uid = sess?.data?.session?.user?.id;
+      if (!uid) return null;
+      const { data } = await sb.from('profiles').select('department').eq('id', uid).single();
+      const dept = String(data?.department || 'unknown').toLowerCase();
+      try { sessionStorage.setItem(SS_DEPT, dept); } catch {}
+      return dept;
+    } catch {
+      return null;
+    }
+  }
+
+  function renderNavSections(active, department) {
     const company = getActiveCompany();
-    const NAV_SECTIONS = navSectionsForCompany(company);
+    const NAV_SECTIONS = navSectionsForCompany(company, department ?? getCachedDepartment());
     // Determine which section contains the active item
     const activeSection = NAV_SECTIONS.find(s => s.items.some(i => i.id === active))?.section || null;
 
@@ -223,6 +249,16 @@
       const util = el(renderUtility(opts));
       mainEl.prepend(util);
       updateThemeIcon();
+    }
+
+    // First render of a session may predate the department fetch — re-render
+    // the nav once it resolves so gated links appear/disappear correctly.
+    if (!getCachedDepartment() && opts.supabaseClient) {
+      resolveDepartment(opts.supabaseClient).then((dept) => {
+        if (!dept) return;
+        const navEl = sidebar.querySelector('#siloSbNav');
+        if (navEl) navEl.innerHTML = renderNavSections(opts.active, dept);
+      });
     }
 
     function setNavOpen(open) {
