@@ -147,6 +147,7 @@ supabase/
     20260709000000_launch_task_templates_company_scope.sql
     20260709010000_shopify_payouts_accounting.sql
     20260709020000_sync_jobs_allow_payouts_sync.sql
+    20260709030000_slack_po_status_accuracy.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
