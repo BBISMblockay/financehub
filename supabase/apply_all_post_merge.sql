@@ -4407,3 +4407,19 @@ as $$
 $$;
 
 grant execute on function public.accounting_sales_buckets(date, date) to authenticated;
+
+-- ============================================================
+-- 20260709020000_sync_jobs_allow_payouts_sync.sql
+-- Allow 'payouts_sync' in sync_jobs.job_type CHECK constraint
+-- ============================================================
+
+alter table public.sync_jobs drop constraint if exists sync_jobs_job_type_check;
+alter table public.sync_jobs add constraint sync_jobs_job_type_check
+  check (job_type = any (array[
+    'test_connection'::text,
+    'history_import'::text,
+    'incremental_sales'::text,
+    'inventory_snapshot'::text,
+    'catalog_sync'::text,
+    'payouts_sync'::text
+  ]));

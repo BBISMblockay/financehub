@@ -146,6 +146,7 @@ supabase/
     20260708060000_mv_reader_views_definer.sql
     20260709000000_launch_task_templates_company_scope.sql
     20260709010000_shopify_payouts_accounting.sql
+    20260709020000_sync_jobs_allow_payouts_sync.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
