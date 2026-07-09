@@ -349,6 +349,19 @@ select
     else 'MISSING — run 20260709010000_shopify_payouts_accounting.sql'
   end as shopify_payouts_accounting;
 
+select
+  case
+    when exists (
+      select 1 from information_schema.tables
+      where table_schema = 'public' and table_name = 'silo_insights_digest'
+    ) and exists (
+      select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'compute_silo_insights'
+    ) and not has_function_privilege('authenticated', 'public.compute_silo_insights(uuid)', 'EXECUTE')
+    then 'ok'
+    else 'MISSING — run 20260709050000_silo_insights_engine.sql'
+  end as silo_insights_engine;
+
 -- 9. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,

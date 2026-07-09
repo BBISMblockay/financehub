@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Action Items</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <style>
+    .in-content { flex:1; padding:16px 18px 28px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:14px; }
+    .in-content > .bcn-card { flex-shrink:0; }
+
+    .in-narrative { font-size:14px; line-height:1.65; color:var(--bcn-ink-2); white-space:pre-line; }
+    .in-narrative-empty { font-size:13px; color:var(--bcn-ink-3); font-style:italic; }
+    .in-asof { font-size:11px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); }
+
+    .in-group { display:flex; flex-direction:column; gap:10px; }
+    .in-group-head { display:flex; align-items:center; gap:8px; }
+    .in-group-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; }
+    .in-group-label.critical { color:var(--bcn-neg); }
+    .in-group-label.warning { color:var(--bcn-warn, #b45309); }
+    .in-group-label.info { color:var(--bcn-accent); }
+    .in-group-count { font-family:var(--bcn-mono); font-size:11px; color:var(--bcn-ink-3); }
+
+    .in-finding {
+      display:flex; align-items:flex-start; gap:12px;
+      padding:12px 14px; border:1px solid var(--bcn-border); border-radius:var(--bcn-radius);
+      background:var(--bcn-surface);
+    }
+    .in-finding-bar { width:3px; align-self:stretch; border-radius:2px; flex-shrink:0; }
+    .in-finding-bar.critical { background:var(--bcn-neg); }
+    .in-finding-bar.warning { background:var(--bcn-warn, #d97706); }
+    .in-finding-bar.info { background:var(--bcn-accent); }
+    .in-finding-body { flex:1; min-width:0; }
+    .in-finding-title { font-size:13px; font-weight:650; color:var(--bcn-ink); }
+    .in-finding-detail { font-size:12px; color:var(--bcn-ink-3); margin-top:3px; line-height:1.5; }
+    .in-finding-domain {
+      display:inline-block; margin-bottom:4px;
+      font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.05em;
+      color:var(--bcn-ink-3); background:var(--bcn-sunken); border:1px solid var(--bcn-border);
+      border-radius:var(--bcn-radius-sm); padding:1px 6px; white-space:nowrap;
+    }
+    .in-finding-link { flex-shrink:0; align-self:center; }
+
+    .in-empty { padding:36px; text-align:center; color:var(--bcn-ink-3); font-size:12.5px; }
+  </style>
+</head>
+<body class="silo-brand">
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0">
+        <div class="bcn-header-title">
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Start</span>
+        </div>
+        <h1>Action Items</h1>
+        <div class="bcn-header-sub">What needs attention across sales, inventory, purchasing, planning, and receivables/payables — generated overnight.</div>
+      </div>
+      <div class="bcn-header-actions">
+        <span class="in-asof" id="asOf"></span>
+      </div>
+    </header>
+
+    <div class="bcn-kpi-band">
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Critical</div><div id="kpiCritical" class="bcn-kpi-value">—</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Warning</div><div id="kpiWarning" class="bcn-kpi-value">—</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Info</div><div id="kpiInfo" class="bcn-kpi-value">—</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Total</div><div id="kpiTotal" class="bcn-kpi-value">—</div></div>
+    </div>
+
+    <div class="bcn-status" id="status" hidden></div>
+
+    <div class="in-content">
+      <div class="bcn-card">
+        <div class="bcn-card-header"><span>Briefing</span></div>
+        <div class="bcn-card-body" id="narrativeBody">
+          <div class="in-narrative-empty">Loading…</div>
+        </div>
+      </div>
+
+      <div id="groups"></div>
+    </div>
+
+  </main>
+</div>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
+    throw new Error('Missing Supabase config');
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global:{ fetch:(url,o={})=>fetch(url,{...o,cache:'no-store'}) },
+  });
+
+  const esc = (s) => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+
+  function setStatus(msg, type='info', ms=0){
+    const s = document.getElementById('status');
+    s.className = `bcn-status bcn-status--${type}`;
+    s.textContent = msg; s.hidden = false;
+    if (ms) setTimeout(()=>{ s.hidden = true; }, ms);
+  }
+
+  // Findings from AR/AP domains are finance-sensitive — hide them for the
+  // same departments that don't see the Accounting nav section. Everything
+  // else (sales/inventory/purchasing/planning) is visible to everyone,
+  // since it's operational, not financial, data.
+  const FINANCE_ONLY_DOMAINS = new Set(['ar','ap']);
+  const FINANCE_DEPTS = ['exec','finance'];
+
+  async function resolveDepartment(){
+    try {
+      const cached = sessionStorage.getItem('silo:nav:department');
+      if (cached) return cached;
+    } catch {}
+    const sess = await sb.auth.getSession();
+    const uid = sess?.data?.session?.user?.id;
+    if (!uid) return null;
+    const { data } = await sb.from('profiles').select('department').eq('id', uid).single();
+    const dept = String(data?.department || 'unknown').toLowerCase();
+    try { sessionStorage.setItem('silo:nav:department', dept); } catch {}
+    return dept;
+  }
+
+  const SEVERITY_ORDER = ['critical','warning','info'];
+  const SEVERITY_LABEL = { critical:'Needs attention now', warning:'Worth a look this week', info:'For your awareness' };
+
+  function renderNarrative(digest){
+    const el = document.getElementById('narrativeBody');
+    if (digest?.narrative){
+      el.innerHTML = `<div class="in-narrative">${esc(digest.narrative)}</div>`;
+    } else {
+      el.innerHTML = `<div class="in-narrative-empty">AI summary not available for this digest — see the findings below.</div>`;
+    }
+  }
+
+  function renderGroups(findings){
+    const wrap = document.getElementById('groups');
+    if (!findings.length){
+      wrap.innerHTML = `<div class="bcn-card"><div class="in-empty">Nothing needs attention right now. Check back tomorrow.</div></div>`;
+      return;
+    }
+    const bySeverity = new Map(SEVERITY_ORDER.map(s => [s, []]));
+    for (const f of findings) (bySeverity.get(f.severity) || bySeverity.get('info')).push(f);
+
+    wrap.innerHTML = SEVERITY_ORDER.filter(s => bySeverity.get(s).length).map(sev => {
+      const items = bySeverity.get(sev);
+      const rows = items.map(f => `
+        <div class="in-finding">
+          <div class="in-finding-bar ${sev}"></div>
+          <div class="in-finding-body">
+            <div class="in-finding-domain">${esc(f.domain)}</div>
+            <div class="in-finding-title">${esc(f.title)}</div>
+            <div class="in-finding-detail">${esc(f.detail || '')}</div>
+          </div>
+          ${f.link_href ? `<a class="bcn-btn bcn-btn--ghost in-finding-link" href="${esc(f.link_href)}">Open →</a>` : ''}
+        </div>`).join('');
+      return `<div class="in-group">
+        <div class="in-group-head">
+          <span class="in-group-label ${sev}">${SEVERITY_LABEL[sev]}</span>
+          <span class="in-group-count">${items.length}</span>
+        </div>
+        ${rows}
+      </div>`;
+    }).join('');
+  }
+
+  function renderKpis(findings){
+    const count = (sev) => findings.filter(f => f.severity === sev).length;
+    document.getElementById('kpiCritical').textContent = count('critical');
+    document.getElementById('kpiWarning').textContent = count('warning');
+    document.getElementById('kpiInfo').textContent = count('info');
+    document.getElementById('kpiTotal').textContent = findings.length;
+  }
+
+  async function run(){
+    try {
+      const dept = await resolveDepartment();
+      const { data, error } = await sb.from('silo_insights_digest').select('*').maybeSingle();
+      if (error) throw new Error(error.message);
+
+      if (!data){
+        document.getElementById('asOf').textContent = 'No digest yet';
+        renderNarrative(null);
+        renderKpis([]);
+        renderGroups([]);
+        return;
+      }
+
+      const allFindings = Array.isArray(data.findings) ? data.findings : [];
+      const visible = (dept && FINANCE_DEPTS.includes(dept))
+        ? allFindings
+        : allFindings.filter(f => !FINANCE_ONLY_DOMAINS.has(f.domain));
+
+      document.getElementById('asOf').textContent = `As of ${new Date(data.generated_at).toLocaleString('en-US', { dateStyle:'medium', timeStyle:'short' })}`;
+      renderNarrative(data);
+      renderKpis(visible);
+      renderGroups(visible);
+    } catch (err) {
+      console.error(err);
+      setStatus(`Load failed: ${err.message}`, 'neg');
+    }
+  }
+
+  async function boot(){
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session){ window.location.href = '/pages/login.html?next=' + encodeURIComponent(location.pathname); return; }
+    const user = sess.data.session.user;
+
+    if (window.SiloChrome){
+      window.SiloChrome.mount({
+        appEl:'#silo-app', active:'start/insights',
+        user:{ email:user?.email||'', role:'admin' },
+        crumbs:['Start','Action Items'],
+        supabaseClient:sb,
+      });
+    }
+    await run();
+  }
+
+  boot().catch(err => {
+    console.error(err);
+    setStatus(`Unexpected error: ${err?.message || err}`, 'neg');
+  });
+</script>
+</body>
+</html>
