@@ -34,11 +34,22 @@
     .ts-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:start; }
     @media(max-width:1000px){ .ts-grid2{ grid-template-columns:1fr; } }
 
+    /* Each table scrolls in its own bounded box instead of pushing the whole
+       page taller — a 50-row leaderboard plus a 25-row type table plus an
+       uncapped location list previously stacked inline, forcing the page
+       past ~4000px and requiring zoom-out just to see everything at once. */
+    .ts-scroll { overflow:auto; }
+    .ts-scroll--leader { max-height:min(58vh, 560px); }
+    .ts-scroll--sub { max-height:340px; }
+    .ts-scroll::-webkit-scrollbar { width:8px; height:8px; }
+    .ts-scroll::-webkit-scrollbar-thumb { background:var(--bcn-border-strong); }
+
     .ts-tbl { width:100%; border-collapse:collapse; }
     .ts-tbl th {
       padding:7px 10px; font-size:10.5px; font-weight:600; color:var(--bcn-ink-3);
       border-bottom:1px solid var(--bcn-border-strong); background:var(--bcn-sunken);
       white-space:nowrap; text-align:left;
+      position:sticky; top:0; z-index:1;
     }
     .ts-tbl th.r { text-align:right; }
     .ts-tbl td {
@@ -126,14 +137,16 @@
           <span id="leaderCount" class="bcn-card-meta" style="margin-left:auto">0 rows</span>
           <button id="btnExportLeader" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">Export CSV</button>
         </div>
-        <div class="bcn-card-body" style="padding:0;overflow:visible">
-          <table class="ts-tbl">
-            <thead><tr>
-              <th></th><th>Product</th><th>Location</th><th>Type</th>
-              <th class="r" id="colQty">Qty</th><th class="r">Avg/day</th><th class="r">On hand</th><th class="r">Cover</th>
-            </tr></thead>
-            <tbody id="leaderBody"><tr><td colspan="8" class="ts-empty">Loading…</td></tr></tbody>
-          </table>
+        <div class="bcn-card-body" style="padding:0">
+          <div class="ts-scroll ts-scroll--leader">
+            <table class="ts-tbl">
+              <thead><tr>
+                <th></th><th>Product</th><th>Location</th><th>Type</th>
+                <th class="r" id="colQty">Qty</th><th class="r">Avg/day</th><th class="r">On hand</th><th class="r">Cover</th>
+              </tr></thead>
+              <tbody id="leaderBody"><tr><td colspan="8" class="ts-empty">Loading…</td></tr></tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -145,11 +158,13 @@
             <button id="btnExportType" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">Export CSV</button>
           </div>
           <div class="ts-bar-chart" id="typeChart"></div>
-          <div class="bcn-card-body" style="padding:0;overflow:visible">
-            <table class="ts-tbl">
-              <thead><tr><th>Type</th><th class="r">Qty</th><th class="r">SKUs</th><th class="r">% of total</th></tr></thead>
-              <tbody id="typeBody"><tr><td colspan="4" class="ts-empty">Loading…</td></tr></tbody>
-            </table>
+          <div class="bcn-card-body" style="padding:0">
+            <div class="ts-scroll ts-scroll--sub">
+              <table class="ts-tbl">
+                <thead><tr><th>Type</th><th class="r">Qty</th><th class="r">SKUs</th><th class="r">% of total</th></tr></thead>
+                <tbody id="typeBody"><tr><td colspan="4" class="ts-empty">Loading…</td></tr></tbody>
+              </table>
+            </div>
           </div>
         </div>
 
@@ -159,11 +174,13 @@
             <span id="locationCount" class="bcn-card-meta" style="margin-left:auto">0 locations</span>
             <button id="btnExportLocation" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">Export CSV</button>
           </div>
-          <div class="bcn-card-body" style="padding:0;overflow:visible">
-            <table class="ts-tbl">
-              <thead><tr><th>Location</th><th class="r">Qty</th><th class="r">SKUs</th></tr></thead>
-              <tbody id="locationBody"><tr><td colspan="3" class="ts-empty">Loading…</td></tr></tbody>
-            </table>
+          <div class="bcn-card-body" style="padding:0">
+            <div class="ts-scroll ts-scroll--sub">
+              <table class="ts-tbl">
+                <thead><tr><th>Location</th><th class="r">Qty</th><th class="r">SKUs</th></tr></thead>
+                <tbody id="locationBody"><tr><td colspan="3" class="ts-empty">Loading…</td></tr></tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>
