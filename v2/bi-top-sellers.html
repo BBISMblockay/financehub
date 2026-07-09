@@ -31,6 +31,11 @@
     .ts-status { font-size:11.5px; color:var(--bcn-ink-3); font-family:var(--bcn-mono); }
 
     .ts-content { flex:1; padding:12px 18px 24px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:12px; }
+    /* Cards claim their intended (max-height-based) size instead of being
+       squeezed by flex-shrink when the three stacked sections don't all fit
+       the viewport at once — ts-content scrolls a bit in that case, which
+       reads as normal, instead of the tables collapsing toward 0 height. */
+    .ts-content > .bcn-card, .ts-content > .ts-grid2 { flex-shrink:0; }
     .ts-grid2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:start; }
     @media(max-width:1000px){ .ts-grid2{ grid-template-columns:1fr; } }
 
@@ -38,9 +43,16 @@
        page taller — a 50-row leaderboard plus a 25-row type table plus an
        uncapped location list previously stacked inline, forcing the page
        past ~4000px and requiring zoom-out just to see everything at once. */
+    /* min-height matters as much as max-height here: a flex item with
+       overflow:auto gets its "automatic minimum size" treated as 0 per the
+       flexbox spec, so when the three stacked cards' combined desired
+       height exceeds the viewport, flex-shrink collapses the scroll boxes
+       toward 0 instead of leaving them at a usable size — verified via
+       Playwright (getBoundingClientRect height was literally 0). Explicit
+       min-height overrides that. */
     .ts-scroll { overflow:auto; }
-    .ts-scroll--leader { max-height:min(58vh, 560px); }
-    .ts-scroll--sub { max-height:340px; }
+    .ts-scroll--leader { max-height:min(58vh, 560px); min-height:220px; }
+    .ts-scroll--sub { max-height:340px; min-height:160px; }
     .ts-scroll::-webkit-scrollbar { width:8px; height:8px; }
     .ts-scroll::-webkit-scrollbar-thumb { background:var(--bcn-border-strong); }
 
@@ -137,7 +149,7 @@
           <span id="leaderCount" class="bcn-card-meta" style="margin-left:auto">0 rows</span>
           <button id="btnExportLeader" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">Export CSV</button>
         </div>
-        <div class="bcn-card-body" style="padding:0">
+        <div class="bcn-card-body" style="padding:0;overflow:visible">
           <div class="ts-scroll ts-scroll--leader">
             <table class="ts-tbl">
               <thead><tr>
@@ -158,7 +170,7 @@
             <button id="btnExportType" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">Export CSV</button>
           </div>
           <div class="ts-bar-chart" id="typeChart"></div>
-          <div class="bcn-card-body" style="padding:0">
+          <div class="bcn-card-body" style="padding:0;overflow:visible">
             <div class="ts-scroll ts-scroll--sub">
               <table class="ts-tbl">
                 <thead><tr><th>Type</th><th class="r">Qty</th><th class="r">SKUs</th><th class="r">% of total</th></tr></thead>
@@ -174,7 +186,7 @@
             <span id="locationCount" class="bcn-card-meta" style="margin-left:auto">0 locations</span>
             <button id="btnExportLocation" class="bcn-btn bcn-btn--ghost" style="margin-left:12px">Export CSV</button>
           </div>
-          <div class="bcn-card-body" style="padding:0">
+          <div class="bcn-card-body" style="padding:0;overflow:visible">
             <div class="ts-scroll ts-scroll--sub">
               <table class="ts-tbl">
                 <thead><tr><th>Location</th><th class="r">Qty</th><th class="r">SKUs</th></tr></thead>
