@@ -686,18 +686,18 @@
     const refunds = Number(b.refunds || 0);
     const shipping = Number(b.shipping || 0);
     const taxes = Number(b.taxes || 0);
-    const ar = gross - discounts - refunds + shipping;
+    // `gross` from accounting_sales_buckets() is already tax-exclusive
+    // (price * qty), so revenue needs no separate tax wash — a debit here
+    // would double-subtract tax that was never included. AR/Clearing is
+    // the account that must reflect actual cash collected, which DOES
+    // include tax, so it picks up the +taxes term instead.
+    const ar = gross - discounts - refunds + shipping + taxes;
 
     return [
       { account: coa('revenue_template', loc), dr: 0, cr: gross },
-      // Pass-through wash (third leg, on top of the expense/payable pair
-      // below): debit the SAME revenue account for this location's tax
-      // amount — netting reported revenue down by the tax collected —
-      // offset by a Sales Tax Income credit, both scoped to this location
-      // so the card ties out on its own, same as every other pair here.
-      // Grouped right after the revenue credit so the two are easy to
-      // eyeball together.
-      { account: coa('revenue_template', loc), dr: taxes, cr: 0 },
+      // Sales tax pass-through wash: offsets the Sales Tax Expense debit
+      // below on the P&L so the tax collected nets to zero as income,
+      // not a bare expense. Scoped per location so this card ties out.
       { account: coa('tax_income_all'), dr: 0, cr: taxes },
       { account: coa('freight'), dr: 0, cr: shipping },
       { account: coa('refunds_template', loc), dr: refunds, cr: 0 },
