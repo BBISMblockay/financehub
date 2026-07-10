@@ -4779,3 +4779,13 @@ $$;
 -- read the pre-computed, RLS-scoped silo_insights_digest row instead.
 revoke execute on function public.compute_silo_insights(uuid) from public, anon, authenticated;
 grant execute on function public.compute_silo_insights(uuid) to service_role;
+
+-- ============================================================
+-- 20260710000000_accounting_tax_income_wash.sql
+-- Sales tax income wash: seed tax_income_all COA map key
+-- ============================================================
+
+insert into public.accounting_coa_map (company_entity_id, map_key, account_name)
+values
+  ('3bd934c9-4cdd-429b-9076-f8f6b45d4eb7', 'tax_income_all', 'Sales Tax Income')
+on conflict (company_entity_id, map_key) do nothing;

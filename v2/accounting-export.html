@@ -612,6 +612,7 @@
     ['discounts',           'Discounts / contra revenue'],
     ['tax_liability',       'Sales tax clearing DR'],
     ['tax_payable',         'Sales tax payable CR'],
+    ['tax_income_all',      'Sales tax income (pass-through wash, per location)'],
     ['accounts_receivable', 'Shopify clearing'],
     ['processing_fees',     'Processing fees'],
   ];
@@ -623,6 +624,7 @@
     discounts: 'Sales Discounts - Shopify',
     tax_liability: 'Sales Tax Clearing',
     tax_payable: 'Sales Tax Payable',
+    tax_income_all: 'Sales Tax Income',
     accounts_receivable: 'Shopify Clearing',
     processing_fees: 'Shopify Processing Fees',
   };
@@ -633,6 +635,7 @@
     'Sales Refunds - ({location})': MAP_DEFAULTS.refunds_template,
     'COGS - Sales Discounts': MAP_DEFAULTS.discounts,
     'COGS - Sales Tax Liability': MAP_DEFAULTS.tax_liability,
+    'Sales Tax Income All': MAP_DEFAULTS.tax_income_all,
     'Accounts Receivable': MAP_DEFAULTS.accounts_receivable,
     'COGS - Processing Fees': MAP_DEFAULTS.processing_fees,
   };
@@ -687,6 +690,15 @@
 
     return [
       { account: coa('revenue_template', loc), dr: 0, cr: gross },
+      // Pass-through wash (third leg, on top of the expense/payable pair
+      // below): debit the SAME revenue account for this location's tax
+      // amount — netting reported revenue down by the tax collected —
+      // offset by a Sales Tax Income credit, both scoped to this location
+      // so the card ties out on its own, same as every other pair here.
+      // Grouped right after the revenue credit so the two are easy to
+      // eyeball together.
+      { account: coa('revenue_template', loc), dr: taxes, cr: 0 },
+      { account: coa('tax_income_all'), dr: 0, cr: taxes },
       { account: coa('freight'), dr: 0, cr: shipping },
       { account: coa('refunds_template', loc), dr: refunds, cr: 0 },
       { account: coa('discounts'), dr: discounts, cr: 0 },

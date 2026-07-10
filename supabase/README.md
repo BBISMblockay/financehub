@@ -159,6 +159,7 @@ supabase/
     20260709030000_slack_po_status_accuracy.sql
     20260709040000_slack_skip_draft_po_posts.sql
     20260709050000_silo_insights_engine.sql
+    20260710000000_accounting_tax_income_wash.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```
