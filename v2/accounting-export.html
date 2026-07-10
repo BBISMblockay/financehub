@@ -612,7 +612,7 @@
     ['discounts',           'Discounts / contra revenue'],
     ['tax_liability',       'Sales tax clearing DR'],
     ['tax_payable',         'Sales tax payable CR'],
-    ['tax_income_all',      'Sales tax income (pass-through wash, all locations)'],
+    ['tax_income_all',      'Sales tax income (pass-through wash, per location)'],
     ['accounts_receivable', 'Shopify clearing'],
     ['processing_fees',     'Processing fees'],
   ];
@@ -693,11 +693,12 @@
       // Pass-through wash (third leg, on top of the expense/payable pair
       // below): debit the SAME revenue account for this location's tax
       // amount — netting reported revenue down by the tax collected —
-      // offset by one combined income line across every location (see
-      // totalTaxAllLocations() / the tax_income_all row appended once in
-      // render()/exportJournal(), not per location). Grouped right after
-      // the revenue credit above so the two are easy to eyeball together.
+      // offset by a Sales Tax Income credit, both scoped to this location
+      // so the card ties out on its own, same as every other pair here.
+      // Grouped right after the revenue credit so the two are easy to
+      // eyeball together.
       { account: coa('revenue_template', loc), dr: taxes, cr: 0 },
+      { account: coa('tax_income_all'), dr: 0, cr: taxes },
       { account: coa('freight'), dr: 0, cr: shipping },
       { account: coa('refunds_template', loc), dr: refunds, cr: 0 },
       { account: coa('discounts'), dr: discounts, cr: 0 },
@@ -705,10 +706,6 @@
       { account: coa('tax_payable'), dr: 0, cr: taxes },
       { account: coa('accounts_receivable'), dr: ar, cr: 0 },
     ];
-  }
-
-  function totalTaxAllLocations() {
-    return state.buckets.reduce((s, b) => s + Number(b.taxes || 0), 0);
   }
 
   function feeRowsByStore() {
@@ -749,19 +746,12 @@
       depositsTotal += Number(v.net || 0);
     }
 
-    // Sales tax income wash: one combined credit across every location,
-    // offsetting the per-location revenue debits already folded into
-    // salesDr above (see salesEntryLines()).
-    const taxIncomeAll = totalTaxAllLocations();
-    salesCr += taxIncomeAll;
-
     return {
       salesTotal,
       clearingTotal,
       feeDr,
       feeCr,
       depositsTotal,
-      taxIncomeAll,
       journalDr: salesDr + feeDr,
       journalCr: salesCr + feeCr,
       diff: round2((salesDr + feeDr) - (salesCr + feeCr)),
@@ -822,21 +812,6 @@
     for (const [, v] of fees) {
       journalDr += Number(v.fees || 0);
       journalCr += Number(v.fees || 0);
-    }
-
-    // Sales tax income wash — one combined line, not per location (see
-    // salesEntryLines() for the offsetting per-location revenue debits).
-    const taxIncomeAll = totalTaxAllLocations();
-    if (taxIncomeAll) {
-      journalCr += taxIncomeAll;
-      rowsHtml.push(
-        `<tr class="ax-loc-row"><td colspan="3">All locations — sales tax pass-through</td></tr>
-         <tr>
-           <td class="account">${esc(coa('tax_income_all'))}</td>
-           <td class="num ax-dr"></td>
-           <td class="num ax-cr">${fmt(taxIncomeAll)}</td>
-         </tr>`
-      );
     }
 
     if (state.buckets.length || fees.length) {
@@ -938,11 +913,6 @@
           l.cr ? Number(l.cr).toFixed(2) : '',
         ]);
       }
-    }
-
-    const taxIncomeAll = totalTaxAllLocations();
-    if (taxIncomeAll) {
-      rows.push([state.period, 'Shopify Sales Summary', 'All locations', coa('tax_income_all'), '', taxIncomeAll.toFixed(2)]);
     }
 
     for (const [domain, v] of feeRowsByStore()) {
