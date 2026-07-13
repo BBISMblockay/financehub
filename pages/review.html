@@ -1,0 +1,266 @@
+<!-- /pages/review.html — public review portal.
+     Opened from the emailed link (?token=...). No SILO login: the token is
+     the authorization, validated server-side by the review-portal edge
+     function. Never renders private notes (the function never returns them). -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SILO — Performance Review</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="./config.js"></script>
+  <style>
+    :root {
+      --ink:#14181d; --ink2:#3d4650; --ink3:#77828d;
+      --border:#e2e6ea; --bg:#f6f7f8; --surface:#fff;
+      --accent:#1668c7; --pos:#158a3c; --neg:#b42318;
+      --mono:'IBM Plex Mono', ui-monospace, monospace;
+    }
+    * { box-sizing:border-box; font-family:'Plus Jakarta Sans', -apple-system, 'Segoe UI', system-ui, sans-serif; }
+    body { margin:0; background:var(--bg); color:var(--ink); font-size:14px; -webkit-font-smoothing:antialiased; }
+    .wrap { max-width:720px; margin:0 auto; padding:28px 16px 64px; }
+
+    .brandbar { display:flex; align-items:center; gap:10px; margin-bottom:20px; }
+    .mark { width:36px; height:36px; border-radius:10px; background:linear-gradient(150deg,#242b33,#14181d); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:800; }
+    .brand-name { font-weight:800; letter-spacing:-.02em; }
+
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:14px; overflow:hidden; margin-bottom:16px; }
+    .card-head { padding:14px 18px; border-bottom:1px solid var(--border); font-weight:700; font-size:13px; display:flex; justify-content:space-between; align-items:center; }
+    .card-body { padding:18px; }
+
+    .rv-head h1 { margin:0 0 4px; font-size:22px; letter-spacing:-.02em; }
+    .rv-meta { color:var(--ink3); font-size:12.5px; line-height:1.6; }
+    .rv-meta strong { color:var(--ink2); font-weight:600; }
+
+    .q { padding:16px 18px; border-bottom:1px solid var(--border); }
+    .q:last-child { border-bottom:none; }
+    .q-label { font-weight:700; font-size:13.5px; }
+    .q-help { font-size:11.5px; color:var(--ink3); margin-top:2px; }
+    .q-answer { margin-top:8px; font-size:13.5px; color:var(--ink2); line-height:1.6; white-space:pre-wrap; }
+    .q-score { font-family:var(--mono); font-size:20px; font-weight:600; }
+    .q-score small { font-size:12px; color:var(--ink3); font-weight:400; }
+    .q-empty { color:var(--ink3); font-style:italic; }
+    ul.q-list { margin:8px 0 0; padding-left:20px; }
+    ul.q-list li { margin:2px 0; color:var(--ink2); }
+
+    .goal { display:flex; justify-content:space-between; gap:10px; padding:10px 0; border-bottom:1px dashed var(--border); font-size:13px; }
+    .goal:last-child { border-bottom:none; }
+    .goal-date { color:var(--ink3); font-size:11.5px; }
+    .pill { font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:.05em; padding:3px 8px; border-radius:99px; border:1px solid var(--border); color:var(--ink3); white-space:nowrap; align-self:center; }
+    .pill.pos { background:#eaf7ee; border-color:#bfe5cb; color:var(--pos); }
+    .subhead { font-family:var(--mono); font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--ink3); margin:14px 0 4px; }
+    .subhead:first-child { margin-top:0; }
+
+    textarea, input[type=text] {
+      width:100%; border:1px solid var(--border); border-radius:10px; padding:12px 14px;
+      font-size:14px; outline:none; transition:border-color .15s, box-shadow .15s;
+    }
+    textarea:focus, input[type=text]:focus { border-color:var(--accent); box-shadow:0 0 0 3px rgba(22,104,199,.12); }
+    textarea { min-height:110px; resize:vertical; }
+    label.fl { display:block; font-weight:600; font-size:12.5px; margin:14px 0 6px; }
+
+    .btn {
+      display:inline-flex; align-items:center; gap:8px; border:none; cursor:pointer;
+      background:var(--ink); color:#fff; font-weight:700; font-size:14px;
+      padding:12px 22px; border-radius:10px; transition:opacity .15s;
+    }
+    .btn:disabled { opacity:.55; cursor:not-allowed; }
+    .btn.ghost { background:transparent; color:var(--ink2); border:1px solid var(--border); font-weight:600; }
+
+    .status { border-radius:10px; padding:12px 14px; font-size:13px; margin-bottom:14px; display:none; }
+    .status.err { display:block; background:#fef2f2; border:1px solid #fecaca; color:var(--neg); }
+    .status.ok { display:block; background:#ecfdf5; border:1px solid #bbf7d0; color:var(--pos); }
+
+    .signed-box { background:#f6faf7; border:1px solid #cfe8d6; border-radius:10px; padding:14px 16px; }
+    .signed-name { font-weight:700; }
+    .signed-at { font-family:var(--mono); font-size:11px; color:var(--ink3); margin-top:4px; }
+
+    .center { text-align:center; padding:56px 16px; }
+    .center h2 { letter-spacing:-.02em; }
+    .center p { color:var(--ink3); max-width:400px; margin:8px auto 20px; line-height:1.6; }
+
+    .toolbar { display:flex; justify-content:flex-end; margin-bottom:12px; }
+    @media print {
+      body { background:#fff; }
+      .toolbar, .btn, #ackFormCard .card-head { display:none !important; }
+      .card { border:none; margin-bottom:8px; break-inside:avoid; }
+      .q { break-inside:avoid; }
+      .wrap { padding:0; max-width:none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="brandbar"><div class="mark">S</div><div class="brand-name">SILO</div></div>
+    <div id="app"><div class="center"><p>Loading your review…</p></div></div>
+  </div>
+
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const FN_BASE = (cfg.SUPABASE_URL || '').replace(/\/$/, '') + '/functions/v1/review-portal';
+  const TOKEN = new URLSearchParams(location.search).get('token') || '';
+  const esc = (s) => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+
+  async function call(body){
+    const res = await fetch(FN_BASE, {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'apikey': cfg.SUPABASE_ANON_KEY || '' },
+      body: JSON.stringify({ token: TOKEN, ...body }),
+    });
+    return res.json();
+  }
+
+  function answerHtml(q, ansMap){
+    const v = ansMap[q.id] || {};
+    if (q.kind === 'free_text')
+      return v.text ? `<div class="q-answer">${esc(v.text)}</div>` : `<div class="q-answer q-empty">No answer</div>`;
+    if (q.kind === 'scale_1_10')
+      return v.score ? `<div class="q-answer q-score">${v.score}<small> / 10</small></div>` : `<div class="q-answer q-empty">Not rated</div>`;
+    if (q.kind === 'single_choice')
+      return v.choice ? `<div class="q-answer">${esc(v.choice)}</div>` : `<div class="q-answer q-empty">No selection</div>`;
+    if (q.kind === 'multi_choice')
+      return (v.choices||[]).length ? `<ul class="q-list">${v.choices.map(c=>`<li>${esc(c)}</li>`).join('')}</ul>` : `<div class="q-answer q-empty">No selection</div>`;
+    return '';
+  }
+
+  function goalsHtml(goals, reviewId){
+    const fresh = goals.filter(g => g.review_id === reviewId);
+    const prior = goals.filter(g => g.review_id !== reviewId);
+    const row = (g) => `<div class="goal"><div>${esc(g.title)}${g.target_date ? ` <span class="goal-date">target ${esc(g.target_date)}</span>` : ''}</div><span class="pill ${g.status==='achieved'?'pos':''}">${esc(g.status)}</span></div>`;
+    let html = '';
+    if (prior.length) html += `<div class="subhead">Goals from prior periods</div>` + prior.map(row).join('');
+    if (fresh.length) html += `<div class="subhead">Goals for the next period</div>` + fresh.map(row).join('');
+    return html || '<div class="q-answer q-empty">No goals recorded.</div>';
+  }
+
+  function render(data){
+    const { review, employee, template, manager, questions, answers, goals, completed } = data;
+    const ansMap = {};
+    (answers||[]).forEach(a => { ansMap[a.question_id] = a.value || {}; });
+    const qs = (questions||[]).filter(q => q.kind !== 'goals');
+    const sentDate = review.sent_at ? new Date(review.sent_at).toLocaleDateString('en-US',{dateStyle:'long'}) : '';
+
+    document.getElementById('app').innerHTML = `
+      <div class="toolbar"><button class="btn ghost" onclick="window.print()">Print / save as PDF</button></div>
+
+      <div class="card">
+        <div class="card-body rv-head">
+          <h1>Performance Review${review.period_label ? ' — ' + esc(review.period_label) : ''}</h1>
+          <div class="rv-meta">
+            <strong>${esc(employee.name)}</strong>${employee.job_title ? ' · ' + esc(employee.job_title) : ''}${employee.location ? ' · ' + esc(employee.location) : ''}<br/>
+            Reviewed by <strong>${esc(manager.name)}</strong>${sentDate ? ' · delivered ' + sentDate : ''} · ${esc(template.title)}
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><span>Your review</span></div>
+        ${qs.map(q => `
+          <div class="q">
+            <div class="q-label">${esc(q.label)}</div>
+            ${q.help_text ? `<div class="q-help">${esc(q.help_text)}</div>` : ''}
+            ${answerHtml(q, ansMap)}
+          </div>`).join('') || '<div class="q"><div class="q-answer q-empty">No questions.</div></div>'}
+      </div>
+
+      <div class="card">
+        <div class="card-head"><span>Goals</span></div>
+        <div class="card-body">${goalsHtml(goals || [], review.id)}</div>
+      </div>
+
+      <div class="card" id="ackFormCard">
+        <div class="card-head"><span>Your acknowledgment</span></div>
+        <div class="card-body" id="ackBody"></div>
+      </div>`;
+
+    const ack = document.getElementById('ackBody');
+    if (completed){
+      ack.innerHTML = `
+        ${review.employee_response ? `<div class="subhead">Your response</div><div class="q-answer" style="margin-bottom:14px">${esc(review.employee_response)}</div>` : ''}
+        <div class="signed-box">
+          <div class="signed-name">✓ Signed by ${esc(review.employee_signed_name || employee.name)}</div>
+          <div class="signed-at">${review.employee_signed_at ? new Date(review.employee_signed_at).toLocaleString('en-US',{dateStyle:'long',timeStyle:'short'}) : ''}</div>
+        </div>`;
+    } else {
+      ack.innerHTML = `
+        <div class="status" id="ackStatus"></div>
+        <p style="color:var(--ink3);font-size:13px;line-height:1.6;margin:0">
+          Signing confirms you've read and discussed this review with your manager — it doesn't have to mean you agree with every point.
+          You can add a written response below; your manager will see it.
+        </p>
+        <label class="fl" for="resp">Your response (optional)</label>
+        <textarea id="resp" placeholder="Anything you'd like to add or clarify…"></textarea>
+        <label class="fl" for="signName">Type your full name to sign</label>
+        <input type="text" id="signName" placeholder="${esc(employee.name)}" autocomplete="name" />
+        <div style="margin-top:16px">
+          <button class="btn" id="btnFinish">Acknowledge &amp; sign</button>
+        </div>`;
+      document.getElementById('btnFinish').addEventListener('click', async () => {
+        const btn = document.getElementById('btnFinish');
+        const st = document.getElementById('ackStatus');
+        st.className = 'status';
+        const name = document.getElementById('signName').value.trim();
+        if (!name){ st.className = 'status err'; st.textContent = 'Type your full name to sign.'; return; }
+        btn.disabled = true; btn.textContent = 'Signing…';
+        const out = await call({ action:'finish', response: document.getElementById('resp').value, signed_name: name });
+        if (out.ok){
+          const fresh = await call({ action:'get' });
+          if (fresh.review) render(fresh);
+        } else {
+          st.className = 'status err'; st.textContent = out.error || 'Could not sign — try again.';
+          btn.disabled = false; btn.textContent = 'Acknowledge & sign';
+        }
+      });
+    }
+  }
+
+  function renderExpired(name){
+    document.getElementById('app').innerHTML = `
+      <div class="card"><div class="center">
+        <h2>This link has expired</h2>
+        <p>${name ? esc(name) + ', y' : 'Y'}our review is still waiting for you — review links expire after 30 days for security. We can email you a fresh one.</p>
+        <div class="status" id="renewStatus" style="text-align:left"></div>
+        <button class="btn" id="btnRenew">Email me a fresh link</button>
+      </div></div>`;
+    document.getElementById('btnRenew').addEventListener('click', async () => {
+      const btn = document.getElementById('btnRenew');
+      const st = document.getElementById('renewStatus');
+      btn.disabled = true; btn.textContent = 'Sending…';
+      const out = await call({ action:'renew' });
+      if (out.renewed){
+        st.className = 'status ok';
+        st.textContent = out.email_sent ? 'Sent — check your inbox for the new link.' : 'A new link was created, but email delivery is not configured — ask your manager to resend it from SILO.';
+        btn.style.display = 'none';
+      } else {
+        st.className = 'status err'; st.textContent = out.error || 'Could not send a new link.';
+        btn.disabled = false; btn.textContent = 'Email me a fresh link';
+      }
+    });
+  }
+
+  function renderError(msg){
+    document.getElementById('app').innerHTML = `
+      <div class="card"><div class="center">
+        <h2>Can't open this review</h2>
+        <p>${esc(msg)}</p>
+        <p style="font-size:12px">If you think this is a mistake, ask your manager to resend your review link from SILO.</p>
+      </div></div>`;
+  }
+
+  (async function boot(){
+    if (!TOKEN) return renderError('This page needs the link from your review email.');
+    try {
+      const data = await call({ action:'get' });
+      if (data.expired) return renderExpired(data.employee_name);
+      if (data.error) return renderError(data.error);
+      render(data);
+    } catch (e) {
+      renderError('Something went wrong loading your review. Try again in a minute.');
+    }
+  })();
+</script>
+</body>
+</html>

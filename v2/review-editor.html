@@ -63,7 +63,7 @@
         <span id="statusPill"></span>
         <a class="bcn-btn bcn-btn--ghost" href="/v2/reviews.html">← Board</a>
         <button class="bcn-btn bcn-btn--primary" id="btnSave">Save draft</button>
-        <button class="bcn-btn bcn-btn--dark" id="btnSend" disabled title="Sending to the employee ships in the next phase">Send to employee</button>
+        <button class="bcn-btn bcn-btn--dark" id="btnSend" hidden>Send to employee</button>
       </div>
     </header>
 
@@ -279,8 +279,8 @@
   });
 
   // ---- save -----------------------------------------------------------------
-  document.getElementById('btnSave').addEventListener('click', async () => {
-    if (!EDITABLE) return;
+  async function saveDraft(silent = false){
+    if (!EDITABLE) return true;
     const btn = document.getElementById('btnSave');
     btn.disabled = true;
     try {
@@ -318,9 +318,59 @@
         if (error) throw new Error(error.message);
       }
 
-      setStatus('Draft saved.', 'pos', 2500);
+      if (!silent) setStatus('Draft saved.', 'pos', 2500);
+      return true;
     } catch (err) {
       setStatus(`Save failed: ${err.message}`, 'neg');
+      return false;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+  document.getElementById('btnSave').addEventListener('click', () => saveDraft());
+
+  // ---- send -------------------------------------------------------------------
+  // Saves the draft first, then hands off to the review-send edge function:
+  // it mints the 30-day access token, flips status to 'sent', and emails the
+  // employee (when Resend is configured). The link comes back either way so
+  // the manager can deliver it manually if email isn't wired up yet.
+  document.getElementById('btnSend').addEventListener('click', async () => {
+    const btn = document.getElementById('btnSend');
+    const first = REVIEW.status === 'draft';
+    if (!confirm(first
+      ? 'Send this review to the employee? It locks for editing once sent.'
+      : 'Resend the review link? The previous link stops working.')) return;
+    btn.disabled = true; btn.textContent = 'Sending…';
+    try {
+      if (first && !(await saveDraft(true))) throw new Error('draft could not be saved');
+      const sess = await sb.auth.getSession();
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/review-send`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${sess.data.session.access_token}`,
+          'apikey': SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ review_id: REVIEW_ID }),
+      });
+      const out = await res.json();
+      if (!res.ok || out.error) throw new Error(out.error || `HTTP ${res.status}`);
+      REVIEW.status = 'sent';
+      EDITABLE = false;
+      statusPill('sent');
+      document.getElementById('btnSave').hidden = true;
+      document.getElementById('periodLabel').disabled = true;
+      renderQuestions();
+      if (!HAS_GOALS_QUESTION) refreshGoals();
+      btn.textContent = 'Resend link';
+      if (out.email_sent){
+        setStatus('Sent — the employee has been emailed their review link.', 'pos');
+      } else {
+        setStatus('Review marked as sent, but email is not configured yet — copy the link and send it to the employee yourself: ' + out.link, 'info');
+      }
+    } catch (err) {
+      setStatus(`Send failed: ${err.message}`, 'neg');
+      btn.textContent = REVIEW.status === 'draft' ? 'Send to employee' : 'Resend link';
     } finally {
       btn.disabled = false;
     }
@@ -360,6 +410,11 @@
     document.getElementById('periodLabel').value = review.period_label || '';
     document.getElementById('periodLabel').disabled = !EDITABLE;
     document.getElementById('btnSave').hidden = !EDITABLE;
+    const btnSend = document.getElementById('btnSend');
+    if (review.status !== 'finished'){
+      btnSend.hidden = false;
+      btnSend.textContent = review.status === 'sent' ? 'Resend link' : 'Send to employee';
+    }
     statusPill(review.status);
 
     const { data: qs } = await sb.from('review_template_questions')
