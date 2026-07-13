@@ -59,6 +59,12 @@ Run in order:
 15. **`migrations/20260713180000_approve_access_request_entity_membership.sql`** — fix employee onboarding  
     `approve_access_request()` was creating the `profiles` row for a newly approved employee but never an `entity_memberships` row, so `resolveCompany()` found no company at login, `active_company_id` was never set, and every company-scoped RLS policy returned zero rows regardless of department/role. Now upserts `entity_memberships` from the request's `company_entity_id` (falling back to Baseballism), mapping `profiles.role` → `entity_memberships.role` (`owner`→`owner_admin`, `admin`→`admin`, `user`→`member`).
 
+16. **`migrations/20260713190000_harden_active_company_function_grants.sql`** — revoke anon execute  
+    Revokes `anon`/`PUBLIC` execute on `active_company_id()`, `set_active_company()`, `po_*_can_write()`, and the Shopify company-meta helpers; grants stay on `authenticated`. Follow-up to #20260625140000.
+
+17. **`migrations/20260713200000_performance_reviews_phase1.sql`** — performance reviews (Phase 1)  
+    Adds `executive` to `app_role` (also passes `is_admin()` now), `is_exec_or_owner()` / `reviews_can_manage()` helpers, and 8 tables: `employees` (roster, auto-links `profiles` by email), `review_templates` + `review_template_questions` (exec-only writes), `reviews`, `review_answers`, `review_private_notes` (author-only, not even exec), `employee_goals`, `review_access_tokens` (RLS deny-all — edge-function/service-role only). Manager-scoped RLS: managers see only rows where they're `employees.manager_user_id`; exec/owner see all; linked employees see their own non-draft reviews.
+
 ## App workflow after SQL succeeds
 
 1. **PO builder** (`/v2/po-builder.html`) — create header + lines (needs at least one factory)

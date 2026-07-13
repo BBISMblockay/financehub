@@ -362,6 +362,25 @@ select
     else 'MISSING — run 20260709050000_silo_insights_engine.sql'
   end as silo_insights_engine;
 
+select
+  case
+    when (select count(*) from information_schema.tables
+          where table_schema = 'public'
+            and table_name in ('employees','review_templates','review_template_questions','reviews',
+                               'review_answers','review_private_notes','employee_goals','review_access_tokens')) = 8
+      and exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                  where n.nspname = 'public' and p.proname = 'is_exec_or_owner')
+      and exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                  where n.nspname = 'public' and p.proname = 'reviews_can_manage')
+      and exists (select 1 from pg_policies
+                  where schemaname = 'public' and tablename = 'employees'
+                    and policyname = 'employees_active_select')
+      and not exists (select 1 from pg_policies
+                      where schemaname = 'public' and tablename = 'review_access_tokens')
+    then 'ok'
+    else 'MISSING — run 20260713200000_performance_reviews_phase1.sql'
+  end as performance_reviews_phase1;
+
 -- 9. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,
