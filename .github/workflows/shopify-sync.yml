@@ -72,6 +72,11 @@ jobs:
         run: node scripts/shopify-sync.mjs
 
       - name: Refresh inventory mat view
+        # Runs even if the orchestrator step above failed (e.g. its own
+        # inline mat-view refresh timed out) or errored elsewhere — a slow
+        # cache refresh shouldn't block this from being retried, and the
+        # insights step below depends on base tables, not this step's success.
+        if: ${{ !cancelled() }}
         run: |
           node -e "
           import('@supabase/supabase-js').then(({ createClient }) => {
@@ -87,7 +92,10 @@ jobs:
         # Runs after sales/inventory are fresh so the sales/stockout findings
         # reflect tonight's data. ANTHROPIC_API_KEY is optional — without it
         # the script still stores findings (no AI narrative) rather than
-        # failing. continue-on-error so an LLM API hiccup never fails the sync.
+        # failing. Also runs regardless of earlier step outcomes (see above)
+        # so a mat-view timeout can never leave this digest stale again —
+        # continue-on-error covers an LLM API hiccup within this step itself.
+        if: ${{ !cancelled() }}
         continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
