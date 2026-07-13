@@ -4,7 +4,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Silo ERP — Login</title>
+  <title>SILO — Sign in</title>
 
   <!-- Tailwind (ok for now; later replace for production) -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -15,129 +15,291 @@
   <!-- Config -->
   <script src="./config.js"></script>
 
+  <!-- Brand fonts (match Beacon design system: Plus Jakarta Sans + IBM Plex Mono) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
   <style>
-    :root { color-scheme: light; }
-    .mono { font-variant-numeric: tabular-nums; }
-    .shadow-soft { box-shadow: 0 10px 30px rgba(2,6,23,.08); }
+    :root {
+      color-scheme: light;
+      --silo-band:          oklch(0.13 0.01 240);
+      --silo-band-hi:       oklch(0.19 0.012 240);
+      --silo-ink:           oklch(0.15 0.012 240);
+      --silo-ink-2:         oklch(0.38 0.012 240);
+      --silo-ink-3:         oklch(0.55 0.01 240);
+      --silo-accent:        oklch(0.55 0.20 245);
+      --silo-accent-soft:   oklch(0.96 0.04 245);
+      --silo-accent-border: oklch(0.82 0.10 245);
+    }
+
+    * { font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
+
+    body {
+      background: oklch(0.985 0.002 240);
+      color: var(--silo-ink);
+    }
+
+    .mono {
+      font-family: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .silo-brand-panel {
+      background:
+        radial-gradient(circle at 85% 8%, oklch(0.30 0.09 245 / .55) 0%, transparent 45%),
+        radial-gradient(circle at 10% 95%, oklch(0.34 0.10 200 / .35) 0%, transparent 50%),
+        linear-gradient(160deg, var(--silo-band-hi) 0%, var(--silo-band) 65%);
+    }
+
+    .silo-pill {
+      border: 1px solid rgba(255,255,255,.14);
+      background: rgba(255,255,255,.06);
+      color: rgba(255,255,255,.78);
+    }
+
+    .shadow-soft {
+      box-shadow:
+        0 1px 2px rgba(15, 23, 42, .04),
+        0 28px 56px -20px rgba(15, 23, 42, .22),
+        0 0 0 1px rgba(15, 23, 42, .03);
+    }
+
+    .silo-mark {
+      background: linear-gradient(150deg, var(--silo-band-hi), var(--silo-band));
+      box-shadow: 0 6px 16px -4px rgba(10, 14, 20, .45), inset 0 1px 0 rgba(255, 255, 255, .08);
+    }
+    .silo-mark--onbrand {
+      background: linear-gradient(150deg, rgba(255,255,255,.16), rgba(255,255,255,.04));
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 0 0 1px rgba(255,255,255,.1);
+    }
+
+    .field-icon {
+      pointer-events: none;
+      position: absolute;
+      left: 13px;
+      top: 50%;
+      transform: translateY(-50%);
+      height: 17px;
+      width: 17px;
+      color: oklch(0.65 0.02 240);
+    }
+
+    input[type="email"],
+    input[type="password"],
+    input[type="text"] {
+      transition: border-color .15s ease, box-shadow .15s ease;
+    }
+    input[type="email"]:focus,
+    input[type="password"]:focus,
+    input[type="text"]:focus {
+      border-color: var(--silo-accent);
+      box-shadow: 0 0 0 3px var(--silo-accent-soft);
+    }
+
+    #btnLogin, #btnMagic, #btnSignup {
+      transition: background-color .15s ease, transform .1s ease, box-shadow .15s ease;
+    }
+    #btnLogin:hover:not(:disabled), #btnMagic:hover:not(:disabled), #btnSignup:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 10px 24px -8px rgba(15, 23, 42, .35);
+    }
+    #btnLogin:active:not(:disabled), #btnMagic:active:not(:disabled), #btnSignup:active:not(:disabled) {
+      transform: translateY(0);
+    }
+
+    dialog::backdrop {
+      background: rgba(15, 23, 42, .55);
+      backdrop-filter: blur(2px);
+    }
+
+    .spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255, 255, 255, .35);
+      border-top-color: #fff;
+      border-radius: 50%;
+      display: inline-block;
+      animation: silo-spin .8s linear infinite;
+    }
+    @keyframes silo-spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 
-<body class="h-full bg-slate-50 text-slate-900">
-  <div class="min-h-full flex items-center justify-center px-4 py-10">
-    <div class="w-full max-w-md">
-      <div class="mb-6">
-        <div class="flex items-center gap-3">
-          <div class="h-10 w-10 rounded-xl bg-slate-900 text-white flex items-center justify-center font-semibold shadow-soft">
-            S
-          </div>
-          <div>
-            <div class="text-lg font-semibold leading-tight">Silo ERP</div>
-            <div class="text-sm text-slate-600">Sign in to continue</div>
-          </div>
+<body class="h-full text-slate-900">
+  <div class="min-h-screen grid lg:grid-cols-2">
+
+    <!-- Brand panel — desktop only -->
+    <div class="silo-brand-panel relative hidden lg:flex flex-col justify-between overflow-hidden p-12 text-white">
+      <svg class="pointer-events-none absolute -right-28 -bottom-28 h-[420px] w-[420px] opacity-[0.08]" viewBox="0 0 200 200" fill="none">
+        <circle cx="100" cy="100" r="96" stroke="white" stroke-width="1.4" />
+        <path d="M42 16 Q104 100 42 184" stroke="white" stroke-width="1.4" stroke-dasharray="3 6" fill="none" />
+        <path d="M158 16 Q96 100 158 184" stroke="white" stroke-width="1.4" stroke-dasharray="3 6" fill="none" />
+      </svg>
+
+      <div class="relative z-10 flex items-center gap-3">
+        <div class="silo-mark--onbrand h-10 w-10 rounded-xl flex items-center justify-center font-bold text-base tracking-tight">S</div>
+        <div class="text-base font-bold tracking-tight">SILO</div>
+      </div>
+
+      <div class="relative z-10 max-w-sm">
+        <div class="text-[2.5rem] font-extrabold leading-[1.1] tracking-tight mb-5">
+          Run Baseballism<br />from one place.
+        </div>
+        <p class="text-white/55 text-[15px] leading-relaxed">
+          Purchasing, planning, launches, and finance — all in one operations hub built for the team.
+        </p>
+        <div class="mt-8 flex flex-wrap gap-2">
+          <span class="silo-pill rounded-full px-3 py-1 text-xs font-medium">Purchasing</span>
+          <span class="silo-pill rounded-full px-3 py-1 text-xs font-medium">Planning</span>
+          <span class="silo-pill rounded-full px-3 py-1 text-xs font-medium">Launch Calendar</span>
+          <span class="silo-pill rounded-full px-3 py-1 text-xs font-medium">Finance</span>
         </div>
       </div>
 
-      <div class="rounded-2xl bg-white border border-slate-200 p-6 shadow-soft">
-        <div id="status" class="hidden mb-4 rounded-xl border px-3 py-2 text-sm"></div>
+      <div class="relative z-10 text-xs text-white/35">© Baseballism · Internal use only</div>
+    </div>
 
-        <div class="mb-5 flex rounded-xl bg-slate-100 p-1">
-          <button id="tabPassword" class="flex-1 rounded-lg px-3 py-2 text-sm font-medium bg-white shadow-sm">Password</button>
-          <button id="tabMagic" class="flex-1 rounded-lg px-3 py-2 text-sm font-medium text-slate-600">Magic link</button>
+    <!-- Form panel -->
+    <div class="flex items-center justify-center px-4 py-10 lg:py-16 lg:px-16">
+      <div class="w-full max-w-md">
+        <div class="mb-8 flex items-center gap-3.5 lg:hidden">
+          <div class="silo-mark h-11 w-11 rounded-2xl text-white flex items-center justify-center font-bold text-lg tracking-tight shrink-0">
+            S
+          </div>
+          <div>
+            <div class="text-[19px] font-bold leading-tight tracking-tight">SILO</div>
+            <div class="text-sm text-slate-500 mt-0.5">Baseballism operations · sign in to continue</div>
+          </div>
         </div>
 
-        <form id="formPassword" class="space-y-4">
-          <div>
-            <label class="block text-sm font-medium text-slate-700">Email</label>
-            <input id="email1" type="email" autocomplete="email"
-                   class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
-                   placeholder="you@baseballism.com" required />
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-slate-700">Password</label>
-            <input id="password" type="password" autocomplete="current-password"
-                   class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
-                   placeholder="••••••••" required />
-          </div>
+        <div class="hidden lg:block mb-8">
+          <div class="text-2xl font-bold tracking-tight">Welcome back</div>
+          <div class="text-sm text-slate-500 mt-1">Sign in with your Baseballism email to continue.</div>
+        </div>
 
-          <button id="btnLogin" type="submit"
-                  class="w-full rounded-xl bg-slate-900 text-white py-2.5 font-semibold hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed">
-            Sign in
-          </button>
+        <div class="rounded-[20px] bg-white border border-slate-200/80 p-7 shadow-soft relative overflow-hidden">
+          <div class="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[oklch(0.55_0.20_245)] via-[oklch(0.62_0.16_210)] to-[oklch(0.62_0.16_170)]"></div>
 
-          <div class="pt-1 flex items-center justify-between">
-            <button id="btnGoSignup" type="button" class="text-sm font-medium text-slate-900 hover:underline">
-              Create account
-            </button>
-            <button id="btnForgot" type="button" class="text-sm text-slate-600 hover:underline">
-              Forgot password?
-            </button>
-          </div>
-        </form>
+          <div id="status" class="hidden mb-5 rounded-xl border px-3.5 py-3 text-sm font-medium"></div>
 
-        <form id="formMagic" class="space-y-4 hidden">
-          <div>
-            <label class="block text-sm font-medium text-slate-700">Email</label>
-            <input id="email2" type="email" autocomplete="email"
-                   class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
-                   placeholder="you@company.com" required />
+          <div class="mb-6 flex rounded-xl bg-slate-100/80 p-1 ring-1 ring-slate-200/60">
+            <button id="tabPassword" class="flex-1 rounded-lg px-3 py-2 text-sm font-semibold bg-white text-slate-900 shadow-sm transition-all duration-150">Password</button>
+            <button id="tabMagic" class="flex-1 rounded-lg px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors duration-150">Magic link</button>
           </div>
 
-          <button id="btnMagic" type="submit"
-                  class="w-full rounded-xl bg-slate-900 text-white py-2.5 font-semibold hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed">
-            Email me a sign-in link
-          </button>
-
-          <div class="text-xs text-slate-500 leading-relaxed">
-            We’ll send a one-time link. If your project requires email confirmation, you may need to confirm first.
-          </div>
-        </form>
-
-        <dialog id="dlgSignup" class="rounded-2xl p-0 w-full max-w-md">
-          <div class="bg-white rounded-2xl border border-slate-200 shadow-soft">
-            <div class="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-              <div>
-                <div class="text-base font-semibold">Create account</div>
-                <div class="text-sm text-slate-600">This creates a Supabase auth user</div>
+          <form id="formPassword" class="space-y-4">
+            <div>
+              <label class="block text-sm font-semibold text-slate-700 mb-1.5">Email</label>
+              <div class="relative">
+                <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0-.83.67-1.5 1.5-1.5h16.5c.83 0 1.5.67 1.5 1.5v10.5c0 .83-.67 1.5-1.5 1.5H3.75c-.83 0-1.5-.67-1.5-1.5V6.75Z"/><path stroke-linecap="round" stroke-linejoin="round" d="m3 7 9 6 9-6"/></svg>
+                <input id="email1" type="email" autocomplete="email"
+                       class="w-full rounded-xl border border-slate-300 pl-10 pr-3.5 py-2.5 text-[15px] placeholder:text-slate-400 focus:outline-none"
+                       placeholder="you@baseballism.com" required />
               </div>
-              <button id="btnCloseSignup" class="rounded-lg px-2 py-1 text-slate-600 hover:bg-slate-100">✕</button>
+            </div>
+            <div>
+              <label class="block text-sm font-semibold text-slate-700 mb-1.5">Password</label>
+              <div class="relative">
+                <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V7.5a4.5 4.5 0 1 0-9 0v3"/><rect x="4.5" y="10.5" width="15" height="9" rx="2"/></svg>
+                <input id="password" type="password" autocomplete="current-password"
+                       class="w-full rounded-xl border border-slate-300 pl-10 pr-3.5 py-2.5 text-[15px] placeholder:text-slate-400 focus:outline-none"
+                       placeholder="••••••••" required />
+              </div>
             </div>
 
-            <form id="formSignup" class="p-6 space-y-4">
-              <div>
-                <label class="block text-sm font-medium text-slate-700">Name</label>
-                <input id="name3" type="text" autocomplete="name"
-                       class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
-                       placeholder="full name" />
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-slate-700">Email</label>
-                <input id="email3" type="email" autocomplete="email"
-                       class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
-                       placeholder="you@company.com" required />
-              </div>
-              <div>
-                <label class="block text-sm font-medium text-slate-700">Password</label>
-                <input id="password3" type="password" autocomplete="new-password"
-                       class="mt-1 w-full rounded-xl border border-slate-300 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-slate-900"
-                       placeholder="Minimum 6 characters" required />
-              </div>
+            <button id="btnLogin" type="submit"
+                    class="w-full rounded-xl bg-slate-900 text-white py-2.5 font-semibold tracking-tight shadow-sm hover:bg-slate-800 active:bg-slate-950 disabled:opacity-60 disabled:cursor-not-allowed disabled:translate-y-0 disabled:shadow-none flex items-center justify-center gap-2">
+              Sign in
+            </button>
 
-              <button id="btnSignup" type="submit"
-                      class="w-full rounded-xl bg-slate-900 text-white py-2.5 font-semibold hover:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed">
+            <div class="pt-2 flex items-center justify-between">
+              <button id="btnGoSignup" type="button" class="text-sm font-semibold text-[oklch(0.55_0.20_245)] hover:underline underline-offset-2">
                 Create account
               </button>
+              <button id="btnForgot" type="button" class="text-sm text-slate-500 hover:text-slate-700 hover:underline underline-offset-2">
+                Forgot password?
+              </button>
+            </div>
+          </form>
 
-              <div class="text-xs text-slate-500 leading-relaxed">
-                If <span class="mono">EXPECT_EMAIL_CONFIRMATION</span> is true, you may need to confirm your email before you can sign in.
+          <form id="formMagic" class="space-y-4 hidden">
+            <div>
+              <label class="block text-sm font-semibold text-slate-700 mb-1.5">Email</label>
+              <div class="relative">
+                <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0-.83.67-1.5 1.5-1.5h16.5c.83 0 1.5.67 1.5 1.5v10.5c0 .83-.67 1.5-1.5 1.5H3.75c-.83 0-1.5-.67-1.5-1.5V6.75Z"/><path stroke-linecap="round" stroke-linejoin="round" d="m3 7 9 6 9-6"/></svg>
+                <input id="email2" type="email" autocomplete="email"
+                       class="w-full rounded-xl border border-slate-300 pl-10 pr-3.5 py-2.5 text-[15px] placeholder:text-slate-400 focus:outline-none"
+                       placeholder="you@company.com" required />
               </div>
-            </form>
-          </div>
-        </dialog>
+            </div>
 
-        <div class="mt-6 text-xs text-slate-500">
-          <div class="flex items-center justify-between">
-            <span class="mono" id="envInfo">—</span>
-            <button id="btnSignout" class="hidden text-slate-600 hover:underline">Sign out</button>
+            <button id="btnMagic" type="submit"
+                    class="w-full rounded-xl bg-slate-900 text-white py-2.5 font-semibold tracking-tight shadow-sm hover:bg-slate-800 active:bg-slate-950 disabled:opacity-60 disabled:cursor-not-allowed disabled:translate-y-0 disabled:shadow-none flex items-center justify-center gap-2">
+              Email me a sign-in link
+            </button>
+
+            <div class="text-xs text-slate-500 leading-relaxed bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5">
+              We’ll send a one-time link to your inbox. If email confirmation is required, confirm your email first, then come back here.
+            </div>
+          </form>
+
+          <dialog id="dlgSignup" class="rounded-2xl p-0 w-full max-w-md border-0">
+            <div class="bg-white rounded-2xl border border-slate-200 shadow-soft overflow-hidden">
+              <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/60">
+                <div>
+                  <div class="text-base font-bold tracking-tight">Create your account</div>
+                  <div class="text-sm text-slate-500 mt-0.5">You’ll get access once an admin approves you</div>
+                </div>
+                <button id="btnCloseSignup" class="rounded-lg h-8 w-8 flex items-center justify-center text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors" aria-label="Close">✕</button>
+              </div>
+
+              <form id="formSignup" class="p-6 space-y-4">
+                <div>
+                  <label class="block text-sm font-semibold text-slate-700 mb-1.5">Name</label>
+                  <div class="relative">
+                    <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z"/><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 20.25a7.5 7.5 0 0 1 15 0"/></svg>
+                    <input id="name3" type="text" autocomplete="name"
+                           class="w-full rounded-xl border border-slate-300 pl-10 pr-3.5 py-2.5 text-[15px] placeholder:text-slate-400 focus:outline-none"
+                           placeholder="full name" />
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-sm font-semibold text-slate-700 mb-1.5">Email</label>
+                  <div class="relative">
+                    <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 6.75c0-.83.67-1.5 1.5-1.5h16.5c.83 0 1.5.67 1.5 1.5v10.5c0 .83-.67 1.5-1.5 1.5H3.75c-.83 0-1.5-.67-1.5-1.5V6.75Z"/><path stroke-linecap="round" stroke-linejoin="round" d="m3 7 9 6 9-6"/></svg>
+                    <input id="email3" type="email" autocomplete="email"
+                           class="w-full rounded-xl border border-slate-300 pl-10 pr-3.5 py-2.5 text-[15px] placeholder:text-slate-400 focus:outline-none"
+                           placeholder="you@company.com" required />
+                  </div>
+                </div>
+                <div>
+                  <label class="block text-sm font-semibold text-slate-700 mb-1.5">Password</label>
+                  <div class="relative">
+                    <svg class="field-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V7.5a4.5 4.5 0 1 0-9 0v3"/><rect x="4.5" y="10.5" width="15" height="9" rx="2"/></svg>
+                    <input id="password3" type="password" autocomplete="new-password"
+                           class="w-full rounded-xl border border-slate-300 pl-10 pr-3.5 py-2.5 text-[15px] placeholder:text-slate-400 focus:outline-none"
+                           placeholder="Minimum 6 characters" required />
+                  </div>
+                </div>
+
+                <button id="btnSignup" type="submit"
+                        class="w-full rounded-xl bg-slate-900 text-white py-2.5 font-semibold tracking-tight shadow-sm hover:bg-slate-800 active:bg-slate-950 disabled:opacity-60 disabled:cursor-not-allowed disabled:translate-y-0 disabled:shadow-none flex items-center justify-center gap-2">
+                  Create account
+                </button>
+
+                <div class="text-xs text-slate-500 leading-relaxed bg-slate-50 border border-slate-200 rounded-lg px-3 py-2.5">
+                  You may need to confirm your email address before you can sign in — check your inbox after creating your account.
+                </div>
+              </form>
+            </div>
+          </dialog>
+
+          <div class="mt-7 pt-4 border-t border-slate-100 text-xs text-slate-400">
+            <div class="flex items-center justify-between">
+              <span class="mono" id="envInfo">—</span>
+              <button id="btnSignout" class="hidden text-slate-500 hover:text-slate-700 hover:underline font-medium">Sign out</button>
+            </div>
           </div>
         </div>
       </div>
@@ -171,12 +333,12 @@
       function showStatus(msg, type = "info") {
         statusEl.classList.remove("hidden");
         statusEl.className =
-          "mb-4 rounded-xl border px-3 py-2 text-sm " +
+          "mb-5 rounded-xl border px-3.5 py-3 text-sm font-medium " +
           (type === "error"
             ? "border-rose-200 bg-rose-50 text-rose-800"
             : type === "success"
               ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-              : "border-slate-200 bg-slate-50 text-slate-800");
+              : "border-slate-200 bg-slate-50 text-slate-700");
         statusEl.textContent = msg;
       }
 
@@ -187,7 +349,9 @@
 
       function setLoading(btn, loading, textWhenNotLoading) {
         btn.disabled = loading;
-        btn.textContent = loading ? "Working…" : textWhenNotLoading;
+        btn.innerHTML = loading
+          ? '<span class="spinner"></span><span>Working…</span>'
+          : textWhenNotLoading;
       }
 
       function assertConfig() {
@@ -216,7 +380,7 @@
         }
       });
 
-      envInfo.textContent = `Supabase: ${SUPABASE_URL.replace("https://", "")}`;
+      envInfo.textContent = "SILO";
 
       async function getUserProfile(userId) {
         const { data, error } = await supabaseClient
@@ -300,13 +464,13 @@
       function setTab(which) {
         clearStatus();
         if (which === "password") {
-          tabPassword.className = "flex-1 rounded-lg px-3 py-2 text-sm font-medium bg-white shadow-sm";
-          tabMagic.className = "flex-1 rounded-lg px-3 py-2 text-sm font-medium text-slate-600";
+          tabPassword.className = "flex-1 rounded-lg px-3 py-2 text-sm font-semibold bg-white text-slate-900 shadow-sm transition-all duration-150";
+          tabMagic.className = "flex-1 rounded-lg px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors duration-150";
           formPassword.classList.remove("hidden");
           formMagic.classList.add("hidden");
         } else {
-          tabMagic.className = "flex-1 rounded-lg px-3 py-2 text-sm font-medium bg-white shadow-sm";
-          tabPassword.className = "flex-1 rounded-lg px-3 py-2 text-sm font-medium text-slate-600";
+          tabMagic.className = "flex-1 rounded-lg px-3 py-2 text-sm font-semibold bg-white text-slate-900 shadow-sm transition-all duration-150";
+          tabPassword.className = "flex-1 rounded-lg px-3 py-2 text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors duration-150";
           formMagic.classList.remove("hidden");
           formPassword.classList.add("hidden");
         }
