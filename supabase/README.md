@@ -56,6 +56,9 @@ Run in order:
 14. **`migrations/20260624000000_sales_verification_company_scope.sql`** — sales verification multi-tenant  
     Backfills `sales_by_day.company_entity_id`, rewrites `refresh_sales_verification_store_comp_summary()` per company, fixes summary PK to `(company_entity_id, location_tag)`, and adds `sales_by_day` RLS via `active_company_id()`.
 
+15. **`migrations/20260713180000_approve_access_request_entity_membership.sql`** — fix employee onboarding  
+    `approve_access_request()` was creating the `profiles` row for a newly approved employee but never an `entity_memberships` row, so `resolveCompany()` found no company at login, `active_company_id` was never set, and every company-scoped RLS policy returned zero rows regardless of department/role. Now upserts `entity_memberships` from the request's `company_entity_id` (falling back to Baseballism), mapping `profiles.role` → `entity_memberships.role` (`owner`→`owner_admin`, `admin`→`admin`, `user`→`member`).
+
 ## App workflow after SQL succeeds
 
 1. **PO builder** (`/v2/po-builder.html`) — create header + lines (needs at least one factory)
