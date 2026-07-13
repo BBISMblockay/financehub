@@ -61,6 +61,7 @@
         <div class="bcn-header-sub">Your employee roster and review cycles. Managers see only their own roster; executives see everyone.</div>
       </div>
       <div class="bcn-header-actions">
+        <a class="bcn-btn bcn-btn--ghost" id="btnTemplates" href="/v2/review-templates.html" hidden>Templates</a>
         <button class="bcn-btn bcn-btn--ghost" id="btnImportCsv">Import CSV</button>
         <button class="bcn-btn bcn-btn--primary" id="btnAddEmployee">Add employee</button>
       </div>
@@ -419,6 +420,7 @@
     }
 
     if (IS_EXEC){
+      document.getElementById('btnTemplates').hidden = false;
       // Exec/owner can assign any manager — pull the profile list via the
       // admin RPC (role-gated server-side).
       try {

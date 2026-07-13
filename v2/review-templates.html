@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Review Templates</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <style>
+    .tp-content { flex:1; padding:16px 18px 28px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:14px; }
+    .tp-content > .bcn-card { flex-shrink:0; }
+
+    .tp-list-row { display:flex; align-items:center; gap:12px; padding:12px 14px; border-bottom:1px solid var(--bcn-border); cursor:pointer; }
+    .tp-list-row:hover { background:var(--bcn-sunken); }
+    .tp-list-row:last-child { border-bottom:none; }
+    .tp-list-title { font-weight:650; color:var(--bcn-ink); font-size:13px; }
+    .tp-list-sub { font-size:11px; color:var(--bcn-ink-3); margin-top:2px; }
+    .tp-spacer { flex:1; }
+
+    .tp-editor-head { display:flex; align-items:flex-start; gap:10px; flex-wrap:wrap; }
+    .tp-editor-head .bcn-field-group { flex:1; min-width:220px; }
+
+    .tp-q {
+      display:flex; gap:10px; align-items:flex-start;
+      border:1px solid var(--bcn-border); border-radius:var(--bcn-radius);
+      background:var(--bcn-surface); padding:12px; margin-bottom:10px;
+    }
+    .tp-q-body { flex:1; display:flex; flex-direction:column; gap:8px; min-width:0; }
+    .tp-q-row { display:flex; gap:8px; flex-wrap:wrap; }
+    .tp-q-row .bcn-field-group { flex:1; min-width:160px; margin:0; }
+    .tp-q-kind {
+      font-family:var(--bcn-mono); font-size:9.5px; text-transform:uppercase; letter-spacing:.05em;
+      color:var(--bcn-ink-3); background:var(--bcn-sunken); border:1px solid var(--bcn-border);
+      border-radius:var(--bcn-radius-sm); padding:2px 6px; white-space:nowrap; align-self:flex-start;
+    }
+    .tp-q-tools { display:flex; flex-direction:column; gap:4px; }
+    .tp-q-tools .bcn-btn { padding:2px 8px; font-size:11px; }
+    .tp-q textarea.bcn-field { min-height:56px; resize:vertical; }
+    .tp-req { display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--bcn-ink-2); white-space:nowrap; }
+
+    .tp-addbar { display:flex; gap:6px; flex-wrap:wrap; }
+    .tp-locked-note { font-size:12px; color:var(--bcn-ink-3); background:var(--bcn-sunken); border:1px solid var(--bcn-border); border-radius:var(--bcn-radius); padding:8px 12px; }
+
+    .tp-empty { padding:36px; text-align:center; color:var(--bcn-ink-3); font-size:12.5px; }
+
+    dialog.tp-dialog { border:1px solid var(--bcn-border); border-radius:6px; padding:0; width:min(560px, calc(100vw - 32px)); background:var(--bcn-surface); color:var(--bcn-ink); }
+    dialog.tp-dialog::backdrop { background:rgba(10,14,20,.45); }
+    .tp-dialog-head { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--bcn-border); }
+    .tp-dialog-body { padding:16px; max-height:65vh; overflow-y:auto; }
+    .tp-pv-q { margin-bottom:16px; }
+    .tp-pv-label { font-weight:650; font-size:13px; }
+    .tp-pv-help { font-size:11.5px; color:var(--bcn-ink-3); margin:2px 0 6px; }
+    .tp-pv-opt { font-size:12.5px; color:var(--bcn-ink-2); padding:3px 0; }
+    .tp-pv-scale { display:flex; gap:4px; }
+    .tp-pv-scale span { width:26px; height:26px; display:flex; align-items:center; justify-content:center; border:1px solid var(--bcn-border); border-radius:var(--bcn-radius-sm); font-family:var(--bcn-mono); font-size:11px; color:var(--bcn-ink-3); }
+  </style>
+</head>
+<body class="silo-brand">
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0">
+        <div class="bcn-header-title">
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Team</span>
+        </div>
+        <h1>Review Templates</h1>
+        <div class="bcn-header-sub">Build the question sets managers run reviews from. Publishing locks the questions; duplicate to revise.</div>
+      </div>
+      <div class="bcn-header-actions">
+        <a class="bcn-btn bcn-btn--ghost" href="/v2/reviews.html">← Reviews</a>
+        <button class="bcn-btn bcn-btn--primary" id="btnNewTemplate">New template</button>
+      </div>
+    </header>
+
+    <div class="bcn-status" id="status" hidden></div>
+
+    <div class="tp-content">
+      <div class="bcn-card" id="listCard">
+        <div class="bcn-card-header"><span>Templates</span></div>
+        <div class="bcn-card-body" style="padding:0" id="templateList">
+          <div class="tp-empty">Loading…</div>
+        </div>
+      </div>
+
+      <div class="bcn-card" id="editorCard" hidden>
+        <div class="bcn-card-header">
+          <span id="editorTitle">Edit template</span>
+          <div style="display:flex;gap:6px">
+            <button class="bcn-btn bcn-btn--ghost" id="btnPreview">Preview</button>
+            <button class="bcn-btn bcn-btn--ghost" id="btnDuplicate" hidden>Duplicate as draft</button>
+            <button class="bcn-btn bcn-btn--ghost" id="btnArchive" hidden>Archive</button>
+            <button class="bcn-btn bcn-btn--dark" id="btnPublish" hidden>Publish</button>
+            <button class="bcn-btn bcn-btn--primary" id="btnSave">Save</button>
+            <button class="bcn-btn bcn-btn--ghost" id="btnCloseEditor">Close</button>
+          </div>
+        </div>
+        <div class="bcn-card-body">
+          <div class="tp-editor-head">
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="tplTitle">Title</label>
+              <input class="bcn-field" id="tplTitle" type="text" placeholder="e.g. Retail Associate — Annual Review" />
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label" for="tplDesc">Description</label>
+              <input class="bcn-field" id="tplDesc" type="text" placeholder="Optional — shown to managers when picking a template" />
+            </div>
+          </div>
+
+          <div style="height:14px"></div>
+          <div class="tp-locked-note" id="lockedNote" hidden>
+            This template is published — its questions are locked so existing review answers stay valid.
+            Title and description can still be edited. Use <strong>Duplicate as draft</strong> to revise the questions.
+          </div>
+          <div id="questionList" style="margin-top:12px"></div>
+
+          <div class="tp-addbar" id="addBar">
+            <button class="bcn-btn bcn-btn--ghost" data-kind="free_text">+ Free text</button>
+            <button class="bcn-btn bcn-btn--ghost" data-kind="scale_1_10">+ 1–10 rating</button>
+            <button class="bcn-btn bcn-btn--ghost" data-kind="single_choice">+ Single choice</button>
+            <button class="bcn-btn bcn-btn--ghost" data-kind="multi_choice">+ Multiple choice</button>
+            <button class="bcn-btn bcn-btn--ghost" data-kind="goals">+ Goals section</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<dialog class="tp-dialog" id="dlgPreview">
+  <div class="tp-dialog-head">
+    <span style="font-weight:700;font-size:14px" id="pvTitle">Preview</span>
+    <button class="bcn-btn bcn-btn--ghost" id="btnClosePreview">✕</button>
+  </div>
+  <div class="tp-dialog-body" id="pvBody"></div>
+</dialog>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
+    throw new Error('Missing Supabase config');
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const esc = (s) => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+
+  function setStatus(msg, type='info', ms=0){
+    const s = document.getElementById('status');
+    s.className = `bcn-status bcn-status--${type}`;
+    s.textContent = msg; s.hidden = false;
+    if (ms) setTimeout(()=>{ s.hidden = true; }, ms);
+  }
+
+  const KIND_LABEL = {
+    free_text: 'Free text',
+    scale_1_10: '1–10 rating',
+    single_choice: 'Single choice',
+    multi_choice: 'Multiple choice',
+    goals: 'Goals',
+  };
+  const CHOICE_KINDS = ['single_choice', 'multi_choice'];
+
+  let ME = null;
+  let TEMPLATES = [];
+  let CURRENT = null;      // template row being edited
+  let QUESTIONS = [];      // working copy: [{kind,label,help_text,options[],required}]
+  let LOCKED = false;      // published/archived => question edits locked
+
+  // ---- list ---------------------------------------------------------------
+  function statusPill(s){
+    if (s === 'published') return '<span class="bcn-pill bcn-pill--pos">Published</span>';
+    if (s === 'archived') return '<span class="bcn-pill">Archived</span>';
+    return '<span class="bcn-pill bcn-pill--accent">Draft</span>';
+  }
+
+  async function loadTemplates(){
+    const { data, error } = await sb
+      .from('review_templates')
+      .select('*, review_template_questions(count)')
+      .order('updated_at', { ascending:false });
+    if (error) return setStatus(`Load failed: ${error.message}`, 'neg');
+    TEMPLATES = data || [];
+    const el = document.getElementById('templateList');
+    if (!TEMPLATES.length){
+      el.innerHTML = `<div class="tp-empty">No templates yet. Create the first one — managers will pick from published templates when starting a review.</div>`;
+      return;
+    }
+    el.innerHTML = TEMPLATES.map(t => {
+      const qn = t.review_template_questions?.[0]?.count ?? 0;
+      return `<div class="tp-list-row" data-id="${esc(t.id)}">
+        <div>
+          <div class="tp-list-title">${esc(t.title)}</div>
+          <div class="tp-list-sub">${qn} question${qn === 1 ? '' : 's'}${t.description ? ' · ' + esc(t.description) : ''}</div>
+        </div>
+        <div class="tp-spacer"></div>
+        ${statusPill(t.status)}
+      </div>`;
+    }).join('');
+    el.querySelectorAll('.tp-list-row').forEach(row => {
+      row.addEventListener('click', () => openEditor(row.dataset.id));
+    });
+  }
+
+  // ---- editor -------------------------------------------------------------
+  async function openEditor(id){
+    const tpl = TEMPLATES.find(t => t.id === id);
+    if (!tpl) return;
+    CURRENT = tpl;
+    LOCKED = tpl.status !== 'draft';
+
+    const { data: qs, error } = await sb
+      .from('review_template_questions')
+      .select('*')
+      .eq('template_id', id)
+      .order('position');
+    if (error) return setStatus(`Questions load failed: ${error.message}`, 'neg');
+    QUESTIONS = (qs || []).map(q => ({
+      kind: q.kind, label: q.label, help_text: q.help_text || '',
+      options: Array.isArray(q.options) ? q.options : [], required: q.required,
+    }));
+
+    document.getElementById('tplTitle').value = tpl.title;
+    document.getElementById('tplDesc').value = tpl.description || '';
+    document.getElementById('editorTitle').textContent = LOCKED ? 'Template (published)' : 'Edit template';
+    document.getElementById('lockedNote').hidden = !LOCKED;
+    document.getElementById('addBar').hidden = LOCKED;
+    document.getElementById('btnPublish').hidden = tpl.status !== 'draft';
+    document.getElementById('btnArchive').hidden = tpl.status !== 'published';
+    document.getElementById('btnDuplicate').hidden = tpl.status === 'draft';
+
+    renderQuestions();
+    document.getElementById('listCard').hidden = true;
+    document.getElementById('editorCard').hidden = false;
+  }
+
+  function newTemplate(){
+    CURRENT = null;
+    LOCKED = false;
+    QUESTIONS = [];
+    document.getElementById('tplTitle').value = '';
+    document.getElementById('tplDesc').value = '';
+    document.getElementById('editorTitle').textContent = 'New template';
+    document.getElementById('lockedNote').hidden = true;
+    document.getElementById('addBar').hidden = false;
+    document.getElementById('btnPublish').hidden = true;
+    document.getElementById('btnArchive').hidden = true;
+    document.getElementById('btnDuplicate').hidden = true;
+    renderQuestions();
+    document.getElementById('listCard').hidden = true;
+    document.getElementById('editorCard').hidden = false;
+  }
+
+  function closeEditor(){
+    document.getElementById('editorCard').hidden = true;
+    document.getElementById('listCard').hidden = false;
+    CURRENT = null;
+  }
+
+  function renderQuestions(){
+    const el = document.getElementById('questionList');
+    if (!QUESTIONS.length){
+      el.innerHTML = `<div class="tp-empty">No questions yet — add some below.</div>`;
+      return;
+    }
+    el.innerHTML = QUESTIONS.map((q, i) => `
+      <div class="tp-q" data-i="${i}">
+        <span class="tp-q-kind">${KIND_LABEL[q.kind] || q.kind}</span>
+        <div class="tp-q-body">
+          <div class="tp-q-row">
+            <div class="bcn-field-group">
+              <label class="bcn-label">Question</label>
+              <input class="bcn-field" data-f="label" value="${esc(q.label)}" ${LOCKED ? 'disabled' : ''} placeholder="${q.kind === 'goals' ? 'e.g. Goals for the next period' : 'Question text'}" />
+            </div>
+            <div class="bcn-field-group">
+              <label class="bcn-label">Help text (optional)</label>
+              <input class="bcn-field" data-f="help_text" value="${esc(q.help_text)}" ${LOCKED ? 'disabled' : ''} placeholder="Shown under the question" />
+            </div>
+          </div>
+          ${CHOICE_KINDS.includes(q.kind) ? `
+          <div class="bcn-field-group" style="margin:0">
+            <label class="bcn-label">Options — one per line</label>
+            <textarea class="bcn-field" data-f="options" ${LOCKED ? 'disabled' : ''}>${esc(q.options.join('\n'))}</textarea>
+          </div>` : ''}
+          <label class="tp-req">
+            <input type="checkbox" data-f="required" ${q.required ? 'checked' : ''} ${LOCKED ? 'disabled' : ''} /> Required
+          </label>
+        </div>
+        ${LOCKED ? '' : `
+        <div class="tp-q-tools">
+          <button class="bcn-btn bcn-btn--ghost" data-act="up" ${i === 0 ? 'disabled' : ''}>↑</button>
+          <button class="bcn-btn bcn-btn--ghost" data-act="down" ${i === QUESTIONS.length - 1 ? 'disabled' : ''}>↓</button>
+          <button class="bcn-btn bcn-btn--danger" data-act="del">✕</button>
+        </div>`}
+      </div>`).join('');
+
+    el.querySelectorAll('.tp-q').forEach(card => {
+      const i = Number(card.dataset.i);
+      card.querySelectorAll('[data-f]').forEach(input => {
+        input.addEventListener('input', () => {
+          const f = input.dataset.f;
+          if (f === 'required') QUESTIONS[i].required = input.checked;
+          else if (f === 'options') QUESTIONS[i].options = input.value.split('\n').map(s => s.trim()).filter(Boolean);
+          else QUESTIONS[i][f] = input.value;
+        });
+      });
+      card.querySelectorAll('[data-act]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const act = btn.dataset.act;
+          if (act === 'del') QUESTIONS.splice(i, 1);
+          if (act === 'up' && i > 0) [QUESTIONS[i-1], QUESTIONS[i]] = [QUESTIONS[i], QUESTIONS[i-1]];
+          if (act === 'down' && i < QUESTIONS.length - 1) [QUESTIONS[i+1], QUESTIONS[i]] = [QUESTIONS[i], QUESTIONS[i+1]];
+          renderQuestions();
+        });
+      });
+    });
+  }
+
+  document.getElementById('addBar').querySelectorAll('[data-kind]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const kind = btn.dataset.kind;
+      if (kind === 'goals' && QUESTIONS.some(q => q.kind === 'goals')){
+        return setStatus('A template only needs one goals section.', 'info', 3000);
+      }
+      QUESTIONS.push({
+        kind,
+        label: kind === 'goals' ? 'Goals' : '',
+        help_text: '',
+        options: CHOICE_KINDS.includes(kind) ? [] : [],
+        required: true,
+      });
+      renderQuestions();
+    });
+  });
+
+  // ---- save / publish / archive / duplicate --------------------------------
+  function validate(forPublish){
+    const title = document.getElementById('tplTitle').value.trim();
+    if (!title) { setStatus('Template needs a title.', 'neg'); return null; }
+    if (!LOCKED){
+      for (const q of QUESTIONS){
+        if (!q.label.trim()) { setStatus('Every question needs text.', 'neg'); return null; }
+        if (CHOICE_KINDS.includes(q.kind) && q.options.length < 2){
+          setStatus(`"${q.label}" needs at least two options.`, 'neg'); return null;
+        }
+      }
+    }
+    if (forPublish && QUESTIONS.length === 0){ setStatus('Add at least one question before publishing.', 'neg'); return null; }
+    return { title, description: document.getElementById('tplDesc').value.trim() || null };
+  }
+
+  async function saveTemplate(publish){
+    const head = validate(publish);
+    if (!head) return null;
+
+    let tplId = CURRENT?.id;
+    if (!tplId){
+      const { data, error } = await sb.from('review_templates')
+        .insert(cfg.withCompany({ ...head, status:'draft' })).select().single();
+      if (error) { setStatus(`Save failed: ${error.message}`, 'neg'); return null; }
+      tplId = data.id;
+      CURRENT = data;
+    } else {
+      const patch = publish ? { ...head, status:'published' } : head;
+      const { error } = await sb.from('review_templates').update(patch).eq('id', tplId);
+      if (error) { setStatus(`Save failed: ${error.message}`, 'neg'); return null; }
+    }
+
+    if (!LOCKED){
+      // Draft: full question replace is safe — no reviews reference drafts.
+      const { error: delErr } = await sb.from('review_template_questions').delete().eq('template_id', tplId);
+      if (delErr) { setStatus(`Save failed: ${delErr.message}`, 'neg'); return null; }
+      if (QUESTIONS.length){
+        const rows = cfg.withCompanyRows(QUESTIONS.map((q, i) => ({
+          template_id: tplId, position: i, kind: q.kind, label: q.label.trim(),
+          help_text: q.help_text.trim() || null,
+          options: CHOICE_KINDS.includes(q.kind) ? q.options : [],
+          required: q.required,
+        })));
+        const { error: insErr } = await sb.from('review_template_questions').insert(rows);
+        if (insErr) { setStatus(`Save failed: ${insErr.message}`, 'neg'); return null; }
+      }
+    }
+    // Publishing a brand-new template: the insert above created it as draft
+    if (publish && !CURRENT?.status?.match(/published/)){
+      const { error } = await sb.from('review_templates').update({ status:'published' }).eq('id', tplId);
+      if (error) { setStatus(`Publish failed: ${error.message}`, 'neg'); return null; }
+    }
+    return tplId;
+  }
+
+  document.getElementById('btnSave').addEventListener('click', async () => {
+    const id = await saveTemplate(false);
+    if (!id) return;
+    setStatus('Saved.', 'pos', 2000);
+    await loadTemplates();
+    closeEditor();
+  });
+
+  document.getElementById('btnPublish').addEventListener('click', async () => {
+    const id = await saveTemplate(true);
+    if (!id) return;
+    setStatus('Published — managers can now run reviews from this template.', 'pos', 3500);
+    await loadTemplates();
+    closeEditor();
+  });
+
+  document.getElementById('btnArchive').addEventListener('click', async () => {
+    if (!CURRENT) return;
+    const { error } = await sb.from('review_templates').update({ status:'archived' }).eq('id', CURRENT.id);
+    if (error) return setStatus(`Archive failed: ${error.message}`, 'neg');
+    setStatus('Archived — hidden from new reviews. Existing reviews keep their answers.', 'pos', 3500);
+    await loadTemplates();
+    closeEditor();
+  });
+
+  document.getElementById('btnDuplicate').addEventListener('click', async () => {
+    if (!CURRENT) return;
+    const { data: tpl, error } = await sb.from('review_templates')
+      .insert(cfg.withCompany({
+        title: `${CURRENT.title} (copy)`,
+        description: CURRENT.description,
+        status: 'draft',
+      })).select().single();
+    if (error) return setStatus(`Duplicate failed: ${error.message}`, 'neg');
+    if (QUESTIONS.length){
+      const rows = cfg.withCompanyRows(QUESTIONS.map((q, i) => ({
+        template_id: tpl.id, position: i, kind: q.kind, label: q.label,
+        help_text: q.help_text || null, options: q.options, required: q.required,
+      })));
+      const { error: insErr } = await sb.from('review_template_questions').insert(rows);
+      if (insErr) return setStatus(`Duplicate failed: ${insErr.message}`, 'neg');
+    }
+    setStatus('Draft copy created.', 'pos', 2500);
+    await loadTemplates();
+    openEditor(tpl.id);
+  });
+
+  document.getElementById('btnNewTemplate').addEventListener('click', newTemplate);
+  document.getElementById('btnCloseEditor').addEventListener('click', closeEditor);
+
+  // ---- preview ------------------------------------------------------------
+  document.getElementById('btnPreview').addEventListener('click', () => {
+    const title = document.getElementById('tplTitle').value.trim() || 'Untitled template';
+    document.getElementById('pvTitle').textContent = title;
+    document.getElementById('pvBody').innerHTML = QUESTIONS.length ? QUESTIONS.map(q => `
+      <div class="tp-pv-q">
+        <div class="tp-pv-label">${esc(q.label || '(untitled question)')}${q.required ? ' *' : ''}</div>
+        ${q.help_text ? `<div class="tp-pv-help">${esc(q.help_text)}</div>` : ''}
+        ${q.kind === 'scale_1_10' ? `<div class="tp-pv-scale">${Array.from({length:10},(_,n)=>`<span>${n+1}</span>`).join('')}</div>` : ''}
+        ${CHOICE_KINDS.includes(q.kind) ? q.options.map(o => `<div class="tp-pv-opt">${q.kind==='single_choice'?'◯':'☐'} ${esc(o)}</div>`).join('') : ''}
+        ${q.kind === 'free_text' ? `<div class="tp-pv-opt" style="border:1px dashed var(--bcn-border);border-radius:4px;padding:10px;color:var(--bcn-ink-4)">Manager writes here…</div>` : ''}
+        ${q.kind === 'goals' ? `<div class="tp-pv-opt" style="border:1px dashed var(--bcn-border);border-radius:4px;padding:10px;color:var(--bcn-ink-4)">Previous goals (status updates) + new goals for next period</div>` : ''}
+      </div>`).join('') : '<div class="tp-empty">No questions yet.</div>';
+    document.getElementById('dlgPreview').showModal();
+  });
+  document.getElementById('btnClosePreview').addEventListener('click', () => document.getElementById('dlgPreview').close());
+
+  // ---- boot ---------------------------------------------------------------
+  async function boot(){
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session){ window.location.href = '/pages/login.html?next=' + encodeURIComponent(location.pathname); return; }
+    const user = sess.data.session.user;
+
+    const { data: prof } = await sb.from('profiles').select('id, role').eq('id', user.id).single();
+    ME = { id: user.id, role: String(prof?.role || 'user').toLowerCase() };
+
+    if (window.SiloChrome){
+      window.SiloChrome.mount({
+        appEl:'#silo-app', active:'team/reviews',
+        user:{ email:user?.email||'', role: ME.role },
+        crumbs:['Team','Review Templates'],
+        supabaseClient:sb,
+      });
+    }
+
+    if (!['owner','executive'].includes(ME.role)){
+      document.getElementById('listCard').innerHTML =
+        `<div class="tp-empty">Template building is limited to executives. Managers run reviews from published templates on the <a href="/v2/reviews.html">Reviews</a> page.</div>`;
+      document.getElementById('btnNewTemplate').hidden = true;
+      return;
+    }
+
+    await loadTemplates();
+  }
+
+  boot().catch(err => {
+    console.error(err);
+    setStatus(`Unexpected error: ${err?.message || err}`, 'neg');
+  });
+</script>
+</body>
+</html>
