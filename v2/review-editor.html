@@ -91,6 +91,11 @@
         </div>
       </div>
 
+      <div class="bcn-card" id="goalsCard" hidden>
+        <div class="bcn-card-header"><span>Goals</span><span style="font-size:10.5px;color:var(--bcn-ink-3);font-weight:400">Goals follow the employee across review cycles</span></div>
+        <div class="bcn-card-body" id="goalsBody"></div>
+      </div>
+
       <div class="bcn-card">
         <div class="bcn-card-header"><span>Private notes</span><span style="font-size:10.5px;color:var(--bcn-ink-3);font-weight:400">Only you can ever see these — not other managers, not executives, never the employee</span></div>
         <div class="bcn-card-body">
@@ -128,7 +133,7 @@
   }
 
   let ME = null, REVIEW = null, EMPLOYEE = null, QUESTIONS = [], ANSWERS = {}, EDITABLE = true;
-  let PREV_GOALS = [], NEW_GOALS = [];
+  let PREV_GOALS = [], NEW_GOALS = [], HAS_GOALS_QUESTION = false;
   const CHOICE_KINDS = ['single_choice','multi_choice'];
 
   function statusPill(s){
@@ -233,9 +238,24 @@
       const i = Number(row.dataset.new);
       row.querySelector('.re-goal-title').addEventListener('input', (e) => { NEW_GOALS[i].title = e.target.value; });
       row.querySelector('.re-goal-date').addEventListener('input', (e) => { NEW_GOALS[i].target_date = e.target.value || null; });
-      row.querySelector('[data-del]')?.addEventListener('click', () => { NEW_GOALS.splice(i, 1); renderQuestions(); });
+      row.querySelector('[data-del]')?.addEventListener('click', () => { NEW_GOALS.splice(i, 1); refreshGoals(); });
     });
-    card.querySelector('#btnAddGoal')?.addEventListener('click', () => { NEW_GOALS.push({ title:'', target_date:null }); renderQuestions(); });
+    card.querySelector('#btnAddGoal')?.addEventListener('click', () => { NEW_GOALS.push({ title:'', target_date:null }); refreshGoals(); });
+  }
+
+  // Goals live on the EMPLOYEE, not the template — they surface in every
+  // review cycle. Templates with a goals question show them inline at that
+  // position; templates without one get a standalone Goals card, so a
+  // manager picking a goals-less template never loses carry-forward.
+  function refreshGoals(){
+    if (HAS_GOALS_QUESTION){
+      renderQuestions();
+    } else {
+      const body = document.getElementById('goalsBody');
+      body.innerHTML = goalsHtml();
+      bindGoals(body);
+      document.getElementById('goalsCard').hidden = false;
+    }
   }
 
   // ---- notes ----------------------------------------------------------------
@@ -350,15 +370,15 @@
     ANSWERS = {};
     (ans || []).forEach(a => { ANSWERS[a.question_id] = { value: a.value || {} }; });
 
-    if (QUESTIONS.some(q => q.kind === 'goals')){
-      const { data: goals } = await sb.from('employee_goals')
-        .select('*').eq('employee_id', review.employee_id).order('created_at');
-      PREV_GOALS = (goals || []).filter(g => g.review_id !== REVIEW_ID && ['open','carried'].includes(g.status));
-      NEW_GOALS = (goals || []).filter(g => g.review_id === REVIEW_ID)
-        .map(g => ({ id: g.id, title: g.title, target_date: g.target_date }));
-    }
+    HAS_GOALS_QUESTION = QUESTIONS.some(q => q.kind === 'goals');
+    const { data: goals } = await sb.from('employee_goals')
+      .select('*').eq('employee_id', review.employee_id).order('created_at');
+    PREV_GOALS = (goals || []).filter(g => g.review_id !== REVIEW_ID && ['open','carried'].includes(g.status));
+    NEW_GOALS = (goals || []).filter(g => g.review_id === REVIEW_ID)
+      .map(g => ({ id: g.id, title: g.title, target_date: g.target_date }));
 
     renderQuestions();
+    if (!HAS_GOALS_QUESTION) refreshGoals();
     await loadNotes();
   }
 
