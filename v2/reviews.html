@@ -258,7 +258,11 @@
   async function loadRoster(){
     const { data, error } = await sb.from('employees').select('*').order('name');
     if (error) return setStatus(`Roster load failed: ${error.message}`, 'neg');
-    ROSTER = data || [];
+    // The DB also returns the caller's OWN employee record when their SILO
+    // profile is linked (that self-visibility feeds the employee-facing
+    // "my review" page). This page is the manager view — only show people
+    // the caller actually manages, unless they're exec/owner.
+    ROSTER = (data || []).filter(e => IS_EXEC || e.manager_user_id === ME.id);
     renderRoster();
   }
 
