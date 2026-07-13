@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Review</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <style>
+    .re-content { flex:1; padding:16px 18px 28px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:14px; }
+    .re-content > .bcn-card { flex-shrink:0; }
+
+    .re-q { padding:14px 16px; border-bottom:1px solid var(--bcn-border); }
+    .re-q:last-child { border-bottom:none; }
+    .re-q-label { font-weight:650; font-size:13.5px; color:var(--bcn-ink); }
+    .re-q-help { font-size:11.5px; color:var(--bcn-ink-3); margin-top:2px; }
+    .re-q-input { margin-top:10px; }
+    .re-q textarea.bcn-field { min-height:88px; resize:vertical; width:100%; }
+
+    .re-scale { display:flex; gap:6px; flex-wrap:wrap; }
+    .re-scale button {
+      width:36px; height:36px; border:1px solid var(--bcn-border); border-radius:var(--bcn-radius);
+      background:var(--bcn-surface); font-family:var(--bcn-mono); font-size:13px; cursor:pointer;
+      color:var(--bcn-ink-2);
+    }
+    .re-scale button.sel { background:var(--bcn-band); color:var(--bcn-band-ink); border-color:var(--bcn-band); font-weight:600; }
+
+    .re-choice { display:flex; flex-direction:column; gap:6px; }
+    .re-choice label { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--bcn-ink-2); cursor:pointer; }
+
+    .re-goal-row { display:flex; gap:8px; align-items:center; padding:8px 0; border-bottom:1px dashed var(--bcn-border); flex-wrap:wrap; }
+    .re-goal-row:last-child { border-bottom:none; }
+    .re-goal-title { flex:2; min-width:180px; }
+    .re-goal-date { width:140px; }
+    .re-goal-status { width:130px; }
+    .re-goal-meta { font-size:11px; color:var(--bcn-ink-3); width:100%; }
+    .re-subhead { font-family:var(--bcn-mono); font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--bcn-ink-3); margin:12px 0 4px; }
+
+    .re-note { padding:10px 12px; border:1px solid var(--bcn-border); border-radius:var(--bcn-radius); background:var(--bcn-sunken); margin-bottom:8px; }
+    .re-note-body { font-size:12.5px; color:var(--bcn-ink-2); white-space:pre-wrap; }
+    .re-note-meta { font-size:10.5px; color:var(--bcn-ink-3); margin-top:6px; font-family:var(--bcn-mono); }
+
+    .re-empty { padding:24px; text-align:center; color:var(--bcn-ink-3); font-size:12.5px; }
+    .re-req { color:var(--bcn-neg); }
+  </style>
+</head>
+<body class="silo-brand">
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0">
+        <div class="bcn-header-title">
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Team</span>
+        </div>
+        <h1 id="pageTitle">Review</h1>
+        <div class="bcn-header-sub" id="pageSub">Loading…</div>
+      </div>
+      <div class="bcn-header-actions">
+        <span id="statusPill"></span>
+        <a class="bcn-btn bcn-btn--ghost" href="/v2/reviews.html">← Board</a>
+        <button class="bcn-btn bcn-btn--primary" id="btnSave">Save draft</button>
+        <button class="bcn-btn bcn-btn--dark" id="btnSend" disabled title="Sending to the employee ships in the next phase">Send to employee</button>
+      </div>
+    </header>
+
+    <div class="bcn-status" id="status" hidden></div>
+
+    <div class="re-content">
+      <div class="bcn-card">
+        <div class="bcn-card-header"><span>Review details</span></div>
+        <div class="bcn-card-body" style="display:flex;gap:12px;flex-wrap:wrap">
+          <div class="bcn-field-group" style="flex:1;min-width:200px;margin:0">
+            <label class="bcn-label" for="periodLabel">Review period</label>
+            <input class="bcn-field" id="periodLabel" type="text" placeholder="e.g. 2026 Annual" />
+          </div>
+          <div class="bcn-field-group" style="flex:2;min-width:220px;margin:0">
+            <label class="bcn-label">Template</label>
+            <input class="bcn-field" id="templateName" type="text" disabled />
+          </div>
+        </div>
+      </div>
+
+      <div class="bcn-card">
+        <div class="bcn-card-header"><span>Questions</span></div>
+        <div class="bcn-card-body" style="padding:0" id="questionList">
+          <div class="re-empty">Loading…</div>
+        </div>
+      </div>
+
+      <div class="bcn-card">
+        <div class="bcn-card-header"><span>Private notes</span><span style="font-size:10.5px;color:var(--bcn-ink-3);font-weight:400">Only you can ever see these — not other managers, not executives, never the employee</span></div>
+        <div class="bcn-card-body">
+          <div id="notesList"></div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <textarea class="bcn-field" id="noteInput" placeholder="Add a private note…" style="flex:1;min-height:56px;resize:vertical"></textarea>
+            <button class="bcn-btn bcn-btn--ghost" id="btnAddNote" style="align-self:flex-end">Add</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) throw new Error('Missing Supabase config');
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const esc = (s) => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+  const REVIEW_ID = new URLSearchParams(location.search).get('id');
+
+  function setStatus(msg, type='info', ms=0){
+    const s = document.getElementById('status');
+    s.className = `bcn-status bcn-status--${type}`;
+    s.textContent = msg; s.hidden = false;
+    if (ms) setTimeout(()=>{ s.hidden = true; }, ms);
+  }
+
+  let ME = null, REVIEW = null, EMPLOYEE = null, QUESTIONS = [], ANSWERS = {}, EDITABLE = true;
+  let PREV_GOALS = [], NEW_GOALS = [];
+  const CHOICE_KINDS = ['single_choice','multi_choice'];
+
+  function statusPill(s){
+    const el = document.getElementById('statusPill');
+    if (s === 'finished') el.innerHTML = '<span class="bcn-pill bcn-pill--pos">Finished</span>';
+    else if (s === 'sent') el.innerHTML = '<span class="bcn-pill bcn-pill--accent">Sent — awaiting employee</span>';
+    else el.innerHTML = '<span class="bcn-pill">Draft</span>';
+  }
+
+  // ---- questions ----------------------------------------------------------
+  function renderQuestions(){
+    const el = document.getElementById('questionList');
+    if (!QUESTIONS.length){ el.innerHTML = '<div class="re-empty">Template has no questions.</div>'; return; }
+    el.innerHTML = QUESTIONS.map(q => `
+      <div class="re-q" data-qid="${esc(q.id)}">
+        <div class="re-q-label">${esc(q.label)}${q.required ? ' <span class="re-req">*</span>' : ''}</div>
+        ${q.help_text ? `<div class="re-q-help">${esc(q.help_text)}</div>` : ''}
+        <div class="re-q-input">${inputHtml(q)}</div>
+      </div>`).join('');
+    QUESTIONS.forEach(q => bindInput(q));
+  }
+
+  function inputHtml(q){
+    const v = ANSWERS[q.id]?.value || {};
+    const dis = EDITABLE ? '' : 'disabled';
+    if (q.kind === 'free_text')
+      return `<textarea class="bcn-field" data-input ${dis}>${esc(v.text || '')}</textarea>`;
+    if (q.kind === 'scale_1_10')
+      return `<div class="re-scale">${Array.from({length:10},(_,i)=>
+        `<button type="button" data-score="${i+1}" class="${v.score === i+1 ? 'sel' : ''}" ${dis}>${i+1}</button>`).join('')}</div>`;
+    if (q.kind === 'single_choice')
+      return `<div class="re-choice">${(q.options||[]).map(o =>
+        `<label><input type="radio" name="q_${q.id}" value="${esc(o)}" ${v.choice === o ? 'checked' : ''} ${dis}/> ${esc(o)}</label>`).join('')}</div>`;
+    if (q.kind === 'multi_choice')
+      return `<div class="re-choice">${(q.options||[]).map(o =>
+        `<label><input type="checkbox" value="${esc(o)}" ${(v.choices||[]).includes(o) ? 'checked' : ''} ${dis}/> ${esc(o)}</label>`).join('')}</div>`;
+    if (q.kind === 'goals') return goalsHtml();
+    return '';
+  }
+
+  function bindInput(q){
+    const card = document.querySelector(`[data-qid="${q.id}"]`);
+    if (!card || !EDITABLE) return;
+    if (q.kind === 'free_text'){
+      card.querySelector('[data-input]').addEventListener('input', (e) => {
+        ANSWERS[q.id] = { value: { text: e.target.value } };
+      });
+    } else if (q.kind === 'scale_1_10'){
+      card.querySelectorAll('[data-score]').forEach(btn => btn.addEventListener('click', () => {
+        ANSWERS[q.id] = { value: { score: Number(btn.dataset.score) } };
+        card.querySelectorAll('[data-score]').forEach(b => b.classList.toggle('sel', b === btn));
+      }));
+    } else if (q.kind === 'single_choice'){
+      card.querySelectorAll('input[type=radio]').forEach(r => r.addEventListener('change', () => {
+        if (r.checked) ANSWERS[q.id] = { value: { choice: r.value } };
+      }));
+    } else if (q.kind === 'multi_choice'){
+      card.querySelectorAll('input[type=checkbox]').forEach(c => c.addEventListener('change', () => {
+        const picked = [...card.querySelectorAll('input[type=checkbox]:checked')].map(x => x.value);
+        ANSWERS[q.id] = { value: { choices: picked } };
+      }));
+    } else if (q.kind === 'goals'){
+      bindGoals(card);
+    }
+  }
+
+  // ---- goals ----------------------------------------------------------------
+  const GOAL_STATUSES = ['open','achieved','dropped','carried'];
+
+  function goalsHtml(){
+    const dis = EDITABLE ? '' : 'disabled';
+    const prev = PREV_GOALS.length ? PREV_GOALS.map((g, i) => `
+      <div class="re-goal-row" data-prev="${i}">
+        <div class="re-goal-title" style="font-size:13px">${esc(g.title)}${g.target_date ? ` <span style="color:var(--bcn-ink-3);font-size:11px">(target ${esc(g.target_date)})</span>` : ''}</div>
+        <select class="bcn-field re-goal-status" ${dis}>
+          ${GOAL_STATUSES.map(s => `<option value="${s}" ${g.status === s ? 'selected' : ''}>${s}</option>`).join('')}
+        </select>
+      </div>`).join('') : '<div class="re-empty" style="padding:10px">No open goals from prior periods.</div>';
+
+    const added = NEW_GOALS.map((g, i) => `
+      <div class="re-goal-row" data-new="${i}">
+        <input class="bcn-field re-goal-title" placeholder="Goal" value="${esc(g.title)}" ${dis} />
+        <input class="bcn-field re-goal-date" type="date" value="${esc(g.target_date || '')}" ${dis} />
+        ${EDITABLE ? '<button type="button" class="bcn-btn bcn-btn--ghost" data-del>✕</button>' : ''}
+      </div>`).join('');
+
+    return `
+      <div class="re-subhead">Previous goals — update status</div>
+      ${prev}
+      <div class="re-subhead">New goals for next period</div>
+      <div id="newGoals">${added || ''}</div>
+      ${EDITABLE ? '<button type="button" class="bcn-btn bcn-btn--ghost" id="btnAddGoal" style="margin-top:8px">+ Add goal</button>' : ''}
+    `;
+  }
+
+  function bindGoals(card){
+    card.querySelectorAll('[data-prev]').forEach(row => {
+      const i = Number(row.dataset.prev);
+      row.querySelector('select').addEventListener('change', (e) => { PREV_GOALS[i].status = e.target.value; PREV_GOALS[i]._dirty = true; });
+    });
+    card.querySelectorAll('[data-new]').forEach(row => {
+      const i = Number(row.dataset.new);
+      row.querySelector('.re-goal-title').addEventListener('input', (e) => { NEW_GOALS[i].title = e.target.value; });
+      row.querySelector('.re-goal-date').addEventListener('input', (e) => { NEW_GOALS[i].target_date = e.target.value || null; });
+      row.querySelector('[data-del]')?.addEventListener('click', () => { NEW_GOALS.splice(i, 1); renderQuestions(); });
+    });
+    card.querySelector('#btnAddGoal')?.addEventListener('click', () => { NEW_GOALS.push({ title:'', target_date:null }); renderQuestions(); });
+  }
+
+  // ---- notes ----------------------------------------------------------------
+  async function loadNotes(){
+    const { data } = await sb.from('review_private_notes').select('*').eq('review_id', REVIEW_ID).order('created_at');
+    const el = document.getElementById('notesList');
+    el.innerHTML = (data || []).map(n => `
+      <div class="re-note">
+        <div class="re-note-body">${esc(n.body)}</div>
+        <div class="re-note-meta">${new Date(n.created_at).toLocaleString('en-US',{dateStyle:'medium',timeStyle:'short'})}</div>
+      </div>`).join('') || '<div class="re-empty" style="padding:8px">No notes yet.</div>';
+  }
+
+  document.getElementById('btnAddNote').addEventListener('click', async () => {
+    const body = document.getElementById('noteInput').value.trim();
+    if (!body) return;
+    const { error } = await sb.from('review_private_notes').insert(cfg.withCompany({ review_id: REVIEW_ID, body }));
+    if (error) return setStatus(`Note failed: ${error.message}`, 'neg');
+    document.getElementById('noteInput').value = '';
+    await loadNotes();
+  });
+
+  // ---- save -----------------------------------------------------------------
+  document.getElementById('btnSave').addEventListener('click', async () => {
+    if (!EDITABLE) return;
+    const btn = document.getElementById('btnSave');
+    btn.disabled = true;
+    try {
+      const { error: rErr } = await sb.from('reviews')
+        .update({ period_label: document.getElementById('periodLabel').value.trim() || null })
+        .eq('id', REVIEW_ID);
+      if (rErr) throw new Error(rErr.message);
+
+      const rows = Object.entries(ANSWERS).map(([qid, a]) => cfg.withCompany({
+        review_id: REVIEW_ID, question_id: qid, value: a.value,
+      }));
+      if (rows.length){
+        const { error } = await sb.from('review_answers').upsert(rows, { onConflict: 'review_id,question_id' });
+        if (error) throw new Error(error.message);
+      }
+
+      for (const g of PREV_GOALS.filter(g => g._dirty)){
+        const { error } = await sb.from('employee_goals').update({ status: g.status }).eq('id', g.id);
+        if (error) throw new Error(error.message);
+        delete g._dirty;
+      }
+
+      const newRows = NEW_GOALS.filter(g => g.title.trim() && !g.id);
+      if (newRows.length){
+        const { data, error } = await sb.from('employee_goals').insert(cfg.withCompanyRows(newRows.map(g => ({
+          employee_id: REVIEW.employee_id, review_id: REVIEW_ID,
+          title: g.title.trim(), target_date: g.target_date || null, status: 'open',
+        })))).select();
+        if (error) throw new Error(error.message);
+        (data || []).forEach((row, i) => { newRows[i].id = row.id; });
+      }
+      for (const g of NEW_GOALS.filter(g => g.id && g.title.trim())){
+        const { error } = await sb.from('employee_goals')
+          .update({ title: g.title.trim(), target_date: g.target_date || null }).eq('id', g.id);
+        if (error) throw new Error(error.message);
+      }
+
+      setStatus('Draft saved.', 'pos', 2500);
+    } catch (err) {
+      setStatus(`Save failed: ${err.message}`, 'neg');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // ---- boot -------------------------------------------------------------------
+  async function boot(){
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session){ window.location.href = '/pages/login.html?next=' + encodeURIComponent(location.pathname + location.search); return; }
+    const user = sess.data.session.user;
+
+    if (window.SiloChrome){
+      window.SiloChrome.mount({
+        appEl:'#silo-app', active:'team/reviews',
+        user:{ email:user?.email||'', role:'admin' },
+        crumbs:['Team','Review'],
+        supabaseClient:sb,
+      });
+    }
+
+    if (!REVIEW_ID){ setStatus('No review id in URL.', 'neg'); return; }
+
+    const { data: review, error } = await sb.from('reviews')
+      .select('*, employees(name, email, job_title, location), review_templates(title)')
+      .eq('id', REVIEW_ID).single();
+    if (error || !review){ setStatus('Review not found or you do not have access to it.', 'neg'); return; }
+
+    REVIEW = review;
+    EMPLOYEE = review.employees;
+    EDITABLE = review.status === 'draft';
+    ME = user.id;
+
+    document.getElementById('pageTitle').textContent = `Review — ${EMPLOYEE?.name || 'Employee'}`;
+    document.getElementById('pageSub').textContent =
+      [EMPLOYEE?.job_title, EMPLOYEE?.location, EMPLOYEE?.email].filter(Boolean).join(' · ');
+    document.getElementById('templateName').value = review.review_templates?.title || '';
+    document.getElementById('periodLabel').value = review.period_label || '';
+    document.getElementById('periodLabel').disabled = !EDITABLE;
+    document.getElementById('btnSave').hidden = !EDITABLE;
+    statusPill(review.status);
+
+    const { data: qs } = await sb.from('review_template_questions')
+      .select('*').eq('template_id', review.template_id).order('position');
+    QUESTIONS = qs || [];
+
+    const { data: ans } = await sb.from('review_answers').select('*').eq('review_id', REVIEW_ID);
+    ANSWERS = {};
+    (ans || []).forEach(a => { ANSWERS[a.question_id] = { value: a.value || {} }; });
+
+    if (QUESTIONS.some(q => q.kind === 'goals')){
+      const { data: goals } = await sb.from('employee_goals')
+        .select('*').eq('employee_id', review.employee_id).order('created_at');
+      PREV_GOALS = (goals || []).filter(g => g.review_id !== REVIEW_ID && ['open','carried'].includes(g.status));
+      NEW_GOALS = (goals || []).filter(g => g.review_id === REVIEW_ID)
+        .map(g => ({ id: g.id, title: g.title, target_date: g.target_date }));
+    }
+
+    renderQuestions();
+    await loadNotes();
+  }
+
+  boot().catch(err => {
+    console.error(err);
+    setStatus(`Unexpected error: ${err?.message || err}`, 'neg');
+  });
+</script>
+</body>
+</html>

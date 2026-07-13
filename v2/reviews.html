@@ -101,9 +101,21 @@
       </div>
 
       <div id="tabBoard" class="bcn-card" hidden>
-        <div class="bcn-card-header"><span>Review board</span></div>
-        <div class="bcn-card-body">
-          <div class="rv-empty">Review cycles land here next — statuses per employee (not started, sent, awaiting signature, finished).</div>
+        <div class="bcn-card-header">
+          <span>Review board</span>
+          <button class="bcn-btn bcn-btn--primary" id="btnStartReview">Start review</button>
+        </div>
+        <div class="bcn-card-body" style="padding:0">
+          <div class="rv-table-wrap">
+            <table class="rv-table">
+              <thead>
+                <tr><th>Employee</th><th>Template</th><th>Period</th><th>Status</th><th>Updated</th><th></th></tr>
+              </thead>
+              <tbody id="boardBody">
+                <tr><td colspan="6"><div class="rv-empty">Loading…</div></td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -142,6 +154,34 @@
     <div class="rv-dialog-foot">
       <button type="button" class="bcn-btn bcn-btn--ghost" data-close="dlgEmployee">Cancel</button>
       <button type="submit" class="bcn-btn bcn-btn--primary" id="btnSaveEmployee">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="rv-dialog" id="dlgStartReview">
+  <div class="rv-dialog-head">
+    <span class="rv-dialog-title">Start a review</span>
+    <button class="bcn-btn bcn-btn--ghost" data-close="dlgStartReview">✕</button>
+  </div>
+  <form id="formStartReview" method="dialog">
+    <div class="rv-dialog-body">
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="srEmployee">Employee</label>
+        <select class="bcn-field" id="srEmployee" required></select>
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="srTemplate">Template</label>
+        <select class="bcn-field" id="srTemplate" required></select>
+        <div class="rv-sub" id="srTemplateHint" style="margin-top:4px"></div>
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="srPeriod">Review period</label>
+        <input class="bcn-field" id="srPeriod" type="text" placeholder="e.g. 2026 Annual" />
+      </div>
+    </div>
+    <div class="rv-dialog-foot">
+      <button type="button" class="bcn-btn bcn-btn--ghost" data-close="dlgStartReview">Cancel</button>
+      <button type="submit" class="bcn-btn bcn-btn--primary" id="btnCreateReview">Create draft</button>
     </div>
   </form>
 </dialog>
@@ -267,10 +307,81 @@
     renderRoster();
   }
 
-  async function loadReviewCount(){
-    const { count, error } = await sb.from('reviews').select('id', { count:'exact', head:true });
-    document.getElementById('kpiReviews').textContent = error ? '—' : (count ?? 0);
+  let BOARD = [];
+
+  function reviewStatusPill(s){
+    if (s === 'finished') return '<span class="bcn-pill bcn-pill--pos">Finished</span>';
+    if (s === 'sent') return '<span class="bcn-pill bcn-pill--accent">Sent</span>';
+    return '<span class="bcn-pill">Draft</span>';
   }
+
+  async function loadBoard(){
+    const { data, error } = await sb.from('reviews')
+      .select('*, employees(name, email, manager_user_id), review_templates(title)')
+      .order('updated_at', { ascending:false });
+    if (error) return setStatus(`Board load failed: ${error.message}`, 'neg');
+    // Same manager-view rule as the roster: only reviews I run, unless exec.
+    BOARD = (data || []).filter(r => IS_EXEC || r.manager_user_id === ME.id);
+    document.getElementById('kpiReviews').textContent = BOARD.length;
+
+    const body = document.getElementById('boardBody');
+    if (!BOARD.length){
+      body.innerHTML = `<tr><td colspan="6"><div class="rv-empty">No reviews yet. Add employees to your roster, then Start review.</div></td></tr>`;
+      return;
+    }
+    body.innerHTML = BOARD.map(r => `
+      <tr>
+        <td><div class="rv-name">${esc(r.employees?.name || '—')}</div><div class="rv-sub">${esc(r.employees?.email || '')}</div></td>
+        <td>${esc(r.review_templates?.title || '—')}</td>
+        <td>${esc(r.period_label || '') || '<span class="rv-muted">—</span>'}</td>
+        <td>${reviewStatusPill(r.status)}</td>
+        <td class="rv-sub">${new Date(r.updated_at).toLocaleDateString('en-US',{dateStyle:'medium'})}</td>
+        <td style="text-align:right"><a class="bcn-btn bcn-btn--ghost" href="/v2/review-editor.html?id=${esc(r.id)}">Open</a></td>
+      </tr>`).join('');
+  }
+
+  // ---- start review -------------------------------------------------------
+  document.getElementById('btnStartReview').addEventListener('click', async () => {
+    const active = ROSTER.filter(e => e.is_active);
+    if (!active.length) return setStatus('Add employees to your roster first.', 'info', 3500);
+
+    document.getElementById('srEmployee').innerHTML =
+      active.map(e => `<option value="${esc(e.id)}">${esc(e.name)} — ${esc(e.email)}</option>`).join('');
+
+    const { data: tpls, error } = await sb.from('review_templates')
+      .select('id, title, description').eq('status', 'published').order('title');
+    if (error) return setStatus(`Templates load failed: ${error.message}`, 'neg');
+    if (!tpls?.length) return setStatus('No published templates yet — an executive needs to publish one first.', 'info', 4500);
+
+    const sel = document.getElementById('srTemplate');
+    sel.innerHTML = tpls.map(t => `<option value="${esc(t.id)}" data-desc="${esc(t.description || '')}">${esc(t.title)}</option>`).join('');
+    const hint = () => { document.getElementById('srTemplateHint').textContent = sel.selectedOptions[0]?.dataset.desc || ''; };
+    sel.onchange = hint; hint();
+
+    document.getElementById('srPeriod').value = `${new Date().getFullYear()} Annual`;
+    document.getElementById('dlgStartReview').showModal();
+  });
+
+  document.getElementById('formStartReview').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('btnCreateReview');
+    btn.disabled = true;
+    try {
+      const employeeId = document.getElementById('srEmployee').value;
+      const emp = ROSTER.find(x => x.id === employeeId);
+      const { data, error } = await sb.from('reviews').insert(cfg.withCompany({
+        template_id: document.getElementById('srTemplate').value,
+        employee_id: employeeId,
+        manager_user_id: IS_EXEC && emp ? emp.manager_user_id : ME.id,
+        period_label: document.getElementById('srPeriod').value.trim() || null,
+      })).select().single();
+      if (error) throw new Error(error.message);
+      window.location.href = `/v2/review-editor.html?id=${data.id}`;
+    } catch (err) {
+      setStatus(`Could not create review: ${err.message}`, 'neg');
+      btn.disabled = false;
+    }
+  });
 
   // ---- add employee -----------------------------------------------------
   document.getElementById('btnAddEmployee').addEventListener('click', () => {
@@ -436,7 +547,7 @@
       } catch { /* fall back to self-managed */ }
     }
 
-    await Promise.all([loadRoster(), loadReviewCount()]);
+    await Promise.all([loadRoster(), loadBoard()]);
   }
 
   boot().catch(err => {
