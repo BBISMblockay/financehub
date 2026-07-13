@@ -36,6 +36,7 @@ Architecture: one Supabase project, multiple companies isolated at the DB level.
 - [ ] Per-company nav menu — hide Baseballism-specific sections (AR, payroll, legacy finance) when on a non-Baseballism entity → see `docs/ops/nav-profiles.md` (PR in progress)
 - [x] Insert-side `company_entity_id` wiring — DB `BEFORE INSERT` trigger + `withCompany()` helpers in `pages/config.js` (no per-page patches required)
 - [ ] Company switcher in the sidebar (without requiring full logout/login)
+- [ ] Invite-based onboarding for new companies — today, `pages/login.html`'s "Create account" only creates a bare `auth.users` + `profiles` row; nothing creates an `access_requests` row, and nothing lets a signup declare which company it belongs to. Fine for Baseballism-only rollout (manual `profiles`/`entity_memberships` edits in Supabase Studio), but not safe once a second real company exists — an open signup form can't be trusted to self-select the right tenant. Needed before onboarding another client: an `invites` table + admin UI (Backend Hub) to generate a token scoped to company/department/role, and an accept-invite page that sets a password without ever letting the invitee choose the company.
 
 ---
 
