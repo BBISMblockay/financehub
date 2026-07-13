@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SILO · Performance Reviews</title>
+  <link rel="stylesheet" href="beacon.css" />
+  <link rel="stylesheet" href="silo-brand.css" />
+  <link rel="stylesheet" href="beacon-mirrors-unified.css" />
+  <link rel="stylesheet" href="v2-mobile.css" />
+  <script src="v2-shell.js" defer></script>
+  <style>
+    .rv-content { flex:1; padding:16px 18px 28px; overflow-y:auto; min-height:0; display:flex; flex-direction:column; gap:14px; }
+    .rv-content > .bcn-card { flex-shrink:0; }
+
+    .rv-toolbar { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .rv-toolbar .bcn-field { max-width:260px; }
+    .rv-spacer { flex:1; }
+
+    .rv-table-wrap { overflow-x:auto; }
+    .rv-table { width:100%; border-collapse:collapse; font-size:12.5px; }
+    .rv-table th {
+      text-align:left; font-family:var(--bcn-mono); font-size:10px; text-transform:uppercase;
+      letter-spacing:.06em; color:var(--bcn-ink-3); font-weight:600;
+      padding:8px 10px; border-bottom:1px solid var(--bcn-border); white-space:nowrap;
+    }
+    .rv-table td { padding:9px 10px; border-bottom:1px solid var(--bcn-border); vertical-align:middle; }
+    .rv-table tr:last-child td { border-bottom:none; }
+    .rv-name { font-weight:650; color:var(--bcn-ink); }
+    .rv-sub { font-size:11px; color:var(--bcn-ink-3); }
+    .rv-muted { color:var(--bcn-ink-3); }
+    .rv-inactive td { opacity:.5; }
+
+    .rv-empty { padding:36px; text-align:center; color:var(--bcn-ink-3); font-size:12.5px; }
+
+    dialog.rv-dialog {
+      border:1px solid var(--bcn-border); border-radius:6px; padding:0;
+      width:min(480px, calc(100vw - 32px)); background:var(--bcn-surface); color:var(--bcn-ink);
+    }
+    dialog.rv-dialog::backdrop { background:rgba(10,14,20,.45); }
+    .rv-dialog-head { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--bcn-border); }
+    .rv-dialog-title { font-weight:700; font-size:14px; }
+    .rv-dialog-body { padding:16px; display:flex; flex-direction:column; gap:12px; }
+    .rv-dialog-foot { padding:12px 16px; border-top:1px solid var(--bcn-border); display:flex; justify-content:flex-end; gap:8px; }
+
+    .rv-csv-preview { max-height:240px; overflow:auto; border:1px solid var(--bcn-border); border-radius:var(--bcn-radius); }
+    .rv-csv-hint { font-size:11.5px; color:var(--bcn-ink-3); line-height:1.5; }
+    .rv-csv-hint code { font-family:var(--bcn-mono); font-size:10.5px; background:var(--bcn-sunken); padding:1px 4px; border-radius:3px; }
+  </style>
+</head>
+<body class="silo-brand">
+<div id="silo-app" class="silo-app">
+  <main class="silo-main">
+
+    <header class="bcn-header">
+      <div style="flex:1;min-width:0">
+        <div class="bcn-header-title">
+          <span style="font-family:var(--bcn-mono);font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--bcn-ink-3)">Team</span>
+        </div>
+        <h1>Performance Reviews</h1>
+        <div class="bcn-header-sub">Your employee roster and review cycles. Managers see only their own roster; executives see everyone.</div>
+      </div>
+      <div class="bcn-header-actions">
+        <button class="bcn-btn bcn-btn--ghost" id="btnImportCsv">Import CSV</button>
+        <button class="bcn-btn bcn-btn--primary" id="btnAddEmployee">Add employee</button>
+      </div>
+    </header>
+
+    <div class="bcn-kpi-band">
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Roster</div><div id="kpiTotal" class="bcn-kpi-value">—</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Active</div><div id="kpiActive" class="bcn-kpi-value">—</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">SILO login linked</div><div id="kpiLinked" class="bcn-kpi-value">—</div></div>
+      <div class="bcn-kpi"><div class="bcn-kpi-label">Reviews</div><div id="kpiReviews" class="bcn-kpi-value">—</div></div>
+    </div>
+
+    <div class="bcn-status" id="status" hidden></div>
+
+    <div class="rv-content">
+      <div class="bcn-tabs">
+        <button class="bcn-tab bcn-tab--active" data-tab="roster">Roster</button>
+        <button class="bcn-tab" data-tab="board">Review Board</button>
+      </div>
+
+      <div id="tabRoster" class="bcn-card">
+        <div class="bcn-card-header"><span>Employee roster</span></div>
+        <div class="bcn-card-body" style="padding:0">
+          <div class="rv-table-wrap">
+            <table class="rv-table">
+              <thead>
+                <tr>
+                  <th>Employee</th><th>Location</th><th>Job title</th><th>Manager</th><th>SILO login</th><th>Status</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="rosterBody">
+                <tr><td colspan="7"><div class="rv-empty">Loading…</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="tabBoard" class="bcn-card" hidden>
+        <div class="bcn-card-header"><span>Review board</span></div>
+        <div class="bcn-card-body">
+          <div class="rv-empty">Review cycles land here next — statuses per employee (not started, sent, awaiting signature, finished).</div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<dialog class="rv-dialog" id="dlgEmployee">
+  <div class="rv-dialog-head">
+    <span class="rv-dialog-title" id="dlgEmployeeTitle">Add employee</span>
+    <button class="bcn-btn bcn-btn--ghost" data-close="dlgEmployee">✕</button>
+  </div>
+  <form id="formEmployee" method="dialog">
+    <div class="rv-dialog-body">
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="empName">Name</label>
+        <input class="bcn-field" id="empName" type="text" required placeholder="Full name" />
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="empEmail">Email</label>
+        <input class="bcn-field" id="empEmail" type="email" required placeholder="name@example.com" />
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="empLocation">Location / store</label>
+        <input class="bcn-field" id="empLocation" type="text" placeholder="e.g. Atlanta" />
+      </div>
+      <div class="bcn-field-group">
+        <label class="bcn-label" for="empTitle">Job title</label>
+        <input class="bcn-field" id="empTitle" type="text" placeholder="e.g. Sales Associate" />
+      </div>
+      <div class="bcn-field-group" id="managerFieldWrap" hidden>
+        <label class="bcn-label" for="empManager">Manager</label>
+        <select class="bcn-field" id="empManager"></select>
+      </div>
+    </div>
+    <div class="rv-dialog-foot">
+      <button type="button" class="bcn-btn bcn-btn--ghost" data-close="dlgEmployee">Cancel</button>
+      <button type="submit" class="bcn-btn bcn-btn--primary" id="btnSaveEmployee">Save</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog class="rv-dialog" id="dlgCsv" style="width:min(640px, calc(100vw - 32px))">
+  <div class="rv-dialog-head">
+    <span class="rv-dialog-title">Import roster from CSV</span>
+    <button class="bcn-btn bcn-btn--ghost" data-close="dlgCsv">✕</button>
+  </div>
+  <div class="rv-dialog-body">
+    <div class="rv-csv-hint">
+      Header row required: <code>name,email,location,job_title</code> (location and job_title optional).
+      Imported employees are assigned to <span id="csvManagerNote">you</span> as manager. Duplicate emails are skipped.
+    </div>
+    <input class="bcn-field" type="file" id="csvFile" accept=".csv,text/csv" />
+    <div class="rv-csv-preview" id="csvPreview" hidden>
+      <table class="rv-table">
+        <thead><tr><th>Name</th><th>Email</th><th>Location</th><th>Job title</th></tr></thead>
+        <tbody id="csvPreviewBody"></tbody>
+      </table>
+    </div>
+    <div class="rv-sub" id="csvSummary"></div>
+  </div>
+  <div class="rv-dialog-foot">
+    <button type="button" class="bcn-btn bcn-btn--ghost" data-close="dlgCsv">Cancel</button>
+    <button type="button" class="bcn-btn bcn-btn--primary" id="btnRunImport" disabled>Import</button>
+  </div>
+</dialog>
+
+<script src="../pages/config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="nav-config.js"></script>
+<script src="silo-chrome.js"></script>
+<script>
+  const cfg = window.__SILO_CONFIG__ || {};
+  const SUPABASE_URL = cfg.SUPABASE_URL || '';
+  const SUPABASE_ANON_KEY = cfg.SUPABASE_ANON_KEY || '';
+
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    document.querySelector('.silo-main').innerHTML =
+      `<div style="padding:48px;text-align:center"><div style="font-weight:700;color:var(--bcn-ink)">Missing Supabase config</div></div>`;
+    throw new Error('Missing Supabase config');
+  }
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  const esc = (s) => String(s??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+
+  function setStatus(msg, type='info', ms=0){
+    const s = document.getElementById('status');
+    s.className = `bcn-status bcn-status--${type}`;
+    s.textContent = msg; s.hidden = false;
+    if (ms) setTimeout(()=>{ s.hidden = true; }, ms);
+  }
+
+  let ME = null;            // { id, email, role }
+  let IS_EXEC = false;      // owner/executive
+  let MANAGERS = [];        // [{id,name,email}] for exec dropdown
+  let ROSTER = [];
+
+  // ---- tabs -------------------------------------------------------------
+  document.querySelectorAll('.bcn-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.bcn-tab').forEach(t => t.classList.toggle('bcn-tab--active', t === tab));
+      document.getElementById('tabRoster').hidden = tab.dataset.tab !== 'roster';
+      document.getElementById('tabBoard').hidden = tab.dataset.tab !== 'board';
+    });
+  });
+
+  // ---- dialogs ----------------------------------------------------------
+  document.querySelectorAll('[data-close]').forEach(btn => {
+    btn.addEventListener('click', (e) => { e.preventDefault(); document.getElementById(btn.dataset.close).close(); });
+  });
+
+  // ---- roster -----------------------------------------------------------
+  function managerName(userId){
+    if (userId === ME?.id) return 'You';
+    const m = MANAGERS.find(p => p.id === userId);
+    return m ? (m.name || m.email) : '—';
+  }
+
+  function renderRoster(){
+    const body = document.getElementById('rosterBody');
+    document.getElementById('kpiTotal').textContent = ROSTER.length;
+    document.getElementById('kpiActive').textContent = ROSTER.filter(e => e.is_active).length;
+    document.getElementById('kpiLinked').textContent = ROSTER.filter(e => e.profile_id).length;
+
+    if (!ROSTER.length){
+      body.innerHTML = `<tr><td colspan="7"><div class="rv-empty">No employees yet. Add them one at a time or import a CSV.</div></td></tr>`;
+      return;
+    }
+    body.innerHTML = ROSTER.map(e => `
+      <tr class="${e.is_active ? '' : 'rv-inactive'}" data-id="${esc(e.id)}">
+        <td><div class="rv-name">${esc(e.name)}</div><div class="rv-sub">${esc(e.email)}</div></td>
+        <td>${esc(e.location || '') || '<span class="rv-muted">—</span>'}</td>
+        <td>${esc(e.job_title || '') || '<span class="rv-muted">—</span>'}</td>
+        <td>${esc(managerName(e.manager_user_id))}</td>
+        <td>${e.profile_id ? '<span class="bcn-pill bcn-pill--pos">Linked</span>' : '<span class="bcn-pill">Email only</span>'}</td>
+        <td>${e.is_active ? '<span class="bcn-status--pos" style="font-size:11px;font-weight:600">Active</span>' : '<span class="rv-muted" style="font-size:11px">Inactive</span>'}</td>
+        <td style="text-align:right;white-space:nowrap">
+          <button class="bcn-btn bcn-btn--ghost" data-act="toggle">${e.is_active ? 'Deactivate' : 'Reactivate'}</button>
+        </td>
+      </tr>`).join('');
+
+    body.querySelectorAll('[data-act="toggle"]').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const id = btn.closest('tr').dataset.id;
+        const emp = ROSTER.find(e => e.id === id);
+        const { error } = await sb.from('employees').update({ is_active: !emp.is_active }).eq('id', id);
+        if (error) return setStatus(`Update failed: ${error.message}`, 'neg');
+        await loadRoster();
+      });
+    });
+  }
+
+  async function loadRoster(){
+    const { data, error } = await sb.from('employees').select('*').order('name');
+    if (error) return setStatus(`Roster load failed: ${error.message}`, 'neg');
+    ROSTER = data || [];
+    renderRoster();
+  }
+
+  async function loadReviewCount(){
+    const { count, error } = await sb.from('reviews').select('id', { count:'exact', head:true });
+    document.getElementById('kpiReviews').textContent = error ? '—' : (count ?? 0);
+  }
+
+  // ---- add employee -----------------------------------------------------
+  document.getElementById('btnAddEmployee').addEventListener('click', () => {
+    document.getElementById('formEmployee').reset();
+    document.getElementById('dlgEmployee').showModal();
+  });
+
+  document.getElementById('formEmployee').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById('btnSaveEmployee');
+    btn.disabled = true;
+    try {
+      const row = cfg.withCompany({
+        name: document.getElementById('empName').value.trim(),
+        email: document.getElementById('empEmail').value.trim().toLowerCase(),
+        location: document.getElementById('empLocation').value.trim() || null,
+        job_title: document.getElementById('empTitle').value.trim() || null,
+        manager_user_id: IS_EXEC ? (document.getElementById('empManager').value || ME.id) : ME.id,
+      });
+      const { error } = await sb.from('employees').insert(row);
+      if (error) throw new Error(error.message);
+      document.getElementById('dlgEmployee').close();
+      setStatus('Employee added.', 'pos', 2500);
+      await loadRoster();
+    } catch (err) {
+      setStatus(`Save failed: ${err.message}`, 'neg');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // ---- CSV import ---------------------------------------------------------
+  let CSV_ROWS = [];
+
+  function parseCsv(text){
+    const rows = [];
+    let row = [], field = '', inQuotes = false;
+    for (let i = 0; i < text.length; i++){
+      const c = text[i];
+      if (inQuotes){
+        if (c === '"' && text[i+1] === '"'){ field += '"'; i++; }
+        else if (c === '"') inQuotes = false;
+        else field += c;
+      } else if (c === '"') inQuotes = true;
+      else if (c === ','){ row.push(field); field = ''; }
+      else if (c === '\n' || c === '\r'){
+        if (c === '\r' && text[i+1] === '\n') i++;
+        row.push(field); field = '';
+        if (row.some(v => v.trim() !== '')) rows.push(row);
+        row = [];
+      } else field += c;
+    }
+    row.push(field);
+    if (row.some(v => v.trim() !== '')) rows.push(row);
+    return rows;
+  }
+
+  document.getElementById('btnImportCsv').addEventListener('click', () => {
+    CSV_ROWS = [];
+    document.getElementById('csvFile').value = '';
+    document.getElementById('csvPreview').hidden = true;
+    document.getElementById('csvSummary').textContent = '';
+    document.getElementById('btnRunImport').disabled = true;
+    document.getElementById('dlgCsv').showModal();
+  });
+
+  document.getElementById('csvFile').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    const rows = parseCsv(text);
+    if (!rows.length) return setStatus('CSV is empty.', 'neg');
+
+    const header = rows[0].map(h => h.trim().toLowerCase().replace(/\s+/g, '_'));
+    const idx = {
+      name: header.indexOf('name'),
+      email: header.indexOf('email'),
+      location: header.indexOf('location'),
+      job_title: header.indexOf('job_title'),
+    };
+    if (idx.name === -1 || idx.email === -1){
+      return setStatus('CSV must have "name" and "email" columns.', 'neg');
+    }
+
+    const seen = new Set(ROSTER.map(r => r.email.toLowerCase()));
+    let skipped = 0;
+    CSV_ROWS = [];
+    for (const r of rows.slice(1)){
+      const name = (r[idx.name] || '').trim();
+      const email = (r[idx.email] || '').trim().toLowerCase();
+      if (!name || !email || !email.includes('@')) { skipped++; continue; }
+      if (seen.has(email)) { skipped++; continue; }
+      seen.add(email);
+      CSV_ROWS.push({
+        name, email,
+        location: idx.location !== -1 ? ((r[idx.location] || '').trim() || null) : null,
+        job_title: idx.job_title !== -1 ? ((r[idx.job_title] || '').trim() || null) : null,
+      });
+    }
+
+    document.getElementById('csvPreviewBody').innerHTML = CSV_ROWS.slice(0, 50).map(r => `
+      <tr><td>${esc(r.name)}</td><td>${esc(r.email)}</td><td>${esc(r.location || '—')}</td><td>${esc(r.job_title || '—')}</td></tr>`).join('');
+    document.getElementById('csvPreview').hidden = CSV_ROWS.length === 0;
+    document.getElementById('csvSummary').textContent =
+      `${CSV_ROWS.length} employee${CSV_ROWS.length === 1 ? '' : 's'} ready to import` +
+      (skipped ? ` · ${skipped} row${skipped === 1 ? '' : 's'} skipped (missing fields or duplicate email)` : '') +
+      (CSV_ROWS.length > 50 ? ' · previewing first 50' : '');
+    document.getElementById('btnRunImport').disabled = CSV_ROWS.length === 0;
+  });
+
+  document.getElementById('btnRunImport').addEventListener('click', async () => {
+    const btn = document.getElementById('btnRunImport');
+    btn.disabled = true;
+    btn.textContent = 'Importing…';
+    try {
+      const rows = cfg.withCompanyRows(CSV_ROWS.map(r => ({ ...r, manager_user_id: ME.id })));
+      const { error } = await sb.from('employees').insert(rows);
+      if (error) throw new Error(error.message);
+      document.getElementById('dlgCsv').close();
+      setStatus(`Imported ${rows.length} employee${rows.length === 1 ? '' : 's'}.`, 'pos', 3500);
+      await loadRoster();
+    } catch (err) {
+      setStatus(`Import failed: ${err.message}`, 'neg');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Import';
+    }
+  });
+
+  // ---- boot ---------------------------------------------------------------
+  async function boot(){
+    const sess = await sb.auth.getSession();
+    if (!sess?.data?.session){ window.location.href = '/pages/login.html?next=' + encodeURIComponent(location.pathname); return; }
+    const user = sess.data.session.user;
+
+    const { data: prof } = await sb.from('profiles').select('id, email, role, department').eq('id', user.id).single();
+    ME = { id: user.id, email: user.email, role: String(prof?.role || 'user').toLowerCase() };
+    IS_EXEC = ['owner', 'executive'].includes(ME.role);
+
+    if (window.SiloChrome){
+      window.SiloChrome.mount({
+        appEl:'#silo-app', active:'team/reviews',
+        user:{ email:user?.email||'', role: ME.role },
+        crumbs:['Team','Performance Reviews'],
+        supabaseClient:sb,
+      });
+    }
+
+    if (IS_EXEC){
+      // Exec/owner can assign any manager — pull the profile list via the
+      // admin RPC (role-gated server-side).
+      try {
+        const { data } = await sb.rpc('admin_list_profiles');
+        MANAGERS = (data || [])
+          .filter(p => ['owner','executive','admin'].includes(String(p.role||'').toLowerCase()))
+          .map(p => ({ id: p.id || p.user_id, name: p.name, email: p.email }));
+        const sel = document.getElementById('empManager');
+        sel.innerHTML = MANAGERS.map(m =>
+          `<option value="${esc(m.id)}" ${m.id === ME.id ? 'selected' : ''}>${esc(m.name || m.email)}</option>`).join('');
+        document.getElementById('managerFieldWrap').hidden = false;
+        document.getElementById('csvManagerNote').textContent = 'you (reassign per-employee after import if needed)';
+      } catch { /* fall back to self-managed */ }
+    }
+
+    await Promise.all([loadRoster(), loadReviewCount()]);
+  }
+
+  boot().catch(err => {
+    console.error(err);
+    setStatus(`Unexpected error: ${err?.message || err}`, 'neg');
+  });
+</script>
+</body>
+</html>
