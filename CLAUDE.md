@@ -8,7 +8,7 @@ This file is the authoritative context for AI agents working on this repo. Read 
 
 SILO is an internal operations platform for Baseballism (a baseball-themed brand). It's a static HTML/JS frontend backed by Supabase (Postgres + Auth + Storage). There is no backend server — the browser talks directly to Supabase via the JS SDK.
 
-**Team:** 7 users, all `admin` role. Owner: blake@baseballism.com.
+**Team:** 7 users — blake@baseballism.com is `owner`, the rest are `admin`.
 
 ---
 
@@ -79,7 +79,7 @@ The Supabase client is then created with these values. If they're empty the page
 ## Three page patterns — use the right one
 
 ### Pattern 1: Full Beacon shell (preferred for new tools)
-Used by: `projections.html`, `launch-calendar.html`, `profile.html`, `po-builder.html`, `po-costing.html`, `planning-scenarios.html`
+Used by: `projections.html`, `launch-calendar.html`, `profile.html`, `po-builder.html`, `po-costing.html`, `planning-scenarios.html`, `reviews.html`, `review-templates.html`, `review-editor.html`, `my-review.html`
 
 Asset load order (must follow exactly):
 ```html
@@ -206,10 +206,11 @@ if (_co?.id) query = query.eq('company_entity_id', _co.id);
 **Not yet isolated:** `inventory_on_hand`, `sales_by_day` — backfill deferred. These depend on Baseballism-specific Google Sheets / Better Reports sync pipelines. New companies need their own data pipeline before these tables can be partitioned.
 
 ### Role system
-`profiles.role` is a Postgres enum (`app_role`) with values: `owner`, `admin`, `user`.
+`profiles.role` is a Postgres enum (`app_role`) with values: `owner`, `admin`, `executive`, `user`.
 - `owner` and `admin` get write access to PO tables
+- `executive` outranks `admin`: it passes `is_admin()` and additionally gates review-template building
 - `user` is read-only on PO tables
-- All 7 current users are `admin`
+- blake@baseballism.com is `owner`; the other 6 users are `admin`
 
 **Important:** `profiles.role` is an ENUM, not TEXT. Always cast with `role::text` when comparing in SQL.
 
@@ -217,9 +218,11 @@ if (_co?.id) query = query.eq('company_entity_id', _co.id);
 ```sql
 po_builder_can_write()   -- gates write on factories, po_headers, po_lines
 po_costing_can_write()   -- gates write on po_costing, po_costing_lines
+is_exec_or_owner()       -- gates review-template writes (owner, executive)
+reviews_can_manage()     -- gates roster/review writes (owner, executive, admin)
 ```
 
-Both check `profiles` for `auth.uid()` and role in (`owner`, `admin`).
+The PO functions check `profiles` for `auth.uid()` and role in (`owner`, `admin`).
 
 ### Key tables
 
@@ -247,6 +250,14 @@ Both check `profiles` for `auth.uid()` and role in (`owner`, `admin`).
 | `products_master` | Product catalog |
 | `product_tags` | Product tagging |
 | `access_requests` | Pending team access requests |
+| `employees` | Performance-review roster (manager-scoped; auto-links `profiles` by email; associates exist ONLY here, no SILO auth) |
+| `review_templates` | Review question sets (exec-only writes; publish locks questions) |
+| `review_template_questions` | Ordered questions: free_text, scale_1_10, single_choice, multi_choice, goals |
+| `reviews` | One review per employee per cycle (draft → sent → finished; employee signature fields) |
+| `review_answers` | Manager's answers per question (jsonb value) |
+| `review_private_notes` | Manager notes — RLS author-only, not even exec/owner |
+| `employee_goals` | Goals persist on the employee across review cycles |
+| `review_access_tokens` | Hashed 30-day portal tokens — RLS deny-all, edge functions only |
 | `inventory_workboard_v` | View: inventory with sell-through metrics |
 | `sales_monthly_product_type_rollup_mv` | Materialized view: monthly sales rollup |
 | `v_po_header_summary` | View: PO list with status |
@@ -270,6 +281,15 @@ deny_access_request(p_request_id)
 ### Storage buckets
 - `payment-request-files` — private, payment request attachments
 - `launch-images` — public, launch workbench image uploads
+
+### Edge functions (performance reviews)
+Sources live in `supabase/functions/`; deploys are manual (Supabase MCP/CLI), merging a PR does NOT deploy.
+```
+review-send     -- manager sends a review: mints hashed 30-day token, status → sent, emails employee (JWT-auth)
+review-portal   -- PUBLIC (verify_jwt off): token IS the auth; get/finish/renew for associates without SILO logins
+review-finish   -- SILO-authenticated employee signs in-app from /v2/my-review.html (JWT-auth)
+```
+Emails send via Resend from `noreply@silo-baseballism.com` (`RESEND_API_KEY` edge-function secret — separate key from the auth SMTP one). Link base URL: `SILO_SITE_URL` env or hardcoded `https://silo-baseballism.com`. Without the key, sending still works — the manager gets the link to deliver manually.
 
 ### After any DB change
 Always run `supabase/verify_v2_schema.sql` in the Supabase SQL Editor. All rows must show `ok`. If anything is missing, run `supabase/apply_all_post_merge.sql` then verify again.
@@ -350,7 +370,16 @@ DB-level company isolation is live. Users in multiple companies pick a company a
 **Deferred:** `inventory_on_hand` and `sales_by_day` backfill, per-company sync pipelines, insert-side `company_entity_id` auto-stamping, company switcher in sidebar.
 
 ### Tools fully on Beacon shell (Pattern 1)
-`projections.html`, `launch-calendar.html`, `profile.html`, `po-builder.html`, `po-costing.html`, `planning-scenarios.html`, `backend.html`
+`projections.html`, `launch-calendar.html`, `profile.html`, `po-builder.html`, `po-costing.html`, `planning-scenarios.html`, `backend.html`, `reviews.html`, `review-templates.html`, `review-editor.html`, `my-review.html`
+
+### Performance Reviews module (complete as of 2026-07-14)
+End-to-end flow across five pages + three edge functions:
+1. Exec/owner builds templates (`/v2/review-templates.html`) — publish locks questions; revise via duplicate-as-draft
+2. Managers roster employees + run reviews (`/v2/reviews.html`, `/v2/review-editor.html`) — manager-scoped RLS: managers see ONLY their own roster/reviews; exec/owner see all; private notes are author-only
+3. Send emails the employee a hashed 30-day token link (Resend, `noreply@silo-baseballism.com`)
+4. SILO-authenticated employees view/sign in-app (`/v2/my-review.html`); associates (no SILO login) use the public portal (`/pages/review.html`) — the token is the entire authorization
+5. Signing marks the review finished (immutable — sent/finished reviews cannot be deleted), locks tokens on both paths, and emails the manager
+Goals persist on the employee across cycles (`employee_goals`) and surface in every review regardless of template. PDF = print stylesheet on both review views.
 
 ### Tools on tool-shell iframe (Pattern 2)
 `cashflow.html`, `wholesale.html`, `sales-verification.html`, and most finance mirrors
