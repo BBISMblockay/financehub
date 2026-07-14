@@ -177,6 +177,7 @@ supabase/
     20260713200000_performance_reviews_phase1.sql
     20260714170000_reviews_employee_template_read.sql
     20260714180000_admin_update_profile_entity_membership.sql
+    20260714190000_new_org_signup_flow.sql
   seeds/
     launch_calendar_jun_jul_2026.sql
 ```

@@ -181,6 +181,10 @@ SILO supports multiple companies in one Supabase project. Isolation is enforced 
 
 **Baseballism entity id:** `3bd934c9-4cdd-429b-9076-f8f6b45d4eb7`
 
+**Onboarding flow (two paths):**
+- **Create account** (login page signup) = founding a NEW organization: `handle_new_user` reads `org_name` from the auth metadata and provisions the `entities` row, an `owner` profile, an `owner_admin` membership, and `active_company_id` in one shot
+- **Joining an existing org** is invitation-only: an admin of that org authorizes the user (access-request approval or a backend role grant — both create the `entity_memberships` row). Backend admin RPCs are scoped to the caller's active company plus unclaimed profiles (no membership anywhere)
+
 **Active-company flow:**
 1. Login calls `resolveCompany()` → reads `entity_memberships`
 2. Single company → `set_active_company(entity_id)` RPC called automatically

@@ -408,6 +408,24 @@ select
     else 'MISSING — run 20260714180000_admin_update_profile_entity_membership.sql'
   end as admin_update_profile_entity_membership;
 
+select
+  case
+    when exists (
+        select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'handle_new_user'
+          and pg_get_functiondef(p.oid) ilike '%org_name%')
+     and exists (
+        select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'admin_list_profiles'
+          and pg_get_functiondef(p.oid) ilike '%entity_memberships%')
+     and exists (
+        select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'admin_update_profile'
+          and pg_get_functiondef(p.oid) ilike '%Cross-tenant guard%')
+    then 'ok'
+    else 'MISSING — run 20260714190000_new_org_signup_flow.sql'
+  end as new_org_signup_flow;
+
 -- 9. Quick counts (0 is fine on a fresh install)
 select
   (select count(*) from public.factories)            as factories,
