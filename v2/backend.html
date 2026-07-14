@@ -863,8 +863,25 @@
       el("invLink").value = link;
       el("invLinkBox").style.display = "";
       el("invEmail").value = "";
-      if (msg) msg.textContent = `Invite created for ${data?.email || email}.`;
+      if (msg) msg.textContent = `Invite created for ${data?.email || email} — emailing…`;
       await loadInvites();
+
+      // Email the link via the org-invite-send edge function. The invite is
+      // already live either way — on failure the admin copies the link.
+      try {
+        const { data: sendRes, error: sendErr } = await supabaseClient.functions.invoke("org-invite-send", {
+          body: { invite_id: data?.invite_id, token: data?.token }
+        });
+        if (msg) {
+          if (!sendErr && sendRes?.email_sent) {
+            msg.textContent = `Invite emailed to ${data?.email || email}. Link below if you also want to send it directly.`;
+          } else {
+            msg.textContent = `Invite created for ${data?.email || email}, but the email did not send (${sendErr?.message || "email service not configured"}) — copy the link below and send it yourself.`;
+          }
+        }
+      } catch (e) {
+        if (msg) msg.textContent = `Invite created for ${data?.email || email}, but the email did not send — copy the link below and send it yourself.`;
+      }
     }
 
     async function copyInviteLink(){
